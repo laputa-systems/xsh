@@ -1,0 +1,83 @@
+{
+  "date": "2026-06-10",
+  "command": "cargo bench --bench bench interpreter -- --sample-size 10 --warm-up-time 0.5 --measurement-time 1",
+  "notes": [
+    "Quick local Criterion baseline for optimization direction, not a final release-quality benchmark run.",
+    "Times are medians from this session on the local machine.",
+    "pre_trace_mode records the baseline before normal execution stopped collecting trace events.",
+    "post_trace_mode records the state after trace collection became opt-in.",
+    "post_trace_name_skip records the state after normal method calls also skipped trace-name formatting."
+  ],
+  "benchmarks": {
+    "parse_check_recursive_fib_20": {
+      "pre_trace_mode": "16.520 us",
+      "post_trace_mode": "16.080 us",
+      "post_trace_name_skip": "16.299 us"
+    },
+    "eval_recursive_fib_20": {
+      "pre_trace_mode": "22.534 ms",
+      "post_trace_mode": "14.152 ms",
+      "post_trace_name_skip": "14.101 ms"
+    },
+    "parse_check_loop_sum_10k": {
+      "pre_trace_mode": "11.961 us",
+      "post_trace_mode": "11.834 us",
+      "post_trace_name_skip": "11.888 us"
+    },
+    "eval_loop_sum_10k": {
+      "pre_trace_mode": "5.0374 ms",
+      "post_trace_mode": "4.9884 ms",
+      "post_trace_name_skip": "5.0266 ms"
+    },
+    "parse_check_method_dispatch_5k": {
+      "pre_trace_mode": "30.357 us",
+      "post_trace_mode": "30.315 us",
+      "post_trace_name_skip": "30.115 us"
+    },
+    "eval_method_dispatch_5k": {
+      "pre_trace_mode": "35.903 ms",
+      "post_trace_mode": "18.619 ms",
+      "post_trace_name_skip": "15.875 ms"
+    },
+    "parse_check_record_map_2k": {
+      "pre_trace_mode": "34.572 us",
+      "post_trace_mode": "34.170 us",
+      "post_trace_name_skip": "34.011 us"
+    },
+    "eval_record_map_2k": {
+      "pre_trace_mode": "13.862 ms",
+      "post_trace_mode": "8.3572 ms",
+      "post_trace_name_skip": "7.5718 ms"
+    },
+    "parse_check_result_propagation_5k": {
+      "pre_trace_mode": "26.064 us",
+      "post_trace_mode": "25.883 us",
+      "post_trace_name_skip": "25.906 us"
+    },
+    "eval_result_propagation_5k": {
+      "pre_trace_mode": "8.3692 ms",
+      "post_trace_mode": "6.3979 ms",
+      "post_trace_name_skip": "6.4515 ms"
+    },
+    "parse_check_stream_pipeline_2k": {
+      "pre_trace_mode": "599.74 us",
+      "post_trace_mode": "590.23 us",
+      "post_trace_name_skip": "594.44 us"
+    },
+    "eval_stream_pipeline_2k": {
+      "pre_trace_mode": "1.6629 ms",
+      "post_trace_mode": "1.6374 ms",
+      "post_trace_name_skip": "1.6404 ms"
+    },
+    "parse_check_mixed_glue_2k": {
+      "pre_trace_mode": "47.532 us",
+      "post_trace_mode": "47.218 us",
+      "post_trace_name_skip": "47.107 us"
+    },
+    "eval_mixed_glue_2k": {
+      "pre_trace_mode": "22.368 ms",
+      "post_trace_mode": "12.440 ms",
+      "post_trace_name_skip": "11.082 ms"
+    }
+  }
+}

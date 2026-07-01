@@ -1,0 +1,233 @@
+{
+  "examples::adapters": {
+    "ppoll": 15,
+    "read": 25,
+    "rt_sigaction": 15,
+    "total": 160,
+    "wait4": 15
+  },
+  "examples::archive": {
+    "close": 45,
+    "fcntl": 70,
+    "fstat": 25,
+    "fstatat": 40,
+    "getdents64": 40,
+    "mkdirat": 20,
+    "mmap": 15,
+    "openat": 45,
+    "read": 25,
+    "total": 390,
+    "unlinkat": 20
+  },
+  "examples::args": {
+    "total": 60
+  },
+  "examples::batch": {
+    "rt_sigaction": 15,
+    "total": 110
+  },
+  "examples::build-simple": {
+    "close": 15,
+    "rt_sigaction": 15,
+    "total": 140
+  },
+  "examples::bytes": {
+    "fcntl": 15,
+    "total": 110
+  },
+  "examples::capture-bytes": {
+    "close": 15,
+    "read": 15,
+    "rt_sigaction": 15,
+    "total": 130
+  },
+  "examples::capture-text": {
+    "read": 15,
+    "rt_sigaction": 15,
+    "total": 140
+  },
+  "examples::cd": {
+    "close": 25,
+    "fcntl": 15,
+    "mmap": 15,
+    "ppoll": 20,
+    "read": 35,
+    "rt_sigaction": 20,
+    "rt_sigprocmask": 25,
+    "total": 270,
+    "wait4": 25
+  },
+  "examples::control": {
+    "total": 60
+  },
+  "examples::diff-patch": {
+    "close": 20,
+    "fcntl": 20,
+    "openat": 20,
+    "read": 15,
+    "total": 150
+  },
+  "examples::dns-net": {
+    "total": 80
+  },
+  "examples::effects": {
+    "total": 60
+  },
+  "examples::env": {
+    "close": 20,
+    "read": 20,
+    "rt_sigaction": 15,
+    "rt_sigprocmask": 20,
+    "total": 180
+  },
+  "examples::extension-count": {
+    "close": 85,
+    "fcntl": 80,
+    "fstatat": 545,
+    "getdents64": 160,
+    "mmap": 35,
+    "munmap": 30,
+    "openat": 85,
+    "total": 1060
+  },
+  "examples::foundations": {
+    "close": 15,
+    "read": 20,
+    "rt_sigaction": 15,
+    "total": 150
+  },
+  "examples::guard": {
+    "total": 60
+  },
+  "examples::hash-tree": {
+    "close": 15,
+    "fcntl": 15,
+    "openat": 15,
+    "total": 120
+  },
+  "examples::hello": {
+    "total": 60
+  },
+  "examples::idiom-any-all": {
+    "total": 60
+  },
+  "examples::idiom-building-maps": {
+    "total": 60
+  },
+  "examples::idiom-cache": {
+    "total": 60
+  },
+  "examples::idiom-dry-run": {
+    "total": 60
+  },
+  "examples::idiom-enumerate": {
+    "total": 60
+  },
+  "examples::idiom-flat-map": {
+    "total": 60
+  },
+  "examples::idiom-gitroot": {
+    "total": 60
+  },
+  "examples::idiom-install-files": {
+    "close": 15,
+    "fcntl": 15,
+    "openat": 15,
+    "total": 130
+  },
+  "examples::idiom-list-comprehension": {
+    "total": 60
+  },
+  "examples::idiom-match-result-loop": {
+    "total": 60
+  },
+  "examples::idiom-reading-data": {
+    "total": 60
+  },
+  "examples::idiom-sort-by-desc": {
+    "total": 60
+  },
+  "examples::idiom-subcommand-dispatch": {
+    "total": 60
+  },
+  "examples::idiom-temp-dir": {
+    "total": 90
+  },
+  "examples::idiom-typed-cli": {
+    "total": 60
+  },
+  "examples::json": {
+    "close": 15,
+    "rt_sigaction": 15,
+    "total": 130
+  },
+  "examples::loop": {
+    "total": 60
+  },
+  "examples::processes": {
+    "close": 25,
+    "fcntl": 25,
+    "fstatat": 20,
+    "mmap": 20,
+    "openat": 20,
+    "read": 45,
+    "rt_sigaction": 15,
+    "total": 230
+  },
+  "examples::result": {
+    "total": 60
+  },
+  "examples::run": {
+    "rt_sigaction": 15,
+    "total": 110
+  },
+  "examples::seed-options": {
+    "total": 80
+  },
+  "examples::status": {
+    "rt_sigaction": 15,
+    "total": 110
+  },
+  "examples::streams": {
+    "close": 15,
+    "fcntl": 15,
+    "mmap": 15,
+    "openat": 15,
+    "rt_sigprocmask": 20,
+    "total": 180
+  },
+  "examples::table": {
+    "close": 20,
+    "fcntl": 20,
+    "mmap": 15,
+    "openat": 20,
+    "read": 40,
+    "total": 180
+  },
+  "examples::tags": {
+    "total": 60
+  },
+  "examples::tee": {
+    "total": 110
+  },
+  "examples::text": {
+    "total": 60
+  },
+  "examples::trace": {
+    "ppoll": 15,
+    "read": 20,
+    "rt_sigaction": 15,
+    "total": 150,
+    "wait4": 15
+  },
+  "examples::trace-error": {
+    "rt_sigaction": 15,
+    "total": 110
+  },
+  "examples::types": {
+    "total": 60
+  },
+  "examples::values": {
+    "total": 60
+  }
+}

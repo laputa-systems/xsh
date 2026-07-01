@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Chapter 7: JSON And Data Boundaries</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="site-header"><a href="index.html">XSH Docs</a><span>docs/CHAPTER-07-json-data.md</span></header>
+<div class="docs-shell">
+<aside class="page-toc" aria-label="Page contents">
+<h2>On This Page</h2>
+<ol>
+<li><a href="#write-and-read-a-checked-json-file">Write And Read A Checked JSON File</a></li>
+<li><a href="#treat-network-failures-as-data">Treat Network Failures As Data</a></li>
+<li><a href="#what-you-know-now">What You Know Now</a></li>
+</ol>
+</aside>
+<main class="markdown-body">
+<nav class="chapter-nav" aria-label="Chapter navigation">
+<a rel="prev" href="CHAPTER-06-text-bytes-hash.html"><span>Previous</span>Chapter 6: Text, Bytes, And Hashes</a>
+<a rel="next" href="CHAPTER-08-structured-streams.html"><span>Next</span>Chapter 8: Structured Streams</a>
+</nav>
+<h1>Chapter 7: JSON And Data Boundaries</h1>
+<p>JSON, DNS, and HTTP connect a script to files, services, and the network. Those
+are trust boundaries. XSH code should keep data structured while it is being
+computed, then cross those boundaries deliberately.</p>
+<p>By the end of this chapter, you will have a small metadata workflow: write a
+record to JSON, read it back, check the shape before trusting it, write
+JSON-lines events, and handle a network error as data.</p>
+<h2 id="write-and-read-a-checked-json-file">Write And Read A Checked JSON File</h2>
+<p>Records, maps, lists, strings, booleans, integers, finite floats, and encoded
+bytes can be written to JSON. Values read from JSON are dynamic until they
+cross a schema check boundary such as <code>.require(Type)?</code>.</p>
+<pre><code class="language-xsh"><span class="tok-keyword">type</span> <span class="tok-type">Metadata</span> <span class="tok-operator">=</span> <span class="tok-punctuation">{</span><span class="tok-ident">name</span><span class="tok-punctuation">:</span> <span class="tok-type">Str</span><span class="tok-punctuation">,</span> <span class="tok-ident">root</span><span class="tok-punctuation">:</span> <span class="tok-type">Str</span><span class="tok-punctuation">,</span> <span class="tok-ident">digest</span><span class="tok-punctuation">:</span> <span class="tok-type">Str</span><span class="tok-punctuation">,</span> <span class="tok-ident">ok</span><span class="tok-punctuation">:</span> <span class="tok-type">Bool</span><span class="tok-punctuation">,</span> <span class="tok-ident">error</span><span class="tok-punctuation">:</span> <span class="tok-type">Str</span><span class="tok-punctuation">}</span>
+
+<span class="tok-keyword">type</span> <span class="tok-type">Event</span> <span class="tok-operator">=</span> <span class="tok-punctuation">{</span><span class="tok-ident">service</span><span class="tok-punctuation">:</span> <span class="tok-type">Str</span><span class="tok-punctuation">,</span> <span class="tok-ident">event</span><span class="tok-punctuation">:</span> <span class="tok-type">Str</span><span class="tok-punctuation">}</span>
+
+<span class="tok-keyword">let</span> <span class="tok-ident">root_handle</span> <span class="tok-operator">=</span> <span class="tok-ident">fs</span><span class="tok-punctuation">.</span><span class="tok-ident">tempdir</span><span class="tok-punctuation">(</span><span class="tok-punctuation">)</span><span class="tok-operator">?</span>
+<span class="tok-keyword">defer</span> <span class="tok-ident">fs</span><span class="tok-punctuation">.</span><span class="tok-ident">close_root</span><span class="tok-punctuation">(</span><span class="tok-ident">root_handle</span><span class="tok-punctuation">)</span><span class="tok-operator">?</span>
+<span class="tok-keyword">let</span> <span class="tok-ident">root</span> <span class="tok-operator">=</span> <span class="tok-ident">fs</span><span class="tok-punctuation">.</span><span class="tok-ident">root_path</span><span class="tok-punctuation">(</span><span class="tok-ident">root_handle</span><span class="tok-punctuation">)</span><span class="tok-operator">?</span>
+<span class="tok-keyword">let</span> <span class="tok-ident">out</span> <span class="tok-operator">=</span> <span class="tok-string">fp&quot;${root}/metadata.json&quot;</span>
+<span class="tok-keyword">let</span> <span class="tok-ident">lines</span> <span class="tok-operator">=</span> <span class="tok-string">fp&quot;${root}/events.jsonl&quot;</span>
+<span class="tok-keyword">let</span> <span class="tok-ident">status</span> <span class="tok-operator">=</span> <span class="tok-keyword">run</span><span class="tok-punctuation">.</span><span class="tok-ident">status</span> <span class="tok-literal">false</span>
+<span class="tok-keyword">let</span> <span class="tok-ident">error_message</span> <span class="tok-operator">=</span> <span class="tok-string">&quot;shown&quot;</span>
+<span class="tok-keyword">let</span> <span class="tok-ident">metadata</span> <span class="tok-operator">=</span> <span class="tok-punctuation">{</span><span class="tok-ident">name</span><span class="tok-punctuation">:</span> <span class="tok-string">&quot;demo&quot;</span><span class="tok-punctuation">,</span> <span class="tok-ident">root</span><span class="tok-punctuation">:</span> <span class="tok-string">p&quot;src&quot;</span><span class="tok-punctuation">.</span><span class="tok-ident">display</span><span class="tok-punctuation">(</span><span class="tok-punctuation">)</span><span class="tok-punctuation">,</span> <span class="tok-ident">digest</span><span class="tok-punctuation">:</span> <span class="tok-literal">b&quot;abc&quot;</span><span class="tok-punctuation">.</span><span class="tok-ident">base64</span><span class="tok-punctuation">(</span><span class="tok-punctuation">)</span><span class="tok-punctuation">,</span> <span class="tok-ident">ok</span><span class="tok-punctuation">:</span> <span class="tok-ident">status</span><span class="tok-punctuation">.</span><span class="tok-ident">ok</span><span class="tok-punctuation">,</span> <span class="tok-ident">error</span><span class="tok-punctuation">:</span> <span class="tok-ident">error_message</span><span class="tok-punctuation">}</span>
+<span class="tok-ident">json</span><span class="tok-punctuation">.</span><span class="tok-ident">write</span><span class="tok-punctuation">(</span><span class="tok-ident">out</span><span class="tok-punctuation">,</span> <span class="tok-ident">metadata</span><span class="tok-punctuation">,</span> <span class="tok-ident">pretty</span><span class="tok-punctuation">:</span> <span class="tok-literal">true</span><span class="tok-punctuation">)</span><span class="tok-operator">?</span>
+<span class="tok-keyword">let</span> <span class="tok-ident">decoded</span> <span class="tok-operator">=</span> <span class="tok-ident">json</span><span class="tok-punctuation">.</span><span class="tok-ident">read</span><span class="tok-punctuation">(</span><span class="tok-ident">out</span><span class="tok-punctuation">)</span><span class="tok-operator">?</span><span class="tok-punctuation">.</span><span class="tok-ident">require</span><span class="tok-punctuation">(</span><span class="tok-type">Metadata</span><span class="tok-punctuation">)</span><span class="tok-operator">?</span>
+<span class="tok-keyword">let</span> <span class="tok-ident">events</span> <span class="tok-operator">=</span> <span class="tok-punctuation">[</span><span class="tok-punctuation">{</span><span class="tok-ident">service</span><span class="tok-punctuation">:</span> <span class="tok-ident">decoded</span><span class="tok-punctuation">.</span><span class="tok-ident">name</span><span class="tok-punctuation">,</span> <span class="tok-ident">event</span><span class="tok-punctuation">:</span> <span class="tok-string">&quot;start&quot;</span><span class="tok-punctuation">}</span><span class="tok-punctuation">,</span> <span class="tok-punctuation">{</span><span class="tok-ident">service</span><span class="tok-punctuation">:</span> <span class="tok-ident">decoded</span><span class="tok-punctuation">.</span><span class="tok-ident">name</span><span class="tok-punctuation">,</span> <span class="tok-ident">event</span><span class="tok-punctuation">:</span> <span class="tok-string">&quot;stop&quot;</span><span class="tok-punctuation">}</span><span class="tok-punctuation">]</span>
+<span class="tok-ident">json</span><span class="tok-punctuation">.</span><span class="tok-ident">write_lines</span><span class="tok-punctuation">(</span><span class="tok-ident">lines</span><span class="tok-punctuation">,</span> <span class="tok-ident">events</span><span class="tok-punctuation">)</span><span class="tok-operator">?</span>
+<span class="tok-keyword">let</span> <span class="tok-ident">decoded_events</span> <span class="tok-operator">=</span> <span class="tok-ident">lines</span><span class="tok-punctuation">.</span><span class="tok-ident">read_text</span><span class="tok-punctuation">(</span><span class="tok-punctuation">)</span><span class="tok-operator">?</span> <span class="tok-operator">|&gt;</span> <span class="tok-ident">json</span><span class="tok-punctuation">.</span><span class="tok-ident">lines</span>
+<span class="tok-keyword">let</span> <span class="tok-ident">first</span> <span class="tok-operator">=</span> <span class="tok-ident">decoded_events</span><span class="tok-punctuation">[</span><span class="tok-literal">0</span><span class="tok-punctuation">]</span><span class="tok-punctuation">.</span><span class="tok-ident">require</span><span class="tok-punctuation">(</span><span class="tok-type">Event</span><span class="tok-punctuation">)</span><span class="tok-operator">?</span>
+<span class="tok-ident">print</span> <span class="tok-ident">$decoded</span><span class="tok-punctuation">.</span><span class="tok-ident">name</span> <span class="tok-ident">$decoded</span><span class="tok-punctuation">.</span><span class="tok-ident">root</span> <span class="tok-ident">$decoded</span><span class="tok-punctuation">.</span><span class="tok-ident">digest</span> <span class="tok-ident">$decoded</span><span class="tok-punctuation">.</span><span class="tok-ident">ok</span> <span class="tok-ident">$decoded</span><span class="tok-punctuation">.</span><span class="tok-ident">error</span>
+<span class="tok-ident">print</span> <span class="tok-ident">$first</span><span class="tok-punctuation">.</span><span class="tok-ident">service</span> <span class="tok-ident">decoded_events</span><span class="tok-punctuation">.</span><span class="tok-ident">len</span><span class="tok-punctuation">(</span><span class="tok-punctuation">)</span>
+</code></pre>
+<p>The script builds a metadata record, writes it to a temporary file, reads it
+back, checks it against <code>Metadata</code>, writes event records as JSON lines, and
+checks the first event against <code>Event</code>.</p>
+<p>Why XSH shines here: JSON is a boundary format, not the internal language of
+the script. The script keeps typed values until <code>json.write</code>, validates data
+from <code>json.read</code> with <code>.require(Type)?</code>, and uses JSON-lines helpers only where
+line-oriented data is actually useful.</p>
+<p>Compared with bash and CLI tools: <code>jq</code> is excellent for exploring JSON at a
+terminal. XSH is better when parsed JSON feeds filesystem work, process
+decisions, typed records, retries, or tests in the same script.</p>
+<p>Common trap: do not trust JSON fields just because the file was valid JSON.
+Valid JSON means the syntax parsed. <code>.require(Type)?</code> is the point where the
+script says which shape it needs.</p>
+<p>Do not add a schema type for every throwaway JSON value. Add one where the data
+crosses a trust boundary or where later code depends on fields having a stable
+shape.</p>
+<p>For tools that intentionally operate on unknown JSON shapes, use type patterns
+inside <code>match</code>:</p>
+<pre><code class="language-xsh"><span class="tok-keyword">match</span> <span class="tok-ident">value</span> <span class="tok-punctuation">{</span>
+  <span class="tok-ident">i</span> <span class="tok-ident">is</span> <span class="tok-type">Int</span> <span class="tok-operator">=&gt;</span> <span class="tok-ident">print</span> <span class="tok-punctuation">${</span><span class="tok-ident">i</span><span class="tok-punctuation">.</span><span class="tok-ident">float</span><span class="tok-punctuation">(</span><span class="tok-punctuation">)</span><span class="tok-punctuation">}</span>
+  <span class="tok-ident">f</span> <span class="tok-ident">is</span> <span class="tok-type">Float</span> <span class="tok-operator">=&gt;</span> <span class="tok-ident">print</span> <span class="tok-punctuation">${</span><span class="tok-ident">f</span><span class="tok-punctuation">}</span>
+  <span class="tok-ident">s</span> <span class="tok-ident">is</span> <span class="tok-type">Str</span> <span class="tok-operator">=&gt;</span> <span class="tok-ident">print</span> <span class="tok-punctuation">${</span><span class="tok-ident">s</span><span class="tok-punctuation">}</span>
+  <span class="tok-ident">_</span> <span class="tok-ident">is</span> <span class="tok-type">Null</span> <span class="tok-operator">=&gt;</span> <span class="tok-ident">print</span> <span class="tok-string">&quot;null&quot;</span>
+  <span class="tok-ident">_</span> <span class="tok-operator">=&gt;</span> <span class="tok-ident">print</span> <span class="tok-string">&quot;container&quot;</span>
+<span class="tok-punctuation">}</span>
+</code></pre>
+<p>That is the dynamic-data escape hatch. It tests and narrows a value of type
+<code>Any</code>. For ordinary application data, prefer <code>.require(Type)?</code>.</p>
+<h2 id="treat-network-failures-as-data">Treat Network Failures As Data</h2>
+<p>Network checks should keep lookup data, pool configuration, request records,
+and errors separate. This example resolves <code>localhost</code>, creates a named HTTP
+pool, and handles an intentionally unsupported URL scheme as data.</p>
+<pre><code class="language-xsh"><span class="tok-keyword">let</span> <span class="tok-ident">hosts</span> <span class="tok-operator">=</span> <span class="tok-ident">dns</span><span class="tok-punctuation">.</span><span class="tok-ident">resolve_host</span><span class="tok-punctuation">(</span><span class="tok-string">&quot;localhost&quot;</span><span class="tok-punctuation">)</span><span class="tok-operator">?</span>
+<span class="tok-keyword">let</span> <span class="tok-ident">pool</span> <span class="tok-operator">=</span> <span class="tok-ident">net</span><span class="tok-punctuation">.</span><span class="tok-ident">pool</span><span class="tok-punctuation">(</span><span class="tok-string">&quot;docs&quot;</span><span class="tok-punctuation">,</span> <span class="tok-literal">2</span><span class="tok-punctuation">,</span> <span class="tok-literal">5s</span><span class="tok-punctuation">)</span><span class="tok-operator">?</span>
+<span class="tok-keyword">let</span> <span class="tok-ident">refused</span> <span class="tok-operator">=</span> <span class="tok-ident">net</span><span class="tok-punctuation">.</span><span class="tok-ident">request</span><span class="tok-punctuation">(</span><span class="tok-punctuation">{</span><span class="tok-ident">method</span><span class="tok-punctuation">:</span> <span class="tok-string">&quot;GET&quot;</span><span class="tok-punctuation">,</span> <span class="tok-ident">url</span><span class="tok-punctuation">:</span> <span class="tok-string">&quot;ftp://example.invalid/file&quot;</span><span class="tok-punctuation">,</span> <span class="tok-ident">pool</span><span class="tok-punctuation">:</span> <span class="tok-string">&quot;docs&quot;</span><span class="tok-punctuation">}</span><span class="tok-punctuation">)</span>
+
+<span class="tok-keyword">match</span> <span class="tok-ident">refused</span> <span class="tok-punctuation">{</span>
+  <span class="tok-type">Err</span><span class="tok-punctuation">(</span><span class="tok-ident">error</span><span class="tok-punctuation">)</span> <span class="tok-operator">=&gt;</span> <span class="tok-ident">print</span> <span class="tok-punctuation">(</span><span class="tok-ident">hosts</span><span class="tok-punctuation">.</span><span class="tok-ident">len</span><span class="tok-punctuation">(</span><span class="tok-punctuation">)</span> <span class="tok-operator">&gt;</span> <span class="tok-literal">0</span><span class="tok-punctuation">)</span> <span class="tok-ident">$pool</span><span class="tok-punctuation">.</span><span class="tok-ident">name</span> <span class="tok-ident">$pool</span><span class="tok-punctuation">.</span><span class="tok-ident">max_idle_per_host</span> <span class="tok-ident">$error</span><span class="tok-punctuation">.</span><span class="tok-ident">message</span>
+<span class="tok-punctuation">}</span>
+
+<span class="tok-keyword">let</span> <span class="tok-ident">_closed</span> <span class="tok-operator">=</span> <span class="tok-ident">net</span><span class="tok-punctuation">.</span><span class="tok-ident">close_pool</span><span class="tok-punctuation">(</span><span class="tok-string">&quot;docs&quot;</span><span class="tok-punctuation">)</span><span class="tok-operator">?</span>
+</code></pre>
+<p>Why XSH shines here: DNS answers and network responses are records, and
+expected failures such as <code>net-scheme</code> remain inspectable <code>Err</code> values.</p>
+<p>Do not hide network errors behind a boolean unless the caller truly only needs
+yes or no. Keep the error value when the next step should distinguish DNS,
+scheme, timeout, or response failures.</p>
+<h2 id="what-you-know-now">What You Know Now</h2>
+<p>At a data boundary, make the conversion visible. Use JSON for persistence or
+interchange, <code>.require(Type)?</code> before trusting dynamic data, and <code>match</code> when an
+expected network failure should guide the next step instead of aborting the
+script.</p>
+<nav class="chapter-nav" aria-label="Chapter navigation">
+<a rel="prev" href="CHAPTER-06-text-bytes-hash.html"><span>Previous</span>Chapter 6: Text, Bytes, And Hashes</a>
+<a rel="next" href="CHAPTER-08-structured-streams.html"><span>Next</span>Chapter 8: Structured Streams</a>
+</nav>
+</main>
+</div>
+</body>
+</html>

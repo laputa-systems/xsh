@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>time</title>
+<link rel="stylesheet" href="../../style.css">
+</head>
+<body>
+<header class="site-header"><a href="../../index.html">XSH Docs</a><span>docs/STDLIB.md#time</span></header>
+<main class="markdown-body stdlib-body">
+<p><a href="../index.html">Standard Library</a> / Modules</p>
+<h1>time</h1>
+<p class="stdlib-lede">Clock, sleep, command measurement, and Jiff strtime formatting.</p>
+<section class="stdlib-entry" id="module.time.duration_compact.0">
+<header><code>time.duration_compact(seconds: Int) -&gt; Str</code><div><span class="stdlib-badge pure">pure</span></div></header>
+<p>Clock, sleep, command measurement, and Jiff strtime formatting `duration_compact` operation.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>seconds</code></td><td><code>Int</code></td><td>required</td><td>Required `seconds` argument.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `Str`.</p>
+</section>
+<section class="stdlib-entry" id="module.time.format.0">
+<header><code>time.format(epoch_ms: Int, format: Str, utc: Bool = default) -&gt; Result[Str, Error]</code><div><span class="stdlib-badge effect">effect</span></div></header>
+<p>Clock, sleep, command measurement, and Jiff strtime formatting `format` operation.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>epoch_ms</code></td><td><code>Int</code></td><td>required</td><td>Required `epoch_ms` argument.</td></tr>
+<tr><td><code>format</code></td><td><code>Str</code></td><td>required</td><td>Required `format` argument.</td></tr>
+<tr><td><code>utc</code></td><td><code>Bool</code></td><td>optional</td><td>Optional `utc` argument; omitted calls use the runtime default.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `Str` or `Error` failure data.</p>
+</section>
+<section class="stdlib-entry" id="module.time.measure.0">
+<header><code>time.measure(command: Command, quiet: Bool = default) -&gt; Result[{duration_ms: Int, status: Status, system_ns: Int, user_ns: Int, wall_ns: Int}, Error]</code><div><span class="stdlib-badge effect">effect</span></div></header>
+<p>Clock, sleep, command measurement, and Jiff strtime formatting `measure` operation.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>command</code></td><td><code>Command</code></td><td>required</td><td>Required `command` argument.</td></tr>
+<tr><td><code>quiet</code></td><td><code>Bool</code></td><td>optional</td><td>Optional `quiet` argument; omitted calls use the runtime default.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `{duration_ms: Int, status: Status, system_ns: Int, user_ns: Int, wall_ns: Int}` or `Error` failure data.</p>
+</section>
+<section class="stdlib-entry" id="module.time.millis.0">
+<header><code>time.millis(ms: Int) -&gt; Duration</code><div><span class="stdlib-badge pure">pure</span></div></header>
+<p>Clock, sleep, command measurement, and Jiff strtime formatting `millis` operation.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>ms</code></td><td><code>Int</code></td><td>required</td><td>Required `ms` argument.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `Duration`.</p>
+</section>
+<section class="stdlib-entry" id="module.time.now.0">
+<header><code>time.now() -&gt; Int</code><div><span class="stdlib-badge effect">effect</span></div></header>
+<p>Clock, sleep, command measurement, and Jiff strtime formatting `now` operation.</p>
+
+<p class="stdlib-return">Returns `Int`.</p>
+</section>
+<section class="stdlib-entry" id="module.time.seconds.0">
+<header><code>time.seconds(seconds: Int) -&gt; Duration</code><div><span class="stdlib-badge pure">pure</span></div></header>
+<p>Clock, sleep, command measurement, and Jiff strtime formatting `seconds` operation.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>seconds</code></td><td><code>Int</code></td><td>required</td><td>Required `seconds` argument.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `Duration`.</p>
+</section>
+<section class="stdlib-entry" id="module.time.sleep.0">
+<header><code>time.sleep(duration: Duration) -&gt; Result[Unit, Error]</code><div><span class="stdlib-badge effect">effect</span><span class="stdlib-badge command">command</span></div></header>
+<p>Clock, sleep, command measurement, and Jiff strtime formatting `sleep` operation.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>duration</code></td><td><code>Duration</code></td><td>required</td><td>Required `duration` argument.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `Unit` or `Error` failure data.</p>
+</section>
+</main>
+</body>
+</html>

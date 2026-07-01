@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>unix</title>
+<link rel="stylesheet" href="../../style.css">
+</head>
+<body>
+<header class="site-header"><a href="../../index.html">XSH Docs</a><span>docs/STDLIB.md#unix</span></header>
+<main class="markdown-body stdlib-body">
+<p><a href="../index.html">Standard Library</a> / Modules</p>
+<h1>unix</h1>
+<p class="stdlib-lede">Unix process-group, PID 1, hostname, uptime, exec, and reaping helpers.</p>
+<section class="stdlib-entry" id="module.unix.exec.0">
+<header><code>unix.exec(command: Command) -&gt; Result[Unit, Error]</code><div><span class="stdlib-badge effect">effect</span><span class="stdlib-badge command">command</span></div></header>
+<p>Unix process-group, PID 1, hostname, uptime, exec, and reaping helpers `exec` operation.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>command</code></td><td><code>Command</code></td><td>required</td><td>Required `command` argument.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `Unit` or `Error` failure data.</p>
+</section>
+<section class="stdlib-entry" id="module.unix.id.0">
+<header><code>unix.id() -&gt; Result[{egid: Int, euid: Int, gid: Int, groups: List[{gid: Int, name: Str}], uid: Int}, Error]</code><div><span class="stdlib-badge effect">effect</span></div></header>
+<p>Unix process-group, PID 1, hostname, uptime, exec, and reaping helpers `id` operation.</p>
+
+<p class="stdlib-return">Returns `{egid: Int, euid: Int, gid: Int, groups: List[{gid: Int, name: Str}], uid: Int}` or `Error` failure data.</p>
+</section>
+<section class="stdlib-entry" id="module.unix.kill_all.0">
+<header><code>unix.kill_all(name: Str, signal: Str = default) -&gt; Result[{matched: Int, signaled: Int}, Error]</code><div><span class="stdlib-badge effect">effect</span></div></header>
+<p>Unix process-group, PID 1, hostname, uptime, exec, and reaping helpers `kill_all` operation.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>name</code></td><td><code>Str</code></td><td>required</td><td>Required `name` argument.</td></tr>
+<tr><td><code>signal</code></td><td><code>Str</code></td><td>optional</td><td>Optional `signal` argument; omitted calls use the runtime default.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `{matched: Int, signaled: Int}` or `Error` failure data.</p>
+</section>
+<section class="stdlib-entry" id="module.unix.kill_process_group.0">
+<header><code>unix.kill_process_group(pid: Int, signal: Str) -&gt; Result[Unit, Error]</code><div><span class="stdlib-badge effect">effect</span><span class="stdlib-badge command">command</span></div></header>
+<p>Unix process-group, PID 1, hostname, uptime, exec, and reaping helpers `kill_process_group` operation.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>pid</code></td><td><code>Int</code></td><td>required</td><td>Required `pid` argument.</td></tr>
+<tr><td><code>signal</code></td><td><code>Str</code></td><td>required</td><td>Required `signal` argument.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `Unit` or `Error` failure data.</p>
+</section>
+<section class="stdlib-entry" id="module.unix.notify_close.0">
+<header><code>unix.notify_close(fd: Int) -&gt; Result[Unit, Error]</code><div><span class="stdlib-badge effect">effect</span><span class="stdlib-badge command">command</span></div></header>
+<p>Unix process-group, PID 1, hostname, uptime, exec, and reaping helpers `notify_close` operation.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>fd</code></td><td><code>Int</code></td><td>required</td><td>Required `fd` argument.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `Unit` or `Error` failure data.</p>
+</section>
+<section class="stdlib-entry" id="module.unix.notify_ready.0">
+<header><code>unix.notify_ready(fd: Int) -&gt; Result[Bool, Error]</code><div><span class="stdlib-badge effect">effect</span></div></header>
+<p>Unix process-group, PID 1, hostname, uptime, exec, and reaping helpers `notify_ready` operation.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>fd</code></td><td><code>Int</code></td><td>required</td><td>Required `fd` argument.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `Bool` or `Error` failure data.</p>
+</section>
+<section class="stdlib-entry" id="module.unix.pid1_setup.0">
+<header><code>unix.pid1_setup(signals: List[Str], subreaper: Bool = default, allow_non_pid1: Bool = default) -&gt; Result[Unit, Error]</code><div><span class="stdlib-badge effect">effect</span><span class="stdlib-badge command">command</span></div></header>
+<p>Unix process-group, PID 1, hostname, uptime, exec, and reaping helpers `pid1_setup` operation.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>signals</code></td><td><code>List[Str]</code></td><td>required</td><td>Required `signals` argument.</td></tr>
+<tr><td><code>subreaper</code></td><td><code>Bool</code></td><td>optional</td><td>Optional `subreaper` argument; omitted calls use the runtime default.</td></tr>
+<tr><td><code>allow_non_pid1</code></td><td><code>Bool</code></td><td>optional</td><td>Optional `allow_non_pid1` argument; omitted calls use the runtime default.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `Unit` or `Error` failure data.</p>
+</section>
+<section class="stdlib-entry" id="module.unix.reap_child_events.0">
+<header><code>unix.reap_child_events() -&gt; Result[List[{pid: Int, status: Status}], Error]</code><div><span class="stdlib-badge effect">effect</span></div></header>
+<p>Unix process-group, PID 1, hostname, uptime, exec, and reaping helpers `reap_child_events` operation.</p>
+
+<p class="stdlib-return">Returns `List[{pid: Int, status: Status}]` or `Error` failure data.</p>
+</section>
+<section class="stdlib-entry" id="module.unix.set_hostname.0">
+<header><code>unix.set_hostname(hostname: Str) -&gt; Result[Unit, Error]</code><div><span class="stdlib-badge effect">effect</span><span class="stdlib-badge command">command</span></div></header>
+<p>Unix process-group, PID 1, hostname, uptime, exec, and reaping helpers `set_hostname` operation.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>hostname</code></td><td><code>Str</code></td><td>required</td><td>Required `hostname` argument.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `Unit` or `Error` failure data.</p>
+</section>
+<section class="stdlib-entry" id="module.unix.set_tty_attrs.0">
+<header><code>unix.set_tty_attrs(attrs: Record, fd: Int = default) -&gt; Result[Unit, Error]</code><div><span class="stdlib-badge effect">effect</span></div></header>
+<p>Unix process-group, PID 1, hostname, uptime, exec, and reaping helpers `set_tty_attrs` operation.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>attrs</code></td><td><code>Record</code></td><td>required</td><td>Required `attrs` argument.</td></tr>
+<tr><td><code>fd</code></td><td><code>Int</code></td><td>optional</td><td>Optional `fd` argument; omitted calls use the runtime default.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `Unit` or `Error` failure data.</p>
+</section>
+<section class="stdlib-entry" id="module.unix.shutdown_process_groups.0">
+<header><code>unix.shutdown_process_groups(groups: List[Int], term_timeout: Duration, kill_timeout: Duration = default) -&gt; Result[{kill_sent: Int, reaped: List[{pid: Int, status: Status}], remaining: List[Int], term_sent: Int}, Error]</code><div><span class="stdlib-badge effect">effect</span></div></header>
+<p>Unix process-group, PID 1, hostname, uptime, exec, and reaping helpers `shutdown_process_groups` operation.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>groups</code></td><td><code>List[Int]</code></td><td>required</td><td>Required `groups` argument.</td></tr>
+<tr><td><code>term_timeout</code></td><td><code>Duration</code></td><td>required</td><td>Required `term_timeout` argument.</td></tr>
+<tr><td><code>kill_timeout</code></td><td><code>Duration</code></td><td>optional</td><td>Optional `kill_timeout` argument; omitted calls use the runtime default.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `{kill_sent: Int, reaped: List[{pid: Int, status: Status}], remaining: List[Int], term_sent: Int}` or `Error` failure data.</p>
+</section>
+<section class="stdlib-entry" id="module.unix.spawn_logged_process_group.0">
+<header><code>unix.spawn_logged_process_group(command: Command, logger: Command) -&gt; Result[{argv: List[Str], command: Str, detach: Bool, ignore_hup: Bool, log_pid: Int, new_session: Bool, pid: Int}, Error]</code><div><span class="stdlib-badge effect">effect</span></div></header>
+<p>Unix process-group, PID 1, hostname, uptime, exec, and reaping helpers `spawn_logged_process_group` operation.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>command</code></td><td><code>Command</code></td><td>required</td><td>Required `command` argument.</td></tr>
+<tr><td><code>logger</code></td><td><code>Command</code></td><td>required</td><td>Required `logger` argument.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `{argv: List[Str], command: Str, detach: Bool, ignore_hup: Bool, log_pid: Int, new_session: Bool, pid: Int}` or `Error` failure data.</p>
+</section>
+<section class="stdlib-entry" id="module.unix.spawn_process_group.0">
+<header><code>unix.spawn_process_group(command: Command, notify: Bool = default) -&gt; Result[{argv: List[Str], command: Str, detach: Bool, ignore_hup: Bool, new_session: Bool, notify_fd: Int, pid: Int}, Error]</code><div><span class="stdlib-badge effect">effect</span></div></header>
+<p>Unix process-group, PID 1, hostname, uptime, exec, and reaping helpers `spawn_process_group` operation.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>command</code></td><td><code>Command</code></td><td>required</td><td>Required `command` argument.</td></tr>
+<tr><td><code>notify</code></td><td><code>Bool</code></td><td>optional</td><td>Optional `notify` argument; omitted calls use the runtime default.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `{argv: List[Str], command: Str, detach: Bool, ignore_hup: Bool, new_session: Bool, notify_fd: Int, pid: Int}` or `Error` failure data.</p>
+</section>
+<section class="stdlib-entry" id="module.unix.spawn_process_group_log.0">
+<header><code>unix.spawn_process_group_log(command: Command, log: Path, notify: Bool = default) -&gt; Result[{argv: List[Str], command: Str, detach: Bool, ignore_hup: Bool, new_session: Bool, notify_fd: Int, pid: Int}, Error]</code><div><span class="stdlib-badge effect">effect</span></div></header>
+<p>Unix process-group, PID 1, hostname, uptime, exec, and reaping helpers `spawn_process_group_log` operation.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>command</code></td><td><code>Command</code></td><td>required</td><td>Required `command` argument.</td></tr>
+<tr><td><code>log</code></td><td><code>Path</code></td><td>required</td><td>Required `log` argument.</td></tr>
+<tr><td><code>notify</code></td><td><code>Bool</code></td><td>optional</td><td>Optional `notify` argument; omitted calls use the runtime default.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `{argv: List[Str], command: Str, detach: Bool, ignore_hup: Bool, new_session: Bool, notify_fd: Int, pid: Int}` or `Error` failure data.</p>
+</section>
+<section class="stdlib-entry" id="module.unix.spawn_with_tty.0">
+<header><code>unix.spawn_with_tty(command: Command, tty: Str) -&gt; Result[{argv: List[Str], command: Str, detach: Bool, ignore_hup: Bool, new_session: Bool, notify_fd: Int, pid: Int}, Error]</code><div><span class="stdlib-badge effect">effect</span></div></header>
+<p>Unix process-group, PID 1, hostname, uptime, exec, and reaping helpers `spawn_with_tty` operation.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>command</code></td><td><code>Command</code></td><td>required</td><td>Required `command` argument.</td></tr>
+<tr><td><code>tty</code></td><td><code>Str</code></td><td>required</td><td>Required `tty` argument.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `{argv: List[Str], command: Str, detach: Bool, ignore_hup: Bool, new_session: Bool, notify_fd: Int, pid: Int}` or `Error` failure data.</p>
+</section>
+<section class="stdlib-entry" id="module.unix.tty.0">
+<header><code>unix.tty() -&gt; Result[Str, Error]</code><div><span class="stdlib-badge effect">effect</span></div></header>
+<p>Unix process-group, PID 1, hostname, uptime, exec, and reaping helpers `tty` operation.</p>
+
+<p class="stdlib-return">Returns `Str` or `Error` failure data.</p>
+</section>
+<section class="stdlib-entry" id="module.unix.tty_attrs.0">
+<header><code>unix.tty_attrs(fd: Int = default) -&gt; Result[{cflag: Int, control_chars: List[Int], crnl: Bool, echo: Bool, iflag: Int, ispeed: Int, lflag: Int, oflag: Int, ospeed: Int, raw: Bool}, Error]</code><div><span class="stdlib-badge effect">effect</span></div></header>
+<p>Unix process-group, PID 1, hostname, uptime, exec, and reaping helpers `tty_attrs` operation.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>fd</code></td><td><code>Int</code></td><td>optional</td><td>Optional `fd` argument; omitted calls use the runtime default.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `{cflag: Int, control_chars: List[Int], crnl: Bool, echo: Bool, iflag: Int, ispeed: Int, lflag: Int, oflag: Int, ospeed: Int, raw: Bool}` or `Error` failure data.</p>
+</section>
+<section class="stdlib-entry" id="module.unix.uptime_seconds.0">
+<header><code>unix.uptime_seconds() -&gt; Result[Int, Error]</code><div><span class="stdlib-badge effect">effect</span></div></header>
+<p>Unix process-group, PID 1, hostname, uptime, exec, and reaping helpers `uptime_seconds` operation.</p>
+
+<p class="stdlib-return">Returns `Int` or `Error` failure data.</p>
+</section>
+<section class="stdlib-entry" id="module.unix.wait_pid1_event.0">
+<header><code>unix.wait_pid1_event(timeout: Duration = default) -&gt; Result[{children: List[{pid: Int, status: Status}], kind: Str, signal: Str}, Error]</code><div><span class="stdlib-badge effect">effect</span></div></header>
+<p>Unix process-group, PID 1, hostname, uptime, exec, and reaping helpers `wait_pid1_event` operation.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>timeout</code></td><td><code>Duration</code></td><td>optional</td><td>Optional `timeout` argument; omitted calls use the runtime default.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `{children: List[{pid: Int, status: Status}], kind: Str, signal: Str}` or `Error` failure data.</p>
+</section>
+</main>
+</body>
+</html>

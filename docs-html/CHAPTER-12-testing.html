@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Chapter 12: Testing</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="site-header"><a href="index.html">XSH Docs</a><span>docs/CHAPTER-12-testing.md</span></header>
+<div class="docs-shell">
+<aside class="page-toc" aria-label="Page contents">
+<h2>On This Page</h2>
+<ol>
+<li><a href="#write-a-native-test">Write A Native Test</a></li>
+<li><a href="#assert-with-results">Assert With Results</a></li>
+<li><a href="#use-temp-resources">Use Temp Resources</a></li>
+<li><a href="#mock-host-boundaries">Mock Host Boundaries</a></li>
+<li><a href="#run-the-right-set">Run The Right Set</a></li>
+<li><a href="#what-you-know-now">What You Know Now</a></li>
+</ol>
+</aside>
+<main class="markdown-body">
+<nav class="chapter-nav" aria-label="Chapter navigation">
+<a rel="prev" href="CHAPTER-11-large-programs.html"><span>Previous</span>Chapter 11: Larger Programs</a>
+<a rel="next" href="CHAPTER-13-tracing.html"><span>Next</span>Chapter 13: Tracing And Tracebacks</a>
+</nav>
+<h1>Chapter 12: Testing</h1>
+<p>Examples prove that a script can run. Native tests prove that the pieces inside
+the script behave the way you expect, including temp files, expected failures,
+and mocked host calls.</p>
+<p>By the end of this chapter, you should know the test file shape, the assertion
+style, how to use per-test temp resources, and when to mock DNS or network
+operations.</p>
+<h2 id="write-a-native-test">Write A Native Test</h2>
+<p>Native XSH tests live under <code>tests/**/*.xsh</code> and <code>showcase/tests/**/*.xsh</code>
+relative to the current directory:</p>
+<pre><code class="language-sh">xsht test
+</code></pre>
+<p>The runner discovers top-level <code>proc test_*</code> functions:</p>
+<pre><code class="language-xsh"><span class="tok-keyword">proc</span> <span class="tok-ident">test_name</span><span class="tok-punctuation">(</span><span class="tok-punctuation">)</span> <span class="tok-operator">-&gt;</span> <span class="tok-type">Result</span><span class="tok-punctuation">[</span><span class="tok-type">Unit</span><span class="tok-punctuation">]</span> <span class="tok-punctuation">{</span>
+  <span class="tok-ident">test</span><span class="tok-punctuation">.</span><span class="tok-ident">eq</span><span class="tok-punctuation">(</span><span class="tok-literal">1</span><span class="tok-punctuation">,</span> <span class="tok-literal">1</span><span class="tok-punctuation">)</span><span class="tok-operator">?</span>
+<span class="tok-punctuation">}</span>
+</code></pre>
+<p>Tests can also accept <code>ctx: TestContext</code> when they need temp resources or host
+mocks:</p>
+<pre><code class="language-xsh"><span class="tok-keyword">proc</span> <span class="tok-ident">test_with_context</span><span class="tok-punctuation">(</span><span class="tok-ident">ctx</span><span class="tok-punctuation">:</span> <span class="tok-type">TestContext</span><span class="tok-punctuation">)</span> <span class="tok-operator">-&gt;</span> <span class="tok-type">Result</span><span class="tok-punctuation">[</span><span class="tok-type">Unit</span><span class="tok-punctuation">]</span> <span class="tok-punctuation">{</span>
+  <span class="tok-keyword">let</span> <span class="tok-ident">file</span> <span class="tok-operator">=</span> <span class="tok-ident">test</span><span class="tok-punctuation">.</span><span class="tok-ident">temp_file</span><span class="tok-punctuation">(</span><span class="tok-ident">ctx</span><span class="tok-punctuation">,</span> <span class="tok-ident">name</span><span class="tok-punctuation">:</span> <span class="tok-string">&quot;sample&quot;</span><span class="tok-punctuation">,</span> <span class="tok-ident">contents</span><span class="tok-punctuation">:</span> <span class="tok-literal">b&quot;ok&quot;</span><span class="tok-punctuation">)</span><span class="tok-operator">?</span>
+  <span class="tok-keyword">let</span> <span class="tok-ident">text</span> <span class="tok-operator">=</span> <span class="tok-ident">fs</span><span class="tok-punctuation">.</span><span class="tok-ident">read_text</span><span class="tok-punctuation">(</span><span class="tok-ident">file</span><span class="tok-punctuation">)</span><span class="tok-operator">?</span>
+  <span class="tok-ident">test</span><span class="tok-punctuation">.</span><span class="tok-ident">eq</span><span class="tok-punctuation">(</span><span class="tok-ident">text</span><span class="tok-punctuation">,</span> <span class="tok-string">&quot;ok&quot;</span><span class="tok-punctuation">)</span><span class="tok-operator">?</span>
+<span class="tok-punctuation">}</span>
+</code></pre>
+<p>Test files are module-shaped. Top level may contain <code>use</code>, <code>let</code>, <code>type</code>,
+<code>proc</code>, <code>pure</code>, and <code>export</code>. Commands, mutation, and control flow belong
+inside test procs so each test can run with a fresh evaluator, fresh capture
+buffers, isolated host state, and a per-test temp root.</p>
+<h2 id="assert-with-results">Assert With Results</h2>
+<p>The <code>test</code> module returns ordinary <code>Result[Unit]</code> values:</p>
+<pre><code class="language-xsh"><span class="tok-ident">test</span><span class="tok-punctuation">.</span><span class="tok-ident">ok</span><span class="tok-punctuation">(</span><span class="tok-ident">condition</span><span class="tok-punctuation">)</span><span class="tok-operator">?</span>
+<span class="tok-ident">test</span><span class="tok-punctuation">.</span><span class="tok-ident">eq</span><span class="tok-punctuation">(</span><span class="tok-ident">left</span><span class="tok-punctuation">,</span> <span class="tok-ident">right</span><span class="tok-punctuation">)</span><span class="tok-operator">?</span>
+<span class="tok-ident">test</span><span class="tok-punctuation">.</span><span class="tok-ident">ne</span><span class="tok-punctuation">(</span><span class="tok-ident">left</span><span class="tok-punctuation">,</span> <span class="tok-ident">right</span><span class="tok-punctuation">)</span><span class="tok-operator">?</span>
+<span class="tok-ident">test</span><span class="tok-punctuation">.</span><span class="tok-ident">contains</span><span class="tok-punctuation">(</span><span class="tok-ident">text</span><span class="tok-punctuation">,</span> <span class="tok-string">&quot;needle&quot;</span><span class="tok-punctuation">)</span><span class="tok-operator">?</span>
+<span class="tok-ident">test</span><span class="tok-punctuation">.</span><span class="tok-ident">error_kind</span><span class="tok-punctuation">(</span><span class="tok-ident">result</span><span class="tok-punctuation">,</span> <span class="tok-string">&quot;missing-field&quot;</span><span class="tok-punctuation">)</span><span class="tok-operator">?</span>
+<span class="tok-ident">test</span><span class="tok-punctuation">.</span><span class="tok-ident">fail</span><span class="tok-punctuation">(</span><span class="tok-string">&quot;unreachable&quot;</span><span class="tok-punctuation">)</span>
+<span class="tok-ident">test</span><span class="tok-punctuation">.</span><span class="tok-ident">skip</span><span class="tok-punctuation">(</span><span class="tok-string">&quot;needs host feature&quot;</span><span class="tok-punctuation">)</span>
+</code></pre>
+<p>Assertion failures return structured test failure errors. Skips return
+structured test skip errors; the runner reports them separately from failures.</p>
+<p>Common trap: keep assertions close to the behavior being tested. If a test
+needs a long script setup before one check, move the reusable setup into a proc
+or use a cataloged example instead.</p>
+<h2 id="use-temp-resources">Use Temp Resources</h2>
+<p><code>TestContext</code> contains the stable test name, source file, and temp root:</p>
+<pre><code class="language-xsh"><span class="tok-keyword">proc</span> <span class="tok-ident">test_temp</span><span class="tok-punctuation">(</span><span class="tok-ident">ctx</span><span class="tok-punctuation">:</span> <span class="tok-type">TestContext</span><span class="tok-punctuation">)</span> <span class="tok-operator">-&gt;</span> <span class="tok-type">Result</span><span class="tok-punctuation">[</span><span class="tok-type">Unit</span><span class="tok-punctuation">]</span> <span class="tok-punctuation">{</span>
+  <span class="tok-keyword">let</span> <span class="tok-ident">path</span> <span class="tok-operator">=</span> <span class="tok-ident">test</span><span class="tok-punctuation">.</span><span class="tok-ident">temp_path</span><span class="tok-punctuation">(</span><span class="tok-ident">ctx</span><span class="tok-punctuation">)</span>
+  <span class="tok-keyword">let</span> <span class="tok-ident">dir</span> <span class="tok-operator">=</span> <span class="tok-ident">test</span><span class="tok-punctuation">.</span><span class="tok-ident">temp_dir</span><span class="tok-punctuation">(</span><span class="tok-ident">ctx</span><span class="tok-punctuation">,</span> <span class="tok-ident">name</span><span class="tok-punctuation">:</span> <span class="tok-string">&quot;work&quot;</span><span class="tok-punctuation">)</span><span class="tok-operator">?</span>
+  <span class="tok-keyword">let</span> <span class="tok-ident">file</span> <span class="tok-operator">=</span> <span class="tok-ident">test</span><span class="tok-punctuation">.</span><span class="tok-ident">temp_file</span><span class="tok-punctuation">(</span><span class="tok-ident">ctx</span><span class="tok-punctuation">,</span> <span class="tok-ident">name</span><span class="tok-punctuation">:</span> <span class="tok-string">&quot;input&quot;</span><span class="tok-punctuation">,</span> <span class="tok-ident">contents</span><span class="tok-punctuation">:</span> <span class="tok-literal">b&quot;data&quot;</span><span class="tok-punctuation">)</span><span class="tok-operator">?</span>
+  <span class="tok-ident">test</span><span class="tok-punctuation">.</span><span class="tok-ident">ne</span><span class="tok-punctuation">(</span><span class="tok-ident">path</span><span class="tok-punctuation">,</span> <span class="tok-ident">dir</span><span class="tok-punctuation">)</span><span class="tok-operator">?</span>
+  <span class="tok-ident">test</span><span class="tok-punctuation">.</span><span class="tok-ident">ok</span><span class="tok-punctuation">(</span><span class="tok-ident">file</span><span class="tok-punctuation">.</span><span class="tok-ident">name</span><span class="tok-punctuation">.</span><span class="tok-ident">starts_with</span><span class="tok-punctuation">(</span><span class="tok-string">&quot;input&quot;</span><span class="tok-punctuation">)</span><span class="tok-punctuation">)</span><span class="tok-operator">?</span>
+<span class="tok-punctuation">}</span>
+</code></pre>
+<p>Temp roots are cleaned after each test by default. Use <code>xsht test --keep-temp</code>
+when debugging filesystem state.</p>
+<h2 id="mock-host-boundaries">Mock Host Boundaries</h2>
+<p>Tests can mock DNS and net host calls:</p>
+<pre><code class="language-xsh"><span class="tok-keyword">proc</span> <span class="tok-ident">test_lookup</span><span class="tok-punctuation">(</span><span class="tok-ident">ctx</span><span class="tok-punctuation">:</span> <span class="tok-type">TestContext</span><span class="tok-punctuation">)</span> <span class="tok-operator">-&gt;</span> <span class="tok-type">Result</span><span class="tok-punctuation">[</span><span class="tok-type">Unit</span><span class="tok-punctuation">]</span> <span class="tok-punctuation">{</span>
+  <span class="tok-ident">test</span><span class="tok-punctuation">.</span><span class="tok-ident">mock</span><span class="tok-punctuation">(</span>
+    <span class="tok-ident">ctx</span><span class="tok-punctuation">,</span>
+    <span class="tok-string">&quot;dns.lookup&quot;</span><span class="tok-punctuation">,</span>
+    <span class="tok-punctuation">{</span><span class="tok-ident">name</span><span class="tok-punctuation">:</span> <span class="tok-string">&quot;example.test&quot;</span><span class="tok-punctuation">}</span><span class="tok-punctuation">,</span>
+    <span class="tok-type">Ok</span><span class="tok-punctuation">(</span><span class="tok-punctuation">[</span><span class="tok-punctuation">{</span><span class="tok-ident">name</span><span class="tok-punctuation">:</span> <span class="tok-string">&quot;example.test&quot;</span><span class="tok-punctuation">,</span> <span class="tok-ident">record</span><span class="tok-punctuation">:</span> <span class="tok-string">&quot;A&quot;</span><span class="tok-punctuation">,</span> <span class="tok-ident">value</span><span class="tok-punctuation">:</span> <span class="tok-string">&quot;127.0.0.1&quot;</span><span class="tok-punctuation">,</span> <span class="tok-ident">ttl</span><span class="tok-punctuation">:</span> <span class="tok-literal">60</span><span class="tok-punctuation">}</span><span class="tok-punctuation">]</span><span class="tok-punctuation">)</span>
+  <span class="tok-punctuation">)</span><span class="tok-operator">?</span>
+
+  <span class="tok-keyword">let</span> <span class="tok-ident">rows</span> <span class="tok-operator">=</span> <span class="tok-ident">dns</span><span class="tok-punctuation">.</span><span class="tok-ident">lookup</span><span class="tok-punctuation">(</span><span class="tok-string">&quot;example.test&quot;</span><span class="tok-punctuation">)</span><span class="tok-operator">?</span>
+  <span class="tok-ident">test</span><span class="tok-punctuation">.</span><span class="tok-ident">eq</span><span class="tok-punctuation">(</span><span class="tok-ident">rows</span><span class="tok-punctuation">[</span><span class="tok-literal">0</span><span class="tok-punctuation">]</span><span class="tok-punctuation">.</span><span class="tok-ident">value</span><span class="tok-punctuation">,</span> <span class="tok-string">&quot;127.0.0.1&quot;</span><span class="tok-punctuation">)</span><span class="tok-operator">?</span>
+  <span class="tok-keyword">let</span> <span class="tok-ident">calls</span> <span class="tok-operator">=</span> <span class="tok-ident">test</span><span class="tok-punctuation">.</span><span class="tok-ident">calls</span><span class="tok-punctuation">(</span><span class="tok-ident">ctx</span><span class="tok-punctuation">,</span> <span class="tok-string">&quot;dns.lookup&quot;</span><span class="tok-punctuation">)</span>
+  <span class="tok-ident">test</span><span class="tok-punctuation">.</span><span class="tok-ident">eq</span><span class="tok-punctuation">(</span><span class="tok-ident">calls</span><span class="tok-punctuation">.</span><span class="tok-ident">len</span><span class="tok-punctuation">(</span><span class="tok-punctuation">)</span><span class="tok-punctuation">,</span> <span class="tok-literal">1</span><span class="tok-punctuation">)</span><span class="tok-operator">?</span>
+<span class="tok-punctuation">}</span>
+</code></pre>
+<p>Matchers are partial records compared against normalized call arguments. If an
+operation has mocks and none match, the host call returns structured
+unmatched-mock errors. Operations without mocks use real host behavior.</p>
+<p>Why XSH shines here: tests can cover orchestration logic without depending on
+the network, the local machine's DNS state, or permanent filesystem paths.</p>
+<h2 id="run-the-right-set">Run The Right Set</h2>
+<p>Useful runner forms:</p>
+<pre><code class="language-sh">xsht test [FILTER]
+xsht test --exact tests/xsh/basic.xsh::test_pass
+xsht test --list
+xsht test --nocapture
+xsht test --fail-fast
+xsht test --examples [FILTER]
+xsht test --all [FILTER]
+xsht test --cov [FILTER]
+xsht test --cov-json target/xsh-cov/root.json [FILTER]
+</code></pre>
+<p>Native test IDs are stable names such as
+<code>tests/xsh/net.xsh::test_fetch</code>. Catalog example IDs are
+<code>examples::hello</code>, <code>examples::dns-net</code>, and so on.</p>
+<p><code>--cov</code> runs matching native and example tests, then prints API coverage derived
+from raw JSONL traces. <code>--cov-json</code> writes the same coverage data as structured
+JSON without printing the coverage report. Use <code>make cov</code> for Linux LLVM source
+coverage of the Rust implementation plus the aggregated XSH API coverage report.</p>
+<h2 id="what-you-know-now">What You Know Now</h2>
+<p>Use cataloged examples for user-facing scripts whose stdout, stderr, and exit
+status are part of the docs. Use native tests for helper logic, temp resources,
+expected errors, mocks, and coverage. The next chapter shows how traces explain
+what happened during a real run.</p>
+<nav class="chapter-nav" aria-label="Chapter navigation">
+<a rel="prev" href="CHAPTER-11-large-programs.html"><span>Previous</span>Chapter 11: Larger Programs</a>
+<a rel="next" href="CHAPTER-13-tracing.html"><span>Next</span>Chapter 13: Tracing And Tracebacks</a>
+</nav>
+</main>
+</div>
+</body>
+</html>

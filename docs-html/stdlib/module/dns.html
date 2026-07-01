@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>dns</title>
+<link rel="stylesheet" href="../../style.css">
+</head>
+<body>
+<header class="site-header"><a href="../../index.html">XSH Docs</a><span>docs/STDLIB.md#dns</span></header>
+<main class="markdown-body stdlib-body">
+<p><a href="../index.html">Standard Library</a> / Modules</p>
+<h1>dns</h1>
+<p class="stdlib-lede">DNS lookup and name resolution helpers.</p>
+<section class="stdlib-entry" id="module.dns.lookup.0">
+<header><code>dns.lookup(name: Str, record: Str = default, server: Str = default, timeout: Duration = default) -&gt; Result[List[{name: Str, record: Str, ttl: Int, value: Str}], Error]</code><div><span class="stdlib-badge effect">effect</span></div></header>
+<p>DNS lookup and name resolution helpers `lookup` operation.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>name</code></td><td><code>Str</code></td><td>required</td><td>Required `name` argument.</td></tr>
+<tr><td><code>record</code></td><td><code>Str</code></td><td>optional</td><td>Optional `record` argument; omitted calls use the runtime default.</td></tr>
+<tr><td><code>server</code></td><td><code>Str</code></td><td>optional</td><td>Optional `server` argument; omitted calls use the runtime default.</td></tr>
+<tr><td><code>timeout</code></td><td><code>Duration</code></td><td>optional</td><td>Optional `timeout` argument; omitted calls use the runtime default.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `List[{name: Str, record: Str, ttl: Int, value: Str}]` or `Error` failure data.</p>
+</section>
+<section class="stdlib-entry" id="module.dns.nameservers.0">
+<header><code>dns.nameservers() -&gt; Result[List[Str], Error]</code><div><span class="stdlib-badge effect">effect</span></div></header>
+<p>DNS lookup and name resolution helpers `nameservers` operation.</p>
+
+<p class="stdlib-return">Returns `List[Str]` or `Error` failure data.</p>
+</section>
+<section class="stdlib-entry" id="module.dns.resolve_host.0">
+<header><code>dns.resolve_host(name: Str, family: Str = default) -&gt; Result[List[{addr: Str, family: Str, name: Str}], Error]</code><div><span class="stdlib-badge effect">effect</span></div></header>
+<p>DNS lookup and name resolution helpers `resolve_host` operation.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>name</code></td><td><code>Str</code></td><td>required</td><td>Required `name` argument.</td></tr>
+<tr><td><code>family</code></td><td><code>Str</code></td><td>optional</td><td>Optional `family` argument; omitted calls use the runtime default.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `List[{addr: Str, family: Str, name: Str}]` or `Error` failure data.</p>
+</section>
+<section class="stdlib-entry" id="module.dns.reverse.0">
+<header><code>dns.reverse(addr: Str) -&gt; Result[List[Str], Error]</code><div><span class="stdlib-badge effect">effect</span></div></header>
+<p>DNS lookup and name resolution helpers `reverse` operation.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>addr</code></td><td><code>Str</code></td><td>required</td><td>Required `addr` argument.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `List[Str]` or `Error` failure data.</p>
+</section>
+</main>
+</body>
+</html>

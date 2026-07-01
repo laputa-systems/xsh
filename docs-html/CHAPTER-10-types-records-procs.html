@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Chapter 10: Types, Records, And Procs</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="site-header"><a href="index.html">XSH Docs</a><span>docs/CHAPTER-10-types-records-procs.md</span></header>
+<div class="docs-shell">
+<aside class="page-toc" aria-label="Page contents">
+<h2>On This Page</h2>
+<ol>
+<li><a href="#name-repeated-shapes">Name Repeated Shapes</a></li>
+<li><a href="#parse-a-cli-into-records">Parse A CLI Into Records</a></li>
+<li><a href="#use-tag-unions-for-real-cases">Use Tag Unions For Real Cases</a></li>
+<li><a href="#put-effects-in-the-signature">Put Effects In The Signature</a></li>
+<li><a href="#keep-pure-code-practical">Keep Pure Code Practical</a></li>
+<li><a href="#what-you-know-now">What You Know Now</a></li>
+</ol>
+</aside>
+<main class="markdown-body">
+<nav class="chapter-nav" aria-label="Chapter navigation">
+<a rel="prev" href="CHAPTER-09-archive-diff-patch.html"><span>Previous</span>Chapter 9: Archives, Diffs, And Patches</a>
+<a rel="next" href="CHAPTER-11-large-programs.html"><span>Next</span>Chapter 11: Larger Programs</a>
+</nav>
+<h1>Chapter 10: Types, Records, And Procs</h1>
+<p>Small XSH scripts can stay mostly top-level. As a script grows, repeated data
+shapes deserve names and repeated behavior deserves a pure function or proc.</p>
+<p>By the end of this chapter, you should know when a type helps, how to parse a
+CLI into a checked record, how tag unions remove stringly-typed branches, and
+how effect annotations make host boundaries visible.</p>
+<h2 id="name-repeated-shapes">Name Repeated Shapes</h2>
+<p>Type aliases and record schemas make scripts easier to read as they grow.
+Procs can take typed parameters, defaults, and rest arguments while still being
+called in a command-shaped style.</p>
+<pre><code class="language-xsh"><span class="tok-keyword">type</span> <span class="tok-type">PackageName</span> <span class="tok-operator">=</span> <span class="tok-type">Str</span>
+
+<span class="tok-keyword">type</span> <span class="tok-type">Package</span> <span class="tok-operator">=</span> <span class="tok-punctuation">{</span><span class="tok-ident">name</span><span class="tok-punctuation">:</span> <span class="tok-type">PackageName</span><span class="tok-punctuation">,</span> <span class="tok-ident">root</span><span class="tok-punctuation">:</span> <span class="tok-type">Path</span><span class="tok-punctuation">,</span> <span class="tok-ident">files</span><span class="tok-punctuation">:</span> <span class="tok-type">List</span><span class="tok-punctuation">[</span><span class="tok-type">Path</span><span class="tok-punctuation">]</span><span class="tok-punctuation">}</span>
+
+<span class="tok-keyword">let</span> <span class="tok-ident">demo_pkg</span><span class="tok-punctuation">:</span> <span class="tok-type">Package</span> <span class="tok-operator">=</span> <span class="tok-punctuation">{</span><span class="tok-ident">name</span><span class="tok-punctuation">:</span> <span class="tok-string">&quot;demo&quot;</span><span class="tok-punctuation">,</span> <span class="tok-ident">root</span><span class="tok-punctuation">:</span> <span class="tok-string">p&quot;src&quot;</span><span class="tok-punctuation">,</span> <span class="tok-ident">files</span><span class="tok-punctuation">:</span> <span class="tok-punctuation">[</span><span class="tok-string">p&quot;src/main.c&quot;</span><span class="tok-punctuation">]</span><span class="tok-punctuation">}</span>
+
+<span class="tok-keyword">proc</span> <span class="tok-ident">describe</span><span class="tok-punctuation">(</span><span class="tok-ident">pkg</span><span class="tok-punctuation">:</span> <span class="tok-type">Package</span><span class="tok-punctuation">,</span> <span class="tok-ident">prefix</span><span class="tok-punctuation">:</span> <span class="tok-type">Str</span> <span class="tok-operator">=</span> <span class="tok-string">&quot;pkg&quot;</span><span class="tok-punctuation">,</span> <span class="tok-punctuation">.</span><span class="tok-punctuation">.</span><span class="tok-punctuation">.</span><span class="tok-ident">labels</span><span class="tok-punctuation">:</span> <span class="tok-type">List</span><span class="tok-punctuation">[</span><span class="tok-type">Str</span><span class="tok-punctuation">]</span><span class="tok-punctuation">)</span> <span class="tok-punctuation">{</span>
+  <span class="tok-ident">print</span> <span class="tok-ident">$prefix</span> <span class="tok-ident">$pkg</span><span class="tok-punctuation">.</span><span class="tok-ident">name</span> <span class="tok-ident">$pkg</span><span class="tok-punctuation">.</span><span class="tok-ident">root</span><span class="tok-punctuation">.</span><span class="tok-ident">name</span>
+
+  <span class="tok-keyword">for</span> <span class="tok-ident">label</span> <span class="tok-keyword">in</span> <span class="tok-ident">labels</span> <span class="tok-punctuation">{</span>
+    <span class="tok-ident">print</span> <span class="tok-ident">$label</span>
+  <span class="tok-punctuation">}</span>
+<span class="tok-punctuation">}</span>
+
+<span class="tok-ident">describe</span><span class="tok-punctuation">(</span><span class="tok-ident">demo_pkg</span><span class="tok-punctuation">)</span>
+<span class="tok-ident">describe</span><span class="tok-punctuation">(</span><span class="tok-ident">demo_pkg</span><span class="tok-punctuation">,</span> <span class="tok-string">&quot;named&quot;</span><span class="tok-punctuation">,</span> <span class="tok-string">&quot;extra&quot;</span><span class="tok-punctuation">)</span>
+</code></pre>
+<p>The record type names the package shape once. The proc then uses that shape at
+every call and can still accept command-like optional arguments.</p>
+<p>Why XSH shines here: a script can stay lightweight at the top level and gain
+explicit contracts exactly where repeated data shapes appear.</p>
+<p>Compared with bash and CLI tools: shell functions pass strings and rely on
+calling conventions. XSH procs can still read like commands, but records and
+types make the contract visible to the checker and reviewer.</p>
+<p>Common trap: do not annotate every local binding just to look serious. Add a
+named type when the shape crosses a boundary or appears in more than one place.</p>
+<h2 id="parse-a-cli-into-records">Parse A CLI Into Records</h2>
+<p>Automation often starts as a script and grows into a command. The <code>args</code> module
+parses option records and command-shaped input without leaving XSH.</p>
+<pre><code class="language-xsh"><span class="tok-keyword">type</span> <span class="tok-type">BuildOptions</span> <span class="tok-operator">=</span> <span class="tok-punctuation">{</span><span class="tok-ident">root</span><span class="tok-punctuation">:</span> <span class="tok-type">Path</span><span class="tok-punctuation">,</span> <span class="tok-ident">jobs</span><span class="tok-punctuation">:</span> <span class="tok-type">Int</span><span class="tok-punctuation">,</span> <span class="tok-ident">define</span><span class="tok-punctuation">:</span> <span class="tok-type">List</span><span class="tok-punctuation">[</span><span class="tok-type">Str</span><span class="tok-punctuation">]</span><span class="tok-punctuation">,</span> <span class="tok-ident">verbose</span><span class="tok-punctuation">:</span> <span class="tok-type">Bool</span><span class="tok-punctuation">}</span>
+
+<span class="tok-keyword">type</span> <span class="tok-type">Cli</span> <span class="tok-operator">=</span> <span class="tok-punctuation">{</span><span class="tok-ident">command</span><span class="tok-punctuation">:</span> <span class="tok-type">Str</span><span class="tok-punctuation">,</span> <span class="tok-ident">action</span><span class="tok-punctuation">:</span> <span class="tok-type">Str</span><span class="tok-punctuation">,</span> <span class="tok-ident">root</span><span class="tok-punctuation">:</span> <span class="tok-type">Path</span><span class="tok-punctuation">,</span> <span class="tok-ident">raw</span><span class="tok-punctuation">:</span> <span class="tok-type">List</span><span class="tok-punctuation">[</span><span class="tok-type">Str</span><span class="tok-punctuation">]</span><span class="tok-punctuation">}</span>
+
+<span class="tok-keyword">let</span> <span class="tok-ident">opts</span><span class="tok-punctuation">:</span> <span class="tok-type">BuildOptions</span> <span class="tok-operator">=</span> <span class="tok-ident">cli</span><span class="tok-punctuation">.</span><span class="tok-ident">parse</span><span class="tok-punctuation">(</span>
+  <span class="tok-ident">args</span><span class="tok-punctuation">,</span>
+  <span class="tok-punctuation">{</span>
+    <span class="tok-ident">root</span><span class="tok-punctuation">:</span> <span class="tok-punctuation">{</span><span class="tok-ident">form</span><span class="tok-punctuation">:</span> <span class="tok-string">&quot;--root PATH&quot;</span><span class="tok-punctuation">,</span> <span class="tok-ident">default</span><span class="tok-punctuation">:</span> <span class="tok-string">p&quot;dest&quot;</span><span class="tok-punctuation">}</span><span class="tok-punctuation">,</span>
+    <span class="tok-ident">jobs</span><span class="tok-punctuation">:</span> <span class="tok-punctuation">{</span><span class="tok-ident">form</span><span class="tok-punctuation">:</span> <span class="tok-string">&quot;-j --jobs N&quot;</span><span class="tok-punctuation">,</span> <span class="tok-ident">default</span><span class="tok-punctuation">:</span> <span class="tok-ident">cpu</span><span class="tok-punctuation">.</span><span class="tok-ident">count</span><span class="tok-punctuation">(</span><span class="tok-punctuation">)</span><span class="tok-punctuation">}</span><span class="tok-punctuation">,</span>
+    <span class="tok-ident">define</span><span class="tok-punctuation">:</span> <span class="tok-punctuation">{</span><span class="tok-ident">form</span><span class="tok-punctuation">:</span> <span class="tok-string">&quot;-D --define NAME=VALUE&quot;</span><span class="tok-punctuation">,</span> <span class="tok-ident">repeated</span><span class="tok-punctuation">:</span> <span class="tok-literal">true</span><span class="tok-punctuation">}</span><span class="tok-punctuation">,</span>
+    <span class="tok-ident">verbose</span><span class="tok-punctuation">:</span> <span class="tok-punctuation">{</span><span class="tok-ident">form</span><span class="tok-punctuation">:</span> <span class="tok-string">&quot;-v --verbose&quot;</span><span class="tok-punctuation">,</span> <span class="tok-ident">default</span><span class="tok-punctuation">:</span> <span class="tok-literal">false</span><span class="tok-punctuation">}</span><span class="tok-punctuation">,</span>
+  <span class="tok-punctuation">}</span><span class="tok-punctuation">,</span>
+<span class="tok-punctuation">)</span><span class="tok-operator">?</span>
+
+<span class="tok-keyword">let</span> <span class="tok-ident">line</span> <span class="tok-operator">=</span> <span class="tok-string">&quot;WARN build.rs: unused value&quot;</span>
+<span class="tok-keyword">let</span> <span class="tok-ident">word_re</span> <span class="tok-operator">=</span> <span class="tok-ident">regex</span><span class="tok-punctuation">.</span><span class="tok-ident">compile</span><span class="tok-punctuation">(</span><span class="tok-string">&quot;unused|missing&quot;</span><span class="tok-punctuation">)</span><span class="tok-operator">?</span>
+<span class="tok-keyword">let</span> <span class="tok-ident">capture_re</span> <span class="tok-operator">=</span> <span class="tok-ident">regex</span><span class="tok-punctuation">.</span><span class="tok-ident">compile</span><span class="tok-punctuation">(</span><span class="tok-string">&quot;^(\\w+) ([^:]+): (.*)$&quot;</span><span class="tok-punctuation">)</span><span class="tok-operator">?</span>
+<span class="tok-keyword">let</span> <span class="tok-ident">whitespace_re</span> <span class="tok-operator">=</span> <span class="tok-ident">regex</span><span class="tok-punctuation">.</span><span class="tok-ident">compile</span><span class="tok-punctuation">(</span><span class="tok-string">&quot;\\s+&quot;</span><span class="tok-punctuation">)</span><span class="tok-operator">?</span>
+<span class="tok-keyword">let</span> <span class="tok-ident">warn_re</span> <span class="tok-operator">=</span> <span class="tok-ident">regex</span><span class="tok-punctuation">.</span><span class="tok-ident">compile</span><span class="tok-punctuation">(</span><span class="tok-string">&quot;WARN.*unused&quot;</span><span class="tok-punctuation">)</span><span class="tok-operator">?</span>
+<span class="tok-keyword">let</span> <span class="tok-ident">matches</span> <span class="tok-operator">=</span> <span class="tok-ident">word_re</span><span class="tok-punctuation">.</span><span class="tok-ident">find</span><span class="tok-punctuation">(</span><span class="tok-ident">line</span><span class="tok-punctuation">)</span>
+<span class="tok-keyword">let</span> <span class="tok-ident">captures</span> <span class="tok-operator">=</span> <span class="tok-ident">capture_re</span><span class="tok-punctuation">.</span><span class="tok-ident">captures</span><span class="tok-punctuation">(</span><span class="tok-ident">line</span><span class="tok-punctuation">)</span>
+<span class="tok-keyword">let</span> <span class="tok-ident">rewritten</span> <span class="tok-operator">=</span> <span class="tok-ident">whitespace_re</span><span class="tok-punctuation">.</span><span class="tok-ident">replace</span><span class="tok-punctuation">(</span><span class="tok-ident">line</span><span class="tok-punctuation">,</span> <span class="tok-string">&quot;|&quot;</span><span class="tok-punctuation">)</span>
+
+<span class="tok-keyword">let</span> <span class="tok-ident">command_specs</span> <span class="tok-operator">=</span> <span class="tok-punctuation">{</span>
+  <span class="tok-ident">build</span><span class="tok-punctuation">:</span> <span class="tok-punctuation">{</span><span class="tok-ident">positionals</span><span class="tok-punctuation">:</span> <span class="tok-punctuation">[</span><span class="tok-string">&quot;root&quot;</span><span class="tok-punctuation">]</span><span class="tok-punctuation">,</span> <span class="tok-ident">types</span><span class="tok-punctuation">:</span> <span class="tok-punctuation">{</span><span class="tok-ident">root</span><span class="tok-punctuation">:</span> <span class="tok-string">&quot;Path&quot;</span><span class="tok-punctuation">}</span><span class="tok-punctuation">,</span> <span class="tok-ident">rest</span><span class="tok-punctuation">:</span> <span class="tok-string">&quot;raw&quot;</span><span class="tok-punctuation">}</span><span class="tok-punctuation">,</span>
+  <span class="tok-ident">clean</span><span class="tok-punctuation">:</span> <span class="tok-punctuation">{</span><span class="tok-ident">positionals</span><span class="tok-punctuation">:</span> <span class="tok-punctuation">[</span><span class="tok-string">&quot;root&quot;</span><span class="tok-punctuation">]</span><span class="tok-punctuation">,</span> <span class="tok-ident">types</span><span class="tok-punctuation">:</span> <span class="tok-punctuation">{</span><span class="tok-ident">root</span><span class="tok-punctuation">:</span> <span class="tok-string">&quot;Path&quot;</span><span class="tok-punctuation">}</span><span class="tok-punctuation">,</span> <span class="tok-ident">rest</span><span class="tok-punctuation">:</span> <span class="tok-string">&quot;raw&quot;</span><span class="tok-punctuation">}</span><span class="tok-punctuation">,</span>
+<span class="tok-punctuation">}</span>
+
+<span class="tok-keyword">let</span> <span class="tok-ident">parsed_cli</span><span class="tok-punctuation">:</span> <span class="tok-type">Cli</span> <span class="tok-operator">=</span> <span class="tok-ident">cli</span><span class="tok-punctuation">.</span><span class="tok-ident">commands</span><span class="tok-punctuation">(</span>
+  <span class="tok-punctuation">[</span><span class="tok-string">&quot;deploy&quot;</span><span class="tok-punctuation">,</span> <span class="tok-string">&quot;target/demo&quot;</span><span class="tok-punctuation">,</span> <span class="tok-string">&quot;--dry-run&quot;</span><span class="tok-punctuation">]</span><span class="tok-punctuation">,</span>
+  <span class="tok-ident">rootless_default</span><span class="tok-punctuation">:</span> <span class="tok-string">&quot;build&quot;</span><span class="tok-punctuation">,</span>
+  <span class="tok-ident">commands</span><span class="tok-punctuation">:</span> <span class="tok-ident">command_specs</span><span class="tok-punctuation">,</span>
+  <span class="tok-ident">fallback_command</span><span class="tok-punctuation">:</span> <span class="tok-punctuation">{</span><span class="tok-ident">positionals</span><span class="tok-punctuation">:</span> <span class="tok-punctuation">[</span><span class="tok-string">&quot;action&quot;</span><span class="tok-punctuation">,</span> <span class="tok-string">&quot;root&quot;</span><span class="tok-punctuation">]</span><span class="tok-punctuation">,</span> <span class="tok-ident">types</span><span class="tok-punctuation">:</span> <span class="tok-punctuation">{</span><span class="tok-ident">root</span><span class="tok-punctuation">:</span> <span class="tok-string">&quot;Path&quot;</span><span class="tok-punctuation">}</span><span class="tok-punctuation">,</span> <span class="tok-ident">rest</span><span class="tok-punctuation">:</span> <span class="tok-string">&quot;raw&quot;</span><span class="tok-punctuation">,</span> <span class="tok-ident">command_like</span><span class="tok-punctuation">:</span> <span class="tok-literal">true</span><span class="tok-punctuation">}</span><span class="tok-punctuation">,</span>
+<span class="tok-punctuation">)</span><span class="tok-operator">?</span>
+
+<span class="tok-ident">print</span> <span class="tok-ident">$opts</span><span class="tok-punctuation">.</span><span class="tok-ident">root</span><span class="tok-punctuation">.</span><span class="tok-ident">name</span> <span class="tok-ident">$opts</span><span class="tok-punctuation">.</span><span class="tok-ident">jobs</span> <span class="tok-ident">opts</span><span class="tok-punctuation">.</span><span class="tok-ident">define</span><span class="tok-punctuation">.</span><span class="tok-ident">len</span><span class="tok-punctuation">(</span><span class="tok-punctuation">)</span> <span class="tok-ident">$opts</span><span class="tok-punctuation">.</span><span class="tok-ident">verbose</span>
+<span class="tok-ident">print</span> <span class="tok-ident">warn_re</span><span class="tok-punctuation">.</span><span class="tok-ident">matches</span><span class="tok-punctuation">(</span><span class="tok-ident">line</span><span class="tok-punctuation">)</span> <span class="tok-ident">captures</span><span class="tok-punctuation">[</span><span class="tok-literal">1</span><span class="tok-punctuation">]</span> <span class="tok-ident">captures</span><span class="tok-punctuation">[</span><span class="tok-literal">2</span><span class="tok-punctuation">]</span> <span class="tok-ident">matches</span><span class="tok-punctuation">[</span><span class="tok-literal">0</span><span class="tok-punctuation">]</span><span class="tok-punctuation">.</span><span class="tok-ident">text</span> <span class="tok-ident">$rewritten</span>
+<span class="tok-ident">print</span> <span class="tok-ident">$parsed_cli</span><span class="tok-punctuation">.</span><span class="tok-ident">command</span> <span class="tok-ident">$parsed_cli</span><span class="tok-punctuation">.</span><span class="tok-ident">root</span><span class="tok-punctuation">.</span><span class="tok-ident">name</span> <span class="tok-ident">parsed_cli</span><span class="tok-punctuation">.</span><span class="tok-ident">raw</span><span class="tok-punctuation">.</span><span class="tok-ident">len</span><span class="tok-punctuation">(</span><span class="tok-punctuation">)</span> <span class="tok-ident">$parsed_cli</span><span class="tok-punctuation">.</span><span class="tok-ident">action</span>
+</code></pre>
+<p>The example parses build options, uses regexes for extraction and replacement,
+and parses command-shaped input into a typed <code>Cli</code> record.</p>
+<p>Why XSH shines here: CLI parsing, regex extraction, replacement, and typed
+command records can live beside the workflow that consumes them.</p>
+<p>Output note: this example is run with cataloged arguments that set <code>--root</code>,
+<code>--jobs</code>, repeated <code>--define</code> values, and <code>--verbose</code>.</p>
+<p>Do not keep passing raw <code>args</code> after parsing succeeds. Convert once into a
+record, then pass that record through the script.</p>
+<h2 id="use-tag-unions-for-real-cases">Use Tag Unions For Real Cases</h2>
+<p>A record type is right when values always have the same fields. A tag union is
+right when a value is one of several distinct cases, each with its own shape.</p>
+<pre><code class="language-xsh"><span class="tok-keyword">type</span> <span class="tok-type">Level</span> <span class="tok-operator">=</span>
+    <span class="tok-type">Info</span>
+  <span class="tok-operator">|</span> <span class="tok-type">Warn</span>
+  <span class="tok-operator">|</span> <span class="tok-type">Error</span>
+  <span class="tok-operator">|</span> <span class="tok-type">Debug</span>
+  <span class="tok-operator">|</span> <span class="tok-type">Trace</span>
+
+<span class="tok-keyword">type</span> <span class="tok-type">Shape</span> <span class="tok-operator">=</span>
+    <span class="tok-type">Circle</span><span class="tok-punctuation">(</span><span class="tok-type">Int</span><span class="tok-punctuation">)</span>
+  <span class="tok-operator">|</span> <span class="tok-type">Rect</span><span class="tok-punctuation">(</span><span class="tok-type">Int</span><span class="tok-punctuation">,</span> <span class="tok-type">Int</span><span class="tok-punctuation">)</span>
+  <span class="tok-operator">|</span> <span class="tok-type">Point</span>
+  <span class="tok-operator">|</span> <span class="tok-type">Square</span><span class="tok-punctuation">(</span><span class="tok-type">Int</span><span class="tok-punctuation">)</span>
+  <span class="tok-operator">|</span> <span class="tok-type">Triangle</span><span class="tok-punctuation">(</span><span class="tok-type">Int</span><span class="tok-punctuation">,</span> <span class="tok-type">Int</span><span class="tok-punctuation">)</span>
+
+<span class="tok-keyword">pure</span> <span class="tok-ident">level_label</span><span class="tok-punctuation">(</span><span class="tok-ident">l</span><span class="tok-punctuation">:</span> <span class="tok-type">Level</span><span class="tok-punctuation">)</span> <span class="tok-operator">-&gt;</span> <span class="tok-type">Str</span> <span class="tok-punctuation">{</span>
+  <span class="tok-keyword">if</span> <span class="tok-ident">l</span> <span class="tok-operator">==</span> <span class="tok-type">Info</span> <span class="tok-punctuation">{</span>
+    <span class="tok-keyword">return</span> <span class="tok-string">&quot;INFO&quot;</span>
+  <span class="tok-punctuation">}</span>
+
+  <span class="tok-keyword">if</span> <span class="tok-ident">l</span> <span class="tok-operator">==</span> <span class="tok-type">Warn</span> <span class="tok-punctuation">{</span>
+    <span class="tok-keyword">return</span> <span class="tok-string">&quot;WARN&quot;</span>
+  <span class="tok-punctuation">}</span>
+
+  <span class="tok-keyword">if</span> <span class="tok-ident">l</span> <span class="tok-operator">==</span> <span class="tok-type">Error</span> <span class="tok-punctuation">{</span>
+    <span class="tok-keyword">return</span> <span class="tok-string">&quot;ERROR&quot;</span>
+  <span class="tok-punctuation">}</span>
+
+  <span class="tok-keyword">if</span> <span class="tok-ident">l</span> <span class="tok-operator">==</span> <span class="tok-type">Trace</span> <span class="tok-punctuation">{</span>
+    <span class="tok-keyword">return</span> <span class="tok-string">&quot;TRACE&quot;</span>
+  <span class="tok-punctuation">}</span>
+
+  <span class="tok-string">&quot;DEBUG&quot;</span>
+<span class="tok-punctuation">}</span>
+
+<span class="tok-keyword">pure</span> <span class="tok-ident">area</span><span class="tok-punctuation">(</span><span class="tok-ident">s</span><span class="tok-punctuation">:</span> <span class="tok-type">Shape</span><span class="tok-punctuation">)</span> <span class="tok-operator">-&gt;</span> <span class="tok-type">Int</span> <span class="tok-punctuation">{</span>
+  <span class="tok-keyword">match</span> <span class="tok-ident">s</span> <span class="tok-punctuation">{</span>
+    <span class="tok-type">Circle</span><span class="tok-punctuation">(</span><span class="tok-ident">r</span><span class="tok-punctuation">)</span> <span class="tok-operator">=&gt;</span> <span class="tok-ident">r</span> <span class="tok-operator">*</span> <span class="tok-ident">r</span> <span class="tok-operator">*</span> <span class="tok-literal">3</span>
+    <span class="tok-type">Rect</span><span class="tok-punctuation">(</span><span class="tok-ident">w</span><span class="tok-punctuation">,</span> <span class="tok-ident">h</span><span class="tok-punctuation">)</span> <span class="tok-operator">=&gt;</span> <span class="tok-ident">w</span> <span class="tok-operator">*</span> <span class="tok-ident">h</span>
+    <span class="tok-type">Point</span> <span class="tok-operator">=&gt;</span> <span class="tok-literal">0</span>
+    <span class="tok-type">Square</span><span class="tok-punctuation">(</span><span class="tok-ident">side</span><span class="tok-punctuation">)</span> <span class="tok-operator">=&gt;</span> <span class="tok-ident">side</span> <span class="tok-operator">*</span> <span class="tok-ident">side</span>
+    <span class="tok-type">Triangle</span><span class="tok-punctuation">(</span><span class="tok-ident">base</span><span class="tok-punctuation">,</span> <span class="tok-ident">height</span><span class="tok-punctuation">)</span> <span class="tok-operator">=&gt;</span> <span class="tok-ident">base</span> <span class="tok-operator">*</span> <span class="tok-ident">height</span> <span class="tok-operator">/</span> <span class="tok-literal">2</span>
+  <span class="tok-punctuation">}</span>
+<span class="tok-punctuation">}</span>
+
+<span class="tok-ident">print</span> <span class="tok-ident">level_label</span><span class="tok-punctuation">(</span><span class="tok-type">Info</span><span class="tok-punctuation">)</span> <span class="tok-ident">level_label</span><span class="tok-punctuation">(</span><span class="tok-type">Error</span><span class="tok-punctuation">)</span>
+<span class="tok-ident">print</span> <span class="tok-ident">area</span><span class="tok-punctuation">(</span><span class="tok-type">Circle</span><span class="tok-punctuation">(</span><span class="tok-literal">4</span><span class="tok-punctuation">)</span><span class="tok-punctuation">)</span> <span class="tok-ident">area</span><span class="tok-punctuation">(</span><span class="tok-type">Rect</span><span class="tok-punctuation">(</span><span class="tok-literal">3</span><span class="tok-punctuation">,</span> <span class="tok-literal">5</span><span class="tok-punctuation">)</span><span class="tok-punctuation">)</span> <span class="tok-ident">area</span><span class="tok-punctuation">(</span><span class="tok-type">Point</span><span class="tok-punctuation">)</span>
+</code></pre>
+<p>The checker warns when a <code>match</code> does not cover all declared variants. That is
+the main benefit: adding a variant later produces a check-time notice at every
+match that needs updating.</p>
+<p>Stringly-typed patterns with three or more string-literal match arms are flagged
+by <code>lint.stringly-typed-match</code> as candidates for a tag union.</p>
+<p>Why XSH shines here: the type system catches the "forgot to handle the new
+case" bug before the script reaches production data.</p>
+<p>Do not use a tag union for a value that is truly open-ended host data. Use a tag
+union when the script owns the set of cases or when the set is part of a stable
+contract.</p>
+<h2 id="put-effects-in-the-signature">Put Effects In The Signature</h2>
+<p>A proc signature can declare exactly which side effects its body is allowed to
+produce:</p>
+<pre><code class="language-xsh"><span class="tok-keyword">proc</span> <span class="tok-ident">read_config</span><span class="tok-punctuation">(</span><span class="tok-punctuation">)</span> <span class="tok-punctuation">[</span><span class="tok-ident">fs</span><span class="tok-punctuation">,</span> <span class="tok-ident">error</span><span class="tok-punctuation">]</span> <span class="tok-operator">-&gt;</span> <span class="tok-type">Result</span><span class="tok-punctuation">[</span><span class="tok-type">Config</span><span class="tok-punctuation">]</span> <span class="tok-punctuation">{</span> <span class="tok-punctuation">.</span><span class="tok-punctuation">.</span><span class="tok-punctuation">.</span> <span class="tok-punctuation">}</span>
+<span class="tok-keyword">proc</span> <span class="tok-ident">build</span><span class="tok-punctuation">(</span><span class="tok-punctuation">)</span> <span class="tok-punctuation">[</span><span class="tok-ident">fs</span><span class="tok-punctuation">,</span> <span class="tok-ident">process</span><span class="tok-punctuation">,</span> <span class="tok-ident">error</span><span class="tok-punctuation">]</span> <span class="tok-operator">-&gt;</span> <span class="tok-type">Result</span><span class="tok-punctuation">[</span><span class="tok-type">Status</span><span class="tok-punctuation">]</span> <span class="tok-punctuation">{</span> <span class="tok-punctuation">.</span><span class="tok-punctuation">.</span><span class="tok-punctuation">.</span> <span class="tok-punctuation">}</span>
+<span class="tok-keyword">proc</span> <span class="tok-ident">get_time</span><span class="tok-punctuation">(</span><span class="tok-punctuation">)</span> <span class="tok-punctuation">[</span><span class="tok-ident">time</span><span class="tok-punctuation">]</span> <span class="tok-operator">-&gt;</span> <span class="tok-type">Int</span> <span class="tok-punctuation">{</span> <span class="tok-punctuation">.</span><span class="tok-punctuation">.</span><span class="tok-punctuation">.</span> <span class="tok-punctuation">}</span>
+</code></pre>
+<p>The named effects are <code>fs</code>, <code>net</code>, <code>process</code>, <code>env</code>, <code>time</code>, <code>io</code>, and
+<code>error</code>. Specific effects are preferred over broad <code>io</code> when they keep the
+contract readable.</p>
+<pre><code class="language-xsh"><span class="tok-keyword">pure</span> <span class="tok-ident">format_label</span><span class="tok-punctuation">(</span><span class="tok-ident">kind</span><span class="tok-punctuation">:</span> <span class="tok-type">Str</span><span class="tok-punctuation">,</span> <span class="tok-ident">value</span><span class="tok-punctuation">:</span> <span class="tok-type">Str</span><span class="tok-punctuation">)</span> <span class="tok-operator">-&gt;</span> <span class="tok-type">Str</span> <span class="tok-punctuation">{</span>
+  <span class="tok-keyword">return</span> <span class="tok-string">f&quot;${kind}: ${value}&quot;</span>
+<span class="tok-punctuation">}</span>
+
+<span class="tok-keyword">proc</span> <span class="tok-ident">epoch_year</span><span class="tok-punctuation">(</span><span class="tok-punctuation">)</span> <span class="tok-punctuation">[</span><span class="tok-ident">time</span><span class="tok-punctuation">,</span> <span class="tok-ident">error</span><span class="tok-punctuation">]</span> <span class="tok-operator">-&gt;</span> <span class="tok-type">Result</span><span class="tok-punctuation">[</span><span class="tok-type">Str</span><span class="tok-punctuation">]</span> <span class="tok-punctuation">{</span>
+  <span class="tok-keyword">return</span> <span class="tok-ident">format_label</span><span class="tok-punctuation">(</span><span class="tok-string">&quot;year&quot;</span><span class="tok-punctuation">,</span> <span class="tok-ident">time</span><span class="tok-punctuation">.</span><span class="tok-ident">format</span><span class="tok-punctuation">(</span><span class="tok-literal">0</span><span class="tok-punctuation">,</span> <span class="tok-string">&quot;%Y&quot;</span><span class="tok-punctuation">,</span> <span class="tok-ident">utc</span><span class="tok-punctuation">:</span> <span class="tok-literal">true</span><span class="tok-punctuation">)</span><span class="tok-operator">?</span><span class="tok-punctuation">)</span>
+<span class="tok-punctuation">}</span>
+
+<span class="tok-keyword">let</span> <span class="tok-ident">label</span> <span class="tok-operator">=</span> <span class="tok-ident">epoch_year</span><span class="tok-punctuation">(</span><span class="tok-punctuation">)</span><span class="tok-operator">?</span>
+<span class="tok-ident">print</span> <span class="tok-ident">$label</span>
+</code></pre>
+<p>The checker enforces the annotation. A <code>[time, error]</code> proc cannot read files
+or start processes. A <code>pure</code> function has no effects at all and can be called
+from any annotated proc.</p>
+<p>Do not add effect annotations to hide broad behavior behind <code>[io]</code> everywhere.
+Use specific effects when the signature is meant to help review.</p>
+<h2 id="keep-pure-code-practical">Keep Pure Code Practical</h2>
+<p>A pure function can still use local scratch mutation when the computation is
+deterministic and effect-free.</p>
+<pre><code class="language-xsh"><span class="tok-ident">error</span> <span class="tok-type">ParseError</span> <span class="tok-operator">=</span> <span class="tok-type">Invalid</span><span class="tok-punctuation">(</span><span class="tok-ident">message</span><span class="tok-punctuation">:</span> <span class="tok-type">Str</span><span class="tok-punctuation">)</span>
+
+<span class="tok-keyword">pure</span> <span class="tok-ident">octal_mode</span><span class="tok-punctuation">(</span><span class="tok-ident">raw</span><span class="tok-punctuation">:</span> <span class="tok-type">Str</span><span class="tok-punctuation">)</span> <span class="tok-operator">-&gt;</span> <span class="tok-type">Result</span><span class="tok-punctuation">[</span><span class="tok-type">Int</span><span class="tok-punctuation">]</span> <span class="tok-punctuation">{</span>
+  <span class="tok-keyword">var</span> <span class="tok-ident">mode</span> <span class="tok-operator">=</span> <span class="tok-literal">0</span>
+
+  <span class="tok-keyword">for</span> <span class="tok-ident">ch</span> <span class="tok-keyword">in</span> <span class="tok-ident">raw</span><span class="tok-punctuation">.</span><span class="tok-ident">split</span><span class="tok-punctuation">(</span><span class="tok-string">&quot;&quot;</span><span class="tok-punctuation">)</span> <span class="tok-punctuation">{</span>
+    <span class="tok-keyword">var</span> <span class="tok-ident">digit</span> <span class="tok-operator">=</span> <span class="tok-literal">0</span>
+
+    <span class="tok-keyword">match</span> <span class="tok-ident">ch</span> <span class="tok-punctuation">{</span>
+      <span class="tok-string">&quot;0&quot;</span> <span class="tok-operator">=&gt;</span> <span class="tok-ident">digit</span> <span class="tok-operator">=</span> <span class="tok-literal">0</span>
+      <span class="tok-string">&quot;1&quot;</span> <span class="tok-operator">=&gt;</span> <span class="tok-ident">digit</span> <span class="tok-operator">=</span> <span class="tok-literal">1</span>
+      <span class="tok-string">&quot;2&quot;</span> <span class="tok-operator">=&gt;</span> <span class="tok-ident">digit</span> <span class="tok-operator">=</span> <span class="tok-literal">2</span>
+      <span class="tok-string">&quot;3&quot;</span> <span class="tok-operator">=&gt;</span> <span class="tok-ident">digit</span> <span class="tok-operator">=</span> <span class="tok-literal">3</span>
+      <span class="tok-string">&quot;4&quot;</span> <span class="tok-operator">=&gt;</span> <span class="tok-ident">digit</span> <span class="tok-operator">=</span> <span class="tok-literal">4</span>
+      <span class="tok-string">&quot;5&quot;</span> <span class="tok-operator">=&gt;</span> <span class="tok-ident">digit</span> <span class="tok-operator">=</span> <span class="tok-literal">5</span>
+      <span class="tok-string">&quot;6&quot;</span> <span class="tok-operator">=&gt;</span> <span class="tok-ident">digit</span> <span class="tok-operator">=</span> <span class="tok-literal">6</span>
+      <span class="tok-string">&quot;7&quot;</span> <span class="tok-operator">=&gt;</span> <span class="tok-ident">digit</span> <span class="tok-operator">=</span> <span class="tok-literal">7</span>
+      <span class="tok-ident">_</span> <span class="tok-operator">=&gt;</span> <span class="tok-keyword">return</span> <span class="tok-type">Err</span><span class="tok-punctuation">(</span><span class="tok-type">ParseError</span><span class="tok-punctuation">.</span><span class="tok-type">Invalid</span><span class="tok-punctuation">(</span><span class="tok-ident">message</span><span class="tok-punctuation">:</span> <span class="tok-string">f&quot;invalid octal digit '${ch}'&quot;</span><span class="tok-punctuation">)</span><span class="tok-punctuation">)</span>
+    <span class="tok-punctuation">}</span>
+
+    <span class="tok-ident">mode</span> <span class="tok-operator">=</span> <span class="tok-ident">mode</span> <span class="tok-operator">*</span> <span class="tok-literal">8</span> <span class="tok-operator">+</span> <span class="tok-ident">digit</span>
+  <span class="tok-punctuation">}</span>
+
+  <span class="tok-keyword">return</span> <span class="tok-ident">mode</span>
+<span class="tok-punctuation">}</span>
+
+<span class="tok-keyword">let</span> <span class="tok-ident">mode</span> <span class="tok-operator">=</span> <span class="tok-ident">octal_mode</span><span class="tok-punctuation">(</span><span class="tok-string">&quot;755&quot;</span><span class="tok-punctuation">)</span><span class="tok-operator">?</span>
+<span class="tok-ident">print</span> <span class="tok-ident">$mode</span>
+</code></pre>
+<p>Only <code>var</code> bindings declared inside the same pure function can be assigned.
+Parameters, <code>let</code> bindings, top-level values, imported values, record fields,
+and indexed containers remain immutable from pure code.</p>
+<h2 id="what-you-know-now">What You Know Now</h2>
+<p>Add types where they document a boundary: CLI records, JSON schemas, metadata
+passed between helpers, or proc inputs that belong together. Use <code>pure</code> for
+effect-free computation, <code>proc</code> for orchestration, tag unions for real cases,
+and effect annotations when a script's host boundaries should be reviewable.</p>
+<nav class="chapter-nav" aria-label="Chapter navigation">
+<a rel="prev" href="CHAPTER-09-archive-diff-patch.html"><span>Previous</span>Chapter 9: Archives, Diffs, And Patches</a>
+<a rel="next" href="CHAPTER-11-large-programs.html"><span>Next</span>Chapter 11: Larger Programs</a>
+</nav>
+</main>
+</div>
+</body>
+</html>

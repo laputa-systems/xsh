@@ -1,0 +1,71 @@
+{
+  "kind": "small-corpus-frontend-baseline",
+  "date": "2026-07-01",
+  "commit": "cb4a32fabbb1068798ff3517b1c8e5ccbee6b8b0",
+  "command": "cargo bench -p xshi --bench bench small_corpus -- --sample-size 10 --warm-up-time 0.5 --measurement-time 1",
+  "platform": {
+    "arch": "aarch64",
+    "host_arch": "arm64",
+    "os": "macos",
+    "rustc": "rustc 1.97.0-nightly (e22c616e4 2026-04-19)",
+    "cargo": "cargo 1.97.0-nightly (7ecf0285e 2026-04-18)"
+  },
+  "notes": [
+    "Quick local Criterion baseline for small-script front-end floor overhead, not a release-quality Linux profiling baseline.",
+    "The corpus is selected from checked-in .xsh files with at most 200 lines and 16 KiB.",
+    "Files that do not parse or check cleanly as standalone scripts are excluded so the benchmark measures ordinary individual-script frontend cost.",
+    "Times are Criterion mean estimates from this session on the local machine.",
+    "Allocation stats are printed by the benchmark's frontend allocation audit.",
+    "The parse/check/lower frontend helper uses an explicit cwd so this corpus lens does not measure host current_dir() syscall latency once per file.",
+    "The benchmark prints aggregate phase totals and the slowest source phase splits during setup."
+  ],
+  "selection": {
+    "max_lines": 200,
+    "max_bytes": 16384,
+    "selected_files": 383,
+    "selected_lines": 15363,
+    "selected_bytes": 413237,
+    "skipped_large_files": 20,
+    "skipped_parse_files": 0,
+    "skipped_check_files": 4
+  },
+  "benchmarks": {
+    "parse_small_corpus_le200_lines_16k": {
+      "time": "13.303 ms",
+      "time_range": "13.144 ms..13.653 ms",
+      "time_per_file": "34.7 us",
+      "allocs": 116726,
+      "allocated": "10.9 MiB",
+      "allocs_per_file": 304.8,
+      "allocated_per_file": "29.1 KiB"
+    },
+    "parse_check_small_corpus_le200_lines_16k": {
+      "time": "23.752 ms",
+      "time_range": "22.690 ms..24.345 ms",
+      "time_per_file": "62.0 us",
+      "allocs": 215617,
+      "allocated": "26.0 MiB",
+      "allocs_per_file": 563.0,
+      "allocated_per_file": "69.6 KiB"
+    },
+    "parse_check_lower_small_corpus_le200_lines_16k": {
+      "time": "25.071 ms",
+      "time_range": "24.988 ms..25.176 ms",
+      "time_per_file": "65.5 us",
+      "allocs": 222172,
+      "allocated": "33.5 MiB",
+      "allocs_per_file": 580.1,
+      "allocated_per_file": "89.6 KiB"
+    }
+  },
+  "phase_totals": {
+    "parse_check_lower_small_corpus_le200_lines_16k": {
+      "total": "28.116248 ms",
+      "parse": "13.912376 ms",
+      "evaluator_init": "83.332 us",
+      "cwd": "6.703 us",
+      "compact_install": "11.811170 ms",
+      "teardown": "1.728300 ms"
+    }
+  }
+}

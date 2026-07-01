@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Chapter 5: Files And Install Workflows</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="site-header"><a href="index.html">XSH Docs</a><span>docs/CHAPTER-05-files-install.md</span></header>
+<div class="docs-shell">
+<aside class="page-toc" aria-label="Page contents">
+<h2>On This Page</h2>
+<ol>
+<li><a href="#build-a-file-inventory">Build A File Inventory</a></li>
+<li><a href="#print-a-table-when-columns-matter">Print A Table When Columns Matter</a></li>
+<li><a href="#stage-a-build-like-output">Stage A Build-Like Output</a></li>
+<li><a href="#anchor-project-aware-scripts">Anchor Project-Aware Scripts</a></li>
+<li><a href="#what-you-know-now">What You Know Now</a></li>
+</ol>
+</aside>
+<main class="markdown-body">
+<nav class="chapter-nav" aria-label="Chapter navigation">
+<a rel="prev" href="CHAPTER-04-processes.html"><span>Previous</span>Chapter 4: Processes And System State</a>
+<a rel="next" href="CHAPTER-06-text-bytes-hash.html"><span>Next</span>Chapter 6: Text, Bytes, And Hashes</a>
+</nav>
+<h1>Chapter 5: Files And Install Workflows</h1>
+<p>Filesystem automation is where small scripts often become hard to audit. A
+script starts by listing files, then grows cleanup rules, install paths,
+permissions, tables, and checks that must be right on the first run.</p>
+<p>By the end of this chapter, you will have seen the shape of a useful file
+report and a small staging workflow: paths stay typed, file records carry
+metadata, cleanup is scoped with <code>defer</code>, and text formatting happens at the
+last boundary.</p>
+<h2 id="build-a-file-inventory">Build A File Inventory</h2>
+<p>The first job is a project inventory. It walks the current tree, ignores hidden
+paths, groups files by extension, and prints stable counts.</p>
+<pre><code class="language-xsh"><span class="tok-comment"># Implements fd -tf | awk -F. 'NF &gt; 1 {print tolower($NF)}' | sort | uniq -c | sort -n with zero subprocesses.</span>
+<span class="tok-keyword">let</span> <span class="tok-ident">root</span> <span class="tok-operator">=</span> <span class="tok-ident">fs</span><span class="tok-punctuation">.</span><span class="tok-ident">cwd</span><span class="tok-punctuation">(</span><span class="tok-punctuation">)</span><span class="tok-operator">?</span>
+
+<span class="tok-keyword">let</span> <span class="tok-ident">stats</span> <span class="tok-operator">=</span> <span class="tok-ident">fs</span><span class="tok-punctuation">.</span><span class="tok-ident">files</span><span class="tok-punctuation">(</span><span class="tok-ident">root</span><span class="tok-punctuation">,</span> <span class="tok-ident">stat</span><span class="tok-punctuation">:</span> <span class="tok-literal">false</span><span class="tok-punctuation">)</span>
+  <span class="tok-operator">|&gt;</span> <span class="tok-ident">where</span> <span class="tok-punctuation">.</span><span class="tok-ident">ext</span> <span class="tok-operator">!=</span> <span class="tok-string">&quot;&quot;</span>
+  <span class="tok-operator">|&gt;</span> <span class="tok-ident">count</span> <span class="tok-punctuation">{</span> <span class="tok-operator">|</span><span class="tok-ident">entry</span><span class="tok-operator">|</span>
+    <span class="tok-ident">entry</span><span class="tok-punctuation">.</span><span class="tok-ident">ext</span><span class="tok-punctuation">.</span><span class="tok-ident">lower</span><span class="tok-punctuation">(</span><span class="tok-punctuation">)</span>
+  <span class="tok-punctuation">}</span>
+
+<span class="tok-keyword">let</span> <span class="tok-ident">counts</span> <span class="tok-operator">=</span> <span class="tok-ident">stats</span><span class="tok-punctuation">.</span><span class="tok-ident">keys</span><span class="tok-punctuation">(</span><span class="tok-punctuation">)</span>
+  <span class="tok-operator">|&gt;</span> <span class="tok-ident">map</span> <span class="tok-punctuation">{</span> <span class="tok-operator">|</span><span class="tok-ident">ext</span><span class="tok-operator">|</span>
+    <span class="tok-punctuation">{</span><span class="tok-ident">count</span><span class="tok-punctuation">:</span> <span class="tok-ident">stats</span><span class="tok-punctuation">.</span><span class="tok-ident">get</span><span class="tok-punctuation">(</span><span class="tok-ident">ext</span><span class="tok-punctuation">,</span> <span class="tok-literal">0</span><span class="tok-punctuation">)</span><span class="tok-punctuation">,</span> <span class="tok-ident">ext</span><span class="tok-punctuation">:</span> <span class="tok-ident">ext</span><span class="tok-punctuation">}</span>
+  <span class="tok-punctuation">}</span>
+  <span class="tok-operator">|&gt;</span> <span class="tok-ident">sort-by</span> <span class="tok-punctuation">.</span><span class="tok-ident">count</span>
+
+<span class="tok-keyword">for</span> <span class="tok-ident">row</span> <span class="tok-keyword">in</span> <span class="tok-ident">counts</span> <span class="tok-punctuation">{</span>
+  <span class="tok-ident">print</span> <span class="tok-string">f&quot;${row.count:&gt;4} ${row.ext}&quot;</span>
+<span class="tok-punctuation">}</span>
+</code></pre>
+<p>This is a complete script, not just a stream demo. It asks the filesystem for
+records, filters those records while they are still structured, groups by a
+computed key, then formats each final row.</p>
+<p>Why XSH shines here: <code>fs.walk</code> produces file records without spawning <code>fd</code>,
+<code>awk</code>, <code>sort</code>, or <code>uniq</code>; <code>group-by</code> keeps the extension attached to the
+matching entries; and the script only turns records into text when it prints.</p>
+<p>Compared with bash and CLI tools: the shell version is usually a pipeline like
+<code>fd | awk | sort | uniq -c | sort</code>. That is fine for a quick terminal one-liner,
+but the intermediate format is text. In XSH, the script keeps paths, extensions,
+and counts as values until the final <code>print</code>.</p>
+<p>Common trap: avoid turning paths into strings too early. Use path methods while
+you are deciding what the path means; use <code>.display()</code> when the path is ready
+to cross a text boundary.</p>
+<p>Do not use XSH to replace every casual terminal pipeline. Use it when the file
+inventory becomes policy: filtering rules, install decisions, manifests,
+permissions, or checks that need review.</p>
+<p>Filesystem capacity and mount ownership also stay typed. Use
+<code>fs.filesystem_stats(path)?</code>, <code>fs.mounts()?</code>, and <code>fs.mount_for(path)?</code> when a
+script needs disk usage or mount metadata; do not parse <code>df</code> output inside the
+script.</p>
+<p>When a script combines a trusted root directory with untrusted relative names,
+use <code>fs.open_root(root)?</code> and the <code>fs.root_*</code> functions instead of joining path
+strings. Rooted filesystem operations resolve from an open directory handle and
+reject absolute paths, <code>..</code>, and symlink traversal.</p>
+<h2 id="print-a-table-when-columns-matter">Print A Table When Columns Matter</h2>
+<p>Counts are enough for a quick inventory. When a script needs columns that a
+person will scan, use table output as the final stage.</p>
+<pre><code class="language-xsh"><span class="tok-keyword">let</span> <span class="tok-ident">root_handle</span> <span class="tok-operator">=</span> <span class="tok-ident">fs</span><span class="tok-punctuation">.</span><span class="tok-ident">tempdir</span><span class="tok-punctuation">(</span><span class="tok-punctuation">)</span><span class="tok-operator">?</span>
+<span class="tok-keyword">defer</span> <span class="tok-ident">fs</span><span class="tok-punctuation">.</span><span class="tok-ident">close_root</span><span class="tok-punctuation">(</span><span class="tok-ident">root_handle</span><span class="tok-punctuation">)</span><span class="tok-operator">?</span>
+<span class="tok-keyword">let</span> <span class="tok-ident">root</span> <span class="tok-operator">=</span> <span class="tok-ident">fs</span><span class="tok-punctuation">.</span><span class="tok-ident">root_path</span><span class="tok-punctuation">(</span><span class="tok-ident">root_handle</span><span class="tok-punctuation">)</span><span class="tok-operator">?</span>
+<span class="tok-ident">fs</span><span class="tok-punctuation">.</span><span class="tok-ident">write</span><span class="tok-punctuation">(</span><span class="tok-string">fp&quot;${root}/small.txt&quot;</span><span class="tok-punctuation">,</span> <span class="tok-string">&quot;a&quot;</span><span class="tok-punctuation">)</span><span class="tok-operator">?</span>
+<span class="tok-ident">fs</span><span class="tok-punctuation">.</span><span class="tok-ident">write</span><span class="tok-punctuation">(</span><span class="tok-string">fp&quot;${root}/large.txt&quot;</span><span class="tok-punctuation">,</span> <span class="tok-string">&quot;abcd&quot;</span><span class="tok-punctuation">)</span><span class="tok-operator">?</span>
+
+<span class="tok-ident">fs</span><span class="tok-punctuation">.</span><span class="tok-ident">ls</span><span class="tok-punctuation">(</span><span class="tok-ident">root</span><span class="tok-punctuation">)</span>
+  <span class="tok-operator">|&gt;</span> <span class="tok-ident">sort-by</span> <span class="tok-punctuation">.</span><span class="tok-ident">size</span>
+  <span class="tok-operator">|&gt;</span> <span class="tok-ident">table</span><span class="tok-punctuation">.</span><span class="tok-ident">print</span><span class="tok-punctuation">(</span><span class="tok-ident">columns</span><span class="tok-punctuation">:</span> <span class="tok-punctuation">[</span><span class="tok-string">&quot;name&quot;</span><span class="tok-punctuation">,</span> <span class="tok-string">&quot;size&quot;</span><span class="tok-punctuation">,</span> <span class="tok-string">&quot;kind&quot;</span><span class="tok-punctuation">]</span><span class="tok-punctuation">)</span>
+
+<span class="tok-keyword">let</span> <span class="tok-ident">process_count</span> <span class="tok-operator">=</span> <span class="tok-ident">process</span><span class="tok-punctuation">.</span><span class="tok-ident">list</span><span class="tok-punctuation">(</span><span class="tok-punctuation">)</span>
+  <span class="tok-operator">|&gt;</span> <span class="tok-ident">where</span> <span class="tok-punctuation">.</span><span class="tok-ident">pid</span> <span class="tok-operator">&gt;</span> <span class="tok-literal">0</span>
+  <span class="tok-operator">|&gt;</span> <span class="tok-ident">count</span><span class="tok-punctuation">(</span><span class="tok-punctuation">)</span>
+
+<span class="tok-keyword">let</span> <span class="tok-ident">has_processes</span> <span class="tok-operator">=</span> <span class="tok-ident">process_count</span> <span class="tok-operator">&gt;</span> <span class="tok-literal">0</span>
+<span class="tok-ident">print</span> <span class="tok-ident">$has_processes</span>
+</code></pre>
+<p>The script creates a temporary directory, writes two files, sorts file records
+by size, and prints named columns. The process-count check is deliberately
+separate: it shows that host state also arrives as records and can be checked
+without parsing command output.</p>
+<p>Why XSH shines here: a table is presentation, not the internal data model.
+Earlier pipeline stages still work with records, numbers, and paths.</p>
+<p>Do not parse table output later in the same script. If another step needs the
+data, keep the records and print the table only for the human reader.</p>
+<h2 id="stage-a-build-like-output">Stage A Build-Like Output</h2>
+<p>Install and build recipes usually need a scratch root, source files, command
+boundaries, artifacts, and final verification.</p>
+<pre><code class="language-xsh"><span class="tok-keyword">let</span> <span class="tok-ident">root</span> <span class="tok-operator">=</span> <span class="tok-ident">fs</span><span class="tok-punctuation">.</span><span class="tok-ident">tempdir</span><span class="tok-punctuation">(</span><span class="tok-punctuation">)</span><span class="tok-operator">?</span>
+
+<span class="tok-ident">fs</span><span class="tok-punctuation">.</span><span class="tok-ident">root_write</span><span class="tok-punctuation">(</span>
+  <span class="tok-ident">root</span><span class="tok-punctuation">,</span>
+  <span class="tok-string">p&quot;main.c&quot;</span><span class="tok-punctuation">,</span>
+  <span class="tok-string">&quot;&quot;&quot;int main(void) { return 0; }
+&quot;&quot;&quot;</span><span class="tok-punctuation">,</span>
+<span class="tok-punctuation">)</span><span class="tok-operator">?</span>
+
+<span class="tok-keyword">run</span> <span class="tok-ident">printf</span> <span class="tok-string">&quot;%s\n&quot;</span> <span class="tok-string">&quot;build ok&quot;</span>
+
+<span class="tok-ident">fs</span><span class="tok-punctuation">.</span><span class="tok-ident">root_write</span><span class="tok-punctuation">(</span>
+  <span class="tok-ident">root</span><span class="tok-punctuation">,</span>
+  <span class="tok-string">p&quot;main.o&quot;</span><span class="tok-punctuation">,</span>
+  <span class="tok-string">&quot;&quot;&quot;object
+&quot;&quot;&quot;</span><span class="tok-punctuation">,</span>
+<span class="tok-punctuation">)</span><span class="tok-operator">?</span>
+
+<span class="tok-keyword">let</span> <span class="tok-ident">exists</span> <span class="tok-operator">=</span> <span class="tok-ident">fs</span><span class="tok-punctuation">.</span><span class="tok-ident">root_exists</span><span class="tok-punctuation">(</span><span class="tok-ident">root</span><span class="tok-punctuation">,</span> <span class="tok-string">p&quot;main.o&quot;</span><span class="tok-punctuation">)</span><span class="tok-operator">?</span>
+<span class="tok-ident">print</span> <span class="tok-ident">$exists</span>
+<span class="tok-ident">fs</span><span class="tok-punctuation">.</span><span class="tok-ident">close_root</span><span class="tok-punctuation">(</span><span class="tok-ident">root</span><span class="tok-punctuation">)</span><span class="tok-operator">?</span>
+</code></pre>
+<p>The example simulates a build without depending on a compiler. The important
+shape is the workflow: create a temp root, write inputs, run an external
+boundary explicitly, write the artifact, and assert that the expected path
+exists.</p>
+<p>Why XSH shines here: the script reads like a build recipe while retaining typed
+paths, scoped cleanup, and visible process execution.</p>
+<p>Compared with bash and CLI tools: <code>mktemp -d</code>, <code>trap</code>, <code>mkdir -p</code>, <code>cp</code>, and
+<code>chmod</code> can express the same workflow, but correctness depends on quoting,
+cleanup discipline, and exit-status checks at every step. XSH makes temp roots,
+paths, cleanup, and failures first-class parts of the script.</p>
+<h2 id="anchor-project-aware-scripts">Anchor Project-Aware Scripts</h2>
+<p>Project-aware tools should not depend on the directory where the user happened
+to run them. <code>fs.gitroot()</code> walks up from the current working directory to find
+the nearest <code>.git</code> directory and returns it as a <code>Path</code>.</p>
+<pre><code class="language-xsh"><span class="tok-keyword">let</span> <span class="tok-ident">root</span> <span class="tok-operator">=</span> <span class="tok-ident">fs</span><span class="tok-punctuation">.</span><span class="tok-ident">gitroot</span><span class="tok-punctuation">(</span><span class="tok-punctuation">)</span><span class="tok-operator">?</span>
+<span class="tok-keyword">let</span> <span class="tok-ident">cfg</span> <span class="tok-operator">=</span> <span class="tok-ident">fs</span><span class="tok-punctuation">.</span><span class="tok-ident">read_text</span><span class="tok-punctuation">(</span><span class="tok-string">fp&quot;${root}/tool.toml&quot;</span><span class="tok-punctuation">)</span><span class="tok-operator">?</span>
+</code></pre>
+<p>It also works as a guard:</p>
+<pre><code class="language-xsh"><span class="tok-keyword">let</span> <span class="tok-ident">_</span> <span class="tok-operator">=</span> <span class="tok-ident">fs</span><span class="tok-punctuation">.</span><span class="tok-ident">gitroot</span><span class="tok-punctuation">(</span><span class="tok-punctuation">)</span><span class="tok-operator">?</span>
+</code></pre>
+<p>Outside a git repository, <code>?</code> propagates a clear <code>not-a-git-repo</code> error before
+any downstream operation can fail cryptically.</p>
+<p>Source: <code>examples/idiom-gitroot.xsh</code>.</p>
+<h2 id="what-you-know-now">What You Know Now</h2>
+<p>File scripts are easier to trust when they keep three boundaries separate:
+filesystem paths, structured metadata, and final user-facing text. The next
+chapter uses the same habit for text, bytes, and hashes.</p>
+<nav class="chapter-nav" aria-label="Chapter navigation">
+<a rel="prev" href="CHAPTER-04-processes.html"><span>Previous</span>Chapter 4: Processes And System State</a>
+<a rel="next" href="CHAPTER-06-text-bytes-hash.html"><span>Next</span>Chapter 6: Text, Bytes, And Hashes</a>
+</nav>
+</main>
+</div>
+</body>
+</html>

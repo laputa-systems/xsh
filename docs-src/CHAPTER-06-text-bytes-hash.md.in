@@ -1,0 +1,81 @@
+# Chapter 6: Text, Bytes, And Hashes
+
+Text and bytes are different kinds of data. XSH keeps that boundary visible
+with `Str`, `Bytes`, and conversion APIs that return `Result` when data is not
+valid in the requested shape.
+
+By the end of this chapter, you will have the pieces for a manifest-style
+script: clean text when it is text, copy and inspect bytes when bytes matter,
+hash file contents, and encode the final manifest only after the structured
+work is done.
+
+## Clean Text Deliberately
+
+Configuration, logs, and command output are usually text. `Str` methods cover
+the chores that appear around them: fields, splitting, joining, replacement,
+counting, reversing, translating, deleting, squeezing, wrapping, and parsing.
+
+{{include:text}}
+
+This example is intentionally broad. It shows the small transformations that
+normally hide inside shell pipelines. In XSH, separators and character sets are
+named at the call site, and parsing failures can stay in the `Result` path with
+helpers such as `.parse_int()?`.
+
+Why XSH shines here: a cleanup step can remain readable without turning into a
+chain of opaque flags.
+
+Compared with bash and CLI tools: `tr`, `cut`, `sed`, and `awk` are excellent
+at text filters. XSH is better when those filters sit inside a larger script
+that also needs typed paths, checked errors, JSON, or records.
+
+Common trap: character count and byte count are not the same thing. The example
+uses Unicode so `count_chars` and `count_bytes` produce different answers.
+Byte-indexed helpers such as `byte_at`, `byte_slice`, and `find` are for
+ASCII-oriented scanners; use character-oriented methods for display text.
+
+Do not use `Str` methods for byte protocols, archives, compressed data, or
+unknown encodings. Decode only when you know the bytes are text.
+
+## Keep Binary Work Binary
+
+Some data should not become text: fixed-size chunks, encoded blobs, copied
+blocks, NUL bytes, and invalid UTF-8.
+
+{{include:bytes}}
+
+The example round-trips base64 and base32, extracts strings from binary data,
+prints a byte dump, copies part of a file in fixed-size blocks, compares byte
+sequences, and checks invalid encodings as ordinary `Err` values.
+
+Why XSH shines here: binary data keeps its type until a conversion is
+requested. If conversion fails, the error is structured instead of becoming
+partial text.
+
+Compared with bash and CLI tools: commands like `base64`, `dd`, and `cmp` are
+still useful process boundaries. XSH's value is that binary results do not have
+to masquerade as shell strings before the next check.
+
+## Build A Hash Manifest
+
+Hashing often combines everything from the last two sections: paths, byte
+reads, digest formatting, sorted records, and JSON output.
+
+{{include:hash-tree}}
+
+The manifest pipeline walks a temporary tree, reads bytes from each file,
+hashes those bytes, records relative paths and sizes, sorts by path, and
+encodes the result as JSON.
+
+Why XSH shines here: paths, bytes, digests, and JSON records stay separate
+until the exact boundary where each representation is needed.
+
+Do not hash display strings when the contract is file content. Read bytes and
+hash bytes; format the digest only after the hash is computed.
+
+## What You Know Now
+
+Use `Str` when the data is known UTF-8 text. Use `Bytes` when the data is
+binary or may be invalid text. Use hashes over bytes, then format the digest at
+the boundary where another tool or person needs to read it. The next chapter
+uses the same discipline for JSON and network data.

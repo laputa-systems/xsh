@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>XSH Reference</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="site-header"><a href="index.html">XSH Docs</a><span>docs/REFERENCE.md</span></header>
+<div class="docs-shell">
+<aside class="page-toc" aria-label="Page contents">
+<h2>On This Page</h2>
+<ol>
+<li><a href="#machine-index">Machine Index</a></li>
+<li><a href="#stream-stages">Stream Stages</a></li>
+<li><a href="#run-forms">Run Forms</a></li>
+<li><a href="#effects">Effects</a></li>
+<li><a href="#cli-forms">CLI Forms</a></li>
+<li><a href="#trace-events">Trace Events</a></li>
+<li><a href="#core-language">Core Language</a></li>
+</ol>
+</aside>
+<main class="markdown-body">
+<h1>XSH Reference</h1>
+<p>Generated from the docs engine. Do not edit by hand.</p>
+<p>This file covers non-stdlib reference data. See <code>docs/STDLIB.md</code> for standard modules, value methods, and standard record schemas.</p>
+<h2 id="machine-index">Machine Index</h2>
+<pre><code class="language-xsh-reference">kind: reference
+version: 1
+sections: stream-stages, run-forms, effects, cli-forms, trace-events, language
+</code></pre>
+<h2 id="stream-stages">Stream Stages</h2>
+<pre><code class="language-xsh-reference">stage: where
+stage: map
+stage: par-map
+stage: each
+stage: batch
+stage: sort
+stage: sort-by
+stage: take
+stage: drop
+stage: first
+stage: last
+stage: unique-by
+stage: enumerate
+stage: zip
+stage: range
+stage: repeat
+stage: tee
+stage: sum
+stage: min
+stage: max
+stage: group-by
+stage: fold
+stage: reduce
+stage: flat-map
+stage: any
+stage: all
+stage: shuffle
+stage: table.print
+stage: text.lines
+stage: bytes.chunks
+stage: json.lines
+stage: json.stream
+stage: count
+stage: collect
+</code></pre>
+<h2 id="run-forms">Run Forms</h2>
+<table><thead><tr><th>Form</th><th>Returns</th><th>Nonzero Exit</th><th>Setup/Spawn/Capture Failure</th></tr></thead><tbody>
+<tr><td><code>run</code> in statement position</td><td><code>Unit</code></td><td>propagates <code>ProcessError</code></td><td>propagates <code>ProcessError</code></td></tr>
+<tr><td><code>run</code> in value position</td><td><code>Status</code></td><td>status data</td><td>propagates <code>ProcessError</code></td></tr>
+<tr><td><code>run.status</code></td><td><code>Status</code></td><td>status data</td><td>propagates <code>ProcessError</code></td></tr>
+<tr><td><code>run.text</code></td><td><code>Result[Str, ProcessError]</code></td><td><code>Err(ProcessError)</code></td><td><code>Err(ProcessError)</code></td></tr>
+<tr><td><code>run.bytes</code></td><td><code>Result[Bytes, ProcessError]</code></td><td><code>Err(ProcessError)</code></td><td><code>Err(ProcessError)</code></td></tr>
+<tr><td><code>run.capture --text</code></td><td><code>Result[{status, stdout: Str, stderr: Str}, ProcessError]</code></td><td><code>Ok(record)</code> with status</td><td><code>Err(ProcessError)</code></td></tr>
+<tr><td><code>run.capture --bytes</code></td><td><code>Result[{status, stdout: Bytes, stderr: Bytes}, ProcessError]</code></td><td><code>Ok(record)</code> with status</td><td><code>Err(ProcessError)</code></td></tr>
+<tr><td><code>run.stream --text</code></td><td><code>Result[Stream[Str], ProcessError]</code></td><td><code>Err(ProcessError)</code></td><td><code>Err(ProcessError)</code></td></tr>
+<tr><td><code>run.stream --bytes</code></td><td><code>Result[Stream[Bytes], ProcessError]</code></td><td><code>Err(ProcessError)</code></td><td><code>Err(ProcessError)</code></td></tr>
+</tbody></table>
+<pre><code class="language-xsh-reference">run: `run` in statement position -&gt; `Unit`
+run: `run` in value position -&gt; `Status`
+run: `run.status` -&gt; `Status`
+run: `run.text` -&gt; `Result[Str, ProcessError]`
+run: `run.bytes` -&gt; `Result[Bytes, ProcessError]`
+run: `run.capture --text` -&gt; `Result[{status, stdout: Str, stderr: Str}, ProcessError]`
+run: `run.capture --bytes` -&gt; `Result[{status, stdout: Bytes, stderr: Bytes}, ProcessError]`
+run: `run.stream --text` -&gt; `Result[Stream[Str], ProcessError]`
+run: `run.stream --bytes` -&gt; `Result[Stream[Bytes], ProcessError]`
+</code></pre>
+<h2 id="effects">Effects</h2>
+<table><thead><tr><th>Effect</th><th>Covers</th></tr></thead><tbody>
+<tr><td><code>fs</code></td><td><code>fs.*</code>, <code>archive.*</code>, <code>diff.*</code>, <code>patch.*</code>, <code>user.*</code>, <code>group.*</code>, <code>module.*</code></td></tr>
+<tr><td><code>io</code></td><td><code>io.*</code>, superset of <code>fs</code>, superset of <code>net</code>, superset of <code>process</code>, superset of <code>env</code></td></tr>
+<tr><td><code>net</code></td><td><code>net.*</code>, <code>dns.*</code></td></tr>
+<tr><td><code>process</code></td><td><code>run</code>, <code>spawn</code>, <code>wait</code>, <code>ProcessHandle.cancel</code>, effectful <code>process.*</code>, <code>unix.*</code>, <code>linux.*</code>, <code>applet.*</code></td></tr>
+<tr><td><code>env</code></td><td><code>env.*</code>, <code>cd</code>, <code>system.*</code></td></tr>
+<tr><td><code>time</code></td><td><code>time.*</code>, delayed retry blocks</td></tr>
+<tr><td><code>error</code></td><td><code>?</code> propagation outside retry attempt blocks</td></tr>
+</tbody></table>
+<pre><code class="language-xsh-reference">effect: `fs` -&gt; `fs.*`, `archive.*`, `diff.*`, `patch.*`, `user.*`, `group.*`, `module.*`
+effect: `io` -&gt; `io.*`, superset of `fs`, superset of `net`, superset of `process`, superset of `env`
+effect: `net` -&gt; `net.*`, `dns.*`
+effect: `process` -&gt; `run`, `spawn`, `wait`, `ProcessHandle.cancel`, effectful `process.*`, `unix.*`, `linux.*`, `applet.*`
+effect: `env` -&gt; `env.*`, `cd`, `system.*`
+effect: `time` -&gt; `time.*`, delayed retry blocks
+effect: `error` -&gt; `?` propagation outside retry attempt blocks
+</code></pre>
+<h2 id="cli-forms">CLI Forms</h2>
+<pre><code class="language-xsh-reference">cli: xsh SCRIPT [ARGS...]
+cli: xsh -- SCRIPT ARGS...
+cli: xshi
+cli: xsht check [--strict] [--annotate] [PATH...]
+cli: xsht fmt [--check] [FILE...]
+cli: xsht lint [--fix] [--runless] [FILE...]
+cli: xsht ast SCRIPT
+cli: xsht trace [--raw] [--trace-format text|jsonl|flamegraph] [--trace-file FILE] [--syscalls] [--trace-top-syscalls N] SCRIPT [ARGS...]
+cli: xsht test [--cov] [OPTIONS] [FILTER]
+cli: xsht docs build
+cli: xsht docs check
+</code></pre>
+<h2 id="trace-events">Trace Events</h2>
+<pre><code class="language-xsh-reference">trace: script.enter
+trace: script.exit
+trace: proc.enter
+trace: proc.exit
+trace: pure.enter
+trace: pure.exit
+trace: core.call
+trace: core.result
+trace: module.call
+trace: module.result
+trace: method.call
+trace: method.result
+trace: run.start
+trace: run.end
+trace: stream.stage.enter
+trace: stream.stage.exit
+</code></pre>
+<h2 id="core-language">Core Language</h2>
+<pre><code class="language-xsh-reference">language: source-files
+language: comments
+language: statements
+language: bindings
+language: procs
+language: pure-functions
+language: records
+language: results
+language: postfix-question
+language: fallback
+language: run
+language: captures
+language: streams
+language: native-tests
+language: command-interpolation
+language: path-literals
+language: glob-literals
+language: display-strings
+</code></pre>
+</main>
+</div>
+</body>
+</html>

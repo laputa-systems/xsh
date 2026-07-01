@@ -1,0 +1,216 @@
+name: Release
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.sha }}
+  cancel-in-progress: false
+
+env:
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  warm-cache:
+    name: Warm LLVM cache (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x86_64, aarch64]
+    runs-on: ${{ matrix.arch == 'x86_64' && 'ubuntu-24.04' || 'ubuntu-24.04-arm' }}
+    steps:
+      - name: Cache prebuilt LLVM toolchain
+        id: cache-llvm
+        uses: actions/cache@v4
+        with:
+          path: clang+llvm-22.1.8-${{ matrix.arch }}-linux-musl
+          key: llvm-prebuilt-musl-${{ matrix.arch }}-22.1.8
+
+      - name: Download prebuilt LLVM
+        if: steps.cache-llvm.outputs.cache-hit != 'true'
+        run: |
+          curl -fsSL "https://github.com/laputa-systems/llvm-prebuilt-musl/releases/download/llvm-musl-22.1.8/clang+llvm-22.1.8-${{ matrix.arch }}-linux-musl.tar.xz" | tar xJ
+
+  package:
+    name: Package ${{ matrix.package }}
+    needs: warm-cache
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - package: x86_64-linux-musl
+            arch: x86_64
+            os: linux
+            target: x86_64-unknown-linux-musl
+            runner: ubuntu-24.04
+          - package: aarch64-linux-musl
+            arch: aarch64
+            os: linux
+            target: aarch64-unknown-linux-musl
+            runner: ubuntu-24.04-arm
+          - package: aarch64-apple-darwin
+            arch: aarch64
+            os: darwin
+            target: aarch64-apple-darwin
+            runner: macos-26
+    runs-on: ${{ matrix.runner }}
+    env:
+      CFLAGS_x86_64_unknown_linux_musl: --target=x86_64-unknown-linux-musl
+      AWS_LC_SYS_CFLAGS_x86_64_unknown_linux_musl: --target=x86_64-unknown-linux-musl
+      AWS_LC_SYS_NO_JITTER_ENTROPY: "1"
+      CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS: -C target-feature=+crt-static -C link-arg=--defsym=__isoc23_sscanf=sscanf -C link-arg=--defsym=__isoc23_strtol=strtol
+      CFLAGS_aarch64_unknown_linux_musl: --target=aarch64-unknown-linux-musl
+      AWS_LC_SYS_CFLAGS_aarch64_unknown_linux_musl: --target=aarch64-unknown-linux-musl
+      CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_RUSTFLAGS: -C target-feature=+crt-static -C link-arg=--defsym=__isoc23_sscanf=sscanf -C link-arg=--defsym=__isoc23_strtol=strtol
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Install pinned Rust toolchain
+        run: |
+          toolchain="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
+          test -n "$toolchain"
+          rustup toolchain install "$toolchain" --profile minimal --component rust-src --component llvm-tools
+          rustup default "$toolchain"
+          rustup toolchain list | awk '{print $1}' | while read -r installed; do
+            case "$installed" in
+              "$toolchain"|"$toolchain"-*) ;;
+              *) rustup toolchain uninstall "$installed" || true ;;
+            esac
+          done
+          rustup toolchain list
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Restore prebuilt LLVM toolchain
+        if: matrix.os == 'linux'
+        id: cache-llvm
+        uses: actions/cache/restore@v4
+        with:
+          path: clang+llvm-22.1.8-${{ matrix.arch }}-linux-musl
+          key: llvm-prebuilt-musl-${{ matrix.arch }}-22.1.8
+
+      - name: Install native build dependencies
+        if: matrix.os == 'linux'
+        run: |
+          set -euo pipefail
+
+          # musl: dynamic linker so the prebuilt (musl-linked) clang can run on glibc.
+          # musl-dev: musl headers and libs for cross-compilation from glibc.
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends musl musl-dev
+
+          llvm_version="22.1.8"
+          llvm_dir="clang+llvm-${llvm_version}-${{ matrix.arch }}-linux-musl"
+
+          # warm-cache populates this; fall back to a direct download if the
+          # cache was evicted between jobs (extremely unlikely, but cheap).
+          if [ ! -d "$llvm_dir" ]; then
+            curl -fsSL "https://github.com/laputa-systems/llvm-prebuilt-musl/releases/download/llvm-musl-${llvm_version}/clang+llvm-${llvm_version}-${{ matrix.arch }}-linux-musl.tar.xz" | tar xJ
+          fi
+          target_upper="$(printf '%s' '${{ matrix.target }}' | tr 'a-z-' 'A-Z_')"
+          musl_inc="/usr/include/${{ matrix.arch }}-linux-musl"
+
+          echo "CC=${PWD}/${llvm_dir}/bin/clang" >> "$GITHUB_ENV"
+          echo "CC_${target_upper}=${PWD}/${llvm_dir}/bin/clang" >> "$GITHUB_ENV"
+          echo "CARGO_TARGET_${target_upper}_LINKER=rust-lld" >> "$GITHUB_ENV"
+          {
+            # The prebuilt clang is Alpine-built; it doesn't know Debian multiarch
+            # paths. Point it at the musl-dev headers explicitly.
+            echo "CFLAGS_${target_upper}=--target=${{ matrix.target }} -I${musl_inc}"
+            echo "AWS_LC_SYS_CFLAGS_${target_upper}=--target=${{ matrix.target }} -I${musl_inc}"
+          } >> "$GITHUB_ENV"
+
+      - name: Install Rust target
+        run: rustup target add ${{ matrix.target }}
+
+      - name: Clear cached aws-lc build artifacts
+        if: matrix.os == 'linux'
+        run: cargo clean -p aws-lc-sys --target ${{ matrix.target }}
+
+      - name: Compile
+        run: cargo test --no-run --locked --target ${{ matrix.target }}
+
+      - name: Link target debug tools for core tests
+        if: matrix.os == 'linux'
+        run: |
+          mkdir -p target/debug
+          ln -sf "../${{ matrix.target }}/debug/xsh" target/debug/xsh
+          ln -sf "../${{ matrix.target }}/debug/xsht" target/debug/xsht
+          ln -sf "../${{ matrix.target }}/debug/xshi" target/debug/xshi
+          ln -sf "../${{ matrix.target }}/debug/xsh-test-sleeper" target/debug/xsh-test-sleeper
+
+      - name: Test
+        run: |
+          if [ "${{ matrix.os }}" = linux ]; then
+            cargo test --target ${{ matrix.target }} -- --nocapture --quiet
+          else
+            cargo test -- --nocapture --quiet
+          fi
+
+      - name: Build dist binaries
+        run: make dist TARGET=${{ matrix.target }}
+
+      - name: Prepare multicall runner
+        run: ln -sf xsh-multicall "target/${{ matrix.target }}/dist/xsh"
+
+      - name: Verify static linkage
+        if: matrix.os == 'linux'
+        run: |
+          "target/${{ matrix.target }}/dist/xsh" .github/scripts/release-verify-static.xsh -- \
+            "${{ matrix.target }}" \
+            xsh-multicall
+
+      - name: Package Linux multicall binary
+        if: matrix.os == 'linux'
+        env:
+          RELEASE_TAG: release-${{ github.sha }}
+        run: |
+          "target/${{ matrix.target }}/dist/xsh" .github/scripts/release-package-linux.xsh -- \
+            "$RELEASE_TAG" \
+            "${{ matrix.target }}" \
+            "${{ matrix.arch }}"
+
+      - name: Package Darwin multicall binary
+        if: matrix.os == 'darwin'
+        env:
+          RELEASE_TAG: release-${{ github.sha }}
+        run: |
+          "target/${{ matrix.target }}/dist/xsh" .github/scripts/release-package-darwin.xsh -- \
+            "$RELEASE_TAG" \
+            "${{ matrix.target }}"
+
+      - name: Upload package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: xsh-${{ matrix.package }}
+          path: |
+            dist/*.xz
+            dist/*.sha256
+          if-no-files-found: error
+
+  release:
+    name: Create pre-release
+    needs: package
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Download package artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Create pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: release-${{ github.sha }}
+        run: |
+          gh release create "$RELEASE_TAG" dist/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --prerelease \
+            --target "$GITHUB_SHA" \
+            --title "$RELEASE_TAG"

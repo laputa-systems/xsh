@@ -1,0 +1,67 @@
+FROM alpine:3.21
+ARG TARGETARCH
+ARG LLVM_VERSION=22.1.8
+RUN apk add --no-cache --virtual .rustup-bootstrap curl \
+    && apk add --no-cache build-base ca-certificates-bundle coreutils curl util-linux e2fsprogs git kmod linux-headers tzdata zip valgrind valgrind-scripts \
+    && curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain none \
+    && apk del .rustup-bootstrap
+# release.yml builds Linux packages with the musl-linked LLVM release from
+# laputa-systems/llvm-prebuilt-musl. That clang does not search Alpine's GCC
+# private libdir for startup files, but C build scripts such as aws-lc-sys still
+# perform executable link probes. Expose the Alpine GCC crt objects in /usr/lib,
+# one of clang's default library search directories, so the Docker repro matches
+# CI's usable prebuilt-clang environment instead of failing before Cargo links
+# Rust code.
+RUN gcc_crt_dir="$(dirname "$(find /usr/lib/gcc -name crtbeginS.o -print -quit)")" \
+    && for obj in crtbegin.o crtbeginS.o crtbeginT.o crtend.o crtendS.o; do \
+        if [ -f "${gcc_crt_dir}/${obj}" ]; then ln -sf "${gcc_crt_dir}/${obj}" "/usr/lib/${obj}"; fi; \
+    done
+ENV PATH="/root/.cargo/bin:$PATH"
+# Keep Dockerfile.test on the same compiler family as release.yml. The release
+# workflow restores this tarball from the GitHub cache or downloads the same URL,
+# then points CC/target flags at its clang.
+RUN case "$TARGETARCH" in \
+        amd64) llvm_arch=x86_64 ;; \
+        arm64) llvm_arch=aarch64 ;; \
+        *) echo "unsupported TARGETARCH: $TARGETARCH" >&2; exit 1 ;; \
+    esac \
+    && curl -fsSL "https://github.com/laputa-systems/llvm-prebuilt-musl/releases/download/llvm-musl-${LLVM_VERSION}/clang+llvm-${LLVM_VERSION}-${llvm_arch}-linux-musl.tar.xz" \
+        | tar xJ -C /opt \
+    && ln -s "/opt/clang+llvm-${LLVM_VERSION}-${llvm_arch}-linux-musl" /opt/llvm-musl
+# These mirror the Linux package job's compiler environment. The include path is
+# /usr/include in Alpine because musl and linux-headers are not split into
+# Debian-style /usr/include/${arch}-linux-musl directories.
+ENV PATH="/opt/llvm-musl/bin:/root/.cargo/bin:$PATH" \
+    CC="/opt/llvm-musl/bin/clang" \
+    CC_AARCH64_UNKNOWN_LINUX_MUSL="/opt/llvm-musl/bin/clang" \
+    CC_X86_64_UNKNOWN_LINUX_MUSL="/opt/llvm-musl/bin/clang" \
+    CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER="rust-lld" \
+    CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER="rust-lld" \
+    CFLAGS_aarch64_unknown_linux_musl="--target=aarch64-unknown-linux-musl -I/usr/include" \
+    CFLAGS_x86_64_unknown_linux_musl="--target=x86_64-unknown-linux-musl -I/usr/include" \
+    AWS_LC_SYS_CFLAGS_aarch64_unknown_linux_musl="--target=aarch64-unknown-linux-musl -I/usr/include" \
+    AWS_LC_SYS_CFLAGS_x86_64_unknown_linux_musl="--target=x86_64-unknown-linux-musl -I/usr/include" \
+    AWS_LC_SYS_NO_JITTER_ENTROPY="1"
+# The dist Makefile owns the musl target Rust flags, including the
+# __isoc23_sscanf=sscanf and __isoc23_strtol=strtol aliases. Those aliases keep
+# newer C objects linkable against the older musl symbols available in rustc's
+# self-contained musl target while still letting dist builds use build-std and
+# fat LTO. Keep Dockerfile.test focused on providing the CI-like toolchain; do
+# not duplicate those target Rust flags here or local repros can drift from
+# `make dist`.
+# Some CI/container hosts expose only partial loop-device behavior. An
+# unprivileged container may allow `mknod /dev/loop0 b 7 0` but still reject real
+# loop setup without SYS_ADMIN or a usable /dev/loop-control. Use the dedicated
+# privileged Makefile targets for real loop/mount coverage, and use an
+# unprivileged run only to reproduce graceful handling of read-only or denied
+# loop-device surfaces.
+RUN rustup toolchain install nightly-2026-04-20
+RUN rustup target add --toolchain nightly-2026-04-20 aarch64-unknown-linux-musl x86_64-unknown-linux-musl
+RUN rustup component add --toolchain nightly-2026-04-20 llvm-tools-preview
+# Host proc-macro crates link dynamically while Cargo is building. The musl
+# rustup sysroot does not always expose the Alpine libc and libgcc_s names that
+# rust-lld searches for, so install stable symlinks in the host target libdir.
+RUN host_libdir="$(rustc --print target-libdir)" \
+    && ln -sf /usr/lib/libgcc_s.so.1 "${host_libdir}/libgcc_s.so" \
+    && ln -sf /usr/lib/libgcc_s.so.1 "${host_libdir}/libgcc_s.so.1" \
+    && ln -sf /usr/lib/libc.so "${host_libdir}/libc.so"

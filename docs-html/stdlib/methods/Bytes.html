@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Bytes</title>
+<link rel="stylesheet" href="../../style.css">
+</head>
+<body>
+<header class="site-header"><a href="../../index.html">XSH Docs</a><span>docs/STDLIB.md#Bytes-methods</span></header>
+<main class="markdown-body stdlib-body">
+<p><a href="../index.html">Standard Library</a> / Methods</p>
+<h1>Bytes Methods</h1>
+<section class="stdlib-entry" id="method.Bytes.base32.0">
+<header><code>Bytes.base32() -&gt; Str</code><div><span class="stdlib-badge pure">pure</span></div></header>
+<p>`base32` method for `Bytes` values.</p>
+
+<p class="stdlib-return">Returns `Str`.</p>
+</section>
+<section class="stdlib-entry" id="method.Bytes.base64.0">
+<header><code>Bytes.base64() -&gt; Str</code><div><span class="stdlib-badge pure">pure</span></div></header>
+<p>`base64` method for `Bytes` values.</p>
+
+<p class="stdlib-return">Returns `Str`.</p>
+</section>
+<section class="stdlib-entry" id="method.Bytes.byte_at.0">
+<header><code>Bytes.byte_at(index: Int, default: Int = default) -&gt; Int</code><div><span class="stdlib-badge pure">pure</span></div></header>
+<p>`byte_at` method for `Bytes` values.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>index</code></td><td><code>Int</code></td><td>required</td><td>Required `index` argument.</td></tr>
+<tr><td><code>default</code></td><td><code>Int</code></td><td>optional</td><td>Optional `default` argument; omitted calls use the runtime default.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `Int`.</p>
+</section>
+<section class="stdlib-entry" id="method.Bytes.chunks.0">
+<header><code>Bytes.chunks(size: Int) -&gt; List[Bytes]</code><div><span class="stdlib-badge pure">pure</span></div></header>
+<p>`chunks` method for `Bytes` values.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>size</code></td><td><code>Int</code></td><td>required</td><td>Required `size` argument.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `List[Bytes]`.</p>
+</section>
+<section class="stdlib-entry" id="method.Bytes.compare.0">
+<header><code>Bytes.compare(other: Bytes) -&gt; {byte: Int, equal: Bool, left: Int, line: Int, right: Int}</code><div><span class="stdlib-badge pure">pure</span></div></header>
+<p>`compare` method for `Bytes` values.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>other</code></td><td><code>Bytes</code></td><td>required</td><td>Required `other` argument.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `{byte: Int, equal: Bool, left: Int, line: Int, right: Int}`.</p>
+</section>
+<section class="stdlib-entry" id="method.Bytes.contains.0">
+<header><code>Bytes.contains(needle: Bytes) -&gt; Bool</code><div><span class="stdlib-badge pure">pure</span></div></header>
+<p>`contains` method for `Bytes` values.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>needle</code></td><td><code>Bytes</code></td><td>required</td><td>Required `needle` argument.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `Bool`.</p>
+</section>
+<section class="stdlib-entry" id="method.Bytes.count_lines.0">
+<header><code>Bytes.count_lines() -&gt; Int</code><div><span class="stdlib-badge pure">pure</span></div></header>
+<p>`count_lines` method for `Bytes` values.</p>
+
+<p class="stdlib-return">Returns `Int`.</p>
+</section>
+<section class="stdlib-entry" id="method.Bytes.dump.0">
+<header><code>Bytes.dump(format: Str = default) -&gt; Str</code><div><span class="stdlib-badge pure">pure</span></div></header>
+<p>`dump` method for `Bytes` values.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>format</code></td><td><code>Str</code></td><td>optional</td><td>Optional `format` argument; omitted calls use the runtime default.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `Str`.</p>
+</section>
+<section class="stdlib-entry" id="method.Bytes.ends_with.0">
+<header><code>Bytes.ends_with(suffix: Bytes) -&gt; Bool</code><div><span class="stdlib-badge pure">pure</span></div></header>
+<p>`ends_with` method for `Bytes` values.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>suffix</code></td><td><code>Bytes</code></td><td>required</td><td>Required `suffix` argument.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `Bool`.</p>
+</section>
+<section class="stdlib-entry" id="method.Bytes.len.0">
+<header><code>Bytes.len() -&gt; Int</code><div><span class="stdlib-badge pure">pure</span></div></header>
+<p>`len` method for `Bytes` values.</p>
+
+<p class="stdlib-return">Returns `Int`.</p>
+</section>
+<section class="stdlib-entry" id="method.Bytes.lines.0">
+<header><code>Bytes.lines() -&gt; Stream[Bytes]</code><div><span class="stdlib-badge pure">pure</span></div></header>
+<p>`lines` method for `Bytes` values.</p>
+
+<p class="stdlib-return">Returns `Stream[Bytes]`.</p>
+</section>
+<section class="stdlib-entry" id="method.Bytes.lower.0">
+<header><code>Bytes.lower() -&gt; Bytes</code><div><span class="stdlib-badge pure">pure</span></div></header>
+<p>`lower` method for `Bytes` values.</p>
+
+<p class="stdlib-return">Returns `Bytes`.</p>
+</section>
+<section class="stdlib-entry" id="method.Bytes.md5.0">
+<header><code>Bytes.md5() -&gt; Digest</code><div><span class="stdlib-badge pure">pure</span></div></header>
+<p>`md5` method for `Bytes` values.</p>
+
+<p class="stdlib-return">Returns `Digest`.</p>
+</section>
+<section class="stdlib-entry" id="method.Bytes.sha1.0">
+<header><code>Bytes.sha1() -&gt; Digest</code><div><span class="stdlib-badge pure">pure</span></div></header>
+<p>`sha1` method for `Bytes` values.</p>
+
+<p class="stdlib-return">Returns `Digest`.</p>
+</section>
+<section class="stdlib-entry" id="method.Bytes.sha256.0">
+<header><code>Bytes.sha256() -&gt; Digest</code><div><span class="stdlib-badge pure">pure</span></div></header>
+<p>`sha256` method for `Bytes` values.</p>
+
+<p class="stdlib-return">Returns `Digest`.</p>
+</section>
+<section class="stdlib-entry" id="method.Bytes.sha512.0">
+<header><code>Bytes.sha512() -&gt; Digest</code><div><span class="stdlib-badge pure">pure</span></div></header>
+<p>`sha512` method for `Bytes` values.</p>
+
+<p class="stdlib-return">Returns `Digest`.</p>
+</section>
+<section class="stdlib-entry" id="method.Bytes.slice.0">
+<header><code>Bytes.slice(offset: Int, length: Int = default) -&gt; Bytes</code><div><span class="stdlib-badge pure">pure</span></div></header>
+<p>`slice` method for `Bytes` values.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>offset</code></td><td><code>Int</code></td><td>required</td><td>Required `offset` argument.</td></tr>
+<tr><td><code>length</code></td><td><code>Int</code></td><td>optional</td><td>Optional `length` argument; omitted calls use the runtime default.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `Bytes`.</p>
+</section>
+<section class="stdlib-entry" id="method.Bytes.starts_with.0">
+<header><code>Bytes.starts_with(prefix: Bytes) -&gt; Bool</code><div><span class="stdlib-badge pure">pure</span></div></header>
+<p>`starts_with` method for `Bytes` values.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>prefix</code></td><td><code>Bytes</code></td><td>required</td><td>Required `prefix` argument.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `Bool`.</p>
+</section>
+<section class="stdlib-entry" id="method.Bytes.strings.0">
+<header><code>Bytes.strings(min_len: Int = default) -&gt; List[Str]</code><div><span class="stdlib-badge pure">pure</span></div></header>
+<p>`strings` method for `Bytes` values.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>min_len</code></td><td><code>Int</code></td><td>optional</td><td>Optional `min_len` argument; omitted calls use the runtime default.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `List[Str]`.</p>
+</section>
+<section class="stdlib-entry" id="method.Bytes.trim.0">
+<header><code>Bytes.trim() -&gt; Bytes</code><div><span class="stdlib-badge pure">pure</span></div></header>
+<p>`trim` method for `Bytes` values.</p>
+
+<p class="stdlib-return">Returns `Bytes`.</p>
+</section>
+<section class="stdlib-entry" id="method.Bytes.utf8.0">
+<header><code>Bytes.utf8() -&gt; Result[Str, Error]</code><div><span class="stdlib-badge pure">pure</span></div></header>
+<p>`utf8` method for `Bytes` values.</p>
+
+<p class="stdlib-return">Returns `Str` or `Error` failure data.</p>
+</section>
+</main>
+</body>
+</html>

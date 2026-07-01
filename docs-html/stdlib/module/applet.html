@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>applet</title>
+<link rel="stylesheet" href="../../style.css">
+</head>
+<body>
+<header class="site-header"><a href="../../index.html">XSH Docs</a><span>docs/STDLIB.md#applet</span></header>
+<main class="markdown-body stdlib-body">
+<p><a href="../index.html">Standard Library</a> / Modules</p>
+<h1>applet</h1>
+<p class="stdlib-lede">Internal primitives for shipped core applet scripts.</p>
+<section class="stdlib-entry" id="module.applet.current_euid.0">
+<header><code>applet.current_euid() -&gt; Int</code><div><span class="stdlib-badge effect">effect</span></div></header>
+<p>Internal primitives for shipped core applet scripts `current_euid` operation.</p>
+
+<p class="stdlib-return">Returns `Int`.</p>
+</section>
+<section class="stdlib-entry" id="module.applet.current_exe.0">
+<header><code>applet.current_exe() -&gt; Result[Path, Error]</code><div><span class="stdlib-badge effect">effect</span></div></header>
+<p>Internal primitives for shipped core applet scripts `current_exe` operation.</p>
+
+<p class="stdlib-return">Returns `Path` or `Error` failure data.</p>
+</section>
+<section class="stdlib-entry" id="module.applet.hash_password.0">
+<header><code>applet.hash_password(password: Str, algorithm: Str) -&gt; Result[Str, Error]</code><div><span class="stdlib-badge effect">effect</span></div></header>
+<p>Internal primitives for shipped core applet scripts `hash_password` operation.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>password</code></td><td><code>Str</code></td><td>required</td><td>Required `password` argument.</td></tr>
+<tr><td><code>algorithm</code></td><td><code>Str</code></td><td>required</td><td>Required `algorithm` argument.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `Str` or `Error` failure data.</p>
+</section>
+<section class="stdlib-entry" id="module.applet.login_session.0">
+<header><code>applet.login_session(user: {gid: Int, home: Path, name: Str, shell: Str, uid: Int}, preserve_env: Bool, host: Str) -&gt; Result[Int, Error]</code><div><span class="stdlib-badge effect">effect</span></div></header>
+<p>Internal primitives for shipped core applet scripts `login_session` operation.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>user</code></td><td><code>{gid: Int, home: Path, name: Str, shell: Str, uid: Int}</code></td><td>required</td><td>Required `user` argument.</td></tr>
+<tr><td><code>preserve_env</code></td><td><code>Bool</code></td><td>required</td><td>Required `preserve_env` argument.</td></tr>
+<tr><td><code>host</code></td><td><code>Str</code></td><td>required</td><td>Required `host` argument.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `Int` or `Error` failure data.</p>
+</section>
+<section class="stdlib-entry" id="module.applet.mdev.0">
+<header><code>applet.mdev(argv: List[Str]) -&gt; Result[Int, Error]</code><div><span class="stdlib-badge effect">effect</span></div></header>
+<p>Internal primitives for shipped core applet scripts `mdev` operation.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>argv</code></td><td><code>List[Str]</code></td><td>required</td><td>Required `argv` argument.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `Int` or `Error` failure data.</p>
+</section>
+<section class="stdlib-entry" id="module.applet.su_session.0">
+<header><code>applet.su_session(user: {gid: Int, home: Path, name: Str, shell: Str, uid: Int}, login: Bool, preserve_env: Bool, shell: Str, command: Str, extra_args: List[Str]) -&gt; Result[Int, Error]</code><div><span class="stdlib-badge effect">effect</span></div></header>
+<p>Internal primitives for shipped core applet scripts `su_session` operation.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>user</code></td><td><code>{gid: Int, home: Path, name: Str, shell: Str, uid: Int}</code></td><td>required</td><td>Required `user` argument.</td></tr>
+<tr><td><code>login</code></td><td><code>Bool</code></td><td>required</td><td>Required `login` argument.</td></tr>
+<tr><td><code>preserve_env</code></td><td><code>Bool</code></td><td>required</td><td>Required `preserve_env` argument.</td></tr>
+<tr><td><code>shell</code></td><td><code>Str</code></td><td>required</td><td>Required `shell` argument.</td></tr>
+<tr><td><code>command</code></td><td><code>Str</code></td><td>required</td><td>Required `command` argument.</td></tr>
+<tr><td><code>extra_args</code></td><td><code>List[Str]</code></td><td>required</td><td>Required `extra_args` argument.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `Int` or `Error` failure data.</p>
+</section>
+<section class="stdlib-entry" id="module.applet.sulogin_session.0">
+<header><code>applet.sulogin_session(user: {gid: Int, home: Path, name: Str, shell: Str, uid: Int}) -&gt; Result[Int, Error]</code><div><span class="stdlib-badge effect">effect</span></div></header>
+<p>Internal primitives for shipped core applet scripts `sulogin_session` operation.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>user</code></td><td><code>{gid: Int, home: Path, name: Str, shell: Str, uid: Int}</code></td><td>required</td><td>Required `user` argument.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `Int` or `Error` failure data.</p>
+</section>
+<section class="stdlib-entry" id="module.applet.verify_password.0">
+<header><code>applet.verify_password(password: Str, hash: Str) -&gt; Bool</code><div><span class="stdlib-badge effect">effect</span></div></header>
+<p>Internal primitives for shipped core applet scripts `verify_password` operation.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>password</code></td><td><code>Str</code></td><td>required</td><td>Required `password` argument.</td></tr>
+<tr><td><code>hash</code></td><td><code>Str</code></td><td>required</td><td>Required `hash` argument.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `Bool`.</p>
+</section>
+</main>
+</body>
+</html>

@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>user</title>
+<link rel="stylesheet" href="../../style.css">
+</head>
+<body>
+<header class="site-header"><a href="../../index.html">XSH Docs</a><span>docs/STDLIB.md#user</span></header>
+<main class="markdown-body stdlib-body">
+<p><a href="../index.html">Standard Library</a> / Modules</p>
+<h1>user</h1>
+<p class="stdlib-lede">Unix user lookup records.</p>
+<section class="stdlib-entry" id="module.user.add.0">
+<header><code>user.add(name: Str, uid: Int = default, gid: Int = default, home: Path = default, shell: Path = default, gecos: Str = default) -&gt; Result[{gid: Int, home: Path, name: Str, shell: Str, uid: Int}, Error]</code><div><span class="stdlib-badge effect">effect</span></div></header>
+<p>Unix user lookup records `add` operation.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>name</code></td><td><code>Str</code></td><td>required</td><td>Required `name` argument.</td></tr>
+<tr><td><code>uid</code></td><td><code>Int</code></td><td>optional</td><td>Optional `uid` argument; omitted calls use the runtime default.</td></tr>
+<tr><td><code>gid</code></td><td><code>Int</code></td><td>optional</td><td>Optional `gid` argument; omitted calls use the runtime default.</td></tr>
+<tr><td><code>home</code></td><td><code>Path</code></td><td>optional</td><td>Optional `home` argument; omitted calls use the runtime default.</td></tr>
+<tr><td><code>shell</code></td><td><code>Path</code></td><td>optional</td><td>Optional `shell` argument; omitted calls use the runtime default.</td></tr>
+<tr><td><code>gecos</code></td><td><code>Str</code></td><td>optional</td><td>Optional `gecos` argument; omitted calls use the runtime default.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `{gid: Int, home: Path, name: Str, shell: Str, uid: Int}` or `Error` failure data.</p>
+</section>
+<section class="stdlib-entry" id="module.user.by_uid.0">
+<header><code>user.by_uid(uid: Int) -&gt; Result[{gid: Int, home: Path, name: Str, shell: Str, uid: Int}, Error]</code><div><span class="stdlib-badge effect">effect</span></div></header>
+<p>Unix user lookup records `by_uid` operation.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>uid</code></td><td><code>Int</code></td><td>required</td><td>Required `uid` argument.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `{gid: Int, home: Path, name: Str, shell: Str, uid: Int}` or `Error` failure data.</p>
+</section>
+<section class="stdlib-entry" id="module.user.current.0">
+<header><code>user.current() -&gt; Result[{gid: Int, home: Path, name: Str, shell: Str, uid: Int}, Error]</code><div><span class="stdlib-badge effect">effect</span></div></header>
+<p>Unix user lookup records `current` operation.</p>
+
+<p class="stdlib-return">Returns `{gid: Int, home: Path, name: Str, shell: Str, uid: Int}` or `Error` failure data.</p>
+</section>
+<section class="stdlib-entry" id="module.user.lookup.0">
+<header><code>user.lookup(name: Str) -&gt; Result[{gid: Int, home: Path, name: Str, shell: Str, uid: Int}, Error]</code><div><span class="stdlib-badge effect">effect</span></div></header>
+<p>Unix user lookup records `lookup` operation.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>name</code></td><td><code>Str</code></td><td>required</td><td>Required `name` argument.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `{gid: Int, home: Path, name: Str, shell: Str, uid: Int}` or `Error` failure data.</p>
+</section>
+<section class="stdlib-entry" id="module.user.remove.0">
+<header><code>user.remove(name: Str, remove_home: Bool = default) -&gt; Result[Unit, Error]</code><div><span class="stdlib-badge effect">effect</span><span class="stdlib-badge command">command</span></div></header>
+<p>Unix user lookup records `remove` operation.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>name</code></td><td><code>Str</code></td><td>required</td><td>Required `name` argument.</td></tr>
+<tr><td><code>remove_home</code></td><td><code>Bool</code></td><td>optional</td><td>Optional `remove_home` argument; omitted calls use the runtime default.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `Unit` or `Error` failure data.</p>
+</section>
+</main>
+</body>
+</html>

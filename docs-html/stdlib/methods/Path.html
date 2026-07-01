@@ -1,0 +1,248 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Path</title>
+<link rel="stylesheet" href="../../style.css">
+</head>
+<body>
+<header class="site-header"><a href="../../index.html">XSH Docs</a><span>docs/STDLIB.md#Path-methods</span></header>
+<main class="markdown-body stdlib-body">
+<p><a href="../index.html">Standard Library</a> / Methods</p>
+<h1>Path Methods</h1>
+<section class="stdlib-entry" id="method.Path.bytes_lines.0">
+<header><code>Path.bytes_lines() -&gt; Result[Stream[Bytes], Error]</code><div><span class="stdlib-badge effect">effect</span></div></header>
+<p>`bytes_lines` method for `Path` values.</p>
+
+<p class="stdlib-return">Returns `Stream[Bytes]` or `Error` failure data.</p>
+</section>
+<section class="stdlib-entry" id="method.Path.chmod.0">
+<header><code>Path.chmod(mode: Int) -&gt; Result[Unit, Error]</code><div><span class="stdlib-badge effect">effect</span></div></header>
+<p>`chmod` method for `Path` values.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>mode</code></td><td><code>Int</code></td><td>required</td><td>Required `mode` argument.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `Unit` or `Error` failure data.</p>
+</section>
+<section class="stdlib-entry" id="method.Path.copy.0">
+<header><code>Path.copy(dest: Path, overwrite: Bool = default) -&gt; Result[Unit, Error]</code><div><span class="stdlib-badge effect">effect</span></div></header>
+<p>`copy` method for `Path` values.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>dest</code></td><td><code>Path</code></td><td>required</td><td>Required `dest` argument.</td></tr>
+<tr><td><code>overwrite</code></td><td><code>Bool</code></td><td>optional</td><td>Optional `overwrite` argument; omitted calls use the runtime default.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `Unit` or `Error` failure data.</p>
+</section>
+<section class="stdlib-entry" id="method.Path.display.0">
+<header><code>Path.display() -&gt; Str</code><div><span class="stdlib-badge pure">pure</span></div></header>
+<p>`display` method for `Path` values.</p>
+
+<p class="stdlib-return">Returns `Str`.</p>
+</section>
+<section class="stdlib-entry" id="method.Path.du.0">
+<header><code>Path.du() -&gt; Result[Int, Error]</code><div><span class="stdlib-badge effect">effect</span></div></header>
+<p>`du` method for `Path` values.</p>
+
+<p class="stdlib-return">Returns `Int` or `Error` failure data.</p>
+</section>
+<section class="stdlib-entry" id="method.Path.executable.0">
+<header><code>Path.executable() -&gt; Result[Bool, Error]</code><div><span class="stdlib-badge effect">effect</span></div></header>
+<p>`executable` method for `Path` values.</p>
+
+<p class="stdlib-return">Returns `Bool` or `Error` failure data.</p>
+</section>
+<section class="stdlib-entry" id="method.Path.exists.0">
+<header><code>Path.exists() -&gt; Result[Bool, Error]</code><div><span class="stdlib-badge effect">effect</span></div></header>
+<p>`exists` method for `Path` values.</p>
+
+<p class="stdlib-return">Returns `Bool` or `Error` failure data.</p>
+</section>
+<section class="stdlib-entry" id="method.Path.ext.0">
+<header><code>Path.ext() -&gt; Str</code><div><span class="stdlib-badge pure">pure</span></div></header>
+<p>`ext` method for `Path` values.</p>
+
+<p class="stdlib-return">Returns `Str`.</p>
+</section>
+<section class="stdlib-entry" id="method.Path.hardlink.0">
+<header><code>Path.hardlink(path: Path) -&gt; Result[Unit, Error]</code><div><span class="stdlib-badge effect">effect</span></div></header>
+<p>`hardlink` method for `Path` values.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>path</code></td><td><code>Path</code></td><td>required</td><td>Required `path` argument.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `Unit` or `Error` failure data.</p>
+</section>
+<section class="stdlib-entry" id="method.Path.lines.0">
+<header><code>Path.lines() -&gt; Result[Stream[Str], Error]</code><div><span class="stdlib-badge effect">effect</span></div></header>
+<p>`lines` method for `Path` values.</p>
+
+<p class="stdlib-return">Returns `Stream[Str]` or `Error` failure data.</p>
+</section>
+<section class="stdlib-entry" id="method.Path.metadata.0">
+<header><code>Path.metadata() -&gt; Result[{accessed: Int, blocks_512: Int, executable: Bool, ext: Str, gid: Int, group_executable: Bool, kind: Str, mode: Int, modified: Int, name: Str, other_executable: Bool, owner_executable: Bool, path: Path, setgid: Bool, setuid: Bool, size: Int, sticky: Bool, uid: Int, world_writable: Bool}, Error]</code><div><span class="stdlib-badge effect">effect</span></div></header>
+<p>`metadata` method for `Path` values.</p>
+
+<p class="stdlib-return">Returns `{accessed: Int, blocks_512: Int, executable: Bool, ext: Str, gid: Int, group_executable: Bool, kind: Str, mode: Int, modified: Int, name: Str, other_executable: Bool, owner_executable: Bool, path: Path, setgid: Bool, setuid: Bool, size: Int, sticky: Bool, uid: Int, world_writable: Bool}` or `Error` failure data.</p>
+</section>
+<section class="stdlib-entry" id="method.Path.mkdir.0">
+<header><code>Path.mkdir(parents: Bool = default) -&gt; Result[Unit, Error]</code><div><span class="stdlib-badge effect">effect</span></div></header>
+<p>`mkdir` method for `Path` values.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>parents</code></td><td><code>Bool</code></td><td>optional</td><td>Optional `parents` argument; omitted calls use the runtime default.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `Unit` or `Error` failure data.</p>
+</section>
+<section class="stdlib-entry" id="method.Path.name.0">
+<header><code>Path.name() -&gt; Str</code><div><span class="stdlib-badge pure">pure</span></div></header>
+<p>`name` method for `Path` values.</p>
+
+<p class="stdlib-return">Returns `Str`.</p>
+</section>
+<section class="stdlib-entry" id="method.Path.normalize.0">
+<header><code>Path.normalize() -&gt; Path</code><div><span class="stdlib-badge pure">pure</span></div></header>
+<p>`normalize` method for `Path` values.</p>
+
+<p class="stdlib-return">Returns `Path`.</p>
+</section>
+<section class="stdlib-entry" id="method.Path.parent.0">
+<header><code>Path.parent() -&gt; Path</code><div><span class="stdlib-badge pure">pure</span></div></header>
+<p>`parent` method for `Path` values.</p>
+
+<p class="stdlib-return">Returns `Path`.</p>
+</section>
+<section class="stdlib-entry" id="method.Path.read_bytes.0">
+<header><code>Path.read_bytes() -&gt; Result[Bytes, Error]</code><div><span class="stdlib-badge effect">effect</span></div></header>
+<p>`read_bytes` method for `Path` values.</p>
+
+<p class="stdlib-return">Returns `Bytes` or `Error` failure data.</p>
+</section>
+<section class="stdlib-entry" id="method.Path.read_text.0">
+<header><code>Path.read_text() -&gt; Result[Str, Error]</code><div><span class="stdlib-badge effect">effect</span></div></header>
+<p>`read_text` method for `Path` values.</p>
+
+<p class="stdlib-return">Returns `Str` or `Error` failure data.</p>
+</section>
+<section class="stdlib-entry" id="method.Path.readlink.0">
+<header><code>Path.readlink() -&gt; Result[Path, Error]</code><div><span class="stdlib-badge effect">effect</span></div></header>
+<p>`readlink` method for `Path` values.</p>
+
+<p class="stdlib-return">Returns `Path` or `Error` failure data.</p>
+</section>
+<section class="stdlib-entry" id="method.Path.relative_to.0">
+<header><code>Path.relative_to(base: Path) -&gt; Path</code><div><span class="stdlib-badge pure">pure</span></div></header>
+<p>`relative_to` method for `Path` values.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>base</code></td><td><code>Path</code></td><td>required</td><td>Required `base` argument.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `Path`.</p>
+</section>
+<section class="stdlib-entry" id="method.Path.remove.0">
+<header><code>Path.remove(missing_ok: Bool = default) -&gt; Result[Unit, Error]</code><div><span class="stdlib-badge effect">effect</span></div></header>
+<p>`remove` method for `Path` values.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>missing_ok</code></td><td><code>Bool</code></td><td>optional</td><td>Optional `missing_ok` argument; omitted calls use the runtime default.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `Unit` or `Error` failure data.</p>
+</section>
+<section class="stdlib-entry" id="method.Path.remove_dir.0">
+<header><code>Path.remove_dir() -&gt; Result[Unit, Error]</code><div><span class="stdlib-badge effect">effect</span></div></header>
+<p>`remove_dir` method for `Path` values.</p>
+
+<p class="stdlib-return">Returns `Unit` or `Error` failure data.</p>
+</section>
+<section class="stdlib-entry" id="method.Path.rename.0">
+<header><code>Path.rename(dest: Path, overwrite: Bool = default) -&gt; Result[Unit, Error]</code><div><span class="stdlib-badge effect">effect</span></div></header>
+<p>`rename` method for `Path` values.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>dest</code></td><td><code>Path</code></td><td>required</td><td>Required `dest` argument.</td></tr>
+<tr><td><code>overwrite</code></td><td><code>Bool</code></td><td>optional</td><td>Optional `overwrite` argument; omitted calls use the runtime default.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `Unit` or `Error` failure data.</p>
+</section>
+<section class="stdlib-entry" id="method.Path.resolve.0">
+<header><code>Path.resolve() -&gt; Result[Path, Error]</code><div><span class="stdlib-badge effect">effect</span></div></header>
+<p>`resolve` method for `Path` values.</p>
+
+<p class="stdlib-return">Returns `Path` or `Error` failure data.</p>
+</section>
+<section class="stdlib-entry" id="method.Path.strip_prefix.0">
+<header><code>Path.strip_prefix(prefix: Path) -&gt; Result[Path, Error]</code><div><span class="stdlib-badge pure">pure</span></div></header>
+<p>`strip_prefix` method for `Path` values.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>prefix</code></td><td><code>Path</code></td><td>required</td><td>Required `prefix` argument.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `Path` or `Error` failure data.</p>
+</section>
+<section class="stdlib-entry" id="method.Path.touch.0">
+<header><code>Path.touch(create: Bool = default) -&gt; Result[Unit, Error]</code><div><span class="stdlib-badge effect">effect</span></div></header>
+<p>`touch` method for `Path` values.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>create</code></td><td><code>Bool</code></td><td>optional</td><td>Optional `create` argument; omitted calls use the runtime default.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `Unit` or `Error` failure data.</p>
+</section>
+<section class="stdlib-entry" id="method.Path.touch_from.0">
+<header><code>Path.touch_from(reference: Path) -&gt; Result[Unit, Error]</code><div><span class="stdlib-badge effect">effect</span></div></header>
+<p>`touch_from` method for `Path` values.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>reference</code></td><td><code>Path</code></td><td>required</td><td>Required `reference` argument.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `Unit` or `Error` failure data.</p>
+</section>
+<section class="stdlib-entry" id="method.Path.truncate.0">
+<header><code>Path.truncate(size: Int) -&gt; Result[Unit, Error]</code><div><span class="stdlib-badge effect">effect</span></div></header>
+<p>`truncate` method for `Path` values.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>size</code></td><td><code>Int</code></td><td>required</td><td>Required `size` argument.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `Unit` or `Error` failure data.</p>
+</section>
+<section class="stdlib-entry" id="method.Path.unlink.0">
+<header><code>Path.unlink() -&gt; Result[Unit, Error]</code><div><span class="stdlib-badge effect">effect</span></div></header>
+<p>`unlink` method for `Path` values.</p>
+
+<p class="stdlib-return">Returns `Unit` or `Error` failure data.</p>
+</section>
+<section class="stdlib-entry" id="method.Path.with_ext.0">
+<header><code>Path.with_ext(ext: Str) -&gt; Path</code><div><span class="stdlib-badge pure">pure</span></div></header>
+<p>`with_ext` method for `Path` values.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>ext</code></td><td><code>Str</code></td><td>required</td><td>Required `ext` argument.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `Path`.</p>
+</section>
+<section class="stdlib-entry" id="method.Path.write.0">
+<header><code>Path.write(data: Bytes) -&gt; Result[Unit, Error]</code><div><span class="stdlib-badge effect">effect</span></div></header>
+<p>`write` method for `Path` values.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>data</code></td><td><code>Bytes</code></td><td>required</td><td>Required `data` argument.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `Unit` or `Error` failure data.</p>
+</section>
+<section class="stdlib-entry" id="method.Path.write.1">
+<header><code>Path.write(data: Str) -&gt; Result[Unit, Error]</code><div><span class="stdlib-badge effect">effect</span></div></header>
+<p>`write` method for `Path` values.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>data</code></td><td><code>Str</code></td><td>required</td><td>Required `data` argument.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `Unit` or `Error` failure data.</p>
+</section>
+<section class="stdlib-entry" id="method.Path.write_atomic.0">
+<header><code>Path.write_atomic(data: Bytes) -&gt; Result[Unit, Error]</code><div><span class="stdlib-badge effect">effect</span></div></header>
+<p>`write_atomic` method for `Path` values.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>data</code></td><td><code>Bytes</code></td><td>required</td><td>Required `data` argument.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `Unit` or `Error` failure data.</p>
+</section>
+<section class="stdlib-entry" id="method.Path.write_atomic.1">
+<header><code>Path.write_atomic(data: Str) -&gt; Result[Unit, Error]</code><div><span class="stdlib-badge effect">effect</span></div></header>
+<p>`write_atomic` method for `Path` values.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>data</code></td><td><code>Str</code></td><td>required</td><td>Required `data` argument.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `Unit` or `Error` failure data.</p>
+</section>
+</main>
+</body>
+</html>

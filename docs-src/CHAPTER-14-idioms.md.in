@@ -1,0 +1,156 @@
+# Chapter 14: Idioms
+
+This chapter is a cookbook. The earlier chapters teach the language in a
+guided order; this chapter answers smaller questions you will hit while writing
+real scripts.
+
+Each recipe is intentionally short: when to use the pattern, the runnable
+example, and the main judgment call.
+
+## Check A Whole Collection With `any` And `all`
+
+Use this when a later branch depends on whether records contain at least one
+match or whether every item satisfies a condition.
+
+{{include:idiom-any-all}}
+
+Prefer this over a manual loop when the answer is a single boolean.
+
+## Build Frequency Maps
+
+Use grouping when you want to keep grouped items available. Use a `Map` when
+you need dynamic keys that grow inside a loop.
+
+{{include:idiom-building-maps}}
+
+For large inputs where you only need totals, consider `reduce-by` from the
+streams chapter.
+
+## Cache Repeated Work
+
+Use `utils.cache` when the same expensive call is made more than once during a
+single script run.
+
+{{include:idiom-cache}}
+
+Do not use it for values that should change during the same process.
+
+## Add A Dry-Run Mode
+
+Use a `dry_run: Bool` when the same traversal should either report planned
+changes or perform them.
+
+{{include:idiom-dry-run}}
+
+Keep the decision close to the effect. That makes it harder for the real and
+dry-run paths to drift apart.
+
+## Keep Indexes With Items
+
+Use `enumerate()` when output needs human-facing line numbers or stable item
+positions.
+
+{{include:idiom-enumerate}}
+
+If the index is only a loop counter, `range` may be simpler.
+
+## Flatten Nested Lists
+
+Use `flat-map` when each input item produces zero or more output items.
+
+{{include:idiom-flat-map}}
+
+This is the pipeline form of "split every line into words, then continue with
+the words."
+
+## Find The Repository Root
+
+Use `fs.gitroot()` when a script should be anchored to the project instead of
+the caller's current directory.
+
+{{include:idiom-gitroot}}
+
+Use it early as a guard for project-specific scripts.
+
+## Install Files With Parents And Mode
+
+Use `fs.install` when the script needs copy, parent creation, permissions, and
+overwrite policy in one explicit operation.
+
+{{include:idiom-install-files}}
+
+Prefer this over open-coded copy-plus-chmod sequences when installing files is
+the actual job.
+
+## Write List-Comprehension Style Pipelines
+
+Use comprehension syntax for compact list transforms, especially when
+destructuring records makes the result clearer.
+
+{{include:idiom-list-comprehension}}
+
+Use a normal pipeline block when the transform needs multiple statements.
+
+## Continue Through Recoverable Parse Errors
+
+Use `match` on a `Result` when an error should skip one item instead of aborting
+the whole script.
+
+{{include:idiom-match-result-loop}}
+
+Use `?` instead when the first failure should stop the script.
+
+## Read Structured Data Safely
+
+Use `.require(Type)?` after decoding JSON or other dynamic data.
+
+{{include:idiom-reading-data}}
+
+The JSON syntax being valid does not prove the fields have the shape your script
+needs.
+
+## Retry Transient Work
+
+Use a bounded retry loop when the operation is known to fail transiently and the
+caller can tolerate waiting.
+
+{{include:idiom-retry}}
+
+Keep the retry count visible. Hidden infinite retries are bad orchestration.
+
+## Sort Descending
+
+Use a descending key expression when highest values should come first.
+
+{{include:idiom-sort-by-desc}}
+
+For compound ordering, keep the key expression simple enough that a reviewer can
+predict the result.
+
+## Dispatch Subcommands
+
+Use `match` on the command string when a script has a small subcommand surface.
+
+{{include:idiom-subcommand-dispatch}}
+
+When the command set becomes a real data model, introduce a tag union or typed
+CLI record.
+
+## Clean Up Temporary Directories
+
+Create temp directories with immediate `defer` cleanup.
+
+{{include:idiom-temp-dir}}
+
+Put the `defer` next to the allocation so later edits do not accidentally place
+fallible work before cleanup is registered.
+
+## Parse A Typed CLI
+
+Use typed CLI parsing when options and positionals are part of the script's
+public contract.
+
+{{include:idiom-typed-cli}}
+
+Once parsed, pass the typed record through the rest of the script instead of
+passing raw `args` around.

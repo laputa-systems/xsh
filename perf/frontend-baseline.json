@@ -1,0 +1,51 @@
+{
+  "date": "2026-06-15",
+  "command": "cargo bench --bench bench frontend -- --sample-size 10 --warm-up-time 0.5 --measurement-time 1",
+  "notes": [
+    "Quick local Criterion baseline for front-end optimization direction, not a final release-quality benchmark run.",
+    "Times are Criterion mean estimates from this session on the local machine.",
+    "parse_check measures in-process parse, desugar, and semantic check.",
+    "parse_check_lower additionally constructs an Evaluator, which registers functions and refreshes lowered IR, but does not execute top-level statements.",
+    "import_disk goes through parse_script_with_module_roots and includes script/module file reads and module resolution.",
+    "Allocation stats are printed by the benchmark's frontend allocation audit.",
+    "Regenerated after 8402a149aa2f14187d59418a08a088a78e3e9f72 reduced string churn."
+  ],
+  "benchmarks": {
+    "empty": {
+      "parse_check": "4.0358 us",
+      "parse_check_lower": "999.13 us",
+      "parse_check_allocs": "61 allocs, 10.0 KiB",
+      "parse_check_lower_allocs": "68 allocs, 10.8 KiB"
+    },
+    "loop_10k": {
+      "parse_check": "6.0210 us",
+      "parse_check_lower": "999.79 us",
+      "parse_check_allocs": "79 allocs, 18.2 KiB",
+      "parse_check_lower_allocs": "99 allocs, 21.3 KiB"
+    },
+    "pure_call_chain_20k": {
+      "parse_check": "12.263 us",
+      "parse_check_lower": "1.0119 ms",
+      "parse_check_allocs": "147 allocs, 52.2 KiB",
+      "parse_check_lower_allocs": "259 allocs, 70.0 KiB"
+    },
+    "stream_callback_pure_5k": {
+      "parse_check": "347.09 us",
+      "parse_check_lower": "1.6629 ms",
+      "parse_check_allocs": "160 allocs, 2.2 MiB",
+      "parse_check_lower_allocs": "215 allocs, 2.7 MiB"
+    },
+    "mixed_glue_2k": {
+      "parse_check": "18.726 us",
+      "parse_check_lower": "1.0293 ms",
+      "parse_check_allocs": "224 allocs, 59.2 KiB",
+      "parse_check_lower_allocs": "345 allocs, 74.5 KiB"
+    },
+    "import_disk": {
+      "parse_check": "168.04 us",
+      "parse_check_lower": "1.1763 ms",
+      "parse_check_allocs": "339 allocs, 87.7 KiB",
+      "parse_check_lower_allocs": "392 allocs, 97.6 KiB"
+    }
+  }
+}

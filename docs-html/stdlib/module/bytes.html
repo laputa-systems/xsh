@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>bytes</title>
+<link rel="stylesheet" href="../../style.css">
+</head>
+<body>
+<header class="site-header"><a href="../../index.html">XSH Docs</a><span>docs/STDLIB.md#bytes</span></header>
+<main class="markdown-body stdlib-body">
+<p><a href="../index.html">Standard Library</a> / Modules</p>
+<h1>bytes</h1>
+<p class="stdlib-lede">Byte inspection, encoding, decoding, copying, and hashing helpers.</p>
+<section class="stdlib-entry" id="module.bytes.concat.0">
+<header><code>bytes.concat(chunks: List[Bytes]) -&gt; Bytes</code><div><span class="stdlib-badge pure">pure</span></div></header>
+<p>Byte inspection, encoding, decoding, copying, and hashing helpers `concat` operation.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>chunks</code></td><td><code>List[Bytes]</code></td><td>required</td><td>Required `chunks` argument.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `Bytes`.</p>
+</section>
+<section class="stdlib-entry" id="module.bytes.copy.0">
+<header><code>bytes.copy(source: Path, dest: Path, block_size: Int = default, count: Int = default, skip: Int = default, seek: Int = default, overwrite: Bool = default) -&gt; Result[{blocks: Int, bytes: Int}, Error]</code><div><span class="stdlib-badge effect">effect</span></div></header>
+<p>Byte inspection, encoding, decoding, copying, and hashing helpers `copy` operation.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>source</code></td><td><code>Path</code></td><td>required</td><td>Required `source` argument.</td></tr>
+<tr><td><code>dest</code></td><td><code>Path</code></td><td>required</td><td>Required `dest` argument.</td></tr>
+<tr><td><code>block_size</code></td><td><code>Int</code></td><td>optional</td><td>Optional `block_size` argument; omitted calls use the runtime default.</td></tr>
+<tr><td><code>count</code></td><td><code>Int</code></td><td>optional</td><td>Optional `count` argument; omitted calls use the runtime default.</td></tr>
+<tr><td><code>skip</code></td><td><code>Int</code></td><td>optional</td><td>Optional `skip` argument; omitted calls use the runtime default.</td></tr>
+<tr><td><code>seek</code></td><td><code>Int</code></td><td>optional</td><td>Optional `seek` argument; omitted calls use the runtime default.</td></tr>
+<tr><td><code>overwrite</code></td><td><code>Bool</code></td><td>optional</td><td>Optional `overwrite` argument; omitted calls use the runtime default.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `{blocks: Int, bytes: Int}` or `Error` failure data.</p>
+</section>
+<section class="stdlib-entry" id="module.bytes.copy_file.0">
+<header><code>bytes.copy_file(source: Path, dest: Path, source_offset: Int = default, dest_offset: Int = default, length: Int = default, create: Bool = default, truncate: Bool = default) -&gt; Result[{blocks: Int, bytes: Int}, Error]</code><div><span class="stdlib-badge effect">effect</span></div></header>
+<p>Byte inspection, encoding, decoding, copying, and hashing helpers `copy_file` operation.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>source</code></td><td><code>Path</code></td><td>required</td><td>Required `source` argument.</td></tr>
+<tr><td><code>dest</code></td><td><code>Path</code></td><td>required</td><td>Required `dest` argument.</td></tr>
+<tr><td><code>source_offset</code></td><td><code>Int</code></td><td>optional</td><td>Optional `source_offset` argument; omitted calls use the runtime default.</td></tr>
+<tr><td><code>dest_offset</code></td><td><code>Int</code></td><td>optional</td><td>Optional `dest_offset` argument; omitted calls use the runtime default.</td></tr>
+<tr><td><code>length</code></td><td><code>Int</code></td><td>optional</td><td>Optional `length` argument; omitted calls use the runtime default.</td></tr>
+<tr><td><code>create</code></td><td><code>Bool</code></td><td>optional</td><td>Optional `create` argument; omitted calls use the runtime default.</td></tr>
+<tr><td><code>truncate</code></td><td><code>Bool</code></td><td>optional</td><td>Optional `truncate` argument; omitted calls use the runtime default.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `{blocks: Int, bytes: Int}` or `Error` failure data.</p>
+</section>
+<section class="stdlib-entry" id="module.bytes.from_ints.0">
+<header><code>bytes.from_ints(values: List[Int]) -&gt; Result[Bytes, Error]</code><div><span class="stdlib-badge pure">pure</span></div></header>
+<p>Byte inspection, encoding, decoding, copying, and hashing helpers `from_ints` operation.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>values</code></td><td><code>List[Int]</code></td><td>required</td><td>Required `values` argument.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `Bytes` or `Error` failure data.</p>
+</section>
+<section class="stdlib-entry" id="module.bytes.from_text.0">
+<header><code>bytes.from_text(text: Str) -&gt; Bytes</code><div><span class="stdlib-badge pure">pure</span></div></header>
+<p>Byte inspection, encoding, decoding, copying, and hashing helpers `from_text` operation.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>text</code></td><td><code>Str</code></td><td>required</td><td>Required `text` argument.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `Bytes`.</p>
+</section>
+<section class="stdlib-entry" id="module.bytes.human.0">
+<header><code>bytes.human(size: Int) -&gt; Str</code><div><span class="stdlib-badge pure">pure</span></div></header>
+<p>Byte inspection, encoding, decoding, copying, and hashing helpers `human` operation.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>size</code></td><td><code>Int</code></td><td>required</td><td>Required `size` argument.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `Str`.</p>
+</section>
+<section class="stdlib-entry" id="module.bytes.pack_be.0">
+<header><code>bytes.pack_be(value: Int, width: Int) -&gt; Result[Bytes, Error]</code><div><span class="stdlib-badge pure">pure</span></div></header>
+<p>Byte inspection, encoding, decoding, copying, and hashing helpers `pack_be` operation.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>value</code></td><td><code>Int</code></td><td>required</td><td>Required `value` argument.</td></tr>
+<tr><td><code>width</code></td><td><code>Int</code></td><td>required</td><td>Required `width` argument.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `Bytes` or `Error` failure data.</p>
+</section>
+<section class="stdlib-entry" id="module.bytes.pack_le.0">
+<header><code>bytes.pack_le(value: Int, width: Int) -&gt; Result[Bytes, Error]</code><div><span class="stdlib-badge pure">pure</span></div></header>
+<p>Byte inspection, encoding, decoding, copying, and hashing helpers `pack_le` operation.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>value</code></td><td><code>Int</code></td><td>required</td><td>Required `value` argument.</td></tr>
+<tr><td><code>width</code></td><td><code>Int</code></td><td>required</td><td>Required `width` argument.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `Bytes` or `Error` failure data.</p>
+</section>
+<section class="stdlib-entry" id="module.bytes.read_at.0">
+<header><code>bytes.read_at(path: Path, offset: Int, length: Int) -&gt; Result[Bytes, Error]</code><div><span class="stdlib-badge effect">effect</span></div></header>
+<p>Byte inspection, encoding, decoding, copying, and hashing helpers `read_at` operation.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>path</code></td><td><code>Path</code></td><td>required</td><td>Required `path` argument.</td></tr>
+<tr><td><code>offset</code></td><td><code>Int</code></td><td>required</td><td>Required `offset` argument.</td></tr>
+<tr><td><code>length</code></td><td><code>Int</code></td><td>required</td><td>Required `length` argument.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `Bytes` or `Error` failure data.</p>
+</section>
+<section class="stdlib-entry" id="module.bytes.unpack_be.0">
+<header><code>bytes.unpack_be(data: Bytes, width: Int, offset: Int = default) -&gt; Result[Int, Error]</code><div><span class="stdlib-badge pure">pure</span></div></header>
+<p>Byte inspection, encoding, decoding, copying, and hashing helpers `unpack_be` operation.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>data</code></td><td><code>Bytes</code></td><td>required</td><td>Required `data` argument.</td></tr>
+<tr><td><code>width</code></td><td><code>Int</code></td><td>required</td><td>Required `width` argument.</td></tr>
+<tr><td><code>offset</code></td><td><code>Int</code></td><td>optional</td><td>Optional `offset` argument; omitted calls use the runtime default.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `Int` or `Error` failure data.</p>
+</section>
+<section class="stdlib-entry" id="module.bytes.unpack_le.0">
+<header><code>bytes.unpack_le(data: Bytes, width: Int, offset: Int = default) -&gt; Result[Int, Error]</code><div><span class="stdlib-badge pure">pure</span></div></header>
+<p>Byte inspection, encoding, decoding, copying, and hashing helpers `unpack_le` operation.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>data</code></td><td><code>Bytes</code></td><td>required</td><td>Required `data` argument.</td></tr>
+<tr><td><code>width</code></td><td><code>Int</code></td><td>required</td><td>Required `width` argument.</td></tr>
+<tr><td><code>offset</code></td><td><code>Int</code></td><td>optional</td><td>Optional `offset` argument; omitted calls use the runtime default.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `Int` or `Error` failure data.</p>
+</section>
+<section class="stdlib-entry" id="module.bytes.write_at.0">
+<header><code>bytes.write_at(path: Path, offset: Int, data: Bytes, create: Bool = default) -&gt; Result[Int, Error]</code><div><span class="stdlib-badge effect">effect</span></div></header>
+<p>Byte inspection, encoding, decoding, copying, and hashing helpers `write_at` operation.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>path</code></td><td><code>Path</code></td><td>required</td><td>Required `path` argument.</td></tr>
+<tr><td><code>offset</code></td><td><code>Int</code></td><td>required</td><td>Required `offset` argument.</td></tr>
+<tr><td><code>data</code></td><td><code>Bytes</code></td><td>required</td><td>Required `data` argument.</td></tr>
+<tr><td><code>create</code></td><td><code>Bool</code></td><td>optional</td><td>Optional `create` argument; omitted calls use the runtime default.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `Int` or `Error` failure data.</p>
+</section>
+<section class="stdlib-entry" id="module.bytes.zero.0">
+<header><code>bytes.zero(length: Int) -&gt; Result[Bytes, Error]</code><div><span class="stdlib-badge pure">pure</span></div></header>
+<p>Byte inspection, encoding, decoding, copying, and hashing helpers `zero` operation.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>length</code></td><td><code>Int</code></td><td>required</td><td>Required `length` argument.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `Bytes` or `Error` failure data.</p>
+</section>
+<section class="stdlib-entry" id="module.bytes.zero_at.0">
+<header><code>bytes.zero_at(path: Path, offset: Int, length: Int, create: Bool = default) -&gt; Result[Int, Error]</code><div><span class="stdlib-badge effect">effect</span></div></header>
+<p>Byte inspection, encoding, decoding, copying, and hashing helpers `zero_at` operation.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>path</code></td><td><code>Path</code></td><td>required</td><td>Required `path` argument.</td></tr>
+<tr><td><code>offset</code></td><td><code>Int</code></td><td>required</td><td>Required `offset` argument.</td></tr>
+<tr><td><code>length</code></td><td><code>Int</code></td><td>required</td><td>Required `length` argument.</td></tr>
+<tr><td><code>create</code></td><td><code>Bool</code></td><td>optional</td><td>Optional `create` argument; omitted calls use the runtime default.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `Int` or `Error` failure data.</p>
+</section>
+</main>
+</body>
+</html>

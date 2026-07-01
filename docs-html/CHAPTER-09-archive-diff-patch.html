@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Chapter 9: Archives, Diffs, And Patches</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="site-header"><a href="index.html">XSH Docs</a><span>docs/CHAPTER-09-archive-diff-patch.md</span></header>
+<div class="docs-shell">
+<aside class="page-toc" aria-label="Page contents">
+<h2>On This Page</h2>
+<ol>
+<li><a href="#package-a-staged-tree">Package A Staged Tree</a></li>
+<li><a href="#apply-a-controlled-text-change">Apply A Controlled Text Change</a></li>
+<li><a href="#what-you-know-now">What You Know Now</a></li>
+</ol>
+</aside>
+<main class="markdown-body">
+<nav class="chapter-nav" aria-label="Chapter navigation">
+<a rel="prev" href="CHAPTER-08-structured-streams.html"><span>Previous</span>Chapter 8: Structured Streams</a>
+<a rel="next" href="CHAPTER-10-types-records-procs.html"><span>Next</span>Chapter 10: Types, Records, And Procs</a>
+</nav>
+<h1>Chapter 9: Archives, Diffs, And Patches</h1>
+<p>Packaging and repair workflows combine files, permissions, archive formats,
+diffs, and patches. They are risky when the only feedback is command text.</p>
+<p>By the end of this chapter, you will have built a small staged package, created
+archives from it, inspected extracted files, generated a diff, applied a rooted
+patch, and checked structured counts before trusting the result.</p>
+<h2 id="package-a-staged-tree">Package A Staged Tree</h2>
+<p>The <code>archive</code> module can create, list, extract, compress, and decompress common
+archive formats.</p>
+<pre><code class="language-xsh"><span class="tok-keyword">let</span> <span class="tok-ident">root_handle</span> <span class="tok-operator">=</span> <span class="tok-ident">fs</span><span class="tok-punctuation">.</span><span class="tok-ident">tempdir</span><span class="tok-punctuation">(</span><span class="tok-punctuation">)</span><span class="tok-operator">?</span>
+<span class="tok-keyword">defer</span> <span class="tok-ident">fs</span><span class="tok-punctuation">.</span><span class="tok-ident">close_root</span><span class="tok-punctuation">(</span><span class="tok-ident">root_handle</span><span class="tok-punctuation">)</span><span class="tok-operator">?</span>
+<span class="tok-keyword">let</span> <span class="tok-ident">root</span> <span class="tok-operator">=</span> <span class="tok-ident">fs</span><span class="tok-punctuation">.</span><span class="tok-ident">root_path</span><span class="tok-punctuation">(</span><span class="tok-ident">root_handle</span><span class="tok-punctuation">)</span><span class="tok-operator">?</span>
+<span class="tok-keyword">let</span> <span class="tok-ident">src</span> <span class="tok-operator">=</span> <span class="tok-string">fp&quot;${root}/src&quot;</span>
+<span class="tok-keyword">let</span> <span class="tok-ident">bin</span> <span class="tok-operator">=</span> <span class="tok-string">fp&quot;${src}/usr/bin&quot;</span>
+<span class="tok-ident">bin</span><span class="tok-punctuation">.</span><span class="tok-ident">mkdir</span><span class="tok-punctuation">(</span><span class="tok-punctuation">)</span>
+<span class="tok-keyword">let</span> <span class="tok-ident">tool</span> <span class="tok-operator">=</span> <span class="tok-string">fp&quot;${bin}/tool&quot;</span>
+
+<span class="tok-ident">tool</span><span class="tok-punctuation">.</span><span class="tok-ident">write</span><span class="tok-punctuation">(</span><span class="tok-string">&quot;&quot;&quot;demo
+&quot;&quot;&quot;</span><span class="tok-punctuation">)</span>
+
+<span class="tok-ident">tool</span><span class="tok-punctuation">.</span><span class="tok-ident">chmod</span><span class="tok-punctuation">(</span><span class="tok-literal">0o755</span><span class="tok-punctuation">)</span>
+<span class="tok-keyword">let</span> <span class="tok-ident">tarball</span> <span class="tok-operator">=</span> <span class="tok-string">fp&quot;${root}/pkg.tar.gz&quot;</span>
+<span class="tok-ident">archive</span><span class="tok-punctuation">.</span><span class="tok-ident">tar_create</span><span class="tok-punctuation">(</span><span class="tok-ident">tarball</span><span class="tok-punctuation">,</span> <span class="tok-ident">src</span><span class="tok-punctuation">,</span> <span class="tok-punctuation">[</span><span class="tok-string">p&quot;.&quot;</span><span class="tok-punctuation">]</span><span class="tok-punctuation">)</span>
+<span class="tok-keyword">let</span> <span class="tok-ident">entries</span> <span class="tok-operator">=</span> <span class="tok-ident">archive</span><span class="tok-punctuation">.</span><span class="tok-ident">tar_list</span><span class="tok-punctuation">(</span><span class="tok-ident">tarball</span><span class="tok-punctuation">)</span><span class="tok-operator">?</span>
+<span class="tok-keyword">let</span> <span class="tok-ident">dest</span> <span class="tok-operator">=</span> <span class="tok-string">fp&quot;${root}/dest&quot;</span>
+<span class="tok-ident">archive</span><span class="tok-punctuation">.</span><span class="tok-ident">tar_extract</span><span class="tok-punctuation">(</span><span class="tok-ident">tarball</span><span class="tok-punctuation">,</span> <span class="tok-ident">dest</span><span class="tok-punctuation">)</span>
+<span class="tok-keyword">let</span> <span class="tok-ident">installed</span> <span class="tok-operator">=</span> <span class="tok-string">fp&quot;${dest}/usr/bin/tool&quot;</span>
+<span class="tok-ident">print</span> <span class="tok-ident">entries</span><span class="tok-punctuation">.</span><span class="tok-ident">len</span><span class="tok-punctuation">(</span><span class="tok-punctuation">)</span> <span class="tok-ident">installed</span><span class="tok-punctuation">.</span><span class="tok-ident">read_text</span><span class="tok-punctuation">(</span><span class="tok-punctuation">)</span><span class="tok-operator">?</span><span class="tok-punctuation">.</span><span class="tok-ident">trim</span><span class="tok-punctuation">(</span><span class="tok-punctuation">)</span> <span class="tok-punctuation">${</span><span class="tok-ident">installed</span><span class="tok-punctuation">.</span><span class="tok-ident">metadata</span><span class="tok-punctuation">(</span><span class="tok-punctuation">)</span><span class="tok-operator">?</span><span class="tok-punctuation">.</span><span class="tok-ident">mode</span> <span class="tok-operator">%</span> <span class="tok-literal">512</span> <span class="tok-operator">==</span> <span class="tok-literal">493</span><span class="tok-punctuation">}</span>
+<span class="tok-keyword">let</span> <span class="tok-ident">cpio</span> <span class="tok-operator">=</span> <span class="tok-string">fp&quot;${root}/pkg.cpio&quot;</span>
+<span class="tok-ident">archive</span><span class="tok-punctuation">.</span><span class="tok-ident">cpio_create</span><span class="tok-punctuation">(</span><span class="tok-ident">cpio</span><span class="tok-punctuation">,</span> <span class="tok-ident">src</span><span class="tok-punctuation">,</span> <span class="tok-punctuation">[</span><span class="tok-string">p&quot;.&quot;</span><span class="tok-punctuation">]</span><span class="tok-punctuation">)</span>
+<span class="tok-keyword">let</span> <span class="tok-ident">cpio_entries</span> <span class="tok-operator">=</span> <span class="tok-ident">archive</span><span class="tok-punctuation">.</span><span class="tok-ident">cpio_list</span><span class="tok-punctuation">(</span><span class="tok-ident">cpio</span><span class="tok-punctuation">)</span><span class="tok-operator">?</span>
+<span class="tok-keyword">let</span> <span class="tok-ident">cpio_dest</span> <span class="tok-operator">=</span> <span class="tok-string">fp&quot;${root}/cpio&quot;</span>
+<span class="tok-ident">archive</span><span class="tok-punctuation">.</span><span class="tok-ident">cpio_extract</span><span class="tok-punctuation">(</span><span class="tok-ident">cpio</span><span class="tok-punctuation">,</span> <span class="tok-ident">cpio_dest</span><span class="tok-punctuation">)</span>
+<span class="tok-keyword">let</span> <span class="tok-ident">gz</span> <span class="tok-operator">=</span> <span class="tok-string">fp&quot;${root}/tool.gz&quot;</span>
+<span class="tok-ident">archive</span><span class="tok-punctuation">.</span><span class="tok-ident">compress</span><span class="tok-punctuation">(</span><span class="tok-ident">tool</span><span class="tok-punctuation">,</span> <span class="tok-ident">gz</span><span class="tok-punctuation">,</span> <span class="tok-ident">format</span><span class="tok-punctuation">:</span> <span class="tok-string">&quot;gzip&quot;</span><span class="tok-punctuation">)</span>
+<span class="tok-keyword">let</span> <span class="tok-ident">decoded</span> <span class="tok-operator">=</span> <span class="tok-ident">archive</span><span class="tok-punctuation">.</span><span class="tok-ident">decompress_bytes</span><span class="tok-punctuation">(</span><span class="tok-ident">gz</span><span class="tok-punctuation">)</span><span class="tok-operator">?</span><span class="tok-punctuation">.</span><span class="tok-ident">utf8</span><span class="tok-punctuation">(</span><span class="tok-punctuation">)</span><span class="tok-operator">?</span><span class="tok-punctuation">.</span><span class="tok-ident">trim</span><span class="tok-punctuation">(</span><span class="tok-punctuation">)</span>
+<span class="tok-keyword">let</span> <span class="tok-ident">cpio_installed</span> <span class="tok-operator">=</span> <span class="tok-string">fp&quot;${cpio_dest}/usr/bin/tool&quot;</span>
+<span class="tok-ident">print</span> <span class="tok-ident">cpio_entries</span><span class="tok-punctuation">.</span><span class="tok-ident">len</span><span class="tok-punctuation">(</span><span class="tok-punctuation">)</span> <span class="tok-ident">cpio_installed</span><span class="tok-punctuation">.</span><span class="tok-ident">read_text</span><span class="tok-punctuation">(</span><span class="tok-punctuation">)</span><span class="tok-operator">?</span><span class="tok-punctuation">.</span><span class="tok-ident">trim</span><span class="tok-punctuation">(</span><span class="tok-punctuation">)</span> <span class="tok-ident">$decoded</span>
+</code></pre>
+<p>The script builds a small <code>usr/bin</code> tree, writes an executable file, creates
+tar and cpio archives, extracts them, checks permissions, and round-trips
+gzip-compressed bytes.</p>
+<p>Why XSH shines here: archive entries, paths, modes, and decoded bytes stay
+inspectable instead of being hidden inside command output.</p>
+<p>Compared with bash and CLI tools: <code>tar</code>, <code>cpio</code>, <code>gzip</code>, <code>diff</code>, and <code>patch</code>
+are still the right tools for many terminal jobs. XSH is useful when packaging
+is part of a larger policy script that must verify counts, modes, paths, and
+final contents before continuing.</p>
+<p>Common trap: after extracting an archive, verify the paths and metadata your
+workflow depends on. Creating the archive successfully is not the same as
+proving the packaged tree has the shape you intended.</p>
+<p>Do not extract archives into an ambient working directory when the script can
+use a known destination path and verify what appeared there.</p>
+<h2 id="apply-a-controlled-text-change">Apply A Controlled Text Change</h2>
+<p>Diff and patch operations are useful when a workflow needs to show or apply a
+specific text change.</p>
+<pre><code class="language-xsh"><span class="tok-keyword">let</span> <span class="tok-ident">root_handle</span> <span class="tok-operator">=</span> <span class="tok-ident">fs</span><span class="tok-punctuation">.</span><span class="tok-ident">tempdir</span><span class="tok-punctuation">(</span><span class="tok-punctuation">)</span><span class="tok-operator">?</span>
+<span class="tok-keyword">defer</span> <span class="tok-ident">fs</span><span class="tok-punctuation">.</span><span class="tok-ident">close_root</span><span class="tok-punctuation">(</span><span class="tok-ident">root_handle</span><span class="tok-punctuation">)</span><span class="tok-operator">?</span>
+<span class="tok-keyword">let</span> <span class="tok-ident">root</span> <span class="tok-operator">=</span> <span class="tok-ident">fs</span><span class="tok-punctuation">.</span><span class="tok-ident">root_path</span><span class="tok-punctuation">(</span><span class="tok-ident">root_handle</span><span class="tok-punctuation">)</span><span class="tok-operator">?</span>
+<span class="tok-keyword">let</span> <span class="tok-ident">original</span> <span class="tok-operator">=</span> <span class="tok-string">fp&quot;${root}/config.old&quot;</span>
+<span class="tok-keyword">let</span> <span class="tok-ident">modified</span> <span class="tok-operator">=</span> <span class="tok-string">fp&quot;${root}/config.new&quot;</span>
+
+<span class="tok-ident">original</span><span class="tok-punctuation">.</span><span class="tok-ident">write</span><span class="tok-punctuation">(</span><span class="tok-string">&quot;&quot;&quot;name=demo
+enabled=false
+&quot;&quot;&quot;</span><span class="tok-punctuation">)</span>
+
+<span class="tok-ident">modified</span><span class="tok-punctuation">.</span><span class="tok-ident">write</span><span class="tok-punctuation">(</span><span class="tok-string">&quot;&quot;&quot;name=demo
+enabled=true
+&quot;&quot;&quot;</span><span class="tok-punctuation">)</span>
+
+<span class="tok-keyword">let</span> <span class="tok-ident">d</span> <span class="tok-operator">=</span> <span class="tok-ident">diff</span><span class="tok-punctuation">.</span><span class="tok-ident">unified</span><span class="tok-punctuation">(</span><span class="tok-ident">original</span><span class="tok-punctuation">,</span> <span class="tok-ident">modified</span><span class="tok-punctuation">,</span> <span class="tok-ident">context</span><span class="tok-punctuation">:</span> <span class="tok-literal">1</span><span class="tok-punctuation">)</span><span class="tok-operator">?</span>
+<span class="tok-keyword">let</span> <span class="tok-ident">apply_root</span> <span class="tok-operator">=</span> <span class="tok-string">fp&quot;${root}/apply&quot;</span>
+<span class="tok-ident">fs</span><span class="tok-punctuation">.</span><span class="tok-ident">mkdir</span><span class="tok-punctuation">(</span><span class="tok-ident">apply_root</span><span class="tok-punctuation">)</span>
+
+<span class="tok-string">fp&quot;${apply_root}/config&quot;</span><span class="tok-punctuation">.</span><span class="tok-ident">write</span><span class="tok-punctuation">(</span><span class="tok-string">&quot;&quot;&quot;name=demo
+enabled=false
+&quot;&quot;&quot;</span><span class="tok-punctuation">)</span>
+
+<span class="tok-keyword">let</span> <span class="tok-ident">patch_text</span> <span class="tok-operator">=</span> <span class="tok-string">&quot;&quot;&quot;--- config
++++ config
+@@ -1,2 +1,2 @@
+ name=demo
+-enabled=false
++enabled=true
+&quot;&quot;&quot;</span>
+
+<span class="tok-keyword">let</span> <span class="tok-ident">applied</span> <span class="tok-operator">=</span> <span class="tok-ident">patch</span><span class="tok-punctuation">.</span><span class="tok-ident">apply</span><span class="tok-punctuation">(</span><span class="tok-ident">apply_root</span><span class="tok-punctuation">,</span> <span class="tok-ident">patch_text</span><span class="tok-punctuation">)</span><span class="tok-operator">?</span>
+<span class="tok-keyword">let</span> <span class="tok-ident">config</span> <span class="tok-operator">=</span> <span class="tok-string">fp&quot;${apply_root}/config&quot;</span><span class="tok-punctuation">.</span><span class="tok-ident">read_text</span><span class="tok-punctuation">(</span><span class="tok-punctuation">)</span><span class="tok-operator">?</span><span class="tok-punctuation">.</span><span class="tok-ident">trim</span><span class="tok-punctuation">(</span><span class="tok-punctuation">)</span>
+<span class="tok-ident">print</span> <span class="tok-ident">$d</span><span class="tok-punctuation">.</span><span class="tok-ident">files</span> <span class="tok-ident">$d</span><span class="tok-punctuation">.</span><span class="tok-ident">hunks</span> <span class="tok-ident">$applied</span><span class="tok-punctuation">.</span><span class="tok-ident">files</span> <span class="tok-ident">$applied</span><span class="tok-punctuation">.</span><span class="tok-ident">hunks</span> <span class="tok-punctuation">${</span><span class="tok-string">&quot;enabled=true&quot;</span> <span class="tok-keyword">in</span> <span class="tok-ident">config</span><span class="tok-punctuation">}</span>
+</code></pre>
+<p>The script creates old and new config files, generates a unified diff, applies
+a patch under a rooted directory, reads the final file, and checks that the
+expected value is present.</p>
+<p>Why XSH shines here: patch application is rooted and returns structured counts,
+so scripts can verify what changed before continuing.</p>
+<p>Do not apply a patch and assume success means the intended file changed. Check
+the returned counts and read the final file when the content matters.</p>
+<h2 id="what-you-know-now">What You Know Now</h2>
+<p>Archives, diffs, and patches become safer when the script treats paths, modes,
+counts, and final file contents as values. The next chapter shows how named
+types and procs keep those values organized as scripts grow.</p>
+<nav class="chapter-nav" aria-label="Chapter navigation">
+<a rel="prev" href="CHAPTER-08-structured-streams.html"><span>Previous</span>Chapter 8: Structured Streams</a>
+<a rel="next" href="CHAPTER-10-types-records-procs.html"><span>Next</span>Chapter 10: Types, Records, And Procs</a>
+</nav>
+</main>
+</div>
+</body>
+</html>

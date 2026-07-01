@@ -1,0 +1,3 @@
+proc build() {
+  print "bad"
+}

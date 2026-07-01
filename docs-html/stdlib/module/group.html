@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>group</title>
+<link rel="stylesheet" href="../../style.css">
+</head>
+<body>
+<header class="site-header"><a href="../../index.html">XSH Docs</a><span>docs/STDLIB.md#group</span></header>
+<main class="markdown-body stdlib-body">
+<p><a href="../index.html">Standard Library</a> / Modules</p>
+<h1>group</h1>
+<p class="stdlib-lede">Unix group lookup records.</p>
+<section class="stdlib-entry" id="module.group.add.0">
+<header><code>group.add(name: Str, gid: Int = default) -&gt; Result[{gid: Int, members: List[Str], name: Str}, Error]</code><div><span class="stdlib-badge effect">effect</span></div></header>
+<p>Unix group lookup records `add` operation.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>name</code></td><td><code>Str</code></td><td>required</td><td>Required `name` argument.</td></tr>
+<tr><td><code>gid</code></td><td><code>Int</code></td><td>optional</td><td>Optional `gid` argument; omitted calls use the runtime default.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `{gid: Int, members: List[Str], name: Str}` or `Error` failure data.</p>
+</section>
+<section class="stdlib-entry" id="module.group.by_gid.0">
+<header><code>group.by_gid(gid: Int) -&gt; Result[{gid: Int, members: List[Str], name: Str}, Error]</code><div><span class="stdlib-badge effect">effect</span></div></header>
+<p>Unix group lookup records `by_gid` operation.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>gid</code></td><td><code>Int</code></td><td>required</td><td>Required `gid` argument.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `{gid: Int, members: List[Str], name: Str}` or `Error` failure data.</p>
+</section>
+<section class="stdlib-entry" id="module.group.current.0">
+<header><code>group.current() -&gt; Result[{gid: Int, members: List[Str], name: Str}, Error]</code><div><span class="stdlib-badge effect">effect</span></div></header>
+<p>Unix group lookup records `current` operation.</p>
+
+<p class="stdlib-return">Returns `{gid: Int, members: List[Str], name: Str}` or `Error` failure data.</p>
+</section>
+<section class="stdlib-entry" id="module.group.lookup.0">
+<header><code>group.lookup(name: Str) -&gt; Result[{gid: Int, members: List[Str], name: Str}, Error]</code><div><span class="stdlib-badge effect">effect</span></div></header>
+<p>Unix group lookup records `lookup` operation.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>name</code></td><td><code>Str</code></td><td>required</td><td>Required `name` argument.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `{gid: Int, members: List[Str], name: Str}` or `Error` failure data.</p>
+</section>
+<section class="stdlib-entry" id="module.group.remove.0">
+<header><code>group.remove(name: Str) -&gt; Result[Unit, Error]</code><div><span class="stdlib-badge effect">effect</span><span class="stdlib-badge command">command</span></div></header>
+<p>Unix group lookup records `remove` operation.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>name</code></td><td><code>Str</code></td><td>required</td><td>Required `name` argument.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `Unit` or `Error` failure data.</p>
+</section>
+</main>
+</body>
+</html>

@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>diff</title>
+<link rel="stylesheet" href="../../style.css">
+</head>
+<body>
+<header class="site-header"><a href="../../index.html">XSH Docs</a><span>docs/STDLIB.md#diff</span></header>
+<main class="markdown-body stdlib-body">
+<p><a href="../index.html">Standard Library</a> / Modules</p>
+<h1>diff</h1>
+<p class="stdlib-lede">Unified diff generation.</p>
+<section class="stdlib-entry" id="module.diff.unified.0">
+<header><code>diff.unified(original: Path, modified: Path, context: Int = default) -&gt; Result[{files: Int, hunks: Int, text: Str}, Error]</code><div><span class="stdlib-badge effect">effect</span></div></header>
+<p>Unified diff generation `unified` operation.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>original</code></td><td><code>Path</code></td><td>required</td><td>Required `original` argument.</td></tr>
+<tr><td><code>modified</code></td><td><code>Path</code></td><td>required</td><td>Required `modified` argument.</td></tr>
+<tr><td><code>context</code></td><td><code>Int</code></td><td>optional</td><td>Optional `context` argument; omitted calls use the runtime default.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `{files: Int, hunks: Int, text: Str}` or `Error` failure data.</p>
+</section>
+</main>
+</body>
+</html>

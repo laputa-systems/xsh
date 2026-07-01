@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>process</title>
+<link rel="stylesheet" href="../../style.css">
+</head>
+<body>
+<header class="site-header"><a href="../../index.html">XSH Docs</a><span>docs/STDLIB.md#process</span></header>
+<main class="markdown-body stdlib-body">
+<p><a href="../index.html">Standard Library</a> / Modules</p>
+<h1>process</h1>
+<p class="stdlib-lede">Process discovery, command construction, execution, spawning, and signals.</p>
+<section class="stdlib-entry" id="module.process.argv_words.0">
+<header><code>process.argv_words(text: Str) -&gt; Result[List[Str], Error]</code><div><span class="stdlib-badge pure">pure</span></div></header>
+<p>Process discovery, command construction, execution, spawning, and signals `argv_words` operation.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>text</code></td><td><code>Str</code></td><td>required</td><td>Required `text` argument.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `List[Str]` or `Error` failure data.</p>
+</section>
+<section class="stdlib-entry" id="module.process.command.0">
+<header><code>process.command() -&gt; Command</code><div><span class="stdlib-badge effect">effect</span></div></header>
+<p>Process discovery, command construction, execution, spawning, and signals `command` operation.</p>
+
+<p class="stdlib-return">Returns `Command`.</p>
+</section>
+<section class="stdlib-entry" id="module.process.command_argv.0">
+<header><code>process.command_argv(target: Str, argv: List[Str], cwd: Path = default, env: Record = default, timeout: Duration = default, detach: Bool = default, new_session: Bool = default, ignore_hup: Bool = default, cpu_max: Int = default) -&gt; Command</code><div><span class="stdlib-badge pure">pure</span></div></header>
+<p>Process discovery, command construction, execution, spawning, and signals `command_argv` operation.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>target</code></td><td><code>Str</code></td><td>required</td><td>Required `target` argument.</td></tr>
+<tr><td><code>argv</code></td><td><code>List[Str]</code></td><td>required</td><td>Required `argv` argument.</td></tr>
+<tr><td><code>cwd</code></td><td><code>Path</code></td><td>optional</td><td>Optional `cwd` argument; omitted calls use the runtime default.</td></tr>
+<tr><td><code>env</code></td><td><code>Record</code></td><td>optional</td><td>Optional `env` argument; omitted calls use the runtime default.</td></tr>
+<tr><td><code>timeout</code></td><td><code>Duration</code></td><td>optional</td><td>Optional `timeout` argument; omitted calls use the runtime default.</td></tr>
+<tr><td><code>detach</code></td><td><code>Bool</code></td><td>optional</td><td>Optional `detach` argument; omitted calls use the runtime default.</td></tr>
+<tr><td><code>new_session</code></td><td><code>Bool</code></td><td>optional</td><td>Optional `new_session` argument; omitted calls use the runtime default.</td></tr>
+<tr><td><code>ignore_hup</code></td><td><code>Bool</code></td><td>optional</td><td>Optional `ignore_hup` argument; omitted calls use the runtime default.</td></tr>
+<tr><td><code>cpu_max</code></td><td><code>Int</code></td><td>optional</td><td>Optional `cpu_max` argument; omitted calls use the runtime default.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `Command`.</p>
+</section>
+<section class="stdlib-entry" id="module.process.command_argv.1">
+<header><code>process.command_argv(target: Path, argv: List[Str], cwd: Path = default, env: Record = default, timeout: Duration = default, detach: Bool = default, new_session: Bool = default, ignore_hup: Bool = default, cpu_max: Int = default) -&gt; Command</code><div><span class="stdlib-badge pure">pure</span></div></header>
+<p>Process discovery, command construction, execution, spawning, and signals `command_argv` operation.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>target</code></td><td><code>Path</code></td><td>required</td><td>Required `target` argument.</td></tr>
+<tr><td><code>argv</code></td><td><code>List[Str]</code></td><td>required</td><td>Required `argv` argument.</td></tr>
+<tr><td><code>cwd</code></td><td><code>Path</code></td><td>optional</td><td>Optional `cwd` argument; omitted calls use the runtime default.</td></tr>
+<tr><td><code>env</code></td><td><code>Record</code></td><td>optional</td><td>Optional `env` argument; omitted calls use the runtime default.</td></tr>
+<tr><td><code>timeout</code></td><td><code>Duration</code></td><td>optional</td><td>Optional `timeout` argument; omitted calls use the runtime default.</td></tr>
+<tr><td><code>detach</code></td><td><code>Bool</code></td><td>optional</td><td>Optional `detach` argument; omitted calls use the runtime default.</td></tr>
+<tr><td><code>new_session</code></td><td><code>Bool</code></td><td>optional</td><td>Optional `new_session` argument; omitted calls use the runtime default.</td></tr>
+<tr><td><code>ignore_hup</code></td><td><code>Bool</code></td><td>optional</td><td>Optional `ignore_hup` argument; omitted calls use the runtime default.</td></tr>
+<tr><td><code>cpu_max</code></td><td><code>Int</code></td><td>optional</td><td>Optional `cpu_max` argument; omitted calls use the runtime default.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `Command`.</p>
+</section>
+<section class="stdlib-entry" id="module.process.current_pid.0">
+<header><code>process.current_pid() -&gt; Result[Int, Error]</code><div><span class="stdlib-badge effect">effect</span></div></header>
+<p>Process discovery, command construction, execution, spawning, and signals `current_pid` operation.</p>
+
+<p class="stdlib-return">Returns `Int` or `Error` failure data.</p>
+</section>
+<section class="stdlib-entry" id="module.process.kill.0">
+<header><code>process.kill(pid: Int, signal: Str = default) -&gt; Result[Unit, Error]</code><div><span class="stdlib-badge effect">effect</span></div></header>
+<p>Process discovery, command construction, execution, spawning, and signals `kill` operation.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>pid</code></td><td><code>Int</code></td><td>required</td><td>Required `pid` argument.</td></tr>
+<tr><td><code>signal</code></td><td><code>Str</code></td><td>optional</td><td>Optional `signal` argument; omitted calls use the runtime default.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `Unit` or `Error` failure data.</p>
+</section>
+<section class="stdlib-entry" id="module.process.list.0">
+<header><code>process.list() -&gt; Result[Stream[{argv: Str, argv0: Str, command: Str, parent_pid: Int, pid: Int, runtime_seconds: Int, start_time: Str, start_time_ms: Int, status: Str, uid: Int, user: Str}], Error]</code><div><span class="stdlib-badge effect">effect</span></div></header>
+<p>Process discovery, command construction, execution, spawning, and signals `list` operation.</p>
+
+<p class="stdlib-return">Returns `Stream[{argv: Str, argv0: Str, command: Str, parent_pid: Int, pid: Int, runtime_seconds: Int, start_time: Str, start_time_ms: Int, status: Str, uid: Int, user: Str}]` or `Error` failure data.</p>
+</section>
+<section class="stdlib-entry" id="module.process.port.0">
+<header><code>process.port(port: Int) -&gt; Result[Stream[{argv: Str, argv0: Str, command: Str, fd: Int, inode: Int, local: Str, local_address: Str, local_port: Int, parent_pid: Int, pid: Int, protocol: Str, remote: Str, remote_address: Str, remote_port: Int, state: Str, uid: Int, user: Str}], Error]</code><div><span class="stdlib-badge effect">effect</span></div></header>
+<p>Process discovery, command construction, execution, spawning, and signals `port` operation.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>port</code></td><td><code>Int</code></td><td>required</td><td>Required `port` argument.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `Stream[{argv: Str, argv0: Str, command: Str, fd: Int, inode: Int, local: Str, local_address: Str, local_port: Int, parent_pid: Int, pid: Int, protocol: Str, remote: Str, remote_address: Str, remote_port: Int, state: Str, uid: Int, user: Str}]` or `Error` failure data.</p>
+</section>
+<section class="stdlib-entry" id="module.process.ports.0">
+<header><code>process.ports() -&gt; Result[Stream[{argv: Str, argv0: Str, command: Str, fd: Int, inode: Int, local: Str, local_address: Str, local_port: Int, parent_pid: Int, pid: Int, protocol: Str, remote: Str, remote_address: Str, remote_port: Int, state: Str, uid: Int, user: Str}], Error]</code><div><span class="stdlib-badge effect">effect</span></div></header>
+<p>Process discovery, command construction, execution, spawning, and signals `ports` operation.</p>
+
+<p class="stdlib-return">Returns `Stream[{argv: Str, argv0: Str, command: Str, fd: Int, inode: Int, local: Str, local_address: Str, local_port: Int, parent_pid: Int, pid: Int, protocol: Str, remote: Str, remote_address: Str, remote_port: Int, state: Str, uid: Int, user: Str}]` or `Error` failure data.</p>
+</section>
+<section class="stdlib-entry" id="module.process.ports.1">
+<header><code>process.ports(pid: Int) -&gt; Result[Stream[{argv: Str, argv0: Str, command: Str, fd: Int, inode: Int, local: Str, local_address: Str, local_port: Int, parent_pid: Int, pid: Int, protocol: Str, remote: Str, remote_address: Str, remote_port: Int, state: Str, uid: Int, user: Str}], Error]</code><div><span class="stdlib-badge effect">effect</span></div></header>
+<p>Process discovery, command construction, execution, spawning, and signals `ports` operation.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>pid</code></td><td><code>Int</code></td><td>required</td><td>Required `pid` argument.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `Stream[{argv: Str, argv0: Str, command: Str, fd: Int, inode: Int, local: Str, local_address: Str, local_port: Int, parent_pid: Int, pid: Int, protocol: Str, remote: Str, remote_address: Str, remote_port: Int, state: Str, uid: Int, user: Str}]` or `Error` failure data.</p>
+</section>
+<section class="stdlib-entry" id="module.process.run.0">
+<header><code>process.run(command: Command) -&gt; Result[Status, ProcessError]</code><div><span class="stdlib-badge effect">effect</span></div></header>
+<p>Process discovery, command construction, execution, spawning, and signals `run` operation.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>command</code></td><td><code>Command</code></td><td>required</td><td>Required `command` argument.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `Status` or `ProcessError` failure data.</p>
+</section>
+<section class="stdlib-entry" id="module.process.signal.0">
+<header><code>process.signal(signal: Str) -&gt; Result[{name: Str, number: Int}, Error]</code><div><span class="stdlib-badge effect">effect</span></div></header>
+<p>Process discovery, command construction, execution, spawning, and signals `signal` operation.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>signal</code></td><td><code>Str</code></td><td>required</td><td>Required `signal` argument.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `{name: Str, number: Int}` or `Error` failure data.</p>
+</section>
+<section class="stdlib-entry" id="module.process.spawn.0">
+<header><code>process.spawn(command: Command) -&gt; Result[{argv: Str, command: Str, detach: Bool, ignore_hup: Bool, new_session: Bool, pid: Int}, Error]</code><div><span class="stdlib-badge effect">effect</span></div></header>
+<p>Process discovery, command construction, execution, spawning, and signals `spawn` operation.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>command</code></td><td><code>Command</code></td><td>required</td><td>Required `command` argument.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `{argv: Str, command: Str, detach: Bool, ignore_hup: Bool, new_session: Bool, pid: Int}` or `Error` failure data.</p>
+</section>
+<section class="stdlib-entry" id="module.process.stats.0">
+<header><code>process.stats(pid: Int) -&gt; Result[{rss_kb: Int, vsz_kb: Int}, Error]</code><div><span class="stdlib-badge effect">effect</span></div></header>
+<p>Process discovery, command construction, execution, spawning, and signals `stats` operation.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>pid</code></td><td><code>Int</code></td><td>required</td><td>Required `pid` argument.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `{rss_kb: Int, vsz_kb: Int}` or `Error` failure data.</p>
+</section>
+<section class="stdlib-entry" id="module.process.threads.0">
+<header><code>process.threads() -&gt; Result[Stream[{argv: Str, argv0: Str, command: Str, owner_pid: Int, parent_pid: Int, pid: Int, runtime_seconds: Int, start_time: Str, start_time_ms: Int, status: Str, thread_id: Int, thread_name: Str, uid: Int, user: Str}], Error]</code><div><span class="stdlib-badge effect">effect</span></div></header>
+<p>Process discovery, command construction, execution, spawning, and signals `threads` operation.</p>
+
+<p class="stdlib-return">Returns `Stream[{argv: Str, argv0: Str, command: Str, owner_pid: Int, parent_pid: Int, pid: Int, runtime_seconds: Int, start_time: Str, start_time_ms: Int, status: Str, thread_id: Int, thread_name: Str, uid: Int, user: Str}]` or `Error` failure data.</p>
+</section>
+<section class="stdlib-entry" id="module.process.threads.1">
+<header><code>process.threads(pid: Int) -&gt; Result[Stream[{argv: Str, argv0: Str, command: Str, owner_pid: Int, parent_pid: Int, pid: Int, runtime_seconds: Int, start_time: Str, start_time_ms: Int, status: Str, thread_id: Int, thread_name: Str, uid: Int, user: Str}], Error]</code><div><span class="stdlib-badge effect">effect</span></div></header>
+<p>Process discovery, command construction, execution, spawning, and signals `threads` operation.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>pid</code></td><td><code>Int</code></td><td>required</td><td>Required `pid` argument.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `Stream[{argv: Str, argv0: Str, command: Str, owner_pid: Int, parent_pid: Int, pid: Int, runtime_seconds: Int, start_time: Str, start_time_ms: Int, status: Str, thread_id: Int, thread_name: Str, uid: Int, user: Str}]` or `Error` failure data.</p>
+</section>
+<section class="stdlib-entry" id="module.process.wait_any.0">
+<header><code>process.wait_any(handles: List[ProcessHandle]) -&gt; Result[{index: Int, pid: Int, status: Status}, ProcessError]</code><div><span class="stdlib-badge effect">effect</span></div></header>
+<p>Process discovery, command construction, execution, spawning, and signals `wait_any` operation.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>handles</code></td><td><code>List[ProcessHandle]</code></td><td>required</td><td>Required `handles` argument.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `{index: Int, pid: Int, status: Status}` or `ProcessError` failure data.</p>
+</section>
+<section class="stdlib-entry" id="module.process.wait_ready.0">
+<header><code>process.wait_ready(handles: List[ProcessHandle]) -&gt; Result[List[{index: Int, pid: Int, status: Status}], ProcessError]</code><div><span class="stdlib-badge effect">effect</span></div></header>
+<p>Process discovery, command construction, execution, spawning, and signals `wait_ready` operation.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>handles</code></td><td><code>List[ProcessHandle]</code></td><td>required</td><td>Required `handles` argument.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `List[{index: Int, pid: Int, status: Status}]` or `ProcessError` failure data.</p>
+</section>
+<section class="stdlib-entry" id="module.process.which.0">
+<header><code>process.which(name: Str) -&gt; Result[Path, Error]</code><div><span class="stdlib-badge effect">effect</span></div></header>
+<p>Process discovery, command construction, execution, spawning, and signals `which` operation.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>name</code></td><td><code>Str</code></td><td>required</td><td>Required `name` argument.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `Path` or `Error` failure data.</p>
+</section>
+</main>
+</body>
+</html>

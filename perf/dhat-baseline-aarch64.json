@@ -1,0 +1,384 @@
+{
+  "gmax_bytes": 724871,
+  "scenario": "extension-count",
+  "sites": [
+    {
+      "frames": [
+        "<dhat::Alloc as core::alloc::global::GlobalAlloc>::alloc",
+        "<alloc::raw_vec::RawVecInner>::try_allocate_in",
+        "<alloc::raw_vec::RawVecInner>::with_capacity_in",
+        "<alloc::raw_vec::RawVec<core::mem::maybe_uninit::MaybeUninit<ignore::walk::Message>>>::with_capacity_in",
+        "<alloc::vec::Vec<core::mem::maybe_uninit::MaybeUninit<ignore::walk::Message>>>::with_capacity_in",
+        "<alloc::vec::Vec<core::mem::maybe_uninit::MaybeUninit<ignore::walk::Message>>>::with_capacity",
+        "<alloc::vec::Vec<core::mem::maybe_uninit::MaybeUninit<ignore::walk::Message>> as alloc::vec::spec_from_iter_nested::SpecFromIterNested<core::mem::maybe_uninit::MaybeUninit<ignore::walk::Message>, core::iter::adapters::map::Map<core::ops::range::Range<usize>, <crossbeam_deque::deque::Buffer<ignore::walk::Message>>::alloc::{closure#0}>>>::from_iter",
+        "<alloc::vec::Vec<core::mem::maybe_uninit::MaybeUninit<ignore::walk::Message>> as alloc::vec::spec_from_iter::SpecFromIter<core::mem::maybe_uninit::MaybeUninit<ignore::walk::Message>, core::iter::adapters::map::Map<core::ops::range::Range<usize>, <crossbeam_deque::deque::Buffer<ignore::walk::Message>>::alloc::{closure#0}>>>::from_iter"
+      ],
+      "max_bytes": 87040,
+      "total_blocks": 10,
+      "total_bytes": 87040
+    },
+    {
+      "frames": [
+        "<alloc::alloc::Global as core::alloc::Allocator>::allocate",
+        "<alloc::boxed::Box<alloc::collections::btree::node::LeafNode<alloc::sync::Arc<str>, xsh::runtime::eval::LoweredValue>>>::try_new_uninit_in",
+        "<alloc::boxed::Box<alloc::collections::btree::node::LeafNode<alloc::sync::Arc<str>, xsh::runtime::eval::LoweredValue>>>::new_uninit_in",
+        "<alloc::collections::btree::node::LeafNode<alloc::sync::Arc<str>, xsh::runtime::eval::LoweredValue>>::new::<alloc::alloc::Global>",
+        "<alloc::collections::btree::node::NodeRef<alloc::collections::btree::node::marker::Owned, alloc::sync::Arc<str>, xsh::runtime::eval::LoweredValue, alloc::collections::btree::node::marker::Leaf>>::new_leaf::<alloc::alloc::Global>",
+        "<alloc::collections::btree::node::NodeRef<alloc::collections::btree::node::marker::Owned, alloc::sync::Arc<str>, xsh::runtime::eval::LoweredValue, alloc::collections::btree::node::marker::LeafOrInternal>>::new::<alloc::alloc::Global>",
+        "<alloc::collections::btree::map::BTreeMap<_, _, _> as core::clone::Clone>::clone::clone_subtree::<alloc::sync::Arc<str>, xsh::runtime::eval::LoweredValue, alloc::alloc::Global>",
+        "<alloc::collections::btree::map::BTreeMap<_, _, _> as core::clone::Clone>::clone::clone_subtree::<alloc::sync::Arc<str>, xsh::runtime::eval::LoweredValue, alloc::alloc::Global>"
+      ],
+      "max_bytes": 1440,
+      "total_blocks": 118,
+      "total_bytes": 84960
+    },
+    {
+      "frames": [
+        "<alloc::alloc::Global as core::alloc::Allocator>::allocate",
+        "<alloc::boxed::Box<alloc::collections::btree::node::LeafNode<alloc::sync::Arc<str>, xsh::runtime::eval::LoweredValue>>>::try_new_uninit_in",
+        "<alloc::boxed::Box<alloc::collections::btree::node::LeafNode<alloc::sync::Arc<str>, xsh::runtime::eval::LoweredValue>>>::new_uninit_in",
+        "<alloc::collections::btree::node::LeafNode<alloc::sync::Arc<str>, xsh::runtime::eval::LoweredValue>>::new::<alloc::alloc::Global>",
+        "<alloc::collections::btree::node::Handle<alloc::collections::btree::node::NodeRef<alloc::collections::btree::node::marker::Mut, alloc::sync::Arc<str>, xsh::runtime::eval::LoweredValue, alloc::collections::btree::node::marker::Leaf>, alloc::collections::btree::node::marker::KV>>::split::<alloc::alloc::Global>",
+        "<alloc::collections::btree::node::Handle<alloc::collections::btree::node::NodeRef<alloc::collections::btree::node::marker::Mut, alloc::sync::Arc<str>, xsh::runtime::eval::LoweredValue, alloc::collections::btree::node::marker::Leaf>, alloc::collections::btree::node::marker::Edge>>::insert::<alloc::alloc::Global>",
+        "<alloc::collections::btree::node::Handle<alloc::collections::btree::node::NodeRef<alloc::collections::btree::node::marker::Mut, alloc::sync::Arc<str>, xsh::runtime::eval::LoweredValue, alloc::collections::btree::node::marker::Leaf>, alloc::collections::btree::node::marker::Edge>>::insert_recursing::<alloc::alloc::Global, <alloc::collections::btree::map::entry::VacantEntry<alloc::sync::Arc<str>, xsh::runtime::eval::LoweredValue>>::insert_entry::{closure#0}>",
+        "<alloc::collections::btree::map::entry::VacantEntry<alloc::sync::Arc<str>, xsh::runtime::eval::LoweredValue>>::insert_entry"
+      ],
+      "max_bytes": 84960,
+      "total_blocks": 118,
+      "total_bytes": 84960
+    },
+    {
+      "frames": [
+        "<alloc::alloc::Global as core::alloc::Allocator>::allocate",
+        "<alloc::boxed::Box<alloc::collections::btree::node::LeafNode<alloc::sync::Arc<str>, xsh::runtime::eval::LoweredValue>>>::try_new_uninit_in",
+        "<alloc::boxed::Box<alloc::collections::btree::node::LeafNode<alloc::sync::Arc<str>, xsh::runtime::eval::LoweredValue>>>::new_uninit_in",
+        "<alloc::collections::btree::node::LeafNode<alloc::sync::Arc<str>, xsh::runtime::eval::LoweredValue>>::new::<alloc::alloc::Global>",
+        "<alloc::collections::btree::node::NodeRef<alloc::collections::btree::node::marker::Owned, alloc::sync::Arc<str>, xsh::runtime::eval::LoweredValue, alloc::collections::btree::node::marker::Leaf>>::new_leaf::<alloc::alloc::Global>",
+        "<alloc::collections::btree::node::NodeRef<alloc::collections::btree::node::marker::Owned, alloc::sync::Arc<str>, xsh::runtime::eval::LoweredValue, alloc::collections::btree::node::marker::LeafOrInternal>>::new::<alloc::alloc::Global>",
+        "<alloc::collections::btree::map::BTreeMap<_, _, _> as core::clone::Clone>::clone::clone_subtree::<alloc::sync::Arc<str>, xsh::runtime::eval::LoweredValue, alloc::alloc::Global>",
+        "<alloc::collections::btree::map::BTreeMap<_, _, _> as core::clone::Clone>::clone::clone_subtree::<alloc::sync::Arc<str>, xsh::runtime::eval::LoweredValue, alloc::alloc::Global>"
+      ],
+      "max_bytes": 1440,
+      "total_blocks": 116,
+      "total_bytes": 83520
+    },
+    {
+      "frames": [
+        "<alloc::alloc::Global as core::alloc::Allocator>::allocate",
+        "<alloc::boxed::Box<alloc::collections::btree::node::InternalNode<alloc::sync::Arc<str>, xsh::runtime::eval::LoweredValue>>>::try_new_uninit_in",
+        "<alloc::boxed::Box<alloc::collections::btree::node::InternalNode<alloc::sync::Arc<str>, xsh::runtime::eval::LoweredValue>>>::new_uninit_in",
+        "<alloc::collections::btree::node::InternalNode<alloc::sync::Arc<str>, xsh::runtime::eval::LoweredValue>>::new::<alloc::alloc::Global>",
+        "<alloc::collections::btree::node::NodeRef<alloc::collections::btree::node::marker::Owned, alloc::sync::Arc<str>, xsh::runtime::eval::LoweredValue, alloc::collections::btree::node::marker::Internal>>::new_internal::<alloc::alloc::Global>",
+        "<alloc::collections::btree::node::NodeRef<alloc::collections::btree::node::marker::Owned, alloc::sync::Arc<str>, xsh::runtime::eval::LoweredValue, alloc::collections::btree::node::marker::LeafOrInternal>>::push_internal_level::<alloc::alloc::Global>::{closure#0}",
+        "alloc::collections::btree::mem::take_mut::<alloc::collections::btree::node::NodeRef<alloc::collections::btree::node::marker::Owned, alloc::sync::Arc<str>, xsh::runtime::eval::LoweredValue, alloc::collections::btree::node::marker::LeafOrInternal>, <alloc::collections::btree::node::NodeRef<alloc::collections::btree::node::marker::Owned, alloc::sync::Arc<str>, xsh::runtime::eval::LoweredValue, alloc::collections::btree::node::marker::LeafOrInternal>>::push_internal_level<alloc::alloc::Global>::{closure#0}>::{closure#0}",
+        "alloc::collections::btree::mem::replace::<alloc::collections::btree::node::NodeRef<alloc::collections::btree::node::marker::Owned, alloc::sync::Arc<str>, xsh::runtime::eval::LoweredValue, alloc::collections::btree::node::marker::LeafOrInternal>,"
+      ],
+      "max_bytes": 48144,
+      "total_blocks": 59,
+      "total_bytes": 48144
+    },
+    {
+      "frames": [
+        "<alloc::alloc::Global as core::alloc::Allocator>::allocate",
+        "<alloc::boxed::Box<alloc::collections::btree::node::InternalNode<alloc::sync::Arc<str>, xsh::runtime::eval::LoweredValue>>>::try_new_uninit_in",
+        "<alloc::boxed::Box<alloc::collections::btree::node::InternalNode<alloc::sync::Arc<str>, xsh::runtime::eval::LoweredValue>>>::new_uninit_in",
+        "<alloc::collections::btree::node::InternalNode<alloc::sync::Arc<str>, xsh::runtime::eval::LoweredValue>>::new::<alloc::alloc::Global>",
+        "<alloc::collections::btree::node::NodeRef<alloc::collections::btree::node::marker::Owned, alloc::sync::Arc<str>, xsh::runtime::eval::LoweredValue, alloc::collections::btree::node::marker::Internal>>::new_internal::<alloc::alloc::Global>",
+        "<alloc::collections::btree::node::NodeRef<alloc::collections::btree::node::marker::Owned, alloc::sync::Arc<str>, xsh::runtime::eval::LoweredValue, alloc::collections::btree::node::marker::LeafOrInternal>>::push_internal_level::<alloc::alloc::Global>::{closure#0}",
+        "alloc::collections::btree::mem::take_mut::<alloc::collections::btree::node::NodeRef<alloc::collections::btree::node::marker::Owned, alloc::sync::Arc<str>, xsh::runtime::eval::LoweredValue, alloc::collections::btree::node::marker::LeafOrInternal>, <alloc::collections::btree::node::NodeRef<alloc::collections::btree::node::marker::Owned, alloc::sync::Arc<str>, xsh::runtime::eval::LoweredValue, alloc::collections::btree::node::marker::LeafOrInternal>>::push_internal_level<alloc::alloc::Global>::{closure#0}>::{closure#0}",
+        "alloc::collections::btree::mem::replace::<alloc::collections::btree::node::NodeRef<alloc::collections::btree::node::marker::Owned, alloc::sync::Arc<str>, xsh::runtime::eval::LoweredValue, alloc::collections::btree::node::marker::LeafOrInternal>,"
+      ],
+      "max_bytes": 816,
+      "total_blocks": 59,
+      "total_bytes": 48144
+    },
+    {
+      "frames": [
+        "<alloc::alloc::Global as core::alloc::Allocator>::allocate",
+        "<alloc::boxed::Box<alloc::collections::btree::node::InternalNode<alloc::sync::Arc<str>, xsh::runtime::eval::LoweredValue>>>::try_new_uninit_in",
+        "<alloc::boxed::Box<alloc::collections::btree::node::InternalNode<alloc::sync::Arc<str>, xsh::runtime::eval::LoweredValue>>>::new_uninit_in",
+        "<alloc::collections::btree::node::InternalNode<alloc::sync::Arc<str>, xsh::runtime::eval::LoweredValue>>::new::<alloc::alloc::Global>",
+        "<alloc::collections::btree::node::NodeRef<alloc::collections::btree::node::marker::Owned, alloc::sync::Arc<str>, xsh::runtime::eval::LoweredValue, alloc::collections::btree::node::marker::Internal>>::new_internal::<alloc::alloc::Global>",
+        "<alloc::collections::btree::node::NodeRef<alloc::collections::btree::node::marker::Owned, alloc::sync::Arc<str>, xsh::runtime::eval::LoweredValue, alloc::collections::btree::node::marker::LeafOrInternal>>::push_internal_level::<alloc::alloc::Global>::{closure#0}",
+        "alloc::collections::btree::mem::take_mut::<alloc::collections::btree::node::NodeRef<alloc::collections::btree::node::marker::Owned, alloc::sync::Arc<str>, xsh::runtime::eval::LoweredValue, alloc::collections::btree::node::marker::LeafOrInternal>, <alloc::collections::btree::node::NodeRef<alloc::collections::btree::node::marker::Owned, alloc::sync::Arc<str>, xsh::runtime::eval::LoweredValue, alloc::collections::btree::node::marker::LeafOrInternal>>::push_internal_level<alloc::alloc::Global>::{closure#0}>::{closure#0}",
+        "alloc::collections::btree::mem::replace::<alloc::collections::btree::node::NodeRef<alloc::collections::btree::node::marker::Owned, alloc::sync::Arc<str>, xsh::runtime::eval::LoweredValue, alloc::collections::btree::node::marker::LeafOrInternal>,"
+      ],
+      "max_bytes": 816,
+      "total_blocks": 58,
+      "total_bytes": 47328
+    },
+    {
+      "frames": [
+        "<alloc::alloc::Global as core::alloc::Allocator>::allocate",
+        "<alloc::boxed::Box<alloc::collections::btree::node::LeafNode<alloc::sync::Arc<str>, xsh::runtime::eval::LoweredValue>>>::try_new_uninit_in",
+        "<alloc::boxed::Box<alloc::collections::btree::node::LeafNode<alloc::sync::Arc<str>, xsh::runtime::eval::LoweredValue>>>::new_uninit_in",
+        "<alloc::collections::btree::node::LeafNode<alloc::sync::Arc<str>, xsh::runtime::eval::LoweredValue>>::new::<alloc::alloc::Global>",
+        "<alloc::collections::btree::node::NodeRef<alloc::collections::btree::node::marker::Owned, alloc::sync::Arc<str>, xsh::runtime::eval::LoweredValue, alloc::collections::btree::node::marker::Leaf>>::new_leaf::<alloc::alloc::Global>",
+        "<alloc::collections::btree::node::NodeRef<alloc::collections::btree::node::marker::Owned, alloc::sync::Arc<str>, xsh::runtime::eval::LoweredValue, alloc::collections::btree::node::marker::LeafOrInternal>>::new::<alloc::alloc::Global>",
+        "<alloc::collections::btree::map::BTreeMap<_, _, _> as core::clone::Clone>::clone::clone_subtree::<alloc::sync::Arc<str>, xsh::runtime::eval::LoweredValue, alloc::alloc::Global>",
+        "<alloc::collections::btree::map::BTreeMap<_, _, _> as core::clone::Clone>::clone::clone_subtree::<alloc::sync::Arc<str>, xsh::runtime::eval::LoweredValue, alloc::alloc::Global>"
+      ],
+      "max_bytes": 720,
+      "total_blocks": 59,
+      "total_bytes": 42480
+    },
+    {
+      "frames": [
+        "<alloc::alloc::Global as core::alloc::Allocator>::allocate",
+        "<alloc::boxed::Box<alloc::collections::btree::node::LeafNode<alloc::sync::Arc<str>, xsh::runtime::eval::LoweredValue>>>::try_new_uninit_in",
+        "<alloc::boxed::Box<alloc::collections::btree::node::LeafNode<alloc::sync::Arc<str>, xsh::runtime::eval::LoweredValue>>>::new_uninit_in",
+        "<alloc::collections::btree::node::LeafNode<alloc::sync::Arc<str>, xsh::runtime::eval::LoweredValue>>::new::<alloc::alloc::Global>",
+        "<alloc::collections::btree::node::NodeRef<alloc::collections::btree::node::marker::Owned, alloc::sync::Arc<str>, xsh::runtime::eval::LoweredValue, alloc::collections::btree::node::marker::Leaf>>::new_leaf::<alloc::alloc::Global>",
+        "<alloc::collections::btree::map::entry::VacantEntry<alloc::sync::Arc<str>, xsh::runtime::eval::LoweredValue>>::insert_entry",
+        "<alloc::collections::btree::map::entry::VacantEntry<alloc::sync::Arc<str>, xsh::runtime::eval::LoweredValue>>::insert",
+        "<alloc::collections::btree::map::BTreeMap<alloc::sync::Arc<str>, xsh::runtime::eval::LoweredValue>>::insert"
+      ],
+      "max_bytes": 42480,
+      "total_blocks": 59,
+      "total_bytes": 42480
+    },
+    {
+      "frames": [
+        "<alloc::alloc::Global as core::alloc::Allocator>::allocate",
+        "<alloc::boxed::Box<alloc::collections::btree::node::LeafNode<alloc::sync::Arc<str>, xsh::runtime::eval::LoweredValue>>>::try_new_uninit_in",
+        "<alloc::boxed::Box<alloc::collections::btree::node::LeafNode<alloc::sync::Arc<str>, xsh::runtime::eval::LoweredValue>>>::new_uninit_in",
+        "<alloc::collections::btree::node::LeafNode<alloc::sync::Arc<str>, xsh::runtime::eval::LoweredValue>>::new::<alloc::alloc::Global>",
+        "<alloc::collections::btree::node::NodeRef<alloc::collections::btree::node::marker::Owned, alloc::sync::Arc<str>, xsh::runtime::eval::LoweredValue, alloc::collections::btree::node::marker::Leaf>>::new_leaf::<alloc::alloc::Global>",
+        "<alloc::collections::btree::node::NodeRef<alloc::collections::btree::node::marker::Owned, alloc::sync::Arc<str>, xsh::runtime::eval::LoweredValue, alloc::collections::btree::node::marker::LeafOrInternal>>::new::<alloc::alloc::Global>",
+        "<alloc::collections::btree::map::BTreeMap<_, _, _> as core::clone::Clone>::clone::clone_subtree::<alloc::sync::Arc<str>, xsh::runtime::eval::LoweredValue, alloc::alloc::Global>",
+        "<alloc::collections::btree::map::BTreeMap<_, _, _> as core::clone::Clone>::clone::clone_subtree::<alloc::sync::Arc<str>, xsh::runtime::eval::LoweredValue, alloc::alloc::Global>"
+      ],
+      "max_bytes": 720,
+      "total_blocks": 58,
+      "total_bytes": 41760
+    },
+    {
+      "frames": [
+        "<dhat::Alloc as core::alloc::global::GlobalAlloc>::alloc",
+        "<alloc::raw_vec::RawVecInner>::try_allocate_in",
+        "<alloc::raw_vec::RawVecInner>::with_capacity_in",
+        "<alloc::raw_vec::RawVec<xsh::modules::signature::ParamSig>>::with_capacity_in",
+        "<alloc::vec::Vec<xsh::modules::signature::ParamSig>>::with_capacity_in",
+        "<alloc::vec::Vec<xsh::modules::signature::ParamSig>>::with_capacity",
+        "<alloc::vec::Vec<xsh::modules::signature::ParamSig> as alloc::vec::spec_from_iter_nested::SpecFromIterNested<xsh::modules::signature::ParamSig, core::iter::adapters::map::Map<core::slice::iter::Iter<xsh_registry::signature::ParamSig>, xsh::modules::signature::convert_param_sig>>>::from_iter",
+        "<alloc::vec::Vec<xsh::modules::signature::ParamSig> as alloc::vec::spec_from_iter::SpecFromIter<xsh::modules::signature::ParamSig, core::iter::adapters::map::Map<core::slice::iter::Iter<xsh_registry::signature::ParamSig>, xsh::modules::signature::convert_param_sig>>>::from_iter"
+      ],
+      "max_bytes": 30632,
+      "total_blocks": 263,
+      "total_bytes": 30632
+    },
+    {
+      "frames": [
+        "<alloc::alloc::Global as core::alloc::Allocator>::allocate",
+        "hashbrown::alloc::inner::do_alloc::<alloc::alloc::Global>",
+        "<hashbrown::raw::RawTableInner>::new_uninitialized::<alloc::alloc::Global>",
+        "<hashbrown::raw::RawTableInner>::fallible_with_capacity::<alloc::alloc::Global>",
+        "<hashbrown::raw::RawTableInner>::with_capacity::<alloc::alloc::Global>",
+        "<hashbrown::raw::RawTable<(&str, xsh::symbol::Symbol)>>::with_capacity_in",
+        "<hashbrown::raw::RawTable<(&str, xsh::symbol::Symbol)>>::with_capacity",
+        "<hashbrown::map::HashMap<&str, xsh::symbol::Symbol, rustc_hash::FxBuildHasher>>::with_capacity_and_hasher"
+      ],
+      "max_bytes": 25608,
+      "total_blocks": 1,
+      "total_bytes": 25608
+    },
+    {
+      "frames": [
+        "<alloc::alloc::Global as core::alloc::Allocator>::allocate",
+        "<alloc::boxed::Box<alloc::collections::btree::node::LeafNode<xsh::symbol::Name, xsh::sema::types::Type>>>::try_new_uninit_in",
+        "<alloc::boxed::Box<alloc::collections::btree::node::LeafNode<xsh::symbol::Name, xsh::sema::types::Type>>>::new_uninit_in",
+        "<alloc::collections::btree::node::LeafNode<xsh::symbol::Name, xsh::sema::types::Type>>::new::<alloc::alloc::Global>",
+        "<alloc::collections::btree::node::NodeRef<alloc::collections::btree::node::marker::Owned, xsh::symbol::Name, xsh::sema::types::Type, alloc::collections::btree::node::marker::Leaf>>::new_leaf::<alloc::alloc::Global>",
+        "<alloc::collections::btree::node::NodeRef<alloc::collections::btree::node::marker::Owned, xsh::symbol::Name, xsh::sema::types::Type, alloc::collections::btree::node::marker::LeafOrInternal>>::new::<alloc::alloc::Global>",
+        "<alloc::collections::btree::map::BTreeMap<xsh::symbol::Name, xsh::sema::types::Type>>::bulk_build_from_sorted_iter::<alloc::vec::Vec<(xsh::symbol::Name, xsh::sema::types::Type)>>",
+        "<alloc::collections::btree::map::BTreeMap<xsh::symbol::Name, xsh::sema::types::Type> as core::iter::traits::collect::FromIterator<(xsh::symbol::Name, xsh::sema::types::Type)>>::from_iter::<core::iter::adapters::map::Map<alloc::collections::btree::map::Iter<alloc::string::String, xsh_registry::types::Type>, xsh::modules::signature::convert_type::{closure#0}>>"
+      ],
+      "max_bytes": 22032,
+      "total_blocks": 54,
+      "total_bytes": 22032
+    },
+    {
+      "frames": [
+        "<dhat::Alloc as core::alloc::global::GlobalAlloc>::alloc",
+        "<alloc::raw_vec::RawVecInner>::try_allocate_in",
+        "<alloc::raw_vec::RawVecInner>::with_capacity_in",
+        "<alloc::raw_vec::RawVec<xsh::modules::signature::ModuleFnSig>>::with_capacity_in",
+        "<alloc::vec::Vec<xsh::modules::signature::ModuleFnSig>>::with_capacity_in",
+        "<alloc::vec::Vec<xsh::modules::signature::ModuleFnSig>>::with_capacity",
+        "<alloc::vec::Vec<xsh::modules::signature::ModuleFnSig> as alloc::vec::spec_from_iter_nested::SpecFromIterNested<xsh::modules::signature::ModuleFnSig, core::iter::adapters::map::Map<core::slice::iter::Iter<xsh_registry::signature::ModuleFnSig>, xsh::modules::signature::convert_module_fn_sig>>>::from_iter",
+        "<alloc::vec::Vec<xsh::modules::signature::ModuleFnSig> as alloc::vec::spec_from_iter::SpecFromIter<xsh::modules::signature::ModuleFnSig, core::iter::adapters::map::Map<core::slice::iter::Iter<xsh_registry::signature::ModuleFnSig>, xsh::modules::signature::convert_module_fn_sig>>>::from_iter"
+      ],
+      "max_bytes": 21056,
+      "total_blocks": 315,
+      "total_bytes": 21056
+    },
+    {
+      "frames": [
+        "<alloc::alloc::Global as core::alloc::Allocator>::allocate",
+        "alloc::boxed::box_new_uninit",
+        "<alloc::boxed::Box<crossbeam_epoch::internal::Local>>::new",
+        "<crossbeam_epoch::internal::Local as crossbeam_epoch::atomic::Pointable>::init",
+        "<crossbeam_epoch::atomic::Owned<crossbeam_epoch::internal::Local>>::init",
+        "<crossbeam_epoch::atomic::Owned<crossbeam_epoch::internal::Local>>::new",
+        "<crossbeam_epoch::internal::Local>::register",
+        "<crossbeam_epoch::collector::Collector>::register"
+      ],
+      "max_bytes": 20736,
+      "total_blocks": 9,
+      "total_bytes": 20736
+    },
+    {
+      "frames": [
+        "<alloc::alloc::Global as core::alloc::Allocator>::allocate",
+        "alloc::boxed::box_new_uninit",
+        "<alloc::boxed::Box<crossbeam_epoch::sync::queue::Node<crossbeam_epoch::internal::SealedBag>>>::new",
+        "<crossbeam_epoch::sync::queue::Node<crossbeam_epoch::internal::SealedBag> as crossbeam_epoch::atomic::Pointable>::init",
+        "<crossbeam_epoch::atomic::Owned<crossbeam_epoch::sync::queue::Node<crossbeam_epoch::internal::SealedBag>>>::init",
+        "<crossbeam_epoch::atomic::Owned<crossbeam_epoch::sync::queue::Node<crossbeam_epoch::internal::SealedBag>>>::new",
+        "<crossbeam_epoch::sync::queue::Queue<crossbeam_epoch::internal::SealedBag>>::push",
+        "<crossbeam_epoch::internal::Global>::push_bag"
+      ],
+      "max_bytes": 20720,
+      "total_blocks": 10,
+      "total_bytes": 20720
+    },
+    {
+      "frames": [
+        "<alloc::alloc::Global as core::alloc::Allocator>::allocate",
+        "alloc::boxed::box_new_uninit",
+        "<alloc::boxed::Box<alloc::sync::ArcInner<[(usize, xsh::runtime::value::Value); 4]>>>::new",
+        "<alloc::sync::Arc<[(usize, xsh::runtime::value::Value); 4]>>::new",
+        "<xsh::runtime::value::RecordMap>::sparse_shaped_array::<4>",
+        "xsh::modules::fs::fs_entry_record_cheap",
+        "<xsh::modules::fs::RawWalkEntry>::record",
+        "xsh::modules::fs::parallel_walk_ignore_value_fold::<(), xsh::modules::fs::start_ignore_walk::{closure#0}::{closure#0}, xsh::modules::fs::start_ignore_walk::{closure#0}::{closure#1}>::{closure#0}::{closure#0}"
+      ],
+      "max_bytes": 14160,
+      "total_blocks": 59,
+      "total_bytes": 14160
+    },
+    {
+      "frames": [
+        "alloc::alloc::alloc_zeroed",
+        "<crossbeam_channel::flavors::list::Block<core::result::Result<alloc::collections::btree::map::BTreeMap<alloc::string::String, xsh::runtime::value::Value>, xsh::runtime::value::RuntimeError>>>::new",
+        "<crossbeam_channel::flavors::list::Channel<core::result::Result<alloc::collections::btree::map::BTreeMap<alloc::string::String, xsh::runtime::value::Value>, xsh::runtime::value::RuntimeError>>>::start_send",
+        "<crossbeam_channel::flavors::list::Channel<core::result::Result<alloc::collections::btree::map::BTreeMap<alloc::string::String, xsh::runtime::value::Value>, xsh::runtime::value::RuntimeError>>>::send",
+        "<crossbeam_channel::channel::Sender<core::result::Result<xsh::runtime::value::Value, xsh::runtime::value::RuntimeError>>>::send",
+        "xsh::modules::fs::start_ignore_walk::{closure#0}::{closure#1}",
+        "xsh::modules::fs::parallel_walk_ignore_value_fold::<(), xsh::modules::fs::start_ignore_walk::{closure#0}::{closure#0}, xsh::modules::fs::start_ignore_walk::{closure#0}::{closure#1}>::{closure#0}",
+        "xsh::modules::fs::parallel_walk_ignore_fold::<(), xsh::modules::fs::start_ignore_walk::{closure#0}::{closure#0}, xsh::modules::fs::parallel_walk_ignore_value_fold<(), xsh::modules::fs::start_ignore_walk::{closure#0}::{closure#0}, xsh::modules::fs::start_ignore_walk::{closure#0}::{closure#1}>::{closure#0}>::{closure#0}::{closure#0}"
+      ],
+      "max_bytes": 12912,
+      "total_blocks": 2,
+      "total_bytes": 12912
+    },
+    {
+      "frames": [
+        "<dhat::Alloc as core::alloc::global::GlobalAlloc>::alloc",
+        "<alloc::raw_vec::RawVecInner>::try_allocate_in",
+        "<alloc::raw_vec::RawVecInner>::with_capacity_in",
+        "<alloc::raw_vec::RawVec<xsh::modules::signature::MethodSig>>::with_capacity_in",
+        "<alloc::vec::Vec<xsh::modules::signature::MethodSig>>::with_capacity_in",
+        "<alloc::vec::Vec<xsh::modules::signature::MethodSig>>::with_capacity",
+        "<alloc::vec::Vec<xsh::modules::signature::MethodSig> as alloc::vec::spec_from_iter_nested::SpecFromIterNested<xsh::modules::signature::MethodSig, core::iter::adapters::map::Map<core::slice::iter::Iter<xsh_registry::signature::MethodSig>, xsh::modules::signature::convert_method_sig>>>::from_iter",
+        "<alloc::vec::Vec<xsh::modules::signature::MethodSig> as alloc::vec::spec_from_iter::SpecFromIter<xsh::modules::signature::MethodSig, core::iter::adapters::map::Map<core::slice::iter::Iter<xsh_registry::signature::MethodSig>, xsh::modules::signature::convert_method_sig>>>::from_iter"
+      ],
+      "max_bytes": 12768,
+      "total_blocks": 129,
+      "total_bytes": 12768
+    },
+    {
+      "frames": [
+        "<alloc::alloc::Global as core::alloc::Allocator>::allocate",
+        "<alloc::boxed::Box<alloc::collections::btree::node::LeafNode<xsh::symbol::Name, xsh::sema::types::Type>>>::try_new_uninit_in",
+        "<alloc::boxed::Box<alloc::collections::btree::node::LeafNode<xsh::symbol::Name, xsh::sema::types::Type>>>::new_uninit_in",
+        "<alloc::collections::btree::node::LeafNode<xsh::symbol::Name, xsh::sema::types::Type>>::new::<alloc::alloc::Global>",
+        "<alloc::collections::btree::node::NodeRef<alloc::collections::btree::node::marker::Owned, xsh::symbol::Name, xsh::sema::types::Type, alloc::collections::btree::node::marker::Leaf>>::new_leaf::<alloc::alloc::Global>",
+        "<alloc::collections::btree::node::NodeRef<alloc::collections::btree::node::marker::Owned, xsh::symbol::Name, xsh::sema::types::Type, alloc::collections::btree::node::marker::LeafOrInternal>>::new::<alloc::alloc::Global>",
+        "<alloc::collections::btree::map::BTreeMap<xsh::symbol::Name, xsh::sema::types::Type>>::bulk_build_from_sorted_iter::<alloc::vec::Vec<(xsh::symbol::Name, xsh::sema::types::Type)>>",
+        "<alloc::collections::btree::map::BTreeMap<xsh::symbol::Name, xsh::sema::types::Type> as core::iter::traits::collect::FromIterator<(xsh::symbol::Name, xsh::sema::types::Type)>>::from_iter::<core::iter::adapters::map::Map<alloc::collections::btree::map::Iter<alloc::string::String, xsh_registry::types::Type>, xsh::modules::signature::convert_type::{closure#0}>>"
+      ],
+      "max_bytes": 12648,
+      "total_blocks": 31,
+      "total_bytes": 12648
+    },
+    {
+      "frames": [
+        "<dhat::Alloc as core::alloc::global::GlobalAlloc>::alloc",
+        "<alloc::raw_vec::RawVecInner>::try_allocate_in",
+        "<alloc::raw_vec::RawVecInner>::with_capacity_in",
+        "<alloc::raw_vec::RawVec<xsh::modules::signature::NamedModuleFns>>::with_capacity_in",
+        "<alloc::vec::Vec<xsh::modules::signature::NamedModuleFns>>::with_capacity_in",
+        "<alloc::vec::Vec<xsh::modules::signature::NamedModuleFns>>::with_capacity",
+        "<alloc::vec::Vec<xsh::modules::signature::NamedModuleFns> as alloc::vec::spec_from_iter_nested::SpecFromIterNested<xsh::modules::signature::NamedModuleFns, core::iter::adapters::map::Map<core::slice::iter::Iter<xsh_registry::signature::NamedModuleFns>, xsh::modules::signature::convert_named_module_fns>>>::from_iter",
+        "<alloc::vec::Vec<xsh::modules::signature::NamedModuleFns> as alloc::vec::spec_from_iter::SpecFromIter<xsh::modules::signature::NamedModuleFns, core::iter::adapters::map::Map<core::slice::iter::Iter<xsh_registry::signature::NamedModuleFns>, xsh::modules::signature::convert_named_module_fns>>>::from_iter"
+      ],
+      "max_bytes": 12600,
+      "total_blocks": 34,
+      "total_bytes": 12600
+    },
+    {
+      "frames": [
+        "<dhat::Alloc as core::alloc::global::GlobalAlloc>::alloc",
+        "<alloc::raw_vec::RawVecInner>::try_allocate_in",
+        "<alloc::raw_vec::RawVecInner>::with_capacity_in",
+        "<alloc::raw_vec::RawVec<(xsh::symbol::Name, xsh::sema::types::Type)>>::with_capacity_in",
+        "<alloc::vec::Vec<(xsh::symbol::Name, xsh::sema::types::Type)>>::with_capacity_in",
+        "<alloc::vec::Vec<(xsh::symbol::Name, xsh::sema::types::Type)>>::with_capacity",
+        "<alloc::vec::Vec<(xsh::symbol::Name, xsh::sema::types::Type)> as alloc::vec::spec_from_iter_nested::SpecFromIterNested<(xsh::symbol::Name, xsh::sema::types::Type), core::iter::adapters::map::Map<alloc::collections::btree::map::Iter<alloc::string::String, xsh_registry::types::Type>, xsh::modules::signature::convert_type::{closure#0}>>>::from_iter",
+        "<alloc::vec::Vec<(xsh::symbol::Name, xsh::sema::types::Type)> as alloc::vec::spec_from_iter::SpecFromIter<(xsh::symbol::Name, xsh::sema::types::Type), core::iter::adapters::map::Map<alloc::collections::btree::map::Iter<alloc::string::String, xsh_registry::types::Type>, xsh::modules::signature::convert_type::{closure#0}>>>::from_iter"
+      ],
+      "max_bytes": 760,
+      "total_blocks": 54,
+      "total_bytes": 10720
+    },
+    {
+      "frames": [
+        "<alloc::alloc::Global as core::alloc::Allocator>::allocate",
+        "<alloc::raw_vec::RawVecInner>::finish_grow",
+        "<alloc::raw_vec::RawVecInner>::grow_amortized",
+        "<alloc::raw_vec::RawVecInner>::grow_one",
+        "<alloc::raw_vec::RawVec<xsh_registry::signature::NamedModuleFns>>::grow_one",
+        "<alloc::vec::Vec<xsh_registry::signature::NamedModuleFns>>::push_mut",
+        "<alloc::vec::Vec<xsh_registry::signature::NamedModuleFns>>::push",
+        "xsh_registry::signature::module_sig"
+      ],
+      "max_bytes": 5120,
+      "total_blocks": 6,
+      "total_bytes": 10080
+    },
+    {
+      "frames": [
+        "<alloc::alloc::Global as core::alloc::Allocator>::allocate",
+        "alloc::boxed::box_new_uninit",
+        "<alloc::boxed::Box<alloc::sync::ArcInner<ignore::dir::IgnoreInner>>>::new",
+        "<alloc::sync::Arc<ignore::dir::IgnoreInner>>::new",
+        "<ignore::dir::Ignore>::add_child::<&std::path::Path>",
+        "<ignore::walk::Work>::read_dir",
+        "<ignore::walk::Worker>::run_one",
+        "<ignore::walk::Worker>::run"
+      ],
+      "max_bytes": 7840,
+      "total_blocks": 17,
+      "total_bytes": 9520
+    },
+    {
+      "frames": [
+        "<alloc::alloc::Global as core::alloc::Allocator>::allocate",
+        "<alloc::raw_vec::RawVecInner>::finish_grow",
+        "<alloc::raw_vec::RawVecInner>::grow_amortized",
+        "<alloc::raw_vec::RawVecInner>::grow_one",
+        "<alloc::raw_vec::RawVec<xsh::diagnostic::FixHint>>::grow_one",
+        "<alloc::vec::Vec<xsh::runtime::value::StreamItem>>::push_mut",
+        "<alloc::vec::Vec<xsh::runtime::value::StreamItem>>::push",
+        "<xsh::runtime::eval::stream::MaterializeSink as xsh::runtime::eval::stream::LazySink>::accept"
+      ],
+      "max_bytes": 4608,
+      "total_blocks": 5,
+      "total_bytes": 8928
+    }
+  ],
+  "total_blocks": 7515,
+  "total_bytes": 1497746,
+  "version": 1
+}

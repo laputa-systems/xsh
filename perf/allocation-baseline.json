@@ -1,0 +1,77 @@
+{
+  "allocator": "libmimalloc-sys 0.1.47 secure",
+  "build": "debug",
+  "kind": "allocation-baseline",
+  "scale": 8,
+  "scenarios": [
+    {
+      "metrics": {
+        "alloc_calls_gt4096": 14,
+        "alloc_calls_le16": 1632,
+        "alloc_calls_le256": 903,
+        "alloc_calls_le4096": 256,
+        "alloc_calls_le64": 1188,
+        "allocation_bytes": 1100234,
+        "allocation_calls": 3993,
+        "deallocation_bytes": 1016892,
+        "deallocation_calls": 2320,
+        "peak_rss": 12402688,
+        "reallocation_bytes": 192561,
+        "reallocation_calls": 386
+      },
+      "name": "archive-package"
+    },
+    {
+      "metrics": {
+        "alloc_calls_gt4096": 2,
+        "alloc_calls_le16": 3671,
+        "alloc_calls_le256": 2871,
+        "alloc_calls_le4096": 2023,
+        "alloc_calls_le64": 2200,
+        "allocation_bytes": 3964886,
+        "allocation_calls": 10767,
+        "deallocation_bytes": 4237694,
+        "deallocation_calls": 9078,
+        "peak_rss": 12582912,
+        "reallocation_bytes": 914656,
+        "reallocation_calls": 1289
+      },
+      "name": "extension-count"
+    },
+    {
+      "metrics": {
+        "alloc_calls_gt4096": 5,
+        "alloc_calls_le16": 2783,
+        "alloc_calls_le256": 915,
+        "alloc_calls_le4096": 2878,
+        "alloc_calls_le64": 2673,
+        "allocation_bytes": 7180191,
+        "allocation_calls": 9254,
+        "deallocation_bytes": 7207254,
+        "deallocation_calls": 7565,
+        "peak_rss": 11501568,
+        "reallocation_bytes": 428089,
+        "reallocation_calls": 295
+      },
+      "name": "json-log-rollup"
+    },
+    {
+      "metrics": {
+        "alloc_calls_gt4096": 8,
+        "alloc_calls_le16": 1821,
+        "alloc_calls_le256": 1168,
+        "alloc_calls_le4096": 516,
+        "alloc_calls_le64": 1186,
+        "allocation_bytes": 1063924,
+        "allocation_calls": 4699,
+        "deallocation_bytes": 1039010,
+        "deallocation_calls": 3013,
+        "peak_rss": 10518528,
+        "reallocation_bytes": 327480,
+        "reallocation_calls": 501
+      },
+      "name": "manifest-hash"
+    }
+  ],
+  "version": 1
+}

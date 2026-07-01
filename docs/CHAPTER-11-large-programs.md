@@ -1,0 +1,154 @@
+# Chapter 11: Larger Programs
+
+Most XSH scripts can stay as one file. When a script becomes a tool, the same
+pieces still apply: keep top-level execution small, name repeated data shapes,
+put reusable logic behind pure functions or procs, and leave process or
+filesystem effects explicit.
+
+By the end of this chapter, you should know how to split a tool without hiding
+its contract: what belongs in the entry file, what belongs in a module, what to
+export, and how to check a runtime-loaded module before trusting it.
+
+## Keep The Entry Path Narrow
+
+A larger tool usually reads best with this shape:
+
+1. Parse arguments into a record.
+2. Build typed paths and configuration.
+3. Run checks and transformations.
+4. Execute process or filesystem effects with `?`.
+5. Print final user-facing output.
+
+That shape keeps traces useful. High-level decisions are separate from host
+operations, and failures point at the boundary that produced them.
+
+## Split By Responsibility
+
+A small directory layout is enough for most tools:
+
+```text
+tool.xsh
+tool/local.xsh
+tool/types.xsh
+```
+
+The top-level file owns CLI parsing and orchestration. Local modules hold stable
+helpers or shared record definitions. Use modules when a file has a clear
+responsibility, not because a script crossed an arbitrary line count.
+
+Exports are the public surface:
+
+```xsh
+export type Package = {name: Str, root: Path}
+
+export pure package_label(pkg: Package) -> Str {
+  return pkg.name
+}
+```
+
+Internal helpers can stay local to the module.
+
+Why XSH shines here: exports make the public surface visible while the rest of
+the module remains implementation detail.
+
+Common trap: do not move filesystem or process effects into vague helper names
+just to make the entry file look short. The call site should still make host
+boundaries easy to review.
+
+### Hyphenated Module Names
+
+Module file names can contain hyphens. This is useful when package or tool names
+conventionally use hyphens, such as `PKGBUILD-x86_64` or `build-essential-native`.
+XSH accepts hyphenated identifiers in `use` path segments. Because a hyphenated
+name is not a valid expression identifier, an `as` alias is required when the
+final path segment contains a hyphen:
+
+```xsh
+use build-essential-native.proof as build_proof
+use PKGBUILD-x86_64 as PKGBUILD_x86_64
+```
+
+Without the alias the checker reports `check.hyphenated-module-alias` and
+suggests the underscore form. Hyphenated names are limited to `use` path
+segments; ordinary variables, procs, types, and fields keep the standard
+identifier grammar.
+
+## Check Runtime-Loaded Modules
+
+Use `module.load(path)` when the module path is only known at runtime, such as
+a plugin file discovered from configuration. The result is a module value, and
+`.require(TypeName)?` checks it against a named `module` contract before the
+script trusts its exports.
+
+```xsh
+type Plugin = module {
+  export let name: Str
+  export optional let description: Str
+  export proc execute(root: Path) [fs, error] -> Result[Unit]
+}
+
+let root_handle = fs.tempdir()?
+defer fs.close_root(root_handle)?
+let root = fs.root_path(root_handle)?
+let plugin_path = fp"${root}/plugin.xsh"
+
+fs.write(
+  plugin_path,
+  """
+export let name: Str = "demo"
+export let description: Str = "loaded module"
+
+export proc execute(root: Path) [fs, error] -> Result[Unit] {
+  fs.write(fp"\${root}/out.txt", name)?
+}
+""",
+)?
+
+let plugin = module.load(plugin_path)?.require(Plugin)?
+plugin.execute(root)?
+print $plugin.name plugin.has("description") (fp"${root}/out.txt".read_text()?)
+```
+
+After the check, required value exports use ordinary field access, and exported
+proc or pure entries can be called directly with the signature declared in the
+contract. Optional exports should be guarded with `.has(name)` or accessed with
+`.get(name)?` when absence is acceptable.
+
+## Cache Repeated Host Work
+
+When a larger tool calls the same expensive operation more than once with
+identical inputs, `utils.cache` avoids redundant work. Wrap the operation in a
+zero-argument proc and pass that proc to `utils.cache`:
+
+```xsh
+proc project_root() [fs, error] -> Str {
+  fs.gitroot()?.display()
+}
+
+proc main(...argv: List[Str]) [fs, error] {
+  let root = utils.cache(project_root)
+  let cfg = fs.read_text(fp"${root}/tool.toml")?
+}
+```
+
+With arguments, each distinct combination of function name and argument values
+is a separate cache entry:
+
+```xsh
+proc read_cfg(path: Path) [fs, error] -> Str {
+  fs.read_text(path)?
+}
+
+let cfg = utils.cache(read_cfg, [fp"${root}/tool.toml"])
+```
+
+The cache is process-scoped. It resets on every invocation and is not shared
+across subprocesses.
+
+Source: `examples/idiom-cache.xsh`.
+
+## What You Know Now
+
+Large XSH programs are still scripts. Top-level statements run in order, `?`
+marks fallible boundaries, records name data, and streams describe
+collections. The difference is organization, not a second programming model.

@@ -1,0 +1,1572 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>XSH Standard Library</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="site-header"><a href="index.html">XSH Docs</a><span>docs/STDLIB.md</span></header>
+<div class="docs-shell">
+<aside class="page-toc" aria-label="Page contents">
+<h2>On This Page</h2>
+<ol>
+<li><a href="#module-index">Module Index</a></li>
+<li><a href="#modules">Modules</a></li>
+<li><a href="#method-index">Method Index</a></li>
+<li><a href="#methods">Methods</a></li>
+<li><a href="#records">Records</a></li>
+</ol>
+</aside>
+<main class="markdown-body">
+<h1>XSH Standard Library</h1>
+<p>Generated from <code>src/modules/signature.rs</code>, <code>src/sema/records.rs</code>, and the docs engine. Do not edit by hand.</p>
+<p>This file is the generated standard-library manual for modules, value methods, and standard record schemas. See <code>STDLIB-PROPOSALS.md</code> for stdlib design criteria and open proposals. See <code>docs/REFERENCE.md</code> for non-stdlib language and tooling reference data.</p>
+<h2 id="module-index">Module Index</h2>
+<ul>
+<li><code>applet</code> - Internal primitives for shipped core applet scripts. (8 function(s))</li>
+<li><code>archive</code> - Archive creation, extraction, listing, compression, and decompression. (11 function(s))</li>
+<li><code>bytes</code> - Byte inspection, encoding, decoding, copying, and hashing helpers. (14 function(s))</li>
+<li><code>cli</code> - Script command-line parsing into typed option records. (5 function(s))</li>
+<li><code>cpu</code> - CPU capability queries. (1 function(s))</li>
+<li><code>diff</code> - Unified diff generation. (1 function(s))</li>
+<li><code>dns</code> - DNS lookup and name resolution helpers. (4 function(s))</li>
+<li><code>elf</code> - ELF file-format inspection and dynamic dependency metadata. (1 function(s))</li>
+<li><code>env</code> - Environment variable and PATH manipulation. (8 function(s))</li>
+<li><code>fs</code> - Filesystem reads, writes, metadata, links, permissions, locking, and installation. (60 function(s))</li>
+<li><code>group</code> - Unix group lookup records. (5 function(s))</li>
+<li><code>hash</code> - Digest calculation and checksum verification. (8 function(s))</li>
+<li><code>ini</code> - INI decoding, encoding, and file helpers. (4 function(s))</li>
+<li><code>io</code> - Script stdin and stdout helpers. (5 function(s))</li>
+<li><code>json</code> - JSON encoding, decoding, files, and streams. (9 function(s))</li>
+<li><code>linux</code> - Linux-specific boot, mount, device, and shutdown operations. (65 function(s))</li>
+<li><code>map</code> - Map collection helpers. (1 function(s))</li>
+<li><code>mime</code> - MIME type lookup and media-type parsing helpers. (3 function(s))</li>
+<li><code>module</code> - User module loading helpers. (1 function(s))</li>
+<li><code>net</code> - HTTP request, transfer, and connection-pool helpers. (6 function(s))</li>
+<li><code>patch</code> - Rooted patch application. (1 function(s))</li>
+<li><code>path</code> - Path normalization and resolution. (1 function(s))</li>
+<li><code>process</code> - Process discovery, command construction, execution, spawning, and signals. (16 function(s))</li>
+<li><code>record</code> - Record inspection helpers. (1 function(s))</li>
+<li><code>regex</code> - Regex compilation, matching, captures, and replacement. (1 function(s))</li>
+<li><code>set</code> - String-key set helpers backed by Map[Bool]. (5 function(s))</li>
+<li><code>shlex</code> - POSIX-like shell word rendering helpers. (2 function(s))</li>
+<li><code>system</code> - Host system identity records. (4 function(s))</li>
+<li><code>test</code> - Native XSH test assertions, temp resources, and host-effect mocks. (13 function(s))</li>
+<li><code>time</code> - Clock, sleep, command measurement, and Jiff strtime formatting. (7 function(s))</li>
+<li><code>tui</code> - Terminal styling, control sequences, and width-aware text padding. (19 function(s))</li>
+<li><code>unix</code> - Unix process-group, PID 1, hostname, uptime, exec, and reaping helpers. (19 function(s))</li>
+<li><code>user</code> - Unix user lookup records. (5 function(s))</li>
+<li><code>utils</code> - Process-scoped utility helpers. (1 function(s))</li>
+</ul>
+<h2 id="modules">Modules</h2>
+<h3><code>applet</code></h3>
+<p>Internal primitives for shipped core applet scripts.</p>
+<ul>
+<li><code>applet.current_euid() -&gt; Int</code> - effect; Returns <code>Int</code>. ID <code>module.applet.current_euid.0</code>.</li>
+<li><code>applet.current_exe() -&gt; Result[Path, Error]</code> - effect; Returns <code>Path</code> or <code>Error</code> failure data. ID <code>module.applet.current_exe.0</code>.</li>
+<li><code>applet.hash_password(password: Str, algorithm: Str) -&gt; Result[Str, Error]</code> - effect; Returns <code>Str</code> or <code>Error</code> failure data. ID <code>module.applet.hash_password.0</code>.
+Params: <code>password: Str</code>, <code>algorithm: Str</code></li>
+<li><code>applet.login_session(user: {gid: Int, home: Path, name: Str, shell: Str, uid: Int}, preserve_env: Bool, host: Str) -&gt; Result[Int, Error]</code> - effect; Returns <code>Int</code> or <code>Error</code> failure data. ID <code>module.applet.login_session.0</code>.
+Params: <code>user: {gid: Int, home: Path, name: Str, shell: Str, uid: Int}</code>, <code>preserve_env: Bool</code>, <code>host: Str</code></li>
+<li><code>applet.mdev(argv: List[Str]) -&gt; Result[Int, Error]</code> - effect; Returns <code>Int</code> or <code>Error</code> failure data. ID <code>module.applet.mdev.0</code>.
+Params: <code>argv: List[Str]</code></li>
+<li><code>applet.su_session(user: {gid: Int, home: Path, name: Str, shell: Str, uid: Int}, login: Bool, preserve_env: Bool, shell: Str, command: Str, extra_args: List[Str]) -&gt; Result[Int, Error]</code> - effect; Returns <code>Int</code> or <code>Error</code> failure data. ID <code>module.applet.su_session.0</code>.
+Params: <code>user: {gid: Int, home: Path, name: Str, shell: Str, uid: Int}</code>, <code>login: Bool</code>, <code>preserve_env: Bool</code>, <code>shell: Str</code>, <code>command: Str</code>, <code>extra_args: List[Str]</code></li>
+<li><code>applet.sulogin_session(user: {gid: Int, home: Path, name: Str, shell: Str, uid: Int}) -&gt; Result[Int, Error]</code> - effect; Returns <code>Int</code> or <code>Error</code> failure data. ID <code>module.applet.sulogin_session.0</code>.
+Params: <code>user: {gid: Int, home: Path, name: Str, shell: Str, uid: Int}</code></li>
+<li><code>applet.verify_password(password: Str, hash: Str) -&gt; Bool</code> - effect; Returns <code>Bool</code>. ID <code>module.applet.verify_password.0</code>.
+Params: <code>password: Str</code>, <code>hash: Str</code></li>
+</ul>
+<h3><code>archive</code></h3>
+<p>Archive creation, extraction, listing, compression, and decompression.</p>
+<ul>
+<li><code>archive.compress(source: Path, dest: Path, format: Str = default, level: Int = default, overwrite: Bool = default) -&gt; Result[Unit, Error]</code> - effect; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>module.archive.compress.0</code>.
+Params: <code>source: Path</code>, <code>dest: Path</code>, <code>format: Str = default</code>, <code>level: Int = default</code>, <code>overwrite: Bool = default</code></li>
+<li><code>archive.cpio_create(path: Path, root: Path, entries: List[Path], overwrite: Bool = default) -&gt; Result[Unit, Error]</code> - effect, command; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>module.archive.cpio_create.0</code>.
+Params: <code>path: Path</code>, <code>root: Path</code>, <code>entries: List[Path]</code>, <code>overwrite: Bool = default</code></li>
+<li><code>archive.cpio_extract(path: Path, dest: Path, overwrite: Bool = default) -&gt; Result[Unit, Error]</code> - effect, command; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>module.archive.cpio_extract.0</code>.
+Params: <code>path: Path</code>, <code>dest: Path</code>, <code>overwrite: Bool = default</code></li>
+<li><code>archive.cpio_list(path: Path) -&gt; Result[List[{kind: Str, link_name: Str, mode: Int, modified: Int, path: Path, size: Int}], Error]</code> - effect; Returns <code>List[{kind: Str, link_name: Str, mode: Int, modified: Int, path: Path, size: Int}]</code> or <code>Error</code> failure data. ID <code>module.archive.cpio_list.0</code>.
+Params: <code>path: Path</code></li>
+<li><code>archive.decompress(source: Path, dest: Path, format: Str = default, overwrite: Bool = default) -&gt; Result[Unit, Error]</code> - effect; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>module.archive.decompress.0</code>.
+Params: <code>source: Path</code>, <code>dest: Path</code>, <code>format: Str = default</code>, <code>overwrite: Bool = default</code></li>
+<li><code>archive.decompress_bytes(source: Path, format: Str = default) -&gt; Result[Bytes, Error]</code> - effect; Returns <code>Bytes</code> or <code>Error</code> failure data. ID <code>module.archive.decompress_bytes.0</code>.
+Params: <code>source: Path</code>, <code>format: Str = default</code></li>
+<li><code>archive.tar_create(path: Path, root: Path, entries: List[Path], compression: Str = default, overwrite: Bool = default) -&gt; Result[Unit, Error]</code> - effect; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>module.archive.tar_create.0</code>.
+Params: <code>path: Path</code>, <code>root: Path</code>, <code>entries: List[Path]</code>, <code>compression: Str = default</code>, <code>overwrite: Bool = default</code></li>
+<li><code>archive.tar_extract(path: Path, dest: Path, strip_components: Int = default, compression: Str = default, overwrite: Bool = default, members: List[Path] = default) -&gt; Result[Unit, Error]</code> - effect; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>module.archive.tar_extract.0</code>.
+Params: <code>path: Path</code>, <code>dest: Path</code>, <code>strip_components: Int = default</code>, <code>compression: Str = default</code>, <code>overwrite: Bool = default</code>, <code>members: List[Path] = default</code></li>
+<li><code>archive.tar_list(path: Path, compression: Str = default, members: List[Path] = default) -&gt; Result[List[{kind: Str, link_name: Str, mode: Int, modified: Int, path: Path, size: Int}], Error]</code> - effect; Returns <code>List[{kind: Str, link_name: Str, mode: Int, modified: Int, path: Path, size: Int}]</code> or <code>Error</code> failure data. ID <code>module.archive.tar_list.0</code>.
+Params: <code>path: Path</code>, <code>compression: Str = default</code>, <code>members: List[Path] = default</code></li>
+<li><code>archive.zip_extract(path: Path, dest: Path, overwrite: Bool = default) -&gt; Result[Unit, Error]</code> - effect, command; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>module.archive.zip_extract.0</code>.
+Params: <code>path: Path</code>, <code>dest: Path</code>, <code>overwrite: Bool = default</code></li>
+<li><code>archive.zip_list(path: Path) -&gt; Result[List[{kind: Str, link_name: Str, mode: Int, modified: Int, path: Path, size: Int}], Error]</code> - effect; Returns <code>List[{kind: Str, link_name: Str, mode: Int, modified: Int, path: Path, size: Int}]</code> or <code>Error</code> failure data. ID <code>module.archive.zip_list.0</code>.
+Params: <code>path: Path</code></li>
+</ul>
+<h3><code>bytes</code></h3>
+<p>Byte inspection, encoding, decoding, copying, and hashing helpers.</p>
+<ul>
+<li><code>bytes.concat(chunks: List[Bytes]) -&gt; Bytes</code> - pure; Returns <code>Bytes</code>. ID <code>module.bytes.concat.0</code>.
+Params: <code>chunks: List[Bytes]</code></li>
+<li><code>bytes.copy(source: Path, dest: Path, block_size: Int = default, count: Int = default, skip: Int = default, seek: Int = default, overwrite: Bool = default) -&gt; Result[{blocks: Int, bytes: Int}, Error]</code> - effect; Returns <code>{blocks: Int, bytes: Int}</code> or <code>Error</code> failure data. ID <code>module.bytes.copy.0</code>.
+Params: <code>source: Path</code>, <code>dest: Path</code>, <code>block_size: Int = default</code>, <code>count: Int = default</code>, <code>skip: Int = default</code>, <code>seek: Int = default</code>, <code>overwrite: Bool = default</code></li>
+<li><code>bytes.copy_file(source: Path, dest: Path, source_offset: Int = default, dest_offset: Int = default, length: Int = default, create: Bool = default, truncate: Bool = default) -&gt; Result[{blocks: Int, bytes: Int}, Error]</code> - effect; Returns <code>{blocks: Int, bytes: Int}</code> or <code>Error</code> failure data. ID <code>module.bytes.copy_file.0</code>.
+Params: <code>source: Path</code>, <code>dest: Path</code>, <code>source_offset: Int = default</code>, <code>dest_offset: Int = default</code>, <code>length: Int = default</code>, <code>create: Bool = default</code>, <code>truncate: Bool = default</code></li>
+<li><code>bytes.from_ints(values: List[Int]) -&gt; Result[Bytes, Error]</code> - pure; Returns <code>Bytes</code> or <code>Error</code> failure data. ID <code>module.bytes.from_ints.0</code>.
+Params: <code>values: List[Int]</code></li>
+<li><code>bytes.from_text(text: Str) -&gt; Bytes</code> - pure; Returns <code>Bytes</code>. ID <code>module.bytes.from_text.0</code>.
+Params: <code>text: Str</code></li>
+<li><code>bytes.human(size: Int) -&gt; Str</code> - pure; Returns <code>Str</code>. ID <code>module.bytes.human.0</code>.
+Params: <code>size: Int</code></li>
+<li><code>bytes.pack_be(value: Int, width: Int) -&gt; Result[Bytes, Error]</code> - pure; Returns <code>Bytes</code> or <code>Error</code> failure data. ID <code>module.bytes.pack_be.0</code>.
+Params: <code>value: Int</code>, <code>width: Int</code></li>
+<li><code>bytes.pack_le(value: Int, width: Int) -&gt; Result[Bytes, Error]</code> - pure; Returns <code>Bytes</code> or <code>Error</code> failure data. ID <code>module.bytes.pack_le.0</code>.
+Params: <code>value: Int</code>, <code>width: Int</code></li>
+<li><code>bytes.read_at(path: Path, offset: Int, length: Int) -&gt; Result[Bytes, Error]</code> - effect; Returns <code>Bytes</code> or <code>Error</code> failure data. ID <code>module.bytes.read_at.0</code>.
+Params: <code>path: Path</code>, <code>offset: Int</code>, <code>length: Int</code></li>
+<li><code>bytes.unpack_be(data: Bytes, width: Int, offset: Int = default) -&gt; Result[Int, Error]</code> - pure; Returns <code>Int</code> or <code>Error</code> failure data. ID <code>module.bytes.unpack_be.0</code>.
+Params: <code>data: Bytes</code>, <code>width: Int</code>, <code>offset: Int = default</code></li>
+<li><code>bytes.unpack_le(data: Bytes, width: Int, offset: Int = default) -&gt; Result[Int, Error]</code> - pure; Returns <code>Int</code> or <code>Error</code> failure data. ID <code>module.bytes.unpack_le.0</code>.
+Params: <code>data: Bytes</code>, <code>width: Int</code>, <code>offset: Int = default</code></li>
+<li><code>bytes.write_at(path: Path, offset: Int, data: Bytes, create: Bool = default) -&gt; Result[Int, Error]</code> - effect; Returns <code>Int</code> or <code>Error</code> failure data. ID <code>module.bytes.write_at.0</code>.
+Params: <code>path: Path</code>, <code>offset: Int</code>, <code>data: Bytes</code>, <code>create: Bool = default</code></li>
+<li><code>bytes.zero(length: Int) -&gt; Result[Bytes, Error]</code> - pure; Returns <code>Bytes</code> or <code>Error</code> failure data. ID <code>module.bytes.zero.0</code>.
+Params: <code>length: Int</code></li>
+<li><code>bytes.zero_at(path: Path, offset: Int, length: Int, create: Bool = default) -&gt; Result[Int, Error]</code> - effect; Returns <code>Int</code> or <code>Error</code> failure data. ID <code>module.bytes.zero_at.0</code>.
+Params: <code>path: Path</code>, <code>offset: Int</code>, <code>length: Int</code>, <code>create: Bool = default</code></li>
+</ul>
+<h3><code>cli</code></h3>
+<p>Script command-line parsing into typed option records.</p>
+<ul>
+<li><code>cli.commands(argv: List[Str], commands: Record) -&gt; Result[Record, Error]</code> - pure; Returns <code>Record</code> or <code>Error</code> failure data. ID <code>module.cli.commands.0</code>.
+Params: <code>argv: List[Str]</code>, <code>commands: Record</code></li>
+<li><code>cli.commands(argv: List[Str], rootless_default: Str, commands: Record, fallback_command: Record = default) -&gt; Result[Record, Error]</code> - pure; Returns <code>Record</code> or <code>Error</code> failure data. ID <code>module.cli.commands.1</code>.
+Params: <code>argv: List[Str]</code>, <code>rootless_default: Str</code>, <code>commands: Record</code>, <code>fallback_command: Record = default</code></li>
+<li><code>cli.parse(argv: List[Str], schema: Record, command: Str = default) -&gt; Result[Record, Error]</code> - pure; Returns <code>Record</code> or <code>Error</code> failure data. ID <code>module.cli.parse.0</code>.
+Params: <code>argv: List[Str]</code>, <code>schema: Record</code>, <code>command: Str = default</code></li>
+<li><code>cli.parse_full(argv: List[Str], schema: Record, env: Record = default, command: Str = default) -&gt; Result[Record, Error]</code> - pure; Returns <code>Record</code> or <code>Error</code> failure data. ID <code>module.cli.parse_full.0</code>.
+Params: <code>argv: List[Str]</code>, <code>schema: Record</code>, <code>env: Record = default</code>, <code>command: Str = default</code></li>
+<li><code>cli.tokens(argv: List[Str], value_flags: List[Str] = default) -&gt; Result[List[{kind: Str, name: Str, value: Str}], Error]</code> - pure; Returns <code>List[{kind: Str, name: Str, value: Str}]</code> or <code>Error</code> failure data. ID <code>module.cli.tokens.0</code>.
+Params: <code>argv: List[Str]</code>, <code>value_flags: List[Str] = default</code></li>
+<li><code>cli.usage(schema: Record, command: Str = default) -&gt; Str</code> - pure; Returns <code>Str</code>. ID <code>module.cli.usage.0</code>.
+Params: <code>schema: Record</code>, <code>command: Str = default</code></li>
+</ul>
+<h3><code>cpu</code></h3>
+<p>CPU capability queries.</p>
+<ul>
+<li><code>cpu.count() -&gt; Int</code> - pure; Returns <code>Int</code>. ID <code>module.cpu.count.0</code>.</li>
+</ul>
+<h3><code>diff</code></h3>
+<p>Unified diff generation.</p>
+<ul>
+<li><code>diff.unified(original: Path, modified: Path, context: Int = default) -&gt; Result[{files: Int, hunks: Int, text: Str}, Error]</code> - effect; Returns <code>{files: Int, hunks: Int, text: Str}</code> or <code>Error</code> failure data. ID <code>module.diff.unified.0</code>.
+Params: <code>original: Path</code>, <code>modified: Path</code>, <code>context: Int = default</code></li>
+</ul>
+<h3><code>dns</code></h3>
+<p>DNS lookup and name resolution helpers.</p>
+<ul>
+<li><code>dns.lookup(name: Str, record: Str = default, server: Str = default, timeout: Duration = default) -&gt; Result[List[{name: Str, record: Str, ttl: Int, value: Str}], Error]</code> - effect; Returns <code>List[{name: Str, record: Str, ttl: Int, value: Str}]</code> or <code>Error</code> failure data. ID <code>module.dns.lookup.0</code>.
+Params: <code>name: Str</code>, <code>record: Str = default</code>, <code>server: Str = default</code>, <code>timeout: Duration = default</code></li>
+<li><code>dns.nameservers() -&gt; Result[List[Str], Error]</code> - effect; Returns <code>List[Str]</code> or <code>Error</code> failure data. ID <code>module.dns.nameservers.0</code>.</li>
+<li><code>dns.resolve_host(name: Str, family: Str = default) -&gt; Result[List[{addr: Str, family: Str, name: Str}], Error]</code> - effect; Returns <code>List[{addr: Str, family: Str, name: Str}]</code> or <code>Error</code> failure data. ID <code>module.dns.resolve_host.0</code>.
+Params: <code>name: Str</code>, <code>family: Str = default</code></li>
+<li><code>dns.reverse(addr: Str) -&gt; Result[List[Str], Error]</code> - effect; Returns <code>List[Str]</code> or <code>Error</code> failure data. ID <code>module.dns.reverse.0</code>.
+Params: <code>addr: Str</code></li>
+</ul>
+<h3><code>elf</code></h3>
+<p>ELF file-format inspection and dynamic dependency metadata.</p>
+<ul>
+<li><code>elf.inspect(path: Path) -&gt; Result[{class: Str, dynamic_tags: List[{tag: Str, value: Int}], endian: Str, flags: List[Str], interpreter: Str, machine: Str, needed: List[Str], os_abi: Str, path: Path, rpath: Str, runpath: Str, soname: Str, type: Str}, Error]</code> - effect; Returns <code>{class: Str, dynamic_tags: List[{tag: Str, value: Int}], endian: Str, flags: List[Str], interpreter: Str, machine: Str, needed: List[Str], os_abi: Str, path: Path, rpath: Str, runpath: Str, soname: Str, type: Str}</code> or <code>Error</code> failure data. ID <code>module.elf.inspect.0</code>.
+Params: <code>path: Path</code></li>
+</ul>
+<h3><code>env</code></h3>
+<p>Environment variable and PATH manipulation.</p>
+<ul>
+<li><code>env.bool(name: Str, fallback: Bool = default) -&gt; Result[Bool, Error]</code> - effect; Returns <code>Bool</code> or <code>Error</code> failure data. ID <code>module.env.bool.0</code>.
+Params: <code>name: Str</code>, <code>fallback: Bool = default</code></li>
+<li><code>env.get(name: Str) -&gt; Result[Str, Error]</code> - effect; Returns <code>Str</code> or <code>Error</code> failure data. ID <code>module.env.get.0</code>.
+Params: <code>name: Str</code></li>
+<li><code>env.get_or(name: Str, fallback: Str = default) -&gt; Result[Str, Error]</code> - effect; Returns <code>Str</code> or <code>Error</code> failure data. ID <code>module.env.get_or.0</code>.
+Params: <code>name: Str</code>, <code>fallback: Str = default</code></li>
+<li><code>env.int(name: Str, fallback: Int = default) -&gt; Result[Int, Error]</code> - effect; Returns <code>Int</code> or <code>Error</code> failure data. ID <code>module.env.int.0</code>.
+Params: <code>name: Str</code>, <code>fallback: Int = default</code></li>
+<li><code>env.list() -&gt; Result[List[{name: Str, value: Str}], Error]</code> - effect; Returns <code>List[{name: Str, value: Str}]</code> or <code>Error</code> failure data. ID <code>module.env.list.0</code>.</li>
+<li><code>env.path(name: Str, fallback: Path = default) -&gt; Result[Path, Error]</code> - effect; Returns <code>Path</code> or <code>Error</code> failure data. ID <code>module.env.path.0</code>.
+Params: <code>name: Str</code>, <code>fallback: Path = default</code></li>
+<li><code>env.path_entries(name: Str) -&gt; Result[List[{empty: Bool, index: Int, path: Path, raw: Str}], Error]</code> - effect; Returns <code>List[{empty: Bool, index: Int, path: Path, raw: Str}]</code> or <code>Error</code> failure data. ID <code>module.env.path_entries.0</code>.
+Params: <code>name: Str</code></li>
+<li><code>env.path_list(name: Str) -&gt; Result[List[Path], Error]</code> - effect; Returns <code>List[Path]</code> or <code>Error</code> failure data. ID <code>module.env.path_list.0</code>.
+Params: <code>name: Str</code></li>
+</ul>
+<h3><code>fs</code></h3>
+<p>Filesystem reads, writes, metadata, links, permissions, locking, and installation.</p>
+<ul>
+<li><code>fs.chgrp(path: Path, group: {gid: Int, members: List[Str], name: Str}, follow_symlinks: Bool = default) -&gt; Result[Unit, Error]</code> - effect, command; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>module.fs.chgrp.0</code>.
+Params: <code>path: Path</code>, <code>group: {gid: Int, members: List[Str], name: Str}</code>, <code>follow_symlinks: Bool = default</code></li>
+<li><code>fs.children(path: Path, stat: Bool = default, ordered: Bool = default) -&gt; Result[Stream[{accessed: Int, blocks_512: Int, executable: Bool, ext: Str, gid: Int, group_executable: Bool, kind: Str, mode: Int, modified: Int, name: Str, other_executable: Bool, owner_executable: Bool, path: Path, setgid: Bool, setuid: Bool, size: Int, sticky: Bool, uid: Int, world_writable: Bool}], Error]</code> - effect; Returns <code>Stream[{accessed: Int, blocks_512: Int, executable: Bool, ext: Str, gid: Int, group_executable: Bool, kind: Str, mode: Int, modified: Int, name: Str, other_executable: Bool, owner_executable: Bool, path: Path, setgid: Bool, setuid: Bool, size: Int, sticky: Bool, uid: Int, world_writable: Bool}]</code> or <code>Error</code> failure data. ID <code>module.fs.children.0</code>.
+Params: <code>path: Path</code>, <code>stat: Bool = default</code>, <code>ordered: Bool = default</code></li>
+<li><code>fs.chmod(path: Path, mode: Int) -&gt; Result[Unit, Error]</code> - effect, command; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>module.fs.chmod.0</code>.
+Params: <code>path: Path</code>, <code>mode: Int</code></li>
+<li><code>fs.chown(path: Path, owner: {gid: Int, home: Path, name: Str, shell: Str, uid: Int}, follow_symlinks: Bool = default) -&gt; Result[Unit, Error]</code> - effect, command; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>module.fs.chown.0</code>.
+Params: <code>path: Path</code>, <code>owner: {gid: Int, home: Path, name: Str, shell: Str, uid: Int}</code>, <code>follow_symlinks: Bool = default</code></li>
+<li><code>fs.close_root(root: {id: Int}) -&gt; Result[Unit, Error]</code> - effect, command; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>module.fs.close_root.0</code>.
+Params: <code>root: {id: Int}</code></li>
+<li><code>fs.copy(source: Path, dest: Path, overwrite: Bool = default) -&gt; Result[Unit, Error]</code> - effect, command; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>module.fs.copy.0</code>.
+Params: <code>source: Path</code>, <code>dest: Path</code>, <code>overwrite: Bool = default</code></li>
+<li><code>fs.copy_tree(source: Path, dest: Path, parents: Bool = default, overwrite: Bool = default, follow_symlinks: Bool = default) -&gt; Result[{dirs: Int, files: Int, symlinks: Int}, Error]</code> - effect; Returns <code>{dirs: Int, files: Int, symlinks: Int}</code> or <code>Error</code> failure data. ID <code>module.fs.copy_tree.0</code>.
+Params: <code>source: Path</code>, <code>dest: Path</code>, <code>parents: Bool = default</code>, <code>overwrite: Bool = default</code>, <code>follow_symlinks: Bool = default</code></li>
+<li><code>fs.cwd() -&gt; Result[Path, Error]</code> - effect; Returns <code>Path</code> or <code>Error</code> failure data. ID <code>module.fs.cwd.0</code>.</li>
+<li><code>fs.dirs(path: Path, gitignore: Bool = default, stat: Bool = default, hidden: Bool = default) -&gt; Result[Stream[{accessed: Int, blocks_512: Int, executable: Bool, ext: Str, gid: Int, group_executable: Bool, kind: Str, mode: Int, modified: Int, name: Str, other_executable: Bool, owner_executable: Bool, path: Path, setgid: Bool, setuid: Bool, size: Int, sticky: Bool, uid: Int, world_writable: Bool}], Error]</code> - effect; Returns <code>Stream[{accessed: Int, blocks_512: Int, executable: Bool, ext: Str, gid: Int, group_executable: Bool, kind: Str, mode: Int, modified: Int, name: Str, other_executable: Bool, owner_executable: Bool, path: Path, setgid: Bool, setuid: Bool, size: Int, sticky: Bool, uid: Int, world_writable: Bool}]</code> or <code>Error</code> failure data. ID <code>module.fs.dirs.0</code>.
+Params: <code>path: Path</code>, <code>gitignore: Bool = default</code>, <code>stat: Bool = default</code>, <code>hidden: Bool = default</code></li>
+<li><code>fs.executable(path: Path) -&gt; Result[Bool, Error]</code> - effect; Returns <code>Bool</code> or <code>Error</code> failure data. ID <code>module.fs.executable.0</code>.
+Params: <code>path: Path</code></li>
+<li><code>fs.executable(mode: Int) -&gt; Bool</code> - pure; Returns <code>Bool</code>. ID <code>module.fs.executable.1</code>.
+Params: <code>mode: Int</code></li>
+<li><code>fs.exists(path: Path) -&gt; Result[Bool, Error]</code> - effect; Returns <code>Bool</code> or <code>Error</code> failure data. ID <code>module.fs.exists.0</code>.
+Params: <code>path: Path</code></li>
+<li><code>fs.files(path: Path, gitignore: Bool = default, stat: Bool = default, exts: List[Str] = default, hidden: Bool = default) -&gt; Result[Stream[{accessed: Int, blocks_512: Int, executable: Bool, ext: Str, gid: Int, group_executable: Bool, kind: Str, mode: Int, modified: Int, name: Str, other_executable: Bool, owner_executable: Bool, path: Path, setgid: Bool, setuid: Bool, size: Int, sticky: Bool, uid: Int, world_writable: Bool}], Error]</code> - effect; Returns <code>Stream[{accessed: Int, blocks_512: Int, executable: Bool, ext: Str, gid: Int, group_executable: Bool, kind: Str, mode: Int, modified: Int, name: Str, other_executable: Bool, owner_executable: Bool, path: Path, setgid: Bool, setuid: Bool, size: Int, sticky: Bool, uid: Int, world_writable: Bool}]</code> or <code>Error</code> failure data. ID <code>module.fs.files.0</code>.
+Params: <code>path: Path</code>, <code>gitignore: Bool = default</code>, <code>stat: Bool = default</code>, <code>exts: List[Str] = default</code>, <code>hidden: Bool = default</code></li>
+<li><code>fs.filesystem_stats(path: Path) -&gt; Result[{available_1k: Int, blocks_1k: Int, capacity_percent: Int, used_1k: Int}, Error]</code> - effect; Returns <code>{available_1k: Int, blocks_1k: Int, capacity_percent: Int, used_1k: Int}</code> or <code>Error</code> failure data. ID <code>module.fs.filesystem_stats.0</code>.
+Params: <code>path: Path</code></li>
+<li><code>fs.fsync(path: Path) -&gt; Result[Unit, Error]</code> - effect, command; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>module.fs.fsync.0</code>.
+Params: <code>path: Path</code></li>
+<li><code>fs.gitroot() -&gt; Result[Path, Error]</code> - effect; Returns <code>Path</code> or <code>Error</code> failure data. ID <code>module.fs.gitroot.0</code>.</li>
+<li><code>fs.group_executable(mode: Int) -&gt; Bool</code> - pure; Returns <code>Bool</code>. ID <code>module.fs.group_executable.0</code>.
+Params: <code>mode: Int</code></li>
+<li><code>fs.install(source: Path, dest: Path, mode: Int, parents: Bool = default, overwrite: Bool = default) -&gt; Result[Unit, Error]</code> - effect, command; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>module.fs.install.0</code>.
+Params: <code>source: Path</code>, <code>dest: Path</code>, <code>mode: Int</code>, <code>parents: Bool = default</code>, <code>overwrite: Bool = default</code></li>
+<li><code>fs.install_as(source: Path, dest: Path, mode: Int, owner: {gid: Int, home: Path, name: Str, shell: Str, uid: Int}, group: {gid: Int, members: List[Str], name: Str}, parents: Bool = default, overwrite: Bool = default) -&gt; Result[Unit, Error]</code> - effect, command; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>module.fs.install_as.0</code>.
+Params: <code>source: Path</code>, <code>dest: Path</code>, <code>mode: Int</code>, <code>owner: {gid: Int, home: Path, name: Str, shell: Str, uid: Int}</code>, <code>group: {gid: Int, members: List[Str], name: Str}</code>, <code>parents: Bool = default</code>, <code>overwrite: Bool = default</code></li>
+<li><code>fs.lock(path: Path, shared: Bool = default, nonblocking: Bool = default) -&gt; Result[{id: Int, path: Path, shared: Bool}, Error]</code> - effect; Returns <code>{id: Int, path: Path, shared: Bool}</code> or <code>Error</code> failure data. ID <code>module.fs.lock.0</code>.
+Params: <code>path: Path</code>, <code>shared: Bool = default</code>, <code>nonblocking: Bool = default</code></li>
+<li><code>fs.ls(path: Path, stat: Bool = default, ordered: Bool = default) -&gt; Result[Stream[{accessed: Int, blocks_512: Int, executable: Bool, ext: Str, gid: Int, group_executable: Bool, kind: Str, mode: Int, modified: Int, name: Str, other_executable: Bool, owner_executable: Bool, path: Path, setgid: Bool, setuid: Bool, size: Int, sticky: Bool, uid: Int, world_writable: Bool}], Error]</code> - effect; Returns <code>Stream[{accessed: Int, blocks_512: Int, executable: Bool, ext: Str, gid: Int, group_executable: Bool, kind: Str, mode: Int, modified: Int, name: Str, other_executable: Bool, owner_executable: Bool, path: Path, setgid: Bool, setuid: Bool, size: Int, sticky: Bool, uid: Int, world_writable: Bool}]</code> or <code>Error</code> failure data. ID <code>module.fs.ls.0</code>.
+Params: <code>path: Path</code>, <code>stat: Bool = default</code>, <code>ordered: Bool = default</code></li>
+<li><code>fs.metadata(path: Path) -&gt; Result[{accessed: Int, blocks_512: Int, executable: Bool, ext: Str, gid: Int, group_executable: Bool, kind: Str, mode: Int, modified: Int, name: Str, other_executable: Bool, owner_executable: Bool, path: Path, setgid: Bool, setuid: Bool, size: Int, sticky: Bool, uid: Int, world_writable: Bool}, Error]</code> - effect; Returns <code>{accessed: Int, blocks_512: Int, executable: Bool, ext: Str, gid: Int, group_executable: Bool, kind: Str, mode: Int, modified: Int, name: Str, other_executable: Bool, owner_executable: Bool, path: Path, setgid: Bool, setuid: Bool, size: Int, sticky: Bool, uid: Int, world_writable: Bool}</code> or <code>Error</code> failure data. ID <code>module.fs.metadata.0</code>.
+Params: <code>path: Path</code></li>
+<li><code>fs.mkdir(path: Path, parents: Bool = default) -&gt; Result[Unit, Error]</code> - effect, command; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>module.fs.mkdir.0</code>.
+Params: <code>path: Path</code>, <code>parents: Bool = default</code></li>
+<li><code>fs.mkfifo(path: Path, mode: Int) -&gt; Result[Unit, Error]</code> - effect, command; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>module.fs.mkfifo.0</code>.
+Params: <code>path: Path</code>, <code>mode: Int</code></li>
+<li><code>fs.mount_for(path: Path) -&gt; Result[{available_1k: Int, blocks_1k: Int, capacity_percent: Int, files: Int, files_capacity_percent: Int, files_free: Int, files_used: Int, filesystem: Str, fstype: Str, mounted_on: Path, readonly: Bool, used_1k: Int}, Error]</code> - effect; Returns <code>{available_1k: Int, blocks_1k: Int, capacity_percent: Int, files: Int, files_capacity_percent: Int, files_free: Int, files_used: Int, filesystem: Str, fstype: Str, mounted_on: Path, readonly: Bool, used_1k: Int}</code> or <code>Error</code> failure data. ID <code>module.fs.mount_for.0</code>.
+Params: <code>path: Path</code></li>
+<li><code>fs.mounts() -&gt; Result[List[{available_1k: Int, blocks_1k: Int, capacity_percent: Int, files: Int, files_capacity_percent: Int, files_free: Int, files_used: Int, filesystem: Str, fstype: Str, mounted_on: Path, readonly: Bool, used_1k: Int}], Error]</code> - effect; Returns <code>List[{available_1k: Int, blocks_1k: Int, capacity_percent: Int, files: Int, files_capacity_percent: Int, files_free: Int, files_used: Int, filesystem: Str, fstype: Str, mounted_on: Path, readonly: Bool, used_1k: Int}]</code> or <code>Error</code> failure data. ID <code>module.fs.mounts.0</code>.</li>
+<li><code>fs.open_root(path: Path) -&gt; Result[{id: Int}, Error]</code> - effect; Returns <code>{id: Int}</code> or <code>Error</code> failure data. ID <code>module.fs.open_root.0</code>.
+Params: <code>path: Path</code></li>
+<li><code>fs.other_executable(mode: Int) -&gt; Bool</code> - pure; Returns <code>Bool</code>. ID <code>module.fs.other_executable.0</code>.
+Params: <code>mode: Int</code></li>
+<li><code>fs.owner_executable(mode: Int) -&gt; Bool</code> - pure; Returns <code>Bool</code>. ID <code>module.fs.owner_executable.0</code>.
+Params: <code>mode: Int</code></li>
+<li><code>fs.project_root(kind: Str, qualifier: Str, organization: Str, application: Str) -&gt; Result[{id: Int}, Error]</code> - effect; Returns <code>{id: Int}</code> or <code>Error</code> failure data. ID <code>module.fs.project_root.0</code>.
+Params: <code>kind: Str</code>, <code>qualifier: Str</code>, <code>organization: Str</code>, <code>application: Str</code></li>
+<li><code>fs.read_text(path: Path) -&gt; Result[Str, Error]</code> - effect; Returns <code>Str</code> or <code>Error</code> failure data. ID <code>module.fs.read_text.0</code>.
+Params: <code>path: Path</code></li>
+<li><code>fs.remove(path: Path, missing_ok: Bool = default) -&gt; Result[Unit, Error]</code> - effect, command; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>module.fs.remove.0</code>.
+Params: <code>path: Path</code>, <code>missing_ok: Bool = default</code></li>
+<li><code>fs.remove_manifest(root: Path, manifest: List[Path], missing_ok: Bool = default, prune_dirs: Bool = default) -&gt; Result[{missing: Int, pruned_dirs: Int, removed: Int}, Error]</code> - effect; Returns <code>{missing: Int, pruned_dirs: Int, removed: Int}</code> or <code>Error</code> failure data. ID <code>module.fs.remove_manifest.0</code>.
+Params: <code>root: Path</code>, <code>manifest: List[Path]</code>, <code>missing_ok: Bool = default</code>, <code>prune_dirs: Bool = default</code></li>
+<li><code>fs.rename(source: Path, dest: Path, overwrite: Bool = default) -&gt; Result[Unit, Error]</code> - effect, command; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>module.fs.rename.0</code>.
+Params: <code>source: Path</code>, <code>dest: Path</code>, <code>overwrite: Bool = default</code></li>
+<li><code>fs.root(root: {id: Int}, path: Path) -&gt; Result[{id: Int}, Error]</code> - effect; Returns <code>{id: Int}</code> or <code>Error</code> failure data. ID <code>module.fs.root.0</code>.
+Params: <code>root: {id: Int}</code>, <code>path: Path</code></li>
+<li><code>fs.root_chmod(root: {id: Int}, path: Path, mode: Int) -&gt; Result[Unit, Error]</code> - effect, command; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>module.fs.root_chmod.0</code>.
+Params: <code>root: {id: Int}</code>, <code>path: Path</code>, <code>mode: Int</code></li>
+<li><code>fs.root_exists(root: {id: Int}, path: Path) -&gt; Result[Bool, Error]</code> - effect; Returns <code>Bool</code> or <code>Error</code> failure data. ID <code>module.fs.root_exists.0</code>.
+Params: <code>root: {id: Int}</code>, <code>path: Path</code></li>
+<li><code>fs.root_install_file(source_root: {id: Int}, source: Path, dest_root: {id: Int}, dest: Path, mode: Int, parents: Bool = default, overwrite: Bool = default) -&gt; Result[Unit, Error]</code> - effect, command; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>module.fs.root_install_file.0</code>.
+Params: <code>source_root: {id: Int}</code>, <code>source: Path</code>, <code>dest_root: {id: Int}</code>, <code>dest: Path</code>, <code>mode: Int</code>, <code>parents: Bool = default</code>, <code>overwrite: Bool = default</code></li>
+<li><code>fs.root_metadata(root: {id: Int}, path: Path) -&gt; Result[{accessed: Int, blocks_512: Int, executable: Bool, ext: Str, gid: Int, group_executable: Bool, kind: Str, mode: Int, modified: Int, name: Str, other_executable: Bool, owner_executable: Bool, path: Path, setgid: Bool, setuid: Bool, size: Int, sticky: Bool, uid: Int, world_writable: Bool}, Error]</code> - effect; Returns <code>{accessed: Int, blocks_512: Int, executable: Bool, ext: Str, gid: Int, group_executable: Bool, kind: Str, mode: Int, modified: Int, name: Str, other_executable: Bool, owner_executable: Bool, path: Path, setgid: Bool, setuid: Bool, size: Int, sticky: Bool, uid: Int, world_writable: Bool}</code> or <code>Error</code> failure data. ID <code>module.fs.root_metadata.0</code>.
+Params: <code>root: {id: Int}</code>, <code>path: Path</code></li>
+<li><code>fs.root_mkdir(root: {id: Int}, path: Path, mode: Int = default, parents: Bool = default) -&gt; Result[Unit, Error]</code> - effect; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>module.fs.root_mkdir.0</code>.
+Params: <code>root: {id: Int}</code>, <code>path: Path</code>, <code>mode: Int = default</code>, <code>parents: Bool = default</code></li>
+<li><code>fs.root_path(root: {id: Int}) -&gt; Result[Path, Error]</code> - effect; Returns <code>Path</code> or <code>Error</code> failure data. ID <code>module.fs.root_path.0</code>.
+Params: <code>root: {id: Int}</code></li>
+<li><code>fs.root_read(root: {id: Int}, path: Path) -&gt; Result[Bytes, Error]</code> - effect; Returns <code>Bytes</code> or <code>Error</code> failure data. ID <code>module.fs.root_read.0</code>.
+Params: <code>root: {id: Int}</code>, <code>path: Path</code></li>
+<li><code>fs.root_read_text(root: {id: Int}, path: Path) -&gt; Result[Str, Error]</code> - effect; Returns <code>Str</code> or <code>Error</code> failure data. ID <code>module.fs.root_read_text.0</code>.
+Params: <code>root: {id: Int}</code>, <code>path: Path</code></li>
+<li><code>fs.root_readlink(root: {id: Int}, path: Path) -&gt; Result[Path, Error]</code> - effect; Returns <code>Path</code> or <code>Error</code> failure data. ID <code>module.fs.root_readlink.0</code>.
+Params: <code>root: {id: Int}</code>, <code>path: Path</code></li>
+<li><code>fs.root_remove(root: {id: Int}, path: Path, dir: Bool = default) -&gt; Result[Unit, Error]</code> - effect, command; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>module.fs.root_remove.0</code>.
+Params: <code>root: {id: Int}</code>, <code>path: Path</code>, <code>dir: Bool = default</code></li>
+<li><code>fs.root_symlink(root: {id: Int}, target: Path, path: Path, parents: Bool = default, overwrite: Bool = default) -&gt; Result[Unit, Error]</code> - effect, command; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>module.fs.root_symlink.0</code>.
+Params: <code>root: {id: Int}</code>, <code>target: Path</code>, <code>path: Path</code>, <code>parents: Bool = default</code>, <code>overwrite: Bool = default</code></li>
+<li><code>fs.root_write(root: {id: Int}, path: Path, data: Bytes) -&gt; Result[Unit, Error]</code> - effect, command; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>module.fs.root_write.0</code>.
+Params: <code>root: {id: Int}</code>, <code>path: Path</code>, <code>data: Bytes</code></li>
+<li><code>fs.root_write(root: {id: Int}, path: Path, data: Str) -&gt; Result[Unit, Error]</code> - effect, command; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>module.fs.root_write.1</code>.
+Params: <code>root: {id: Int}</code>, <code>path: Path</code>, <code>data: Str</code></li>
+<li><code>fs.root_write_atomic(root: {id: Int}, path: Path, data: Bytes) -&gt; Result[Unit, Error]</code> - effect, command; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>module.fs.root_write_atomic.0</code>.
+Params: <code>root: {id: Int}</code>, <code>path: Path</code>, <code>data: Bytes</code></li>
+<li><code>fs.root_write_atomic(root: {id: Int}, path: Path, data: Str) -&gt; Result[Unit, Error]</code> - effect, command; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>module.fs.root_write_atomic.1</code>.
+Params: <code>root: {id: Int}</code>, <code>path: Path</code>, <code>data: Str</code></li>
+<li><code>fs.setgid(mode: Int) -&gt; Bool</code> - pure; Returns <code>Bool</code>. ID <code>module.fs.setgid.0</code>.
+Params: <code>mode: Int</code></li>
+<li><code>fs.setuid(mode: Int) -&gt; Bool</code> - pure; Returns <code>Bool</code>. ID <code>module.fs.setuid.0</code>.
+Params: <code>mode: Int</code></li>
+<li><code>fs.sticky(mode: Int) -&gt; Bool</code> - pure; Returns <code>Bool</code>. ID <code>module.fs.sticky.0</code>.
+Params: <code>mode: Int</code></li>
+<li><code>fs.symlink(target: Path, path: Path) -&gt; Result[Unit, Error]</code> - effect, command; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>module.fs.symlink.0</code>.
+Params: <code>target: Path</code>, <code>path: Path</code></li>
+<li><code>fs.sync() -&gt; Result[Unit, Error]</code> - effect, command; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>module.fs.sync.0</code>.</li>
+<li><code>fs.tempdir() -&gt; Result[{id: Int}, Error]</code> - effect; Returns <code>{id: Int}</code> or <code>Error</code> failure data. ID <code>module.fs.tempdir.0</code>.</li>
+<li><code>fs.tempfile() -&gt; Result[{path: Path, root: {id: Int}}, Error]</code> - effect; Returns <code>{path: Path, root: {id: Int}}</code> or <code>Error</code> failure data. ID <code>module.fs.tempfile.0</code>.</li>
+<li><code>fs.unlock(lock: {id: Int, path: Path, shared: Bool}) -&gt; Result[Unit, Error]</code> - effect, command; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>module.fs.unlock.0</code>.
+Params: <code>lock: {id: Int, path: Path, shared: Bool}</code></li>
+<li><code>fs.user_root(kind: Str) -&gt; Result[{id: Int}, Error]</code> - effect; Returns <code>{id: Int}</code> or <code>Error</code> failure data. ID <code>module.fs.user_root.0</code>.
+Params: <code>kind: Str</code></li>
+<li><code>fs.walk(path: Path, gitignore: Bool = default, stat: Bool = default, hidden: Bool = default) -&gt; Result[Stream[{accessed: Int, blocks_512: Int, executable: Bool, ext: Str, gid: Int, group_executable: Bool, kind: Str, mode: Int, modified: Int, name: Str, other_executable: Bool, owner_executable: Bool, path: Path, setgid: Bool, setuid: Bool, size: Int, sticky: Bool, uid: Int, world_writable: Bool}], Error]</code> - effect; Returns <code>Stream[{accessed: Int, blocks_512: Int, executable: Bool, ext: Str, gid: Int, group_executable: Bool, kind: Str, mode: Int, modified: Int, name: Str, other_executable: Bool, owner_executable: Bool, path: Path, setgid: Bool, setuid: Bool, size: Int, sticky: Bool, uid: Int, world_writable: Bool}]</code> or <code>Error</code> failure data. ID <code>module.fs.walk.0</code>.
+Params: <code>path: Path</code>, <code>gitignore: Bool = default</code>, <code>stat: Bool = default</code>, <code>hidden: Bool = default</code></li>
+<li><code>fs.world_writable(mode: Int) -&gt; Bool</code> - pure; Returns <code>Bool</code>. ID <code>module.fs.world_writable.0</code>.
+Params: <code>mode: Int</code></li>
+<li><code>fs.write(path: Path, data: Bytes) -&gt; Result[Unit, Error]</code> - effect, command; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>module.fs.write.0</code>.
+Params: <code>path: Path</code>, <code>data: Bytes</code></li>
+<li><code>fs.write(path: Path, data: Str) -&gt; Result[Unit, Error]</code> - effect, command; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>module.fs.write.1</code>.
+Params: <code>path: Path</code>, <code>data: Str</code></li>
+<li><code>fs.write_atomic(path: Path, data: Bytes) -&gt; Result[Unit, Error]</code> - effect, command; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>module.fs.write_atomic.0</code>.
+Params: <code>path: Path</code>, <code>data: Bytes</code></li>
+<li><code>fs.write_atomic(path: Path, data: Str) -&gt; Result[Unit, Error]</code> - effect, command; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>module.fs.write_atomic.1</code>.
+Params: <code>path: Path</code>, <code>data: Str</code></li>
+</ul>
+<h3><code>group</code></h3>
+<p>Unix group lookup records.</p>
+<ul>
+<li><code>group.add(name: Str, gid: Int = default) -&gt; Result[{gid: Int, members: List[Str], name: Str}, Error]</code> - effect; Returns <code>{gid: Int, members: List[Str], name: Str}</code> or <code>Error</code> failure data. ID <code>module.group.add.0</code>.
+Params: <code>name: Str</code>, <code>gid: Int = default</code></li>
+<li><code>group.by_gid(gid: Int) -&gt; Result[{gid: Int, members: List[Str], name: Str}, Error]</code> - effect; Returns <code>{gid: Int, members: List[Str], name: Str}</code> or <code>Error</code> failure data. ID <code>module.group.by_gid.0</code>.
+Params: <code>gid: Int</code></li>
+<li><code>group.current() -&gt; Result[{gid: Int, members: List[Str], name: Str}, Error]</code> - effect; Returns <code>{gid: Int, members: List[Str], name: Str}</code> or <code>Error</code> failure data. ID <code>module.group.current.0</code>.</li>
+<li><code>group.lookup(name: Str) -&gt; Result[{gid: Int, members: List[Str], name: Str}, Error]</code> - effect; Returns <code>{gid: Int, members: List[Str], name: Str}</code> or <code>Error</code> failure data. ID <code>module.group.lookup.0</code>.
+Params: <code>name: Str</code></li>
+<li><code>group.remove(name: Str) -&gt; Result[Unit, Error]</code> - effect, command; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>module.group.remove.0</code>.
+Params: <code>name: Str</code></li>
+</ul>
+<h3><code>hash</code></h3>
+<p>Digest calculation and checksum verification.</p>
+<ul>
+<li><code>hash.crc32(data: Bytes) -&gt; Int</code> - pure; Returns <code>Int</code>. ID <code>module.hash.crc32.0</code>.
+Params: <code>data: Bytes</code></li>
+<li><code>hash.crc32c(data: Bytes) -&gt; Int</code> - pure; Returns <code>Int</code>. ID <code>module.hash.crc32c.0</code>.
+Params: <code>data: Bytes</code></li>
+<li><code>hash.md5(data: Bytes) -&gt; Digest</code> - pure; Returns <code>Digest</code>. ID <code>module.hash.md5.0</code>.
+Params: <code>data: Bytes</code></li>
+<li><code>hash.md5(path: Path) -&gt; Result[Digest, Error]</code> - effect; Returns <code>Digest</code> or <code>Error</code> failure data. ID <code>module.hash.md5.1</code>.
+Params: <code>path: Path</code></li>
+<li><code>hash.parse_check_line(line: Str) -&gt; Result[Record, Error]</code> - pure; Returns <code>Record</code> or <code>Error</code> failure data. ID <code>module.hash.parse_check_line.0</code>.
+Params: <code>line: Str</code></li>
+<li><code>hash.sha1(data: Bytes) -&gt; Digest</code> - pure; Returns <code>Digest</code>. ID <code>module.hash.sha1.0</code>.
+Params: <code>data: Bytes</code></li>
+<li><code>hash.sha1(path: Path) -&gt; Result[Digest, Error]</code> - effect; Returns <code>Digest</code> or <code>Error</code> failure data. ID <code>module.hash.sha1.1</code>.
+Params: <code>path: Path</code></li>
+<li><code>hash.sha256(data: Bytes) -&gt; Digest</code> - pure; Returns <code>Digest</code>. ID <code>module.hash.sha256.0</code>.
+Params: <code>data: Bytes</code></li>
+<li><code>hash.sha256(path: Path) -&gt; Result[Digest, Error]</code> - effect; Returns <code>Digest</code> or <code>Error</code> failure data. ID <code>module.hash.sha256.1</code>.
+Params: <code>path: Path</code></li>
+<li><code>hash.sha512(data: Bytes) -&gt; Digest</code> - pure; Returns <code>Digest</code>. ID <code>module.hash.sha512.0</code>.
+Params: <code>data: Bytes</code></li>
+<li><code>hash.sha512(path: Path) -&gt; Result[Digest, Error]</code> - effect; Returns <code>Digest</code> or <code>Error</code> failure data. ID <code>module.hash.sha512.1</code>.
+Params: <code>path: Path</code></li>
+<li><code>hash.verify_file(path: Path, sha256: Str = default) -&gt; Result[Unit, Error]</code> - effect; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>module.hash.verify_file.0</code>.
+Params: <code>path: Path</code>, <code>sha256: Str = default</code></li>
+</ul>
+<h3><code>ini</code></h3>
+<p>INI decoding, encoding, and file helpers.</p>
+<ul>
+<li><code>ini.decode(text: Str) -&gt; Result[Record, Error]</code> - pure; Returns <code>Record</code> or <code>Error</code> failure data. ID <code>module.ini.decode.0</code>.
+Params: <code>text: Str</code></li>
+<li><code>ini.encode(value: Record) -&gt; Result[Str, Error]</code> - pure; Returns <code>Str</code> or <code>Error</code> failure data. ID <code>module.ini.encode.0</code>.
+Params: <code>value: Record</code></li>
+<li><code>ini.read(path: Path) -&gt; Result[Record, Error]</code> - effect; Returns <code>Record</code> or <code>Error</code> failure data. ID <code>module.ini.read.0</code>.
+Params: <code>path: Path</code></li>
+<li><code>ini.write(path: Path, value: Record, overwrite: Bool = default) -&gt; Result[Unit, Error]</code> - effect, command; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>module.ini.write.0</code>.
+Params: <code>path: Path</code>, <code>value: Record</code>, <code>overwrite: Bool = default</code></li>
+</ul>
+<h3><code>io</code></h3>
+<p>Script stdin and stdout helpers.</p>
+<ul>
+<li><code>io.stdin_bytes() -&gt; Result[Bytes, Error]</code> - effect; Returns <code>Bytes</code> or <code>Error</code> failure data. ID <code>module.io.stdin_bytes.0</code>.</li>
+<li><code>io.stdin_line() -&gt; Result[Str, Error]</code> - effect; Returns <code>Str</code> or <code>Error</code> failure data. ID <code>module.io.stdin_line.0</code>.</li>
+<li><code>io.stdin_text() -&gt; Result[Str, Error]</code> - effect; Returns <code>Str</code> or <code>Error</code> failure data. ID <code>module.io.stdin_text.0</code>.</li>
+<li><code>io.write_stdout(text: Str) -&gt; Result[Unit, Error]</code> - effect, command; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>module.io.write_stdout.0</code>.
+Params: <code>text: Str</code></li>
+<li><code>io.write_stdout_bytes(data: Bytes) -&gt; Result[Unit, Error]</code> - effect, command; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>module.io.write_stdout_bytes.0</code>.
+Params: <code>data: Bytes</code></li>
+</ul>
+<h3><code>json</code></h3>
+<p>JSON encoding, decoding, files, and streams.</p>
+<ul>
+<li><code>json.decode(s: Str) -&gt; Result[Any, Error]</code> - pure; Returns <code>Any</code> or <code>Error</code> failure data. ID <code>module.json.decode.0</code>.
+Params: <code>s: Str</code></li>
+<li><code>json.encode(value: Any, pretty: Bool = default) -&gt; Result[Str, Error]</code> - pure; Returns <code>Str</code> or <code>Error</code> failure data. ID <code>module.json.encode.0</code>.
+Params: <code>value: Any</code>, <code>pretty: Bool = default</code></li>
+<li><code>json.encode_lines(values: List[Any]) -&gt; Result[Str, Error]</code> - pure; Returns <code>Str</code> or <code>Error</code> failure data. ID <code>module.json.encode_lines.0</code>.
+Params: <code>values: List[Any]</code></li>
+<li><code>json.get(value: Any, path: List[Any]) -&gt; Result[Any, Error]</code> - pure; Returns <code>Any</code> or <code>Error</code> failure data. ID <code>module.json.get.0</code>.
+Params: <code>value: Any</code>, <code>path: List[Any]</code></li>
+<li><code>json.get(value: Any, path: List[Any], fallback: Any) -&gt; Any</code> - pure; Returns <code>Any</code>. ID <code>module.json.get.1</code>.
+Params: <code>value: Any</code>, <code>path: List[Any]</code>, <code>fallback: Any</code></li>
+<li><code>json.read(path: Path) -&gt; Result[Any, Error]</code> - effect; Returns <code>Any</code> or <code>Error</code> failure data. ID <code>module.json.read.0</code>.
+Params: <code>path: Path</code></li>
+<li><code>json.remove(value: Any, path: List[Any]) -&gt; Result[Any, Error]</code> - pure; Returns <code>Any</code> or <code>Error</code> failure data. ID <code>module.json.remove.0</code>.
+Params: <code>value: Any</code>, <code>path: List[Any]</code></li>
+<li><code>json.set(value: Any, path: List[Any], replacement: Any) -&gt; Result[Any, Error]</code> - pure; Returns <code>Any</code> or <code>Error</code> failure data. ID <code>module.json.set.0</code>.
+Params: <code>value: Any</code>, <code>path: List[Any]</code>, <code>replacement: Any</code></li>
+<li><code>json.write(path: Path, value: Any, pretty: Bool = default) -&gt; Result[Unit, Error]</code> - effect, command; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>module.json.write.0</code>.
+Params: <code>path: Path</code>, <code>value: Any</code>, <code>pretty: Bool = default</code></li>
+<li><code>json.write_lines(path: Path, values: List[Any]) -&gt; Result[Unit, Error]</code> - effect, command; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>module.json.write_lines.0</code>.
+Params: <code>path: Path</code>, <code>values: List[Any]</code></li>
+</ul>
+<h3><code>linux</code></h3>
+<p>Linux-specific boot, mount, device, and shutdown operations.</p>
+<ul>
+<li><code>linux.add_default_ipv4_route(gateway: Str, interface: Str = default) -&gt; Result[Unit, Error]</code> - effect; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>module.linux.add_default_ipv4_route.0</code>.
+Params: <code>gateway: Str</code>, <code>interface: Str = default</code></li>
+<li><code>linux.blkid(device: Path) -&gt; Result[{label: Str, part_entry_uuid: Str, part_table_type: Str, type: Str, uuid: Str}, Error]</code> - effect; Returns <code>{label: Str, part_entry_uuid: Str, part_table_type: Str, type: Str, uuid: Str}</code> or <code>Error</code> failure data. ID <code>module.linux.blkid.0</code>.
+Params: <code>device: Path</code></li>
+<li><code>linux.block_devices() -&gt; Result[List[{name: Str, partitioned: Bool, partitions: List[Path], path: Path, removable: Bool, rotational: Bool, sector_size: Int, sectors: Int, size: Int}], Error]</code> - effect; Returns <code>List[{name: Str, partitioned: Bool, partitions: List[Path], path: Path, removable: Bool, rotational: Bool, sector_size: Int, sectors: Int, size: Int}]</code> or <code>Error</code> failure data. ID <code>module.linux.block_devices.0</code>.</li>
+<li><code>linux.chroot(path: Path) -&gt; Result[Unit, Error]</code> - effect, command; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>module.linux.chroot.0</code>.
+Params: <code>path: Path</code></li>
+<li><code>linux.del_default_ipv4_route(gateway: Str, interface: Str) -&gt; Result[Unit, Error]</code> - effect, command; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>module.linux.del_default_ipv4_route.0</code>.
+Params: <code>gateway: Str</code>, <code>interface: Str</code></li>
+<li><code>linux.depmod(version: Str = default) -&gt; Result[Unit, Error]</code> - effect; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>module.linux.depmod.0</code>.
+Params: <code>version: Str = default</code></li>
+<li><code>linux.dhcp_close(fd: Int) -&gt; Result[Unit, Error]</code> - effect, command; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>module.linux.dhcp_close.0</code>.
+Params: <code>fd: Int</code></li>
+<li><code>linux.dhcp_recv(fd: Int, timeout_ms: Int) -&gt; Result[Bytes, Error]</code> - effect; Returns <code>Bytes</code> or <code>Error</code> failure data. ID <code>module.linux.dhcp_recv.0</code>.
+Params: <code>fd: Int</code>, <code>timeout_ms: Int</code></li>
+<li><code>linux.dhcp_send(fd: Int, payload: Bytes) -&gt; Result[Unit, Error]</code> - effect, command; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>module.linux.dhcp_send.0</code>.
+Params: <code>fd: Int</code>, <code>payload: Bytes</code></li>
+<li><code>linux.dhcp_send_release(interface: Str, address: Str, server_id: Str) -&gt; Result[Unit, Error]</code> - effect, command; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>module.linux.dhcp_send_release.0</code>.
+Params: <code>interface: Str</code>, <code>address: Str</code>, <code>server_id: Str</code></li>
+<li><code>linux.dhcp_socket(interface: Str) -&gt; Result[Int, Error]</code> - effect; Returns <code>Int</code> or <code>Error</code> failure data. ID <code>module.linux.dhcp_socket.0</code>.
+Params: <code>interface: Str</code></li>
+<li><code>linux.disk_usage(path: Path = default) -&gt; Result[List[{available: Int, device: Str, fstype: Str, mount: Str, total: Int, used: Int}], Error]</code> - effect; Returns <code>List[{available: Int, device: Str, fstype: Str, mount: Str, total: Int, used: Int}]</code> or <code>Error</code> failure data. ID <code>module.linux.disk_usage.0</code>.
+Params: <code>path: Path = default</code></li>
+<li><code>linux.dmesg() -&gt; Result[List[Str], Error]</code> - effect; Returns <code>List[Str]</code> or <code>Error</code> failure data. ID <code>module.linux.dmesg.0</code>.</li>
+<li><code>linux.file_attrs(path: Path) -&gt; Result[{append_only: Bool, compression_requested: Bool, dirsync: Bool, flags: Int, immutable: Bool, indexed_directory: Bool, journaled_data: Bool, no_atime: Bool, no_dump: Bool, no_tailmerging: Bool, secure_deletion: Bool, sync: Bool, top_of_directory_hierarchies: Bool, undelete: Bool}, Error]</code> - effect; Returns <code>{append_only: Bool, compression_requested: Bool, dirsync: Bool, flags: Int, immutable: Bool, indexed_directory: Bool, journaled_data: Bool, no_atime: Bool, no_dump: Bool, no_tailmerging: Bool, secure_deletion: Bool, sync: Bool, top_of_directory_hierarchies: Bool, undelete: Bool}</code> or <code>Error</code> failure data. ID <code>module.linux.file_attrs.0</code>.
+Params: <code>path: Path</code></li>
+<li><code>linux.file_version(path: Path) -&gt; Result[Int, Error]</code> - effect; Returns <code>Int</code> or <code>Error</code> failure data. ID <code>module.linux.file_version.0</code>.
+Params: <code>path: Path</code></li>
+<li><code>linux.flush_ipv4_addresses(interface: Str) -&gt; Result[Unit, Error]</code> - effect, command; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>module.linux.flush_ipv4_addresses.0</code>.
+Params: <code>interface: Str</code></li>
+<li><code>linux.fsck(device: Path, fstype: Str = default, repair: Bool = default) -&gt; Result[{errors: List[Str], status: Int}, Error]</code> - effect; Returns <code>{errors: List[Str], status: Int}</code> or <code>Error</code> failure data. ID <code>module.linux.fsck.0</code>.
+Params: <code>device: Path</code>, <code>fstype: Str = default</code>, <code>repair: Bool = default</code></li>
+<li><code>linux.halt() -&gt; Result[Unit, Error]</code> - effect, command; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>module.linux.halt.0</code>.</li>
+<li><code>linux.hwclock() -&gt; Result[Int, Error]</code> - effect; Returns <code>Int</code> or <code>Error</code> failure data. ID <code>module.linux.hwclock.0</code>.</li>
+<li><code>linux.insmod(path: Path, params: Str = default) -&gt; Result[Unit, Error]</code> - effect; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>module.linux.insmod.0</code>.
+Params: <code>path: Path</code>, <code>params: Str = default</code></li>
+<li><code>linux.interfaces() -&gt; Result[List[{addresses: List[{addr: Str, family: Str, prefix_len: Int}], flags: List[Str], mac: Str, mtu: Int, name: Str}], Error]</code> - effect; Returns <code>List[{addresses: List[{addr: Str, family: Str, prefix_len: Int}], flags: List[Str], mac: Str, mtu: Int, name: Str}]</code> or <code>Error</code> failure data. ID <code>module.linux.interfaces.0</code>.</li>
+<li><code>linux.is_mountpoint(path: Path) -&gt; Result[Bool, Error]</code> - effect; Returns <code>Bool</code> or <code>Error</code> failure data. ID <code>module.linux.is_mountpoint.0</code>.
+Params: <code>path: Path</code></li>
+<li><code>linux.kill_all(signal: Str = default, except_pid1: Bool = default) -&gt; Result[Unit, Error]</code> - effect; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>module.linux.kill_all.0</code>.
+Params: <code>signal: Str = default</code>, <code>except_pid1: Bool = default</code></li>
+<li><code>linux.link_down(interface: Str) -&gt; Result[Unit, Error]</code> - effect, command; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>module.linux.link_down.0</code>.
+Params: <code>interface: Str</code></li>
+<li><code>linux.link_up(interface: Str) -&gt; Result[Unit, Error]</code> - effect, command; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>module.linux.link_up.0</code>.
+Params: <code>interface: Str</code></li>
+<li><code>linux.loop_attach(file: Path, device: Path = default) -&gt; Result[Path, Error]</code> - effect; Returns <code>Path</code> or <code>Error</code> failure data. ID <code>module.linux.loop_attach.0</code>.
+Params: <code>file: Path</code>, <code>device: Path = default</code></li>
+<li><code>linux.loop_detach(device: Path) -&gt; Result[Unit, Error]</code> - effect, command; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>module.linux.loop_detach.0</code>.
+Params: <code>device: Path</code></li>
+<li><code>linux.loop_list() -&gt; Result[List[{device: Path, file: Path, offset: Int, size: Int}], Error]</code> - effect; Returns <code>List[{device: Path, file: Path, offset: Int, size: Int}]</code> or <code>Error</code> failure data. ID <code>module.linux.loop_list.0</code>.</li>
+<li><code>linux.meminfo() -&gt; Result[{available: Int, buffers: Int, cached: Int, free: Int, swap_free: Int, swap_total: Int, total: Int}, Error]</code> - effect; Returns <code>{available: Int, buffers: Int, cached: Int, free: Int, swap_free: Int, swap_total: Int, total: Int}</code> or <code>Error</code> failure data. ID <code>module.linux.meminfo.0</code>.</li>
+<li><code>linux.mknod(path: Path, kind: Str, major: Int, minor: Int) -&gt; Result[Unit, Error]</code> - effect, command; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>module.linux.mknod.0</code>.
+Params: <code>path: Path</code>, <code>kind: Str</code>, <code>major: Int</code>, <code>minor: Int</code></li>
+<li><code>linux.mkswap(device: Path) -&gt; Result[Unit, Error]</code> - effect, command; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>module.linux.mkswap.0</code>.
+Params: <code>device: Path</code></li>
+<li><code>linux.modinfo(name: Str) -&gt; Result[{description: Str, filename: Path, license: Str, name: Str, params: List[{description: Str, name: Str, type: Str}], version: Str}, Error]</code> - effect; Returns <code>{description: Str, filename: Path, license: Str, name: Str, params: List[{description: Str, name: Str, type: Str}], version: Str}</code> or <code>Error</code> failure data. ID <code>module.linux.modinfo.0</code>.
+Params: <code>name: Str</code></li>
+<li><code>linux.modprobe(name: Str, params: Str = default) -&gt; Result[Unit, Error]</code> - effect; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>module.linux.modprobe.0</code>.
+Params: <code>name: Str</code>, <code>params: Str = default</code></li>
+<li><code>linux.modules() -&gt; Result[List[{name: Str, size: Int, used_by: List[Str]}], Error]</code> - effect; Returns <code>List[{name: Str, size: Int, used_by: List[Str]}]</code> or <code>Error</code> failure data. ID <code>module.linux.modules.0</code>.</li>
+<li><code>linux.mount(source: Str, target: Path, fstype: Str = default, options: List[Str] = default) -&gt; Result[Unit, Error]</code> - effect; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>module.linux.mount.0</code>.
+Params: <code>source: Str</code>, <code>target: Path</code>, <code>fstype: Str = default</code>, <code>options: List[Str] = default</code></li>
+<li><code>linux.mount_all() -&gt; Result[Unit, Error]</code> - effect, command; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>module.linux.mount_all.0</code>.</li>
+<li><code>linux.open_files(pid: Int = default) -&gt; Result[List[{command: Str, fd: Int, inode: Int, local: Str, path: Path, pid: Int, protocol: Str, remote: Str, type: Str}], Error]</code> - effect; Returns <code>List[{command: Str, fd: Int, inode: Int, local: Str, path: Path, pid: Int, protocol: Str, remote: Str, type: Str}]</code> or <code>Error</code> failure data. ID <code>module.linux.open_files.0</code>.
+Params: <code>pid: Int = default</code></li>
+<li><code>linux.partition_table(device: Path) -&gt; Result[{id: Str, label: Str, partitions: List[{end: Int, index: Int, name: Str, size: Int, start: Int, type: Str, uuid: Str}], sector_size: Int}, Error]</code> - effect; Returns <code>{id: Str, label: Str, partitions: List[{end: Int, index: Int, name: Str, size: Int, start: Int, type: Str, uuid: Str}], sector_size: Int}</code> or <code>Error</code> failure data. ID <code>module.linux.partition_table.0</code>.
+Params: <code>device: Path</code></li>
+<li><code>linux.pivot_root(new_root: Path, put_old: Path) -&gt; Result[Unit, Error]</code> - effect, command; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>module.linux.pivot_root.0</code>.
+Params: <code>new_root: Path</code>, <code>put_old: Path</code></li>
+<li><code>linux.poweroff() -&gt; Result[Unit, Error]</code> - effect, command; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>module.linux.poweroff.0</code>.</li>
+<li><code>linux.read_device(device: Path, dest: Path, bytes: Int) -&gt; Result[Unit, Error]</code> - effect, command; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>module.linux.read_device.0</code>.
+Params: <code>device: Path</code>, <code>dest: Path</code>, <code>bytes: Int</code></li>
+<li><code>linux.reboot() -&gt; Result[Unit, Error]</code> - effect, command; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>module.linux.reboot.0</code>.</li>
+<li><code>linux.rfkill_block(id: Int) -&gt; Result[Unit, Error]</code> - effect, command; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>module.linux.rfkill_block.0</code>.
+Params: <code>id: Int</code></li>
+<li><code>linux.rfkill_list() -&gt; Result[List[{hard_blocked: Bool, id: Int, name: Str, soft_blocked: Bool, type: Str}], Error]</code> - effect; Returns <code>List[{hard_blocked: Bool, id: Int, name: Str, soft_blocked: Bool, type: Str}]</code> or <code>Error</code> failure data. ID <code>module.linux.rfkill_list.0</code>.</li>
+<li><code>linux.rfkill_unblock(id: Int) -&gt; Result[Unit, Error]</code> - effect, command; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>module.linux.rfkill_unblock.0</code>.
+Params: <code>id: Int</code></li>
+<li><code>linux.rmmod(name: Str, force: Bool = default) -&gt; Result[Unit, Error]</code> - effect, command; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>module.linux.rmmod.0</code>.
+Params: <code>name: Str</code>, <code>force: Bool = default</code></li>
+<li><code>linux.root_device() -&gt; Result[Str, Error]</code> - effect; Returns <code>Str</code> or <code>Error</code> failure data. ID <code>module.linux.root_device.0</code>.</li>
+<li><code>linux.routes() -&gt; Result[List[{dev: Str, dst: Str, family: Str, flags: List[Str], gateway: Str, metric: Int, prefix_len: Int}], Error]</code> - effect; Returns <code>List[{dev: Str, dst: Str, family: Str, flags: List[Str], gateway: Str, metric: Int, prefix_len: Int}]</code> or <code>Error</code> failure data. ID <code>module.linux.routes.0</code>.</li>
+<li><code>linux.set_file_attrs(path: Path, flags: Int) -&gt; Result[Unit, Error]</code> - effect, command; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>module.linux.set_file_attrs.0</code>.
+Params: <code>path: Path</code>, <code>flags: Int</code></li>
+<li><code>linux.set_file_version(path: Path, version: Int) -&gt; Result[Unit, Error]</code> - effect, command; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>module.linux.set_file_version.0</code>.
+Params: <code>path: Path</code>, <code>version: Int</code></li>
+<li><code>linux.set_hwclock(epoch_ms: Int) -&gt; Result[Unit, Error]</code> - effect, command; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>module.linux.set_hwclock.0</code>.
+Params: <code>epoch_ms: Int</code></li>
+<li><code>linux.set_ipv4_address(interface: Str, address: Str, netmask: Str) -&gt; Result[Unit, Error]</code> - effect, command; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>module.linux.set_ipv4_address.0</code>.
+Params: <code>interface: Str</code>, <code>address: Str</code>, <code>netmask: Str</code></li>
+<li><code>linux.set_system_clock(epoch_ms: Int) -&gt; Result[Unit, Error]</code> - effect, command; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>module.linux.set_system_clock.0</code>.
+Params: <code>epoch_ms: Int</code></li>
+<li><code>linux.swapoff(device: Path) -&gt; Result[Unit, Error]</code> - effect, command; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>module.linux.swapoff.0</code>.
+Params: <code>device: Path</code></li>
+<li><code>linux.swapoff_all() -&gt; Result[Unit, Error]</code> - effect, command; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>module.linux.swapoff_all.0</code>.</li>
+<li><code>linux.swapon(device: Path, priority: Int = default) -&gt; Result[Unit, Error]</code> - effect; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>module.linux.swapon.0</code>.
+Params: <code>device: Path</code>, <code>priority: Int = default</code></li>
+<li><code>linux.swapon_all() -&gt; Result[Unit, Error]</code> - effect, command; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>module.linux.swapon_all.0</code>.</li>
+<li><code>linux.switch_root(new_root: Path, init: Path) -&gt; Result[Unit, Error]</code> - effect, command; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>module.linux.switch_root.0</code>.
+Params: <code>new_root: Path</code>, <code>init: Path</code></li>
+<li><code>linux.sysctl_get(key: Str) -&gt; Result[Str, Error]</code> - effect; Returns <code>Str</code> or <code>Error</code> failure data. ID <code>module.linux.sysctl_get.0</code>.
+Params: <code>key: Str</code></li>
+<li><code>linux.sysctl_load_dirs(dirs: List[Path], fallback: Path = default) -&gt; Result[Unit, Error]</code> - effect; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>module.linux.sysctl_load_dirs.0</code>.
+Params: <code>dirs: List[Path]</code>, <code>fallback: Path = default</code></li>
+<li><code>linux.sysctl_set(key: Str, value: Str) -&gt; Result[Unit, Error]</code> - effect, command; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>module.linux.sysctl_set.0</code>.
+Params: <code>key: Str</code>, <code>value: Str</code></li>
+<li><code>linux.uevent_stream() -&gt; Result[Stream[{action: Str, devname: Str, devpath: Str, env: List[{name: Str, value: Str}], subsystem: Str}], Error]</code> - effect; Returns <code>Stream[{action: Str, devname: Str, devpath: Str, env: List[{name: Str, value: Str}], subsystem: Str}]</code> or <code>Error</code> failure data. ID <code>module.linux.uevent_stream.0</code>.</li>
+<li><code>linux.umount_all(types: List[Str] = default) -&gt; Result[Unit, Error]</code> - effect; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>module.linux.umount_all.0</code>.
+Params: <code>types: List[Str] = default</code></li>
+<li><code>linux.write_device(device: Path, source: Path) -&gt; Result[Unit, Error]</code> - effect, command; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>module.linux.write_device.0</code>.
+Params: <code>device: Path</code>, <code>source: Path</code></li>
+<li><code>linux.write_partition_table(device: Path, table: Record) -&gt; Result[Unit, Error]</code> - effect, command; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>module.linux.write_partition_table.0</code>.
+Params: <code>device: Path</code>, <code>table: Record</code></li>
+</ul>
+<h3><code>map</code></h3>
+<p>Map collection helpers.</p>
+<ul>
+<li><code>map.empty() -&gt; Map[Any]</code> - pure; Returns <code>Map[Any]</code>. ID <code>module.map.empty.0</code>.</li>
+</ul>
+<h3><code>mime</code></h3>
+<p>MIME type lookup and media-type parsing helpers.</p>
+<ul>
+<li><code>mime.lookup_ext(ext: Str) -&gt; {exts: List[Str], mime: Str}?</code> - effect; Returns <code>{exts: List[Str], mime: Str}?</code>. ID <code>module.mime.lookup_ext.0</code>.
+Params: <code>ext: Str</code></li>
+<li><code>mime.lookup_path(path: Path) -&gt; {exts: List[Str], mime: Str}?</code> - effect; Returns <code>{exts: List[Str], mime: Str}?</code>. ID <code>module.mime.lookup_path.0</code>.
+Params: <code>path: Path</code></li>
+<li><code>mime.parse(value: Str) -&gt; Result[{params: Map[Str], type: Str}, Error]</code> - pure; Returns <code>{params: Map[Str], type: Str}</code> or <code>Error</code> failure data. ID <code>module.mime.parse.0</code>.
+Params: <code>value: Str</code></li>
+</ul>
+<h3><code>module</code></h3>
+<p>User module loading helpers.</p>
+<ul>
+<li><code>module.load(path: Path) -&gt; Result[Module, Error]</code> - effect; Returns <code>Module</code> or <code>Error</code> failure data. ID <code>module.module.load.0</code>.
+Params: <code>path: Path</code></li>
+</ul>
+<h3><code>net</code></h3>
+<p>HTTP request, transfer, and connection-pool helpers.</p>
+<ul>
+<li><code>net.close_all_pools() -&gt; Result[Unit, Error]</code> - effect, command; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>module.net.close_all_pools.0</code>.</li>
+<li><code>net.close_pool(name: Str = default) -&gt; Result[Unit, Error]</code> - effect; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>module.net.close_pool.0</code>.
+Params: <code>name: Str = default</code></li>
+<li><code>net.download(request: Record) -&gt; Result[{bytes: Int, headers: List[{name: Str, value: Str}], reason: Str, status: Int, url: Str}, Error]</code> - effect; Returns <code>{bytes: Int, headers: List[{name: Str, value: Str}], reason: Str, status: Int, url: Str}</code> or <code>Error</code> failure data. ID <code>module.net.download.0</code>.
+Params: <code>request: Record</code></li>
+<li><code>net.pool(name: Str = default, max_idle_per_host: Int = default, idle_timeout: Duration = default) -&gt; Result[{idle_timeout_ms: Int, max_idle_per_host: Int, name: Str}, Error]</code> - effect; Returns <code>{idle_timeout_ms: Int, max_idle_per_host: Int, name: Str}</code> or <code>Error</code> failure data. ID <code>module.net.pool.0</code>.
+Params: <code>name: Str = default</code>, <code>max_idle_per_host: Int = default</code>, <code>idle_timeout: Duration = default</code></li>
+<li><code>net.request(request: Record) -&gt; Result[{body: Bytes, bytes: Int, headers: List[{name: Str, value: Str}], reason: Str, status: Int, url: Str}, Error]</code> - effect; Returns <code>{body: Bytes, bytes: Int, headers: List[{name: Str, value: Str}], reason: Str, status: Int, url: Str}</code> or <code>Error</code> failure data. ID <code>module.net.request.0</code>.
+Params: <code>request: Record</code></li>
+<li><code>net.upload(request: Record) -&gt; Result[{bytes: Int, headers: List[{name: Str, value: Str}], reason: Str, status: Int, url: Str}, Error]</code> - effect; Returns <code>{bytes: Int, headers: List[{name: Str, value: Str}], reason: Str, status: Int, url: Str}</code> or <code>Error</code> failure data. ID <code>module.net.upload.0</code>.
+Params: <code>request: Record</code></li>
+</ul>
+<h3><code>patch</code></h3>
+<p>Rooted patch application.</p>
+<ul>
+<li><code>patch.apply(root: Path, text: Str, strip_components: Int = default, overwrite: Bool = default) -&gt; Result[{files: Int, hunks: Int}, Error]</code> - effect; Returns <code>{files: Int, hunks: Int}</code> or <code>Error</code> failure data. ID <code>module.patch.apply.0</code>.
+Params: <code>root: Path</code>, <code>text: Str</code>, <code>strip_components: Int = default</code>, <code>overwrite: Bool = default</code></li>
+</ul>
+<h3><code>path</code></h3>
+<p>Path normalization and resolution.</p>
+<ul>
+<li><code>path.absolute(path: Path) -&gt; Result[Path, Error]</code> - effect; Returns <code>Path</code> or <code>Error</code> failure data. ID <code>module.path.absolute.0</code>.
+Params: <code>path: Path</code></li>
+</ul>
+<h3><code>process</code></h3>
+<p>Process discovery, command construction, execution, spawning, and signals.</p>
+<ul>
+<li><code>process.argv_words(text: Str) -&gt; Result[List[Str], Error]</code> - pure; Returns <code>List[Str]</code> or <code>Error</code> failure data. ID <code>module.process.argv_words.0</code>.
+Params: <code>text: Str</code></li>
+<li><code>process.command() -&gt; Command</code> - effect; Returns <code>Command</code>. ID <code>module.process.command.0</code>.</li>
+<li><code>process.command_argv(target: Str, argv: List[Str], cwd: Path = default, env: Record = default, timeout: Duration = default, detach: Bool = default, new_session: Bool = default, ignore_hup: Bool = default, cpu_max: Int = default) -&gt; Command</code> - pure; Returns <code>Command</code>. ID <code>module.process.command_argv.0</code>.
+Params: <code>target: Str</code>, <code>argv: List[Str]</code>, <code>cwd: Path = default</code>, <code>env: Record = default</code>, <code>timeout: Duration = default</code>, <code>detach: Bool = default</code>, <code>new_session: Bool = default</code>, <code>ignore_hup: Bool = default</code>, <code>cpu_max: Int = default</code></li>
+<li><code>process.command_argv(target: Path, argv: List[Str], cwd: Path = default, env: Record = default, timeout: Duration = default, detach: Bool = default, new_session: Bool = default, ignore_hup: Bool = default, cpu_max: Int = default) -&gt; Command</code> - pure; Returns <code>Command</code>. ID <code>module.process.command_argv.1</code>.
+Params: <code>target: Path</code>, <code>argv: List[Str]</code>, <code>cwd: Path = default</code>, <code>env: Record = default</code>, <code>timeout: Duration = default</code>, <code>detach: Bool = default</code>, <code>new_session: Bool = default</code>, <code>ignore_hup: Bool = default</code>, <code>cpu_max: Int = default</code></li>
+<li><code>process.current_pid() -&gt; Result[Int, Error]</code> - effect; Returns <code>Int</code> or <code>Error</code> failure data. ID <code>module.process.current_pid.0</code>.</li>
+<li><code>process.kill(pid: Int, signal: Str = default) -&gt; Result[Unit, Error]</code> - effect; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>module.process.kill.0</code>.
+Params: <code>pid: Int</code>, <code>signal: Str = default</code></li>
+<li><code>process.list() -&gt; Result[Stream[{argv: Str, argv0: Str, command: Str, parent_pid: Int, pid: Int, runtime_seconds: Int, start_time: Str, start_time_ms: Int, status: Str, uid: Int, user: Str}], Error]</code> - effect; Returns <code>Stream[{argv: Str, argv0: Str, command: Str, parent_pid: Int, pid: Int, runtime_seconds: Int, start_time: Str, start_time_ms: Int, status: Str, uid: Int, user: Str}]</code> or <code>Error</code> failure data. ID <code>module.process.list.0</code>.</li>
+<li><code>process.port(port: Int) -&gt; Result[Stream[{argv: Str, argv0: Str, command: Str, fd: Int, inode: Int, local: Str, local_address: Str, local_port: Int, parent_pid: Int, pid: Int, protocol: Str, remote: Str, remote_address: Str, remote_port: Int, state: Str, uid: Int, user: Str}], Error]</code> - effect; Returns <code>Stream[{argv: Str, argv0: Str, command: Str, fd: Int, inode: Int, local: Str, local_address: Str, local_port: Int, parent_pid: Int, pid: Int, protocol: Str, remote: Str, remote_address: Str, remote_port: Int, state: Str, uid: Int, user: Str}]</code> or <code>Error</code> failure data. ID <code>module.process.port.0</code>.
+Params: <code>port: Int</code></li>
+<li><code>process.ports() -&gt; Result[Stream[{argv: Str, argv0: Str, command: Str, fd: Int, inode: Int, local: Str, local_address: Str, local_port: Int, parent_pid: Int, pid: Int, protocol: Str, remote: Str, remote_address: Str, remote_port: Int, state: Str, uid: Int, user: Str}], Error]</code> - effect; Returns <code>Stream[{argv: Str, argv0: Str, command: Str, fd: Int, inode: Int, local: Str, local_address: Str, local_port: Int, parent_pid: Int, pid: Int, protocol: Str, remote: Str, remote_address: Str, remote_port: Int, state: Str, uid: Int, user: Str}]</code> or <code>Error</code> failure data. ID <code>module.process.ports.0</code>.</li>
+<li><code>process.ports(pid: Int) -&gt; Result[Stream[{argv: Str, argv0: Str, command: Str, fd: Int, inode: Int, local: Str, local_address: Str, local_port: Int, parent_pid: Int, pid: Int, protocol: Str, remote: Str, remote_address: Str, remote_port: Int, state: Str, uid: Int, user: Str}], Error]</code> - effect; Returns <code>Stream[{argv: Str, argv0: Str, command: Str, fd: Int, inode: Int, local: Str, local_address: Str, local_port: Int, parent_pid: Int, pid: Int, protocol: Str, remote: Str, remote_address: Str, remote_port: Int, state: Str, uid: Int, user: Str}]</code> or <code>Error</code> failure data. ID <code>module.process.ports.1</code>.
+Params: <code>pid: Int</code></li>
+<li><code>process.run(command: Command) -&gt; Result[Status, ProcessError]</code> - effect; Returns <code>Status</code> or <code>ProcessError</code> failure data. ID <code>module.process.run.0</code>.
+Params: <code>command: Command</code></li>
+<li><code>process.signal(signal: Str) -&gt; Result[{name: Str, number: Int}, Error]</code> - effect; Returns <code>{name: Str, number: Int}</code> or <code>Error</code> failure data. ID <code>module.process.signal.0</code>.
+Params: <code>signal: Str</code></li>
+<li><code>process.spawn(command: Command) -&gt; Result[{argv: Str, command: Str, detach: Bool, ignore_hup: Bool, new_session: Bool, pid: Int}, Error]</code> - effect; Returns <code>{argv: Str, command: Str, detach: Bool, ignore_hup: Bool, new_session: Bool, pid: Int}</code> or <code>Error</code> failure data. ID <code>module.process.spawn.0</code>.
+Params: <code>command: Command</code></li>
+<li><code>process.stats(pid: Int) -&gt; Result[{rss_kb: Int, vsz_kb: Int}, Error]</code> - effect; Returns <code>{rss_kb: Int, vsz_kb: Int}</code> or <code>Error</code> failure data. ID <code>module.process.stats.0</code>.
+Params: <code>pid: Int</code></li>
+<li><code>process.threads() -&gt; Result[Stream[{argv: Str, argv0: Str, command: Str, owner_pid: Int, parent_pid: Int, pid: Int, runtime_seconds: Int, start_time: Str, start_time_ms: Int, status: Str, thread_id: Int, thread_name: Str, uid: Int, user: Str}], Error]</code> - effect; Returns <code>Stream[{argv: Str, argv0: Str, command: Str, owner_pid: Int, parent_pid: Int, pid: Int, runtime_seconds: Int, start_time: Str, start_time_ms: Int, status: Str, thread_id: Int, thread_name: Str, uid: Int, user: Str}]</code> or <code>Error</code> failure data. ID <code>module.process.threads.0</code>.</li>
+<li><code>process.threads(pid: Int) -&gt; Result[Stream[{argv: Str, argv0: Str, command: Str, owner_pid: Int, parent_pid: Int, pid: Int, runtime_seconds: Int, start_time: Str, start_time_ms: Int, status: Str, thread_id: Int, thread_name: Str, uid: Int, user: Str}], Error]</code> - effect; Returns <code>Stream[{argv: Str, argv0: Str, command: Str, owner_pid: Int, parent_pid: Int, pid: Int, runtime_seconds: Int, start_time: Str, start_time_ms: Int, status: Str, thread_id: Int, thread_name: Str, uid: Int, user: Str}]</code> or <code>Error</code> failure data. ID <code>module.process.threads.1</code>.
+Params: <code>pid: Int</code></li>
+<li><code>process.wait_any(handles: List[ProcessHandle]) -&gt; Result[{index: Int, pid: Int, status: Status}, ProcessError]</code> - effect; Returns <code>{index: Int, pid: Int, status: Status}</code> or <code>ProcessError</code> failure data. ID <code>module.process.wait_any.0</code>.
+Params: <code>handles: List[ProcessHandle]</code></li>
+<li><code>process.wait_ready(handles: List[ProcessHandle]) -&gt; Result[List[{index: Int, pid: Int, status: Status}], ProcessError]</code> - effect; Returns <code>List[{index: Int, pid: Int, status: Status}]</code> or <code>ProcessError</code> failure data. ID <code>module.process.wait_ready.0</code>.
+Params: <code>handles: List[ProcessHandle]</code></li>
+<li><code>process.which(name: Str) -&gt; Result[Path, Error]</code> - effect; Returns <code>Path</code> or <code>Error</code> failure data. ID <code>module.process.which.0</code>.
+Params: <code>name: Str</code></li>
+</ul>
+<h3><code>record</code></h3>
+<p>Record inspection helpers.</p>
+<ul>
+<li><code>record.require(record: Record, required: Record, optional: Record = default, source: Path = default) -&gt; Result[Record, Error]</code> - effect; Returns <code>Record</code> or <code>Error</code> failure data. ID <code>module.record.require.0</code>.
+Params: <code>record: Record</code>, <code>required: Record</code>, <code>optional: Record = default</code>, <code>source: Path = default</code></li>
+</ul>
+<h3><code>regex</code></h3>
+<p>Regex compilation, matching, captures, and replacement.</p>
+<ul>
+<li><code>regex.compile(pattern: Str) -&gt; Result[Regex, Error]</code> - pure; Returns <code>Regex</code> or <code>Error</code> failure data. ID <code>module.regex.compile.0</code>.
+Params: <code>pattern: Str</code></li>
+</ul>
+<h3><code>set</code></h3>
+<p>String-key set helpers backed by Map[Bool].</p>
+<ul>
+<li><code>set.add(set: Map[Bool], item: Str) -&gt; Map[Bool]</code> - pure; Returns <code>Map[Bool]</code>. ID <code>module.set.add.0</code>.
+Params: <code>set: Map[Bool]</code>, <code>item: Str</code></li>
+<li><code>set.empty() -&gt; Map[Bool]</code> - pure; Returns <code>Map[Bool]</code>. ID <code>module.set.empty.0</code>.</li>
+<li><code>set.from(items: List[Str]) -&gt; Map[Bool]</code> - pure; Returns <code>Map[Bool]</code>. ID <code>module.set.from.0</code>.
+Params: <code>items: List[Str]</code></li>
+<li><code>set.has(set: Map[Bool], item: Str) -&gt; Bool</code> - pure; Returns <code>Bool</code>. ID <code>module.set.has.0</code>.
+Params: <code>set: Map[Bool]</code>, <code>item: Str</code></li>
+<li><code>set.remove(set: Map[Bool], item: Str) -&gt; Map[Bool]</code> - pure; Returns <code>Map[Bool]</code>. ID <code>module.set.remove.0</code>.
+Params: <code>set: Map[Bool]</code>, <code>item: Str</code></li>
+</ul>
+<h3><code>shlex</code></h3>
+<p>POSIX-like shell word rendering helpers.</p>
+<ul>
+<li><code>shlex.join(argv: List[Str]) -&gt; Str</code> - pure; Returns <code>Str</code>. ID <code>module.shlex.join.0</code>.
+Params: <code>argv: List[Str]</code></li>
+<li><code>shlex.quote(value: Str) -&gt; Str</code> - pure; Returns <code>Str</code>. ID <code>module.shlex.quote.0</code>.
+Params: <code>value: Str</code></li>
+</ul>
+<h3><code>system</code></h3>
+<p>Host system identity records.</p>
+<ul>
+<li><code>system.hostname() -&gt; Result[Str, Error]</code> - effect; Returns <code>Str</code> or <code>Error</code> failure data. ID <code>module.system.hostname.0</code>.</li>
+<li><code>system.memory() -&gt; Result[{available: Int, free: Int, swap_free: Int, swap_total: Int, total: Int}, Error]</code> - effect; Returns <code>{available: Int, free: Int, swap_free: Int, swap_total: Int, total: Int}</code> or <code>Error</code> failure data. ID <code>module.system.memory.0</code>.</li>
+<li><code>system.os_release() -&gt; Result[{id: Str, name: Str, pretty_name: Str, version: Str, version_id: Str}, Error]</code> - effect; Returns <code>{id: Str, name: Str, pretty_name: Str, version: Str, version_id: Str}</code> or <code>Error</code> failure data. ID <code>module.system.os_release.0</code>.</li>
+<li><code>system.uname() -&gt; Result[{machine: Str, nodename: Str, release: Str, sysname: Str, version: Str}, Error]</code> - effect; Returns <code>{machine: Str, nodename: Str, release: Str, sysname: Str, version: Str}</code> or <code>Error</code> failure data. ID <code>module.system.uname.0</code>.</li>
+</ul>
+<h3><code>test</code></h3>
+<p>Native XSH test assertions, temp resources, and host-effect mocks.</p>
+<ul>
+<li><code>test.calls(ctx: {file: Path, name: Str, temp_root: Path}, op: Str = default) -&gt; List[{args: Record, op: Str}]</code> - effect; Returns <code>List[{args: Record, op: Str}]</code>. ID <code>module.test.calls.0</code>.
+Params: <code>ctx: {file: Path, name: Str, temp_root: Path}</code>, <code>op: Str = default</code></li>
+<li><code>test.contains(haystack: Any, needle: Any, message: Str = default) -&gt; Result[Unit, Error]</code> - pure; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>module.test.contains.0</code>.
+Params: <code>haystack: Any</code>, <code>needle: Any</code>, <code>message: Str = default</code></li>
+<li><code>test.eq(left: Any, right: Any, message: Str = default) -&gt; Result[Unit, Error]</code> - pure; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>module.test.eq.0</code>.
+Params: <code>left: Any</code>, <code>right: Any</code>, <code>message: Str = default</code></li>
+<li><code>test.error_kind(value: Any, kind: Str, message: Str = default) -&gt; Result[Unit, Error]</code> - pure; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>module.test.error_kind.0</code>.
+Params: <code>value: Any</code>, <code>kind: Str</code>, <code>message: Str = default</code></li>
+<li><code>test.fail(message: Str = default) -&gt; Result[Unit, Error]</code> - pure; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>module.test.fail.0</code>.
+Params: <code>message: Str = default</code></li>
+<li><code>test.mock(ctx: {file: Path, name: Str, temp_root: Path}, op: Str, matcher: Record, result: Any, times: Int = default) -&gt; Result[Unit, Error]</code> - effect; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>module.test.mock.0</code>.
+Params: <code>ctx: {file: Path, name: Str, temp_root: Path}</code>, <code>op: Str</code>, <code>matcher: Record</code>, <code>result: Any</code>, <code>times: Int = default</code></li>
+<li><code>test.ne(left: Any, right: Any, message: Str = default) -&gt; Result[Unit, Error]</code> - pure; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>module.test.ne.0</code>.
+Params: <code>left: Any</code>, <code>right: Any</code>, <code>message: Str = default</code></li>
+<li><code>test.not_contains(haystack: Any, needle: Any, message: Str = default) -&gt; Result[Unit, Error]</code> - pure; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>module.test.not_contains.0</code>.
+Params: <code>haystack: Any</code>, <code>needle: Any</code>, <code>message: Str = default</code></li>
+<li><code>test.ok(condition: Bool, message: Str = default) -&gt; Result[Unit, Error]</code> - pure; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>module.test.ok.0</code>.
+Params: <code>condition: Bool</code>, <code>message: Str = default</code></li>
+<li><code>test.skip(message: Str = default) -&gt; Result[Unit, Error]</code> - pure; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>module.test.skip.0</code>.
+Params: <code>message: Str = default</code></li>
+<li><code>test.temp_dir(ctx: {file: Path, name: Str, temp_root: Path}, name: Str = default) -&gt; Result[Path, Error]</code> - effect; Returns <code>Path</code> or <code>Error</code> failure data. ID <code>module.test.temp_dir.0</code>.
+Params: <code>ctx: {file: Path, name: Str, temp_root: Path}</code>, <code>name: Str = default</code></li>
+<li><code>test.temp_file(ctx: {file: Path, name: Str, temp_root: Path}, name: Str = default, contents: Bytes = default) -&gt; Result[Path, Error]</code> - effect; Returns <code>Path</code> or <code>Error</code> failure data. ID <code>module.test.temp_file.0</code>.
+Params: <code>ctx: {file: Path, name: Str, temp_root: Path}</code>, <code>name: Str = default</code>, <code>contents: Bytes = default</code></li>
+<li><code>test.temp_path(ctx: {file: Path, name: Str, temp_root: Path}, name: Str = default) -&gt; Path</code> - effect; Returns <code>Path</code>. ID <code>module.test.temp_path.0</code>.
+Params: <code>ctx: {file: Path, name: Str, temp_root: Path}</code>, <code>name: Str = default</code></li>
+</ul>
+<h3><code>time</code></h3>
+<p>Clock, sleep, command measurement, and Jiff strtime formatting.</p>
+<ul>
+<li><code>time.duration_compact(seconds: Int) -&gt; Str</code> - pure; Returns <code>Str</code>. ID <code>module.time.duration_compact.0</code>.
+Params: <code>seconds: Int</code></li>
+<li><code>time.format(epoch_ms: Int, format: Str, utc: Bool = default) -&gt; Result[Str, Error]</code> - effect; Returns <code>Str</code> or <code>Error</code> failure data. ID <code>module.time.format.0</code>.
+Params: <code>epoch_ms: Int</code>, <code>format: Str</code>, <code>utc: Bool = default</code></li>
+<li><code>time.measure(command: Command, quiet: Bool = default) -&gt; Result[{duration_ms: Int, status: Status, system_ns: Int, user_ns: Int, wall_ns: Int}, Error]</code> - effect; Returns <code>{duration_ms: Int, status: Status, system_ns: Int, user_ns: Int, wall_ns: Int}</code> or <code>Error</code> failure data. ID <code>module.time.measure.0</code>.
+Params: <code>command: Command</code>, <code>quiet: Bool = default</code></li>
+<li><code>time.millis(ms: Int) -&gt; Duration</code> - pure; Returns <code>Duration</code>. ID <code>module.time.millis.0</code>.
+Params: <code>ms: Int</code></li>
+<li><code>time.now() -&gt; Int</code> - effect; Returns <code>Int</code>. ID <code>module.time.now.0</code>.</li>
+<li><code>time.seconds(seconds: Int) -&gt; Duration</code> - pure; Returns <code>Duration</code>. ID <code>module.time.seconds.0</code>.
+Params: <code>seconds: Int</code></li>
+<li><code>time.sleep(duration: Duration) -&gt; Result[Unit, Error]</code> - effect, command; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>module.time.sleep.0</code>.
+Params: <code>duration: Duration</code></li>
+</ul>
+<h3><code>tui</code></h3>
+<p>Terminal styling, control sequences, and width-aware text padding.</p>
+<ul>
+<li><code>tui.blue() -&gt; Str</code> - pure; Returns <code>Str</code>. ID <code>module.tui.blue.0</code>.</li>
+<li><code>tui.bold() -&gt; Str</code> - pure; Returns <code>Str</code>. ID <code>module.tui.bold.0</code>.</li>
+<li><code>tui.clear() -&gt; Str</code> - pure; Returns <code>Str</code>. ID <code>module.tui.clear.0</code>.</li>
+<li><code>tui.cyan() -&gt; Str</code> - pure; Returns <code>Str</code>. ID <code>module.tui.cyan.0</code>.</li>
+<li><code>tui.dim() -&gt; Str</code> - pure; Returns <code>Str</code>. ID <code>module.tui.dim.0</code>.</li>
+<li><code>tui.erase_line() -&gt; Str</code> - pure; Returns <code>Str</code>. ID <code>module.tui.erase_line.0</code>.</li>
+<li><code>tui.gray() -&gt; Str</code> - pure; Returns <code>Str</code>. ID <code>module.tui.gray.0</code>.</li>
+<li><code>tui.green() -&gt; Str</code> - pure; Returns <code>Str</code>. ID <code>module.tui.green.0</code>.</li>
+<li><code>tui.hide_cursor() -&gt; Str</code> - pure; Returns <code>Str</code>. ID <code>module.tui.hide_cursor.0</code>.</li>
+<li><code>tui.home() -&gt; Str</code> - pure; Returns <code>Str</code>. ID <code>module.tui.home.0</code>.</li>
+<li><code>tui.left_pad(text: Str, width: Int) -&gt; Str</code> - pure; Returns <code>Str</code>. ID <code>module.tui.left_pad.0</code>.
+Params: <code>text: Str</code>, <code>width: Int</code></li>
+<li><code>tui.magenta() -&gt; Str</code> - pure; Returns <code>Str</code>. ID <code>module.tui.magenta.0</code>.</li>
+<li><code>tui.read_secret(prompt: Str) -&gt; Result[Str, Error]</code> - effect; Returns <code>Str</code> or <code>Error</code> failure data. ID <code>module.tui.read_secret.0</code>.
+Params: <code>prompt: Str</code></li>
+<li><code>tui.red() -&gt; Str</code> - pure; Returns <code>Str</code>. ID <code>module.tui.red.0</code>.</li>
+<li><code>tui.reset() -&gt; Str</code> - pure; Returns <code>Str</code>. ID <code>module.tui.reset.0</code>.</li>
+<li><code>tui.right_pad(text: Str, width: Int) -&gt; Str</code> - pure; Returns <code>Str</code>. ID <code>module.tui.right_pad.0</code>.
+Params: <code>text: Str</code>, <code>width: Int</code></li>
+<li><code>tui.show_cursor() -&gt; Str</code> - pure; Returns <code>Str</code>. ID <code>module.tui.show_cursor.0</code>.</li>
+<li><code>tui.white() -&gt; Str</code> - pure; Returns <code>Str</code>. ID <code>module.tui.white.0</code>.</li>
+<li><code>tui.yellow() -&gt; Str</code> - pure; Returns <code>Str</code>. ID <code>module.tui.yellow.0</code>.</li>
+</ul>
+<h3><code>unix</code></h3>
+<p>Unix process-group, PID 1, hostname, uptime, exec, and reaping helpers.</p>
+<ul>
+<li><code>unix.exec(command: Command) -&gt; Result[Unit, Error]</code> - effect, command; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>module.unix.exec.0</code>.
+Params: <code>command: Command</code></li>
+<li><code>unix.id() -&gt; Result[{egid: Int, euid: Int, gid: Int, groups: List[{gid: Int, name: Str}], uid: Int}, Error]</code> - effect; Returns <code>{egid: Int, euid: Int, gid: Int, groups: List[{gid: Int, name: Str}], uid: Int}</code> or <code>Error</code> failure data. ID <code>module.unix.id.0</code>.</li>
+<li><code>unix.kill_all(name: Str, signal: Str = default) -&gt; Result[{matched: Int, signaled: Int}, Error]</code> - effect; Returns <code>{matched: Int, signaled: Int}</code> or <code>Error</code> failure data. ID <code>module.unix.kill_all.0</code>.
+Params: <code>name: Str</code>, <code>signal: Str = default</code></li>
+<li><code>unix.kill_process_group(pid: Int, signal: Str) -&gt; Result[Unit, Error]</code> - effect, command; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>module.unix.kill_process_group.0</code>.
+Params: <code>pid: Int</code>, <code>signal: Str</code></li>
+<li><code>unix.notify_close(fd: Int) -&gt; Result[Unit, Error]</code> - effect, command; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>module.unix.notify_close.0</code>.
+Params: <code>fd: Int</code></li>
+<li><code>unix.notify_ready(fd: Int) -&gt; Result[Bool, Error]</code> - effect; Returns <code>Bool</code> or <code>Error</code> failure data. ID <code>module.unix.notify_ready.0</code>.
+Params: <code>fd: Int</code></li>
+<li><code>unix.pid1_setup(signals: List[Str], subreaper: Bool = default, allow_non_pid1: Bool = default) -&gt; Result[Unit, Error]</code> - effect, command; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>module.unix.pid1_setup.0</code>.
+Params: <code>signals: List[Str]</code>, <code>subreaper: Bool = default</code>, <code>allow_non_pid1: Bool = default</code></li>
+<li><code>unix.reap_child_events() -&gt; Result[List[{pid: Int, status: Status}], Error]</code> - effect; Returns <code>List[{pid: Int, status: Status}]</code> or <code>Error</code> failure data. ID <code>module.unix.reap_child_events.0</code>.</li>
+<li><code>unix.set_hostname(hostname: Str) -&gt; Result[Unit, Error]</code> - effect, command; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>module.unix.set_hostname.0</code>.
+Params: <code>hostname: Str</code></li>
+<li><code>unix.set_tty_attrs(attrs: Record, fd: Int = default) -&gt; Result[Unit, Error]</code> - effect; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>module.unix.set_tty_attrs.0</code>.
+Params: <code>attrs: Record</code>, <code>fd: Int = default</code></li>
+<li><code>unix.shutdown_process_groups(groups: List[Int], term_timeout: Duration, kill_timeout: Duration = default) -&gt; Result[{kill_sent: Int, reaped: List[{pid: Int, status: Status}], remaining: List[Int], term_sent: Int}, Error]</code> - effect; Returns <code>{kill_sent: Int, reaped: List[{pid: Int, status: Status}], remaining: List[Int], term_sent: Int}</code> or <code>Error</code> failure data. ID <code>module.unix.shutdown_process_groups.0</code>.
+Params: <code>groups: List[Int]</code>, <code>term_timeout: Duration</code>, <code>kill_timeout: Duration = default</code></li>
+<li><code>unix.spawn_logged_process_group(command: Command, logger: Command) -&gt; Result[{argv: List[Str], command: Str, detach: Bool, ignore_hup: Bool, log_pid: Int, new_session: Bool, pid: Int}, Error]</code> - effect; Returns <code>{argv: List[Str], command: Str, detach: Bool, ignore_hup: Bool, log_pid: Int, new_session: Bool, pid: Int}</code> or <code>Error</code> failure data. ID <code>module.unix.spawn_logged_process_group.0</code>.
+Params: <code>command: Command</code>, <code>logger: Command</code></li>
+<li><code>unix.spawn_process_group(command: Command, notify: Bool = default) -&gt; Result[{argv: List[Str], command: Str, detach: Bool, ignore_hup: Bool, new_session: Bool, notify_fd: Int, pid: Int}, Error]</code> - effect; Returns <code>{argv: List[Str], command: Str, detach: Bool, ignore_hup: Bool, new_session: Bool, notify_fd: Int, pid: Int}</code> or <code>Error</code> failure data. ID <code>module.unix.spawn_process_group.0</code>.
+Params: <code>command: Command</code>, <code>notify: Bool = default</code></li>
+<li><code>unix.spawn_process_group_log(command: Command, log: Path, notify: Bool = default) -&gt; Result[{argv: List[Str], command: Str, detach: Bool, ignore_hup: Bool, new_session: Bool, notify_fd: Int, pid: Int}, Error]</code> - effect; Returns <code>{argv: List[Str], command: Str, detach: Bool, ignore_hup: Bool, new_session: Bool, notify_fd: Int, pid: Int}</code> or <code>Error</code> failure data. ID <code>module.unix.spawn_process_group_log.0</code>.
+Params: <code>command: Command</code>, <code>log: Path</code>, <code>notify: Bool = default</code></li>
+<li><code>unix.spawn_with_tty(command: Command, tty: Str) -&gt; Result[{argv: List[Str], command: Str, detach: Bool, ignore_hup: Bool, new_session: Bool, notify_fd: Int, pid: Int}, Error]</code> - effect; Returns <code>{argv: List[Str], command: Str, detach: Bool, ignore_hup: Bool, new_session: Bool, notify_fd: Int, pid: Int}</code> or <code>Error</code> failure data. ID <code>module.unix.spawn_with_tty.0</code>.
+Params: <code>command: Command</code>, <code>tty: Str</code></li>
+<li><code>unix.tty() -&gt; Result[Str, Error]</code> - effect; Returns <code>Str</code> or <code>Error</code> failure data. ID <code>module.unix.tty.0</code>.</li>
+<li><code>unix.tty_attrs(fd: Int = default) -&gt; Result[{cflag: Int, control_chars: List[Int], crnl: Bool, echo: Bool, iflag: Int, ispeed: Int, lflag: Int, oflag: Int, ospeed: Int, raw: Bool}, Error]</code> - effect; Returns <code>{cflag: Int, control_chars: List[Int], crnl: Bool, echo: Bool, iflag: Int, ispeed: Int, lflag: Int, oflag: Int, ospeed: Int, raw: Bool}</code> or <code>Error</code> failure data. ID <code>module.unix.tty_attrs.0</code>.
+Params: <code>fd: Int = default</code></li>
+<li><code>unix.uptime_seconds() -&gt; Result[Int, Error]</code> - effect; Returns <code>Int</code> or <code>Error</code> failure data. ID <code>module.unix.uptime_seconds.0</code>.</li>
+<li><code>unix.wait_pid1_event(timeout: Duration = default) -&gt; Result[{children: List[{pid: Int, status: Status}], kind: Str, signal: Str}, Error]</code> - effect; Returns <code>{children: List[{pid: Int, status: Status}], kind: Str, signal: Str}</code> or <code>Error</code> failure data. ID <code>module.unix.wait_pid1_event.0</code>.
+Params: <code>timeout: Duration = default</code></li>
+</ul>
+<h3><code>user</code></h3>
+<p>Unix user lookup records.</p>
+<ul>
+<li><code>user.add(name: Str, uid: Int = default, gid: Int = default, home: Path = default, shell: Path = default, gecos: Str = default) -&gt; Result[{gid: Int, home: Path, name: Str, shell: Str, uid: Int}, Error]</code> - effect; Returns <code>{gid: Int, home: Path, name: Str, shell: Str, uid: Int}</code> or <code>Error</code> failure data. ID <code>module.user.add.0</code>.
+Params: <code>name: Str</code>, <code>uid: Int = default</code>, <code>gid: Int = default</code>, <code>home: Path = default</code>, <code>shell: Path = default</code>, <code>gecos: Str = default</code></li>
+<li><code>user.by_uid(uid: Int) -&gt; Result[{gid: Int, home: Path, name: Str, shell: Str, uid: Int}, Error]</code> - effect; Returns <code>{gid: Int, home: Path, name: Str, shell: Str, uid: Int}</code> or <code>Error</code> failure data. ID <code>module.user.by_uid.0</code>.
+Params: <code>uid: Int</code></li>
+<li><code>user.current() -&gt; Result[{gid: Int, home: Path, name: Str, shell: Str, uid: Int}, Error]</code> - effect; Returns <code>{gid: Int, home: Path, name: Str, shell: Str, uid: Int}</code> or <code>Error</code> failure data. ID <code>module.user.current.0</code>.</li>
+<li><code>user.lookup(name: Str) -&gt; Result[{gid: Int, home: Path, name: Str, shell: Str, uid: Int}, Error]</code> - effect; Returns <code>{gid: Int, home: Path, name: Str, shell: Str, uid: Int}</code> or <code>Error</code> failure data. ID <code>module.user.lookup.0</code>.
+Params: <code>name: Str</code></li>
+<li><code>user.remove(name: Str, remove_home: Bool = default) -&gt; Result[Unit, Error]</code> - effect, command; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>module.user.remove.0</code>.
+Params: <code>name: Str</code>, <code>remove_home: Bool = default</code></li>
+</ul>
+<h3><code>utils</code></h3>
+<p>Process-scoped utility helpers.</p>
+<ul>
+<li><code>utils.cache(fn: Any, args: List[Any] = default) -&gt; Any</code> - effect; Returns <code>Any</code>. ID <code>module.utils.cache.0</code>.
+Params: <code>fn: Any</code>, <code>args: List[Any] = default</code></li>
+</ul>
+<h2 id="method-index">Method Index</h2>
+<ul>
+<li><code>Bytes</code> - 21 method(s)</li>
+<li><code>Digest</code> - 2 method(s)</li>
+<li><code>EnvPathList</code> - 3 method(s)</li>
+<li><code>Float</code> - 13 method(s)</li>
+<li><code>Int</code> - 1 method(s)</li>
+<li><code>List</code> - 6 method(s)</li>
+<li><code>Map</code> - 7 method(s)</li>
+<li><code>Path</code> - 31 method(s)</li>
+<li><code>PathConstructor</code> - 1 method(s)</li>
+<li><code>ProcessHandle</code> - 1 method(s)</li>
+<li><code>Record</code> - 3 method(s)</li>
+<li><code>Regex</code> - 4 method(s)</li>
+<li><code>Result</code> - 1 method(s)</li>
+<li><code>Status</code> - 5 method(s)</li>
+<li><code>Str</code> - 28 method(s)</li>
+<li><code>Stream</code> - 1 method(s)</li>
+</ul>
+<h2 id="methods">Methods</h2>
+<h3><code>Bytes</code> Methods</h3>
+<ul>
+<li><code>Bytes.base32() -&gt; Str</code> - pure; Returns <code>Str</code>. ID <code>method.Bytes.base32.0</code>.</li>
+<li><code>Bytes.base64() -&gt; Str</code> - pure; Returns <code>Str</code>. ID <code>method.Bytes.base64.0</code>.</li>
+<li><code>Bytes.byte_at(index: Int, default: Int = default) -&gt; Int</code> - pure; Returns <code>Int</code>. ID <code>method.Bytes.byte_at.0</code>.
+Params: <code>index: Int</code>, <code>default: Int = default</code></li>
+<li><code>Bytes.chunks(size: Int) -&gt; List[Bytes]</code> - pure; Returns <code>List[Bytes]</code>. ID <code>method.Bytes.chunks.0</code>.
+Params: <code>size: Int</code></li>
+<li><code>Bytes.compare(other: Bytes) -&gt; {byte: Int, equal: Bool, left: Int, line: Int, right: Int}</code> - pure; Returns <code>{byte: Int, equal: Bool, left: Int, line: Int, right: Int}</code>. ID <code>method.Bytes.compare.0</code>.
+Params: <code>other: Bytes</code></li>
+<li><code>Bytes.contains(needle: Bytes) -&gt; Bool</code> - pure; Returns <code>Bool</code>. ID <code>method.Bytes.contains.0</code>.
+Params: <code>needle: Bytes</code></li>
+<li><code>Bytes.count_lines() -&gt; Int</code> - pure; Returns <code>Int</code>. ID <code>method.Bytes.count_lines.0</code>.</li>
+<li><code>Bytes.dump(format: Str = default) -&gt; Str</code> - pure; Returns <code>Str</code>. ID <code>method.Bytes.dump.0</code>.
+Params: <code>format: Str = default</code></li>
+<li><code>Bytes.ends_with(suffix: Bytes) -&gt; Bool</code> - pure; Returns <code>Bool</code>. ID <code>method.Bytes.ends_with.0</code>.
+Params: <code>suffix: Bytes</code></li>
+<li><code>Bytes.len() -&gt; Int</code> - pure; Returns <code>Int</code>. ID <code>method.Bytes.len.0</code>.</li>
+<li><code>Bytes.lines() -&gt; Stream[Bytes]</code> - pure; Returns <code>Stream[Bytes]</code>. ID <code>method.Bytes.lines.0</code>.</li>
+<li><code>Bytes.lower() -&gt; Bytes</code> - pure; Returns <code>Bytes</code>. ID <code>method.Bytes.lower.0</code>.</li>
+<li><code>Bytes.md5() -&gt; Digest</code> - pure; Returns <code>Digest</code>. ID <code>method.Bytes.md5.0</code>.</li>
+<li><code>Bytes.sha1() -&gt; Digest</code> - pure; Returns <code>Digest</code>. ID <code>method.Bytes.sha1.0</code>.</li>
+<li><code>Bytes.sha256() -&gt; Digest</code> - pure; Returns <code>Digest</code>. ID <code>method.Bytes.sha256.0</code>.</li>
+<li><code>Bytes.sha512() -&gt; Digest</code> - pure; Returns <code>Digest</code>. ID <code>method.Bytes.sha512.0</code>.</li>
+<li><code>Bytes.slice(offset: Int, length: Int = default) -&gt; Bytes</code> - pure; Returns <code>Bytes</code>. ID <code>method.Bytes.slice.0</code>.
+Params: <code>offset: Int</code>, <code>length: Int = default</code></li>
+<li><code>Bytes.starts_with(prefix: Bytes) -&gt; Bool</code> - pure; Returns <code>Bool</code>. ID <code>method.Bytes.starts_with.0</code>.
+Params: <code>prefix: Bytes</code></li>
+<li><code>Bytes.strings(min_len: Int = default) -&gt; List[Str]</code> - pure; Returns <code>List[Str]</code>. ID <code>method.Bytes.strings.0</code>.
+Params: <code>min_len: Int = default</code></li>
+<li><code>Bytes.trim() -&gt; Bytes</code> - pure; Returns <code>Bytes</code>. ID <code>method.Bytes.trim.0</code>.</li>
+<li><code>Bytes.utf8() -&gt; Result[Str, Error]</code> - pure; Returns <code>Str</code> or <code>Error</code> failure data. ID <code>method.Bytes.utf8.0</code>.</li>
+</ul>
+<h3><code>Digest</code> Methods</h3>
+<ul>
+<li><code>Digest.base64() -&gt; Str</code> - pure; Returns <code>Str</code>. ID <code>method.Digest.base64.0</code>.</li>
+<li><code>Digest.hex() -&gt; Str</code> - pure; Returns <code>Str</code>. ID <code>method.Digest.hex.0</code>.</li>
+</ul>
+<h3><code>EnvPathList</code> Methods</h3>
+<ul>
+<li><code>EnvPathList.append(path: Path) -&gt; Result[Unit, Error]</code> - effect; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>method.EnvPathList.append.0</code>.
+Params: <code>path: Path</code></li>
+<li><code>EnvPathList.pop() -&gt; Result[Path, Error]</code> - effect; Returns <code>Path</code> or <code>Error</code> failure data. ID <code>method.EnvPathList.pop.0</code>.</li>
+<li><code>EnvPathList.prepend(path: Path) -&gt; Result[Unit, Error]</code> - effect; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>method.EnvPathList.prepend.0</code>.
+Params: <code>path: Path</code></li>
+</ul>
+<h3><code>Float</code> Methods</h3>
+<ul>
+<li><code>Float.abs() -&gt; Float</code> - pure; Returns <code>Float</code>. ID <code>method.Float.abs.0</code>.</li>
+<li><code>Float.ceil() -&gt; Result[Int, Error]</code> - pure; Returns <code>Int</code> or <code>Error</code> failure data. ID <code>method.Float.ceil.0</code>.</li>
+<li><code>Float.cos() -&gt; Float</code> - pure; Returns <code>Float</code>. ID <code>method.Float.cos.0</code>.</li>
+<li><code>Float.exp() -&gt; Float</code> - pure; Returns <code>Float</code>. ID <code>method.Float.exp.0</code>.</li>
+<li><code>Float.floor() -&gt; Result[Int, Error]</code> - pure; Returns <code>Int</code> or <code>Error</code> failure data. ID <code>method.Float.floor.0</code>.</li>
+<li><code>Float.format(precision: Int = default) -&gt; Str</code> - pure; Returns <code>Str</code>. ID <code>method.Float.format.0</code>.
+Params: <code>precision: Int = default</code></li>
+<li><code>Float.ln() -&gt; Float</code> - pure; Returns <code>Float</code>. ID <code>method.Float.ln.0</code>.</li>
+<li><code>Float.log(base: Float) -&gt; Float</code> - pure; Returns <code>Float</code>. ID <code>method.Float.log.0</code>.
+Params: <code>base: Float</code></li>
+<li><code>Float.pow(exp: Float) -&gt; Float</code> - pure; Returns <code>Float</code>. ID <code>method.Float.pow.0</code>.
+Params: <code>exp: Float</code></li>
+<li><code>Float.round() -&gt; Result[Int, Error]</code> - pure; Returns <code>Int</code> or <code>Error</code> failure data. ID <code>method.Float.round.0</code>.</li>
+<li><code>Float.sin() -&gt; Float</code> - pure; Returns <code>Float</code>. ID <code>method.Float.sin.0</code>.</li>
+<li><code>Float.sqrt() -&gt; Float</code> - pure; Returns <code>Float</code>. ID <code>method.Float.sqrt.0</code>.</li>
+<li><code>Float.tan() -&gt; Float</code> - pure; Returns <code>Float</code>. ID <code>method.Float.tan.0</code>.</li>
+</ul>
+<h3><code>Int</code> Methods</h3>
+<ul>
+<li><code>Int.float() -&gt; Float</code> - pure; Returns <code>Float</code>. ID <code>method.Int.float.0</code>.</li>
+</ul>
+<h3><code>List</code> Methods</h3>
+<ul>
+<li><code>List.contains(item: Any) -&gt; Bool</code> - pure; Returns <code>Bool</code>. ID <code>method.List.contains.0</code>.
+Params: <code>item: Any</code></li>
+<li><code>List.extend(other: List[Any]) -&gt; List[Any]</code> - pure; Returns <code>List[Any]</code>. ID <code>method.List.extend.0</code>.
+Params: <code>other: List[Any]</code></li>
+<li><code>List.get(index: Int) -&gt; Result[Any, Error]</code> - pure; Returns <code>Any</code> or <code>Error</code> failure data. ID <code>method.List.get.0</code>.
+Params: <code>index: Int</code></li>
+<li><code>List.get(index: Int, fallback: Any) -&gt; Any</code> - pure; Returns <code>Any</code>. ID <code>method.List.get.1</code>.
+Params: <code>index: Int</code>, <code>fallback: Any</code></li>
+<li><code>List.join(separator: Str = default) -&gt; Str</code> - pure; Returns <code>Str</code>. ID <code>method.List.join.0</code>.
+Params: <code>separator: Str = default</code></li>
+<li><code>List.len() -&gt; Int</code> - pure; Returns <code>Int</code>. ID <code>method.List.len.0</code>.</li>
+<li><code>List.push(item: Any) -&gt; List[Any]</code> - pure; Returns <code>List[Any]</code>. ID <code>method.List.push.0</code>.
+Params: <code>item: Any</code></li>
+</ul>
+<h3><code>Map</code> Methods</h3>
+<ul>
+<li><code>Map.get(key: Str) -&gt; Result[Any, Error]</code> - pure; Returns <code>Any</code> or <code>Error</code> failure data. ID <code>method.Map.get.0</code>.
+Params: <code>key: Str</code></li>
+<li><code>Map.get(key: Str, fallback: Any) -&gt; Any</code> - pure; Returns <code>Any</code>. ID <code>method.Map.get.1</code>.
+Params: <code>key: Str</code>, <code>fallback: Any</code></li>
+<li><code>Map.has(key: Str) -&gt; Bool</code> - pure; Returns <code>Bool</code>. ID <code>method.Map.has.0</code>.
+Params: <code>key: Str</code></li>
+<li><code>Map.keys() -&gt; List[Str]</code> - pure; Returns <code>List[Str]</code>. ID <code>method.Map.keys.0</code>.</li>
+<li><code>Map.push(key: Str, value: Any) -&gt; Map[List[Any]]</code> - pure; Returns <code>Map[List[Any]]</code>. ID <code>method.Map.push.0</code>.
+Params: <code>key: Str</code>, <code>value: Any</code></li>
+<li><code>Map.remove(key: Str) -&gt; Map[Any]</code> - pure; Returns <code>Map[Any]</code>. ID <code>method.Map.remove.0</code>.
+Params: <code>key: Str</code></li>
+<li><code>Map.set(key: Str, value: Any) -&gt; Map[Any]</code> - pure; Returns <code>Map[Any]</code>. ID <code>method.Map.set.0</code>.
+Params: <code>key: Str</code>, <code>value: Any</code></li>
+<li><code>Map.values() -&gt; List[Any]</code> - pure; Returns <code>List[Any]</code>. ID <code>method.Map.values.0</code>.</li>
+</ul>
+<h3><code>Path</code> Methods</h3>
+<ul>
+<li><code>Path.bytes_lines() -&gt; Result[Stream[Bytes], Error]</code> - effect; Returns <code>Stream[Bytes]</code> or <code>Error</code> failure data. ID <code>method.Path.bytes_lines.0</code>.</li>
+<li><code>Path.chmod(mode: Int) -&gt; Result[Unit, Error]</code> - effect; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>method.Path.chmod.0</code>.
+Params: <code>mode: Int</code></li>
+<li><code>Path.copy(dest: Path, overwrite: Bool = default) -&gt; Result[Unit, Error]</code> - effect; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>method.Path.copy.0</code>.
+Params: <code>dest: Path</code>, <code>overwrite: Bool = default</code></li>
+<li><code>Path.display() -&gt; Str</code> - pure; Returns <code>Str</code>. ID <code>method.Path.display.0</code>.</li>
+<li><code>Path.du() -&gt; Result[Int, Error]</code> - effect; Returns <code>Int</code> or <code>Error</code> failure data. ID <code>method.Path.du.0</code>.</li>
+<li><code>Path.executable() -&gt; Result[Bool, Error]</code> - effect; Returns <code>Bool</code> or <code>Error</code> failure data. ID <code>method.Path.executable.0</code>.</li>
+<li><code>Path.exists() -&gt; Result[Bool, Error]</code> - effect; Returns <code>Bool</code> or <code>Error</code> failure data. ID <code>method.Path.exists.0</code>.</li>
+<li><code>Path.ext() -&gt; Str</code> - pure; Returns <code>Str</code>. ID <code>method.Path.ext.0</code>.</li>
+<li><code>Path.hardlink(path: Path) -&gt; Result[Unit, Error]</code> - effect; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>method.Path.hardlink.0</code>.
+Params: <code>path: Path</code></li>
+<li><code>Path.lines() -&gt; Result[Stream[Str], Error]</code> - effect; Returns <code>Stream[Str]</code> or <code>Error</code> failure data. ID <code>method.Path.lines.0</code>.</li>
+<li><code>Path.metadata() -&gt; Result[{accessed: Int, blocks_512: Int, executable: Bool, ext: Str, gid: Int, group_executable: Bool, kind: Str, mode: Int, modified: Int, name: Str, other_executable: Bool, owner_executable: Bool, path: Path, setgid: Bool, setuid: Bool, size: Int, sticky: Bool, uid: Int, world_writable: Bool}, Error]</code> - effect; Returns <code>{accessed: Int, blocks_512: Int, executable: Bool, ext: Str, gid: Int, group_executable: Bool, kind: Str, mode: Int, modified: Int, name: Str, other_executable: Bool, owner_executable: Bool, path: Path, setgid: Bool, setuid: Bool, size: Int, sticky: Bool, uid: Int, world_writable: Bool}</code> or <code>Error</code> failure data. ID <code>method.Path.metadata.0</code>.</li>
+<li><code>Path.mkdir(parents: Bool = default) -&gt; Result[Unit, Error]</code> - effect; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>method.Path.mkdir.0</code>.
+Params: <code>parents: Bool = default</code></li>
+<li><code>Path.name() -&gt; Str</code> - pure; Returns <code>Str</code>. ID <code>method.Path.name.0</code>.</li>
+<li><code>Path.normalize() -&gt; Path</code> - pure; Returns <code>Path</code>. ID <code>method.Path.normalize.0</code>.</li>
+<li><code>Path.parent() -&gt; Path</code> - pure; Returns <code>Path</code>. ID <code>method.Path.parent.0</code>.</li>
+<li><code>Path.read_bytes() -&gt; Result[Bytes, Error]</code> - effect; Returns <code>Bytes</code> or <code>Error</code> failure data. ID <code>method.Path.read_bytes.0</code>.</li>
+<li><code>Path.read_text() -&gt; Result[Str, Error]</code> - effect; Returns <code>Str</code> or <code>Error</code> failure data. ID <code>method.Path.read_text.0</code>.</li>
+<li><code>Path.readlink() -&gt; Result[Path, Error]</code> - effect; Returns <code>Path</code> or <code>Error</code> failure data. ID <code>method.Path.readlink.0</code>.</li>
+<li><code>Path.relative_to(base: Path) -&gt; Path</code> - pure; Returns <code>Path</code>. ID <code>method.Path.relative_to.0</code>.
+Params: <code>base: Path</code></li>
+<li><code>Path.remove(missing_ok: Bool = default) -&gt; Result[Unit, Error]</code> - effect; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>method.Path.remove.0</code>.
+Params: <code>missing_ok: Bool = default</code></li>
+<li><code>Path.remove_dir() -&gt; Result[Unit, Error]</code> - effect; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>method.Path.remove_dir.0</code>.</li>
+<li><code>Path.rename(dest: Path, overwrite: Bool = default) -&gt; Result[Unit, Error]</code> - effect; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>method.Path.rename.0</code>.
+Params: <code>dest: Path</code>, <code>overwrite: Bool = default</code></li>
+<li><code>Path.resolve() -&gt; Result[Path, Error]</code> - effect; Returns <code>Path</code> or <code>Error</code> failure data. ID <code>method.Path.resolve.0</code>.</li>
+<li><code>Path.strip_prefix(prefix: Path) -&gt; Result[Path, Error]</code> - pure; Returns <code>Path</code> or <code>Error</code> failure data. ID <code>method.Path.strip_prefix.0</code>.
+Params: <code>prefix: Path</code></li>
+<li><code>Path.touch(create: Bool = default) -&gt; Result[Unit, Error]</code> - effect; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>method.Path.touch.0</code>.
+Params: <code>create: Bool = default</code></li>
+<li><code>Path.touch_from(reference: Path) -&gt; Result[Unit, Error]</code> - effect; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>method.Path.touch_from.0</code>.
+Params: <code>reference: Path</code></li>
+<li><code>Path.truncate(size: Int) -&gt; Result[Unit, Error]</code> - effect; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>method.Path.truncate.0</code>.
+Params: <code>size: Int</code></li>
+<li><code>Path.unlink() -&gt; Result[Unit, Error]</code> - effect; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>method.Path.unlink.0</code>.</li>
+<li><code>Path.with_ext(ext: Str) -&gt; Path</code> - pure; Returns <code>Path</code>. ID <code>method.Path.with_ext.0</code>.
+Params: <code>ext: Str</code></li>
+<li><code>Path.write(data: Bytes) -&gt; Result[Unit, Error]</code> - effect; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>method.Path.write.0</code>.
+Params: <code>data: Bytes</code></li>
+<li><code>Path.write(data: Str) -&gt; Result[Unit, Error]</code> - effect; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>method.Path.write.1</code>.
+Params: <code>data: Str</code></li>
+<li><code>Path.write_atomic(data: Bytes) -&gt; Result[Unit, Error]</code> - effect; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>method.Path.write_atomic.0</code>.
+Params: <code>data: Bytes</code></li>
+<li><code>Path.write_atomic(data: Str) -&gt; Result[Unit, Error]</code> - effect; Returns <code>Unit</code> or <code>Error</code> failure data. ID <code>method.Path.write_atomic.1</code>.
+Params: <code>data: Str</code></li>
+</ul>
+<h3><code>PathConstructor</code> Methods</h3>
+<ul>
+<li><code>PathConstructor.parse_bytes(bytes: Bytes) -&gt; Result[Path, Error]</code> - pure; Returns <code>Path</code> or <code>Error</code> failure data. ID <code>method.PathConstructor.parse_bytes.0</code>.
+Params: <code>bytes: Bytes</code></li>
+</ul>
+<h3><code>ProcessHandle</code> Methods</h3>
+<ul>
+<li><code>ProcessHandle.cancel(signal: Str = default, kill_after: Duration = default) -&gt; Result[Unit, ProcessError]</code> - effect; Returns <code>Unit</code> or <code>ProcessError</code> failure data. ID <code>method.ProcessHandle.cancel.0</code>.
+Params: <code>signal: Str = default</code>, <code>kill_after: Duration = default</code></li>
+</ul>
+<h3><code>Record</code> Methods</h3>
+<ul>
+<li><code>Record.get(field: Str) -&gt; Result[Any, Error]</code> - pure; Returns <code>Any</code> or <code>Error</code> failure data. ID <code>method.Record.get.0</code>.
+Params: <code>field: Str</code></li>
+<li><code>Record.has(field: Str) -&gt; Bool</code> - pure; Returns <code>Bool</code>. ID <code>method.Record.has.0</code>.
+Params: <code>field: Str</code></li>
+<li><code>Record.keys() -&gt; List[Str]</code> - pure; Returns <code>List[Str]</code>. ID <code>method.Record.keys.0</code>.</li>
+</ul>
+<h3><code>Regex</code> Methods</h3>
+<ul>
+<li><code>Regex.captures(text: Str) -&gt; List[Str]</code> - pure; Returns <code>List[Str]</code>. ID <code>method.Regex.captures.0</code>.
+Params: <code>text: Str</code></li>
+<li><code>Regex.find(text: Str) -&gt; List[{end: Int, start: Int, text: Str}]</code> - pure; Returns <code>List[{end: Int, start: Int, text: Str}]</code>. ID <code>method.Regex.find.0</code>.
+Params: <code>text: Str</code></li>
+<li><code>Regex.matches(text: Str) -&gt; Bool</code> - pure; Returns <code>Bool</code>. ID <code>method.Regex.matches.0</code>.
+Params: <code>text: Str</code></li>
+<li><code>Regex.replace(text: Str, replacement: Str) -&gt; Str</code> - pure; Returns <code>Str</code>. ID <code>method.Regex.replace.0</code>.
+Params: <code>text: Str</code>, <code>replacement: Str</code></li>
+</ul>
+<h3><code>Result</code> Methods</h3>
+<ul>
+<li><code>Result.context(kind: Str, message: Str = default) -&gt; Self</code> - pure; Returns the receiver result type. ID <code>method.Result.context.0</code>.
+Params: <code>kind: Str</code>, <code>message: Str = default</code></li>
+</ul>
+<h3><code>Status</code> Methods</h3>
+<ul>
+<li><code>Status.exit_code() -&gt; Result[Int, Error]</code> - pure; Returns <code>Int</code> or <code>Error</code> failure data. ID <code>method.Status.exit_code.0</code>.</li>
+<li><code>Status.exited() -&gt; Bool</code> - pure; Returns <code>Bool</code>. ID <code>method.Status.exited.0</code>.</li>
+<li><code>Status.exited_with(code: Int) -&gt; Bool</code> - pure; Returns <code>Bool</code>. ID <code>method.Status.exited_with.0</code>.
+Params: <code>code: Int</code></li>
+<li><code>Status.signal_number() -&gt; Result[Int, Error]</code> - pure; Returns <code>Int</code> or <code>Error</code> failure data. ID <code>method.Status.signal_number.0</code>.</li>
+<li><code>Status.signaled() -&gt; Bool</code> - pure; Returns <code>Bool</code>. ID <code>method.Status.signaled.0</code>.</li>
+</ul>
+<h3><code>Str</code> Methods</h3>
+<ul>
+<li><code>Str.base32_decode() -&gt; Result[Bytes, Error]</code> - pure; Returns <code>Bytes</code> or <code>Error</code> failure data. ID <code>method.Str.base32_decode.0</code>.</li>
+<li><code>Str.base64_decode() -&gt; Result[Bytes, Error]</code> - pure; Returns <code>Bytes</code> or <code>Error</code> failure data. ID <code>method.Str.base64_decode.0</code>.</li>
+<li><code>Str.byte_at(index: Int, default: Int = default) -&gt; Int</code> - pure; Returns <code>Int</code>. ID <code>method.Str.byte_at.0</code>.
+Params: <code>index: Int</code>, <code>default: Int = default</code></li>
+<li><code>Str.byte_len() -&gt; Int</code> - pure; Returns <code>Int</code>. ID <code>method.Str.byte_len.0</code>.</li>
+<li><code>Str.byte_slice(offset: Int, length: Int = default) -&gt; Str</code> - pure; Returns <code>Str</code>. ID <code>method.Str.byte_slice.0</code>.
+Params: <code>offset: Int</code>, <code>length: Int = default</code></li>
+<li><code>Str.contains(needle: Str) -&gt; Bool</code> - pure; Returns <code>Bool</code>. ID <code>method.Str.contains.0</code>.
+Params: <code>needle: Str</code></li>
+<li><code>Str.count_bytes() -&gt; Int</code> - pure; Returns <code>Int</code>. ID <code>method.Str.count_bytes.0</code>.</li>
+<li><code>Str.count_chars() -&gt; Int</code> - pure; Returns <code>Int</code>. ID <code>method.Str.count_chars.0</code>.</li>
+<li><code>Str.count_lines() -&gt; Int</code> - pure; Returns <code>Int</code>. ID <code>method.Str.count_lines.0</code>.</li>
+<li><code>Str.count_words() -&gt; Int</code> - pure; Returns <code>Int</code>. ID <code>method.Str.count_words.0</code>.</li>
+<li><code>Str.delete(chars: Str) -&gt; Str</code> - pure; Returns <code>Str</code>. ID <code>method.Str.delete.0</code>.
+Params: <code>chars: Str</code></li>
+<li><code>Str.ends_with(suffix: Str) -&gt; Bool</code> - pure; Returns <code>Bool</code>. ID <code>method.Str.ends_with.0</code>.
+Params: <code>suffix: Str</code></li>
+<li><code>Str.fields(delimiter: Str = default) -&gt; List[Str]</code> - pure; Returns <code>List[Str]</code>. ID <code>method.Str.fields.0</code>.
+Params: <code>delimiter: Str = default</code></li>
+<li><code>Str.find(needle: Str, start: Int = default) -&gt; Int</code> - pure; Returns <code>Int</code>. ID <code>method.Str.find.0</code>.
+Params: <code>needle: Str</code>, <code>start: Int = default</code></li>
+<li><code>Str.lines() -&gt; Stream[Str]</code> - pure; Returns <code>Stream[Str]</code>. ID <code>method.Str.lines.0</code>.</li>
+<li><code>Str.lower() -&gt; Str</code> - pure; Returns <code>Str</code>. ID <code>method.Str.lower.0</code>.</li>
+<li><code>Str.parse_float() -&gt; Result[Float, Error]</code> - pure; Returns <code>Float</code> or <code>Error</code> failure data. ID <code>method.Str.parse_float.0</code>.</li>
+<li><code>Str.parse_int() -&gt; Result[Int, Error]</code> - pure; Returns <code>Int</code> or <code>Error</code> failure data. ID <code>method.Str.parse_int.0</code>.</li>
+<li><code>Str.replace(from: Str, to: Str) -&gt; Str</code> - pure; Returns <code>Str</code>. ID <code>method.Str.replace.0</code>.
+Params: <code>from: Str</code>, <code>to: Str</code></li>
+<li><code>Str.reverse() -&gt; Str</code> - pure; Returns <code>Str</code>. ID <code>method.Str.reverse.0</code>.</li>
+<li><code>Str.split(separator: Str) -&gt; List[Str]</code> - pure; Returns <code>List[Str]</code>. ID <code>method.Str.split.0</code>.
+Params: <code>separator: Str</code></li>
+<li><code>Str.squeeze(chars: Str = default) -&gt; Str</code> - pure; Returns <code>Str</code>. ID <code>method.Str.squeeze.0</code>.
+Params: <code>chars: Str = default</code></li>
+<li><code>Str.starts_with(prefix: Str) -&gt; Bool</code> - pure; Returns <code>Bool</code>. ID <code>method.Str.starts_with.0</code>.
+Params: <code>prefix: Str</code></li>
+<li><code>Str.translate(from: Str, to: Str) -&gt; Str</code> - pure; Returns <code>Str</code>. ID <code>method.Str.translate.0</code>.
+Params: <code>from: Str</code>, <code>to: Str</code></li>
+<li><code>Str.trim() -&gt; Str</code> - pure; Returns <code>Str</code>. ID <code>method.Str.trim.0</code>.</li>
+<li><code>Str.upper() -&gt; Str</code> - pure; Returns <code>Str</code>. ID <code>method.Str.upper.0</code>.</li>
+<li><code>Str.words() -&gt; List[Str]</code> - pure; Returns <code>List[Str]</code>. ID <code>method.Str.words.0</code>.</li>
+<li><code>Str.wrap(width: Int) -&gt; List[Str]</code> - pure; Returns <code>List[Str]</code>. ID <code>method.Str.wrap.0</code>.
+Params: <code>width: Int</code></li>
+</ul>
+<h3><code>Stream</code> Methods</h3>
+<ul>
+<li><code>Stream.collect() -&gt; List[Any]</code> - pure; Returns <code>List[Any]</code>. ID <code>method.Stream.collect.0</code>.</li>
+</ul>
+<h2 id="records">Records</h2>
+<h3><code>ArchiveEntry</code></h3>
+<ul>
+<li><code>kind: Str</code></li>
+<li><code>link_name: Str</code></li>
+<li><code>mode: Int</code></li>
+<li><code>modified: Int</code></li>
+<li><code>path: Path</code></li>
+<li><code>size: Int</code></li>
+</ul>
+<h3><code>DiffResult</code></h3>
+<ul>
+<li><code>files: Int</code></li>
+<li><code>hunks: Int</code></li>
+<li><code>text: Str</code></li>
+</ul>
+<h3><code>DnsHost</code></h3>
+<ul>
+<li><code>addr: Str</code></li>
+<li><code>family: Str</code></li>
+<li><code>name: Str</code></li>
+</ul>
+<h3><code>DnsLookup</code></h3>
+<ul>
+<li><code>name: Str</code></li>
+<li><code>record: Str</code></li>
+<li><code>ttl: Int</code></li>
+<li><code>value: Str</code></li>
+</ul>
+<h3><code>ElfDynamicTag</code></h3>
+<ul>
+<li><code>tag: Str</code></li>
+<li><code>value: Int</code></li>
+</ul>
+<h3><code>ElfInfo</code></h3>
+<ul>
+<li><code>class: Str</code></li>
+<li><code>dynamic_tags: List[{tag: Str, value: Int}]</code></li>
+<li><code>endian: Str</code></li>
+<li><code>flags: List[Str]</code></li>
+<li><code>interpreter: Str</code></li>
+<li><code>machine: Str</code></li>
+<li><code>needed: List[Str]</code></li>
+<li><code>os_abi: Str</code></li>
+<li><code>path: Path</code></li>
+<li><code>rpath: Str</code></li>
+<li><code>runpath: Str</code></li>
+<li><code>soname: Str</code></li>
+<li><code>type: Str</code></li>
+</ul>
+<h3><code>EnvEntry</code></h3>
+<ul>
+<li><code>name: Str</code></li>
+<li><code>value: Str</code></li>
+</ul>
+<h3><code>EnvPathEntry</code></h3>
+<ul>
+<li><code>empty: Bool</code></li>
+<li><code>index: Int</code></li>
+<li><code>path: Path</code></li>
+<li><code>raw: Str</code></li>
+</ul>
+<h3><code>FsCopyTreeResult</code></h3>
+<ul>
+<li><code>dirs: Int</code></li>
+<li><code>files: Int</code></li>
+<li><code>symlinks: Int</code></li>
+</ul>
+<h3><code>FsEntry</code></h3>
+<ul>
+<li><code>accessed: Int</code></li>
+<li><code>blocks_512: Int</code></li>
+<li><code>executable: Bool</code></li>
+<li><code>ext: Str</code></li>
+<li><code>gid: Int</code></li>
+<li><code>group_executable: Bool</code></li>
+<li><code>kind: Str</code></li>
+<li><code>mode: Int</code></li>
+<li><code>modified: Int</code></li>
+<li><code>name: Str</code></li>
+<li><code>other_executable: Bool</code></li>
+<li><code>owner_executable: Bool</code></li>
+<li><code>path: Path</code></li>
+<li><code>setgid: Bool</code></li>
+<li><code>setuid: Bool</code></li>
+<li><code>size: Int</code></li>
+<li><code>sticky: Bool</code></li>
+<li><code>uid: Int</code></li>
+<li><code>world_writable: Bool</code></li>
+</ul>
+<h3><code>FsFilesystemStats</code></h3>
+<ul>
+<li><code>available_1k: Int</code></li>
+<li><code>blocks_1k: Int</code></li>
+<li><code>capacity_percent: Int</code></li>
+<li><code>used_1k: Int</code></li>
+</ul>
+<h3><code>FsLock</code></h3>
+<ul>
+<li><code>id: Int</code></li>
+<li><code>path: Path</code></li>
+<li><code>shared: Bool</code></li>
+</ul>
+<h3><code>FsMount</code></h3>
+<ul>
+<li><code>available_1k: Int</code></li>
+<li><code>blocks_1k: Int</code></li>
+<li><code>capacity_percent: Int</code></li>
+<li><code>files: Int</code></li>
+<li><code>files_capacity_percent: Int</code></li>
+<li><code>files_free: Int</code></li>
+<li><code>files_used: Int</code></li>
+<li><code>filesystem: Str</code></li>
+<li><code>fstype: Str</code></li>
+<li><code>mounted_on: Path</code></li>
+<li><code>readonly: Bool</code></li>
+<li><code>used_1k: Int</code></li>
+</ul>
+<h3><code>FsRemoveManifestResult</code></h3>
+<ul>
+<li><code>missing: Int</code></li>
+<li><code>pruned_dirs: Int</code></li>
+<li><code>removed: Int</code></li>
+</ul>
+<h3><code>FsRoot</code></h3>
+<ul>
+<li><code>id: Int</code></li>
+</ul>
+<h3><code>Group</code></h3>
+<ul>
+<li><code>gid: Int</code></li>
+<li><code>members: List[Str]</code></li>
+<li><code>name: Str</code></li>
+</ul>
+<h3><code>LinuxBlkid</code></h3>
+<ul>
+<li><code>label: Str</code></li>
+<li><code>part_entry_uuid: Str</code></li>
+<li><code>part_table_type: Str</code></li>
+<li><code>type: Str</code></li>
+<li><code>uuid: Str</code></li>
+</ul>
+<h3><code>LinuxBlockDevice</code></h3>
+<ul>
+<li><code>name: Str</code></li>
+<li><code>partitioned: Bool</code></li>
+<li><code>partitions: List[Path]</code></li>
+<li><code>path: Path</code></li>
+<li><code>removable: Bool</code></li>
+<li><code>rotational: Bool</code></li>
+<li><code>sector_size: Int</code></li>
+<li><code>sectors: Int</code></li>
+<li><code>size: Int</code></li>
+</ul>
+<h3><code>LinuxDiskUsage</code></h3>
+<ul>
+<li><code>available: Int</code></li>
+<li><code>device: Str</code></li>
+<li><code>fstype: Str</code></li>
+<li><code>mount: Str</code></li>
+<li><code>total: Int</code></li>
+<li><code>used: Int</code></li>
+</ul>
+<h3><code>LinuxFileAttrs</code></h3>
+<ul>
+<li><code>append_only: Bool</code></li>
+<li><code>compression_requested: Bool</code></li>
+<li><code>dirsync: Bool</code></li>
+<li><code>flags: Int</code></li>
+<li><code>immutable: Bool</code></li>
+<li><code>indexed_directory: Bool</code></li>
+<li><code>journaled_data: Bool</code></li>
+<li><code>no_atime: Bool</code></li>
+<li><code>no_dump: Bool</code></li>
+<li><code>no_tailmerging: Bool</code></li>
+<li><code>secure_deletion: Bool</code></li>
+<li><code>sync: Bool</code></li>
+<li><code>top_of_directory_hierarchies: Bool</code></li>
+<li><code>undelete: Bool</code></li>
+</ul>
+<h3><code>LinuxFsck</code></h3>
+<ul>
+<li><code>errors: List[Str]</code></li>
+<li><code>status: Int</code></li>
+</ul>
+<h3><code>LinuxInterface</code></h3>
+<ul>
+<li><code>addresses: List[{addr: Str, family: Str, prefix_len: Int}]</code></li>
+<li><code>flags: List[Str]</code></li>
+<li><code>mac: Str</code></li>
+<li><code>mtu: Int</code></li>
+<li><code>name: Str</code></li>
+</ul>
+<h3><code>LinuxInterfaceAddress</code></h3>
+<ul>
+<li><code>addr: Str</code></li>
+<li><code>family: Str</code></li>
+<li><code>prefix_len: Int</code></li>
+</ul>
+<h3><code>LinuxLoopDevice</code></h3>
+<ul>
+<li><code>device: Path</code></li>
+<li><code>file: Path</code></li>
+<li><code>offset: Int</code></li>
+<li><code>size: Int</code></li>
+</ul>
+<h3><code>LinuxMemInfo</code></h3>
+<ul>
+<li><code>available: Int</code></li>
+<li><code>buffers: Int</code></li>
+<li><code>cached: Int</code></li>
+<li><code>free: Int</code></li>
+<li><code>swap_free: Int</code></li>
+<li><code>swap_total: Int</code></li>
+<li><code>total: Int</code></li>
+</ul>
+<h3><code>LinuxModinfo</code></h3>
+<ul>
+<li><code>description: Str</code></li>
+<li><code>filename: Path</code></li>
+<li><code>license: Str</code></li>
+<li><code>name: Str</code></li>
+<li><code>params: List[{description: Str, name: Str, type: Str}]</code></li>
+<li><code>version: Str</code></li>
+</ul>
+<h3><code>LinuxModule</code></h3>
+<ul>
+<li><code>name: Str</code></li>
+<li><code>size: Int</code></li>
+<li><code>used_by: List[Str]</code></li>
+</ul>
+<h3><code>LinuxModuleParam</code></h3>
+<ul>
+<li><code>description: Str</code></li>
+<li><code>name: Str</code></li>
+<li><code>type: Str</code></li>
+</ul>
+<h3><code>LinuxOpenFile</code></h3>
+<ul>
+<li><code>command: Str</code></li>
+<li><code>fd: Int</code></li>
+<li><code>inode: Int</code></li>
+<li><code>local: Str</code></li>
+<li><code>path: Path</code></li>
+<li><code>pid: Int</code></li>
+<li><code>protocol: Str</code></li>
+<li><code>remote: Str</code></li>
+<li><code>type: Str</code></li>
+</ul>
+<h3><code>LinuxPartition</code></h3>
+<ul>
+<li><code>end: Int</code></li>
+<li><code>index: Int</code></li>
+<li><code>name: Str</code></li>
+<li><code>size: Int</code></li>
+<li><code>start: Int</code></li>
+<li><code>type: Str</code></li>
+<li><code>uuid: Str</code></li>
+</ul>
+<h3><code>LinuxPartitionTable</code></h3>
+<ul>
+<li><code>id: Str</code></li>
+<li><code>label: Str</code></li>
+<li><code>partitions: List[{end: Int, index: Int, name: Str, size: Int, start: Int, type: Str, uuid: Str}]</code></li>
+<li><code>sector_size: Int</code></li>
+</ul>
+<h3><code>LinuxRfkill</code></h3>
+<ul>
+<li><code>hard_blocked: Bool</code></li>
+<li><code>id: Int</code></li>
+<li><code>name: Str</code></li>
+<li><code>soft_blocked: Bool</code></li>
+<li><code>type: Str</code></li>
+</ul>
+<h3><code>LinuxRoute</code></h3>
+<ul>
+<li><code>dev: Str</code></li>
+<li><code>dst: Str</code></li>
+<li><code>family: Str</code></li>
+<li><code>flags: List[Str]</code></li>
+<li><code>gateway: Str</code></li>
+<li><code>metric: Int</code></li>
+<li><code>prefix_len: Int</code></li>
+</ul>
+<h3><code>LinuxUevent</code></h3>
+<ul>
+<li><code>action: Str</code></li>
+<li><code>devname: Str</code></li>
+<li><code>devpath: Str</code></li>
+<li><code>env: List[{name: Str, value: Str}]</code></li>
+<li><code>subsystem: Str</code></li>
+</ul>
+<h3><code>MeasuredCommand</code></h3>
+<ul>
+<li><code>duration_ms: Int</code></li>
+<li><code>status: Status</code></li>
+<li><code>system_ns: Int</code></li>
+<li><code>user_ns: Int</code></li>
+<li><code>wall_ns: Int</code></li>
+</ul>
+<h3><code>MimeInfo</code></h3>
+<ul>
+<li><code>exts: List[Str]</code></li>
+<li><code>mime: Str</code></li>
+</ul>
+<h3><code>MimeParse</code></h3>
+<ul>
+<li><code>params: Map[Str]</code></li>
+<li><code>type: Str</code></li>
+</ul>
+<h3><code>NetHeader</code></h3>
+<ul>
+<li><code>name: Str</code></li>
+<li><code>value: Str</code></li>
+</ul>
+<h3><code>NetPool</code></h3>
+<ul>
+<li><code>idle_timeout_ms: Int</code></li>
+<li><code>max_idle_per_host: Int</code></li>
+<li><code>name: Str</code></li>
+</ul>
+<h3><code>NetResponse</code></h3>
+<ul>
+<li><code>body: Bytes</code></li>
+<li><code>bytes: Int</code></li>
+<li><code>headers: List[{name: Str, value: Str}]</code></li>
+<li><code>reason: Str</code></li>
+<li><code>status: Int</code></li>
+<li><code>url: Str</code></li>
+</ul>
+<h3><code>PatchResult</code></h3>
+<ul>
+<li><code>files: Int</code></li>
+<li><code>hunks: Int</code></li>
+</ul>
+<h3><code>ProcessEntry</code></h3>
+<ul>
+<li><code>argv: Str</code></li>
+<li><code>argv0: Str</code></li>
+<li><code>command: Str</code></li>
+<li><code>parent_pid: Int</code></li>
+<li><code>pid: Int</code></li>
+<li><code>runtime_seconds: Int</code></li>
+<li><code>start_time: Str</code></li>
+<li><code>start_time_ms: Int</code></li>
+<li><code>status: Str</code></li>
+<li><code>uid: Int</code></li>
+<li><code>user: Str</code></li>
+</ul>
+<h3><code>ProcessPort</code></h3>
+<ul>
+<li><code>argv: Str</code></li>
+<li><code>argv0: Str</code></li>
+<li><code>command: Str</code></li>
+<li><code>fd: Int</code></li>
+<li><code>inode: Int</code></li>
+<li><code>local: Str</code></li>
+<li><code>local_address: Str</code></li>
+<li><code>local_port: Int</code></li>
+<li><code>parent_pid: Int</code></li>
+<li><code>pid: Int</code></li>
+<li><code>protocol: Str</code></li>
+<li><code>remote: Str</code></li>
+<li><code>remote_address: Str</code></li>
+<li><code>remote_port: Int</code></li>
+<li><code>state: Str</code></li>
+<li><code>uid: Int</code></li>
+<li><code>user: Str</code></li>
+</ul>
+<h3><code>ProcessThread</code></h3>
+<ul>
+<li><code>argv: Str</code></li>
+<li><code>argv0: Str</code></li>
+<li><code>command: Str</code></li>
+<li><code>owner_pid: Int</code></li>
+<li><code>parent_pid: Int</code></li>
+<li><code>pid: Int</code></li>
+<li><code>runtime_seconds: Int</code></li>
+<li><code>start_time: Str</code></li>
+<li><code>start_time_ms: Int</code></li>
+<li><code>status: Str</code></li>
+<li><code>thread_id: Int</code></li>
+<li><code>thread_name: Str</code></li>
+<li><code>uid: Int</code></li>
+<li><code>user: Str</code></li>
+</ul>
+<h3><code>Signal</code></h3>
+<ul>
+<li><code>name: Str</code></li>
+<li><code>number: Int</code></li>
+</ul>
+<h3><code>Spawn</code></h3>
+<ul>
+<li><code>argv: Str</code></li>
+<li><code>command: Str</code></li>
+<li><code>detach: Bool</code></li>
+<li><code>ignore_hup: Bool</code></li>
+<li><code>new_session: Bool</code></li>
+<li><code>pid: Int</code></li>
+</ul>
+<h3><code>SystemMemory</code></h3>
+<ul>
+<li><code>available: Int</code></li>
+<li><code>free: Int</code></li>
+<li><code>swap_free: Int</code></li>
+<li><code>swap_total: Int</code></li>
+<li><code>total: Int</code></li>
+</ul>
+<h3><code>SystemOsRelease</code></h3>
+<ul>
+<li><code>id: Str</code></li>
+<li><code>name: Str</code></li>
+<li><code>pretty_name: Str</code></li>
+<li><code>version: Str</code></li>
+<li><code>version_id: Str</code></li>
+</ul>
+<h3><code>TestCall</code></h3>
+<ul>
+<li><code>args: Record</code></li>
+<li><code>op: Str</code></li>
+</ul>
+<h3><code>TestContext</code></h3>
+<ul>
+<li><code>file: Path</code></li>
+<li><code>name: Str</code></li>
+<li><code>temp_root: Path</code></li>
+</ul>
+<h3><code>Uname</code></h3>
+<ul>
+<li><code>machine: Str</code></li>
+<li><code>nodename: Str</code></li>
+<li><code>release: Str</code></li>
+<li><code>sysname: Str</code></li>
+<li><code>version: Str</code></li>
+</ul>
+<h3><code>UnixChildEvent</code></h3>
+<ul>
+<li><code>pid: Int</code></li>
+<li><code>status: Status</code></li>
+</ul>
+<h3><code>UnixGroupId</code></h3>
+<ul>
+<li><code>gid: Int</code></li>
+<li><code>name: Str</code></li>
+</ul>
+<h3><code>UnixId</code></h3>
+<ul>
+<li><code>egid: Int</code></li>
+<li><code>euid: Int</code></li>
+<li><code>gid: Int</code></li>
+<li><code>groups: List[{gid: Int, name: Str}]</code></li>
+<li><code>uid: Int</code></li>
+</ul>
+<h3><code>UnixKillAllResult</code></h3>
+<ul>
+<li><code>matched: Int</code></li>
+<li><code>signaled: Int</code></li>
+</ul>
+<h3><code>UnixLoggedProcessGroup</code></h3>
+<ul>
+<li><code>argv: List[Str]</code></li>
+<li><code>command: Str</code></li>
+<li><code>detach: Bool</code></li>
+<li><code>ignore_hup: Bool</code></li>
+<li><code>log_pid: Int</code></li>
+<li><code>new_session: Bool</code></li>
+<li><code>pid: Int</code></li>
+</ul>
+<h3><code>UnixPid1Event</code></h3>
+<ul>
+<li><code>children: List[{pid: Int, status: Status}]</code></li>
+<li><code>kind: Str</code></li>
+<li><code>signal: Str</code></li>
+</ul>
+<h3><code>UnixPid1Shutdown</code></h3>
+<ul>
+<li><code>kill_sent: Int</code></li>
+<li><code>reaped: List[{pid: Int, status: Status}]</code></li>
+<li><code>remaining: List[Int]</code></li>
+<li><code>term_sent: Int</code></li>
+</ul>
+<h3><code>UnixSpawnedChild</code></h3>
+<ul>
+<li><code>argv: List[Str]</code></li>
+<li><code>command: Str</code></li>
+<li><code>detach: Bool</code></li>
+<li><code>ignore_hup: Bool</code></li>
+<li><code>new_session: Bool</code></li>
+<li><code>notify_fd: Int</code></li>
+<li><code>pid: Int</code></li>
+</ul>
+<h3><code>UnixTtyAttrs</code></h3>
+<ul>
+<li><code>cflag: Int</code></li>
+<li><code>control_chars: List[Int]</code></li>
+<li><code>crnl: Bool</code></li>
+<li><code>echo: Bool</code></li>
+<li><code>iflag: Int</code></li>
+<li><code>ispeed: Int</code></li>
+<li><code>lflag: Int</code></li>
+<li><code>oflag: Int</code></li>
+<li><code>ospeed: Int</code></li>
+<li><code>raw: Bool</code></li>
+</ul>
+<h3><code>User</code></h3>
+<ul>
+<li><code>gid: Int</code></li>
+<li><code>home: Path</code></li>
+<li><code>name: Str</code></li>
+<li><code>shell: Str</code></li>
+<li><code>uid: Int</code></li>
+</ul>
+</main>
+</div>
+</body>
+</html>

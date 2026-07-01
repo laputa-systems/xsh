@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>archive</title>
+<link rel="stylesheet" href="../../style.css">
+</head>
+<body>
+<header class="site-header"><a href="../../index.html">XSH Docs</a><span>docs/STDLIB.md#archive</span></header>
+<main class="markdown-body stdlib-body">
+<p><a href="../index.html">Standard Library</a> / Modules</p>
+<h1>archive</h1>
+<p class="stdlib-lede">Archive creation, extraction, listing, compression, and decompression.</p>
+<section class="stdlib-entry" id="module.archive.compress.0">
+<header><code>archive.compress(source: Path, dest: Path, format: Str = default, level: Int = default, overwrite: Bool = default) -&gt; Result[Unit, Error]</code><div><span class="stdlib-badge effect">effect</span></div></header>
+<p>Archive creation, extraction, listing, compression, and decompression `compress` operation.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>source</code></td><td><code>Path</code></td><td>required</td><td>Required `source` argument.</td></tr>
+<tr><td><code>dest</code></td><td><code>Path</code></td><td>required</td><td>Required `dest` argument.</td></tr>
+<tr><td><code>format</code></td><td><code>Str</code></td><td>optional</td><td>Optional `format` argument; omitted calls use the runtime default.</td></tr>
+<tr><td><code>level</code></td><td><code>Int</code></td><td>optional</td><td>Optional `level` argument; omitted calls use the runtime default.</td></tr>
+<tr><td><code>overwrite</code></td><td><code>Bool</code></td><td>optional</td><td>Optional `overwrite` argument; omitted calls use the runtime default.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `Unit` or `Error` failure data.</p>
+</section>
+<section class="stdlib-entry" id="module.archive.cpio_create.0">
+<header><code>archive.cpio_create(path: Path, root: Path, entries: List[Path], overwrite: Bool = default) -&gt; Result[Unit, Error]</code><div><span class="stdlib-badge effect">effect</span><span class="stdlib-badge command">command</span></div></header>
+<p>Archive creation, extraction, listing, compression, and decompression `cpio_create` operation.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>path</code></td><td><code>Path</code></td><td>required</td><td>Required `path` argument.</td></tr>
+<tr><td><code>root</code></td><td><code>Path</code></td><td>required</td><td>Required `root` argument.</td></tr>
+<tr><td><code>entries</code></td><td><code>List[Path]</code></td><td>required</td><td>Required `entries` argument.</td></tr>
+<tr><td><code>overwrite</code></td><td><code>Bool</code></td><td>optional</td><td>Optional `overwrite` argument; omitted calls use the runtime default.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `Unit` or `Error` failure data.</p>
+</section>
+<section class="stdlib-entry" id="module.archive.cpio_extract.0">
+<header><code>archive.cpio_extract(path: Path, dest: Path, overwrite: Bool = default) -&gt; Result[Unit, Error]</code><div><span class="stdlib-badge effect">effect</span><span class="stdlib-badge command">command</span></div></header>
+<p>Archive creation, extraction, listing, compression, and decompression `cpio_extract` operation.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>path</code></td><td><code>Path</code></td><td>required</td><td>Required `path` argument.</td></tr>
+<tr><td><code>dest</code></td><td><code>Path</code></td><td>required</td><td>Required `dest` argument.</td></tr>
+<tr><td><code>overwrite</code></td><td><code>Bool</code></td><td>optional</td><td>Optional `overwrite` argument; omitted calls use the runtime default.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `Unit` or `Error` failure data.</p>
+</section>
+<section class="stdlib-entry" id="module.archive.cpio_list.0">
+<header><code>archive.cpio_list(path: Path) -&gt; Result[List[{kind: Str, link_name: Str, mode: Int, modified: Int, path: Path, size: Int}], Error]</code><div><span class="stdlib-badge effect">effect</span></div></header>
+<p>Archive creation, extraction, listing, compression, and decompression `cpio_list` operation.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>path</code></td><td><code>Path</code></td><td>required</td><td>Required `path` argument.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `List[{kind: Str, link_name: Str, mode: Int, modified: Int, path: Path, size: Int}]` or `Error` failure data.</p>
+</section>
+<section class="stdlib-entry" id="module.archive.decompress.0">
+<header><code>archive.decompress(source: Path, dest: Path, format: Str = default, overwrite: Bool = default) -&gt; Result[Unit, Error]</code><div><span class="stdlib-badge effect">effect</span></div></header>
+<p>Archive creation, extraction, listing, compression, and decompression `decompress` operation.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>source</code></td><td><code>Path</code></td><td>required</td><td>Required `source` argument.</td></tr>
+<tr><td><code>dest</code></td><td><code>Path</code></td><td>required</td><td>Required `dest` argument.</td></tr>
+<tr><td><code>format</code></td><td><code>Str</code></td><td>optional</td><td>Optional `format` argument; omitted calls use the runtime default.</td></tr>
+<tr><td><code>overwrite</code></td><td><code>Bool</code></td><td>optional</td><td>Optional `overwrite` argument; omitted calls use the runtime default.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `Unit` or `Error` failure data.</p>
+</section>
+<section class="stdlib-entry" id="module.archive.decompress_bytes.0">
+<header><code>archive.decompress_bytes(source: Path, format: Str = default) -&gt; Result[Bytes, Error]</code><div><span class="stdlib-badge effect">effect</span></div></header>
+<p>Archive creation, extraction, listing, compression, and decompression `decompress_bytes` operation.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>source</code></td><td><code>Path</code></td><td>required</td><td>Required `source` argument.</td></tr>
+<tr><td><code>format</code></td><td><code>Str</code></td><td>optional</td><td>Optional `format` argument; omitted calls use the runtime default.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `Bytes` or `Error` failure data.</p>
+</section>
+<section class="stdlib-entry" id="module.archive.tar_create.0">
+<header><code>archive.tar_create(path: Path, root: Path, entries: List[Path], compression: Str = default, overwrite: Bool = default) -&gt; Result[Unit, Error]</code><div><span class="stdlib-badge effect">effect</span></div></header>
+<p>Archive creation, extraction, listing, compression, and decompression `tar_create` operation.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>path</code></td><td><code>Path</code></td><td>required</td><td>Required `path` argument.</td></tr>
+<tr><td><code>root</code></td><td><code>Path</code></td><td>required</td><td>Required `root` argument.</td></tr>
+<tr><td><code>entries</code></td><td><code>List[Path]</code></td><td>required</td><td>Required `entries` argument.</td></tr>
+<tr><td><code>compression</code></td><td><code>Str</code></td><td>optional</td><td>Optional `compression` argument; omitted calls use the runtime default.</td></tr>
+<tr><td><code>overwrite</code></td><td><code>Bool</code></td><td>optional</td><td>Optional `overwrite` argument; omitted calls use the runtime default.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `Unit` or `Error` failure data.</p>
+</section>
+<section class="stdlib-entry" id="module.archive.tar_extract.0">
+<header><code>archive.tar_extract(path: Path, dest: Path, strip_components: Int = default, compression: Str = default, overwrite: Bool = default, members: List[Path] = default) -&gt; Result[Unit, Error]</code><div><span class="stdlib-badge effect">effect</span></div></header>
+<p>Archive creation, extraction, listing, compression, and decompression `tar_extract` operation.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>path</code></td><td><code>Path</code></td><td>required</td><td>Required `path` argument.</td></tr>
+<tr><td><code>dest</code></td><td><code>Path</code></td><td>required</td><td>Required `dest` argument.</td></tr>
+<tr><td><code>strip_components</code></td><td><code>Int</code></td><td>optional</td><td>Optional `strip_components` argument; omitted calls use the runtime default.</td></tr>
+<tr><td><code>compression</code></td><td><code>Str</code></td><td>optional</td><td>Optional `compression` argument; omitted calls use the runtime default.</td></tr>
+<tr><td><code>overwrite</code></td><td><code>Bool</code></td><td>optional</td><td>Optional `overwrite` argument; omitted calls use the runtime default.</td></tr>
+<tr><td><code>members</code></td><td><code>List[Path]</code></td><td>optional</td><td>Optional `members` argument; omitted calls use the runtime default.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `Unit` or `Error` failure data.</p>
+</section>
+<section class="stdlib-entry" id="module.archive.tar_list.0">
+<header><code>archive.tar_list(path: Path, compression: Str = default, members: List[Path] = default) -&gt; Result[List[{kind: Str, link_name: Str, mode: Int, modified: Int, path: Path, size: Int}], Error]</code><div><span class="stdlib-badge effect">effect</span></div></header>
+<p>Archive creation, extraction, listing, compression, and decompression `tar_list` operation.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>path</code></td><td><code>Path</code></td><td>required</td><td>Required `path` argument.</td></tr>
+<tr><td><code>compression</code></td><td><code>Str</code></td><td>optional</td><td>Optional `compression` argument; omitted calls use the runtime default.</td></tr>
+<tr><td><code>members</code></td><td><code>List[Path]</code></td><td>optional</td><td>Optional `members` argument; omitted calls use the runtime default.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `List[{kind: Str, link_name: Str, mode: Int, modified: Int, path: Path, size: Int}]` or `Error` failure data.</p>
+</section>
+<section class="stdlib-entry" id="module.archive.zip_extract.0">
+<header><code>archive.zip_extract(path: Path, dest: Path, overwrite: Bool = default) -&gt; Result[Unit, Error]</code><div><span class="stdlib-badge effect">effect</span><span class="stdlib-badge command">command</span></div></header>
+<p>Archive creation, extraction, listing, compression, and decompression `zip_extract` operation.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>path</code></td><td><code>Path</code></td><td>required</td><td>Required `path` argument.</td></tr>
+<tr><td><code>dest</code></td><td><code>Path</code></td><td>required</td><td>Required `dest` argument.</td></tr>
+<tr><td><code>overwrite</code></td><td><code>Bool</code></td><td>optional</td><td>Optional `overwrite` argument; omitted calls use the runtime default.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `Unit` or `Error` failure data.</p>
+</section>
+<section class="stdlib-entry" id="module.archive.zip_list.0">
+<header><code>archive.zip_list(path: Path) -&gt; Result[List[{kind: Str, link_name: Str, mode: Int, modified: Int, path: Path, size: Int}], Error]</code><div><span class="stdlib-badge effect">effect</span></div></header>
+<p>Archive creation, extraction, listing, compression, and decompression `zip_list` operation.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>path</code></td><td><code>Path</code></td><td>required</td><td>Required `path` argument.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `List[{kind: Str, link_name: Str, mode: Int, modified: Int, path: Path, size: Int}]` or `Error` failure data.</p>
+</section>
+</main>
+</body>
+</html>

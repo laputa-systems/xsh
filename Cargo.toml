@@ -1,0 +1,218 @@
+[package]
+name = "xsh"
+version = "0.0.1"
+edition = "2024"
+publish = false
+
+[workspace]
+members = [
+    "crates/xsh-applets",
+    "crates/xsh-net",
+    "crates/xsh-registry",
+    "crates/xshi",
+    "crates/xsht",
+]
+
+[workspace.lints.clippy]
+nursery = { level = "allow", priority = -2 }
+pedantic = { level = "allow", priority = -2 }
+complexity = { level = "deny", priority = -2 }
+correctness = { level = "deny", priority = -2 }
+perf = { level = "deny", priority = -2 }
+restriction = { level = "allow", priority = -2 }
+suspicious = { level = "deny", priority = -2 }
+cargo = { level = "deny", priority = -1 }
+style = { level = "deny", priority = -1 }
+blanket_clippy_restriction_lints = { level = "allow", priority = 0 }
+wildcard_imports = { level = "deny", priority = 0 }
+disallowed_types = { level = "deny", priority = 1 }
+single_call_fn = { level = "allow", priority = 1 }
+multiple_crate_versions = { level = "allow", priority = 1 }
+result_large_err = { level = "allow", priority = 1 }
+
+[lints.clippy]
+nursery = { level = "allow", priority = -2 }
+pedantic = { level = "allow", priority = -2 }
+complexity = { level = "deny", priority = -2 }
+correctness = { level = "deny", priority = -2 }
+perf = { level = "deny", priority = -2 }
+restriction = { level = "allow", priority = -2 }
+suspicious = { level = "deny", priority = -2 }
+cargo = { level = "deny", priority = -1 }
+style = { level = "deny", priority = -1 }
+blanket_clippy_restriction_lints = { level = "allow", priority = 0 }
+wildcard_imports = { level = "deny", priority = 0 }
+disallowed_types = { level = "deny", priority = 1 }
+single_call_fn = { level = "allow", priority = 1 }
+multiple_crate_versions = { level = "allow", priority = 1 }
+result_large_err = { level = "allow", priority = 1 }
+
+[lib]
+name = "xsh"
+path = "src/lib.rs"
+doctest = false
+
+[features]
+default = ["net", "tools"]
+# In-process heap profiler (`make prof-dhat`). Installs `dhat::Alloc` as the
+# global allocator and writes a dh_view.html-compatible JSON on exit. Mutually
+# exclusive with `perf-metrics` (both install a #[global_allocator]).
+dhat-heap = ["dep:dhat"]
+docs-html = ["tools", "dep:pulldown-cmark"]
+linux-priv-tests = []
+net = [
+    "dep:rustls",
+    "dep:xsh-net",
+]
+perf-metrics = ["dep:libmimalloc-sys"]
+tools = []
+
+[dependencies]
+astral-tokio-tar = { version = "0.6.2", default-features = false }
+astral_async_zip = { version = "0.0.18", default-features = false, features = ["full"] }
+bzip2 = "0.6.1"
+cap-directories = "4.0.2"
+cap-fs-ext = "4.0.2"
+cap-std = "4.0.2"
+cap-tempfile = "4.0.2"
+crossbeam-channel = "0.5"
+dhat = { version = "0.3", optional = true }
+libmimalloc-sys = { version = "0.1.49", optional = true, features = ["secure"] }
+libc = "0.2"
+data-encoding = "2"
+bstr = { version = "1", default-features = false, features = ["std", "unicode"] }
+diffy = { version = "0.5.0", default-features = false, features = ["std"] }
+flate2 = { version = "1.1.9", default-features = false, features = ["zlib-rs"] }
+futures-lite = { version = "2.1.0", default-features = false, features = ["std"] }
+ignore = "=0.4.25"
+jiff = { version = "0.2.28", default-features = false, features = ["std", "tz-system", "tzdb-zoneinfo", "perf-inline"] }
+lzma-rust2 = { version = "0.16.4", default-features = false, features = ["std", "encoder", "xz", "optimization"] }
+md-5 = "0.11"
+memchr = "2"
+miniserde = "0.1"
+pulldown-cmark = { version = "0.13.4", optional = true, default-features = false, features = ["html"] }
+regex-lite = "0.1.9"
+rustc-hash = "2.1.2"
+rustix = { version = "1.1.4", features = [
+    "event", "fs", "linux_5_11", "mount", "net", "param", "pipe", "process", "stdio", "system",
+    "termios", "time",
+] }
+rustls = { version = "0.23.40", optional = true, default-features = false, features = ["aws_lc_rs", "std", "tls12"] }
+sha1 = "0.11"
+sha2 = "0.11"
+smallvec = "1.15.2"
+tempfile = "3"
+tokio = { version = "1", default-features = false, features = ["fs", "io-util", "net", "rt", "rt-multi-thread", "time"] }
+tokio-stream = { version = "0.1", default-features = false }
+xsh-net = { path = "crates/xsh-net", optional = true }
+xsh-registry = { path = "crates/xsh-registry" }
+
+[dev-dependencies]
+criterion = { version = "0.8", features = ["html_reports"] }
+proc-macro2 = { version = "1", features = ["span-locations"] }
+syn = { version = "2", features = ["full", "visit"] }
+walkdir = "2"
+xsht = { path = "crates/xsht" }
+
+[build-dependencies]
+xsh-registry = { path = "crates/xsh-registry" }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+syscalls = { version = "0.8.1", default-features = false, features = ["aarch64", "x86_64"] }
+xsh-applets = { path = "crates/xsh-applets" }
+
+[[bin]]
+name = "xsht"
+path = "crates/xsht/src/main.rs"
+required-features = ["tools"]
+test = false
+
+[[bin]]
+name = "xsh"
+path = "src/entrypoints/xsh.rs"
+test = false
+
+[[bin]]
+name = "xshi"
+path = "crates/xshi/src/main.rs"
+test = false
+
+[[bin]]
+name = "xsh-multicall"
+path = "src/entrypoints/xsh-multicall.rs"
+required-features = ["tools"]
+test = false
+
+[[bin]]
+name = "xsh-test-show-argv"
+path = "tests/helpers/show_argv.rs"
+test = false
+
+[[bin]]
+name = "xsh-test-show-env"
+path = "tests/helpers/show_env.rs"
+test = false
+
+[[bin]]
+name = "xsh-test-stat-path"
+path = "tests/helpers/stat_path.rs"
+test = false
+
+[[bin]]
+name = "xsh-test-emit-hex"
+path = "tests/helpers/emit_hex.rs"
+test = false
+
+[[bin]]
+name = "xsh-test-sleeper"
+path = "tests/helpers/sleeper.rs"
+test = false
+
+[[bin]]
+name = "xsh-test-session"
+path = "tests/helpers/session.rs"
+test = false
+
+[[bin]]
+name = "xsh-test-os-probe"
+path = "tests/helpers/os_probe.rs"
+test = false
+
+[[bin]]
+name = "xsh-layout-report"
+path = "tests/helpers/layout_report.rs"
+test = false
+
+[[bin]]
+name = "xsh-parse-corpus-report"
+path = "tests/helpers/parse_corpus_report.rs"
+test = false
+
+[[test]]
+name = "linux_priv"
+path = "tests/linux_priv.rs"
+required-features = ["linux-priv-tests"]
+
+[profile.dev]
+debug = 0
+strip = "debuginfo"
+
+[profile.release]
+lto = "thin"
+opt-level = 3
+panic = "abort"
+
+[profile.dist]
+inherits = "release"
+lto = "fat"
+codegen-units = 1
+strip = true
+
+# Release codegen with symbols, for the Linux profiling/PGO pipeline (`make prof`:
+# dhat allocs, Callgrind/Cachegrind, profile-guided optimization). debug=true keeps
+# DWARF for per-function attribution; a separate target dir keeps the shipped
+# release binary stripped.
+[profile.profiling]
+inherits = "release"
+strip = false
+debug = true

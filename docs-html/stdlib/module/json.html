@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>json</title>
+<link rel="stylesheet" href="../../style.css">
+</head>
+<body>
+<header class="site-header"><a href="../../index.html">XSH Docs</a><span>docs/STDLIB.md#json</span></header>
+<main class="markdown-body stdlib-body">
+<p><a href="../index.html">Standard Library</a> / Modules</p>
+<h1>json</h1>
+<p class="stdlib-lede">JSON encoding, decoding, files, and streams.</p>
+<section class="stdlib-entry" id="module.json.decode.0">
+<header><code>json.decode(s: Str) -&gt; Result[Any, Error]</code><div><span class="stdlib-badge pure">pure</span></div></header>
+<p>JSON encoding, decoding, files, and streams `decode` operation.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>s</code></td><td><code>Str</code></td><td>required</td><td>Required `s` argument.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `Any` or `Error` failure data.</p>
+</section>
+<section class="stdlib-entry" id="module.json.encode.0">
+<header><code>json.encode(value: Any, pretty: Bool = default) -&gt; Result[Str, Error]</code><div><span class="stdlib-badge pure">pure</span></div></header>
+<p>JSON encoding, decoding, files, and streams `encode` operation.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>value</code></td><td><code>Any</code></td><td>required</td><td>Required `value` argument.</td></tr>
+<tr><td><code>pretty</code></td><td><code>Bool</code></td><td>optional</td><td>Optional `pretty` argument; omitted calls use the runtime default.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `Str` or `Error` failure data.</p>
+</section>
+<section class="stdlib-entry" id="module.json.encode_lines.0">
+<header><code>json.encode_lines(values: List[Any]) -&gt; Result[Str, Error]</code><div><span class="stdlib-badge pure">pure</span></div></header>
+<p>JSON encoding, decoding, files, and streams `encode_lines` operation.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>values</code></td><td><code>List[Any]</code></td><td>required</td><td>Required `values` argument.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `Str` or `Error` failure data.</p>
+</section>
+<section class="stdlib-entry" id="module.json.get.0">
+<header><code>json.get(value: Any, path: List[Any]) -&gt; Result[Any, Error]</code><div><span class="stdlib-badge pure">pure</span></div></header>
+<p>JSON encoding, decoding, files, and streams `get` operation.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>value</code></td><td><code>Any</code></td><td>required</td><td>Required `value` argument.</td></tr>
+<tr><td><code>path</code></td><td><code>List[Any]</code></td><td>required</td><td>Required `path` argument.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `Any` or `Error` failure data.</p>
+</section>
+<section class="stdlib-entry" id="module.json.get.1">
+<header><code>json.get(value: Any, path: List[Any], fallback: Any) -&gt; Any</code><div><span class="stdlib-badge pure">pure</span></div></header>
+<p>JSON encoding, decoding, files, and streams `get` operation.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>value</code></td><td><code>Any</code></td><td>required</td><td>Required `value` argument.</td></tr>
+<tr><td><code>path</code></td><td><code>List[Any]</code></td><td>required</td><td>Required `path` argument.</td></tr>
+<tr><td><code>fallback</code></td><td><code>Any</code></td><td>required</td><td>Required `fallback` argument.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `Any`.</p>
+</section>
+<section class="stdlib-entry" id="module.json.read.0">
+<header><code>json.read(path: Path) -&gt; Result[Any, Error]</code><div><span class="stdlib-badge effect">effect</span></div></header>
+<p>JSON encoding, decoding, files, and streams `read` operation.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>path</code></td><td><code>Path</code></td><td>required</td><td>Required `path` argument.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `Any` or `Error` failure data.</p>
+</section>
+<section class="stdlib-entry" id="module.json.remove.0">
+<header><code>json.remove(value: Any, path: List[Any]) -&gt; Result[Any, Error]</code><div><span class="stdlib-badge pure">pure</span></div></header>
+<p>JSON encoding, decoding, files, and streams `remove` operation.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>value</code></td><td><code>Any</code></td><td>required</td><td>Required `value` argument.</td></tr>
+<tr><td><code>path</code></td><td><code>List[Any]</code></td><td>required</td><td>Required `path` argument.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `Any` or `Error` failure data.</p>
+</section>
+<section class="stdlib-entry" id="module.json.set.0">
+<header><code>json.set(value: Any, path: List[Any], replacement: Any) -&gt; Result[Any, Error]</code><div><span class="stdlib-badge pure">pure</span></div></header>
+<p>JSON encoding, decoding, files, and streams `set` operation.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>value</code></td><td><code>Any</code></td><td>required</td><td>Required `value` argument.</td></tr>
+<tr><td><code>path</code></td><td><code>List[Any]</code></td><td>required</td><td>Required `path` argument.</td></tr>
+<tr><td><code>replacement</code></td><td><code>Any</code></td><td>required</td><td>Required `replacement` argument.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `Any` or `Error` failure data.</p>
+</section>
+<section class="stdlib-entry" id="module.json.write.0">
+<header><code>json.write(path: Path, value: Any, pretty: Bool = default) -&gt; Result[Unit, Error]</code><div><span class="stdlib-badge effect">effect</span><span class="stdlib-badge command">command</span></div></header>
+<p>JSON encoding, decoding, files, and streams `write` operation.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>path</code></td><td><code>Path</code></td><td>required</td><td>Required `path` argument.</td></tr>
+<tr><td><code>value</code></td><td><code>Any</code></td><td>required</td><td>Required `value` argument.</td></tr>
+<tr><td><code>pretty</code></td><td><code>Bool</code></td><td>optional</td><td>Optional `pretty` argument; omitted calls use the runtime default.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `Unit` or `Error` failure data.</p>
+</section>
+<section class="stdlib-entry" id="module.json.write_lines.0">
+<header><code>json.write_lines(path: Path, values: List[Any]) -&gt; Result[Unit, Error]</code><div><span class="stdlib-badge effect">effect</span><span class="stdlib-badge command">command</span></div></header>
+<p>JSON encoding, decoding, files, and streams `write_lines` operation.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>path</code></td><td><code>Path</code></td><td>required</td><td>Required `path` argument.</td></tr>
+<tr><td><code>values</code></td><td><code>List[Any]</code></td><td>required</td><td>Required `values` argument.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `Unit` or `Error` failure data.</p>
+</section>
+</main>
+</body>
+</html>

@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>net</title>
+<link rel="stylesheet" href="../../style.css">
+</head>
+<body>
+<header class="site-header"><a href="../../index.html">XSH Docs</a><span>docs/STDLIB.md#net</span></header>
+<main class="markdown-body stdlib-body">
+<p><a href="../index.html">Standard Library</a> / Modules</p>
+<h1>net</h1>
+<p class="stdlib-lede">HTTP request, transfer, and connection-pool helpers.</p>
+<section class="stdlib-entry" id="module.net.close_all_pools.0">
+<header><code>net.close_all_pools() -&gt; Result[Unit, Error]</code><div><span class="stdlib-badge effect">effect</span><span class="stdlib-badge command">command</span></div></header>
+<p>HTTP request, transfer, and connection-pool helpers `close_all_pools` operation.</p>
+
+<p class="stdlib-return">Returns `Unit` or `Error` failure data.</p>
+</section>
+<section class="stdlib-entry" id="module.net.close_pool.0">
+<header><code>net.close_pool(name: Str = default) -&gt; Result[Unit, Error]</code><div><span class="stdlib-badge effect">effect</span></div></header>
+<p>HTTP request, transfer, and connection-pool helpers `close_pool` operation.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>name</code></td><td><code>Str</code></td><td>optional</td><td>Optional `name` argument; omitted calls use the runtime default.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `Unit` or `Error` failure data.</p>
+</section>
+<section class="stdlib-entry" id="module.net.download.0">
+<header><code>net.download(request: Record) -&gt; Result[{bytes: Int, headers: List[{name: Str, value: Str}], reason: Str, status: Int, url: Str}, Error]</code><div><span class="stdlib-badge effect">effect</span></div></header>
+<p>HTTP request, transfer, and connection-pool helpers `download` operation.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>request</code></td><td><code>Record</code></td><td>required</td><td>Required `request` argument.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `{bytes: Int, headers: List[{name: Str, value: Str}], reason: Str, status: Int, url: Str}` or `Error` failure data.</p>
+</section>
+<section class="stdlib-entry" id="module.net.pool.0">
+<header><code>net.pool(name: Str = default, max_idle_per_host: Int = default, idle_timeout: Duration = default) -&gt; Result[{idle_timeout_ms: Int, max_idle_per_host: Int, name: Str}, Error]</code><div><span class="stdlib-badge effect">effect</span></div></header>
+<p>HTTP request, transfer, and connection-pool helpers `pool` operation.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>name</code></td><td><code>Str</code></td><td>optional</td><td>Optional `name` argument; omitted calls use the runtime default.</td></tr>
+<tr><td><code>max_idle_per_host</code></td><td><code>Int</code></td><td>optional</td><td>Optional `max_idle_per_host` argument; omitted calls use the runtime default.</td></tr>
+<tr><td><code>idle_timeout</code></td><td><code>Duration</code></td><td>optional</td><td>Optional `idle_timeout` argument; omitted calls use the runtime default.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `{idle_timeout_ms: Int, max_idle_per_host: Int, name: Str}` or `Error` failure data.</p>
+</section>
+<section class="stdlib-entry" id="module.net.request.0">
+<header><code>net.request(request: Record) -&gt; Result[{body: Bytes, bytes: Int, headers: List[{name: Str, value: Str}], reason: Str, status: Int, url: Str}, Error]</code><div><span class="stdlib-badge effect">effect</span></div></header>
+<p>HTTP request, transfer, and connection-pool helpers `request` operation.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>request</code></td><td><code>Record</code></td><td>required</td><td>Required `request` argument.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `{body: Bytes, bytes: Int, headers: List[{name: Str, value: Str}], reason: Str, status: Int, url: Str}` or `Error` failure data.</p>
+</section>
+<section class="stdlib-entry" id="module.net.upload.0">
+<header><code>net.upload(request: Record) -&gt; Result[{bytes: Int, headers: List[{name: Str, value: Str}], reason: Str, status: Int, url: Str}, Error]</code><div><span class="stdlib-badge effect">effect</span></div></header>
+<p>HTTP request, transfer, and connection-pool helpers `upload` operation.</p>
+<table class="stdlib-table"><thead><tr><th>Parameter</th><th>Type</th><th>Kind</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>request</code></td><td><code>Record</code></td><td>required</td><td>Required `request` argument.</td></tr>
+</tbody></table>
+<p class="stdlib-return">Returns `{bytes: Int, headers: List[{name: Str, value: Str}], reason: Str, status: Int, url: Str}` or `Error` failure data.</p>
+</section>
+</main>
+</body>
+</html>

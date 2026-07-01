@@ -1,0 +1,38 @@
+pure xsh_bin() -> Path {
+  return ../target/debug/xsh
+}
+
+proc normalize_df(text: Str) [error] -> Str {
+  let lines = [line.words().join(" ") for line in text.trim().lines().collect()]
+  return lines.join("\n")
+}
+
+proc test_df(ctx: TestContext) [fs, process, error] {
+  let root = test.temp_dir(ctx, name: "df")?
+  fp"${root}/payload.txt".write("abcdef")?
+  let resolved = root.resolve()?
+  let stats = fs.filesystem_stats(resolved)?
+  let output = run.text xsh_bin() df.xsh -- -kP $root ?
+  test.contains(output, "Filesystem 1024-blocks Used Available Capacity Mounted on")?
+  test.contains(output, f" ${stats.blocks_1k} ")?
+  let fake_used = root.du()?
+  test.ok(! output.contains(f"${resolved} ${fake_used} ${fake_used} 0 100% ${resolved}"))?
+}
+
+proc test_df_matches_alpine_kp(ctx: TestContext) [fs, process, env, error] {
+  if env.bool("XSH_SKIP_LIVE_COREUTILS_COMPARISONS")? {
+    test.skip("live coreutils comparison disabled")
+  }
+
+  let alpine_release = /etc/alpine-release
+
+  if ! alpine_release.exists()? {
+    test.skip("Alpine-only df comparison")
+  }
+
+  let root = test.temp_dir(ctx, name: "df-alpine")?
+  fp"${root}/payload.txt".write("abcdef")?
+  let alpine = run.text df -kP $root ?
+  let ours = run.text xsh_bin() df.xsh -- -kP $root ?
+  test.eq(normalize_df(ours), normalize_df(alpine))?
+}

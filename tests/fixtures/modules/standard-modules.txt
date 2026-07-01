@@ -1,0 +1,391 @@
+module applet
+  current_euid() -> Int effect
+  current_exe() -> Result[Path, Error] effect
+  hash_password(password: Str, algorithm: Str) -> Result[Str, Error] effect
+  login_session(user: {gid: Int, home: Path, name: Str, shell: Str, uid: Int}, preserve_env: Bool, host: Str) -> Result[Int, Error] effect
+  mdev(argv: List[Str]) -> Result[Int, Error] effect
+  su_session(user: {gid: Int, home: Path, name: Str, shell: Str, uid: Int}, login: Bool, preserve_env: Bool, shell: Str, command: Str, extra_args: List[Str]) -> Result[Int, Error] effect
+  sulogin_session(user: {gid: Int, home: Path, name: Str, shell: Str, uid: Int}) -> Result[Int, Error] effect
+  verify_password(password: Str, hash: Str) -> Bool effect
+
+module archive
+  compress(source: Path, dest: Path, format: Str = default, level: Int = default, overwrite: Bool = default) -> Result[Unit, Error] effect
+  cpio_create(path: Path, root: Path, entries: List[Path], overwrite: Bool = default) -> Result[Unit, Error] effect
+  cpio_extract(path: Path, dest: Path, overwrite: Bool = default) -> Result[Unit, Error] effect
+  cpio_list(path: Path) -> Result[List[{kind: Str, link_name: Str, mode: Int, modified: Int, path: Path, size: Int}], Error] effect
+  decompress(source: Path, dest: Path, format: Str = default, overwrite: Bool = default) -> Result[Unit, Error] effect
+  decompress_bytes(source: Path, format: Str = default) -> Result[Bytes, Error] effect
+  tar_create(path: Path, root: Path, entries: List[Path], compression: Str = default, overwrite: Bool = default) -> Result[Unit, Error] effect
+  tar_extract(path: Path, dest: Path, strip_components: Int = default, compression: Str = default, overwrite: Bool = default, members: List[Path] = default) -> Result[Unit, Error] effect
+  tar_list(path: Path, compression: Str = default, members: List[Path] = default) -> Result[List[{kind: Str, link_name: Str, mode: Int, modified: Int, path: Path, size: Int}], Error] effect
+  zip_extract(path: Path, dest: Path, overwrite: Bool = default) -> Result[Unit, Error] effect
+  zip_list(path: Path) -> Result[List[{kind: Str, link_name: Str, mode: Int, modified: Int, path: Path, size: Int}], Error] effect
+
+module bytes
+  concat(chunks: List[Bytes]) -> Bytes pure
+  copy(source: Path, dest: Path, block_size: Int = default, count: Int = default, skip: Int = default, seek: Int = default, overwrite: Bool = default) -> Result[{blocks: Int, bytes: Int}, Error] effect
+  copy_file(source: Path, dest: Path, source_offset: Int = default, dest_offset: Int = default, length: Int = default, create: Bool = default, truncate: Bool = default) -> Result[{blocks: Int, bytes: Int}, Error] effect
+  from_ints(values: List[Int]) -> Result[Bytes, Error] pure
+  from_text(text: Str) -> Bytes pure
+  human(size: Int) -> Str pure
+  pack_be(value: Int, width: Int) -> Result[Bytes, Error] pure
+  pack_le(value: Int, width: Int) -> Result[Bytes, Error] pure
+  read_at(path: Path, offset: Int, length: Int) -> Result[Bytes, Error] effect
+  unpack_be(data: Bytes, width: Int, offset: Int = default) -> Result[Int, Error] pure
+  unpack_le(data: Bytes, width: Int, offset: Int = default) -> Result[Int, Error] pure
+  write_at(path: Path, offset: Int, data: Bytes, create: Bool = default) -> Result[Int, Error] effect
+  zero(length: Int) -> Result[Bytes, Error] pure
+  zero_at(path: Path, offset: Int, length: Int, create: Bool = default) -> Result[Int, Error] effect
+
+module cli
+  commands(argv: List[Str], commands: Record) -> Result[Record, Error] pure
+  commands(argv: List[Str], rootless_default: Str, commands: Record, fallback_command: Record = default) -> Result[Record, Error] pure
+  parse(argv: List[Str], schema: Record, command: Str = default) -> Result[Record, Error] pure
+  parse_full(argv: List[Str], schema: Record, env: Record = default, command: Str = default) -> Result[Record, Error] pure
+  tokens(argv: List[Str], value_flags: List[Str] = default) -> Result[List[{kind: Str, name: Str, value: Str}], Error] pure
+  usage(schema: Record, command: Str = default) -> Str pure
+
+module cpu
+  count() -> Int pure
+
+module diff
+  unified(original: Path, modified: Path, context: Int = default) -> Result[{files: Int, hunks: Int, text: Str}, Error] effect
+
+module dns
+  lookup(name: Str, record: Str = default, server: Str = default, timeout: Duration = default) -> Result[List[{name: Str, record: Str, ttl: Int, value: Str}], Error] effect
+  nameservers() -> Result[List[Str], Error] effect
+  resolve_host(name: Str, family: Str = default) -> Result[List[{addr: Str, family: Str, name: Str}], Error] effect
+  reverse(addr: Str) -> Result[List[Str], Error] effect
+
+module elf
+  inspect(path: Path) -> Result[{class: Str, dynamic_tags: List[{tag: Str, value: Int}], endian: Str, flags: List[Str], interpreter: Str, machine: Str, needed: List[Str], os_abi: Str, path: Path, rpath: Str, runpath: Str, soname: Str, type: Str}, Error] effect
+
+module env
+  bool(name: Str, fallback: Bool = default) -> Result[Bool, Error] effect
+  get(name: Str) -> Result[Str, Error] effect
+  get_or(name: Str, fallback: Str = default) -> Result[Str, Error] effect
+  int(name: Str, fallback: Int = default) -> Result[Int, Error] effect
+  list() -> Result[List[{name: Str, value: Str}], Error] effect
+  path(name: Str, fallback: Path = default) -> Result[Path, Error] effect
+  path_entries(name: Str) -> Result[List[{empty: Bool, index: Int, path: Path, raw: Str}], Error] effect
+  path_list(name: Str) -> Result[List[Path], Error] effect
+
+module fs
+  chgrp(path: Path, group: {gid: Int, members: List[Str], name: Str}, follow_symlinks: Bool = default) -> Result[Unit, Error] effect
+  children(path: Path, stat: Bool = default, ordered: Bool = default) -> Result[Stream[{accessed: Int, blocks_512: Int, executable: Bool, ext: Str, gid: Int, group_executable: Bool, kind: Str, mode: Int, modified: Int, name: Str, other_executable: Bool, owner_executable: Bool, path: Path, setgid: Bool, setuid: Bool, size: Int, sticky: Bool, uid: Int, world_writable: Bool}], Error] effect
+  chmod(path: Path, mode: Int) -> Result[Unit, Error] effect
+  chown(path: Path, owner: {gid: Int, home: Path, name: Str, shell: Str, uid: Int}, follow_symlinks: Bool = default) -> Result[Unit, Error] effect
+  close_root(root: {id: Int}) -> Result[Unit, Error] effect
+  copy(source: Path, dest: Path, overwrite: Bool = default) -> Result[Unit, Error] effect
+  copy_tree(source: Path, dest: Path, parents: Bool = default, overwrite: Bool = default, follow_symlinks: Bool = default) -> Result[{dirs: Int, files: Int, symlinks: Int}, Error] effect
+  cwd() -> Result[Path, Error] effect
+  dirs(path: Path, gitignore: Bool = default, stat: Bool = default, hidden: Bool = default) -> Result[Stream[{accessed: Int, blocks_512: Int, executable: Bool, ext: Str, gid: Int, group_executable: Bool, kind: Str, mode: Int, modified: Int, name: Str, other_executable: Bool, owner_executable: Bool, path: Path, setgid: Bool, setuid: Bool, size: Int, sticky: Bool, uid: Int, world_writable: Bool}], Error] effect
+  executable(path: Path) -> Result[Bool, Error] effect
+  executable(mode: Int) -> Bool pure
+  exists(path: Path) -> Result[Bool, Error] effect
+  files(path: Path, gitignore: Bool = default, stat: Bool = default, exts: List[Str] = default, hidden: Bool = default) -> Result[Stream[{accessed: Int, blocks_512: Int, executable: Bool, ext: Str, gid: Int, group_executable: Bool, kind: Str, mode: Int, modified: Int, name: Str, other_executable: Bool, owner_executable: Bool, path: Path, setgid: Bool, setuid: Bool, size: Int, sticky: Bool, uid: Int, world_writable: Bool}], Error] effect
+  filesystem_stats(path: Path) -> Result[{available_1k: Int, blocks_1k: Int, capacity_percent: Int, used_1k: Int}, Error] effect
+  fsync(path: Path) -> Result[Unit, Error] effect
+  gitroot() -> Result[Path, Error] effect
+  group_executable(mode: Int) -> Bool pure
+  install(source: Path, dest: Path, mode: Int, parents: Bool = default, overwrite: Bool = default) -> Result[Unit, Error] effect
+  install_as(source: Path, dest: Path, mode: Int, owner: {gid: Int, home: Path, name: Str, shell: Str, uid: Int}, group: {gid: Int, members: List[Str], name: Str}, parents: Bool = default, overwrite: Bool = default) -> Result[Unit, Error] effect
+  lock(path: Path, shared: Bool = default, nonblocking: Bool = default) -> Result[{id: Int, path: Path, shared: Bool}, Error] effect
+  ls(path: Path, stat: Bool = default, ordered: Bool = default) -> Result[Stream[{accessed: Int, blocks_512: Int, executable: Bool, ext: Str, gid: Int, group_executable: Bool, kind: Str, mode: Int, modified: Int, name: Str, other_executable: Bool, owner_executable: Bool, path: Path, setgid: Bool, setuid: Bool, size: Int, sticky: Bool, uid: Int, world_writable: Bool}], Error] effect
+  metadata(path: Path) -> Result[{accessed: Int, blocks_512: Int, executable: Bool, ext: Str, gid: Int, group_executable: Bool, kind: Str, mode: Int, modified: Int, name: Str, other_executable: Bool, owner_executable: Bool, path: Path, setgid: Bool, setuid: Bool, size: Int, sticky: Bool, uid: Int, world_writable: Bool}, Error] effect
+  mkdir(path: Path, parents: Bool = default) -> Result[Unit, Error] effect
+  mkfifo(path: Path, mode: Int) -> Result[Unit, Error] effect
+  mount_for(path: Path) -> Result[{available_1k: Int, blocks_1k: Int, capacity_percent: Int, files: Int, files_capacity_percent: Int, files_free: Int, files_used: Int, filesystem: Str, fstype: Str, mounted_on: Path, readonly: Bool, used_1k: Int}, Error] effect
+  mounts() -> Result[List[{available_1k: Int, blocks_1k: Int, capacity_percent: Int, files: Int, files_capacity_percent: Int, files_free: Int, files_used: Int, filesystem: Str, fstype: Str, mounted_on: Path, readonly: Bool, used_1k: Int}], Error] effect
+  open_root(path: Path) -> Result[{id: Int}, Error] effect
+  other_executable(mode: Int) -> Bool pure
+  owner_executable(mode: Int) -> Bool pure
+  project_root(kind: Str, qualifier: Str, organization: Str, application: Str) -> Result[{id: Int}, Error] effect
+  read_text(path: Path) -> Result[Str, Error] effect
+  remove(path: Path, missing_ok: Bool = default) -> Result[Unit, Error] effect
+  remove_manifest(root: Path, manifest: List[Path], missing_ok: Bool = default, prune_dirs: Bool = default) -> Result[{missing: Int, pruned_dirs: Int, removed: Int}, Error] effect
+  rename(source: Path, dest: Path, overwrite: Bool = default) -> Result[Unit, Error] effect
+  root(root: {id: Int}, path: Path) -> Result[{id: Int}, Error] effect
+  root_chmod(root: {id: Int}, path: Path, mode: Int) -> Result[Unit, Error] effect
+  root_exists(root: {id: Int}, path: Path) -> Result[Bool, Error] effect
+  root_install_file(source_root: {id: Int}, source: Path, dest_root: {id: Int}, dest: Path, mode: Int, parents: Bool = default, overwrite: Bool = default) -> Result[Unit, Error] effect
+  root_metadata(root: {id: Int}, path: Path) -> Result[{accessed: Int, blocks_512: Int, executable: Bool, ext: Str, gid: Int, group_executable: Bool, kind: Str, mode: Int, modified: Int, name: Str, other_executable: Bool, owner_executable: Bool, path: Path, setgid: Bool, setuid: Bool, size: Int, sticky: Bool, uid: Int, world_writable: Bool}, Error] effect
+  root_mkdir(root: {id: Int}, path: Path, mode: Int = default, parents: Bool = default) -> Result[Unit, Error] effect
+  root_path(root: {id: Int}) -> Result[Path, Error] effect
+  root_read(root: {id: Int}, path: Path) -> Result[Bytes, Error] effect
+  root_read_text(root: {id: Int}, path: Path) -> Result[Str, Error] effect
+  root_readlink(root: {id: Int}, path: Path) -> Result[Path, Error] effect
+  root_remove(root: {id: Int}, path: Path, dir: Bool = default) -> Result[Unit, Error] effect
+  root_symlink(root: {id: Int}, target: Path, path: Path, parents: Bool = default, overwrite: Bool = default) -> Result[Unit, Error] effect
+  root_write(root: {id: Int}, path: Path, data: Bytes) -> Result[Unit, Error] effect
+  root_write(root: {id: Int}, path: Path, data: Str) -> Result[Unit, Error] effect
+  root_write_atomic(root: {id: Int}, path: Path, data: Bytes) -> Result[Unit, Error] effect
+  root_write_atomic(root: {id: Int}, path: Path, data: Str) -> Result[Unit, Error] effect
+  setgid(mode: Int) -> Bool pure
+  setuid(mode: Int) -> Bool pure
+  sticky(mode: Int) -> Bool pure
+  symlink(target: Path, path: Path) -> Result[Unit, Error] effect
+  sync() -> Result[Unit, Error] effect
+  tempdir() -> Result[{id: Int}, Error] effect
+  tempfile() -> Result[{path: Path, root: {id: Int}}, Error] effect
+  unlock(lock: {id: Int, path: Path, shared: Bool}) -> Result[Unit, Error] effect
+  user_root(kind: Str) -> Result[{id: Int}, Error] effect
+  walk(path: Path, gitignore: Bool = default, stat: Bool = default, hidden: Bool = default) -> Result[Stream[{accessed: Int, blocks_512: Int, executable: Bool, ext: Str, gid: Int, group_executable: Bool, kind: Str, mode: Int, modified: Int, name: Str, other_executable: Bool, owner_executable: Bool, path: Path, setgid: Bool, setuid: Bool, size: Int, sticky: Bool, uid: Int, world_writable: Bool}], Error] effect
+  world_writable(mode: Int) -> Bool pure
+  write(path: Path, data: Bytes) -> Result[Unit, Error] effect
+  write(path: Path, data: Str) -> Result[Unit, Error] effect
+  write_atomic(path: Path, data: Bytes) -> Result[Unit, Error] effect
+  write_atomic(path: Path, data: Str) -> Result[Unit, Error] effect
+
+module group
+  add(name: Str, gid: Int = default) -> Result[{gid: Int, members: List[Str], name: Str}, Error] effect
+  by_gid(gid: Int) -> Result[{gid: Int, members: List[Str], name: Str}, Error] effect
+  current() -> Result[{gid: Int, members: List[Str], name: Str}, Error] effect
+  lookup(name: Str) -> Result[{gid: Int, members: List[Str], name: Str}, Error] effect
+  remove(name: Str) -> Result[Unit, Error] effect
+
+module hash
+  crc32(data: Bytes) -> Int pure
+  crc32c(data: Bytes) -> Int pure
+  md5(data: Bytes) -> Digest pure
+  md5(path: Path) -> Result[Digest, Error] effect
+  parse_check_line(line: Str) -> Result[Record, Error] pure
+  sha1(data: Bytes) -> Digest pure
+  sha1(path: Path) -> Result[Digest, Error] effect
+  sha256(data: Bytes) -> Digest pure
+  sha256(path: Path) -> Result[Digest, Error] effect
+  sha512(data: Bytes) -> Digest pure
+  sha512(path: Path) -> Result[Digest, Error] effect
+  verify_file(path: Path, sha256: Str = default) -> Result[Unit, Error] effect
+
+module ini
+  decode(text: Str) -> Result[Record, Error] pure
+  encode(value: Record) -> Result[Str, Error] pure
+  read(path: Path) -> Result[Record, Error] effect
+  write(path: Path, value: Record, overwrite: Bool = default) -> Result[Unit, Error] effect
+
+module io
+  stdin_bytes() -> Result[Bytes, Error] effect
+  stdin_line() -> Result[Str, Error] effect
+  stdin_text() -> Result[Str, Error] effect
+  write_stdout(text: Str) -> Result[Unit, Error] effect
+  write_stdout_bytes(data: Bytes) -> Result[Unit, Error] effect
+
+module json
+  decode(s: Str) -> Result[Any, Error] pure
+  encode(value: Any, pretty: Bool = default) -> Result[Str, Error] pure
+  encode_lines(values: List[Any]) -> Result[Str, Error] pure
+  get(value: Any, path: List[Any]) -> Result[Any, Error] pure
+  get(value: Any, path: List[Any], fallback: Any) -> Any pure
+  read(path: Path) -> Result[Any, Error] effect
+  remove(value: Any, path: List[Any]) -> Result[Any, Error] pure
+  set(value: Any, path: List[Any], replacement: Any) -> Result[Any, Error] pure
+  write(path: Path, value: Any, pretty: Bool = default) -> Result[Unit, Error] effect
+  write_lines(path: Path, values: List[Any]) -> Result[Unit, Error] effect
+
+module linux
+  add_default_ipv4_route(gateway: Str, interface: Str = default) -> Result[Unit, Error] effect
+  blkid(device: Path) -> Result[{label: Str, part_entry_uuid: Str, part_table_type: Str, type: Str, uuid: Str}, Error] effect
+  block_devices() -> Result[List[{name: Str, partitioned: Bool, partitions: List[Path], path: Path, removable: Bool, rotational: Bool, sector_size: Int, sectors: Int, size: Int}], Error] effect
+  chroot(path: Path) -> Result[Unit, Error] effect
+  depmod(version: Str = default) -> Result[Unit, Error] effect
+  dhcp_close(fd: Int) -> Result[Unit, Error] effect
+  dhcp_recv(fd: Int, timeout_ms: Int) -> Result[Bytes, Error] effect
+  dhcp_send(fd: Int, payload: Bytes) -> Result[Unit, Error] effect
+  dhcp_socket(interface: Str) -> Result[Int, Error] effect
+  disk_usage(path: Path = default) -> Result[List[{available: Int, device: Str, fstype: Str, mount: Str, total: Int, used: Int}], Error] effect
+  dmesg() -> Result[List[Str], Error] effect
+  file_attrs(path: Path) -> Result[{append_only: Bool, compression_requested: Bool, dirsync: Bool, flags: Int, immutable: Bool, indexed_directory: Bool, journaled_data: Bool, no_atime: Bool, no_dump: Bool, no_tailmerging: Bool, secure_deletion: Bool, sync: Bool, top_of_directory_hierarchies: Bool, undelete: Bool}, Error] effect
+  file_version(path: Path) -> Result[Int, Error] effect
+  fsck(device: Path, fstype: Str = default, repair: Bool = default) -> Result[{errors: List[Str], status: Int}, Error] effect
+  halt() -> Result[Unit, Error] effect
+  hwclock() -> Result[Int, Error] effect
+  insmod(path: Path, params: Str = default) -> Result[Unit, Error] effect
+  interfaces() -> Result[List[{addresses: List[{addr: Str, family: Str, prefix_len: Int}], flags: List[Str], mac: Str, mtu: Int, name: Str}], Error] effect
+  is_mountpoint(path: Path) -> Result[Bool, Error] effect
+  kill_all(signal: Str = default, except_pid1: Bool = default) -> Result[Unit, Error] effect
+  link_up(interface: Str) -> Result[Unit, Error] effect
+  loop_attach(file: Path, device: Path = default) -> Result[Path, Error] effect
+  loop_detach(device: Path) -> Result[Unit, Error] effect
+  loop_list() -> Result[List[{device: Path, file: Path, offset: Int, size: Int}], Error] effect
+  meminfo() -> Result[{available: Int, buffers: Int, cached: Int, free: Int, swap_free: Int, swap_total: Int, total: Int}, Error] effect
+  mknod(path: Path, kind: Str, major: Int, minor: Int) -> Result[Unit, Error] effect
+  mkswap(device: Path) -> Result[Unit, Error] effect
+  modinfo(name: Str) -> Result[{description: Str, filename: Path, license: Str, name: Str, params: List[{description: Str, name: Str, type: Str}], version: Str}, Error] effect
+  modprobe(name: Str, params: Str = default) -> Result[Unit, Error] effect
+  modules() -> Result[List[{name: Str, size: Int, used_by: List[Str]}], Error] effect
+  mount(source: Str, target: Path, fstype: Str = default, options: List[Str] = default) -> Result[Unit, Error] effect
+  mount_all() -> Result[Unit, Error] effect
+  open_files(pid: Int = default) -> Result[List[{command: Str, fd: Int, inode: Int, local: Str, path: Path, pid: Int, protocol: Str, remote: Str, type: Str}], Error] effect
+  partition_table(device: Path) -> Result[{id: Str, label: Str, partitions: List[{end: Int, index: Int, name: Str, size: Int, start: Int, type: Str, uuid: Str}], sector_size: Int}, Error] effect
+  pivot_root(new_root: Path, put_old: Path) -> Result[Unit, Error] effect
+  poweroff() -> Result[Unit, Error] effect
+  read_device(device: Path, dest: Path, bytes: Int) -> Result[Unit, Error] effect
+  reboot() -> Result[Unit, Error] effect
+  rfkill_block(id: Int) -> Result[Unit, Error] effect
+  rfkill_list() -> Result[List[{hard_blocked: Bool, id: Int, name: Str, soft_blocked: Bool, type: Str}], Error] effect
+  rfkill_unblock(id: Int) -> Result[Unit, Error] effect
+  rmmod(name: Str, force: Bool = default) -> Result[Unit, Error] effect
+  root_device() -> Result[Str, Error] effect
+  routes() -> Result[List[{dev: Str, dst: Str, family: Str, flags: List[Str], gateway: Str, metric: Int, prefix_len: Int}], Error] effect
+  set_file_attrs(path: Path, flags: Int) -> Result[Unit, Error] effect
+  set_file_version(path: Path, version: Int) -> Result[Unit, Error] effect
+  set_hwclock(epoch_ms: Int) -> Result[Unit, Error] effect
+  set_ipv4_address(interface: Str, address: Str, netmask: Str) -> Result[Unit, Error] effect
+  set_system_clock(epoch_ms: Int) -> Result[Unit, Error] effect
+  swapoff(device: Path) -> Result[Unit, Error] effect
+  swapoff_all() -> Result[Unit, Error] effect
+  swapon(device: Path, priority: Int = default) -> Result[Unit, Error] effect
+  swapon_all() -> Result[Unit, Error] effect
+  switch_root(new_root: Path, init: Path) -> Result[Unit, Error] effect
+  sysctl_get(key: Str) -> Result[Str, Error] effect
+  sysctl_load_dirs(dirs: List[Path], fallback: Path = default) -> Result[Unit, Error] effect
+  sysctl_set(key: Str, value: Str) -> Result[Unit, Error] effect
+  uevent_stream() -> Result[Stream[{action: Str, devname: Str, devpath: Str, env: List[{name: Str, value: Str}], subsystem: Str}], Error] effect
+  umount_all(types: List[Str] = default) -> Result[Unit, Error] effect
+  write_device(device: Path, source: Path) -> Result[Unit, Error] effect
+  write_partition_table(device: Path, table: Record) -> Result[Unit, Error] effect
+
+module map
+  empty() -> Map[Any] pure
+
+module mime
+  lookup_ext(ext: Str) -> {exts: List[Str], mime: Str}? effect
+  lookup_path(path: Path) -> {exts: List[Str], mime: Str}? effect
+  parse(value: Str) -> Result[{params: Map[Str], type: Str}, Error] pure
+
+module module
+  load(path: Path) -> Result[Module, Error] effect
+
+module net
+  close_all_pools() -> Result[Unit, Error] effect
+  close_pool(name: Str = default) -> Result[Unit, Error] effect
+  download(request: Record) -> Result[{bytes: Int, headers: List[{name: Str, value: Str}], reason: Str, status: Int, url: Str}, Error] effect
+  pool(name: Str = default, max_idle_per_host: Int = default, idle_timeout: Duration = default) -> Result[{idle_timeout_ms: Int, max_idle_per_host: Int, name: Str}, Error] effect
+  request(request: Record) -> Result[{body: Bytes, bytes: Int, headers: List[{name: Str, value: Str}], reason: Str, status: Int, url: Str}, Error] effect
+  upload(request: Record) -> Result[{bytes: Int, headers: List[{name: Str, value: Str}], reason: Str, status: Int, url: Str}, Error] effect
+
+module patch
+  apply(root: Path, text: Str, strip_components: Int = default, overwrite: Bool = default) -> Result[{files: Int, hunks: Int}, Error] effect
+
+module path
+  absolute(path: Path) -> Result[Path, Error] effect
+
+module process
+  argv_words(text: Str) -> Result[List[Str], Error] pure
+  command() -> Command effect
+  command_argv(target: Str, argv: List[Str], cwd: Path = default, env: Record = default, timeout: Duration = default, detach: Bool = default, new_session: Bool = default, ignore_hup: Bool = default, cpu_max: Int = default) -> Command pure
+  command_argv(target: Path, argv: List[Str], cwd: Path = default, env: Record = default, timeout: Duration = default, detach: Bool = default, new_session: Bool = default, ignore_hup: Bool = default, cpu_max: Int = default) -> Command pure
+  current_pid() -> Result[Int, Error] effect
+  kill(pid: Int, signal: Str = default) -> Result[Unit, Error] effect
+  list() -> Result[Stream[{argv: Str, argv0: Str, command: Str, parent_pid: Int, pid: Int, runtime_seconds: Int, start_time: Str, start_time_ms: Int, status: Str, uid: Int, user: Str}], Error] effect
+  port(port: Int) -> Result[Stream[{argv: Str, argv0: Str, command: Str, fd: Int, inode: Int, local: Str, local_address: Str, local_port: Int, parent_pid: Int, pid: Int, protocol: Str, remote: Str, remote_address: Str, remote_port: Int, state: Str, uid: Int, user: Str}], Error] effect
+  ports() -> Result[Stream[{argv: Str, argv0: Str, command: Str, fd: Int, inode: Int, local: Str, local_address: Str, local_port: Int, parent_pid: Int, pid: Int, protocol: Str, remote: Str, remote_address: Str, remote_port: Int, state: Str, uid: Int, user: Str}], Error] effect
+  ports(pid: Int) -> Result[Stream[{argv: Str, argv0: Str, command: Str, fd: Int, inode: Int, local: Str, local_address: Str, local_port: Int, parent_pid: Int, pid: Int, protocol: Str, remote: Str, remote_address: Str, remote_port: Int, state: Str, uid: Int, user: Str}], Error] effect
+  run(command: Command) -> Result[Status, ProcessError] effect
+  signal(signal: Str) -> Result[{name: Str, number: Int}, Error] effect
+  spawn(command: Command) -> Result[{argv: Str, command: Str, detach: Bool, ignore_hup: Bool, new_session: Bool, pid: Int}, Error] effect
+  stats(pid: Int) -> Result[{rss_kb: Int, vsz_kb: Int}, Error] effect
+  threads() -> Result[Stream[{argv: Str, argv0: Str, command: Str, owner_pid: Int, parent_pid: Int, pid: Int, runtime_seconds: Int, start_time: Str, start_time_ms: Int, status: Str, thread_id: Int, thread_name: Str, uid: Int, user: Str}], Error] effect
+  threads(pid: Int) -> Result[Stream[{argv: Str, argv0: Str, command: Str, owner_pid: Int, parent_pid: Int, pid: Int, runtime_seconds: Int, start_time: Str, start_time_ms: Int, status: Str, thread_id: Int, thread_name: Str, uid: Int, user: Str}], Error] effect
+  wait_any(handles: List[ProcessHandle]) -> Result[{index: Int, pid: Int, status: Status}, ProcessError] effect
+  wait_ready(handles: List[ProcessHandle]) -> Result[List[{index: Int, pid: Int, status: Status}], ProcessError] effect
+  which(name: Str) -> Result[Path, Error] effect
+
+module record
+  require(record: Record, required: Record, optional: Record = default, source: Path = default) -> Result[Record, Error] effect
+
+module regex
+  compile(pattern: Str) -> Result[Regex, Error] pure
+
+module set
+  add(set: Map[Bool], item: Str) -> Map[Bool] pure
+  empty() -> Map[Bool] pure
+  from(items: List[Str]) -> Map[Bool] pure
+  has(set: Map[Bool], item: Str) -> Bool pure
+  remove(set: Map[Bool], item: Str) -> Map[Bool] pure
+
+module shlex
+  join(argv: List[Str]) -> Str pure
+  quote(value: Str) -> Str pure
+
+module system
+  hostname() -> Result[Str, Error] effect
+  memory() -> Result[{available: Int, free: Int, swap_free: Int, swap_total: Int, total: Int}, Error] effect
+  os_release() -> Result[{id: Str, name: Str, pretty_name: Str, version: Str, version_id: Str}, Error] effect
+  uname() -> Result[{machine: Str, nodename: Str, release: Str, sysname: Str, version: Str}, Error] effect
+
+module test
+  calls(ctx: {file: Path, name: Str, temp_root: Path}, op: Str = default) -> List[{args: Record, op: Str}] effect
+  contains(haystack: Any, needle: Any, message: Str = default) -> Result[Unit, Error] pure
+  eq(left: Any, right: Any, message: Str = default) -> Result[Unit, Error] pure
+  error_kind(value: Any, kind: Str, message: Str = default) -> Result[Unit, Error] pure
+  fail(message: Str = default) -> Result[Unit, Error] pure
+  mock(ctx: {file: Path, name: Str, temp_root: Path}, op: Str, matcher: Record, result: Any, times: Int = default) -> Result[Unit, Error] effect
+  ne(left: Any, right: Any, message: Str = default) -> Result[Unit, Error] pure
+  ok(condition: Bool, message: Str = default) -> Result[Unit, Error] pure
+  skip(message: Str = default) -> Result[Unit, Error] pure
+  temp_dir(ctx: {file: Path, name: Str, temp_root: Path}, name: Str = default) -> Result[Path, Error] effect
+  temp_file(ctx: {file: Path, name: Str, temp_root: Path}, name: Str = default, contents: Bytes = default) -> Result[Path, Error] effect
+  temp_path(ctx: {file: Path, name: Str, temp_root: Path}, name: Str = default) -> Path effect
+
+module time
+  duration_compact(seconds: Int) -> Str pure
+  format(epoch_ms: Int, format: Str, utc: Bool = default) -> Result[Str, Error] effect
+  measure(command: Command, quiet: Bool = default) -> Result[{duration_ms: Int, status: Status, system_ns: Int, user_ns: Int, wall_ns: Int}, Error] effect
+  millis(ms: Int) -> Duration pure
+  now() -> Int effect
+  seconds(seconds: Int) -> Duration pure
+  sleep(duration: Duration) -> Result[Unit, Error] effect
+
+module tui
+  blue() -> Str pure
+  bold() -> Str pure
+  clear() -> Str pure
+  cyan() -> Str pure
+  dim() -> Str pure
+  erase_line() -> Str pure
+  gray() -> Str pure
+  green() -> Str pure
+  hide_cursor() -> Str pure
+  home() -> Str pure
+  left_pad(text: Str, width: Int) -> Str pure
+  magenta() -> Str pure
+  read_secret(prompt: Str) -> Result[Str, Error] effect
+  red() -> Str pure
+  reset() -> Str pure
+  right_pad(text: Str, width: Int) -> Str pure
+  show_cursor() -> Str pure
+  white() -> Str pure
+  yellow() -> Str pure
+
+module unix
+  exec(command: Command) -> Result[Unit, Error] effect
+  id() -> Result[{egid: Int, euid: Int, gid: Int, groups: List[{gid: Int, name: Str}], uid: Int}, Error] effect
+  kill_all(name: Str, signal: Str = default) -> Result[{matched: Int, signaled: Int}, Error] effect
+  kill_process_group(pid: Int, signal: Str) -> Result[Unit, Error] effect
+  notify_close(fd: Int) -> Result[Unit, Error] effect
+  notify_ready(fd: Int) -> Result[Bool, Error] effect
+  pid1_setup(signals: List[Str], subreaper: Bool = default, allow_non_pid1: Bool = default) -> Result[Unit, Error] effect
+  reap_child_events() -> Result[List[{pid: Int, status: Status}], Error] effect
+  set_hostname(hostname: Str) -> Result[Unit, Error] effect
+  set_tty_attrs(attrs: Record, fd: Int = default) -> Result[Unit, Error] effect
+  shutdown_process_groups(groups: List[Int], term_timeout: Duration, kill_timeout: Duration = default) -> Result[{kill_sent: Int, reaped: List[{pid: Int, status: Status}], remaining: List[Int], term_sent: Int}, Error] effect
+  spawn_logged_process_group(command: Command, logger: Command) -> Result[{argv: List[Str], command: Str, detach: Bool, ignore_hup: Bool, log_pid: Int, new_session: Bool, pid: Int}, Error] effect
+  spawn_process_group(command: Command, notify: Bool = default) -> Result[{argv: List[Str], command: Str, detach: Bool, ignore_hup: Bool, new_session: Bool, notify_fd: Int, pid: Int}, Error] effect
+  spawn_process_group_log(command: Command, log: Path, notify: Bool = default) -> Result[{argv: List[Str], command: Str, detach: Bool, ignore_hup: Bool, new_session: Bool, notify_fd: Int, pid: Int}, Error] effect
+  spawn_with_tty(command: Command, tty: Str) -> Result[{argv: List[Str], command: Str, detach: Bool, ignore_hup: Bool, new_session: Bool, notify_fd: Int, pid: Int}, Error] effect
+  tty() -> Result[Str, Error] effect
+  tty_attrs(fd: Int = default) -> Result[{cflag: Int, control_chars: List[Int], crnl: Bool, echo: Bool, iflag: Int, ispeed: Int, lflag: Int, oflag: Int, ospeed: Int, raw: Bool}, Error] effect
+  uptime_seconds() -> Result[Int, Error] effect
+  wait_pid1_event(timeout: Duration = default) -> Result[{children: List[{pid: Int, status: Status}], kind: Str, signal: Str}, Error] effect
+
+module user
+  add(name: Str, uid: Int = default, gid: Int = default, home: Path = default, shell: Path = default, gecos: Str = default) -> Result[{gid: Int, home: Path, name: Str, shell: Str, uid: Int}, Error] effect
+  by_uid(uid: Int) -> Result[{gid: Int, home: Path, name: Str, shell: Str, uid: Int}, Error] effect
+  current() -> Result[{gid: Int, home: Path, name: Str, shell: Str, uid: Int}, Error] effect
+  lookup(name: Str) -> Result[{gid: Int, home: Path, name: Str, shell: Str, uid: Int}, Error] effect
+  remove(name: Str, remove_home: Bool = default) -> Result[Unit, Error] effect
+
+module utils
+  cache(fn: Any, args: List[Any] = default) -> Any effect

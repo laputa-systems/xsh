@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Chapter 15: Why Not XSH</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="site-header"><a href="index.html">XSH Docs</a><span>docs/CHAPTER-15-why-not-xsh.md</span></header>
+<div class="docs-shell">
+<aside class="page-toc" aria-label="Page contents">
+<h2>On This Page</h2>
+<ol>
+<li><a href="#fine-grained-concurrency">Fine-Grained Concurrency</a></li>
+<li><a href="#long-lived-application-services">Long-Lived Application Services</a></li>
+<li><a href="#interactive-terminal-applications">Interactive Terminal Applications</a></li>
+<li><a href="#specialized-tools">Specialized Tools</a></li>
+<li><a href="#the-rule-of-thumb">The Rule Of Thumb</a></li>
+</ol>
+</aside>
+<main class="markdown-body">
+<nav class="chapter-nav" aria-label="Chapter navigation">
+<a rel="prev" href="CHAPTER-14-idioms.html"><span>Previous</span>Chapter 14: Idioms</a>
+</nav>
+<h1>Chapter 15: Why Not XSH</h1>
+<p>This guide has shown where XSH is strong: orchestration, typed host boundaries,
+structured failures, files, processes, streams, data formats, tests, and traces.</p>
+<p>This final chapter names the other side of that promise. XSH is designed for a
+specific tier of work. When the work is orchestration, XSH. When the work is
+something else, use the right tool and let XSH invoke it.</p>
+<h2 id="fine-grained-concurrency">Fine-Grained Concurrency</h2>
+<p>XSH has parallel streams and process-level parallelism. That covers most
+concurrency in systems scripting: fan-out builds, parallel file walks, and
+concurrent service probes.</p>
+<p>If the problem is thousands of concurrent connections, coroutines, event loops,
+or shared mutable state across green threads, that is an application runtime's
+job. Use Go, Erlang, Rust's async ecosystem, or another runtime built for that
+shape. XSH's unit of concurrency is the process and the pipeline, not the task
+or the fiber.</p>
+<p>That boundary is also an implementation principle. XSH does not need a bytecode
+VM, green-thread scheduler, or async task runtime to be good glue. Its runtime
+walks checked source structure, coordinates explicit process and stream work,
+and records what happened. The expensive work should usually happen in the
+programs XSH invokes or in focused host APIs.</p>
+<h2 id="long-lived-application-services">Long-Lived Application Services</h2>
+<p>Init scripts and service supervisors are XSH's territory. The service itself
+usually is not.</p>
+<p>A daemon maintaining complex in-memory state, a server handling thousands of
+requests per second, or a system with its own internal event loop wants a
+compiled runtime with mature memory management and profiling tooling. XSH fills
+the gap between bash and a full application runtime.</p>
+<h2 id="interactive-terminal-applications">Interactive Terminal Applications</h2>
+<p>XSH produces output and transforms data. If the deliverable is an interactive
+application, such as a file browser, status dashboard, or full-screen UI, XSH is
+the wrong level. That work needs a language with a TUI library and an event
+loop.</p>
+<h2 id="specialized-tools">Specialized Tools</h2>
+<p>XSH's relationship to tools outside its tier is not competitive. A script that
+decides to run <code>python3 train.py</code> is doing its job correctly. A script that
+reimplements gradient descent is doing the wrong job.</p>
+<p>XSH orchestrates. Specialized tools do their work. The boundary between them
+should be visible in the source: a <code>run</code> call, a typed result coming back, an
+explicit handoff.</p>
+<h2 id="the-rule-of-thumb">The Rule Of Thumb</h2>
+<p>Use XSH when the problem is coordinating processes, files, paths, data formats,
+system state, and expected failures. Reach for another language when the core
+problem is an application runtime, an event loop, a complex in-memory service,
+or a specialized algorithm.</p>
+<nav class="chapter-nav" aria-label="Chapter navigation">
+<a rel="prev" href="CHAPTER-14-idioms.html"><span>Previous</span>Chapter 14: Idioms</a>
+</nav>
+</main>
+</div>
+</body>
+</html>

@@ -1,0 +1,40 @@
+[package]
+name = "xshi"
+version = "0.0.1"
+edition = "2024"
+publish = false
+
+[dependencies]
+libc = "0.2"
+rustc-hash = "2.1.2"
+rustix = { version = "1.1.4", features = ["event", "fs", "stdio", "termios"] }
+sha2 = "0.11"
+xsh = { path = "../..", default-features = true }
+
+[features]
+default = []
+perf-metrics = ["xsh/perf-metrics"]
+
+[dev-dependencies]
+criterion = { version = "0.8", features = ["html_reports"] }
+tempfile = "3"
+
+[[bench]]
+name = "bench"
+harness = false
+
+[lints.clippy]
+nursery = { level = "allow", priority = -2 }
+pedantic = { level = "allow", priority = -2 }
+complexity = { level = "deny", priority = -2 }
+correctness = { level = "deny", priority = -2 }
+perf = { level = "deny", priority = -2 }
+restriction = { level = "allow", priority = -2 }
+suspicious = { level = "deny", priority = -2 }
+cargo = { level = "deny", priority = -1 }
+style = { level = "deny", priority = -1 }
+blanket_clippy_restriction_lints = { level = "allow", priority = 0 }
+wildcard_imports = { level = "deny", priority = 0 }
+disallowed_types = { level = "deny", priority = 1 }
+single_call_fn = { level = "allow", priority = 1 }
+multiple_crate_versions = { level = "allow", priority = 1 }

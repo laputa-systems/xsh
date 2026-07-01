@@ -1,0 +1,47 @@
+[package]
+name = "xsht"
+version = "0.0.1"
+edition = "2024"
+publish = false
+
+[features]
+default = []
+docs-html = ["dep:pulldown-cmark"]
+
+[dependencies]
+crossbeam-channel = "0.5"
+ignore = "=0.4.25"
+libc = "0.2"
+miniserde = "0.1"
+pulldown-cmark = { version = "0.13.4", optional = true, default-features = false, features = ["html"] }
+rustc-hash = "2.1.2"
+rustix = { version = "1.1.4", features = ["process"] }
+tempfile = "3"
+xsh = { path = "../..", default-features = true }
+xsh-registry = { path = "../xsh-registry" }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+syscalls = { version = "0.8.1", default-features = false, features = ["aarch64", "x86_64"] }
+
+[dev-dependencies]
+
+[[test]]
+name = "docs"
+path = "tests/docs.rs"
+required-features = ["docs-html"]
+
+[lints.clippy]
+nursery = { level = "allow", priority = -2 }
+pedantic = { level = "allow", priority = -2 }
+complexity = { level = "deny", priority = -2 }
+correctness = { level = "deny", priority = -2 }
+perf = { level = "deny", priority = -2 }
+restriction = { level = "allow", priority = -2 }
+suspicious = { level = "deny", priority = -2 }
+cargo = { level = "deny", priority = -1 }
+style = { level = "deny", priority = -1 }
+blanket_clippy_restriction_lints = { level = "allow", priority = 0 }
+wildcard_imports = { level = "deny", priority = 0 }
+disallowed_types = { level = "deny", priority = 1 }
+single_call_fn = { level = "allow", priority = 1 }
+multiple_crate_versions = { level = "allow", priority = 1 }

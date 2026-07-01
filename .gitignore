@@ -1,0 +1,8 @@
+target
+.env
+.zig-cache
+.out
+*.profraw
+# Default dhat-heap output when an xsh built with --features dhat-heap runs
+# without XSH_DHAT_OUT set (e.g. ad-hoc profiling). Real profiles go to target/.
+dhat-heap.json

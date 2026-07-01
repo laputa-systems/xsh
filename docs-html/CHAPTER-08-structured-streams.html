@@ -1,0 +1,315 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Chapter 8: Structured Streams</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="site-header"><a href="index.html">XSH Docs</a><span>docs/CHAPTER-08-structured-streams.md</span></header>
+<div class="docs-shell">
+<aside class="page-toc" aria-label="Page contents">
+<h2>On This Page</h2>
+<ol>
+<li><a href="#the-pipeline-model">The Pipeline Model</a></li>
+<li><a href="#define-a-lazy-source">Define A Lazy Source</a></li>
+<li><a href="#build-a-first-file-report">Build A First File Report</a></li>
+<li><a href="#count-iterate-and-find-extremes">Count, Iterate, And Find Extremes</a></li>
+<li><a href="#aggregate-without-keeping-every-item">Aggregate Without Keeping Every Item</a></li>
+<li><a href="#keep-simple-stages-simple">Keep Simple Stages Simple</a></li>
+<li><a href="#batch-work-at-process-boundaries">Batch Work At Process Boundaries</a></li>
+<li><a href="#adapt-text-bytes-and-json">Adapt Text, Bytes, And JSON</a></li>
+<li><a href="#add-progress-without-changing-the-data">Add Progress Without Changing The Data</a></li>
+<li><a href="#table-output-and-surface-survey">Table Output And Surface Survey</a></li>
+<li><a href="#what-you-know-now">What You Know Now</a></li>
+</ol>
+</aside>
+<main class="markdown-body">
+<nav class="chapter-nav" aria-label="Chapter navigation">
+<a rel="prev" href="CHAPTER-07-json-data.html"><span>Previous</span>Chapter 7: JSON And Data Boundaries</a>
+<a rel="next" href="CHAPTER-09-archive-diff-patch.html"><span>Next</span>Chapter 9: Archives, Diffs, And Patches</a>
+</nav>
+<h1>Chapter 8: Structured Streams</h1>
+<p>Structured streams are for data that already has shape. They are separate from
+byte pipelines that run external commands, and they let a script transform
+lists, records, paths, JSON values, text lines, and byte chunks without
+round-tripping everything through untyped text.</p>
+<p>By the end of this chapter, you should be able to build a report pipeline,
+choose when to materialize a list, aggregate large inputs without keeping every
+item, batch argv for process boundaries, and add progress output without
+rewriting the pipeline.</p>
+<h2 id="the-pipeline-model">The Pipeline Model</h2>
+<p>A structured pipeline uses <code>|&gt;</code>. Each stage receives the output of the previous
+stage, transforms or filters it, and passes the result forward.</p>
+<pre><code class="language-text">source |&gt; stage |&gt; stage
+</code></pre>
+<p>A pipeline expression evaluates to a <code>List[T]</code> unless it ends in a terminal
+stage. Terminal stages produce scalar values: <code>count()</code>, <code>sum()</code>, <code>min()</code>,
+<code>max()</code>, <code>first()</code>, <code>last()</code>, <code>any</code>, <code>all</code>, <code>fold(init) { ... }</code>, and
+<code>reduce-by</code>.</p>
+<p>When items are consumed one-by-one and no intermediate list is needed, write a
+<code>for</code> loop over the pipeline. That lets live sources such as <code>fs.walk(root)</code> run
+lazily: items are produced and processed as needed, and short-circuiting stages
+stop early.</p>
+<p>Live sources include filesystem walks, file/text/byte line streams, process
+output streams, and user-defined <code>stream</code> producers. <code>where</code>, <code>map</code>,
+<code>flat-map</code>, <code>take</code>, and <code>drop</code> preserve laziness when a live stream is consumed
+directly by a <code>for</code> loop or by a terminal stage. A plain <code>let rows = source |&gt; map ...</code> materializes a reusable list at the binding boundary; use <code>collect()</code>
+as a pipeline terminal when you want that materialization to be explicit, or
+<code>stream.collect()</code> when you already have a stream value outside pipeline syntax.</p>
+<h2 id="define-a-lazy-source">Define A Lazy Source</h2>
+<p>Use <code>stream</code> when a script needs a named source that produces items on demand.
+The signature returns <code>Stream[T]</code>, and each <code>yield</code> emits one item of that type.</p>
+<pre><code class="language-xsh"><span class="tok-keyword">type</span> <span class="tok-type">Package</span> <span class="tok-operator">=</span> <span class="tok-punctuation">{</span><span class="tok-ident">name</span><span class="tok-punctuation">:</span> <span class="tok-type">Str</span><span class="tok-punctuation">,</span> <span class="tok-ident">enabled</span><span class="tok-punctuation">:</span> <span class="tok-type">Bool</span><span class="tok-punctuation">}</span>
+
+<span class="tok-keyword">stream</span> <span class="tok-ident">manifest_packages</span><span class="tok-punctuation">(</span><span class="tok-ident">path</span><span class="tok-punctuation">:</span> <span class="tok-type">Path</span><span class="tok-punctuation">)</span> <span class="tok-punctuation">[</span><span class="tok-ident">fs</span><span class="tok-punctuation">,</span> <span class="tok-ident">error</span><span class="tok-punctuation">]</span> <span class="tok-operator">-&gt;</span> <span class="tok-type">Stream</span><span class="tok-punctuation">[</span><span class="tok-type">Package</span><span class="tok-punctuation">]</span> <span class="tok-punctuation">{</span>
+  <span class="tok-keyword">for</span> <span class="tok-ident">line</span> <span class="tok-keyword">in</span> <span class="tok-ident">path</span><span class="tok-punctuation">.</span><span class="tok-ident">lines</span><span class="tok-punctuation">(</span><span class="tok-punctuation">)</span><span class="tok-operator">?</span> <span class="tok-punctuation">{</span>
+    <span class="tok-keyword">let</span> <span class="tok-ident">trimmed</span> <span class="tok-operator">=</span> <span class="tok-ident">line</span><span class="tok-punctuation">.</span><span class="tok-ident">trim</span><span class="tok-punctuation">(</span><span class="tok-punctuation">)</span>
+
+    <span class="tok-keyword">if</span> <span class="tok-ident">trimmed</span> <span class="tok-operator">!=</span> <span class="tok-string">&quot;&quot;</span> <span class="tok-punctuation">{</span>
+      <span class="tok-keyword">let</span> <span class="tok-ident">parts</span> <span class="tok-operator">=</span> <span class="tok-ident">trimmed</span><span class="tok-punctuation">.</span><span class="tok-ident">split</span><span class="tok-punctuation">(</span><span class="tok-string">&quot;:&quot;</span><span class="tok-punctuation">)</span>
+      <span class="tok-keyword">yield</span> <span class="tok-punctuation">{</span><span class="tok-ident">name</span><span class="tok-punctuation">:</span> <span class="tok-ident">parts</span><span class="tok-punctuation">[</span><span class="tok-literal">0</span><span class="tok-punctuation">]</span><span class="tok-punctuation">,</span> <span class="tok-ident">enabled</span><span class="tok-punctuation">:</span> <span class="tok-ident">parts</span><span class="tok-punctuation">.</span><span class="tok-ident">get</span><span class="tok-punctuation">(</span><span class="tok-literal">1</span><span class="tok-punctuation">,</span> <span class="tok-string">&quot;enabled&quot;</span><span class="tok-punctuation">)</span> <span class="tok-operator">==</span> <span class="tok-string">&quot;enabled&quot;</span><span class="tok-punctuation">}</span>
+    <span class="tok-punctuation">}</span>
+  <span class="tok-punctuation">}</span>
+<span class="tok-punctuation">}</span>
+
+<span class="tok-keyword">let</span> <span class="tok-ident">names</span> <span class="tok-operator">=</span> <span class="tok-ident">manifest_packages</span><span class="tok-punctuation">(</span><span class="tok-string">p&quot;packages.txt&quot;</span><span class="tok-punctuation">)</span>
+  <span class="tok-operator">|&gt;</span> <span class="tok-ident">where</span> <span class="tok-punctuation">.</span><span class="tok-ident">enabled</span>
+  <span class="tok-operator">|&gt;</span> <span class="tok-ident">map</span> <span class="tok-punctuation">.</span><span class="tok-ident">name</span>
+</code></pre>
+<p><code>yield</code> is valid only inside a <code>stream</code> body. Use <code>return</code> without a value to
+stop early. To delegate another stream, write an explicit loop:
+<code>for item in source { yield item }</code>.</p>
+<h2 id="build-a-first-file-report">Build A First File Report</h2>
+<p>This script creates a small source tree, walks it, sorts file records, maps
+them to names, and then builds parallel summaries.</p>
+<pre><code class="language-xsh"><span class="tok-keyword">let</span> <span class="tok-ident">root_handle</span> <span class="tok-operator">=</span> <span class="tok-ident">fs</span><span class="tok-punctuation">.</span><span class="tok-ident">tempdir</span><span class="tok-punctuation">(</span><span class="tok-punctuation">)</span><span class="tok-operator">?</span>
+<span class="tok-keyword">defer</span> <span class="tok-ident">fs</span><span class="tok-punctuation">.</span><span class="tok-ident">close_root</span><span class="tok-punctuation">(</span><span class="tok-ident">root_handle</span><span class="tok-punctuation">)</span><span class="tok-operator">?</span>
+<span class="tok-keyword">let</span> <span class="tok-ident">root</span> <span class="tok-operator">=</span> <span class="tok-ident">fs</span><span class="tok-punctuation">.</span><span class="tok-ident">root_path</span><span class="tok-punctuation">(</span><span class="tok-ident">root_handle</span><span class="tok-punctuation">)</span><span class="tok-operator">?</span>
+<span class="tok-keyword">let</span> <span class="tok-ident">src</span> <span class="tok-operator">=</span> <span class="tok-string">fp&quot;${root}/src&quot;</span>
+<span class="tok-ident">src</span><span class="tok-punctuation">.</span><span class="tok-ident">mkdir</span><span class="tok-punctuation">(</span><span class="tok-punctuation">)</span>
+
+<span class="tok-ident">fs</span><span class="tok-punctuation">.</span><span class="tok-ident">write</span><span class="tok-punctuation">(</span>
+  <span class="tok-string">fp&quot;${src}/main.xsh&quot;</span><span class="tok-punctuation">,</span>
+  <span class="tok-string">&quot;&quot;&quot;print &quot;hi&quot;
+&quot;&quot;&quot;</span><span class="tok-punctuation">,</span>
+<span class="tok-punctuation">)</span><span class="tok-operator">?</span>
+
+<span class="tok-ident">fs</span><span class="tok-punctuation">.</span><span class="tok-ident">write</span><span class="tok-punctuation">(</span>
+  <span class="tok-string">fp&quot;${src}/lib.xsh&quot;</span><span class="tok-punctuation">,</span>
+  <span class="tok-string">&quot;&quot;&quot;pure id(value: Str) -&gt; Str { value }
+&quot;&quot;&quot;</span><span class="tok-punctuation">,</span>
+<span class="tok-punctuation">)</span><span class="tok-operator">?</span>
+
+<span class="tok-keyword">let</span> <span class="tok-ident">files</span> <span class="tok-operator">=</span> <span class="tok-ident">fs</span><span class="tok-punctuation">.</span><span class="tok-ident">files</span><span class="tok-punctuation">(</span><span class="tok-ident">root</span><span class="tok-punctuation">)</span> <span class="tok-operator">|&gt;</span> <span class="tok-ident">sort-by</span> <span class="tok-punctuation">.</span><span class="tok-ident">name</span>
+<span class="tok-keyword">let</span> <span class="tok-ident">names</span> <span class="tok-operator">=</span> <span class="tok-ident">files</span> <span class="tok-operator">|&gt;</span> <span class="tok-ident">map</span> <span class="tok-punctuation">.</span><span class="tok-ident">name</span>
+
+<span class="tok-keyword">let</span> <span class="tok-ident">reports</span> <span class="tok-operator">=</span> <span class="tok-ident">files</span>
+  <span class="tok-operator">|&gt;</span> <span class="tok-ident">par-map</span> <span class="tok-punctuation">{</span> <span class="tok-operator">|</span><span class="tok-ident">value</span><span class="tok-operator">|</span>
+    <span class="tok-string">f&quot;${value.name}:${value.size}&quot;</span>
+  <span class="tok-punctuation">}</span>
+
+<span class="tok-ident">print</span> <span class="tok-ident">names</span><span class="tok-punctuation">[</span><span class="tok-literal">0</span><span class="tok-punctuation">]</span> <span class="tok-ident">names</span><span class="tok-punctuation">[</span><span class="tok-literal">1</span><span class="tok-punctuation">]</span>
+<span class="tok-ident">print</span> <span class="tok-ident">reports</span><span class="tok-punctuation">[</span><span class="tok-literal">0</span><span class="tok-punctuation">]</span> <span class="tok-ident">reports</span><span class="tok-punctuation">[</span><span class="tok-literal">1</span><span class="tok-punctuation">]</span>
+</code></pre>
+<p>The first pipeline returns a <code>List[Str]</code>; no explicit collection step is
+needed. You can end a pipeline with <code>collect()</code> when making that list boundary
+visible helps readability. The second uses <code>par-map</code>, which defaults to one
+worker per CPU. Add <code>--jobs=N</code> when the script needs an explicit cap.</p>
+<p>Why XSH shines here: stream stages describe data flow without forcing every
+transformation through line-oriented text.</p>
+<p>Compared with bash and CLI tools: a text pipeline is compact, but every stage
+agrees only on bytes or lines. A structured stream lets each stage receive
+records, paths, numbers, or JSON values without reparsing the previous stage's
+output.</p>
+<p>Common trap: use a pipeline when you are transforming data into new data. Use a
+<code>for</code> loop when each item is mainly being handled for side effects.</p>
+<h2 id="count-iterate-and-find-extremes">Count, Iterate, And Find Extremes</h2>
+<p><code>range(n)</code> and <code>range(start, n)</code> produce streams of consecutive integers.
+Combined with <code>for</code>, they replace counter-variable loops for index-based
+iteration:</p>
+<pre><code class="language-xsh"><span class="tok-keyword">for</span> <span class="tok-ident">i</span> <span class="tok-keyword">in</span> <span class="tok-ident">range</span><span class="tok-punctuation">(</span><span class="tok-literal">5</span><span class="tok-punctuation">)</span> <span class="tok-punctuation">{</span>
+  <span class="tok-ident">print</span> <span class="tok-string">f&quot;step ${i}&quot;</span>
+<span class="tok-punctuation">}</span>
+
+<span class="tok-keyword">let</span> <span class="tok-ident">squares</span> <span class="tok-operator">=</span> <span class="tok-ident">range</span><span class="tok-punctuation">(</span><span class="tok-literal">1</span><span class="tok-punctuation">,</span> <span class="tok-literal">6</span><span class="tok-punctuation">)</span> <span class="tok-operator">|&gt;</span> <span class="tok-ident">map</span> <span class="tok-punctuation">{</span> <span class="tok-punctuation">.</span> <span class="tok-operator">*</span> <span class="tok-punctuation">.</span> <span class="tok-punctuation">}</span>
+<span class="tok-ident">print</span> <span class="tok-punctuation">${</span><span class="tok-ident">squares</span><span class="tok-punctuation">[</span><span class="tok-literal">4</span><span class="tok-punctuation">]</span><span class="tok-punctuation">}</span>
+</code></pre>
+<p>To avoid materializing a large file list, iterate directly:</p>
+<pre><code class="language-xsh"><span class="tok-keyword">let</span> <span class="tok-ident">root</span> <span class="tok-operator">=</span> <span class="tok-ident">fs</span><span class="tok-punctuation">.</span><span class="tok-ident">cwd</span><span class="tok-punctuation">(</span><span class="tok-punctuation">)</span><span class="tok-operator">?</span>
+<span class="tok-keyword">for</span> <span class="tok-ident">entry</span> <span class="tok-keyword">in</span> <span class="tok-ident">fs</span><span class="tok-punctuation">.</span><span class="tok-ident">files</span><span class="tok-punctuation">(</span><span class="tok-ident">root</span><span class="tok-punctuation">)</span> <span class="tok-punctuation">{</span>
+  <span class="tok-ident">print</span> <span class="tok-string">f&quot;${entry.size}  ${entry.path.display()}&quot;</span>
+<span class="tok-punctuation">}</span>
+</code></pre>
+<p>Use terminal stages when the final answer is a scalar:</p>
+<pre><code class="language-xsh"><span class="tok-keyword">let</span> <span class="tok-ident">sizes</span> <span class="tok-operator">=</span> <span class="tok-ident">fs</span><span class="tok-punctuation">.</span><span class="tok-ident">files</span><span class="tok-punctuation">(</span><span class="tok-ident">fs</span><span class="tok-punctuation">.</span><span class="tok-ident">cwd</span><span class="tok-punctuation">(</span><span class="tok-punctuation">)</span><span class="tok-operator">?</span><span class="tok-punctuation">)</span>
+  <span class="tok-operator">|&gt;</span> <span class="tok-ident">map</span> <span class="tok-punctuation">.</span><span class="tok-ident">size</span>
+
+<span class="tok-keyword">let</span> <span class="tok-ident">smallest</span> <span class="tok-operator">=</span> <span class="tok-ident">sizes</span> <span class="tok-operator">|&gt;</span> <span class="tok-ident">min</span><span class="tok-punctuation">(</span><span class="tok-punctuation">)</span><span class="tok-operator">?</span>
+<span class="tok-keyword">let</span> <span class="tok-ident">largest</span> <span class="tok-operator">=</span> <span class="tok-ident">sizes</span> <span class="tok-operator">|&gt;</span> <span class="tok-ident">max</span><span class="tok-punctuation">(</span><span class="tok-punctuation">)</span><span class="tok-operator">?</span>
+<span class="tok-ident">print</span> <span class="tok-string">f&quot;smallest ${smallest}  largest ${largest}&quot;</span>
+</code></pre>
+<p>For keyed comparisons, combine <code>sort-by</code> with <code>first()</code> or <code>last()</code>:</p>
+<pre><code class="language-xsh"><span class="tok-keyword">let</span> <span class="tok-ident">oldest</span> <span class="tok-operator">=</span> <span class="tok-ident">fs</span><span class="tok-punctuation">.</span><span class="tok-ident">files</span><span class="tok-punctuation">(</span><span class="tok-ident">root</span><span class="tok-punctuation">)</span> <span class="tok-operator">|&gt;</span> <span class="tok-ident">sort-by</span> <span class="tok-punctuation">.</span><span class="tok-ident">modified</span> <span class="tok-operator">|&gt;</span> <span class="tok-ident">first</span><span class="tok-punctuation">(</span><span class="tok-punctuation">)</span><span class="tok-operator">?</span>
+</code></pre>
+<h2 id="aggregate-without-keeping-every-item">Aggregate Without Keeping Every Item</h2>
+<p><code>group-by</code> is useful when you need each group and its items. For large inputs
+where you only need totals, use <code>reduce-by</code>. It keeps one accumulator per key
+instead of holding every item in every group.</p>
+<pre><code class="language-xsh"><span class="tok-keyword">let</span> <span class="tok-ident">by_ext</span> <span class="tok-operator">=</span> <span class="tok-ident">fs</span><span class="tok-punctuation">.</span><span class="tok-ident">walk</span><span class="tok-punctuation">(</span><span class="tok-ident">root</span><span class="tok-punctuation">)</span>
+  <span class="tok-operator">|&gt;</span> <span class="tok-ident">where</span> <span class="tok-punctuation">.</span><span class="tok-ident">kind</span> <span class="tok-operator">==</span> <span class="tok-string">&quot;file&quot;</span> <span class="tok-keyword">and</span> <span class="tok-punctuation">.</span><span class="tok-ident">ext</span> <span class="tok-operator">!=</span> <span class="tok-string">&quot;&quot;</span>
+  <span class="tok-operator">|&gt;</span> <span class="tok-ident">reduce-by</span> <span class="tok-operator">-</span><span class="tok-operator">-</span><span class="tok-ident">sum</span> <span class="tok-punctuation">{</span> <span class="tok-operator">|</span><span class="tok-ident">e</span><span class="tok-operator">|</span> <span class="tok-punctuation">{</span><span class="tok-ident">key</span><span class="tok-punctuation">:</span> <span class="tok-ident">e</span><span class="tok-punctuation">.</span><span class="tok-ident">ext</span><span class="tok-punctuation">.</span><span class="tok-ident">lower</span><span class="tok-punctuation">(</span><span class="tok-punctuation">)</span><span class="tok-punctuation">,</span> <span class="tok-ident">value</span><span class="tok-punctuation">:</span> <span class="tok-literal">1</span><span class="tok-punctuation">}</span> <span class="tok-punctuation">}</span>
+
+<span class="tok-ident">print</span> <span class="tok-string">f&quot;${by_ext.get(&quot;rs&quot;, 0)} .rs files&quot;</span>
+</code></pre>
+<p><code>--sum</code> adds <code>Int</code>s and <code>Float</code>s, and it adds records field-by-field:</p>
+<pre><code class="language-xsh"><span class="tok-keyword">let</span> <span class="tok-ident">stats</span> <span class="tok-operator">=</span> <span class="tok-ident">fs</span><span class="tok-punctuation">.</span><span class="tok-ident">walk</span><span class="tok-punctuation">(</span><span class="tok-ident">root</span><span class="tok-punctuation">)</span>
+  <span class="tok-operator">|&gt;</span> <span class="tok-ident">where</span> <span class="tok-punctuation">.</span><span class="tok-ident">kind</span> <span class="tok-operator">==</span> <span class="tok-string">&quot;file&quot;</span>
+  <span class="tok-operator">|&gt;</span> <span class="tok-ident">reduce-by</span> <span class="tok-operator">-</span><span class="tok-operator">-</span><span class="tok-ident">sum</span> <span class="tok-punctuation">{</span> <span class="tok-operator">|</span><span class="tok-ident">e</span><span class="tok-operator">|</span> <span class="tok-punctuation">{</span><span class="tok-ident">key</span><span class="tok-punctuation">:</span> <span class="tok-ident">e</span><span class="tok-punctuation">.</span><span class="tok-ident">ext</span><span class="tok-punctuation">.</span><span class="tok-ident">lower</span><span class="tok-punctuation">(</span><span class="tok-punctuation">)</span><span class="tok-punctuation">,</span> <span class="tok-ident">value</span><span class="tok-punctuation">:</span> <span class="tok-punctuation">{</span><span class="tok-ident">count</span><span class="tok-punctuation">:</span> <span class="tok-literal">1</span><span class="tok-punctuation">,</span> <span class="tok-ident">size</span><span class="tok-punctuation">:</span> <span class="tok-ident">e</span><span class="tok-punctuation">.</span><span class="tok-ident">size</span><span class="tok-punctuation">}</span><span class="tok-punctuation">}</span> <span class="tok-punctuation">}</span>
+</code></pre>
+<p>Add <code>--jobs=N</code> only when parallel aggregation is worth the extra complexity.
+When tracing is off, XSH can fuse adjacent <code>par-map |&gt; reduce-by</code> into one
+worker-local aggregation. If <code>where</code>, <code>map</code>, or <code>flat-map</code> stages sit between
+them, the pipeline uses the ordinary materialized path.</p>
+<p>Do not use <code>group-by</code> for large inputs when you only need totals. It keeps every
+item in each group. Use <code>reduce-by</code> to keep one accumulator per key.</p>
+<h2 id="keep-simple-stages-simple">Keep Simple Stages Simple</h2>
+<p>Most stages accept a bare expression after the stage name, with <code>.</code> standing
+for the current item:</p>
+<pre><code class="language-xsh"><span class="tok-operator">|&gt;</span> <span class="tok-ident">where</span> <span class="tok-punctuation">.</span><span class="tok-ident">kind</span> <span class="tok-operator">==</span> <span class="tok-string">&quot;file&quot;</span> <span class="tok-keyword">and</span> <span class="tok-punctuation">.</span><span class="tok-ident">size</span> <span class="tok-operator">&gt;</span> <span class="tok-literal">1024</span>
+<span class="tok-operator">|&gt;</span> <span class="tok-ident">sort-by</span> <span class="tok-literal">0</span> <span class="tok-operator">-</span> <span class="tok-punctuation">.</span><span class="tok-ident">size</span>
+<span class="tok-operator">|&gt;</span> <span class="tok-ident">map</span> <span class="tok-punctuation">.</span><span class="tok-ident">name</span>
+</code></pre>
+<p>Use a block when the transformation needs local bindings or more than one
+statement:</p>
+<pre><code class="language-xsh"><span class="tok-operator">|&gt;</span> <span class="tok-ident">map</span> <span class="tok-punctuation">{</span> <span class="tok-operator">|</span><span class="tok-ident">entry</span><span class="tok-operator">|</span>
+  <span class="tok-punctuation">{</span><span class="tok-ident">name</span><span class="tok-punctuation">:</span> <span class="tok-ident">entry</span><span class="tok-punctuation">.</span><span class="tok-ident">path</span><span class="tok-punctuation">.</span><span class="tok-ident">name</span><span class="tok-punctuation">(</span><span class="tok-punctuation">)</span><span class="tok-punctuation">,</span> <span class="tok-ident">size</span><span class="tok-punctuation">:</span> <span class="tok-ident">entry</span><span class="tok-punctuation">.</span><span class="tok-ident">size</span><span class="tok-punctuation">}</span>
+<span class="tok-punctuation">}</span>
+</code></pre>
+<h2 id="batch-work-at-process-boundaries">Batch Work At Process Boundaries</h2>
+<p>Batching groups stream items before a later stage handles them. This is useful
+when work naturally happens in chunks or when an external command has argv
+limits.</p>
+<pre><code class="language-xsh"><span class="tok-keyword">let</span> <span class="tok-ident">objects</span> <span class="tok-operator">=</span> <span class="tok-punctuation">[</span><span class="tok-string">p&quot;build/main.o&quot;</span><span class="tok-punctuation">,</span> <span class="tok-string">p&quot;build/lib.o&quot;</span><span class="tok-punctuation">,</span> <span class="tok-string">p&quot;build/cli.o&quot;</span><span class="tok-punctuation">,</span> <span class="tok-string">p&quot;build/test.o&quot;</span><span class="tok-punctuation">,</span> <span class="tok-string">p&quot;build/doc.o&quot;</span><span class="tok-punctuation">]</span>
+<span class="tok-keyword">let</span> <span class="tok-ident">pairs</span> <span class="tok-operator">=</span> <span class="tok-ident">objects</span> <span class="tok-operator">|&gt;</span> <span class="tok-ident">batch</span> <span class="tok-operator">-</span><span class="tok-operator">-</span><span class="tok-ident">count</span><span class="tok-operator">=</span><span class="tok-literal">2</span>
+<span class="tok-ident">print</span> <span class="tok-ident">pairs</span><span class="tok-punctuation">[</span><span class="tok-literal">0</span><span class="tok-punctuation">]</span><span class="tok-punctuation">[</span><span class="tok-literal">0</span><span class="tok-punctuation">]</span><span class="tok-punctuation">.</span><span class="tok-ident">name</span> <span class="tok-ident">pairs</span><span class="tok-punctuation">[</span><span class="tok-literal">0</span><span class="tok-punctuation">]</span><span class="tok-punctuation">[</span><span class="tok-literal">1</span><span class="tok-punctuation">]</span><span class="tok-punctuation">.</span><span class="tok-ident">name</span>
+<span class="tok-ident">print</span> <span class="tok-ident">pairs</span><span class="tok-punctuation">[</span><span class="tok-literal">2</span><span class="tok-punctuation">]</span><span class="tok-punctuation">[</span><span class="tok-literal">0</span><span class="tok-punctuation">]</span><span class="tok-punctuation">.</span><span class="tok-ident">name</span>
+
+<span class="tok-keyword">let</span> <span class="tok-ident">_linked</span> <span class="tok-operator">=</span> <span class="tok-ident">objects</span>
+  <span class="tok-operator">|&gt;</span> <span class="tok-ident">batch</span> <span class="tok-operator">-</span><span class="tok-operator">-</span><span class="tok-ident">max-argv</span>
+  <span class="tok-operator">|&gt;</span> <span class="tok-ident">each</span> <span class="tok-punctuation">{</span> <span class="tok-operator">|</span><span class="tok-ident">chunk</span><span class="tok-operator">|</span>
+    <span class="tok-keyword">run</span> <span class="tok-literal">true</span> <span class="tok-punctuation">@</span><span class="tok-ident">chunk</span>
+  <span class="tok-punctuation">}</span>
+
+<span class="tok-ident">print</span> <span class="tok-string">&quot;link argv ok&quot;</span>
+</code></pre>
+<p>The <code>@chunk</code> form is explicit argv splicing: take the list value named <code>chunk</code>
+and pass each item as its own command argument. XSH uses the <code>@</code> marker because
+expanding a list into argv is a process-boundary operation that should be
+visible in code review.</p>
+<p>Why XSH shines here: batch size and argv expansion are declared in the pipeline
+instead of hidden in manual list bookkeeping.</p>
+<p>Compared with bash and CLI tools: <code>xargs</code> solves batching by converting text
+back into argv. XSH batches values directly and makes the <code>@</code> argv expansion
+visible at the process boundary.</p>
+<h2 id="adapt-text-bytes-and-json">Adapt Text, Bytes, And JSON</h2>
+<p>Adapters bridge common boundaries into structured streams. Text can become
+lines, bytes can become fixed-size chunks, and JSON-lines input can become
+records.</p>
+<pre><code class="language-xsh"><span class="tok-keyword">let</span> <span class="tok-ident">files_text</span> <span class="tok-operator">=</span> <span class="tok-keyword">run</span><span class="tok-punctuation">.</span><span class="tok-ident">text</span> <span class="tok-ident">printf</span> <span class="tok-string">&quot;%s\n&quot;</span> <span class="tok-string">&quot;src/main.xsh&quot;</span> <span class="tok-string">&quot;src/lib.xsh&quot;</span> <span class="tok-operator">?</span>
+
+<span class="tok-keyword">let</span> <span class="tok-ident">paths</span> <span class="tok-operator">=</span> <span class="tok-ident">files_text</span>
+  <span class="tok-operator">|&gt;</span> <span class="tok-ident">text</span><span class="tok-punctuation">.</span><span class="tok-ident">lines</span>
+  <span class="tok-operator">|&gt;</span> <span class="tok-ident">map</span> <span class="tok-punctuation">{</span> <span class="tok-operator">|</span><span class="tok-ident">line</span><span class="tok-operator">|</span>
+    <span class="tok-string">fp&quot;${line}&quot;</span>
+  <span class="tok-punctuation">}</span>
+
+<span class="tok-ident">print</span> <span class="tok-ident">paths</span><span class="tok-punctuation">[</span><span class="tok-literal">0</span><span class="tok-punctuation">]</span><span class="tok-punctuation">.</span><span class="tok-ident">ext</span> <span class="tok-ident">paths</span><span class="tok-punctuation">[</span><span class="tok-literal">1</span><span class="tok-punctuation">]</span><span class="tok-punctuation">.</span><span class="tok-ident">name</span>
+<span class="tok-keyword">let</span> <span class="tok-ident">chunks</span> <span class="tok-operator">=</span> <span class="tok-literal">b&quot;print ok\n&quot;</span> <span class="tok-operator">|&gt;</span> <span class="tok-ident">bytes</span><span class="tok-punctuation">.</span><span class="tok-ident">chunks</span><span class="tok-punctuation">(</span><span class="tok-literal">2</span><span class="tok-punctuation">)</span>
+<span class="tok-ident">print</span> <span class="tok-punctuation">(</span><span class="tok-ident">chunks</span><span class="tok-punctuation">[</span><span class="tok-literal">0</span><span class="tok-punctuation">]</span> <span class="tok-operator">==</span> <span class="tok-literal">b&quot;pr&quot;</span><span class="tok-punctuation">)</span> <span class="tok-punctuation">(</span><span class="tok-ident">chunks</span><span class="tok-punctuation">[</span><span class="tok-literal">3</span><span class="tok-punctuation">]</span> <span class="tok-operator">==</span> <span class="tok-literal">b&quot;ok&quot;</span><span class="tok-punctuation">)</span>
+
+<span class="tok-keyword">let</span> <span class="tok-ident">records</span> <span class="tok-operator">=</span> <span class="tok-string">&quot;&quot;&quot;{&quot;name&quot;:&quot;small&quot;,&quot;size&quot;:1}
+{&quot;name&quot;:&quot;large&quot;,&quot;size&quot;:4}
+&quot;&quot;&quot;</span>
+  <span class="tok-operator">|&gt;</span> <span class="tok-ident">json</span><span class="tok-punctuation">.</span><span class="tok-ident">lines</span>
+  <span class="tok-operator">|&gt;</span> <span class="tok-ident">sort-by</span> <span class="tok-punctuation">.</span><span class="tok-ident">size</span>
+
+<span class="tok-ident">print</span> <span class="tok-ident">records</span><span class="tok-punctuation">[</span><span class="tok-literal">1</span><span class="tok-punctuation">]</span><span class="tok-punctuation">.</span><span class="tok-ident">name</span> <span class="tok-ident">records</span><span class="tok-punctuation">[</span><span class="tok-literal">0</span><span class="tok-punctuation">]</span><span class="tok-punctuation">.</span><span class="tok-ident">size</span>
+</code></pre>
+<p>Why XSH shines here: boundary conversions are explicit stages, so later stages
+can work with typed values.</p>
+<h2 id="add-progress-without-changing-the-data">Add Progress Without Changing The Data</h2>
+<p><code>tee</code> inserts a side-effect block into a pipeline without changing the items
+flowing through it.</p>
+<pre><code class="language-xsh"><span class="tok-keyword">let</span> <span class="tok-ident">root_handle</span> <span class="tok-operator">=</span> <span class="tok-ident">fs</span><span class="tok-punctuation">.</span><span class="tok-ident">tempdir</span><span class="tok-punctuation">(</span><span class="tok-punctuation">)</span><span class="tok-operator">?</span>
+<span class="tok-keyword">defer</span> <span class="tok-ident">fs</span><span class="tok-punctuation">.</span><span class="tok-ident">close_root</span><span class="tok-punctuation">(</span><span class="tok-ident">root_handle</span><span class="tok-punctuation">)</span><span class="tok-operator">?</span>
+<span class="tok-keyword">let</span> <span class="tok-ident">root</span> <span class="tok-operator">=</span> <span class="tok-ident">fs</span><span class="tok-punctuation">.</span><span class="tok-ident">root_path</span><span class="tok-punctuation">(</span><span class="tok-ident">root_handle</span><span class="tok-punctuation">)</span><span class="tok-operator">?</span>
+<span class="tok-ident">fs</span><span class="tok-punctuation">.</span><span class="tok-ident">write</span><span class="tok-punctuation">(</span><span class="tok-string">fp&quot;${root}/alpha.txt&quot;</span><span class="tok-punctuation">,</span> <span class="tok-string">&quot;aaa&quot;</span><span class="tok-punctuation">)</span><span class="tok-operator">?</span>
+<span class="tok-ident">fs</span><span class="tok-punctuation">.</span><span class="tok-ident">write</span><span class="tok-punctuation">(</span><span class="tok-string">fp&quot;${root}/beta.txt&quot;</span><span class="tok-punctuation">,</span> <span class="tok-string">&quot;bb&quot;</span><span class="tok-punctuation">)</span><span class="tok-operator">?</span>
+<span class="tok-ident">fs</span><span class="tok-punctuation">.</span><span class="tok-ident">write</span><span class="tok-punctuation">(</span><span class="tok-string">fp&quot;${root}/gamma.txt&quot;</span><span class="tok-punctuation">,</span> <span class="tok-string">&quot;c&quot;</span><span class="tok-punctuation">)</span><span class="tok-operator">?</span>
+
+<span class="tok-keyword">let</span> <span class="tok-ident">sizes</span> <span class="tok-operator">=</span> <span class="tok-ident">fs</span><span class="tok-punctuation">.</span><span class="tok-ident">children</span><span class="tok-punctuation">(</span><span class="tok-ident">root</span><span class="tok-punctuation">)</span>
+  <span class="tok-operator">|&gt;</span> <span class="tok-ident">where</span> <span class="tok-punctuation">.</span><span class="tok-ident">kind</span> <span class="tok-operator">==</span> <span class="tok-string">&quot;file&quot;</span>
+  <span class="tok-operator">|&gt;</span> <span class="tok-ident">sort-by</span> <span class="tok-punctuation">.</span><span class="tok-ident">path</span>
+  <span class="tok-operator">|&gt;</span> <span class="tok-ident">tee</span> <span class="tok-punctuation">{</span> <span class="tok-operator">|</span><span class="tok-ident">entry</span><span class="tok-operator">|</span>
+    <span class="tok-ident">print</span> <span class="tok-string">f&quot;visit ${entry.path.name()}&quot;</span>
+  <span class="tok-punctuation">}</span>
+  <span class="tok-operator">|&gt;</span> <span class="tok-ident">map</span> <span class="tok-punctuation">.</span><span class="tok-ident">size</span>
+
+<span class="tok-ident">print</span> <span class="tok-ident">sizes</span><span class="tok-punctuation">[</span><span class="tok-literal">0</span><span class="tok-punctuation">]</span> <span class="tok-ident">sizes</span><span class="tok-punctuation">[</span><span class="tok-literal">1</span><span class="tok-punctuation">]</span> <span class="tok-ident">sizes</span><span class="tok-punctuation">[</span><span class="tok-literal">2</span><span class="tok-punctuation">]</span>
+</code></pre>
+<p>The block receives each item, prints progress, and returns <code>Unit</code>. The stream
+continues unchanged and the final <code>map</code> still builds the size list.</p>
+<p>Use <code>tee</code> for progress reporting during development or long-running scripts.
+Remove it when the script no longer needs that output; the surrounding pipeline
+does not need to change.</p>
+<p>Do not leave noisy <code>tee</code> output in scripts whose stdout is a machine-readable
+contract. Send progress somewhere explicit or remove the tap.</p>
+<h2 id="table-output-and-surface-survey">Table Output And Surface Survey</h2>
+<p><code>table.print</code> is a terminal stage that renders a record stream as a
+terminal-width UTF-8 table. Columns are named explicitly to control order and
+visibility.</p>
+<pre><code class="language-xsh"><span class="tok-keyword">let</span> <span class="tok-ident">scratch_handle</span> <span class="tok-operator">=</span> <span class="tok-ident">fs</span><span class="tok-punctuation">.</span><span class="tok-ident">tempdir</span><span class="tok-punctuation">(</span><span class="tok-punctuation">)</span><span class="tok-operator">?</span>
+<span class="tok-keyword">defer</span> <span class="tok-ident">fs</span><span class="tok-punctuation">.</span><span class="tok-ident">close_root</span><span class="tok-punctuation">(</span><span class="tok-ident">scratch_handle</span><span class="tok-punctuation">)</span><span class="tok-operator">?</span>
+<span class="tok-keyword">let</span> <span class="tok-ident">scratch</span> <span class="tok-operator">=</span> <span class="tok-ident">fs</span><span class="tok-punctuation">.</span><span class="tok-ident">root_path</span><span class="tok-punctuation">(</span><span class="tok-ident">scratch_handle</span><span class="tok-punctuation">)</span><span class="tok-operator">?</span>
+<span class="tok-keyword">let</span> <span class="tok-ident">mode</span> <span class="tok-operator">=</span> <span class="tok-literal">0o755</span>
+<span class="tok-keyword">let</span> <span class="tok-ident">label</span> <span class="tok-operator">=</span> <span class="tok-string">f&quot;mode ${mode}&quot;</span>
+<span class="tok-keyword">let</span> <span class="tok-ident">raw_lines</span> <span class="tok-operator">=</span> <span class="tok-keyword">run</span><span class="tok-punctuation">.</span><span class="tok-keyword">stream</span> <span class="tok-operator">-</span><span class="tok-operator">-</span><span class="tok-ident">text</span> <span class="tok-ident">printf</span> <span class="tok-string">&quot;%s\n&quot;</span> <span class="tok-ident">alpha</span> <span class="tok-ident">beta</span> <span class="tok-ident">gamma</span>
+
+<span class="tok-keyword">let</span> <span class="tok-ident">lines</span> <span class="tok-operator">=</span> <span class="tok-ident">raw_lines</span>
+  <span class="tok-operator">|&gt;</span> <span class="tok-ident">drop</span><span class="tok-punctuation">(</span><span class="tok-literal">1</span><span class="tok-punctuation">)</span>
+  <span class="tok-operator">|&gt;</span> <span class="tok-ident">take</span><span class="tok-punctuation">(</span><span class="tok-literal">1</span><span class="tok-punctuation">)</span>
+
+<span class="tok-keyword">let</span> <span class="tok-ident">shuffled</span> <span class="tok-operator">=</span> <span class="tok-punctuation">[</span><span class="tok-literal">1</span><span class="tok-punctuation">,</span> <span class="tok-literal">2</span><span class="tok-punctuation">,</span> <span class="tok-literal">3</span><span class="tok-punctuation">]</span> <span class="tok-operator">|&gt;</span> <span class="tok-ident">shuffle</span><span class="tok-punctuation">(</span><span class="tok-literal">7</span><span class="tok-punctuation">)</span>
+
+<span class="tok-ident">error</span> <span class="tok-type">FsError</span> <span class="tok-operator">=</span> <span class="tok-type">NotFound</span><span class="tok-punctuation">(</span><span class="tok-ident">message</span><span class="tok-punctuation">:</span> <span class="tok-type">Str</span><span class="tok-punctuation">)</span> <span class="tok-punctuation">:</span> <span class="tok-type">NotFound</span>
+
+<span class="tok-keyword">let</span> <span class="tok-ident">_</span> <span class="tok-operator">=</span> <span class="tok-ident">process</span><span class="tok-punctuation">.</span><span class="tok-ident">command</span> <span class="tok-punctuation">{</span>
+  <span class="tok-ident">timeout</span> <span class="tok-operator">=</span> <span class="tok-literal">2s</span>
+  <span class="tok-keyword">run</span> <span class="tok-operator">-</span><span class="tok-operator">-</span><span class="tok-ident">timeout</span><span class="tok-operator">=</span><span class="tok-literal">1s</span> <span class="tok-ident">echo</span> <span class="tok-ident">ok</span>
+<span class="tok-punctuation">}</span>
+
+<span class="tok-keyword">match</span> <span class="tok-type">Err</span><span class="tok-punctuation">(</span><span class="tok-type">FsError</span><span class="tok-punctuation">.</span><span class="tok-type">NotFound</span><span class="tok-punctuation">(</span><span class="tok-ident">message</span><span class="tok-punctuation">:</span> <span class="tok-string">&quot;missing&quot;</span><span class="tok-punctuation">)</span><span class="tok-punctuation">)</span> <span class="tok-punctuation">{</span>
+  <span class="tok-type">Err</span><span class="tok-punctuation">(</span><span class="tok-type">FsError</span><span class="tok-punctuation">.</span><span class="tok-type">NotFound</span> <span class="tok-punctuation">{</span><span class="tok-ident">message</span><span class="tok-punctuation">:</span> <span class="tok-ident">_</span><span class="tok-punctuation">}</span><span class="tok-punctuation">)</span> <span class="tok-operator">=&gt;</span> <span class="tok-ident">print</span> <span class="tok-punctuation">${</span><span class="tok-ident">mode</span> <span class="tok-operator">==</span> <span class="tok-literal">493</span><span class="tok-punctuation">}</span> <span class="tok-punctuation">${</span><span class="tok-string">&quot;493&quot;</span> <span class="tok-keyword">in</span> <span class="tok-ident">label</span><span class="tok-punctuation">}</span> <span class="tok-ident">lines</span><span class="tok-punctuation">[</span><span class="tok-literal">0</span><span class="tok-punctuation">]</span> <span class="tok-punctuation">${</span><span class="tok-ident">shuffled</span> <span class="tok-operator">|&gt;</span> <span class="tok-ident">count</span><span class="tok-punctuation">(</span><span class="tok-punctuation">)</span><span class="tok-punctuation">}</span>
+<span class="tok-punctuation">}</span>
+</code></pre>
+<p>The example demonstrates table output alongside the compact stream surface:
+filtering, mapping, sorting, grouping, terminal checks, and record-shaped
+results.</p>
+<p>The reference manual lists every stage. In tutorial code, prefer the smallest
+stage vocabulary that makes the data flow obvious.</p>
+<h2 id="what-you-know-now">What You Know Now</h2>
+<p>Structured streams are the natural form for transforming shaped data. Materialize
+a list when later code needs a list. Iterate lazily when each item is handled
+once. Use terminal stages for scalar answers, <code>reduce-by</code> for large
+aggregations, <code>batch</code> and <code>@</code> at process boundaries, and <code>tee</code> for side-effect
+taps.</p>
+<nav class="chapter-nav" aria-label="Chapter navigation">
+<a rel="prev" href="CHAPTER-07-json-data.html"><span>Previous</span>Chapter 7: JSON And Data Boundaries</a>
+<a rel="next" href="CHAPTER-09-archive-diff-patch.html"><span>Next</span>Chapter 9: Archives, Diffs, And Patches</a>
+</nav>
+</main>
+</div>
+</body>
+</html>
