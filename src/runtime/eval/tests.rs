@@ -2264,6 +2264,7 @@ fn lowered_expr_has_str_predicate(expr: &LoweredExpr) -> bool {
             })
         }
         LoweredExpr::List(items) => items.iter().any(lowered_expr_has_str_predicate),
+        LoweredExpr::StrByteLen { .. } | LoweredExpr::StrByteAt { .. } => false,
         LoweredExpr::EmptyMap => false,
         LoweredExpr::Range { start, end, .. } => {
             lowered_expr_has_str_predicate(start) || lowered_expr_has_str_predicate(end)
@@ -2804,7 +2805,9 @@ fn lowered_int_has_count_lines(expr: &LoweredIntExpr) -> bool {
             lowered_int_has_count_lines(left) || lowered_int_has_count_lines(right)
         }
         LoweredIntExpr::Int(_)
-        | LoweredIntExpr::Slot(_) => false,
+        | LoweredIntExpr::Slot(_)
+        | LoweredIntExpr::StrByteLenSlot { .. }
+        | LoweredIntExpr::StrByteAtSlot { .. } => false,
     }
 }
 

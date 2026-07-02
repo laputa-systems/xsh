@@ -144,6 +144,17 @@ fn single_positional_arena_call_arg(args: &[ArenaCallArg]) -> Option<ExprId> {
     Some(value)
 }
 
+fn lowered_str_byte_op(
+    name: &str,
+    args: &[LoweredExpr],
+) -> bool {
+    match name {
+        "byte_len" => args.is_empty(),
+        "byte_at" => args.len() == 1 || args.len() == 2,
+        _ => false,
+    }
+}
+
 fn lowered_method_call_args(name: Name, args: &[ArenaCallArg]) -> Option<Vec<ExprId>> {
     if let Some(positional) = positional_call_args(args) {
         return Some(positional);
@@ -7663,17 +7674,32 @@ impl CompactLowerConstructProbe<'_, '_> {
                     });
                 }
                 let method_args = lowered_method_call_args(name, &args_vec)?;
+                let receiver =
+                    self.lower_expr(base, slots, current_function, item_slot)?;
                 let mut lowered_args = Vec::with_capacity(method_args.len());
                 for arg in method_args {
                     lowered_args.push(self.lower_expr(arg, slots, current_function, item_slot)?);
                 }
+                if lowered_str_byte_op(name.as_str(), &lowered_args) {
+                    return Some(match name.as_str() {
+                        "byte_len" => LoweredExpr::StrByteLen {
+                            receiver: Box::new(receiver),
+                            span,
+                        },
+                        "byte_at" => {
+                            let mut args = lowered_args.into_iter();
+                            LoweredExpr::StrByteAt {
+                                receiver: Box::new(receiver),
+                                index: Box::new(args.next().unwrap()),
+                                default: args.next().map(Box::new),
+                                span,
+                            }
+                        }
+                        _ => unreachable!(),
+                    });
+                }
                 Some(LoweredExpr::Method {
-                    receiver: Box::new(self.lower_expr(
-                        base,
-                        slots,
-                        current_function,
-                        item_slot,
-                    )?),
+                    receiver: Box::new(receiver),
                     name: name.to_string(),
                     args: lowered_args,
                     span,
@@ -10487,6 +10513,13 @@ pub(super) fn lower_int_expr_candidate(expr: &LoweredExpr) -> Option<LoweredIntE
                 right: Box::new(lower_int_expr_candidate(right)?),
             })
         }
+        LoweredExpr::StrByteLen { receiver, span } => match receiver.as_ref() {
+            LoweredExpr::Param(slot) => Some(LoweredIntExpr::StrByteLenSlot {
+                slot: *slot,
+                span: *span,
+            }),
+            _ => None,
+        },
         LoweredExpr::Method {
             receiver,
             name,
@@ -10495,6 +10528,23 @@ pub(super) fn lower_int_expr_candidate(expr: &LoweredExpr) -> Option<LoweredIntE
         } if name == "count_lines" && args.is_empty() => match receiver.as_ref() {
             LoweredExpr::Param(slot) => Some(LoweredIntExpr::StrCountLinesSlot {
                 slot: *slot,
+                span: *span,
+            }),
+            _ => None,
+        },
+        LoweredExpr::StrByteAt {
+            receiver,
+            index,
+            default,
+            span,
+        } => match receiver.as_ref() {
+            LoweredExpr::Param(slot) => Some(LoweredIntExpr::StrByteAtSlot {
+                slot: *slot,
+                index: Box::new(lower_int_expr_candidate(index)?),
+                default: match default {
+                    Some(value) => Some(Box::new(lower_int_expr_candidate(value)?)),
+                    None => None,
+                },
                 span: *span,
             }),
             _ => None,
@@ -10671,7 +10721,9 @@ pub(super) fn lowered_int_expr_needs_type_context(expr: &LoweredIntExpr) -> bool
         LoweredIntExpr::Slot(_) => true,
         LoweredIntExpr::Int(_)
         | LoweredIntExpr::Binary { .. }
-        | LoweredIntExpr::StrCountLinesSlot { .. } => false,
+        | LoweredIntExpr::StrByteLenSlot { .. }
+        | LoweredIntExpr::StrCountLinesSlot { .. }
+        | LoweredIntExpr::StrByteAtSlot { .. } => false,
     }
 }
 

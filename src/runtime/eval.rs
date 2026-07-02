@@ -1007,8 +1007,18 @@ enum LoweredIntExpr {
         left: Box<LoweredIntExpr>,
         right: Box<LoweredIntExpr>,
     },
+    StrByteLenSlot {
+        slot: usize,
+        span: Span,
+    },
     StrCountLinesSlot {
         slot: usize,
+        span: Span,
+    },
+    StrByteAtSlot {
+        slot: usize,
+        index: Box<LoweredIntExpr>,
+        default: Option<Box<LoweredIntExpr>>,
         span: Span,
     },
 }
@@ -1192,6 +1202,16 @@ enum LoweredExpr {
         receiver: Box<LoweredExpr>,
         name: String,
         args: Vec<LoweredExpr>,
+        span: Span,
+    },
+    StrByteLen {
+        receiver: Box<LoweredExpr>,
+        span: Span,
+    },
+    StrByteAt {
+        receiver: Box<LoweredExpr>,
+        index: Box<LoweredExpr>,
+        default: Option<Box<LoweredExpr>>,
         span: Span,
     },
     StrPredicate {
