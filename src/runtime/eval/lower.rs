@@ -1320,7 +1320,7 @@ use super::{
     LoweredRunArgKind, LoweredRunEnv, LoweredRunPipelineSegment, LoweredRunRedirection,
     LoweredStmt, LoweredStmtFlow, LoweredStrPredicate, LoweredTopLevelBinding, LoweredTopLevelKind,
     LoweredTopLevelSlot, LoweredTopLevelSlots, LoweredTopLevelStmt, LoweredType, LoweredTypeCheck,
-    LoweredValue, ReduceByOp, lowered_method_name,
+    LoweredValue, ReduceByOp, ScanCheck, ScanCondition, lowered_method_name,
 };
 
 pub(super) fn lowered_arena_type(
@@ -5167,12 +5167,18 @@ impl CompactLowerConstructProbe<'_, '_> {
                 slots.exit(saved);
                 let span = self.program.arena.stmt(id).span;
                 if str_lines_base.is_some() {
-                    Some(LoweredStmt::ForStrLines {
-                        slot,
-                        text: text_or_iter,
-                        body,
-                        span,
-                    })
+                    if let Some(scan) = try_lower_scan_lines(
+                        &text_or_iter, slot, &body, span,
+                    ) {
+                        Some(scan)
+                    } else {
+                        Some(LoweredStmt::ForStrLines {
+                            slot,
+                            text: text_or_iter,
+                            body,
+                            span,
+                        })
+                    }
                 } else {
                     Some(LoweredStmt::For {
                         slot,
@@ -10820,6 +10826,78 @@ pub(super) fn lowered_bool_expr_needs_type_context(expr: &LoweredBoolExpr) -> bo
 /// procs (and whether value-returning procs are well-formed). It must be
 /// CONSERVATIVE: the runtime never treats a bare tail `Expr` statement as a
 /// return (it yields `LoweredStmtFlow::None` for a non-error value), and an `if`
+/// Try to lower a ForStrLines body into a `ScanLines` node for faster
+/// execution. Returns `Some(ScanLines)` if the body matches the simple scanner
+/// pattern: a single `IfBool` where every branch is a counter increment.
+fn try_lower_scan_lines(
+    text: &LoweredExpr,
+    line_slot: usize,
+    body: &[LoweredStmt],
+    span: Span,
+) -> Option<LoweredStmt> {
+    let text_slot = match text {
+        LoweredExpr::Param(slot) => *slot,
+        _ => return None,
+    };
+    if body.len() != 1 {
+        return None;
+    }
+    let if_stmt = &body[0];
+    match if_stmt {
+        LoweredStmt::IfBool {
+            branches,
+            else_body,
+        } => {
+            if else_body.is_some() {
+                return None;
+            }
+            let mut checks = Vec::with_capacity(branches.len());
+            for (condition, branch_body) in branches {
+                if branch_body.len() != 1 {
+                    return None;
+                }
+                let counter_slot = match &branch_body[0] {
+                    LoweredStmt::Assign {
+                        slot,
+                        op: AssignOp::Add,
+                        value,
+                        ..
+                    } => match value {
+                        LoweredExpr::Int(1) => *slot,
+                        _ => return None,
+                    },
+                    _ => return None,
+                };
+                let scan_condition = match condition {
+                    LoweredBoolExpr::TrimEmptySlot { .. } => ScanCondition::TrimEmpty,
+                    LoweredBoolExpr::TrimStrPredicateSlot {
+                        predicate: LoweredStrPredicate::StartsWith,
+                        needle,
+                        ..
+                    } => ScanCondition::TrimStartsWith(needle.to_vec()),
+                    LoweredBoolExpr::StrPredicateSlot {
+                        predicate: LoweredStrPredicate::StartsWith,
+                        needle,
+                        ..
+                    } => ScanCondition::StartsWith(needle.to_vec()),
+                    _ => return None,
+                };
+                checks.push(ScanCheck {
+                    condition: scan_condition,
+                    counter_slot,
+                });
+            }
+            Some(LoweredStmt::ScanLines {
+                text_slot,
+                line_slot,
+                checks,
+                span,
+            })
+        }
+        _ => None,
+    }
+}
+
 /// Recursively check whether a lowered statement body contains any `Defer`
 /// statements (including those nested inside `If` branches, `Retry` bodies, etc.).
 pub(super) fn lowered_body_has_defers(statements: &[LoweredStmt]) -> bool {
@@ -10866,6 +10944,7 @@ pub(super) fn lowered_body_can_return(statements: &[LoweredStmt]) -> bool {
         LoweredStmt::Return { .. } => true,
         LoweredStmt::Defer { .. } => false,
         LoweredStmt::Yield { .. } => false,
+        LoweredStmt::ScanLines { .. } => false,
         LoweredStmt::Break | LoweredStmt::BreakValue { .. } => false,
         LoweredStmt::Continue => false,
         LoweredStmt::If {

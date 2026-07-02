@@ -952,6 +952,12 @@ enum LoweredStmt {
         body: Vec<LoweredStmt>,
         span: Span,
     },
+    ScanLines {
+        text_slot: usize,
+        line_slot: usize,
+        checks: Vec<ScanCheck>,
+        span: Span,
+    },
     Print {
         args: Vec<LoweredExpr>,
         stderr: bool,
@@ -1727,6 +1733,20 @@ impl LoweredPipelineStage {
 enum LoweredStrPredicate {
     StartsWith,
     EndsWith,
+}
+
+#[derive(Clone, Debug)]
+enum ScanCondition {
+    TrimEmpty,
+    TrimStartsWith(Vec<u8>),
+    StartsWith(Vec<u8>),
+    IsEmpty,
+}
+
+#[derive(Clone, Debug)]
+struct ScanCheck {
+    condition: ScanCondition,
+    counter_slot: usize,
 }
 
 #[derive(Clone, Debug)]
