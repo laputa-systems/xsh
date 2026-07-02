@@ -1,7 +1,7 @@
 {
   "kind": "small-corpus-frontend-baseline",
-  "date": "2026-07-01",
-  "commit": "cb4a32fabbb1068798ff3517b1c8e5ccbee6b8b0",
+  "date": "2026-07-02",
+  "commit": "7f2e7490eabde13056524127c42d1d4623a6da28",
   "command": "cargo bench -p xshi --bench bench small_corpus -- --sample-size 10 --warm-up-time 0.5 --measurement-time 1",
   "platform": {
     "arch": "aarch64",
@@ -23,49 +23,57 @@
     "max_lines": 200,
     "max_bytes": 16384,
     "selected_files": 383,
-    "selected_lines": 15363,
-    "selected_bytes": 413237,
+    "selected_lines": 15369,
+    "selected_bytes": 413461,
     "skipped_large_files": 20,
     "skipped_parse_files": 0,
     "skipped_check_files": 4
   },
   "benchmarks": {
     "parse_small_corpus_le200_lines_16k": {
-      "time": "13.303 ms",
-      "time_range": "13.144 ms..13.653 ms",
-      "time_per_file": "34.7 us",
-      "allocs": 116726,
-      "allocated": "10.9 MiB",
-      "allocs_per_file": 304.8,
-      "allocated_per_file": "29.1 KiB"
+      "time": "14.337 ms",
+      "time_range": "14.117 ms..14.662 ms",
+      "time_per_file": "37.4 us",
+      "allocs": 115274,
+      "allocated": "10.0 MiB",
+      "allocs_per_file": 301.0,
+      "allocated_per_file": "26.8 KiB"
     },
     "parse_check_small_corpus_le200_lines_16k": {
-      "time": "23.752 ms",
-      "time_range": "22.690 ms..24.345 ms",
-      "time_per_file": "62.0 us",
-      "allocs": 215617,
-      "allocated": "26.0 MiB",
-      "allocs_per_file": 563.0,
-      "allocated_per_file": "69.6 KiB"
+      "time": "23.915 ms",
+      "time_range": "23.689 ms..24.484 ms",
+      "time_per_file": "62.4 us",
+      "allocs": 214208,
+      "allocated": "25.0 MiB",
+      "allocs_per_file": 559.3,
+      "allocated_per_file": "66.7 KiB"
     },
     "parse_check_lower_small_corpus_le200_lines_16k": {
-      "time": "25.071 ms",
-      "time_range": "24.988 ms..25.176 ms",
-      "time_per_file": "65.5 us",
-      "allocs": 222172,
-      "allocated": "33.5 MiB",
-      "allocs_per_file": 580.1,
-      "allocated_per_file": "89.6 KiB"
+      "time": "27.707 ms",
+      "time_range": "26.876 ms..28.399 ms",
+      "time_per_file": "72.3 us",
+      "allocs": 223725,
+      "allocated": "32.4 MiB",
+      "allocs_per_file": 584.1,
+      "allocated_per_file": "86.6 KiB"
     }
   },
   "phase_totals": {
     "parse_check_lower_small_corpus_le200_lines_16k": {
-      "total": "28.116248 ms",
-      "parse": "13.912376 ms",
-      "evaluator_init": "83.332 us",
-      "cwd": "6.703 us",
-      "compact_install": "11.811170 ms",
-      "teardown": "1.728300 ms"
+      "total": "26.599241 ms",
+      "parse": "13.966480 ms",
+      "evaluator_init": "108.218 us",
+      "cwd": "7.081 us",
+      "struct": "58.041 us",
+      "args": "43.096 us",
+      "decl": "258.266 us",
+      "runtime_decl": "18.744 us",
+      "body": "2.632869 ms",
+      "functions": "5.356127 ms",
+      "top_level": "2.080341 ms",
+      "commit": "54.115 us",
+      "compact_install": "10.400462 ms",
+      "teardown": "1.566501 ms"
     }
   }
 }

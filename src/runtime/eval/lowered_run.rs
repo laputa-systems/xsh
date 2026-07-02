@@ -38,8 +38,8 @@ use rustc_hash::FxHashMap;
 use std::collections::BTreeMap;
 #[cfg(target_os = "macos")]
 use std::ffi::CStr;
-use std::fmt::Write as _;
 use std::ffi::OsString;
+use std::fmt::Write as _;
 use std::io::{ErrorKind, Read, Write};
 use std::ops::ControlFlow;
 use std::os::fd::AsRawFd;
@@ -526,6 +526,147 @@ struct LoweredReduceProjection<'a> {
     value_fields: Vec<(Name, &'a str)>,
 }
 
+struct LoweredProjectedReduceState<'a> {
+    projection: LoweredReduceProjection<'a>,
+    record_indices: Option<LoweredProjectedRecordIndices>,
+    output_fields_unique: bool,
+}
+
+#[derive(Clone)]
+struct LoweredProjectedRecordIndices {
+    key: usize,
+    values: Vec<usize>,
+}
+
+impl<'a> LoweredProjectedReduceState<'a> {
+    fn new(projection: LoweredReduceProjection<'a>) -> Self {
+        let output_fields_unique = lowered_projected_output_fields_unique(&projection);
+        Self {
+            projection,
+            record_indices: None,
+            output_fields_unique,
+        }
+    }
+
+    fn record_indices_for(&mut self, item: &LoweredValue) -> Option<LoweredProjectedRecordIndices> {
+        let LoweredValue::RecordVec(record) = item else {
+            return None;
+        };
+        if let Some(indices) = &self.record_indices
+            && lowered_projected_record_indices_match(&self.projection, record, indices)
+        {
+            return Some(indices.clone());
+        }
+        self.record_indices = lowered_projected_record_indices(&self.projection, record);
+        self.record_indices.clone()
+    }
+}
+
+fn lowered_projected_output_fields_unique(projection: &LoweredReduceProjection<'_>) -> bool {
+    for index in 0..projection.value_fields.len() {
+        let name = projection.value_fields[index].0;
+        if projection.value_fields[..index]
+            .iter()
+            .any(|(previous, _)| *previous == name)
+        {
+            return false;
+        }
+    }
+    true
+}
+
+fn lowered_record_vec_field_index(record: &[(Name, LoweredValue)], field: &str) -> Option<usize> {
+    record.iter().position(|(name, _)| name.as_str() == field)
+}
+
+fn lowered_projected_record_indices(
+    projection: &LoweredReduceProjection<'_>,
+    record: &[(Name, LoweredValue)],
+) -> Option<LoweredProjectedRecordIndices> {
+    let key = lowered_record_vec_field_index(record, projection.key_field)?;
+    let mut values = Vec::with_capacity(projection.value_fields.len());
+    for (_, source_field) in &projection.value_fields {
+        values.push(lowered_record_vec_field_index(record, source_field)?);
+    }
+    Some(LoweredProjectedRecordIndices { key, values })
+}
+
+fn lowered_projected_record_indices_match(
+    projection: &LoweredReduceProjection<'_>,
+    record: &[(Name, LoweredValue)],
+    indices: &LoweredProjectedRecordIndices,
+) -> bool {
+    record
+        .get(indices.key)
+        .is_some_and(|(name, _)| name.as_str() == projection.key_field)
+        && indices.values.len() == projection.value_fields.len()
+        && indices
+            .values
+            .iter()
+            .zip(&projection.value_fields)
+            .all(|(index, (_, source_field))| {
+                record
+                    .get(*index)
+                    .is_some_and(|(name, _)| name.as_str() == *source_field)
+            })
+}
+
+fn lowered_projected_key_value(
+    projection: &LoweredReduceProjection<'_>,
+    item: &LoweredValue,
+    indices: Option<&LoweredProjectedRecordIndices>,
+    span: Span,
+) -> Result<LoweredValue, RuntimeError> {
+    if let (LoweredValue::RecordVec(record), Some(indices)) = (item, indices) {
+        return Ok(record[indices.key].1.clone());
+    }
+    lowered_record_field_value(item, projection.key_field)
+        .ok_or_else(|| RuntimeError::new("missing-field", projection.key_field).with_span(span))
+}
+
+fn lowered_projected_record_value(
+    projection: &LoweredReduceProjection<'_>,
+    item: &LoweredValue,
+    indices: Option<&LoweredProjectedRecordIndices>,
+    span: Span,
+) -> Result<Vec<(Name, LoweredValue)>, RuntimeError> {
+    let mut value = Vec::with_capacity(projection.value_fields.len());
+    for (index, (name, source_field)) in projection.value_fields.iter().enumerate() {
+        let field_value = if let (LoweredValue::RecordVec(record), Some(indices)) = (item, indices)
+        {
+            record[indices.values[index]].1.clone()
+        } else {
+            lowered_record_field_value(item, source_field)
+                .ok_or_else(|| RuntimeError::new("missing-field", *source_field).with_span(span))?
+        };
+        value.push((*name, field_value));
+    }
+    Ok(value)
+}
+
+fn lowered_projected_acc_layout_matches(
+    projection: &LoweredReduceProjection<'_>,
+    acc: &[(Name, LoweredValue)],
+) -> bool {
+    acc.len() == projection.value_fields.len()
+        && acc
+            .iter()
+            .zip(&projection.value_fields)
+            .all(|((acc_name, _), (name, _))| acc_name == name)
+}
+
+fn lowered_record_vec_append_or_replace_unsorted(
+    record: &mut Vec<(Name, LoweredValue)>,
+    field: Name,
+    value: LoweredValue,
+) {
+    if let Some((_, slot)) = record.iter_mut().find(|(key, _)| *key == field) {
+        *slot = value;
+    } else {
+        record.push((field, value));
+    }
+}
+
 fn lowered_field_projection(expr: &LoweredExpr, item_slot: usize) -> Option<&str> {
     let LoweredExpr::Field { base, name, .. } = expr else {
         return None;
@@ -565,7 +706,7 @@ fn lowered_reduce_projection<'a>(
                     let LoweredRecordEntry::Field(name, expr) = field else {
                         return None;
                     };
-                    projected.push((name.clone(), lowered_field_projection(expr, item_slot)?));
+                    projected.push((*name, lowered_field_projection(expr, item_slot)?));
                 }
                 value_fields = Some(projected);
             }
@@ -840,30 +981,22 @@ fn lowered_compact_json_capacity(value: &LoweredValue) -> usize {
         LoweredValue::List(items) => lowered_compact_json_seq_capacity(items.iter()),
         LoweredValue::SharedList(items) => lowered_compact_json_seq_capacity(items.iter()),
         LoweredValue::Map(fields) => {
-            let fields = fields
-                .iter()
-                .map(|(key, value)| (key.as_str(), value));
+            let fields = fields.iter().map(|(key, value)| (key.as_str(), value));
             lowered_compact_json_map_capacity(fields)
         }
         LoweredValue::Record(fields) => {
-            let fields = fields
-                .iter()
-                .map(|(key, value)| (key.as_ref(), value));
+            let fields = fields.iter().map(|(key, value)| (key.as_ref(), value));
             lowered_compact_json_map_capacity(fields)
         }
         LoweredValue::RecordVec(fields) => {
-            let fields = fields
-                .iter()
-                .map(|(key, value)| (key.as_str(), value));
+            let fields = fields.iter().map(|(key, value)| (key.as_str(), value));
             lowered_compact_json_map_capacity(fields)
         }
         LoweredValue::Stats {
             blanks,
             code,
             comments,
-        } => {
-            lowered_compact_json_stats_capacity(*blanks, None, *code, *comments)
-        }
+        } => lowered_compact_json_stats_capacity(*blanks, None, *code, *comments),
         LoweredValue::StatsBlob(stats) => lowered_compact_json_stats_capacity(
             stats.blanks,
             Some(&stats.blobs),
@@ -893,9 +1026,7 @@ fn lowered_compact_json_capacity(value: &LoweredValue) -> usize {
     }
 }
 
-fn lowered_compact_json_seq_capacity<'a>(
-    items: impl Iterator<Item = &'a LoweredValue>,
-) -> usize {
+fn lowered_compact_json_seq_capacity<'a>(items: impl Iterator<Item = &'a LoweredValue>) -> usize {
     let mut capacity = 2;
     let mut first = true;
     for item in items {
@@ -3086,7 +3217,7 @@ impl Evaluator {
         }) {
             return Ok(None);
         }
-        let direct_reduce = match (stages.get(par_index + 1), stages.get(par_index + 2)) {
+        let mut direct_reduce = match (stages.get(par_index + 1), stages.get(par_index + 2)) {
             (
                 Some(LoweredPipelineStage::FlatMap {
                     slot,
@@ -3099,7 +3230,7 @@ impl Evaluator {
                     op,
                 }),
             ) if *slot == *value_slot => lowered_reduce_projection(*item_slot, body, value, *op)
-                .map(|projection| (projection, par_index + 3)),
+                .map(|projection| (LoweredProjectedReduceState::new(projection), par_index + 3)),
             _ => None,
         };
 
@@ -3256,7 +3387,7 @@ impl Evaluator {
                 }
                 next_index += 1;
             }
-            if let Some((projection, _)) = direct_reduce.as_ref() {
+            if let Some((projection, _)) = direct_reduce.as_mut() {
                 self.drain_streaming_projected_reduce_results(
                     &all_results,
                     &mut next_reduce_index,
@@ -3293,7 +3424,7 @@ impl Evaluator {
                 }
                 next_index += 1;
             }
-            if let Some((projection, _)) = direct_reduce.as_ref() {
+            if let Some((projection, _)) = direct_reduce.as_mut() {
                 self.drain_streaming_projected_reduce_results(
                     &all_results,
                     &mut next_reduce_index,
@@ -3314,7 +3445,7 @@ impl Evaluator {
         if let Ok(stderr) = shared_stderr.lock() {
             self.stderr.extend_from_slice(&stderr);
         }
-        if let Some((projection, consumed)) = direct_reduce.as_ref() {
+        if let Some((projection, consumed)) = direct_reduce.as_mut() {
             self.drain_streaming_projected_reduce_results(
                 &all_results,
                 &mut next_reduce_index,
@@ -3329,9 +3460,8 @@ impl Evaluator {
                 .map(|results| results.len())
                 .unwrap_or_else(|poisoned| poisoned.into_inner().len());
             if next_reduce_index < result_len && validation_error.is_none() {
-                validation_error = Some(
-                    RuntimeError::new("type-error", "flat-map expected List").with_span(span),
-                );
+                validation_error =
+                    Some(RuntimeError::new("type-error", "flat-map expected List").with_span(span));
             }
             if let Some(error) = validation_error {
                 return Err(error);
@@ -3640,8 +3770,10 @@ impl Evaluator {
             .map(|results| results.len())
             .unwrap_or_else(|poisoned| poisoned.into_inner().len());
         if next_drain_index < result_len {
-            return Err(RuntimeError::new("type-error", "streaming par-map result missing")
-                .with_span(loop_span));
+            return Err(
+                RuntimeError::new("type-error", "streaming par-map result missing")
+                    .with_span(loop_span),
+            );
         }
         Ok(Some(flow.unwrap_or(LoweredStmtFlow::None)))
     }
@@ -3693,7 +3825,7 @@ impl Evaluator {
         &mut self,
         results: &Arc<std::sync::Mutex<LoweredStreamingResults>>,
         next_index: &mut usize,
-        projection: &LoweredReduceProjection<'_>,
+        projection: &mut LoweredProjectedReduceState<'_>,
         groups: &mut BTreeMap<String, LoweredValue>,
         validation_error: &mut Option<RuntimeError>,
         reduce_error: &mut Option<RuntimeError>,
@@ -11669,13 +11801,12 @@ impl Evaluator {
                 value,
                 span,
             } => {
-                if *op == AssignOp::Set && matches!(value, LoweredExpr::Method { .. }) {
-                    if let Some(flow) = self.try_eval_lowered_self_assignment_method(
+                if *op == AssignOp::Set && matches!(value, LoweredExpr::Method { .. })
+                    && let Some(flow) = self.try_eval_lowered_self_assignment_method(
                         lowered, *slot, *op, value, slots, call_span,
                     )? {
                         return Ok(flow);
                     }
-                }
                 if matches!(
                     op,
                     AssignOp::Add | AssignOp::Sub | AssignOp::Mul | AssignOp::Div | AssignOp::Rem
@@ -14146,57 +14277,79 @@ impl Evaluator {
 
     fn eval_lowered_projected_reduce_by_item(
         &mut self,
-        projection: &LoweredReduceProjection<'_>,
+        state: &mut LoweredProjectedReduceState<'_>,
         item: LoweredValue,
         groups: &mut BTreeMap<String, LoweredValue>,
         span: Span,
     ) -> Result<(), RuntimeError> {
-        let key = lowered_record_field_value(&item, projection.key_field).ok_or_else(|| {
-            RuntimeError::new("missing-field", projection.key_field).with_span(span)
-        })?;
+        let indices = state.record_indices_for(&item);
+        let key = lowered_projected_key_value(&state.projection, &item, indices.as_ref(), span)?;
         let key = lowered_reduce_key_value(&key, span)?;
         match groups.entry(key) {
             std::collections::btree_map::Entry::Vacant(slot) => {
-                let mut value = Vec::with_capacity(projection.value_fields.len());
-                for (name, source_field) in &projection.value_fields {
-                    let field_value =
-                        lowered_record_field_value(&item, source_field).ok_or_else(|| {
-                            RuntimeError::new("missing-field", *source_field).with_span(span)
-                        })?;
-                    value.push((name.clone(), field_value));
-                }
-                slot.insert(LoweredValue::RecordVec(value));
+                slot.insert(LoweredValue::RecordVec(lowered_projected_record_value(
+                    &state.projection,
+                    &item,
+                    indices.as_ref(),
+                    span,
+                )?));
             }
             std::collections::btree_map::Entry::Occupied(mut slot) => {
                 if let LoweredValue::RecordVec(acc) = slot.get_mut() {
-                    for (name, source_field) in &projection.value_fields {
-                        let field_value =
-                            lowered_record_field_value(&item, source_field).ok_or_else(|| {
-                                RuntimeError::new("missing-field", *source_field).with_span(span)
-                            })?;
-                        if let Some(acc_value) = lowered_record_vec_get_mut(acc, name.as_str()) {
+                    if state.output_fields_unique
+                        && lowered_projected_acc_layout_matches(&state.projection, acc)
+                    {
+                        for (index, (_, source_field)) in
+                            state.projection.value_fields.iter().enumerate()
+                        {
+                            let field_value =
+                                if let (LoweredValue::RecordVec(record), Some(indices)) =
+                                    (&item, indices.as_ref())
+                                {
+                                    record[indices.values[index]].1.clone()
+                                } else {
+                                    lowered_record_field_value(&item, source_field).ok_or_else(
+                                        || {
+                                            RuntimeError::new("missing-field", *source_field)
+                                                .with_span(span)
+                                        },
+                                    )?
+                                };
+                            let acc_value = &mut acc[index].1;
                             *acc_value = lowered_sum_values(
                                 std::mem::replace(acc_value, LoweredValue::Unit),
                                 field_value,
                             );
-                        } else {
-                            lowered_record_vec_insert(acc, name.clone(), field_value);
+                        }
+                    } else {
+                        for (name, source_field) in &state.projection.value_fields {
+                            let field_value = lowered_record_field_value(&item, source_field)
+                                .ok_or_else(|| {
+                                    RuntimeError::new("missing-field", *source_field)
+                                        .with_span(span)
+                                })?;
+                            if let Some(acc_value) = lowered_record_vec_get_mut(acc, name.as_str())
+                            {
+                                *acc_value = lowered_sum_values(
+                                    std::mem::replace(acc_value, LoweredValue::Unit),
+                                    field_value,
+                                );
+                            } else {
+                                lowered_record_vec_insert(acc, *name, field_value);
+                            }
                         }
                     }
                 } else {
-                    let mut value = Vec::with_capacity(projection.value_fields.len());
-                    for (name, source_field) in &projection.value_fields {
-                        let field_value =
-                            lowered_record_field_value(&item, source_field).ok_or_else(|| {
-                                RuntimeError::new("missing-field", *source_field).with_span(span)
-                            })?;
-                        value.push((name.clone(), field_value));
-                    }
                     let prev = std::mem::replace(slot.get_mut(), LoweredValue::Unit);
                     *slot.get_mut() = lowered_reduce_combine(
                         ReduceByOp::Sum,
                         prev,
-                        LoweredValue::RecordVec(value),
+                        LoweredValue::RecordVec(lowered_projected_record_value(
+                            &state.projection,
+                            &item,
+                            indices.as_ref(),
+                            span,
+                        )?),
                         span,
                     )?;
                 }
@@ -14454,7 +14607,11 @@ impl Evaluator {
                                 ControlFlow::Continue(value) => value,
                                 ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
                             };
-                            lowered_record_vec_insert(&mut record, *name, value);
+                            lowered_record_vec_append_or_replace_unsorted(
+                                &mut record,
+                                *name,
+                                value,
+                            );
                         }
                         LoweredRecordEntry::Spread(expr) => {
                             let value = match self
@@ -14466,7 +14623,7 @@ impl Evaluator {
                             match value {
                                 LoweredValue::Record(fields) | LoweredValue::Module(fields) => {
                                     for (key, value) in fields {
-                                        lowered_record_vec_insert(
+                                        lowered_record_vec_append_or_replace_unsorted(
                                             &mut record,
                                             Name::intern(key.as_ref()),
                                             value,
@@ -14475,7 +14632,11 @@ impl Evaluator {
                                 }
                                 LoweredValue::RecordVec(fields) => {
                                     for (key, value) in fields {
-                                        lowered_record_vec_insert(&mut record, key, value);
+                                        lowered_record_vec_append_or_replace_unsorted(
+                                            &mut record,
+                                            key,
+                                            value,
+                                        );
                                     }
                                 }
                                 LoweredValue::Stats {
@@ -14486,12 +14647,20 @@ impl Evaluator {
                                     for (key, value) in
                                         lowered_inline_stats_to_record_vec(blanks, code, comments)
                                     {
-                                        lowered_record_vec_insert(&mut record, key, value);
+                                        lowered_record_vec_append_or_replace_unsorted(
+                                            &mut record,
+                                            key,
+                                            value,
+                                        );
                                     }
                                 }
                                 LoweredValue::StatsBlob(stats) => {
                                     for (key, value) in stats.to_record_vec() {
-                                        lowered_record_vec_insert(&mut record, key, value);
+                                        lowered_record_vec_append_or_replace_unsorted(
+                                            &mut record,
+                                            key,
+                                            value,
+                                        );
                                     }
                                 }
                                 value => {
@@ -14508,6 +14677,7 @@ impl Evaluator {
                         }
                     }
                 }
+                record.sort_unstable_by_key(|left| left.0);
                 Ok(ControlFlow::Continue(lowered_record_vec_or_stats(record)))
             }
             LoweredExpr::List(items) => {
@@ -14757,10 +14927,8 @@ impl Evaluator {
                     {
                         let outer_items = self.lowered_pipeline_input_items(current, *span)?;
                         for item in &outer_items {
-                            if !matches!(
-                                item,
-                                LoweredValue::List(_) | LoweredValue::SharedList(_)
-                            ) {
+                            if !matches!(item, LoweredValue::List(_) | LoweredValue::SharedList(_))
+                            {
                                 return Err(RuntimeError::new(
                                     "type-error",
                                     "flat-map expected List",
@@ -14768,14 +14936,15 @@ impl Evaluator {
                                 .with_span(*span));
                             }
                         }
-                        let projection =
-                            lowered_reduce_projection(*item_slot, body, value, *op);
+                        let mut projection =
+                            lowered_reduce_projection(*item_slot, body, value, *op)
+                                .map(LoweredProjectedReduceState::new);
                         let mut groups: BTreeMap<String, LoweredValue> = BTreeMap::new();
                         for item in outer_items {
                             match item {
                                 LoweredValue::List(items) => {
                                     for item in items {
-                                        if let Some(projection) = projection.as_ref() {
+                                        if let Some(projection) = projection.as_mut() {
                                             self.eval_lowered_projected_reduce_by_item(
                                                 projection,
                                                 item,
@@ -14801,7 +14970,7 @@ impl Evaluator {
                                 }
                                 LoweredValue::SharedList(items) => {
                                     for item in items.iter().cloned() {
-                                        if let Some(projection) = projection.as_ref() {
+                                        if let Some(projection) = projection.as_mut() {
                                             self.eval_lowered_projected_reduce_by_item(
                                                 projection,
                                                 item,
@@ -15900,8 +16069,7 @@ impl Evaluator {
                                 }
                                 current = LoweredValue::List(results);
                             } else {
-                                let num_threads =
-                                    lowered_par_map_worker_count(Some(item_count));
+                                let num_threads = lowered_par_map_worker_count(Some(item_count));
                                 let lowered_arc = std::sync::Arc::new(lowered.clone());
                                 let value_arc = std::sync::Arc::new(value.clone());
                                 let items_arc = std::sync::Arc::new(items);
@@ -16243,8 +16411,7 @@ impl Evaluator {
                                 }
                                 current = LoweredValue::List(results);
                             } else {
-                                let num_threads =
-                                    lowered_par_map_worker_count(Some(item_count));
+                                let num_threads = lowered_par_map_worker_count(Some(item_count));
                                 let lowered_arc = std::sync::Arc::new(lowered.clone());
                                 let body_arc = std::sync::Arc::new(body.clone());
                                 let value_arc = std::sync::Arc::new(value.clone());
@@ -16613,11 +16780,12 @@ impl Evaluator {
                         } => {
                             let s = *span;
                             let items = self.lowered_pipeline_input_items(current, s)?;
-                            let projection =
-                                lowered_reduce_projection(*item_slot, body, value, *op);
+                            let mut projection =
+                                lowered_reduce_projection(*item_slot, body, value, *op)
+                                    .map(LoweredProjectedReduceState::new);
                             let mut groups: BTreeMap<String, LoweredValue> = BTreeMap::new();
                             for item in items {
-                                if let Some(projection) = projection.as_ref() {
+                                if let Some(projection) = projection.as_mut() {
                                     self.eval_lowered_projected_reduce_by_item(
                                         projection,
                                         item,
@@ -16658,9 +16826,9 @@ impl Evaluator {
             LoweredExpr::Field { base, name, span } => {
                 if let Some(base) = lowered_field_chain_ref(base, slots)?
                     && let Some(value) = lowered_project_borrowed_field(base, name.as_str(), *span)?
-                    {
-                        return Ok(ControlFlow::Continue(value));
-                    }
+                {
+                    return Ok(ControlFlow::Continue(value));
+                }
                 let base = match self.eval_lowered_expr(lowered, base, slots, *span)? {
                     ControlFlow::Continue(value) => value,
                     ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),

@@ -1338,13 +1338,13 @@ proc main(...argv: List[Str]) [fs, error] {
           )
 
           let has_child_blobs = match language {
-            LangHtml => true
-            LangMarkdown => true
-            LangMdx => true
-            LangRust => true
-            LangSvg => true
-            LangXml => true
-            _ => false
+            LangHtml => true,
+            LangMarkdown => true,
+            LangMdx => true,
+            LangRust => true,
+            LangSvg => true,
+            LangXml => true,
+            _ => false,
           }
 
           if has_child_blobs {

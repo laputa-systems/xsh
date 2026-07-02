@@ -173,6 +173,33 @@ print f\"same=${same} even=${ne.count}/${ne.total} odd=${no.count}/${no.total}\"
 }
 
 #[test]
+fn projected_reduce_by_preserves_duplicate_output_field_behavior() {
+    let output = run_temp_script(
+        "projected-reduce-by-duplicate-output-field",
+        "\
+let rows = [
+  {key: \"g\", a: 1, b: 10},
+  {key: \"g\", a: 2, b: 20},
+  {key: \"g\", a: 3, b: 30},
+]
+let reduced = (rows)
+  |> reduce-by --sum { |row|
+    {key: row.key, value: {x: row.a, x: row.b}}
+  }
+let g = reduced.get(\"g\", {x: 0})
+print f\"x=${g.x}\"
+",
+    );
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(String::from_utf8(output.stdout).unwrap(), "x=10\n");
+}
+
+#[test]
 fn live_stream_par_map_flat_map_reduce_by_matches_collected_rows() {
     let root = temp_path("live-stream-flat-map-reduce-root");
     let nested = root.join("nested");

@@ -2014,7 +2014,9 @@ print f"${blob_count(build_stats(2))} ${filled_count()}"
         "build_stats should lower with map.empty(); lowered={lowered_names:?}"
     );
     assert!(
-        evaluator.lowered_pures.contains_key(&Name::intern("filled_count")),
+        evaluator
+            .lowered_pures
+            .contains_key(&Name::intern("filled_count")),
         "filled_count should lower with Map.len(); lowered={lowered_names:?}"
     );
 

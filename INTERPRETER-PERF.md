@@ -1,60 +1,73 @@
-# Interpreter Performance: tokei.xsh
+# Interpreter Performance Goals
 
-## Objective
+## Primary Objective: small_corpus Frontend Floor
+
+Make the checked-in small-script front-end corpus as lean as possible. This is
+the primary performance objective because it isolates the floor cost of parsing,
+checking, and lowering ordinary standalone scripts without the large-runtime
+noise of `showcase/tokei.xsh`.
+
+Baseline command:
+
+```sh
+cargo bench -p xshi --bench bench small_corpus -- --sample-size 10 --warm-up-time 0.5 --measurement-time 1
+```
+
+Fresh 2026-07-02 local baseline in `perf/small-corpus-baseline-aarch64.json`:
+
+| Lens | Current mean | Current allocs | Current allocated |
+|---|---:|---:|---:|
+| parse | `14.337 ms` | `115,274` | `10.0 MiB` |
+| parse/check | `23.915 ms` | `214,208` | `25.0 MiB` |
+| parse/check/lower | `27.707 ms` | `223,725` | `32.4 MiB` |
+
+The selected corpus is 383 checked-in `.xsh` files with at most 200 lines and
+16 KiB: 15,369 lines and 413,461 bytes. Files that do not parse or check
+cleanly as standalone scripts are excluded by the benchmark.
+
+The reasonably ambitious bar is:
+
+- `parse_check_lower_small_corpus_le200_lines_16k` Criterion mean **<= 22.0 ms**
+  with the same command and corpus rules.
+- `parse_check_lower_small_corpus_le200_lines_16k` allocation audit **<= 190,000
+  allocations** and **<= 27.5 MiB allocated**.
+- No compensating regression in narrower lenses: parse-only and parse/check
+  means, allocation counts, and allocated bytes should not be more than 5% worse
+  than the fresh baseline unless the full parse/check/lower gate is already met
+  and the tradeoff is documented.
+- The front-end behavior gate still passes: `cargo check --lib`, relevant
+  runtime/parser tests, and `git diff --check`. If lowering behavior changes,
+  update the nearest lowering/runtime tests.
+
+The current slowest phase totals from the setup audit are parse (`13.966480 ms`)
+and compact install (`10.400462 ms`), followed by functions (`5.356127 ms`) and
+body probing (`2.632869 ms`). The first useful paths are therefore parser/token
+churn, compact install/module setup, and body/function probing allocation
+pressure.
+
+## Stretch Goal: tokei.xsh Native Parity
 
 Get `showcase/tokei.xsh` wall-clock time on the Sentry corpus within **1x native
 tokei** and peak RSS within **1x of native tokei**. The byte-for-byte output
 parity gate is only **XSH against XSH's own saved output** for the same corpus
 and options. It is explicitly **not** XSH against native tokei. Native tokei is
 the performance baseline and an accuracy comparison lens, not the output oracle:
-XSH may
-intentionally differ from native tokei's line classification, child-language
-treatment, JSON field order, and report ordering when those differences are part
-of the current showcase behavior.
+XSH may intentionally differ from native tokei's line classification,
+child-language treatment, JSON field order, and report ordering when those
+differences are part of the current showcase behavior.
 
-This is an interpreter and lowered-runtime objective. It must not change
-language semantics or script-visible behavior.
+This is now a stretch interpreter and lowered-runtime objective. It must not
+change language semantics or script-visible behavior.
 
-## Secondary Goal: Shrink Lowered Eval Frames
-
-Make the lowered evaluator's recursive statement/expression frames small enough
-that the outer evaluator no longer needs a 1 GiB stack reservation.
-
-This is a secondary goal, not a substitute for the native-tokei objective above.
-It is done only when all of these are true:
-
-- `run_eval_on_large_stack` uses an outer eval stack of **64 MiB or less** in
-  ordinary debug and release builds.
-- The stack reduction is achieved by shrinking/splitting lowered evaluator
-  frames and retained locals, not by increasing recursion limits, suppressing
-  stack checks, or moving broad evaluator state to heap boxes without evidence.
-- The full relevant gate passes with the smaller stack: `cargo check --lib`,
-  `cargo test --test runtime`, `cargo build --bin xsh && cargo run -p xsht --
-  test showcase/tests/test-tokei.xsh`, and `cargo build --release --bin xsh`.
-- Fresh serial `/usr/bin/time -l target/release/xsh showcase/tokei.xsh -- ...`
-  samples on `/Users/josh/dev/sentry` preserve XSH-vs-XSH byte output and do not
-  regress table or JSON wall time or max RSS by more than noise, defined here as
-  more than 5% worse than the current recent sample band.
-- If local tools can decode `-Z emit-stack-sizes` output, record the before/after
-  stack sizes for `eval_lowered_stmt`, `eval_lowered_expr`, and any newly split
-  helpers. Those numbers are supporting evidence, not the gate; the gate is the
-  smaller configured stack plus runtime/showcase verification.
-
-Nearer milestones can be kept if they simplify hot evaluator frames without
-hurting `tokei.xsh`, but they should be documented as partial progress until
-the 64 MiB stack gate passes.
-
-## Current state
-
-The objective is not complete as of the 2026-07-02 audit on the current
-`/Users/josh/dev/sentry` checkout. The checkout is about 3.1 GB and 140,909
-files.
+The stretch native-tokei objective is not complete as of the 2026-07-02 audit on
+the current `/Users/josh/dev/sentry` checkout. The 64 MiB lowered eval-frame
+work is complete. The checkout is about 3.1 GB and 140,909 files.
 
 Fresh release samples from `target/release/xsh` and the local native `tokei`:
 
 | Path | XSH release | Native tokei | Status |
 |---|---:|---:|---|
-| table recent samples | `0.87s-0.93s / 55,525,376-56,557,568` bytes max RSS | `0.62s / 48,971,776` bytes max RSS | fails wall and RSS |
+| table recent samples | `0.88s-0.93s / 54,034,432-57,475,072` bytes max RSS | `0.62s / 48,971,776` bytes max RSS | fails wall and RSS |
 | JSON recent samples | `0.88s-0.94s / 63,078,400-66,584,576` bytes max RSS | `0.62s / 56,197,120` bytes max RSS | fails wall and RSS |
 
 These are single serial macOS `/usr/bin/time -l` samples, so rerun before making
@@ -141,6 +154,25 @@ The local toolchain could emit stack-size metadata, but the installed tools
 lacked `llvm-readobj`/`llvm-objdump`, so no per-function stack-size numbers were
 decoded for this trial.
 
+The 64 MiB stack audit then reduced `run_eval_on_large_stack` from a 1 GiB stack
+reservation to `64 * 1024 * 1024`. With that setting, the required debug/runtime
+and release gates passed. Serial Sentry samples that were not run concurrently
+preserved XSH-vs-XSH bytes and stayed inside the 64 MiB audit's 5% no-regress
+band: JSON `0.88s / 64,143,360` and `0.89s / 63,258,624`, table `0.90s /
+56,164,352` and `0.91s / 57,475,072`. Slower JSON/table runs taken while other
+benchmark commands were running were treated as contaminated and not used for
+the gate.
+
+The next lowered value-movement trial targeted fixed-shape record work rather
+than more pipeline fusion. Projected `reduce-by --sum` now caches `RecordVec`
+source-field indexes when item layouts stay stable, and record literal
+construction appends/replaces fields during construction then sorts once before
+creating the final `RecordVec`/inline stats value. This preserved XSH-vs-XSH
+bytes. The table path showed a useful best RSS sample (`0.88s / 56,328,192`,
+with one slower `1.37s / 54,034,432` outlier), while JSON stayed neutral
+(`0.92s / 64,618,496` to `65,716,224`). This is progress on core record/value
+movement, but it does not close the stretch native wall/RSS gap.
+
 The implementation details for the current compact frontend and lowered runtime
 architecture belong in `PIPELINE.md`.
 
@@ -148,6 +180,8 @@ architecture belong in `PIPELINE.md`.
 
 Recent verification from the 2026-07-02 audit:
 
+- `cargo bench -p xshi --bench bench small_corpus -- --sample-size 10
+  --warm-up-time 0.5 --measurement-time 1`
 - `cargo check --lib`
 - `cargo test --test runtime json`
 - `cargo test --test syntax`
@@ -171,6 +205,14 @@ Recent verification from the 2026-07-02 audit:
   target/perf/tokei-current/table-frame-split-guarded-a.txt`
 - `cmp -s target/perf/tokei-current/json-map-push-b.json
   target/perf/tokei-current/json-frame-split-guarded-b.json`
+- `cmp -s target/perf/tokei-current/table-frame-split-guarded-a.txt
+  target/perf/tokei-current/table-stack64-c.txt`
+- `cmp -s target/perf/tokei-current/json-frame-split-guarded-b.json
+  target/perf/tokei-current/json-stack64-e.json`
+- `cmp -s target/perf/tokei-current/table-stack64-c.txt
+  target/perf/tokei-current/table-record-sort-once-b.txt`
+- `cmp -s target/perf/tokei-current/json-stack64-e.json
+  target/perf/tokei-current/json-record-sort-once-b.json`
 - raw `cmp -s` checks of XSH table and JSON output against native tokei output
   on `/Users/josh/dev/sentry` (both differed; this is expected and is only an
   accuracy lens; it is not the objective's output-parity gate)

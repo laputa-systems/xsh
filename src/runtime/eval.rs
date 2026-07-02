@@ -6003,17 +6003,16 @@ fn zero_span() -> Span {
     Span::new(crate::source::SourceId::new(0), 0, 0)
 }
 
-/// Run evaluation on a worker thread with a large stack.
+/// Run evaluation on a worker thread with an explicit stack budget.
 ///
 /// The lowered evaluator recurses in Rust once per XSH call frame, and each
-/// frame is large (the eval functions are giant matches over `LoweredExpr` /
-/// `LoweredValue`). The default 8 MB main-thread stack overflows after only a
-/// few levels of XSH recursion, so evaluation runs on a worker thread sized
-/// well above any realistic native frame budget. `RUST_MIN_STACK` does not help
-/// here because it governs spawned threads, not the main thread. A scoped
-/// thread lets the closure borrow the arena without a `'static` bound.
+/// frame still carries evaluator state. The default 8 MB main-thread stack can
+/// overflow on recursive XSH programs, so evaluation runs on a worker thread
+/// with a bounded stack. `RUST_MIN_STACK` does not help here because it governs
+/// spawned threads, not the main thread. A scoped thread lets the closure borrow
+/// the arena without a `'static` bound.
 fn run_eval_on_large_stack<R: Send>(f: impl FnOnce() -> R + Send) -> R {
-    const EVAL_STACK_SIZE: usize = 1 << 30;
+    const EVAL_STACK_SIZE: usize = 64 * 1024 * 1024;
     std::thread::scope(|scope| {
         std::thread::Builder::new()
             .stack_size(EVAL_STACK_SIZE)

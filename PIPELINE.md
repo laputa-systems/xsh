@@ -164,7 +164,9 @@ bug, suspect an upstream node that lowered to `Unit`.
   flattened transient list. Empty-body `reduce-by --sum` projections of the form
   `{key: item.field, value: {out: item.field, ...}}` also skip the transient
   outer reducer record and update occupied record accumulators field-by-field.
-  Tracing keeps the ordinary per-stage path.
+  Stable `RecordVec` item layouts cache source-field indexes inside a reduce
+  stage so projected reducers can avoid repeated name scans. Tracing keeps the
+  ordinary per-stage path.
 - When the same projected identity-`flat-map`/`reduce-by` shape follows lowered
   streaming `par-map`, the runner drains ready contiguous worker results into the
   reducer in encounter order. Completed nested result lists are dropped as soon
@@ -184,6 +186,10 @@ bug, suspect an upstream node that lowered to `Unit`.
   `map = map.remove(key)` and mutates the target slot in place when aliasing
   rules permit. This avoids clone-heavy method dispatch for common collection
   update idioms.
+- Lowered record literals append or replace fields during construction, then
+  sort once before producing the final `RecordVec` or inline stats value. This
+  preserves duplicate-field replacement semantics without sorting after every
+  inserted field.
 - Lowered compact `json.encode` uses a validating writer with an estimated
   output capacity. Pretty JSON still converts through the ordinary JSON value
   path so formatting behavior stays centralized.
@@ -194,13 +200,13 @@ bug, suspect an upstream node that lowered to `Unit`.
 - Lowered `par-map` writes worker results directly into indexed result slots
   instead of returning per-worker chunk vectors.
 - Lowered `par-map` caps default workers at 6. Release worker stacks are 1 MiB;
-  debug workers use 8 MiB. The outer lowered evaluator still runs on a
-  large-stack worker because the recursive eval frames remain large.
+  debug workers use 8 MiB. The outer lowered evaluator runs on a scoped 64 MiB
+  worker stack so recursive XSH calls do not depend on the main-thread stack.
 - The collection self-assignment specialization is split out behind a guarded
   `Set`-method helper so ordinary lowered assignments stay on the compact main
-  statement path. This starts the frame-shrink direction, but it has not yet
-  removed the outer evaluator's large-stack dependency or produced a clear
-  tokei RSS win.
+  statement path. The outer evaluator stack reservation is now 64 MiB; the
+  frame-shrink gate in `INTERPRETER-PERF.md` is complete, though this did not by
+  itself close the tokei wall/RSS gap.
 - `showcase/tokei.xsh`'s default table path returns final `SummaryRow` reduce
   rows from `par-map`, then does only `flat-map { |rows| rows } |> reduce-by`.
   Keep this script-level shape; it removed a large nested scan/report graph
@@ -214,13 +220,11 @@ falls back to the checker only to surface diagnostics. A clean check there
 prints "compact lowering not available" (exit 1), which means a genuine lowering
 gap rather than a user error. When a whole script is "not available", check the
 arena-parse diagnostics in the runner first.
-- **Large stack:** the lowered evaluator's recursive Rust fns have large frames
-  (giant matches over `LoweredExpr`/`LoweredValue`), so eval runs on a worker
-  thread with a 1 GiB stack (`run_eval_on_large_stack` in `eval.rs`). A panic in
-  the worker is resumed on the main thread (not swallowed). The first scoped
-  frame-shrink step moved collection self-assignment method updates out of the
-  main statement match, but broader expression/statement splitting is still
-  needed before reducing the outer stack reservation is defensible.
+- **Eval stack:** the lowered evaluator still runs on a scoped worker thread so
+  recursive XSH calls do not depend on the main-thread stack. The worker stack
+  is 64 MiB (`run_eval_on_large_stack` in `eval.rs`), after splitting the
+  collection self-assignment method updates out of the main statement match. A
+  panic in the worker is resumed on the main thread (not swallowed).
 - **Auto-main:** `compact_root_proc_main_requires_auto_call` decides whether a
   script of only `proc main` is auto-invoked; `compact_auto_main_args` supplies
   the CLI args and coerces each positional `Str` arg to its declared `main` param
@@ -421,21 +425,29 @@ lowered program type, such as `ArenaProgram` or `LoweredProgram`.
 ## Improvement Opportunities
 
 These are durable compact/lowered-pipeline work items, not a backlog of
-showcase-specific tweaks. The tokei objective is now past the easy wins; prefer
-changes that reduce core value movement, retained runtime state, or frontend
-memory across ordinary XSH programs.
+showcase-specific tweaks. The primary objective in `INTERPRETER-PERF.md` is now
+the small-corpus frontend floor; the tokei native-parity work is a stretch goal.
+Prefer changes that reduce parser/token churn, compact install cost, body/function
+probing allocation, or broad runtime value movement across ordinary XSH programs.
 
-1. **Shrink lowered eval frames.** Eval still runs on a 1 GiB-stack worker
-   thread because recursive `eval_lowered_*` frames are large enough for the
-   default stack to overflow after only a few levels. The durable fix is to make
-   the hot recursive frames smaller: split cold match arms into `#[inline(never)]`
-   helpers, box unusually large locals, or move deeply recursive paths to an
-   explicit work stack. This is the item most likely to unlock broad runtime
-   memory improvements because it could make stack sizing stop being
-   load-bearing for the outer evaluator and future worker paths. Measure stack
-   size, release RSS, and instruction deltas; do not rely on debug timing.
+1. **Make the small-corpus frontend lean.** Fresh baseline pressure is split
+   between parse time and compact install/function/body probing. Good candidates
+   are reducing token/text churn, shrinking hot parser staging objects, avoiding
+   repeated module/setup allocation per standalone file, and making body/function
+   probing reuse compact structures instead of rebuilding transient maps. Measure
+   with `cargo bench -p xshi --bench bench small_corpus -- --sample-size 10
+   --warm-up-time 0.5 --measurement-time 1` and the allocation audit it prints.
 
-2. **Reduce lowered value movement and retained report graphs.** The remaining
+2. **Keep shrinking hot lowered frames only when it buys measurable runtime
+   wins.** The 64 MiB outer eval-stack gate in `INTERPRETER-PERF.md` is
+   complete, so future work should not chase frame splitting as a standalone
+   milestone. Continue splitting cold match arms, boxing unusually large locals,
+   or moving deeply recursive paths to an explicit work stack only when release
+   measurements show lower RSS, fewer instructions, or simpler broad evaluator
+   behavior. Measure stack size, release RSS, and instruction deltas; do not
+   rely on debug timing.
+
+3. **Reduce lowered value movement and retained report graphs.** The remaining
    tokei gap is dominated by dynamic `LoweredValue` records/maps/lists, ordered
    `par-map` coordination, and final report/JSON construction rather than one
    missing scanner optimization. Good candidates are representation changes that
@@ -445,7 +457,7 @@ memory across ordinary XSH programs.
    measured release A/B; several narrower variants have already been rejected in
    `INTERPRETER-PERF.md`.
 
-3. **Guard that lowering threads every behavior-bearing arena field.** A common
+4. **Guard that lowering threads every behavior-bearing arena field.** A common
    failure mode is lowered IR silently omitting something the arena carries:
    fmt-string format specs, per-item stream errors, trace events, `exts:`,
    `--max-bytes`, or named method args. These usually produce wrong output
@@ -453,7 +465,7 @@ memory across ordinary XSH programs.
    lowering parity tests or a structured review checklist around arena fields
    whenever adding or changing compact syntax rows.
 
-4. **Reduce span storage only where retained metrics justify it.** XSH stores
+5. **Reduce span storage only where retained metrics justify it.** XSH stores
    inline byte spans for every statement, expression, and type-expression row.
    A Zig-style `main_token`/token-range scheme could reduce frontend retained
    memory, but it must be applied selectively and measured with
@@ -462,14 +474,14 @@ memory across ordinary XSH programs.
    This is more likely to improve frontend corpus metrics than the current
    runtime-heavy tokei benchmark.
 
-5. **Close real compact construction gaps without recreating compatibility
+6. **Close real compact construction gaps without recreating compatibility
    paths.** Compact-only is the baseline. Any remaining
    `compact_blocked_*`/`unconstructed_*` buckets from parse-corpus reporting are
    frontend completeness bugs, not a reason to revive recursive AST bridges.
    Recheck current reports before naming specific blocked files; older examples
    here have gone stale.
 
-6. **Keep perf reports and builders compact-native.** Future perf schemas should
+7. **Keep perf reports and builders compact-native.** Future perf schemas should
    name the compact pipeline state they actually measure and avoid
    compatibility-era phase keys. When adding direct arena construction APIs,
    watch `ArenaProgramBuilder` size with layout and corpus metrics; split cold
