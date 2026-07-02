@@ -58,6 +58,13 @@ echo shell
 ```
 """)?
 
+  fp"${root}/component.mdx".write("""Intro
+
+```tsx
+const x = 1;
+```
+""")?
+
   fp"${root}/main.rs".write("""/// # Doc
 /// 
 /// ```toml
@@ -81,10 +88,13 @@ comment */
   test.eq(data["HTML"]["children"]["JavaScript"][0]["stats"]["code"], 1)?
   test.eq(data["Markdown"]["children"]["BASH"][0]["stats"]["comments"], 1)?
   test.eq(data["Markdown"]["children"]["Shell"][0]["stats"]["code"], 1)?
+  test.eq(data["MDX"]["comments"], 4)?
+  test.eq(data["MDX"]["blanks"], 1)?
+  test.eq(data["MDX"]["children"].keys().len(), 0)?
   test.eq(data["Rust"]["children"]["Markdown"][0]["stats"]["blobs"]["TOML"]["code"], 1)?
   test.eq(data["Total"]["code"], 16)?
-  test.eq(data["Total"]["comments"], 19)?
-  test.eq(data["Total"]["blanks"], 4)?
+  test.eq(data["Total"]["comments"], 23)?
+  test.eq(data["Total"]["blanks"], 5)?
   test.ok(! data["Total"]["children"]["JSON"][0]["name"].contains(".hidden"))?
   test.eq(data["Rust"]["reports"].len(), 1)?
   let table = run.text xsh_bin() "showcase/tokei.xsh" -- $root ?
@@ -94,6 +104,7 @@ comment */
   test.ok(table.contains("Language"))?
   test.ok(table.contains("\u{2501}"))?
   test.ok(table.contains("|- JavaScript"))?
+  test.ok(! table.contains("|- TSX"))?
   test.ok(table.contains("(Total)"))?
   test.ok(table.contains("Total"))?
 }

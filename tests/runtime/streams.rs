@@ -133,6 +133,162 @@ print f\"match=${ok} keys=${fused.keys().len()} a=${a.count}/${a.total}\"
 }
 
 #[test]
+fn flat_map_identity_reduce_by_matches_explicit_rows() {
+    let output = run_temp_script(
+        "flat-map-identity-reduce-by",
+        "\
+let nums = [0] |> range(0, 1000)
+let nested = (nums)
+  |> par-map { |n|
+    [{key: if n % 2 == 0 { \"even\" } else { \"odd\" }, count: 1, total: n}]
+  }
+  |> flat-map { |rows| rows }
+  |> reduce-by --sum { |row|
+    {key: row.key, value: {count: row.count, total: row.total}}
+  }
+let direct = (nums)
+  |> par-map { |n|
+    {key: if n % 2 == 0 { \"even\" } else { \"odd\" }, count: 1, total: n}
+  }
+  |> reduce-by --sum { |row|
+    {key: row.key, value: {count: row.count, total: row.total}}
+  }
+let ne = nested.get(\"even\", {count: 0, total: 0})
+let no = nested.get(\"odd\", {count: 0, total: 0})
+let de = direct.get(\"even\", {count: 0, total: 0})
+let same = ne.count == de.count and ne.total == de.total
+print f\"same=${same} even=${ne.count}/${ne.total} odd=${no.count}/${no.total}\"
+",
+    );
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        String::from_utf8(output.stdout).unwrap(),
+        "same=true even=500/249500 odd=500/250000\n"
+    );
+}
+
+#[test]
+fn live_stream_par_map_flat_map_reduce_by_matches_collected_rows() {
+    let root = temp_path("live-stream-flat-map-reduce-root");
+    let nested = root.join("nested");
+    std::fs::create_dir_all(&nested).expect("create flat-map reduce fixture dirs");
+    std::fs::write(root.join("a.txt"), "abc").expect("write a");
+    std::fs::write(nested.join("b.txt"), "de").expect("write b");
+    std::fs::write(nested.join("c.md"), "fghi").expect("write c");
+    let source = format!(
+        "\
+let root = Path({})
+let streamed = fs.walk(root)
+  |> where .kind == \"file\"
+  |> par-map --jobs=4 {{ |entry|
+    [{{ext: entry.ext, count: 1, size: entry.size}}]
+  }}
+  |> flat-map {{ |rows| rows }}
+  |> reduce-by --sum {{ |row|
+    {{key: row.ext, value: {{count: row.count, size: row.size}}}}
+  }}
+let collected = fs.walk(root)
+  |> where .kind == \"file\"
+  |> collect()
+  |> par-map --jobs=4 {{ |entry|
+    {{ext: entry.ext, count: 1, size: entry.size}}
+  }}
+  |> reduce-by --sum {{ |row|
+    {{key: row.ext, value: {{count: row.count, size: row.size}}}}
+  }}
+let st = streamed.get(\"txt\", {{count: 0, size: 0}})
+let sm = streamed.get(\"md\", {{count: 0, size: 0}})
+let ct = collected.get(\"txt\", {{count: 0, size: 0}})
+let same = st.count == ct.count and st.size == ct.size and streamed == collected
+print f\"same=${{same}} txt=${{st.count}}/${{st.size}} md=${{sm.count}}/${{sm.size}}\"
+",
+        xsh_string_literal(root.to_str().unwrap())
+    );
+
+    let output = run_temp_script("live-stream-flat-map-reduce", &source);
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        String::from_utf8(output.stdout).unwrap(),
+        "same=true txt=2/5 md=1/4\n"
+    );
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn live_stream_par_map_for_loop_matches_collected_rows() {
+    let root = temp_path("live-stream-par-map-for-root");
+    let nested = root.join("nested");
+    std::fs::create_dir_all(&nested).expect("create par-map for fixture dirs");
+    std::fs::write(root.join("a.txt"), "abc").expect("write a");
+    std::fs::write(nested.join("b.txt"), "de").expect("write b");
+    std::fs::write(nested.join("c.md"), "fghi").expect("write c");
+    let source = format!(
+        "\
+let root = Path({})
+var streamed_txt_count = 0
+var streamed_txt_size = 0
+var streamed_md_count = 0
+var streamed_md_size = 0
+for row in fs.walk(root)
+  |> where .kind == \"file\"
+  |> par-map --jobs=4 {{ |entry|
+    {{ext: entry.ext, count: 1, size: entry.size}}
+  }}
+  |> where .ext != \"\" {{
+  match row.ext {{
+    \"txt\" => {{
+      streamed_txt_count += row.count
+      streamed_txt_size += row.size
+    }}
+    \"md\" => {{
+      streamed_md_count += row.count
+      streamed_md_size += row.size
+    }}
+    _ => {{}}
+  }}
+}}
+let collected = fs.walk(root)
+  |> where .kind == \"file\"
+  |> collect()
+  |> par-map --jobs=4 {{ |entry|
+    {{ext: entry.ext, count: 1, size: entry.size}}
+  }}
+  |> reduce-by --sum {{ |row|
+    {{key: row.ext, value: {{count: row.count, size: row.size}}}}
+  }}
+let ct = collected.get(\"txt\", {{count: 0, size: 0}})
+let cm = collected.get(\"md\", {{count: 0, size: 0}})
+let same = streamed_txt_count == ct.count and streamed_txt_size == ct.size and streamed_md_count == cm.count and streamed_md_size == cm.size
+print f\"same=${{same}} txt=${{streamed_txt_count}}/${{streamed_txt_size}} md=${{streamed_md_count}}/${{streamed_md_size}}\"
+",
+        xsh_string_literal(root.to_str().unwrap())
+    );
+
+    let output = run_temp_script("live-stream-par-map-for", &source);
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        String::from_utf8(output.stdout).unwrap(),
+        "same=true txt=2/5 md=1/4\n"
+    );
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
 fn parallel_count_and_group_by_match_serial_including_order() {
     // count{block} and group-by parallelize by default above the threshold;
     // results must equal `--jobs=1` exactly — and group-by must preserve the

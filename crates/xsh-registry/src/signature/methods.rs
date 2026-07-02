@@ -438,6 +438,13 @@ pub(in crate::signature) fn value_methods() -> Vec<MethodReceiverSig> {
             receiver: MethodReceiver::Map,
             methods: method_map(vec![
                 method(
+                    "len",
+                    Vec::new(),
+                    MethodReturn::Type(Type::Int),
+                    true,
+                    RuntimeOp::MapLen,
+                ),
+                method(
                     "has",
                     vec![param("key", Type::Str)],
                     MethodReturn::Type(Type::Bool),

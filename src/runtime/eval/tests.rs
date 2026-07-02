@@ -1967,17 +1967,24 @@ fn map_empty_constructor_lowers_record_builder() {
     // Every tokei scanner builds `blobs: map.empty()`; before the empty-map
     // constructor lowered, that single call rejected the whole function and
     // forced the scan onto the AST evaluator.
-    let source = "type Stats = {count: Int, blobs: Map[Any]}
+    let source = r#"type Stats = {count: Int, blobs: Map[Any]}
 pure build_stats(count: Int) -> Stats {
   return {count, blobs: map.empty()}
 }
 
 pure blob_count(stats: Stats) -> Int {
-  return stats.blobs.keys().len()
+  return stats.blobs.len()
 }
 
-print ${blob_count(build_stats(2))}
-";
+pure filled_count() -> Int {
+  var values: Map[Int] = map.empty()
+  values = values.set("a", 1)
+  values = values.set("b", 2)
+  return values.len()
+}
+
+print f"${blob_count(build_stats(2))} ${filled_count()}"
+"#;
     let mut sources = SourceMap::new();
     let source_id = sources.add_file("map-empty-lowered.xsh", source);
     let parsed = Parser::parse_source_arena_only(source_id, source);
@@ -2006,10 +2013,14 @@ print ${blob_count(build_stats(2))}
             .contains_key(&Name::intern("build_stats")),
         "build_stats should lower with map.empty(); lowered={lowered_names:?}"
     );
+    assert!(
+        evaluator.lowered_pures.contains_key(&Name::intern("filled_count")),
+        "filled_count should lower with Map.len(); lowered={lowered_names:?}"
+    );
 
     // The lowered `map.empty()` produces a real empty map at runtime.
     let output = evaluator.eval(&parsed.arena, source_id);
-    assert_eq!(output.stdout, b"0\n");
+    assert_eq!(output.stdout, b"0 2\n");
     assert!(output.traceback.is_none());
 }
 
@@ -3266,7 +3277,15 @@ fn lowered_self_collection_assignment_preserves_aliases() {
   values = values.set("alpha", 10)
   values = values.set("beta", 20)
 
-  return f"${old_xs.len()}:${xs.join(",")}:${old_values.keys().len()}:${values.get("alpha", 0) + values.get("beta", 0)}"
+  var buckets: Map[List[Int]] = map.empty()
+  let old_buckets = buckets
+  buckets = buckets.push("a", 1)
+  buckets = buckets.push("a", 2)
+  let empty_ints: List[Int] = []
+  let pushed = buckets.get("a", empty_ints).len()
+  buckets = buckets.remove("a")
+
+  return f"${old_xs.len()}:${xs.join(",")}:${old_values.keys().len()}:${values.get("alpha", 0) + values.get("beta", 0)}:${old_buckets.len()}:${pushed}:${buckets.len()}"
 }
 
 var seed: Map[Int] = map.empty()
@@ -3300,7 +3319,7 @@ print ${summarize(seed)}
     );
 
     let output = Evaluator::new_with_sources(Vec::new(), sources).eval(&parsed.arena, source_id);
-    assert_eq!(output.stdout, b"0:alpha,beta:0:30\n");
+    assert_eq!(output.stdout, b"0:alpha,beta:0:30:0:2:0\n");
     assert!(output.traceback.is_none());
 }
 

@@ -35,10 +35,10 @@ use crate::trace::{
     TraceArg, TraceError, TraceKind, TracePayload, Traceback, TracebackFrame, TracebackFrameKind,
 };
 use rustc_hash::FxHashMap;
-use std::borrow::Cow;
 use std::collections::BTreeMap;
 #[cfg(target_os = "macos")]
 use std::ffi::CStr;
+use std::fmt::Write as _;
 use std::ffi::OsString;
 use std::io::{ErrorKind, Read, Write};
 use std::ops::ControlFlow;
@@ -52,7 +52,7 @@ use std::time::{Duration, Instant};
 use super::lower::{
     lowered_empty_string_literal, lowered_literal_value, lowered_match_no_arm,
     lowered_needle_bytes, lowered_pattern_matches, lowered_record_field, lowered_stmt_flow_to_flow,
-    lowered_str_key, lowered_sum_records, lowered_tag_key, lowered_trim_slot,
+    lowered_str_key, lowered_sum_records, lowered_sum_values, lowered_tag_key, lowered_trim_slot,
 };
 use super::lowered_ops::{
     compare_lowered_sort_keys, lowered_assign_value, lowered_binary_value, lowered_bool_value,
@@ -144,13 +144,97 @@ pub(super) fn print_perf_counters() {}
 #[cfg(debug_assertions)]
 const LOWERED_PAR_MAP_WORKER_STACK_SIZE: usize = 8 << 20;
 #[cfg(not(debug_assertions))]
-const LOWERED_PAR_MAP_WORKER_STACK_SIZE: usize = 2 << 20;
+const LOWERED_PAR_MAP_WORKER_STACK_SIZE: usize = 1 << 20;
+const LOWERED_PAR_MAP_MAX_WORKERS: usize = 6;
 const LOWERED_SHARED_LIST_THRESHOLD: usize = 16;
+const LOWERED_STREAMING_RESULT_COMPACT_THRESHOLD: usize = 1024;
 
 fn btree_map<K: Ord, V>(entries: Vec<(K, V)>) -> BTreeMap<K, V> {
     let mut map = BTreeMap::new();
     map.extend(entries);
     map
+}
+
+fn lowered_par_map_worker_count(item_count: Option<usize>) -> usize {
+    let available = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(4)
+        .min(LOWERED_PAR_MAP_MAX_WORKERS)
+        .max(1);
+    item_count.map_or(available, |count| available.min(count).max(1))
+}
+
+struct LoweredStreamingResults {
+    base: usize,
+    values: Vec<Option<LoweredValue>>,
+}
+
+impl LoweredStreamingResults {
+    fn new() -> Self {
+        Self {
+            base: 0,
+            values: Vec::new(),
+        }
+    }
+
+    fn len(&self) -> usize {
+        self.base + self.values.len()
+    }
+
+    fn push_pending(&mut self) {
+        self.values.push(None);
+    }
+
+    fn pop_pending(&mut self) {
+        self.values.pop();
+    }
+
+    fn set(&mut self, index: usize, value: LoweredValue) {
+        if index < self.base {
+            return;
+        }
+        if let Some(slot) = self.values.get_mut(index - self.base) {
+            *slot = Some(value);
+        }
+    }
+
+    fn drain_ready(&mut self, next_index: &mut usize) -> Vec<LoweredValue> {
+        let mut ready = Vec::new();
+        while *next_index >= self.base {
+            let offset = *next_index - self.base;
+            if offset >= self.values.len() {
+                break;
+            }
+            let Some(value) = self.values[offset].take() else {
+                break;
+            };
+            ready.push(value);
+            *next_index += 1;
+        }
+        let drained = next_index.saturating_sub(self.base);
+        if drained >= LOWERED_STREAMING_RESULT_COMPACT_THRESHOLD
+            && drained.saturating_mul(2) >= self.values.len()
+        {
+            self.values.drain(0..drained);
+            self.base += drained;
+        }
+        ready
+    }
+
+    fn into_values(self) -> Vec<LoweredValue> {
+        self.values
+            .into_iter()
+            .map(|value| value.unwrap_or(LoweredValue::Unit))
+            .collect()
+    }
+
+    fn cloned_values(&self) -> Vec<LoweredValue> {
+        self.values
+            .iter()
+            .cloned()
+            .map(|value| value.unwrap_or(LoweredValue::Unit))
+            .collect()
+    }
 }
 
 /// Display a fmt-string interpolation, applying an optional `:>N`/`:<N`/`:0N`
@@ -343,6 +427,10 @@ fn lowered_reduce_by_key(output: &LoweredValue, span: Span) -> Result<String, Ru
         RuntimeError::new("reduce-by-key", "reduce-by record is missing field `key`")
             .with_span(span)
     })?;
+    lowered_reduce_key_value(key, span)
+}
+
+fn lowered_reduce_key_value(key: &LoweredValue, span: Span) -> Result<String, RuntimeError> {
     match key {
         LoweredValue::Str(value) => Ok(value.to_string()),
         LoweredValue::StrView(value) => Ok(value.as_str().to_string()),
@@ -411,6 +499,147 @@ fn lowered_reduce_sum(
             ),
         )
         .with_span(span)),
+    }
+}
+
+fn lowered_reduce_group_insert(
+    groups: &mut BTreeMap<String, LoweredValue>,
+    key: String,
+    value: LoweredValue,
+    op: ReduceByOp,
+    span: Span,
+) -> Result<(), RuntimeError> {
+    match groups.entry(key) {
+        std::collections::btree_map::Entry::Vacant(slot) => {
+            slot.insert(value);
+        }
+        std::collections::btree_map::Entry::Occupied(mut slot) => {
+            let prev = std::mem::replace(slot.get_mut(), LoweredValue::Unit);
+            *slot.get_mut() = lowered_reduce_combine(op, prev, value, span)?;
+        }
+    }
+    Ok(())
+}
+
+struct LoweredReduceProjection<'a> {
+    key_field: &'a str,
+    value_fields: Vec<(Name, &'a str)>,
+}
+
+fn lowered_field_projection(expr: &LoweredExpr, item_slot: usize) -> Option<&str> {
+    let LoweredExpr::Field { base, name, .. } = expr else {
+        return None;
+    };
+    let LoweredExpr::Param(slot) = base.as_ref() else {
+        return None;
+    };
+    (*slot == item_slot).then_some(name.as_str())
+}
+
+fn lowered_reduce_projection<'a>(
+    item_slot: usize,
+    body: &[LoweredStmt],
+    value: &'a LoweredExpr,
+    op: ReduceByOp,
+) -> Option<LoweredReduceProjection<'a>> {
+    if op != ReduceByOp::Sum || !body.is_empty() {
+        return None;
+    }
+    let LoweredExpr::Record(entries) = value else {
+        return None;
+    };
+    let mut key_field = None;
+    let mut value_fields = None;
+    for entry in entries {
+        let LoweredRecordEntry::Field(name, expr) = entry else {
+            return None;
+        };
+        match name.as_str() {
+            "key" => key_field = Some(lowered_field_projection(expr, item_slot)?),
+            "value" => {
+                let LoweredExpr::Record(fields) = expr else {
+                    return None;
+                };
+                let mut projected = Vec::with_capacity(fields.len());
+                for field in fields {
+                    let LoweredRecordEntry::Field(name, expr) = field else {
+                        return None;
+                    };
+                    projected.push((name.clone(), lowered_field_projection(expr, item_slot)?));
+                }
+                value_fields = Some(projected);
+            }
+            _ => return None,
+        }
+    }
+    Some(LoweredReduceProjection {
+        key_field: key_field?,
+        value_fields: value_fields?,
+    })
+}
+
+fn lowered_expr_is_fs_stream_source(expr: &LoweredExpr) -> bool {
+    match expr {
+        LoweredExpr::FsFiles { .. } | LoweredExpr::FsWalk { .. } => true,
+        LoweredExpr::Try(inner) => lowered_expr_is_fs_stream_source(inner),
+        _ => false,
+    }
+}
+
+fn lowered_stmts_allow_streaming_for_body(body: &[LoweredStmt]) -> bool {
+    body.iter().all(lowered_stmt_allows_streaming_for_body)
+}
+
+fn lowered_stmt_allows_streaming_for_body(stmt: &LoweredStmt) -> bool {
+    match stmt {
+        LoweredStmt::Let { .. }
+        | LoweredStmt::LetInt { .. }
+        | LoweredStmt::LetBool { .. }
+        | LoweredStmt::LetRecord { .. }
+        | LoweredStmt::Assign { .. }
+        | LoweredStmt::AssignInt { .. }
+        | LoweredStmt::AssignIndex { .. }
+        | LoweredStmt::AssignBool { .. } => true,
+        LoweredStmt::If {
+            branches,
+            else_body,
+        } => {
+            branches
+                .iter()
+                .all(|(_, body)| lowered_stmts_allow_streaming_for_body(body))
+                && else_body
+                    .as_ref()
+                    .is_none_or(|body| lowered_stmts_allow_streaming_for_body(body))
+        }
+        LoweredStmt::IfBool {
+            branches,
+            else_body,
+        } => {
+            branches
+                .iter()
+                .all(|(_, body)| lowered_stmts_allow_streaming_for_body(body))
+                && else_body
+                    .as_ref()
+                    .is_none_or(|body| lowered_stmts_allow_streaming_for_body(body))
+        }
+        LoweredStmt::Match { arms, .. } => arms
+            .iter()
+            .all(|(_, _, body)| lowered_stmts_allow_streaming_for_body(body)),
+        LoweredStmt::StrMatch { arms, fallback, .. } => {
+            arms.values()
+                .all(|body| lowered_stmts_allow_streaming_for_body(body))
+                && fallback
+                    .as_ref()
+                    .is_none_or(|body| lowered_stmts_allow_streaming_for_body(body))
+        }
+        LoweredStmt::TagMatch { arms, fallback, .. } => {
+            arms.values()
+                .all(|body| lowered_stmts_allow_streaming_for_body(body))
+                && fallback
+                    .as_ref()
+                    .is_none_or(|body| lowered_stmts_allow_streaming_for_body(body))
+        }
+        _ => false,
     }
 }
 
@@ -590,69 +819,212 @@ fn lowered_encode_json(
     span: Span,
 ) -> Result<String, RuntimeError> {
     if !pretty {
-        lowered_validate_json_compatible(value, span)?;
-        return Ok(miniserde::json::to_string(&LoweredJsonValue(value)));
+        let mut output = String::with_capacity(lowered_compact_json_capacity(value));
+        lowered_write_compact_json(value, &mut output, span)?;
+        return Ok(output);
     }
 
     let value = lowered_to_json(value, span)?;
     Ok(json_module::pretty_raw_json(&value))
 }
 
-fn lowered_validate_json_compatible(value: &LoweredValue, span: Span) -> Result<(), RuntimeError> {
+fn lowered_compact_json_capacity(value: &LoweredValue) -> usize {
     match value {
-        LoweredValue::Null
-        | LoweredValue::Bool(_)
-        | LoweredValue::Int(_)
-        | LoweredValue::Str(_)
-        | LoweredValue::StrView(_) => Ok(()),
-        LoweredValue::Float(value) if value.0.is_finite() => Ok(()),
-        LoweredValue::Float(_) => Err(RuntimeError::new(
-            "json-compatible",
-            "non-finite Float values are not JSON-compatible",
-        )
-        .with_span(span)),
-        LoweredValue::List(items) => {
-            for item in items {
-                lowered_validate_json_compatible(item, span)?;
-            }
-            Ok(())
-        }
-        LoweredValue::SharedList(items) => {
-            for item in items.iter() {
-                lowered_validate_json_compatible(item, span)?;
-            }
-            Ok(())
-        }
+        LoweredValue::Null => 4,
+        LoweredValue::Bool(true) => 4,
+        LoweredValue::Bool(false) => 5,
+        LoweredValue::Int(value) => lowered_i64_json_len(*value),
+        LoweredValue::Float(value) => value.0.to_string().len(),
+        LoweredValue::Str(value) => value.len() + 2,
+        LoweredValue::StrView(value) => value.as_str().len() + 2,
+        LoweredValue::List(items) => lowered_compact_json_seq_capacity(items.iter()),
+        LoweredValue::SharedList(items) => lowered_compact_json_seq_capacity(items.iter()),
         LoweredValue::Map(fields) => {
-            for item in fields.values() {
-                lowered_validate_json_compatible(item, span)?;
-            }
-            Ok(())
+            let fields = fields
+                .iter()
+                .map(|(key, value)| (key.as_str(), value));
+            lowered_compact_json_map_capacity(fields)
         }
         LoweredValue::Record(fields) => {
-            for item in fields.values() {
-                lowered_validate_json_compatible(item, span)?;
-            }
-            Ok(())
+            let fields = fields
+                .iter()
+                .map(|(key, value)| (key.as_ref(), value));
+            lowered_compact_json_map_capacity(fields)
         }
         LoweredValue::RecordVec(fields) => {
-            for (_, item) in fields.iter() {
-                lowered_validate_json_compatible(item, span)?;
-            }
-            Ok(())
+            let fields = fields
+                .iter()
+                .map(|(key, value)| (key.as_str(), value));
+            lowered_compact_json_map_capacity(fields)
         }
-        LoweredValue::Stats { .. } => Ok(()),
+        LoweredValue::Stats {
+            blanks,
+            code,
+            comments,
+        } => {
+            lowered_compact_json_stats_capacity(*blanks, None, *code, *comments)
+        }
+        LoweredValue::StatsBlob(stats) => lowered_compact_json_stats_capacity(
+            stats.blanks,
+            Some(&stats.blobs),
+            stats.code,
+            stats.comments,
+        ),
+        LoweredValue::FsEntry(entry) => entry
+            .to_record_map()
+            .ok()
+            .map(|record| {
+                let mut capacity = 2;
+                let mut first = true;
+                for (key, value) in record.iter() {
+                    let Some(value) = lowered_value_from_runtime_any(value) else {
+                        continue;
+                    };
+                    if !first {
+                        capacity += 1;
+                    }
+                    capacity += key.len() + 3 + lowered_compact_json_capacity(&value);
+                    first = false;
+                }
+                capacity
+            })
+            .unwrap_or(4),
+        _ => 4,
+    }
+}
+
+fn lowered_compact_json_seq_capacity<'a>(
+    items: impl Iterator<Item = &'a LoweredValue>,
+) -> usize {
+    let mut capacity = 2;
+    let mut first = true;
+    for item in items {
+        if !first {
+            capacity += 1;
+        }
+        capacity += lowered_compact_json_capacity(item);
+        first = false;
+    }
+    capacity
+}
+
+fn lowered_compact_json_map_capacity<'a>(
+    fields: impl Iterator<Item = (&'a str, &'a LoweredValue)>,
+) -> usize {
+    let mut capacity = 2;
+    let mut first = true;
+    for (key, value) in fields {
+        if !first {
+            capacity += 1;
+        }
+        capacity += key.len() + 3 + lowered_compact_json_capacity(value);
+        first = false;
+    }
+    capacity
+}
+
+fn lowered_compact_json_stats_capacity(
+    blanks: i64,
+    blobs: Option<&BTreeMap<String, LoweredValue>>,
+    code: i64,
+    comments: i64,
+) -> usize {
+    let blobs = blobs
+        .map(|blobs| {
+            let fields = blobs.iter().map(|(key, value)| (key.as_str(), value));
+            lowered_compact_json_map_capacity(fields)
+        })
+        .unwrap_or(2);
+    35 + lowered_i64_json_len(blanks)
+        + blobs
+        + lowered_i64_json_len(code)
+        + lowered_i64_json_len(comments)
+}
+
+fn lowered_i64_json_len(value: i64) -> usize {
+    if value == 0 {
+        return 1;
+    }
+    let negative = value < 0;
+    let mut digits = 0usize;
+    let mut value = value.unsigned_abs();
+    while value > 0 {
+        digits += 1;
+        value /= 10;
+    }
+    digits + usize::from(negative)
+}
+
+fn lowered_write_compact_json(
+    value: &LoweredValue,
+    output: &mut String,
+    span: Span,
+) -> Result<(), RuntimeError> {
+    match value {
+        LoweredValue::Null => output.push_str("null"),
+        LoweredValue::Bool(value) => output.push_str(if *value { "true" } else { "false" }),
+        LoweredValue::Int(value) => {
+            let _ = write!(output, "{value}");
+        }
+        LoweredValue::Float(value) if value.0.is_finite() => {
+            output.push_str(&miniserde::json::to_string(&value.0));
+        }
+        LoweredValue::Float(_) => {
+            return Err(RuntimeError::new(
+                "json-compatible",
+                "non-finite Float values are not JSON-compatible",
+            )
+            .with_span(span));
+        }
+        LoweredValue::Str(value) => lowered_write_json_str(value.as_ref(), output),
+        LoweredValue::StrView(value) => lowered_write_json_str(value.as_str(), output),
+        LoweredValue::List(items) => lowered_write_json_seq(items.iter(), output, span)?,
+        LoweredValue::SharedList(items) => lowered_write_json_seq(items.iter(), output, span)?,
+        LoweredValue::Map(fields) => {
+            lowered_write_json_map(
+                fields.iter().map(|(key, value)| (key.as_str(), value)),
+                output,
+                span,
+            )?;
+        }
+        LoweredValue::Record(fields) => {
+            lowered_write_json_map(
+                fields.iter().map(|(key, value)| (key.as_ref(), value)),
+                output,
+                span,
+            )?;
+        }
+        LoweredValue::RecordVec(fields) => {
+            lowered_write_json_map(
+                fields.iter().map(|(key, value)| (key.as_str(), value)),
+                output,
+                span,
+            )?;
+        }
+        LoweredValue::Stats {
+            blanks,
+            code,
+            comments,
+        } => {
+            lowered_write_json_stats(*blanks, None, *code, *comments, output, span)?;
+        }
         LoweredValue::StatsBlob(stats) => {
-            for item in stats.blobs.values() {
-                lowered_validate_json_compatible(item, span)?;
-            }
-            Ok(())
+            lowered_write_json_stats(
+                stats.blanks,
+                Some(&stats.blobs),
+                stats.code,
+                stats.comments,
+                output,
+                span,
+            )?;
         }
         LoweredValue::FsEntry(entry) => {
             let record = entry
                 .to_record_map()
                 .map_err(|error| error.with_span(span))?;
-            for (_, item) in record {
+            output.push('{');
+            let mut first = true;
+            for (key, item) in record {
                 let Some(item) = lowered_value_from_runtime_any(&item) else {
                     return Err(RuntimeError::new(
                         "type-error",
@@ -660,12 +1032,125 @@ fn lowered_validate_json_compatible(value: &LoweredValue, span: Span) -> Result<
                     )
                     .with_span(span));
                 };
-                lowered_validate_json_compatible(&item, span)?;
+                if !first {
+                    output.push(',');
+                }
+                lowered_write_json_str(key.as_ref(), output);
+                output.push(':');
+                lowered_write_compact_json(&item, output, span)?;
+                first = false;
             }
-            Ok(())
+            output.push('}');
         }
-        value => Err(lowered_json_compatible_error(value, span)),
+        value => return Err(lowered_json_compatible_error(value, span)),
     }
+    Ok(())
+}
+
+fn lowered_write_json_seq<'a>(
+    items: impl Iterator<Item = &'a LoweredValue>,
+    output: &mut String,
+    span: Span,
+) -> Result<(), RuntimeError> {
+    output.push('[');
+    let mut first = true;
+    for item in items {
+        if !first {
+            output.push(',');
+        }
+        lowered_write_compact_json(item, output, span)?;
+        first = false;
+    }
+    output.push(']');
+    Ok(())
+}
+
+fn lowered_write_json_map<'a>(
+    fields: impl Iterator<Item = (&'a str, &'a LoweredValue)>,
+    output: &mut String,
+    span: Span,
+) -> Result<(), RuntimeError> {
+    output.push('{');
+    let mut first = true;
+    for (key, value) in fields {
+        if !first {
+            output.push(',');
+        }
+        lowered_write_json_str(key, output);
+        output.push(':');
+        lowered_write_compact_json(value, output, span)?;
+        first = false;
+    }
+    output.push('}');
+    Ok(())
+}
+
+fn lowered_write_json_stats(
+    blanks: i64,
+    blobs: Option<&BTreeMap<String, LoweredValue>>,
+    code: i64,
+    comments: i64,
+    output: &mut String,
+    span: Span,
+) -> Result<(), RuntimeError> {
+    output.push_str("{\"blanks\":");
+    let _ = write!(output, "{blanks}");
+    output.push_str(",\"blobs\":");
+    if let Some(blobs) = blobs {
+        lowered_write_json_map(
+            blobs.iter().map(|(key, value)| (key.as_str(), value)),
+            output,
+            span,
+        )?;
+    } else {
+        output.push_str("{}");
+    }
+    output.push_str(",\"code\":");
+    let _ = write!(output, "{code}");
+    output.push_str(",\"comments\":");
+    let _ = write!(output, "{comments}");
+    output.push('}');
+    Ok(())
+}
+
+fn lowered_write_json_str(value: &str, output: &mut String) {
+    output.push('"');
+    let bytes = value.as_bytes();
+    let mut start = 0usize;
+    for (index, &byte) in bytes.iter().enumerate() {
+        let escaped = match byte {
+            b'\x08' => Some("\\b"),
+            b'\t' => Some("\\t"),
+            b'\n' => Some("\\n"),
+            b'\x0c' => Some("\\f"),
+            b'\r' => Some("\\r"),
+            b'"' => Some("\\\""),
+            b'\\' => Some("\\\\"),
+            0x00..=0x1f => {
+                if start < index {
+                    output.push_str(&value[start..index]);
+                }
+                const HEX_DIGITS: &[u8; 16] = b"0123456789abcdef";
+                output.push_str("\\u00");
+                output.push(HEX_DIGITS[(byte >> 4) as usize] as char);
+                output.push(HEX_DIGITS[(byte & 0x0f) as usize] as char);
+                start = index + 1;
+                continue;
+            }
+            _ => None,
+        };
+        if let Some(escaped) = escaped {
+            if start < index {
+                output.push_str(&value[start..index]);
+            }
+            output.push_str(escaped);
+            start = index + 1;
+        }
+    }
+    if start != bytes.len() {
+        output.push_str(&value[start..]);
+    }
+    output.push('"');
 }
 
 fn lowered_json_compatible_error(value: &LoweredValue, span: Span) -> RuntimeError {
@@ -677,182 +1162,6 @@ fn lowered_json_compatible_error(value: &LoweredValue, span: Span) -> RuntimeErr
         ),
     )
     .with_span(span)
-}
-
-struct LoweredJsonValue<'a>(&'a LoweredValue);
-
-impl miniserde::ser::Serialize for LoweredJsonValue<'_> {
-    fn begin(&self) -> miniserde::ser::Fragment<'_> {
-        lowered_json_fragment(self.0)
-    }
-}
-
-struct LoweredJsonOwnedValue(LoweredValue);
-
-impl miniserde::ser::Serialize for LoweredJsonOwnedValue {
-    fn begin(&self) -> miniserde::ser::Fragment<'_> {
-        lowered_json_fragment(&self.0)
-    }
-}
-
-fn lowered_json_fragment(value: &LoweredValue) -> miniserde::ser::Fragment<'_> {
-    match value {
-        LoweredValue::Null => miniserde::ser::Fragment::Null,
-        LoweredValue::Bool(value) => miniserde::ser::Fragment::Bool(*value),
-        LoweredValue::Int(value) => miniserde::ser::Fragment::I64(*value),
-        LoweredValue::Float(value) => miniserde::ser::Fragment::F64(value.0),
-        LoweredValue::Str(value) => miniserde::ser::Fragment::Str(Cow::Borrowed(value.as_ref())),
-        LoweredValue::StrView(value) => {
-            miniserde::ser::Fragment::Str(Cow::Borrowed(value.as_str()))
-        }
-        LoweredValue::List(items) => miniserde::ser::Fragment::Seq(Box::new(LoweredJsonSeq {
-            iter: items.iter(),
-            current: None,
-        })),
-        LoweredValue::SharedList(items) => {
-            miniserde::ser::Fragment::Seq(Box::new(LoweredJsonSeq {
-                iter: items.iter(),
-                current: None,
-            }))
-        }
-        LoweredValue::Map(fields) => miniserde::ser::Fragment::Map(Box::new(LoweredJsonMap {
-            iter: LoweredJsonMapIter::String(fields.iter()),
-            current: None,
-        })),
-        LoweredValue::Record(fields) => miniserde::ser::Fragment::Map(Box::new(LoweredJsonMap {
-            iter: LoweredJsonMapIter::Arc(fields.iter()),
-            current: None,
-        })),
-        LoweredValue::RecordVec(fields) => {
-            miniserde::ser::Fragment::Map(Box::new(LoweredJsonMap {
-                iter: LoweredJsonMapIter::NameSlice(fields.iter()),
-                current: None,
-            }))
-        }
-        LoweredValue::Stats {
-            blanks,
-            code,
-            comments,
-        } => miniserde::ser::Fragment::Map(Box::new(LoweredJsonInlineStatsMap {
-            blanks: *blanks,
-            code: *code,
-            comments: *comments,
-            index: 0,
-            current: None,
-        })),
-        LoweredValue::StatsBlob(stats) => {
-            miniserde::ser::Fragment::Map(Box::new(LoweredJsonStatsBlobMap {
-                stats,
-                index: 0,
-                current: None,
-            }))
-        }
-        _ => miniserde::ser::Fragment::Null,
-    }
-}
-
-struct LoweredJsonSeq<'a> {
-    iter: std::slice::Iter<'a, LoweredValue>,
-    current: Option<LoweredJsonValue<'a>>,
-}
-
-impl miniserde::ser::Seq for LoweredJsonSeq<'_> {
-    fn next(&mut self) -> Option<&dyn miniserde::ser::Serialize> {
-        self.current = Some(LoweredJsonValue(self.iter.next()?));
-        Some(self.current.as_ref()? as &dyn miniserde::ser::Serialize)
-    }
-}
-
-enum LoweredJsonMapIter<'a> {
-    String(std::collections::btree_map::Iter<'a, String, LoweredValue>),
-    Arc(std::collections::btree_map::Iter<'a, Arc<str>, LoweredValue>),
-    NameSlice(std::slice::Iter<'a, (Name, LoweredValue)>),
-}
-
-struct LoweredJsonMap<'a> {
-    iter: LoweredJsonMapIter<'a>,
-    current: Option<LoweredJsonValue<'a>>,
-}
-
-impl miniserde::ser::Map for LoweredJsonMap<'_> {
-    fn next(&mut self) -> Option<(Cow<'_, str>, &dyn miniserde::ser::Serialize)> {
-        match &mut self.iter {
-            LoweredJsonMapIter::String(iter) => {
-                let (key, value) = iter.next()?;
-                self.current = Some(LoweredJsonValue(value));
-                Some((
-                    Cow::Borrowed(key.as_str()),
-                    self.current.as_ref()? as &dyn miniserde::ser::Serialize,
-                ))
-            }
-            LoweredJsonMapIter::Arc(iter) => {
-                let (key, value) = iter.next()?;
-                self.current = Some(LoweredJsonValue(value));
-                Some((
-                    Cow::Borrowed(key.as_ref()),
-                    self.current.as_ref()? as &dyn miniserde::ser::Serialize,
-                ))
-            }
-            LoweredJsonMapIter::NameSlice(iter) => {
-                let (key, value) = iter.next()?;
-                self.current = Some(LoweredJsonValue(value));
-                Some((
-                    Cow::Borrowed(key.as_str()),
-                    self.current.as_ref()? as &dyn miniserde::ser::Serialize,
-                ))
-            }
-        }
-    }
-}
-
-struct LoweredJsonInlineStatsMap {
-    blanks: i64,
-    code: i64,
-    comments: i64,
-    index: u8,
-    current: Option<LoweredJsonOwnedValue>,
-}
-
-impl miniserde::ser::Map for LoweredJsonInlineStatsMap {
-    fn next(&mut self) -> Option<(Cow<'_, str>, &dyn miniserde::ser::Serialize)> {
-        let (key, value) = match self.index {
-            0 => ("blanks", LoweredValue::Int(self.blanks)),
-            1 => ("blobs", LoweredValue::Map(BTreeMap::new())),
-            2 => ("code", LoweredValue::Int(self.code)),
-            3 => ("comments", LoweredValue::Int(self.comments)),
-            _ => return None,
-        };
-        self.index += 1;
-        self.current = Some(LoweredJsonOwnedValue(value));
-        Some((
-            Cow::Borrowed(key),
-            self.current.as_ref()? as &dyn miniserde::ser::Serialize,
-        ))
-    }
-}
-
-struct LoweredJsonStatsBlobMap<'a> {
-    stats: &'a super::LoweredStatsValue,
-    index: u8,
-    current: Option<LoweredJsonOwnedValue>,
-}
-
-impl miniserde::ser::Map for LoweredJsonStatsBlobMap<'_> {
-    fn next(&mut self) -> Option<(Cow<'_, str>, &dyn miniserde::ser::Serialize)> {
-        let (key, value) = match self.index {
-            0 => ("blanks", LoweredValue::Int(self.stats.blanks)),
-            1 => ("blobs", LoweredValue::Map(self.stats.blobs.clone())),
-            2 => ("code", LoweredValue::Int(self.stats.code)),
-            3 => ("comments", LoweredValue::Int(self.stats.comments)),
-            _ => return None,
-        };
-        self.index += 1;
-        self.current = Some(LoweredJsonOwnedValue(value));
-        Some((
-            Cow::Borrowed(key),
-            self.current.as_ref()? as &dyn miniserde::ser::Serialize,
-        ))
-    }
 }
 
 fn lowered_to_json(
@@ -2777,17 +3086,30 @@ impl Evaluator {
         }) {
             return Ok(None);
         }
+        let direct_reduce = match (stages.get(par_index + 1), stages.get(par_index + 2)) {
+            (
+                Some(LoweredPipelineStage::FlatMap {
+                    slot,
+                    value: LoweredExpr::Param(value_slot),
+                }),
+                Some(LoweredPipelineStage::ReduceBy {
+                    item_slot,
+                    body,
+                    value,
+                    op,
+                }),
+            ) if *slot == *value_slot => lowered_reduce_projection(*item_slot, body, value, *op)
+                .map(|projection| (projection, par_index + 3)),
+            _ => None,
+        };
 
-        let jobs = std::thread::available_parallelism()
-            .map(|n| n.get())
-            .unwrap_or(4)
-            .max(1);
+        let jobs = lowered_par_map_worker_count(None);
         let (work_tx, work_rx) = crossbeam_channel::bounded::<(usize, LoweredValue)>(jobs * 2);
         let lowered_arc = Arc::new(lowered.clone());
         let body_arc = Arc::new(par_body.clone());
         let value_arc = Arc::new(par_value.clone());
         let base_slots = Arc::new(slots.to_vec());
-        let all_results = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let all_results = Arc::new(std::sync::Mutex::new(LoweredStreamingResults::new()));
         let any_error = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let shared_stderr = Arc::new(std::sync::Mutex::new(Vec::new()));
         let shared_state = self.lowered_shared_state();
@@ -2894,11 +3216,7 @@ impl Evaluator {
                             };
                             worker_slots[par_slot] = LoweredValue::Unit;
                             match all_results.lock() {
-                                Ok(mut all_results) => {
-                                    if index < all_results.len() {
-                                        all_results[index] = result;
-                                    }
-                                }
+                                Ok(mut all_results) => all_results.set(index, result),
                                 Err(_) => {
                                     any_error.store(true, std::sync::atomic::Ordering::Relaxed);
                                     break;
@@ -2912,6 +3230,10 @@ impl Evaluator {
         drop(work_rx);
 
         let mut next_index = 0usize;
+        let mut next_reduce_index = 0usize;
+        let mut reduce_groups: BTreeMap<String, LoweredValue> = BTreeMap::new();
+        let mut validation_error = None;
+        let mut reduce_error = None;
         for item in std::mem::take(&mut stream.items) {
             let Some(value) = lowered_value_from_runtime_any(&item.value) else {
                 continue;
@@ -2920,7 +3242,7 @@ impl Evaluator {
                 self.eval_stream_prefix_item(lowered, value, &stages[..par_index], slots, span)?
             {
                 match all_results.lock() {
-                    Ok(mut all_results) => all_results.push(LoweredValue::Unit),
+                    Ok(mut all_results) => all_results.push_pending(),
                     Err(_) => {
                         any_error.store(true, std::sync::atomic::Ordering::Relaxed);
                         break;
@@ -2928,11 +3250,22 @@ impl Evaluator {
                 }
                 if work_tx.send((next_index, value)).is_err() {
                     if let Ok(mut all_results) = all_results.lock() {
-                        all_results.pop();
+                        all_results.pop_pending();
                     }
                     break;
                 }
                 next_index += 1;
+            }
+            if let Some((projection, _)) = direct_reduce.as_ref() {
+                self.drain_streaming_projected_reduce_results(
+                    &all_results,
+                    &mut next_reduce_index,
+                    projection,
+                    &mut reduce_groups,
+                    &mut validation_error,
+                    &mut reduce_error,
+                    span,
+                )?;
             }
         }
         while stream.source.is_some() && !any_error.load(std::sync::atomic::Ordering::Relaxed) {
@@ -2946,7 +3279,7 @@ impl Evaluator {
                 self.eval_stream_prefix_item(lowered, value, &stages[..par_index], slots, span)?
             {
                 match all_results.lock() {
-                    Ok(mut all_results) => all_results.push(LoweredValue::Unit),
+                    Ok(mut all_results) => all_results.push_pending(),
                     Err(_) => {
                         any_error.store(true, std::sync::atomic::Ordering::Relaxed);
                         break;
@@ -2954,11 +3287,22 @@ impl Evaluator {
                 }
                 if work_tx.send((next_index, value)).is_err() {
                     if let Ok(mut all_results) = all_results.lock() {
-                        all_results.pop();
+                        all_results.pop_pending();
                     }
                     break;
                 }
                 next_index += 1;
+            }
+            if let Some((projection, _)) = direct_reduce.as_ref() {
+                self.drain_streaming_projected_reduce_results(
+                    &all_results,
+                    &mut next_reduce_index,
+                    projection,
+                    &mut reduce_groups,
+                    &mut validation_error,
+                    &mut reduce_error,
+                    span,
+                )?;
             }
         }
         drop(work_tx);
@@ -2970,16 +3314,436 @@ impl Evaluator {
         if let Ok(stderr) = shared_stderr.lock() {
             self.stderr.extend_from_slice(&stderr);
         }
+        if let Some((projection, consumed)) = direct_reduce.as_ref() {
+            self.drain_streaming_projected_reduce_results(
+                &all_results,
+                &mut next_reduce_index,
+                projection,
+                &mut reduce_groups,
+                &mut validation_error,
+                &mut reduce_error,
+                span,
+            )?;
+            let result_len = all_results
+                .lock()
+                .map(|results| results.len())
+                .unwrap_or_else(|poisoned| poisoned.into_inner().len());
+            if next_reduce_index < result_len && validation_error.is_none() {
+                validation_error = Some(
+                    RuntimeError::new("type-error", "flat-map expected List").with_span(span),
+                );
+            }
+            if let Some(error) = validation_error {
+                return Err(error);
+            }
+            if let Some(error) = reduce_error {
+                return Err(error);
+            }
+            return Ok(Some((LoweredValue::Map(reduce_groups), *consumed)));
+        }
         let results = match Arc::try_unwrap(all_results) {
             Ok(results) => results
                 .into_inner()
-                .unwrap_or_else(|poisoned| poisoned.into_inner()),
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .into_values(),
             Err(results) => results
                 .lock()
-                .map(|results| results.clone())
-                .unwrap_or_else(|poisoned| poisoned.into_inner().clone()),
+                .map(|results| results.cloned_values())
+                .unwrap_or_else(|poisoned| poisoned.into_inner().cloned_values()),
         };
         Ok(Some((LoweredValue::List(results), par_index + 1)))
+    }
+
+    fn try_eval_streaming_par_map_for(
+        &mut self,
+        lowered: &LoweredPureFunction,
+        iter: &LoweredExpr,
+        loop_slot: usize,
+        loop_body: &[LoweredStmt],
+        slots: &mut [LoweredValue],
+        call_span: Span,
+        loop_span: Span,
+    ) -> Result<Option<LoweredStmtFlow>, RuntimeError> {
+        if self.trace_enabled || !lowered_stmts_allow_streaming_for_body(loop_body) {
+            return Ok(None);
+        }
+        let LoweredExpr::ListPipeline {
+            input,
+            stages,
+            span,
+        } = iter
+        else {
+            return Ok(None);
+        };
+        if !lowered_expr_is_fs_stream_source(input) {
+            return Ok(None);
+        }
+        let Some((par_index, par_slot, par_body, par_value)) =
+            stages
+                .iter()
+                .enumerate()
+                .find_map(|(index, stage)| match stage {
+                    LoweredPipelineStage::ParMapBlock { slot, body, value } => {
+                        Some((index, *slot, body, value))
+                    }
+                    _ => None,
+                })
+        else {
+            return Ok(None);
+        };
+        if !stages[..par_index].iter().all(|stage| {
+            matches!(
+                stage,
+                LoweredPipelineStage::Map { .. } | LoweredPipelineStage::Where { .. }
+            )
+        }) || !stages[par_index + 1..].iter().all(|stage| {
+            matches!(
+                stage,
+                LoweredPipelineStage::Map { .. } | LoweredPipelineStage::Where { .. }
+            )
+        }) {
+            return Ok(None);
+        }
+
+        let current = match self.eval_lowered_expr(lowered, input, slots, *span)? {
+            ControlFlow::Continue(value) => lowered_pipeline_input(value, *span)?,
+            ControlFlow::Break(value) => return Ok(Some(LoweredStmtFlow::Return(value))),
+        };
+        let LoweredValue::Stream(mut stream) = current else {
+            return Ok(None);
+        };
+        let jobs = lowered_par_map_worker_count(None);
+        let (work_tx, work_rx) = crossbeam_channel::bounded::<(usize, LoweredValue)>(jobs * 2);
+        let lowered_arc = Arc::new(lowered.clone());
+        let body_arc = Arc::new(par_body.clone());
+        let value_arc = Arc::new(par_value.clone());
+        let base_slots = Arc::new(slots.to_vec());
+        let all_results = Arc::new(std::sync::Mutex::new(LoweredStreamingResults::new()));
+        let any_error = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let shared_stderr = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let shared_state = self.lowered_shared_state();
+        let mut handles = Vec::with_capacity(jobs);
+        for _ in 0..jobs {
+            let work_rx = work_rx.clone();
+            let lowered_arc = Arc::clone(&lowered_arc);
+            let body_arc = Arc::clone(&body_arc);
+            let value_arc = Arc::clone(&value_arc);
+            let base_slots = Arc::clone(&base_slots);
+            let all_results = Arc::clone(&all_results);
+            let any_error = Arc::clone(&any_error);
+            let shared_stderr = Arc::clone(&shared_stderr);
+            let shared_state = shared_state.clone();
+            handles.push(
+                std::thread::Builder::new()
+                    .stack_size(LOWERED_PAR_MAP_WORKER_STACK_SIZE)
+                    .spawn(move || {
+                        let mut worker = LoweredWorker::new(shared_state);
+                        let mut worker_slots = (*base_slots).clone();
+                        if worker_slots.len() < lowered_arc.slot_count {
+                            worker_slots.resize(lowered_arc.slot_count, LoweredValue::Unit);
+                        }
+                        while let Ok((index, item)) = work_rx.recv() {
+                            if any_error.load(std::sync::atomic::Ordering::Relaxed) {
+                                break;
+                            }
+                            worker_slots[par_slot] = item;
+                            let item_result = match worker.eval_lowered_stmts(
+                                &lowered_arc,
+                                &body_arc,
+                                &mut worker_slots,
+                                call_span,
+                            ) {
+                                Err(error) => {
+                                    if let Ok(mut stderr) = shared_stderr.lock() {
+                                        stderr.extend_from_slice(
+                                            format!("par-map error: {error:?}\n").as_bytes(),
+                                        );
+                                    }
+                                    any_error.store(true, std::sync::atomic::Ordering::Relaxed);
+                                    LoweredValue::List(Vec::new())
+                                }
+                                Ok(flow) => match flow {
+                                    LoweredStmtFlow::None | LoweredStmtFlow::Continue => {
+                                        if let Some(value) = take_lowered_block_local_value(
+                                            &body_arc,
+                                            &value_arc,
+                                            &mut worker_slots,
+                                        ) {
+                                            value
+                                        } else {
+                                            match worker.eval_lowered_expr(
+                                                &lowered_arc,
+                                                &value_arc,
+                                                &mut worker_slots,
+                                                call_span,
+                                            ) {
+                                                Ok(ControlFlow::Continue(value)) => value,
+                                                Ok(ControlFlow::Break(value)) => {
+                                                    if let Ok(mut stderr) = shared_stderr.lock() {
+                                                        stderr.extend_from_slice(
+                                                            format!(
+                                                                "par-map error: {}\n",
+                                                                lowered_error_message(&value)
+                                                            )
+                                                            .as_bytes(),
+                                                        );
+                                                    }
+                                                    any_error.store(
+                                                        true,
+                                                        std::sync::atomic::Ordering::Relaxed,
+                                                    );
+                                                    LoweredValue::List(Vec::new())
+                                                }
+                                                Err(error) => {
+                                                    if let Ok(mut stderr) = shared_stderr.lock() {
+                                                        stderr.extend_from_slice(
+                                                            format!("par-map error: {error:?}\n")
+                                                                .as_bytes(),
+                                                        );
+                                                    }
+                                                    any_error.store(
+                                                        true,
+                                                        std::sync::atomic::Ordering::Relaxed,
+                                                    );
+                                                    LoweredValue::List(Vec::new())
+                                                }
+                                            }
+                                        }
+                                    }
+                                    _ => {
+                                        any_error.store(true, std::sync::atomic::Ordering::Relaxed);
+                                        LoweredValue::List(Vec::new())
+                                    }
+                                },
+                            };
+                            let result = if let LoweredValue::ResultErr(_) = item_result {
+                                LoweredValue::List(Vec::new())
+                            } else if let LoweredValue::ResultOk(value) = item_result {
+                                *value
+                            } else {
+                                item_result
+                            };
+                            worker_slots[par_slot] = LoweredValue::Unit;
+                            match all_results.lock() {
+                                Ok(mut all_results) => all_results.set(index, result),
+                                Err(_) => {
+                                    any_error.store(true, std::sync::atomic::Ordering::Relaxed);
+                                    break;
+                                }
+                            }
+                        }
+                    })
+                    .expect("spawn lowered streaming for par-map worker"),
+            );
+        }
+        drop(work_rx);
+
+        let mut next_index = 0usize;
+        let mut next_drain_index = 0usize;
+        let mut flow = None;
+        for item in std::mem::take(&mut stream.items) {
+            let Some(value) = lowered_value_from_runtime_any(&item.value) else {
+                continue;
+            };
+            if let Some(value) =
+                self.eval_stream_prefix_item(lowered, value, &stages[..par_index], slots, *span)?
+            {
+                match all_results.lock() {
+                    Ok(mut all_results) => all_results.push_pending(),
+                    Err(_) => {
+                        any_error.store(true, std::sync::atomic::Ordering::Relaxed);
+                        break;
+                    }
+                }
+                if work_tx.send((next_index, value)).is_err() {
+                    if let Ok(mut all_results) = all_results.lock() {
+                        all_results.pop_pending();
+                    }
+                    break;
+                }
+                next_index += 1;
+            }
+            self.drain_streaming_par_map_for_results(
+                lowered,
+                &all_results,
+                &mut next_drain_index,
+                &stages[par_index + 1..],
+                loop_slot,
+                loop_body,
+                slots,
+                call_span,
+                loop_span,
+                &mut flow,
+            )?;
+        }
+        while stream.source.is_some() && !any_error.load(std::sync::atomic::Ordering::Relaxed) {
+            let Some(item) = stream.next_live(*span)? else {
+                break;
+            };
+            let Some(value) = lowered_value_from_runtime_any(&item) else {
+                continue;
+            };
+            if let Some(value) =
+                self.eval_stream_prefix_item(lowered, value, &stages[..par_index], slots, *span)?
+            {
+                match all_results.lock() {
+                    Ok(mut all_results) => all_results.push_pending(),
+                    Err(_) => {
+                        any_error.store(true, std::sync::atomic::Ordering::Relaxed);
+                        break;
+                    }
+                }
+                if work_tx.send((next_index, value)).is_err() {
+                    if let Ok(mut all_results) = all_results.lock() {
+                        all_results.pop_pending();
+                    }
+                    break;
+                }
+                next_index += 1;
+            }
+            self.drain_streaming_par_map_for_results(
+                lowered,
+                &all_results,
+                &mut next_drain_index,
+                &stages[par_index + 1..],
+                loop_slot,
+                loop_body,
+                slots,
+                call_span,
+                loop_span,
+                &mut flow,
+            )?;
+        }
+        drop(work_tx);
+        for handle in handles {
+            if handle.join().is_err() {
+                any_error.store(true, std::sync::atomic::Ordering::Relaxed);
+            }
+        }
+        if let Ok(stderr) = shared_stderr.lock() {
+            self.stderr.extend_from_slice(&stderr);
+        }
+        self.drain_streaming_par_map_for_results(
+            lowered,
+            &all_results,
+            &mut next_drain_index,
+            &stages[par_index + 1..],
+            loop_slot,
+            loop_body,
+            slots,
+            call_span,
+            loop_span,
+            &mut flow,
+        )?;
+        let result_len = all_results
+            .lock()
+            .map(|results| results.len())
+            .unwrap_or_else(|poisoned| poisoned.into_inner().len());
+        if next_drain_index < result_len {
+            return Err(RuntimeError::new("type-error", "streaming par-map result missing")
+                .with_span(loop_span));
+        }
+        Ok(Some(flow.unwrap_or(LoweredStmtFlow::None)))
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn drain_streaming_par_map_for_results(
+        &mut self,
+        lowered: &LoweredPureFunction,
+        results: &Arc<std::sync::Mutex<LoweredStreamingResults>>,
+        next_index: &mut usize,
+        post_stages: &[LoweredPipelineStage],
+        loop_slot: usize,
+        loop_body: &[LoweredStmt],
+        slots: &mut [LoweredValue],
+        call_span: Span,
+        loop_span: Span,
+        flow: &mut Option<LoweredStmtFlow>,
+    ) -> Result<(), RuntimeError> {
+        let ready = {
+            let mut results = results
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            results.drain_ready(next_index)
+        };
+        for value in ready {
+            if flow.is_some() {
+                continue;
+            }
+            if let Some(value) =
+                self.eval_stream_prefix_item(lowered, value, post_stages, slots, loop_span)?
+            {
+                self.service_pending_signal(loop_span)?;
+                if self.signal_state.shutdown_complete {
+                    *flow = Some(LoweredStmtFlow::None);
+                    continue;
+                }
+                slots[loop_slot] = value;
+                match self.eval_lowered_stmts(lowered, loop_body, slots, call_span)? {
+                    LoweredStmtFlow::None | LoweredStmtFlow::Continue => {}
+                    other => *flow = Some(other),
+                }
+                slots[loop_slot] = LoweredValue::Unit;
+            }
+        }
+        Ok(())
+    }
+
+    fn drain_streaming_projected_reduce_results(
+        &mut self,
+        results: &Arc<std::sync::Mutex<LoweredStreamingResults>>,
+        next_index: &mut usize,
+        projection: &LoweredReduceProjection<'_>,
+        groups: &mut BTreeMap<String, LoweredValue>,
+        validation_error: &mut Option<RuntimeError>,
+        reduce_error: &mut Option<RuntimeError>,
+        span: Span,
+    ) -> Result<(), RuntimeError> {
+        let ready = {
+            let mut results = results
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            results.drain_ready(next_index)
+        };
+        for value in ready {
+            match value {
+                LoweredValue::List(items) => {
+                    if validation_error.is_none() && reduce_error.is_none() {
+                        for item in items {
+                            if let Err(error) = self.eval_lowered_projected_reduce_by_item(
+                                projection, item, groups, span,
+                            ) && reduce_error.is_none()
+                            {
+                                *reduce_error = Some(error);
+                                break;
+                            }
+                        }
+                    }
+                }
+                LoweredValue::SharedList(items) => {
+                    if validation_error.is_none() && reduce_error.is_none() {
+                        for item in items.iter().cloned() {
+                            if let Err(error) = self.eval_lowered_projected_reduce_by_item(
+                                projection, item, groups, span,
+                            ) && reduce_error.is_none()
+                            {
+                                *reduce_error = Some(error);
+                                break;
+                            }
+                        }
+                    }
+                }
+                _ => {
+                    if validation_error.is_none() {
+                        *validation_error = Some(
+                            RuntimeError::new("type-error", "flat-map expected List")
+                                .with_span(span),
+                        );
+                    }
+                }
+            }
+        }
+        Ok(())
     }
 
     fn push_lowered_fs_root(&mut self, root: FsRootHandle) -> LoweredValue {
@@ -9040,6 +9804,113 @@ impl Evaluator {
         );
     }
 
+    #[inline(never)]
+    fn try_eval_lowered_self_assignment_method(
+        &mut self,
+        lowered: &LoweredPureFunction,
+        slot: usize,
+        op: AssignOp,
+        value: &LoweredExpr,
+        slots: &mut [LoweredValue],
+        call_span: Span,
+    ) -> Result<Option<LoweredStmtFlow>, RuntimeError> {
+        if op != AssignOp::Set {
+            return Ok(None);
+        }
+        let LoweredExpr::Method {
+            receiver,
+            name,
+            args,
+            span: method_span,
+        } = value
+        else {
+            return Ok(None);
+        };
+        let LoweredExpr::Param(receiver_slot) = receiver.as_ref() else {
+            return Ok(None);
+        };
+        if *receiver_slot != slot {
+            return Ok(None);
+        }
+
+        if name == "push" && args.len() == 1 {
+            let item = match self.eval_lowered_expr(lowered, &args[0], slots, call_span)? {
+                ControlFlow::Continue(value) => value,
+                ControlFlow::Break(value) => return Ok(Some(LoweredStmtFlow::Return(value))),
+            };
+            if let LoweredValue::List(items) = &mut slots[slot] {
+                items.push(item);
+                return Ok(Some(LoweredStmtFlow::None));
+            }
+            if let LoweredValue::SharedList(items) = &mut slots[slot] {
+                Arc::make_mut(items).push(item);
+                return Ok(Some(LoweredStmtFlow::None));
+            }
+        } else if name == "push" && args.len() == 2 {
+            let key = match self.eval_lowered_expr(lowered, &args[0], slots, call_span)? {
+                ControlFlow::Continue(value) => value,
+                ControlFlow::Break(value) => return Ok(Some(LoweredStmtFlow::Return(value))),
+            };
+            let value = match self.eval_lowered_expr(lowered, &args[1], slots, call_span)? {
+                ControlFlow::Continue(value) => value,
+                ControlFlow::Break(value) => return Ok(Some(LoweredStmtFlow::Return(value))),
+            };
+            if let LoweredValue::Map(map) = &mut slots[slot] {
+                let key = lowered_str_arg(&key, "push", *method_span)?.to_string();
+                match map.entry(key) {
+                    std::collections::btree_map::Entry::Vacant(slot) => {
+                        slot.insert(LoweredValue::List(vec![value]));
+                    }
+                    std::collections::btree_map::Entry::Occupied(mut slot) => {
+                        match slot.get_mut() {
+                            LoweredValue::List(items) => items.push(value),
+                            LoweredValue::SharedList(items) => {
+                                Arc::make_mut(items).push(value);
+                            }
+                            other => {
+                                return Err(RuntimeError::new(
+                                    "type-error",
+                                    format!(
+                                        "push expected List value, found {}",
+                                        other.type_name()
+                                    ),
+                                )
+                                .with_span(*method_span));
+                            }
+                        }
+                    }
+                }
+                return Ok(Some(LoweredStmtFlow::None));
+            }
+        } else if name == "set" && args.len() == 2 {
+            let key = match self.eval_lowered_expr(lowered, &args[0], slots, call_span)? {
+                ControlFlow::Continue(value) => value,
+                ControlFlow::Break(value) => return Ok(Some(LoweredStmtFlow::Return(value))),
+            };
+            let value = match self.eval_lowered_expr(lowered, &args[1], slots, call_span)? {
+                ControlFlow::Continue(value) => value,
+                ControlFlow::Break(value) => return Ok(Some(LoweredStmtFlow::Return(value))),
+            };
+            if let LoweredValue::Map(map) = &mut slots[slot] {
+                let key = lowered_str_arg(&key, "set", *method_span)?.to_string();
+                map.insert(key, value);
+                return Ok(Some(LoweredStmtFlow::None));
+            }
+        } else if name == "remove" && args.len() == 1 {
+            let key = match self.eval_lowered_expr(lowered, &args[0], slots, call_span)? {
+                ControlFlow::Continue(value) => value,
+                ControlFlow::Break(value) => return Ok(Some(LoweredStmtFlow::Return(value))),
+            };
+            if let LoweredValue::Map(map) = &mut slots[slot] {
+                let key = lowered_str_arg(&key, "remove", *method_span)?;
+                map.remove(key);
+                return Ok(Some(LoweredStmtFlow::None));
+            }
+        }
+
+        Ok(None)
+    }
+
     pub(super) fn eval_lowered_fast_plain_return(
         &mut self,
         lowered: &LoweredPureFunction,
@@ -10798,51 +11669,11 @@ impl Evaluator {
                 value,
                 span,
             } => {
-                if *op == AssignOp::Set
-                    && let LoweredExpr::Method {
-                        receiver,
-                        name,
-                        args,
-                        span: method_span,
-                    } = value
-                    && let LoweredExpr::Param(receiver_slot) = receiver.as_ref()
-                    && receiver_slot == slot
-                {
-                    if name == "push" && args.len() == 1 {
-                        let item = match self
-                            .eval_lowered_expr(lowered, &args[0], slots, call_span)?
-                        {
-                            ControlFlow::Continue(value) => value,
-                            ControlFlow::Break(value) => return Ok(LoweredStmtFlow::Return(value)),
-                        };
-                        if let LoweredValue::List(items) = &mut slots[*slot] {
-                            items.push(item);
-                            return Ok(LoweredStmtFlow::None);
-                        }
-                        if let LoweredValue::SharedList(items) = &mut slots[*slot] {
-                            Arc::make_mut(items).push(item);
-                            return Ok(LoweredStmtFlow::None);
-                        }
-                    } else if name == "set" && args.len() == 2 {
-                        let key =
-                            match self.eval_lowered_expr(lowered, &args[0], slots, call_span)? {
-                                ControlFlow::Continue(value) => value,
-                                ControlFlow::Break(value) => {
-                                    return Ok(LoweredStmtFlow::Return(value));
-                                }
-                            };
-                        let value =
-                            match self.eval_lowered_expr(lowered, &args[1], slots, call_span)? {
-                                ControlFlow::Continue(value) => value,
-                                ControlFlow::Break(value) => {
-                                    return Ok(LoweredStmtFlow::Return(value));
-                                }
-                            };
-                        if let LoweredValue::Map(map) = &mut slots[*slot] {
-                            let key = lowered_str_arg(&key, "set", *method_span)?.to_string();
-                            map.insert(key, value);
-                            return Ok(LoweredStmtFlow::None);
-                        }
+                if *op == AssignOp::Set && matches!(value, LoweredExpr::Method { .. }) {
+                    if let Some(flow) = self.try_eval_lowered_self_assignment_method(
+                        lowered, *slot, *op, value, slots, call_span,
+                    )? {
+                        return Ok(flow);
                     }
                 }
                 if matches!(
@@ -11235,6 +12066,11 @@ impl Evaluator {
                 body,
                 span,
             } => {
+                if let Some(flow) = self.try_eval_streaming_par_map_for(
+                    lowered, iter, *slot, body, slots, call_span, *span,
+                )? {
+                    return Ok(flow);
+                }
                 let iter = match self.eval_lowered_expr(lowered, iter, slots, call_span)? {
                     ControlFlow::Continue(value) => value,
                     ControlFlow::Break(value) => return Ok(LoweredStmtFlow::Return(value)),
@@ -13267,6 +14103,108 @@ impl Evaluator {
         }
     }
 
+    fn eval_lowered_reduce_by_item(
+        &mut self,
+        lowered: &LoweredPureFunction,
+        item: LoweredValue,
+        item_slot: usize,
+        body: &[LoweredStmt],
+        value: &LoweredExpr,
+        op: ReduceByOp,
+        slots: &mut [LoweredValue],
+        span: Span,
+        groups: &mut BTreeMap<String, LoweredValue>,
+    ) -> Result<Option<LoweredValue>, RuntimeError> {
+        // Each item's block yields a `{key, value}` record; values are combined
+        // per stringified key by the chosen reducer, keeping one accumulator per key.
+        slots[item_slot] = item;
+        let flow = self.eval_lowered_stmts(lowered, body, slots, span)?;
+        match flow {
+            LoweredStmtFlow::None | LoweredStmtFlow::Continue => {}
+            LoweredStmtFlow::Propagate(value) | LoweredStmtFlow::Return(value) => {
+                return Ok(Some(value));
+            }
+            LoweredStmtFlow::Break(value) => {
+                return Ok(Some(value.unwrap_or(LoweredValue::Unit)));
+            }
+        }
+        let output = match self.eval_lowered_expr(lowered, value, slots, span)? {
+            ControlFlow::Continue(value) => value,
+            ControlFlow::Break(value) => return Ok(Some(value)),
+        };
+        let key = lowered_reduce_by_key(&output, span)?;
+        let value = lowered_record_field_value(&output, "value").ok_or_else(|| {
+            RuntimeError::new(
+                "reduce-by-value",
+                "reduce-by record is missing field `value`",
+            )
+            .with_span(span)
+        })?;
+        lowered_reduce_group_insert(groups, key, value, op, span)?;
+        Ok(None)
+    }
+
+    fn eval_lowered_projected_reduce_by_item(
+        &mut self,
+        projection: &LoweredReduceProjection<'_>,
+        item: LoweredValue,
+        groups: &mut BTreeMap<String, LoweredValue>,
+        span: Span,
+    ) -> Result<(), RuntimeError> {
+        let key = lowered_record_field_value(&item, projection.key_field).ok_or_else(|| {
+            RuntimeError::new("missing-field", projection.key_field).with_span(span)
+        })?;
+        let key = lowered_reduce_key_value(&key, span)?;
+        match groups.entry(key) {
+            std::collections::btree_map::Entry::Vacant(slot) => {
+                let mut value = Vec::with_capacity(projection.value_fields.len());
+                for (name, source_field) in &projection.value_fields {
+                    let field_value =
+                        lowered_record_field_value(&item, source_field).ok_or_else(|| {
+                            RuntimeError::new("missing-field", *source_field).with_span(span)
+                        })?;
+                    value.push((name.clone(), field_value));
+                }
+                slot.insert(LoweredValue::RecordVec(value));
+            }
+            std::collections::btree_map::Entry::Occupied(mut slot) => {
+                if let LoweredValue::RecordVec(acc) = slot.get_mut() {
+                    for (name, source_field) in &projection.value_fields {
+                        let field_value =
+                            lowered_record_field_value(&item, source_field).ok_or_else(|| {
+                                RuntimeError::new("missing-field", *source_field).with_span(span)
+                            })?;
+                        if let Some(acc_value) = lowered_record_vec_get_mut(acc, name.as_str()) {
+                            *acc_value = lowered_sum_values(
+                                std::mem::replace(acc_value, LoweredValue::Unit),
+                                field_value,
+                            );
+                        } else {
+                            lowered_record_vec_insert(acc, name.clone(), field_value);
+                        }
+                    }
+                } else {
+                    let mut value = Vec::with_capacity(projection.value_fields.len());
+                    for (name, source_field) in &projection.value_fields {
+                        let field_value =
+                            lowered_record_field_value(&item, source_field).ok_or_else(|| {
+                                RuntimeError::new("missing-field", *source_field).with_span(span)
+                            })?;
+                        value.push((name.clone(), field_value));
+                    }
+                    let prev = std::mem::replace(slot.get_mut(), LoweredValue::Unit);
+                    *slot.get_mut() = lowered_reduce_combine(
+                        ReduceByOp::Sum,
+                        prev,
+                        LoweredValue::RecordVec(value),
+                        span,
+                    )?;
+                }
+            }
+        }
+        Ok(())
+    }
+
     pub(super) fn eval_lowered_expr(
         &mut self,
         lowered: &LoweredPureFunction,
@@ -13801,7 +14739,99 @@ impl Evaluator {
                     }
                     other => other,
                 };
-                for stage in &stages[stage_index..] {
+                while stage_index < stages.len() {
+                    let stage = &stages[stage_index];
+                    if !self.trace_enabled
+                        && stage_index + 1 < stages.len()
+                        && let LoweredPipelineStage::FlatMap {
+                            slot,
+                            value: LoweredExpr::Param(value_slot),
+                        } = stage
+                        && *value_slot == *slot
+                        && let LoweredPipelineStage::ReduceBy {
+                            item_slot,
+                            body,
+                            value,
+                            op,
+                        } = &stages[stage_index + 1]
+                    {
+                        let outer_items = self.lowered_pipeline_input_items(current, *span)?;
+                        for item in &outer_items {
+                            if !matches!(
+                                item,
+                                LoweredValue::List(_) | LoweredValue::SharedList(_)
+                            ) {
+                                return Err(RuntimeError::new(
+                                    "type-error",
+                                    "flat-map expected List",
+                                )
+                                .with_span(*span));
+                            }
+                        }
+                        let projection =
+                            lowered_reduce_projection(*item_slot, body, value, *op);
+                        let mut groups: BTreeMap<String, LoweredValue> = BTreeMap::new();
+                        for item in outer_items {
+                            match item {
+                                LoweredValue::List(items) => {
+                                    for item in items {
+                                        if let Some(projection) = projection.as_ref() {
+                                            self.eval_lowered_projected_reduce_by_item(
+                                                projection,
+                                                item,
+                                                &mut groups,
+                                                *span,
+                                            )?;
+                                        } else if let Some(value) = self
+                                            .eval_lowered_reduce_by_item(
+                                                lowered,
+                                                item,
+                                                *item_slot,
+                                                body,
+                                                value,
+                                                *op,
+                                                slots,
+                                                *span,
+                                                &mut groups,
+                                            )?
+                                        {
+                                            return Ok(ControlFlow::Break(value));
+                                        }
+                                    }
+                                }
+                                LoweredValue::SharedList(items) => {
+                                    for item in items.iter().cloned() {
+                                        if let Some(projection) = projection.as_ref() {
+                                            self.eval_lowered_projected_reduce_by_item(
+                                                projection,
+                                                item,
+                                                &mut groups,
+                                                *span,
+                                            )?;
+                                        } else if let Some(value) = self
+                                            .eval_lowered_reduce_by_item(
+                                                lowered,
+                                                item,
+                                                *item_slot,
+                                                body,
+                                                value,
+                                                *op,
+                                                slots,
+                                                *span,
+                                                &mut groups,
+                                            )?
+                                        {
+                                            return Ok(ControlFlow::Break(value));
+                                        }
+                                    }
+                                }
+                                _ => unreachable!("flat-map list inputs validated"),
+                            }
+                        }
+                        current = LoweredValue::Map(groups);
+                        stage_index += 2;
+                        continue;
+                    }
                     let stage_name = stage.trace_name();
                     self.trace_enter(
                         TraceKind::StreamStageEnter,
@@ -14870,10 +15900,8 @@ impl Evaluator {
                                 }
                                 current = LoweredValue::List(results);
                             } else {
-                                let num_threads = std::thread::available_parallelism()
-                                    .map(|n| n.get())
-                                    .unwrap_or(4)
-                                    .min(item_count);
+                                let num_threads =
+                                    lowered_par_map_worker_count(Some(item_count));
                                 let lowered_arc = std::sync::Arc::new(lowered.clone());
                                 let value_arc = std::sync::Arc::new(value.clone());
                                 let items_arc = std::sync::Arc::new(items);
@@ -15215,10 +16243,8 @@ impl Evaluator {
                                 }
                                 current = LoweredValue::List(results);
                             } else {
-                                let num_threads = std::thread::available_parallelism()
-                                    .map(|n| n.get())
-                                    .unwrap_or(4)
-                                    .min(item_count);
+                                let num_threads =
+                                    lowered_par_map_worker_count(Some(item_count));
                                 let lowered_arc = std::sync::Arc::new(lowered.clone());
                                 let body_arc = std::sync::Arc::new(body.clone());
                                 let value_arc = std::sync::Arc::new(value.clone());
@@ -15587,50 +16613,29 @@ impl Evaluator {
                         } => {
                             let s = *span;
                             let items = self.lowered_pipeline_input_items(current, s)?;
-                            // Each item's block yields a `{key, value}` record; values are
-                            // combined per (stringified) key by the chosen reducer, keeping
-                            // one accumulator per key. Result is a Map keyed by the key.
+                            let projection =
+                                lowered_reduce_projection(*item_slot, body, value, *op);
                             let mut groups: BTreeMap<String, LoweredValue> = BTreeMap::new();
                             for item in items {
-                                slots[*item_slot] = item;
-                                let flow = self.eval_lowered_stmts(lowered, body, slots, s)?;
-                                match flow {
-                                    LoweredStmtFlow::None | LoweredStmtFlow::Continue => {}
-                                    LoweredStmtFlow::Propagate(v) => {
-                                        return Ok(ControlFlow::Break(v));
-                                    }
-                                    LoweredStmtFlow::Return(v) => return Ok(ControlFlow::Break(v)),
-                                    LoweredStmtFlow::Break(v) => {
-                                        return Ok(ControlFlow::Break(
-                                            v.unwrap_or(LoweredValue::Unit),
-                                        ));
-                                    }
-                                }
-                                let output =
-                                    match self.eval_lowered_expr(lowered, value, slots, s)? {
-                                        ControlFlow::Continue(v) => v,
-                                        ControlFlow::Break(v) => return Ok(ControlFlow::Break(v)),
-                                    };
-                                let key = lowered_reduce_by_key(&output, s)?;
-                                let val = lowered_record_field_value(&output, "value").ok_or_else(
-                                    || {
-                                        RuntimeError::new(
-                                            "reduce-by-value",
-                                            "reduce-by record is missing field `value`",
-                                        )
-                                        .with_span(s)
-                                    },
-                                )?;
-                                match groups.entry(key) {
-                                    std::collections::btree_map::Entry::Vacant(slot) => {
-                                        slot.insert(val);
-                                    }
-                                    std::collections::btree_map::Entry::Occupied(mut slot) => {
-                                        let prev =
-                                            std::mem::replace(slot.get_mut(), LoweredValue::Unit);
-                                        *slot.get_mut() =
-                                            lowered_reduce_combine(*op, prev, val, s)?;
-                                    }
+                                if let Some(projection) = projection.as_ref() {
+                                    self.eval_lowered_projected_reduce_by_item(
+                                        projection,
+                                        item,
+                                        &mut groups,
+                                        s,
+                                    )?;
+                                } else if let Some(value) = self.eval_lowered_reduce_by_item(
+                                    lowered,
+                                    item,
+                                    *item_slot,
+                                    body,
+                                    value,
+                                    *op,
+                                    slots,
+                                    s,
+                                    &mut groups,
+                                )? {
+                                    return Ok(ControlFlow::Break(value));
                                 }
                             }
                             current = LoweredValue::Map(groups.into_iter().collect());
@@ -15646,6 +16651,7 @@ impl Evaluator {
                             error: None,
                         },
                     );
+                    stage_index += 1;
                 }
                 Ok(ControlFlow::Continue(current))
             }

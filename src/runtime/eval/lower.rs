@@ -11279,7 +11279,7 @@ pub(super) fn lowered_sum_records(mut acc: LoweredValue, val: LoweredValue) -> L
     acc
 }
 
-fn lowered_sum_values(acc: LoweredValue, val: LoweredValue) -> LoweredValue {
+pub(super) fn lowered_sum_values(acc: LoweredValue, val: LoweredValue) -> LoweredValue {
     match (acc, val) {
         (LoweredValue::Int(a), LoweredValue::Int(b)) => LoweredValue::Int(a + b),
         (LoweredValue::Float(a), LoweredValue::Float(b)) => {

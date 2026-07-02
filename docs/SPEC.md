@@ -2094,6 +2094,7 @@ List values expose collection operations as methods:
 
 Map values expose all routine map operations as methods:
 
+- `.len() -> Int`.
 - `.has(key: Str) -> Bool`.
 - `.get(key: Str) -> Result[T]`.
 - `.get(key: Str, default: T) -> T`.

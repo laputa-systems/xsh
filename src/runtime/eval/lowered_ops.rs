@@ -2082,6 +2082,7 @@ pub(super) fn lowered_map_method_value(
     span: Span,
 ) -> Result<LoweredValue, RuntimeError> {
     match name {
+        "len" if args.is_empty() => Ok(LoweredValue::Int(map.len() as i64)),
         "has" if args.len() == 1 => {
             let key = lowered_str_arg(&args[0], "has", span)?;
             Ok(LoweredValue::Bool(map.contains_key(key)))
@@ -2160,6 +2161,7 @@ pub(super) fn lowered_map_method_ref(
     span: Span,
 ) -> Result<Option<LoweredValue>, RuntimeError> {
     match name {
+        "len" if args.is_empty() => Ok(Some(LoweredValue::Int(map.len() as i64))),
         "has" if args.len() == 1 => {
             let key = lowered_str_arg(&args[0], "has", span)?;
             Ok(Some(LoweredValue::Bool(map.contains_key(key))))

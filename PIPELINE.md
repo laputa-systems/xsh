@@ -159,15 +159,48 @@ bug, suspect an upstream node that lowered to `Unit`.
   common `Stream |> map |> where |> par-map { ... }` shape feeds lowered
   `par-map` workers through bounded queues instead of first materializing the
   candidate list.
+- Lowered identity `flat-map` immediately followed by `reduce-by` validates the
+  outer list first, then reduces nested rows directly without building a
+  flattened transient list. Empty-body `reduce-by --sum` projections of the form
+  `{key: item.field, value: {out: item.field, ...}}` also skip the transient
+  outer reducer record and update occupied record accumulators field-by-field.
+  Tracing keeps the ordinary per-stage path.
+- When the same projected identity-`flat-map`/`reduce-by` shape follows lowered
+  streaming `par-map`, the runner drains ready contiguous worker results into the
+  reducer in encounter order. Completed nested result lists are dropped as soon
+  as their earlier siblings are ready, so the live-stream path avoids retaining
+  the whole post-`par-map` result graph. The shared ordered result buffer keeps
+  absolute indices for worker writes and compacts drained prefixes after enough
+  contiguous results have been consumed.
+- Lowered `for item in fs.files/fs.walk(...) |> map/where |> par-map { ... } |>
+  map/where` can stream ordered `par-map` results directly into simple loop
+  bodies that contain no explicit control-flow statements. This keeps the JSON
+  report fold from retaining the full post-`par-map` result list and uses the
+  same compacting ordered result buffer.
+- Lowered `Map.len()` is a direct cardinality read, avoiding the allocation-heavy
+  `map.keys().len()` idiom when only the key count is needed.
+- Lowered self-assignment recognizes `xs = xs.push(item)`,
+  `map = map.set(key, value)`, `map = map.push(key, value)`, and
+  `map = map.remove(key)` and mutates the target slot in place when aliasing
+  rules permit. This avoids clone-heavy method dispatch for common collection
+  update idioms.
+- Lowered compact `json.encode` uses a validating writer with an estimated
+  output capacity. Pretty JSON still converts through the ordinary JSON value
+  path so formatting behavior stays centralized.
 - Parallel lowered `par-map` uses one `Arc<LoweredSharedState>` plus per-thread
   `LoweredWorker`s. Shared state holds immutable sources, lowered function maps,
   module caches, function-module maps, cwd, and env; workers own mutable stdout,
   stderr, slots, signal, and trace state.
 - Lowered `par-map` writes worker results directly into indexed result slots
   instead of returning per-worker chunk vectors.
-- Release lowered `par-map` worker stacks are 2 MiB; debug workers use 8 MiB.
-  The outer lowered evaluator still runs on a large-stack worker because the
-  recursive eval frames remain large.
+- Lowered `par-map` caps default workers at 6. Release worker stacks are 1 MiB;
+  debug workers use 8 MiB. The outer lowered evaluator still runs on a
+  large-stack worker because the recursive eval frames remain large.
+- The collection self-assignment specialization is split out behind a guarded
+  `Set`-method helper so ordinary lowered assignments stay on the compact main
+  statement path. This starts the frame-shrink direction, but it has not yet
+  removed the outer evaluator's large-stack dependency or produced a clear
+  tokei RSS win.
 - `showcase/tokei.xsh`'s default table path returns final `SummaryRow` reduce
   rows from `par-map`, then does only `flat-map { |rows| rows } |> reduce-by`.
   Keep this script-level shape; it removed a large nested scan/report graph
@@ -184,7 +217,10 @@ arena-parse diagnostics in the runner first.
 - **Large stack:** the lowered evaluator's recursive Rust fns have large frames
   (giant matches over `LoweredExpr`/`LoweredValue`), so eval runs on a worker
   thread with a 1 GiB stack (`run_eval_on_large_stack` in `eval.rs`). A panic in
-  the worker is resumed on the main thread (not swallowed).
+  the worker is resumed on the main thread (not swallowed). The first scoped
+  frame-shrink step moved collection self-assignment method updates out of the
+  main statement match, but broader expression/statement splitting is still
+  needed before reducing the outer stack reservation is defensible.
 - **Auto-main:** `compact_root_proc_main_requires_auto_call` decides whether a
   script of only `proc main` is auto-invoked; `compact_auto_main_args` supplies
   the CLI args and coerces each positional `Str` arg to its declared `main` param
@@ -360,12 +396,6 @@ side buffer and drain at finish.
 
 ## Compact-Only Guardrails
 
-`src/syntax/ast.rs` is intentionally gone. Do not restore `syntax::ast`, a
-recursive `Program`/`Stmt`/`Expr` tree, or recursive compatibility leaves such
-as the former call-argument and type-expression wrappers. `src/syntax/node.rs`
-is for small non-recursive node payloads and shared syntax-side enums that the
-arena can store directly.
-
 Parser entry points should return compact IDs or `ArenaProgram` directly. Avoid
 bridge names such as `parse_*_with_arena`; those imply a second syntax path.
 Builder APIs should expose shape-specific insertion methods (`push_*_type_expr`,
@@ -383,68 +413,64 @@ lowered program type, such as `ArenaProgram` or `LoweredProgram`.
 
 ## Non-Negotiables
 
-- **Be aggressive.** Break things and fix them.
-- **Do not reintroduce recursive AST compatibility.** Prefer compact arena/CST/
-  lowered-IR consumers over compatibility aliases or bridge reconstruction.
 - **Avoid strings and stringly typed logic.** Use `Name`, typed IDs, enums,
   `RuntimeOp`.
 - **Measure with the existing perf machinery.**
 - **Do not run formatters or autofixers.**
 
-## Improvement Opportunities (durable design, from deep internals work)
+## Improvement Opportunities
 
-Opinionated, grounded in concrete friction. These concern the front-end's
-durable design and are separate from any single cleanup work order. Roughly by
-leverage.
+These are durable compact/lowered-pipeline work items, not a backlog of
+showcase-specific tweaks. The tokei objective is now past the easy wins; prefer
+changes that reduce core value movement, retained runtime state, or frontend
+memory across ordinary XSH programs.
 
-1. **Shrink the eval frame instead of the 1 GiB stack band-aid.** Eval runs on a
-   1 GiB-stack worker thread because each recursive frame in `eval_lowered_*` is
-   ~1 MB (giant matches over ~100-variant enums), so the default stack overflows
-   after a handful of recursion levels. That caps real recursion depth and is
-   fragile. The durable fix is boxing large locals / `#[inline(never)]` on cold
-   match arms (or an explicit work-stack / trampoline for the deeply recursive
-   eval paths), so depth scales and the stack size stops being load-bearing.
+1. **Shrink lowered eval frames.** Eval still runs on a 1 GiB-stack worker
+   thread because recursive `eval_lowered_*` frames are large enough for the
+   default stack to overflow after only a few levels. The durable fix is to make
+   the hot recursive frames smaller: split cold match arms into `#[inline(never)]`
+   helpers, box unusually large locals, or move deeply recursive paths to an
+   explicit work stack. This is the item most likely to unlock broad runtime
+   memory improvements because it could make stack sizing stop being
+   load-bearing for the outer evaluator and future worker paths. Measure stack
+   size, release RSS, and instruction deltas; do not rely on debug timing.
 
-2. **Guard that lowering threads every behavior-bearing arena field.** A
-   recurring shape: the lowered IR omits something the arena carries, with no
-   signal — fmt-string format specs (`${x:>4}`) were a `_`-ignored field;
-   per-item stream errors and several trace events were simply never emitted;
-   `exts:`/`--max-bytes`/named method args were dropped. These surface only as
-   wrong *output* (not a crash), so a "did it lower" metric never catches them.
-   Worth a lint or structured checklist that each behavior-bearing arena field is
-   carried through lowering; the showcase scripts are the best detector for these
-   regressions.
+2. **Reduce lowered value movement and retained report graphs.** The remaining
+   tokei gap is dominated by dynamic `LoweredValue` records/maps/lists, ordered
+   `par-map` coordination, and final report/JSON construction rather than one
+   missing scanner optimization. Good candidates are representation changes that
+   apply to many scripts: cheaper small records, lower-clone method dispatch,
+   more in-place collection updates when aliasing permits, or streaming JSON
+   emission that does not retain extra script-visible state. Treat each as a
+   measured release A/B; several narrower variants have already been rejected in
+   `INTERPRETER-PERF.md`.
 
-3. **Reduce span storage with Zig-style main-token derivation where it pays.**
-   Zig's `Ast` stores node `tag`, `main_token`, and compact `data`, then derives
-   first/last tokens and token slices from the token table and `extra_data`. XSH
-   still stores inline byte spans for every statement, expression, and
-   type-expression row. That is simpler and robust, but it is the largest visible
-   gap from the Zig model. A measured next step is to add `main_token` or
-   token-range fields only for hot node families where `xsh-layout-report` and
-   corpus retained/allocation metrics show span columns are real cost, while
-   preserving explicit spans for cooked text, diagnostics, and cross-source
-   module composition.
+3. **Guard that lowering threads every behavior-bearing arena field.** A common
+   failure mode is lowered IR silently omitting something the arena carries:
+   fmt-string format specs, per-item stream errors, trace events, `exts:`,
+   `--max-bytes`, or named method args. These usually produce wrong output
+   rather than crashes, so "did it lower" coverage is not enough. Add targeted
+   lowering parity tests or a structured review checklist around arena fields
+   whenever adding or changing compact syntax rows.
 
-4. **Close the remaining compact hot-path blockers.** The post-AST frontend
-   baseline is compact-only, but the corpus still has a small blocked bucket
-   (`compact_blocked_*` in `xsh-parse-corpus-report`) where lowering cannot
-   construct every executable top-level/function body. As of the post-AST cleanup
-   this is concentrated in user-module `use` declarations and a handful of
-   function-body blockers in `core/getty.xsh`, `core/passwd.xsh`, `core/su.xsh`,
-   and the qualified-helper perf scenarios. These are not recursive-AST fallbacks,
-   but they are the next frontend completeness target.
+4. **Reduce span storage only where retained metrics justify it.** XSH stores
+   inline byte spans for every statement, expression, and type-expression row.
+   A Zig-style `main_token`/token-range scheme could reduce frontend retained
+   memory, but it must be applied selectively and measured with
+   `xsh-layout-report` plus corpus retained/allocation metrics. Preserve explicit
+   spans for cooked text, diagnostics, and cross-source module composition.
+   This is more likely to improve frontend corpus metrics than the current
+   runtime-heavy tokei benchmark.
 
-5. **Make frontend perf output schema stable and compact-native.** The old
-   parse-corpus report used to carry recursive-path phase names and misleading
-   "old AST required" counters. Keep future report fields named for the compact
-   pipeline state they actually measure (`compact_blocked_*`,
-   `unconstructed_*`, `unsupported_*`) and avoid adding compatibility-era phase
-   keys back into checked baselines.
+5. **Close real compact construction gaps without recreating compatibility
+   paths.** Compact-only is the baseline. Any remaining
+   `compact_blocked_*`/`unconstructed_*` buckets from parse-corpus reporting are
+   frontend completeness bugs, not a reason to revive recursive AST bridges.
+   Recheck current reports before naming specific blocked files; older examples
+   here have gone stale.
 
-6. **Watch builder size after adding direct arena construction APIs.**
-   `ArenaProgramBuilder` is intentionally the parser's staging object, but it is
-   easy to grow by adding per-kind staging vectors. When adding `begin_X`/
-   `push_X`/`finish_X` groups, check both `xsh-layout-report` and the corpus
-   retained/allocation metrics; split cold staging state out if the builder
-   starts growing for constructs that are rare in ordinary scripts.
+6. **Keep perf reports and builders compact-native.** Future perf schemas should
+   name the compact pipeline state they actually measure and avoid
+   compatibility-era phase keys. When adding direct arena construction APIs,
+   watch `ArenaProgramBuilder` size with layout and corpus metrics; split cold
+   staging state out if rare constructs grow the parser's hot staging object.

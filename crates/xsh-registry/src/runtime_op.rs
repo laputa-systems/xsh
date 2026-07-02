@@ -85,6 +85,7 @@ pub enum RuntimeOp {
     FloatTan,
     FloatAbs,
     MapEmpty,
+    MapLen,
     MapHas,
     MapGet,
     MapSet,

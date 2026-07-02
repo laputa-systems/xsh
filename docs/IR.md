@@ -594,6 +594,9 @@ Decisions are release A/B; the harnesses below find and attribute the cost. The
 forcing benchmark is `showcase/tokei.xsh` over a large corpus (`/Users/josh/dev/sentry`)
 versus native release tokei. It is an interpreter/lowered-IR goal, **not** a
 license to grow the standard library with benchmark-shaped primitives.
+For this benchmark, byte-for-byte output parity means XSH against XSH's own
+saved output for the same corpus and options. Native tokei is a speed baseline
+and an accuracy lens, not a byte-for-byte output oracle.
 
 **Release A/B vs native tokei** (the decision currency — release only):
 
@@ -652,11 +655,18 @@ Format Rust with `rustfmt --edition 2024 <changed files>`, **not** crate-wide �
 the repo has pre-existing fmt drift, and a crate-wide `cargo fmt` churns unrelated
 files. New lowered behavior needs direct lowered tests with exact AST parity
 (mirror the `RuntimeOp` implementations in `src/runtime/eval/methods.rs` and
-`src/modules/`), and `--json`/totals output parity must be preserved
-(canonicalized; totals-vs-native-tokei differences are pre-existing
-language-detection/ignore semantics, compared separately — do not "fix" them).
+`src/modules/`), and `--json`/totals output parity must be preserved against
+XSH's own saved output for the same corpus and options. Do not use native tokei
+as a byte-for-byte diff oracle. Native tokei is the performance baseline and an
+accuracy comparison lens; totals-vs-native-tokei differences are compared
+separately and must not be "fixed" as part of interpreter work unless the
+showcase behavior is intentionally changed.
 
 ### Current baseline and gap
+
+The current completion status and Sentry sample ranges live in
+`INTERPRETER-PERF.md`. Treat the historical values below as context, not as a
+fresh completion claim.
 
 Release `showcase/tokei.xsh` over `/Users/josh/dev/sentry` vs native release
 tokei (warm, hyperfine, 7 runs):
@@ -717,7 +727,7 @@ priority order:
    had no `Bytes` arm at all, so any Bytes param/return through a lowered call
    errored "expected Bytes, found Bytes" once scanners started lowering — added
    `Bytes`/`BytesView` arms mirroring `Str`. Release A/B on the parallel Sentry
-   scan, byte-for-byte identical totals: **user CPU ~8.6 s → ~2.4 s (~3.5×), wall
+   scan, with byte-for-byte identical XSH totals: **user CPU ~8.6 s → ~2.4 s (~3.5×), wall
    ~1.65 s → ~1.0 s (~1.65×)**; native release tokei is ~0.75 s, so XSH went from
    ~2.3× to ~1.3× slower. Remaining: 6 scanners (`count_json`, `count_html`,
    `count_language`, `count_markdown`, `count_slash_language`, `join_lines`) still
@@ -822,21 +832,24 @@ out several tempting directions. Durable lessons worth not relitigating:
   `bytes.concat`, un-block-scoped match arms colliding on sibling `let`s, and a
   bare-identifier match arm (`ArenaStmtKind::TailBareIdent`) — none of which is the
   recursion the cluster appears to be about.
-- The default table reproduces tokei's output byte-for-byte, including the embedded
-  ("`|- Child`") breakdown and per-language `(Total)` rows, the heavy/light rules
-  (via `tui` glyphs), the fixed column right-edges (28/41/54/67/80, 80-wide rows /
-  81-wide rules), and tokei's row order (sorted by tokei's *internal* `LanguageType`
-  variant name — e.g. Plain Text sorts as `Text` — with child-bearing languages
-  grouped last). The per-`(parent, child)` breakdown is aggregated in the stream by
-  expanding each file into one parent record plus one child record per embedded
-  language (`par-map |> flat-map |> reduce-by --sum`, children keyed `parent\tchild`);
-  `|- Child` rows use the child's *deep* total (recursively including its own nested
-  blobs, e.g. a TOML fence inside a Rust doc-comment Markdown blob). The `flat-map`
-  breaks the `par-map |> reduce-by` fusion and the child expansion adds work (~9% on
-  the default path), but the table still beats native tokei. Byte-identity is
-  verified on controlled fixtures where language detection agrees; on real corpora
-  the *counts* still differ from tokei (language-detection / ignore semantics — a
-  separate axis from output format).
+- The default table intentionally keeps a tokei-like presentation: embedded
+  ("`|- Child`") breakdown and per-language `(Total)` rows, heavy/light rules
+  (via `tui` glyphs), fixed column right-edges (28/41/54/67/80, 80-wide rows /
+  81-wide rules), and stable language ordering. The byte-for-byte gate for this
+  showcase is XSH output against saved XSH output for the same corpus and
+  options, not XSH against native tokei. Native output is useful for spotting
+  accuracy gaps, but real-corpus differences in line classification,
+  child-language treatment, JSON field order, and report ordering do not by
+  themselves fail the interpreter performance objective. The MDX prose-only
+  scanner change is an example of an intentional accuracy improvement that still
+  uses XSH-vs-XSH saved output as the regression gate. The per-`(parent,
+  child)` breakdown is aggregated in the stream by expanding each file into one
+  parent record plus one child record per embedded language
+  (`par-map |> flat-map |> reduce-by --sum`, children keyed `parent\tchild`);
+  `|- Child` rows use the child's *deep* total (recursively including its own
+  nested blobs, e.g. a TOML fence inside a Rust doc-comment Markdown blob). The
+  `flat-map` breaks the `par-map |> reduce-by` fusion and the child expansion
+  adds work, so it remains one of the hot value-movement paths.
 - The corpus count gap splits into two axes. **File selection** was closed to exact
   (Δfiles = 0 per language over the Sentry tree) cheaply: `.pyi`/`.pot` extensions,
   and `#!`-shebang detection for extension-less scripts (`lang_for_shebang`; the
@@ -851,9 +864,9 @@ out several tempting directions. Durable lessons worth not relitigating:
   native tokei, forfeiting the speed lead. Decision: **keep the cheap file-selection
   parity, revert the char-scanning tokenizers**, leaving the shared approximate
   counters (`count_hash_language`, `count_slash_plain`, single-pass `count_html`)
-  for line classification. So the showcase matches tokei on file selection and output
-  format, and stays faster than native, while line-classification counts remain a
-  deliberate ~0.18% approximation rather than a byte-for-byte tokenizer port.
+  for line classification. So the showcase keeps cheap file-selection parity and
+  a tokei-like output format, while line-classification counts remain a deliberate
+  approximation rather than a byte-for-byte tokenizer port.
 
 The `par-map |> flat-map |> reduce-by` default-table path and the borrowed
 `for line in text.lines()` representation are in place, and `Bytes` is a

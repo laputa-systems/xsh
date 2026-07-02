@@ -17,12 +17,13 @@
 #    count_language) could lower atomically. Net: the default table path went from
 #    ~2.3x slower than native release tokei to ~1.3x FASTER. See docs/IR.md.
 #
-# 2. Output format: byte-for-byte. The default table reproduces tokei exactly --
-#    the embedded "|- Child" breakdown, per-language "(Total)" rows, heavy/light
-#    rules (tui glyphs), fixed column right-edges, and tokei's row order (sorted by
-#    tokei's *internal* LanguageType name, child-bearing languages last). The
-#    per-(parent,child) breakdown is aggregated in-stream via
-#    `par-map |> flat-map |> reduce-by`.
+# 2. Output format: stable, tokei-like, and tested byte-for-byte against this
+#    script's own saved output for the same corpus/options. Native tokei is not
+#    the byte oracle. The default table keeps the embedded "|- Child" breakdown,
+#    per-language "(Total)" rows, heavy/light rules (tui glyphs), fixed column
+#    right-edges, and tokei-like row order (sorted by tokei's *internal*
+#    LanguageType name, child-bearing languages last). The per-(parent,child)
+#    breakdown is aggregated in-stream via `par-map |> flat-map |> reduce-by`.
 #
 # 3. Counts: file selection is exact, line classification is a deliberate
 #    approximation. We closed file selection to Δfiles=0 vs tokei cheaply (`.pyi`/
@@ -101,7 +102,7 @@ pure zero_stats() -> Stats {
 }
 
 pure has_stats(stats: Stats) -> Bool {
-  return stats.blanks > 0 or stats.code > 0 or stats.comments > 0 or stats.blobs.keys().len() > 0
+  return stats.blanks > 0 or stats.code > 0 or stats.comments > 0 or stats.blobs.len() > 0
 }
 
 pure add_stats(a: Stats, b: Stats) -> Stats {
@@ -1171,7 +1172,7 @@ pure count_language(language: Language, text: Bytes) -> Scan {
     LangPoFile => count_hash_language(text)
     LangHtml => count_html(text, true)
     LangSvg => count_html(text, false)
-    LangMdx => count_markdown(text)
+    LangMdx => count_plain_text(text)
     LangMarkdown => count_markdown(text)
     LangLess => count_slash_plain(text)
     LangJavaScript => count_slash_plain(text)
@@ -1289,7 +1290,7 @@ proc main(...argv: List[Str]) [fs, error] {
           LangPoFile => count_hash_language(text),
           LangHtml => count_html(text, true),
           LangSvg => count_html(text, false),
-          LangMdx => count_markdown(text),
+          LangMdx => count_plain_text(text),
           LangMarkdown => count_markdown(text),
           LangLess => count_slash_plain(text),
           LangJavaScript => count_slash_plain(text),
@@ -1336,22 +1337,34 @@ proc main(...argv: List[Str]) [fs, error] {
             },
           )
 
-          for child in scan.stats.blobs.keys() {
-            let blob = scan.stats.blobs.get(child, zero_stats()).require(Stats) ?? zero_stats()
-            let cs = blob_deep(blob)
+          let has_child_blobs = match language {
+            LangHtml => true
+            LangMarkdown => true
+            LangMdx => true
+            LangRust => true
+            LangSvg => true
+            LangXml => true
+            _ => false
+          }
 
-            out = out.push(
-              {
-                key: f"${label}\t${child}",
-                files: 1,
-                blanks: cs.blanks,
-                code: cs.code,
-                comments: cs.comments,
-                total_blanks: 0,
-                total_code: 0,
-                total_comments: 0,
-              },
-            )
+          if has_child_blobs {
+            for child in scan.stats.blobs.keys() {
+              let blob = scan.stats.blobs.get(child, zero_stats()).require(Stats) ?? zero_stats()
+              let cs = blob_deep(blob)
+
+              out = out.push(
+                {
+                  key: f"${label}\t${child}",
+                  files: 1,
+                  blanks: cs.blanks,
+                  code: cs.code,
+                  comments: cs.comments,
+                  total_blanks: 0,
+                  total_code: 0,
+                  total_comments: 0,
+                },
+              )
+            }
           }
         }
 
@@ -1626,7 +1639,7 @@ proc main(...argv: List[Str]) [fs, error] {
         LangPoFile => count_hash_language(text),
         LangHtml => count_html(text, true),
         LangSvg => count_html(text, false),
-        LangMdx => count_markdown(text),
+        LangMdx => count_plain_text(text),
         LangMarkdown => count_markdown(text),
         LangLess => count_slash_plain(text),
         LangJavaScript => count_slash_plain(text),
@@ -1689,7 +1702,7 @@ proc main(...argv: List[Str]) [fs, error] {
         html_code += report.stats.code
         html_comments += report.stats.comments
 
-        if report.stats.blobs.keys().len() > 0 {
+        if report.stats.blobs.len() > 0 {
           html_has_blobs = true
         }
 
@@ -1736,7 +1749,7 @@ proc main(...argv: List[Str]) [fs, error] {
         markdown_code += report.stats.code
         markdown_comments += report.stats.comments
 
-        if report.stats.blobs.keys().len() > 0 {
+        if report.stats.blobs.len() > 0 {
           markdown_has_blobs = true
         }
 
@@ -1747,7 +1760,7 @@ proc main(...argv: List[Str]) [fs, error] {
         mdx_code += report.stats.code
         mdx_comments += report.stats.comments
 
-        if report.stats.blobs.keys().len() > 0 {
+        if report.stats.blobs.len() > 0 {
           mdx_has_blobs = true
         }
 
@@ -1788,7 +1801,7 @@ proc main(...argv: List[Str]) [fs, error] {
         rust_code += report.stats.code
         rust_comments += report.stats.comments
 
-        if report.stats.blobs.keys().len() > 0 {
+        if report.stats.blobs.len() > 0 {
           rust_has_blobs = true
         }
 
@@ -1805,7 +1818,7 @@ proc main(...argv: List[Str]) [fs, error] {
         svg_code += report.stats.code
         svg_comments += report.stats.comments
 
-        if report.stats.blobs.keys().len() > 0 {
+        if report.stats.blobs.len() > 0 {
           svg_has_blobs = true
         }
 
@@ -1840,7 +1853,7 @@ proc main(...argv: List[Str]) [fs, error] {
         xml_code += report.stats.code
         xml_comments += report.stats.comments
 
-        if report.stats.blobs.keys().len() > 0 {
+        if report.stats.blobs.len() > 0 {
           xml_has_blobs = true
         }
 
