@@ -2465,34 +2465,40 @@ impl Evaluator {
         Ok(())
     }
 
-    /// Fork a lightweight copy of this evaluator for use in a parallel `par-map`
-    /// worker thread. Shares all lowered function definitions (via Arc in the
-    /// maps) and gives the worker its own I/O buffers and slot pool.
+    /// Fork a minimal evaluator copy for a parallel `par-map` worker thread.
+    /// Only clones state needed for lowered expression evaluation + file I/O;
+    /// all other fields are initialized empty/default.
     pub(super) fn fork_for_par_map(&self) -> Self {
         Self {
+            // Required for lowered expression evaluation
             sources: self.sources.clone(),
-            command_name: self.command_name.clone(),
-            scopes: self.scopes.clone(),
-            module_export_signatures: self.module_export_signatures.clone(),
             lowered_pures: self.lowered_pures.clone(),
             lowered_procs: self.lowered_procs.clone(),
             lowered_qualified_pures: self.lowered_qualified_pures.clone(),
             lowered_qualified_procs: self.lowered_qualified_procs.clone(),
             lowered_program: self.lowered_program.clone(),
             lowered_slot_pool: Vec::new(),
-            tag_variants: self.tag_variants.clone(),
-            error_families: self.error_families.clone(),
+            // Required for path operations (read_host_path_bytes)
+            cwd: self.cwd.clone(),
+            // Required for module dispatch (path.read_bytes() etc.)
             module_value_cache: self.module_value_cache.clone(),
             function_modules: self.function_modules.clone(),
             qualified_function_modules: self.qualified_function_modules.clone(),
             active_modules: self.active_modules.clone(),
+            // Required for subprocess env
+            env: self.env.clone(),
+            command_name: self.command_name.clone(),
+            // Fresh I/O buffers
             stdout: Vec::new(),
             stderr: Vec::new(),
-            cwd: self.cwd.clone(),
-            env: self.env.clone(),
+            // Default / empty for everything else
+            scopes: self.scopes.clone(),
+            module_export_signatures: self.module_export_signatures.clone(),
+            tag_variants: self.tag_variants.clone(),
+            error_families: self.error_families.clone(),
             interactive: false,
             interactive_command_dispatcher: None,
-            last_status: self.last_status.clone(),
+            last_status: None,
             trace_enabled: false,
             trace_events: Vec::new(),
             event_stack: Vec::new(),
@@ -2503,7 +2509,7 @@ impl Evaluator {
             fs_locks: Vec::new(),
             fs_roots: Vec::new(),
             net_agents: FxHashMap::default(),
-            net_pool_options: self.net_pool_options.clone(),
+            net_pool_options: FxHashMap::default(),
             utils_cache: FxHashMap::default(),
             signal_hooks: FxHashMap::default(),
             signal_handler_guards: Vec::new(),
@@ -2512,7 +2518,7 @@ impl Evaluator {
             process_handles: BTreeMap::new(),
             scope_ids: Vec::new(),
             signal_state: EvaluatorSignalState::default(),
-            test_mocks: self.test_mocks.clone(),
+            test_mocks: FxHashMap::default(),
             test_calls: Vec::new(),
             test_temp_counter: 0,
         }

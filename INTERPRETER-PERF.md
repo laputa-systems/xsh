@@ -27,9 +27,13 @@ variant tokei actually uses — restoring true multi-threaded parallelism
 (4.7× CPU/wall ratio). The micro benchmark is now 2.67× faster than native
 tokei. The macro benchmark is 1.35× from the 1.20× target (103ms gap).
 
-Memory: peak RSS 338MB (7.7× native tokei's 44MB). The dominant allocation is
-the pipeline materializing all 18K `fs.files()` entries into intermediate Vecs
-before `par-map`. Streaming (process-as-you-walk) would eliminate this.
+Memory: peak RSS ~340MB (7.7× native tokei's 44MB). Streaming the pipeline
+prefix (lazy map/where from stream) and bounded fs walk channel eliminated 3
+intermediate Vecs and provided backpressure, but peak RSS remains high due to
+jemalloc page retention from 625MB of cumulative file read allocations and 10
+concurrent worker threads each with evaluator state clones. Further reductions
+would require mmap I/O (no Vec per file) or shared evaluator state across
+workers.
 
 Output vs real tokei: within 0.2% line-count accuracy (different blank-line
 heuristics). File selection is exact.
@@ -269,8 +273,11 @@ the needle.
 | 2026-07-01 | +ScanLines dedicated scan loop | — | 1,886ms | 2.69× |
 | 2026-07-01 | +parallel ParMapBlock (true parallelism) | **262ms** | **948ms** | **1.35×** |
 | 2026-07-01 | +ParMapBlock parallel (raw ptrs, slot cleanup) | **262ms** | **943ms** | **1.35×** |
-| 2026-07-01 | +stream collection (eliminate intermediate Vec) | **—** | **921ms** | **1.32×** |
+| 2026-07-01 | +stream collection (eliminate intermediate Vec) | — | 921ms | 1.32× |
+| 2026-07-01 | +lazy map/where streaming, bounded fs channel | — | 932ms | 1.33× |
+| 2026-07-01 | +slim fork_for_par_map | — | 932ms | 1.33× |
 | — | target | — | ≤ 840ms | ≤ 1.20× |
+| **2026-07-01** | **current (all optimizations)** | **262ms** | **932ms** | **1.33×** |
 
 ## Current status (2026-07-01 EOD)
 

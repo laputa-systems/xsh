@@ -2037,8 +2037,8 @@ impl Evaluator {
             let items = self.collect_lowered_stream_values(stream, span)?;
             return Ok((LoweredValue::List(items), 0));
         }
+        // No ParMapBlock — collect into a single Vec for subsequent stages.
         let mut items = Vec::new();
-        // Pre-collected items
         for item in std::mem::take(&mut stream.items) {
             let Some(mut val) = lowered_value_from_runtime_any(&item.value) else { continue; };
             if let Some(slot) = map_slot {
@@ -2055,15 +2055,11 @@ impl Evaluator {
                     ControlFlow::Continue(v) => v,
                     ControlFlow::Break(_) => continue,
                 };
-                if !keep {
-                    slots[slot] = LoweredValue::Unit;
-                    continue;
-                }
+                if !keep { slots[slot] = LoweredValue::Unit; continue; }
                 val = std::mem::replace(&mut slots[slot], LoweredValue::Unit);
             }
             items.push(val);
         }
-        // Live items
         if stream.source.is_some() {
             loop {
                 match stream.next_live(span)? {
@@ -2083,10 +2079,7 @@ impl Evaluator {
                                 ControlFlow::Continue(v) => v,
                                 ControlFlow::Break(_) => continue,
                             };
-                            if !keep {
-                                slots[slot] = LoweredValue::Unit;
-                                continue;
-                            }
+                            if !keep { slots[slot] = LoweredValue::Unit; continue; }
                             val = std::mem::replace(&mut slots[slot], LoweredValue::Unit);
                         }
                         items.push(val);
