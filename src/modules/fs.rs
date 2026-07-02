@@ -1768,7 +1768,9 @@ fn walk_pool_size() -> usize {
 }
 
 fn start_ignore_walk(spec: WalkSpec) -> Receiver<Result<Value, RuntimeError>> {
-    let (tx, rx) = crossbeam_channel::unbounded();
+    // Use a bounded channel so the filesystem walker blocks when the consumer
+    // can't keep up, providing natural backpressure and limiting peak memory.
+    let (tx, rx) = crossbeam_channel::bounded(1024);
     let tx_worker = tx.clone();
     std::thread::spawn(move || {
         let tx = &tx_worker;

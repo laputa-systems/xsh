@@ -1989,6 +1989,115 @@ impl Evaluator {
         self.lowered_list_items(value, span, "pipeline input expected List")
     }
 
+    /// Process stream-compatible pipeline stages lazily from a Stream input.
+    /// Map, Where, and FlatMap stages are applied per-item as they arrive from
+    /// the stream, avoiding intermediate Vecs. ParMapBlock feeds directly from
+    /// the stream into parallel workers. When a stage that can't stream is
+    /// reached, remaining items are collected into a Vec.
+    ///
+    /// Returns (new_current, stage_count_consumed).
+    fn eval_streaming_pipeline_prefix(
+        &mut self,
+        lowered: &LoweredPureFunction,
+        current: LoweredValue,
+        stages: &[LoweredPipelineStage],
+        slots: &mut [LoweredValue],
+        span: Span,
+    ) -> Result<(LoweredValue, usize), RuntimeError> {
+        // Scan the stage prefix for stream-compatible stages (Map, Where).
+        let mut consumed = 0usize;
+        let mut map_slot: Option<usize> = None;
+        let mut map_value: Option<&LoweredExpr> = None;
+        let mut where_slot: Option<usize> = None;
+        let mut where_pred: Option<&LoweredExpr> = None;
+        for stage in stages {
+            match stage {
+                LoweredPipelineStage::Map { slot, value } => {
+                    if map_slot.is_some() { break; }
+                    map_slot = Some(*slot);
+                    map_value = Some(value);
+                    consumed += 1;
+                }
+                LoweredPipelineStage::Where { slot, predicate } => {
+                    if where_slot.is_some() { break; }
+                    where_slot = Some(*slot);
+                    where_pred = Some(predicate);
+                    consumed += 1;
+                }
+                _ => break,
+            }
+        }
+
+        // Move the stream out of current to avoid cloning.
+        let mut stream = match current {
+            LoweredValue::Stream(s) => s,
+            other => return Ok((other, 0)),
+        };
+        if consumed == 0 {
+            let items = self.collect_lowered_stream_values(stream, span)?;
+            return Ok((LoweredValue::List(items), 0));
+        }
+        let mut items = Vec::new();
+        // Pre-collected items
+        for item in std::mem::take(&mut stream.items) {
+            let Some(mut val) = lowered_value_from_runtime_any(&item.value) else { continue; };
+            if let Some(slot) = map_slot {
+                slots[slot] = val;
+                val = match self.eval_lowered_expr(lowered, map_value.unwrap(), slots, span)? {
+                    ControlFlow::Continue(v) => v,
+                    ControlFlow::Break(_) => continue,
+                };
+                slots[slot] = LoweredValue::Unit;
+            }
+            if let Some(slot) = where_slot {
+                slots[slot] = val;
+                let keep = match self.eval_lowered_bool(lowered, where_pred.unwrap(), slots, span)? {
+                    ControlFlow::Continue(v) => v,
+                    ControlFlow::Break(_) => continue,
+                };
+                if !keep {
+                    slots[slot] = LoweredValue::Unit;
+                    continue;
+                }
+                val = std::mem::replace(&mut slots[slot], LoweredValue::Unit);
+            }
+            items.push(val);
+        }
+        // Live items
+        if stream.source.is_some() {
+            loop {
+                match stream.next_live(span)? {
+                    Some(value) => {
+                        let Some(mut val) = lowered_value_from_runtime_any(&value) else { continue; };
+                        if let Some(slot) = map_slot {
+                            slots[slot] = val;
+                            val = match self.eval_lowered_expr(lowered, map_value.unwrap(), slots, span)? {
+                                ControlFlow::Continue(v) => v,
+                                ControlFlow::Break(_) => continue,
+                            };
+                            slots[slot] = LoweredValue::Unit;
+                        }
+                        if let Some(slot) = where_slot {
+                            slots[slot] = val;
+                            let keep = match self.eval_lowered_bool(lowered, where_pred.unwrap(), slots, span)? {
+                                ControlFlow::Continue(v) => v,
+                                ControlFlow::Break(_) => continue,
+                            };
+                            if !keep {
+                                slots[slot] = LoweredValue::Unit;
+                                continue;
+                            }
+                            val = std::mem::replace(&mut slots[slot], LoweredValue::Unit);
+                        }
+                        items.push(val);
+                    }
+                    None => break,
+                }
+            }
+        }
+        Ok((LoweredValue::List(items), consumed))
+    }
+
     fn push_lowered_fs_root(&mut self, root: FsRootHandle) -> LoweredValue {
         let id = self.fs_roots.len() as i64 + 1;
         self.fs_roots.push(Some(root));
@@ -12591,7 +12700,18 @@ impl Evaluator {
                     ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
                 };
                 let mut current = lowered_pipeline_input(current, *span)?;
-                for stage in stages {
+                // If the input is a Stream, apply stream-compatible stages lazily:
+                // items are pulled from the stream one at a time and processed
+                // through Map/Where inline, avoiding intermediate Vecs. When a
+                // stage that can't stream is reached (ParMapBlock, Sort, etc.),
+                // we collect into a Vec and continue normally.
+                let mut stage_index = 0usize;
+                if let LoweredValue::Stream(_) = &current {
+                    (current, stage_index) = self.eval_streaming_pipeline_prefix(
+                        lowered, current, stages, slots, *span,
+                    )?;
+                }
+                for stage in &stages[stage_index..] {
                     let stage_name = stage.trace_name();
                     self.trace_enter(
                         TraceKind::StreamStageEnter,
