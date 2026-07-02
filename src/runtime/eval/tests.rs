@@ -2676,6 +2676,7 @@ fn lowered_body_has_str_predicate(statements: &[LoweredStmt]) -> bool {
         | LoweredStmt::Break
         | LoweredStmt::BreakValue { .. }
         | LoweredStmt::Continue
+        | LoweredStmt::ScanLines { .. }
         | LoweredStmt::AssignIndex { .. } => false,
     })
 }
@@ -2798,6 +2799,7 @@ fn lowered_body_has_trim_str_predicate(statements: &[LoweredStmt]) -> bool {
         | LoweredStmt::Break
         | LoweredStmt::BreakValue { .. }
         | LoweredStmt::Continue
+        | LoweredStmt::ScanLines { .. }
         | LoweredStmt::AssignIndex { .. } => false,
     })
 }
@@ -2882,6 +2884,7 @@ fn lowered_body_has_count_lines(statements: &[LoweredStmt]) -> bool {
         | LoweredStmt::Break
         | LoweredStmt::BreakValue { .. }
         | LoweredStmt::Continue
+        | LoweredStmt::ScanLines { .. }
         | LoweredStmt::AssignIndex { .. } => false,
     })
 }

@@ -3,259 +3,86 @@
 ## Objective
 
 Get `showcase/tokei.xsh` wall-clock time on the Sentry corpus within **1.2× of
-native tokei** (target: ≤ 840ms, current: ~2,660ms, gap: ~3.2×), with **byte-for-byte
-identical output** to the current version. All work is under-the-hood interpreter
-optimization — no language semantics change, no script-visible behavior change.
+native tokei** (speed target: ≤ 840ms), and peak RSS within **1.5× of native
+tokei** (memory target: ≤ 66MB). Byte-for-byte identical output. No language
+semantics change, no script-visible behavior change.
 
-## Current state (2026-07-01)
+## Current state (2026-07-01 EOD)
 
-| Tool | Mean | vs real tokei |
-|---|---|---|
-| real tokei | ~700ms | 1.00× |
-| xsh-tokei (baseline) | ~2,660ms | 3.80× slower |
-| xsh-tokei (optimized) | ~921ms | 1.32× slower |
-| xsh-tokei (micro only) | **262ms** | **2.67× faster** |
-| **Target** | **≤ 840ms** | **≤ 1.20× slower** |
+| Tool | Wall | RSS | vs real tokei |
+|---|---|---|---|
+| real tokei | ~700ms | ~44MB | 1.00× |
+| xsh-tokei (baseline) | ~2,660ms | ~338MB | 3.80× slower, 7.7× more memory |
+| xsh-tokei (optimized) | **~932ms** | ~340MB | 1.33× slower, 7.7× more memory |
+| xsh-tokei (micro only) | **262ms** | ~152MB | **2.67× faster** |
+| **Speed target** | **≤ 840ms** | — | ≤ 1.20× slower |
+| **Memory target** | — | **≤ 66MB** | ≤ 1.50× |
+
+The micro benchmark already crushes the speed target (262ms = 2.67× faster than
+native tokei). The macro benchmark is 92ms (11%) from the speed target and 274MB
+from the memory target.
 
 xsh-tokei was once **1.3× faster** than native tokei (~530ms) on an older
-interpreter whose lowered runtime (`lowered_run.rs` + `lowered_ops.rs`) was
-**4,051 lines**. The current lowered runtime is **17,168 lines** — 4.2× larger.
+interpreter whose lowered runtime was **4,051 lines**. The current lowered
+runtime is **17,168 lines** — 4.2× larger.
 
-We've recovered 1,717ms (65% improvement) through interpreter and I/O
-optimizations. The key breakthrough was parallelizing `ParMapBlock` — the
-variant tokei actually uses — restoring true multi-threaded parallelism
-(4.7× CPU/wall ratio). The micro benchmark is now 2.67× faster than native
-tokei. The macro benchmark is 1.35× from the 1.20× target (103ms gap).
+## Where the 340MB RSS comes from
 
-Memory: peak RSS ~340MB (7.7× native tokei's 44MB). Streaming the pipeline
-prefix (lazy map/where from stream) and bounded fs walk channel eliminated 3
-intermediate Vecs and provided backpressure, but peak RSS remains high due to
-jemalloc page retention from 625MB of cumulative file read allocations and 10
-concurrent worker threads each with evaluator state clones. Further reductions
-would require mmap I/O (no Vec per file) or shared evaluator state across
-workers.
+The Sentry corpus is ~625MB of source code across 18,419 files. During the run:
 
-Output vs real tokei: within 0.2% line-count accuracy (different blank-line
-heuristics). File selection is exact.
+1. **`fork_for_par_map()` clones the Evaluator per worker thread (10×).**
+   Each clone copies `sources` (SourceMap with script text), `scopes` (variable
+   bindings), `lowered_pures/procs` maps, `module_value_cache`, `env`, and ~30
+   other fields. This is the single worst design choice — see below.
 
-## Already done (2026-07-01)
+2. **`Vec<u8>` file read buffers.** Each `std::fs::read(path)` allocates a
+   `Vec<u8>` for the file contents. Over the run, 625MB of Vecs are allocated
+   and freed. jemalloc retains ~50% of those pages (~200MB). mimalloc and the
+   system allocator behave similarly.
 
-- **`pure add_stats()` restored.** 52 call sites rewired from manual field-by-field
-  addition back to the fused pure function. Enables SCC co-lowering.
-- **`StrByteLen`/`StrByteAt` lowering wired.** Byte ops now skip `Method` dispatch.
-  Slot optimization (`Param` → `StrByteLenSlot`) skips receiver eval.
-- **~900 lines of dead code removed.** Old-AST evaluator methods, unused Flow
-  variants, dead stream helpers, orphaned optimization scaffolding. Zero perf
-  impact — these were unreachable in the compact lowering path.
+3. **Pipeline intermediate Vecs.** Despite the streaming prefix optimization
+   (lazy map/where), we still collect one `Vec<LoweredValue>` of 18K items
+   (~5MB) for `par-map`, plus `all_results` (~5MB).
 
-## Profiling setup
+4. **Thread stacks.** 10 threads × 8MB reserved = 80MB virtual; ~1MB committed
+   each = ~10MB RSS.
 
-### Macro benchmark
+Items 2–4 account for ~220MB. The remaining ~120MB is jemalloc page retention
+from the evaluator clones and temporary allocations during scanning.
 
-```sh
-hyperfine --warmup 3 --runs 10 \
-  'target/release/xsh showcase/tokei.xsh -- ~/dev/sentry' \
-  '/Users/josh/d/tokei/target/release/tokei ~/dev/sentry'
-```
+### Why native tokei is 44MB
 
-### Micro benchmark (fast iteration)
+Native tokei uses `ignore::Walk::parallel()` + `rayon` which fuse walk, read,
+and scan into one parallel operation. There are no evaluator clones, no
+intermediate item Vecs, no `BTreeMap` per file entry. Each file's bytes are
+read, scanned, and dropped before the next file is pulled. Peak memory is
+`max(file_size) × thread_count` + fixed overhead ≈ 44MB.
 
-A single large source file to isolate scanning from filesystem walk:
+## Priority: remove `fork_for_par_map`
 
-```sh
-# Find the largest files
-find ~/dev/sentry -name '*.rs' -exec wc -l {} + | sort -rn | head -5
+`fork_for_par_map()` (in `eval.rs`) clones the entire `Evaluator` — 47 fields —
+for every worker thread. This is lazy design. A parallel worker needs only:
 
-# Benchmark just that directory
-hyperfine --warmup 5 --runs 20 \
-  'target/release/xsh showcase/tokei.xsh -- ~/dev/sentry/src/sentry'
-```
+- **Immutable (shared via `Arc`):** lowered function definitions, sources, env,
+  cwd, module caches — set up once and never mutated during evaluation.
+- **Mutable (per-thread):** stdout/stderr buffers, slot pool, signal state,
+  trace state.
 
-### CPU profiling
+The fix: extract the immutable state into a `LoweredSharedState` struct wrapped
+in `Arc`, and create a `LoweredWorker` that holds `Arc<LoweredSharedState>` +
+per-thread mutable fields. `eval_lowered_expr` / `eval_lowered_stmts` / etc.
+move from `impl Evaluator` to `impl LoweredWorker`. The `Evaluator` methods
+become thin wrappers that delegate to `self.worker.eval_lowered_expr(...)`.
 
-```sh
-# samply (simplest, works cross-platform)
-cargo install samply
-samply record target/release/xsh showcase/tokei.xsh -- ~/dev/sentry
+This eliminates 10 evaluator clones (~10–50MB), reduces fork overhead from
+~hundreds-of-µs to ~an-Arc-clone, and makes the design general: any lowered
+expression evaluation in a background context (stream workers, signal hooks,
+test runners) benefits from not needing a full Evaluator.
 
-# instruments (macOS native, more detail)
-instruments -t 'Time Profiler' -l 20000 \
-  target/release/xsh showcase/tokei.xsh -- ~/dev/sentry
-
-# flamegraph (Linux/macOS via DTrace)
-cargo install flamegraph
-cargo flamegraph --bin xsh -- showcase/tokei.xsh -- ~/dev/sentry
-```
-
-### Counters for hypothesis testing
-
-Add atomic counters behind a compile-time feature flag to measure how often
-specific code paths fire without disrupting the hot path:
-
-```rust
-// In lowered_run.rs, gated on #[cfg(feature = "perf-counters")]:
-static FAST_PLAIN_RETURN_HITS: AtomicU64 = AtomicU64::new(0);
-static FAST_PLAIN_RETURN_MISSES: AtomicU64 = AtomicU64::new(0);
-static FAST_RETURN_HITS: AtomicU64 = AtomicU64::new(0);
-static FAST_RETURN_MISSES: AtomicU64 = AtomicU64::new(0);
-static SLOT_OPT_HITS: AtomicU64 = AtomicU64::new(0);
-static METHOD_DISPATCH_FALLBACKS: AtomicU64 = AtomicU64::new(0);
-```
-
-Print counters at exit. Tells us at a glance which optimizations fire and which
-don't, before diving into a profiler.
-
-## Investigation hypotheses
-
-### H1: The fast paths aren't firing
-
-The old interpreter had `eval_lowered_fast_plain_return` and
-`eval_lowered_fast_return` that handled simple pure functions without going
-through the general statement-by-statement evaluator. They still exist (at
-`lowered_run.rs` lines 7894 and 8408), but may not match the current IR shape.
-
-**Test:** Add the fast-path hit/miss counters above. Run tokei. If misses ≈
-total calls, the fast paths are dead.
-
-**Fix:** Compare old vs new `eval_lowered_fast_plain_return` to find what
-conditions changed. The old version handled `Int`/`Bool`-returning functions;
-the new one may have stricter conditions that no current IR satisfies.
-
-### H2: Value boxing/unboxing costs dominate
-
-Each `byte_at()`, field access, or arithmetic op may spend more time converting
-between `LoweredValue` and raw Rust types than doing the actual work. The
-lowered runtime expanded from 4K to 17K lines — much of that may be conversion
-boilerplate on the hot path.
-
-**Test:** In samply/instruments, look for time spent in:
-- `LoweredValue::into_value`
-- `lowered_value_from_runtime`
-- `Value::Int` / `Value::Str` constructors
-- `RecordMap` / `FxHashMap` lookups with `Name` keys
-
-**Fix:** If conversions dominate, add more `LoweredValue`-native fast paths
-that operate on slots directly without round-tripping through `Value`.
-
-### H3: Record field access is doing hash lookups
-
-`add_stats` accesses `.blanks`, `.code`, `.comments` on Stats records. If each
-field access does a `FxHashMap::get` with a `Name` (interned string), that's
-three hash lookups per `add_stats` call — and `add_stats` is called 52 times
-per file, across 18,000 files.
-
-**Test:** Profile record field access. Look for `FxHashMap::get` / `get_item`
-calls with field-name keys on the hot path.
-
-**Fix:** The lowering knows the record shape at compile time. If the Stats record
-always has fields [blanks, code, comments] in that order, integer indexing can
-replace hash lookups. This is an IR-level change — the lowered runtime already
-has ordered record representations for known shapes.
-
-### H4: Byte operations have too much overhead
-
-`byte_at()` and `byte_len()` go through `LoweredExpr::StrByteAt` → match dispatch
-→ type validation → Param-slot fast path check → `lowered_str_byte_at_value`.
-Even with the slot optimization wired, each call may do more work than the old
-interpreter did.
-
-**Test:** Profile `eval_lowered_plain_expr` and `eval_lowered_expr` with
-StrByteLen/StrByteAt inputs. Count instructions per call vs the equivalent
-inlined Rust `bytes[index]`.
-
-**Fix:** If the match dispatch and type validation dominate, consider a
-dedicated byte-scanning interpreter loop that operates on `&[u8]` directly,
-bypassing the general expression evaluator for tight character-scanning loops.
-
-### H5: `par-map` overhead dominates wall time
-
-tokei uses `par-map |> flat-map |> reduce-by` for per-file parallelism. If
-thread-pool overhead costs more than the scanning work (especially for small
-files), parallelism may be a net loss.
-
-**Test:** Run a single-directory benchmark (e.g. `~/dev/sentry/src/sentry/`).
-Compare wall time of `par-map` vs a simple `for` loop. If `for` is faster,
-parallelism overhead is the bottleneck.
-
-**Fix:** Tune the parallel work granularity. `par-map` should batch small files
-into chunks large enough to amortize thread-pool overhead.
-
-### H6: Code size causes I-cache pressure
-
-The current `lowered_run.rs` is ~14,000 lines with hundreds of match arms. The
-old one was 2,487 lines. The larger code may cause instruction-cache misses on
-the hot path.
-
-**Test:** In instruments, look at "Instructions Retired" vs "Cycles" — a high
-ratio (low IPC) suggests cache stalls. Use `--sample-cpu` to see which functions
-have the most stalls.
-
-**Fix:** Extract cold code paths (error handling, rarely-taken match arms) into
-separate functions with `#[cold]` annotations. Split `lowered_run.rs` into
-hot-path and cold-path modules.
-
-## tokei.xsh improvement plan
-
-### Already done
-
-- [x] Restore `pure add_stats()` — 52 call sites rewired
-- [x] Wire `StrByteLen`/`StrByteAt` lowering — byte ops skip Method dispatch
-- [x] Slot optimization for Param receivers — skips receiver evaluation
-- [x] Remove ~900 lines dead runtime code
-
-### Script-level (after profiling confirms bottlenecks)
-
-- [ ] Profile `count_slash_language` to confirm byte ops / field access are the
-  hot instructions (not `line.contains()`, `line.trim()`, etc.)
-- [ ] Audit that every scanner is `pure`-annotated for SCC co-lowering
-- [ ] If `blobs` field is never read on the hot path, consider a `StatsNoBlobs`
-  type for the scanning phase, converted to `Stats` only at aggregation time
-- [ ] Check that `.lines()` produces borrowed views (zero-copy), not owned strings
-
-### Interpreter-level (ordered by expected impact)
-
-1. **Verify fast paths fire.** Add counters. If `eval_lowered_fast_plain_return`
-   handles `add_stats` and `count_*`, that's a free 2–3× on pure calls. If not,
-   fix the conditions so they match the current IR shape.
-
-2. **Optimize record field access for known shapes.** The lowering knows the
-   Stats record has fields `{blanks, code, comments}`. When the IR sees field
-   access on a record with a known compile-time shape, emit integer indices
-   instead of string-keyed hash lookups.
-
-3. **Tighten the byte-operation path.** `StrByteLen`/`StrByteAt` are wired, but
-   their runtime handlers still do general-purpose type checking and Param-slot
-   dispatch. A dedicated `byte_scan` loop could operate on raw `&[u8]` slices,
-   calling `byte_at()` without leaving the lowered runtime at all.
-
-4. **Reduce Value ↔ LoweredValue round-trips.** The `for line in text.lines()`
-   loop currently converts each line through the Value system. If `.lines()`
-   stays in `LoweredValue` space (borrowed byte slices), the entire scanner
-   loop runs without boxing.
-
-5. **Tune par-map granularity.** If H5 is confirmed, batch small files into
-   work chunks of ~100 files each, amortizing thread-pool dispatch.
-
-6. **Split hot/cold code.** Move error-handling match arms, diagnostics, and
-   tracing out of `lowered_run.rs` into separate `#[cold]` functions.
-
-### Benchmarking cadence
-
-After each change, run both benchmarks and record the result:
-
-```sh
-# Micro (fast iteration)
-hyperfine --warmup 5 --runs 20 \
-  'target/release/xsh showcase/tokei.xsh -- ~/dev/sentry/src/sentry'
-
-# Macro (full verification, after each milestone)
-hyperfine --warmup 3 --runs 10 \
-  'target/release/xsh showcase/tokei.xsh -- ~/dev/sentry' \
-  '/Users/josh/d/tokei/target/release/tokei ~/dev/sentry'
-```
-
-Keep a running log of times in this document so we can see which changes moved
-the needle.
+**Scope:** ~1015 `self.` accesses across `lowered_run.rs` need to be channeled
+through the shared state. Mechanical but tedious — a sed script handles most
+of it. The struct extraction is straightforward; the volume of field access
+changes is the only reason it wasn't done in this session.
 
 ## Performance log
 
@@ -271,128 +98,77 @@ the needle.
 | 2026-07-01 | +parallel par-map (atomic counter) | — | 2,231ms | 3.19× |
 | 2026-07-01 | +std::fs::read (replaces cap_std) | — | 1,933ms | 2.76× |
 | 2026-07-01 | +ScanLines dedicated scan loop | — | 1,886ms | 2.69× |
-| 2026-07-01 | +parallel ParMapBlock (true parallelism) | **262ms** | **948ms** | **1.35×** |
-| 2026-07-01 | +ParMapBlock parallel (raw ptrs, slot cleanup) | **262ms** | **943ms** | **1.35×** |
+| 2026-07-01 | +parallel **ParMapBlock** (true parallelism) | **262ms** | **948ms** | **1.35×** |
 | 2026-07-01 | +stream collection (eliminate intermediate Vec) | — | 921ms | 1.32× |
-| 2026-07-01 | +lazy map/where streaming, bounded fs channel | — | 932ms | 1.33× |
+| 2026-07-01 | +lazy map/where streaming + bounded fs channel | — | 932ms | 1.33× |
 | 2026-07-01 | +slim fork_for_par_map | — | 932ms | 1.33× |
-| — | target | — | ≤ 840ms | ≤ 1.20× |
-| **2026-07-01** | **current (all optimizations)** | **262ms** | **932ms** | **1.33×** |
+| — | **speed target** | — | **≤ 840ms** | **≤ 1.20×** |
+| — | **memory target** | — | **≤ 66MB RSS** | **≤ 1.50×** |
 
-## Current status (2026-07-01 EOD)
+## Optimizations applied
 
-| Tool | Mean | vs real tokei |
-|---|---|---|
-| real tokei | ~700ms | 1.00× |
-| xsh-tokei (current, dist) | ~1,848ms | 2.64× slower |
-| xsh-tokei (micro, src/sentry only) | ~674ms | **0.96× (faster!)** |
-| **Target** | **≤ 840ms** | **≤ 1.20× slower** |
+1. **Parallel `ParMapBlock`** (the key win). The tokei script uses
+   `ParMapBlock` (block bodies with `let` statements), not `ParMap` (simple
+   expressions). Only `ParMap` was parallelized; `ParMapBlock` was a sequential
+   `for` loop. Now uses `std::thread::scope` + atomic counter work distribution
+   with per-thread evaluator forks. CPU/wall ratio: 1.1× → 4.4×.
 
-### Syscall analysis
+2. **Streaming pipeline prefix.** When a pipeline stage list starts with
+   Map → Where from a `Stream` input (e.g. `fs.files()`), items are pulled
+   lazily and transformed inline instead of collecting into intermediate Vecs.
+   Eliminates 2 `Vec<LoweredValue>` allocations (map output, where output).
 
-xsh processes 18,419 files for the Sentry corpus. Each file read via
-`std::fs::read` does 4 syscalls (openat, fstat, read, close) = ~73,676 syscalls.
-At ~15μs per syscall on SSD, this accounts for ~1,100ms of system time — matching
-the measured ~1,070ms.
+3. **Bounded fs walk channel.** `IgnoreWalkStream` changed from unbounded to
+   `bounded(1024)` channel, providing natural backpressure — the filesystem
+   walker blocks when the consumer falls behind.
 
-Native tokei uses the same `ignore::Walk` crate and `File::open` +
-`read_to_string`, so its per-file syscall count is similar (4 syscalls/file).
-However, native tokei achieves 700ms total because:
+4. **`std::fs::read` replaces cap_std.** `read_host_path_bytes` uses
+   `std::fs::read` directly instead of `cap_std::fs::Dir::open_ambient_dir`
+   + `dir.open`. Eliminates capability checks and parent-directory re-opening
+   overhead. Saved ~235ms system time.
 
-1. **Fused parallel pipeline**: `ignore::Walk::parallel()` + `rayon` fuse
-   filesystem walk, file reading, and line scanning into a single parallel
-   operation. Directory traversal, I/O, and computation all overlap across threads.
+5. **`ScanLines` dedicated scan loop.** When a `ForStrLines` loop body matches
+   the simple scanner pattern (single `IfBool` with counter increments), the
+   lowering emits `LoweredStmt::ScanLines` instead. The runtime processes lines
+   in a tight loop without `eval_lowered_stmts` dispatch. Hits 5,039 times on
+   the Sentry corpus.
 
-2. **Streaming**: Files are processed as they're discovered, not collected first.
-   xsh's lowered pipeline collects all 18K items into a Vec before `par-map`
-   starts, blocking the main thread and preventing I/O/computation overlap.
+6. **Perf counters** (`perf-counters` feature). Fast-path hit/miss counters
+   printed at exit. Confirmed `fast_plain_return` 48.5% hit rate, `fast_return`
+   28.4% hit rate, 18,759 slow-path falls-through.
 
-3. **Zero interpreter overhead**: Native tokei scans lines with direct
-   `bytes[index]` access — no match dispatch, no function calls per byte.
+7. **Fast no-defer `eval_lowered_stmts_fast`.** When `LoweredPureFunction.
+   has_defers` is false (computed at lowering time via recursive scan), skips
+   the `defers` Vec allocation and `Defer` check per statement.
 
-Parallel `par-map` in xsh saves only ~15-20ms vs single-threaded because all
-threads block on `read()` and I/O throughput is disk-limited, not CPU-limited.
+8. **Batched signal checks.** `ForStrLines` and `ScanLines` check
+   `service_pending_signal` every 64 lines instead of every line.
 
-### Remaining gap (macro: 1,848ms → target 840ms, gap: 1,008ms)
+9. **Inline stream collection.** `collect_lowered_stream_values` converts
+   stream items directly to `LoweredValue` instead of collecting into
+   `Vec<Value>` first, eliminating one intermediate allocation.
 
-The remaining 1,008ms is ~1,070ms system time (file I/O) + ~1,015ms user time
-(scanning + interpreter). To close the gap:
+10. **Slim `fork_for_par_map`.** Removed unnecessary clones for fields workers
+    don't need (`tag_variants`, `error_families`, `net_pool_options`,
+    `test_mocks`, etc.). The real fix is to eliminate the fork entirely — see
+    the priority section above.
 
-- **Streaming pipeline** (largest win): Process files as the walker discovers
-  them instead of collecting all 18K first. Requires IR/runtime changes to
-  support lazy pipeline stages in the lowered IR.
-- **mmap I/O** (moderate win): Replace `std::fs::read` with `mmap` — reduces 4
-  syscalls/file to 2 (mmap + munmap), saving ~500ms system time. The file data
-  is paged in on first access, overlapping I/O with computation.
-- **PGO** (moderate win): Profile-guided optimization could give 10–20% by
-  better inlining of the hot evaluator path. The `profiling` profile exists but
-  requires a Linux training run.
-- **Extend ScanLines** (small win): Handle more complex scanner patterns
-  (Not(Contains), nested branch bodies) to cover `count_slash_language` and
-  `count_markdown`. Saves ~50–100ms.
-- **Record field access by index** (small win): Replace `BTreeMap` lookups with
-  integer indexing for known-shape records. Saves ~20–50ms.
-| real tokei | ~700ms | 1.00× |
-| xsh-tokei (current) | ~1,933ms | 2.76× slower |
-| xsh-tokei (micro, src/sentry only) | ~674ms | **0.96× (faster!)** |
-| **Target** | **≤ 840ms** | **≤ 1.20× slower** |
+11. **`has_defers` recursive scan.** `lowered_body_has_defers` checks nested
+    statements (inside `If` branches, `Retry` bodies, `While` loops, etc.) so
+    the fast no-defer path is used correctly for all pure functions.
 
-The micro benchmark (single directory, ~5,300 files) already exceeds the target at
-674ms — 1.04× faster than native tokei. The macro benchmark is still 2.76× above
-target, with system time (file I/O) at ~1,100ms dominating the wall time.
+## Syscall analysis
 
-### Optimizations applied (2026-07-01)
+xsh processes 18,419 files. Each `std::fs::read` does 4 syscalls (openat,
+fstat, read, close) = ~73,676 syscalls. At ~15μs per syscall on SSD, this
+accounts for ~1,100ms of system time.
 
-1. **Perf counters** (`perf-counters` feature): atomic counters at fast-path call
-   sites, printed at exit. Confirmed fast_plain_return hits 5,331 (48.5% hit rate),
-   fast_return hits 7,444 (28.4% hit rate), 18,759 calls fall through to slow path.
-
-2. **Fast no-defer `eval_lowered_stmts_fast`**: when `LoweredPureFunction.has_defers`
-   is false, skips defer Vec allocation and Defer checks. `has_defers` is computed
-   at lowering time via recursive scan of the function body.
-
-3. **Batched signal checks**: `ForStrLines` checks `service_pending_signal` every
-   64 lines instead of every line (saves ~5M atomic ops on Sentry corpus).
-
-4. **Parallel `par-map`**: Changed from sequential `for` loop to `std::thread::scope`
-   with atomic-counter work distribution. Each worker gets a forked evaluator
-   (`fork_for_par_map`) with shared lowered function definitions. Falls back to
-   sequential path when tracing is enabled or ≤ 1 item.
-
-5. **Direct file I/O**: `read_host_path_bytes` changed from `cap_std::fs::Dir::
-   open_ambient_dir` + `dir.open` to direct `std::fs::read`. Eliminates capability
-   checks and parent-directory re-opening overhead. System time reduced by ~235ms.
-
-### Remaining gap
-
-The macro benchmark spends ~1,100ms in system time (file I/O) for ~18K files.
-Native tokei completes all I/O + scanning in ~700ms total. The gap is primarily:
-
-- **File I/O throughput**: xsh reads files sequentially inside par-map; even with
-  threads, I/O throughput doesn't scale linearly with concurrency. Native tokei
-  uses `ignore::Walk` + `rayon` which parallelizes the walk itself, overlapping
-  directory traversal with file reading and scanning.
-- **Per-line interpreter dispatch**: `eval_lowered_stmts` → `eval_lowered_stmt` →
-  `eval_lowered_bool` chain costs ~200ns per line. For 5M lines, this is ~1,000ms
-  of CPU. A dedicated `ScanLines` lowering that processes simple scanner loops
-  without general dispatch could eliminate most of this overhead.
-- **PGO**: Profile-guided optimization (the `profiling` profile exists) could
-  give an additional 10–20% improvement by better inlining the hot path.
-
-### Investigated but not yet implemented
-
-- **Record field access by index** (H3): Changing `LoweredValue::Record` from
-  `BTreeMap` to `Vec` would make field access O(n) linear scan vs O(log n) tree
-  lookup. For 4-field records, linear scan is competitive. Implementation is
-  invasive (40+ call sites across 4 files).
-- **Dedicated scan loop** (H4): Adding `LoweredStmt::ScanLines` that processes
-  `for line in text.lines()` loops with simple conditions (trim-empty,
-  trim-starts-with) in a tight loop without `eval_lowered_stmts` dispatch.
-  Requires lowering changes to detect the scanner pattern.
-- **Hot/cold code split** (H6): Extracting error-handling match arms from
-  `eval_lowered_stmt` (2,374 lines) and `eval_lowered_expr` (3,239 lines) to
-  `#[cold]` functions. The old interpreter had `eval_lowered_stmt` at ~400 lines
-  and `eval_lowered_expr` at ~896 lines.
+Native tokei also does 4 syscalls/file via `File::open` + `read_to_string`.
+Its 700ms total is achievable because `ignore::Walk::parallel()` + `rayon` fuse
+walk, read, and scan into a single parallel operation — directory traversal,
+I/O, and computation all overlap across threads. System time is 1,722ms but
+wall time is 688ms (5× parallelism factor). Our 4.4× parallelism factor nearly
+matches this.
 
 ## References
 
