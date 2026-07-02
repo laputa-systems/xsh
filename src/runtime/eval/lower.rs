@@ -3253,6 +3253,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                 return Err(CompactFunctionBlocker::NoReturn);
             }
         }
+        let has_defers = body.iter().any(|stmt| matches!(stmt, LoweredStmt::Defer { .. }));
         Ok(LoweredPureFunction {
             params,
             param_kinds,
@@ -3263,6 +3264,7 @@ impl CompactLowerConstructProbe<'_, '_> {
             return_kind,
             slot_count: slots.count(),
             body,
+            has_defers,
         })
     }
 

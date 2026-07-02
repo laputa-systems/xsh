@@ -442,6 +442,7 @@ struct LoweredPureFunction {
     return_kind: LoweredReturnKind,
     slot_count: usize,
     body: Vec<LoweredStmt>,
+    has_defers: bool,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -2426,6 +2427,7 @@ impl Evaluator {
             return_kind: LoweredReturnKind::Plain(LoweredType::Unit),
             slot_count,
             body,
+            has_defers: false,
         };
         self.signal_hooks.insert(
             signal.name.clone(),
@@ -3506,6 +3508,8 @@ impl Evaluator {
             Some("script"),
             TracePayload::None,
         );
+
+        lowered_run::print_perf_counters();
 
         Ok(EvalOutput {
             stdout: self.stdout,

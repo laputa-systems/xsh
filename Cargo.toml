@@ -64,6 +64,7 @@ net = [
     "dep:rustls",
     "dep:xsh-net",
 ]
+perf-counters = []
 perf-metrics = ["dep:libmimalloc-sys"]
 tools = []
 

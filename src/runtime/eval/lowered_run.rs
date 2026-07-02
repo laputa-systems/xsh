@@ -87,6 +87,53 @@ use super::{
 use cap_directories::{ProjectDirs, UserDirs, ambient_authority as directories_authority};
 use cap_tempfile::{TempDir, TempFile, ambient_authority as tempfile_authority};
 
+#[cfg(feature = "perf-counters")]
+use std::sync::atomic::{AtomicU64, Ordering};
+
+#[cfg(feature = "perf-counters")]
+static FAST_PLAIN_RETURN_HITS: AtomicU64 = AtomicU64::new(0);
+#[cfg(feature = "perf-counters")]
+static FAST_PLAIN_RETURN_MISSES: AtomicU64 = AtomicU64::new(0);
+#[cfg(feature = "perf-counters")]
+static FAST_RETURN_HITS: AtomicU64 = AtomicU64::new(0);
+#[cfg(feature = "perf-counters")]
+static FAST_RETURN_MISSES: AtomicU64 = AtomicU64::new(0);
+#[cfg(feature = "perf-counters")]
+static SLOT_OPT_HITS: AtomicU64 = AtomicU64::new(0);
+#[cfg(feature = "perf-counters")]
+static METHOD_DISPATCH_FALLBACKS: AtomicU64 = AtomicU64::new(0);
+#[cfg(feature = "perf-counters")]
+static CALL_SITE_HITS: AtomicU64 = AtomicU64::new(0);
+#[cfg(feature = "perf-counters")]
+static EVAL_STMT_COUNT: AtomicU64 = AtomicU64::new(0);
+
+#[cfg(feature = "perf-counters")]
+pub(super) fn print_perf_counters() {
+    eprintln!(
+        "perf: fast_plain_return hits={} misses={}",
+        FAST_PLAIN_RETURN_HITS.load(Ordering::Relaxed),
+        FAST_PLAIN_RETURN_MISSES.load(Ordering::Relaxed),
+    );
+    eprintln!(
+        "perf: fast_return hits={} misses={}",
+        FAST_RETURN_HITS.load(Ordering::Relaxed),
+        FAST_RETURN_MISSES.load(Ordering::Relaxed),
+    );
+    eprintln!(
+        "perf: slot_opt_hits={} method_fallbacks={}",
+        SLOT_OPT_HITS.load(Ordering::Relaxed),
+        METHOD_DISPATCH_FALLBACKS.load(Ordering::Relaxed),
+    );
+    eprintln!(
+        "perf: call_site_hits={} eval_stmt_count={}",
+        CALL_SITE_HITS.load(Ordering::Relaxed),
+        EVAL_STMT_COUNT.load(Ordering::Relaxed),
+    );
+}
+
+#[cfg(not(feature = "perf-counters"))]
+pub(super) fn print_perf_counters() {}
+
 fn btree_map<K: Ord, V>(entries: Vec<(K, V)>) -> BTreeMap<K, V> {
     let mut map = BTreeMap::new();
     map.extend(entries);
@@ -330,12 +377,34 @@ fn lowered_measured_command_record(
 }
 
 fn read_host_path_bytes(path: &Path, span: Span) -> Result<Vec<u8>, RuntimeError> {
+    // Cache the last parent directory to avoid re-opening it for every file
+    // in the same directory. Uses a thread-local so par-map threads benefit.
+    use std::cell::RefCell;
+    thread_local! {
+        static DIR_CACHE: RefCell<Option<(std::path::PathBuf, cap_std::fs::Dir)>> =
+            const { RefCell::new(None) };
+    }
     let parent = path.parent().unwrap_or_else(|| Path::new("."));
     let name = path
         .file_name()
         .ok_or_else(|| RuntimeError::new("fs-read", "path has no file name").with_span(span))?;
-    let dir = cap_std::fs::Dir::open_ambient_dir(parent, cap_std::ambient_authority())
-        .map_err(|error| RuntimeError::new("fs-read", error.to_string()).with_span(span))?;
+    let dir = DIR_CACHE.with(|cache| {
+        let mut cache = cache.borrow_mut();
+        if let Some((cached_parent, _)) = cache.as_ref() {
+            if cached_parent == parent {
+                return Ok(cache.as_ref().unwrap().1.try_clone().map_err(|error| {
+                    RuntimeError::new("fs-read", error.to_string()).with_span(span)
+                })?);
+            }
+        }
+        let dir = cap_std::fs::Dir::open_ambient_dir(parent, cap_std::ambient_authority())
+            .map_err(|error| RuntimeError::new("fs-read", error.to_string()).with_span(span))?;
+        let cloned = dir.try_clone().map_err(|error| {
+            RuntimeError::new("fs-read", error.to_string()).with_span(span)
+        })?;
+        *cache = Some((parent.to_path_buf(), dir));
+        Ok(cloned)
+    })?;
     let mut file = dir
         .open(Path::new(name))
         .map_err(|error| RuntimeError::new("fs-read", error.to_string()).with_span(span))?;
@@ -7749,11 +7818,21 @@ impl Evaluator {
         if let LoweredReturnKind::Plain(LoweredType::Int | LoweredType::Bool) = lowered.return_kind
             && let Some(value) = self.eval_lowered_fast_plain_return(lowered, slots)?
         {
+            #[cfg(feature = "perf-counters")]
+            FAST_PLAIN_RETURN_HITS.fetch_add(1, Ordering::Relaxed);
             return Ok(value);
+        }
+        #[cfg(feature = "perf-counters")]
+        if matches!(lowered.return_kind, LoweredReturnKind::Plain(LoweredType::Int | LoweredType::Bool)) {
+            FAST_PLAIN_RETURN_MISSES.fetch_add(1, Ordering::Relaxed);
         }
         if let Some(value) = self.eval_lowered_fast_return(lowered, slots, call_span)? {
+            #[cfg(feature = "perf-counters")]
+            FAST_RETURN_HITS.fetch_add(1, Ordering::Relaxed);
             return Ok(value);
         }
+        #[cfg(feature = "perf-counters")]
+        FAST_RETURN_MISSES.fetch_add(1, Ordering::Relaxed);
         let result = self.eval_lowered_stmts(lowered, &lowered.body, slots, call_span);
         // Persist mutations to captured mutable top-level (global) bindings on
         // every exit path, including errors — the side effects happened before
@@ -8545,6 +8624,40 @@ impl Evaluator {
         slots: &mut [LoweredValue],
         call_span: Span,
     ) -> Result<LoweredStmtFlow, RuntimeError> {
+        if lowered.has_defers {
+            return self.eval_lowered_stmts_with_defers(lowered, statements, slots, call_span);
+        }
+        self.eval_lowered_stmts_fast(lowered, statements, slots, call_span)
+    }
+
+    fn eval_lowered_stmts_fast(
+        &mut self,
+        lowered: &LoweredPureFunction,
+        statements: &[LoweredStmt],
+        slots: &mut [LoweredValue],
+        call_span: Span,
+    ) -> Result<LoweredStmtFlow, RuntimeError> {
+        for stmt in statements {
+            match self.eval_lowered_stmt(lowered, stmt, slots, call_span)? {
+                LoweredStmtFlow::None => {}
+                flow @ (LoweredStmtFlow::Return(_)
+                | LoweredStmtFlow::Propagate(_)
+                | LoweredStmtFlow::Break(_)
+                | LoweredStmtFlow::Continue) => {
+                    return Ok(flow);
+                }
+            }
+        }
+        Ok(LoweredStmtFlow::None)
+    }
+
+    fn eval_lowered_stmts_with_defers(
+        &mut self,
+        lowered: &LoweredPureFunction,
+        statements: &[LoweredStmt],
+        slots: &mut [LoweredValue],
+        call_span: Span,
+    ) -> Result<LoweredStmtFlow, RuntimeError> {
         let mut defers: Vec<LoweredExpr> = Vec::new();
         for stmt in statements {
             if let LoweredStmt::Defer { value, .. } = stmt {
@@ -8563,9 +8676,6 @@ impl Evaluator {
                     return Ok(flow);
                 }
                 Err(error) => {
-                    // Run registered defers before propagating the error (scope
-                    // exit), unless this is a FORCED abort which skips them. The
-                    // original error takes precedence over any defer failure.
                     let forced = error.abort.as_ref().is_some_and(|signal| signal.force);
                     if !forced {
                         let _ = self.run_lowered_defers(lowered, &defers, slots, call_span);
@@ -9128,6 +9238,7 @@ impl Evaluator {
             return_kind: LoweredReturnKind::Plain(LoweredType::Unit),
             slot_count: lowered.slot_count,
             body: Vec::new(),
+            has_defers: false,
         };
         let flow = match &lowered.kind {
             LoweredTopLevelKind::Use {
@@ -10140,6 +10251,7 @@ impl Evaluator {
                 };
                 if let Some((bytes, start, end)) = lowered_bytes_parts(&text) {
                     let mut cursor = start;
+                    let mut line_count = 0u32;
                     while cursor < end {
                         let newline = memchr::memchr(b'\n', &bytes[cursor..end])
                             .map(|offset| cursor + offset);
@@ -10149,9 +10261,12 @@ impl Evaluator {
                         } else {
                             line_end
                         };
-                        self.service_pending_signal(*span)?;
-                        if self.signal_state.shutdown_complete {
-                            return Ok(LoweredStmtFlow::None);
+                        line_count = line_count.wrapping_add(1);
+                        if line_count & 63 == 0 {
+                            self.service_pending_signal(*span)?;
+                            if self.signal_state.shutdown_complete {
+                                return Ok(LoweredStmtFlow::None);
+                            }
                         }
                         assign_lowered_bytes_view(&mut slots[*slot], &bytes, cursor, view_end);
                         match self.eval_lowered_stmts(lowered, body, slots, call_span)? {
@@ -10180,6 +10295,7 @@ impl Evaluator {
                 };
                 let bytes = text.as_bytes();
                 let mut cursor = start;
+                let mut line_count = 0u32;
                 while cursor < end {
                     let newline = bytes[cursor..end]
                         .iter()
@@ -10191,9 +10307,12 @@ impl Evaluator {
                     } else {
                         line_end
                     };
-                    self.service_pending_signal(*span)?;
-                    if self.signal_state.shutdown_complete {
-                        return Ok(LoweredStmtFlow::None);
+                    line_count = line_count.wrapping_add(1);
+                    if line_count & 63 == 0 {
+                        self.service_pending_signal(*span)?;
+                        if self.signal_state.shutdown_complete {
+                            return Ok(LoweredStmtFlow::None);
+                        }
                     }
                     assign_lowered_str_view(&mut slots[*slot], &text, cursor, view_end);
                     match self.eval_lowered_stmts(lowered, body, slots, call_span)? {
