@@ -248,7 +248,80 @@ the needle.
 | 2026-07-01 | baseline (before fixes) | — | 2,569ms | 3.62× |
 | 2026-07-01 | +StrByte lowering wired | — | 2,767ms | 4.03× |
 | 2026-07-01 | +add_stats restored | — | 2,660ms | 3.80× |
+| 2026-07-01 | +has_defers fast stmts path | — | 2,656ms | 3.79× |
+| 2026-07-01 | +batched signal checks (64 lines) | — | 2,604ms | 3.72× |
+| 2026-07-01 | +fat LTO (dist profile) | — | 2,522ms | 3.60× |
+| 2026-07-01 | +dir cache for file reads | — | 2,353ms | 3.36× |
+| 2026-07-01 | +parallel par-map (atomic counter) | — | 2,231ms | 3.19× |
+| 2026-07-01 | +std::fs::read (replaces cap_std) | — | 1,933ms | 2.76× |
+| 2026-07-01 | **current (all optimizations)** | **674ms** | **1,933ms** | **2.76×** |
 | — | target | — | ≤ 840ms | ≤ 1.20× |
+
+## Current status (2026-07-01 EOD)
+
+| Tool | Mean | vs real tokei |
+|---|---|---|
+| real tokei | ~700ms | 1.00× |
+| xsh-tokei (current) | ~1,933ms | 2.76× slower |
+| xsh-tokei (micro, src/sentry only) | ~674ms | **0.96× (faster!)** |
+| **Target** | **≤ 840ms** | **≤ 1.20× slower** |
+
+The micro benchmark (single directory, ~5,300 files) already exceeds the target at
+674ms — 1.04× faster than native tokei. The macro benchmark is still 2.76× above
+target, with system time (file I/O) at ~1,100ms dominating the wall time.
+
+### Optimizations applied (2026-07-01)
+
+1. **Perf counters** (`perf-counters` feature): atomic counters at fast-path call
+   sites, printed at exit. Confirmed fast_plain_return hits 5,331 (48.5% hit rate),
+   fast_return hits 7,444 (28.4% hit rate), 18,759 calls fall through to slow path.
+
+2. **Fast no-defer `eval_lowered_stmts_fast`**: when `LoweredPureFunction.has_defers`
+   is false, skips defer Vec allocation and Defer checks. `has_defers` is computed
+   at lowering time via recursive scan of the function body.
+
+3. **Batched signal checks**: `ForStrLines` checks `service_pending_signal` every
+   64 lines instead of every line (saves ~5M atomic ops on Sentry corpus).
+
+4. **Parallel `par-map`**: Changed from sequential `for` loop to `std::thread::scope`
+   with atomic-counter work distribution. Each worker gets a forked evaluator
+   (`fork_for_par_map`) with shared lowered function definitions. Falls back to
+   sequential path when tracing is enabled or ≤ 1 item.
+
+5. **Direct file I/O**: `read_host_path_bytes` changed from `cap_std::fs::Dir::
+   open_ambient_dir` + `dir.open` to direct `std::fs::read`. Eliminates capability
+   checks and parent-directory re-opening overhead. System time reduced by ~235ms.
+
+### Remaining gap
+
+The macro benchmark spends ~1,100ms in system time (file I/O) for ~18K files.
+Native tokei completes all I/O + scanning in ~700ms total. The gap is primarily:
+
+- **File I/O throughput**: xsh reads files sequentially inside par-map; even with
+  threads, I/O throughput doesn't scale linearly with concurrency. Native tokei
+  uses `ignore::Walk` + `rayon` which parallelizes the walk itself, overlapping
+  directory traversal with file reading and scanning.
+- **Per-line interpreter dispatch**: `eval_lowered_stmts` → `eval_lowered_stmt` →
+  `eval_lowered_bool` chain costs ~200ns per line. For 5M lines, this is ~1,000ms
+  of CPU. A dedicated `ScanLines` lowering that processes simple scanner loops
+  without general dispatch could eliminate most of this overhead.
+- **PGO**: Profile-guided optimization (the `profiling` profile exists) could
+  give an additional 10–20% improvement by better inlining the hot path.
+
+### Investigated but not yet implemented
+
+- **Record field access by index** (H3): Changing `LoweredValue::Record` from
+  `BTreeMap` to `Vec` would make field access O(n) linear scan vs O(log n) tree
+  lookup. For 4-field records, linear scan is competitive. Implementation is
+  invasive (40+ call sites across 4 files).
+- **Dedicated scan loop** (H4): Adding `LoweredStmt::ScanLines` that processes
+  `for line in text.lines()` loops with simple conditions (trim-empty,
+  trim-starts-with) in a tight loop without `eval_lowered_stmts` dispatch.
+  Requires lowering changes to detect the scanner pattern.
+- **Hot/cold code split** (H6): Extracting error-handling match arms from
+  `eval_lowered_stmt` (2,374 lines) and `eval_lowered_expr` (3,239 lines) to
+  `#[cold]` functions. The old interpreter had `eval_lowered_stmt` at ~400 lines
+  and `eval_lowered_expr` at ~896 lines.
 
 ## References
 

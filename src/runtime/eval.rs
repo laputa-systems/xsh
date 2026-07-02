@@ -2417,6 +2417,7 @@ impl Evaluator {
             .map_err(|error| RuntimeError::new("signal-hook", error.to_string()).with_span(span))?;
         self.signal_handler_guards.push(guard);
         let ignore_pending_primary = signal_snapshot().primary == Some(signal.number);
+        let has_defers = lower::lowered_body_has_defers(&body);
         let lowered_function = LoweredPureFunction {
             params: Default::default(),
             param_kinds: Default::default(),
@@ -2427,7 +2428,7 @@ impl Evaluator {
             return_kind: LoweredReturnKind::Plain(LoweredType::Unit),
             slot_count,
             body,
-            has_defers: false,
+            has_defers,
         };
         self.signal_hooks.insert(
             signal.name.clone(),
@@ -2442,6 +2443,59 @@ impl Evaluator {
             },
         );
         Ok(())
+    }
+
+    /// Fork a lightweight copy of this evaluator for use in a parallel `par-map`
+    /// worker thread. Shares all lowered function definitions (via Arc in the
+    /// maps) and gives the worker its own I/O buffers and slot pool.
+    pub(super) fn fork_for_par_map(&self) -> Self {
+        Self {
+            sources: self.sources.clone(),
+            command_name: self.command_name.clone(),
+            scopes: self.scopes.clone(),
+            module_export_signatures: self.module_export_signatures.clone(),
+            lowered_pures: self.lowered_pures.clone(),
+            lowered_procs: self.lowered_procs.clone(),
+            lowered_qualified_pures: self.lowered_qualified_pures.clone(),
+            lowered_qualified_procs: self.lowered_qualified_procs.clone(),
+            lowered_program: self.lowered_program.clone(),
+            lowered_slot_pool: Vec::new(),
+            tag_variants: self.tag_variants.clone(),
+            error_families: self.error_families.clone(),
+            module_value_cache: self.module_value_cache.clone(),
+            function_modules: self.function_modules.clone(),
+            qualified_function_modules: self.qualified_function_modules.clone(),
+            active_modules: self.active_modules.clone(),
+            stdout: Vec::new(),
+            stderr: Vec::new(),
+            cwd: self.cwd.clone(),
+            env: self.env.clone(),
+            interactive: false,
+            interactive_command_dispatcher: None,
+            last_status: self.last_status.clone(),
+            trace_enabled: false,
+            trace_events: Vec::new(),
+            event_stack: Vec::new(),
+            call_stack: Vec::new(),
+            pending_traceback: None,
+            stream_items: Vec::new(),
+            unix_next_pid: 0,
+            fs_locks: Vec::new(),
+            fs_roots: Vec::new(),
+            net_agents: FxHashMap::default(),
+            net_pool_options: self.net_pool_options.clone(),
+            utils_cache: FxHashMap::default(),
+            signal_hooks: FxHashMap::default(),
+            signal_handler_guards: Vec::new(),
+            active_process_groups: Vec::new(),
+            next_process_handle_id: 0,
+            process_handles: BTreeMap::new(),
+            scope_ids: Vec::new(),
+            signal_state: EvaluatorSignalState::default(),
+            test_mocks: self.test_mocks.clone(),
+            test_calls: Vec::new(),
+            test_temp_counter: 0,
+        }
     }
 
     pub(super) fn service_pending_signal(&mut self, span: Span) -> Result<(), RuntimeError> {

@@ -3253,7 +3253,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                 return Err(CompactFunctionBlocker::NoReturn);
             }
         }
-        let has_defers = body.iter().any(|stmt| matches!(stmt, LoweredStmt::Defer { .. }));
+        let has_defers = lowered_body_has_defers(&body);
         Ok(LoweredPureFunction {
             params,
             param_kinds,
@@ -10820,6 +10820,45 @@ pub(super) fn lowered_bool_expr_needs_type_context(expr: &LoweredBoolExpr) -> bo
 /// procs (and whether value-returning procs are well-formed). It must be
 /// CONSERVATIVE: the runtime never treats a bare tail `Expr` statement as a
 /// return (it yields `LoweredStmtFlow::None` for a non-error value), and an `if`
+/// Recursively check whether a lowered statement body contains any `Defer`
+/// statements (including those nested inside `If` branches, `Retry` bodies, etc.).
+pub(super) fn lowered_body_has_defers(statements: &[LoweredStmt]) -> bool {
+    fn stmt_has_defers(stmt: &LoweredStmt) -> bool {
+        match stmt {
+            LoweredStmt::Defer { .. } => true,
+            LoweredStmt::If { branches, else_body } => {
+                branches.iter().any(|(_, body)| lowered_body_has_defers(body))
+                    || else_body.as_ref().is_some_and(|b| lowered_body_has_defers(b))
+            }
+            LoweredStmt::IfBool { branches, else_body } => {
+                branches.iter().any(|(_, body)| lowered_body_has_defers(body))
+                    || else_body.as_ref().is_some_and(|b| lowered_body_has_defers(b))
+            }
+            LoweredStmt::While { body, .. }
+            | LoweredStmt::WhileBool { body, .. } => lowered_body_has_defers(body),
+            LoweredStmt::For { body, .. }
+            | LoweredStmt::ForRecord { body, .. }
+            | LoweredStmt::ForStrLines { body, .. } => lowered_body_has_defers(body),
+            LoweredStmt::Match { arms, .. } => {
+                arms.iter().any(|(_, _, body)| lowered_body_has_defers(body))
+            }
+            LoweredStmt::StrMatch { arms, fallback, .. } => {
+                arms.values().any(|body| lowered_body_has_defers(body))
+                    || fallback.as_ref().is_some_and(|b| lowered_body_has_defers(b))
+            }
+            LoweredStmt::TagMatch { arms, fallback, .. } => {
+                arms.values().any(|body| lowered_body_has_defers(body))
+                    || fallback.as_ref().is_some_and(|b| lowered_body_has_defers(b))
+            }
+            LoweredStmt::Guard { else_body, .. } => lowered_body_has_defers(else_body),
+            LoweredStmt::Cd { body, .. }
+            | LoweredStmt::Env { body, .. } => lowered_body_has_defers(body),
+            _ => false,
+        }
+    }
+    statements.iter().any(stmt_has_defers)
+}
+
 /// without an `else` (or a non-exhaustive `match`) can fall through. So a body
 /// "can return" only when every reachable path provably ends in a `Return`.
 pub(super) fn lowered_body_can_return(statements: &[LoweredStmt]) -> bool {
