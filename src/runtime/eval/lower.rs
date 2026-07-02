@@ -144,10 +144,7 @@ fn single_positional_arena_call_arg(args: &[ArenaCallArg]) -> Option<ExprId> {
     Some(value)
 }
 
-fn lowered_str_byte_op(
-    name: &str,
-    args: &[LoweredExpr],
-) -> bool {
+fn lowered_str_byte_op(name: &str, args: &[LoweredExpr]) -> bool {
     match name {
         "byte_len" => args.is_empty(),
         "byte_at" => args.len() == 1 || args.len() == 2,
@@ -5637,9 +5634,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                 let [segment] = self.program.arena.run_segments(form.segments) else {
                     return None;
                 };
-                if !matches!(segment.kind, RunKind::Plain | RunKind::Status)
-                    || segment.grouped
-                {
+                if !matches!(segment.kind, RunKind::Plain | RunKind::Status) || segment.grouped {
                     return None;
                 }
                 let target = Box::new(self.lower_run_arg(
@@ -5785,9 +5780,7 @@ impl CompactLowerConstructProbe<'_, '_> {
         }
         if segments.len() == 1 {
             let segment = &segments[0];
-            if allowed_type(segment.kind).is_none() {
-                return None;
-            }
+            allowed_type(segment.kind)?;
             let target = Box::new(self.lower_run_arg(
                 &segment.target,
                 slots,
@@ -5863,9 +5856,7 @@ impl CompactLowerConstructProbe<'_, '_> {
         } else {
             let mut lowered_segments = Vec::with_capacity(segments.len());
             for segment in &segments {
-                if allowed_type(segment.kind).is_none() {
-                    return None;
-                }
+                allowed_type(segment.kind)?;
                 let target =
                     self.lower_run_arg(&segment.target, slots, current_function, item_slot)?;
                 let args = self.program.arena.command_args(segment.args).to_vec();
@@ -7719,8 +7710,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                     });
                 }
                 let method_args = lowered_method_call_args(name, &args_vec)?;
-                let receiver =
-                    self.lower_expr(base, slots, current_function, item_slot)?;
+                let receiver = self.lower_expr(base, slots, current_function, item_slot)?;
                 let mut lowered_args = Vec::with_capacity(method_args.len());
                 for arg in method_args {
                     lowered_args.push(self.lower_expr(arg, slots, current_function, item_slot)?);

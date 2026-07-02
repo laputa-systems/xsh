@@ -159,7 +159,6 @@ impl LiveStream for UeventStream {
             return parse_uevent_message(&self.buffer[..len], span).map(Some);
         }
     }
-
 }
 
 mod boot;

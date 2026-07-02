@@ -430,7 +430,6 @@ pure split_iface_arg(arg: Str) -> Record {
 }
 
 stream state_configured_ifaces(state_path: Path) [fs, error] -> Stream[Record] {
-
   if ! state_path.exists()? {
     return
   }

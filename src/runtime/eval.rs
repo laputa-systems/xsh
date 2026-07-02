@@ -655,7 +655,6 @@ impl<'a> LowerableFunctions<'a> {
                     .is_some_and(|pures| pures.contains_key(&name)),
             }
     }
-
 }
 
 #[derive(Clone, Debug)]
@@ -2534,11 +2533,7 @@ impl Evaluator {
                 self.pending_traceback = Some(propagation.traceback);
                 Err(runtime_error_from_value(propagation.error, hook.span))
             }
-            Ok(
-                Flow::Return(_)
-                | Flow::Break(_)
-                | Flow::ContinueLoop,
-            ) => {
+            Ok(Flow::Return(_) | Flow::Break(_) | Flow::ContinueLoop) => {
                 self.signal_state.shutdown_complete = true;
                 Err(
                     RuntimeError::new("signal-hook", "signal hook produced invalid control flow")
@@ -2925,9 +2920,7 @@ impl Evaluator {
                     ));
                     break;
                 }
-                Ok(Some(
-                    Flow::Break(_) | Flow::ContinueLoop,
-                )) => {
+                Ok(Some(Flow::Break(_) | Flow::ContinueLoop)) => {
                     diagnostics.push(runtime_diagnostic(
                         span,
                         "loop control outside loop",
@@ -3097,11 +3090,7 @@ impl Evaluator {
             match cleanup_result {
                 Ok(Flow::Continue(_)) => {}
                 Ok(Flow::Propagate(propagation)) => traceback = Some(propagation.traceback),
-                Ok(
-                    Flow::Return(_)
-                    | Flow::Break(_)
-                    | Flow::ContinueLoop,
-                ) => {
+                Ok(Flow::Return(_) | Flow::Break(_) | Flow::ContinueLoop) => {
                     diagnostics.push(runtime_diagnostic(
                         script_span,
                         "deferred cleanup produced invalid control flow",
@@ -3309,9 +3298,7 @@ impl Evaluator {
                     ));
                     break;
                 }
-                Ok(Some(
-                    Flow::Break(_) | Flow::ContinueLoop,
-                )) => {
+                Ok(Some(Flow::Break(_) | Flow::ContinueLoop)) => {
                     diagnostics.push(runtime_diagnostic(
                         span,
                         "loop control outside loop",
@@ -3456,11 +3443,7 @@ impl Evaluator {
             match cleanup_result {
                 Ok(Flow::Continue(_)) => {}
                 Ok(Flow::Propagate(propagation)) => traceback = Some(propagation.traceback),
-                Ok(
-                    Flow::Return(_)
-                    | Flow::Break(_)
-                    | Flow::ContinueLoop,
-                ) => {
+                Ok(Flow::Return(_) | Flow::Break(_) | Flow::ContinueLoop) => {
                     diagnostics.push(runtime_diagnostic(
                         script_span,
                         "deferred cleanup produced invalid control flow",
@@ -3617,11 +3600,7 @@ impl Evaluator {
                     traceback = Some(propagation.traceback);
                     break;
                 }
-                Ok(Some(
-                    Flow::Return(_)
-                    | Flow::Break(_)
-                    | Flow::ContinueLoop,
-                )) => {
+                Ok(Some(Flow::Return(_) | Flow::Break(_) | Flow::ContinueLoop)) => {
                     diagnostics.push(runtime_diagnostic(
                         span,
                         "invalid top-level control flow in test setup",

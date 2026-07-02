@@ -312,10 +312,7 @@ pub(crate) fn unmount_linux(path: &std::path::Path) {
     match rustix::mount::unmount(path, rustix::mount::UnmountFlags::empty()) {
         Ok(()) => {}
         Err(error) => {
-            eprintln!(
-                "unmount linux real mount ({}): {error}",
-                path.display(),
-            );
+            eprintln!("unmount linux real mount ({}): {error}", path.display(),);
         }
     }
 }

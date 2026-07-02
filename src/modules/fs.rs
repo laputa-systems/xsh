@@ -1747,7 +1747,6 @@ impl LiveStream for IgnoreWalkStream {
             Err(_) => Ok(None),
         }
     }
-
 }
 
 impl IgnoreWalkStream {

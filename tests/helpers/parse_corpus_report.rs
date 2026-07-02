@@ -16,7 +16,15 @@ use xsh::runtime::eval::{
 };
 use xsh::sema::check::{Checker, CompactBodyProbeOutput, CompactDeclOutput};
 use xsh::source::{SourceId, Span};
-use xsh::syntax::arena::{StmtId, ArenaStmtKind, TypeDefId, ArenaTypeDefBody, ArenaModuleContractEntryKind, ErrorDefId, ArenaExprOrRun, BlockId, FunctionDefId, BindingTargetId, ArenaBindingTargetKind, AssignTargetId, ArenaAssignTargetKind, PatternId, ArenaPatternKind, ExprId, ArenaExprKind, ArenaFmtPart, ArenaRecordFieldKind, ArenaCallArgKind, ArenaPipeStageKind, ArenaSpawnTarget, CommandStmtId, ArenaCommand, RunFormId, ArenaRedirectionTarget, ArenaEnvAssignment, ArenaEnvAssignmentValue, ArenaCommandArg, ArenaCommandArgKind, ArenaWordPart, ArenaStreamStage, BuilderBlockId, ArenaBuilderEntryKind, UseStmtId};
+use xsh::syntax::arena::{
+    ArenaAssignTargetKind, ArenaBindingTargetKind, ArenaBuilderEntryKind, ArenaCallArgKind,
+    ArenaCommand, ArenaCommandArg, ArenaCommandArgKind, ArenaEnvAssignment,
+    ArenaEnvAssignmentValue, ArenaExprKind, ArenaExprOrRun, ArenaFmtPart,
+    ArenaModuleContractEntryKind, ArenaPatternKind, ArenaPipeStageKind, ArenaRecordFieldKind,
+    ArenaRedirectionTarget, ArenaSpawnTarget, ArenaStmtKind, ArenaStreamStage, ArenaTypeDefBody,
+    ArenaWordPart, AssignTargetId, BindingTargetId, BlockId, BuilderBlockId, CommandStmtId,
+    ErrorDefId, ExprId, FunctionDefId, PatternId, RunFormId, StmtId, TypeDefId, UseStmtId,
+};
 use xsh::syntax::arena::{ArenaProgram, ArenaStats};
 use xsh::syntax::cst::SyntaxToken;
 use xsh::syntax::parser::{ArenaParseOutput, Parser};

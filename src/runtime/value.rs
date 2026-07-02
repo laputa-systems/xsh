@@ -720,7 +720,6 @@ impl StreamValue {
             None => Ok(None),
         }
     }
-
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

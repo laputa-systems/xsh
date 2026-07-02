@@ -1955,7 +1955,11 @@ error ParseError = Bad(message: Str) : InvalidData | Missing(path: Path)
 
     assert_eq!(evaluator.tag_variants.get(&Name::intern("None")), Some(&0));
     assert_eq!(evaluator.tag_variants.get(&Name::intern("Some")), Some(&1));
-    assert!(evaluator.error_families.contains_key(&Name::intern("ParseError")));
+    assert!(
+        evaluator
+            .error_families
+            .contains_key(&Name::intern("ParseError"))
+    );
 }
 
 #[test]
@@ -3490,7 +3494,6 @@ print ${value}
             .lowered_program
             .statements
             .iter()
-            
             .all(|stmt| stmt.is_some()),
         "{:?}",
         probe.lowered_program.statements

@@ -1307,7 +1307,6 @@ impl LiveStream for DryRunUeventStream {
         self.emitted = true;
         Ok(Some(linux_dry_run_uevent()))
     }
-
 }
 
 fn lowered_runtime_list_result(
@@ -6617,14 +6616,21 @@ impl Evaluator {
                     linux_module::is_mountpoint(&host_path, span)
                 }
                 RuntimeOp::LinuxDiskUsage => {
-                    let path = values.first().cloned().map(|value| {
-                        lowered_path_arg(value, "linux.disk_usage", span)
-                    }).transpose()?;
+                    let path = values
+                        .first()
+                        .cloned()
+                        .map(|value| lowered_path_arg(value, "linux.disk_usage", span))
+                        .transpose()?;
                     let host_path = path.as_ref().map(|pv| self.host_path(pv));
                     linux_module::disk_usage(host_path.as_deref(), span)
                 }
                 RuntimeOp::LinuxSysctlGet => {
-                    let key = lowered_str_arg_owned(values.first().cloned(), "", "linux.sysctl_get", span)?;
+                    let key = lowered_str_arg_owned(
+                        values.first().cloned(),
+                        "",
+                        "linux.sysctl_get",
+                        span,
+                    )?;
                     linux_module::sysctl_get(&key, span)
                 }
                 RuntimeOp::LinuxFileAttrs => {
@@ -6647,9 +6653,11 @@ impl Evaluator {
                 }
                 RuntimeOp::LinuxLoopList => linux_module::loop_list(span),
                 RuntimeOp::LinuxOpenFiles => {
-                    let pid = values.first().cloned().map(|value| {
-                        lowered_int_arg(Some(value), "linux.open_files", span)
-                    }).transpose()?;
+                    let pid = values
+                        .first()
+                        .cloned()
+                        .map(|value| lowered_int_arg(Some(value), "linux.open_files", span))
+                        .transpose()?;
                     linux_module::open_files(pid, span)
                 }
                 RuntimeOp::LinuxBlockDevices => linux_module::block_devices(span),
@@ -6663,7 +6671,8 @@ impl Evaluator {
                     linux_module::blkid(&host_path, span)
                 }
                 RuntimeOp::LinuxModinfo => {
-                    let name = lowered_str_arg_owned(values.first().cloned(), "", "linux.modinfo", span)?;
+                    let name =
+                        lowered_str_arg_owned(values.first().cloned(), "", "linux.modinfo", span)?;
                     linux_module::modinfo(&name, span)
                 }
                 RuntimeOp::LinuxPartitionTable => {
@@ -7895,9 +7904,7 @@ impl Evaluator {
                 "lowered propagation unexpectedly continued",
             )
             .with_span(span)),
-            Flow::Return(_)
-            | Flow::Break(_)
-            | Flow::ContinueLoop => Err(RuntimeError::new(
+            Flow::Return(_) | Flow::Break(_) | Flow::ContinueLoop => Err(RuntimeError::new(
                 "control-flow",
                 "lowered propagation produced unsupported control flow",
             )
@@ -10478,10 +10485,7 @@ impl Evaluator {
                     Ok(LoweredStmtFlow::None)
                 }
             }
-            LoweredStmt::Env {
-                env,
-                body,
-            } => {
+            LoweredStmt::Env { env, body } => {
                 for assignment in env {
                     check_env_name(assignment.name.as_str(), assignment.value.span)?;
                 }
@@ -11233,7 +11237,10 @@ impl Evaluator {
                     ControlFlow::Continue(other) => {
                         return Err(RuntimeError::new(
                             "type-error",
-                            format!("pipeline timeout expected Duration, found {}", other.type_name()),
+                            format!(
+                                "pipeline timeout expected Duration, found {}",
+                                other.type_name()
+                            ),
                         )
                         .with_span(span));
                     }
@@ -11551,7 +11558,10 @@ impl Evaluator {
                 ControlFlow::Continue(other) => {
                     return Err(RuntimeError::new(
                         "type-error",
-                        format!("spawn run timeout expected Duration, found {}", other.type_name()),
+                        format!(
+                            "spawn run timeout expected Duration, found {}",
+                            other.type_name()
+                        ),
                     )
                     .with_span(span));
                 }
@@ -14103,12 +14113,17 @@ impl Evaluator {
                 timeout,
                 cpu_max,
                 span,
-            } => {
-                self.eval_lowered_spawn_run(
-                    lowered, target, args, env, redirections, timeout.as_deref(),
-                    cpu_max.as_deref(), *span, slots,
-                )
-            }
+            } => self.eval_lowered_spawn_run(
+                lowered,
+                target,
+                args,
+                env,
+                redirections,
+                timeout.as_deref(),
+                cpu_max.as_deref(),
+                *span,
+                slots,
+            ),
             LoweredExpr::SpawnCommand { command, span } => {
                 self.eval_lowered_spawn_command(lowered, command, *span, slots)
             }

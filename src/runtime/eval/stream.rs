@@ -4,7 +4,6 @@ use super::Evaluator;
 use crate::runtime::value::{LiveStream, RuntimeError, StreamValue, Value};
 use crate::source::Span;
 
-
 impl Evaluator {
     pub(super) fn collect_stream_values(
         &mut self,
@@ -58,7 +57,6 @@ impl LiveStream for FileLineStream {
         }
         Ok(Some(Value::Str(self.buffer.as_str().into())))
     }
-
 }
 
 /// Live byte-line stream over a file opened by `Path.bytes_lines()`.
@@ -86,7 +84,6 @@ impl LiveStream for FileBytesLineStream {
         }
         Ok(Some(Value::Bytes(self.buffer.clone())))
     }
-
 }
 
 pub(super) fn platform_arg_max() -> usize {

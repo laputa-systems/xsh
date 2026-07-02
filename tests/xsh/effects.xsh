@@ -111,12 +111,7 @@ proc test_proc_to_proc_subset_passes(ctx: TestContext) [fs, process, error] {
 }
 
 proc test_linter_infers_fs_error(ctx: TestContext) [fs, process, error] {
-  let src: Path = test.temp_file(
-    ctx,
-    name: "t.xsh",
-    contents: b"proc main() {\n  let _ = fs.read_text(p\"x\")?\n}\n",
-  )?
-
+  let src: Path = test.temp_file(ctx, name: "t.xsh", contents: b"proc main() {\n  let _ = fs.read_text(p\"x\")?\n}\n")?
   let out: Str = run_lint(src)?
   test.contains(out, "lint.unannotated-effects")?
   test.contains(out, "[fs, error]")?
