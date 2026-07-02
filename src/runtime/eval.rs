@@ -1241,6 +1241,7 @@ enum LoweredExpr {
         env: Vec<LoweredRunEnv>,
         redirections: Vec<LoweredRunRedirection>,
         timeout: Option<Box<LoweredExpr>>,
+        cpu_max: Option<Box<LoweredExpr>>,
         // For Plain/Status run *values* with `?`, propagation is handled inside
         // eval_lowered_run_capture (Break on RunError, pass Status through),
         // because a Plain run yields a bare Status on success — not a Result the
@@ -1260,6 +1261,8 @@ enum LoweredExpr {
         args: Vec<LoweredRunArg>,
         env: Vec<LoweredRunEnv>,
         redirections: Vec<LoweredRunRedirection>,
+        timeout: Option<Box<LoweredExpr>>,
+        cpu_max: Option<Box<LoweredExpr>>,
         span: Span,
     },
     SpawnCommand {
@@ -1478,6 +1481,8 @@ struct LoweredRunPipelineSegment {
     args: Vec<LoweredRunArg>,
     env: Vec<LoweredRunEnv>,
     redirections: Vec<LoweredRunRedirection>,
+    timeout: Option<Box<LoweredExpr>>,
+    cpu_max: Option<Box<LoweredExpr>>,
 }
 
 #[derive(Clone, Debug)]

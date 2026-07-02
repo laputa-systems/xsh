@@ -95,6 +95,7 @@ pub(super) fn test_contains_value(haystack: &Value, needle: &Value) -> bool {
 
 pub(super) fn test_error_kind(value: &Value) -> Option<String> {
     match value {
+        Value::Result(ResultValue::Ok(inner)) => test_error_kind(inner),
         Value::Result(ResultValue::Err(error)) => error.error_kind().map(str::to_string),
         value => value.error_kind().map(str::to_string),
     }

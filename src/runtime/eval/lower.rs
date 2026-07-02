@@ -5639,8 +5639,6 @@ impl CompactLowerConstructProbe<'_, '_> {
                 };
                 if !matches!(segment.kind, RunKind::Plain | RunKind::Status)
                     || segment.grouped
-                    || segment.timeout.is_some()
-                    || segment.cpu_max.is_some()
                 {
                     return None;
                 }
@@ -5680,11 +5678,31 @@ impl CompactLowerConstructProbe<'_, '_> {
                         self.lower_run_redirection(&redirection, slots, current_function, item_slot)
                     })
                     .collect::<Option<Vec<_>>>()?;
+                let timeout = match segment.timeout {
+                    Some(expr) => Some(Box::new(self.lower_expr(
+                        expr,
+                        slots,
+                        current_function,
+                        item_slot,
+                    )?)),
+                    None => None,
+                };
+                let cpu_max = match segment.cpu_max {
+                    Some(expr) => Some(Box::new(self.lower_expr(
+                        expr,
+                        slots,
+                        current_function,
+                        item_slot,
+                    )?)),
+                    None => None,
+                };
                 Some(LoweredExpr::SpawnRun {
                     target,
                     args: lowered_args,
                     env: lowered_env,
                     redirections,
+                    timeout,
+                    cpu_max,
                     span,
                 })
             }
@@ -5767,7 +5785,7 @@ impl CompactLowerConstructProbe<'_, '_> {
         }
         if segments.len() == 1 {
             let segment = &segments[0];
-            if allowed_type(segment.kind).is_none() || segment.cpu_max.is_some() {
+            if allowed_type(segment.kind).is_none() {
                 return None;
             }
             let target = Box::new(self.lower_run_arg(
@@ -5810,6 +5828,15 @@ impl CompactLowerConstructProbe<'_, '_> {
                 )?)),
                 None => None,
             };
+            let cpu_max = match segment.cpu_max {
+                Some(expr) => Some(Box::new(self.lower_expr(
+                    expr,
+                    slots,
+                    current_function,
+                    item_slot,
+                )?)),
+                None => None,
+            };
             // Capture/stream kinds return a Result and are unwrapped by an
             // external `Try`. Plain/Status return a bare Status on success, so
             // `?` propagation is handled inside eval_lowered_run_capture via the
@@ -5823,6 +5850,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                 env: lowered_env,
                 redirections,
                 timeout,
+                cpu_max,
                 propagate: propagate_internally,
                 assert_success,
                 span: self.program.arena.span(run.span),
@@ -5835,10 +5863,7 @@ impl CompactLowerConstructProbe<'_, '_> {
         } else {
             let mut lowered_segments = Vec::with_capacity(segments.len());
             for segment in &segments {
-                if allowed_type(segment.kind).is_none()
-                    || segment.timeout.is_some()
-                    || segment.cpu_max.is_some()
-                {
+                if allowed_type(segment.kind).is_none() {
                     return None;
                 }
                 let target =
@@ -5873,12 +5898,32 @@ impl CompactLowerConstructProbe<'_, '_> {
                         self.lower_run_redirection(&redirection, slots, current_function, item_slot)
                     })
                     .collect::<Option<Vec<_>>>()?;
+                let timeout = match segment.timeout {
+                    Some(expr) => Some(Box::new(self.lower_expr(
+                        expr,
+                        slots,
+                        current_function,
+                        item_slot,
+                    )?)),
+                    None => None,
+                };
+                let cpu_max = match segment.cpu_max {
+                    Some(expr) => Some(Box::new(self.lower_expr(
+                        expr,
+                        slots,
+                        current_function,
+                        item_slot,
+                    )?)),
+                    None => None,
+                };
                 lowered_segments.push(LoweredRunPipelineSegment {
                     kind: segment.kind,
                     target,
                     args: lowered_args,
                     env: lowered_env,
                     redirections,
+                    timeout,
+                    cpu_max,
                 });
             }
             let pipeline = LoweredExpr::RunPipeline {

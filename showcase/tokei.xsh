@@ -95,6 +95,10 @@ pure has_stats(stats: Stats) -> Bool {
   return stats.blanks > 0 or stats.code > 0 or stats.comments > 0 or stats.blobs.keys().len() > 0
 }
 
+pure add_stats(a: Stats, b: Stats) -> Stats {
+  return {blanks: a.blanks + b.blanks, code: a.code + b.code, comments: a.comments + b.comments, blobs: map.empty()}
+}
+
 pure with_blobs(stats: Stats, blobs: Map[Any]) -> Stats {
   return {blanks: stats.blanks, code: stats.code, comments: stats.comments, blobs}
 }
@@ -822,9 +826,7 @@ pure count_slash_language(text: Bytes, nested: Bool, collect_doc_markdown: Bool)
   if doc_lines.len() > 0 {
     let md_scan = count_markdown(join_lines(doc_lines))
     markdown = md_scan.stats
-    deep.blanks += md_scan.deep.blanks
-    deep.code += md_scan.deep.code
-    deep.comments += md_scan.deep.comments
+    deep = add_stats(deep, md_scan.deep)
   }
 
   var blobs: Map[Any] = {}
@@ -868,57 +870,33 @@ pure count_markdown(text: Bytes) -> Scan {
         match fence_lang {
           LangBash => {
             let scan = count_hash_language(body)
-            bash.blanks += scan.stats.blanks
-            bash.code += scan.stats.code
-            bash.comments += scan.stats.comments
-            deep.blanks += scan.deep.blanks
-            deep.code += scan.deep.code
-            deep.comments += scan.deep.comments
+            bash = add_stats(bash, scan.stats)
+            deep = add_stats(deep, scan.deep)
           }
           LangHtml => {
             let scan = count_html(body)
-            html.blanks += scan.stats.blanks
-            html.code += scan.stats.code
-            html.comments += scan.stats.comments
-            deep.blanks += scan.deep.blanks
-            deep.code += scan.deep.code
-            deep.comments += scan.deep.comments
+            html = add_stats(html, scan.stats)
+            deep = add_stats(deep, scan.deep)
           }
           LangJson => {
             let scan = count_json(body)
-            json_stats.blanks += scan.stats.blanks
-            json_stats.code += scan.stats.code
-            json_stats.comments += scan.stats.comments
-            deep.blanks += scan.deep.blanks
-            deep.code += scan.deep.code
-            deep.comments += scan.deep.comments
+            json_stats = add_stats(json_stats, scan.stats)
+            deep = add_stats(deep, scan.deep)
           }
           LangJavaScript => {
             let scan = count_slash_plain(body)
-            javascript.blanks += scan.stats.blanks
-            javascript.code += scan.stats.code
-            javascript.comments += scan.stats.comments
-            deep.blanks += scan.deep.blanks
-            deep.code += scan.deep.code
-            deep.comments += scan.deep.comments
+            javascript = add_stats(javascript, scan.stats)
+            deep = add_stats(deep, scan.deep)
           }
           LangMarkdown => {
             let scan = count_markdown(body)
-            markdown.blanks += scan.stats.blanks
-            markdown.code += scan.stats.code
-            markdown.comments += scan.stats.comments
-            deep.blanks += scan.deep.blanks
-            deep.code += scan.deep.code
-            deep.comments += scan.deep.comments
+            markdown = add_stats(markdown, scan.stats)
+            deep = add_stats(deep, scan.deep)
           }
           LangPython => {
             let scan = count_hash_language(body)
-            python.blanks += scan.stats.blanks
-            python.code += scan.stats.code
-            python.comments += scan.stats.comments
-            deep.blanks += scan.deep.blanks
-            deep.code += scan.deep.code
-            deep.comments += scan.deep.comments
+            python = add_stats(python, scan.stats)
+            deep = add_stats(deep, scan.deep)
           }
           LangRust => {
             if rust_fence_contains_doc_fence(body) {
@@ -927,49 +905,29 @@ pure count_markdown(text: Bytes) -> Scan {
               comments += prose.comments
             } else {
               let scan = count_slash_language(body, true, true)
-              rust.blanks += scan.stats.blanks
-              rust.code += scan.stats.code
-              rust.comments += scan.stats.comments
-              deep.blanks += scan.deep.blanks
-              deep.code += scan.deep.code
-              deep.comments += scan.deep.comments
+              rust = add_stats(rust, scan.stats)
+              deep = add_stats(deep, scan.deep)
             }
           }
           LangShell => {
             let scan = count_hash_language(body)
-            shell.blanks += scan.stats.blanks
-            shell.code += scan.stats.code
-            shell.comments += scan.stats.comments
-            deep.blanks += scan.deep.blanks
-            deep.code += scan.deep.code
-            deep.comments += scan.deep.comments
+            shell = add_stats(shell, scan.stats)
+            deep = add_stats(deep, scan.deep)
           }
           LangTsx => {
             let scan = count_slash_plain(body)
-            tsx.blanks += scan.stats.blanks
-            tsx.code += scan.stats.code
-            tsx.comments += scan.stats.comments
-            deep.blanks += scan.deep.blanks
-            deep.code += scan.deep.code
-            deep.comments += scan.deep.comments
+            tsx = add_stats(tsx, scan.stats)
+            deep = add_stats(deep, scan.deep)
           }
           LangTypeScript => {
             let scan = count_slash_plain(body)
-            typescript.blanks += scan.stats.blanks
-            typescript.code += scan.stats.code
-            typescript.comments += scan.stats.comments
-            deep.blanks += scan.deep.blanks
-            deep.code += scan.deep.code
-            deep.comments += scan.deep.comments
+            typescript = add_stats(typescript, scan.stats)
+            deep = add_stats(deep, scan.deep)
           }
           LangToml => {
             let scan = count_hash_language(body)
-            toml.blanks += scan.stats.blanks
-            toml.code += scan.stats.code
-            toml.comments += scan.stats.comments
-            deep.blanks += scan.deep.blanks
-            deep.code += scan.deep.code
-            deep.comments += scan.deep.comments
+            toml = add_stats(toml, scan.stats)
+            deep = add_stats(deep, scan.deep)
           }
           _ => {}
         }
@@ -1004,57 +962,33 @@ pure count_markdown(text: Bytes) -> Scan {
     match fence_lang {
       LangBash => {
         let scan = count_hash_language(body)
-        bash.blanks += scan.stats.blanks
-        bash.code += scan.stats.code
-        bash.comments += scan.stats.comments
-        deep.blanks += scan.deep.blanks
-        deep.code += scan.deep.code
-        deep.comments += scan.deep.comments
+        bash = add_stats(bash, scan.stats)
+        deep = add_stats(deep, scan.deep)
       }
       LangHtml => {
         let scan = count_html(body)
-        html.blanks += scan.stats.blanks
-        html.code += scan.stats.code
-        html.comments += scan.stats.comments
-        deep.blanks += scan.deep.blanks
-        deep.code += scan.deep.code
-        deep.comments += scan.deep.comments
+        html = add_stats(html, scan.stats)
+        deep = add_stats(deep, scan.deep)
       }
       LangJson => {
         let scan = count_json(body)
-        json_stats.blanks += scan.stats.blanks
-        json_stats.code += scan.stats.code
-        json_stats.comments += scan.stats.comments
-        deep.blanks += scan.deep.blanks
-        deep.code += scan.deep.code
-        deep.comments += scan.deep.comments
+        json_stats = add_stats(json_stats, scan.stats)
+        deep = add_stats(deep, scan.deep)
       }
       LangJavaScript => {
         let scan = count_slash_plain(body)
-        javascript.blanks += scan.stats.blanks
-        javascript.code += scan.stats.code
-        javascript.comments += scan.stats.comments
-        deep.blanks += scan.deep.blanks
-        deep.code += scan.deep.code
-        deep.comments += scan.deep.comments
+        javascript = add_stats(javascript, scan.stats)
+        deep = add_stats(deep, scan.deep)
       }
       LangMarkdown => {
         let scan = count_markdown(body)
-        markdown.blanks += scan.stats.blanks
-        markdown.code += scan.stats.code
-        markdown.comments += scan.stats.comments
-        deep.blanks += scan.deep.blanks
-        deep.code += scan.deep.code
-        deep.comments += scan.deep.comments
+        markdown = add_stats(markdown, scan.stats)
+        deep = add_stats(deep, scan.deep)
       }
       LangPython => {
         let scan = count_hash_language(body)
-        python.blanks += scan.stats.blanks
-        python.code += scan.stats.code
-        python.comments += scan.stats.comments
-        deep.blanks += scan.deep.blanks
-        deep.code += scan.deep.code
-        deep.comments += scan.deep.comments
+        python = add_stats(python, scan.stats)
+        deep = add_stats(deep, scan.deep)
       }
       LangRust => {
         if rust_fence_contains_doc_fence(body) {
@@ -1063,49 +997,29 @@ pure count_markdown(text: Bytes) -> Scan {
           comments += prose.comments
         } else {
           let scan = count_slash_language(body, true, true)
-          rust.blanks += scan.stats.blanks
-          rust.code += scan.stats.code
-          rust.comments += scan.stats.comments
-          deep.blanks += scan.deep.blanks
-          deep.code += scan.deep.code
-          deep.comments += scan.deep.comments
+          rust = add_stats(rust, scan.stats)
+          deep = add_stats(deep, scan.deep)
         }
       }
       LangShell => {
         let scan = count_hash_language(body)
-        shell.blanks += scan.stats.blanks
-        shell.code += scan.stats.code
-        shell.comments += scan.stats.comments
-        deep.blanks += scan.deep.blanks
-        deep.code += scan.deep.code
-        deep.comments += scan.deep.comments
+        shell = add_stats(shell, scan.stats)
+        deep = add_stats(deep, scan.deep)
       }
       LangTsx => {
         let scan = count_slash_plain(body)
-        tsx.blanks += scan.stats.blanks
-        tsx.code += scan.stats.code
-        tsx.comments += scan.stats.comments
-        deep.blanks += scan.deep.blanks
-        deep.code += scan.deep.code
-        deep.comments += scan.deep.comments
+        tsx = add_stats(tsx, scan.stats)
+        deep = add_stats(deep, scan.deep)
       }
       LangTypeScript => {
         let scan = count_slash_plain(body)
-        typescript.blanks += scan.stats.blanks
-        typescript.code += scan.stats.code
-        typescript.comments += scan.stats.comments
-        deep.blanks += scan.deep.blanks
-        deep.code += scan.deep.code
-        deep.comments += scan.deep.comments
+        typescript = add_stats(typescript, scan.stats)
+        deep = add_stats(deep, scan.deep)
       }
       LangToml => {
         let scan = count_hash_language(body)
-        toml.blanks += scan.stats.blanks
-        toml.code += scan.stats.code
-        toml.comments += scan.stats.comments
-        deep.blanks += scan.deep.blanks
-        deep.code += scan.deep.code
-        deep.comments += scan.deep.comments
+        toml = add_stats(toml, scan.stats)
+        deep = add_stats(deep, scan.deep)
       }
       _ => {}
     }
@@ -1161,12 +1075,8 @@ pure count_html(text: Bytes) -> Scan {
 
       if lower.starts_with(b"</script") {
         let scan = count_slash_plain(join_lines(script_lines))
-        javascript.blanks += scan.stats.blanks
-        javascript.code += scan.stats.code
-        javascript.comments += scan.stats.comments
-        deep.blanks += scan.deep.blanks
-        deep.code += scan.deep.code
-        deep.comments += scan.deep.comments
+        javascript = add_stats(javascript, scan.stats)
+        deep = add_stats(deep, scan.deep)
         code += 1
         script_lines = []
         in_script = false
@@ -1200,12 +1110,8 @@ pure count_html(text: Bytes) -> Scan {
 
   if in_script {
     let scan = count_slash_plain(join_lines(script_lines))
-    javascript.blanks += scan.stats.blanks
-    javascript.code += scan.stats.code
-    javascript.comments += scan.stats.comments
-    deep.blanks += scan.deep.blanks
-    deep.code += scan.deep.code
-    deep.comments += scan.deep.comments
+    javascript = add_stats(javascript, scan.stats)
+    deep = add_stats(deep, scan.deep)
   }
 
   var blobs: Map[Any] = {}

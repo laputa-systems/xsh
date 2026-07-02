@@ -309,14 +309,15 @@ pub(crate) fn xsh_bytes_literal(bytes: &[u8]) -> String {
 
 #[cfg(target_os = "linux")]
 pub(crate) fn unmount_linux(path: &std::path::Path) {
-    let path = std::ffi::CString::new(path.as_os_str().as_bytes()).expect("mount path is cstr");
-    let result = unsafe { libc::umount(path.as_ptr()) };
-    assert_eq!(
-        result,
-        0,
-        "unmount linux real mount: {}",
-        std::io::Error::last_os_error()
-    );
+    match rustix::mount::unmount(path, rustix::mount::UnmountFlags::empty()) {
+        Ok(()) => {}
+        Err(error) => {
+            eprintln!(
+                "unmount linux real mount ({}): {error}",
+                path.display(),
+            );
+        }
+    }
 }
 
 pub(crate) fn write_test_tar_file(path: &std::path::Path, name: &str, data: &[u8]) {

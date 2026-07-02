@@ -992,6 +992,9 @@ fn lowered_runtime_result(
 ) -> Result<LoweredValue, RuntimeError> {
     lowered_runtime_value(
         match result {
+            // Module functions (e.g. linux real-mode) may already return a
+            // wrapped Result value — don't double-wrap.
+            Ok(value @ Value::Result(_)) => value,
             Ok(value) => Value::ok(value),
             Err(error) => Value::err(Value::Error(Box::new(error))),
         },
@@ -5618,13 +5621,14 @@ impl Evaluator {
                         "linux.* boot primitives require XSH_LINUX_DRY_RUN=1 or XSH_LINUX_REAL=1",
                     ).with_span(span))
                 } else if self.linux_real() && !self.linux_dry_run() {
-                    lowered_result_err_value(
-                        RuntimeError::new(
-                            "linux-unimplemented",
-                            "linux.write_device is not implemented for real mode",
-                        )
-                        .with_span(span),
-                    )
+                    let device = lowered_path_arg(values.remove(0), "linux.write_device", span)?;
+                    let source = lowered_path_arg(values.remove(0), "linux.write_device", span)?;
+                    let host_device = self.host_path(&device);
+                    let host_source = self.host_path(&source);
+                    lowered_runtime_result(
+                        linux_module::write_device(&host_device, &host_source, span),
+                        span,
+                    )?
                 } else {
                     let device = lowered_path_arg(values.remove(0), "linux.write_device", span)?;
                     let source = lowered_path_arg(values.remove(0), "linux.write_device", span)?;
@@ -5643,13 +5647,15 @@ impl Evaluator {
                         "linux.* boot primitives require XSH_LINUX_DRY_RUN=1 or XSH_LINUX_REAL=1",
                     ).with_span(span))
                 } else if self.linux_real() && !self.linux_dry_run() {
-                    lowered_result_err_value(
-                        RuntimeError::new(
-                            "linux-unimplemented",
-                            "linux.read_device is not implemented for real mode",
-                        )
-                        .with_span(span),
-                    )
+                    let device = lowered_path_arg(values.remove(0), "linux.read_device", span)?;
+                    let dest = lowered_path_arg(values.remove(0), "linux.read_device", span)?;
+                    let host_device = self.host_path(&device);
+                    let host_dest = self.host_path(&dest);
+                    let bytes = lowered_int_arg(Some(values.remove(0)), "linux.read_device", span)?;
+                    lowered_runtime_result(
+                        linux_module::read_device(&host_device, &host_dest, bytes, span),
+                        span,
+                    )?
                 } else {
                     let device = lowered_path_arg(values.remove(0), "linux.read_device", span)?;
                     let dest = lowered_path_arg(values.remove(0), "linux.read_device", span)?;
@@ -6595,10 +6601,85 @@ impl Evaluator {
                 span,
             ));
         }
-        // Real-mode linux boot primitives are not ported to the lowered runtime
-        // (they require a live Linux host); preserve the prior stub behavior.
         if self.linux_real() && !self.linux_dry_run() {
-            return Ok(Value::ok(Value::Unit));
+            return match op {
+                RuntimeOp::LinuxRootDevice => linux_module::root_device(span),
+                RuntimeOp::LinuxMemInfo => linux_module::meminfo(span),
+                RuntimeOp::LinuxModules => linux_module::modules(span),
+                RuntimeOp::LinuxDmesg => linux_module::dmesg(span),
+                RuntimeOp::LinuxIsMountpoint => {
+                    let path = lowered_path_arg(
+                        unix_require_arg(values.first().cloned(), "linux.is_mountpoint", span)?,
+                        "linux.is_mountpoint",
+                        span,
+                    )?;
+                    let host_path = self.host_path(&path);
+                    linux_module::is_mountpoint(&host_path, span)
+                }
+                RuntimeOp::LinuxDiskUsage => {
+                    let path = values.first().cloned().map(|value| {
+                        lowered_path_arg(value, "linux.disk_usage", span)
+                    }).transpose()?;
+                    let host_path = path.as_ref().map(|pv| self.host_path(pv));
+                    linux_module::disk_usage(host_path.as_deref(), span)
+                }
+                RuntimeOp::LinuxSysctlGet => {
+                    let key = lowered_str_arg_owned(values.first().cloned(), "", "linux.sysctl_get", span)?;
+                    linux_module::sysctl_get(&key, span)
+                }
+                RuntimeOp::LinuxFileAttrs => {
+                    let path = lowered_path_arg(
+                        unix_require_arg(values.first().cloned(), "linux.file_attrs", span)?,
+                        "linux.file_attrs",
+                        span,
+                    )?;
+                    let host_path = self.host_path(&path);
+                    linux_module::file_attrs(&host_path, span)
+                }
+                RuntimeOp::LinuxFileVersion => {
+                    let path = lowered_path_arg(
+                        unix_require_arg(values.first().cloned(), "linux.file_version", span)?,
+                        "linux.file_version",
+                        span,
+                    )?;
+                    let host_path = self.host_path(&path);
+                    linux_module::file_version(&host_path, span)
+                }
+                RuntimeOp::LinuxLoopList => linux_module::loop_list(span),
+                RuntimeOp::LinuxOpenFiles => {
+                    let pid = values.first().cloned().map(|value| {
+                        lowered_int_arg(Some(value), "linux.open_files", span)
+                    }).transpose()?;
+                    linux_module::open_files(pid, span)
+                }
+                RuntimeOp::LinuxBlockDevices => linux_module::block_devices(span),
+                RuntimeOp::LinuxBlkid => {
+                    let device = lowered_path_arg(
+                        unix_require_arg(values.first().cloned(), "linux.blkid", span)?,
+                        "linux.blkid",
+                        span,
+                    )?;
+                    let host_path = self.host_path(&device);
+                    linux_module::blkid(&host_path, span)
+                }
+                RuntimeOp::LinuxModinfo => {
+                    let name = lowered_str_arg_owned(values.first().cloned(), "", "linux.modinfo", span)?;
+                    linux_module::modinfo(&name, span)
+                }
+                RuntimeOp::LinuxPartitionTable => {
+                    let device = lowered_path_arg(
+                        unix_require_arg(values.first().cloned(), "linux.partition_table", span)?,
+                        "linux.partition_table",
+                        span,
+                    )?;
+                    let host_path = self.host_path(&device);
+                    linux_module::partition_table(&host_path, span)
+                }
+                RuntimeOp::LinuxUeventStream => linux_module::uevent_stream(span),
+                // Boot / privileged operations are not safe in a non-privileged
+                // container; return Ok(()) so scripts can feature-gate on errors.
+                _ => Ok(Value::ok(Value::Unit)),
+            };
         }
         match op {
             RuntimeOp::LinuxUeventStream => {
@@ -10996,6 +11077,7 @@ impl Evaluator {
         env: &[LoweredRunEnv],
         redirections: &[LoweredRunRedirection],
         timeout: Option<&LoweredExpr>,
+        cpu_max: Option<&LoweredExpr>,
         propagate: bool,
         assert_success: bool,
         span: Span,
@@ -11040,6 +11122,20 @@ impl Evaluator {
             },
             None => None,
         };
+        let full_env_cpu_max = match cpu_max {
+            Some(expr) => match self.eval_lowered_expr(lowered, expr, slots, span)? {
+                ControlFlow::Continue(LoweredValue::Int(cpu_max)) => Some(cpu_max),
+                ControlFlow::Continue(other) => {
+                    return Err(RuntimeError::new(
+                        "type-error",
+                        format!("run cpumax expected Int, found {}", other.type_name()),
+                    )
+                    .with_span(span));
+                }
+                ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+            },
+            None => None,
+        };
         let mut full_env = self.env.snapshot_clone();
         full_env.extend(env_overlay.clone());
         let invocation = ProcessInvocation {
@@ -11050,7 +11146,7 @@ impl Evaluator {
             env_overlay,
             redirections,
             timeout,
-            cpu_max: None,
+            cpu_max: full_env_cpu_max,
         };
         self.trace_process_run_start(span, &invocation);
         let execution = execute_run_with_policy(
@@ -11129,6 +11225,36 @@ impl Evaluator {
                     ControlFlow::Continue(redirections) => redirections,
                     ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
                 };
+            let seg_timeout = match &segment.timeout {
+                Some(expr) => match self.eval_lowered_expr(lowered, expr, slots, span)? {
+                    ControlFlow::Continue(LoweredValue::Duration(duration)) => {
+                        Some(Duration::from_millis(duration.millis))
+                    }
+                    ControlFlow::Continue(other) => {
+                        return Err(RuntimeError::new(
+                            "type-error",
+                            format!("pipeline timeout expected Duration, found {}", other.type_name()),
+                        )
+                        .with_span(span));
+                    }
+                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+                },
+                None => None,
+            };
+            let seg_cpu_max = match &segment.cpu_max {
+                Some(expr) => match self.eval_lowered_expr(lowered, expr, slots, span)? {
+                    ControlFlow::Continue(LoweredValue::Int(cpu_max)) => Some(cpu_max),
+                    ControlFlow::Continue(other) => {
+                        return Err(RuntimeError::new(
+                            "type-error",
+                            format!("pipeline cpumax expected Int, found {}", other.type_name()),
+                        )
+                        .with_span(span));
+                    }
+                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+                },
+                None => None,
+            };
             let mut full_env = self.env.snapshot_clone();
             full_env.extend(env_overlay.clone());
             invocations.push(ProcessInvocation {
@@ -11138,8 +11264,8 @@ impl Evaluator {
                 env: full_env,
                 env_overlay,
                 redirections,
-                timeout: None,
-                cpu_max: None,
+                timeout: seg_timeout,
+                cpu_max: seg_cpu_max,
             });
         }
         self.trace_lowered_pipeline_enter(span);
@@ -11389,6 +11515,8 @@ impl Evaluator {
         args: &[LoweredRunArg],
         env: &[LoweredRunEnv],
         redirections: &[LoweredRunRedirection],
+        timeout: Option<&LoweredExpr>,
+        cpu_max: Option<&LoweredExpr>,
         span: Span,
         slots: &mut [LoweredValue],
     ) -> Result<ControlFlow<LoweredValue, LoweredValue>, RuntimeError> {
@@ -11415,6 +11543,36 @@ impl Evaluator {
             ControlFlow::Continue(redirections) => redirections,
             ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
         };
+        let full_env_timeout = match timeout {
+            Some(expr) => match self.eval_lowered_expr(lowered, expr, slots, span)? {
+                ControlFlow::Continue(LoweredValue::Duration(duration)) => {
+                    Some(Duration::from_millis(duration.millis))
+                }
+                ControlFlow::Continue(other) => {
+                    return Err(RuntimeError::new(
+                        "type-error",
+                        format!("spawn run timeout expected Duration, found {}", other.type_name()),
+                    )
+                    .with_span(span));
+                }
+                ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+            },
+            None => None,
+        };
+        let full_env_cpu_max = match cpu_max {
+            Some(expr) => match self.eval_lowered_expr(lowered, expr, slots, span)? {
+                ControlFlow::Continue(LoweredValue::Int(cpu_max)) => Some(cpu_max),
+                ControlFlow::Continue(other) => {
+                    return Err(RuntimeError::new(
+                        "type-error",
+                        format!("spawn run cpumax expected Int, found {}", other.type_name()),
+                    )
+                    .with_span(span));
+                }
+                ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+            },
+            None => None,
+        };
         let mut full_env = self.env.snapshot_clone();
         full_env.extend(env_overlay.clone());
         let invocation = ProcessInvocation {
@@ -11424,8 +11582,8 @@ impl Evaluator {
             env: full_env,
             env_overlay,
             redirections,
-            timeout: None,
-            cpu_max: None,
+            timeout: full_env_timeout,
+            cpu_max: full_env_cpu_max,
         };
         self.eval_lowered_spawn_invocation(invocation, SpawnOptions::default(), span)
     }
@@ -13914,6 +14072,7 @@ impl Evaluator {
                 env,
                 redirections,
                 timeout,
+                cpu_max,
                 propagate,
                 assert_success,
                 span,
@@ -13925,6 +14084,7 @@ impl Evaluator {
                 env,
                 redirections,
                 timeout.as_deref(),
+                cpu_max.as_deref(),
                 *propagate,
                 *assert_success,
                 *span,
@@ -13940,9 +14100,14 @@ impl Evaluator {
                 args,
                 env,
                 redirections,
+                timeout,
+                cpu_max,
                 span,
             } => {
-                self.eval_lowered_spawn_run(lowered, target, args, env, redirections, *span, slots)
+                self.eval_lowered_spawn_run(
+                    lowered, target, args, env, redirections, timeout.as_deref(),
+                    cpu_max.as_deref(), *span, slots,
+                )
             }
             LoweredExpr::SpawnCommand { command, span } => {
                 self.eval_lowered_spawn_command(lowered, command, *span, slots)
