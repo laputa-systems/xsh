@@ -13,7 +13,7 @@ optimization — no language semantics change, no script-visible behavior change
 |---|---|---|
 | real tokei | ~700ms | 1.00× |
 | xsh-tokei (baseline) | ~2,660ms | 3.80× slower |
-| xsh-tokei (optimized) | ~948ms | 1.35× slower |
+| xsh-tokei (optimized) | ~921ms | 1.32× slower |
 | xsh-tokei (micro only) | **262ms** | **2.67× faster** |
 | **Target** | **≤ 840ms** | **≤ 1.20× slower** |
 
@@ -21,11 +21,15 @@ xsh-tokei was once **1.3× faster** than native tokei (~530ms) on an older
 interpreter whose lowered runtime (`lowered_run.rs` + `lowered_ops.rs`) was
 **4,051 lines**. The current lowered runtime is **17,168 lines** — 4.2× larger.
 
-We've recovered 1,712ms (64% improvement) through interpreter and I/O
-optimizations. The key breakthrough was parallelizing `ParMapBlock` (the variant
-used by tokei's par-map pipeline) — restoring true multi-threaded parallelism
-(4.6× CPU/wall ratio). The micro benchmark is now 2.67× faster than native tokei.
-The macro benchmark is 1.35× from the 1.20× target (108ms gap).
+We've recovered 1,717ms (65% improvement) through interpreter and I/O
+optimizations. The key breakthrough was parallelizing `ParMapBlock` — the
+variant tokei actually uses — restoring true multi-threaded parallelism
+(4.7× CPU/wall ratio). The micro benchmark is now 2.67× faster than native
+tokei. The macro benchmark is 1.35× from the 1.20× target (103ms gap).
+
+Memory: peak RSS 338MB (7.7× native tokei's 44MB). The dominant allocation is
+the pipeline materializing all 18K `fs.files()` entries into intermediate Vecs
+before `par-map`. Streaming (process-as-you-walk) would eliminate this.
 
 Output vs real tokei: within 0.2% line-count accuracy (different blank-line
 heuristics). File selection is exact.
@@ -264,7 +268,8 @@ the needle.
 | 2026-07-01 | +std::fs::read (replaces cap_std) | — | 1,933ms | 2.76× |
 | 2026-07-01 | +ScanLines dedicated scan loop | — | 1,886ms | 2.69× |
 | 2026-07-01 | +parallel ParMapBlock (true parallelism) | **262ms** | **948ms** | **1.35×** |
-| 2026-07-01 | **current (all optimizations)** | **262ms** | **948ms** | **1.35×** |
+| 2026-07-01 | +ParMapBlock parallel (raw ptrs, slot cleanup) | **262ms** | **943ms** | **1.35×** |
+| 2026-07-01 | +stream collection (eliminate intermediate Vec) | **—** | **921ms** | **1.32×** |
 | — | target | — | ≤ 840ms | ≤ 1.20× |
 
 ## Current status (2026-07-01 EOD)

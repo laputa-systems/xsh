@@ -1934,20 +1934,33 @@ impl Evaluator {
 
     fn collect_lowered_stream_values(
         &mut self,
-        stream: StreamValue,
+        mut stream: StreamValue,
         span: Span,
     ) -> Result<Vec<LoweredValue>, RuntimeError> {
-        let values = self.collect_stream_values(stream, span)?;
-        let mut lowered = Vec::with_capacity(values.len());
-        for value in values {
-            let Some(value) = lowered_value_from_runtime_any(&value) else {
-                return Err(RuntimeError::new(
-                    "type-error",
-                    format!("stream produced unsupported {}", value.type_name()),
-                )
-                .with_span(span));
-            };
-            lowered.push(value);
+        // Materialize pre-collected items first, then drain live items.
+        // This avoids a separate intermediate Vec<Value> by converting each
+        // item to LoweredValue as it arrives.
+        let mut lowered: Vec<LoweredValue> = std::mem::take(&mut stream.items)
+            .into_iter()
+            .map(|item| item.value)
+            .filter_map(|v| lowered_value_from_runtime_any(&v))
+            .collect();
+        if stream.source.is_some() {
+            loop {
+                match stream.next_live(span)? {
+                    Some(value) => {
+                        let Some(item) = lowered_value_from_runtime_any(&value) else {
+                            return Err(RuntimeError::new(
+                                "type-error",
+                                format!("stream produced unsupported {}", value.type_name()),
+                            )
+                            .with_span(span));
+                        };
+                        lowered.push(item);
+                    }
+                    None => break,
+                }
+            }
         }
         Ok(lowered)
     }
