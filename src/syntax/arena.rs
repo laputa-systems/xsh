@@ -187,6 +187,140 @@ impl ArenaByteSpan {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[repr(C)]
+pub struct ArenaByteSpan16 {
+    start: u16,
+    len: u16,
+}
+
+impl ArenaByteSpan16 {
+    fn try_from_span(span: ArenaByteSpan) -> Option<Self> {
+        Some(Self {
+            start: u16::try_from(span.start).ok()?,
+            len: u16::try_from(span.len).ok()?,
+        })
+    }
+
+    fn to_span(self) -> ArenaByteSpan {
+        ArenaByteSpan {
+            start: self.start as u32,
+            len: self.len as u32,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ArenaByteSpans {
+    U16(Vec<ArenaByteSpan16>),
+    U16Checked(Vec<ArenaByteSpan16>),
+    U32(Vec<ArenaByteSpan>),
+}
+
+impl Default for ArenaByteSpans {
+    fn default() -> Self {
+        Self::U16Checked(Vec::new())
+    }
+}
+
+impl ArenaByteSpans {
+    fn for_source_len(source_len: usize) -> Self {
+        if u16::try_from(source_len).is_ok() {
+            Self::U16(Vec::new())
+        } else {
+            Self::U32(Vec::new())
+        }
+    }
+
+    fn len(&self) -> usize {
+        match self {
+            Self::U16(spans) => spans.len(),
+            Self::U16Checked(spans) => spans.len(),
+            Self::U32(spans) => spans.len(),
+        }
+    }
+
+    fn reserve(&mut self, additional: usize) {
+        match self {
+            Self::U16(spans) => spans.reserve(additional),
+            Self::U16Checked(spans) => spans.reserve(additional),
+            Self::U32(spans) => spans.reserve(additional),
+        }
+    }
+
+    fn push(&mut self, span: ArenaByteSpan) {
+        match self {
+            Self::U16(spans) => {
+                debug_assert!(ArenaByteSpan16::try_from_span(span).is_some());
+                spans.push(ArenaByteSpan16 {
+                    start: span.start as u16,
+                    len: span.len as u16,
+                });
+            }
+            Self::U16Checked(spans) => {
+                if let Some(span) = ArenaByteSpan16::try_from_span(span) {
+                    spans.push(span);
+                    return;
+                }
+                let mut promoted = Vec::with_capacity(spans.capacity().max(spans.len() + 1));
+                promoted.extend(spans.iter().map(|span| span.to_span()));
+                promoted.push(span);
+                *self = Self::U32(promoted);
+            }
+            Self::U32(spans) => spans.push(span),
+        }
+    }
+
+    fn get(&self, index: usize) -> ArenaByteSpan {
+        match self {
+            Self::U16(spans) => spans[index].to_span(),
+            Self::U16Checked(spans) => spans[index].to_span(),
+            Self::U32(spans) => spans[index],
+        }
+    }
+
+    fn shift_starts_since(&mut self, start: usize, offset: u32) {
+        if offset == 0 || start >= self.len() {
+            return;
+        }
+        match self {
+            Self::U16(spans) | Self::U16Checked(spans) => {
+                if spans[start..]
+                    .iter()
+                    .all(|span| u32::from(span.start).saturating_add(offset) <= u32::from(u16::MAX))
+                {
+                    for span in &mut spans[start..] {
+                        span.start = (u32::from(span.start) + offset) as u16;
+                    }
+                    return;
+                }
+                let mut promoted = Vec::with_capacity(spans.capacity());
+                for (index, span) in spans.iter().enumerate() {
+                    let mut span = span.to_span();
+                    if index >= start {
+                        span.start += offset;
+                    }
+                    promoted.push(span);
+                }
+                *self = Self::U32(promoted);
+            }
+            Self::U32(spans) => {
+                for span in &mut spans[start..] {
+                    span.start += offset;
+                }
+            }
+        }
+    }
+
+    fn retained_bytes(&self) -> usize {
+        match self {
+            Self::U16(spans) => spans.capacity() * size_of::<ArenaByteSpan16>(),
+            Self::U16Checked(spans) => spans.capacity() * size_of::<ArenaByteSpan16>(),
+            Self::U32(spans) => spans.capacity() * size_of::<ArenaByteSpan>(),
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(C)]
 pub struct ArenaSpanSource {
@@ -384,6 +518,7 @@ impl<'a> ArenaProgramBuilder<'a> {
 
     pub fn with_source_and_token_capacity(source: &'a str, tokens: usize) -> Self {
         let mut lowerer = ArenaLowerer {
+            arena: AstArena::with_source_len(source.len()),
             source: Some(source),
             ..ArenaLowerer::default()
         };
@@ -1402,18 +1537,22 @@ impl<'a> ArenaProgramBuilder<'a> {
 
     pub fn shift_spans_since(&mut self, marks: ArenaSpanMarks, offset: usize) {
         let offset = offset as u32;
-        for span in &mut self.lowerer.arena.spans[marks.spans..] {
-            span.start += offset;
-        }
-        for span in &mut self.lowerer.arena.expr_spans[marks.expr_spans..] {
-            span.start += offset;
-        }
-        for span in &mut self.lowerer.arena.stmt_spans[marks.stmt_spans..] {
-            span.start += offset;
-        }
-        for span in &mut self.lowerer.arena.type_expr_spans[marks.type_expr_spans..] {
-            span.start += offset;
-        }
+        self.lowerer
+            .arena
+            .spans
+            .shift_starts_since(marks.spans, offset);
+        self.lowerer
+            .arena
+            .expr_spans
+            .shift_starts_since(marks.expr_spans, offset);
+        self.lowerer
+            .arena
+            .stmt_spans
+            .shift_starts_since(marks.stmt_spans, offset);
+        self.lowerer
+            .arena
+            .type_expr_spans
+            .shift_starts_since(marks.type_expr_spans, offset);
         // Source-backed text literals (fmt-string and word-part text chunks)
         // store an absolute byte range directly in `text_data`, not via
         // SpanId — shift those too, but only `Source`-tagged entries; `Cooked`
@@ -2489,23 +2628,23 @@ pub struct ArenaStats {
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct AstArena {
     pub span_source_id: Option<SourceId>,
-    pub spans: Vec<ArenaByteSpan>,
+    pub spans: ArenaByteSpans,
     pub span_source_overrides: Vec<ArenaSpanSource>,
     pub stmt_tags: Vec<ArenaStmtTag>,
     pub stmt_data: Vec<ArenaStmtData>,
-    pub stmt_spans: Vec<ArenaByteSpan>,
+    pub stmt_spans: ArenaByteSpans,
     pub stmt_span_source_overrides: Vec<ArenaSpanSource>,
     pub blocks: Vec<ArenaBlock>,
     pub expr_tags: Vec<ArenaExprTag>,
     pub expr_data: Vec<ArenaExprData>,
-    pub expr_spans: Vec<ArenaByteSpan>,
+    pub expr_spans: ArenaByteSpans,
     pub expr_span_source_overrides: Vec<ArenaSpanSource>,
     pub patterns: Vec<ArenaPattern>,
     pub binding_targets: Vec<ArenaBindingTarget>,
     pub assign_targets: Vec<ArenaAssignTarget>,
     pub type_expr_tags: Vec<ArenaTypeExprTag>,
     pub type_expr_data: Vec<ArenaTypeExprData>,
-    pub type_expr_spans: Vec<ArenaByteSpan>,
+    pub type_expr_spans: ArenaByteSpans,
     pub type_expr_span_source_overrides: Vec<ArenaSpanSource>,
     pub use_stmts: Vec<ArenaUseStmt>,
     pub type_defs: Vec<ArenaTypeDef>,
@@ -2555,12 +2694,22 @@ pub struct AstArena {
 }
 
 impl AstArena {
+    fn with_source_len(source_len: usize) -> Self {
+        Self {
+            spans: ArenaByteSpans::for_source_len(source_len),
+            stmt_spans: ArenaByteSpans::for_source_len(source_len),
+            expr_spans: ArenaByteSpans::for_source_len(source_len),
+            type_expr_spans: ArenaByteSpans::for_source_len(source_len),
+            ..Self::default()
+        }
+    }
+
     pub fn retained_bytes(&self) -> usize {
         size_of::<Self>() + self.capacity_bytes()
     }
 
     pub fn span_storage_bytes(&self) -> usize {
-        vec_capacity_bytes(&self.spans)
+        self.spans.retained_bytes()
             + vec_capacity_bytes(&self.span_source_overrides)
             + vec_capacity_bytes(&self.stmt_span_source_overrides)
             + vec_capacity_bytes(&self.expr_span_source_overrides)
@@ -2570,19 +2719,19 @@ impl AstArena {
     pub fn stmt_storage_bytes(&self) -> usize {
         vec_capacity_bytes(&self.stmt_tags)
             + vec_capacity_bytes(&self.stmt_data)
-            + vec_capacity_bytes(&self.stmt_spans)
+            + self.stmt_spans.retained_bytes()
     }
 
     pub fn expr_storage_bytes(&self) -> usize {
         vec_capacity_bytes(&self.expr_tags)
             + vec_capacity_bytes(&self.expr_data)
-            + vec_capacity_bytes(&self.expr_spans)
+            + self.expr_spans.retained_bytes()
     }
 
     pub fn type_expr_storage_bytes(&self) -> usize {
         vec_capacity_bytes(&self.type_expr_tags)
             + vec_capacity_bytes(&self.type_expr_data)
-            + vec_capacity_bytes(&self.type_expr_spans)
+            + self.type_expr_spans.retained_bytes()
     }
 
     pub fn extra_storage_bytes(&self) -> usize {
@@ -2784,7 +2933,7 @@ impl AstArena {
     pub fn span(&self, id: SpanId) -> Span {
         let index = id.index();
         let source_id = self.span_source_id_for(index, &self.span_source_overrides);
-        self.spans[index].to_span(source_id)
+        self.spans.get(index).to_span(source_id)
     }
 
     fn span_source_id_for(&self, index: usize, overrides: &[ArenaSpanSource]) -> SourceId {
@@ -2810,7 +2959,7 @@ impl AstArena {
         ArenaStmt {
             kind: self.stmt_kind(id),
             span: self.inline_span(
-                self.stmt_spans[index],
+                self.stmt_spans.get(index),
                 index,
                 &self.stmt_span_source_overrides,
             ),
@@ -2969,7 +3118,7 @@ impl AstArena {
         ArenaExpr {
             kind: self.expr_kind(id),
             span: self.inline_span(
-                self.expr_spans[index],
+                self.expr_spans.get(index),
                 index,
                 &self.expr_span_source_overrides,
             ),
@@ -3170,7 +3319,7 @@ impl AstArena {
     pub fn type_expr_span(&self, id: TypeExprId) -> Span {
         let index = id.index();
         self.inline_span(
-            self.type_expr_spans[index],
+            self.type_expr_spans.get(index),
             index,
             &self.type_expr_span_source_overrides,
         )

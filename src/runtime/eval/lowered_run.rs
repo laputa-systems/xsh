@@ -74,18 +74,19 @@ use super::modules::{
 use super::{
     Binding, Evaluator, Flow, FsRootHandle, LowerableFunctions, LoweredBoolExpr, LoweredCallArg,
     LoweredCompTarget, LoweredErrorExpr, LoweredExpr, LoweredFmtPart, LoweredFunctionKey,
-    LoweredIntExpr, LoweredModuleExportKind, LoweredPipelineStage, LoweredTagValue,
+    LoweredIntExpr, LoweredModuleExportKind, LoweredPipelineStage,
     LoweredProcessCommandBuilderEntry, LoweredPureFunction, LoweredRecordEntry, LoweredReturnKind,
     LoweredRunArg, LoweredRunArgKind, LoweredRunEnv, LoweredRunPipelineSegment,
-    LoweredRunRedirection, LoweredStmt, LoweredStmtFlow, LoweredStrPredicate,
+    LoweredRunRedirection, LoweredStmt, LoweredStmtFlow, LoweredStrPredicate, LoweredTagValue,
     LoweredTopLevelKind, LoweredTopLevelStmt, LoweredType, LoweredValue, LoweredWorker, Name,
     ReduceByOp, ScanCondition, TestMock, assign_lowered_bytes_view, assign_lowered_str_view,
-    lowered_str_view_value,
     bytes_contains, check_env_name, compound_assignment_value, display_value, exit_status,
-    lowered_record_vec_get, lowered_record_vec_get_mut, lowered_record_vec_insert,
-    lowered_value_matches_static_type, module_error, module_io_error, path_absolute_value,
-    path_value_from_pathbuf, pathbuf_from_path_value, runtime_error_from_value, splice_to_argv,
-    trace_env_overlay, trace_status, value_matches_static_type, value_to_argv_bytes,
+    lowered_inline_stats_field_value, lowered_inline_stats_to_record_vec, lowered_record_vec_get,
+    lowered_record_vec_get_mut, lowered_record_vec_insert, lowered_record_vec_or_stats,
+    lowered_stats_field_value, lowered_str_view_value, lowered_value_matches_static_type,
+    module_error, module_io_error, path_absolute_value, path_value_from_pathbuf,
+    pathbuf_from_path_value, runtime_error_from_value, splice_to_argv, trace_env_overlay,
+    trace_status, value_matches_static_type, value_to_argv_bytes,
 };
 use cap_directories::{ProjectDirs, UserDirs, ambient_authority as directories_authority};
 use cap_tempfile::{TempDir, TempFile, ambient_authority as tempfile_authority};
@@ -251,6 +252,16 @@ fn lowered_field_chain_ref<'a>(
                         .map(Some)
                         .ok_or_else(|| RuntimeError::new("missing-field", name).with_span(*span))
                 }
+                LoweredValue::Stats {
+                    blanks,
+                    code,
+                    comments,
+                } => lowered_inline_stats_field_value(*blanks, *code, *comments, name.as_str())
+                    .map(|_| None)
+                    .ok_or_else(|| RuntimeError::new("missing-field", name).with_span(*span)),
+                LoweredValue::StatsBlob(stats) => lowered_stats_field_value(stats, name.as_str())
+                    .map(|_| None)
+                    .ok_or_else(|| RuntimeError::new("missing-field", name).with_span(*span)),
                 _ => Ok(None),
             }
         }
@@ -273,6 +284,16 @@ fn lowered_project_borrowed_field(
             .cloned()
             .map(Some)
             .ok_or_else(|| RuntimeError::new("missing-field", name).with_span(span)),
+        LoweredValue::Stats {
+            blanks,
+            code,
+            comments,
+        } => lowered_inline_stats_field_value(*blanks, *code, *comments, name)
+            .map(Some)
+            .ok_or_else(|| RuntimeError::new("missing-field", name).with_span(span)),
+        LoweredValue::StatsBlob(stats) => lowered_stats_field_value(stats, name)
+            .map(Some)
+            .ok_or_else(|| RuntimeError::new("missing-field", name).with_span(span)),
         LoweredValue::FsEntry(entry) => {
             let value = entry
                 .field_value(name)
@@ -289,6 +310,18 @@ fn lowered_project_borrowed_field(
                 })
         }
         _ => Ok(None),
+    }
+}
+
+fn lowered_record_field_value(value: &LoweredValue, field: &str) -> Option<LoweredValue> {
+    match value {
+        LoweredValue::Stats {
+            blanks,
+            code,
+            comments,
+        } => lowered_inline_stats_field_value(*blanks, *code, *comments, field),
+        LoweredValue::StatsBlob(stats) => lowered_stats_field_value(stats, field),
+        _ => lowered_record_field(value, field).cloned(),
     }
 }
 
@@ -608,6 +641,13 @@ fn lowered_validate_json_compatible(value: &LoweredValue, span: Span) -> Result<
             }
             Ok(())
         }
+        LoweredValue::Stats { .. } => Ok(()),
+        LoweredValue::StatsBlob(stats) => {
+            for item in stats.blobs.values() {
+                lowered_validate_json_compatible(item, span)?;
+            }
+            Ok(())
+        }
         LoweredValue::FsEntry(entry) => {
             let record = entry
                 .to_record_map()
@@ -643,45 +683,71 @@ struct LoweredJsonValue<'a>(&'a LoweredValue);
 
 impl miniserde::ser::Serialize for LoweredJsonValue<'_> {
     fn begin(&self) -> miniserde::ser::Fragment<'_> {
-        match self.0 {
-            LoweredValue::Null => miniserde::ser::Fragment::Null,
-            LoweredValue::Bool(value) => miniserde::ser::Fragment::Bool(*value),
-            LoweredValue::Int(value) => miniserde::ser::Fragment::I64(*value),
-            LoweredValue::Float(value) => miniserde::ser::Fragment::F64(value.0),
-            LoweredValue::Str(value) => {
-                miniserde::ser::Fragment::Str(Cow::Borrowed(value.as_ref()))
-            }
-            LoweredValue::StrView(value) => {
-                miniserde::ser::Fragment::Str(Cow::Borrowed(value.as_str()))
-            }
-            LoweredValue::List(items) => miniserde::ser::Fragment::Seq(Box::new(LoweredJsonSeq {
+        lowered_json_fragment(self.0)
+    }
+}
+
+struct LoweredJsonOwnedValue(LoweredValue);
+
+impl miniserde::ser::Serialize for LoweredJsonOwnedValue {
+    fn begin(&self) -> miniserde::ser::Fragment<'_> {
+        lowered_json_fragment(&self.0)
+    }
+}
+
+fn lowered_json_fragment(value: &LoweredValue) -> miniserde::ser::Fragment<'_> {
+    match value {
+        LoweredValue::Null => miniserde::ser::Fragment::Null,
+        LoweredValue::Bool(value) => miniserde::ser::Fragment::Bool(*value),
+        LoweredValue::Int(value) => miniserde::ser::Fragment::I64(*value),
+        LoweredValue::Float(value) => miniserde::ser::Fragment::F64(value.0),
+        LoweredValue::Str(value) => miniserde::ser::Fragment::Str(Cow::Borrowed(value.as_ref())),
+        LoweredValue::StrView(value) => {
+            miniserde::ser::Fragment::Str(Cow::Borrowed(value.as_str()))
+        }
+        LoweredValue::List(items) => miniserde::ser::Fragment::Seq(Box::new(LoweredJsonSeq {
+            iter: items.iter(),
+            current: None,
+        })),
+        LoweredValue::SharedList(items) => {
+            miniserde::ser::Fragment::Seq(Box::new(LoweredJsonSeq {
                 iter: items.iter(),
                 current: None,
-            })),
-            LoweredValue::SharedList(items) => {
-                miniserde::ser::Fragment::Seq(Box::new(LoweredJsonSeq {
-                    iter: items.iter(),
-                    current: None,
-                }))
-            }
-            LoweredValue::Map(fields) => miniserde::ser::Fragment::Map(Box::new(LoweredJsonMap {
-                iter: LoweredJsonMapIter::String(fields.iter()),
-                current: None,
-            })),
-            LoweredValue::Record(fields) => {
-                miniserde::ser::Fragment::Map(Box::new(LoweredJsonMap {
-                    iter: LoweredJsonMapIter::Arc(fields.iter()),
-                    current: None,
-                }))
-            }
-            LoweredValue::RecordVec(fields) => {
-                miniserde::ser::Fragment::Map(Box::new(LoweredJsonMap {
-                    iter: LoweredJsonMapIter::ArcSlice(fields.iter()),
-                    current: None,
-                }))
-            }
-            _ => miniserde::ser::Fragment::Null,
+            }))
         }
+        LoweredValue::Map(fields) => miniserde::ser::Fragment::Map(Box::new(LoweredJsonMap {
+            iter: LoweredJsonMapIter::String(fields.iter()),
+            current: None,
+        })),
+        LoweredValue::Record(fields) => miniserde::ser::Fragment::Map(Box::new(LoweredJsonMap {
+            iter: LoweredJsonMapIter::Arc(fields.iter()),
+            current: None,
+        })),
+        LoweredValue::RecordVec(fields) => {
+            miniserde::ser::Fragment::Map(Box::new(LoweredJsonMap {
+                iter: LoweredJsonMapIter::NameSlice(fields.iter()),
+                current: None,
+            }))
+        }
+        LoweredValue::Stats {
+            blanks,
+            code,
+            comments,
+        } => miniserde::ser::Fragment::Map(Box::new(LoweredJsonInlineStatsMap {
+            blanks: *blanks,
+            code: *code,
+            comments: *comments,
+            index: 0,
+            current: None,
+        })),
+        LoweredValue::StatsBlob(stats) => {
+            miniserde::ser::Fragment::Map(Box::new(LoweredJsonStatsBlobMap {
+                stats,
+                index: 0,
+                current: None,
+            }))
+        }
+        _ => miniserde::ser::Fragment::Null,
     }
 }
 
@@ -700,7 +766,7 @@ impl miniserde::ser::Seq for LoweredJsonSeq<'_> {
 enum LoweredJsonMapIter<'a> {
     String(std::collections::btree_map::Iter<'a, String, LoweredValue>),
     Arc(std::collections::btree_map::Iter<'a, Arc<str>, LoweredValue>),
-    ArcSlice(std::slice::Iter<'a, (Arc<str>, LoweredValue)>),
+    NameSlice(std::slice::Iter<'a, (Name, LoweredValue)>),
 }
 
 struct LoweredJsonMap<'a> {
@@ -727,15 +793,65 @@ impl miniserde::ser::Map for LoweredJsonMap<'_> {
                     self.current.as_ref()? as &dyn miniserde::ser::Serialize,
                 ))
             }
-            LoweredJsonMapIter::ArcSlice(iter) => {
+            LoweredJsonMapIter::NameSlice(iter) => {
                 let (key, value) = iter.next()?;
                 self.current = Some(LoweredJsonValue(value));
                 Some((
-                    Cow::Borrowed(key.as_ref()),
+                    Cow::Borrowed(key.as_str()),
                     self.current.as_ref()? as &dyn miniserde::ser::Serialize,
                 ))
             }
         }
+    }
+}
+
+struct LoweredJsonInlineStatsMap {
+    blanks: i64,
+    code: i64,
+    comments: i64,
+    index: u8,
+    current: Option<LoweredJsonOwnedValue>,
+}
+
+impl miniserde::ser::Map for LoweredJsonInlineStatsMap {
+    fn next(&mut self) -> Option<(Cow<'_, str>, &dyn miniserde::ser::Serialize)> {
+        let (key, value) = match self.index {
+            0 => ("blanks", LoweredValue::Int(self.blanks)),
+            1 => ("blobs", LoweredValue::Map(BTreeMap::new())),
+            2 => ("code", LoweredValue::Int(self.code)),
+            3 => ("comments", LoweredValue::Int(self.comments)),
+            _ => return None,
+        };
+        self.index += 1;
+        self.current = Some(LoweredJsonOwnedValue(value));
+        Some((
+            Cow::Borrowed(key),
+            self.current.as_ref()? as &dyn miniserde::ser::Serialize,
+        ))
+    }
+}
+
+struct LoweredJsonStatsBlobMap<'a> {
+    stats: &'a super::LoweredStatsValue,
+    index: u8,
+    current: Option<LoweredJsonOwnedValue>,
+}
+
+impl miniserde::ser::Map for LoweredJsonStatsBlobMap<'_> {
+    fn next(&mut self) -> Option<(Cow<'_, str>, &dyn miniserde::ser::Serialize)> {
+        let (key, value) = match self.index {
+            0 => ("blanks", LoweredValue::Int(self.stats.blanks)),
+            1 => ("blobs", LoweredValue::Map(self.stats.blobs.clone())),
+            2 => ("code", LoweredValue::Int(self.stats.code)),
+            3 => ("comments", LoweredValue::Int(self.stats.comments)),
+            _ => return None,
+        };
+        self.index += 1;
+        self.current = Some(LoweredJsonOwnedValue(value));
+        Some((
+            Cow::Borrowed(key),
+            self.current.as_ref()? as &dyn miniserde::ser::Serialize,
+        ))
     }
 }
 
@@ -790,6 +906,46 @@ fn lowered_to_json(
             }
             Ok(json_module::raw_json_object(values))
         }
+        LoweredValue::Stats {
+            blanks,
+            code,
+            comments,
+        } => Ok(json_module::raw_json_object(vec![
+            (
+                "blanks".to_string(),
+                lowered_to_json(&LoweredValue::Int(*blanks), span)?,
+            ),
+            (
+                "blobs".to_string(),
+                lowered_to_json(&LoweredValue::Map(BTreeMap::new()), span)?,
+            ),
+            (
+                "code".to_string(),
+                lowered_to_json(&LoweredValue::Int(*code), span)?,
+            ),
+            (
+                "comments".to_string(),
+                lowered_to_json(&LoweredValue::Int(*comments), span)?,
+            ),
+        ])),
+        LoweredValue::StatsBlob(stats) => Ok(json_module::raw_json_object(vec![
+            (
+                "blanks".to_string(),
+                lowered_to_json(&LoweredValue::Int(stats.blanks), span)?,
+            ),
+            (
+                "blobs".to_string(),
+                lowered_to_json(&LoweredValue::Map(stats.blobs.clone()), span)?,
+            ),
+            (
+                "code".to_string(),
+                lowered_to_json(&LoweredValue::Int(stats.code), span)?,
+            ),
+            (
+                "comments".to_string(),
+                lowered_to_json(&LoweredValue::Int(stats.comments), span)?,
+            ),
+        ])),
         LoweredValue::FsEntry(entry) => {
             let record = entry.to_record_map().map_err(|error| error.with_span(span))?;
             let mut values = Vec::with_capacity(record.len());
@@ -1280,10 +1436,18 @@ fn lowered_record_arg(
         Some(LoweredValue::RecordVec(fields)) => {
             let mut record = RecordMap::new();
             for (key, value) in fields {
-                record.insert(key, value.into_value());
+                record.insert(Arc::from(key.as_str()), value.into_value());
             }
             Ok(record)
         }
+        Some(LoweredValue::Stats {
+            blanks,
+            code,
+            comments,
+        }) => Ok(super::lowered_inline_stats_to_record_map(
+            blanks, code, comments,
+        )),
+        Some(LoweredValue::StatsBlob(stats)) => Ok(stats.to_record_map()),
         Some(other) => Err(RuntimeError::new(
             "type-error",
             format!("{operation} expected Record, found {}", other.type_name()),
@@ -1374,16 +1538,15 @@ fn lowered_env_record_arg(
         LoweredValue::RecordVec(fields) => {
             for (name, value) in fields.iter() {
                 let mut text = String::new();
-                push_lowered_display(&mut text, &value, span)?;
+                push_lowered_display(&mut text, value, span)?;
                 env.insert(name.to_string(), text);
             }
         }
         _ => {
-            return Err(RuntimeError::new(
-                "type-error",
-                format!("{operation} expected Record"),
-            )
-            .with_span(span));
+            return Err(
+                RuntimeError::new("type-error", format!("{operation} expected Record"))
+                    .with_span(span),
+            );
         }
     }
     Ok(env)
@@ -1954,7 +2117,10 @@ fn lowered_pipeline_record_list(
             .iter()
             .map(|item| match item {
                 LoweredValue::Record(record) => Ok(record.clone()),
-                LoweredValue::RecordVec(record) => Ok(record.iter().cloned().collect()),
+                LoweredValue::RecordVec(record) => Ok(record
+                    .iter()
+                    .map(|(key, value)| (Arc::from(key.as_str()), value.clone()))
+                    .collect()),
                 LoweredValue::Map(map) => Ok(map
                     .iter()
                     .map(|(k, v)| (Arc::from(k.as_str()), v.clone()))
@@ -4327,16 +4493,11 @@ impl Evaluator {
                 };
                 match values.pop().expect("checked value length") {
                     LoweredValue::Bytes(bytes) => {
-                        LoweredValue::Digest(Box::new(hash_module::digest_bytes(
-                            algorithm, &bytes,
-                        )))
+                        LoweredValue::Digest(Box::new(hash_module::digest_bytes(algorithm, &bytes)))
                     }
-                    LoweredValue::BytesView(bytes) => {
-                        LoweredValue::Digest(Box::new(hash_module::digest_bytes(
-                            algorithm,
-                            bytes.as_slice(),
-                        )))
-                    }
+                    LoweredValue::BytesView(bytes) => LoweredValue::Digest(Box::new(
+                        hash_module::digest_bytes(algorithm, bytes.as_slice()),
+                    )),
                     LoweredValue::Path(path) => lowered_runtime_result(
                         hash_module::digest_file(algorithm, &self.host_path(&path), span)
                             .map(Value::digest),
@@ -8611,9 +8772,9 @@ impl Evaluator {
             let flow = result?;
             write_back?;
             return match flow {
-                LoweredStmtFlow::None => {
-                    Ok(LoweredValue::Stream(Box::new(StreamValue::from_values(items))))
-                }
+                LoweredStmtFlow::None => Ok(LoweredValue::Stream(Box::new(
+                    StreamValue::from_values(items),
+                ))),
                 LoweredStmtFlow::Return(value) if matches!(value, LoweredValue::Stream(_)) => {
                     Ok(value)
                 }
@@ -10243,7 +10404,7 @@ impl Evaluator {
                     }
                 };
                 for name in fields {
-                    let Some(value) = lowered_record_field(&source, name.as_str()) else {
+                    let Some(value) = lowered_record_field_value(&source, name.as_str()) else {
                         return Err(RuntimeError::new(
                             "field-access",
                             format!("record has no field `{}`", name.as_str()),
@@ -10253,7 +10414,7 @@ impl Evaluator {
                     self.define(
                         *name,
                         Binding {
-                            value: value.clone().into_value(),
+                            value: value.into_value(),
                             mutable: *mutable,
                         },
                     );
@@ -10606,14 +10767,14 @@ impl Evaluator {
                     ControlFlow::Break(value) => return Ok(LoweredStmtFlow::Return(value)),
                 };
                 for (name, slot) in fields {
-                    let Some(value) = lowered_record_field(&source, name.as_str()) else {
+                    let Some(value) = lowered_record_field_value(&source, name.as_str()) else {
                         return Err(RuntimeError::new(
                             "field-access",
                             format!("record has no field `{}`", name.as_str()),
                         )
                         .with_span(*span));
                     };
-                    slots[*slot] = value.clone();
+                    slots[*slot] = value;
                 }
                 Ok(LoweredStmtFlow::None)
             }
@@ -10752,6 +10913,21 @@ impl Evaluator {
                     ControlFlow::Continue(value) => value,
                     ControlFlow::Break(value) => return Ok(LoweredStmtFlow::Return(value)),
                 };
+                if matches!(
+                    slots[*slot],
+                    LoweredValue::Stats { .. } | LoweredValue::StatsBlob(_)
+                ) {
+                    let stats = std::mem::replace(&mut slots[*slot], LoweredValue::Unit);
+                    slots[*slot] = LoweredValue::RecordVec(match stats {
+                        LoweredValue::Stats {
+                            blanks,
+                            code,
+                            comments,
+                        } => lowered_inline_stats_to_record_vec(blanks, code, comments),
+                        LoweredValue::StatsBlob(stats) => stats.to_record_vec(),
+                        _ => unreachable!("checked lowered stats assignment target"),
+                    });
+                }
                 let current = match &mut slots[*slot] {
                     LoweredValue::Record(record) => record.get(field.as_ref()).cloned(),
                     LoweredValue::RecordVec(record) => {
@@ -10774,7 +10950,7 @@ impl Evaluator {
                         record.insert(field.clone(), value);
                     }
                     LoweredValue::RecordVec(record) => {
-                        lowered_record_vec_insert(record, field.clone(), value);
+                        lowered_record_vec_insert(record, Name::intern(field.as_ref()), value);
                     }
                     _ => unreachable!("checked lowered record assignment target"),
                 }
@@ -10791,6 +10967,21 @@ impl Evaluator {
                     ControlFlow::Continue(value) => value,
                     ControlFlow::Break(value) => return Ok(LoweredStmtFlow::Return(value)),
                 };
+                if matches!(
+                    slots[*slot],
+                    LoweredValue::Stats { .. } | LoweredValue::StatsBlob(_)
+                ) {
+                    let stats = std::mem::replace(&mut slots[*slot], LoweredValue::Unit);
+                    slots[*slot] = LoweredValue::RecordVec(match stats {
+                        LoweredValue::Stats {
+                            blanks,
+                            code,
+                            comments,
+                        } => lowered_inline_stats_to_record_vec(blanks, code, comments),
+                        LoweredValue::StatsBlob(stats) => stats.to_record_vec(),
+                        _ => unreachable!("checked lowered stats assignment target"),
+                    });
+                }
                 let current = match &mut slots[*slot] {
                     LoweredValue::Record(record) => record.get_mut(field.as_ref()),
                     LoweredValue::RecordVec(record) => {
@@ -11085,14 +11276,14 @@ impl Evaluator {
                         return Ok(LoweredStmtFlow::None);
                     }
                     for (name, slot) in fields {
-                        let Some(value) = lowered_record_field(&item, name.as_str()) else {
+                        let Some(value) = lowered_record_field_value(&item, name.as_str()) else {
                             return Err(RuntimeError::new(
                                 "field-access",
                                 format!("record has no field `{}`", name.as_str()),
                             )
                             .with_span(*span));
                         };
-                        slots[*slot] = value.clone();
+                        slots[*slot] = value;
                     }
                     match self.eval_lowered_stmts(lowered, body, slots, call_span)? {
                         LoweredStmtFlow::None | LoweredStmtFlow::Continue => {}
@@ -12279,9 +12470,9 @@ impl Evaluator {
         self.trace_process_run_end(span, &execution.end);
         if self.signal_state.shutdown_complete && self.signal_state.shutdown_status.is_some() {
             return Ok(ControlFlow::Continue(LoweredValue::ResultOk(Box::new(
-                LoweredValue::Status(Box::new(execution.end.status.clone().unwrap_or_else(|| {
-                    crate::runtime::process::ProcessStatus::signaled(libc::SIGTERM)
-                }))),
+                LoweredValue::Status(Box::new(execution.end.status.clone().unwrap_or_else(
+                    || crate::runtime::process::ProcessStatus::signaled(libc::SIGTERM),
+                ))),
             ))));
         }
         let value = execution.value?;
@@ -12429,7 +12620,9 @@ impl Evaluator {
                 LoweredValue::Status(Box::new(status)),
             ))))
         } else {
-            Ok(ControlFlow::Continue(LoweredValue::Status(Box::new(status))))
+            Ok(ControlFlow::Continue(LoweredValue::Status(Box::new(
+                status,
+            ))))
         }
     }
 
@@ -13307,11 +13500,13 @@ impl Evaluator {
                 Ok(ControlFlow::Continue(LoweredValue::List(values)))
             }
             LoweredExpr::LastStatus { span } => match self.last_status.clone() {
-                Some(status) => Ok(ControlFlow::Continue(LoweredValue::Status(Box::new(status)))),
+                Some(status) => Ok(ControlFlow::Continue(LoweredValue::Status(Box::new(
+                    status,
+                )))),
                 None => Err(RuntimeError::new("last-status", "`$?` is not set").with_span(*span)),
             },
             LoweredExpr::Record(fields) => {
-                let mut record: Vec<(Arc<str>, LoweredValue)> = Vec::with_capacity(fields.len());
+                let mut record: Vec<(Name, LoweredValue)> = Vec::with_capacity(fields.len());
                 for entry in fields {
                     match entry {
                         LoweredRecordEntry::Field(name, expr) => {
@@ -13321,7 +13516,7 @@ impl Evaluator {
                                 ControlFlow::Continue(value) => value,
                                 ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
                             };
-                            lowered_record_vec_insert(&mut record, name.clone(), value);
+                            lowered_record_vec_insert(&mut record, *name, value);
                         }
                         LoweredRecordEntry::Spread(expr) => {
                             let value = match self
@@ -13333,11 +13528,31 @@ impl Evaluator {
                             match value {
                                 LoweredValue::Record(fields) | LoweredValue::Module(fields) => {
                                     for (key, value) in fields {
-                                        lowered_record_vec_insert(&mut record, key, value);
+                                        lowered_record_vec_insert(
+                                            &mut record,
+                                            Name::intern(key.as_ref()),
+                                            value,
+                                        );
                                     }
                                 }
                                 LoweredValue::RecordVec(fields) => {
                                     for (key, value) in fields {
+                                        lowered_record_vec_insert(&mut record, key, value);
+                                    }
+                                }
+                                LoweredValue::Stats {
+                                    blanks,
+                                    code,
+                                    comments,
+                                } => {
+                                    for (key, value) in
+                                        lowered_inline_stats_to_record_vec(blanks, code, comments)
+                                    {
+                                        lowered_record_vec_insert(&mut record, key, value);
+                                    }
+                                }
+                                LoweredValue::StatsBlob(stats) => {
+                                    for (key, value) in stats.to_record_vec() {
                                         lowered_record_vec_insert(&mut record, key, value);
                                     }
                                 }
@@ -13355,7 +13570,7 @@ impl Evaluator {
                         }
                     }
                 }
-                Ok(ControlFlow::Continue(LoweredValue::RecordVec(record)))
+                Ok(ControlFlow::Continue(lowered_record_vec_or_stats(record)))
             }
             LoweredExpr::List(items) => {
                 let mut values = Vec::with_capacity(items.len());
@@ -13441,10 +13656,12 @@ impl Evaluator {
                     };
                     values.push(value);
                 }
-                Ok(ControlFlow::Continue(LoweredValue::Tag(Box::new(LoweredTagValue {
-                    name: name.clone(),
-                    fields: values,
-                }))))
+                Ok(ControlFlow::Continue(LoweredValue::Tag(Box::new(
+                    LoweredTagValue {
+                        name: name.clone(),
+                        fields: values,
+                    },
+                ))))
             }
             LoweredExpr::ListComp {
                 value,
@@ -13623,11 +13840,7 @@ impl Evaluator {
                                 } else {
                                     line_end
                                 };
-                                lines.push(lowered_str_view_value(
-                                    text.clone(),
-                                    cursor,
-                                    view_end,
-                                ));
+                                lines.push(lowered_str_view_value(text.clone(), cursor, view_end));
                                 let Some(newline) = newline else {
                                     break;
                                 };
@@ -14896,8 +15109,10 @@ impl Evaluator {
                                                                 traced_failure = true;
                                                             }
                                                             self.stderr.extend_from_slice(
-                                                                format!("par-map error: {error:?}\n")
-                                                                    .as_bytes(),
+                                                                format!(
+                                                                    "par-map error: {error:?}\n"
+                                                                )
+                                                                .as_bytes(),
                                                             );
                                                             LoweredValue::List(Vec::new())
                                                         }
@@ -15397,15 +15612,15 @@ impl Evaluator {
                                         ControlFlow::Break(v) => return Ok(ControlFlow::Break(v)),
                                     };
                                 let key = lowered_reduce_by_key(&output, s)?;
-                                let val = lowered_record_field(&output, "value")
-                                    .cloned()
-                                    .ok_or_else(|| {
+                                let val = lowered_record_field_value(&output, "value").ok_or_else(
+                                    || {
                                         RuntimeError::new(
                                             "reduce-by-value",
                                             "reduce-by record is missing field `value`",
                                         )
                                         .with_span(s)
-                                    })?;
+                                    },
+                                )?;
                                 match groups.entry(key) {
                                     std::collections::btree_map::Entry::Vacant(slot) => {
                                         slot.insert(val);
@@ -15435,13 +15650,11 @@ impl Evaluator {
                 Ok(ControlFlow::Continue(current))
             }
             LoweredExpr::Field { base, name, span } => {
-                if let Some(base) = lowered_field_chain_ref(base, slots)? {
-                    if let Some(value) =
-                        lowered_project_borrowed_field(base, name.as_str(), *span)?
+                if let Some(base) = lowered_field_chain_ref(base, slots)?
+                    && let Some(value) = lowered_project_borrowed_field(base, name.as_str(), *span)?
                     {
                         return Ok(ControlFlow::Continue(value));
                     }
-                }
                 let base = match self.eval_lowered_expr(lowered, base, slots, *span)? {
                     ControlFlow::Continue(value) => value,
                     ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
@@ -15451,9 +15664,24 @@ impl Evaluator {
                         .get(name.as_str())
                         .cloned()
                         .ok_or_else(|| RuntimeError::new("missing-field", name).with_span(*span))?,
-                    LoweredValue::RecordVec(record) => lowered_record_vec_get(&record, name.as_str())
-                        .cloned()
+                    LoweredValue::RecordVec(record) => {
+                        lowered_record_vec_get(&record, name.as_str())
+                            .cloned()
+                            .ok_or_else(|| {
+                                RuntimeError::new("missing-field", name).with_span(*span)
+                            })?
+                    }
+                    LoweredValue::Stats {
+                        blanks,
+                        code,
+                        comments,
+                    } => lowered_inline_stats_field_value(blanks, code, comments, name.as_str())
                         .ok_or_else(|| RuntimeError::new("missing-field", name).with_span(*span))?,
+                    LoweredValue::StatsBlob(stats) => {
+                        lowered_stats_field_value(&stats, name.as_str()).ok_or_else(|| {
+                            RuntimeError::new("missing-field", name).with_span(*span)
+                        })?
+                    }
                     LoweredValue::FsEntry(entry) => {
                         let value = entry
                             .field_value(name.as_str())

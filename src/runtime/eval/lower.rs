@@ -6707,13 +6707,13 @@ impl CompactLowerConstructProbe<'_, '_> {
             match field.kind {
                 ArenaRecordFieldKind::Named { name, value, .. } => {
                     lowered.push(LoweredRecordEntry::Field(
-                        Arc::from(name.as_str()),
+                        name,
                         self.lower_expr(value, slots, current_function, item_slot)?,
                     ));
                 }
                 ArenaRecordFieldKind::Shorthand { name, .. } => {
                     lowered.push(LoweredRecordEntry::Field(
-                        Arc::from(name.as_str()),
+                        name,
                         LoweredExpr::Param(slots.resolve(name)?),
                     ));
                 }
@@ -11227,6 +11227,7 @@ pub(super) fn lowered_record_field<'a>(
     match value {
         LoweredValue::Record(entries) | LoweredValue::Module(entries) => entries.get(field),
         LoweredValue::RecordVec(entries) => lowered_record_vec_get(entries, field),
+        LoweredValue::Stats { .. } | LoweredValue::StatsBlob(_) => None,
         _ => None,
     }
 }
@@ -11245,7 +11246,7 @@ pub(super) fn lowered_sum_records(mut acc: LoweredValue, val: LoweredValue) -> L
         }
         (LoweredValue::RecordVec(acc_map), LoweredValue::RecordVec(val_map)) => {
             for (key, value) in val_map {
-                if let Some(acc_value) = lowered_record_vec_get_mut(acc_map, key.as_ref()) {
+                if let Some(acc_value) = lowered_record_vec_get_mut(acc_map, key.as_str()) {
                     *acc_value =
                         lowered_sum_values(std::mem::replace(acc_value, LoweredValue::Unit), value);
                 } else {
@@ -11255,11 +11256,11 @@ pub(super) fn lowered_sum_records(mut acc: LoweredValue, val: LoweredValue) -> L
         }
         (LoweredValue::Record(acc_map), LoweredValue::RecordVec(val_map)) => {
             for (key, value) in val_map {
-                if let Some(acc_value) = acc_map.get_mut(key.as_ref()) {
+                if let Some(acc_value) = acc_map.get_mut(key.as_str()) {
                     *acc_value =
                         lowered_sum_values(std::mem::replace(acc_value, LoweredValue::Unit), value);
                 } else {
-                    acc_map.insert(key, value);
+                    acc_map.insert(Arc::from(key.as_str()), value);
                 }
             }
         }
@@ -11269,7 +11270,7 @@ pub(super) fn lowered_sum_records(mut acc: LoweredValue, val: LoweredValue) -> L
                     *acc_value =
                         lowered_sum_values(std::mem::replace(acc_value, LoweredValue::Unit), value);
                 } else {
-                    lowered_record_vec_insert(acc_map, key, value);
+                    lowered_record_vec_insert(acc_map, Name::intern(key.as_ref()), value);
                 }
             }
         }

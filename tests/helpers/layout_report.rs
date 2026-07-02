@@ -115,6 +115,8 @@ fn layout_items() -> Vec<LayoutItem> {
         item!("syntax-arena", arena::TextLiteralId),
         item!("syntax-arena", arena::ArenaRange),
         item!("syntax-arena", arena::ArenaByteSpan),
+        item!("syntax-arena", arena::ArenaByteSpan16),
+        item!("syntax-arena", arena::ArenaByteSpans),
         item!("syntax-arena", arena::ArenaSpanSource),
         item!("syntax-arena", arena::ArenaTypeExprTag),
         item!("syntax-arena", arena::ArenaTypeExprData),

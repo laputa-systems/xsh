@@ -5,9 +5,10 @@
 //! module and are imported via `super::`.
 
 use super::{
-    LoweredReturnKind, LoweredStrPredicate, LoweredTagValue, LoweredType, LoweredValue,
-    add_error_context, bytes_contains, bytes_find, format_duration, lowered_bytes_view_value,
-    lowered_record_vec_get, lowered_str_view_value, normalize_path_value, path_parent,
+    LoweredReturnKind, LoweredStatsValue, LoweredStrPredicate, LoweredTagValue, LoweredType,
+    LoweredValue, add_error_context, bytes_contains, bytes_find, format_duration,
+    lowered_bytes_view_value, lowered_inline_stats_field_value, lowered_record_vec_get,
+    lowered_stats_field_value, lowered_str_view_value, normalize_path_value, path_parent,
     path_text_field, path_value_from_pathbuf, path_with_ext, pathbuf_from_path_value,
 };
 use crate::runtime::process::{ProcessStatus, ProcessStatusKind};
@@ -16,6 +17,7 @@ use crate::runtime::value::{
     error_constructor,
 };
 use crate::source::Span;
+use crate::symbol::Name;
 use crate::syntax::node::{AssignOp, BinaryOp};
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
@@ -644,6 +646,8 @@ pub(super) fn lowered_value_matches(kind: LoweredType, value: &LoweredValue) -> 
             | (LoweredType::Error, LoweredValue::Error(_))
             | (LoweredType::Record, LoweredValue::Record(_))
             | (LoweredType::Record, LoweredValue::RecordVec(_))
+            | (LoweredType::Record, LoweredValue::Stats { .. })
+            | (LoweredType::Record, LoweredValue::StatsBlob(_))
             | (LoweredType::Record, LoweredValue::FsEntry(_))
             | (LoweredType::Module, LoweredValue::Module(_))
             | (LoweredType::List, LoweredValue::List(_))
@@ -725,15 +729,15 @@ pub(super) fn lowered_value_from_runtime(value: &Value, kind: LoweredType) -> Op
         (LoweredType::Module, Value::Module(value)) => lowered_module_from_runtime(value),
         (LoweredType::List, Value::List(value)) => lowered_list_from_runtime(value),
         (LoweredType::Map, Value::Map(value)) => lowered_map_from_runtime(value),
-        (LoweredType::Tag, Value::Tag { name, fields }) => Some(LoweredValue::Tag(Box::new(
-            LoweredTagValue {
-            name: name.clone(),
-            fields: fields
-                .iter()
-                .map(lowered_value_from_runtime_any)
-                .collect::<Option<Vec<_>>>()?,
-            },
-        ))),
+        (LoweredType::Tag, Value::Tag { name, fields }) => {
+            Some(LoweredValue::Tag(Box::new(LoweredTagValue {
+                name: name.clone(),
+                fields: fields
+                    .iter()
+                    .map(lowered_value_from_runtime_any)
+                    .collect::<Option<Vec<_>>>()?,
+            })))
+        }
         (LoweredType::Result, Value::Result(value)) => lowered_result_from_runtime(value),
         _ => None,
     }
@@ -905,7 +909,15 @@ pub(super) fn lowered_method_value(
         LoweredValue::Record(record) | LoweredValue::Module(record) => {
             lowered_record_method_value(record, name, args, span)
         }
-        LoweredValue::RecordVec(record) => lowered_record_vec_method_value(&record, name, args, span),
+        LoweredValue::RecordVec(record) => {
+            lowered_record_vec_method_value(&record, name, args, span)
+        }
+        LoweredValue::Stats {
+            blanks,
+            code,
+            comments,
+        } => lowered_inline_stats_method_value(blanks, code, comments, name, args, span),
+        LoweredValue::StatsBlob(stats) => lowered_stats_method_value(&stats, name, args, span),
         LoweredValue::List(items) => lowered_list_method_value(items, name, args, span),
         LoweredValue::SharedList(items) => {
             if let Some(value) =
@@ -1270,11 +1282,7 @@ pub(super) fn lowered_bytes_lines(
         } else {
             line_end
         };
-        lines.push(lowered_bytes_view_value(
-            bytes.clone(),
-            cursor,
-            view_end,
-        ));
+        lines.push(lowered_bytes_view_value(bytes.clone(), cursor, view_end));
         let Some(newline) = newline else {
             break;
         };
@@ -1683,12 +1691,42 @@ pub(super) fn lowered_record_method_value(
 }
 
 fn lowered_record_vec_method_value(
-    record: &[(Arc<str>, LoweredValue)],
+    record: &[(Name, LoweredValue)],
     name: &str,
     args: Vec<LoweredValue>,
     span: Span,
 ) -> Result<LoweredValue, RuntimeError> {
     lowered_record_vec_method_ref(record, name, args, span).and_then(|value| {
+        value.ok_or_else(|| {
+            RuntimeError::new("unsupported-call", "unsupported lowered Record method")
+                .with_span(span)
+        })
+    })
+}
+
+fn lowered_stats_method_value(
+    stats: &LoweredStatsValue,
+    name: &str,
+    args: Vec<LoweredValue>,
+    span: Span,
+) -> Result<LoweredValue, RuntimeError> {
+    lowered_stats_method_ref(stats, name, args, span).and_then(|value| {
+        value.ok_or_else(|| {
+            RuntimeError::new("unsupported-call", "unsupported lowered Record method")
+                .with_span(span)
+        })
+    })
+}
+
+fn lowered_inline_stats_method_value(
+    blanks: i64,
+    code: i64,
+    comments: i64,
+    name: &str,
+    args: Vec<LoweredValue>,
+    span: Span,
+) -> Result<LoweredValue, RuntimeError> {
+    lowered_inline_stats_method_ref(blanks, code, comments, name, args, span).and_then(|value| {
         value.ok_or_else(|| {
             RuntimeError::new("unsupported-call", "unsupported lowered Record method")
                 .with_span(span)
@@ -1722,7 +1760,28 @@ pub(super) fn lowered_index_value(
             let index = lowered_str_value(&index).expect("checked string index");
             lowered_record_vec_get(fields.as_slice(), index)
                 .cloned()
-                .ok_or_else(|| RuntimeError::new("missing-field", index.to_string()).with_span(span))
+                .ok_or_else(|| {
+                    RuntimeError::new("missing-field", index.to_string()).with_span(span)
+                })
+        }
+        (
+            LoweredValue::Stats {
+                blanks,
+                code,
+                comments,
+            },
+            index,
+        ) if lowered_str_value(&index).is_some() => {
+            let index = lowered_str_value(&index).expect("checked string index");
+            lowered_inline_stats_field_value(blanks, code, comments, index).ok_or_else(|| {
+                RuntimeError::new("missing-field", index.to_string()).with_span(span)
+            })
+        }
+        (LoweredValue::StatsBlob(stats), index) if lowered_str_value(&index).is_some() => {
+            let index = lowered_str_value(&index).expect("checked string index");
+            lowered_stats_field_value(&stats, index).ok_or_else(|| {
+                RuntimeError::new("missing-field", index.to_string()).with_span(span)
+            })
         }
         (base, index) => Err(RuntimeError::new(
             "type-error",
@@ -1762,7 +1821,28 @@ pub(super) fn lowered_index_ref(
             let index = lowered_str_value(&index).expect("checked string index");
             lowered_record_vec_get(fields.as_slice(), index)
                 .cloned()
-                .ok_or_else(|| RuntimeError::new("missing-field", index.to_string()).with_span(span))
+                .ok_or_else(|| {
+                    RuntimeError::new("missing-field", index.to_string()).with_span(span)
+                })
+        }
+        (
+            LoweredValue::Stats {
+                blanks,
+                code,
+                comments,
+            },
+            index,
+        ) if lowered_str_value(&index).is_some() => {
+            let index = lowered_str_value(&index).expect("checked string index");
+            lowered_inline_stats_field_value(*blanks, *code, *comments, index).ok_or_else(|| {
+                RuntimeError::new("missing-field", index.to_string()).with_span(span)
+            })
+        }
+        (LoweredValue::StatsBlob(stats), index) if lowered_str_value(&index).is_some() => {
+            let index = lowered_str_value(&index).expect("checked string index");
+            lowered_stats_field_value(stats, index).ok_or_else(|| {
+                RuntimeError::new("missing-field", index.to_string()).with_span(span)
+            })
         }
         (base, index) => Err(RuntimeError::new(
             "type-error",
@@ -2210,7 +2290,7 @@ pub(super) fn lowered_record_method_ref(
 }
 
 fn lowered_record_vec_method_ref(
-    record: &[(Arc<str>, LoweredValue)],
+    record: &[(Name, LoweredValue)],
     name: &str,
     args: Vec<LoweredValue>,
     span: Span,
@@ -2232,9 +2312,73 @@ fn lowered_record_vec_method_ref(
         "keys" if args.is_empty() => Ok(Some(LoweredValue::List(
             record
                 .iter()
-                .map(|(key, _)| LoweredValue::Str(key.clone()))
+                .map(|(key, _)| LoweredValue::Str(Arc::from(key.as_str())))
                 .collect(),
         ))),
+        _ => Ok(None),
+    }
+}
+
+fn lowered_stats_method_ref(
+    stats: &LoweredStatsValue,
+    name: &str,
+    args: Vec<LoweredValue>,
+    span: Span,
+) -> Result<Option<LoweredValue>, RuntimeError> {
+    match name {
+        "has" if args.len() == 1 => {
+            let field = lowered_str_arg(&args[0], "has", span)?;
+            Ok(Some(LoweredValue::Bool(
+                lowered_stats_field_value(stats, field).is_some(),
+            )))
+        }
+        "get" if args.len() == 1 => {
+            let field = lowered_str_arg(&args[0], "get", span)?;
+            Ok(Some(match lowered_stats_field_value(stats, field) {
+                Some(value) => LoweredValue::ResultOk(Box::new(value)),
+                None => lowered_result_err("missing-field", format!("missing field `{field}`")),
+            }))
+        }
+        "keys" if args.is_empty() => Ok(Some(LoweredValue::List(vec![
+            LoweredValue::Str(Arc::from("blanks")),
+            LoweredValue::Str(Arc::from("blobs")),
+            LoweredValue::Str(Arc::from("code")),
+            LoweredValue::Str(Arc::from("comments")),
+        ]))),
+        _ => Ok(None),
+    }
+}
+
+fn lowered_inline_stats_method_ref(
+    blanks: i64,
+    code: i64,
+    comments: i64,
+    name: &str,
+    args: Vec<LoweredValue>,
+    span: Span,
+) -> Result<Option<LoweredValue>, RuntimeError> {
+    match name {
+        "has" if args.len() == 1 => {
+            let field = lowered_str_arg(&args[0], "has", span)?;
+            Ok(Some(LoweredValue::Bool(
+                lowered_inline_stats_field_value(blanks, code, comments, field).is_some(),
+            )))
+        }
+        "get" if args.len() == 1 => {
+            let field = lowered_str_arg(&args[0], "get", span)?;
+            Ok(Some(
+                match lowered_inline_stats_field_value(blanks, code, comments, field) {
+                    Some(value) => LoweredValue::ResultOk(Box::new(value)),
+                    None => lowered_result_err("missing-field", format!("missing field `{field}`")),
+                },
+            ))
+        }
+        "keys" if args.is_empty() => Ok(Some(LoweredValue::List(vec![
+            LoweredValue::Str(Arc::from("blanks")),
+            LoweredValue::Str(Arc::from("blobs")),
+            LoweredValue::Str(Arc::from("code")),
+            LoweredValue::Str(Arc::from("comments")),
+        ]))),
         _ => Ok(None),
     }
 }
@@ -2258,6 +2402,12 @@ pub(super) fn lowered_method_ref(
         LoweredValue::RecordVec(record) => {
             lowered_record_vec_method_ref(record.as_slice(), name, args, span)
         }
+        LoweredValue::Stats {
+            blanks,
+            code,
+            comments,
+        } => lowered_inline_stats_method_ref(*blanks, *code, *comments, name, args, span),
+        LoweredValue::StatsBlob(stats) => lowered_stats_method_ref(stats, name, args, span),
         _ => Ok(None),
     }
 }

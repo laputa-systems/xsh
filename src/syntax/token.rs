@@ -80,6 +80,74 @@ pub enum TokenTag {
 #[repr(transparent)]
 pub struct TokenPayload(pub u32);
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct TokenPayloadEntry {
+    index: u32,
+    payload: TokenPayload,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum TokenStarts {
+    U16(Vec<u16>),
+    U32(Vec<u32>),
+}
+
+impl Default for TokenStarts {
+    fn default() -> Self {
+        Self::U16(Vec::new())
+    }
+}
+
+impl TokenStarts {
+    fn with_capacity(capacity: usize) -> Self {
+        Self::U16(Vec::with_capacity(capacity))
+    }
+
+    fn push(&mut self, start: usize) {
+        let start = u32::try_from(start).expect("token start exceeded u32 byte offset");
+        match self {
+            Self::U16(starts) if u16::try_from(start).is_ok() => {
+                starts.push(start as u16);
+            }
+            Self::U16(starts) => {
+                let mut promoted = Vec::with_capacity(starts.capacity().max(starts.len() + 1));
+                promoted.extend(starts.iter().map(|start| *start as u32));
+                promoted.push(start);
+                *self = Self::U32(promoted);
+            }
+            Self::U32(starts) => starts.push(start),
+        }
+    }
+
+    fn get(&self, index: usize) -> Option<usize> {
+        match self {
+            Self::U16(starts) => starts.get(index).map(|start| *start as usize),
+            Self::U32(starts) => starts.get(index).map(|start| *start as usize),
+        }
+    }
+
+    fn shrink_to_fit(&mut self) {
+        match self {
+            Self::U16(starts) => starts.shrink_to_fit(),
+            Self::U32(starts) => starts.shrink_to_fit(),
+        }
+    }
+
+    fn retained_bytes(&self) -> usize {
+        match self {
+            Self::U16(starts) => starts.capacity() * std::mem::size_of::<u16>(),
+            Self::U32(starts) => starts.capacity() * std::mem::size_of::<u32>(),
+        }
+    }
+
+    fn row_bytes(&self) -> usize {
+        match self {
+            Self::U16(starts) => starts.len() * std::mem::size_of::<u16>(),
+            Self::U32(starts) => starts.len() * std::mem::size_of::<u32>(),
+        }
+    }
+}
+
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct TokenTable {
     data: Arc<TokenTableData>,
@@ -88,32 +156,38 @@ pub struct TokenTable {
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct TokenTableData {
     tags: Vec<TokenTag>,
-    starts: Vec<u32>,
-    payloads: Vec<TokenPayload>,
+    starts: TokenStarts,
+    payloads: Vec<TokenPayloadEntry>,
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct TokenTableBuilder {
     tags: Vec<TokenTag>,
-    starts: Vec<u32>,
-    payloads: Vec<TokenPayload>,
+    starts: TokenStarts,
+    payloads: Vec<TokenPayloadEntry>,
 }
 
 impl TokenTableBuilder {
     pub fn with_capacity(capacity: usize) -> Self {
         Self {
             tags: Vec::with_capacity(capacity),
-            starts: Vec::with_capacity(capacity),
-            payloads: Vec::with_capacity(capacity),
+            starts: TokenStarts::with_capacity(capacity),
+            payloads: Vec::new(),
         }
     }
 
     pub fn push_kind(&mut self, kind: &TokenKind, start: usize) -> TokenId {
-        let id = TokenId::new(self.tags.len());
+        let index = self.tags.len();
+        let id = TokenId::new(index);
         self.tags.push(kind.tag());
-        self.starts
-            .push(u32::try_from(start).expect("token start exceeded u32 byte offset"));
-        self.payloads.push(kind.compact_payload());
+        self.starts.push(start);
+        let payload = kind.compact_payload();
+        if payload.0 != 0 {
+            self.payloads.push(TokenPayloadEntry {
+                index: u32::try_from(index).expect("token table exceeded u32 token ids"),
+                payload,
+            });
+        }
         id
     }
 
@@ -149,11 +223,12 @@ impl TokenTable {
     }
 
     pub fn start(&self, id: TokenId) -> usize {
-        self.data.starts[id.index()] as usize
+        self.start_at(id.index())
+            .expect("token id belongs to this token table")
     }
 
     pub fn start_at(&self, index: usize) -> Option<usize> {
-        self.data.starts.get(index).map(|start| *start as usize)
+        self.data.starts.get(index)
     }
 
     pub fn end(&self, id: TokenId, source: &str) -> usize {
@@ -179,11 +254,23 @@ impl TokenTable {
     }
 
     pub fn payload(&self, id: TokenId) -> TokenPayload {
-        self.data.payloads[id.index()]
+        self.payload_at(id.index())
+            .expect("token id belongs to this token table")
     }
 
     pub fn payload_at(&self, index: usize) -> Option<TokenPayload> {
-        self.data.payloads.get(index).copied()
+        if index >= self.len() {
+            return None;
+        }
+        let index = u32::try_from(index).expect("token table exceeded u32 token ids");
+        match self
+            .data
+            .payloads
+            .binary_search_by_key(&index, |entry| entry.index)
+        {
+            Ok(payload_index) => Some(self.data.payloads[payload_index].payload),
+            Err(_) => Some(TokenPayload::default()),
+        }
     }
 
     pub fn name(&self, id: TokenId) -> Option<Name> {
@@ -227,8 +314,14 @@ impl TokenTable {
         std::mem::size_of::<TokenTableData>()
             + 2 * std::mem::size_of::<usize>()
             + self.data.tags.capacity() * std::mem::size_of::<TokenTag>()
-            + self.data.starts.capacity() * std::mem::size_of::<u32>()
-            + self.data.payloads.capacity() * std::mem::size_of::<TokenPayload>()
+            + self.data.starts.retained_bytes()
+            + self.data.payloads.capacity() * std::mem::size_of::<TokenPayloadEntry>()
+    }
+
+    pub fn row_bytes(&self) -> usize {
+        self.data.tags.len() * std::mem::size_of::<TokenTag>()
+            + self.data.starts.row_bytes()
+            + self.data.payloads.len() * std::mem::size_of::<TokenPayloadEntry>()
     }
 }
 

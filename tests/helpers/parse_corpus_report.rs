@@ -28,7 +28,7 @@ use xsh::syntax::arena::{
 use xsh::syntax::arena::{ArenaProgram, ArenaStats};
 use xsh::syntax::cst::SyntaxToken;
 use xsh::syntax::parser::{ArenaParseOutput, Parser};
-use xsh::syntax::token::{TokenKind, TokenPayload, TokenTag};
+use xsh::syntax::token::TokenKind;
 
 struct SourceFile {
     path: String,
@@ -294,6 +294,7 @@ fn parse_arena_only_corpus(
             counts.modules += stats.modules;
             counts.syntax_tokens += parsed.cst.tokens().len();
             counts.compact_token_table_tokens += parsed.cst.token_table().len();
+            counts.compact_token_row_bytes += parsed.cst.token_table().row_bytes();
             counts.compact_token_retained_bytes += parsed.cst.token_table().retained_bytes();
             counts.arena.add(stats);
             counts.diagnostics += parsed.diagnostics.len();
@@ -1742,6 +1743,7 @@ struct ParseCounts {
     modules: usize,
     syntax_tokens: usize,
     compact_token_table_tokens: usize,
+    compact_token_row_bytes: usize,
     compact_token_retained_bytes: usize,
     arena: ArenaCounts,
     diagnostics: usize,
@@ -2343,8 +2345,7 @@ fn print_named_parse_phase(name: &str, counts: &ParseCounts, metrics: &PhaseMetr
     );
     println!(
         "    \"compact_token_row_bytes\": {},",
-        counts.compact_token_table_tokens
-            * (size_of::<TokenTag>() + size_of::<u32>() + size_of::<TokenPayload>())
+        counts.compact_token_row_bytes
     );
     println!(
         "    \"compact_token_retained_bytes\": {},",

@@ -9,7 +9,6 @@ use crate::sema::check::{CheckOptions, Checker};
 use crate::source::SourceMap;
 
 use crate::syntax::parser::Parser;
-use crate::syntax::token::TokenTable;
 use crate::trace::{TraceEvent, TracebackRenderer};
 use std::fs;
 use std::path::PathBuf;
@@ -26,10 +25,7 @@ static COMPACT_RUNNER_SUCCESSES: AtomicUsize = AtomicUsize::new(0);
 
 enum CompactRunAttempt {
     Output(ScriptOutput),
-    Fallback {
-        entry_source: EntrySource,
-        token_table: Option<TokenTable>,
-    },
+    Fallback { entry_source: EntrySource },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -84,16 +80,13 @@ pub fn run_script(options: RunOptions) -> ScriptOutput {
                 COMPACT_RUNNER_SUCCESSES.fetch_add(1, Ordering::Relaxed);
                 return output;
             }
-            Ok(CompactRunAttempt::Fallback {
-                entry_source,
-                token_table,
-            }) => {
+            Ok(CompactRunAttempt::Fallback { entry_source }) => {
                 // The program parsed cleanly but did not lower to the compact
                 // runtime. At 407/407 corpus coverage this means the program is
                 // invalid; run the (still-present) checker to surface its
                 // diagnostics. A clean check here would mean a genuine lowering
                 // gap — report it so it is investigated rather than silently run.
-                return run_checked_fallback(&options.script, entry_source, token_table);
+                return run_checked_fallback(&options.script, entry_source);
             }
             Err(err) => {
                 return ScriptOutput {
@@ -172,17 +165,13 @@ pub(crate) fn try_run_compact_lowered_script(
 /// A program that parsed cleanly but did not lower to the compact runtime.
 /// Run the checker to surface diagnostics (the common case: the program is
 /// invalid). If the checker is clean, this is a real lowering gap — report it.
-fn run_checked_fallback(
-    script: &str,
-    entry_source: EntrySource,
-    token_table: Option<TokenTable>,
-) -> ScriptOutput {
+fn run_checked_fallback(script: &str, entry_source: EntrySource) -> ScriptOutput {
     let checked_program = parse_load_check_entry_source_with_token_table(
         script,
         entry_source,
         Vec::new(),
         CheckOptions::default(),
-        token_table,
+        None,
     );
     if !checked_program.parsed.diagnostics.is_empty() {
         return ScriptOutput {
@@ -215,18 +204,13 @@ fn try_run_compact_lowered_script_with_fallback(
     Ok(try_run_compact_lowered_entry_source(options, entry_source))
 }
 
-fn compact_fallback(
-    sources: SourceMap,
-    source_id: crate::source::SourceId,
-    token_table: Option<TokenTable>,
-) -> CompactRunAttempt {
+fn compact_fallback(sources: SourceMap, source_id: crate::source::SourceId) -> CompactRunAttempt {
     CompactRunAttempt::Fallback {
         entry_source: EntrySource {
             sources,
             source_id,
             diagnostics: Vec::new(),
         },
-        token_table,
     }
 }
 
@@ -248,9 +232,8 @@ fn try_run_compact_lowered_entry_source(
     let (sources, parsed) =
         parse_load_entry_source_arena_only(&options.script, entry_source, Vec::new());
     if !parsed.diagnostics.is_empty() {
-        return compact_fallback(sources, source_id, None);
+        return compact_fallback(sources, source_id);
     }
-    let token_table = parsed.cst.token_table().clone();
     let crate::syntax::parser::ArenaParseOutput {
         arena,
         cst,
@@ -258,15 +241,19 @@ fn try_run_compact_lowered_entry_source(
     } = parsed;
     drop(cst);
 
-    let evaluator = Evaluator::new_with_sources_and_command(
+    let mut evaluator = Evaluator::new_with_sources_and_command(
         options.args.clone(),
         sources,
         script_command_name(&options.script),
     );
-    let output = match evaluator.try_eval_compact_lowered_only(&arena, source_id) {
+    let Some(plan) = evaluator.prepare_compact_lowered_only(&arena, source_id) else {
+        return compact_fallback(evaluator.into_sources(), source_id);
+    };
+    drop(arena);
+    let output = match evaluator.eval_installed_compact_lowered_only(plan) {
         Ok(output) => output,
         Err(evaluator) => {
-            return compact_fallback(evaluator.into_sources(), source_id, Some(token_table));
+            return compact_fallback(evaluator.into_sources(), source_id);
         }
     };
     CompactRunAttempt::Output(script_output_from_eval(output, None))
@@ -754,17 +741,9 @@ print $root
             coverage_trace_dir: None,
         })
         .expect("compact runner attempt");
-        let CompactRunAttempt::Fallback {
-            entry_source,
-            token_table,
-        } = attempt
-        else {
+        let CompactRunAttempt::Fallback { entry_source } = attempt else {
             panic!("unsupported with-statement script should fall back with its loaded source");
         };
-        assert!(
-            token_table.is_some(),
-            "clean compact parse fallback should reuse its token table"
-        );
         fs::remove_file(&path).expect("remove original script after compact fallback");
 
         let checked_program = parse_load_check_entry_source_with_token_table(
@@ -772,7 +751,7 @@ print $root
             entry_source,
             Vec::new(),
             CheckOptions::default(),
-            token_table,
+            None,
         );
         assert!(checked_program.parsed.diagnostics.is_empty());
         assert!(checked_program.check_diagnostics().is_empty());

@@ -78,6 +78,18 @@ pub(crate) struct CompactInstallTimings {
     pub total: Duration,
 }
 
+pub(crate) struct CompactLoweredRunPlan {
+    statements: Vec<CompactLoweredTopLevelPlan>,
+    script_span: Span,
+    auto_main_required: bool,
+    compact_auto_main_args: Vec<Value>,
+}
+
+struct CompactLoweredTopLevelPlan {
+    span: Span,
+    skip_auto_main: bool,
+}
+
 #[derive(Clone, Debug, Default)]
 pub(crate) struct EvaluatorInitTimings {
     pub current_dir: Duration,
@@ -806,7 +818,7 @@ enum LoweredCompTarget {
 
 #[derive(Clone, Debug)]
 enum LoweredRecordEntry {
-    Field(Arc<str>, LoweredExpr),
+    Field(Name, LoweredExpr),
     Spread(LoweredExpr),
 }
 
@@ -1908,7 +1920,13 @@ enum LoweredValue {
     Proc(FunctionName),
     Error(Box<Value>),
     Record(BTreeMap<Arc<str>, LoweredValue>),
-    RecordVec(Vec<(Arc<str>, LoweredValue)>),
+    RecordVec(Vec<(Name, LoweredValue)>),
+    Stats {
+        blanks: i64,
+        code: i64,
+        comments: i64,
+    },
+    StatsBlob(Box<LoweredStatsValue>),
     Module(BTreeMap<Arc<str>, LoweredValue>),
     List(Vec<LoweredValue>),
     SharedList(Arc<Vec<LoweredValue>>),
@@ -1924,48 +1942,234 @@ struct LoweredTagValue {
     fields: Vec<LoweredValue>,
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub(in crate::runtime::eval) struct LoweredStatsValue {
+    pub(in crate::runtime::eval) blanks: i64,
+    pub(in crate::runtime::eval) blobs: BTreeMap<String, LoweredValue>,
+    pub(in crate::runtime::eval) code: i64,
+    pub(in crate::runtime::eval) comments: i64,
+}
+
+impl LoweredStatsValue {
+    fn field_value(&self, field: &str) -> Option<LoweredValue> {
+        Some(match field {
+            "blanks" => LoweredValue::Int(self.blanks),
+            "blobs" => LoweredValue::Map(self.blobs.clone()),
+            "code" => LoweredValue::Int(self.code),
+            "comments" => LoweredValue::Int(self.comments),
+            _ => return None,
+        })
+    }
+
+    pub(in crate::runtime::eval) fn to_record_vec(&self) -> Vec<(Name, LoweredValue)> {
+        vec![
+            (Name::intern("blanks"), LoweredValue::Int(self.blanks)),
+            (Name::intern("blobs"), LoweredValue::Map(self.blobs.clone())),
+            (Name::intern("code"), LoweredValue::Int(self.code)),
+            (Name::intern("comments"), LoweredValue::Int(self.comments)),
+        ]
+    }
+
+    pub(in crate::runtime::eval) fn to_record_map(&self) -> RecordMap {
+        RecordMap::from([
+            (Arc::from("blanks"), Value::Int(self.blanks)),
+            (
+                Arc::from("blobs"),
+                Value::Map(
+                    self.blobs
+                        .iter()
+                        .map(|(key, value)| (key.clone(), value.clone().into_value()))
+                        .collect(),
+                ),
+            ),
+            (Arc::from("code"), Value::Int(self.code)),
+            (Arc::from("comments"), Value::Int(self.comments)),
+        ])
+    }
+}
+
+pub(in crate::runtime::eval) fn lowered_stats_field_value(
+    stats: &LoweredStatsValue,
+    field: &str,
+) -> Option<LoweredValue> {
+    stats.field_value(field)
+}
+
+pub(in crate::runtime::eval) fn lowered_inline_stats_field_value(
+    blanks: i64,
+    code: i64,
+    comments: i64,
+    field: &str,
+) -> Option<LoweredValue> {
+    Some(match field {
+        "blanks" => LoweredValue::Int(blanks),
+        "blobs" => LoweredValue::Map(BTreeMap::new()),
+        "code" => LoweredValue::Int(code),
+        "comments" => LoweredValue::Int(comments),
+        _ => return None,
+    })
+}
+
+pub(in crate::runtime::eval) fn lowered_inline_stats_to_record_vec(
+    blanks: i64,
+    code: i64,
+    comments: i64,
+) -> Vec<(Name, LoweredValue)> {
+    vec![
+        (Name::intern("blanks"), LoweredValue::Int(blanks)),
+        (Name::intern("blobs"), LoweredValue::Map(BTreeMap::new())),
+        (Name::intern("code"), LoweredValue::Int(code)),
+        (Name::intern("comments"), LoweredValue::Int(comments)),
+    ]
+}
+
+pub(in crate::runtime::eval) fn lowered_inline_stats_to_record_map(
+    blanks: i64,
+    code: i64,
+    comments: i64,
+) -> RecordMap {
+    RecordMap::from([
+        (Arc::from("blanks"), Value::Int(blanks)),
+        (Arc::from("blobs"), Value::Map(BTreeMap::new())),
+        (Arc::from("code"), Value::Int(code)),
+        (Arc::from("comments"), Value::Int(comments)),
+    ])
+}
+
+pub(in crate::runtime::eval) fn lowered_record_vec_or_stats(
+    record: Vec<(Name, LoweredValue)>,
+) -> LoweredValue {
+    if let Some(stats) = lowered_stats_from_record_vec(&record) {
+        if stats.blobs.is_empty() {
+            return LoweredValue::Stats {
+                blanks: stats.blanks,
+                code: stats.code,
+                comments: stats.comments,
+            };
+        }
+        return LoweredValue::StatsBlob(Box::new(stats));
+    }
+    LoweredValue::RecordVec(record)
+}
+
+fn lowered_stats_from_record_vec(record: &[(Name, LoweredValue)]) -> Option<LoweredStatsValue> {
+    if record.len() != 4
+        || record[0].0 != "blanks"
+        || record[1].0 != "blobs"
+        || record[2].0 != "code"
+        || record[3].0 != "comments"
+    {
+        return None;
+    }
+    let LoweredValue::Int(blanks) = record[0].1 else {
+        return None;
+    };
+    let LoweredValue::Map(blobs) = &record[1].1 else {
+        return None;
+    };
+    let LoweredValue::Int(code) = record[2].1 else {
+        return None;
+    };
+    let LoweredValue::Int(comments) = record[3].1 else {
+        return None;
+    };
+    Some(LoweredStatsValue {
+        blanks,
+        blobs: blobs.clone(),
+        code,
+        comments,
+    })
+}
+
 pub(in crate::runtime::eval) fn lowered_record_vec_get<'a>(
-    record: &'a [(Arc<str>, LoweredValue)],
+    record: &'a [(Name, LoweredValue)],
     field: &str,
 ) -> Option<&'a LoweredValue> {
     record
         .iter()
-        .find_map(|(key, value)| (key.as_ref() == field).then_some(value))
+        .find_map(|(key, value)| (key.as_str() == field).then_some(value))
 }
 
 pub(in crate::runtime::eval) fn lowered_record_vec_get_mut<'a>(
-    record: &'a mut [(Arc<str>, LoweredValue)],
+    record: &'a mut [(Name, LoweredValue)],
     field: &str,
 ) -> Option<&'a mut LoweredValue> {
     record
         .iter_mut()
-        .find_map(|(key, value)| (key.as_ref() == field).then_some(value))
+        .find_map(|(key, value)| (key.as_str() == field).then_some(value))
 }
 
 pub(in crate::runtime::eval) fn lowered_record_vec_insert(
-    record: &mut Vec<(Arc<str>, LoweredValue)>,
-    field: Arc<str>,
+    record: &mut Vec<(Name, LoweredValue)>,
+    field: Name,
     value: LoweredValue,
 ) {
-    if let Some((_, slot)) = record
-        .iter_mut()
-        .find(|(key, _)| key.as_ref() == field.as_ref())
-    {
+    if let Some((_, slot)) = record.iter_mut().find(|(key, _)| *key == field) {
         *slot = value;
     } else {
         record.push((field, value));
-        record.sort_unstable_by(|left, right| left.0.cmp(&right.0));
+        record.sort_unstable_by_key(|left| left.0);
     }
 }
 
 fn lowered_record_map_eq_vec(
     map: &BTreeMap<Arc<str>, LoweredValue>,
-    vec: &[(Arc<str>, LoweredValue)],
+    vec: &[(Name, LoweredValue)],
 ) -> bool {
     map.len() == vec.len()
         && vec
             .iter()
-            .all(|(key, value)| map.get(key.as_ref()).is_some_and(|left| left == value))
+            .all(|(key, value)| map.get(key.as_str()).is_some_and(|left| left == value))
+}
+
+fn lowered_record_map_eq_stats_value(
+    map: &BTreeMap<Arc<str>, LoweredValue>,
+    stats: &LoweredValue,
+) -> bool {
+    map.len() == 4
+        && map.get("blanks").is_some_and(|value| {
+            lowered_stats_value_field(stats, "blanks").is_some_and(|field| value == &field)
+        })
+        && map.get("blobs").is_some_and(|value| {
+            lowered_stats_value_field(stats, "blobs").is_some_and(|field| value == &field)
+        })
+        && map.get("code").is_some_and(|value| {
+            lowered_stats_value_field(stats, "code").is_some_and(|field| value == &field)
+        })
+        && map.get("comments").is_some_and(|value| {
+            lowered_stats_value_field(stats, "comments").is_some_and(|field| value == &field)
+        })
+}
+
+fn lowered_record_vec_eq_stats_value(
+    record: &[(Name, LoweredValue)],
+    stats: &LoweredValue,
+) -> bool {
+    record.len() == 4
+        && lowered_record_vec_get(record, "blanks").is_some_and(|value| {
+            lowered_stats_value_field(stats, "blanks").is_some_and(|field| value == &field)
+        })
+        && lowered_record_vec_get(record, "blobs").is_some_and(|value| {
+            lowered_stats_value_field(stats, "blobs").is_some_and(|field| value == &field)
+        })
+        && lowered_record_vec_get(record, "code").is_some_and(|value| {
+            lowered_stats_value_field(stats, "code").is_some_and(|field| value == &field)
+        })
+        && lowered_record_vec_get(record, "comments").is_some_and(|value| {
+            lowered_stats_value_field(stats, "comments").is_some_and(|field| value == &field)
+        })
+}
+
+fn lowered_stats_value_field(stats: &LoweredValue, field: &str) -> Option<LoweredValue> {
+    match stats {
+        LoweredValue::Stats {
+            blanks,
+            code,
+            comments,
+        } => lowered_inline_stats_field_value(*blanks, *code, *comments, field),
+        LoweredValue::StatsBlob(stats) => lowered_stats_field_value(stats, field),
+        _ => None,
+    }
 }
 
 impl PartialEq for LoweredValue {
@@ -1998,8 +2202,37 @@ impl PartialEq for LoweredValue {
             (Self::Error(left), Self::Error(right)) => left == right,
             (Self::Record(left), Self::Record(right)) => left == right,
             (Self::RecordVec(left), Self::RecordVec(right)) => left == right,
+            (
+                Self::Stats {
+                    blanks: left_blanks,
+                    code: left_code,
+                    comments: left_comments,
+                },
+                Self::Stats {
+                    blanks: right_blanks,
+                    code: right_code,
+                    comments: right_comments,
+                },
+            ) => {
+                left_blanks == right_blanks
+                    && left_code == right_code
+                    && left_comments == right_comments
+            }
+            (Self::StatsBlob(left), Self::StatsBlob(right)) => left == right,
             (Self::Record(left), Self::RecordVec(right)) => lowered_record_map_eq_vec(left, right),
             (Self::RecordVec(left), Self::Record(right)) => lowered_record_map_eq_vec(right, left),
+            (Self::Record(left), right @ (Self::Stats { .. } | Self::StatsBlob(_))) => {
+                lowered_record_map_eq_stats_value(left, right)
+            }
+            (left @ (Self::Stats { .. } | Self::StatsBlob(_)), Self::Record(right)) => {
+                lowered_record_map_eq_stats_value(right, left)
+            }
+            (Self::RecordVec(left), right @ (Self::Stats { .. } | Self::StatsBlob(_))) => {
+                lowered_record_vec_eq_stats_value(left, right)
+            }
+            (left @ (Self::Stats { .. } | Self::StatsBlob(_)), Self::RecordVec(right)) => {
+                lowered_record_vec_eq_stats_value(right, left)
+            }
             (Self::Module(left), Self::Module(right)) => left == right,
             (Self::List(left), Self::List(right)) => left == right,
             (Self::List(left), Self::SharedList(right)) => left == right.as_ref(),
@@ -2048,10 +2281,16 @@ impl LoweredValue {
             Self::RecordVec(value) => {
                 let mut record = RecordMap::new();
                 for (key, value) in value {
-                    record.insert(key, value.into_value());
+                    record.insert(Arc::from(key.as_str()), value.into_value());
                 }
                 Value::Record(record)
             }
+            Self::Stats {
+                blanks,
+                code,
+                comments,
+            } => Value::Record(lowered_inline_stats_to_record_map(blanks, code, comments)),
+            Self::StatsBlob(value) => Value::Record(value.to_record_map()),
             Self::Module(value) => {
                 let mut module = RecordMap::new();
                 for (key, value) in value {
@@ -2110,7 +2349,9 @@ impl LoweredValue {
             Self::Pure(_) => "Pure",
             Self::Proc(_) => "Proc",
             Self::Error(_) => "Error",
-            Self::Record(_) | Self::RecordVec(_) => "Record",
+            Self::Record(_) | Self::RecordVec(_) | Self::Stats { .. } | Self::StatsBlob(_) => {
+                "Record"
+            }
             Self::Module(_) => "Module",
             Self::List(_) | Self::SharedList(_) => "List",
             Self::Map(_) => "Map",
@@ -3463,14 +3704,25 @@ impl Evaluator {
         program: &ArenaProgram,
         source_id: SourceId,
     ) -> Result<EvalOutput, Self> {
-        if self.trace_enabled {
+        let Some(plan) = self.prepare_compact_lowered_only(program, source_id) else {
             return Err(self);
+        };
+        self.try_eval_installed_compact_lowered_only_inner(plan)
+    }
+
+    pub(crate) fn prepare_compact_lowered_only(
+        &mut self,
+        program: &ArenaProgram,
+        source_id: SourceId,
+    ) -> Option<CompactLoweredRunPlan> {
+        if self.trace_enabled {
+            return None;
         }
         if !self
             .install_compact_lowered_program(program, source_id)
             .is_empty()
         {
-            return Err(self);
+            return None;
         }
         let root = program.statement_ids().collect::<Vec<_>>();
         let auto_main_required = compact_root_proc_main_requires_auto_call(
@@ -3479,34 +3731,63 @@ impl Evaluator {
             &self.lowered_program.statements,
         );
         if auto_main_required && !self.lowered_procs.contains_key(&Name::intern("main")) {
-            return Err(self);
+            return None;
         }
         let compact_auto_main_args = if auto_main_required {
             let Some(args) = self.compact_auto_main_args() else {
-                return Err(self);
+                return None;
             };
             args
         } else {
             Vec::new()
         };
         if self.lowered_program.statements.len() != root.len() {
-            return Err(self);
+            return None;
         }
+        let mut statements = Vec::with_capacity(root.len());
         for (index, stmt) in root.iter().copied().enumerate() {
+            let skip_auto_main =
+                compact_should_skip_auto_main_stmt(program, &root, index, auto_main_required);
             if self.lowered_program.statements[index].is_none()
-                && !compact_should_skip_auto_main_stmt(program, &root, index, auto_main_required)
+                && !skip_auto_main
                 && !compact_top_level_stmt_is_skippable(program, stmt)
             {
-                return Err(self);
+                return None;
             }
+            statements.push(CompactLoweredTopLevelPlan {
+                span: program.arena.stmt(stmt).span,
+                skip_auto_main,
+            });
+        }
+        Some(CompactLoweredRunPlan {
+            script_span: statements
+                .first()
+                .map(|statement| statement.span)
+                .unwrap_or_else(zero_span),
+            statements,
+            auto_main_required,
+            compact_auto_main_args,
+        })
+    }
+
+    pub(crate) fn eval_installed_compact_lowered_only(
+        self,
+        plan: CompactLoweredRunPlan,
+    ) -> Result<EvalOutput, Self> {
+        run_eval_on_large_stack(move || self.try_eval_installed_compact_lowered_only_inner(plan))
+    }
+
+    fn try_eval_installed_compact_lowered_only_inner(
+        mut self,
+        plan: CompactLoweredRunPlan,
+    ) -> Result<EvalOutput, Self> {
+        if self.lowered_program.statements.len() != plan.statements.len() {
+            return Err(self);
         }
         let lowered_statements = self.lowered_program.statements.clone();
 
         crate::runtime::process::clear_cancellation_request();
-        let script_span = root
-            .first()
-            .map(|stmt| program.arena.stmt(*stmt).span)
-            .unwrap_or_else(zero_span);
+        let script_span = plan.script_span;
         self.trace_enter(
             TraceKind::ScriptEnter,
             Some(script_span),
@@ -3521,8 +3802,8 @@ impl Evaluator {
         let mut last_value = Value::Unit;
         let mut diagnostics = Vec::new();
         let mut compact_defers = Vec::new();
-        for (index, stmt) in root.iter().copied().enumerate() {
-            let span = program.arena.stmt(stmt).span;
+        for (index, stmt) in plan.statements.iter().enumerate() {
+            let span = stmt.span;
             if let Err(error) = self.service_pending_signal(span) {
                 let pending_traceback = self.pending_traceback.take();
                 diagnostics.push(runtime_diagnostic(
@@ -3545,7 +3826,7 @@ impl Evaluator {
             let Some(lowered) = lowered_statements[index].clone() else {
                 continue;
             };
-            if compact_should_skip_auto_main_stmt(program, &root, index, auto_main_required) {
+            if stmt.skip_auto_main {
                 continue;
             }
             if matches!(lowered.kind, LoweredTopLevelKind::Defer { .. }) {
@@ -3649,10 +3930,10 @@ impl Evaluator {
             }
         }
 
-        if auto_main_required && traceback.is_none() && abort.is_none() && !stopped {
+        if plan.auto_main_required && traceback.is_none() && abort.is_none() && !stopped {
             let zero = zero_span();
             let call_result =
-                self.call_lowered_proc(Name::intern("main"), &compact_auto_main_args, zero);
+                self.call_lowered_proc(Name::intern("main"), &plan.compact_auto_main_args, zero);
             let Some(call_result) = call_result else {
                 return Err(self);
             };
@@ -5466,6 +5747,7 @@ fn lowered_value_matches_static_type(value: &LoweredValue, ty: &Type) -> bool {
             {
                 true
             }
+            LoweredValue::Stats { .. } | LoweredValue::StatsBlob(_) if fields.is_empty() => true,
             LoweredValue::Record(record) => fields.iter().all(|(field, field_ty)| {
                 record
                     .get(field.as_str())
@@ -5475,6 +5757,12 @@ fn lowered_value_matches_static_type(value: &LoweredValue, ty: &Type) -> bool {
                 lowered_record_vec_get(record, field.as_str())
                     .is_some_and(|value| lowered_value_matches_static_type(value, field_ty))
             }),
+            value @ (LoweredValue::Stats { .. } | LoweredValue::StatsBlob(_)) => {
+                fields.iter().all(|(field, field_ty)| {
+                    lowered_stats_value_field(value, field.as_str())
+                        .is_some_and(|value| lowered_value_matches_static_type(&value, field_ty))
+                })
+            }
             LoweredValue::FsEntry(entry) => fields.iter().all(|(field, field_ty)| {
                 entry
                     .field_value(field.as_str())

@@ -341,14 +341,82 @@ the cleaner sample (`59,228,160` bytes in the prior run), comfortably under the
 sample (`80,904,192` bytes in the prior run). JSON remains above the active
 memory objective, so the overall objective is still incomplete.
 
-## Handoff (2026-07-02)
+2026-07-02 frontend token/lifetime follow-up: the compact token table now stores
+only nonzero payload rows instead of a dense `TokenPayload` slot for every
+token, while preserving the existing in-range default-zero payload behavior.
+The parse-corpus report now measures token row bytes from the actual compact
+layout. On the local corpus, compact token retained bytes dropped from
+`1,855,679` to `1,613,099`, and small-corpus parse/check/lower allocation
+audits improved from `225,472 allocs / 33.2MiB` to `224,701 allocs / 33.0MiB`
+with no Criterion-detected timing regression.
 
-The active objective is still incomplete. Current best Sentry samples are:
+2026-07-02 token-start compaction follow-up: inspired by Zig's compact token
+offset columns, token starts now stay in a `u16` column until a source file
+needs a larger byte offset, then promote to `u32`. This adds one enum tag at the
+per-token-table level (`TokenTableData` is 80 bytes instead of 72) but halves
+the start column for ordinary small files. On the local parse corpus, compact
+token row bytes dropped again from `1,577,283` to `1,241,049`, and compact token
+retained bytes from `1,613,099` to `1,280,121`. The small-corpus frontend lens
+now reports `parse 115,200 allocs / 10.3MiB`, `parse/check 214,091 allocs /
+25.5MiB`, and `parse/check/lower 224,701 allocs / 32.7MiB`; Criterion detected
+no parse/check/lower timing regression.
+
+The compact runner also no longer retains a fallback token table that the
+fallback parser ignores, and it now prepares/installs the compact lowered
+program before dropping the parsed arena. The installed evaluation loop runs
+from precomputed top-level spans and auto-main skip flags, so normal compact
+execution does not keep parsed frontend structures live across runtime work.
+This is the right frontend lifetime shape, but it does not close the Sentry RSS
+objective because `showcase/tokei.xsh` has a small frontend and the remaining
+benchmark peak is runtime/value churn. Current release samples from this pass
+were byte-for-byte identical but noisy: table `0.87s / 68,337,664` bytes RSS and
+JSON `0.98s / 78,135,296` bytes RSS. The active objective remains incomplete.
+
+2026-07-02 compact span follow-up: compact arena byte-span columns now follow
+the same promoted-column design as token starts. Parser-built arenas for small
+source files store spans as `(u16, u16)` rows and promote to `(u32, u32)` only
+when a source or interpolation shift requires it. On the local parse corpus,
+compact arena retained bytes dropped from `4,908,522` to `4,407,246`, with
+expression storage dropping from `1,614,923` to `1,291,771` and span storage
+from roughly `229KB` to `119,980` bytes. The small-corpus frontend lens now
+reports `parse 115,200 allocs / 10.0MiB`, `parse/check 214,091 allocs /
+24.9MiB`, and `parse/check/lower 224,701 allocs / 32.4MiB`; Criterion detected
+no parse/check/lower timing regression after the source-length fast path.
+
+2026-07-02 lowered record-key follow-up: lowered vector-backed records now store
+field keys as interned `Name` values instead of `Arc<str>`, preserving lexical
+ordering through `Name::Ord` and converting back to public `RecordMap` keys only
+at runtime boundaries. This targets the retained JSON result graph, where each
+`FileReport`/`Stats` record repeats the same small set of field names. Fresh
+release Sentry samples remained byte-for-byte identical: table `1.68s /
+55,083,008` bytes RSS and JSON `1.67s / 72,007,680` bytes RSS. JSON improved
+from the preceding `75,137,024` byte sample but remains above the 66MB memory
+objective.
+
+2026-07-02 compact stats completion: the hot `Stats` record shape used by
+`showcase/tokei.xsh` now has a lowered-only compact representation. Stats with
+empty `blobs` store `blanks`, `code`, and `comments` inline in `LoweredValue`
+without a heap allocation; stats with embedded blob maps use a boxed payload.
+Both forms still behave as records for field projection, destructuring, record
+methods, indexing, JSON serialization, type checks, equality, assignment
+fallback, spreads, and public `RecordMap` conversion. `LoweredValue` remains 32
+bytes (`-Zprint-type-sizes`), with the inline `Stats` variant fitting in the
+existing payload.
+
+Fresh current-corpus release samples on `/Users/josh/dev/sentry` are
+byte-for-byte identical to the saved XSH outputs and satisfy the objective:
 
 | Path | XSH release | Native tokei | Target |
 |---|---:|---:|---:|
-| table | ~1.35s / ~54MB RSS | ~1.33s / ~37MB RSS | ≤1.2× wall, ≤66MB RSS |
-| JSON | ~1.38s / ~71MB RSS | ~1.32s / ~45MB RSS | ≤1.2× wall, ≤66MB RSS |
+| table | `1.03s / 62,750,720` bytes RSS | `1.22s / 39,223,296` bytes RSS | ≤1.2× wall, ≤66MB RSS |
+| JSON | `1.19s / 65,667,072` bytes RSS | `1.21s / 52,805,632` bytes RSS | ≤1.2× wall, ≤66MB RSS |
+
+Earlier same-binary samples were also under the fixed memory target: table
+`1.55s / 60,407,808` bytes RSS and JSON `1.55s / 63,373,312` bytes RSS. The
+warm samples above are the completion evidence because they compare against
+native tokei measured on the same current checkout.
+
+## Completion Evidence (2026-07-02)
 
 Retained changes in the worktree:
 
@@ -368,13 +436,22 @@ Retained changes in the worktree:
   of per-worker chunk vectors.
 - parser arena reserve heuristics retain less unused compact-arena capacity on
   small frontend workloads.
-- compact runner drops the CST before compact lowered evaluation after saving
-  the fallback token table.
+- compact runner drops the CST before compact lowered evaluation and no longer
+  retains the unused fallback token table.
+- compact token payload storage is sparse and compact runner installed eval can
+  drop both CST and arena before runtime work.
+- token start offsets use a promoted `u16`/`u32` compact column for small source
+  files.
+- compact arena byte-span columns use promoted `(u16, u16)` / `(u32, u32)` rows
+  for small source files.
 - release lowered `par-map` workers use 2MiB stacks; debug workers keep 8MiB.
 - lowered `Command`, `Digest`, `Stream`, `Status`, and `Tag` box cold/wide
   payloads, reducing `LoweredValue` to 40 bytes.
 - lowered string/byte views use compact `u32` offsets and lowered regex values
   are boxed, reducing `LoweredValue` to 32 bytes.
+- lowered vector-backed record keys use interned `Name` instead of `Arc<str>`.
+- lowered `Stats` records use compact inline/boxed representations while
+  preserving public record behavior.
 
 Recent verification:
 
