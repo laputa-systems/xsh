@@ -29,23 +29,70 @@ front-end setup instead of host `current_dir()` latency once per corpus file.
 The current local baseline is tracked in
 `perf/small-corpus-baseline-aarch64.json`.
 
+## Frontend profiling workflow
+
+Use this path for token table, arena layout, parser, declaration-probe, compact
+module graph, body-probe, and compact lowering work. Start with the narrowest
+command that answers the question, then refresh the Linux baseline only when the
+change is meant to move the checked-in frontend metrics.
+
+```sh
+cargo check --no-default-features
+cargo test --test runtime <filter> --no-default-features
+RUST_MIN_STACK=16777216 cargo test --test runtime --no-default-features
+git diff --check
+cargo run --quiet --bin xsh-parse-corpus-report --no-default-features \
+  --features "tools perf-metrics" -- --root . --repeat 1
+make prof-baseline-frontend
+```
+
+Do not run formatters or autofixers as part of frontend profiling. The project
+docs gate also avoids `make docs` for that reason; use the formatter-free docs
+commands in `docs/TEST-MAP.md` when docs or examples change.
+
+`xsh-parse-corpus-report` is the compact-front-end boundary-readiness report. In
+addition to phase allocation/timing data, it emits:
+
+- `per_file_counts`: bytes, tokens, statements, imports, exports, declarations,
+  and executable top-level statements per file.
+- `per_phase_file_summaries`: total, p50, p95, and max per-file timing for
+  parse, declaration probe, body probe, lowering probes, and runtime declaration
+  registration.
+- `module_graph_readiness`: import edges, unique modules, qualified declaration
+  count, duplicate diagnostics, and largest dependency component.
+- `function_lowering_readiness`: attempted/lowered/blocked function counts,
+  dependency edges, SCC count, blocker counts, and qualified vs unqualified call
+  counts.
+- `top_level_readiness`: lowered/skipped/blocked top-level statement counts and
+  fallback reason counts.
+
+`make prof-baseline-frontend` runs inside the Linux Docker profiling container
+and writes `perf/*-baseline-$(uname -m).json`. On Apple Silicon that means the
+`aarch64` baseline is a Linux baseline, not a macOS one. Compare baselines only
+when target OS, target arch, profile, repeat count, and corpus root match.
+
+The `unix::` spawn tests leak a child that holds the stdout pipe open, so a
+foreground `cargo test --test runtime` can appear to hang after the `test
+result:` line prints. Wait for that line, then `pkill -f deps/runtime`.
+
 Regenerate checked-in performance baselines in the Linux test container, not on
 the host. `Dockerfile.test` carries the musl toolchain and profiling tools used
 for release-like measurements. Run only the lens that is relevant to the work:
 full profiling is expensive and often hides the signal you need.
 
 ```sh
-make prof-baseline-frontend  # AST/token/span/layout/parser memory work
+make prof-baseline-frontend  # arena/token/span/layout/parser memory work
 make prof-baseline-runtime   # runtime/module/evaluator allocation or Ir work
 make prof-baseline           # full refresh only when both areas changed
 ```
 
 `perf/layout-baseline-<arch>.json` records `size_of` and `align_of` for the
-registry, signature, AST, semantic, runtime value, source-span, symbol, and trace
-structs that dominate interpreter memory layout.
+registry, signature, compact syntax, semantic, runtime value, source-span,
+symbol, and trace structs that dominate interpreter memory layout.
 `perf/parse-corpus-baseline-<arch>.json` tracks front-end wall time,
-allocation counters, and peak RSS across parse, desugar, arena conversion,
-check, and IR lowering over the checked-in `.xsh` corpus. `make prof` writes current reports under
+allocation counters, and peak RSS across compact parse, declaration probing,
+body probing, checking, and IR lowering over the checked-in `.xsh` corpus.
+`make prof` writes current reports under
 `target/prof/`; `make prof-baseline-frontend` refreshes the checked-in layout
 and parse-corpus baselines. Use `interpreter-baseline.json` for timing
 direction, the parse-corpus baseline for front-end memory pressure, and

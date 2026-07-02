@@ -1,8 +1,16 @@
-# Front-End Pipeline Design
+# Compact Front-End and Lowered Runtime Pipeline
 
-The front end is a compact, Zig-aligned pipeline for parsing, checking,
-lowering, and execution. The design mirrors Zig's `Ast.zig` and `Parse.zig`
-(see `~/d/zig/lib/std/zig/` for reference).
+The active XSH pipeline is compact-first: source is parsed into dense token,
+CST, and arena tables; checked directly from arena IDs; lowered from those same
+IDs where the behavior is supported; and executed by the compact lowered runtime.
+There is no `src/syntax/ast.rs`, recursive syntax tree, or compatibility
+frontend in the normal execution path.
+
+The front-end data layout is deliberately Zig-aligned in spirit: compact token
+columns, typed node indexes, side-table ranges for variable payloads, and lazy
+source-location recovery. The runtime is still language-first rather than VM-
+first: lowered IR is an execution cache for the supported compact subset, not a
+serialized bytecode format or a second language.
 
 ## North Star
 
@@ -16,12 +24,18 @@ lowering, and execution. The design mirrors Zig's `Ast.zig` and `Parse.zig`
 - Lazy line/column and end-span recovery from byte offsets and token tables
 - Parser functions that return compact IDs directly
 - Checker/desugar/lower/runtime consumers that read compact IDs, not recursive AST
+- Runtime data structures that stay compact internally while preserving public
+  `Value` behavior at language boundaries
 
 ## Architecture
 
 ### Lexer / Tokens
 - Dense `TokenTable` with tag, byte-start, and compact-payload columns behind a
   shared `TokenTableData`
+- Token starts use a promoted column: `u16` for ordinary small files, promoted
+  to `u32` only when a byte offset needs it
+- Payload rows are sparse; tokens with the default zero payload do not reserve a
+  `TokenPayload` slot
 - Token ends reconstructed from source on demand
 - CST constructed from `TokenTable` directly
 - Lexer output is compact-only
@@ -29,11 +43,17 @@ lowering, and execution. The design mirrors Zig's `Ast.zig` and `Parse.zig`
 ### Parser / Arena
 - `AstArena` stores statement, expression, and type-expression rows as
   tag/data/span columns
+- Span columns use promoted `(u16, u16)` rows for small files and `(u32, u32)`
+  rows only when source length or interpolation offsets require it
 - Parser-direct construction covers all statement, expression, pattern,
   command, and run forms
 - Parse path returns `ArenaProgram` without constructing recursive
   `Program`/`Stmt`/`Expr` syntax trees
 - Arena-only expression parsing returns `ExprId` directly for all forms
+- Parser reserve heuristics are tuned to avoid retaining large unused compact
+  arena capacity on ordinary small scripts; do not add a post-parse
+  `shrink_to_fit` pass without proving the hot small-corpus frontend does not
+  regress
 
 ### Declarations / Checking
 - `CompactFileUnit` is the file-scoped frontend boundary around one parsed
@@ -77,6 +97,26 @@ lowering, and execution. The design mirrors Zig's `Ast.zig` and `Parse.zig`
   statements fall back independently, declaration/import markers remain
   skippable, and lowered statement execution synchronizes tracked runtime slots
   before and after each lowered statement.
+- Lowered records are compact internally: ordinary lowered record literals use
+  vector-backed records keyed by interned `Name` values, while host/runtime
+  records keep the public `RecordMap` shape at boundaries.
+- Hot `Stats` records have lowered-only compact inline/boxed representations and
+  still behave as records for projection, destructuring, indexing, JSON
+  serialization, type checks, equality, spreads, and public conversion.
+- `stat:false` filesystem entries use lazy `FsEntry` values. They report as
+  records, but direct `path`, `name`, `ext`, and `kind` field reads project from
+  the stored path/kind without materializing a record map.
+- Large lowered slot lists freeze in place as `SharedList(Arc<Vec<_>>)` when
+  read as parameters, so repeated reads share one retained list instead of deep
+  cloning it.
+- Cold or wide lowered value payloads are boxed, and string/byte views use
+  compact `u32` offsets with owned fallbacks for pathologically large buffers.
+  The current retained `LoweredValue` target is 32 bytes while public
+  `runtime::value::Value` remains unchanged.
+- `json.encode` on lowered values validates JSON compatibility, then serializes
+  through a borrowed view instead of building a second JSON object graph.
+- `bytes.concat` and list/method/index operations must treat `SharedList` as
+  equivalent to an owned lowered `List`.
 
 **Probe-then-commit, and the permissive `Unit` fallback (load-bearing).**
 Lowering runs as a *measurement probe* (`CompactLowerConstructProbe` in
@@ -101,21 +141,45 @@ bug, suspect an upstream node that lowered to `Unit`.
 
 ### Execution
 - Compact-only execution via `try_eval_compact_lowered_only`
-- Auto-main invokes lowerable `proc main(...argv)` without `FunctionDef`
+- Auto-main invokes lowerable `proc main(...argv)` from compact declarations
+  without reconstructing a recursive function definition
 - Standard-module `use` declarations are compact-skippable
 - Proc commands, cd/env/print with propagate, signal hooks, loop, grouped
   run capture, par-map, tee, table.print lowered and executed
 - Implicit variable declaration on assignment (auto-declare)
 - Alternation patterns in match
+- `run_script` first attempts the compact lowered runner unless tracing/coverage
+  disables that fast path. It parses arena-only, drops the CST before preparing
+  the lowered plan, installs the compact program, then drops the arena before
+  runtime work. The fallback path exists to surface parse/check diagnostics; a
+  clean fallback diagnostic path means a real compact lowering gap.
+- `XSH_ALLOW_LEGACY_FALLBACK` is removed. Do not reintroduce an old frontend
+  execution path under a compatibility flag.
+- Lowered `fs.files`/`fs.walk` preserve live streams where possible, and the
+  common `Stream |> map |> where |> par-map { ... }` shape feeds lowered
+  `par-map` workers through bounded queues instead of first materializing the
+  candidate list.
+- Parallel lowered `par-map` uses one `Arc<LoweredSharedState>` plus per-thread
+  `LoweredWorker`s. Shared state holds immutable sources, lowered function maps,
+  module caches, function-module maps, cwd, and env; workers own mutable stdout,
+  stderr, slots, signal, and trace state.
+- Lowered `par-map` writes worker results directly into indexed result slots
+  instead of returning per-worker chunk vectors.
+- Release lowered `par-map` worker stacks are 2 MiB; debug workers use 8 MiB.
+  The outer lowered evaluator still runs on a large-stack worker because the
+  recursive eval frames remain large.
+- `showcase/tokei.xsh`'s default table path returns final `SummaryRow` reduce
+  rows from `par-map`, then does only `flat-map { |rows| rows } |> reduce-by`.
+  Keep this script-level shape; it removed a large nested scan/report graph
+  without adding evaluator fusion complexity.
 
 **Runner flow & the "compact lowering not available" fallback** (`src/runner.rs`).
-A script runs as: arena-only parse → `Evaluator::try_eval_compact_lowered_only`
-→ if it returns `Err(self)`, fall back to running the checker to surface
-diagnostics; a clean check there prints "compact lowering not available" (exit 1)
-— i.e. a genuine lowering/parse gap, not a user error. So that message has TWO
-sources: (a) `try_eval_*` returned `Err` (install produced an incomplete
-`lowered_program`, or auto-main args couldn't bind), or (b) arena parsing/checking
-produced diagnostics. When a whole script is "not available", check the
+A script runs as: arena-only parse, drop CST, prepare/install compact lowered
+plan, drop arena, then `Evaluator::eval_installed_compact_lowered_only`. If
+preparation or evaluation returns the evaluator instead of output, the runner
+falls back to the checker only to surface diagnostics. A clean check there
+prints "compact lowering not available" (exit 1), which means a genuine lowering
+gap rather than a user error. When a whole script is "not available", check the
 arena-parse diagnostics in the runner first.
 - **Large stack:** the lowered evaluator's recursive Rust fns have large frames
   (giant matches over `LoweredExpr`/`LoweredValue`), so eval runs on a worker
@@ -135,19 +199,19 @@ have a tag column, a data column, and an inline byte-span column:
 ```rust
 pub struct AstArena {
     pub span_source_id: Option<SourceId>,
-    pub spans: Vec<ArenaByteSpan>,
+    pub spans: ArenaByteSpans,
     pub span_source_overrides: Vec<ArenaSpanSource>,
     pub stmt_tags: Vec<ArenaStmtTag>,
     pub stmt_data: Vec<ArenaStmtData>,
-    pub stmt_spans: Vec<ArenaByteSpan>,
+    pub stmt_spans: ArenaByteSpans,
     pub stmt_span_source_overrides: Vec<ArenaSpanSource>,
     pub expr_tags: Vec<ArenaExprTag>,
     pub expr_data: Vec<ArenaExprData>,
-    pub expr_spans: Vec<ArenaByteSpan>,
+    pub expr_spans: ArenaByteSpans,
     pub expr_span_source_overrides: Vec<ArenaSpanSource>,
     pub type_expr_tags: Vec<ArenaTypeExprTag>,
     pub type_expr_data: Vec<ArenaTypeExprData>,
-    pub type_expr_spans: Vec<ArenaByteSpan>,
+    pub type_expr_spans: ArenaByteSpans,
     pub type_expr_span_source_overrides: Vec<ArenaSpanSource>,
     // ... blocks, patterns, definitions, literals, side tables ...
     pub extra: Vec<u32>,
@@ -196,8 +260,8 @@ Tokens are stored as dense columns, not as rich objects:
 ```rust
 pub struct TokenTableData {
     tags: Vec<TokenTag>,
-    starts: Vec<u32>,
-    payloads: Vec<TokenPayload>,
+    starts: TokenStarts,              // U16 until a source needs U32 offsets
+    payloads: Vec<TokenPayloadEntry>, // sparse nonzero payload rows
 }
 ```
 
@@ -221,7 +285,7 @@ Source position policy:
 
 - Store byte offsets as `u32`
 - Store `SourceId` once per file/program where possible
-- Store inline `ArenaByteSpan { start, len }` on statement, expression, and
+- Store promoted `ArenaByteSpans` columns on statement, expression, and
   type-expression rows today
 - Store shared `SpanId` references for side-table payloads that need spans
 - Avoid full per-node `Span { source_id, start, len }`
@@ -236,13 +300,13 @@ rather than storing line/column on syntax nodes.
 
 Span representation in `AstArena`:
 
-- `stmt_spans`, `expr_spans`, `type_expr_spans` — inline byte-span columns for
+- `stmt_spans`, `expr_spans`, `type_expr_spans` — promoted byte-span columns for
   hot node rows
 - `stmt_span_source_overrides`, `expr_span_source_overrides`,
   `type_expr_span_source_overrides` — sparse source overrides for those inline
   span columns
-- `spans: Vec<ArenaByteSpan>` — shared byte-span table for side tables that
-  store `SpanId`
+- `spans: ArenaByteSpans` — shared promoted byte-span table for side tables
+  that store `SpanId`
 - `span_source_overrides` — sparse source overrides for shared spans
 - Source IDs resolve from the relevant override table or the arena's default
   `span_source_id`
@@ -294,7 +358,7 @@ ask whether an expression can be parsed while the group is open, and whether tha
 expression can contain another instance of the same construct. If yes, stage in a
 side buffer and drain at finish.
 
-## Compatibility Cleanup Guardrails
+## Compact-Only Guardrails
 
 `src/syntax/ast.rs` is intentionally gone. Do not restore `syntax::ast`, a
 recursive `Program`/`Stmt`/`Expr` tree, or recursive compatibility leaves such
@@ -312,11 +376,10 @@ Consumers that need to walk annotations should read `ArenaTypeExprTag` and
 name it as an arena view and keep it private to that consumer; do not add a
 public recursive syntax model or a `type_from_ast`/`raise_type_expr` bridge.
 
-Loader/tooling APIs should describe what they load and check (`text`, `bytes`,
-`file`, `entry`) rather than revive historical compatibility wording such as
-`CheckedProgram` or `parse_load_check_program*`. `Program` remains fine where it
-names a real compact or lowered program type, such as `ArenaProgram` or
-`LoweredProgram`.
+Loader/tooling APIs should describe the compact source boundary they own
+(`text`, `bytes`, `file`, `entry`) and avoid generic names that imply a hidden
+recursive syntax path. `Program` remains fine where it names a real compact or
+lowered program type, such as `ArenaProgram` or `LoweredProgram`.
 
 ## Non-Negotiables
 
@@ -327,45 +390,6 @@ names a real compact or lowered program type, such as `ArenaProgram` or
   `RuntimeOp`.
 - **Measure with the existing perf machinery.**
 - **Do not run formatters or autofixers.**
-
-## Measurement Gates
-
-```sh
-cargo check --no-default-features
-cargo test --test runtime <filter> --no-default-features
-RUST_MIN_STACK=16777216 cargo test --test runtime --no-default-features
-git diff --check
-cargo run --quiet --bin xsh-parse-corpus-report --no-default-features \
-  --features "tools perf-metrics" -- --root . --repeat 1
-make prof-baseline-frontend
-```
-
-`xsh-parse-corpus-report` is the boundary-readiness report. In addition to the
-phase allocation/timing data, it emits:
-
-- `per_file_counts`: bytes, tokens, statements, imports, exports, declarations,
-  and executable top-level statements per file.
-- `per_phase_file_summaries`: total, p50, p95, and max per-file timing for
-  parse, declaration probe, body probe, lowering probes, and runtime declaration
-  registration.
-- `module_graph_readiness`: import edges, unique modules, qualified declaration
-  count, duplicate diagnostics, and largest dependency component.
-- `function_lowering_readiness`: attempted/lowered/blocked function counts,
-  dependency edges, SCC count, blocker counts, and qualified vs unqualified call
-  counts.
-- `top_level_readiness`: lowered/skipped/blocked top-level statement counts and
-  fallback reason counts.
-
-`make prof-baseline-frontend` runs inside the Linux Docker profiling container
-and writes `perf/*-baseline-$(uname -m).json`. On Apple Silicon that means the
-`aarch64` baseline is a Linux baseline, not a macOS one. Compare baselines only
-when target OS, target arch, profile, repeat count, and corpus root match.
-
-The `unix::` spawn tests leak a child that holds the stdout pipe open, so a
-foreground `cargo test --test runtime` can appear to hang AFTER the `test
-result:` line prints. Wait for that line, then `pkill -f deps/runtime`.
-
-Do not run formatters or autofixers.
 
 ## Improvement Opportunities (durable design, from deep internals work)
 
