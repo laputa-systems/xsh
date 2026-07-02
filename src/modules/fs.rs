@@ -3,7 +3,8 @@
 
 use crate::runtime::process::path_bytes;
 use crate::runtime::value::{
-    LiveStream, PathValue, RecordMap, RecordShape, RuntimeError, StreamItem, StreamValue, Value,
+    FsEntryValue, LiveStream, PathValue, RecordMap, RecordShape, RuntimeError, StreamItem,
+    StreamValue, Value,
 };
 use crate::source::Span;
 use cap_fs_ext::{FollowSymlinks, OpenOptionsFollowExt};
@@ -12,7 +13,7 @@ use cap_std::fs::{
     Dir as CapDir, File as CapFile, OpenOptions as CapOpenOptions, Permissions as CapPermissions,
 };
 use cap_tempfile::TempFile;
-use crossbeam_channel::{Receiver, Sender};
+use crossbeam_channel::Sender;
 use rustc_hash::FxHashSet;
 use rustix::fs::{
     self as rfs, AtFlags, CWD, FlockOperation, Gid, StatVfs, StatVfsMountFlags, Timespec,
@@ -661,7 +662,7 @@ pub(crate) fn list_filesystem(
                 .file_type()
                 .map_err(|error| RuntimeError::new("fs-ls", error.to_string()).with_span(span))?;
             items.push(StreamItem {
-                value: fs_entry_record_cheap(&path, file_type)?,
+                value: Value::FsEntry(FsEntryValue::new(path, file_type)),
                 index: items.len(),
                 source_span: None,
             });
@@ -1723,28 +1724,46 @@ impl WalkEntry {
     }
 }
 
-/// A `LiveStream` for an ignore-backed parallel recursive walk. Records arrive
-/// in worker completion order, not sorted. Lazy: the worker pool isn't spawned
-/// until the first `next()`, so a fusing fold consumer can take the pending
-/// `WalkSpec` and re-drive the traversal without streaming workers.
+/// A `LiveStream` for an ignore-backed recursive walk. Lazy: traversal is not
+/// started until the first `next()`, so a fusing fold consumer can take the
+/// pending `WalkSpec` and re-drive the traversal with its own worker strategy.
 pub(crate) enum IgnoreWalkStream {
     Pending(WalkSpec),
-    Running(Receiver<Result<Value, RuntimeError>>),
+    Running {
+        iter: Box<ignore::Walk>,
+        spec: WalkSpec,
+    },
     Consumed,
 }
 
 impl LiveStream for IgnoreWalkStream {
     fn next(&mut self, _span: Span) -> Result<Option<Value>, RuntimeError> {
         if let Self::Pending(spec) = self {
-            *self = Self::Running(start_ignore_walk(spec.clone()));
+            let builder = ignore_walk_builder(spec, 1);
+            *self = Self::Running {
+                iter: Box::new(builder.build()),
+                spec: spec.clone(),
+            };
         }
-        let Self::Running(rx) = self else {
+        let Self::Running { iter, spec } = self else {
             return Ok(None);
         };
-        match rx.recv() {
-            Ok(Ok(value)) => Ok(Some(value)),
-            Ok(Err(error)) => Err(error),
-            Err(_) => Ok(None),
+        loop {
+            let Some(result) = iter.next() else {
+                return Ok(None);
+            };
+            let item = match result {
+                Ok(entry) => match raw_walk_entry(spec, &entry) {
+                    Ok(Some(entry)) => entry,
+                    Ok(None) => continue,
+                    Err(error) => return Err(error),
+                },
+                Err(error) => {
+                    return Err(RuntimeError::new("fs-walk", error.to_string())
+                        .with_span(spec.span));
+                }
+            };
+            return item.record(spec.stat, spec.span).map(Some);
         }
     }
 }
@@ -1765,30 +1784,6 @@ fn walk_pool_size() -> usize {
         .map(|n| n.get())
         .unwrap_or(4)
         .max(1)
-}
-
-fn start_ignore_walk(spec: WalkSpec) -> Receiver<Result<Value, RuntimeError>> {
-    // Use a bounded channel so the filesystem walker blocks when the consumer
-    // can't keep up, providing natural backpressure and limiting peak memory.
-    let (tx, rx) = crossbeam_channel::bounded(1024);
-    let tx_worker = tx.clone();
-    std::thread::spawn(move || {
-        let tx = &tx_worker;
-        let _ = parallel_walk_ignore_value_fold(
-            spec,
-            walk_pool_size(),
-            || (),
-            |(), item| match tx.send(item) {
-                Ok(()) => Ok(()),
-                Err(_) => Err(RuntimeError::new(
-                    "stream-closed",
-                    "filesystem walk receiver closed",
-                )),
-            },
-        );
-    });
-    drop(tx);
-    rx
 }
 
 pub(crate) fn parallel_walk_fold<A, Make, Step>(
@@ -1916,7 +1911,7 @@ impl RawWalkEntry {
                 .map_err(|error| RuntimeError::new("fs-walk", error.to_string()).with_span(span))?;
             fs_entry_record(&self.path, &metadata)
         } else {
-            fs_entry_record_cheap(&self.path, self.file_type)
+            Ok(Value::FsEntry(FsEntryValue::new(self.path, self.file_type)))
         }
     }
 }

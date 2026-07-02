@@ -73,9 +73,18 @@ type Language =
   | LangXml
   | LangYaml
 
-type ScannedFile = {language: Language, report: FileReport, stats: Stats, deep: Stats}
-
 type SummaryTotals = {
+  files: Int,
+  blanks: Int,
+  code: Int,
+  comments: Int,
+  total_blanks: Int,
+  total_code: Int,
+  total_comments: Int,
+}
+
+type SummaryRow = {
+  key: Str,
   files: Int,
   blanks: Int,
   code: Int,
@@ -874,7 +883,7 @@ pure count_markdown(text: Bytes) -> Scan {
             deep = add_stats(deep, scan.deep)
           }
           LangHtml => {
-            let scan = count_html(body)
+            let scan = count_html(body, true)
             html = add_stats(html, scan.stats)
             deep = add_stats(deep, scan.deep)
           }
@@ -966,7 +975,7 @@ pure count_markdown(text: Bytes) -> Scan {
         deep = add_stats(deep, scan.deep)
       }
       LangHtml => {
-        let scan = count_html(body)
+        let scan = count_html(body, true)
         html = add_stats(html, scan.stats)
         deep = add_stats(deep, scan.deep)
       }
@@ -1049,11 +1058,11 @@ pure count_markdown(text: Bytes) -> Scan {
 # `embed` controls whether `<script>`/`<style>` blocks are extracted as JavaScript/CSS
 # children (true for HTML) or counted as ordinary markup code (false for SVG/XML, which
 # tokei reports with no children).
-pure count_html(text: Bytes) -> Scan {
+pure count_html(text: Bytes, embed: Bool) -> Scan {
   if ! text.contains(b"<!--") {
     let lower_text = text.lower()
 
-    if ! lower_text.contains(b"<script") {
+    if ! embed or (! lower_text.contains(b"<script") and ! lower_text.contains(b"<style")) {
       return count_code_text(text)
     }
   }
@@ -1064,7 +1073,10 @@ pure count_html(text: Bytes) -> Scan {
   var deep = zero_stats()
   var in_comment = false
   var in_script = false
+  var in_style = false
   var script_lines: List[Bytes] = []
+  var style_lines: List[Bytes] = []
+  var css = zero_stats()
   var javascript = zero_stats()
 
   for line in text.lines() {
@@ -1082,6 +1094,19 @@ pure count_html(text: Bytes) -> Scan {
         in_script = false
       } else {
         script_lines = script_lines.push(line)
+      }
+    } else if in_style {
+      let lower = trimmed.lower()
+
+      if lower.starts_with(b"</style") {
+        let scan = count_slash_plain(join_lines(style_lines))
+        css = add_stats(css, scan.stats)
+        deep = add_stats(deep, scan.deep)
+        code += 1
+        style_lines = []
+        in_style = false
+      } else {
+        style_lines = style_lines.push(line)
       }
     } else if in_comment {
       comments += 1
@@ -1101,9 +1126,12 @@ pure count_html(text: Bytes) -> Scan {
       code += 1
       let lower = trimmed.lower()
 
-      if lower.starts_with(b"<script") and ! lower.contains(b"</script") {
+      if embed and lower.starts_with(b"<script") and ! lower.contains(b"</script") {
         in_script = true
         script_lines = []
+      } else if embed and lower.starts_with(b"<style") and ! lower.contains(b"</style") {
+        in_style = true
+        style_lines = []
       }
     }
   }
@@ -1114,7 +1142,14 @@ pure count_html(text: Bytes) -> Scan {
     deep = add_stats(deep, scan.deep)
   }
 
+  if in_style {
+    let scan = count_slash_plain(join_lines(style_lines))
+    css = add_stats(css, scan.stats)
+    deep = add_stats(deep, scan.deep)
+  }
+
   var blobs: Map[Any] = {}
+  blobs = set_blob(blobs, language_label(LangCss), css)
   blobs = set_blob(blobs, language_label(LangJavaScript), javascript)
   let stats = {blanks, code, comments, blobs: map.empty()}
   let top = with_blobs(stats, blobs)
@@ -1134,8 +1169,8 @@ pure count_language(language: Language, text: Bytes) -> Scan {
     LangJson => count_json(text)
     LangTypeScript => count_slash_plain(text)
     LangPoFile => count_hash_language(text)
-    LangHtml => count_html(text)
-    LangSvg => count_html(text)
+    LangHtml => count_html(text, true)
+    LangSvg => count_html(text, false)
     LangMdx => count_markdown(text)
     LangMarkdown => count_markdown(text)
     LangLess => count_slash_plain(text)
@@ -1155,7 +1190,7 @@ pure count_language(language: Language, text: Bytes) -> Scan {
     LangShell => count_hash_language(text)
     LangTempl => count_slash_plain(text)
     LangToml => count_hash_language(text)
-    LangXml => count_html(text)
+    LangXml => count_html(text, false)
     _ => empty
   }
 }
@@ -1243,7 +1278,7 @@ proc main(...argv: List[Str]) [fs, error] {
       }
       |> where .keep
       |> par-map { |candidate|
-        let text = candidate.path.read_bytes() ?? b""
+        var text = candidate.path.read_bytes() ?? b""
         let language = if candidate.language == LangUnknown { lang_for_shebang(text) } else { candidate.language }
 
         let scan = match language {
@@ -1252,8 +1287,8 @@ proc main(...argv: List[Str]) [fs, error] {
           LangJson => count_json(text),
           LangTypeScript => count_slash_plain(text),
           LangPoFile => count_hash_language(text),
-          LangHtml => count_html(text),
-          LangSvg => count_html(text),
+          LangHtml => count_html(text, true),
+          LangSvg => count_html(text, false),
           LangMdx => count_markdown(text),
           LangMarkdown => count_markdown(text),
           LangLess => count_slash_plain(text),
@@ -1273,52 +1308,56 @@ proc main(...argv: List[Str]) [fs, error] {
           LangShell => count_hash_language(text),
           LangTempl => count_slash_plain(text),
           LangToml => count_hash_language(text),
-          LangXml => count_html(text),
+          LangXml => count_html(text, false),
           _ => count_language(language, text),
         }
+        text = b""
 
-        {language, label: language_label(language), scan}
-      }
-      |> where .language != LangUnknown
-      |> flat-map { |scanned|
-        # Extension-less files whose shebang matched no known language stay LangUnknown.
-        # One record for the file's own language, plus one per embedded ("blob")
-        # language so the per-(parent, child) breakdown aggregates in the same fused
-        # reduce-by. Child records are keyed `parent\tchild`; the grand-total and
-        # per-language rows read only the plain (parent) keys, so children never
-        # double-count. `blobs` only ever holds non-zero embedded stats.
-        var out = [
-          {
-            key: scanned.label,
-            files: 1,
-            blanks: scanned.scan.stats.blanks,
-            code: scanned.scan.stats.code,
-            comments: scanned.scan.stats.comments,
-            total_blanks: scanned.scan.deep.blanks,
-            total_code: scanned.scan.deep.code,
-            total_comments: scanned.scan.deep.comments,
-          },
-        ]
+        var out: List[SummaryRow] = []
 
-        for child in scanned.scan.stats.blobs.keys() {
-          let blob = scanned.scan.stats.blobs.get(child, zero_stats()).require(Stats) ?? zero_stats()
-          let cs = blob_deep(blob)
-
+        if language != LangUnknown {
+          # One record for the file's own language, plus one per embedded ("blob")
+          # language so the per-(parent, child) breakdown aggregates in the same
+          # fused reduce-by. Child records are keyed `parent\tchild`; the grand-total
+          # and per-language rows read only the plain (parent) keys, so children
+          # never double-count. `blobs` only ever holds non-zero embedded stats.
+          let label = language_label(language)
           out = out.push(
             {
-              key: f"${scanned.label}\t${child}",
+              key: label,
               files: 1,
-              blanks: cs.blanks,
-              code: cs.code,
-              comments: cs.comments,
-              total_blanks: 0,
-              total_code: 0,
-              total_comments: 0,
+              blanks: scan.stats.blanks,
+              code: scan.stats.code,
+              comments: scan.stats.comments,
+              total_blanks: scan.deep.blanks,
+              total_code: scan.deep.code,
+              total_comments: scan.deep.comments,
             },
           )
+
+          for child in scan.stats.blobs.keys() {
+            let blob = scan.stats.blobs.get(child, zero_stats()).require(Stats) ?? zero_stats()
+            let cs = blob_deep(blob)
+
+            out = out.push(
+              {
+                key: f"${label}\t${child}",
+                files: 1,
+                blanks: cs.blanks,
+                code: cs.code,
+                comments: cs.comments,
+                total_blanks: 0,
+                total_code: 0,
+                total_comments: 0,
+              },
+            )
+          }
         }
 
         out
+      }
+      |> flat-map { |rows|
+        rows
       }
       |> reduce-by --sum { |item|
         {
@@ -1560,7 +1599,7 @@ proc main(...argv: List[Str]) [fs, error] {
   var yaml_code = 0
   var yaml_comments = 0
 
-  let scanned_files: List[ScannedFile] = fs.files(root, stat: false, exts: source_exts())?
+  for scanned in fs.files(root, stat: false, exts: source_exts())?
     |> map { |entry|
       let language = lang_for_name_ext(entry.name, entry.ext)
       let rel = entry.path.relative_to(root).display()
@@ -1575,7 +1614,7 @@ proc main(...argv: List[Str]) [fs, error] {
     }
     |> where .keep
     |> par-map { |candidate|
-      let text = candidate.path.read_bytes() ?? b""
+      var text = candidate.path.read_bytes() ?? b""
       let language = if candidate.language == LangUnknown { lang_for_shebang(text) } else { candidate.language }
 
       let scan = match language {
@@ -1584,8 +1623,8 @@ proc main(...argv: List[Str]) [fs, error] {
         LangJson => count_json(text),
         LangTypeScript => count_slash_plain(text),
         LangPoFile => count_hash_language(text),
-        LangHtml => count_html(text),
-        LangSvg => count_html(text),
+        LangHtml => count_html(text, true),
+        LangSvg => count_html(text, false),
         LangMdx => count_markdown(text),
         LangMarkdown => count_markdown(text),
         LangLess => count_slash_plain(text),
@@ -1605,213 +1644,211 @@ proc main(...argv: List[Str]) [fs, error] {
         LangShell => count_hash_language(text),
         LangTempl => count_slash_plain(text),
         LangToml => count_hash_language(text),
-        LangXml => count_html(text),
+        LangXml => count_html(text, false),
         _ => count_language(language, text),
       }
+      text = b""
 
-      {language, report: {stats: scan.stats, name: candidate.path.display()}, stats: scan.stats, deep: scan.deep}
+      {language, report: {stats: scan.stats, name: candidate.path.display()}, deep: scan.deep}
     }
-    |> where .language != LangUnknown
-
-  for scanned in scanned_files {
+    |> where .language != LangUnknown {
     let language = scanned.language
-    let scan = {stats: scanned.stats, deep: scanned.deep}
     let report = scanned.report
-    total_blanks += scan.deep.blanks
-    total_code += scan.deep.code
-    total_comments += scan.deep.comments
+    total_blanks += scanned.deep.blanks
+    total_code += scanned.deep.code
+    total_comments += scanned.deep.comments
 
     match language {
       LangBash => {
-        bash_blanks += scan.stats.blanks
-        bash_code += scan.stats.code
-        bash_comments += scan.stats.comments
+        bash_blanks += report.stats.blanks
+        bash_code += report.stats.code
+        bash_comments += report.stats.comments
         bash_reports = bash_reports.push(report)
       }
       LangCss => {
-        css_blanks += scan.stats.blanks
-        css_code += scan.stats.code
-        css_comments += scan.stats.comments
+        css_blanks += report.stats.blanks
+        css_code += report.stats.code
+        css_comments += report.stats.comments
         css_reports = css_reports.push(report)
       }
       LangDockerfile => {
-        dockerfile_blanks += scan.stats.blanks
-        dockerfile_code += scan.stats.code
-        dockerfile_comments += scan.stats.comments
+        dockerfile_blanks += report.stats.blanks
+        dockerfile_code += report.stats.code
+        dockerfile_comments += report.stats.comments
         dockerfile_reports = dockerfile_reports.push(report)
       }
       LangForgeConfig => {
-        forge_config_blanks += scan.stats.blanks
-        forge_config_code += scan.stats.code
-        forge_config_comments += scan.stats.comments
+        forge_config_blanks += report.stats.blanks
+        forge_config_code += report.stats.code
+        forge_config_comments += report.stats.comments
         forge_config_reports = forge_config_reports.push(report)
       }
       LangHtml => {
-        html_blanks += scan.stats.blanks
-        html_code += scan.stats.code
-        html_comments += scan.stats.comments
+        html_blanks += report.stats.blanks
+        html_code += report.stats.code
+        html_comments += report.stats.comments
 
-        if scan.stats.blobs.keys().len() > 0 {
+        if report.stats.blobs.keys().len() > 0 {
           html_has_blobs = true
         }
 
         html_reports = html_reports.push(report)
       }
       LangIni => {
-        ini_blanks += scan.stats.blanks
-        ini_code += scan.stats.code
-        ini_comments += scan.stats.comments
+        ini_blanks += report.stats.blanks
+        ini_code += report.stats.code
+        ini_comments += report.stats.comments
         ini_reports = ini_reports.push(report)
       }
       LangJavaScript => {
-        javascript_blanks += scan.stats.blanks
-        javascript_code += scan.stats.code
-        javascript_comments += scan.stats.comments
+        javascript_blanks += report.stats.blanks
+        javascript_code += report.stats.code
+        javascript_comments += report.stats.comments
         javascript_reports = javascript_reports.push(report)
       }
       LangJson => {
-        json_blanks += scan.stats.blanks
-        json_code += scan.stats.code
-        json_comments += scan.stats.comments
+        json_blanks += report.stats.blanks
+        json_code += report.stats.code
+        json_comments += report.stats.comments
         json_reports = json_reports.push(report)
       }
       LangLess => {
-        less_blanks += scan.stats.blanks
-        less_code += scan.stats.code
-        less_comments += scan.stats.comments
+        less_blanks += report.stats.blanks
+        less_code += report.stats.code
+        less_comments += report.stats.comments
         less_reports = less_reports.push(report)
       }
       LangLua => {
-        lua_blanks += scan.stats.blanks
-        lua_code += scan.stats.code
-        lua_comments += scan.stats.comments
+        lua_blanks += report.stats.blanks
+        lua_code += report.stats.code
+        lua_comments += report.stats.comments
         lua_reports = lua_reports.push(report)
       }
       LangMakefile => {
-        makefile_blanks += scan.stats.blanks
-        makefile_code += scan.stats.code
-        makefile_comments += scan.stats.comments
+        makefile_blanks += report.stats.blanks
+        makefile_code += report.stats.code
+        makefile_comments += report.stats.comments
         makefile_reports = makefile_reports.push(report)
       }
       LangMarkdown => {
-        markdown_blanks += scan.stats.blanks
-        markdown_code += scan.stats.code
-        markdown_comments += scan.stats.comments
+        markdown_blanks += report.stats.blanks
+        markdown_code += report.stats.code
+        markdown_comments += report.stats.comments
 
-        if scan.stats.blobs.keys().len() > 0 {
+        if report.stats.blobs.keys().len() > 0 {
           markdown_has_blobs = true
         }
 
         markdown_reports = markdown_reports.push(report)
       }
       LangMdx => {
-        mdx_blanks += scan.stats.blanks
-        mdx_code += scan.stats.code
-        mdx_comments += scan.stats.comments
+        mdx_blanks += report.stats.blanks
+        mdx_code += report.stats.code
+        mdx_comments += report.stats.comments
 
-        if scan.stats.blobs.keys().len() > 0 {
+        if report.stats.blobs.keys().len() > 0 {
           mdx_has_blobs = true
         }
 
         mdx_reports = mdx_reports.push(report)
       }
       LangModelica => {
-        modelica_blanks += scan.stats.blanks
-        modelica_code += scan.stats.code
-        modelica_comments += scan.stats.comments
+        modelica_blanks += report.stats.blanks
+        modelica_code += report.stats.code
+        modelica_comments += report.stats.comments
         modelica_reports = modelica_reports.push(report)
       }
       LangPlainText => {
-        plain_text_blanks += scan.stats.blanks
-        plain_text_code += scan.stats.code
-        plain_text_comments += scan.stats.comments
+        plain_text_blanks += report.stats.blanks
+        plain_text_code += report.stats.code
+        plain_text_comments += report.stats.comments
         plain_text_reports = plain_text_reports.push(report)
       }
       LangPoFile => {
-        po_file_blanks += scan.stats.blanks
-        po_file_code += scan.stats.code
-        po_file_comments += scan.stats.comments
+        po_file_blanks += report.stats.blanks
+        po_file_code += report.stats.code
+        po_file_comments += report.stats.comments
         po_file_reports = po_file_reports.push(report)
       }
       LangPython => {
-        python_blanks += scan.stats.blanks
-        python_code += scan.stats.code
-        python_comments += scan.stats.comments
+        python_blanks += report.stats.blanks
+        python_code += report.stats.code
+        python_comments += report.stats.comments
         python_reports = python_reports.push(report)
       }
       LangReStructuredText => {
-        rst_blanks += scan.stats.blanks
-        rst_code += scan.stats.code
-        rst_comments += scan.stats.comments
+        rst_blanks += report.stats.blanks
+        rst_code += report.stats.code
+        rst_comments += report.stats.comments
         rst_reports = rst_reports.push(report)
       }
       LangRust => {
-        rust_blanks += scan.stats.blanks
-        rust_code += scan.stats.code
-        rust_comments += scan.stats.comments
+        rust_blanks += report.stats.blanks
+        rust_code += report.stats.code
+        rust_comments += report.stats.comments
 
-        if scan.stats.blobs.keys().len() > 0 {
+        if report.stats.blobs.keys().len() > 0 {
           rust_has_blobs = true
         }
 
         rust_reports = rust_reports.push(report)
       }
       LangShell => {
-        shell_blanks += scan.stats.blanks
-        shell_code += scan.stats.code
-        shell_comments += scan.stats.comments
+        shell_blanks += report.stats.blanks
+        shell_code += report.stats.code
+        shell_comments += report.stats.comments
         shell_reports = shell_reports.push(report)
       }
       LangSvg => {
-        svg_blanks += scan.stats.blanks
-        svg_code += scan.stats.code
-        svg_comments += scan.stats.comments
+        svg_blanks += report.stats.blanks
+        svg_code += report.stats.code
+        svg_comments += report.stats.comments
 
-        if scan.stats.blobs.keys().len() > 0 {
+        if report.stats.blobs.keys().len() > 0 {
           svg_has_blobs = true
         }
 
         svg_reports = svg_reports.push(report)
       }
       LangTempl => {
-        templ_blanks += scan.stats.blanks
-        templ_code += scan.stats.code
-        templ_comments += scan.stats.comments
+        templ_blanks += report.stats.blanks
+        templ_code += report.stats.code
+        templ_comments += report.stats.comments
         templ_reports = templ_reports.push(report)
       }
       LangToml => {
-        toml_blanks += scan.stats.blanks
-        toml_code += scan.stats.code
-        toml_comments += scan.stats.comments
+        toml_blanks += report.stats.blanks
+        toml_code += report.stats.code
+        toml_comments += report.stats.comments
         toml_reports = toml_reports.push(report)
       }
       LangTsx => {
-        tsx_blanks += scan.stats.blanks
-        tsx_code += scan.stats.code
-        tsx_comments += scan.stats.comments
+        tsx_blanks += report.stats.blanks
+        tsx_code += report.stats.code
+        tsx_comments += report.stats.comments
         tsx_reports = tsx_reports.push(report)
       }
       LangTypeScript => {
-        typescript_blanks += scan.stats.blanks
-        typescript_code += scan.stats.code
-        typescript_comments += scan.stats.comments
+        typescript_blanks += report.stats.blanks
+        typescript_code += report.stats.code
+        typescript_comments += report.stats.comments
         typescript_reports = typescript_reports.push(report)
       }
       LangXml => {
-        xml_blanks += scan.stats.blanks
-        xml_code += scan.stats.code
-        xml_comments += scan.stats.comments
+        xml_blanks += report.stats.blanks
+        xml_code += report.stats.code
+        xml_comments += report.stats.comments
 
-        if scan.stats.blobs.keys().len() > 0 {
+        if report.stats.blobs.keys().len() > 0 {
           xml_has_blobs = true
         }
 
         xml_reports = xml_reports.push(report)
       }
       LangYaml => {
-        yaml_blanks += scan.stats.blanks
-        yaml_code += scan.stats.code
-        yaml_comments += scan.stats.comments
+        yaml_blanks += report.stats.blanks
+        yaml_code += report.stats.code
+        yaml_comments += report.stats.comments
         yaml_reports = yaml_reports.push(report)
       }
       _ => {}
@@ -2014,6 +2051,37 @@ proc main(...argv: List[Str]) [fs, error] {
     }
 
     total_children[label] = reports
+
+    match language {
+      LangBash => bash_reports = []
+      LangCss => css_reports = []
+      LangDockerfile => dockerfile_reports = []
+      LangForgeConfig => forge_config_reports = []
+      LangHtml => html_reports = []
+      LangIni => ini_reports = []
+      LangJson => json_reports = []
+      LangJavaScript => javascript_reports = []
+      LangLess => less_reports = []
+      LangLua => lua_reports = []
+      LangMdx => mdx_reports = []
+      LangMakefile => makefile_reports = []
+      LangMarkdown => markdown_reports = []
+      LangModelica => modelica_reports = []
+      LangPoFile => po_file_reports = []
+      LangPlainText => plain_text_reports = []
+      LangPython => python_reports = []
+      LangReStructuredText => rst_reports = []
+      LangRust => rust_reports = []
+      LangSvg => svg_reports = []
+      LangShell => shell_reports = []
+      LangToml => toml_reports = []
+      LangTsx => tsx_reports = []
+      LangTempl => templ_reports = []
+      LangTypeScript => typescript_reports = []
+      LangXml => xml_reports = []
+      LangYaml => yaml_reports = []
+      _ => {}
+    }
   }
 
   let no_reports: List[FileReport] = []
@@ -2026,6 +2094,7 @@ proc main(...argv: List[Str]) [fs, error] {
     children: total_children,
     inaccurate: false,
   }
+  total_children = {}
 
   print (json.encode(output)?)
 }

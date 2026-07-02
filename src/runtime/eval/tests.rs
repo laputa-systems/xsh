@@ -477,9 +477,9 @@ print $value
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
 
     let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources);
-    evaluator.lowered_pures.clear();
-    evaluator.lowered_procs.clear();
-    evaluator.lowered_program = Default::default();
+    Arc::make_mut(&mut evaluator.lowered_pures).clear();
+    Arc::make_mut(&mut evaluator.lowered_procs).clear();
+    evaluator.lowered_program = Arc::new(Default::default());
 
     evaluator.install_compact_lowered_program(&parsed.arena, source_id);
 

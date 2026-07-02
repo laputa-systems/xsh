@@ -7,6 +7,8 @@ use rustc_hash::FxHashMap;
 use std::any::Any;
 use std::collections::BTreeMap;
 use std::fmt;
+use std::os::unix::ffi::OsStrExt;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex, OnceLock, RwLock};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -55,6 +57,112 @@ pub struct SparseRecordMap {
     shape: &'static RecordShape,
     defaults: &'static [Value],
     overrides: Arc<[(usize, Value)]>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum FsEntryKind {
+    Dir,
+    File,
+    Symlink,
+    Other,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct FsEntryValue {
+    path: Arc<PathBuf>,
+    kind: FsEntryKind,
+}
+
+impl FsEntryValue {
+    pub fn new(path: PathBuf, file_type: std::fs::FileType) -> Self {
+        let kind = if file_type.is_dir() {
+            FsEntryKind::Dir
+        } else if file_type.is_file() {
+            FsEntryKind::File
+        } else if file_type.is_symlink() {
+            FsEntryKind::Symlink
+        } else {
+            FsEntryKind::Other
+        };
+        Self {
+            path: Arc::new(path),
+            kind,
+        }
+    }
+
+    pub fn field_value(&self, name: &str) -> Option<Result<Value, RuntimeError>> {
+        let value = match name {
+            "path" => PathValue::new(self.path.as_os_str().as_bytes().to_vec()).map(Value::Path),
+            "name" => Ok(Value::Str(
+                self.path
+                    .file_name()
+                    .map(|name| Arc::<str>::from(name.to_string_lossy().as_ref()))
+                    .unwrap_or_else(|| "".into()),
+            )),
+            "ext" => Ok(Value::Str(
+                self.path
+                    .extension()
+                    .map(|name| Arc::<str>::from(name.to_string_lossy().as_ref()))
+                    .unwrap_or_else(|| "".into()),
+            )),
+            "kind" => Ok(Value::Str(Arc::from(self.kind.as_str()))),
+            "accessed" | "blocks_512" | "gid" | "mode" | "modified" | "size" | "uid" => {
+                Ok(Value::Int(0))
+            }
+            "executable"
+            | "group_executable"
+            | "other_executable"
+            | "owner_executable"
+            | "setgid"
+            | "setuid"
+            | "sticky"
+            | "world_writable" => Ok(Value::Bool(false)),
+            _ => return None,
+        };
+        Some(value)
+    }
+
+    pub fn to_record_map(&self) -> Result<RecordMap, RuntimeError> {
+        let mut fields = BTreeMap::new();
+        for name in [
+            "accessed",
+            "blocks_512",
+            "executable",
+            "ext",
+            "gid",
+            "group_executable",
+            "kind",
+            "mode",
+            "modified",
+            "name",
+            "other_executable",
+            "owner_executable",
+            "path",
+            "setgid",
+            "setuid",
+            "size",
+            "sticky",
+            "uid",
+            "world_writable",
+        ] {
+            let value = self
+                .field_value(name)
+                .expect("fs entry field list is complete")?;
+            fields.insert(Arc::from(name), value);
+        }
+        Ok(RecordMap::Dynamic(fields))
+    }
+}
+
+impl FsEntryKind {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Dir => "dir",
+            Self::File => "file",
+            Self::Symlink => "symlink",
+            Self::Other => "other",
+        }
+    }
 }
 
 impl Default for RecordMap {
@@ -501,6 +609,7 @@ pub enum Value {
     Map(BTreeMap<String, Value>),
     Stream(Box<StreamValue>),
     Record(RecordMap),
+    FsEntry(FsEntryValue),
     Module(RecordMap),
     Result(ResultValue),
     Status(ProcessStatus),
@@ -550,7 +659,7 @@ impl Value {
             Self::List(_) => "List",
             Self::Map(_) => "Map",
             Self::Stream(_) => "Stream",
-            Self::Record(_) => "Record",
+            Self::Record(_) | Self::FsEntry(_) => "Record",
             Self::Module(_) => "Module",
             Self::Result(_) => "Result",
             Self::Status(_) => "Status",

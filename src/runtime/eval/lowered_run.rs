@@ -35,11 +35,12 @@ use crate::trace::{
     TraceArg, TraceError, TraceKind, TracePayload, Traceback, TracebackFrame, TracebackFrameKind,
 };
 use rustc_hash::FxHashMap;
+use std::borrow::Cow;
 use std::collections::BTreeMap;
 #[cfg(target_os = "macos")]
 use std::ffi::CStr;
 use std::ffi::OsString;
-use std::io::{Read, Write};
+use std::io::{ErrorKind, Read, Write};
 use std::ops::ControlFlow;
 use std::os::fd::AsRawFd;
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
@@ -73,12 +74,12 @@ use super::modules::{
 use super::{
     Binding, Evaluator, Flow, FsRootHandle, LowerableFunctions, LoweredBoolExpr, LoweredCallArg,
     LoweredCompTarget, LoweredErrorExpr, LoweredExpr, LoweredFmtPart, LoweredFunctionKey,
-    LoweredIntExpr, LoweredModuleExportKind, LoweredPipelineStage,
+    LoweredIntExpr, LoweredModuleExportKind, LoweredPipelineStage, LoweredWorker,
     LoweredProcessCommandBuilderEntry, LoweredPureFunction, LoweredRecordEntry, LoweredReturnKind,
     LoweredRunArg, LoweredRunArgKind, LoweredRunEnv, LoweredRunPipelineSegment,
     LoweredRunRedirection, LoweredStmt, LoweredStmtFlow, LoweredStrPredicate, LoweredStrView,
     LoweredTopLevelKind, LoweredTopLevelStmt, LoweredType, LoweredValue, Name, ReduceByOp,
-    ScanCheck, ScanCondition, TestMock,
+    ScanCondition, TestMock,
     assign_lowered_bytes_view, assign_lowered_str_view, bytes_contains, check_env_name,
     compound_assignment_value, display_value, exit_status, lowered_value_matches_static_type,
     module_error, module_io_error, path_absolute_value, path_value_from_pathbuf,
@@ -138,6 +139,9 @@ pub(super) fn print_perf_counters() {
 #[cfg(not(feature = "perf-counters"))]
 pub(super) fn print_perf_counters() {}
 
+const LOWERED_PAR_MAP_WORKER_STACK_SIZE: usize = 8 << 20;
+const LOWERED_SHARED_LIST_THRESHOLD: usize = 16;
+
 fn btree_map<K: Ord, V>(entries: Vec<(K, V)>) -> BTreeMap<K, V> {
     let mut map = BTreeMap::new();
     map.extend(entries);
@@ -194,9 +198,21 @@ fn push_lowered_fmt_value(
 fn lowered_pipeline_item_count(value: &LoweredValue) -> Option<usize> {
     match value {
         LoweredValue::List(items) => Some(items.len()),
+        LoweredValue::SharedList(items) => Some(items.len()),
         LoweredValue::Map(entries) => Some(entries.len()),
         _ => None,
     }
+}
+
+fn lowered_freeze_large_slot_list(slot: &mut LoweredValue) {
+    let LoweredValue::List(items) = slot else {
+        return;
+    };
+    if items.len() < LOWERED_SHARED_LIST_THRESHOLD {
+        return;
+    }
+    let items = std::mem::take(items);
+    *slot = LoweredValue::SharedList(Arc::new(items));
 }
 
 /// Stringify a `reduce-by` block's `key` field (Str/Int/Bool), matching the
@@ -380,9 +396,308 @@ fn lowered_measured_command_record(
     ]))
 }
 
-fn read_host_path_bytes(path: &Path, span: Span) -> Result<Vec<u8>, RuntimeError> {
+fn read_host_path_bytes_vec(path: &Path, span: Span) -> Result<Vec<u8>, RuntimeError> {
     std::fs::read(path)
         .map_err(|error| RuntimeError::new("fs-read", error.to_string()).with_span(span))
+}
+
+fn read_host_path_bytes(path: &Path, span: Span) -> Result<Arc<[u8]>, RuntimeError> {
+    let mut file = std::fs::File::open(path)
+        .map_err(|error| RuntimeError::new("fs-read", error.to_string()).with_span(span))?;
+    let len = file
+        .metadata()
+        .map_err(|error| RuntimeError::new("fs-read", error.to_string()).with_span(span))?
+        .len()
+        .try_into()
+        .map_err(|_| RuntimeError::new("fs-read", "file is too large").with_span(span))?;
+    if len == 0 {
+        return Ok(Arc::from([]));
+    }
+
+    let mut bytes = Arc::<[u8]>::new_uninit_slice(len);
+    let uninit = Arc::get_mut(&mut bytes).expect("new Arc has no aliases");
+    let mut initialized = 0usize;
+    while initialized < len {
+        let chunk = unsafe {
+            std::slice::from_raw_parts_mut(
+                uninit[initialized..].as_mut_ptr().cast::<u8>(),
+                len - initialized,
+            )
+        };
+        match file.read(chunk) {
+            Ok(0) => return Ok(initialized_prefix_to_arc(uninit, initialized)),
+            Ok(read) => initialized += read,
+            Err(error) if error.kind() == ErrorKind::Interrupted => {}
+            Err(error) => {
+                return Err(RuntimeError::new("fs-read", error.to_string()).with_span(span));
+            }
+        }
+    }
+
+    let mut extra = [0u8; 1];
+    loop {
+        match file.read(&mut extra) {
+            Ok(0) => return Ok(unsafe { bytes.assume_init() }),
+            Ok(read) => {
+                let mut value = unsafe { bytes.assume_init() }.to_vec();
+                value.extend_from_slice(&extra[..read]);
+                file.read_to_end(&mut value).map_err(|error| {
+                    RuntimeError::new("fs-read", error.to_string()).with_span(span)
+                })?;
+                return Ok(value.into());
+            }
+            Err(error) if error.kind() == ErrorKind::Interrupted => {}
+            Err(error) => {
+                return Err(RuntimeError::new("fs-read", error.to_string()).with_span(span));
+            }
+        }
+    }
+}
+
+fn initialized_prefix_to_arc(
+    bytes: &[std::mem::MaybeUninit<u8>],
+    initialized: usize,
+) -> Arc<[u8]> {
+    let initialized =
+        unsafe { std::slice::from_raw_parts(bytes.as_ptr().cast::<u8>(), initialized) };
+    initialized.into()
+}
+
+fn lowered_encode_json(
+    value: &LoweredValue,
+    pretty: bool,
+    span: Span,
+) -> Result<String, RuntimeError> {
+    if !pretty {
+        lowered_validate_json_compatible(value, span)?;
+        return Ok(miniserde::json::to_string(&LoweredJsonValue(value)));
+    }
+
+    let value = lowered_to_json(value, span)?;
+    Ok(json_module::pretty_raw_json(&value))
+}
+
+fn lowered_validate_json_compatible(value: &LoweredValue, span: Span) -> Result<(), RuntimeError> {
+    match value {
+        LoweredValue::Null
+        | LoweredValue::Bool(_)
+        | LoweredValue::Int(_)
+        | LoweredValue::Str(_)
+        | LoweredValue::StrView(_) => Ok(()),
+        LoweredValue::Float(value) if value.0.is_finite() => Ok(()),
+        LoweredValue::Float(_) => Err(RuntimeError::new(
+            "json-compatible",
+            "non-finite Float values are not JSON-compatible",
+        )
+        .with_span(span)),
+        LoweredValue::List(items) => {
+            for item in items {
+                lowered_validate_json_compatible(item, span)?;
+            }
+            Ok(())
+        }
+        LoweredValue::SharedList(items) => {
+            for item in items.iter() {
+                lowered_validate_json_compatible(item, span)?;
+            }
+            Ok(())
+        }
+        LoweredValue::Map(fields) => {
+            for item in fields.values() {
+                lowered_validate_json_compatible(item, span)?;
+            }
+            Ok(())
+        }
+        LoweredValue::Record(fields) => {
+            for item in fields.values() {
+                lowered_validate_json_compatible(item, span)?;
+            }
+            Ok(())
+        }
+        LoweredValue::FsEntry(entry) => {
+            let record = entry.to_record_map().map_err(|error| error.with_span(span))?;
+            for (_, item) in record {
+                let Some(item) = lowered_value_from_runtime_any(&item) else {
+                    return Err(RuntimeError::new(
+                        "type-error",
+                        "fs entry field produced unsupported value",
+                    )
+                    .with_span(span));
+                };
+                lowered_validate_json_compatible(&item, span)?;
+            }
+            Ok(())
+        }
+        value => Err(lowered_json_compatible_error(value, span)),
+    }
+}
+
+fn lowered_json_compatible_error(value: &LoweredValue, span: Span) -> RuntimeError {
+    RuntimeError::new(
+        "json-compatible",
+        format!(
+            "{} is not JSON-compatible; convert Path, Bytes, Status, Result, and errors explicitly",
+            value.type_name()
+        ),
+    )
+    .with_span(span)
+}
+
+struct LoweredJsonValue<'a>(&'a LoweredValue);
+
+impl miniserde::ser::Serialize for LoweredJsonValue<'_> {
+    fn begin(&self) -> miniserde::ser::Fragment<'_> {
+        match self.0 {
+            LoweredValue::Null => miniserde::ser::Fragment::Null,
+            LoweredValue::Bool(value) => miniserde::ser::Fragment::Bool(*value),
+            LoweredValue::Int(value) => miniserde::ser::Fragment::I64(*value),
+            LoweredValue::Float(value) => miniserde::ser::Fragment::F64(value.0),
+            LoweredValue::Str(value) => miniserde::ser::Fragment::Str(Cow::Borrowed(value.as_ref())),
+            LoweredValue::StrView(value) => {
+                miniserde::ser::Fragment::Str(Cow::Borrowed(value.as_str()))
+            }
+            LoweredValue::List(items) => {
+                miniserde::ser::Fragment::Seq(Box::new(LoweredJsonSeq {
+                    iter: items.iter(),
+                    current: None,
+                }))
+            }
+            LoweredValue::SharedList(items) => {
+                miniserde::ser::Fragment::Seq(Box::new(LoweredJsonSeq {
+                    iter: items.iter(),
+                    current: None,
+                }))
+            }
+            LoweredValue::Map(fields) => {
+                miniserde::ser::Fragment::Map(Box::new(LoweredJsonMap {
+                    iter: LoweredJsonMapIter::String(fields.iter()),
+                    current: None,
+                }))
+            }
+            LoweredValue::Record(fields) => {
+                miniserde::ser::Fragment::Map(Box::new(LoweredJsonMap {
+                    iter: LoweredJsonMapIter::Arc(fields.iter()),
+                    current: None,
+                }))
+            }
+            _ => miniserde::ser::Fragment::Null,
+        }
+    }
+}
+
+struct LoweredJsonSeq<'a> {
+    iter: std::slice::Iter<'a, LoweredValue>,
+    current: Option<LoweredJsonValue<'a>>,
+}
+
+impl miniserde::ser::Seq for LoweredJsonSeq<'_> {
+    fn next(&mut self) -> Option<&dyn miniserde::ser::Serialize> {
+        self.current = Some(LoweredJsonValue(self.iter.next()?));
+        Some(self.current.as_ref()? as &dyn miniserde::ser::Serialize)
+    }
+}
+
+enum LoweredJsonMapIter<'a> {
+    String(std::collections::btree_map::Iter<'a, String, LoweredValue>),
+    Arc(std::collections::btree_map::Iter<'a, Arc<str>, LoweredValue>),
+}
+
+struct LoweredJsonMap<'a> {
+    iter: LoweredJsonMapIter<'a>,
+    current: Option<LoweredJsonValue<'a>>,
+}
+
+impl miniserde::ser::Map for LoweredJsonMap<'_> {
+    fn next(&mut self) -> Option<(Cow<'_, str>, &dyn miniserde::ser::Serialize)> {
+        match &mut self.iter {
+            LoweredJsonMapIter::String(iter) => {
+                let (key, value) = iter.next()?;
+                self.current = Some(LoweredJsonValue(value));
+                Some((
+                    Cow::Borrowed(key.as_str()),
+                    self.current.as_ref()? as &dyn miniserde::ser::Serialize,
+                ))
+            }
+            LoweredJsonMapIter::Arc(iter) => {
+                let (key, value) = iter.next()?;
+                self.current = Some(LoweredJsonValue(value));
+                Some((
+                    Cow::Borrowed(key.as_ref()),
+                    self.current.as_ref()? as &dyn miniserde::ser::Serialize,
+                ))
+            }
+        }
+    }
+}
+
+fn lowered_to_json(
+    value: &LoweredValue,
+    span: Span,
+) -> Result<miniserde::json::Value, RuntimeError> {
+    match value {
+        LoweredValue::Null => Ok(miniserde::json::Value::Null),
+        LoweredValue::Bool(value) => Ok(json_module::raw_json_bool(*value)),
+        LoweredValue::Int(value) => Ok(json_module::raw_json_i64(*value)),
+        LoweredValue::Float(value) if value.0.is_finite() => Ok(json_module::raw_json_f64(value.0)),
+        LoweredValue::Float(_) => Err(RuntimeError::new(
+            "json-compatible",
+            "non-finite Float values are not JSON-compatible",
+        )
+        .with_span(span)),
+        LoweredValue::Str(value) => Ok(json_module::raw_json_string(value.as_ref())),
+        LoweredValue::StrView(value) => Ok(json_module::raw_json_string(value.as_str())),
+        LoweredValue::List(items) => {
+            let mut values = Vec::with_capacity(items.len());
+            for item in items {
+                values.push(lowered_to_json(item, span)?);
+            }
+            Ok(json_module::raw_json_array(values))
+        }
+        LoweredValue::SharedList(items) => {
+            let mut values = Vec::with_capacity(items.len());
+            for item in items.iter() {
+                values.push(lowered_to_json(item, span)?);
+            }
+            Ok(json_module::raw_json_array(values))
+        }
+        LoweredValue::Map(fields) => {
+            let mut values = Vec::with_capacity(fields.len());
+            for (key, item) in fields {
+                values.push((key.clone(), lowered_to_json(item, span)?));
+            }
+            Ok(json_module::raw_json_object(values))
+        }
+        LoweredValue::Record(fields) => {
+            let mut values = Vec::with_capacity(fields.len());
+            for (key, item) in fields {
+                values.push((key.to_string(), lowered_to_json(item, span)?));
+            }
+            Ok(json_module::raw_json_object(values))
+        }
+        LoweredValue::FsEntry(entry) => {
+            let record = entry.to_record_map().map_err(|error| error.with_span(span))?;
+            let mut values = Vec::with_capacity(record.len());
+            for (key, item) in record {
+                let Some(item) = lowered_value_from_runtime_any(&item) else {
+                    return Err(RuntimeError::new(
+                        "type-error",
+                        "fs entry field produced unsupported value",
+                    )
+                    .with_span(span));
+                };
+                values.push((key.to_string(), lowered_to_json(&item, span)?));
+            }
+            Ok(json_module::raw_json_object(values))
+        }
+        value => Err(RuntimeError::new(
+            "json-compatible",
+            format!(
+                "{} is not JSON-compatible; convert Path, Bytes, Status, Result, and errors explicitly",
+                value.type_name()
+            ),
+        )
+        .with_span(span)),
+    }
 }
 
 fn read_host_path_string(path: &Path, operation: &str, span: Span) -> Result<String, RuntimeError> {
@@ -769,13 +1084,23 @@ fn lowered_bytes_list_arg(
     operation: &str,
     span: Span,
 ) -> Result<Vec<Vec<u8>>, RuntimeError> {
-    let Some(LoweredValue::List(items)) = value else {
+    let Some(value) = value else {
         return Err(
             RuntimeError::new("type-error", format!("{operation} expected List[Bytes]"))
                 .with_span(span),
         );
     };
-    let mut chunks = Vec::with_capacity(items.len());
+    let items = match value {
+        LoweredValue::List(items) => items,
+        LoweredValue::SharedList(items) => items.iter().cloned().collect(),
+        _ => {
+            return Err(
+                RuntimeError::new("type-error", format!("{operation} expected List[Bytes]"))
+                    .with_span(span),
+            );
+        }
+    };
+    let mut chunks = Vec::new();
     for item in items {
         if let Some(bytes) = lowered_bytes_value(&item) {
             chunks.push(bytes.to_vec());
@@ -825,6 +1150,9 @@ fn lowered_record_arg(
     span: Span,
 ) -> Result<RecordMap, RuntimeError> {
     match value {
+        Some(LoweredValue::FsEntry(entry)) => {
+            entry.to_record_map().map_err(|error| error.with_span(span))
+        }
         Some(LoweredValue::Record(fields) | LoweredValue::Module(fields)) => {
             let mut record = RecordMap::new();
             for (key, value) in fields {
@@ -1449,6 +1777,7 @@ fn lowered_record_runtime_arg(
 ) -> Result<RecordMap, RuntimeError> {
     match value.into_value() {
         Value::Record(record) => Ok(record),
+        Value::FsEntry(entry) => entry.to_record_map().map_err(|error| error.with_span(span)),
         other => Err(RuntimeError::new(
             "type-error",
             format!("{operation} expected Record, found {}", other.type_name()),
@@ -1973,6 +2302,10 @@ impl Evaluator {
     ) -> Result<Vec<LoweredValue>, RuntimeError> {
         match value {
             LoweredValue::List(items) => Ok(items),
+            LoweredValue::SharedList(items) => match Arc::try_unwrap(items) {
+                Ok(items) => Ok(items),
+                Err(items) => Ok(items.as_ref().clone()),
+            },
             LoweredValue::Stream(stream) => self.collect_lowered_stream_values(stream, span),
             LoweredValue::ResultOk(value) => self.lowered_list_items(*value, span, message),
             LoweredValue::ResultErr(value) => Err(runtime_error_from_value(*value, span)),
@@ -2006,22 +2339,9 @@ impl Evaluator {
     ) -> Result<(LoweredValue, usize), RuntimeError> {
         // Scan the stage prefix for stream-compatible stages (Map, Where).
         let mut consumed = 0usize;
-        let mut map_slot: Option<usize> = None;
-        let mut map_value: Option<&LoweredExpr> = None;
-        let mut where_slot: Option<usize> = None;
-        let mut where_pred: Option<&LoweredExpr> = None;
         for stage in stages {
             match stage {
-                LoweredPipelineStage::Map { slot, value } => {
-                    if map_slot.is_some() { break; }
-                    map_slot = Some(*slot);
-                    map_value = Some(value);
-                    consumed += 1;
-                }
-                LoweredPipelineStage::Where { slot, predicate } => {
-                    if where_slot.is_some() { break; }
-                    where_slot = Some(*slot);
-                    where_pred = Some(predicate);
+                LoweredPipelineStage::Map { .. } | LoweredPipelineStage::Where { .. } => {
                     consumed += 1;
                 }
                 _ => break,
@@ -2040,55 +2360,286 @@ impl Evaluator {
         // No ParMapBlock — collect into a single Vec for subsequent stages.
         let mut items = Vec::new();
         for item in std::mem::take(&mut stream.items) {
-            let Some(mut val) = lowered_value_from_runtime_any(&item.value) else { continue; };
-            if let Some(slot) = map_slot {
-                slots[slot] = val;
-                val = match self.eval_lowered_expr(lowered, map_value.unwrap(), slots, span)? {
-                    ControlFlow::Continue(v) => v,
-                    ControlFlow::Break(_) => continue,
-                };
-                slots[slot] = LoweredValue::Unit;
+            let Some(val) = lowered_value_from_runtime_any(&item.value) else {
+                continue;
+            };
+            if let Some(val) =
+                self.eval_stream_prefix_item(lowered, val, &stages[..consumed], slots, span)?
+            {
+                items.push(val);
             }
-            if let Some(slot) = where_slot {
-                slots[slot] = val;
-                let keep = match self.eval_lowered_bool(lowered, where_pred.unwrap(), slots, span)? {
-                    ControlFlow::Continue(v) => v,
-                    ControlFlow::Break(_) => continue,
-                };
-                if !keep { slots[slot] = LoweredValue::Unit; continue; }
-                val = std::mem::replace(&mut slots[slot], LoweredValue::Unit);
-            }
-            items.push(val);
         }
         if stream.source.is_some() {
             loop {
                 match stream.next_live(span)? {
                     Some(value) => {
-                        let Some(mut val) = lowered_value_from_runtime_any(&value) else { continue; };
-                        if let Some(slot) = map_slot {
-                            slots[slot] = val;
-                            val = match self.eval_lowered_expr(lowered, map_value.unwrap(), slots, span)? {
-                                ControlFlow::Continue(v) => v,
-                                ControlFlow::Break(_) => continue,
-                            };
-                            slots[slot] = LoweredValue::Unit;
+                        let Some(val) = lowered_value_from_runtime_any(&value) else {
+                            continue;
+                        };
+                        if let Some(val) = self.eval_stream_prefix_item(
+                            lowered,
+                            val,
+                            &stages[..consumed],
+                            slots,
+                            span,
+                        )? {
+                            items.push(val);
                         }
-                        if let Some(slot) = where_slot {
-                            slots[slot] = val;
-                            let keep = match self.eval_lowered_bool(lowered, where_pred.unwrap(), slots, span)? {
-                                ControlFlow::Continue(v) => v,
-                                ControlFlow::Break(_) => continue,
-                            };
-                            if !keep { slots[slot] = LoweredValue::Unit; continue; }
-                            val = std::mem::replace(&mut slots[slot], LoweredValue::Unit);
-                        }
-                        items.push(val);
                     }
                     None => break,
                 }
             }
         }
         Ok((LoweredValue::List(items), consumed))
+    }
+
+    fn eval_stream_prefix_item(
+        &mut self,
+        lowered: &LoweredPureFunction,
+        mut value: LoweredValue,
+        stages: &[LoweredPipelineStage],
+        slots: &mut [LoweredValue],
+        span: Span,
+    ) -> Result<Option<LoweredValue>, RuntimeError> {
+        for stage in stages {
+            match stage {
+                LoweredPipelineStage::Map { slot, value: expr } => {
+                    slots[*slot] = value;
+                    value = match self.eval_lowered_expr(lowered, expr, slots, span)? {
+                        ControlFlow::Continue(value) => value,
+                        ControlFlow::Break(_) => {
+                            slots[*slot] = LoweredValue::Unit;
+                            return Ok(None);
+                        }
+                    };
+                    slots[*slot] = LoweredValue::Unit;
+                }
+                LoweredPipelineStage::Where { slot, predicate } => {
+                    slots[*slot] = value;
+                    let keep = match self.eval_lowered_bool(lowered, predicate, slots, span)? {
+                        ControlFlow::Continue(value) => value,
+                        ControlFlow::Break(_) => {
+                            slots[*slot] = LoweredValue::Unit;
+                            return Ok(None);
+                        }
+                    };
+                    if !keep {
+                        slots[*slot] = LoweredValue::Unit;
+                        return Ok(None);
+                    }
+                    value = std::mem::replace(&mut slots[*slot], LoweredValue::Unit);
+                }
+                _ => unreachable!("stream prefix item stage must be map or where"),
+            }
+        }
+        Ok(Some(value))
+    }
+
+    fn try_eval_streaming_par_map_block_prefix(
+        &mut self,
+        lowered: &LoweredPureFunction,
+        mut stream: StreamValue,
+        stages: &[LoweredPipelineStage],
+        slots: &mut [LoweredValue],
+        span: Span,
+    ) -> Result<Option<(LoweredValue, usize)>, RuntimeError> {
+        if self.trace_enabled {
+            return Ok(None);
+        }
+        let Some((par_index, par_slot, par_body, par_value)) =
+            stages
+                .iter()
+                .enumerate()
+                .find_map(|(index, stage)| match stage {
+                    LoweredPipelineStage::ParMapBlock { slot, body, value } => {
+                        Some((index, *slot, body, value))
+                    }
+                    _ => None,
+                })
+        else {
+            return Ok(None);
+        };
+        if !stages[..par_index].iter().all(|stage| {
+            matches!(
+                stage,
+                LoweredPipelineStage::Map { .. } | LoweredPipelineStage::Where { .. }
+            )
+        }) {
+            return Ok(None);
+        }
+
+        let jobs = std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(4)
+            .max(1);
+        let (work_tx, work_rx) = crossbeam_channel::bounded::<(usize, LoweredValue)>(jobs * 2);
+        let (result_tx, result_rx) = crossbeam_channel::unbounded::<(usize, LoweredValue)>();
+        let lowered_arc = Arc::new(lowered.clone());
+        let body_arc = Arc::new(par_body.clone());
+        let value_arc = Arc::new(par_value.clone());
+        let base_slots = Arc::new(slots.to_vec());
+        let any_error = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let shared_stderr = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let shared_state = self.lowered_shared_state();
+        let mut handles = Vec::with_capacity(jobs);
+        for _ in 0..jobs {
+            let work_rx = work_rx.clone();
+            let result_tx = result_tx.clone();
+            let lowered_arc = Arc::clone(&lowered_arc);
+            let body_arc = Arc::clone(&body_arc);
+            let value_arc = Arc::clone(&value_arc);
+            let base_slots = Arc::clone(&base_slots);
+            let any_error = Arc::clone(&any_error);
+            let shared_stderr = Arc::clone(&shared_stderr);
+            let shared_state = shared_state.clone();
+            handles.push(
+                std::thread::Builder::new()
+                    .stack_size(LOWERED_PAR_MAP_WORKER_STACK_SIZE)
+                    .spawn(move || {
+                        let mut worker = LoweredWorker::new(shared_state);
+                        let mut worker_slots = (*base_slots).clone();
+                        if worker_slots.len() < lowered_arc.slot_count {
+                            worker_slots.resize(lowered_arc.slot_count, LoweredValue::Unit);
+                        }
+                        while let Ok((index, item)) = work_rx.recv() {
+                            if any_error.load(std::sync::atomic::Ordering::Relaxed) {
+                                break;
+                            }
+                            worker_slots[par_slot] = item;
+                            let item_result = match worker.eval_lowered_stmts(
+                                &lowered_arc,
+                                &body_arc,
+                                &mut worker_slots,
+                                span,
+                            ) {
+                                Err(error) => {
+                                    if let Ok(mut stderr) = shared_stderr.lock() {
+                                        stderr.extend_from_slice(
+                                            format!("par-map error: {error:?}\n").as_bytes(),
+                                        );
+                                    }
+                                    any_error.store(true, std::sync::atomic::Ordering::Relaxed);
+                                    LoweredValue::List(Vec::new())
+                                }
+                                Ok(flow) => match flow {
+                                    LoweredStmtFlow::None | LoweredStmtFlow::Continue => {
+                                        match worker.eval_lowered_expr(
+                                            &lowered_arc,
+                                            &value_arc,
+                                            &mut worker_slots,
+                                            span,
+                                        ) {
+                                            Ok(ControlFlow::Continue(value)) => value,
+                                            Ok(ControlFlow::Break(value)) => {
+                                                if let Ok(mut stderr) = shared_stderr.lock() {
+                                                    stderr.extend_from_slice(
+                                                        format!(
+                                                            "par-map error: {}\n",
+                                                            lowered_error_message(&value)
+                                                        )
+                                                        .as_bytes(),
+                                                    );
+                                                }
+                                                any_error.store(
+                                                    true,
+                                                    std::sync::atomic::Ordering::Relaxed,
+                                                );
+                                                LoweredValue::List(Vec::new())
+                                            }
+                                            Err(error) => {
+                                                if let Ok(mut stderr) = shared_stderr.lock() {
+                                                    stderr.extend_from_slice(
+                                                        format!("par-map error: {error:?}\n")
+                                                            .as_bytes(),
+                                                    );
+                                                }
+                                                any_error.store(
+                                                    true,
+                                                    std::sync::atomic::Ordering::Relaxed,
+                                                );
+                                                LoweredValue::List(Vec::new())
+                                            }
+                                        }
+                                    }
+                                    _ => {
+                                        any_error
+                                            .store(true, std::sync::atomic::Ordering::Relaxed);
+                                        LoweredValue::List(Vec::new())
+                                    }
+                                },
+                            };
+                            let result = if let LoweredValue::ResultErr(_) = item_result {
+                                LoweredValue::List(Vec::new())
+                            } else if let LoweredValue::ResultOk(value) = item_result {
+                                *value
+                            } else {
+                                item_result
+                            };
+                            worker_slots[par_slot] = LoweredValue::Unit;
+                            if result_tx.send((index, result)).is_err() {
+                                break;
+                            }
+                        }
+                    })
+                    .expect("spawn lowered streaming par-map worker"),
+            );
+        }
+        drop(work_rx);
+        drop(result_tx);
+
+        let mut next_index = 0usize;
+        for item in std::mem::take(&mut stream.items) {
+            let Some(value) = lowered_value_from_runtime_any(&item.value) else {
+                continue;
+            };
+            if let Some(value) =
+                self.eval_stream_prefix_item(lowered, value, &stages[..par_index], slots, span)?
+            {
+                if work_tx.send((next_index, value)).is_err() {
+                    break;
+                }
+                next_index += 1;
+            }
+        }
+        while stream.source.is_some()
+            && !any_error.load(std::sync::atomic::Ordering::Relaxed)
+        {
+            let Some(item) = stream.next_live(span)? else {
+                break;
+            };
+            let Some(value) = lowered_value_from_runtime_any(&item) else {
+                continue;
+            };
+            if let Some(value) =
+                self.eval_stream_prefix_item(lowered, value, &stages[..par_index], slots, span)?
+            {
+                if work_tx.send((next_index, value)).is_err() {
+                    break;
+                }
+                next_index += 1;
+            }
+        }
+        drop(work_tx);
+        for handle in handles {
+            if handle.join().is_err() {
+                any_error.store(true, std::sync::atomic::Ordering::Relaxed);
+            }
+        }
+        if let Ok(stderr) = shared_stderr.lock() {
+            self.stderr.extend_from_slice(&stderr);
+        }
+
+        let mut results = Vec::with_capacity(next_index);
+        results.resize(next_index, LoweredValue::Unit);
+        for (index, result) in result_rx {
+            if index < results.len() {
+                results[index] = result;
+            }
+        }
+        Ok(Some((
+            LoweredValue::List(results),
+            par_index + 1,
+        )))
     }
 
     fn push_lowered_fs_root(&mut self, root: FsRootHandle) -> LoweredValue {
@@ -2794,7 +3345,7 @@ impl Evaluator {
                     "fs.read_text",
                     span,
                 )?;
-                match read_host_path_bytes(&self.host_path(&path), span) {
+                match read_host_path_bytes_vec(&self.host_path(&path), span) {
                     Ok(bytes) => match String::from_utf8(bytes) {
                         Ok(text) => lowered_result_ok(LoweredValue::Str(text.into())),
                         Err(error) => lowered_result_err_value(
@@ -4329,7 +4880,7 @@ impl Evaluator {
             RuntimeOp::JsonEncode if values.len() == 1 || values.len() == 2 => {
                 let pretty =
                     lowered_bool_arg_or(values.get(1).cloned(), false, "json.encode", span)?;
-                match json_module::encode_json(&values[0].clone().into_value(), pretty, span) {
+                match lowered_encode_json(&values[0], pretty, span) {
                     Ok(text) => lowered_result_ok(LoweredValue::Str(text.into())),
                     Err(error) => lowered_result_err_value(error),
                 }
@@ -8208,7 +8759,10 @@ impl Evaluator {
                     .map(LoweredValue::Path)
                     .map(Some)
             }
-            LoweredExpr::Param(index) => Ok(Some(slots[*index].clone())),
+            LoweredExpr::Param(index) => {
+                lowered_freeze_large_slot_list(&mut slots[*index]);
+                Ok(Some(slots[*index].clone()))
+            }
             LoweredExpr::StrByteLen { receiver, span } => {
                 if let LoweredExpr::Param(slot) = receiver.as_ref() {
                     return lowered_str_byte_len_value(&slots[*slot], *span)
@@ -8961,6 +9515,26 @@ impl Evaluator {
         );
     }
 
+    fn trace_lowered_parallel_job(
+        &mut self,
+        kind: TraceKind,
+        stage: &'static str,
+        item_index: usize,
+        error: Option<TraceError>,
+        span: Span,
+    ) {
+        self.trace_leaf(
+            kind,
+            Some(span),
+            Some(stage),
+            TracePayload::ParallelJob {
+                stage: stage.to_string(),
+                item_index,
+                error,
+            },
+        );
+    }
+
     /// Runtime `module.load(path)`: load a user module file through the compact
     /// pipeline and return its export record. Exported `pure`/`proc` definitions
     /// are installed into the qualified-function tables under the module's
@@ -9103,7 +9677,7 @@ impl Evaluator {
             record.insert(Arc::from(name.as_str()), value);
         }
 
-        self.module_value_cache.insert(key, record.clone());
+        Arc::make_mut(&mut self.module_value_cache).insert(key, record.clone());
         Ok(record)
     }
 
@@ -9900,6 +10474,10 @@ impl Evaluator {
                             items.push(item);
                             return Ok(LoweredStmtFlow::None);
                         }
+                        if let LoweredValue::SharedList(items) = &mut slots[*slot] {
+                            Arc::make_mut(items).push(item);
+                            return Ok(LoweredStmtFlow::None);
+                        }
                     } else if name == "set" && args.len() == 2 {
                         let key =
                             match self.eval_lowered_expr(lowered, &args[0], slots, call_span)? {
@@ -10336,13 +10914,14 @@ impl Evaluator {
                     ControlFlow::Break(value) => return Ok(LoweredStmtFlow::Return(value)),
                 };
                 if let Some((bytes, start, end)) = lowered_bytes_parts(&text) {
+                    let data = &bytes[..];
                     let mut cursor = start;
                     let mut line_count = 0u32;
                     while cursor < end {
-                        let newline = memchr::memchr(b'\n', &bytes[cursor..end])
+                        let newline = memchr::memchr(b'\n', &data[cursor..end])
                             .map(|offset| cursor + offset);
                         let line_end = newline.unwrap_or(end);
-                        let view_end = if line_end > cursor && bytes[line_end - 1] == b'\r' {
+                        let view_end = if line_end > cursor && data[line_end - 1] == b'\r' {
                             line_end - 1
                         } else {
                             line_end
@@ -10354,7 +10933,12 @@ impl Evaluator {
                                 return Ok(LoweredStmtFlow::None);
                             }
                         }
-                        assign_lowered_bytes_view(&mut slots[*slot], &bytes, cursor, view_end);
+                        assign_lowered_bytes_view(
+                            &mut slots[*slot],
+                            &bytes,
+                            cursor,
+                            view_end,
+                        );
                         match self.eval_lowered_stmts(lowered, body, slots, call_span)? {
                             LoweredStmtFlow::None | LoweredStmtFlow::Continue => {}
                             LoweredStmtFlow::Break(_) => break,
@@ -10427,20 +11011,79 @@ impl Evaluator {
                 #[cfg(feature = "perf-counters")]
                 SCAN_LINES_HITS.fetch_add(1, Ordering::Relaxed);
                 let text_value = &slots[*text_slot];
+                if let Some((text, start, end)) = lowered_str_parts(text_value) {
+                    let bytes = text.as_bytes();
+                    let mut cursor = start;
+                    let mut line_count = 0u32;
+                    while cursor < end {
+                        let newline = memchr::memchr(b'\n', &bytes[cursor..end])
+                            .map(|offset| cursor + offset);
+                        let line_end = newline.unwrap_or(end);
+                        let view_end = if line_end > cursor && bytes[line_end - 1] == b'\r' {
+                            line_end - 1
+                        } else {
+                            line_end
+                        };
+                        line_count = line_count.wrapping_add(1);
+                        if line_count & 63 == 0 {
+                            self.service_pending_signal(*span)?;
+                            if self.signal_state.shutdown_complete {
+                                return Ok(LoweredStmtFlow::None);
+                            }
+                        }
+                        assign_lowered_str_view(&mut slots[*line_slot], &text, cursor, view_end);
+                        for check in checks {
+                            let matches = match &check.condition {
+                                ScanCondition::TrimEmpty => {
+                                    lowered_trim_is_empty_value(&slots[*line_slot], *span)?
+                                }
+                                ScanCondition::TrimStartsWith(needle) => {
+                                    lowered_trim_str_predicate_value(
+                                        &slots[*line_slot],
+                                        LoweredStrPredicate::StartsWith,
+                                        needle.as_slice(),
+                                        *span,
+                                    )?
+                                }
+                                ScanCondition::StartsWith(needle) => {
+                                    lowered_str_predicate_text(
+                                        &slots[*line_slot],
+                                        LoweredStrPredicate::StartsWith,
+                                        needle.as_slice(),
+                                        *span,
+                                    )?
+                                }
+                            };
+                            if matches {
+                                if let LoweredValue::Int(ref mut n) = slots[check.counter_slot] {
+                                    *n += 1;
+                                }
+                                break;
+                            }
+                        }
+                        let Some(newline) = newline else {
+                            break;
+                        };
+                        cursor = newline + 1;
+                    }
+                    slots[*line_slot] = LoweredValue::Unit;
+                    return Ok(LoweredStmtFlow::None);
+                }
                 let Some((bytes, start, end)) = lowered_bytes_parts(text_value) else {
                     return Err(RuntimeError::new(
                         "type-error",
-                        "ScanLines expected Bytes",
+                        "ScanLines expected Str or Bytes",
                     )
                     .with_span(*span));
                 };
+                let data = &bytes[..];
                 let mut cursor = start;
                 let mut line_count = 0u32;
                 while cursor < end {
-                    let newline = memchr::memchr(b'\n', &bytes[cursor..end])
+                    let newline = memchr::memchr(b'\n', &data[cursor..end])
                         .map(|offset| cursor + offset);
                     let line_end = newline.unwrap_or(end);
-                    let view_end = if line_end > cursor && bytes[line_end - 1] == b'\r' {
+                    let view_end = if line_end > cursor && data[line_end - 1] == b'\r' {
                         line_end - 1
                     } else {
                         line_end
@@ -10452,7 +11095,12 @@ impl Evaluator {
                             return Ok(LoweredStmtFlow::None);
                         }
                     }
-                    assign_lowered_bytes_view(&mut slots[*line_slot], &bytes, cursor, view_end);
+                    assign_lowered_bytes_view(
+                        &mut slots[*line_slot],
+                        &bytes,
+                        cursor,
+                        view_end,
+                    );
                     for check in checks {
                         let matches = match &check.condition {
                             ScanCondition::TrimEmpty => {
@@ -10473,16 +11121,6 @@ impl Evaluator {
                                     needle.as_slice(),
                                     *span,
                                 )?
-                            }
-                            ScanCondition::IsEmpty => {
-                                let line_val = &slots[*line_slot];
-                                match line_val {
-                                    LoweredValue::BytesView(_) => {
-                                        lowered_trim_is_empty_value(line_val, *span)?
-                                    }
-                                    LoweredValue::Bytes(b) => b.is_empty(),
-                                    _ => false,
-                                }
                             }
                         };
                         if matches {
@@ -12286,7 +12924,10 @@ impl Evaluator {
                     .map(LoweredValue::Path)
                     .map(ControlFlow::Continue)
             }
-            LoweredExpr::Param(index) => Ok(ControlFlow::Continue(slots[*index].clone())),
+            LoweredExpr::Param(index) => {
+                lowered_freeze_large_slot_list(&mut slots[*index]);
+                Ok(ControlFlow::Continue(slots[*index].clone()))
+            }
             LoweredExpr::Binary {
                 op,
                 left,
@@ -12533,12 +13174,16 @@ impl Evaluator {
                     ControlFlow::Continue(value) => value,
                     ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
                 };
-                let LoweredValue::List(items) = value else {
-                    return Err(RuntimeError::new(
-                        "type-error",
-                        "bytes.concat expected List[Bytes]",
-                    )
-                    .with_span(*span));
+                let items = match value {
+                    LoweredValue::List(items) => items,
+                    LoweredValue::SharedList(items) => items.iter().cloned().collect(),
+                    _ => {
+                        return Err(RuntimeError::new(
+                            "type-error",
+                            "bytes.concat expected List[Bytes]",
+                        )
+                        .with_span(*span));
+                    }
                 };
                 let len = items
                     .iter()
@@ -12692,18 +13337,52 @@ impl Evaluator {
                     ControlFlow::Continue(value) => value,
                     ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
                 };
-                let mut current = lowered_pipeline_input(current, *span)?;
+                let current = lowered_pipeline_input(current, *span)?;
                 // If the input is a Stream, apply stream-compatible stages lazily:
                 // items are pulled from the stream one at a time and processed
                 // through Map/Where inline, avoiding intermediate Vecs. When a
                 // stage that can't stream is reached (ParMapBlock, Sort, etc.),
                 // we collect into a Vec and continue normally.
                 let mut stage_index = 0usize;
-                if let LoweredValue::Stream(_) = &current {
-                    (current, stage_index) = self.eval_streaming_pipeline_prefix(
-                        lowered, current, stages, slots, *span,
-                    )?;
-                }
+                let mut current = match current {
+                    LoweredValue::Stream(stream) => {
+                        let streaming_par_map_index = stages.iter().position(|stage| {
+                            matches!(stage, LoweredPipelineStage::ParMapBlock { .. })
+                        });
+                        let can_stream_par_map = !self.trace_enabled
+                            && streaming_par_map_index.is_some_and(|index| {
+                                stages[..index].iter().all(|stage| {
+                                    matches!(
+                                        stage,
+                                        LoweredPipelineStage::Map { .. }
+                                            | LoweredPipelineStage::Where { .. }
+                                    )
+                                })
+                        });
+                        if can_stream_par_map {
+                            let Some((streamed_current, consumed)) = self
+                                .try_eval_streaming_par_map_block_prefix(
+                                    lowered, stream, stages, slots, *span,
+                                )?
+                            else {
+                                unreachable!("checked streaming par-map prefix before evaluation")
+                            };
+                            stage_index = consumed;
+                            streamed_current
+                        } else {
+                            let (streamed_current, consumed) = self.eval_streaming_pipeline_prefix(
+                                lowered,
+                                LoweredValue::Stream(stream),
+                                stages,
+                                slots,
+                                *span,
+                            )?;
+                            stage_index = consumed;
+                            streamed_current
+                        }
+                    }
+                    other => other,
+                };
                 for stage in &stages[stage_index..] {
                     let stage_name = stage.trace_name();
                     self.trace_enter(
@@ -13278,6 +13957,19 @@ impl Evaluator {
                                         };
                                     }
                                 }
+                                LoweredValue::SharedList(items) => {
+                                    for item in items.iter().cloned() {
+                                        acc = match self.eval_lowered_fold_step(
+                                            lowered, *acc_slot, *item_slot, acc, item, body, value,
+                                            slots, *span,
+                                        )? {
+                                            ControlFlow::Continue(value) => value,
+                                            ControlFlow::Break(value) => {
+                                                return Ok(ControlFlow::Break(value));
+                                            }
+                                        };
+                                    }
+                                }
                                 LoweredValue::Stream(stream) => {
                                     while let Some(item) = stream.next_live(*span)? {
                                         let Some(item) = lowered_value_from_runtime_any(&item)
@@ -13315,8 +14007,16 @@ impl Evaluator {
                             current = acc;
                         }
                         LoweredPipelineStage::Count => {
-                            let items = self.lowered_pipeline_input_items(current, *span)?;
-                            current = LoweredValue::Int(items.len() as i64);
+                            if let LoweredValue::Stream(stream) = current {
+                                let mut count = stream.items.len() as i64;
+                                while stream.next_live(*span)?.is_some() {
+                                    count += 1;
+                                }
+                                current = LoweredValue::Int(count);
+                            } else {
+                                let items = self.lowered_pipeline_input_items(current, *span)?;
+                                current = LoweredValue::Int(items.len() as i64);
+                            }
                         }
                         LoweredPipelineStage::Sum => {
                             let items = self.lowered_pipeline_input_items(current, *span)?;
@@ -13391,7 +14091,10 @@ impl Evaluator {
                                     lowered.push(value);
                                 }
                                 current = LoweredValue::List(lowered);
-                            } else if !matches!(current, LoweredValue::List(_)) {
+                            } else if !matches!(
+                                current,
+                                LoweredValue::List(_) | LoweredValue::SharedList(_)
+                            ) {
                                 return Err(RuntimeError::new(
                                     "type-error",
                                     "pipeline input expected List",
@@ -13412,6 +14115,11 @@ impl Evaluator {
                                 LoweredValue::List(mut items) => {
                                     items.truncate(count.min(items.len()));
                                     current = LoweredValue::List(items);
+                                }
+                                LoweredValue::SharedList(items) => {
+                                    current = LoweredValue::List(
+                                        items.iter().take(count).cloned().collect(),
+                                    );
                                 }
                                 LoweredValue::Stream(stream) => {
                                     let mut items =
@@ -13442,6 +14150,11 @@ impl Evaluator {
                                     current =
                                         LoweredValue::List(items.into_iter().skip(count).collect());
                                 }
+                                LoweredValue::SharedList(items) => {
+                                    current = LoweredValue::List(
+                                        items.iter().skip(count).cloned().collect(),
+                                    );
+                                }
                                 LoweredValue::Stream(stream) => {
                                     current = LoweredValue::List(
                                         self.collect_lowered_stream_values(stream, *span)?
@@ -13468,6 +14181,13 @@ impl Evaluator {
                             };
                             current = match current {
                                 LoweredValue::List(items) => {
+                                    let mut repeated = Vec::with_capacity(items.len() * n);
+                                    for _ in 0..n {
+                                        repeated.extend(items.iter().cloned());
+                                    }
+                                    LoweredValue::List(repeated)
+                                }
+                                LoweredValue::SharedList(items) => {
                                     let mut repeated = Vec::with_capacity(items.len() * n);
                                     for _ in 0..n {
                                         repeated.extend(items.iter().cloned());
@@ -13606,13 +14326,43 @@ impl Evaluator {
                             let item_count = items.len();
                             if item_count <= 1 || self.trace_enabled {
                                 let mut results = Vec::with_capacity(item_count);
-                                for item in items {
+                                for (item_index, item) in items.into_iter().enumerate() {
+                                    if self.trace_enabled {
+                                        self.trace_lowered_parallel_job(
+                                            TraceKind::ParallelJobStart,
+                                            "par-map",
+                                            item_index,
+                                            None,
+                                            s,
+                                        );
+                                    }
                                     slots[*slot] = item;
+                                    let mut traced_failure = false;
                                     let item_result = match self
                                         .eval_lowered_expr(lowered, value, slots, s)
                                     {
                                         Ok(ControlFlow::Continue(v)) => v,
                                         Ok(ControlFlow::Break(v)) => {
+                                            if self.trace_enabled {
+                                                let runtime_value = v.clone().into_value();
+                                                let trace_error =
+                                                    lowered_trace_error_from_value(&runtime_value);
+                                                self.trace_lowered_parallel_job(
+                                                    TraceKind::ParallelCancel,
+                                                    "par-map",
+                                                    item_index,
+                                                    Some(trace_error.clone()),
+                                                    s,
+                                                );
+                                                self.trace_lowered_parallel_job(
+                                                    TraceKind::ParallelJobEnd,
+                                                    "par-map",
+                                                    item_index,
+                                                    Some(trace_error),
+                                                    s,
+                                                );
+                                                traced_failure = true;
+                                            }
                                             self.stderr.extend_from_slice(
                                                 format!(
                                                     "par-map error: {}\n",
@@ -13623,6 +14373,25 @@ impl Evaluator {
                                             LoweredValue::List(Vec::new())
                                         }
                                         Err(error) => {
+                                            if self.trace_enabled {
+                                                let trace_error =
+                                                    TraceError::new(&error.kind, &error.message);
+                                                self.trace_lowered_parallel_job(
+                                                    TraceKind::ParallelCancel,
+                                                    "par-map",
+                                                    item_index,
+                                                    Some(trace_error.clone()),
+                                                    s,
+                                                );
+                                                self.trace_lowered_parallel_job(
+                                                    TraceKind::ParallelJobEnd,
+                                                    "par-map",
+                                                    item_index,
+                                                    Some(trace_error),
+                                                    s,
+                                                );
+                                                traced_failure = true;
+                                            }
                                             self.stderr.extend_from_slice(
                                                 format!("par-map error: {error:?}\n").as_bytes(),
                                             );
@@ -13630,6 +14399,25 @@ impl Evaluator {
                                         }
                                     };
                                     if let LoweredValue::ResultErr(_) = item_result {
+                                        if self.trace_enabled {
+                                            let runtime_value = item_result.clone().into_value();
+                                            let trace_error =
+                                                lowered_trace_error_from_value(&runtime_value);
+                                            self.trace_lowered_parallel_job(
+                                                TraceKind::ParallelCancel,
+                                                "par-map",
+                                                item_index,
+                                                Some(trace_error.clone()),
+                                                s,
+                                            );
+                                            self.trace_lowered_parallel_job(
+                                                TraceKind::ParallelJobEnd,
+                                                "par-map",
+                                                item_index,
+                                                Some(trace_error),
+                                                s,
+                                            );
+                                        }
                                         self.stderr.extend_from_slice(
                                             format!(
                                                 "par-map error: {}\n",
@@ -13639,8 +14427,26 @@ impl Evaluator {
                                         );
                                         results.push(LoweredValue::List(Vec::new()));
                                     } else if let LoweredValue::ResultOk(v) = item_result {
+                                        if self.trace_enabled && !traced_failure {
+                                            self.trace_lowered_parallel_job(
+                                                TraceKind::ParallelJobEnd,
+                                                "par-map",
+                                                item_index,
+                                                None,
+                                                s,
+                                            );
+                                        }
                                         results.push(*v);
                                     } else {
+                                        if self.trace_enabled && !traced_failure {
+                                            self.trace_lowered_parallel_job(
+                                                TraceKind::ParallelJobEnd,
+                                                "par-map",
+                                                item_index,
+                                                None,
+                                                s,
+                                            );
+                                        }
                                         results.push(item_result);
                                     }
                                 }
@@ -13652,28 +14458,36 @@ impl Evaluator {
                                 let lowered_arc = std::sync::Arc::new(lowered.clone());
                                 let value_arc = std::sync::Arc::new(value.clone());
                                 let items_arc = std::sync::Arc::new(items);
+                                let base_slots = std::sync::Arc::new(slots.to_vec());
                                 let next_index = std::sync::atomic::AtomicUsize::new(0);
                                 let mut all_results: Vec<LoweredValue> =
                                     (0..item_count).map(|_| LoweredValue::Unit).collect();
                                 let any_error = std::sync::atomic::AtomicBool::new(false);
                                 let shared_stderr = std::sync::Mutex::new(Vec::new());
-                                let parent_ptr = self as *const Evaluator as usize;
+                                let shared_state = self.lowered_shared_state();
                                 std::thread::scope(|scope| {
                                     let mut handles = Vec::new();
                                     for _ in 0..num_threads {
                                         let items_arc = std::sync::Arc::clone(&items_arc);
                                         let lowered_arc = std::sync::Arc::clone(&lowered_arc);
                                         let value_arc = std::sync::Arc::clone(&value_arc);
+                                        let base_slots = std::sync::Arc::clone(&base_slots);
                                         let next_index = &next_index;
                                         let any_error = &any_error;
                                         let shared_stderr = &shared_stderr;
-                                        let parent = parent_ptr;
-                                        handles.push(scope.spawn(move || {
-                                            let parent_eval = unsafe { &*(parent as *const Evaluator) };
-                                            let mut worker = parent_eval.fork_for_par_map();
-                                            let mut worker_slots = (0..lowered_arc.slot_count)
-                                                .map(|_| LoweredValue::Unit)
-                                                .collect::<Vec<_>>();
+                                        let shared_state = shared_state.clone();
+                                        handles.push(
+                                            std::thread::Builder::new()
+                                                .stack_size(LOWERED_PAR_MAP_WORKER_STACK_SIZE)
+                                                .spawn_scoped(scope, move || {
+                                            let mut worker = LoweredWorker::new(shared_state);
+                                            let mut worker_slots = (*base_slots).clone();
+                                            if worker_slots.len() < lowered_arc.slot_count {
+                                                worker_slots.resize(
+                                                    lowered_arc.slot_count,
+                                                    LoweredValue::Unit,
+                                                );
+                                            }
                                             let mut chunk_results = Vec::new();
                                             loop {
                                                 if any_error.load(std::sync::atomic::Ordering::Relaxed) {
@@ -13728,7 +14542,9 @@ impl Evaluator {
                                                 chunk_results.push((idx, result));
                                             }
                                             chunk_results
-                                        }));
+                                                })
+                                                .expect("spawn lowered par-map worker"),
+                                        );
                                     }
                                     for handle in handles {
                                         match handle.join() {
@@ -13743,7 +14559,7 @@ impl Evaluator {
                                         }
                                     }
                                 });
-                                if let Ok(mut err) = shared_stderr.into_inner() {
+                                if let Ok(err) = shared_stderr.into_inner() {
                                     self.stderr.extend_from_slice(&err);
                                 }
                                 current = LoweredValue::List(all_results);
@@ -13755,12 +14571,41 @@ impl Evaluator {
                             let item_count = items.len();
                             if item_count <= 1 || self.trace_enabled {
                                 let mut results = Vec::with_capacity(item_count);
-                                for item in items {
+                                for (item_index, item) in items.into_iter().enumerate() {
+                                    if self.trace_enabled {
+                                        self.trace_lowered_parallel_job(
+                                            TraceKind::ParallelJobStart,
+                                            "par-map",
+                                            item_index,
+                                            None,
+                                            s,
+                                        );
+                                    }
                                     slots[*slot] = item;
+                                    let mut traced_failure = false;
                                     let item_result = match self
                                         .eval_lowered_stmts(lowered, body, slots, s)
                                     {
                                         Err(error) => {
+                                            if self.trace_enabled {
+                                                let trace_error =
+                                                    TraceError::new(&error.kind, &error.message);
+                                                self.trace_lowered_parallel_job(
+                                                    TraceKind::ParallelCancel,
+                                                    "par-map",
+                                                    item_index,
+                                                    Some(trace_error.clone()),
+                                                    s,
+                                                );
+                                                self.trace_lowered_parallel_job(
+                                                    TraceKind::ParallelJobEnd,
+                                                    "par-map",
+                                                    item_index,
+                                                    Some(trace_error),
+                                                    s,
+                                                );
+                                                traced_failure = true;
+                                            }
                                             self.stderr.extend_from_slice(
                                                 format!("par-map error: {error:?}\n").as_bytes(),
                                             );
@@ -13771,12 +14616,56 @@ impl Evaluator {
                                                 match self.eval_lowered_expr(lowered, value, slots, s) {
                                                     Ok(ControlFlow::Continue(v)) => v,
                                                     Ok(ControlFlow::Break(v)) => {
+                                                        if self.trace_enabled {
+                                                            let runtime_value =
+                                                                v.clone().into_value();
+                                                            let trace_error =
+                                                                lowered_trace_error_from_value(
+                                                                    &runtime_value,
+                                                                );
+                                                            self.trace_lowered_parallel_job(
+                                                                TraceKind::ParallelCancel,
+                                                                "par-map",
+                                                                item_index,
+                                                                Some(trace_error.clone()),
+                                                                s,
+                                                            );
+                                                            self.trace_lowered_parallel_job(
+                                                                TraceKind::ParallelJobEnd,
+                                                                "par-map",
+                                                                item_index,
+                                                                Some(trace_error),
+                                                                s,
+                                                            );
+                                                            traced_failure = true;
+                                                        }
                                                         self.stderr.extend_from_slice(
                                                             format!("par-map error: {}\n", lowered_error_message(&v)).as_bytes(),
                                                         );
                                                         LoweredValue::List(Vec::new())
                                                     }
                                                     Err(error) => {
+                                                        if self.trace_enabled {
+                                                            let trace_error = TraceError::new(
+                                                                &error.kind,
+                                                                &error.message,
+                                                            );
+                                                            self.trace_lowered_parallel_job(
+                                                                TraceKind::ParallelCancel,
+                                                                "par-map",
+                                                                item_index,
+                                                                Some(trace_error.clone()),
+                                                                s,
+                                                            );
+                                                            self.trace_lowered_parallel_job(
+                                                                TraceKind::ParallelJobEnd,
+                                                                "par-map",
+                                                                item_index,
+                                                                Some(trace_error),
+                                                                s,
+                                                            );
+                                                            traced_failure = true;
+                                                        }
                                                         self.stderr.extend_from_slice(
                                                             format!("par-map error: {error:?}\n").as_bytes(),
                                                         );
@@ -13785,6 +14674,28 @@ impl Evaluator {
                                                 }
                                             }
                                             LoweredStmtFlow::Propagate(v) => {
+                                                if self.trace_enabled {
+                                                    let runtime_value = v.clone().into_value();
+                                                    let trace_error =
+                                                        lowered_trace_error_from_value(
+                                                            &runtime_value,
+                                                        );
+                                                    self.trace_lowered_parallel_job(
+                                                        TraceKind::ParallelCancel,
+                                                        "par-map",
+                                                        item_index,
+                                                        Some(trace_error.clone()),
+                                                        s,
+                                                    );
+                                                    self.trace_lowered_parallel_job(
+                                                        TraceKind::ParallelJobEnd,
+                                                        "par-map",
+                                                        item_index,
+                                                        Some(trace_error),
+                                                        s,
+                                                    );
+                                                    traced_failure = true;
+                                                }
                                                 self.stderr.extend_from_slice(
                                                     format!("par-map error: {}\n", lowered_error_message(&v)).as_bytes(),
                                                 );
@@ -13799,13 +14710,50 @@ impl Evaluator {
                                         },
                                     };
                                     if let LoweredValue::ResultErr(_) = item_result {
+                                        if self.trace_enabled {
+                                            let runtime_value = item_result.clone().into_value();
+                                            let trace_error =
+                                                lowered_trace_error_from_value(&runtime_value);
+                                            self.trace_lowered_parallel_job(
+                                                TraceKind::ParallelCancel,
+                                                "par-map",
+                                                item_index,
+                                                Some(trace_error.clone()),
+                                                s,
+                                            );
+                                            self.trace_lowered_parallel_job(
+                                                TraceKind::ParallelJobEnd,
+                                                "par-map",
+                                                item_index,
+                                                Some(trace_error),
+                                                s,
+                                            );
+                                        }
                                         self.stderr.extend_from_slice(
                                             format!("par-map error: {}\n", lowered_error_message(&item_result)).as_bytes(),
                                         );
                                         results.push(LoweredValue::List(Vec::new()));
                                     } else if let LoweredValue::ResultOk(v) = item_result {
+                                        if self.trace_enabled && !traced_failure {
+                                            self.trace_lowered_parallel_job(
+                                                TraceKind::ParallelJobEnd,
+                                                "par-map",
+                                                item_index,
+                                                None,
+                                                s,
+                                            );
+                                        }
                                         results.push(*v);
                                     } else {
+                                        if self.trace_enabled && !traced_failure {
+                                            self.trace_lowered_parallel_job(
+                                                TraceKind::ParallelJobEnd,
+                                                "par-map",
+                                                item_index,
+                                                None,
+                                                s,
+                                            );
+                                        }
                                         results.push(item_result);
                                     }
                                 }
@@ -13818,12 +14766,13 @@ impl Evaluator {
                                 let body_arc = std::sync::Arc::new(body.clone());
                                 let value_arc = std::sync::Arc::new(value.clone());
                                 let items_arc = std::sync::Arc::new(items);
+                                let base_slots = std::sync::Arc::new(slots.to_vec());
                                 let next_index = std::sync::atomic::AtomicUsize::new(0);
                                 let mut all_results: Vec<LoweredValue> =
                                     (0..item_count).map(|_| LoweredValue::Unit).collect();
                                 let any_error = std::sync::atomic::AtomicBool::new(false);
                                 let shared_stderr = std::sync::Mutex::new(Vec::new());
-                                let parent_ptr = self as *const Evaluator as usize;
+                                let shared_state = self.lowered_shared_state();
                                 std::thread::scope(|scope| {
                                     let mut handles = Vec::new();
                                     for _ in 0..num_threads {
@@ -13831,16 +14780,23 @@ impl Evaluator {
                                         let lowered_arc = std::sync::Arc::clone(&lowered_arc);
                                         let body_arc = std::sync::Arc::clone(&body_arc);
                                         let value_arc = std::sync::Arc::clone(&value_arc);
+                                        let base_slots = std::sync::Arc::clone(&base_slots);
                                         let next_index = &next_index;
                                         let any_error = &any_error;
                                         let shared_stderr = &shared_stderr;
-                                        let parent = parent_ptr;
-                                        handles.push(scope.spawn(move || {
-                                            let parent_eval = unsafe { &*(parent as *const Evaluator) };
-                                            let mut worker = parent_eval.fork_for_par_map();
-                                            let mut worker_slots = (0..lowered_arc.slot_count)
-                                                .map(|_| LoweredValue::Unit)
-                                                .collect::<Vec<_>>();
+                                        let shared_state = shared_state.clone();
+                                        handles.push(
+                                            std::thread::Builder::new()
+                                                .stack_size(LOWERED_PAR_MAP_WORKER_STACK_SIZE)
+                                                .spawn_scoped(scope, move || {
+                                            let mut worker = LoweredWorker::new(shared_state);
+                                            let mut worker_slots = (*base_slots).clone();
+                                            if worker_slots.len() < lowered_arc.slot_count {
+                                                worker_slots.resize(
+                                                    lowered_arc.slot_count,
+                                                    LoweredValue::Unit,
+                                                );
+                                            }
                                             let mut chunk_results = Vec::new();
                                             loop {
                                                 if any_error.load(std::sync::atomic::Ordering::Relaxed) {
@@ -13889,10 +14845,13 @@ impl Evaluator {
                                                 } else {
                                                     item_result
                                                 };
+                                                worker_slots[*slot] = LoweredValue::Unit;
                                                 chunk_results.push((idx, result));
                                             }
                                             chunk_results
-                                        }));
+                                                })
+                                                .expect("spawn lowered par-map worker"),
+                                        );
                                     }
                                     for handle in handles {
                                         match handle.join() {
@@ -13907,7 +14866,7 @@ impl Evaluator {
                                         }
                                     }
                                 });
-                                if let Ok(mut err) = shared_stderr.into_inner() {
+                                if let Ok(err) = shared_stderr.into_inner() {
                                     self.stderr.extend_from_slice(&err);
                                 }
                                 current = LoweredValue::List(all_results);
@@ -14223,6 +15182,19 @@ impl Evaluator {
                         .get(name.as_str())
                         .cloned()
                         .ok_or_else(|| RuntimeError::new("missing-field", name).with_span(*span))?,
+                    LoweredValue::FsEntry(entry) => {
+                        let value = entry
+                            .field_value(name.as_str())
+                            .ok_or_else(|| RuntimeError::new("missing-field", name).with_span(*span))?
+                            .map_err(|error| error.with_span(*span))?;
+                        lowered_value_from_runtime_any(&value).ok_or_else(|| {
+                            RuntimeError::new(
+                                "type-error",
+                                format!("fs entry field produced unsupported {}", value.type_name()),
+                            )
+                            .with_span(*span)
+                        })?
+                    }
                     LoweredValue::Error(value) => {
                         let (kind, message) = match value.as_ref() {
                             Value::Error(error) => (error.kind.clone(), error.message.clone()),
@@ -14637,7 +15609,8 @@ impl Evaluator {
                             break;
                         }
                     }
-                    let attempt_flow = self.eval_lowered_stmts(lowered, body, slots, *span)?;
+                    let attempt_flow =
+                        self.eval_lowered_stmts_with_defers(lowered, body, slots, *span)?;
                     match self.lowered_retry_attempt_value(attempt_flow) {
                         LoweredRetryAttemptValue::Success(value) => {
                             self.trace_lowered_retry_attempt(
@@ -14772,25 +15745,7 @@ impl Evaluator {
                     }
                     Err(error) => return Err(error),
                 };
-                let values = match self.collect_stream_values(stream, *span) {
-                    Ok(values) => values,
-                    Err(error) if *result_wrapped => {
-                        return Ok(ControlFlow::Continue(lowered_result_err_value(error)));
-                    }
-                    Err(error) => return Err(error),
-                };
-                let mut lowered = Vec::with_capacity(values.len());
-                for value in values {
-                    let Some(value) = lowered_value_from_runtime_any(&value) else {
-                        return Err(RuntimeError::new(
-                            "type-error",
-                            format!("fs.files produced unsupported {}", value.type_name()),
-                        )
-                        .with_span(*span));
-                    };
-                    lowered.push(value);
-                }
-                let value = LoweredValue::List(lowered);
+                let value = LoweredValue::Stream(stream);
                 Ok(ControlFlow::Continue(if *result_wrapped {
                     lowered_result_ok(value)
                 } else {
@@ -14840,25 +15795,7 @@ impl Evaluator {
                     }
                     Err(error) => return Err(error),
                 };
-                let values = match self.collect_stream_values(stream, *span) {
-                    Ok(values) => values,
-                    Err(error) if *result_wrapped => {
-                        return Ok(ControlFlow::Continue(lowered_result_err_value(error)));
-                    }
-                    Err(error) => return Err(error),
-                };
-                let mut lowered = Vec::with_capacity(values.len());
-                for value in values {
-                    let Some(value) = lowered_value_from_runtime_any(&value) else {
-                        return Err(RuntimeError::new(
-                            "type-error",
-                            format!("fs.walk produced unsupported {}", value.type_name()),
-                        )
-                        .with_span(*span));
-                    };
-                    lowered.push(value);
-                }
-                let value = LoweredValue::List(lowered);
+                let value = LoweredValue::Stream(stream);
                 Ok(ControlFlow::Continue(if *result_wrapped {
                     lowered_result_ok(value)
                 } else {
@@ -14997,7 +15934,7 @@ impl Evaluator {
                         RuntimeError::new("type-error", "read_text expected Path").with_span(*span)
                     );
                 };
-                let value = match read_host_path_bytes(&self.host_path(&path), *span) {
+                let value = match read_host_path_bytes_vec(&self.host_path(&path), *span) {
                     Ok(bytes) => match String::from_utf8(bytes) {
                         Ok(text) => {
                             LoweredValue::ResultOk(Box::new(LoweredValue::Str(text.into())))
@@ -15027,9 +15964,7 @@ impl Evaluator {
                         .with_span(*span));
                 };
                 let value = match read_host_path_bytes(&self.host_path(&path), *span) {
-                    Ok(bytes) => {
-                        LoweredValue::ResultOk(Box::new(LoweredValue::Bytes(bytes.into())))
-                    }
+                    Ok(bytes) => LoweredValue::ResultOk(Box::new(LoweredValue::Bytes(bytes))),
                     Err(error) => LoweredValue::ResultErr(Box::new(Value::Error(Box::new(error)))),
                 };
                 Ok(ControlFlow::Continue(value))
@@ -15329,11 +16264,16 @@ impl Evaluator {
                 Ok(ControlFlow::Continue(value))
             }
             LoweredExpr::JsonEncode { value, span } => {
-                let value = match self.eval_lowered_expr(lowered, value, slots, *span)? {
-                    ControlFlow::Continue(value) => value.into_value(),
-                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+                let encoded = if let LoweredExpr::Param(slot) = value.as_ref() {
+                    lowered_encode_json(&slots[*slot], false, *span)
+                } else {
+                    let value = match self.eval_lowered_expr(lowered, value, slots, *span)? {
+                        ControlFlow::Continue(value) => value,
+                        ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+                    };
+                    lowered_encode_json(&value, false, *span)
                 };
-                let value = match crate::modules::json::encode_json(&value, false, *span) {
+                let value = match encoded {
                     Ok(text) => LoweredValue::ResultOk(Box::new(LoweredValue::Str(text.into()))),
                     Err(error) => LoweredValue::ResultErr(Box::new(Value::Error(Box::new(error)))),
                 };

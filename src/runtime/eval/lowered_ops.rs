@@ -155,7 +155,13 @@ pub(super) fn lowered_binary_value(
         (BinaryOp::In, left, LoweredValue::List(items)) => {
             Ok(LoweredValue::Bool(items.contains(&left)))
         }
+        (BinaryOp::In, left, LoweredValue::SharedList(items)) => {
+            Ok(LoweredValue::Bool(items.contains(&left)))
+        }
         (BinaryOp::NotIn, left, LoweredValue::List(items)) => {
+            Ok(LoweredValue::Bool(!items.contains(&left)))
+        }
+        (BinaryOp::NotIn, left, LoweredValue::SharedList(items)) => {
             Ok(LoweredValue::Bool(!items.contains(&left)))
         }
         _ => {
@@ -428,6 +434,7 @@ pub(super) fn lowered_contains_value(
             Ok(bytes_contains(text.as_bytes(), needle.as_bytes()))
         }
         LoweredValue::List(items) => Ok(items.iter().any(|item| item == needle)),
+        LoweredValue::SharedList(items) => Ok(items.iter().any(|item| item == needle)),
         _ => lowered_method_value(receiver.clone(), "contains", vec![needle.clone()], span)
             .and_then(|value| match value {
                 LoweredValue::Bool(value) => Ok(value),
@@ -636,8 +643,10 @@ pub(super) fn lowered_value_matches(kind: LoweredType, value: &LoweredValue) -> 
             | (LoweredType::Proc, LoweredValue::Proc(_))
             | (LoweredType::Error, LoweredValue::Error(_))
             | (LoweredType::Record, LoweredValue::Record(_))
+            | (LoweredType::Record, LoweredValue::FsEntry(_))
             | (LoweredType::Module, LoweredValue::Module(_))
             | (LoweredType::List, LoweredValue::List(_))
+            | (LoweredType::List, LoweredValue::SharedList(_))
             | (LoweredType::Map, LoweredValue::Map(_))
             | (LoweredType::Tag, LoweredValue::Tag { .. })
             | (LoweredType::Result, LoweredValue::ResultOk(_))
@@ -711,6 +720,9 @@ pub(super) fn lowered_value_from_runtime(value: &Value, kind: LoweredType) -> Op
         (LoweredType::Proc, Value::Proc(value)) => Some(LoweredValue::Proc(*value)),
         (LoweredType::Error, Value::Error(_)) => Some(LoweredValue::Error(Box::new(value.clone()))),
         (LoweredType::Record, Value::Record(value)) => lowered_record_from_runtime(value),
+        (LoweredType::Record, Value::FsEntry(value)) => {
+            Some(LoweredValue::FsEntry(value.clone()))
+        }
         (LoweredType::Module, Value::Module(value)) => lowered_module_from_runtime(value),
         (LoweredType::List, Value::List(value)) => lowered_list_from_runtime(value),
         (LoweredType::Map, Value::Map(value)) => lowered_map_from_runtime(value),
@@ -740,6 +752,7 @@ pub(super) fn lowered_value_from_runtime_any(value: &Value) -> Option<LoweredVal
         Value::Regex(value) => Some(LoweredValue::Regex(value.clone())),
         Value::Status(value) => Some(LoweredValue::Status(value.clone())),
         Value::Path(value) => Some(LoweredValue::Path(value.clone())),
+        Value::FsEntry(value) => Some(LoweredValue::FsEntry(value.clone())),
         Value::Command(value) => Some(LoweredValue::Command((**value).clone())),
         Value::ProcessHandle(value) => Some(LoweredValue::ProcessHandle(value.clone())),
         Value::Stream(value) => Some(LoweredValue::Stream((**value).clone())),
@@ -872,10 +885,31 @@ pub(super) fn lowered_method_value(
         LoweredValue::Regex(regex) => lowered_regex_method_value(regex, name, args, span),
         LoweredValue::Status(status) => lowered_status_method_value(status, name, args, span),
         LoweredValue::Path(path) => lowered_path_method_value(path, name, args, span),
+        LoweredValue::FsEntry(entry) => {
+            let record = entry.to_record_map().map_err(|error| error.with_span(span))?;
+            lowered_record_method_value(
+                record
+                    .into_iter()
+                    .filter_map(|(key, value)| {
+                        lowered_value_from_runtime_any(&value).map(|value| (key, value))
+                    })
+                    .collect(),
+                name,
+                args,
+                span,
+            )
+        }
         LoweredValue::Record(record) | LoweredValue::Module(record) => {
             lowered_record_method_value(record, name, args, span)
         }
         LoweredValue::List(items) => lowered_list_method_value(items, name, args, span),
+        LoweredValue::SharedList(items) => {
+            if let Some(value) = lowered_list_method_ref(items.as_slice(), name, args.clone(), span)? {
+                Ok(value)
+            } else {
+                lowered_list_method_value(items.as_ref().clone(), name, args, span)
+            }
+        }
         LoweredValue::Map(map) => lowered_map_method_value(map, name, args, span),
         LoweredValue::ResultOk(value) => {
             lowered_result_method_value(LoweredValue::ResultOk(value), name, args, span)
@@ -1656,6 +1690,10 @@ pub(super) fn lowered_index_value(
             .get(index as usize)
             .cloned()
             .ok_or_else(|| RuntimeError::new("index-out-of-range", "list index").with_span(span)),
+        (LoweredValue::SharedList(values), LoweredValue::Int(index)) => values
+            .get(index as usize)
+            .cloned()
+            .ok_or_else(|| RuntimeError::new("index-out-of-range", "list index").with_span(span)),
         (LoweredValue::Record(fields) | LoweredValue::Module(fields), index)
             if lowered_str_value(&index).is_some() =>
         {
@@ -1683,6 +1721,10 @@ pub(super) fn lowered_index_ref(
 ) -> Result<LoweredValue, RuntimeError> {
     match (base, index) {
         (LoweredValue::List(values), LoweredValue::Int(index)) => values
+            .get(index as usize)
+            .cloned()
+            .ok_or_else(|| RuntimeError::new("index-out-of-range", "list index").with_span(span)),
+        (LoweredValue::SharedList(values), LoweredValue::Int(index)) => values
             .get(index as usize)
             .cloned()
             .ok_or_else(|| RuntimeError::new("index-out-of-range", "list index").with_span(span)),
@@ -1731,6 +1773,12 @@ pub(super) fn lowered_slice_value(
 
     match base {
         LoweredValue::List(values) => {
+            let len = values.len();
+            let start = to_index(start, len, span)?.unwrap_or(0);
+            let end = to_index(end, len, span)?.unwrap_or(len).max(start);
+            Ok(LoweredValue::List(values[start..end].to_vec()))
+        }
+        LoweredValue::SharedList(values) => {
             let len = values.len();
             let start = to_index(start, len, span)?.unwrap_or(0);
             let end = to_index(end, len, span)?.unwrap_or(len).max(start);
@@ -1826,15 +1874,18 @@ pub(super) fn lowered_list_method_value(
             Ok(LoweredValue::List(items))
         }
         "extend" if args.len() == 1 => {
-            let LoweredValue::List(other) = &args[0] else {
-                return Err(RuntimeError::new(
-                    "type-error",
-                    format!("extend expected List, found {}", args[0].type_name()),
-                )
-                .with_span(span));
-            };
             let mut items = items;
-            items.extend(other.iter().cloned());
+            match &args[0] {
+                LoweredValue::List(other) => items.extend(other.iter().cloned()),
+                LoweredValue::SharedList(other) => items.extend(other.iter().cloned()),
+                other => {
+                    return Err(RuntimeError::new(
+                        "type-error",
+                        format!("extend expected List, found {}", other.type_name()),
+                    )
+                    .with_span(span));
+                }
+            }
             Ok(LoweredValue::List(items))
         }
         "join" if args.is_empty() || args.len() == 1 => lowered_join_list(&items, &args, span),
@@ -1884,12 +1935,16 @@ pub(super) fn lowered_list_method_ref(
             lowered_join_list(items, &args, span).map(Some)
         }
         "extend" if args.len() == 1 => {
-            let LoweredValue::List(other) = &args[0] else {
-                return Err(RuntimeError::new(
-                    "type-error",
-                    format!("extend expected List, found {}", args[0].type_name()),
-                )
-                .with_span(span));
+            let other = match &args[0] {
+                LoweredValue::List(other) => other.as_slice(),
+                LoweredValue::SharedList(other) => other.as_slice(),
+                other => {
+                    return Err(RuntimeError::new(
+                        "type-error",
+                        format!("extend expected List, found {}", other.type_name()),
+                    )
+                    .with_span(span));
+                }
             };
             let mut values = Vec::with_capacity(items.len() + other.len());
             values.extend(items.iter().cloned());
@@ -1959,6 +2014,11 @@ pub(super) fn lowered_map_method_value(
             let mut map = map;
             match map.remove(key) {
                 Some(LoweredValue::List(mut items)) => {
+                    items.push(args[1].clone());
+                    map.insert(key.to_string(), LoweredValue::List(items));
+                }
+                Some(LoweredValue::SharedList(items)) => {
+                    let mut items = items.as_ref().clone();
                     items.push(args[1].clone());
                     map.insert(key.to_string(), LoweredValue::List(items));
                 }
@@ -2037,6 +2097,11 @@ pub(super) fn lowered_map_method_ref(
             let mut map = map.clone();
             match map.remove(key) {
                 Some(LoweredValue::List(mut items)) => {
+                    items.push(args[1].clone());
+                    map.insert(key.to_string(), LoweredValue::List(items));
+                }
+                Some(LoweredValue::SharedList(items)) => {
+                    let mut items = items.as_ref().clone();
                     items.push(args[1].clone());
                     map.insert(key.to_string(), LoweredValue::List(items));
                 }
@@ -2129,6 +2194,7 @@ pub(super) fn lowered_method_ref(
             lowered_str_method_value(receiver, name, args, span).map(Some)
         }
         LoweredValue::List(items) => lowered_list_method_ref(items, name, args, span),
+        LoweredValue::SharedList(items) => lowered_list_method_ref(items, name, args, span),
         LoweredValue::Map(map) => lowered_map_method_ref(map, name, args, span),
         LoweredValue::Record(record) | LoweredValue::Module(record) => {
             lowered_record_method_ref(record, name, args, span)

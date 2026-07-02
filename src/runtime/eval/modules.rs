@@ -847,6 +847,15 @@ pub(super) fn encode_cache_key_value(value: &Value) -> Result<String, &'static s
             }
             out
         }
+        Value::FsEntry(entry) => {
+            let fields = entry.to_record_map().map_err(|_| "Record")?;
+            let mut out = format!("R{}", fields.len());
+            for (k, v) in fields {
+                let v_enc = encode_cache_key_value(&v)?;
+                out.push_str(&format!(":{}:{}:{}:{}", k.len(), k, v_enc.len(), v_enc));
+            }
+            out
+        }
         Value::Tag { name, fields } => {
             let mut out = format!("T{}:{}{}", name.len(), name, fields.len());
             for field in fields {

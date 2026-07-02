@@ -1740,7 +1740,6 @@ enum ScanCondition {
     TrimEmpty,
     TrimStartsWith(Vec<u8>),
     StartsWith(Vec<u8>),
-    IsEmpty,
 }
 
 #[derive(Clone, Debug)]
@@ -1851,6 +1850,7 @@ enum LoweredValue {
     Regex(RegexValue),
     Status(ProcessStatus),
     Path(PathValue),
+    FsEntry(crate::runtime::value::FsEntryValue),
     Command(CommandPlan),
     ProcessHandle(Box<ProcessHandleValue>),
     Stream(StreamValue),
@@ -1860,6 +1860,7 @@ enum LoweredValue {
     Record(BTreeMap<Arc<str>, LoweredValue>),
     Module(BTreeMap<Arc<str>, LoweredValue>),
     List(Vec<LoweredValue>),
+    SharedList(Arc<Vec<LoweredValue>>),
     Map(BTreeMap<String, LoweredValue>),
     Tag {
         name: Arc<str>,
@@ -1890,6 +1891,7 @@ impl PartialEq for LoweredValue {
             (Self::Regex(left), Self::Regex(right)) => left == right,
             (Self::Status(left), Self::Status(right)) => left == right,
             (Self::Path(left), Self::Path(right)) => left == right,
+            (Self::FsEntry(left), Self::FsEntry(right)) => left == right,
             (Self::Command(left), Self::Command(right)) => left == right,
             (Self::ProcessHandle(left), Self::ProcessHandle(right)) => left == right,
             (Self::Stream(left), Self::Stream(right)) => left == right,
@@ -1899,6 +1901,9 @@ impl PartialEq for LoweredValue {
             (Self::Record(left), Self::Record(right)) => left == right,
             (Self::Module(left), Self::Module(right)) => left == right,
             (Self::List(left), Self::List(right)) => left == right,
+            (Self::List(left), Self::SharedList(right)) => left == right.as_ref(),
+            (Self::SharedList(left), Self::List(right)) => left.as_ref() == right,
+            (Self::SharedList(left), Self::SharedList(right)) => left == right,
             (Self::Map(left), Self::Map(right)) => left == right,
             (
                 Self::Tag {
@@ -1934,6 +1939,7 @@ impl LoweredValue {
             Self::Regex(value) => Value::Regex(value),
             Self::Status(value) => Value::Status(value),
             Self::Path(value) => Value::Path(value),
+            Self::FsEntry(value) => Value::FsEntry(value),
             Self::Command(value) => Value::Command(Box::new(value)),
             Self::ProcessHandle(value) => Value::ProcessHandle(value),
             Self::Stream(value) => Value::Stream(Box::new(value)),
@@ -1956,6 +1962,9 @@ impl LoweredValue {
             }
             Self::List(value) => {
                 Value::List(value.into_iter().map(LoweredValue::into_value).collect())
+            }
+            Self::SharedList(value) => {
+                Value::List(value.iter().cloned().map(LoweredValue::into_value).collect())
             }
             Self::Map(value) => {
                 let mut map = BTreeMap::new();
@@ -1987,6 +1996,7 @@ impl LoweredValue {
             Self::Regex(_) => "Regex",
             Self::Status(_) => "Status",
             Self::Path(_) => "Path",
+            Self::FsEntry(_) => "Record",
             Self::Command(_) => "Command",
             Self::ProcessHandle(_) => "ProcessHandle",
             Self::Stream(_) => "Stream",
@@ -1995,7 +2005,7 @@ impl LoweredValue {
             Self::Error(_) => "Error",
             Self::Record(_) => "Record",
             Self::Module(_) => "Module",
-            Self::List(_) => "List",
+            Self::List(_) | Self::SharedList(_) => "List",
             Self::Map(_) => "Map",
             Self::Tag { .. } => "Tag",
             Self::ResultOk(_) | Self::ResultErr(_) => "Result",
@@ -2174,25 +2184,26 @@ pub(super) struct ModuleExportSignature {
 }
 
 pub struct Evaluator {
-    sources: SourceMap,
+    sources: Arc<SourceMap>,
     command_name: String,
     scopes: Vec<FxHashMap<Name, Binding>>,
     // Signatures of functions exported by dynamically loaded modules
     // (`module.load`), keyed by the export's `FunctionName`. Captured from the
     // compact declaration probe at load time so `module.require` can validate
     // `export proc`/`export pure` contract fields without the old recursive AST.
-    module_export_signatures: FxHashMap<crate::runtime::value::FunctionName, ModuleExportSignature>,
-    lowered_pures: FxHashMap<Name, Arc<LoweredPureFunction>>,
-    lowered_procs: FxHashMap<Name, Arc<LoweredPureFunction>>,
-    lowered_qualified_pures: FxHashMap<QualifiedName, Arc<LoweredPureFunction>>,
-    lowered_qualified_procs: FxHashMap<QualifiedName, Arc<LoweredPureFunction>>,
-    lowered_program: LoweredProgram,
+    module_export_signatures:
+        Arc<FxHashMap<crate::runtime::value::FunctionName, ModuleExportSignature>>,
+    lowered_pures: Arc<FxHashMap<Name, Arc<LoweredPureFunction>>>,
+    lowered_procs: Arc<FxHashMap<Name, Arc<LoweredPureFunction>>>,
+    lowered_qualified_pures: Arc<FxHashMap<QualifiedName, Arc<LoweredPureFunction>>>,
+    lowered_qualified_procs: Arc<FxHashMap<QualifiedName, Arc<LoweredPureFunction>>>,
+    lowered_program: Arc<LoweredProgram>,
     lowered_slot_pool: Vec<Vec<LoweredValue>>,
     tag_variants: FxHashMap<Name, usize>,
     error_families: FxHashMap<Name, RuntimeErrorFamily>,
-    module_value_cache: FxHashMap<String, RecordMap>,
-    function_modules: FxHashMap<Name, String>,
-    qualified_function_modules: FxHashMap<QualifiedName, String>,
+    module_value_cache: Arc<FxHashMap<String, RecordMap>>,
+    function_modules: Arc<FxHashMap<Name, String>>,
+    qualified_function_modules: Arc<FxHashMap<QualifiedName, String>>,
     active_modules: Vec<String>,
     stdout: Vec<u8>,
     stderr: Vec<u8>,
@@ -2223,6 +2234,61 @@ pub struct Evaluator {
     pub(super) test_mocks: FxHashMap<String, Vec<TestMock>>,
     pub(super) test_calls: Vec<TestCall>,
     test_temp_counter: u64,
+}
+
+struct LoweredSharedState {
+    sources: Arc<SourceMap>,
+    command_name: String,
+    scopes: Vec<FxHashMap<Name, Binding>>,
+    module_export_signatures:
+        Arc<FxHashMap<crate::runtime::value::FunctionName, ModuleExportSignature>>,
+    lowered_pures: Arc<FxHashMap<Name, Arc<LoweredPureFunction>>>,
+    lowered_procs: Arc<FxHashMap<Name, Arc<LoweredPureFunction>>>,
+    lowered_qualified_pures: Arc<FxHashMap<QualifiedName, Arc<LoweredPureFunction>>>,
+    lowered_qualified_procs: Arc<FxHashMap<QualifiedName, Arc<LoweredPureFunction>>>,
+    lowered_program: Arc<LoweredProgram>,
+    tag_variants: FxHashMap<Name, usize>,
+    error_families: FxHashMap<Name, RuntimeErrorFamily>,
+    module_value_cache: Arc<FxHashMap<String, RecordMap>>,
+    function_modules: Arc<FxHashMap<Name, String>>,
+    qualified_function_modules: Arc<FxHashMap<QualifiedName, String>>,
+    active_modules: Vec<String>,
+    cwd: PathBuf,
+    env: RuntimeEnv,
+}
+
+struct LoweredWorker {
+    evaluator: Evaluator,
+}
+
+impl LoweredWorker {
+    fn new(shared: Arc<LoweredSharedState>) -> Self {
+        Self {
+            evaluator: Evaluator::new_lowered_worker(&shared),
+        }
+    }
+
+    fn eval_lowered_expr(
+        &mut self,
+        lowered: &LoweredPureFunction,
+        expr: &LoweredExpr,
+        slots: &mut [LoweredValue],
+        call_span: Span,
+    ) -> Result<std::ops::ControlFlow<LoweredValue, LoweredValue>, RuntimeError> {
+        self.evaluator
+            .eval_lowered_expr(lowered, expr, slots, call_span)
+    }
+
+    fn eval_lowered_stmts(
+        &mut self,
+        lowered: &LoweredPureFunction,
+        stmts: &[LoweredStmt],
+        slots: &mut [LoweredValue],
+        call_span: Span,
+    ) -> Result<LoweredStmtFlow, RuntimeError> {
+        self.evaluator
+            .eval_lowered_stmts(lowered, stmts, slots, call_span)
+    }
 }
 
 pub(in crate::runtime::eval) enum FsRootHandle {
@@ -2316,21 +2382,21 @@ impl Evaluator {
             cwd.unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
         let after_current_dir = PROFILE.then(Instant::now);
         let mut evaluator = Self {
-            sources,
+            sources: Arc::new(sources),
             command_name,
             scopes: vec![FxHashMap::default()],
-            module_export_signatures: FxHashMap::default(),
-            lowered_pures: FxHashMap::default(),
-            lowered_procs: FxHashMap::default(),
-            lowered_qualified_pures: FxHashMap::default(),
-            lowered_qualified_procs: FxHashMap::default(),
-            lowered_program: LoweredProgram::default(),
+            module_export_signatures: Arc::new(FxHashMap::default()),
+            lowered_pures: Arc::new(FxHashMap::default()),
+            lowered_procs: Arc::new(FxHashMap::default()),
+            lowered_qualified_pures: Arc::new(FxHashMap::default()),
+            lowered_qualified_procs: Arc::new(FxHashMap::default()),
+            lowered_program: Arc::new(LoweredProgram::default()),
             lowered_slot_pool: Vec::new(),
             tag_variants: FxHashMap::default(),
             error_families: FxHashMap::default(),
-            module_value_cache: FxHashMap::default(),
-            function_modules: FxHashMap::default(),
-            qualified_function_modules: FxHashMap::default(),
+            module_value_cache: Arc::new(FxHashMap::default()),
+            function_modules: Arc::new(FxHashMap::default()),
+            qualified_function_modules: Arc::new(FxHashMap::default()),
             active_modules: Vec::new(),
             stdout: Vec::new(),
             stderr: Vec::new(),
@@ -2405,7 +2471,11 @@ impl Evaluator {
     }
 
     pub fn into_sources(self) -> SourceMap {
-        self.sources
+        Arc::try_unwrap(self.sources).unwrap_or_else(|sources| (*sources).clone())
+    }
+
+    fn unwrap_sources(sources: Arc<SourceMap>) -> SourceMap {
+        Arc::try_unwrap(sources).unwrap_or_else(|sources| (*sources).clone())
     }
 
     pub fn with_tracing(mut self) -> Self {
@@ -2465,37 +2535,50 @@ impl Evaluator {
         Ok(())
     }
 
-    /// Fork a minimal evaluator copy for a parallel `par-map` worker thread.
-    /// Only clones state needed for lowered expression evaluation + file I/O;
-    /// all other fields are initialized empty/default.
-    pub(super) fn fork_for_par_map(&self) -> Self {
-        Self {
-            // Required for lowered expression evaluation
+    fn lowered_shared_state(&self) -> Arc<LoweredSharedState> {
+        Arc::new(LoweredSharedState {
             sources: self.sources.clone(),
+            command_name: self.command_name.clone(),
+            scopes: self.scopes.clone(),
+            module_export_signatures: self.module_export_signatures.clone(),
             lowered_pures: self.lowered_pures.clone(),
             lowered_procs: self.lowered_procs.clone(),
             lowered_qualified_pures: self.lowered_qualified_pures.clone(),
             lowered_qualified_procs: self.lowered_qualified_procs.clone(),
             lowered_program: self.lowered_program.clone(),
-            lowered_slot_pool: Vec::new(),
-            // Required for path operations (read_host_path_bytes)
-            cwd: self.cwd.clone(),
-            // Required for module dispatch (path.read_bytes() etc.)
+            tag_variants: self.tag_variants.clone(),
+            error_families: self.error_families.clone(),
             module_value_cache: self.module_value_cache.clone(),
             function_modules: self.function_modules.clone(),
             qualified_function_modules: self.qualified_function_modules.clone(),
             active_modules: self.active_modules.clone(),
-            // Required for subprocess env
+            cwd: self.cwd.clone(),
             env: self.env.clone(),
-            command_name: self.command_name.clone(),
-            // Fresh I/O buffers
+        })
+    }
+
+    fn new_lowered_worker(shared: &LoweredSharedState) -> Self {
+        Self {
+            sources: shared.sources.clone(),
+            command_name: shared.command_name.clone(),
+            scopes: shared.scopes.clone(),
+            module_export_signatures: shared.module_export_signatures.clone(),
+            lowered_pures: shared.lowered_pures.clone(),
+            lowered_procs: shared.lowered_procs.clone(),
+            lowered_qualified_pures: shared.lowered_qualified_pures.clone(),
+            lowered_qualified_procs: shared.lowered_qualified_procs.clone(),
+            lowered_program: shared.lowered_program.clone(),
+            lowered_slot_pool: Vec::new(),
+            tag_variants: shared.tag_variants.clone(),
+            error_families: shared.error_families.clone(),
+            module_value_cache: shared.module_value_cache.clone(),
+            function_modules: shared.function_modules.clone(),
+            qualified_function_modules: shared.qualified_function_modules.clone(),
+            active_modules: shared.active_modules.clone(),
             stdout: Vec::new(),
             stderr: Vec::new(),
-            // Default / empty for everything else
-            scopes: self.scopes.clone(),
-            module_export_signatures: self.module_export_signatures.clone(),
-            tag_variants: self.tag_variants.clone(),
-            error_families: self.error_families.clone(),
+            cwd: shared.cwd.clone(),
+            env: shared.env.clone(),
             interactive: false,
             interactive_command_dispatcher: None,
             last_status: None,
@@ -2928,7 +3011,7 @@ impl Evaluator {
                 trace_events: self.trace_events,
                 diagnostics,
                 traceback,
-                sources: self.sources,
+                sources: Self::unwrap_sources(self.sources),
                 status,
                 cwd: self.cwd,
                 env: self.env.into_snapshot(),
@@ -3242,7 +3325,7 @@ impl Evaluator {
             trace_events: self.trace_events,
             diagnostics,
             traceback,
-            sources: self.sources,
+            sources: Self::unwrap_sources(self.sources),
             status,
             cwd: self.cwd,
             env: self.env.into_snapshot(),
@@ -3597,7 +3680,7 @@ impl Evaluator {
             trace_events: self.trace_events,
             diagnostics,
             traceback,
-            sources: self.sources,
+            sources: Self::unwrap_sources(self.sources),
             status,
             cwd: self.cwd,
             env: self.env.into_snapshot(),
@@ -3780,7 +3863,7 @@ impl Evaluator {
                 trace_events: self.trace_events,
                 diagnostics,
                 traceback,
-                sources: self.sources,
+                sources: Self::unwrap_sources(self.sources),
                 status,
                 cwd: self.cwd,
                 env: self.env.into_snapshot(),
@@ -3883,14 +3966,14 @@ impl Evaluator {
             )
         });
         let after_top_level = PROFILE.then(Instant::now);
-        self.lowered_pures.extend(lowered_functions.pures);
-        self.lowered_procs.extend(lowered_functions.procs);
-        self.lowered_qualified_pures
+        Arc::make_mut(&mut self.lowered_pures).extend(lowered_functions.pures);
+        Arc::make_mut(&mut self.lowered_procs).extend(lowered_functions.procs);
+        Arc::make_mut(&mut self.lowered_qualified_pures)
             .extend(lowered_functions.qualified_pures);
-        self.lowered_qualified_procs
+        Arc::make_mut(&mut self.lowered_qualified_procs)
             .extend(lowered_functions.qualified_procs);
         if let Some(lowered) = lowered {
-            self.lowered_program = lowered;
+            self.lowered_program = Arc::new(lowered);
         }
         let after_commit = PROFILE.then(Instant::now);
         if PROFILE
@@ -4671,7 +4754,7 @@ impl Evaluator {
             return_ty: Box::new(sig.return_ty.clone()),
             effects: sig.effects.clone(),
         };
-        self.module_export_signatures
+        Arc::make_mut(&mut self.module_export_signatures)
             .insert(function, ModuleExportSignature { pure, sig });
     }
 
@@ -5197,10 +5280,17 @@ pub(super) fn value_matches_static_type(value: &Value, ty: &Type) -> bool {
             _ => false,
         },
         Type::Record(fields) => match value {
-            Value::Record(_) if fields.is_empty() => true,
+            Value::Record(_) | Value::FsEntry(_) if fields.is_empty() => true,
             Value::Record(record) => fields.iter().all(|(field, field_ty)| {
                 record
                     .get(field.as_str())
+                    .is_some_and(|value| value_matches_static_type(value, field_ty))
+            }),
+            Value::FsEntry(entry) => fields.iter().all(|(field, field_ty)| {
+                entry
+                    .field_value(field.as_str())
+                    .and_then(Result::ok)
+                    .as_ref()
                     .is_some_and(|value| value_matches_static_type(value, field_ty))
             }),
             _ => false,
@@ -5253,6 +5343,9 @@ fn lowered_value_matches_static_type(value: &LoweredValue, ty: &Type) -> bool {
             LoweredValue::List(items) => items
                 .iter()
                 .all(|item| lowered_value_matches_static_type(item, item_ty)),
+            LoweredValue::SharedList(items) => items
+                .iter()
+                .all(|item| lowered_value_matches_static_type(item, item_ty)),
             _ => false,
         },
         Type::Map(item_ty) => match value {
@@ -5263,11 +5356,18 @@ fn lowered_value_matches_static_type(value: &LoweredValue, ty: &Type) -> bool {
         },
         Type::Stream(_) => matches!(value, LoweredValue::Stream(_)),
         Type::Record(fields) => match value {
-            LoweredValue::Record(_) if fields.is_empty() => true,
+            LoweredValue::Record(_) | LoweredValue::FsEntry(_) if fields.is_empty() => true,
             LoweredValue::Record(record) => fields.iter().all(|(field, field_ty)| {
                 record
                     .get(field.as_str())
                     .is_some_and(|value| lowered_value_matches_static_type(value, field_ty))
+            }),
+            LoweredValue::FsEntry(entry) => fields.iter().all(|(field, field_ty)| {
+                entry
+                    .field_value(field.as_str())
+                    .and_then(Result::ok)
+                    .as_ref()
+                    .is_some_and(|value| value_matches_static_type(value, field_ty))
             }),
             _ => false,
         },
