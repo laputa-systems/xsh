@@ -160,9 +160,6 @@ impl LiveStream for UeventStream {
         }
     }
 
-    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
-        self
-    }
 }
 
 mod boot;

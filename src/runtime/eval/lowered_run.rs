@@ -58,7 +58,7 @@ use super::lowered_ops::{
     lowered_bytes_arg, lowered_bytes_parts, lowered_bytes_value, lowered_contains_value,
     lowered_index_ref, lowered_index_value, lowered_method_ref, lowered_method_value,
     lowered_nonnegative_count, lowered_path_method_value, lowered_return_value,
-    lowered_slice_value, lowered_str_arg, lowered_str_byte_at_value, lowered_str_byte_len_value,
+    lowered_slice_value, lowered_str_arg,
     lowered_str_count_lines_value, lowered_str_parts, lowered_str_predicate_text,
     lowered_str_predicate_value, lowered_str_value, lowered_trim_is_empty_value,
     lowered_trim_str_predicate_value, lowered_type_name, lowered_value_from_runtime,
@@ -1305,9 +1305,6 @@ impl LiveStream for DryRunUeventStream {
         Ok(Some(linux_dry_run_uevent()))
     }
 
-    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
-        self
-    }
 }
 
 fn lowered_runtime_list_result(
@@ -7819,9 +7816,7 @@ impl Evaluator {
             .with_span(span)),
             Flow::Return(_)
             | Flow::Break(_)
-            | Flow::ContinueLoop
-            | Flow::Yield(_)
-            | Flow::ProducerStop => Err(RuntimeError::new(
+            | Flow::ContinueLoop => Err(RuntimeError::new(
                 "control-flow",
                 "lowered propagation produced unsupported control flow",
             )
@@ -7961,63 +7956,6 @@ impl Evaluator {
                     .map(Some)
             }
             LoweredExpr::Param(index) => Ok(Some(slots[*index].clone())),
-            LoweredExpr::StrByteLen { receiver, span } => {
-                if let LoweredExpr::Param(slot) = receiver.as_ref() {
-                    return lowered_str_byte_len_value(&slots[*slot], *span)
-                        .map(LoweredValue::Int)
-                        .map(Some);
-                }
-                let Some(receiver) = self.eval_lowered_plain_expr(lowered, receiver, slots)? else {
-                    return Ok(None);
-                };
-                lowered_str_byte_len_value(&receiver, *span)
-                    .map(LoweredValue::Int)
-                    .map(Some)
-            }
-            LoweredExpr::StrByteAt {
-                receiver,
-                index,
-                default,
-                span,
-            } => {
-                let Some(index) = self.eval_lowered_plain_expr(lowered, index, slots)? else {
-                    return Ok(None);
-                };
-                let LoweredValue::Int(index) = index else {
-                    return Err(
-                        RuntimeError::new("type-error", "byte_at expected Int").with_span(*span)
-                    );
-                };
-                let default = match default {
-                    Some(default) => {
-                        let Some(default) =
-                            self.eval_lowered_plain_expr(lowered, default, slots)?
-                        else {
-                            return Ok(None);
-                        };
-                        let LoweredValue::Int(default) = default else {
-                            return Err(RuntimeError::new(
-                                "type-error",
-                                "byte_at default expected Int",
-                            )
-                            .with_span(*span));
-                        };
-                        default
-                    }
-                    None => -1,
-                };
-                if let LoweredExpr::Param(slot) = receiver.as_ref() {
-                    return lowered_str_byte_at_value(&slots[*slot], index, default, *span)
-                        .map(LoweredValue::Int)
-                        .map(Some);
-                }
-                let Some(receiver) = self.eval_lowered_plain_expr(lowered, receiver, slots)? else {
-                    return Ok(None);
-                };
-                lowered_str_byte_at_value(&receiver, index, default, *span)
-                    .map(LoweredValue::Int)
-                    .map(Some)
-            }
             LoweredExpr::StrPredicate {
                 receiver,
                 predicate,
@@ -9368,33 +9306,8 @@ impl Evaluator {
                 };
                 Ok(ControlFlow::Continue(value))
             }
-            LoweredIntExpr::StrByteLenSlot { slot, span } => {
-                lowered_str_byte_len_value(&slots[*slot], *span).map(ControlFlow::Continue)
-            }
             LoweredIntExpr::StrCountLinesSlot { slot, span } => {
                 lowered_str_count_lines_value(&slots[*slot], *span).map(ControlFlow::Continue)
-            }
-            LoweredIntExpr::StrByteAtSlot {
-                slot,
-                index,
-                default,
-                span,
-            } => {
-                let index = match self.eval_lowered_typed_int(index, slots, call_span)? {
-                    ControlFlow::Continue(value) => value,
-                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
-                };
-                let default = match default {
-                    Some(default) => {
-                        match self.eval_lowered_typed_int(default, slots, call_span)? {
-                            ControlFlow::Continue(value) => value,
-                            ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
-                        }
-                    }
-                    None => -1,
-                };
-                lowered_str_byte_at_value(&slots[*slot], index, default, *span)
-                    .map(ControlFlow::Continue)
             }
         }
     }
@@ -10405,7 +10318,6 @@ impl Evaluator {
             LoweredStmt::Env {
                 env,
                 body,
-                propagate_result: _,
             } => {
                 for assignment in env {
                     check_env_name(assignment.name.as_str(), assignment.value.span)?;
@@ -10732,20 +10644,6 @@ impl Evaluator {
                 };
                 Ok(Some(ControlFlow::Continue(value)))
             }
-            LoweredExpr::StrByteLen { receiver, span } => {
-                if let LoweredExpr::Param(slot) = receiver.as_ref() {
-                    return lowered_str_byte_len_value(&slots[*slot], *span)
-                        .map(ControlFlow::Continue)
-                        .map(Some);
-                }
-                let receiver = match self.eval_lowered_expr(lowered, receiver, slots, *span)? {
-                    ControlFlow::Continue(value) => value,
-                    ControlFlow::Break(value) => return Ok(Some(ControlFlow::Break(value))),
-                };
-                lowered_str_byte_len_value(&receiver, *span)
-                    .map(ControlFlow::Continue)
-                    .map(Some)
-            }
             LoweredExpr::Method {
                 receiver,
                 name,
@@ -10762,48 +10660,6 @@ impl Evaluator {
                     ControlFlow::Break(value) => return Ok(Some(ControlFlow::Break(value))),
                 };
                 lowered_str_count_lines_value(&receiver, *span)
-                    .map(ControlFlow::Continue)
-                    .map(Some)
-            }
-            LoweredExpr::StrByteAt {
-                receiver,
-                index,
-                default,
-                span,
-            } => {
-                let Some(index) = self.eval_lowered_int_candidate(lowered, index, slots)? else {
-                    return Ok(None);
-                };
-                let index = match index {
-                    ControlFlow::Continue(value) => value,
-                    ControlFlow::Break(value) => return Ok(Some(ControlFlow::Break(value))),
-                };
-                let default = match default {
-                    Some(default) => {
-                        let Some(default) =
-                            self.eval_lowered_int_candidate(lowered, default, slots)?
-                        else {
-                            return Ok(None);
-                        };
-                        match default {
-                            ControlFlow::Continue(value) => value,
-                            ControlFlow::Break(value) => {
-                                return Ok(Some(ControlFlow::Break(value)));
-                            }
-                        }
-                    }
-                    None => -1,
-                };
-                if let LoweredExpr::Param(slot) = receiver.as_ref() {
-                    return lowered_str_byte_at_value(&slots[*slot], index, default, *span)
-                        .map(ControlFlow::Continue)
-                        .map(Some);
-                }
-                let receiver = match self.eval_lowered_expr(lowered, receiver, slots, *span)? {
-                    ControlFlow::Continue(value) => value,
-                    ControlFlow::Break(value) => return Ok(Some(ControlFlow::Break(value))),
-                };
-                lowered_str_byte_at_value(&receiver, index, default, *span)
                     .map(ControlFlow::Continue)
                     .map(Some)
             }
@@ -13761,65 +13617,6 @@ impl Evaluator {
                     TracePayload::None,
                 );
                 result
-            }
-            LoweredExpr::StrByteLen { receiver, span } => {
-                if let LoweredExpr::Param(slot) = receiver.as_ref() {
-                    return lowered_str_byte_len_value(&slots[*slot], *span)
-                        .map(LoweredValue::Int)
-                        .map(ControlFlow::Continue);
-                }
-                let receiver = match self.eval_lowered_expr(lowered, receiver, slots, *span)? {
-                    ControlFlow::Continue(value) => value,
-                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
-                };
-                lowered_str_byte_len_value(&receiver, *span)
-                    .map(LoweredValue::Int)
-                    .map(ControlFlow::Continue)
-            }
-            LoweredExpr::StrByteAt {
-                receiver,
-                index,
-                default,
-                span,
-            } => {
-                let index = match self.eval_lowered_expr(lowered, index, slots, *span)? {
-                    ControlFlow::Continue(value) => value,
-                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
-                };
-                let LoweredValue::Int(index) = index else {
-                    return Err(
-                        RuntimeError::new("type-error", "byte_at expected Int").with_span(*span)
-                    );
-                };
-                let default = match default {
-                    Some(default) => {
-                        let value = match self.eval_lowered_expr(lowered, default, slots, *span)? {
-                            ControlFlow::Continue(value) => value,
-                            ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
-                        };
-                        let LoweredValue::Int(value) = value else {
-                            return Err(RuntimeError::new(
-                                "type-error",
-                                "byte_at default expected Int",
-                            )
-                            .with_span(*span));
-                        };
-                        value
-                    }
-                    None => -1,
-                };
-                if let LoweredExpr::Param(slot) = receiver.as_ref() {
-                    return lowered_str_byte_at_value(&slots[*slot], index, default, *span)
-                        .map(LoweredValue::Int)
-                        .map(ControlFlow::Continue);
-                }
-                let receiver = match self.eval_lowered_expr(lowered, receiver, slots, *span)? {
-                    ControlFlow::Continue(value) => value,
-                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
-                };
-                lowered_str_byte_at_value(&receiver, index, default, *span)
-                    .map(LoweredValue::Int)
-                    .map(ControlFlow::Continue)
             }
             LoweredExpr::StrPredicate {
                 receiver,

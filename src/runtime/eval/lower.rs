@@ -5348,18 +5348,12 @@ impl CompactLowerConstructProbe<'_, '_> {
             }),
             ArenaStmtKind::Defer(ArenaExprOrRun::Expr(value)) => {
                 let value = self.lower_expr(value, slots, current_function, item_slot)?;
-                Some(LoweredStmt::Defer {
-                    value,
-                    span: self.program.arena.stmt(id).span,
-                })
+                Some(LoweredStmt::Defer { value })
             }
             ArenaStmtKind::Defer(ArenaExprOrRun::Run(run)) => {
                 let value =
                     self.lower_run_binding_value(run, slots, current_function, item_slot)?;
-                Some(LoweredStmt::Defer {
-                    value,
-                    span: self.program.arena.stmt(id).span,
-                })
+                Some(LoweredStmt::Defer { value })
             }
             ArenaStmtKind::TailBareIdent(name) => {
                 let value = self.lower_bare_ident(name, slots)?;
@@ -5529,7 +5523,6 @@ impl CompactLowerConstructProbe<'_, '_> {
         Some(LoweredStmt::Env {
             env: lowered_env,
             body,
-            propagate_result: stmt.propagate,
         })
     }
 
@@ -10262,48 +10255,6 @@ pub(super) fn lowered_top_level(
     }
 }
 
-fn arena_block_contains_return(program: &ArenaProgram, block: BlockId) -> bool {
-    program
-        .arena
-        .stmt_ids(program.arena.block(block).statements)
-        .any(|stmt| arena_stmt_contains_return(program, stmt))
-}
-
-fn arena_stmt_contains_return(program: &ArenaProgram, stmt: StmtId) -> bool {
-    match program.arena.stmt(stmt).kind {
-        ArenaStmtKind::Return(_) => true,
-        ArenaStmtKind::Export(stmt) => arena_stmt_contains_return(program, stmt),
-        ArenaStmtKind::If {
-            branches,
-            else_block,
-        } => {
-            program
-                .arena
-                .if_branches(branches)
-                .iter()
-                .any(|branch| arena_block_contains_return(program, branch.block))
-                || else_block.is_some_and(|block| arena_block_contains_return(program, block))
-        }
-        ArenaStmtKind::While { block, .. }
-        | ArenaStmtKind::For { block, .. }
-        | ArenaStmtKind::Loop { block } => arena_block_contains_return(program, block),
-        ArenaStmtKind::With {
-            body, else_block, ..
-        } => {
-            arena_block_contains_return(program, body)
-                || arena_block_contains_return(program, else_block)
-        }
-        ArenaStmtKind::Guard { else_block, .. } => arena_block_contains_return(program, else_block),
-        ArenaStmtKind::GuardedStmt { stmt, .. } => arena_stmt_contains_return(program, stmt),
-        ArenaStmtKind::Match { arms, .. } => program
-            .arena
-            .match_arms(arms)
-            .iter()
-            .any(|arm| arena_block_contains_return(program, arm.block)),
-        _ => false,
-    }
-}
-
 fn lowerable_top_level_annotation(ty: LoweredType) -> bool {
     matches!(
         ty,
@@ -10536,13 +10487,6 @@ pub(super) fn lower_int_expr_candidate(expr: &LoweredExpr) -> Option<LoweredIntE
                 right: Box::new(lower_int_expr_candidate(right)?),
             })
         }
-        LoweredExpr::StrByteLen { receiver, span } => match receiver.as_ref() {
-            LoweredExpr::Param(slot) => Some(LoweredIntExpr::StrByteLenSlot {
-                slot: *slot,
-                span: *span,
-            }),
-            _ => None,
-        },
         LoweredExpr::Method {
             receiver,
             name,
@@ -10551,23 +10495,6 @@ pub(super) fn lower_int_expr_candidate(expr: &LoweredExpr) -> Option<LoweredIntE
         } if name == "count_lines" && args.is_empty() => match receiver.as_ref() {
             LoweredExpr::Param(slot) => Some(LoweredIntExpr::StrCountLinesSlot {
                 slot: *slot,
-                span: *span,
-            }),
-            _ => None,
-        },
-        LoweredExpr::StrByteAt {
-            receiver,
-            index,
-            default,
-            span,
-        } => match receiver.as_ref() {
-            LoweredExpr::Param(slot) => Some(LoweredIntExpr::StrByteAtSlot {
-                slot: *slot,
-                index: Box::new(lower_int_expr_candidate(index)?),
-                default: match default {
-                    Some(value) => Some(Box::new(lower_int_expr_candidate(value)?)),
-                    None => None,
-                },
                 span: *span,
             }),
             _ => None,
@@ -10744,9 +10671,7 @@ pub(super) fn lowered_int_expr_needs_type_context(expr: &LoweredIntExpr) -> bool
         LoweredIntExpr::Slot(_) => true,
         LoweredIntExpr::Int(_)
         | LoweredIntExpr::Binary { .. }
-        | LoweredIntExpr::StrCountLinesSlot { .. }
-        | LoweredIntExpr::StrByteLenSlot { .. }
-        | LoweredIntExpr::StrByteAtSlot { .. } => false,
+        | LoweredIntExpr::StrCountLinesSlot { .. } => false,
     }
 }
 
@@ -11067,18 +10992,6 @@ pub(super) fn lowered_str_key(value: &LoweredValue) -> Option<&str> {
     match value {
         LoweredValue::Str(value) => Some(value.as_ref()),
         LoweredValue::StrView(value) => Some(value.as_str()),
-        _ => None,
-    }
-}
-
-pub(super) fn lowered_record_field_str<'a>(
-    value: &'a LoweredValue,
-    field: &str,
-) -> Option<&'a str> {
-    match value {
-        LoweredValue::Record(entries) | LoweredValue::Module(entries) => {
-            entries.get(field).and_then(|v| lowered_str_key(v))
-        }
         _ => None,
     }
 }

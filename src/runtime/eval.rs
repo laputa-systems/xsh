@@ -35,7 +35,7 @@ use std::collections::BTreeMap;
 use std::ffi::{OsStr, OsString};
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
 use std::path::PathBuf;
-use std::ptr::NonNull;
+
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -345,23 +345,12 @@ fn compact_runtime_error_families(
         .error_families_by_name
         .iter()
         .map(|(name, family)| {
-            let variants = family
-                .variants
-                .iter()
-                .map(|(variant_name, variant)| {
-                    error_variants += 1;
-                    error_fields += variant.fields.len();
-                    error_facets += variant.facets.len();
-                    (
-                        *variant_name,
-                        RuntimeErrorVariant {
-                            fields: variant.fields.keys().copied().collect(),
-                            facets: variant.facets.clone(),
-                        },
-                    )
-                })
-                .collect();
-            (*name, RuntimeErrorFamily { variants })
+            for variant in family.variants.values() {
+                error_variants += 1;
+                error_fields += variant.fields.len();
+                error_facets += variant.facets.len();
+            }
+            (*name, RuntimeErrorFamily {})
         })
         .collect();
     (error_families, error_variants, error_fields, error_facets)
@@ -387,15 +376,7 @@ struct Binding {
 }
 
 #[derive(Clone, Debug)]
-pub(super) struct RuntimeErrorFamily {
-    variants: FxHashMap<Name, RuntimeErrorVariant>,
-}
-
-#[derive(Clone, Debug)]
-pub(super) struct RuntimeErrorVariant {
-    fields: Vec<Name>,
-    facets: Vec<Name>,
-}
+pub(super) struct RuntimeErrorFamily {}
 
 #[derive(Clone, Debug)]
 struct RegisteredSignalHook {
@@ -449,7 +430,6 @@ pub(super) struct TestCall {
 
 /// Upper bound on recycled scope maps held in `scope_pool` (deep recursion
 /// shouldn't let the pool grow without bound).
-const SCOPE_POOL_CAP: usize = 64;
 
 #[derive(Clone, Debug)]
 struct LoweredPureFunction {
@@ -647,20 +627,6 @@ impl<'a> LowerableFunctions<'a> {
         }
     }
 
-    fn pures_with_candidates(
-        pures: &'a FxHashMap<Name, Arc<LoweredPureFunction>>,
-        qualified_pures: &'a FxHashMap<QualifiedName, Arc<LoweredPureFunction>>,
-        candidates: &'a [LoweredFunctionKey],
-    ) -> Self {
-        Self {
-            pures: Some(pures),
-            procs: None,
-            qualified_pures: Some(qualified_pures),
-            qualified_procs: None,
-            candidates,
-        }
-    }
-
     fn contains(&self, key: LoweredFunctionKey) -> bool {
         self.candidates.contains(&key)
             || match key {
@@ -690,20 +656,6 @@ impl<'a> LowerableFunctions<'a> {
             }
     }
 
-    fn return_kind(&self, key: LoweredFunctionKey) -> Option<LoweredReturnKind> {
-        match key {
-            LoweredFunctionKey::Name(name) => self
-                .pures
-                .and_then(|pures| pures.get(&name))
-                .or_else(|| self.procs.and_then(|procs| procs.get(&name)))
-                .map(|lowered| lowered.return_kind),
-            LoweredFunctionKey::Qualified(name) => self
-                .qualified_pures
-                .and_then(|pures| pures.get(&name))
-                .or_else(|| self.qualified_procs.and_then(|procs| procs.get(&name)))
-                .map(|lowered| lowered.return_kind),
-        }
-    }
 }
 
 #[derive(Clone, Debug)]
@@ -1015,7 +967,6 @@ enum LoweredStmt {
     Env {
         env: Vec<LoweredRunEnv>,
         body: Vec<LoweredStmt>,
-        propagate_result: bool,
     },
     Proc {
         module: Arc<str>,
@@ -1044,7 +995,6 @@ enum LoweredStmt {
     Continue,
     Defer {
         value: LoweredExpr,
-        span: Span,
     },
 }
 
@@ -1057,18 +1007,8 @@ enum LoweredIntExpr {
         left: Box<LoweredIntExpr>,
         right: Box<LoweredIntExpr>,
     },
-    StrByteLenSlot {
-        slot: usize,
-        span: Span,
-    },
     StrCountLinesSlot {
         slot: usize,
-        span: Span,
-    },
-    StrByteAtSlot {
-        slot: usize,
-        index: Box<LoweredIntExpr>,
-        default: Option<Box<LoweredIntExpr>>,
         span: Span,
     },
 }
@@ -1252,16 +1192,6 @@ enum LoweredExpr {
         receiver: Box<LoweredExpr>,
         name: String,
         args: Vec<LoweredExpr>,
-        span: Span,
-    },
-    StrByteLen {
-        receiver: Box<LoweredExpr>,
-        span: Span,
-    },
-    StrByteAt {
-        receiver: Box<LoweredExpr>,
-        index: Box<LoweredExpr>,
-        default: Option<Box<LoweredExpr>>,
         span: Span,
     },
     StrPredicate {
@@ -1522,6 +1452,7 @@ enum LoweredRunArgKind {
 
 #[derive(Clone, Debug)]
 struct LoweredRunPipelineSegment {
+    #[allow(dead_code)]
     kind: RunKind,
     target: LoweredRunArg,
     args: Vec<LoweredRunArg>,
@@ -2172,20 +2103,6 @@ impl RuntimeEnv {
         }
     }
 
-    fn total_size(&self) -> usize {
-        match self {
-            Self::Inherited => std::env::vars_os()
-                .map(|(name, value)| {
-                    name.as_os_str().as_bytes().len() + value.as_os_str().as_bytes().len() + 2
-                })
-                .sum(),
-            Self::Snapshot(env) => env
-                .iter()
-                .map(|(name, value)| name.len() + value.len() + 2)
-                .sum(),
-        }
-    }
-
     fn insert(&mut self, name: Vec<u8>, value: Vec<u8>) {
         self.snapshot_mut().insert(name, value);
     }
@@ -2215,10 +2132,6 @@ pub struct Evaluator {
     sources: SourceMap,
     command_name: String,
     scopes: Vec<FxHashMap<Name, Binding>>,
-    // Recycled scope maps: `push_scope` reuses a cleared map (retaining its
-    // bucket allocation) instead of allocating a fresh table on every scope —
-    // every block/call/loop iteration pushes a scope, so this is hot.
-    scope_pool: Vec<FxHashMap<Name, Binding>>,
     // Signatures of functions exported by dynamically loaded modules
     // (`module.load`), keyed by the export's `FunctionName`. Captured from the
     // compact declaration probe at load time so `module.require` can validate
@@ -2248,7 +2161,6 @@ pub struct Evaluator {
     event_stack: Vec<TraceFrame>,
     call_stack: Vec<TracebackFrame>,
     pending_traceback: Option<Traceback>,
-    producer_yield: Option<ProducerYieldPtr>,
     stream_items: Vec<Value>,
     unix_next_pid: i64,
     fs_locks: Vec<Option<std::fs::File>>,
@@ -2262,7 +2174,6 @@ pub struct Evaluator {
     next_process_handle_id: u64,
     process_handles: BTreeMap<u64, LiveProcessHandle>,
     scope_ids: Vec<u64>,
-    next_scope_id: u64,
     signal_state: EvaluatorSignalState,
     pub(super) test_mocks: FxHashMap<String, Vec<TestMock>>,
     pub(super) test_calls: Vec<TestCall>,
@@ -2363,7 +2274,6 @@ impl Evaluator {
             sources,
             command_name,
             scopes: vec![FxHashMap::default()],
-            scope_pool: Vec::new(),
             module_export_signatures: FxHashMap::default(),
             lowered_pures: FxHashMap::default(),
             lowered_procs: FxHashMap::default(),
@@ -2389,7 +2299,6 @@ impl Evaluator {
             event_stack: Vec::new(),
             call_stack: Vec::new(),
             pending_traceback: None,
-            producer_yield: None,
             stream_items: Vec::new(),
             unix_next_pid: 1000,
             fs_locks: Vec::new(),
@@ -2403,7 +2312,6 @@ impl Evaluator {
             next_process_handle_id: 1,
             process_handles: BTreeMap::new(),
             scope_ids: vec![0],
-            next_scope_id: 1,
             signal_state: EvaluatorSignalState::default(),
             test_mocks: FxHashMap::default(),
             test_calls: Vec::new(),
@@ -2460,7 +2368,7 @@ impl Evaluator {
         self
     }
 
-    pub(super) fn register_compact_signal_hook(
+    fn register_compact_signal_hook(
         &mut self,
         signal: &str,
         pre_cancel: Option<&str>,
@@ -2604,9 +2512,7 @@ impl Evaluator {
             Ok(
                 Flow::Return(_)
                 | Flow::Break(_)
-                | Flow::ContinueLoop
-                | Flow::Yield(_)
-                | Flow::ProducerStop,
+                | Flow::ContinueLoop,
             ) => {
                 self.signal_state.shutdown_complete = true;
                 Err(
@@ -2995,7 +2901,7 @@ impl Evaluator {
                     break;
                 }
                 Ok(Some(
-                    Flow::Break(_) | Flow::ContinueLoop | Flow::Yield(_) | Flow::ProducerStop,
+                    Flow::Break(_) | Flow::ContinueLoop,
                 )) => {
                     diagnostics.push(runtime_diagnostic(
                         span,
@@ -3169,9 +3075,7 @@ impl Evaluator {
                 Ok(
                     Flow::Return(_)
                     | Flow::Break(_)
-                    | Flow::ContinueLoop
-                    | Flow::Yield(_)
-                    | Flow::ProducerStop,
+                    | Flow::ContinueLoop,
                 ) => {
                     diagnostics.push(runtime_diagnostic(
                         script_span,
@@ -3381,7 +3285,7 @@ impl Evaluator {
                     break;
                 }
                 Ok(Some(
-                    Flow::Break(_) | Flow::ContinueLoop | Flow::Yield(_) | Flow::ProducerStop,
+                    Flow::Break(_) | Flow::ContinueLoop,
                 )) => {
                     diagnostics.push(runtime_diagnostic(
                         span,
@@ -3530,9 +3434,7 @@ impl Evaluator {
                 Ok(
                     Flow::Return(_)
                     | Flow::Break(_)
-                    | Flow::ContinueLoop
-                    | Flow::Yield(_)
-                    | Flow::ProducerStop,
+                    | Flow::ContinueLoop,
                 ) => {
                     diagnostics.push(runtime_diagnostic(
                         script_span,
@@ -3693,9 +3595,7 @@ impl Evaluator {
                 Ok(Some(
                     Flow::Return(_)
                     | Flow::Break(_)
-                    | Flow::ContinueLoop
-                    | Flow::Yield(_)
-                    | Flow::ProducerStop,
+                    | Flow::ContinueLoop,
                 )) => {
                     diagnostics.push(runtime_diagnostic(
                         span,
@@ -4202,128 +4102,8 @@ impl Evaluator {
         Err(RuntimeError::new("unresolved-name", name).with_span(span))
     }
 
-    fn push_list_binding_item(
-        &mut self,
-        name: &str,
-        item: Value,
-        span: Span,
-    ) -> Result<bool, RuntimeError> {
-        let interned = Name::intern(name);
-        for index in (0..self.scopes.len()).rev() {
-            if self.scopes[index].contains_key(&interned) {
-                let target_scope = self.scope_ids[index];
-                let source_scope = self.current_scope_id();
-                self.transfer_process_handles_in_value(&item, source_scope, target_scope);
-                let binding = self.scopes[index]
-                    .get_mut(&interned)
-                    .expect("binding existence checked");
-                if !binding.mutable {
-                    return Err(RuntimeError::new(
-                        "immutable-binding",
-                        "cannot assign to immutable binding",
-                    )
-                    .with_span(span));
-                }
-                let Value::List(items) = &mut binding.value else {
-                    return Ok(false);
-                };
-                items.push(item);
-                return Ok(true);
-            }
-        }
-        Err(RuntimeError::new("unresolved-name", name).with_span(span))
-    }
-
-    fn set_map_binding_value(
-        &mut self,
-        name: &str,
-        key: String,
-        value: Value,
-        span: Span,
-    ) -> Result<bool, RuntimeError> {
-        let interned = Name::intern(name);
-        for index in (0..self.scopes.len()).rev() {
-            if self.scopes[index].contains_key(&interned) {
-                let target_scope = self.scope_ids[index];
-                let source_scope = self.current_scope_id();
-                self.transfer_process_handles_in_value(&value, source_scope, target_scope);
-                let binding = self.scopes[index]
-                    .get_mut(&interned)
-                    .expect("binding existence checked");
-                if !binding.mutable {
-                    return Err(RuntimeError::new(
-                        "immutable-binding",
-                        "cannot assign to immutable binding",
-                    )
-                    .with_span(span));
-                }
-                let Value::Map(map) = &mut binding.value else {
-                    return Ok(false);
-                };
-                map.insert(key, value);
-                return Ok(true);
-            }
-        }
-        Err(RuntimeError::new("unresolved-name", name).with_span(span))
-    }
-
     fn current_scope_id(&self) -> u64 {
         *self.scope_ids.last().expect("evaluator has a scope id")
-    }
-
-    fn parent_scope_id(&self) -> u64 {
-        self.scope_ids
-            .iter()
-            .rev()
-            .nth(1)
-            .copied()
-            .unwrap_or_else(|| self.current_scope_id())
-    }
-
-    fn push_scope(&mut self) {
-        self.scopes.push(self.scope_pool.pop().unwrap_or_default());
-        let scope_id = self.next_scope_id;
-        self.next_scope_id += 1;
-        self.scope_ids.push(scope_id);
-    }
-
-    fn pop_scope(&mut self) {
-        if let Some(scope_id) = self.scope_ids.last().copied()
-            && !self.signal_state.shutdown_force
-        {
-            self.cleanup_process_handles_best_effort(scope_id);
-        }
-        if let Some(mut scope) = self.scopes.pop()
-            && self.scope_pool.len() < SCOPE_POOL_CAP
-        {
-            scope.clear();
-            self.scope_pool.push(scope);
-        }
-        self.scope_ids.pop();
-    }
-
-    fn transfer_process_handles_in_flow(
-        &mut self,
-        flow: &mut Flow,
-        source_scope: u64,
-        target_scope: u64,
-    ) {
-        match flow {
-            Flow::Continue(value) | Flow::Return(value) | Flow::Yield(value) => {
-                self.transfer_process_handles_in_value(value, source_scope, target_scope);
-            }
-            Flow::Break(Some(value)) => {
-                self.transfer_process_handles_in_value(value, source_scope, target_scope);
-            }
-            Flow::Propagate(propagation) => {
-                self.transfer_process_handles_in_value(
-                    &propagation.error,
-                    source_scope,
-                    target_scope,
-                );
-            }
-            Flow::Break(None) | Flow::ContinueLoop | Flow::ProducerStop => {}
-        }
     }
 
     fn transfer_process_handles_in_value(
@@ -4403,24 +4183,6 @@ impl Evaluator {
             }
         }
         result
-    }
-
-    fn cleanup_process_handles_best_effort(&mut self, scope_id: u64) {
-        let ids = self
-            .process_handles
-            .iter()
-            .filter_map(|(id, live)| (live.owner_scope == scope_id).then_some(*id))
-            .collect::<Vec<_>>();
-        for id in ids {
-            let Some(live) = self.process_handles.remove(&id) else {
-                continue;
-            };
-            if live.child.detached {
-                release_to_reaper(live.child);
-            } else {
-                let _ = cancel_managed(live.child, libc::SIGTERM, Duration::from_millis(150));
-            }
-        }
     }
 
     fn cancel_process_handles_for_signal(
@@ -4509,35 +4271,9 @@ impl CancellationPolicy for Evaluator {
 enum Flow {
     Continue(Value),
     Return(Value),
-    Yield(Value),
-    ProducerStop,
     Break(Option<Value>),
     ContinueLoop,
     Propagate(Propagation),
-}
-
-pub(super) trait ProducerYield {
-    fn accept_yield(
-        &mut self,
-        eval: &mut Evaluator,
-        value: Value,
-        span: Span,
-    ) -> Result<bool, RuntimeError>;
-}
-
-#[derive(Clone, Copy)]
-pub(super) struct ProducerYieldPtr(pub(super) NonNull<dyn ProducerYield>);
-
-// Evaluator forks explicitly clear this scoped pointer before crossing worker
-// thread boundaries. The pointer is used only while a producer is synchronously
-// driven on the parent evaluator stack.
-unsafe impl Send for ProducerYieldPtr {}
-
-#[allow(clippy::large_enum_variant)]
-enum ForItemFlow {
-    Next,
-    Break,
-    Flow(Flow),
 }
 
 #[derive(Clone, Copy)]
@@ -4604,26 +4340,6 @@ fn signal_hook_error(result: &Result<Flow, RuntimeError>) -> Option<TraceError> 
         }
         _ => None,
     }
-}
-
-fn method_trace_name(base: &Value, method: &str) -> String {
-    let receiver = match base {
-        Value::Record(_) => "Record",
-        Value::Module(_) => "Module",
-        Value::Result(_) => "Result",
-        Value::Pure(_) => "Pure",
-        Value::Proc(_) => "Proc",
-        Value::Path(_) => "Path",
-        Value::List(_) => "List",
-        Value::Status(_) => "Status",
-        Value::EnvPathList => "EnvPathList",
-        Value::Str(_) => "Str",
-        Value::Bytes(_) => "Bytes",
-        Value::Digest(_) => "Digest",
-        Value::Regex(_) => "Regex",
-        value => value.type_name(),
-    };
-    format!("{receiver}.{method}")
 }
 
 pub fn apply_question(
@@ -4734,88 +4450,6 @@ fn elapsed_micros(started_at: Instant) -> u64 {
     started_at.elapsed().as_micros().min(u64::MAX as u128) as u64
 }
 
-fn index_value_ref(base: &Value, index: Value, span: Span) -> Result<Value, RuntimeError> {
-    match (base, index) {
-        (Value::List(values), Value::Int(index)) => values
-            .get(index as usize)
-            .cloned()
-            .ok_or_else(|| RuntimeError::new("index-out-of-range", "list index").with_span(span)),
-        (Value::Record(fields) | Value::Module(fields), Value::Str(index)) => fields
-            .get(&index)
-            .cloned()
-            .ok_or_else(|| RuntimeError::new("missing-field", index.to_string()).with_span(span)),
-        (base, index) => Err(RuntimeError::new(
-            "type-error",
-            format!(
-                "cannot index {} with {}",
-                base.type_name(),
-                index.type_name()
-            ),
-        )
-        .with_span(span)),
-    }
-}
-
-fn index_value(base: Value, index: Value, span: Span) -> Result<Value, RuntimeError> {
-    match (base, index) {
-        (Value::List(values), Value::Int(index)) => values
-            .get(index as usize)
-            .cloned()
-            .ok_or_else(|| RuntimeError::new("index-out-of-range", "list index").with_span(span)),
-        (Value::Record(fields) | Value::Module(fields), Value::Str(index)) => fields
-            .get(&index)
-            .cloned()
-            .ok_or_else(|| RuntimeError::new("missing-field", index.to_string()).with_span(span)),
-        (base, index) => Err(RuntimeError::new(
-            "type-error",
-            format!(
-                "cannot index {} with {}",
-                base.type_name(),
-                index.type_name()
-            ),
-        )
-        .with_span(span)),
-    }
-}
-
-fn eval_slice_value(
-    base: Value,
-    start: Option<Value>,
-    end: Option<Value>,
-    span: Span,
-) -> Result<Value, RuntimeError> {
-    fn to_index(v: Option<Value>, len: usize) -> Option<usize> {
-        match v {
-            None => None,
-            Some(Value::Int(i)) if i >= 0 => Some((i as usize).min(len)),
-            Some(Value::Int(i)) => Some((len as i64 + i).max(0) as usize),
-            _ => None,
-        }
-    }
-    match base {
-        Value::List(values) => {
-            let len = values.len();
-            let s = to_index(start, len).unwrap_or(0);
-            let e = to_index(end, len).unwrap_or(len);
-            let e = e.max(s);
-            Ok(Value::List(values[s..e].to_vec()))
-        }
-        Value::Str(s_val) => {
-            let chars: Vec<char> = s_val.chars().collect();
-            let len = chars.len();
-            let s = to_index(start, len).unwrap_or(0);
-            let e = to_index(end, len).unwrap_or(len);
-            let e = e.max(s);
-            Ok(Value::Str(chars[s..e].iter().collect::<String>().into()))
-        }
-        other => Err(RuntimeError::new(
-            "type-error",
-            format!("cannot slice {}", other.type_name()),
-        )
-        .with_span(span)),
-    }
-}
-
 fn add_error_context(error: Value, context: ErrorContext) -> Value {
     let suffix = context.message.as_ref().map_or_else(
         || context.kind.clone(),
@@ -4865,18 +4499,6 @@ fn trace_env_overlay(env: &BTreeMap<Vec<u8>, Vec<u8>>) -> Vec<TraceEnv> {
         .collect()
 }
 
-fn value_to_path_like(value: Value, span: Span) -> Result<PathValue, RuntimeError> {
-    match value {
-        Value::Path(path) => Ok(path),
-        Value::Str(text) => PathValue::from_text(text).map_err(|error| error.with_span(span)),
-        value => Err(RuntimeError::new(
-            "type-error",
-            format!("expected Path, found {}", value.type_name()),
-        )
-        .with_span(span)),
-    }
-}
-
 pub(crate) use crate::runtime::text_bytes::{
     contains_bytes as bytes_contains, find_bytes as bytes_find,
 };
@@ -4893,42 +4515,6 @@ fn trace_segment_status(status: &ProcessSegmentStatus) -> TraceStatus {
     }
 }
 
-fn status_segment_record(segment: &ProcessSegmentStatus) -> Value {
-    let mut record = BTreeMap::new();
-    record.insert(Arc::from("index"), Value::Int(segment.index as i64));
-    record.insert(
-        Arc::from("target"),
-        Value::Str(String::from_utf8_lossy(&segment.target).as_ref().into()),
-    );
-    record.insert(Arc::from("success"), Value::Bool(segment.success));
-    record.insert(Arc::from("ok"), Value::Bool(segment.success));
-    record.insert(
-        Arc::from("kind"),
-        Value::Str(format!("{:?}", segment.kind).to_lowercase().into()),
-    );
-    record.insert(
-        Arc::from("code"),
-        segment
-            .code
-            .map_or(Value::Null, |code| Value::Int(code as i64)),
-    );
-    record.insert(
-        Arc::from("error_kind"),
-        segment
-            .error_kind
-            .as_ref()
-            .map_or(Value::Null, |kind| Value::Str(kind.as_str().into())),
-    );
-    record.insert(
-        Arc::from("error_message"),
-        segment
-            .error_message
-            .as_ref()
-            .map_or(Value::Null, |message| Value::Str(message.as_str().into())),
-    );
-    Value::Record(crate::runtime::value::RecordMap::from(record))
-}
-
 fn module_error(kind: &str, message: &str, span: Span) -> Value {
     Value::err(Value::Error(Box::new(
         RuntimeError::new(kind, message).with_span(span),
@@ -4937,44 +4523,6 @@ fn module_error(kind: &str, message: &str, span: Span) -> Value {
 
 fn module_io_error(kind: &str, error: std::io::Error, span: Span) -> Value {
     module_error(kind, &error.to_string(), span)
-}
-
-fn split_live_stream_value(
-    value: Value,
-    span: Span,
-) -> Result<Result<StreamValue, Value>, RuntimeError> {
-    match value {
-        Value::Stream(stream) if stream.is_live() => Ok(Ok(*stream)),
-        Value::Stream(stream) => Ok(Err(Value::Stream(stream))),
-        Value::Result(ResultValue::Ok(inner)) => match *inner {
-            Value::Stream(stream) if stream.is_live() => Ok(Ok(*stream)),
-            value => Ok(Err(Value::Result(ResultValue::Ok(Box::new(value))))),
-        },
-        Value::Result(ResultValue::Err(error)) => Err(runtime_error_from_value(*error, span)),
-        value => Ok(Err(value)),
-    }
-}
-
-fn unwrap_iterable(value: Value, span: Span) -> Result<Vec<Value>, RuntimeError> {
-    match value {
-        Value::List(values) => Ok(values),
-        Value::Stream(stream) if stream.is_live() => Err(RuntimeError::new(
-            "live-stream",
-            "live streams must be consumed directly by a for loop",
-        )
-        .with_span(span)),
-        Value::Stream(stream) => Ok(stream.items.into_iter().map(|item| item.value).collect()),
-        Value::Result(ResultValue::Ok(inner)) => unwrap_iterable(*inner, span),
-        Value::Result(ResultValue::Err(error)) => Err(runtime_error_from_value(*error, span)),
-        value => Err(RuntimeError::new(
-            "type-error",
-            format!(
-                "iterator expected List or Stream, found {}",
-                value.type_name()
-            ),
-        )
-        .with_span(span)),
-    }
 }
 
 fn runtime_error_from_value(value: Value, span: Span) -> RuntimeError {
@@ -5088,18 +4636,6 @@ fn path_with_ext(path: &PathValue, ext: &str) -> Result<PathValue, RuntimeError>
     path_value_from_pathbuf(pathbuf)
 }
 
-fn path_strip_prefix(path: &PathValue, prefix: &PathValue, span: Span) -> Value {
-    let pathbuf = pathbuf_from_path_value(path);
-    let prefix = pathbuf_from_path_value(prefix);
-    match pathbuf.strip_prefix(&prefix) {
-        Ok(stripped) if stripped.as_os_str().is_empty() => {
-            path_result(PathValue::from_text(".").map_err(|error| error.with_span(span)))
-        }
-        Ok(stripped) => path_result(path_value_from_pathbuf(stripped.to_path_buf())),
-        Err(_) => module_error("path-prefix", "path does not start with prefix", span),
-    }
-}
-
 fn initial_env() -> BTreeMap<Vec<u8>, Vec<u8>> {
     let mut env = BTreeMap::new();
     for (name, value) in std::env::vars_os() {
@@ -5172,13 +4708,6 @@ fn normalize_path_value(path: &PathValue) -> Result<PathValue, RuntimeError> {
         bytes.extend_from_slice(b".");
     }
     PathValue::new(bytes)
-}
-
-fn path_result(result: Result<PathValue, RuntimeError>) -> Value {
-    match result {
-        Ok(path) => Value::ok(Value::Path(path)),
-        Err(error) => Value::err(Value::Error(Box::new(error))),
-    }
 }
 
 fn splice_to_argv(value: Value, span: Span) -> Result<Vec<Vec<u8>>, RuntimeError> {

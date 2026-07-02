@@ -3,7 +3,7 @@
 use super::Evaluator;
 use crate::runtime::value::{LiveStream, RuntimeError, StreamValue, Value};
 use crate::source::Span;
-use std::any::Any;
+
 
 impl Evaluator {
     pub(super) fn collect_stream_values(
@@ -59,9 +59,6 @@ impl LiveStream for FileLineStream {
         Ok(Some(Value::Str(self.buffer.as_str().into())))
     }
 
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
 }
 
 /// Live byte-line stream over a file opened by `Path.bytes_lines()`.
@@ -90,9 +87,6 @@ impl LiveStream for FileBytesLineStream {
         Ok(Some(Value::Bytes(self.buffer.clone())))
     }
 
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
 }
 
 pub(super) fn platform_arg_max() -> usize {

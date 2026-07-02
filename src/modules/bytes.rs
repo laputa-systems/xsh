@@ -1,4 +1,5 @@
 #![allow(clippy::single_call_fn)]
+#![allow(dead_code)]
 
 use crate::runtime::value::{RuntimeError, Value};
 use crate::source::Span;

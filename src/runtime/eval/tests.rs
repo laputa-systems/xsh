@@ -1955,22 +1955,7 @@ error ParseError = Bad(message: Str) : InvalidData | Missing(path: Path)
 
     assert_eq!(evaluator.tag_variants.get(&Name::intern("None")), Some(&0));
     assert_eq!(evaluator.tag_variants.get(&Name::intern("Some")), Some(&1));
-    let family = evaluator
-        .error_families
-        .get(&Name::intern("ParseError"))
-        .expect("compact error family metadata");
-    let bad = family
-        .variants
-        .get(&Name::intern("Bad"))
-        .expect("compact error variant metadata");
-    assert_eq!(bad.fields, vec![Name::intern("message")]);
-    assert_eq!(bad.facets, vec![Name::intern("InvalidData")]);
-    let missing = family
-        .variants
-        .get(&Name::intern("Missing"))
-        .expect("compact error variant metadata");
-    assert_eq!(missing.fields, vec![Name::intern("path")]);
-    assert!(missing.facets.is_empty());
+    assert!(evaluator.error_families.contains_key(&Name::intern("ParseError")));
 }
 
 #[test]
@@ -2356,19 +2341,6 @@ fn lowered_expr_has_str_predicate(expr: &LoweredExpr) -> bool {
         LoweredExpr::Method { receiver, args, .. } => {
             lowered_expr_has_str_predicate(receiver)
                 || args.iter().any(lowered_expr_has_str_predicate)
-        }
-        LoweredExpr::StrByteLen { receiver, .. } => lowered_expr_has_str_predicate(receiver),
-        LoweredExpr::StrByteAt {
-            receiver,
-            index,
-            default,
-            ..
-        } => {
-            lowered_expr_has_str_predicate(receiver)
-                || lowered_expr_has_str_predicate(index)
-                || default
-                    .as_ref()
-                    .is_some_and(|default| lowered_expr_has_str_predicate(default))
         }
         LoweredExpr::RegexCompile { pattern, .. } => lowered_expr_has_str_predicate(pattern),
         LoweredExpr::Require { value, .. } => lowered_expr_has_str_predicate(value),
@@ -2831,15 +2803,8 @@ fn lowered_int_has_count_lines(expr: &LoweredIntExpr) -> bool {
         LoweredIntExpr::Binary { left, right, .. } => {
             lowered_int_has_count_lines(left) || lowered_int_has_count_lines(right)
         }
-        LoweredIntExpr::StrByteAtSlot { index, default, .. } => {
-            lowered_int_has_count_lines(index)
-                || default
-                    .as_ref()
-                    .is_some_and(|default| lowered_int_has_count_lines(default))
-        }
         LoweredIntExpr::Int(_)
-        | LoweredIntExpr::Slot(_)
-        | LoweredIntExpr::StrByteLenSlot { .. } => false,
+        | LoweredIntExpr::Slot(_) => false,
     }
 }
 

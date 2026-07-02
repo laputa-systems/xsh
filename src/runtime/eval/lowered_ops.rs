@@ -280,23 +280,6 @@ pub(super) fn ascii_trim_end(text: &str) -> &str {
     &text[..end]
 }
 
-pub(super) fn lowered_str_byte_len_value(
-    value: &LoweredValue,
-    span: Span,
-) -> Result<i64, RuntimeError> {
-    if let Some(bytes) = lowered_bytes_value(value) {
-        return Ok(bytes.len() as i64);
-    }
-    match lowered_str_value(value) {
-        Some(text) => Ok(text.len() as i64),
-        None => Err(RuntimeError::new(
-            "type-error",
-            format!("byte_len expected Str, found {}", value.type_name()),
-        )
-        .with_span(span)),
-    }
-}
-
 pub(super) fn lowered_str_count_lines_value(
     value: &LoweredValue,
     span: Span,
@@ -310,34 +293,6 @@ pub(super) fn lowered_str_count_lines_value(
 
 pub(super) fn lowered_str_count_lines_text(text: &str) -> i64 {
     crate::runtime::text_bytes::count_lines(text) as i64
-}
-
-pub(super) fn lowered_str_byte_at_value(
-    value: &LoweredValue,
-    index: i64,
-    default: i64,
-    span: Span,
-) -> Result<i64, RuntimeError> {
-    if let Some(bytes) = lowered_bytes_value(value) {
-        return Ok(bytes
-            .get(usize::try_from(index).unwrap_or(usize::MAX))
-            .copied()
-            .map(i64::from)
-            .unwrap_or(default));
-    }
-    match lowered_str_value(value) {
-        Some(text) => Ok(text
-            .as_bytes()
-            .get(usize::try_from(index).unwrap_or(usize::MAX))
-            .copied()
-            .map(i64::from)
-            .unwrap_or(default)),
-        None => Err(RuntimeError::new(
-            "type-error",
-            format!("byte_at expected Str, found {}", value.type_name()),
-        )
-        .with_span(span)),
-    }
 }
 
 pub(super) fn lowered_str_predicate_value(

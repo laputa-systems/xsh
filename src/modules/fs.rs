@@ -1,4 +1,5 @@
 #![allow(clippy::single_call_fn)]
+#![allow(dead_code)]
 
 use crate::runtime::process::path_bytes;
 use crate::runtime::value::{
@@ -1747,9 +1748,6 @@ impl LiveStream for IgnoreWalkStream {
         }
     }
 
-    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
-        self
-    }
 }
 
 impl IgnoreWalkStream {

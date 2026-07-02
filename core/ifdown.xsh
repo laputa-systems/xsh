@@ -429,11 +429,10 @@ pure split_iface_arg(arg: Str) -> Record {
   return {physical: arg, logical: arg}
 }
 
-proc state_configured_ifaces(state_path: Path) [fs, error] -> Result[List[Record]] {
-  var items: List[Record] = []
+stream state_configured_ifaces(state_path: Path) [fs, error] -> Stream[Record] {
 
   if ! state_path.exists()? {
-    return items
+    return
   }
 
   for line in state_path.read_text()?.lines() {
@@ -443,12 +442,10 @@ proc state_configured_ifaces(state_path: Path) [fs, error] -> Result[List[Record
       let parts = fields[0].split("=")
 
       if parts.len() >= 2 {
-        items = items.push({physical: parts[0], logical: parts[1]})
+        yield {physical: parts[0], logical: parts[1]}
       }
     }
   }
-
-  return items
 }
 
 proc main(...argv: List[Str]) [fs, process, env, error] {
@@ -471,7 +468,7 @@ proc main(...argv: List[Str]) [fs, process, env, error] {
   let state_path = default_state_path()?
 
   if all {
-    for item in state_configured_ifaces(state_path)? {
+    for item in state_configured_ifaces(state_path) {
       deconfigure_interface(config, state_path, item.physical, item.logical)?
     }
   }

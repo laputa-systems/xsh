@@ -714,10 +714,6 @@ impl StreamValue {
         }
     }
 
-    pub(crate) fn is_live(&self) -> bool {
-        self.source.is_some()
-    }
-
     pub(crate) fn next_live(&self, span: Span) -> Result<Option<Value>, RuntimeError> {
         match &self.source {
             Some(source) => source.next(span),
@@ -725,16 +721,6 @@ impl StreamValue {
         }
     }
 
-    pub(crate) fn with_live_source_mut<R>(
-        &self,
-        span: Span,
-        f: impl FnOnce(&mut dyn LiveStream) -> R,
-    ) -> Result<Option<R>, RuntimeError> {
-        match &self.source {
-            Some(source) => source.with_mut(span, f).map(Some),
-            None => Ok(None),
-        }
-    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -746,7 +732,6 @@ pub struct StreamItem {
 
 pub(crate) trait LiveStream: Send + Any {
     fn next(&mut self, span: Span) -> Result<Option<Value>, RuntimeError>;
-    fn as_any_mut(&mut self) -> &mut dyn Any;
 }
 
 #[derive(Clone)]
@@ -772,21 +757,6 @@ impl StreamSource {
             .with_span(span)
         })?;
         source.next(span)
-    }
-
-    fn with_mut<R>(
-        &self,
-        span: Span,
-        f: impl FnOnce(&mut dyn LiveStream) -> R,
-    ) -> Result<R, RuntimeError> {
-        let mut source = self.state.lock().map_err(|_| {
-            RuntimeError::new(
-                "stream-state",
-                format!("{} stream state is poisoned", self.name),
-            )
-            .with_span(span)
-        })?;
-        Ok(f(source.as_mut()))
     }
 }
 

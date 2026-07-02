@@ -47,6 +47,8 @@
 #   preservation / bignums are a deliberate gap — see PORTS.md.)
 # - jq filters produce a *stream* of outputs; with no generators in XSH we model a
 #   filter as `eval(ast, input, scope) -> Result[List[Json]]` (eager streams).
+type Entry = {k: Str, v: Json}
+
 type Json =
     JNull
   | JBool(Bool)
@@ -54,8 +56,6 @@ type Json =
   | JStr(Str)
   | JArr(List[Json])
   | JObj(List[Entry])
-
-type Entry = {k: Str, v: Json}
 
 type Parsed = {val: Json, pos: Int}
 
@@ -706,7 +706,16 @@ pure lex(s: Str) -> Result[List[Tok]] {
 # AST + parser. Recursive descent with precedence; the token cursor (`pos`) is
 # threaded through every parse function as a value (no shared mutable state).
 # ---------------------------------------------------------------------------
-type StrPart = SLit(Str) | SExpr(Jq)
+type ObjEntry = {key: Jq, val: Jq}
+
+type FnDef = {fname: Str, params: List[Str], fbody: Jq}
+
+type PatField = {key: Str, pat: Pattern}
+
+type Pattern =
+    PVar(Str)
+  | PArray(List[Pattern])
+  | PObjPat(List[PatField])
 
 type Jq =
     Identity
@@ -731,24 +740,15 @@ type Jq =
   | Assign(Jq, Jq)
   | Update(Jq, Jq)
   | ArithUpdate(Str, Jq, Jq)
-  | StrInterp(List[StrPart], Str)
+  | StrInterp(List[Jq], Str)
+  | StrLit(Str)
+  | StrExpr(Jq)
   | Fmt(Str)
   | BindVar(Jq, Pattern, Jq)
   | Reduce(Jq, Pattern, Jq, Jq)
   | Foreach(Jq, Pattern, Jq, Jq, Bool, Jq)
   | FuncDef(FnDef, Jq)
   | Empty
-
-type ObjEntry = {key: Jq, val: Jq}
-
-type Pattern =
-    PVar(Str)
-  | PArray(List[Pattern])
-  | PObjPat(List[PatField])
-
-type PatField = {key: Str, pat: Pattern}
-
-type FnDef = {fname: Str, params: List[Str], fbody: Jq}
 
 type Closure = {cbody: Jq, cenv: Env}
 
@@ -1228,7 +1228,7 @@ pure parse_primary(toks: List[Tok], pos: Int) -> Result[PJq] {
     }
     TFormat(name) => {
       match tok_at(toks, pos + 1) {
-        TStr(s) => return Ok({node: StrInterp([SLit(s)], name), pos: pos + 2})
+        TStr(s) => return Ok({node: StrInterp([StrLit(s)], name), pos: pos + 2})
         TStrInterp(rp) => {
           let node = build_interp(rp, name)?
           return Ok({node: node, pos: pos + 2})
@@ -1243,12 +1243,12 @@ pure parse_primary(toks: List[Tok], pos: Int) -> Result[PJq] {
 }
 
 pure build_interp(rawparts: List[RawPart], fmt: Str) -> Result[Jq] {
-  var parts: List[StrPart] = []
+  var parts: List[Jq] = []
 
   for rp in rawparts {
     match rp {
-      RLit(s) => parts = parts.push(SLit(s))
-      RExpr(text) => parts = parts.push(SExpr(parse_program(text)?))
+      RLit(s) => parts = parts.push(StrLit(s))
+      RExpr(text) => parts = parts.push(StrExpr(parse_program(text)?))
     }
   }
 
@@ -2587,16 +2587,16 @@ pure eval_arith_update(op: Str, pathexpr: Jq, rhs: Jq, input: Json, scope: Env) 
 
 # String interpolation: cartesian over each \(...) slot, formatting interpolated
 # values (literal chunks pass through untouched).
-pure eval_str_interp(parts: List[StrPart], fmt: Str, input: Json, scope: Env) -> Result[List[Json]] {
+pure eval_str_interp(parts: List[Jq], fmt: Str, input: Json, scope: Env) -> Result[List[Json]] {
   var partials: List[Str] = [""]
 
   for part in parts {
     match part {
-      SLit(s) => {
+      StrLit(s) => {
         var next = [pre + s for pre in partials]
         partials = next
       }
-      SExpr(e) => {
+      StrExpr(e) => {
         let vals = eval(e, input, scope)?
         var next: List[Str] = []
 
@@ -2609,6 +2609,7 @@ pure eval_str_interp(parts: List[StrPart], fmt: Str, input: Json, scope: Env) ->
 
         partials = next
       }
+      _ => return Err(jq_err("internal: unexpected Jq variant in string interpolation"))
     }
   }
 
