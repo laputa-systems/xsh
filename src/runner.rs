@@ -251,13 +251,19 @@ fn try_run_compact_lowered_entry_source(
         return compact_fallback(sources, source_id, None);
     }
     let token_table = parsed.cst.token_table().clone();
+    let crate::syntax::parser::ArenaParseOutput {
+        arena,
+        cst,
+        diagnostics: _,
+    } = parsed;
+    drop(cst);
 
     let evaluator = Evaluator::new_with_sources_and_command(
         options.args.clone(),
         sources,
         script_command_name(&options.script),
     );
-    let output = match evaluator.try_eval_compact_lowered_only(&parsed.arena, source_id) {
+    let output = match evaluator.try_eval_compact_lowered_only(&arena, source_id) {
         Ok(output) => output,
         Err(evaluator) => {
             return compact_fallback(evaluator.into_sources(), source_id, Some(token_table));

@@ -4613,14 +4613,15 @@ struct ArenaLowerer<'a> {
 impl ArenaLowerer<'_> {
     fn reserve_frontend_capacity(&mut self, tokens: usize) {
         self.arena.spans.reserve(tokens / 10 + 1);
-        self.arena.stmt_tags.reserve(tokens / 12 + 1);
-        self.arena.stmt_data.reserve(tokens / 12 + 1);
-        self.arena.stmt_spans.reserve(tokens / 12 + 1);
+        self.arena.stmt_tags.reserve(tokens / 10 + 1);
+        self.arena.stmt_data.reserve(tokens / 10 + 1);
+        self.arena.stmt_spans.reserve(tokens / 10 + 1);
         self.arena.blocks.reserve(tokens / 24 + 1);
-        self.arena.expr_tags.reserve(tokens / 3 + 1);
-        self.arena.expr_data.reserve(tokens / 3 + 1);
-        self.arena.expr_spans.reserve(tokens / 3 + 1);
-        self.arena.extra.reserve(tokens / 4 + 1);
+        let expr_capacity = tokens.saturating_mul(5) / 12 + 1;
+        self.arena.expr_tags.reserve(expr_capacity);
+        self.arena.expr_data.reserve(expr_capacity);
+        self.arena.expr_spans.reserve(expr_capacity);
+        self.arena.extra.reserve(tokens / 3 + 1);
     }
 
     fn pushed_range<T>(table: &mut Vec<T>, start: usize) -> ArenaRange {

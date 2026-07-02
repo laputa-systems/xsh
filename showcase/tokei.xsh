@@ -1062,7 +1062,7 @@ pure count_html(text: Bytes, embed: Bool) -> Scan {
   if ! text.contains(b"<!--") {
     let lower_text = text.lower()
 
-    if ! embed or (! lower_text.contains(b"<script") and ! lower_text.contains(b"<style")) {
+    if ! embed or ! lower_text.contains(b"<script") and ! lower_text.contains(b"<style") {
       return count_code_text(text)
     }
   }
@@ -1311,8 +1311,8 @@ proc main(...argv: List[Str]) [fs, error] {
           LangXml => count_html(text, false),
           _ => count_language(language, text),
         }
-        text = b""
 
+        text = b""
         var out: List[SummaryRow] = []
 
         if language != LangUnknown {
@@ -1322,6 +1322,7 @@ proc main(...argv: List[Str]) [fs, error] {
           # and per-language rows read only the plain (parent) keys, so children
           # never double-count. `blobs` only ever holds non-zero embedded stats.
           let label = language_label(language)
+
           out = out.push(
             {
               key: label,
@@ -1647,8 +1648,8 @@ proc main(...argv: List[Str]) [fs, error] {
         LangXml => count_html(text, false),
         _ => count_language(language, text),
       }
-      text = b""
 
+      text = b""
       {language, report: {stats: scan.stats, name: candidate.path.display()}, deep: scan.deep}
     }
     |> where .language != LangUnknown {
@@ -2094,7 +2095,7 @@ proc main(...argv: List[Str]) [fs, error] {
     children: total_children,
     inaccurate: false,
   }
-  total_children = {}
 
+  total_children = {}
   print (json.encode(output)?)
 }

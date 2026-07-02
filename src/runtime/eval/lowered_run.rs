@@ -74,17 +74,18 @@ use super::modules::{
 use super::{
     Binding, Evaluator, Flow, FsRootHandle, LowerableFunctions, LoweredBoolExpr, LoweredCallArg,
     LoweredCompTarget, LoweredErrorExpr, LoweredExpr, LoweredFmtPart, LoweredFunctionKey,
-    LoweredIntExpr, LoweredModuleExportKind, LoweredPipelineStage, LoweredWorker,
+    LoweredIntExpr, LoweredModuleExportKind, LoweredPipelineStage, LoweredTagValue,
     LoweredProcessCommandBuilderEntry, LoweredPureFunction, LoweredRecordEntry, LoweredReturnKind,
     LoweredRunArg, LoweredRunArgKind, LoweredRunEnv, LoweredRunPipelineSegment,
-    LoweredRunRedirection, LoweredStmt, LoweredStmtFlow, LoweredStrPredicate, LoweredStrView,
-    LoweredTopLevelKind, LoweredTopLevelStmt, LoweredType, LoweredValue, Name, ReduceByOp,
-    ScanCondition, TestMock,
-    assign_lowered_bytes_view, assign_lowered_str_view, bytes_contains, check_env_name,
-    compound_assignment_value, display_value, exit_status, lowered_value_matches_static_type,
-    module_error, module_io_error, path_absolute_value, path_value_from_pathbuf,
-    pathbuf_from_path_value, runtime_error_from_value, splice_to_argv, trace_env_overlay,
-    trace_status, value_matches_static_type, value_to_argv_bytes,
+    LoweredRunRedirection, LoweredStmt, LoweredStmtFlow, LoweredStrPredicate,
+    LoweredTopLevelKind, LoweredTopLevelStmt, LoweredType, LoweredValue, LoweredWorker, Name,
+    ReduceByOp, ScanCondition, TestMock, assign_lowered_bytes_view, assign_lowered_str_view,
+    lowered_str_view_value,
+    bytes_contains, check_env_name, compound_assignment_value, display_value, exit_status,
+    lowered_record_vec_get, lowered_record_vec_get_mut, lowered_record_vec_insert,
+    lowered_value_matches_static_type, module_error, module_io_error, path_absolute_value,
+    path_value_from_pathbuf, pathbuf_from_path_value, runtime_error_from_value, splice_to_argv,
+    trace_env_overlay, trace_status, value_matches_static_type, value_to_argv_bytes,
 };
 use cap_directories::{ProjectDirs, UserDirs, ambient_authority as directories_authority};
 use cap_tempfile::{TempDir, TempFile, ambient_authority as tempfile_authority};
@@ -139,7 +140,10 @@ pub(super) fn print_perf_counters() {
 #[cfg(not(feature = "perf-counters"))]
 pub(super) fn print_perf_counters() {}
 
+#[cfg(debug_assertions)]
 const LOWERED_PAR_MAP_WORKER_STACK_SIZE: usize = 8 << 20;
+#[cfg(not(debug_assertions))]
+const LOWERED_PAR_MAP_WORKER_STACK_SIZE: usize = 2 << 20;
 const LOWERED_SHARED_LIST_THRESHOLD: usize = 16;
 
 fn btree_map<K: Ord, V>(entries: Vec<(K, V)>) -> BTreeMap<K, V> {
@@ -201,6 +205,90 @@ fn lowered_pipeline_item_count(value: &LoweredValue) -> Option<usize> {
         LoweredValue::SharedList(items) => Some(items.len()),
         LoweredValue::Map(entries) => Some(entries.len()),
         _ => None,
+    }
+}
+
+fn lowered_body_initializes_slot(body: &[LoweredStmt], target: usize) -> bool {
+    body.iter().any(|stmt| match stmt {
+        LoweredStmt::Let { slot, .. }
+        | LoweredStmt::LetInt { slot, .. }
+        | LoweredStmt::LetBool { slot, .. } => *slot == target,
+        _ => false,
+    })
+}
+
+fn take_lowered_block_local_value(
+    body: &[LoweredStmt],
+    value: &LoweredExpr,
+    slots: &mut [LoweredValue],
+) -> Option<LoweredValue> {
+    let LoweredExpr::Param(slot) = value else {
+        return None;
+    };
+    if !lowered_body_initializes_slot(body, *slot) {
+        return None;
+    }
+    Some(std::mem::replace(&mut slots[*slot], LoweredValue::Unit))
+}
+
+fn lowered_field_chain_ref<'a>(
+    expr: &LoweredExpr,
+    slots: &'a [LoweredValue],
+) -> Result<Option<&'a LoweredValue>, RuntimeError> {
+    match expr {
+        LoweredExpr::Param(slot) => Ok(slots.get(*slot)),
+        LoweredExpr::Field { base, name, span } => {
+            let Some(base) = lowered_field_chain_ref(base, slots)? else {
+                return Ok(None);
+            };
+            match base {
+                LoweredValue::Record(record) | LoweredValue::Module(record) => record
+                    .get(name.as_str())
+                    .map(Some)
+                    .ok_or_else(|| RuntimeError::new("missing-field", name).with_span(*span)),
+                LoweredValue::RecordVec(record) => {
+                    lowered_record_vec_get(record.as_slice(), name.as_str())
+                        .map(Some)
+                        .ok_or_else(|| RuntimeError::new("missing-field", name).with_span(*span))
+                }
+                _ => Ok(None),
+            }
+        }
+        _ => Ok(None),
+    }
+}
+
+fn lowered_project_borrowed_field(
+    base: &LoweredValue,
+    name: &str,
+    span: Span,
+) -> Result<Option<LoweredValue>, RuntimeError> {
+    match base {
+        LoweredValue::Record(record) | LoweredValue::Module(record) => record
+            .get(name)
+            .cloned()
+            .map(Some)
+            .ok_or_else(|| RuntimeError::new("missing-field", name).with_span(span)),
+        LoweredValue::RecordVec(record) => lowered_record_vec_get(record.as_slice(), name)
+            .cloned()
+            .map(Some)
+            .ok_or_else(|| RuntimeError::new("missing-field", name).with_span(span)),
+        LoweredValue::FsEntry(entry) => {
+            let value = entry
+                .field_value(name)
+                .ok_or_else(|| RuntimeError::new("missing-field", name).with_span(span))?
+                .map_err(|error| error.with_span(span))?;
+            lowered_value_from_runtime_any(&value)
+                .map(Some)
+                .ok_or_else(|| {
+                    RuntimeError::new(
+                        "type-error",
+                        format!("fs entry field produced unsupported {}", value.type_name()),
+                    )
+                    .with_span(span)
+                })
+        }
+        _ => Ok(None),
     }
 }
 
@@ -275,7 +363,10 @@ fn lowered_reduce_sum(
         (LoweredValue::Float(a), LoweredValue::Float(b)) => Ok(LoweredValue::Float(
             crate::runtime::value::FloatValue::new(a.0 + b.0),
         )),
-        (acc @ LoweredValue::Record(_), value @ LoweredValue::Record(_)) => {
+        (acc @ LoweredValue::Record(_), value @ LoweredValue::Record(_))
+        | (acc @ LoweredValue::RecordVec(_), value @ LoweredValue::RecordVec(_))
+        | (acc @ LoweredValue::Record(_), value @ LoweredValue::RecordVec(_))
+        | (acc @ LoweredValue::RecordVec(_), value @ LoweredValue::Record(_)) => {
             Ok(lowered_sum_records(acc, value))
         }
         (acc, value) => Err(RuntimeError::new(
@@ -385,7 +476,7 @@ fn lowered_measured_command_record(
     system_ns: i64,
 ) -> LoweredValue {
     LoweredValue::Record(BTreeMap::from([
-        (Arc::from("status"), LoweredValue::Status(status)),
+        (Arc::from("status"), LoweredValue::Status(Box::new(status))),
         (
             Arc::from("duration_ms"),
             LoweredValue::Int(wall_ns / 1_000_000),
@@ -454,10 +545,7 @@ fn read_host_path_bytes(path: &Path, span: Span) -> Result<Arc<[u8]>, RuntimeErr
     }
 }
 
-fn initialized_prefix_to_arc(
-    bytes: &[std::mem::MaybeUninit<u8>],
-    initialized: usize,
-) -> Arc<[u8]> {
+fn initialized_prefix_to_arc(bytes: &[std::mem::MaybeUninit<u8>], initialized: usize) -> Arc<[u8]> {
     let initialized =
         unsafe { std::slice::from_raw_parts(bytes.as_ptr().cast::<u8>(), initialized) };
     initialized.into()
@@ -514,8 +602,16 @@ fn lowered_validate_json_compatible(value: &LoweredValue, span: Span) -> Result<
             }
             Ok(())
         }
+        LoweredValue::RecordVec(fields) => {
+            for (_, item) in fields.iter() {
+                lowered_validate_json_compatible(item, span)?;
+            }
+            Ok(())
+        }
         LoweredValue::FsEntry(entry) => {
-            let record = entry.to_record_map().map_err(|error| error.with_span(span))?;
+            let record = entry
+                .to_record_map()
+                .map_err(|error| error.with_span(span))?;
             for (_, item) in record {
                 let Some(item) = lowered_value_from_runtime_any(&item) else {
                     return Err(RuntimeError::new(
@@ -552,31 +648,35 @@ impl miniserde::ser::Serialize for LoweredJsonValue<'_> {
             LoweredValue::Bool(value) => miniserde::ser::Fragment::Bool(*value),
             LoweredValue::Int(value) => miniserde::ser::Fragment::I64(*value),
             LoweredValue::Float(value) => miniserde::ser::Fragment::F64(value.0),
-            LoweredValue::Str(value) => miniserde::ser::Fragment::Str(Cow::Borrowed(value.as_ref())),
+            LoweredValue::Str(value) => {
+                miniserde::ser::Fragment::Str(Cow::Borrowed(value.as_ref()))
+            }
             LoweredValue::StrView(value) => {
                 miniserde::ser::Fragment::Str(Cow::Borrowed(value.as_str()))
             }
-            LoweredValue::List(items) => {
-                miniserde::ser::Fragment::Seq(Box::new(LoweredJsonSeq {
-                    iter: items.iter(),
-                    current: None,
-                }))
-            }
+            LoweredValue::List(items) => miniserde::ser::Fragment::Seq(Box::new(LoweredJsonSeq {
+                iter: items.iter(),
+                current: None,
+            })),
             LoweredValue::SharedList(items) => {
                 miniserde::ser::Fragment::Seq(Box::new(LoweredJsonSeq {
                     iter: items.iter(),
                     current: None,
                 }))
             }
-            LoweredValue::Map(fields) => {
-                miniserde::ser::Fragment::Map(Box::new(LoweredJsonMap {
-                    iter: LoweredJsonMapIter::String(fields.iter()),
-                    current: None,
-                }))
-            }
+            LoweredValue::Map(fields) => miniserde::ser::Fragment::Map(Box::new(LoweredJsonMap {
+                iter: LoweredJsonMapIter::String(fields.iter()),
+                current: None,
+            })),
             LoweredValue::Record(fields) => {
                 miniserde::ser::Fragment::Map(Box::new(LoweredJsonMap {
                     iter: LoweredJsonMapIter::Arc(fields.iter()),
+                    current: None,
+                }))
+            }
+            LoweredValue::RecordVec(fields) => {
+                miniserde::ser::Fragment::Map(Box::new(LoweredJsonMap {
+                    iter: LoweredJsonMapIter::ArcSlice(fields.iter()),
                     current: None,
                 }))
             }
@@ -600,6 +700,7 @@ impl miniserde::ser::Seq for LoweredJsonSeq<'_> {
 enum LoweredJsonMapIter<'a> {
     String(std::collections::btree_map::Iter<'a, String, LoweredValue>),
     Arc(std::collections::btree_map::Iter<'a, Arc<str>, LoweredValue>),
+    ArcSlice(std::slice::Iter<'a, (Arc<str>, LoweredValue)>),
 }
 
 struct LoweredJsonMap<'a> {
@@ -619,6 +720,14 @@ impl miniserde::ser::Map for LoweredJsonMap<'_> {
                 ))
             }
             LoweredJsonMapIter::Arc(iter) => {
+                let (key, value) = iter.next()?;
+                self.current = Some(LoweredJsonValue(value));
+                Some((
+                    Cow::Borrowed(key.as_ref()),
+                    self.current.as_ref()? as &dyn miniserde::ser::Serialize,
+                ))
+            }
+            LoweredJsonMapIter::ArcSlice(iter) => {
                 let (key, value) = iter.next()?;
                 self.current = Some(LoweredJsonValue(value));
                 Some((
@@ -670,6 +779,13 @@ fn lowered_to_json(
         LoweredValue::Record(fields) => {
             let mut values = Vec::with_capacity(fields.len());
             for (key, item) in fields {
+                values.push((key.to_string(), lowered_to_json(item, span)?));
+            }
+            Ok(json_module::raw_json_object(values))
+        }
+        LoweredValue::RecordVec(fields) => {
+            let mut values = Vec::with_capacity(fields.len());
+            for (key, item) in fields.iter() {
                 values.push((key.to_string(), lowered_to_json(item, span)?));
             }
             Ok(json_module::raw_json_object(values))
@@ -1094,10 +1210,11 @@ fn lowered_bytes_list_arg(
         LoweredValue::List(items) => items,
         LoweredValue::SharedList(items) => items.iter().cloned().collect(),
         _ => {
-            return Err(
-                RuntimeError::new("type-error", format!("{operation} expected List[Bytes]"))
-                    .with_span(span),
-            );
+            return Err(RuntimeError::new(
+                "type-error",
+                format!("{operation} expected List[Bytes]"),
+            )
+            .with_span(span));
         }
     };
     let mut chunks = Vec::new();
@@ -1154,6 +1271,13 @@ fn lowered_record_arg(
             entry.to_record_map().map_err(|error| error.with_span(span))
         }
         Some(LoweredValue::Record(fields) | LoweredValue::Module(fields)) => {
+            let mut record = RecordMap::new();
+            for (key, value) in fields {
+                record.insert(key, value.into_value());
+            }
+            Ok(record)
+        }
+        Some(LoweredValue::RecordVec(fields)) => {
             let mut record = RecordMap::new();
             for (key, value) in fields {
                 record.insert(key, value.into_value());
@@ -1238,16 +1362,29 @@ fn lowered_env_record_arg(
     operation: &str,
     span: Span,
 ) -> Result<BTreeMap<String, String>, RuntimeError> {
-    let LoweredValue::Record(fields) = value else {
-        return Err(
-            RuntimeError::new("type-error", format!("{operation} expected Record")).with_span(span),
-        );
-    };
     let mut env = BTreeMap::new();
-    for (name, value) in fields {
-        let mut text = String::new();
-        push_lowered_display(&mut text, &value, span)?;
-        env.insert(name.to_string(), text);
+    match value {
+        LoweredValue::Record(fields) => {
+            for (name, value) in fields {
+                let mut text = String::new();
+                push_lowered_display(&mut text, &value, span)?;
+                env.insert(name.to_string(), text);
+            }
+        }
+        LoweredValue::RecordVec(fields) => {
+            for (name, value) in fields.iter() {
+                let mut text = String::new();
+                push_lowered_display(&mut text, &value, span)?;
+                env.insert(name.to_string(), text);
+            }
+        }
+        _ => {
+            return Err(RuntimeError::new(
+                "type-error",
+                format!("{operation} expected Record"),
+            )
+            .with_span(span));
+        }
     }
     Ok(env)
 }
@@ -1258,7 +1395,7 @@ fn lowered_command_arg(
     span: Span,
 ) -> Result<CommandPlan, RuntimeError> {
     match value {
-        LoweredValue::Command(plan) => Ok(plan),
+        LoweredValue::Command(plan) => Ok(*plan),
         other => Err(RuntimeError::new(
             "type-error",
             format!("{operation} expected Command, found {}", other.type_name()),
@@ -1322,7 +1459,7 @@ fn lowered_command_plan_value(
         None => None,
     };
 
-    Ok(LoweredValue::Command(CommandPlan {
+    Ok(LoweredValue::Command(Box::new(CommandPlan {
         target,
         argv,
         cwd,
@@ -1332,7 +1469,7 @@ fn lowered_command_plan_value(
         detach,
         new_session,
         ignore_hup,
-    }))
+    })))
 }
 
 fn lowered_bool_builder_field(
@@ -1728,7 +1865,7 @@ fn lowered_process_wait_any_record(index: usize, pid: u32, status: ProcessStatus
     LoweredValue::Record(BTreeMap::from([
         (Arc::from("index"), LoweredValue::Int(index as i64)),
         (Arc::from("pid"), LoweredValue::Int(pid as i64)),
-        (Arc::from("status"), LoweredValue::Status(status)),
+        (Arc::from("status"), LoweredValue::Status(Box::new(status))),
     ]))
 }
 
@@ -1817,6 +1954,7 @@ fn lowered_pipeline_record_list(
             .iter()
             .map(|item| match item {
                 LoweredValue::Record(record) => Ok(record.clone()),
+                LoweredValue::RecordVec(record) => Ok(record.iter().cloned().collect()),
                 LoweredValue::Map(map) => Ok(map
                     .iter()
                     .map(|(k, v)| (Arc::from(k.as_str()), v.clone()))
@@ -2194,15 +2332,21 @@ fn bind_lowered_comp_target(
             Ok(())
         }
         LoweredCompTarget::Record { fields } => {
-            let LoweredValue::Record(record) = value else {
-                return Err(RuntimeError::new(
-                    "type-error",
-                    "record destructuring requires a record value",
-                )
-                .with_span(span));
-            };
             for (name, slot, field_span) in fields {
-                let value = record.get(name).cloned().ok_or_else(|| {
+                let value = match &value {
+                    LoweredValue::Record(record) => record.get(name).cloned(),
+                    LoweredValue::RecordVec(record) => {
+                        lowered_record_vec_get(record, name.as_ref()).cloned()
+                    }
+                    _ => {
+                        return Err(RuntimeError::new(
+                            "type-error",
+                            "record destructuring requires a record value",
+                        )
+                        .with_span(span));
+                    }
+                }
+                .ok_or_else(|| {
                     RuntimeError::new(
                         "missing-field",
                         format!("missing destructured field `{name}`"),
@@ -2306,7 +2450,7 @@ impl Evaluator {
                 Ok(items) => Ok(items),
                 Err(items) => Ok(items.as_ref().clone()),
             },
-            LoweredValue::Stream(stream) => self.collect_lowered_stream_values(stream, span),
+            LoweredValue::Stream(stream) => self.collect_lowered_stream_values(*stream, span),
             LoweredValue::ResultOk(value) => self.lowered_list_items(*value, span, message),
             LoweredValue::ResultErr(value) => Err(runtime_error_from_value(*value, span)),
             _ => Err(RuntimeError::new("type-error", message).with_span(span)),
@@ -2350,7 +2494,7 @@ impl Evaluator {
 
         // Move the stream out of current to avoid cloning.
         let mut stream = match current {
-            LoweredValue::Stream(s) => s,
+            LoweredValue::Stream(s) => *s,
             other => return Ok((other, 0)),
         };
         if consumed == 0 {
@@ -2473,22 +2617,22 @@ impl Evaluator {
             .unwrap_or(4)
             .max(1);
         let (work_tx, work_rx) = crossbeam_channel::bounded::<(usize, LoweredValue)>(jobs * 2);
-        let (result_tx, result_rx) = crossbeam_channel::unbounded::<(usize, LoweredValue)>();
         let lowered_arc = Arc::new(lowered.clone());
         let body_arc = Arc::new(par_body.clone());
         let value_arc = Arc::new(par_value.clone());
         let base_slots = Arc::new(slots.to_vec());
+        let all_results = Arc::new(std::sync::Mutex::new(Vec::new()));
         let any_error = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let shared_stderr = Arc::new(std::sync::Mutex::new(Vec::new()));
         let shared_state = self.lowered_shared_state();
         let mut handles = Vec::with_capacity(jobs);
         for _ in 0..jobs {
             let work_rx = work_rx.clone();
-            let result_tx = result_tx.clone();
             let lowered_arc = Arc::clone(&lowered_arc);
             let body_arc = Arc::clone(&body_arc);
             let value_arc = Arc::clone(&value_arc);
             let base_slots = Arc::clone(&base_slots);
+            let all_results = Arc::clone(&all_results);
             let any_error = Arc::clone(&any_error);
             let shared_stderr = Arc::clone(&shared_stderr);
             let shared_state = shared_state.clone();
@@ -2523,47 +2667,54 @@ impl Evaluator {
                                 }
                                 Ok(flow) => match flow {
                                     LoweredStmtFlow::None | LoweredStmtFlow::Continue => {
-                                        match worker.eval_lowered_expr(
-                                            &lowered_arc,
+                                        if let Some(value) = take_lowered_block_local_value(
+                                            &body_arc,
                                             &value_arc,
                                             &mut worker_slots,
-                                            span,
                                         ) {
-                                            Ok(ControlFlow::Continue(value)) => value,
-                                            Ok(ControlFlow::Break(value)) => {
-                                                if let Ok(mut stderr) = shared_stderr.lock() {
-                                                    stderr.extend_from_slice(
-                                                        format!(
-                                                            "par-map error: {}\n",
-                                                            lowered_error_message(&value)
-                                                        )
-                                                        .as_bytes(),
-                                                    );
-                                                }
-                                                any_error.store(
-                                                    true,
-                                                    std::sync::atomic::Ordering::Relaxed,
-                                                );
-                                                LoweredValue::List(Vec::new())
-                                            }
-                                            Err(error) => {
-                                                if let Ok(mut stderr) = shared_stderr.lock() {
-                                                    stderr.extend_from_slice(
-                                                        format!("par-map error: {error:?}\n")
+                                            value
+                                        } else {
+                                            match worker.eval_lowered_expr(
+                                                &lowered_arc,
+                                                &value_arc,
+                                                &mut worker_slots,
+                                                span,
+                                            ) {
+                                                Ok(ControlFlow::Continue(value)) => value,
+                                                Ok(ControlFlow::Break(value)) => {
+                                                    if let Ok(mut stderr) = shared_stderr.lock() {
+                                                        stderr.extend_from_slice(
+                                                            format!(
+                                                                "par-map error: {}\n",
+                                                                lowered_error_message(&value)
+                                                            )
                                                             .as_bytes(),
+                                                        );
+                                                    }
+                                                    any_error.store(
+                                                        true,
+                                                        std::sync::atomic::Ordering::Relaxed,
                                                     );
+                                                    LoweredValue::List(Vec::new())
                                                 }
-                                                any_error.store(
-                                                    true,
-                                                    std::sync::atomic::Ordering::Relaxed,
-                                                );
-                                                LoweredValue::List(Vec::new())
+                                                Err(error) => {
+                                                    if let Ok(mut stderr) = shared_stderr.lock() {
+                                                        stderr.extend_from_slice(
+                                                            format!("par-map error: {error:?}\n")
+                                                                .as_bytes(),
+                                                        );
+                                                    }
+                                                    any_error.store(
+                                                        true,
+                                                        std::sync::atomic::Ordering::Relaxed,
+                                                    );
+                                                    LoweredValue::List(Vec::new())
+                                                }
                                             }
                                         }
                                     }
                                     _ => {
-                                        any_error
-                                            .store(true, std::sync::atomic::Ordering::Relaxed);
+                                        any_error.store(true, std::sync::atomic::Ordering::Relaxed);
                                         LoweredValue::List(Vec::new())
                                     }
                                 },
@@ -2576,8 +2727,16 @@ impl Evaluator {
                                 item_result
                             };
                             worker_slots[par_slot] = LoweredValue::Unit;
-                            if result_tx.send((index, result)).is_err() {
-                                break;
+                            match all_results.lock() {
+                                Ok(mut all_results) => {
+                                    if index < all_results.len() {
+                                        all_results[index] = result;
+                                    }
+                                }
+                                Err(_) => {
+                                    any_error.store(true, std::sync::atomic::Ordering::Relaxed);
+                                    break;
+                                }
                             }
                         }
                     })
@@ -2585,7 +2744,6 @@ impl Evaluator {
             );
         }
         drop(work_rx);
-        drop(result_tx);
 
         let mut next_index = 0usize;
         for item in std::mem::take(&mut stream.items) {
@@ -2595,15 +2753,23 @@ impl Evaluator {
             if let Some(value) =
                 self.eval_stream_prefix_item(lowered, value, &stages[..par_index], slots, span)?
             {
+                match all_results.lock() {
+                    Ok(mut all_results) => all_results.push(LoweredValue::Unit),
+                    Err(_) => {
+                        any_error.store(true, std::sync::atomic::Ordering::Relaxed);
+                        break;
+                    }
+                }
                 if work_tx.send((next_index, value)).is_err() {
+                    if let Ok(mut all_results) = all_results.lock() {
+                        all_results.pop();
+                    }
                     break;
                 }
                 next_index += 1;
             }
         }
-        while stream.source.is_some()
-            && !any_error.load(std::sync::atomic::Ordering::Relaxed)
-        {
+        while stream.source.is_some() && !any_error.load(std::sync::atomic::Ordering::Relaxed) {
             let Some(item) = stream.next_live(span)? else {
                 break;
             };
@@ -2613,7 +2779,17 @@ impl Evaluator {
             if let Some(value) =
                 self.eval_stream_prefix_item(lowered, value, &stages[..par_index], slots, span)?
             {
+                match all_results.lock() {
+                    Ok(mut all_results) => all_results.push(LoweredValue::Unit),
+                    Err(_) => {
+                        any_error.store(true, std::sync::atomic::Ordering::Relaxed);
+                        break;
+                    }
+                }
                 if work_tx.send((next_index, value)).is_err() {
+                    if let Ok(mut all_results) = all_results.lock() {
+                        all_results.pop();
+                    }
                     break;
                 }
                 next_index += 1;
@@ -2628,18 +2804,16 @@ impl Evaluator {
         if let Ok(stderr) = shared_stderr.lock() {
             self.stderr.extend_from_slice(&stderr);
         }
-
-        let mut results = Vec::with_capacity(next_index);
-        results.resize(next_index, LoweredValue::Unit);
-        for (index, result) in result_rx {
-            if index < results.len() {
-                results[index] = result;
-            }
-        }
-        Ok(Some((
-            LoweredValue::List(results),
-            par_index + 1,
-        )))
+        let results = match Arc::try_unwrap(all_results) {
+            Ok(results) => results
+                .into_inner()
+                .unwrap_or_else(|poisoned| poisoned.into_inner()),
+            Err(results) => results
+                .lock()
+                .map(|results| results.clone())
+                .unwrap_or_else(|poisoned| poisoned.into_inner().clone()),
+        };
+        Ok(Some((LoweredValue::List(results), par_index + 1)))
     }
 
     fn push_lowered_fs_root(&mut self, root: FsRootHandle) -> LoweredValue {
@@ -4153,10 +4327,15 @@ impl Evaluator {
                 };
                 match values.pop().expect("checked value length") {
                     LoweredValue::Bytes(bytes) => {
-                        LoweredValue::Digest(hash_module::digest_bytes(algorithm, &bytes))
+                        LoweredValue::Digest(Box::new(hash_module::digest_bytes(
+                            algorithm, &bytes,
+                        )))
                     }
                     LoweredValue::BytesView(bytes) => {
-                        LoweredValue::Digest(hash_module::digest_bytes(algorithm, bytes.as_slice()))
+                        LoweredValue::Digest(Box::new(hash_module::digest_bytes(
+                            algorithm,
+                            bytes.as_slice(),
+                        )))
                     }
                     LoweredValue::Path(path) => lowered_runtime_result(
                         hash_module::digest_file(algorithm, &self.host_path(&path), span)
@@ -5607,7 +5786,7 @@ impl Evaluator {
                         let status = end.status.clone().expect("completed process has status");
                         self.last_status = Some(status.clone());
                         self.trace_process_run_end(span, &end);
-                        lowered_result_ok(LoweredValue::Status(status))
+                        lowered_result_ok(LoweredValue::Status(Box::new(status)))
                     }
                     Err(error) => {
                         let error = error.with_span(span);
@@ -5627,7 +5806,7 @@ impl Evaluator {
                                 .status
                                 .clone()
                                 .unwrap_or_else(|| ProcessStatus::signaled(libc::SIGTERM));
-                            lowered_result_ok(LoweredValue::Status(status))
+                            lowered_result_ok(LoweredValue::Status(Box::new(status)))
                         } else {
                             LoweredValue::ResultErr(Box::new(Value::RunError(Box::new(error))))
                         }
@@ -5857,10 +6036,10 @@ impl Evaluator {
             RuntimeOp::RegexCompile if values.len() == 1 => {
                 let text = lowered_str_arg_owned(values.pop(), "", "regex.compile", span)?;
                 match regex_module::compile(&text, span) {
-                    Ok(regex) => lowered_result_ok(LoweredValue::Regex(RegexValue {
+                    Ok(regex) => lowered_result_ok(LoweredValue::Regex(Box::new(RegexValue {
                         pattern: text,
                         regex: Arc::new(regex),
-                    })),
+                    }))),
                     Err(error) => lowered_result_err_value(error),
                 }
             }
@@ -8432,7 +8611,9 @@ impl Evaluator {
             let flow = result?;
             write_back?;
             return match flow {
-                LoweredStmtFlow::None => Ok(LoweredValue::Stream(StreamValue::from_values(items))),
+                LoweredStmtFlow::None => {
+                    Ok(LoweredValue::Stream(Box::new(StreamValue::from_values(items))))
+                }
                 LoweredStmtFlow::Return(value) if matches!(value, LoweredValue::Stream(_)) => {
                     Ok(value)
                 }
@@ -8460,7 +8641,10 @@ impl Evaluator {
             return Ok(value);
         }
         #[cfg(feature = "perf-counters")]
-        if matches!(lowered.return_kind, LoweredReturnKind::Plain(LoweredType::Int | LoweredType::Bool)) {
+        if matches!(
+            lowered.return_kind,
+            LoweredReturnKind::Plain(LoweredType::Int | LoweredType::Bool)
+        ) {
             FAST_PLAIN_RETURN_MISSES.fetch_add(1, Ordering::Relaxed);
         }
         if let Some(value) = self.eval_lowered_fast_return(lowered, slots, call_span)? {
@@ -8869,10 +9053,10 @@ impl Evaluator {
                     };
                     values.push(value);
                 }
-                Ok(Some(LoweredValue::Tag {
+                Ok(Some(LoweredValue::Tag(Box::new(LoweredTagValue {
                     name: name.clone(),
                     fields: values,
-                }))
+                }))))
             }
             LoweredExpr::Binary {
                 op,
@@ -10568,18 +10752,32 @@ impl Evaluator {
                     ControlFlow::Continue(value) => value,
                     ControlFlow::Break(value) => return Ok(LoweredStmtFlow::Return(value)),
                 };
-                let LoweredValue::Record(record) = &mut slots[*slot] else {
-                    return Err(RuntimeError::new(
-                        "type-error",
-                        "lowered expression expected Record",
-                    )
-                    .with_span(*span));
+                let current = match &mut slots[*slot] {
+                    LoweredValue::Record(record) => record.get(field.as_ref()).cloned(),
+                    LoweredValue::RecordVec(record) => {
+                        lowered_record_vec_get(record, field.as_ref()).cloned()
+                    }
+                    _ => {
+                        return Err(RuntimeError::new(
+                            "type-error",
+                            "lowered expression expected Record",
+                        )
+                        .with_span(*span));
+                    }
                 };
-                let current = record.get(field.as_ref()).cloned().ok_or_else(|| {
+                let current = current.ok_or_else(|| {
                     RuntimeError::new("missing-field", field.to_string()).with_span(*span)
                 })?;
                 let value = lowered_assign_value(*op, current, value, *span)?;
-                record.insert(field.clone(), value);
+                match &mut slots[*slot] {
+                    LoweredValue::Record(record) => {
+                        record.insert(field.clone(), value);
+                    }
+                    LoweredValue::RecordVec(record) => {
+                        lowered_record_vec_insert(record, field.clone(), value);
+                    }
+                    _ => unreachable!("checked lowered record assignment target"),
+                }
                 Ok(LoweredStmtFlow::None)
             }
             LoweredStmt::AssignFieldInt {
@@ -10593,14 +10791,20 @@ impl Evaluator {
                     ControlFlow::Continue(value) => value,
                     ControlFlow::Break(value) => return Ok(LoweredStmtFlow::Return(value)),
                 };
-                let LoweredValue::Record(record) = &mut slots[*slot] else {
-                    return Err(RuntimeError::new(
-                        "type-error",
-                        "lowered expression expected Record",
-                    )
-                    .with_span(*span));
-                };
-                let current = record.get_mut(field.as_ref()).ok_or_else(|| {
+                let current = match &mut slots[*slot] {
+                    LoweredValue::Record(record) => record.get_mut(field.as_ref()),
+                    LoweredValue::RecordVec(record) => {
+                        lowered_record_vec_get_mut(record, field.as_ref())
+                    }
+                    _ => {
+                        return Err(RuntimeError::new(
+                            "type-error",
+                            "lowered expression expected Record",
+                        )
+                        .with_span(*span));
+                    }
+                }
+                .ok_or_else(|| {
                     RuntimeError::new("missing-field", field.to_string()).with_span(*span)
                 })?;
                 if *op == AssignOp::Set {
@@ -10918,8 +11122,8 @@ impl Evaluator {
                     let mut cursor = start;
                     let mut line_count = 0u32;
                     while cursor < end {
-                        let newline = memchr::memchr(b'\n', &data[cursor..end])
-                            .map(|offset| cursor + offset);
+                        let newline =
+                            memchr::memchr(b'\n', &data[cursor..end]).map(|offset| cursor + offset);
                         let line_end = newline.unwrap_or(end);
                         let view_end = if line_end > cursor && data[line_end - 1] == b'\r' {
                             line_end - 1
@@ -10933,12 +11137,7 @@ impl Evaluator {
                                 return Ok(LoweredStmtFlow::None);
                             }
                         }
-                        assign_lowered_bytes_view(
-                            &mut slots[*slot],
-                            &bytes,
-                            cursor,
-                            view_end,
-                        );
+                        assign_lowered_bytes_view(&mut slots[*slot], &bytes, cursor, view_end);
                         match self.eval_lowered_stmts(lowered, body, slots, call_span)? {
                             LoweredStmtFlow::None | LoweredStmtFlow::Continue => {}
                             LoweredStmtFlow::Break(_) => break,
@@ -11045,14 +11244,12 @@ impl Evaluator {
                                         *span,
                                     )?
                                 }
-                                ScanCondition::StartsWith(needle) => {
-                                    lowered_str_predicate_text(
-                                        &slots[*line_slot],
-                                        LoweredStrPredicate::StartsWith,
-                                        needle.as_slice(),
-                                        *span,
-                                    )?
-                                }
+                                ScanCondition::StartsWith(needle) => lowered_str_predicate_text(
+                                    &slots[*line_slot],
+                                    LoweredStrPredicate::StartsWith,
+                                    needle.as_slice(),
+                                    *span,
+                                )?,
                             };
                             if matches {
                                 if let LoweredValue::Int(ref mut n) = slots[check.counter_slot] {
@@ -11070,18 +11267,17 @@ impl Evaluator {
                     return Ok(LoweredStmtFlow::None);
                 }
                 let Some((bytes, start, end)) = lowered_bytes_parts(text_value) else {
-                    return Err(RuntimeError::new(
-                        "type-error",
-                        "ScanLines expected Str or Bytes",
-                    )
-                    .with_span(*span));
+                    return Err(
+                        RuntimeError::new("type-error", "ScanLines expected Str or Bytes")
+                            .with_span(*span),
+                    );
                 };
                 let data = &bytes[..];
                 let mut cursor = start;
                 let mut line_count = 0u32;
                 while cursor < end {
-                    let newline = memchr::memchr(b'\n', &data[cursor..end])
-                        .map(|offset| cursor + offset);
+                    let newline =
+                        memchr::memchr(b'\n', &data[cursor..end]).map(|offset| cursor + offset);
                     let line_end = newline.unwrap_or(end);
                     let view_end = if line_end > cursor && data[line_end - 1] == b'\r' {
                         line_end - 1
@@ -11095,12 +11291,7 @@ impl Evaluator {
                             return Ok(LoweredStmtFlow::None);
                         }
                     }
-                    assign_lowered_bytes_view(
-                        &mut slots[*line_slot],
-                        &bytes,
-                        cursor,
-                        view_end,
-                    );
+                    assign_lowered_bytes_view(&mut slots[*line_slot], &bytes, cursor, view_end);
                     for check in checks {
                         let matches = match &check.condition {
                             ScanCondition::TrimEmpty => {
@@ -11114,14 +11305,12 @@ impl Evaluator {
                                     *span,
                                 )?
                             }
-                            ScanCondition::StartsWith(needle) => {
-                                lowered_str_predicate_text(
-                                    &slots[*line_slot],
-                                    LoweredStrPredicate::StartsWith,
-                                    needle.as_slice(),
-                                    *span,
-                                )?
-                            }
+                            ScanCondition::StartsWith(needle) => lowered_str_predicate_text(
+                                &slots[*line_slot],
+                                LoweredStrPredicate::StartsWith,
+                                needle.as_slice(),
+                                *span,
+                            )?,
                         };
                         if matches {
                             if let LoweredValue::Int(ref mut n) = slots[check.counter_slot] {
@@ -12090,9 +12279,9 @@ impl Evaluator {
         self.trace_process_run_end(span, &execution.end);
         if self.signal_state.shutdown_complete && self.signal_state.shutdown_status.is_some() {
             return Ok(ControlFlow::Continue(LoweredValue::ResultOk(Box::new(
-                LoweredValue::Status(execution.end.status.clone().unwrap_or_else(|| {
+                LoweredValue::Status(Box::new(execution.end.status.clone().unwrap_or_else(|| {
                     crate::runtime::process::ProcessStatus::signaled(libc::SIGTERM)
-                })),
+                }))),
             ))));
         }
         let value = execution.value?;
@@ -12220,9 +12409,9 @@ impl Evaluator {
         self.trace_lowered_pipeline_end(span, &end);
         if self.signal_state.shutdown_complete && self.signal_state.shutdown_status.is_some() {
             return Ok(ControlFlow::Continue(LoweredValue::ResultOk(Box::new(
-                LoweredValue::Status(end.status.clone().unwrap_or_else(|| {
+                LoweredValue::Status(Box::new(end.status.clone().unwrap_or_else(|| {
                     crate::runtime::process::ProcessStatus::signaled(libc::SIGTERM)
-                })),
+                }))),
             ))));
         }
         let status = end
@@ -12237,10 +12426,10 @@ impl Evaluator {
         }
         if propagate {
             Ok(ControlFlow::Continue(LoweredValue::ResultOk(Box::new(
-                LoweredValue::Status(status),
+                LoweredValue::Status(Box::new(status)),
             ))))
         } else {
-            Ok(ControlFlow::Continue(LoweredValue::Status(status)))
+            Ok(ControlFlow::Continue(LoweredValue::Status(Box::new(status))))
         }
     }
 
@@ -12436,7 +12625,7 @@ impl Evaluator {
             Some("process.command"),
             TracePayload::None,
         );
-        Ok(ControlFlow::Continue(LoweredValue::Command(plan)))
+        Ok(ControlFlow::Continue(LoweredValue::Command(Box::new(plan))))
     }
 
     fn eval_lowered_spawn_run(
@@ -12875,7 +13064,7 @@ impl Evaluator {
         }
         match receiver {
             LoweredValue::Stream(stream) if name == "collect" && values.is_empty() => {
-                let values = self.collect_stream_values(stream, *span)?;
+                let values = self.collect_stream_values(*stream, *span)?;
                 let value = lowered_runtime_value(Value::List(values), *span)?;
                 Ok(ControlFlow::Continue(value))
             }
@@ -13118,11 +13307,11 @@ impl Evaluator {
                 Ok(ControlFlow::Continue(LoweredValue::List(values)))
             }
             LoweredExpr::LastStatus { span } => match self.last_status.clone() {
-                Some(status) => Ok(ControlFlow::Continue(LoweredValue::Status(status))),
+                Some(status) => Ok(ControlFlow::Continue(LoweredValue::Status(Box::new(status)))),
                 None => Err(RuntimeError::new("last-status", "`$?` is not set").with_span(*span)),
             },
             LoweredExpr::Record(fields) => {
-                let mut record = BTreeMap::new();
+                let mut record: Vec<(Arc<str>, LoweredValue)> = Vec::with_capacity(fields.len());
                 for entry in fields {
                     match entry {
                         LoweredRecordEntry::Field(name, expr) => {
@@ -13132,7 +13321,7 @@ impl Evaluator {
                                 ControlFlow::Continue(value) => value,
                                 ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
                             };
-                            record.insert(name.clone(), value);
+                            lowered_record_vec_insert(&mut record, name.clone(), value);
                         }
                         LoweredRecordEntry::Spread(expr) => {
                             let value = match self
@@ -13141,21 +13330,32 @@ impl Evaluator {
                                 ControlFlow::Continue(value) => value,
                                 ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
                             };
-                            let LoweredValue::Record(fields) = value else {
-                                return Err(RuntimeError::new(
-                                    "type-error",
-                                    format!(
-                                        "record spread expected Record, found {}",
-                                        value.type_name()
-                                    ),
-                                )
-                                .with_span(call_span));
-                            };
-                            record.extend(fields);
+                            match value {
+                                LoweredValue::Record(fields) | LoweredValue::Module(fields) => {
+                                    for (key, value) in fields {
+                                        lowered_record_vec_insert(&mut record, key, value);
+                                    }
+                                }
+                                LoweredValue::RecordVec(fields) => {
+                                    for (key, value) in fields {
+                                        lowered_record_vec_insert(&mut record, key, value);
+                                    }
+                                }
+                                value => {
+                                    return Err(RuntimeError::new(
+                                        "type-error",
+                                        format!(
+                                            "record spread expected Record, found {}",
+                                            value.type_name()
+                                        ),
+                                    )
+                                    .with_span(call_span));
+                                }
+                            }
                         }
                     }
                 }
-                Ok(ControlFlow::Continue(LoweredValue::Record(record)))
+                Ok(ControlFlow::Continue(LoweredValue::RecordVec(record)))
             }
             LoweredExpr::List(items) => {
                 let mut values = Vec::with_capacity(items.len());
@@ -13241,10 +13441,10 @@ impl Evaluator {
                     };
                     values.push(value);
                 }
-                Ok(ControlFlow::Continue(LoweredValue::Tag {
+                Ok(ControlFlow::Continue(LoweredValue::Tag(Box::new(LoweredTagValue {
                     name: name.clone(),
                     fields: values,
-                }))
+                }))))
             }
             LoweredExpr::ListComp {
                 value,
@@ -13358,11 +13558,11 @@ impl Evaluator {
                                             | LoweredPipelineStage::Where { .. }
                                     )
                                 })
-                        });
+                            });
                         if can_stream_par_map {
                             let Some((streamed_current, consumed)) = self
                                 .try_eval_streaming_par_map_block_prefix(
-                                    lowered, stream, stages, slots, *span,
+                                    lowered, *stream, stages, slots, *span,
                                 )?
                             else {
                                 unreachable!("checked streaming par-map prefix before evaluation")
@@ -13370,13 +13570,14 @@ impl Evaluator {
                             stage_index = consumed;
                             streamed_current
                         } else {
-                            let (streamed_current, consumed) = self.eval_streaming_pipeline_prefix(
-                                lowered,
-                                LoweredValue::Stream(stream),
-                                stages,
-                                slots,
-                                *span,
-                            )?;
+                            let (streamed_current, consumed) = self
+                                .eval_streaming_pipeline_prefix(
+                                    lowered,
+                                    LoweredValue::Stream(stream),
+                                    stages,
+                                    slots,
+                                    *span,
+                                )?;
                             stage_index = consumed;
                             streamed_current
                         }
@@ -13422,11 +13623,11 @@ impl Evaluator {
                                 } else {
                                     line_end
                                 };
-                                lines.push(LoweredValue::StrView(LoweredStrView::new(
+                                lines.push(lowered_str_view_value(
                                     text.clone(),
                                     cursor,
                                     view_end,
-                                )));
+                                ));
                                 let Some(newline) = newline else {
                                     break;
                                 };
@@ -13746,13 +13947,17 @@ impl Evaluator {
                             let mut mapped = Vec::new();
                             for item in items {
                                 slots[*slot] = item;
-                                let value =
+                                let value = if matches!(value, LoweredExpr::Param(value_slot) if *value_slot == *slot)
+                                {
+                                    std::mem::replace(&mut slots[*slot], LoweredValue::Unit)
+                                } else {
                                     match self.eval_lowered_expr(lowered, value, slots, *span)? {
                                         ControlFlow::Continue(value) => value,
                                         ControlFlow::Break(value) => {
                                             return Ok(ControlFlow::Break(value));
                                         }
-                                    };
+                                    }
+                                };
                                 mapped.extend(self.lowered_list_items(
                                     value,
                                     *span,
@@ -14075,7 +14280,7 @@ impl Evaluator {
                         }
                         LoweredPipelineStage::Collect => {
                             if let LoweredValue::Stream(stream) = current {
-                                let values = self.collect_stream_values(stream, *span)?;
+                                let values = self.collect_stream_values(*stream, *span)?;
                                 let mut lowered = Vec::with_capacity(values.len());
                                 for value in values {
                                     let Some(value) = lowered_value_from_runtime_any(&value) else {
@@ -14123,7 +14328,7 @@ impl Evaluator {
                                 }
                                 LoweredValue::Stream(stream) => {
                                     let mut items =
-                                        self.collect_lowered_stream_values(stream, *span)?;
+                                        self.collect_lowered_stream_values(*stream, *span)?;
                                     items.truncate(count.min(items.len()));
                                     current = LoweredValue::List(items);
                                 }
@@ -14157,7 +14362,7 @@ impl Evaluator {
                                 }
                                 LoweredValue::Stream(stream) => {
                                     current = LoweredValue::List(
-                                        self.collect_lowered_stream_values(stream, *span)?
+                                        self.collect_lowered_stream_values(*stream, *span)?
                                             .into_iter()
                                             .skip(count)
                                             .collect(),
@@ -14196,7 +14401,7 @@ impl Evaluator {
                                 }
                                 LoweredValue::Stream(stream) => {
                                     let items =
-                                        self.collect_lowered_stream_values(stream, *span)?;
+                                        self.collect_lowered_stream_values(*stream, *span)?;
                                     let mut repeated = Vec::with_capacity(items.len() * n);
                                     for _ in 0..n {
                                         repeated.extend(items.iter().cloned());
@@ -14452,16 +14657,20 @@ impl Evaluator {
                                 }
                                 current = LoweredValue::List(results);
                             } else {
-                                let num_threads =
-                                    std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4)
-                                        .min(item_count);
+                                let num_threads = std::thread::available_parallelism()
+                                    .map(|n| n.get())
+                                    .unwrap_or(4)
+                                    .min(item_count);
                                 let lowered_arc = std::sync::Arc::new(lowered.clone());
                                 let value_arc = std::sync::Arc::new(value.clone());
                                 let items_arc = std::sync::Arc::new(items);
                                 let base_slots = std::sync::Arc::new(slots.to_vec());
                                 let next_index = std::sync::atomic::AtomicUsize::new(0);
-                                let mut all_results: Vec<LoweredValue> =
-                                    (0..item_count).map(|_| LoweredValue::Unit).collect();
+                                let all_results = std::sync::Mutex::new(
+                                    (0..item_count)
+                                        .map(|_| LoweredValue::Unit)
+                                        .collect::<Vec<_>>(),
+                                );
                                 let any_error = std::sync::atomic::AtomicBool::new(false);
                                 let shared_stderr = std::sync::Mutex::new(Vec::new());
                                 let shared_state = self.lowered_shared_state();
@@ -14473,6 +14682,7 @@ impl Evaluator {
                                         let value_arc = std::sync::Arc::clone(&value_arc);
                                         let base_slots = std::sync::Arc::clone(&base_slots);
                                         let next_index = &next_index;
+                                        let all_results = &all_results;
                                         let any_error = &any_error;
                                         let shared_stderr = &shared_stderr;
                                         let shared_state = shared_state.clone();
@@ -14488,7 +14698,6 @@ impl Evaluator {
                                                     LoweredValue::Unit,
                                                 );
                                             }
-                                            let mut chunk_results = Vec::new();
                                             loop {
                                                 if any_error.load(std::sync::atomic::Ordering::Relaxed) {
                                                     break;
@@ -14539,22 +14748,28 @@ impl Evaluator {
                                                 };
                                                 // Zero out the slot to free the cloned item immediately
                                                 worker_slots[*slot] = LoweredValue::Unit;
-                                                chunk_results.push((idx, result));
+                                                match all_results.lock() {
+                                                    Ok(mut all_results) => {
+                                                        all_results[idx] = result;
+                                                    }
+                                                    Err(_) => {
+                                                        any_error.store(true, std::sync::atomic::Ordering::Relaxed);
+                                                        break;
+                                                    }
+                                                }
                                             }
-                                            chunk_results
                                                 })
                                                 .expect("spawn lowered par-map worker"),
                                         );
                                     }
                                     for handle in handles {
                                         match handle.join() {
-                                            Ok(chunk_results) => {
-                                                for (idx, result) in chunk_results {
-                                                    all_results[idx] = result;
-                                                }
-                                            }
+                                            Ok(()) => {}
                                             Err(_) => {
-                                                any_error.store(true, std::sync::atomic::Ordering::Relaxed);
+                                                any_error.store(
+                                                    true,
+                                                    std::sync::atomic::Ordering::Relaxed,
+                                                );
                                             }
                                         }
                                     }
@@ -14562,6 +14777,9 @@ impl Evaluator {
                                 if let Ok(err) = shared_stderr.into_inner() {
                                     self.stderr.extend_from_slice(&err);
                                 }
+                                let all_results = all_results
+                                    .into_inner()
+                                    .unwrap_or_else(|poisoned| poisoned.into_inner());
                                 current = LoweredValue::List(all_results);
                             }
                         }
@@ -14613,63 +14831,76 @@ impl Evaluator {
                                         }
                                         Ok(flow) => match flow {
                                             LoweredStmtFlow::None | LoweredStmtFlow::Continue => {
-                                                match self.eval_lowered_expr(lowered, value, slots, s) {
-                                                    Ok(ControlFlow::Continue(v)) => v,
-                                                    Ok(ControlFlow::Break(v)) => {
-                                                        if self.trace_enabled {
-                                                            let runtime_value =
-                                                                v.clone().into_value();
-                                                            let trace_error =
-                                                                lowered_trace_error_from_value(
-                                                                    &runtime_value,
+                                                if let Some(v) = take_lowered_block_local_value(
+                                                    body, value, slots,
+                                                ) {
+                                                    v
+                                                } else {
+                                                    match self
+                                                        .eval_lowered_expr(lowered, value, slots, s)
+                                                    {
+                                                        Ok(ControlFlow::Continue(v)) => v,
+                                                        Ok(ControlFlow::Break(v)) => {
+                                                            if self.trace_enabled {
+                                                                let runtime_value =
+                                                                    v.clone().into_value();
+                                                                let trace_error =
+                                                                    lowered_trace_error_from_value(
+                                                                        &runtime_value,
+                                                                    );
+                                                                self.trace_lowered_parallel_job(
+                                                                    TraceKind::ParallelCancel,
+                                                                    "par-map",
+                                                                    item_index,
+                                                                    Some(trace_error.clone()),
+                                                                    s,
                                                                 );
-                                                            self.trace_lowered_parallel_job(
-                                                                TraceKind::ParallelCancel,
-                                                                "par-map",
-                                                                item_index,
-                                                                Some(trace_error.clone()),
-                                                                s,
+                                                                self.trace_lowered_parallel_job(
+                                                                    TraceKind::ParallelJobEnd,
+                                                                    "par-map",
+                                                                    item_index,
+                                                                    Some(trace_error),
+                                                                    s,
+                                                                );
+                                                                traced_failure = true;
+                                                            }
+                                                            self.stderr.extend_from_slice(
+                                                                format!(
+                                                                    "par-map error: {}\n",
+                                                                    lowered_error_message(&v)
+                                                                )
+                                                                .as_bytes(),
                                                             );
-                                                            self.trace_lowered_parallel_job(
-                                                                TraceKind::ParallelJobEnd,
-                                                                "par-map",
-                                                                item_index,
-                                                                Some(trace_error),
-                                                                s,
-                                                            );
-                                                            traced_failure = true;
+                                                            LoweredValue::List(Vec::new())
                                                         }
-                                                        self.stderr.extend_from_slice(
-                                                            format!("par-map error: {}\n", lowered_error_message(&v)).as_bytes(),
-                                                        );
-                                                        LoweredValue::List(Vec::new())
-                                                    }
-                                                    Err(error) => {
-                                                        if self.trace_enabled {
-                                                            let trace_error = TraceError::new(
-                                                                &error.kind,
-                                                                &error.message,
+                                                        Err(error) => {
+                                                            if self.trace_enabled {
+                                                                let trace_error = TraceError::new(
+                                                                    &error.kind,
+                                                                    &error.message,
+                                                                );
+                                                                self.trace_lowered_parallel_job(
+                                                                    TraceKind::ParallelCancel,
+                                                                    "par-map",
+                                                                    item_index,
+                                                                    Some(trace_error.clone()),
+                                                                    s,
+                                                                );
+                                                                self.trace_lowered_parallel_job(
+                                                                    TraceKind::ParallelJobEnd,
+                                                                    "par-map",
+                                                                    item_index,
+                                                                    Some(trace_error),
+                                                                    s,
+                                                                );
+                                                                traced_failure = true;
+                                                            }
+                                                            self.stderr.extend_from_slice(
+                                                                format!("par-map error: {error:?}\n")
+                                                                    .as_bytes(),
                                                             );
-                                                            self.trace_lowered_parallel_job(
-                                                                TraceKind::ParallelCancel,
-                                                                "par-map",
-                                                                item_index,
-                                                                Some(trace_error.clone()),
-                                                                s,
-                                                            );
-                                                            self.trace_lowered_parallel_job(
-                                                                TraceKind::ParallelJobEnd,
-                                                                "par-map",
-                                                                item_index,
-                                                                Some(trace_error),
-                                                                s,
-                                                            );
-                                                            traced_failure = true;
+                                                            LoweredValue::List(Vec::new())
                                                         }
-                                                        self.stderr.extend_from_slice(
-                                                            format!("par-map error: {error:?}\n").as_bytes(),
-                                                        );
-                                                        LoweredValue::List(Vec::new())
                                                     }
                                                 }
                                             }
@@ -14697,7 +14928,11 @@ impl Evaluator {
                                                     traced_failure = true;
                                                 }
                                                 self.stderr.extend_from_slice(
-                                                    format!("par-map error: {}\n", lowered_error_message(&v)).as_bytes(),
+                                                    format!(
+                                                        "par-map error: {}\n",
+                                                        lowered_error_message(&v)
+                                                    )
+                                                    .as_bytes(),
                                                 );
                                                 LoweredValue::List(Vec::new())
                                             }
@@ -14705,7 +14940,9 @@ impl Evaluator {
                                                 return Ok(ControlFlow::Break(v));
                                             }
                                             LoweredStmtFlow::Break(v) => {
-                                                return Ok(ControlFlow::Break(v.unwrap_or(LoweredValue::Unit)));
+                                                return Ok(ControlFlow::Break(
+                                                    v.unwrap_or(LoweredValue::Unit),
+                                                ));
                                             }
                                         },
                                     };
@@ -14730,7 +14967,11 @@ impl Evaluator {
                                             );
                                         }
                                         self.stderr.extend_from_slice(
-                                            format!("par-map error: {}\n", lowered_error_message(&item_result)).as_bytes(),
+                                            format!(
+                                                "par-map error: {}\n",
+                                                lowered_error_message(&item_result)
+                                            )
+                                            .as_bytes(),
                                         );
                                         results.push(LoweredValue::List(Vec::new()));
                                     } else if let LoweredValue::ResultOk(v) = item_result {
@@ -14759,17 +15000,21 @@ impl Evaluator {
                                 }
                                 current = LoweredValue::List(results);
                             } else {
-                                let num_threads =
-                                    std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4)
-                                        .min(item_count);
+                                let num_threads = std::thread::available_parallelism()
+                                    .map(|n| n.get())
+                                    .unwrap_or(4)
+                                    .min(item_count);
                                 let lowered_arc = std::sync::Arc::new(lowered.clone());
                                 let body_arc = std::sync::Arc::new(body.clone());
                                 let value_arc = std::sync::Arc::new(value.clone());
                                 let items_arc = std::sync::Arc::new(items);
                                 let base_slots = std::sync::Arc::new(slots.to_vec());
                                 let next_index = std::sync::atomic::AtomicUsize::new(0);
-                                let mut all_results: Vec<LoweredValue> =
-                                    (0..item_count).map(|_| LoweredValue::Unit).collect();
+                                let all_results = std::sync::Mutex::new(
+                                    (0..item_count)
+                                        .map(|_| LoweredValue::Unit)
+                                        .collect::<Vec<_>>(),
+                                );
                                 let any_error = std::sync::atomic::AtomicBool::new(false);
                                 let shared_stderr = std::sync::Mutex::new(Vec::new());
                                 let shared_state = self.lowered_shared_state();
@@ -14782,6 +15027,7 @@ impl Evaluator {
                                         let value_arc = std::sync::Arc::clone(&value_arc);
                                         let base_slots = std::sync::Arc::clone(&base_slots);
                                         let next_index = &next_index;
+                                        let all_results = &all_results;
                                         let any_error = &any_error;
                                         let shared_stderr = &shared_stderr;
                                         let shared_state = shared_state.clone();
@@ -14797,7 +15043,6 @@ impl Evaluator {
                                                     LoweredValue::Unit,
                                                 );
                                             }
-                                            let mut chunk_results = Vec::new();
                                             loop {
                                                 if any_error.load(std::sync::atomic::Ordering::Relaxed) {
                                                     break;
@@ -14822,13 +15067,21 @@ impl Evaluator {
                                                     }
                                                     Ok(flow) => match flow {
                                                         LoweredStmtFlow::None | LoweredStmtFlow::Continue => {
-                                                            match worker.eval_lowered_expr(
-                                                                &lowered_arc, &value_arc, &mut worker_slots, s,
+                                                            if let Some(v) = take_lowered_block_local_value(
+                                                                &body_arc,
+                                                                &value_arc,
+                                                                &mut worker_slots,
                                                             ) {
-                                                                Ok(ControlFlow::Continue(v)) => v,
-                                                                _ => {
-                                                                    any_error.store(true, std::sync::atomic::Ordering::Relaxed);
-                                                                    LoweredValue::List(Vec::new())
+                                                                v
+                                                            } else {
+                                                                match worker.eval_lowered_expr(
+                                                                    &lowered_arc, &value_arc, &mut worker_slots, s,
+                                                                ) {
+                                                                    Ok(ControlFlow::Continue(v)) => v,
+                                                                    _ => {
+                                                                        any_error.store(true, std::sync::atomic::Ordering::Relaxed);
+                                                                        LoweredValue::List(Vec::new())
+                                                                    }
                                                                 }
                                                             }
                                                         }
@@ -14846,22 +15099,28 @@ impl Evaluator {
                                                     item_result
                                                 };
                                                 worker_slots[*slot] = LoweredValue::Unit;
-                                                chunk_results.push((idx, result));
+                                                match all_results.lock() {
+                                                    Ok(mut all_results) => {
+                                                        all_results[idx] = result;
+                                                    }
+                                                    Err(_) => {
+                                                        any_error.store(true, std::sync::atomic::Ordering::Relaxed);
+                                                        break;
+                                                    }
+                                                }
                                             }
-                                            chunk_results
                                                 })
                                                 .expect("spawn lowered par-map worker"),
                                         );
                                     }
                                     for handle in handles {
                                         match handle.join() {
-                                            Ok(chunk_results) => {
-                                                for (idx, result) in chunk_results {
-                                                    all_results[idx] = result;
-                                                }
-                                            }
+                                            Ok(()) => {}
                                             Err(_) => {
-                                                any_error.store(true, std::sync::atomic::Ordering::Relaxed);
+                                                any_error.store(
+                                                    true,
+                                                    std::sync::atomic::Ordering::Relaxed,
+                                                );
                                             }
                                         }
                                     }
@@ -14869,6 +15128,9 @@ impl Evaluator {
                                 if let Ok(err) = shared_stderr.into_inner() {
                                     self.stderr.extend_from_slice(&err);
                                 }
+                                let all_results = all_results
+                                    .into_inner()
+                                    .unwrap_or_else(|poisoned| poisoned.into_inner());
                                 current = LoweredValue::List(all_results);
                             }
                         }
@@ -15173,6 +15435,13 @@ impl Evaluator {
                 Ok(ControlFlow::Continue(current))
             }
             LoweredExpr::Field { base, name, span } => {
+                if let Some(base) = lowered_field_chain_ref(base, slots)? {
+                    if let Some(value) =
+                        lowered_project_borrowed_field(base, name.as_str(), *span)?
+                    {
+                        return Ok(ControlFlow::Continue(value));
+                    }
+                }
                 let base = match self.eval_lowered_expr(lowered, base, slots, *span)? {
                     ControlFlow::Continue(value) => value,
                     ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
@@ -15182,15 +15451,23 @@ impl Evaluator {
                         .get(name.as_str())
                         .cloned()
                         .ok_or_else(|| RuntimeError::new("missing-field", name).with_span(*span))?,
+                    LoweredValue::RecordVec(record) => lowered_record_vec_get(&record, name.as_str())
+                        .cloned()
+                        .ok_or_else(|| RuntimeError::new("missing-field", name).with_span(*span))?,
                     LoweredValue::FsEntry(entry) => {
                         let value = entry
                             .field_value(name.as_str())
-                            .ok_or_else(|| RuntimeError::new("missing-field", name).with_span(*span))?
+                            .ok_or_else(|| {
+                                RuntimeError::new("missing-field", name).with_span(*span)
+                            })?
                             .map_err(|error| error.with_span(*span))?;
                         lowered_value_from_runtime_any(&value).ok_or_else(|| {
                             RuntimeError::new(
                                 "type-error",
-                                format!("fs entry field produced unsupported {}", value.type_name()),
+                                format!(
+                                    "fs entry field produced unsupported {}",
+                                    value.type_name()
+                                ),
                             )
                             .with_span(*span)
                         })?
@@ -15478,10 +15755,10 @@ impl Evaluator {
                     );
                 };
                 let regex = match crate::modules::regex::compile(pattern, *span) {
-                    Ok(regex) => LoweredValue::Regex(RegexValue {
+                    Ok(regex) => LoweredValue::Regex(Box::new(RegexValue {
                         pattern: pattern.to_string(),
                         regex: Arc::new(regex),
-                    }),
+                    })),
                     Err(error) => LoweredValue::ResultErr(Box::new(Value::Error(Box::new(error)))),
                 };
                 Ok(ControlFlow::Continue(match regex {
@@ -15745,7 +16022,7 @@ impl Evaluator {
                     }
                     Err(error) => return Err(error),
                 };
-                let value = LoweredValue::Stream(stream);
+                let value = LoweredValue::Stream(Box::new(stream));
                 Ok(ControlFlow::Continue(if *result_wrapped {
                     lowered_result_ok(value)
                 } else {
@@ -15795,7 +16072,7 @@ impl Evaluator {
                     }
                     Err(error) => return Err(error),
                 };
-                let value = LoweredValue::Stream(stream);
+                let value = LoweredValue::Stream(Box::new(stream));
                 Ok(ControlFlow::Continue(if *result_wrapped {
                     lowered_result_ok(value)
                 } else {

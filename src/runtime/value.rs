@@ -109,14 +109,8 @@ impl FsEntryValue {
             "accessed" | "blocks_512" | "gid" | "mode" | "modified" | "size" | "uid" => {
                 Ok(Value::Int(0))
             }
-            "executable"
-            | "group_executable"
-            | "other_executable"
-            | "owner_executable"
-            | "setgid"
-            | "setuid"
-            | "sticky"
-            | "world_writable" => Ok(Value::Bool(false)),
+            "executable" | "group_executable" | "other_executable" | "owner_executable"
+            | "setgid" | "setuid" | "sticky" | "world_writable" => Ok(Value::Bool(false)),
             _ => return None,
         };
         Some(value)

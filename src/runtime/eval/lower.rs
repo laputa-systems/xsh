@@ -26,7 +26,10 @@ use xsh_registry::types::BuiltinTypeName;
 use super::lowered_ops::{
     lowered_binary_op, lowered_value_from_runtime_any, lowered_value_matches,
 };
-use super::{LoweredProcessCommandBuilderEntry, LoweredRecordEntry};
+use super::{
+    LoweredProcessCommandBuilderEntry, LoweredRecordEntry, lowered_record_vec_get,
+    lowered_record_vec_get_mut, lowered_record_vec_insert,
+};
 
 /// Name -> dense slot-index map used while lowering a function or top-level
 /// region. Slots are allocated densely and never reused; `high_water` is the
@@ -5167,9 +5170,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                 slots.exit(saved);
                 let span = self.program.arena.stmt(id).span;
                 if str_lines_base.is_some() {
-                    if let Some(scan) = try_lower_scan_lines(
-                        &text_or_iter, slot, &body, span,
-                    ) {
+                    if let Some(scan) = try_lower_scan_lines(&text_or_iter, slot, &body, span) {
                         Some(scan)
                     } else {
                         Some(LoweredStmt::ForStrLines {
@@ -10904,33 +10905,53 @@ pub(super) fn lowered_body_has_defers(statements: &[LoweredStmt]) -> bool {
     fn stmt_has_defers(stmt: &LoweredStmt) -> bool {
         match stmt {
             LoweredStmt::Defer { .. } => true,
-            LoweredStmt::If { branches, else_body } => {
-                branches.iter().any(|(_, body)| lowered_body_has_defers(body))
-                    || else_body.as_ref().is_some_and(|b| lowered_body_has_defers(b))
+            LoweredStmt::If {
+                branches,
+                else_body,
+            } => {
+                branches
+                    .iter()
+                    .any(|(_, body)| lowered_body_has_defers(body))
+                    || else_body
+                        .as_ref()
+                        .is_some_and(|b| lowered_body_has_defers(b))
             }
-            LoweredStmt::IfBool { branches, else_body } => {
-                branches.iter().any(|(_, body)| lowered_body_has_defers(body))
-                    || else_body.as_ref().is_some_and(|b| lowered_body_has_defers(b))
+            LoweredStmt::IfBool {
+                branches,
+                else_body,
+            } => {
+                branches
+                    .iter()
+                    .any(|(_, body)| lowered_body_has_defers(body))
+                    || else_body
+                        .as_ref()
+                        .is_some_and(|b| lowered_body_has_defers(b))
             }
-            LoweredStmt::While { body, .. }
-            | LoweredStmt::WhileBool { body, .. } => lowered_body_has_defers(body),
+            LoweredStmt::While { body, .. } | LoweredStmt::WhileBool { body, .. } => {
+                lowered_body_has_defers(body)
+            }
             LoweredStmt::For { body, .. }
             | LoweredStmt::ForRecord { body, .. }
             | LoweredStmt::ForStrLines { body, .. } => lowered_body_has_defers(body),
-            LoweredStmt::Match { arms, .. } => {
-                arms.iter().any(|(_, _, body)| lowered_body_has_defers(body))
-            }
+            LoweredStmt::Match { arms, .. } => arms
+                .iter()
+                .any(|(_, _, body)| lowered_body_has_defers(body)),
             LoweredStmt::StrMatch { arms, fallback, .. } => {
                 arms.values().any(|body| lowered_body_has_defers(body))
-                    || fallback.as_ref().is_some_and(|b| lowered_body_has_defers(b))
+                    || fallback
+                        .as_ref()
+                        .is_some_and(|b| lowered_body_has_defers(b))
             }
             LoweredStmt::TagMatch { arms, fallback, .. } => {
                 arms.values().any(|body| lowered_body_has_defers(body))
-                    || fallback.as_ref().is_some_and(|b| lowered_body_has_defers(b))
+                    || fallback
+                        .as_ref()
+                        .is_some_and(|b| lowered_body_has_defers(b))
             }
             LoweredStmt::Guard { else_body, .. } => lowered_body_has_defers(else_body),
-            LoweredStmt::Cd { body, .. }
-            | LoweredStmt::Env { body, .. } => lowered_body_has_defers(body),
+            LoweredStmt::Cd { body, .. } | LoweredStmt::Env { body, .. } => {
+                lowered_body_has_defers(body)
+            }
             _ => false,
         }
     }
@@ -11124,17 +11145,13 @@ pub(super) fn lowered_pattern_matches(
             name,
             slots: field_slots,
         } => {
-            let LoweredValue::Tag {
-                name: tag_name,
-                fields,
-            } = value
-            else {
+            let LoweredValue::Tag(tag) = value else {
                 return false;
             };
-            if tag_name.as_ref() != name.as_ref() || fields.len() != field_slots.len() {
+            if tag.name.as_ref() != name.as_ref() || tag.fields.len() != field_slots.len() {
                 return false;
             }
-            for (slot, field) in field_slots.iter().zip(fields) {
+            for (slot, field) in field_slots.iter().zip(&tag.fields) {
                 if let Some(slot) = slot {
                     slots[*slot] = field.clone();
                 }
@@ -11209,23 +11226,54 @@ pub(super) fn lowered_record_field<'a>(
 ) -> Option<&'a LoweredValue> {
     match value {
         LoweredValue::Record(entries) | LoweredValue::Module(entries) => entries.get(field),
+        LoweredValue::RecordVec(entries) => lowered_record_vec_get(entries, field),
         _ => None,
     }
 }
 
 pub(super) fn lowered_sum_records(mut acc: LoweredValue, val: LoweredValue) -> LoweredValue {
-    let (LoweredValue::Record(acc_map), LoweredValue::Record(val_map)) = (&mut acc, &val) else {
-        return acc;
-    };
-    for (key, value) in val_map {
-        if let Some(acc_value) = acc_map.get_mut(key) {
-            *acc_value = lowered_sum_values(
-                std::mem::replace(acc_value, LoweredValue::Unit),
-                value.clone(),
-            );
-        } else {
-            acc_map.insert(key.clone(), value.clone());
+    match (&mut acc, val) {
+        (LoweredValue::Record(acc_map), LoweredValue::Record(val_map)) => {
+            for (key, value) in val_map {
+                if let Some(acc_value) = acc_map.get_mut(&key) {
+                    *acc_value =
+                        lowered_sum_values(std::mem::replace(acc_value, LoweredValue::Unit), value);
+                } else {
+                    acc_map.insert(key, value);
+                }
+            }
         }
+        (LoweredValue::RecordVec(acc_map), LoweredValue::RecordVec(val_map)) => {
+            for (key, value) in val_map {
+                if let Some(acc_value) = lowered_record_vec_get_mut(acc_map, key.as_ref()) {
+                    *acc_value =
+                        lowered_sum_values(std::mem::replace(acc_value, LoweredValue::Unit), value);
+                } else {
+                    lowered_record_vec_insert(acc_map, key, value);
+                }
+            }
+        }
+        (LoweredValue::Record(acc_map), LoweredValue::RecordVec(val_map)) => {
+            for (key, value) in val_map {
+                if let Some(acc_value) = acc_map.get_mut(key.as_ref()) {
+                    *acc_value =
+                        lowered_sum_values(std::mem::replace(acc_value, LoweredValue::Unit), value);
+                } else {
+                    acc_map.insert(key, value);
+                }
+            }
+        }
+        (LoweredValue::RecordVec(acc_map), LoweredValue::Record(val_map)) => {
+            for (key, value) in val_map {
+                if let Some(acc_value) = lowered_record_vec_get_mut(acc_map, key.as_ref()) {
+                    *acc_value =
+                        lowered_sum_values(std::mem::replace(acc_value, LoweredValue::Unit), value);
+                } else {
+                    lowered_record_vec_insert(acc_map, key, value);
+                }
+            }
+        }
+        _ => {}
     }
     acc
 }
@@ -11247,13 +11295,18 @@ fn lowered_sum_values(acc: LoweredValue, val: LoweredValue) -> LoweredValue {
             }
             LoweredValue::Record(acc_map)
         }
+        (acc @ LoweredValue::RecordVec(_), val @ LoweredValue::RecordVec(_))
+        | (acc @ LoweredValue::Record(_), val @ LoweredValue::RecordVec(_))
+        | (acc @ LoweredValue::RecordVec(_), val @ LoweredValue::Record(_)) => {
+            lowered_sum_records(acc, val)
+        }
         (acc, _) => acc,
     }
 }
 
 pub(super) fn lowered_tag_key(value: &LoweredValue) -> Option<&str> {
     match value {
-        LoweredValue::Tag { name, fields } if fields.is_empty() => Some(name.as_ref()),
+        LoweredValue::Tag(tag) if tag.fields.is_empty() => Some(tag.name.as_ref()),
         _ => None,
     }
 }

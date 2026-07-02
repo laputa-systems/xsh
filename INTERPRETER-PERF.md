@@ -222,14 +222,133 @@ complexity for no memory win. Do not revive that exact fusion; if aggregation
 fusion is revisited, it needs to attack the remaining file-byte/value allocation
 floor rather than only remove the post-`par-map` row list.
 
+2026-07-02 lowered record follow-up: slot-rooted field chains now borrow through
+lowered records and clone only the projected field, so hot paths like
+`scan.stats.blanks` no longer clone the whole nested `Scan`/`Stats` record.
+`ParMapBlock` also moves a block-local final slot out when the block itself
+initialized that slot, avoiding one clone of `out`-style result locals. Lowered
+record literals now use a compact vector-backed record representation while
+host/runtime-created records keep the old `BTreeMap` representation. Parallel
+lowered `par-map` writes worker results directly into indexed result slots
+instead of returning per-worker `(index, result)` chunk vectors. This keeps
+public `Value::Record` unchanged and preserves byte-for-byte Sentry table/JSON
+output.
+
+Measured on the current `/Users/josh/dev/sentry` checkout, perf-metrics table
+allocation volume improved from roughly `allocation_calls=3,942,983`,
+`allocation_bytes=2,259,813,698`, `peak_rss=194,494,464` to
+`allocation_calls=3,069,738`, `allocation_bytes=720,929,175`,
+`peak_rss=186,777,600`. JSON improved from roughly
+`allocation_calls=4,124,767`, `allocation_bytes=2,604,986,504`,
+`peak_rss=287,031,296` to `allocation_calls=3,138,393`,
+`allocation_bytes=742,540,871`, `peak_rss=215,777,280`. DHAT table heap
+improved from `Total: 2,314,657,798 bytes`, `t-gmax: 81,898,131 bytes` to
+`Total: 744,786,657 bytes`, `t-gmax: 57,883,747 bytes`, putting live table heap
+under 66MB. Normal release RSS is still not at the objective on this machine:
+recent final-code samples were table ~1.6-2.2s / ~110-116MB RSS and JSON
+~1.0s / ~126-130MB RSS. The active objective remains incomplete.
+
+2026-07-02 stack follow-up: debug lowered par-map worker stacks remain 8MiB
+because the debug showcase tokei test overflowed at 2-4MiB, but normal release
+workers now use 2MiB stacks. Release Sentry table and JSON both complete with
+byte-for-byte identical output at 2MiB. This is the right release target shape,
+but it did not materially move RSS on macOS: table sampled `1.65s /
+109,461,504` bytes and JSON sampled `0.91s / 131,481,600` bytes in this pass.
+If 2-4MiB release stacks ever overflow, reduce lowered evaluator frame depth
+rather than reverting release workers to 8MiB.
+
+2026-07-02 frontend arena reserve follow-up: the parser arena reserve
+heuristics were tightened for statement rows, expression rows, and the `extra`
+u32 table so small scripts retain less unused compact-arena capacity without a
+post-parse `shrink_to_fit` pass. On the current local parse-corpus report
+(`--repeat 1`), `parse_arena_only.compact_arena.retained_bytes` dropped from
+`5,007,807` to `4,908,522`; expression storage dropped from `1,648,967` to
+`1,614,923`, statement storage from `373,964` to `360,735`, and extra storage
+from `358,556` to `306,544`. A `shrink_to_fit` trial reduced retained bytes
+further to `3,662,945` but regressed the hot small-corpus lower benchmark, so it
+was not kept.
+
+The local small-corpus frontend lens now reports `parse 115,971 allocs /
+10.8MiB`, `parse/check 214,862 allocs / 25.9MiB`, and `parse/check/lower
+225,472 allocs / 33.6MiB` for 383 files. Per file, that is about `302.8`
+allocs / `28.8KiB` to parse and `588.7` allocs / `89.8KiB` through lowering.
+Criterion reported `parse_small_corpus` and `parse_check_lower_small_corpus`
+improved in that local run.
+
+2026-07-02 compact runner frontend lifetime follow-up: the compact runner now
+clones the token table needed for fallback diagnostics, then drops the CST
+before calling `try_eval_compact_lowered_only`. The arena is the only parsed
+frontend structure kept live during compact evaluation. This preserves fallback
+behavior and byte-for-byte output while reducing Sentry normal-release RSS
+samples to `1.67s / 108,789,760` bytes for table output and `0.94s /
+119,111,680` bytes for JSON output on this machine. The active objective
+remains incomplete.
+
+2026-07-02 rejected shared-record trial: changing lowered `RecordVec` from an
+owned `Vec` to an `Arc<Vec<_>>` made record clones cheap and preserved output,
+but did not help the objective. Table RSS regressed in repeated release samples
+(`113,803,264` then `120,406,016` bytes), while JSON improved only noisily
+(`112,361,472` then `107,790,336` bytes). The change was reverted; keep the
+owned `RecordVec` representation unless a broader record/lifetime design moves
+both paths.
+
+2026-07-02 rejected allocator-relief trial: calling macOS
+`malloc_zone_pressure_relief` after lowered par-map worker joins preserved output
+but worsened the benchmark (`1.60s / 114,933,760` bytes table, `0.89s /
+127,713,280` bytes JSON) and increased CPU. The change was reverted; allocator
+relief is not a useful substitute for reducing live value churn.
+
+2026-07-02 lowered value layout follow-up: rare/wide lowered variants are now
+boxed so dense lowered lists, records, slots, and worker result arrays do not
+pay for cold payloads. `CommandPlan` was the largest offender; boxing lowered
+`Command` dropped Sentry table RSS from about `109,117,440` bytes to
+`79,052,800` bytes in one release sample and JSON to `82,214,912` bytes, with
+byte-for-byte identical output. Boxing lowered `Digest` and `Stream` reduced
+`LoweredValue` from 56 bytes to 48 bytes; boxing lowered `Status` and `Tag`
+reduced it again to 40 bytes. The retained layout matches public behavior:
+public `Value` variants and script-visible type names are unchanged.
+
+Current retained release samples on `/Users/josh/dev/sentry` after the 40-byte
+layout are `1.94s / 67,108,864` bytes for table output and `0.88s /
+80,838,656` bytes for JSON output, both byte-for-byte identical to the saved
+XSH outputs. Table output is now effectively at the 66MB target on this
+machine; JSON remains above target. A final rebuilt confirmation sample from
+the same retained source was noisier but still far below the previous floor:
+`1.47s / 75,333,632` bytes table and `1.01s / 83,492,864` bytes JSON, with
+identical output.
+
+2026-07-02 rejected JSON print fast path: a special lowered `print
+json.encode(...)` path moved the encoded `String` buffer directly into stdout
+when tracing was disabled. It preserved output but did not reduce RSS in the
+Sentry JSON sample (`85,295,104` bytes) and made the table sample noisier
+(`71,368,704` bytes). The change was reverted; the remaining JSON peak is not
+fixed by avoiding this final print copy alone.
+
+2026-07-02 32-byte lowered value follow-up: lowered string and byte views now
+store `u32` offsets instead of `usize` offsets, with an owned-slice fallback for
+pathologically large buffers whose offsets do not fit. Lowered regex values are
+also boxed because regexes are cold in the scanner path. This reduces
+`LoweredValue` from 40 bytes to 32 bytes while keeping public `Value` unchanged.
+`RUSTC_BOOTSTRAP=1 CARGO_TARGET_DIR=/tmp/xsh-type-target4 cargo rustc --lib --
+-Zprint-type-sizes` reported `runtime::eval::LoweredValue`: 32 bytes,
+`LoweredStrView`: 24 bytes, `LoweredBytesView`: 24 bytes, and public
+`runtime::value::Value`: 48 bytes.
+
+Retained release samples after this change were byte-for-byte identical to the
+saved XSH outputs. Table output improved to `1.35s / 56,737,792` bytes RSS in
+the cleaner sample (`59,228,160` bytes in the prior run), comfortably under the
+66MB target. JSON improved to `1.38s / 74,612,736` bytes RSS in the cleaner
+sample (`80,904,192` bytes in the prior run). JSON remains above the active
+memory objective, so the overall objective is still incomplete.
+
 ## Handoff (2026-07-02)
 
 The active objective is still incomplete. Current best Sentry samples are:
 
 | Path | XSH release | Native tokei | Target |
 |---|---:|---:|---:|
-| table | ~1.05s / ~140MB RSS | ~0.75-1.17s / ~44MB RSS | ≤1.2× wall, ≤66MB RSS |
-| JSON | ~1.05-2.0s / ~228-234MB RSS | ~1.2-1.5s / ~45-55MB RSS | ≤1.2× wall, ≤66MB RSS |
+| table | ~1.35s / ~54MB RSS | ~1.33s / ~37MB RSS | ≤1.2× wall, ≤66MB RSS |
+| JSON | ~1.38s / ~71MB RSS | ~1.32s / ~45MB RSS | ≤1.2× wall, ≤66MB RSS |
 
 Retained changes in the worktree:
 
@@ -242,26 +361,70 @@ Retained changes in the worktree:
 - `bytes.concat` compatibility with `SharedList`;
 - `showcase/tokei.xsh` table path returns `SummaryRow` rows directly from
   `par-map`, cutting table RSS by roughly 90-100MB.
+- lowered record literals use vector-backed records internally;
+- lowered field chains borrow through records and clone only the final field;
+- lowered `ParMapBlock` can move block-local final slot values;
+- parallel lowered `par-map` writes results into indexed result slots instead
+  of per-worker chunk vectors.
+- parser arena reserve heuristics retain less unused compact-arena capacity on
+  small frontend workloads.
+- compact runner drops the CST before compact lowered evaluation after saving
+  the fallback token table.
+- release lowered `par-map` workers use 2MiB stacks; debug workers keep 8MiB.
+- lowered `Command`, `Digest`, `Stream`, `Status`, and `Tag` box cold/wide
+  payloads, reducing `LoweredValue` to 40 bytes.
+- lowered string/byte views use compact `u32` offsets and lowered regex values
+  are boxed, reducing `LoweredValue` to 32 bytes.
 
 Recent verification:
 
 - `cargo check --lib`
+- `cargo test --test syntax`
+- `cargo test compact_lowered_runner`
 - `cargo build --bin xsh && cargo run -p xsht -- test showcase/tests/test-tokei.xsh`
 - `cargo test --test runtime par_map_reduce_by_fuses_to_local_worker_aggregation`
-- `cmp -s /tmp/xsh-table-final-serial.out /tmp/xsh-table-direct-rows-final3.out`
+- `cargo test --test runtime`
+- `cargo bench -p xshi --bench bench small_corpus -- --sample-size 10 --warm-up-time 0.5 --measurement-time 1`
+- `cmp -s /tmp/xsh-tokei-table-final.out /tmp/xsh-tokei-table-reserve-final.out`
+- `cmp -s /tmp/xsh-tokei-json-final.out /tmp/xsh-tokei-json-reserve-final.out`
+- `/usr/bin/time -l target/release/xsh showcase/tokei.xsh -- /Users/josh/dev/sentry > /tmp/xsh-tokei-table-drop-cst.out`
+- `/usr/bin/time -l target/release/xsh showcase/tokei.xsh -- --json /Users/josh/dev/sentry > /tmp/xsh-tokei-json-drop-cst.out`
+- `cmp -s /tmp/xsh-tokei-table-final.out /tmp/xsh-tokei-table-drop-cst.out`
+- `cmp -s /tmp/xsh-tokei-json-final.out /tmp/xsh-tokei-json-drop-cst.out`
+- `/usr/bin/time -l target/release/xsh showcase/tokei.xsh -- /Users/josh/dev/sentry > /tmp/xsh-tokei-table-stack2m.out`
+- `/usr/bin/time -l target/release/xsh showcase/tokei.xsh -- --json /Users/josh/dev/sentry > /tmp/xsh-tokei-json-stack2m.out`
+- `cmp -s /tmp/xsh-tokei-table-final.out /tmp/xsh-tokei-table-stack2m.out`
+- `cmp -s /tmp/xsh-tokei-json-final.out /tmp/xsh-tokei-json-stack2m.out`
+- `RUSTC_BOOTSTRAP=1 CARGO_TARGET_DIR=/tmp/xsh-type-target3 cargo rustc --lib -- -Zprint-type-sizes`
+- `RUSTC_BOOTSTRAP=1 CARGO_TARGET_DIR=/tmp/xsh-type-target4 cargo rustc --lib -- -Zprint-type-sizes`
+- `cmp -s /tmp/xsh-tokei-table-final.out /tmp/xsh-tokei-table-boxcold.out`
+- `cmp -s /tmp/xsh-tokei-json-final.out /tmp/xsh-tokei-json-boxcold.out`
+- `/usr/bin/time -l target/release/xsh showcase/tokei.xsh -- /Users/josh/dev/sentry > /tmp/xsh-tokei-table-boxcold.out`
+- `/usr/bin/time -l target/release/xsh showcase/tokei.xsh -- --json /Users/josh/dev/sentry > /tmp/xsh-tokei-json-boxcold.out`
+- `cargo check --lib`
+- `cargo test compact_lowered_runner`
+- `cargo test --test runtime par_map_reduce_by_fuses_to_local_worker_aggregation`
+- `cargo run -p xsht -- test showcase/tests/test-tokei.xsh`
+- `git diff --check`
+- `cmp -s /tmp/xsh-tokei-table-final.out /tmp/xsh-tokei-table-32value.out`
+- `cmp -s /tmp/xsh-tokei-json-final.out /tmp/xsh-tokei-json-32value.out`
+- `/usr/bin/time -l target/release/xsh showcase/tokei.xsh -- /Users/josh/dev/sentry > /tmp/xsh-tokei-table-32value-2.out`
+- `/usr/bin/time -l target/release/xsh showcase/tokei.xsh -- --json /Users/josh/dev/sentry > /tmp/xsh-tokei-json-32value-2.out`
 
 Recommended next investigation:
 
 1. Rebuild a normal release binary after any `perf-metrics` run; that feature
    installs a different allocator and changes RSS/timing.
 2. Keep the table `SummaryRow` script change; it is simple and measured.
-3. Do not spend more time on narrow `par-map`/`flat-map`/`reduce-by` fusion
-   unless the design also reduces the remaining file-scan allocation floor.
-4. Profile the lowered scanner/value path. The latest table allocation counters
-   still show ~2.26GB allocated to process ~186MB of selected source. The next
-   memory win is likely reducing per-line/per-file `LoweredValue` record/map/list
-   churn in the scanner path, or introducing a script-visible-neutral host
-   scanner primitive for the repeated `Stats` shapes.
+3. Do not spend more time on the rejected worker-local `par-map`/`flat-map`/
+   `reduce-by` fusion. If this fusion is revisited, it must stream results into
+   reduce-by without changing encounter-order error behavior or floating-point
+   aggregation semantics.
+4. Profile the lowered scanner/value path. The latest table DHAT still shows
+   ~745MB allocated to process ~186MB of selected source. The next memory win is
+   likely reducing per-line/per-file `LoweredValue` record/map/list churn in the
+   scanner path, or introducing a script-visible-neutral host scanner primitive
+   for the repeated `Stats` shapes.
 
 ### Why native tokei is 44MB
 

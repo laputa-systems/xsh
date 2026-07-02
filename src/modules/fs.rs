@@ -1759,8 +1759,9 @@ impl LiveStream for IgnoreWalkStream {
                     Err(error) => return Err(error),
                 },
                 Err(error) => {
-                    return Err(RuntimeError::new("fs-walk", error.to_string())
-                        .with_span(spec.span));
+                    return Err(
+                        RuntimeError::new("fs-walk", error.to_string()).with_span(spec.span)
+                    );
                 }
             };
             return item.record(spec.stat, spec.span).map(Some);

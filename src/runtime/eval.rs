@@ -1765,20 +1765,35 @@ enum LoweredErrorExpr {
 #[derive(Clone, Debug)]
 struct LoweredStrView {
     text: Arc<str>,
-    start: usize,
-    end: usize,
+    start: u32,
+    end: u32,
 }
 
 impl LoweredStrView {
+    #[cfg(test)]
     fn new(text: Arc<str>, start: usize, end: usize) -> Self {
+        Self::try_new(text, start, end).expect("lowered string view offsets fit in u32")
+    }
+
+    fn try_new(text: Arc<str>, start: usize, end: usize) -> Option<Self> {
         debug_assert!(start <= end);
         debug_assert!(text.is_char_boundary(start));
         debug_assert!(text.is_char_boundary(end));
-        Self { text, start, end }
+        let start = u32::try_from(start).ok()?;
+        let end = u32::try_from(end).ok()?;
+        Some(Self { text, start, end })
+    }
+
+    fn start(&self) -> usize {
+        self.start as usize
+    }
+
+    fn end(&self) -> usize {
+        self.end as usize
     }
 
     fn as_str(&self) -> &str {
-        &self.text[self.start..self.end]
+        &self.text[self.start()..self.end()]
     }
 
     fn into_arc(self) -> Arc<str> {
@@ -1786,17 +1801,27 @@ impl LoweredStrView {
     }
 }
 
+fn lowered_str_view_value(text: Arc<str>, start: usize, end: usize) -> LoweredValue {
+    match LoweredStrView::try_new(text.clone(), start, end) {
+        Some(view) => LoweredValue::StrView(view),
+        None => LoweredValue::Str(Arc::from(&text[start..end])),
+    }
+}
+
 fn assign_lowered_str_view(slot: &mut LoweredValue, text: &Arc<str>, start: usize, end: usize) {
     match slot {
-        LoweredValue::StrView(view) if Arc::ptr_eq(&view.text, text) => {
+        LoweredValue::StrView(view)
+            if Arc::ptr_eq(&view.text, text)
+                && let (Ok(start), Ok(end)) = (u32::try_from(start), u32::try_from(end)) =>
+        {
             debug_assert!(start <= end);
-            debug_assert!(text.is_char_boundary(start));
-            debug_assert!(text.is_char_boundary(end));
+            debug_assert!(text.is_char_boundary(start as usize));
+            debug_assert!(text.is_char_boundary(end as usize));
             view.start = start;
             view.end = end;
         }
         _ => {
-            *slot = LoweredValue::StrView(LoweredStrView::new(text.clone(), start, end));
+            *slot = lowered_str_view_value(text.clone(), start, end);
         }
     }
 }
@@ -1804,32 +1829,57 @@ fn assign_lowered_str_view(slot: &mut LoweredValue, text: &Arc<str>, start: usiz
 #[derive(Clone, Debug)]
 struct LoweredBytesView {
     bytes: Arc<[u8]>,
-    start: usize,
-    end: usize,
+    start: u32,
+    end: u32,
 }
 
 impl LoweredBytesView {
+    #[cfg(test)]
     fn new(bytes: Arc<[u8]>, start: usize, end: usize) -> Self {
+        Self::try_new(bytes, start, end).expect("lowered bytes view offsets fit in u32")
+    }
+
+    fn try_new(bytes: Arc<[u8]>, start: usize, end: usize) -> Option<Self> {
         debug_assert!(start <= end);
         debug_assert!(end <= bytes.len());
-        Self { bytes, start, end }
+        let start = u32::try_from(start).ok()?;
+        let end = u32::try_from(end).ok()?;
+        Some(Self { bytes, start, end })
+    }
+
+    fn start(&self) -> usize {
+        self.start as usize
+    }
+
+    fn end(&self) -> usize {
+        self.end as usize
     }
 
     fn as_slice(&self) -> &[u8] {
-        &self.bytes[self.start..self.end]
+        &self.bytes[self.start()..self.end()]
+    }
+}
+
+fn lowered_bytes_view_value(bytes: Arc<[u8]>, start: usize, end: usize) -> LoweredValue {
+    match LoweredBytesView::try_new(bytes.clone(), start, end) {
+        Some(view) => LoweredValue::BytesView(view),
+        None => LoweredValue::Bytes(Arc::from(&bytes[start..end])),
     }
 }
 
 fn assign_lowered_bytes_view(slot: &mut LoweredValue, bytes: &Arc<[u8]>, start: usize, end: usize) {
     match slot {
-        LoweredValue::BytesView(view) if Arc::ptr_eq(&view.bytes, bytes) => {
+        LoweredValue::BytesView(view)
+            if Arc::ptr_eq(&view.bytes, bytes)
+                && let (Ok(start), Ok(end)) = (u32::try_from(start), u32::try_from(end)) =>
+        {
             debug_assert!(start <= end);
-            debug_assert!(end <= bytes.len());
+            debug_assert!((end as usize) <= bytes.len());
             view.start = start;
             view.end = end;
         }
         _ => {
-            *slot = LoweredValue::BytesView(LoweredBytesView::new(bytes.clone(), start, end));
+            *slot = lowered_bytes_view_value(bytes.clone(), start, end);
         }
     }
 }
@@ -1846,28 +1896,76 @@ enum LoweredValue {
     StrView(LoweredStrView),
     Bytes(Arc<[u8]>),
     BytesView(LoweredBytesView),
-    Digest(DigestValue),
-    Regex(RegexValue),
-    Status(ProcessStatus),
+    Digest(Box<DigestValue>),
+    Regex(Box<RegexValue>),
+    Status(Box<ProcessStatus>),
     Path(PathValue),
     FsEntry(crate::runtime::value::FsEntryValue),
-    Command(CommandPlan),
+    Command(Box<CommandPlan>),
     ProcessHandle(Box<ProcessHandleValue>),
-    Stream(StreamValue),
+    Stream(Box<StreamValue>),
     Pure(FunctionName),
     Proc(FunctionName),
     Error(Box<Value>),
     Record(BTreeMap<Arc<str>, LoweredValue>),
+    RecordVec(Vec<(Arc<str>, LoweredValue)>),
     Module(BTreeMap<Arc<str>, LoweredValue>),
     List(Vec<LoweredValue>),
     SharedList(Arc<Vec<LoweredValue>>),
     Map(BTreeMap<String, LoweredValue>),
-    Tag {
-        name: Arc<str>,
-        fields: Vec<LoweredValue>,
-    },
+    Tag(Box<LoweredTagValue>),
     ResultOk(Box<LoweredValue>),
     ResultErr(Box<Value>),
+}
+
+#[derive(Clone, Debug, PartialEq)]
+struct LoweredTagValue {
+    name: Arc<str>,
+    fields: Vec<LoweredValue>,
+}
+
+pub(in crate::runtime::eval) fn lowered_record_vec_get<'a>(
+    record: &'a [(Arc<str>, LoweredValue)],
+    field: &str,
+) -> Option<&'a LoweredValue> {
+    record
+        .iter()
+        .find_map(|(key, value)| (key.as_ref() == field).then_some(value))
+}
+
+pub(in crate::runtime::eval) fn lowered_record_vec_get_mut<'a>(
+    record: &'a mut [(Arc<str>, LoweredValue)],
+    field: &str,
+) -> Option<&'a mut LoweredValue> {
+    record
+        .iter_mut()
+        .find_map(|(key, value)| (key.as_ref() == field).then_some(value))
+}
+
+pub(in crate::runtime::eval) fn lowered_record_vec_insert(
+    record: &mut Vec<(Arc<str>, LoweredValue)>,
+    field: Arc<str>,
+    value: LoweredValue,
+) {
+    if let Some((_, slot)) = record
+        .iter_mut()
+        .find(|(key, _)| key.as_ref() == field.as_ref())
+    {
+        *slot = value;
+    } else {
+        record.push((field, value));
+        record.sort_unstable_by(|left, right| left.0.cmp(&right.0));
+    }
+}
+
+fn lowered_record_map_eq_vec(
+    map: &BTreeMap<Arc<str>, LoweredValue>,
+    vec: &[(Arc<str>, LoweredValue)],
+) -> bool {
+    map.len() == vec.len()
+        && vec
+            .iter()
+            .all(|(key, value)| map.get(key.as_ref()).is_some_and(|left| left == value))
 }
 
 impl PartialEq for LoweredValue {
@@ -1899,22 +1997,16 @@ impl PartialEq for LoweredValue {
             (Self::Proc(left), Self::Proc(right)) => left == right,
             (Self::Error(left), Self::Error(right)) => left == right,
             (Self::Record(left), Self::Record(right)) => left == right,
+            (Self::RecordVec(left), Self::RecordVec(right)) => left == right,
+            (Self::Record(left), Self::RecordVec(right)) => lowered_record_map_eq_vec(left, right),
+            (Self::RecordVec(left), Self::Record(right)) => lowered_record_map_eq_vec(right, left),
             (Self::Module(left), Self::Module(right)) => left == right,
             (Self::List(left), Self::List(right)) => left == right,
             (Self::List(left), Self::SharedList(right)) => left == right.as_ref(),
             (Self::SharedList(left), Self::List(right)) => left.as_ref() == right,
             (Self::SharedList(left), Self::SharedList(right)) => left == right,
             (Self::Map(left), Self::Map(right)) => left == right,
-            (
-                Self::Tag {
-                    name: left_name,
-                    fields: left_fields,
-                },
-                Self::Tag {
-                    name: right_name,
-                    fields: right_fields,
-                },
-            ) => left_name == right_name && left_fields == right_fields,
+            (Self::Tag(left), Self::Tag(right)) => left == right,
             (Self::ResultOk(left), Self::ResultOk(right)) => left == right,
             (Self::ResultErr(left), Self::ResultErr(right)) => left == right,
             _ => false,
@@ -1935,18 +2027,25 @@ impl LoweredValue {
             Self::StrView(value) => Value::Str(value.into_arc()),
             Self::Bytes(value) => Value::Bytes(value.to_vec()),
             Self::BytesView(value) => Value::Bytes(value.as_slice().to_vec()),
-            Self::Digest(value) => Value::digest(value),
-            Self::Regex(value) => Value::Regex(value),
-            Self::Status(value) => Value::Status(value),
+            Self::Digest(value) => Value::Digest(value),
+            Self::Regex(value) => Value::Regex(*value),
+            Self::Status(value) => Value::Status(*value),
             Self::Path(value) => Value::Path(value),
             Self::FsEntry(value) => Value::FsEntry(value),
-            Self::Command(value) => Value::Command(Box::new(value)),
+            Self::Command(value) => Value::Command(value),
             Self::ProcessHandle(value) => Value::ProcessHandle(value),
-            Self::Stream(value) => Value::Stream(Box::new(value)),
+            Self::Stream(value) => Value::Stream(value),
             Self::Pure(value) => Value::Pure(value),
             Self::Proc(value) => Value::Proc(value),
             Self::Error(value) => *value,
             Self::Record(value) => {
+                let mut record = RecordMap::new();
+                for (key, value) in value {
+                    record.insert(key, value.into_value());
+                }
+                Value::Record(record)
+            }
+            Self::RecordVec(value) => {
                 let mut record = RecordMap::new();
                 for (key, value) in value {
                     record.insert(key, value.into_value());
@@ -1963,9 +2062,13 @@ impl LoweredValue {
             Self::List(value) => {
                 Value::List(value.into_iter().map(LoweredValue::into_value).collect())
             }
-            Self::SharedList(value) => {
-                Value::List(value.iter().cloned().map(LoweredValue::into_value).collect())
-            }
+            Self::SharedList(value) => Value::List(
+                value
+                    .iter()
+                    .cloned()
+                    .map(LoweredValue::into_value)
+                    .collect(),
+            ),
             Self::Map(value) => {
                 let mut map = BTreeMap::new();
                 for (key, value) in value {
@@ -1973,9 +2076,13 @@ impl LoweredValue {
                 }
                 Value::Map(map)
             }
-            Self::Tag { name, fields } => Value::Tag {
-                name,
-                fields: fields.into_iter().map(LoweredValue::into_value).collect(),
+            Self::Tag(value) => Value::Tag {
+                name: value.name,
+                fields: value
+                    .fields
+                    .into_iter()
+                    .map(LoweredValue::into_value)
+                    .collect(),
             },
             Self::ResultOk(value) => Value::ok(value.into_value()),
             Self::ResultErr(value) => Value::err(*value),
@@ -2003,11 +2110,11 @@ impl LoweredValue {
             Self::Pure(_) => "Pure",
             Self::Proc(_) => "Proc",
             Self::Error(_) => "Error",
-            Self::Record(_) => "Record",
+            Self::Record(_) | Self::RecordVec(_) => "Record",
             Self::Module(_) => "Module",
             Self::List(_) | Self::SharedList(_) => "List",
             Self::Map(_) => "Map",
-            Self::Tag { .. } => "Tag",
+            Self::Tag(_) => "Tag",
             Self::ResultOk(_) | Self::ResultErr(_) => "Result",
         }
     }
@@ -3968,10 +4075,8 @@ impl Evaluator {
         let after_top_level = PROFILE.then(Instant::now);
         Arc::make_mut(&mut self.lowered_pures).extend(lowered_functions.pures);
         Arc::make_mut(&mut self.lowered_procs).extend(lowered_functions.procs);
-        Arc::make_mut(&mut self.lowered_qualified_pures)
-            .extend(lowered_functions.qualified_pures);
-        Arc::make_mut(&mut self.lowered_qualified_procs)
-            .extend(lowered_functions.qualified_procs);
+        Arc::make_mut(&mut self.lowered_qualified_pures).extend(lowered_functions.qualified_pures);
+        Arc::make_mut(&mut self.lowered_qualified_procs).extend(lowered_functions.qualified_procs);
         if let Some(lowered) = lowered {
             self.lowered_program = Arc::new(lowered);
         }
@@ -5356,10 +5461,18 @@ fn lowered_value_matches_static_type(value: &LoweredValue, ty: &Type) -> bool {
         },
         Type::Stream(_) => matches!(value, LoweredValue::Stream(_)),
         Type::Record(fields) => match value {
-            LoweredValue::Record(_) | LoweredValue::FsEntry(_) if fields.is_empty() => true,
+            LoweredValue::Record(_) | LoweredValue::RecordVec(_) | LoweredValue::FsEntry(_)
+                if fields.is_empty() =>
+            {
+                true
+            }
             LoweredValue::Record(record) => fields.iter().all(|(field, field_ty)| {
                 record
                     .get(field.as_str())
+                    .is_some_and(|value| lowered_value_matches_static_type(value, field_ty))
+            }),
+            LoweredValue::RecordVec(record) => fields.iter().all(|(field, field_ty)| {
+                lowered_record_vec_get(record, field.as_str())
                     .is_some_and(|value| lowered_value_matches_static_type(value, field_ty))
             }),
             LoweredValue::FsEntry(entry) => fields.iter().all(|(field, field_ty)| {
@@ -5403,7 +5516,7 @@ fn lowered_value_matches_static_type(value: &LoweredValue, ty: &Type) -> bool {
         Type::Pure => matches!(value, LoweredValue::Pure(_)),
         Type::Proc => matches!(value, LoweredValue::Proc(_)),
         Type::Unit => matches!(value, LoweredValue::Unit),
-        Type::Tag(_) => matches!(value, LoweredValue::Tag { .. }),
+        Type::Tag(_) => matches!(value, LoweredValue::Tag(_)),
         Type::Optional(inner) => {
             matches!(value, LoweredValue::Null) || lowered_value_matches_static_type(value, inner)
         }

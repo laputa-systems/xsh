@@ -5,10 +5,10 @@
 //! module and are imported via `super::`.
 
 use super::{
-    LoweredBytesView, LoweredReturnKind, LoweredStrPredicate, LoweredStrView, LoweredType,
-    LoweredValue, add_error_context, bytes_contains, bytes_find, format_duration,
-    normalize_path_value, path_parent, path_text_field, path_value_from_pathbuf, path_with_ext,
-    pathbuf_from_path_value,
+    LoweredReturnKind, LoweredStrPredicate, LoweredTagValue, LoweredType, LoweredValue,
+    add_error_context, bytes_contains, bytes_find, format_duration, lowered_bytes_view_value,
+    lowered_record_vec_get, lowered_str_view_value, normalize_path_value, path_parent,
+    path_text_field, path_value_from_pathbuf, path_with_ext, pathbuf_from_path_value,
 };
 use crate::runtime::process::{ProcessStatus, ProcessStatusKind};
 use crate::runtime::value::{
@@ -191,7 +191,7 @@ pub(super) fn lowered_str_value(value: &LoweredValue) -> Option<&str> {
 pub(super) fn lowered_str_parts(value: &LoweredValue) -> Option<(Arc<str>, usize, usize)> {
     match value {
         LoweredValue::Str(text) => Some((text.clone(), 0, text.len())),
-        LoweredValue::StrView(view) => Some((view.text.clone(), view.start, view.end)),
+        LoweredValue::StrView(view) => Some((view.text.clone(), view.start(), view.end())),
         _ => None,
     }
 }
@@ -207,7 +207,7 @@ pub(super) fn lowered_bytes_value(value: &LoweredValue) -> Option<&[u8]> {
 pub(super) fn lowered_bytes_parts(value: &LoweredValue) -> Option<(Arc<[u8]>, usize, usize)> {
     match value {
         LoweredValue::Bytes(bytes) => Some((bytes.clone(), 0, bytes.len())),
-        LoweredValue::BytesView(view) => Some((view.bytes.clone(), view.start, view.end)),
+        LoweredValue::BytesView(view) => Some((view.bytes.clone(), view.start(), view.end())),
         _ => None,
     }
 }
@@ -247,11 +247,11 @@ pub(super) fn lowered_trim_str_value(
     let trimmed = slice.trim();
     let trim_start = trimmed.as_ptr() as usize - slice.as_ptr() as usize;
     let trim_len = trimmed.len();
-    Ok(LoweredValue::StrView(LoweredStrView::new(
+    Ok(lowered_str_view_value(
         text,
         start + trim_start,
         start + trim_start + trim_len,
-    )))
+    ))
 }
 
 pub(super) fn lowered_trim_is_empty_value(
@@ -643,12 +643,13 @@ pub(super) fn lowered_value_matches(kind: LoweredType, value: &LoweredValue) -> 
             | (LoweredType::Proc, LoweredValue::Proc(_))
             | (LoweredType::Error, LoweredValue::Error(_))
             | (LoweredType::Record, LoweredValue::Record(_))
+            | (LoweredType::Record, LoweredValue::RecordVec(_))
             | (LoweredType::Record, LoweredValue::FsEntry(_))
             | (LoweredType::Module, LoweredValue::Module(_))
             | (LoweredType::List, LoweredValue::List(_))
             | (LoweredType::List, LoweredValue::SharedList(_))
             | (LoweredType::Map, LoweredValue::Map(_))
-            | (LoweredType::Tag, LoweredValue::Tag { .. })
+            | (LoweredType::Tag, LoweredValue::Tag(_))
             | (LoweredType::Result, LoweredValue::ResultOk(_))
             | (LoweredType::Result, LoweredValue::ResultErr(_))
     )
@@ -701,38 +702,38 @@ pub(super) fn lowered_value_from_runtime(value: &Value, kind: LoweredType) -> Op
         (LoweredType::Bytes, Value::Bytes(value)) => {
             Some(LoweredValue::Bytes(value.as_slice().into()))
         }
-        (LoweredType::Digest, Value::Digest(value)) => {
-            Some(LoweredValue::Digest((**value).clone()))
+        (LoweredType::Digest, Value::Digest(value)) => Some(LoweredValue::Digest(value.clone())),
+        (LoweredType::Regex, Value::Regex(value)) => {
+            Some(LoweredValue::Regex(Box::new(value.clone())))
         }
-        (LoweredType::Regex, Value::Regex(value)) => Some(LoweredValue::Regex(value.clone())),
-        (LoweredType::Status, Value::Status(value)) => Some(LoweredValue::Status(value.clone())),
+        (LoweredType::Status, Value::Status(value)) => {
+            Some(LoweredValue::Status(Box::new(value.clone())))
+        }
         (LoweredType::Path, Value::Path(value)) => Some(LoweredValue::Path(value.clone())),
         (LoweredType::Command, Value::Command(value)) => {
-            Some(LoweredValue::Command((**value).clone()))
+            Some(LoweredValue::Command(Box::new((**value).clone())))
         }
         (LoweredType::ProcessHandle, Value::ProcessHandle(value)) => {
             Some(LoweredValue::ProcessHandle(value.clone()))
         }
-        (LoweredType::Stream, Value::Stream(value)) => {
-            Some(LoweredValue::Stream((**value).clone()))
-        }
+        (LoweredType::Stream, Value::Stream(value)) => Some(LoweredValue::Stream(value.clone())),
         (LoweredType::Pure, Value::Pure(value)) => Some(LoweredValue::Pure(*value)),
         (LoweredType::Proc, Value::Proc(value)) => Some(LoweredValue::Proc(*value)),
         (LoweredType::Error, Value::Error(_)) => Some(LoweredValue::Error(Box::new(value.clone()))),
         (LoweredType::Record, Value::Record(value)) => lowered_record_from_runtime(value),
-        (LoweredType::Record, Value::FsEntry(value)) => {
-            Some(LoweredValue::FsEntry(value.clone()))
-        }
+        (LoweredType::Record, Value::FsEntry(value)) => Some(LoweredValue::FsEntry(value.clone())),
         (LoweredType::Module, Value::Module(value)) => lowered_module_from_runtime(value),
         (LoweredType::List, Value::List(value)) => lowered_list_from_runtime(value),
         (LoweredType::Map, Value::Map(value)) => lowered_map_from_runtime(value),
-        (LoweredType::Tag, Value::Tag { name, fields }) => Some(LoweredValue::Tag {
+        (LoweredType::Tag, Value::Tag { name, fields }) => Some(LoweredValue::Tag(Box::new(
+            LoweredTagValue {
             name: name.clone(),
             fields: fields
                 .iter()
                 .map(lowered_value_from_runtime_any)
                 .collect::<Option<Vec<_>>>()?,
-        }),
+            },
+        ))),
         (LoweredType::Result, Value::Result(value)) => lowered_result_from_runtime(value),
         _ => None,
     }
@@ -748,14 +749,14 @@ pub(super) fn lowered_value_from_runtime_any(value: &Value) -> Option<LoweredVal
         Value::Bool(value) => Some(LoweredValue::Bool(*value)),
         Value::Str(value) => Some(LoweredValue::Str(value.clone())),
         Value::Bytes(value) => Some(LoweredValue::Bytes(value.as_slice().into())),
-        Value::Digest(value) => Some(LoweredValue::Digest((**value).clone())),
-        Value::Regex(value) => Some(LoweredValue::Regex(value.clone())),
-        Value::Status(value) => Some(LoweredValue::Status(value.clone())),
+        Value::Digest(value) => Some(LoweredValue::Digest(value.clone())),
+        Value::Regex(value) => Some(LoweredValue::Regex(Box::new(value.clone()))),
+        Value::Status(value) => Some(LoweredValue::Status(Box::new(value.clone()))),
         Value::Path(value) => Some(LoweredValue::Path(value.clone())),
         Value::FsEntry(value) => Some(LoweredValue::FsEntry(value.clone())),
-        Value::Command(value) => Some(LoweredValue::Command((**value).clone())),
+        Value::Command(value) => Some(LoweredValue::Command(Box::new((**value).clone()))),
         Value::ProcessHandle(value) => Some(LoweredValue::ProcessHandle(value.clone())),
-        Value::Stream(value) => Some(LoweredValue::Stream((**value).clone())),
+        Value::Stream(value) => Some(LoweredValue::Stream(value.clone())),
         Value::Pure(value) => Some(LoweredValue::Pure(*value)),
         Value::Proc(value) => Some(LoweredValue::Proc(*value)),
         Value::Error(_) | Value::RunError(_) => Some(LoweredValue::Error(Box::new(value.clone()))),
@@ -763,13 +764,13 @@ pub(super) fn lowered_value_from_runtime_any(value: &Value) -> Option<LoweredVal
         Value::Module(value) => lowered_module_from_runtime(value),
         Value::List(value) => lowered_list_from_runtime(value),
         Value::Map(value) => lowered_map_from_runtime(value),
-        Value::Tag { name, fields } => Some(LoweredValue::Tag {
+        Value::Tag { name, fields } => Some(LoweredValue::Tag(Box::new(LoweredTagValue {
             name: name.clone(),
             fields: fields
                 .iter()
                 .map(lowered_value_from_runtime_any)
                 .collect::<Option<Vec<_>>>()?,
-        }),
+        }))),
         Value::Result(value) => lowered_result_from_runtime(value),
         _ => None,
     }
@@ -882,11 +883,13 @@ pub(super) fn lowered_method_value(
         LoweredValue::Int(value) => lowered_int_method_value(value, name, args, span),
         LoweredValue::Float(value) => lowered_float_method_value(value, name, args, span),
         LoweredValue::Digest(digest) => lowered_digest_method_value(digest, name, args, span),
-        LoweredValue::Regex(regex) => lowered_regex_method_value(regex, name, args, span),
-        LoweredValue::Status(status) => lowered_status_method_value(status, name, args, span),
+        LoweredValue::Regex(regex) => lowered_regex_method_value(*regex, name, args, span),
+        LoweredValue::Status(status) => lowered_status_method_value(*status, name, args, span),
         LoweredValue::Path(path) => lowered_path_method_value(path, name, args, span),
         LoweredValue::FsEntry(entry) => {
-            let record = entry.to_record_map().map_err(|error| error.with_span(span))?;
+            let record = entry
+                .to_record_map()
+                .map_err(|error| error.with_span(span))?;
             lowered_record_method_value(
                 record
                     .into_iter()
@@ -902,9 +905,12 @@ pub(super) fn lowered_method_value(
         LoweredValue::Record(record) | LoweredValue::Module(record) => {
             lowered_record_method_value(record, name, args, span)
         }
+        LoweredValue::RecordVec(record) => lowered_record_vec_method_value(&record, name, args, span),
         LoweredValue::List(items) => lowered_list_method_value(items, name, args, span),
         LoweredValue::SharedList(items) => {
-            if let Some(value) = lowered_list_method_ref(items.as_slice(), name, args.clone(), span)? {
+            if let Some(value) =
+                lowered_list_method_ref(items.as_slice(), name, args.clone(), span)?
+            {
                 Ok(value)
             } else {
                 lowered_list_method_value(items.as_ref().clone(), name, args, span)
@@ -1246,9 +1252,7 @@ pub(super) fn lowered_trim_bytes_value(
     let leading = trimmed.as_ptr() as usize - slice.as_ptr() as usize;
     let view_start = start + leading;
     let view_end = view_start + trimmed.len();
-    Ok(LoweredValue::BytesView(LoweredBytesView::new(
-        bytes, view_start, view_end,
-    )))
+    Ok(lowered_bytes_view_value(bytes, view_start, view_end))
 }
 
 pub(super) fn lowered_bytes_lines(
@@ -1266,11 +1270,11 @@ pub(super) fn lowered_bytes_lines(
         } else {
             line_end
         };
-        lines.push(LoweredValue::BytesView(LoweredBytesView::new(
+        lines.push(lowered_bytes_view_value(
             bytes.clone(),
             cursor,
             view_end,
-        )));
+        ));
         let Some(newline) = newline else {
             break;
         };
@@ -1351,20 +1355,18 @@ pub(super) fn lowered_bytes_method_value(
         "base32" if args.is_empty() => Ok(LoweredValue::Str(
             crate::modules::bytes::base32_encode(bytes).into(),
         )),
-        "md5" if args.is_empty() => Ok(LoweredValue::Digest(crate::modules::hash::digest_bytes(
-            crate::modules::hash::HashAlgorithm::Md5,
-            bytes,
+        "md5" if args.is_empty() => Ok(LoweredValue::Digest(Box::new(
+            crate::modules::hash::digest_bytes(crate::modules::hash::HashAlgorithm::Md5, bytes),
         ))),
-        "sha1" if args.is_empty() => Ok(LoweredValue::Digest(crate::modules::hash::digest_bytes(
-            crate::modules::hash::HashAlgorithm::Sha1,
-            bytes,
+        "sha1" if args.is_empty() => Ok(LoweredValue::Digest(Box::new(
+            crate::modules::hash::digest_bytes(crate::modules::hash::HashAlgorithm::Sha1, bytes),
         ))),
-        "sha256" if args.is_empty() => Ok(LoweredValue::Digest(
+        "sha256" if args.is_empty() => Ok(LoweredValue::Digest(Box::new(
             crate::modules::hash::digest_bytes(crate::modules::hash::HashAlgorithm::Sha256, bytes),
-        )),
-        "sha512" if args.is_empty() => Ok(LoweredValue::Digest(
+        ))),
+        "sha512" if args.is_empty() => Ok(LoweredValue::Digest(Box::new(
             crate::modules::hash::digest_bytes(crate::modules::hash::HashAlgorithm::Sha512, bytes),
-        )),
+        ))),
         "byte_at" if args.len() == 1 || args.len() == 2 => {
             let LoweredValue::Int(index) = &args[0] else {
                 return Err(RuntimeError::new("type-error", "byte_at expected Int").with_span(span));
@@ -1420,11 +1422,11 @@ pub(super) fn lowered_bytes_method_value(
                 }
                 None => len,
             };
-            Ok(LoweredValue::BytesView(LoweredBytesView::new(
+            Ok(lowered_bytes_view_value(
                 arc,
                 start + offset,
                 start + slice_end,
-            )))
+            ))
         }
         "utf8" if args.is_empty() => match std::str::from_utf8(bytes) {
             Ok(text) => Ok(LoweredValue::ResultOk(Box::new(LoweredValue::Str(
@@ -1449,17 +1451,17 @@ pub(super) fn lowered_bytes_method_value(
 }
 
 pub(super) fn lowered_digest_method_value(
-    digest: crate::runtime::value::DigestValue,
+    digest: Box<crate::runtime::value::DigestValue>,
     name: &str,
     args: Vec<LoweredValue>,
     span: Span,
 ) -> Result<LoweredValue, RuntimeError> {
     match name {
         "hex" if args.is_empty() => Ok(LoweredValue::Str(
-            crate::modules::hash::digest_hex(&digest).into(),
+            crate::modules::hash::digest_hex(digest.as_ref()).into(),
         )),
         "base64" if args.is_empty() => Ok(LoweredValue::Str(
-            crate::modules::hash::digest_base64(&digest).into(),
+            crate::modules::hash::digest_base64(digest.as_ref()).into(),
         )),
         _ => Err(
             RuntimeError::new("unsupported-call", "unsupported lowered Digest method")
@@ -1680,6 +1682,20 @@ pub(super) fn lowered_record_method_value(
     }
 }
 
+fn lowered_record_vec_method_value(
+    record: &[(Arc<str>, LoweredValue)],
+    name: &str,
+    args: Vec<LoweredValue>,
+    span: Span,
+) -> Result<LoweredValue, RuntimeError> {
+    lowered_record_vec_method_ref(record, name, args, span).and_then(|value| {
+        value.ok_or_else(|| {
+            RuntimeError::new("unsupported-call", "unsupported lowered Record method")
+                .with_span(span)
+        })
+    })
+}
+
 pub(super) fn lowered_index_value(
     base: LoweredValue,
     index: LoweredValue,
@@ -1701,6 +1717,12 @@ pub(super) fn lowered_index_value(
             fields.get(index).cloned().ok_or_else(|| {
                 RuntimeError::new("missing-field", index.to_string()).with_span(span)
             })
+        }
+        (LoweredValue::RecordVec(fields), index) if lowered_str_value(&index).is_some() => {
+            let index = lowered_str_value(&index).expect("checked string index");
+            lowered_record_vec_get(fields.as_slice(), index)
+                .cloned()
+                .ok_or_else(|| RuntimeError::new("missing-field", index.to_string()).with_span(span))
         }
         (base, index) => Err(RuntimeError::new(
             "type-error",
@@ -1735,6 +1757,12 @@ pub(super) fn lowered_index_ref(
             fields.get(index).cloned().ok_or_else(|| {
                 RuntimeError::new("missing-field", index.to_string()).with_span(span)
             })
+        }
+        (LoweredValue::RecordVec(fields), index) if lowered_str_value(&index).is_some() => {
+            let index = lowered_str_value(&index).expect("checked string index");
+            lowered_record_vec_get(fields.as_slice(), index)
+                .cloned()
+                .ok_or_else(|| RuntimeError::new("missing-field", index.to_string()).with_span(span))
         }
         (base, index) => Err(RuntimeError::new(
             "type-error",
@@ -1813,9 +1841,7 @@ pub(super) fn lowered_slice_value(
             let len = bytes.len();
             let start = to_index(start, len, span)?.unwrap_or(0);
             let end = to_index(end, len, span)?.unwrap_or(len).max(start);
-            Ok(LoweredValue::BytesView(LoweredBytesView::new(
-                bytes, start, end,
-            )))
+            Ok(lowered_bytes_view_value(bytes, start, end))
         }
         LoweredValue::BytesView(view) => {
             let bytes = view.as_slice();
@@ -2183,6 +2209,36 @@ pub(super) fn lowered_record_method_ref(
     }
 }
 
+fn lowered_record_vec_method_ref(
+    record: &[(Arc<str>, LoweredValue)],
+    name: &str,
+    args: Vec<LoweredValue>,
+    span: Span,
+) -> Result<Option<LoweredValue>, RuntimeError> {
+    match name {
+        "has" if args.len() == 1 => {
+            let field = lowered_str_arg(&args[0], "has", span)?;
+            Ok(Some(LoweredValue::Bool(
+                lowered_record_vec_get(record, field).is_some(),
+            )))
+        }
+        "get" if args.len() == 1 => {
+            let field = lowered_str_arg(&args[0], "get", span)?;
+            Ok(Some(match lowered_record_vec_get(record, field).cloned() {
+                Some(value) => LoweredValue::ResultOk(Box::new(value)),
+                None => lowered_result_err("missing-field", format!("missing field `{field}`")),
+            }))
+        }
+        "keys" if args.is_empty() => Ok(Some(LoweredValue::List(
+            record
+                .iter()
+                .map(|(key, _)| LoweredValue::Str(key.clone()))
+                .collect(),
+        ))),
+        _ => Ok(None),
+    }
+}
+
 pub(super) fn lowered_method_ref(
     receiver: &LoweredValue,
     name: &str,
@@ -2198,6 +2254,9 @@ pub(super) fn lowered_method_ref(
         LoweredValue::Map(map) => lowered_map_method_ref(map, name, args, span),
         LoweredValue::Record(record) | LoweredValue::Module(record) => {
             lowered_record_method_ref(record, name, args, span)
+        }
+        LoweredValue::RecordVec(record) => {
+            lowered_record_vec_method_ref(record.as_slice(), name, args, span)
         }
         _ => Ok(None),
     }

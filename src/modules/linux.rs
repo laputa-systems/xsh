@@ -167,7 +167,9 @@ mod unsupported;
 use unsupported as imp;
 
 pub(crate) use imp::{
-    add_default_ipv4_route, blkid, block_devices, del_default_ipv4_route, dhcp_close,
-    dhcp_recv, dhcp_send, dhcp_send_release, dhcp_socket, disk_usage, dmesg, file_attrs,
-    file_version, flush_ipv4_addresses, interfaces, is_mountpoint, link_down, link_up, loop_list, meminfo, modinfo, modules, open_files, partition_table, read_device, root_device, routes, set_ipv4_address, sysctl_get, uevent_stream, write_device,
+    add_default_ipv4_route, blkid, block_devices, del_default_ipv4_route, dhcp_close, dhcp_recv,
+    dhcp_send, dhcp_send_release, dhcp_socket, disk_usage, dmesg, file_attrs, file_version,
+    flush_ipv4_addresses, interfaces, is_mountpoint, link_down, link_up, loop_list, meminfo,
+    modinfo, modules, open_files, partition_table, read_device, root_device, routes,
+    set_ipv4_address, sysctl_get, uevent_stream, write_device,
 };
