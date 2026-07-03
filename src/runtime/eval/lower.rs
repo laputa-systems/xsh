@@ -1003,7 +1003,7 @@ fn lower_command_word_reference(text: &str, slots: &SlotScope, span: Span) -> Op
         value = match segment {
             CommandWordRefSegment::Field(name) => LoweredExpr::Field {
                 base: Box::new(value),
-                name: name.to_string(),
+                name: name.as_str(),
                 span,
             },
             CommandWordRefSegment::Index(index) => LoweredExpr::Index {
@@ -1751,7 +1751,7 @@ fn lower_compact_root_function_sweep(
             source,
             current_namespace: function.namespace,
             functions: Some(&functions),
-            top_level_known: top_level_known.clone(),
+            top_level_known,
             output: CompactLowerConstructProbeOutput::default(),
         };
         let unit = probe.lower_function_unit(*function, Vec::new(), 1, None);
@@ -1829,7 +1829,7 @@ fn lower_compact_function_sccs(
                 source,
                 current_namespace: function.namespace,
                 functions: Some(&functions),
-                top_level_known: top_level_known.clone(),
+                top_level_known,
                 output: CompactLowerConstructProbeOutput::default(),
             };
             let unit = probe.lower_function_unit(function, Vec::new(), scc.len(), Some(scc_index));
@@ -5044,9 +5044,14 @@ impl CompactLowerConstructProbe<'_, '_> {
                     {
                         Some(LoweredStmt::AssignIndex {
                             slot,
-                            index: self.lower_expr(index, slots, current_function, item_slot)?,
+                            index: Box::new(self.lower_expr(
+                                index,
+                                slots,
+                                current_function,
+                                item_slot,
+                            )?),
                             op,
-                            value,
+                            value: Box::new(value),
                             span: self.program.arena.stmt(id).span,
                         })
                     }
@@ -6180,7 +6185,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                 slots.exit(saved);
                 Some(LoweredExpr::ListComp {
                     value,
-                    target,
+                    target: Box::new(target),
                     iter: Box::new(iter),
                     condition,
                     span,
@@ -6211,7 +6216,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                 Some(LoweredExpr::MapComp {
                     key,
                     value,
-                    target,
+                    target: Box::new(target),
                     iter: Box::new(iter),
                     condition,
                     span,
@@ -6362,7 +6367,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                 }
                 Some(LoweredExpr::Field {
                     base: Box::new(self.lower_expr(base, slots, current_function, item_slot)?),
-                    name: name.to_string(),
+                    name: name.as_str(),
                     span,
                 })
             }
@@ -6373,7 +6378,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                     current_function,
                     item_slot,
                 )?))),
-                name: name.to_string(),
+                name: name.as_str(),
                 span,
             }),
             ArenaExprKind::Index { base, index } => Some(LoweredExpr::Index {
@@ -6943,7 +6948,7 @@ impl CompactLowerConstructProbe<'_, '_> {
         if let Some(error) =
             self.lower_compact_error_expr(callee, &args_vec, slots, current_function, item_slot)
         {
-            return Some(LoweredExpr::Error(error));
+            return Some(LoweredExpr::Error(Box::new(error)));
         }
         match self.program.arena.expr(callee).kind {
             ArenaExprKind::Field { base, name } => {
@@ -7744,7 +7749,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                 }
                 Some(LoweredExpr::Method {
                     receiver: Box::new(receiver),
-                    name: name.to_string(),
+                    name: name.as_str(),
                     args: lowered_args,
                     span,
                 })
@@ -7944,7 +7949,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                         current_function,
                         item_slot,
                     )?))),
-                    name: name.to_string(),
+                    name: name.as_str(),
                     args: lowered_args,
                     span,
                 })
@@ -10569,7 +10574,7 @@ pub(super) fn lower_int_expr_candidate(expr: &LoweredExpr) -> Option<LoweredIntE
             name,
             args,
             span,
-        } if name == "count_lines" && args.is_empty() => match receiver.as_ref() {
+        } if *name == "count_lines" && args.is_empty() => match receiver.as_ref() {
             LoweredExpr::Param(slot) => Some(LoweredIntExpr::StrCountLinesSlot {
                 slot: *slot,
                 span: *span,
@@ -10797,7 +10802,7 @@ pub(super) fn lowered_trim_slot(expr: &LoweredExpr) -> Option<(usize, Span)> {
     else {
         return None;
     };
-    if name != "trim" || !args.is_empty() {
+    if *name != "trim" || !args.is_empty() {
         return None;
     }
     let LoweredExpr::Param(slot) = receiver.as_ref() else {

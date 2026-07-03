@@ -3,7 +3,7 @@ use crate::source::{SourceId, Span};
 use crate::syntax::lexer::Lexer;
 use crate::syntax::token::{TokenId, TokenTable, TokenTag};
 use std::num::NonZeroU32;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Ord, PartialOrd)]
 pub struct SyntaxNodeId(NonZeroU32);
@@ -97,6 +97,61 @@ pub enum TriviaKind {
     Skipped,
 }
 
+/// A deferred `SyntaxTree` built from a captured token table and source text.
+///
+/// The parser always lexes and needs the token table, but building the full
+/// syntax tree (one entry per token for `tokens`/`trivia`, one node per
+/// bracket/paren/brace group) is a second full pass over every token that
+/// only tooling consumers (the `xsht` formatter/editor) actually read. The
+/// interpreter's own script-loading and lowering paths hold onto this value
+/// only long enough to drop it, so building it eagerly was pure waste on the
+/// hot path. `get()` builds and caches the tree on first access; clones share
+/// the same cache via the inner `Arc`, so cloning a parsed unit never forces
+/// (or duplicates) the syntax-tree build.
+#[derive(Clone, Debug)]
+pub struct LazyCst {
+    source_id: SourceId,
+    source: Arc<str>,
+    token_table: TokenTable,
+    cell: Arc<OnceLock<SyntaxTree>>,
+}
+
+impl LazyCst {
+    pub fn new(source_id: SourceId, source: &str, token_table: TokenTable) -> Self {
+        Self {
+            source_id,
+            source: Arc::from(source),
+            token_table,
+            cell: Arc::new(OnceLock::new()),
+        }
+    }
+
+    pub fn empty(source_id: SourceId) -> Self {
+        Self {
+            source_id,
+            source: Arc::from(""),
+            token_table: TokenTable::default(),
+            cell: Arc::new(OnceLock::from(SyntaxTree::empty(source_id))),
+        }
+    }
+
+    pub fn get(&self) -> &SyntaxTree {
+        self.cell.get_or_init(|| {
+            SyntaxTree::from_token_table(self.source_id, &self.source, self.token_table.clone())
+        })
+    }
+
+    pub fn token_table(&self) -> &TokenTable {
+        &self.token_table
+    }
+}
+
+impl Default for LazyCst {
+    fn default() -> Self {
+        Self::empty(SourceId::new(0))
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SyntaxTree {
     source_id: SourceId,
@@ -141,20 +196,37 @@ impl SyntaxTree {
     }
 
     pub fn from_token_table(source_id: SourceId, source: &str, token_table: TokenTable) -> Self {
+        // Every lexed token becomes exactly one `tokens` or `trivia` entry, so the
+        // full token count is a safe (if occasionally loose) upper bound on `tokens`
+        // that avoids growth reallocations while walking the table below.
+        let token_capacity = token_table.len();
+        // `nodes` always holds the root, so growing its initial capacity carries no
+        // risk of allocating for a feature a file never uses (unlike a fresh
+        // collection); every open-paren/brace/bracket/interpolation group pushes
+        // one more entry, so a modest token-proportional reservation avoids most
+        // growth reallocations for typical, group-heavy scripts.
+        let mut nodes = Vec::with_capacity(token_capacity / 8 + 1);
+        nodes.push(SyntaxNode {
+            kind: SyntaxKind::Root,
+            span: Span::new(source_id, 0, source.len()),
+            // The root holds every top-level token/group as a direct child, so it
+            // is always populated for a non-empty file; reserve like a group's
+            // children to skip the same early growth reallocations.
+            children: Vec::with_capacity(token_capacity / 4 + 1),
+            open: None,
+            close: None,
+        });
         let mut tree = Self {
             source_id,
             source: Arc::from(source),
             root: SyntaxNodeId::new(0),
             token_table,
-            nodes: vec![SyntaxNode {
-                kind: SyntaxKind::Root,
-                span: Span::new(source_id, 0, source.len()),
-                children: Vec::new(),
-                open: None,
-                close: None,
-            }],
-            tokens: Vec::new(),
-            trivia: Vec::new(),
+            nodes,
+            tokens: Vec::with_capacity(token_capacity),
+            // Comments, newlines, and whitespace gaps average ~14% of tokens across
+            // the checked-in corpus; every file has at least newline trivia, so this
+            // reservation is safe to make unconditionally.
+            trivia: Vec::with_capacity(token_capacity / 6 + 1),
         };
 
         let mut stack = vec![tree.root];
@@ -331,10 +403,16 @@ impl SyntaxTree {
         let token_id = self.push_token(token_index, span);
         match opening_group(tag) {
             Some(group_kind) => {
+                // Most groups (call args, blocks, list/record literals) hold more
+                // than the opening token before they close; starting at capacity 4
+                // instead of 1 avoids the first one or two growth reallocations for
+                // the common case.
+                let mut children = Vec::with_capacity(8);
+                children.push(SyntaxElement::Token(token_id));
                 let node_id = self.push_node(SyntaxNode {
                     kind: SyntaxKind::Group(group_kind),
                     span,
-                    children: vec![SyntaxElement::Token(token_id)],
+                    children,
                     open: Some(token_id),
                     close: None,
                 });

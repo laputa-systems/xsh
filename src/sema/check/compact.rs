@@ -101,10 +101,16 @@ impl Checker {
         program: &ArenaProgram,
         declarations: &CompactDeclOutput,
     ) -> CompactBodyProbeOutput {
+        let mut output = CompactBodyProbeOutput::default();
+        // Almost every non-trivial script has typed expressions, and the arena
+        // already knows the exact expression count, so this is a precise upper
+        // bound (not every expression ends up typed) that avoids repeated growth
+        // reallocations of the type-fact map without guessing.
+        output.expr_types.reserve(program.stats().expressions);
         let mut probe = CompactBodyProbe {
             program,
             declarations,
-            output: CompactBodyProbeOutput::default(),
+            output,
             scopes: vec![FxHashMap::default()],
             stream_items: Vec::new(),
         };

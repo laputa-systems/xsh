@@ -886,9 +886,12 @@ enum LoweredStmt {
     },
     AssignIndex {
         slot: usize,
-        index: LoweredExpr,
+        // Boxed: this is the only `LoweredStmt` variant with two inline
+        // `LoweredExpr`s, which made it (at ~2x the enum's other variants) the
+        // size driver for every statement in the lowered IR.
+        index: Box<LoweredExpr>,
         op: AssignOp,
-        value: LoweredExpr,
+        value: Box<LoweredExpr>,
         span: Span,
     },
     AssignInt {
@@ -1182,7 +1185,10 @@ enum LoweredExpr {
     },
     ListComp {
         value: Box<LoweredExpr>,
-        target: LoweredCompTarget,
+        // Boxed because `LoweredCompTarget::Record` inlines a 4-element
+        // `SmallVec` (~176 bytes) that would otherwise size every `LoweredExpr`
+        // variant, not just the rare destructuring-comprehension case.
+        target: Box<LoweredCompTarget>,
         iter: Box<LoweredExpr>,
         condition: Option<Box<LoweredExpr>>,
         span: Span,
@@ -1190,7 +1196,7 @@ enum LoweredExpr {
     MapComp {
         key: Box<LoweredExpr>,
         value: Box<LoweredExpr>,
-        target: LoweredCompTarget,
+        target: Box<LoweredCompTarget>,
         iter: Box<LoweredExpr>,
         condition: Option<Box<LoweredExpr>>,
         span: Span,
@@ -1202,7 +1208,11 @@ enum LoweredExpr {
     },
     Field {
         base: Box<LoweredExpr>,
-        name: String,
+        // Field/method names come from interned identifiers (`Name::as_str()`),
+        // which are already `'static` — storing the leaked str view instead of an
+        // owned `String` drops an allocation from every field-access node built
+        // during lowering.
+        name: &'static str,
         span: Span,
     },
     Index {
@@ -1218,7 +1228,7 @@ enum LoweredExpr {
     },
     Method {
         receiver: Box<LoweredExpr>,
-        name: String,
+        name: &'static str,
         args: Vec<LoweredExpr>,
         span: Span,
     },
@@ -1454,7 +1464,10 @@ enum LoweredExpr {
     },
     Ok(Box<LoweredExpr>),
     Err(Box<LoweredExpr>),
-    Error(LoweredErrorExpr),
+    // Boxed: `LoweredErrorExpr::Structured` inlines two `String`s plus two
+    // `Vec`s (~96 bytes) that would otherwise size every `LoweredExpr` variant
+    // for the sake of the comparatively rare structured-error-literal case.
+    Error(Box<LoweredErrorExpr>),
     Try(Box<LoweredExpr>),
     Call {
         function: LoweredFunctionKey,

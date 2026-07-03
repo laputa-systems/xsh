@@ -328,24 +328,22 @@ fn lowered_field_chain_ref<'a>(
             };
             match base {
                 LoweredValue::Record(record) | LoweredValue::Module(record) => record
-                    .get(name.as_str())
+                    .get(*name)
                     .map(Some)
-                    .ok_or_else(|| RuntimeError::new("missing-field", name).with_span(*span)),
-                LoweredValue::RecordVec(record) => {
-                    lowered_record_vec_get(record.as_slice(), name.as_str())
-                        .map(Some)
-                        .ok_or_else(|| RuntimeError::new("missing-field", name).with_span(*span))
-                }
+                    .ok_or_else(|| RuntimeError::new("missing-field", *name).with_span(*span)),
+                LoweredValue::RecordVec(record) => lowered_record_vec_get(record.as_slice(), name)
+                    .map(Some)
+                    .ok_or_else(|| RuntimeError::new("missing-field", *name).with_span(*span)),
                 LoweredValue::Stats {
                     blanks,
                     code,
                     comments,
-                } => lowered_inline_stats_field_value(*blanks, *code, *comments, name.as_str())
+                } => lowered_inline_stats_field_value(*blanks, *code, *comments, name)
                     .map(|_| None)
-                    .ok_or_else(|| RuntimeError::new("missing-field", name).with_span(*span)),
-                LoweredValue::StatsBlob(stats) => lowered_stats_field_value(stats, name.as_str())
+                    .ok_or_else(|| RuntimeError::new("missing-field", *name).with_span(*span)),
+                LoweredValue::StatsBlob(stats) => lowered_stats_field_value(stats, name)
                     .map(|_| None)
-                    .ok_or_else(|| RuntimeError::new("missing-field", name).with_span(*span)),
+                    .ok_or_else(|| RuntimeError::new("missing-field", *name).with_span(*span)),
                 _ => Ok(None),
             }
         }
@@ -674,7 +672,7 @@ fn lowered_field_projection(expr: &LoweredExpr, item_slot: usize) -> Option<&str
     let LoweredExpr::Param(slot) = base.as_ref() else {
         return None;
     };
-    (*slot == item_slot).then_some(name.as_str())
+    (*slot == item_slot).then_some(*name)
 }
 
 fn lowered_reduce_projection<'a>(
@@ -1711,11 +1709,21 @@ fn lowered_str_list_arg(
     operation: &str,
     span: Span,
 ) -> Result<Vec<String>, RuntimeError> {
-    let Some(LoweredValue::List(items)) = value else {
+    let Some(value) = value else {
         return Err(
             RuntimeError::new("type-error", format!("{operation} expected List[Str]"))
                 .with_span(span),
         );
+    };
+    let items = match value {
+        LoweredValue::List(items) => items,
+        LoweredValue::SharedList(items) => items.iter().cloned().collect(),
+        _ => {
+            return Err(
+                RuntimeError::new("type-error", format!("{operation} expected List[Str]"))
+                    .with_span(span),
+            );
+        }
     };
     let mut strings = Vec::with_capacity(items.len());
     for item in items {
@@ -1751,11 +1759,22 @@ fn lowered_path_list(
     operation: &str,
     span: Span,
 ) -> Result<Vec<PathValue>, RuntimeError> {
-    let Some(LoweredValue::List(items)) = value else {
+    let Some(value) = value else {
         return Err(
             RuntimeError::new("type-error", format!("{operation} expected List[Path]"))
                 .with_span(span),
         );
+    };
+    let items = match value {
+        LoweredValue::List(items) => items,
+        LoweredValue::SharedList(items) => items.iter().cloned().collect(),
+        _ => {
+            return Err(RuntimeError::new(
+                "type-error",
+                format!("{operation} expected List[Path]"),
+            )
+            .with_span(span));
+        }
     };
     items
         .into_iter()
@@ -1768,11 +1787,21 @@ fn lowered_int_list_arg(
     operation: &str,
     span: Span,
 ) -> Result<Vec<i64>, RuntimeError> {
-    let Some(LoweredValue::List(items)) = value else {
+    let Some(value) = value else {
         return Err(
             RuntimeError::new("type-error", format!("{operation} expected List[Int]"))
                 .with_span(span),
         );
+    };
+    let items = match value {
+        LoweredValue::List(items) => items,
+        LoweredValue::SharedList(items) => items.iter().cloned().collect(),
+        _ => {
+            return Err(
+                RuntimeError::new("type-error", format!("{operation} expected List[Int]"))
+                    .with_span(span),
+            );
+        }
     };
     let mut ints = Vec::with_capacity(items.len());
     for item in items {
@@ -9965,7 +9994,7 @@ impl Evaluator {
             return Ok(None);
         }
 
-        if name == "push" && args.len() == 1 {
+        if *name == "push" && args.len() == 1 {
             let item = match self.eval_lowered_expr(lowered, &args[0], slots, call_span)? {
                 ControlFlow::Continue(value) => value,
                 ControlFlow::Break(value) => return Ok(Some(LoweredStmtFlow::Return(value))),
@@ -9978,7 +10007,7 @@ impl Evaluator {
                 Arc::make_mut(items).push(item);
                 return Ok(Some(LoweredStmtFlow::None));
             }
-        } else if name == "push" && args.len() == 2 {
+        } else if *name == "push" && args.len() == 2 {
             let key = match self.eval_lowered_expr(lowered, &args[0], slots, call_span)? {
                 ControlFlow::Continue(value) => value,
                 ControlFlow::Break(value) => return Ok(Some(LoweredStmtFlow::Return(value))),
@@ -10014,7 +10043,7 @@ impl Evaluator {
                 }
                 return Ok(Some(LoweredStmtFlow::None));
             }
-        } else if name == "set" && args.len() == 2 {
+        } else if *name == "set" && args.len() == 2 {
             let key = match self.eval_lowered_expr(lowered, &args[0], slots, call_span)? {
                 ControlFlow::Continue(value) => value,
                 ControlFlow::Break(value) => return Ok(Some(LoweredStmtFlow::Return(value))),
@@ -10028,7 +10057,7 @@ impl Evaluator {
                 map.insert(key, value);
                 return Ok(Some(LoweredStmtFlow::None));
             }
-        } else if name == "remove" && args.len() == 1 {
+        } else if *name == "remove" && args.len() == 1 {
             let key = match self.eval_lowered_expr(lowered, &args[0], slots, call_span)? {
                 ControlFlow::Continue(value) => value,
                 ControlFlow::Break(value) => return Ok(Some(LoweredStmtFlow::Return(value))),
@@ -11801,12 +11830,14 @@ impl Evaluator {
                 value,
                 span,
             } => {
-                if *op == AssignOp::Set && matches!(value, LoweredExpr::Method { .. })
+                if *op == AssignOp::Set
+                    && matches!(value, LoweredExpr::Method { .. })
                     && let Some(flow) = self.try_eval_lowered_self_assignment_method(
                         lowered, *slot, *op, value, slots, call_span,
-                    )? {
-                        return Ok(flow);
-                    }
+                    )?
+                {
+                    return Ok(flow);
+                }
                 if matches!(
                     op,
                     AssignOp::Add | AssignOp::Sub | AssignOp::Mul | AssignOp::Div | AssignOp::Rem
@@ -13143,7 +13174,7 @@ impl Evaluator {
                 name,
                 args,
                 span,
-            } if name == "count_lines" && args.is_empty() => {
+            } if *name == "count_lines" && args.is_empty() => {
                 if let LoweredExpr::Param(slot) = receiver.as_ref() {
                     return lowered_str_count_lines_value(&slots[*slot], *span)
                         .map(ControlFlow::Continue)
@@ -16825,7 +16856,7 @@ impl Evaluator {
             }
             LoweredExpr::Field { base, name, span } => {
                 if let Some(base) = lowered_field_chain_ref(base, slots)?
-                    && let Some(value) = lowered_project_borrowed_field(base, name.as_str(), *span)?
+                    && let Some(value) = lowered_project_borrowed_field(base, name, *span)?
                 {
                     return Ok(ControlFlow::Continue(value));
                 }
@@ -16834,33 +16865,33 @@ impl Evaluator {
                     ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
                 };
                 let value = match base {
-                    LoweredValue::Record(record) | LoweredValue::Module(record) => record
-                        .get(name.as_str())
-                        .cloned()
-                        .ok_or_else(|| RuntimeError::new("missing-field", name).with_span(*span))?,
-                    LoweredValue::RecordVec(record) => {
-                        lowered_record_vec_get(&record, name.as_str())
-                            .cloned()
-                            .ok_or_else(|| {
-                                RuntimeError::new("missing-field", name).with_span(*span)
-                            })?
+                    LoweredValue::Record(record) | LoweredValue::Module(record) => {
+                        record.get(*name).cloned().ok_or_else(|| {
+                            RuntimeError::new("missing-field", *name).with_span(*span)
+                        })?
                     }
+                    LoweredValue::RecordVec(record) => lowered_record_vec_get(&record, name)
+                        .cloned()
+                        .ok_or_else(|| {
+                            RuntimeError::new("missing-field", *name).with_span(*span)
+                        })?,
                     LoweredValue::Stats {
                         blanks,
                         code,
                         comments,
-                    } => lowered_inline_stats_field_value(blanks, code, comments, name.as_str())
-                        .ok_or_else(|| RuntimeError::new("missing-field", name).with_span(*span))?,
-                    LoweredValue::StatsBlob(stats) => {
-                        lowered_stats_field_value(&stats, name.as_str()).ok_or_else(|| {
-                            RuntimeError::new("missing-field", name).with_span(*span)
-                        })?
-                    }
+                    } => lowered_inline_stats_field_value(blanks, code, comments, name)
+                        .ok_or_else(|| {
+                            RuntimeError::new("missing-field", *name).with_span(*span)
+                        })?,
+                    LoweredValue::StatsBlob(stats) => lowered_stats_field_value(&stats, name)
+                        .ok_or_else(|| {
+                            RuntimeError::new("missing-field", *name).with_span(*span)
+                        })?,
                     LoweredValue::FsEntry(entry) => {
                         let value = entry
-                            .field_value(name.as_str())
+                            .field_value(name)
                             .ok_or_else(|| {
-                                RuntimeError::new("missing-field", name).with_span(*span)
+                                RuntimeError::new("missing-field", *name).with_span(*span)
                             })?
                             .map_err(|error| error.with_span(*span))?;
                         lowered_value_from_runtime_any(&value).ok_or_else(|| {
@@ -16886,23 +16917,23 @@ impl Evaluator {
                                 .with_span(*span));
                             }
                         };
-                        match name.as_str() {
+                        match *name {
                             "kind" => LoweredValue::Str(kind.into()),
                             "message" => LoweredValue::Str(message.into()),
                             _ => {
                                 return Err(
-                                    RuntimeError::new("missing-field", name).with_span(*span)
+                                    RuntimeError::new("missing-field", *name).with_span(*span)
                                 );
                             }
                         }
                     }
-                    LoweredValue::Regex(regex) => match name.as_str() {
+                    LoweredValue::Regex(regex) => match *name {
                         "pattern" => LoweredValue::Str(regex.pattern.clone().into()),
                         _ => {
-                            return Err(RuntimeError::new("missing-field", name).with_span(*span));
+                            return Err(RuntimeError::new("missing-field", *name).with_span(*span));
                         }
                     },
-                    LoweredValue::Status(status) => match name.as_str() {
+                    LoweredValue::Status(status) => match *name {
                         "ok" | "success" => LoweredValue::Bool(status.success),
                         "kind" => {
                             LoweredValue::Str(format!("{:?}", status.kind).to_lowercase().into())
@@ -16915,10 +16946,10 @@ impl Evaluator {
                                 .collect(),
                         ),
                         _ => {
-                            return Err(RuntimeError::new("missing-field", name).with_span(*span));
+                            return Err(RuntimeError::new("missing-field", *name).with_span(*span));
                         }
                     },
-                    LoweredValue::ProcessHandle(handle) => match name.as_str() {
+                    LoweredValue::ProcessHandle(handle) => match *name {
                         "pid" => LoweredValue::Int(handle.pid),
                         "command" => LoweredValue::Str(handle.command.clone()),
                         "argv" => LoweredValue::List(
@@ -16926,7 +16957,7 @@ impl Evaluator {
                         ),
                         "detached" => LoweredValue::Bool(handle.detached),
                         _ => {
-                            return Err(RuntimeError::new("missing-field", name).with_span(*span));
+                            return Err(RuntimeError::new("missing-field", *name).with_span(*span));
                         }
                     },
                     LoweredValue::Path(path) => {

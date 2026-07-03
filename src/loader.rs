@@ -9,7 +9,7 @@ use crate::symbol::{Name, QualifiedName};
 use crate::syntax::arena::{
     ArenaBindingTargetKind, ArenaProgram, ArenaProgramBuilder, ArenaRange, ArenaStmtKind, StmtId,
 };
-use crate::syntax::cst::SyntaxTree;
+use crate::syntax::cst::{LazyCst, SyntaxTree};
 
 use crate::syntax::parser::{ArenaParseOutput, Parser};
 use crate::syntax::token::TokenTable;
@@ -134,7 +134,7 @@ impl CompactFileUnit {
     }
 
     pub fn cst(&self) -> &SyntaxTree {
-        &self.parsed.cst
+        self.parsed.cst.get()
     }
 
     pub fn token_table(&self) -> &TokenTable {
@@ -605,7 +605,7 @@ pub fn parse_load_entry_source_arena_only(
             sources,
             ArenaParseOutput {
                 arena: Default::default(),
-                cst: SyntaxTree::empty(source_id),
+                cst: LazyCst::empty(source_id),
                 diagnostics,
             },
         );

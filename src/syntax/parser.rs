@@ -2,7 +2,7 @@ pub(in crate::syntax::parser) use crate::diagnostic::{Diagnostic, FixHint, Label
 pub(in crate::syntax::parser) use crate::source::{SourceId, Span};
 pub(in crate::syntax::parser) use crate::symbol::Name;
 use crate::syntax::arena::{ArenaProgram, ArenaProgramBuilder, ArenaRange, TypeExprId};
-use crate::syntax::cst::SyntaxTree;
+use crate::syntax::cst::LazyCst;
 pub(in crate::syntax::parser) use crate::syntax::lexer::Lexer;
 pub(in crate::syntax::parser) use crate::syntax::literal::{
     self, EscapeIssueKind, InterpolationChunk,
@@ -28,14 +28,14 @@ pub(in crate::syntax::parser) use self::types::{result_unit_type_expr, unknown_t
 #[derive(Clone, Debug, Default)]
 pub struct ArenaParseOutput {
     pub arena: ArenaProgram,
-    pub cst: SyntaxTree,
+    pub cst: LazyCst,
     pub diagnostics: Vec<Diagnostic>,
 }
 
 #[derive(Clone, Debug, Default)]
 pub struct ArenaParseFragment {
     pub statements: ArenaRange,
-    pub cst: SyntaxTree,
+    pub cst: LazyCst,
     pub diagnostics: Vec<Diagnostic>,
 }
 
@@ -121,8 +121,7 @@ impl<'a> Parser<'a> {
     }
 
     pub fn parse_arena_only(mut self) -> ArenaParseOutput {
-        let cst =
-            SyntaxTree::from_token_table(self.source_id, self.source, self.token_table.clone());
+        let cst = LazyCst::new(self.source_id, self.source, self.token_table.clone());
         let arena = self.parse_program_arena_only();
         ArenaParseOutput {
             arena,
@@ -135,8 +134,7 @@ impl<'a> Parser<'a> {
         mut self,
         arena: &mut ArenaProgramBuilder<'_>,
     ) -> ArenaParseFragment {
-        let cst =
-            SyntaxTree::from_token_table(self.source_id, self.source, self.token_table.clone());
+        let cst = LazyCst::new(self.source_id, self.source, self.token_table.clone());
         let start = arena.root_statement_count();
         self.skip_separators();
         while !self.at(TokenKindMatch::Eof) {

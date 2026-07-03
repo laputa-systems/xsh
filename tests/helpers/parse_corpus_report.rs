@@ -292,7 +292,7 @@ fn parse_arena_only_corpus(
             let stats = parsed.arena.stats();
             counts.statements += stats.statements;
             counts.modules += stats.modules;
-            counts.syntax_tokens += parsed.cst.tokens().len();
+            counts.syntax_tokens += parsed.cst.get().tokens().len();
             counts.compact_token_table_tokens += parsed.cst.token_table().len();
             counts.compact_token_row_bytes += parsed.cst.token_table().row_bytes();
             counts.compact_token_retained_bytes += parsed.cst.token_table().retained_bytes();
@@ -1513,7 +1513,7 @@ fn file_counts_for_parsed(file: &SourceFile, parsed: &ArenaParseOutput) -> FileC
         path: file.path.clone(),
         bytes: file.text.len(),
         tokens: parsed.cst.token_table().len(),
-        syntax_tokens: parsed.cst.tokens().len(),
+        syntax_tokens: parsed.cst.get().tokens().len(),
         statements: stats.statements,
         imports: stats.use_stmts,
         exports: count_exports(&parsed.arena),

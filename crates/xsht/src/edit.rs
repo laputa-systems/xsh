@@ -34,7 +34,7 @@ pub(crate) fn apply_cst_guarded_edits(
             continue;
         }
         let span = Span::new(source_id, edit.start, edit.end);
-        if parsed.cst.contains_comment(span) {
+        if parsed.cst.get().contains_comment(span) {
             continue;
         }
         rewritten.replace_range(edit.start..edit.end, &edit.replacement);

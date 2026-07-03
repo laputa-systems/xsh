@@ -448,6 +448,67 @@ are enabled, as in `cargo clippy --all-features`, `perf-metrics` takes
 precedence and dhat goes inert, so the crate still builds with a single
 allocator.
 
+## Showcase-vs-native corpus benchmarking (tokei.xsh)
+
+`showcase/tokei.xsh` reimplements a `tokei`-style line counter in XSH. Pointing
+it at a large real checkout and comparing wall time and peak RSS against the
+native `tokei` binary is the methodology behind the `tokei.xsh` Native Parity
+stretch goal tracked in `INTERPRETER-PERF.md`; current numbers, accepted and
+rejected trials, and the byte-parity gate live there, not here — this section
+is only the reusable "how to take a sample" reference.
+
+Build a plain release binary first. A `perf-metrics` build installs a
+different allocator and changes both wall time and peak RSS, so it is not a
+valid stand-in even though it also builds `--release`:
+
+```sh
+cargo build --release --bin xsh
+```
+
+Sample serially, one command at a time, nothing else running. `/usr/bin/time
+-l` (macOS) reports `real` wall time and `maximum resident set size` right
+after the command it wraps:
+
+```sh
+/usr/bin/time -l target/release/xsh showcase/tokei.xsh -- ROOT          # table
+/usr/bin/time -l target/release/xsh showcase/tokei.xsh -- --json ROOT   # JSON
+/usr/bin/time -l tokei ROOT                                             # native, table
+/usr/bin/time -l tokei -o json ROOT                                     # native, JSON
+```
+
+The showcase's own flag is `--json`; native tokei's `-o json`/`--output json`
+is not accepted and errors out (`unknown argument at argv[0]: --output`)
+rather than silently doing the wrong thing, so a bad flag is easy to notice.
+
+Take several samples of each and use the tightest cluster, not the mean of
+everything — `real` and RSS both swing by up to ~2x under concurrent load
+(another build, another benchmark, even a busy background process), and a
+contaminated sample must be discarded rather than averaged in. Treat native
+`tokei` as a performance baseline and an accuracy lens only, never the output
+oracle: XSH may intentionally differ from native tokei's line classification,
+child-language treatment, JSON field order, and report ordering.
+
+The actual correctness gate is XSH-vs-XSH, not XSH-vs-native: save a
+known-good table/JSON output before a change, then `cmp` a fresh run against
+it after. These snapshots are plain scratch files, not checked in (`target/`
+is gitignored), so you own saving your own "before" copy:
+
+```sh
+mkdir -p target/perf/tokei-current
+target/release/xsh showcase/tokei.xsh -- ROOT > target/perf/tokei-current/table-before.txt
+target/release/xsh showcase/tokei.xsh -- --json ROOT > target/perf/tokei-current/json-before.json
+# ...make the change, rebuild...
+target/release/xsh showcase/tokei.xsh -- ROOT > target/perf/tokei-current/table-after.txt
+cmp target/perf/tokei-current/table-before.txt target/perf/tokei-current/table-after.txt
+```
+
+A large real checkout exercises the full language/extension mix, gitignore
+rules, and file-size distribution that the stretch goal cares about better
+than the synthetic `perf/make-corpus.xsh` tree does. The checked-in
+`INTERPRETER-PERF.md` samples use `/Users/josh/dev/sentry` (~3.1 GB, ~140,000
+files); any comparably large, gitignore-heavy, multi-language repo works as a
+substitute.
+
 ## Architecture notes
 
 - **Why musl, not glibc.** We profile the shipped target. Valgrind's malloc

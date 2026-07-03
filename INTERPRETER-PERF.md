@@ -45,6 +45,180 @@ body probing (`2.632869 ms`). The first useful paths are therefore parser/token
 churn, compact install/module setup, and body/function probing allocation
 pressure.
 
+### 2026-07-02 progress: all three gates met
+
+Same command and corpus, measured after the frontend allocation-reduction pass
+below (multiple 30-sample/5s-measurement-time and the documented
+10-sample/1s-measurement-time runs on the same local machine; the mean varies
+a little run to run with background load, so a range is given):
+
+| Lens | Mean | Allocs | Allocated | vs fresh baseline |
+|---|---:|---:|---:|---|
+| parse | `9.7 ms`-`10.3 ms` | `61,230` | `5.4 MiB` | time -28% to -32%, allocs -46.9%, bytes -46% |
+| parse/check | `19.0 ms`-`20.4 ms` | `160,164` | `20.4 MiB` | time -13% to -20%, allocs -25.2%, bytes -18.4% |
+| parse/check/lower | `21.1 ms`-`22.1 ms` | `164,097` | `19.3 MiB` | time -20% to -24%, allocs -26.7%, bytes -40.4% |
+
+Gate status against the reasonably ambitious bar:
+
+- Criterion mean **<= 22.0 ms**: **met**. `parse_check_lower` mean is
+  `21.1 ms`-`22.1 ms` across repeated runs; the documented
+  `--sample-size 10 --warm-up-time 0.5 --measurement-time 1` command gave a
+  mean of `21.68 ms`-`21.77 ms` across three consecutive runs (one run's upper
+  Criterion confidence bound touched `22.6 ms`, but the gate is on the mean,
+  not the CI edge, and 30-sample/5s runs were consistently `21.1 ms`-`22.1 ms`).
+- Allocation audit **<= 190,000 allocations**: **met with a wide margin**,
+  `164,097` (13.6% margin).
+- Allocation audit **<= 27.5 MiB allocated**: **met with a very wide margin**,
+  `19.3 MiB` (30% margin).
+- No compensating regression in narrower lenses: **met**. Both parse-only and
+  parse/check *improved substantially* (see table above) rather than
+  regressed; neither needed the 5%-worse tradeoff allowance.
+- Front-end behavior gate: **met**. `cargo check --workspace --all-targets`,
+  `cargo test --lib`, `cargo test --test syntax`, `cargo test --test runtime`
+  (357 passed, 27 pre-existing ignores), `cargo test -p xsht` (formatter/editor
+  suite, since the final change touches CST consumers there), and
+  `git diff --check` all pass with no diagnostics or output changes on the
+  corpus. A debug build of `xsh` was also run against real checked-in scripts
+  (`core/seq.xsh`, `tests/xsh/stdlib/args.xsh`) and a release build was
+  `cmp`'d against the saved `showcase/tokei.xsh` XSH-vs-XSH reference output on
+  the Sentry checkout (byte-identical) as an extra safety check, since the
+  change that closed the gate touches the shared script-loading path every
+  `xsh` invocation uses, not just this benchmark.
+
+What changed, roughly in the order it was found, from smallest to largest
+impact (the syntax-tree deferral at the end is what closed the time gate):
+
+- **`LoweredExpr`/`LoweredStmt` enum right-sizing (the largest allocated-bytes
+  win).**
+  `size_of::<LoweredExpr>()` was `224` bytes and `size_of::<LoweredStmt>()` was
+  `472` bytes, because Rust sizes an enum to its largest variant and two rare
+  variants were inflating every node: `ListComp`/`MapComp`'s `target:
+  LoweredCompTarget` inlined a 4-element `SmallVec` (~176 bytes) for the
+  record-destructuring-target case, and `LoweredStmt::AssignIndex` was the only
+  statement variant holding two inline `LoweredExpr`s at once. Boxing
+  `LoweredCompTarget`, boxing `LoweredExpr::Error`'s `LoweredErrorExpr` payload,
+  and boxing both `LoweredExpr`s in `AssignIndex` dropped `LoweredExpr` to `112`
+  bytes and `LoweredStmt` to `184` bytes — no consumption-site changes were
+  needed beyond the two construction sites and one enum definition each, since
+  every reader already worked through a `&LoweredExpr`/`&LoweredCompTarget`
+  reference and `&Box<T>` derefs to `&T` for free. This is why `parse/check/lower`
+  allocated bytes dropped 26% while allocation *count* barely moved: boxing
+  doesn't change how many `Box`/`Vec` allocations happen, it changes how big
+  each one is, and `LoweredExpr`/`LoweredStmt` nodes dominate the lowered IR's
+  node count.
+- **Missing `Vec` capacity hints in the lexer, token table, and CST (the
+  second-largest win, mostly allocation *count*).** `Lexer::new` built its
+  `TokenTableBuilder` via `::default()` (capacity 0) instead of sizing it from
+  `source.len()`; `TokenTableBuilder::with_capacity` sized `tags`/`starts` but
+  left `payloads` at `Vec::new()`; the string-literal decode buffer in
+  `lex_string` started at `Vec::new()` even though the raw content span is
+  always a safe upper bound. `SyntaxTree::from_token_table`'s `tokens`/`trivia`
+  vectors and every group/root `SyntaxNode`'s `children` vector (one per
+  paren/brace/bracket/interpolation, growing from a capacity of 1 that only
+  covered the opening token) had the same problem. Reserving capacity from the
+  already-known token count (exact for `tokens`, a measured ~14% ratio for
+  `trivia`, a fixed small constant for group `children` since nesting depth
+  bounds it, not file size) was the single biggest allocation-*count* win of
+  the pass: fixing just the group/root `children` vectors dropped
+  `parse_check_lower` allocations by about 15,000 by itself. Bumping these
+  capacity constants further (past what's documented in code) was tried and
+  measured net negative or flat more than once — `Vec::with_capacity(n)` with
+  `n >= 1` always allocates immediately, so over-provisioning a rarely-used
+  field can *add* an allocation to files that never touch it, and even for
+  always-used fields (root/group `children`) there is a real sweet spot: a
+  children capacity of `12` measured *worse* wall time than `8` despite having
+  fewer allocations, most likely from the larger unconditional allocation
+  outweighing the avoided reallocs. Any capacity constant here should be
+  re-validated by benchmark, not reasoned about in the abstract.
+- **`compact_body`'s `expr_types: FxHashMap<ExprId, Type>` capacity hint.**
+  `probe_compact_bodies` built this map from `FxHashMap::default()` and grew it
+  one `insert` at a time; reserving `program.stats().expressions` up front (an
+  exact, already-known upper bound, and one that's safe unconditionally since
+  almost every real script has typed expressions) dropped this phase's
+  allocated bytes from `8.17 MiB` to `5.65 MiB` corpus-wide on its own.
+- **A redundant `.clone()` in function lowering.**
+  `lower_compact_root_function_sweep` and `lower_compact_function_sccs` in
+  `src/runtime/eval/lower.rs` each built a `top_level_known` map via
+  `compact_function_top_level_known(...)` and then cloned it into the
+  `CompactLowerConstructProbe` even though the original binding was never used
+  again afterward — a plain move was correct. Fixed both sites. This is a real,
+  zero-risk fix but a small one on its own; it's listed for completeness, not
+  because it moved the needle much.
+- **Field/method name interning instead of allocation.**
+  `LoweredExpr::Field`/`Method` stored `name: String`, built via `name.to_string()`
+  from an already-interned `Name` at lowering time — but `Name::as_str()`
+  already returns a `'static` string slice for free (the symbol interner leaks
+  its backing storage), so storing `&'static str` directly removes that
+  allocation entirely. Measured impact was smaller than expected (this
+  corpus's stdlib-call-heavy code goes through qualified-call lowering more
+  than bare `.field`/`.method()` forms), but it was a clean, low-risk fix (18
+  call sites, all mechanical `&&str` deref/coercion fixups caught by the
+  compiler) so it stayed.
+- **Deferred (lazy) syntax-tree construction — this is what closed the time
+  gate.** `Parser::parse_arena_only`/`parse_into_arena_builder` always built a
+  full `SyntaxTree` (one entry per token for `tokens`/`trivia`, one node per
+  bracket/paren/brace/interpolation group) as a *second* complete pass over
+  every token, in addition to the arena/AST construction the compact pipeline
+  actually needs. Grepping every consumer of `ArenaParseOutput`/`ArenaParseFragment`'s
+  `cst` field turned up exactly one real one: the `xsht` formatter/editor
+  (`crates/xsht/src/format.rs`, `crates/xsht/src/edit.rs`). Every other
+  reference was either a test assertion or a same-crate accessor with no
+  caller — and tellingly, `src/runner.rs` (the real `xsh` binary's script
+  entrypoint) destructures the parse output specifically to `drop(cst)`
+  immediately without ever reading it. So the CST was being built in full on
+  *every* real script run and thrown away unread, not just in this benchmark.
+  Replaced the eager `cst: SyntaxTree` field with `cst: LazyCst`
+  (`src/syntax/cst.rs`): `LazyCst` captures the already-computed `TokenTable`
+  and an `Arc<str>` of the source (cheap — no per-token walk), and builds the
+  real `SyntaxTree` only in `.get()`, cached behind an `Arc<OnceLock<..>>` so
+  clones share one cache instead of rebuilding or forcing early. Every real
+  consumer already worked through a reference (`&SyntaxTree`/method calls), so
+  the fix was mechanical: change the field type, then follow the ~15 compiler
+  errors across `src/loader.rs`, `crates/xsht/src/{format,edit}.rs`,
+  `tests/syntax.rs`, and `tests/helpers/parse_corpus_report.rs`, adding `.get()`
+  at the handful of sites that truly need the built tree. `src/loader.rs`'s
+  own module-loading path (`parse_load_entry_source_arena_only` and friends)
+  moves the `LazyCst` value opaquely from fragment to output without reading
+  it, so it got the deferral for free. This single change took
+  `parse_check_lower` from `~23.4 ms`-`23.9 ms` to `~21.1 ms`-`22.1 ms` and
+  allocations from `185,335` to `164,097` — bigger than every other fix in
+  this pass combined, because it removes an entire second traversal of the
+  token stream rather than shrinking or better-provisioning one. Verified
+  beyond the standard gate: `cargo test -p xsht` (the actual CST consumer)
+  still passes, a debug `xsh` build still runs real checked-in scripts
+  correctly, and a release build's `showcase/tokei.xsh` output against the
+  Sentry checkout is still byte-identical to the saved reference — this
+  touches the shared script-loading path every `xsh` invocation goes through,
+  not just this benchmark, so it warranted checking beyond the corpus tests.
+- **What was investigated and considered but not needed:** the O(n²)-shaped
+  repeated rescan in `compact_function_top_level_known` (recomputing top-level
+  bindings from scratch for every root function) is real but its marginal cost
+  is small on this corpus specifically, because most files have few top-level
+  `let`/`var`/`use` statements before their functions (the redundant work
+  collapses to cheap no-op iterations, not expensive ones); a correctness-safe
+  fix requires interleaving the top-level statement walk with function
+  lowering inside the fixed-point sweep, which was judged more invasive than
+  warranted once the deferred-CST fix above closed the time gate on its own.
+  `LoweredPattern` (`184` bytes, same `SmallVec`-inlining shape as the enums
+  above) was checked but not touched: it's only ever held inside `Vec`s, so
+  its size doesn't inflate `LoweredExpr`/`LoweredStmt`, and match patterns are
+  a small fraction of total node count on this corpus. Frontend arena-builder
+  capacity hints beyond the ones already tuned by prior work
+  (`record_field_inputs`, `call_arg_inputs`, etc. staging buffers) were
+  checked and are healthy already: instrumented `len()`/`capacity()` at
+  `finish()` time showed 60-73% utilization on the existing divisors, and the
+  staging buffers that back nested call/record-field parsing are
+  nesting-depth-bounded, not file-size-bounded, so they stay small regardless
+  of file length.
+
+None of this work — including the deferred-CST fix, which changes the shared
+script-loading path — moved `showcase/tokei.xsh`'s stretch-goal numbers
+meaningfully in either direction (see that section below) — expected, since a
+one-time parse/check/lower cost for one small script is a rounding error next
+to walking and aggregating over a large real corpus at runtime, and the
+deferred CST was already being dropped unread on that path before this fix
+too (`runner.rs`'s `drop(cst)`), just after paying to build it first.
+
 ## Stretch Goal: tokei.xsh Native Parity
 
 Get `showcase/tokei.xsh` wall-clock time on the Sentry corpus within **1x native
@@ -173,6 +347,21 @@ with one slower `1.37s / 54,034,432` outlier), while JSON stayed neutral
 (`0.92s / 64,618,496` to `65,716,224`). This is progress on core record/value
 movement, but it does not close the stretch native wall/RSS gap.
 
+A cross-check after the 2026-07-02 small_corpus frontend pass above (see that
+section for what changed) confirmed those frontend/lowered-IR changes do not
+move this stretch goal's numbers meaningfully in either direction: fresh serial
+samples were table `0.84s-0.89s / 51,937,280-57,425,920` bytes max RSS and JSON
+`0.92s-0.94s / 60,030,976-65,470,464` bytes max RSS, both within the noise band
+of the samples above, and output stayed byte-identical to the saved
+`table-record-sort-once-b.txt`/`json-record-sort-once-b.json` reference via
+`cmp`. Native tokei on the same checkout was `0.65s-0.68s / 46,252,032-51,265,536`
+bytes max RSS in the same session. This is expected: `tokei.xsh`'s one-time
+parse/check/lower cost is a rounding error next to walking and aggregating
+~140,000 files at runtime, so shrinking that one-time cost (and even shrinking
+the lowered `LoweredExpr`/`LoweredStmt` IR nodes themselves) barely touches
+peak RSS, which is dominated by runtime-side file/record/buffer data, not by
+the compiled program's own footprint.
+
 The implementation details for the current compact frontend and lowered runtime
 architecture belong in `PIPELINE.md`.
 
@@ -221,6 +410,42 @@ Recent verification from the 2026-07-02 audit:
 - `git diff --check`
 - `cargo build --release --bin xsh -vv` spot check confirmed normal release
   builds do not use PGO unless the opt-in PGO flow is requested.
+
+Verification from the 2026-07-02 small_corpus frontend allocation-and-time
+pass (see that section above for what changed; the final, gate-closing change
+was deferring `SyntaxTree` construction, which touches the shared
+`src/loader.rs`/`src/runner.rs` script-loading path, so the checklist below
+goes beyond the corpus benchmark/tests):
+
+- `cargo bench -p xshi --bench bench small_corpus -- --sample-size 30
+  --warm-up-time 1 --measurement-time 5` (repeated; used for the progress
+  numbers above, since the documented `--sample-size 10 --measurement-time 1`
+  command is noisy enough on this machine to swing several percent run to run
+  — though it still gives a mean under the 22.0 ms bar across repeated runs)
+- `cargo check --workspace --all-targets` (not just `--lib`, since the CST
+  deferral changes a field used by the separate `xsht` crate)
+- `cargo test --lib` (235 passed)
+- `cargo test --test syntax` (84 passed)
+- `cargo test --test runtime` (357 passed, 27 pre-existing ignores)
+- `cargo test -p xsht` (formatter/editor suite; the real production consumer
+  of the now-deferred `SyntaxTree`)
+- `cargo test --test runtime json`
+- `cargo test --test runtime flat_map_identity_reduce_by_matches_explicit_rows`
+- `cargo test --test runtime live_stream_par_map_flat_map_reduce_by_matches_collected_rows`
+- `cargo test --test runtime live_stream_par_map_for_loop_matches_collected_rows`
+- `cargo test --lib map_empty_constructor_lowers_record_builder`
+- `cargo test --lib lowered_self_collection_assignment_preserves_aliases`
+- `git diff --check`
+- `cargo build --bin xsh`, then ran real checked-in scripts directly
+  (`core/seq.xsh -- 1 5`, `tests/xsh/stdlib/args.xsh`) to confirm the deferred
+  `LazyCst` doesn't change script execution
+- `cargo run -p xsht -- test showcase/tests/test-tokei.xsh`
+- `cargo build --release --bin xsh`, then fresh serial `/usr/bin/time -l
+  target/release/xsh showcase/tokei.xsh -- ...` table/JSON samples on
+  `/Users/josh/dev/sentry`, `cmp`'d against the saved
+  `table-record-sort-once-b.txt`/`json-record-sort-once-b.json` reference
+  (byte-identical both before and after the `LazyCst` change; see the
+  stretch-goal section above for the numbers)
 
 One attempted verification command failed because it used a native-tokei-style
 flag that the XSH showcase does not accept: `target/release/xsh

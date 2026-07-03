@@ -28,11 +28,15 @@ enum StringLiteralKind {
 
 impl<'a> Lexer<'a> {
     pub fn new(source_id: SourceId, source: &'a str) -> Self {
+        // Shell-like source averages ~4 bytes/token across the checked-in corpus;
+        // sizing the token table up front avoids repeated doubling reallocations
+        // for every file lexed (`TokenTableBuilder::default()` starts at capacity 0).
+        let estimated_tokens = source.len() / 3 + 1;
         Self {
             source_id,
             source,
             offset: 0,
-            token_builder: TokenTableBuilder::default(),
+            token_builder: TokenTableBuilder::with_capacity(estimated_tokens),
             diagnostics: Vec::new(),
         }
     }
@@ -428,7 +432,9 @@ impl<'a> Lexer<'a> {
             }
         };
         let mut has_interpolation = false;
-        let mut decoded = Vec::new();
+        // Escapes only shrink and interpolation markers only copy verbatim, so the
+        // raw content span is always a safe upper bound on the decoded length.
+        let mut decoded = Vec::with_capacity(literal.content_end - literal.content_start);
 
         self.offset = literal.content_start;
         while self.offset < literal.content_end {

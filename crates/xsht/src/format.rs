@@ -128,7 +128,7 @@ impl Formatter {
             };
         }
 
-        self.format_program_with_cst(source, &parsed.arena, &parsed.cst)
+        self.format_program_with_cst(source, &parsed.arena, parsed.cst.get())
     }
 
     pub fn format_program_with_source(

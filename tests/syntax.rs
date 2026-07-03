@@ -207,25 +207,20 @@ fn cst_preserves_source_text_tokens_and_trivia() {
     let output = Parser::parse_source_arena_only(SourceId::new(0), source);
 
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
-    assert_eq!(output.cst.exact_text(), source);
+    let cst = output.cst.get();
+    assert_eq!(cst.exact_text(), source);
     assert!(
-        output
-            .cst
-            .trivia_items()
+        cst.trivia_items()
             .iter()
             .any(|trivia| trivia.kind == TriviaKind::Whitespace)
     );
     assert!(
-        output
-            .cst
-            .trivia_items()
+        cst.trivia_items()
             .iter()
             .any(|trivia| trivia.kind == TriviaKind::Comment)
     );
     assert!(
-        output
-            .cst
-            .trivia_items()
+        cst.trivia_items()
             .iter()
             .any(|trivia| trivia.kind == TriviaKind::Newline)
     );
@@ -239,28 +234,27 @@ fn cst_groups_delimiters_and_maps_ast_spans() {
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let stmt_id = output.arena.statement_ids().next().expect("statement");
     let stmt_span = output.arena.arena.stmt(stmt_id).span;
-    assert!(output.cst.contains_comment(stmt_span));
+    let cst = output.cst.get();
+    assert!(cst.contains_comment(stmt_span));
     assert!(
-        output
-            .cst
-            .tokens_in_span(stmt_span)
+        cst.tokens_in_span(stmt_span)
             .iter()
-            .any(|id| output.cst.token_text(*id) == "proc")
+            .any(|id| cst.token_text(*id) == "proc")
     );
 
-    let root = output.cst.node(output.cst.root());
+    let root = cst.node(cst.root());
     assert!(root.children.iter().any(|child| match child {
         SyntaxElement::Node(id) => {
             matches!(
-                output.cst.node(*id).kind,
+                cst.node(*id).kind,
                 SyntaxKind::Group(SyntaxGroupKind::Brace)
             )
         }
         SyntaxElement::Token(_) | SyntaxElement::Trivia(_) => false,
     }));
 
-    let covering = output.cst.covering_node(stmt_span).expect("covering node");
-    assert_eq!(output.cst.node(covering).kind, SyntaxKind::Root);
+    let covering = cst.covering_node(stmt_span).expect("covering node");
+    assert_eq!(cst.node(covering).kind, SyntaxKind::Root);
 }
 
 #[test]

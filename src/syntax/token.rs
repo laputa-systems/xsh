@@ -172,7 +172,10 @@ impl TokenTableBuilder {
         Self {
             tags: Vec::with_capacity(capacity),
             starts: TokenStarts::with_capacity(capacity),
-            payloads: Vec::new(),
+            // Idents and keywords dominate payload-bearing tokens; half the token
+            // capacity avoids most of the growth reallocations without
+            // over-committing for punctuation-heavy sources.
+            payloads: Vec::with_capacity(capacity / 2),
         }
     }
 

@@ -298,6 +298,10 @@ const ALLOWED: &[(&str, &str)] = &[
         "process runtime owns executable lookup, cwd, and redirection handles",
     ),
     (
+        "src/runtime/value.rs",
+        "FsEntryValue constructor inspects FileType flags from caller-provided metadata",
+    ),
+    (
         "src/loader.rs",
         "script loader reads user-supplied source and module paths",
     ),
