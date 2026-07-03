@@ -7,12 +7,13 @@ use super::{
 };
 use crate::sema::types::{CallableParamType, CallableType, ModuleExportType};
 use crate::symbol::QualifiedName;
+use crate::symbol::Symbol;
 use crate::syntax::arena::{
     ArenaAssignTargetKind, ArenaBindingTargetKind, ArenaBlock, ArenaBuilderEntryKind, ArenaCommand,
     ArenaCommandArgKind, ArenaErrorDef, ArenaExprKind, ArenaExprOrRun,
     ArenaModuleContractEntryKind, ArenaPipeStageKind, ArenaProgram, ArenaRecordFieldKind,
-    ArenaStmtKind, ArenaTypeDef, ArenaTypeDefBody, BlockId, ErrorDefId, ExprId, FunctionDefId,
-    StmtId, TypeDefId, TypeExprId,
+    ArenaStmtKind, ArenaTypeDef, ArenaTypeDefBody, ArenaTypeExprTag, AstArena, BlockId, ErrorDefId,
+    ExprId, FunctionDefId, StmtId, TypeDefId, TypeExprId,
 };
 use crate::syntax::node::{Effect, EnvGetKind};
 
@@ -503,6 +504,10 @@ impl CompactBinding {
 }
 
 impl CompactBodyProbe<'_> {
+    fn type_from_arena(&self, id: TypeExprId) -> Type {
+        compact_probe_type_from_arena(&self.program.arena, id, self.declarations, 0)
+    }
+
     fn seed_declarations(&mut self) {
         let procs = self
             .declarations
@@ -563,10 +568,12 @@ impl CompactBodyProbe<'_> {
             } => {
                 self.output.supported_statements += 1;
                 self.output.bindings += 1;
-                let expected = ty.map(|ty| Type::from_arena(&self.program.arena, ty));
+                let expected = ty.map(|ty| self.type_from_arena(ty));
                 let actual = self.check_expr_or_run(initializer);
                 let binding_ty = match expected {
-                    Some(expected) if !matches!(actual, Type::Any | Type::Unknown | Type::Invalid) => {
+                    Some(expected)
+                        if !matches!(actual, Type::Any | Type::Unknown | Type::Invalid) =>
+                    {
                         expected
                     }
                     Some(_) | None => actual,
@@ -691,7 +698,7 @@ impl CompactBodyProbe<'_> {
             } => {
                 self.output.supported_statements += 1;
                 self.output.bindings += 1;
-                let expected = ty.map(|ty| Type::from_arena(&self.program.arena, ty));
+                let expected = ty.map(|ty| self.type_from_arena(ty));
                 let actual = self.check_expr_or_run(initializer);
                 self.define_binding_target(target, expected.unwrap_or(actual), false);
                 self.push_scope();
@@ -719,7 +726,7 @@ impl CompactBodyProbe<'_> {
         let def = self.program.arena.function_def(id);
         self.push_scope();
         for param in self.program.arena.params(def.params) {
-            let ty = Type::from_arena(&self.program.arena, param.ty);
+            let ty = self.type_from_arena(param.ty);
             self.current_scope_mut()
                 .insert(param.name, CompactBinding::new(ty, false));
             if let Some(default) = param.default {
@@ -824,7 +831,7 @@ impl CompactBodyProbe<'_> {
             ArenaExprKind::Require { value, schema } => {
                 self.check_expr(value);
                 Type::Result(
-                    Box::new(Type::from_arena(&self.program.arena, schema)),
+                    Box::new(self.type_from_arena(schema)),
                     Box::new(Type::Error),
                 )
             }
@@ -1404,6 +1411,101 @@ fn stream_item_type(ty: &Type) -> Type {
         Type::Result(ok, _) => stream_item_type(ok),
         Type::Unknown | Type::Invalid => Type::Unknown,
         _ => Type::Unknown,
+    }
+}
+
+fn compact_probe_type_from_arena(
+    arena: &AstArena,
+    id: TypeExprId,
+    declarations: &CompactDeclOutput,
+    depth: usize,
+) -> Type {
+    if depth > declarations.types.len() {
+        return Type::Unknown;
+    }
+    let index = id.index();
+    let tag = arena.type_expr_tags[index];
+    let data = arena.type_expr_data[index];
+    match tag {
+        ArenaTypeExprTag::Named => {
+            let name = Name::from_symbol(Symbol::from_raw(data.lhs));
+            match Type::from_name(name.as_str()) {
+                Type::Unknown => match declarations.types.get(&name) {
+                    Some(CompactTypeDefInfo::Alias(alias)) => {
+                        compact_probe_type_from_arena(arena, *alias, declarations, depth + 1)
+                    }
+                    Some(CompactTypeDefInfo::Record(fields)) => Type::Record(fields.clone()),
+                    Some(CompactTypeDefInfo::Module(exports)) => Type::Module(exports.clone()),
+                    Some(CompactTypeDefInfo::TagUnion) => Type::Tag(name),
+                    None => Type::Unknown,
+                },
+                ty => ty,
+            }
+        }
+        ArenaTypeExprTag::Qualified => {
+            let name = Name::from_symbol(Symbol::from_raw(data.rhs));
+            match declarations.types.get(&name) {
+                Some(CompactTypeDefInfo::Alias(alias)) => {
+                    compact_probe_type_from_arena(arena, *alias, declarations, depth + 1)
+                }
+                Some(CompactTypeDefInfo::Record(fields)) => Type::Record(fields.clone()),
+                Some(CompactTypeDefInfo::Module(exports)) => Type::Module(exports.clone()),
+                Some(CompactTypeDefInfo::TagUnion) => Type::Tag(name),
+                None => Type::Unknown,
+            }
+        }
+        ArenaTypeExprTag::List => Type::List(Box::new(compact_probe_type_from_arena(
+            arena,
+            TypeExprId::from_index(data.lhs as usize),
+            declarations,
+            depth,
+        ))),
+        ArenaTypeExprTag::Map => Type::Map(Box::new(compact_probe_type_from_arena(
+            arena,
+            TypeExprId::from_index(data.lhs as usize),
+            declarations,
+            depth,
+        ))),
+        ArenaTypeExprTag::Stream => Type::Stream(Box::new(compact_probe_type_from_arena(
+            arena,
+            TypeExprId::from_index(data.lhs as usize),
+            declarations,
+            depth,
+        ))),
+        ArenaTypeExprTag::Module => {
+            let inner = compact_probe_type_from_arena(
+                arena,
+                TypeExprId::from_index(data.lhs as usize),
+                declarations,
+                depth,
+            );
+            Type::Module(BTreeMap::from([(
+                Name::intern("<schema>"),
+                ModuleExportType::Value {
+                    ty: inner,
+                    optional: false,
+                },
+            )]))
+        }
+        ArenaTypeExprTag::Result => Type::Result(
+            Box::new(compact_probe_type_from_arena(
+                arena,
+                TypeExprId::from_index(data.lhs as usize),
+                declarations,
+                depth,
+            )),
+            Box::new(
+                TypeExprId::from_optional_raw(data.rhs).map_or(Type::Error, |err| {
+                    compact_probe_type_from_arena(arena, err, declarations, depth)
+                }),
+            ),
+        ),
+        ArenaTypeExprTag::Optional => Type::Optional(Box::new(compact_probe_type_from_arena(
+            arena,
+            TypeExprId::from_index(data.lhs as usize),
+            declarations,
+            depth,
+        ))),
     }
 }
 

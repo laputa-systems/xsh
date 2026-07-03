@@ -533,6 +533,7 @@ pub struct LoweredFunctionUnit {
     dependency_edges: Vec<LoweredFunctionKey>,
     body: Option<Arc<LoweredPureFunction>>,
     blocker: Option<LoweredFunctionBlocker>,
+    blocker_detail: Option<(Span, String)>,
     scc_member_count: usize,
     scc_group: Option<usize>,
 }
@@ -576,6 +577,10 @@ impl LoweredFunctionUnit {
 
     pub fn blocker(&self) -> Option<LoweredFunctionBlocker> {
         self.blocker
+    }
+
+    pub fn blocker_detail(&self) -> Option<&(Span, String)> {
+        self.blocker_detail.as_ref()
     }
 
     pub fn scc_member_count(&self) -> usize {
@@ -2560,6 +2565,7 @@ pub struct Evaluator {
     lowered_qualified_pures: Arc<FxHashMap<QualifiedName, Arc<LoweredPureFunction>>>,
     lowered_qualified_procs: Arc<FxHashMap<QualifiedName, Arc<LoweredPureFunction>>>,
     lowered_program: Arc<LoweredProgram>,
+    last_construct_probe: Option<CompactLowerConstructProbeOutput>,
     lowered_slot_pool: Vec<Vec<LoweredValue>>,
     tag_variants: FxHashMap<Name, usize>,
     error_families: FxHashMap<Name, RuntimeErrorFamily>,
@@ -2756,6 +2762,7 @@ impl Evaluator {
             lowered_qualified_pures: Arc::new(FxHashMap::default()),
             lowered_qualified_procs: Arc::new(FxHashMap::default()),
             lowered_program: Arc::new(LoweredProgram::default()),
+            last_construct_probe: None,
             lowered_slot_pool: Vec::new(),
             tag_variants: FxHashMap::default(),
             error_families: FxHashMap::default(),
@@ -2933,6 +2940,7 @@ impl Evaluator {
             lowered_qualified_pures: shared.lowered_qualified_pures.clone(),
             lowered_qualified_procs: shared.lowered_qualified_procs.clone(),
             lowered_program: shared.lowered_program.clone(),
+            last_construct_probe: None,
             lowered_slot_pool: Vec::new(),
             tag_variants: shared.tag_variants.clone(),
             error_families: shared.error_families.clone(),
@@ -3819,11 +3827,7 @@ impl Evaluator {
                 && !skip_auto_main
                 && !compact_top_level_stmt_is_skippable(program, stmt, allow_checker_only)
             {
-                return Err(compact_lowerability_diagnostic(
-                    program.arena.stmt(stmt).span,
-                    "top-level statement could not be lowered to the compact runtime",
-                    "compact.unlowered-statement",
-                ));
+                return Err(self.compact_unlowered_top_level_diagnostic(program, stmt));
             }
             statements.push(CompactLoweredTopLevelPlan {
                 span: program.arena.stmt(stmt).span,
@@ -3839,6 +3843,44 @@ impl Evaluator {
             auto_main_required,
             compact_auto_main_args,
         })
+    }
+
+    fn compact_unlowered_top_level_diagnostic(
+        &self,
+        program: &ArenaProgram,
+        stmt: StmtId,
+    ) -> Diagnostic {
+        let span = program.arena.stmt(stmt).span;
+        let base_message = "top-level statement could not be lowered to the compact runtime";
+        let Some((blocker_span, blocker_label)) = self.first_compact_construct_blocker() else {
+            return compact_lowerability_diagnostic(
+                span,
+                base_message,
+                "compact.unlowered-statement",
+            );
+        };
+        let message = format!("{base_message}; first blocker: {blocker_label}");
+        crate::diagnostic::Diagnostic::error(message.clone())
+            .with_code("compact.unlowered-statement")
+            .with_label(crate::diagnostic::Label::primary(span, base_message))
+            .with_label(crate::diagnostic::Label::secondary(
+                blocker_span,
+                format!("first unsupported lowered construct: {blocker_label}"),
+            ))
+    }
+
+    fn first_compact_construct_blocker(&self) -> Option<(Span, String)> {
+        let probe = self.last_construct_probe.as_ref()?;
+        first_blocker_sample(&probe.call_blocker_sample_spans)
+            .map(|(span, label)| (span, format!("call `{label}`")))
+            .or_else(|| {
+                first_blocker_sample(&probe.statement_blocker_sample_spans)
+                    .map(|(span, label)| (span, format!("statement `{label}`")))
+            })
+            .or_else(|| {
+                first_blocker_sample(&probe.top_level_blocker_sample_spans)
+                    .map(|(span, label)| (span, format!("top-level `{label}`")))
+            })
     }
 
     // When `proc main` fails to lower, walk main's static dependency chain to
@@ -3864,9 +3906,25 @@ impl Evaluator {
         }
         let source_id = program.source_text_source_id().unwrap_or(source_id);
         let source = self.sources.get(source_id).map(|source| source.text())?;
+        let first_blocker = self.first_compact_construct_blocker();
         let units =
             lower::probe_compact_lower_function_units(program, &declarations, &bodies, source);
-        compact_blocker_diagnostic_for_main(program, root, &units)
+        if let Some(diagnostic) =
+            compact_blocker_diagnostic_for_main(program, root, &units, first_blocker.as_ref())
+        {
+            return Some(diagnostic);
+        }
+        let units = lower::probe_compact_lower_function_units_with_available(
+            program,
+            &declarations,
+            &bodies,
+            source,
+            &self.lowered_pures,
+            &self.lowered_procs,
+            &self.lowered_qualified_pures,
+            &self.lowered_qualified_procs,
+        );
+        compact_install_blocker_diagnostic_for_main(program, root, &units, first_blocker.as_ref())
     }
 
     pub(crate) fn eval_installed_compact_lowered_only(
@@ -4495,8 +4553,9 @@ impl Evaluator {
             &lowered_functions.qualified_pures,
             &lowered_functions.qualified_procs,
         );
+        self.last_construct_probe = None;
         let lowered = install_top_level.then(|| {
-            lower::lower_compact_top_level_program(
+            lower::lower_compact_top_level_program_with_probe(
                 program,
                 &declarations,
                 &bodies,
@@ -4509,8 +4568,9 @@ impl Evaluator {
         Arc::make_mut(&mut self.lowered_procs).extend(lowered_functions.procs);
         Arc::make_mut(&mut self.lowered_qualified_pures).extend(lowered_functions.qualified_pures);
         Arc::make_mut(&mut self.lowered_qualified_procs).extend(lowered_functions.qualified_procs);
-        if let Some(lowered) = lowered {
+        if let Some((lowered, construct_probe)) = lowered {
             self.lowered_program = Arc::new(lowered);
+            self.last_construct_probe = Some(construct_probe);
         }
         let after_commit = profile.then(Instant::now);
         if profile
@@ -5974,10 +6034,17 @@ fn compact_lowerability_diagnostic(span: Span, message: &str, code: &str) -> Dia
         .with_label(crate::diagnostic::Label::primary(span, message))
 }
 
+fn first_blocker_sample(samples: &BTreeMap<String, Vec<Span>>) -> Option<(Span, &str)> {
+    samples
+        .iter()
+        .find_map(|(label, spans)| spans.first().copied().map(|span| (span, label.as_str())))
+}
+
 fn compact_blocker_diagnostic_for_main(
     program: &ArenaProgram,
     root: &[StmtId],
     units: &[LoweredFunctionUnit],
+    first_blocker: Option<&(Span, String)>,
 ) -> Option<Diagnostic> {
     let mut index_by_key: FxHashMap<LoweredFunctionKey, usize> = FxHashMap::default();
     for (index, unit) in units.iter().enumerate() {
@@ -6000,7 +6067,7 @@ fn compact_blocker_diagnostic_for_main(
         visited[index] = true;
         let unit = &units[index];
         if !unit.is_lowered() {
-            return Some(compact_blocker_diagnostic(main_span, unit));
+            return Some(compact_blocker_diagnostic(main_span, unit, first_blocker));
         }
         for edge in unit.dependency_edges() {
             if let Some(&next) = index_by_key.get(edge) {
@@ -6011,7 +6078,57 @@ fn compact_blocker_diagnostic_for_main(
     None
 }
 
-fn compact_blocker_diagnostic(main_span: Span, unit: &LoweredFunctionUnit) -> Diagnostic {
+fn compact_install_blocker_diagnostic_for_main(
+    program: &ArenaProgram,
+    root: &[StmtId],
+    units: &[LoweredFunctionUnit],
+    first_blocker: Option<&(Span, String)>,
+) -> Option<Diagnostic> {
+    let index_by_key = units
+        .iter()
+        .enumerate()
+        .map(|(index, unit)| (unit.key(), index))
+        .collect::<FxHashMap<_, _>>();
+    let main_index = units.iter().position(
+        |unit| matches!(unit.key(), LoweredFunctionKey::Name(name) if name == Name::intern("main")),
+    )?;
+    let main_span = root
+        .iter()
+        .copied()
+        .find_map(|stmt| compact_root_proc_main_span(program, stmt))
+        .unwrap_or_else(zero_span);
+    let mut visited = vec![false; units.len()];
+    let mut queue = std::collections::VecDeque::new();
+    queue.push_back(main_index);
+    while let Some(index) = queue.pop_front() {
+        if visited[index] {
+            continue;
+        }
+        visited[index] = true;
+        let unit = &units[index];
+        let mut pushed_dependency = false;
+        for edge in unit.dependency_edges() {
+            let Some(&next) = index_by_key.get(edge) else {
+                continue;
+            };
+            if !visited[next] && !units[next].is_lowered() {
+                queue.push_back(next);
+                pushed_dependency = true;
+            }
+        }
+        if !pushed_dependency && !unit.is_lowered() {
+            return Some(compact_blocker_diagnostic(main_span, unit, first_blocker));
+        }
+    }
+    None
+}
+
+fn compact_blocker_diagnostic(
+    main_span: Span,
+    unit: &LoweredFunctionUnit,
+    first_blocker: Option<&(Span, String)>,
+) -> Diagnostic {
+    let first_blocker = unit.blocker_detail().or(first_blocker);
     let tail = unit
         .blocker()
         .map(compact_function_blocker_reason_tail)
@@ -6019,17 +6136,38 @@ fn compact_blocker_diagnostic(main_span: Span, unit: &LoweredFunctionUnit) -> Di
     let label_text = format!("unsupported {tail}");
     let main_name = Name::intern("main");
     if matches!(unit.key(), LoweredFunctionKey::Name(name) if name == main_name) {
-        let message = format!("proc main could not be lowered: {label_text}");
-        return Diagnostic::error(message)
+        let message = match first_blocker {
+            Some((_, blocker_label)) => {
+                format!(
+                    "proc main could not be lowered: {label_text}; first blocker: {blocker_label}"
+                )
+            }
+            None => format!("proc main could not be lowered: {label_text}"),
+        };
+        let mut diagnostic = Diagnostic::error(message)
             .with_code("compact.unlowered-main")
             .with_label(crate::diagnostic::Label::primary(
                 unit.source_span(),
                 label_text,
             ));
+        if let Some((span, blocker_label)) = first_blocker {
+            diagnostic = diagnostic.with_label(crate::diagnostic::Label::secondary(
+                *span,
+                format!("first unsupported lowered construct: {blocker_label}"),
+            ));
+        }
+        return diagnostic;
     }
     let display = unit.key().display_name();
-    let message = format!("proc main could not be lowered because {display} has an {label_text}");
-    Diagnostic::error(message)
+    let message = match first_blocker {
+        Some((_, blocker_label)) => {
+            format!(
+                "proc main could not be lowered because {display} has an {label_text}; first blocker: {blocker_label}"
+            )
+        }
+        None => format!("proc main could not be lowered because {display} has an {label_text}"),
+    };
+    let mut diagnostic = Diagnostic::error(message)
         .with_code("compact.unlowered-main")
         .with_label(crate::diagnostic::Label::primary(
             main_span,
@@ -6038,7 +6176,14 @@ fn compact_blocker_diagnostic(main_span: Span, unit: &LoweredFunctionUnit) -> Di
         .with_label(crate::diagnostic::Label::secondary(
             unit.source_span(),
             label_text,
-        ))
+        ));
+    if let Some((span, blocker_label)) = first_blocker {
+        diagnostic = diagnostic.with_label(crate::diagnostic::Label::secondary(
+            *span,
+            format!("first unsupported lowered construct: {blocker_label}"),
+        ));
+    }
+    diagnostic
 }
 
 fn compact_function_blocker_reason_tail(blocker: LoweredFunctionBlocker) -> &'static str {
@@ -6070,7 +6215,9 @@ fn compact_top_level_stmt_is_skippable(
         ArenaStmtKind::Export(inner) => {
             compact_top_level_stmt_is_skippable(program, inner, allow_checker_only)
         }
-        ArenaStmtKind::Use(use_id) => compact_use_stmt_is_skippable(program, use_id),
+        ArenaStmtKind::Use(use_id) => {
+            compact_use_stmt_is_skippable(program, use_id, allow_checker_only)
+        }
         ArenaStmtKind::Expr(expr)
             if allow_checker_only && compact_expr_is_reveal_type_call(program, expr) =>
         {
@@ -6088,7 +6235,11 @@ fn compact_top_level_stmt_is_skippable(
 fn compact_use_stmt_is_skippable(
     program: &ArenaProgram,
     id: crate::syntax::arena::UseStmtId,
+    allow_checker_only: bool,
 ) -> bool {
+    if allow_checker_only {
+        return true;
+    }
     let use_stmt = program.arena.use_stmt(id);
     if use_stmt.alias.is_some() || use_stmt.resolved.is_some() {
         return false;

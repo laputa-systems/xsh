@@ -91,7 +91,8 @@ A compact-lowerability tranche is done only when all of these are true:
 
 ## Tranche Roadmap
 
-Current baseline captured with the debug `xsht`:
+Current baseline captured with the debug `xsht` after the install-diagnostic
+and pipeline type-propagation pass:
 
 ```sh
 ./target/debug/xsht check --summary .
@@ -103,17 +104,76 @@ cargo test --test runtime coverage::ir_coverage_scans_multiline_top_level_region
 
 Current broad failure shape:
 
-- `./target/debug/xsht check --summary .`: `compact.unlowered-main: 25` and
-  `compact.unlowered-statement: 2`.
-- `./target/debug/xsht check --summary ../laputa`: `compact.unlowered-main: 5`
-  diagnostics blocking `main`.
+- `./target/debug/xsht check --summary .`: `compact.unlowered-main: 23` and
+  `compact.unlowered-statement: 1`.
+- `./target/debug/xsht check --summary ../laputa`: no diagnostics.
 - `./target/debug/xsht check --summary ../packages`:
-  `compact.unlowered-main: 11` and `compact.unlowered-statement: 64`.
-  The previous `../packages/pm.xsh:1124` parse typo is no longer present in the
-  current corpus; `../packages/pm.xsh` now reaches
-  `compact.unlowered-main: 1` at `world_plan_repo`.
-- `coverage::ir_coverage_scans_multiline_top_level_regions_once`: fails because
-  `tools/xsh-ir-coverage.xsh:1800` is not lowerable.
+  `compact.unlowered-main: 1`, first blocker
+  `pm.xsh::build_install_packages` (`build_packages(build_ctx, [pkg])?`).
+  A reduced `fs.walk(...) |> map { entry.path.strip_prefix(dest)? }` fixture now
+  passes; the current package chain advances through `local.build_packages` to
+  `local.prepare_build_package_source`, then to
+  `sources.prepare_package_source_tree`.
+- `./target/debug/xsht check --summary tools/xsh-ir-coverage.xsh`:
+  no diagnostics.
+- `coverage::ir_coverage_scans_multiline_top_level_regions_once`: rerun before
+  closing Tranche 7; direct `xsht check` no longer reports a lowerability gap
+  for `tools/xsh-ir-coverage.xsh`.
+- `cargo test --test runtime`: still fails. Current compact-related clusters
+  include showcase scripts blocked by `all_files.len`, `src.rename`,
+  `counts.get`, `json_b.keys`, `totals.keys`, `files.len`,
+  `without_offset.replace`, `preview.len`, and `count_language`; stream tests
+  blocked by `*.keys`; and three `runtime.test-missing` failures surfaced by
+  `xsht test` after compact check failures abort parts of the native test run.
+
+Key files for the current pass:
+
+- `src/runtime/eval/lower.rs`: compact construction, strict method support,
+  local slot type propagation, construct probe output, and blocker samples.
+- `src/runtime/eval.rs`: diagnostic assembly for compact main/top-level
+  lowerability failures.
+- `crates/xsht/src/cli/check.rs`: `xsht check --summary` aggregation.
+- `crates/xsht/tests/cli.rs`: focused check regressions for directory
+  failures, nested blockers, imports, local method-chain type propagation, loop
+  item types, and `run.text` binding types.
+- `crates/xsh-registry/src/signature/methods.rs`: source of truth for method
+  return shapes. Keep compact method-return inference aligned with it; for
+  example `Path.strip_prefix`, `Path.readlink`, and `Path.resolve` return
+  `Result[Path]`, while `Path.relative_to` and `Path.with_ext` return `Path`.
+
+Methodology learned so far:
+
+- Prefer fixing type propagation before adding runtime support when
+  `LOWERED_METHOD_NAMES` and `lowered_ops.rs` already implement the method.
+  The `trim`, `split`, `replace`, `len`, and `join` clusters were mostly type
+  gaps, not missing runtime operations.
+- Preserve strictness by carrying concrete checked types through `SlotScope`.
+  Do not allow methods on `Any` or `Unknown` receivers just because a corpus
+  script would pass.
+- For local bodies, inspect whether the blocker receiver is a direct parameter,
+  loop item, `let` binding, or `run` binding. Each needs explicit slot type
+  propagation or method support will reject it.
+- Re-run the broad summary after each narrow fix. The first visible blocker can
+  move from one function dependency to another without changing the total
+  number of failing scripts.
+- If `main` is missing after compact install but the isolation probe says every
+  reachable function is lowerable, rerun the install-aware probe. It uses the
+  actually committed lowered function set and surfaces unresolved dependency
+  calls such as `build_packages` instead of falling back to a generic
+  `proc main could not be lowered`.
+- Dynamic package-module exports are intentionally `Any`. Keep arbitrary
+  dynamic methods rejected, but `Any.has(name)` and single-argument
+  `Any.get(name)` are lowerable record-introspection methods. Their result
+  remains dynamic unless an explicit binding annotation supplies a concrete
+  type, so follow-on calls such as unannotated `sources.len()` still fail.
+- For pipelines, checked table facts can present API calls such as `fs.walk` as
+  `Result[Stream[FsEntry]]` even though compact lowering treats the bare call as
+  an iterable expression. Pipeline type inference should unwrap `Result` to its
+  ok type before extracting stream/list item types.
+- Slot-aware inference must handle field access inside pipeline and loop block
+  scopes. A map block like `{ |entry| entry.path.strip_prefix(root)? }` needs
+  `entry.path` inferred from the `FsEntry` record schema before `strip_prefix`
+  can produce `Result[Path]`.
 
 Complete tranches in order. Within a tranche, each checkbox should be small
 enough for one agent turn.
@@ -139,26 +199,26 @@ enough for one agent turn.
 - [x] Confirm the `../packages/pm.xsh:1124` parse error is gone from the package
   corpus. Gate: `./target/debug/xsht check --summary ../packages/pm.xsh` now
   reports `compact.unlowered-main: 1`, not `parse.expected-expression`.
-- [ ] Make top-level `use` statements behave like declaration/import markers for
+- [x] Make top-level `use` statements behave like declaration/import markers for
   lowerability checking. Gate:
   `./target/debug/xsht check --summary ../packages/pm/local.xsh` no longer fails at
   `use remote` solely because the `use` statement itself is unlowered.
-- [ ] Cover aliased imports such as `use pm.make as make`,
+- [x] Cover aliased imports such as `use pm.make as make`,
   `use pm.util as pm_util`, and relative package imports such as
   `use PKGBUILD-shared as PKGBUILD_shared`. Gate: targeted tests cover all
   three source shapes.
-- [ ] Re-run `./target/debug/xsht check --summary ../packages` and update the baseline.
+- [x] Re-run `./target/debug/xsht check --summary ../packages` and update the baseline.
   The expected progress is that package diagnostics move past top-level `use`
   lines to real body, call, method, module, or record blockers.
 
 ### Tranche 2: Precise Blocker Diagnostics
 
-- [ ] Add or improve blocker reporting so the
+- [x] Add or improve blocker reporting so the
   `tools/xsh-ir-coverage.xsh:1800` failure names the first unsupported
   construct inside the `CoverageReport` literal. Gate:
   `./target/debug/xsht check --summary tools/xsh-ir-coverage.xsh` must no longer report
   only a generic `compact.unlowered-statement` for that line.
-- [ ] Reduce the `CoverageReport` failure to the exact unsupported expression or
+- [x] Reduce the `CoverageReport` failure to the exact unsupported expression or
   method, then classify it under the three `Operating Rule` cases. Add a small
   fixture or runtime test that reproduces that construct without scanning the
   full corpus. Gate: the new targeted test fails before the lowering or
@@ -167,16 +227,16 @@ enough for one agent turn.
   case, implement the smallest strict lowerer/runtime support for it. Gate:
   `cargo test --test runtime coverage::ir_coverage_scans_multiline_top_level_regions_once -- --nocapture`
   passes, or the failure advances to a later, more specific blocker.
-- [ ] If the `CoverageReport` blocker should remain unsupported, keep it
+- [x] If the `CoverageReport` blocker should remain unsupported, keep it
   rejected but replace the broad diagnostic with a precise one. Gate:
   `cargo test --test runtime coverage::ir_coverage_scans_multiline_top_level_regions_once -- --nocapture`
   either passes because the script no longer needs that construct or fails with
   the precise unsupported construct.
-- [ ] Replace direct `unsupported statement in body` reports with the first
+- [x] Replace direct `unsupported statement in body` reports with the first
   nested blocker when the construct probe has a more specific sample span. Gate:
   at least one failing `core/` script and one failing `../laputa` script name
   the nested expression, method, call, module op, or statement kind.
-- [ ] Add an `xsht check` diagnostic snapshot or targeted test for a nested
+- [x] Add an `xsht check` diagnostic snapshot or targeted test for a nested
   blocker inside a function dependency of `main`. Gate: the test asserts both
   the dependency function name and the nested blocker detail.
 
@@ -204,25 +264,25 @@ enough for one agent turn.
 
 ### Tranche 4: Laputa Main Dependencies
 
-- [ ] For `../laputa/boot.xsh`, reduce `dotenv_lookup` to its first unsupported
+- [x] For `../laputa/boot.xsh`, reduce `dotenv_lookup` to its first unsupported
   statement and add a targeted regression test. Gate:
   `./target/debug/xsht check --summary ../laputa/boot.xsh` either passes or reports a
   later blocker than `dotenv_lookup`.
-- [ ] For `../laputa/linux-iteration.xsh`, reduce `cache_report` to its first
+- [x] For `../laputa/linux-iteration.xsh`, reduce `cache_report` to its first
   unsupported statement and add a targeted regression test. Gate:
   `./target/debug/xsht check --summary ../laputa/linux-iteration.xsh` either passes or
   reports a later blocker than `cache_report`.
-- [ ] For `../laputa/proof-dwl-foot-minimal.xsh` and
+- [x] For `../laputa/proof-dwl-foot-minimal.xsh` and
   `../laputa/proof-waterfox.xsh`, reduce `verify_chroot_command` once and share
   the same lowering or diagnostic fix for both scripts. Gate:
   `./target/debug/xsht check --summary ../laputa/proof-dwl-foot-minimal.xsh` and
   `./target/debug/xsht check --summary ../laputa/proof-waterfox.xsh` either pass or report
   later blockers.
-- [ ] For `../laputa/update-xsh.xsh`, reduce `update_pkgbuild` to its first
+- [x] For `../laputa/update-xsh.xsh`, reduce `update_pkgbuild` to its first
   unsupported statement and add a targeted regression test. Gate:
   `./target/debug/xsht check --summary ../laputa/update-xsh.xsh` either passes or reports
   a later blocker than `update_pkgbuild`.
-- [ ] Run `./target/debug/xsht check --summary ../laputa`. Gate: it exits 0
+- [x] Run `./target/debug/xsht check --summary ../laputa`. Gate: it exits 0
   with no diagnostics, or the only remaining failures are later blockers
   discovered after the five named dependencies above.
 
@@ -232,9 +292,22 @@ enough for one agent turn.
   manager module blocker in `../packages/pm/*.xsh`. Gate:
   `./target/debug/xsht check --summary ../packages/pm` either passes or reports fewer,
   more specific lowerability diagnostics.
+- [x] Allow strict dynamic package export probing: `Any.has(name)` and
+  single-argument `Any.get(name)` lower as dynamic record introspection while
+  arbitrary `Any` methods remain rejected. Gate: `../packages/pm.xsh` advances
+  past `exports.get(...)` blockers, and the existing dynamic `sources.len()`
+  regression still rejects unannotated follow-on methods.
+- [x] Preserve `Path` item types through `fs.walk(...) |> map { entry.path.strip_prefix(...)?
+  }` pipelines. Gate: a reduced fixture using `fs.walk`, `where`, `map`,
+  `sort-by .display()`, and a later `for rel_path in manifest { rel_path.display() }`
+  passes `xsht check --summary`.
 - [ ] Fix strict lowering for package scripts that depend on package-manager
   module return records, lists, checksums, source arrays, and metadata. Gate:
   one reduced fixture covers each added record or method path.
+- [ ] Reduce the current `../packages/pm.xsh` dependency chain:
+  `build_install_packages -> build_packages -> prepare_build_package_source ->
+  prepare_package_source_tree`. Gate: `./target/debug/xsht check --summary
+  ../packages/pm.xsh` reports a later blocker than `build_packages`, or exits 0.
 - [ ] Reduce representative `PKGBUILD.xsh` failures for `pm.make`,
   `pm.util`, Linux `kbuild`, and aliased shared package modules. Gate: at least
   one script in each import family moves past module/import setup to body
@@ -244,13 +317,13 @@ enough for one agent turn.
 
 ### Tranche 6: Package Proof Scripts
 
-- [ ] Reduce and fix proof scripts with direct unsupported `main` bodies, such
+- [x] Reduce and fix proof scripts with direct unsupported `main` bodies, such
   as `bison/proof-stack.xsh`, `build-essential-native/proof-image.xsh`,
   `cmake/proof.xsh`, `dropbear/proof.xsh`, `flex/proof.xsh`,
   `m4/proof.xsh`, `muon/proof.xsh`, `musl/proof.xsh`, and
   `tmux/proof.xsh`. Gate: each script either passes or reports a later,
   specific blocker.
-- [ ] Reduce and fix proof helper blockers such as
+- [x] Reduce and fix proof helper blockers such as
   `ca-certificates/proof.xsh::verify_package_metadata`. Gate: helper
   dependency diagnostics name the nested blocker and the script advances or
   passes.
@@ -291,7 +364,8 @@ it complete when the named gate demonstrates progress against that exact target.
 - `src/runtime/eval/lowered_run.rs`: execution of lowered expressions,
   statements, methods, and module runtime ops.
 - `src/runtime/eval.rs`: compact install, `xsht check` lowerability diagnostics,
-  runtime execution of installed compact plans.
+  runtime execution of installed compact plans. Install-aware main diagnostics
+  live here; they are the fallback after the in-isolation dependency probe.
 - `src/sema/check/compact.rs`: compact probe checker used before lowering.
 - `crates/xsh-registry/src/signature/*`: standard API signatures and runtime
   operation ids.
@@ -313,7 +387,7 @@ Fix the compact lowerer inference, not the method gate. Check:
 - module/method return schemas;
 - env pseudo-fields such as `env.Str.NAME?` and `env.Path.NAME?`;
 - standard records returned by APIs such as `metadata`, `fs.files`, archive
-  list APIs, and byte-copy helpers.
+  list APIs, `fs.walk`, and byte-copy helpers.
 
 **Known method missing receiver-specific return type**
 
@@ -401,19 +475,17 @@ lowering changes.
 As of the current baseline, the north-star gates are:
 
 - [ ] `./target/debug/xsht check .`
-- [ ] `./target/debug/xsht check ../laputa`
+- [x] `./target/debug/xsht check ../laputa`
 - [ ] `./target/debug/xsht check ../packages`
 
 Narrow gates that are currently useful while closing the first tranches:
 
-- [ ] `./target/debug/xsht check --summary tools/xsh-ir-coverage.xsh`
+- [x] `./target/debug/xsht check --summary tools/xsh-ir-coverage.xsh`
 - [ ] `./target/debug/xsht check --summary ../packages/pm.xsh`
-- [ ] `./target/debug/xsht check --summary ../packages/pm/local.xsh`
-- [ ] `./target/debug/xsht check --summary ../laputa/boot.xsh`
-- [ ] `./target/debug/xsht check --summary ../laputa/linux-iteration.xsh`
-- [ ] `./target/debug/xsht check --summary ../laputa/proof-dwl-foot-minimal.xsh`
-- [ ] `./target/debug/xsht check --summary ../laputa/proof-waterfox.xsh`
-- [ ] `./target/debug/xsht check --summary ../laputa/update-xsh.xsh`
+- [ ] `./target/debug/xsht check --summary core/head.xsh`
+- [ ] `./target/debug/xsht check --summary core/rg.xsh`
+- [ ] `./target/debug/xsht check --summary core/tree.xsh`
+- [ ] `./target/debug/xsht check --summary showcase/ecount.xsh`
 - [ ] `cargo test --test runtime coverage::ir_coverage_scans_multiline_top_level_regions_once -- --nocapture`
 - [ ] `cargo test --test runtime collections::fs_files_recurses_with_raw_walk_and_preserves_entry_ext -- --nocapture`
 - [ ] `cargo test --test runtime streams::reduce_by_parallel_jobs_matches_serial -- --nocapture`

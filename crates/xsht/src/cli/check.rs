@@ -4,8 +4,8 @@ use crate::xsht::cli::{
 };
 use crate::xsht::config::{config_for_dir, config_for_file};
 use crate::xsht::format::Formatter;
-use std::collections::BTreeMap;
 use std::cmp::Reverse;
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use xsh::diagnostic::{Diagnostic, DiagnosticRenderer, Label, LabelStyle};

@@ -363,6 +363,42 @@ proc fallible() [error] -> Result[Str] {
 }
 
 #[test]
+fn check_top_level_user_imports_are_skippable_for_lowerability() {
+    let root = TempDir::new().expect("create temp root");
+    let project = root.path().join("project");
+    fs::create_dir_all(project.join("pm")).expect("create module dir");
+    fs::write(project.join("helper.xsh"), "export let value = 1\n").expect("write helper");
+    fs::write(project.join("pm").join("make.xsh"), "export let jobs = 1\n")
+        .expect("write pm module");
+    fs::write(
+        project.join("PKGBUILD-shared.xsh"),
+        "export let pkgname = \"demo\"\n",
+    )
+    .expect("write hyphen module");
+    fs::write(
+        project.join("main.xsh"),
+        "use helper as h
+use pm.make as make
+use PKGBUILD-shared as PKGBUILD_shared
+",
+    )
+    .expect("write main script");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+        .args(["check", "project/main.xsh"])
+        .current_dir(root.path())
+        .output()
+        .expect("run xsht check");
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn check_compact_lowerability_reports_dependency_blocker() {
     let root = TempDir::new().expect("create temp root");
     let script = root.path().join("main.xsh");
@@ -414,6 +450,430 @@ proc main(...argv: List[Str]) [error] -> Result[Unit] {
 }
 
 #[test]
+fn check_top_level_lowerability_reports_first_nested_call_blocker() {
+    let root = TempDir::new().expect("create temp root");
+    let script = root.path().join("main.xsh");
+    fs::write(
+        &script,
+        "pure scan_corpus(x: Int = 1 + 1) -> Int {
+  return x
+}
+
+let report = {corpus: scan_corpus()}
+",
+    )
+    .expect("write script");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+        .args(["check", "main.xsh"])
+        .current_dir(root.path())
+        .output()
+        .expect("run xsht check");
+
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("compact.unlowered-statement"),
+        "stderr: {stderr}"
+    );
+    assert!(
+        stderr.contains("first blocker: call `scan_corpus`"),
+        "stderr: {stderr}"
+    );
+    assert!(
+        stderr.contains("first unsupported lowered construct: call `scan_corpus`"),
+        "stderr: {stderr}"
+    );
+}
+
+#[test]
+fn check_main_dependency_reports_first_nested_call_blocker() {
+    let root = TempDir::new().expect("create temp root");
+    let script = root.path().join("main.xsh");
+    fs::write(
+        &script,
+        "error AppletError = Usage(message: Str)
+
+pure common_int(raw: Str) -> Result[Int] {
+  match raw {
+    \"1\" => 1
+    _ => raw.parse_int().context(\"usage\", \"bad int\")?
+  }
+}
+
+proc main(...argv: List[Str]) [error] -> Result[Unit] {
+  let _ = common_int(\"2\")?
+  return Ok()
+}
+",
+    )
+    .expect("write script");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+        .args(["check", "main.xsh"])
+        .current_dir(root.path())
+        .output()
+        .expect("run xsht check");
+
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("common_int has an unsupported statement in body"),
+        "stderr: {stderr}"
+    );
+    assert!(
+        stderr.contains("first blocker: call `<field>.context`"),
+        "stderr: {stderr}"
+    );
+    assert!(
+        stderr.contains("first unsupported lowered construct: call `<field>.context`"),
+        "stderr: {stderr}"
+    );
+}
+
+#[test]
+fn check_for_line_item_type_allows_lowered_str_methods() {
+    let root = TempDir::new().expect("create temp root");
+    let script = root.path().join("main.xsh");
+    fs::write(
+        &script,
+        "proc main(...argv: List[Str]) [error] -> Result[Unit] {
+  let text = \"a=b\\nc=d\"
+  for line in text.lines() {
+    let parts = line.split(\"=\")
+    print ${parts.len()}
+  }
+  return Ok()
+}
+",
+    )
+    .expect("write script");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+        .args(["check", "main.xsh"])
+        .current_dir(root.path())
+        .output()
+        .expect("run xsht check");
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn check_local_method_chain_types_flow_through_if_binding() {
+    let root = TempDir::new().expect("create temp root");
+    let script = root.path().join("main.xsh");
+    fs::write(
+        &script,
+        "pure lookup(body: Str, name: Str) -> Str {
+  for raw in body.lines() {
+    let stripped = raw.trim()
+    let line = if stripped.starts_with(\"export \") { stripped.split(\"export \").get(1, \"\").trim() } else { stripped }
+    if line.starts_with(f\"${name}=\") {
+      return line.split(\"=\").get(1, \"\").trim().replace(\"\\\"\", \"\").replace(\"'\", \"\")
+    }
+  }
+  return \"\"
+}
+
+proc main(...argv: List[Str]) [error] -> Result[Unit] {
+  let _ = lookup(\"export A=1\", \"A\")
+  return Ok()
+}
+",
+    )
+    .expect("write script");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+        .args(["check", "main.xsh"])
+        .current_dir(root.path())
+        .output()
+        .expect("run xsht check");
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn check_run_text_binding_type_allows_lowered_str_methods() {
+    let root = TempDir::new().expect("create temp root");
+    let script = root.path().join("main.xsh");
+    fs::write(
+        &script,
+        "proc main(...argv: List[Str]) [process, error] -> Result[Unit] {
+  let out = run.text printf hello ?
+  print ${out.trim()}
+  return Ok()
+}
+",
+    )
+    .expect("write script");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+        .args(["check", "main.xsh"])
+        .current_dir(root.path())
+        .output()
+        .expect("run xsht check");
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn check_explicit_list_annotation_survives_any_result_binding() {
+    let root = TempDir::new().expect("create temp root");
+    let script = root.path().join("main.xsh");
+    fs::write(
+        &script,
+        "proc main(...argv: List[Str]) [error] -> Result[Unit] {
+  let stored: Record = {deps: []}
+  let deps: List[Str] = stored.get(\"deps\")?
+  print \"deps\" deps.len() deps.join(\" \")
+  return Ok()
+}
+",
+    )
+    .expect("write script");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+        .args(["check", "main.xsh"])
+        .current_dir(root.path())
+        .output()
+        .expect("run xsht check");
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn check_local_binding_can_shadow_import_capture_for_lowerability() {
+    let root = TempDir::new().expect("create temp root");
+    fs::write(root.path().join("remote.xsh"), "export let value = 1\n").expect("write module");
+    let script = root.path().join("main.xsh");
+    fs::write(
+        &script,
+        "use remote
+
+proc main(...argv: List[Str]) [error] -> Result[Unit] {
+  let remote = \"local\"
+  print ${remote.trim()}
+  return Ok()
+}
+",
+    )
+    .expect("write script");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+        .args(["check", "main.xsh"])
+        .current_dir(root.path())
+        .output()
+        .expect("run xsht check");
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn check_par_map_result_item_type_flows_to_for_loop() {
+    let root = TempDir::new().expect("create temp root");
+    let script = root.path().join("main.xsh");
+    fs::write(
+        &script,
+        "type BuiltPackage = {metadata_sha256: Str}
+type Package = {name: Str}
+
+proc build_world_package(pkg: Package) [error] -> Result[List[BuiltPackage]] {
+  return Ok([{metadata_sha256: pkg.name}])
+}
+
+proc main(...argv: List[Str]) [error] -> Result[Unit] {
+  let pending: List[Package] = [{name: \"demo\"}]
+  let built_batches = pending |> par-map --jobs=1 { |pkg| build_world_package(pkg) }
+  for built in built_batches {
+    print ${built.len()}
+  }
+  return Ok()
+}
+",
+    )
+    .expect("write script");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+        .args(["check", "main.xsh"])
+        .current_dir(root.path())
+        .output()
+        .expect("run xsht check");
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn check_where_pipeline_preserves_item_type_for_loop() {
+    let root = TempDir::new().expect("create temp root");
+    let script = root.path().join("main.xsh");
+    fs::write(
+        &script,
+        "proc main(...argv: List[Str]) [error] -> Result[Unit] {
+  let words = \"a b\".split(\" \") |> where .trim() != \"\"
+  for word in words {
+    print ${word.trim()}
+  }
+  return Ok()
+}
+",
+    )
+    .expect("write script");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+        .args(["check", "main.xsh"])
+        .current_dir(root.path())
+        .output()
+        .expect("run xsht check");
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn check_path_property_field_type_flows_to_method_call() {
+    let root = TempDir::new().expect("create temp root");
+    let script = root.path().join("main.xsh");
+    fs::write(
+        &script,
+        "proc main(...argv: List[Str]) [fs, error] -> Result[Unit] {
+  let dir = fs.cwd()?
+  let parent = dir.parent
+  print ${parent.display()}
+  return Ok()
+}
+",
+    )
+    .expect("write script");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+        .args(["check", "main.xsh"])
+        .current_dir(root.path())
+        .output()
+        .expect("run xsht check");
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn check_any_record_get_can_be_narrowed_by_binding_annotation() {
+    let root = TempDir::new().expect("create temp root");
+    let script = root.path().join("main.xsh");
+    fs::write(
+        &script,
+        "proc main(...argv: List[Str]) [error] -> Result[Unit] {
+  let exports: Any = {sources: [\"a\", \"b\"]}
+  if exports.has(\"sources\") {
+    let sources: List[Str] = exports.get(\"sources\")?
+    print ${sources.len()}
+  }
+  return Ok()
+}
+",
+    )
+    .expect("write script");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+        .args(["check", "main.xsh"])
+        .current_dir(root.path())
+        .output()
+        .expect("run xsht check");
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn check_fs_walk_map_path_result_type_flows_to_for_loop() {
+    let root = TempDir::new().expect("create temp root");
+    let script = root.path().join("main.xsh");
+    fs::write(
+        &script,
+        "proc main(...argv: List[Str]) [fs, error] -> Result[Unit] {
+  let dest = p\".\"
+  let manifest = fs.walk(dest)
+    |> where .kind == \"file\" or .kind == \"symlink\"
+    |> map { |entry|
+      entry.path.strip_prefix(dest)?
+    }
+    |> sort-by .display()
+  for rel_path in manifest {
+    let key = rel_path.display()
+    print ${key}
+  }
+  return Ok()
+}
+",
+    )
+    .expect("write script");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+        .args(["check", "main.xsh"])
+        .current_dir(root.path())
+        .output()
+        .expect("run xsht check");
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn check_compact_lowerability_rejects_unsupported_lowered_record_method() {
     let root = TempDir::new().expect("create temp root");
     let script = root.path().join("main.xsh");
@@ -421,7 +881,7 @@ fn check_compact_lowerability_rejects_unsupported_lowered_record_method() {
         &script,
         "proc main(...argv: List[Str]) [error] -> Result[Unit] {
   let exports: Record = {sources: {name: \"demo\"}}
-  let sources: List[Str] = exports.get(\"sources\")?
+  let sources = exports.get(\"sources\")?
   if sources.len() != 0 {
     return Ok()
   }
