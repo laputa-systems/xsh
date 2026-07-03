@@ -603,6 +603,45 @@ proc main(...argv: List[Str]) [error] -> Result[Unit] {
         String::from_utf8_lossy(&output.stderr)
     );
 }
+#[test]
+fn check_match_ok_binding_type_allows_lowered_str_methods() {
+    let root = TempDir::new().expect("create temp root");
+    let script = root.path().join("main.xsh");
+    fs::write(
+        &script,
+        "proc read_summary(candidate: Path) [fs, error] -> Result[Str] {
+  match fs.read_text(candidate) {
+    Ok(text_value) => {
+      let lines = text_value.lines().collect()
+      let summary = lines[1].trim()
+      return summary
+    }
+    Err(_) => {}
+  }
+  \"\"
+}
+
+proc main(...argv: List[Str]) [fs, error] -> Result[Unit] {
+  let _ = read_summary(path.absolute(\"x\")?)?
+  return Ok()
+}
+",
+    )
+    .expect("write script");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+        .args(["check", "main.xsh"])
+        .current_dir(root.path())
+        .output()
+        .expect("run xsht check");
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
 
 #[test]
 fn check_run_text_binding_type_allows_lowered_str_methods() {

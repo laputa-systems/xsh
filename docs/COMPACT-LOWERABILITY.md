@@ -102,21 +102,25 @@ and pipeline type-propagation pass:
 cargo test --test runtime coverage::ir_coverage_scans_multiline_top_level_regions_once -- --nocapture
 ```
 
-Current broad failure shape after completing Tranche 3:
+Current broad failure shape after completing Tranche 5:
 
 - `./target/debug/xsht check --summary .`: no diagnostics.
 - `./target/debug/xsht check --summary ../laputa`: no diagnostics.
-- `./target/debug/xsht check --summary ../packages`:
-  `compact.unlowered-main: 1`, first blocker
-  `pm.xsh::handle_cli_command` (`invoke_extension(command, ctx, parsed.raw)?`).
-  Earlier package chains through `build_install_packages -> build_packages`
-  now lower past that point.
+- `./target/debug/xsht check --summary ../packages`: no diagnostics. The
+  `pm.xsh::handle_cli_command` (`invoke_extension`) blocker closed after
+  propagating the checked ok-type of `Result`-scrutinee matches to `Ok(binding)`
+  arms, so `pm.extensions` module functions lower when imported by `pm.xsh`.
 - `./target/debug/xsht check --summary tools/xsh-ir-coverage.xsh`:
   no diagnostics.
-- `coverage::ir_coverage_scans_multiline_top_level_regions_once`: rerun before
-  closing Tranche 7; direct `xsht check` no longer reports a lowerability gap
-  for `tools/xsh-ir-coverage.xsh`.
-- `cargo test --test runtime`: still needs a final Tranche 7 rerun.
+- `coverage::ir_coverage_scans_multiline_top_level_regions_once`: passes.
+- `cargo test --test runtime`: the remaining failures
+  (`collections::fs_files_recurses_with_raw_walk_and_preserves_entry_ext`,
+  `coverage::showcase_standalone_scripts_are_self_testable`,
+  `coverage::xsht_test_runs_native_xsh_tests_by_default`,
+  `modules::user_modules_import_exports_aliases_and_cycles`,
+  `streams::par_map_reduce_by_fuses_to_local_worker_aggregation`,
+  `streams::reduce_by_parallel_jobs_matches_serial`) are pre-existing on master
+  and unrelated to compact lowerability; they still need a final Tranche 7 rerun.
 
 Key files for the current pass:
 
@@ -166,6 +170,13 @@ Methodology learned so far:
   scopes. A map block like `{ |entry| entry.path.strip_prefix(root)? }` needs
   `entry.path` inferred from the `FsEntry` record schema before `strip_prefix`
   can produce `Result[Path]`.
+- `Ok(binding)`/`Err(binding)` arms in a `Result`-scrutinee match used to declare
+  their slot without a type, so a later `let lines = text.lines().collect()` in
+  the arm fell back to a coarse `List[Any]` and rejected `lines[1].trim()`.
+  Thread the scrutinee's concrete ok/err payload type into the pattern binding
+  (`compact_match_scrutinee_result_types`); only set it when
+  `compact_checked_type_is_concrete` holds so dynamic `Any`/`Unknown` scrutinees
+  keep the prior untyped-slot behavior.
 
 Complete tranches in order. Within a tranche, each checkbox should be small
 enough for one agent turn.
@@ -280,7 +291,7 @@ enough for one agent turn.
 
 ### Tranche 5: Package Manager And PKGBUILD Modules
 
-- [ ] After Tranche 1 moves past top-level `use`, reduce the first package
+- [x] After Tranche 1 moves past top-level `use`, reduce the first package
   manager module blocker in `../packages/pm/*.xsh`. Gate:
   `./target/debug/xsht check --summary ../packages/pm` either passes or reports fewer,
   more specific lowerability diagnostics.
@@ -293,19 +304,30 @@ enough for one agent turn.
   }` pipelines. Gate: a reduced fixture using `fs.walk`, `where`, `map`,
   `sort-by .display()`, and a later `for rel_path in manifest { rel_path.display() }`
   passes `xsht check --summary`.
-- [ ] Fix strict lowering for package scripts that depend on package-manager
+- [x] Fix strict lowering for package scripts that depend on package-manager
   module return records, lists, checksums, source arrays, and metadata. Gate:
-  one reduced fixture covers each added record or method path.
-- [ ] Reduce the current `../packages/pm.xsh` dependency chain:
+  one reduced fixture covers each added record or method path. The remaining
+  blocker was type propagation, not missing runtime ops: `Ok(binding)` arms in
+  `Result`-scrutinee matches now carry the checked ok-type, so `pm.extensions`
+  functions lower when imported by `pm.xsh` and `./target/debug/xsht check
+  --summary ../packages` exits 0. Covered by
+  `check_match_ok_binding_type_allows_lowered_str_methods`.
+- [x] Reduce the current `../packages/pm.xsh` dependency chain:
   `build_install_packages -> build_packages -> prepare_build_package_source ->
   prepare_package_source_tree`. Gate: `./target/debug/xsht check --summary
   ../packages/pm.xsh` reports a later blocker than `build_packages`, or exits 0.
-- [ ] Reduce representative `PKGBUILD.xsh` failures for `pm.make`,
+  It now exits 0 with no diagnostics.
+- [x] Reduce representative `PKGBUILD.xsh` failures for `pm.make`,
   `pm.util`, Linux `kbuild`, and aliased shared package modules. Gate: at least
   one script in each import family moves past module/import setup to body
-  blockers or passes.
-- [ ] Keep module shape strict. Gate: tests assert dynamic module calls or
-  unknown imported members are still rejected with precise diagnostics.
+  blockers or passes. `./target/debug/xsht check --summary ../packages` exits 0,
+  so every import family passes.
+- [x] Keep module shape strict. Gate: tests assert dynamic module calls or
+  unknown imported members are still rejected with precise diagnostics. The
+  ok/err binding type is only set when `compact_checked_type_is_concrete` holds,
+  so dynamic (`Any`/`Unknown`) scrutinees keep the previous untyped-slot
+  behavior; `check_compact_lowerability_rejects_unsupported_lowered_record_method`
+  and the rest of the CLI lowerability suite still pass.
 
 ### Tranche 6: Package Proof Scripts
 
@@ -468,18 +490,18 @@ As of the current baseline, the north-star gates are:
 
 - [x] `./target/debug/xsht check .`
 - [x] `./target/debug/xsht check ../laputa`
-- [ ] `./target/debug/xsht check ../packages`
+- [x] `./target/debug/xsht check ../packages`
 
 Narrow gates that are currently useful while closing the first tranches:
 
 - [x] `./target/debug/xsht check --summary tools/xsh-ir-coverage.xsh`
-- [ ] `./target/debug/xsht check --summary ../packages/pm.xsh`
+- [x] `./target/debug/xsht check --summary ../packages/pm.xsh`
 - [x] `./target/debug/xsht check --summary core/head.xsh`
 - [x] `./target/debug/xsht check --summary core/rg.xsh`
 - [x] `./target/debug/xsht check --summary core/tree.xsh`
 - [x] `./target/debug/xsht check --summary showcase/ecount.xsh`
 - [x] `./target/debug/xsht check --summary showcase/tokei.xsh`
-- [ ] `cargo test --test runtime coverage::ir_coverage_scans_multiline_top_level_regions_once -- --nocapture`
+- [x] `cargo test --test runtime coverage::ir_coverage_scans_multiline_top_level_regions_once -- --nocapture`
 - [ ] `cargo test --test runtime collections::fs_files_recurses_with_raw_walk_and_preserves_entry_ext -- --nocapture`
 - [ ] `cargo test --test runtime streams::reduce_by_parallel_jobs_matches_serial -- --nocapture`
 - [ ] `cargo test --test runtime coverage::showcase_standalone_scripts_are_self_testable -- --nocapture`

@@ -4482,6 +4482,29 @@ impl CompactLowerConstructProbe<'_, '_> {
         }
     }
 
+    /// Extract the concrete ok and err payload types from a match scrutinee so
+    /// `Ok(binding)`/`Err(binding)` arms can declare their slot with a checked
+    /// type. Returns `None` for either side when the scrutinee is not a
+    /// `Result` or when that payload type is not concrete, so callers keep the
+    /// previous untyped-slot behavior instead of forcing `Any`.
+    fn compact_match_scrutinee_result_types(
+        &self,
+        scrutinee: ExprId,
+        slots: &SlotScope,
+    ) -> (Option<Type>, Option<Type>) {
+        let scrutinee_ty = self
+            .infer_checked_expr_type_with_slots(scrutinee, slots)
+            .or_else(|| self.infer_checked_expr_type(scrutinee, &self.top_level_known));
+        match scrutinee_ty {
+            Some(Type::Result(ok, err)) => {
+                let ok_ty = compact_checked_type_is_concrete(&ok).then(|| ok.as_ref().clone());
+                let err_ty = compact_checked_type_is_concrete(&err).then(|| err.as_ref().clone());
+                (ok_ty, err_ty)
+            }
+            _ => (None, None),
+        }
+    }
+
     fn infer_checked_pipeline_type_with_slots(
         &self,
         input: ExprId,
@@ -6042,6 +6065,8 @@ impl CompactLowerConstructProbe<'_, '_> {
                 ) {
                     return Some(stmt);
                 }
+                let (ok_binding_ty, err_binding_ty) =
+                    self.compact_match_scrutinee_result_types(value, slots);
                 let value = self.lower_expr(value, slots, current_function, item_slot)?;
                 let arms = self.program.arena.match_arms(arms).to_vec();
                 let mut lowered_arms = Vec::with_capacity(arms.len());
@@ -6056,7 +6081,8 @@ impl CompactLowerConstructProbe<'_, '_> {
                             });
                         }
                     }
-                    let (pattern, cleanup) = self.lower_pattern(arm.pattern, slots)?;
+                    let (pattern, cleanup) =
+                        self.lower_pattern(arm.pattern, slots, ok_binding_ty.as_ref(), err_binding_ty.as_ref())?;
                     let body = match self.lower_block(arm.block, slots, current_function, item_slot)
                     {
                         Some(body) => body,
@@ -7182,9 +7208,12 @@ impl CompactLowerConstructProbe<'_, '_> {
                     return Some(expr);
                 }
                 let arms = self.program.arena.match_expr_arms(arms).to_vec();
+                let (ok_binding_ty, err_binding_ty) =
+                    self.compact_match_scrutinee_result_types(value, slots);
                 let mut lowered_arms = Vec::with_capacity(arms.len());
                 for arm in arms {
-                    let (pattern, cleanup) = self.lower_pattern(arm.pattern, slots)?;
+                    let (pattern, cleanup) =
+                        self.lower_pattern(arm.pattern, slots, ok_binding_ty.as_ref(), err_binding_ty.as_ref())?;
                     let value = self
                         .lower_expr(arm.value, slots, current_function, item_slot)
                         .unwrap_or(LoweredExpr::Unit);
@@ -10054,6 +10083,8 @@ impl CompactLowerConstructProbe<'_, '_> {
         current_function: Option<Name>,
         item_slot: Option<usize>,
     ) -> Option<LoweredStmt> {
+        let (ok_binding_ty, err_binding_ty) =
+            self.compact_match_scrutinee_result_types(value, slots);
         let value = self.lower_expr(value, slots, current_function, item_slot)?;
         let arms = self.program.arena.match_arms(arms).to_vec();
         let mut lowered_arms = Vec::with_capacity(arms.len());
@@ -10061,7 +10092,8 @@ impl CompactLowerConstructProbe<'_, '_> {
             if !self.program.arena.block(arm.block).params.is_empty() {
                 return None;
             }
-            let (pattern, cleanup) = self.lower_pattern(arm.pattern, slots)?;
+            let (pattern, cleanup) =
+                self.lower_pattern(arm.pattern, slots, ok_binding_ty.as_ref(), err_binding_ty.as_ref())?;
             // Each arm body gets its own scope so block-local bindings (e.g.
             // `var parts`) don't leak into sibling arms. (The regular match path
             // gets this from `lower_block`; the tail path uses `lower_tail_block`
@@ -10118,6 +10150,8 @@ impl CompactLowerConstructProbe<'_, '_> {
             return Some(expr);
         }
         let arms = self.program.arena.match_arms(arms).to_vec();
+        let (ok_binding_ty, err_binding_ty) =
+            self.compact_match_scrutinee_result_types(value, slots);
         let mut lowered_arms = Vec::with_capacity(arms.len());
         for arm in arms {
             if !self.program.arena.block(arm.block).params.is_empty() {
@@ -10128,7 +10162,8 @@ impl CompactLowerConstructProbe<'_, '_> {
             let [stmt] = statements.as_slice() else {
                 return None;
             };
-            let (pattern, cleanup) = self.lower_pattern(arm.pattern, slots)?;
+            let (pattern, cleanup) =
+                self.lower_pattern(arm.pattern, slots, ok_binding_ty.as_ref(), err_binding_ty.as_ref())?;
             let value = match self.lower_arm_value_expr(*stmt, slots, current_function, item_slot) {
                 Some(value) => value,
                 None => {
@@ -10561,6 +10596,8 @@ impl CompactLowerConstructProbe<'_, '_> {
         &mut self,
         id: PatternId,
         slots: &mut SlotScope,
+        ok_binding_ty: Option<&Type>,
+        err_binding_ty: Option<&Type>,
     ) -> Option<(LoweredPattern, Vec<(Name, usize)>)> {
         self.output.patterns += 1;
         let lowered = match &self.program.arena.pattern(id).kind {
@@ -10647,8 +10684,13 @@ impl CompactLowerConstructProbe<'_, '_> {
                 }
                 if name == "Ok" || name == "Err" {
                     let mut cleanup = Vec::new();
+                    let binding_ty = if name == "Ok" {
+                        ok_binding_ty
+                    } else {
+                        err_binding_ty
+                    };
                     let (slot, unit_only) =
-                        self.lower_result_pattern_slot(*arg, slots, &mut cleanup)?;
+                        self.lower_result_pattern_slot(*arg, slots, &mut cleanup, binding_ty)?;
                     return Some((
                         if name == "Ok" {
                             LoweredPattern::ResultOk { slot, unit_only }
@@ -10753,6 +10795,7 @@ impl CompactLowerConstructProbe<'_, '_> {
         arg: Option<PatternId>,
         slots: &mut SlotScope,
         cleanup: &mut Vec<(Name, usize)>,
+        binding_type: Option<&Type>,
     ) -> Option<(Option<usize>, bool)> {
         let Some(pattern) = arg else {
             return Some((None, true));
@@ -10760,7 +10803,7 @@ impl CompactLowerConstructProbe<'_, '_> {
         match self.program.arena.pattern(pattern).kind {
             ArenaPatternKind::Wildcard => Some((None, false)),
             ArenaPatternKind::Binding(name) if !slots.is_bound_non_capture(name) => {
-                let slot = slots.declare(name);
+                let slot = slots.declare_with_type(name, binding_type.cloned());
                 cleanup.push((name, slot));
                 Some((Some(slot), false))
             }
