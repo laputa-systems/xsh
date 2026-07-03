@@ -278,11 +278,10 @@ impl Checker {
             if let Some(Type::List(item)) = expected {
                 return Type::List(item.clone());
             }
-            self.error(
-                span,
-                "empty list literals require an expected type",
-                "check.empty-list",
-            );
+            if let Some(Type::Any) = expected {
+                return Type::List(Box::new(Type::Any));
+            }
+            // Defer to context — empty list type is refined by later checks.
             return Type::List(Box::new(Type::Unknown));
         }
 
