@@ -48,10 +48,10 @@ typechecking, `docs/SPEC-INTERACTIVE.md` covers `xshi`, and
 `docs/SPEC-OS.md` covers OS-facing runtime behavior such as process groups,
 signals, cancellation, and signal hooks. `docs/XSH-GUIDE.md` shows the intended
 script shape, including target examples that may be ahead of the implementation.
-`docs/IR.md` is the implementation guide for lowered IR plumbing, symbol
-identity, registry invariants, and benchmark verification. `docs/COVERAGE.md`
-tracks the practical coverage plan for areas that need larger harnesses rather
-than branch-only tests.
+`docs/FRONTEND.md` is the implementation guide for the compact frontend,
+lowered IR plumbing, symbol identity, registry invariants, and benchmark
+verification. `docs/COVERAGE.md` tracks the practical coverage plan for areas
+that need larger harnesses rather than branch-only tests.
 
 ## Agent Routing
 
@@ -66,14 +66,14 @@ This table is the owner-module summary:
 | process, cwd, env, signals, cancellation | `docs/SPEC-OS.md` | `src/runtime/run.rs`, `src/runtime/process.rs`, `src/runtime/cwd.rs` |
 | standard modules and methods | `docs/STDLIB.md`, `src/modules/README.md` | `crates/xsh-registry/src/signature/*`, `src/modules/*`, `src/runtime/eval/modules.rs`, `src/runtime/eval/methods.rs` |
 | structured streams | `docs/STREAMS.md` | `src/sema/check/stream.rs`, `src/runtime/eval/stream.rs` |
-| lowered IR | `docs/IR.md` | `src/runtime/eval/lower.rs`, `lowered_ops.rs`, `lowered_run.rs` |
+| lowered IR | `docs/FRONTEND.md` | `src/runtime/eval/lower.rs`, `lowered_ops.rs`, `lowered_run.rs` |
 | docs and examples | `docs/GENERATED-DOCS.md`, `docs-src/README.md` | `src/docs.rs`, `docs-src/*`, `examples/*` |
 
 ## Agent Map For IR Work
 
 Use this path when changing interpreter-speed behavior:
 
-1. Read `docs/SPEC.md` for source-visible semantics and `docs/IR.md` for the
+1. Read `docs/SPEC.md` for source-visible semantics and `docs/FRONTEND.md` for the
    lowered fast-path contract.
 2. Inspect `src/syntax/arena.rs` for the arena node or type shape, and
    `src/syntax/node.rs` for shared leaf syntax such as operators and type
@@ -203,7 +203,7 @@ The lowered IR is deliberately limited to pure/effect-free regions.
 `src/runtime/eval/call.rs` gates pure calls through `call_lowered_pure` before
 falling back to the AST evaluator. Restricted proc bodies can be reused by
 script-level IR, while ordinary proc dispatch remains AST-first. See
-`docs/IR.md` before adding new IR nodes, value kinds, or fast paths.
+`docs/FRONTEND.md` before adding new IR nodes, value kinds, or fast paths.
 
 ## Interactive
 

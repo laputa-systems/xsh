@@ -3,7 +3,7 @@
 Porting real, well-known CLI tools to XSH is how we stress-test the language and
 runtime against *production-shaped* workloads and discover where the
 implementation needs to get better. `tokei` proved this out: it drove most of the
-lowered-IR work (see `docs/IR.md` and the header of `showcase/tokei.xsh`) and took
+lowered-IR work (see `docs/FRONTEND.md` and the header of `showcase/tokei.xsh`) and took
 the default scan from ~2.3× slower than native to faster-than-native.
 
 The goal of each new port is **diversification**: pick tools that load-bear on
@@ -13,7 +13,7 @@ something new instead of re-proving the same thing. The axes we care about:
 - **compute / text-scan** — pure lowerable loops, byte/string predicates, parallel
   `par-map |> reduce-by` aggregation. (Proven by tokei.)
 - **dynamic data / allocation** — nested `Value`/`Map`/`List` churn, `Arc` traffic,
-  record representation. This is the largest *remaining* perf bucket (`docs/IR.md`),
+  record representation. This is the largest *remaining* perf bucket (`docs/FRONTEND.md`),
   and the lowered IR barely helps it.
 - **effects / process orchestration** — `proc` bodies, subprocess spawning, timing,
   signals, env. Deliberately AST-only (never lowered), so a distinct surface.
@@ -94,7 +94,7 @@ churn** axis. The remaining cost is dominated by (a) per-scalar `json.decode` +
 `json.encode` round-trips during parse/serialize, (b) immutable `List.push`/`.extend`
 rebuilding arrays as streams are materialized (eager streams mean every pipe stage
 allocates a fresh `List[Json]`), and (c) cons-cell `Env` + tag-union `Json` `Arc`
-traffic. These are exactly the buckets `docs/IR.md` flags; a NaN-boxed / small-value
+traffic. These are exactly the buckets `docs/FRONTEND.md` flags; a NaN-boxed / small-value
 `Value` lane and a persistent (O(1)-append) list representation would move the needle.
 
 **Deliberate gaps (documented, not bugs).**

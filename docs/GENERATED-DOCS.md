@@ -15,7 +15,7 @@ change.
 | `docs-html/reference/data.json` | generated stdlib/reference model from `src/docs.rs` |
 
 Support docs such as `docs/AGENT-ROUTING.md`, `docs/TEST-MAP.md`,
-`docs/GENERATED-DOCS.md`, `docs/JSON.md`, `docs/STREAMS.md`, `docs/IR.md`,
+`docs/GENERATED-DOCS.md`, `docs/JSON.md`, `docs/STREAMS.md`, `docs/FRONTEND.md`,
 `docs/COVERAGE.md`, and `docs/THREADRIPPER.md` are maintained
 directly unless a future generator says otherwise.
 

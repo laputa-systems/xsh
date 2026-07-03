@@ -360,7 +360,7 @@ Investigate selectively:
 - `showcase/jq.xsh`, especially comments around byte-indexed parsing.
 - `showcase/tokei.xsh`, especially slash-language scanning.
 - `tools/xsh-ir-coverage.xsh`, especially pure/proc/script scanning.
-- `docs/IR.md` if evaluating whether source scanning exists only for IR
+- `docs/FRONTEND.md` if evaluating whether source scanning exists only for IR
   coverage tooling.
 
 ### Good Acceptance Test Shape

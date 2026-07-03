@@ -834,7 +834,7 @@ fn guide_markdown(chapters: &[ChapterDoc]) -> String {
         .push_str("- `docs/STREAMS.md`: structured stream implementation notes and invariants.\n");
     output.push_str("- `docs/COVERAGE.md`: practical coverage plan and harness notes.\n");
     output.push_str(
-        "- `docs/IR.md`: lowered IR, symbol identity, registry invariant, and benchmark contract.\n",
+        "- `docs/FRONTEND.md`: compact frontend, lowered IR, symbol identity, registry invariant, and benchmark contract.\n",
     );
     output.push_str(
         "- `perf/README.md`: performance scenarios, profiling, PGO, and syscall tracing.\n",

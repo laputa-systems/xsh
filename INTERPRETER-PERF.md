@@ -363,7 +363,7 @@ peak RSS, which is dominated by runtime-side file/record/buffer data, not by
 the compiled program's own footprint.
 
 The implementation details for the current compact frontend and lowered runtime
-architecture belong in `PIPELINE.md`.
+architecture belong in `docs/FRONTEND.md`.
 
 ## Verification
 
@@ -463,7 +463,7 @@ narrow changes:
 
 - Lowered `List` clones as immutable copy-on-write `Arc<Vec<_>>` during clone.
   Allocation volume improved, but RSS did not. The kept design is slot-rooted
-  `SharedList` freezing, documented in `PIPELINE.md`.
+  `SharedList` freezing, documented in `docs/FRONTEND.md`.
 - Lowered-only anonymous mmap backing for `Path.read_bytes()`. Focused byte
   behavior tests passed, but release RSS did not improve on generated corpora.
 - Narrow streaming fusion for `par-map |> where |> flat-map |> reduce-by`.
@@ -513,7 +513,7 @@ then avoiding retained duplicate result graphs in `showcase/tokei.xsh`.
 
 ## References
 
-- `PIPELINE.md` - current compact frontend and lowered runtime architecture
-- `docs/IR.md` - lowered IR design and verification guidance
+- `docs/FRONTEND.md` - current compact frontend, lowered runtime architecture,
+  lowered IR design, and verification guidance
 - `perf/README.md` - frontend and runtime profiling commands
 - `showcase/tokei.xsh` - benchmark script and output-shape constraints

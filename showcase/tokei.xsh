@@ -15,7 +15,7 @@
 #    and finally strongly-connected-component co-lowering so the mutually-recursive
 #    cluster (count_markdown <-> count_slash_language -> count_html, dispatched by
 #    count_language) could lower atomically. Net: the default table path went from
-#    ~2.3x slower than native release tokei to ~1.3x FASTER. See docs/IR.md.
+#    ~2.3x slower than native release tokei to ~1.3x FASTER. See docs/FRONTEND.md.
 #
 # 2. Output format: stable, tokei-like, and tested byte-for-byte against this
 #    script's own saved output for the same corpus/options. Native tokei is not
