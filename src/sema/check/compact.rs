@@ -565,8 +565,14 @@ impl CompactBodyProbe<'_> {
                 self.output.bindings += 1;
                 let expected = ty.map(|ty| Type::from_arena(&self.program.arena, ty));
                 let actual = self.check_expr_or_run(initializer);
+                let binding_ty = match expected {
+                    Some(expected) if !matches!(actual, Type::Any | Type::Unknown | Type::Invalid) => {
+                        expected
+                    }
+                    Some(_) | None => actual,
+                };
                 let mutable = matches!(self.program.arena.stmt(id).kind, ArenaStmtKind::Var { .. });
-                self.define_binding_target(target, expected.unwrap_or(actual), mutable);
+                self.define_binding_target(target, binding_ty, mutable);
             }
             ArenaStmtKind::Assign { target, value, .. } => {
                 self.output.supported_statements += 1;

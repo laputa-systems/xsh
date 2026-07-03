@@ -37,9 +37,10 @@ use super::{
 #[derive(Clone, Default)]
 pub(super) struct SlotScope {
     indices: FxHashMap<Name, usize>,
+    types: FxHashMap<Name, Type>,
     // (name, previous slot) for each block-local declaration, so `exit` can
     // restore a shadowed outer binding (or drop a freshly-introduced one).
-    declared: Vec<(Name, Option<usize>)>,
+    declared: Vec<(Name, Option<usize>, Option<Type>)>,
     high_water: usize,
 }
 
@@ -1239,6 +1240,7 @@ impl SlotScope {
         let high_water = indices.len();
         Self {
             indices,
+            types: FxHashMap::default(),
             declared: Vec::new(),
             high_water,
         }
@@ -1257,12 +1259,24 @@ impl SlotScope {
         self.indices.contains_key(&name)
     }
 
+    fn binding_type(&self, name: Name) -> Option<&Type> {
+        self.types.get(&name)
+    }
+
     /// Allocate the next dense slot and bind `name` to it.
     pub(super) fn declare(&mut self, name: Name) -> usize {
+        self.declare_with_type(name, None)
+    }
+
+    fn declare_with_type(&mut self, name: Name, ty: Option<Type>) -> usize {
         let slot = self.high_water;
         self.high_water += 1;
         let previous = self.indices.insert(name, slot);
-        self.declared.push((name, previous));
+        let previous_ty = match ty {
+            Some(ty) => self.types.insert(name, ty),
+            None => self.types.remove(&name),
+        };
+        self.declared.push((name, previous, previous_ty));
         slot
     }
 
@@ -1291,13 +1305,21 @@ impl SlotScope {
     /// A block-local declaration that shadowed an outer binding restores the
     /// outer slot; a freshly-introduced one is dropped.
     pub(super) fn exit(&mut self, snapshot: SlotSnapshot) {
-        for (name, previous) in self.declared[snapshot.declared_len..].iter().rev() {
+        for (name, previous, previous_ty) in self.declared[snapshot.declared_len..].iter().rev() {
             match previous {
                 Some(slot) => {
                     self.indices.insert(*name, *slot);
                 }
                 None => {
                     self.indices.remove(name);
+                }
+            }
+            match previous_ty {
+                Some(ty) => {
+                    self.types.insert(*name, ty.clone());
+                }
+                None => {
+                    self.types.remove(name);
                 }
             }
         }
@@ -4055,6 +4077,39 @@ impl CompactLowerConstructProbe<'_, '_> {
             })
     }
 
+    fn lower_binding_checked_type(&self, ty: Option<TypeExprId>, value: ExprId) -> Option<Type> {
+        let expected = ty.map(|ty| compact_runtime_type(&self.program.arena, ty, self.declarations));
+        let actual = self
+            .bodies
+            .expr_types
+            .get(&value)
+            .filter(|ty| !matches!(ty, Type::Invalid))
+            .cloned();
+        match (expected, actual) {
+            (Some(_), Some(actual @ (Type::Any | Type::Unknown))) => Some(actual),
+            (Some(expected), _) => Some(expected),
+            (None, actual) => actual,
+        }
+    }
+
+    fn lowered_method_supported_for_receiver(
+        &self,
+        base: ExprId,
+        name: Name,
+        arg_count: usize,
+        slots: &SlotScope,
+    ) -> bool {
+        if let ArenaExprKind::Ident(binding) = self.program.arena.expr(base).kind
+            && let Some(ty) = slots.binding_type(binding)
+        {
+            return lowered_method_supported_for_type(ty, name, arg_count);
+        }
+        let Some(ty) = self.infer_checked_expr_type(base, &self.top_level_known) else {
+            return true;
+        };
+        lowered_method_supported_for_type(&ty, name, arg_count)
+    }
+
     fn infer_checked_call_type(
         &self,
         callee: ExprId,
@@ -4931,12 +4986,13 @@ impl CompactLowerConstructProbe<'_, '_> {
                 if let Some(ty) = ty {
                     lowered_arena_type(&self.program.arena, ty, self.declarations)?;
                 }
+                let binding_ty = self.lower_binding_checked_type(ty, value);
                 let value = if self.is_empty_record_in_map_context(value, ty) {
                     LoweredExpr::EmptyMap
                 } else {
                     self.lower_expr(value, slots, current_function, item_slot)?
                 };
-                let slot = slots.declare(name);
+                let slot = slots.declare_with_type(name, binding_ty);
                 if let Some(value) = lower_int_expr_candidate(&value)
                     && !lowered_int_expr_needs_type_context(&value)
                 {
@@ -4986,7 +5042,10 @@ impl CompactLowerConstructProbe<'_, '_> {
                 }
                 let value =
                     self.lower_run_binding_value(run, slots, current_function, item_slot)?;
-                let slot = slots.declare(name);
+                let slot = slots.declare_with_type(
+                    name,
+                    ty.map(|ty| compact_runtime_type(&self.program.arena, ty, self.declarations)),
+                );
                 Some(LoweredStmt::Let { slot, value })
             }
             ArenaStmtKind::Assign { target, op, value } => {
@@ -7762,6 +7821,14 @@ impl CompactLowerConstructProbe<'_, '_> {
                     });
                 }
                 let method_args = lowered_method_call_args(name, &args_vec)?;
+                if !self.lowered_method_supported_for_receiver(
+                    base,
+                    name,
+                    method_args.len(),
+                    slots,
+                ) {
+                    return None;
+                }
                 let receiver = self.lower_expr(base, slots, current_function, item_slot)?;
                 let mut lowered_args = Vec::with_capacity(method_args.len());
                 for arg in method_args {
@@ -7975,6 +8042,14 @@ impl CompactLowerConstructProbe<'_, '_> {
                         args,
                         span,
                     });
+                }
+                if !self.lowered_method_supported_for_receiver(
+                    base,
+                    name,
+                    method_args.len(),
+                    slots,
+                ) {
+                    return None;
                 }
                 let mut lowered_args = Vec::with_capacity(method_args.len());
                 for arg in method_args {
@@ -10322,6 +10397,85 @@ fn lowered_checked_type(ty: &Type) -> Option<LoweredType> {
         Type::Result(_, _) => Some(LoweredType::Result),
         Type::Any | Type::Unknown | Type::Invalid => Some(LoweredType::Any),
         _ => None,
+    }
+}
+
+fn lowered_method_supported_for_type(ty: &Type, name: Name, arg_count: usize) -> bool {
+    match ty {
+        Type::Any | Type::Unknown => false,
+        Type::Invalid => true,
+        Type::Optional(inner) => lowered_method_supported_for_type(inner, name, arg_count),
+        Type::Int => name == "float" && arg_count == 0,
+        Type::Float => match name.as_str() {
+            "floor" | "ceil" | "round" | "sqrt" | "exp" | "ln" | "sin" | "cos" | "tan" | "abs" => {
+                arg_count == 0
+            }
+            "format" => arg_count <= 1,
+            "pow" | "log" => arg_count == 1,
+            _ => false,
+        },
+        Type::Str => match name.as_str() {
+            "trim" | "lower" | "upper" | "reverse" | "lines" | "words" | "parse_int"
+            | "parse_float" | "base64_decode" | "base32_decode" | "count_lines"
+            | "count_words" | "count_chars" | "count_bytes" | "byte_len" => arg_count == 0,
+            "fields" | "squeeze" => arg_count <= 1,
+            "split" | "wrap" | "delete" | "starts_with" | "ends_with" | "contains" => {
+                arg_count == 1
+            }
+            "replace" | "translate" => arg_count == 2,
+            "byte_at" | "byte_slice" | "find" => arg_count == 1 || arg_count == 2,
+            _ => false,
+        },
+        Type::Bytes => match name.as_str() {
+            "trim" | "lines" | "count_lines" | "len" | "lower" | "base64" | "base32" | "md5"
+            | "sha1" | "sha256" | "sha512" | "utf8" => arg_count == 0,
+            "dump" | "strings" => arg_count <= 1,
+            "chunks" | "compare" | "starts_with" | "ends_with" | "contains" => arg_count == 1,
+            "byte_at" | "slice" => arg_count == 1 || arg_count == 2,
+            _ => false,
+        },
+        Type::Digest => matches!(name.as_str(), "hex" | "base64") && arg_count == 0,
+        Type::Regex => match name.as_str() {
+            "matches" | "find" | "captures" => arg_count == 1,
+            "replace" => arg_count == 2,
+            _ => false,
+        },
+        Type::Status => match name.as_str() {
+            "exited" | "signaled" | "exit_code" | "signal_number" => arg_count == 0,
+            "exited_with" => arg_count == 1,
+            _ => false,
+        },
+        Type::Path => match name.as_str() {
+            "display" | "name" | "ext" | "normalize" | "parent" | "lines" | "bytes_lines"
+            | "remove_dir" | "unlink" => arg_count == 0,
+            "with_ext" | "strip_prefix" | "relative_to" | "touch_from" | "truncate"
+            | "chmod" | "hardlink" => arg_count == 1,
+            "copy" | "rename" => arg_count == 1 || arg_count == 2,
+            "touch" => arg_count <= 1,
+            _ => false,
+        },
+        Type::Record(_) | Type::Module(_) => {
+            matches!(name.as_str(), "has" | "get") && arg_count == 1
+                || name == "keys" && arg_count == 0
+        }
+        Type::List(_) => match name.as_str() {
+            "collect" | "len" => arg_count == 0,
+            "contains" | "push" | "extend" => arg_count == 1,
+            "get" => arg_count == 1 || arg_count == 2,
+            "join" => arg_count <= 1,
+            _ => false,
+        },
+        Type::Map(_) => match name.as_str() {
+            "len" | "keys" | "values" => arg_count == 0,
+            "has" | "remove" => arg_count == 1,
+            "get" => arg_count == 1 || arg_count == 2,
+            "set" | "push" => arg_count == 2,
+            _ => false,
+        },
+        Type::Result(_, _) => name == "context" && (arg_count == 1 || arg_count == 2),
+        Type::ProcessHandle => name == "cancel" && arg_count <= 2,
+        Type::Stream(_) => name == "collect" && arg_count == 0,
+        _ => false,
     }
 }
 

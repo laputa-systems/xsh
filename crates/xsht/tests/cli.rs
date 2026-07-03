@@ -232,6 +232,38 @@ proc main(...argv: List[Str]) [error] -> Result[Unit] {
 }
 
 #[test]
+fn check_explicit_directory_uses_directory_config() {
+    let root = TempDir::new().expect("create temp root");
+    let project = root.path().join("project");
+    fs::create_dir_all(&project).expect("create project dir");
+    fs::write(
+        root.path().join("xsht-config.ini"),
+        "exclude = project/bad.xsh\n",
+    )
+    .expect("write root config");
+    fs::write(project.join("xsht-config.ini"), "").expect("write project config");
+    fs::write(project.join("bad.xsh"), "let value =\n").expect("write bad script");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+        .args(["check", "project"])
+        .current_dir(root.path())
+        .output()
+        .expect("run xsht check");
+
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("parse.expected-expression"),
+        "stderr: {stderr}"
+    );
+}
+
+#[test]
 fn check_compact_lowerability_reports_dependency_blocker() {
     let root = TempDir::new().expect("create temp root");
     let script = root.path().join("main.xsh");
@@ -278,6 +310,43 @@ proc main(...argv: List[Str]) [error] -> Result[Unit] {
     );
     assert!(
         stderr.contains("unsupported parameter default"),
+        "stderr: {stderr}"
+    );
+}
+
+#[test]
+fn check_compact_lowerability_rejects_unsupported_lowered_record_method() {
+    let root = TempDir::new().expect("create temp root");
+    let script = root.path().join("main.xsh");
+    fs::write(
+        &script,
+        "proc main(...argv: List[Str]) [error] -> Result[Unit] {
+  let exports: Record = {sources: {name: \"demo\"}}
+  let sources: List[Str] = exports.get(\"sources\")?
+  if sources.len() != 0 {
+    return Ok()
+  }
+  return Ok()
+}
+",
+    )
+    .expect("write script");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+        .args(["check", "main.xsh"])
+        .current_dir(root.path())
+        .output()
+        .expect("run xsht check");
+
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("compact.unlowered-main"),
         "stderr: {stderr}"
     );
 }

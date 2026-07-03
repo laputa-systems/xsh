@@ -30,3 +30,13 @@ pub(crate) fn config_for_file(
         .unwrap_or_else(|| (PathBuf::from("."), fallback_config.clone()));
     Ok(FileToolConfig { config_dir, config })
 }
+
+pub(crate) fn config_for_dir(
+    dir: &Path,
+    fallback_config: &XshConfig,
+) -> Result<FileToolConfig, String> {
+    let probe = dir.join(".xsht-config-probe.xsh");
+    let (config_dir, config) = nearest_config_for_file(&probe)?
+        .unwrap_or_else(|| (PathBuf::from("."), fallback_config.clone()));
+    Ok(FileToolConfig { config_dir, config })
+}

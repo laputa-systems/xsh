@@ -1,8 +1,8 @@
 use crate::xsht::cli::{
-    CliOutput, XshConfig, cancellation_output, collect_configured_xsh_files, collect_xsh_files,
-    load_config, text_bytes,
+    CliOutput, XshConfig, cancellation_output, collect_configured_xsh_files, load_config,
+    text_bytes,
 };
-use crate::xsht::config::config_for_file;
+use crate::xsht::config::{config_for_dir, config_for_file};
 use crate::xsht::format::Formatter;
 use std::cmp::Reverse;
 use std::fs;
@@ -153,7 +153,6 @@ pub fn check_paths_with_options(
         },
         Some(AnnotationSelection::Policy(policy)) => Some(policy),
     };
-    let module_roots: Vec<PathBuf> = config.module_path.iter().map(PathBuf::from).collect();
     let mut files = Vec::new();
     if paths.is_empty() {
         if let Err(message) = collect_configured_xsh_files(Path::new("."), &config, &mut files) {
@@ -172,7 +171,19 @@ pub fn check_paths_with_options(
         for path in paths {
             let path = Path::new(path);
             if path.is_dir() {
-                if let Err(message) = collect_xsh_files(path, &config.exclude, &mut files) {
+                let dir_config = match config_for_dir(path, &config) {
+                    Ok(tool_config) => tool_config.config,
+                    Err(message) => {
+                        return CliOutput {
+                            status: 2,
+                            stdout: Vec::new(),
+                            stderr: text_bytes(format!("xsht: {message}\n")),
+                            trace_text: String::new(),
+                            syscall_summary: None,
+                        };
+                    }
+                };
+                if let Err(message) = collect_configured_xsh_files(path, &dir_config, &mut files) {
                     if let Some(output) = cancellation_output() {
                         return output;
                     }
@@ -221,14 +232,16 @@ pub fn check_paths_with_options(
             continue;
         }
 
-        let line_width = match formatter_line_width_for_script(&path_str, &config) {
-            Ok(line_width) => line_width,
+        let file_config = match config_for_file(&path_str, &config) {
+            Ok(file_config) => file_config,
             Err(message) => {
                 status = 2;
                 stderr.push_str(&format!("xsht: {message}\n"));
                 continue;
             }
         };
+        let line_width = file_config.line_width();
+        let module_roots = file_config.module_roots();
 
         let source_id = match source_ids.get(&path_str) {
             Some(&id) => id,
@@ -270,7 +283,7 @@ pub fn check_paths_with_options(
             &path_str,
             source_id,
             &mut sources,
-            module_roots.clone(),
+            module_roots,
         );
 
         if !parsed.diagnostics.is_empty() {
