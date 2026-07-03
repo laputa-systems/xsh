@@ -1,5 +1,4 @@
 #![allow(clippy::single_call_fn)]
-#![allow(dead_code)]
 
 use crate::runtime::value::{RuntimeError, Value};
 use crate::source::Span;
@@ -614,5 +613,34 @@ fn push_string_run(output: &mut Vec<Value>, current: &mut Vec<u8>, min_len: usiz
         output.push(Value::Str(text.into()));
     } else {
         current.clear();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::source::SourceId;
+
+    fn test_span() -> Span {
+        Span::new(SourceId::new(0), 0, 0)
+    }
+
+    #[test]
+    fn byte_slice_helpers_cover_script_methods() {
+        assert_eq!(len(b"abc"), 3);
+        assert_eq!(
+            slice(b"abcdef".to_vec(), 2, Some(3), test_span()).expect("slice bytes"),
+            b"cde"
+        );
+        assert_eq!(
+            slice(b"abcdef".to_vec(), 4, None, test_span()).expect("slice rest"),
+            b"ef"
+        );
+        assert_eq!(
+            slice(b"abc".to_vec(), -1, None, test_span())
+                .expect_err("negative offset")
+                .kind,
+            "bytes-slice"
+        );
     }
 }

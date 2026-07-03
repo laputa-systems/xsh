@@ -1,5 +1,4 @@
 #![allow(clippy::single_call_fn)]
-#![allow(dead_code)]
 
 use crate::runtime::process::path_bytes;
 use crate::runtime::value::{
@@ -13,13 +12,11 @@ use cap_std::fs::{
     Dir as CapDir, File as CapFile, OpenOptions as CapOpenOptions, Permissions as CapPermissions,
 };
 use cap_tempfile::TempFile;
-use crossbeam_channel::Sender;
 use rustc_hash::FxHashSet;
 use rustix::fs::{
     self as rfs, AtFlags, CWD, FlockOperation, Gid, StatVfs, StatVfsMountFlags, Timespec,
     Timestamps, UTIME_NOW,
 };
-use std::borrow::Cow;
 use std::sync::{Arc, LazyLock};
 
 static K_PATH: LazyLock<Arc<str>> = LazyLock::new(|| Arc::from("path"));
@@ -45,10 +42,6 @@ static V_KIND_DIR: LazyLock<Arc<str>> = LazyLock::new(|| Arc::from("dir"));
 static V_KIND_FILE: LazyLock<Arc<str>> = LazyLock::new(|| Arc::from("file"));
 static V_KIND_SYMLINK: LazyLock<Arc<str>> = LazyLock::new(|| Arc::from("symlink"));
 static V_KIND_OTHER: LazyLock<Arc<str>> = LazyLock::new(|| Arc::from("other"));
-const FS_ENTRY_EXT_INDEX: usize = 3;
-const FS_ENTRY_KIND_INDEX: usize = 6;
-const FS_ENTRY_NAME_INDEX: usize = 9;
-const FS_ENTRY_PATH_INDEX: usize = 12;
 static FS_ENTRY_SHAPE: LazyLock<RecordShape> = LazyLock::new(|| {
     RecordShape::new(vec![
         K_ACCESSED.clone(),
@@ -71,29 +64,6 @@ static FS_ENTRY_SHAPE: LazyLock<RecordShape> = LazyLock::new(|| {
         K_UID.clone(),
         K_WORLD_WRITABLE.clone(),
     ])
-});
-static FS_ENTRY_CHEAP_DEFAULTS: LazyLock<Vec<Value>> = LazyLock::new(|| {
-    vec![
-        Value::Int(0),
-        Value::Int(0),
-        Value::Bool(false),
-        Value::Str(Arc::from("")),
-        Value::Int(0),
-        Value::Bool(false),
-        Value::Str(Arc::from("")),
-        Value::Int(0),
-        Value::Int(0),
-        Value::Str(Arc::from("")),
-        Value::Bool(false),
-        Value::Bool(false),
-        Value::Path(PathValue::new(Vec::new()).expect("empty path contains no NUL")),
-        Value::Bool(false),
-        Value::Bool(false),
-        Value::Int(0),
-        Value::Bool(false),
-        Value::Int(0),
-        Value::Bool(false),
-    ]
 });
 use std::ffi::{CString, OsString};
 use std::io::{ErrorKind, Read, Write};
@@ -1692,10 +1662,6 @@ pub(crate) struct WalkSpec {
 }
 
 impl WalkSpec {
-    pub(crate) fn supports_path_entry_fold(&self) -> bool {
-        !self.stat && self.emit == WalkEmit::Files
-    }
-
     fn entry_matches(&self, path: &Path, file_type: std::fs::FileType) -> bool {
         match self.emit {
             WalkEmit::All => true,
@@ -1711,29 +1677,14 @@ impl WalkSpec {
     }
 }
 
-pub(crate) struct WalkEntry {
-    path: PathBuf,
-}
-
-impl WalkEntry {
-    pub(crate) fn ext_text(&self) -> Cow<'_, str> {
-        self.path
-            .extension()
-            .map(|extension| extension.to_string_lossy())
-            .unwrap_or(Cow::Borrowed(""))
-    }
-}
-
 /// A `LiveStream` for an ignore-backed recursive walk. Lazy: traversal is not
-/// started until the first `next()`, so a fusing fold consumer can take the
-/// pending `WalkSpec` and re-drive the traversal with its own worker strategy.
+/// started until the first `next()`.
 pub(crate) enum IgnoreWalkStream {
     Pending(WalkSpec),
     Running {
         iter: Box<ignore::Walk>,
         spec: WalkSpec,
     },
-    Consumed,
 }
 
 impl LiveStream for IgnoreWalkStream {
@@ -1767,120 +1718,6 @@ impl LiveStream for IgnoreWalkStream {
             return item.record(spec.stat, spec.span).map(Some);
         }
     }
-}
-
-impl IgnoreWalkStream {
-    pub(crate) fn take_pending_spec(&mut self) -> Option<WalkSpec> {
-        let Self::Pending(spec) = self else {
-            return None;
-        };
-        let spec = spec.clone();
-        *self = Self::Consumed;
-        Some(spec)
-    }
-}
-
-fn walk_pool_size() -> usize {
-    std::thread::available_parallelism()
-        .map(|n| n.get())
-        .unwrap_or(4)
-        .max(1)
-}
-
-pub(crate) fn parallel_walk_fold<A, Make, Step>(
-    spec: WalkSpec,
-    jobs: usize,
-    make_acc: Make,
-    step: Step,
-) -> Vec<Result<A, RuntimeError>>
-where
-    A: Send,
-    Make: Fn() -> A + Sync,
-    Step: Fn(&mut A, Result<Value, RuntimeError>) -> Result<(), RuntimeError> + Sync,
-{
-    parallel_walk_ignore_value_fold(spec, jobs, make_acc, step)
-}
-
-pub(crate) fn parallel_walk_ignore_entry_fold<A, Make, Step>(
-    spec: WalkSpec,
-    jobs: usize,
-    make_acc: Make,
-    step: Step,
-) -> Vec<Result<A, RuntimeError>>
-where
-    A: Send,
-    Make: Fn() -> A + Sync,
-    Step: Fn(&mut A, Result<WalkEntry, RuntimeError>) -> Result<(), RuntimeError> + Sync,
-{
-    parallel_walk_ignore_fold(spec, jobs, make_acc, |acc, item| {
-        step(acc, item.map(|item| WalkEntry { path: item.path }))
-    })
-}
-
-fn parallel_walk_ignore_value_fold<A, Make, Step>(
-    spec: WalkSpec,
-    jobs: usize,
-    make_acc: Make,
-    step: Step,
-) -> Vec<Result<A, RuntimeError>>
-where
-    A: Send,
-    Make: Fn() -> A + Sync,
-    Step: Fn(&mut A, Result<Value, RuntimeError>) -> Result<(), RuntimeError> + Sync,
-{
-    let stat = spec.stat;
-    let span = spec.span;
-    parallel_walk_ignore_fold(spec, jobs, make_acc, |acc, item| {
-        step(acc, item.and_then(|item| item.record(stat, span)))
-    })
-}
-
-fn parallel_walk_ignore_fold<A, Make, Step>(
-    spec: WalkSpec,
-    jobs: usize,
-    make_acc: Make,
-    step: Step,
-) -> Vec<Result<A, RuntimeError>>
-where
-    A: Send,
-    Make: Fn() -> A + Sync,
-    Step: Fn(&mut A, Result<RawWalkEntry, RuntimeError>) -> Result<(), RuntimeError> + Sync,
-{
-    let (tx, rx) = crossbeam_channel::unbounded();
-    let builder = ignore_walk_builder(&spec, jobs);
-    let walker = builder.build_parallel();
-    let make_acc = &make_acc;
-    let step = &step;
-    let span = spec.span;
-    walker.run(|| {
-        let tx = tx.clone();
-        let spec = spec.clone();
-        let mut worker = IgnoreFoldWorker {
-            acc: Some(make_acc()),
-            failure: None,
-            tx,
-        };
-        Box::new(move |result| {
-            let item = match result {
-                Ok(entry) => match raw_walk_entry(&spec, &entry) {
-                    Ok(Some(entry)) => Ok(entry),
-                    Ok(None) => return ignore::WalkState::Continue,
-                    Err(error) => Err(error),
-                },
-                Err(error) => Err(RuntimeError::new("fs-walk", error.to_string()).with_span(span)),
-            };
-            let acc = worker.acc.as_mut().expect("ignore fold worker is live");
-            match step(acc, item) {
-                Ok(()) => ignore::WalkState::Continue,
-                Err(error) => {
-                    worker.failure = Some(error);
-                    ignore::WalkState::Quit
-                }
-            }
-        })
-    });
-    drop(tx);
-    rx.into_iter().collect()
 }
 
 fn ignore_walk_builder(spec: &WalkSpec, jobs: usize) -> ignore::WalkBuilder {
@@ -1932,22 +1769,6 @@ fn raw_walk_entry(
         path: path.to_path_buf(),
         file_type,
     }))
-}
-
-struct IgnoreFoldWorker<A> {
-    acc: Option<A>,
-    failure: Option<RuntimeError>,
-    tx: Sender<Result<A, RuntimeError>>,
-}
-
-impl<A> Drop for IgnoreFoldWorker<A> {
-    fn drop(&mut self) {
-        let result = match self.failure.take() {
-            Some(error) => Err(error),
-            None => Ok(self.acc.take().expect("ignore fold worker accumulator")),
-        };
-        let _ = self.tx.send(result);
-    }
 }
 
 fn push_fs_entry(
@@ -2007,50 +1828,6 @@ pub(crate) fn fs_entry_record(
             Value::Bool(mode_sticky(mode)),
             Value::Int(metadata.uid() as i64),
             Value::Bool(mode_world_writable(mode)),
-        ],
-    )))
-}
-
-pub(crate) fn fs_entry_record_cheap(
-    path: &Path,
-    file_type: std::fs::FileType,
-) -> Result<Value, RuntimeError> {
-    Ok(Value::Record(RecordMap::sparse_shaped_array(
-        &FS_ENTRY_SHAPE,
-        FS_ENTRY_CHEAP_DEFAULTS.as_slice(),
-        [
-            (
-                FS_ENTRY_EXT_INDEX,
-                Value::Str(
-                    path.extension()
-                        .map(|name| Arc::<str>::from(name.to_string_lossy().as_ref()))
-                        .unwrap_or_else(|| "".into()),
-                ),
-            ),
-            (
-                FS_ENTRY_KIND_INDEX,
-                Value::Str(if file_type.is_dir() {
-                    V_KIND_DIR.clone()
-                } else if file_type.is_file() {
-                    V_KIND_FILE.clone()
-                } else if file_type.is_symlink() {
-                    V_KIND_SYMLINK.clone()
-                } else {
-                    V_KIND_OTHER.clone()
-                }),
-            ),
-            (
-                FS_ENTRY_NAME_INDEX,
-                Value::Str(
-                    path.file_name()
-                        .map(|name| Arc::<str>::from(name.to_string_lossy().as_ref()))
-                        .unwrap_or_else(|| "".into()),
-                ),
-            ),
-            (
-                FS_ENTRY_PATH_INDEX,
-                Value::Path(crate::runtime::value::PathValue::new(path_bytes(path))?),
-            ),
         ],
     )))
 }

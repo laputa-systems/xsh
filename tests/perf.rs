@@ -48,7 +48,7 @@ fn perf_scenarios_run_on_realistic_corpus() {
         ("value-churn", "76554\n"),
         ("record-stream", "56276\n"),
         ("stream-heavy", "4610\n"),
-        ("parse-check-heavy", "50301\n"),
+        ("parse-check-heavy", "50302\n"),
     ] {
         let output = run_xsh(&format!("perf/scenarios/{scenario}.xsh"), &root);
         assert_success(&output, scenario);

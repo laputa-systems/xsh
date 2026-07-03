@@ -460,18 +460,6 @@ pub(super) fn compare_lowered_sort_keys(left: &LoweredValue, right: &LoweredValu
     }
 }
 
-pub(super) fn lowered_split_text(text: &str, separator: &str) -> Vec<LoweredValue> {
-    if separator.is_empty() {
-        text.chars()
-            .map(|ch| LoweredValue::Str(ch.to_string().into()))
-            .collect()
-    } else {
-        text.split(separator)
-            .map(|part| LoweredValue::Str(part.into()))
-            .collect()
-    }
-}
-
 pub(super) fn lowered_find_text_bytes(text: &str, needle: &str, start: i64) -> i64 {
     let Ok(start) = usize::try_from(start) else {
         return -1;
@@ -522,40 +510,6 @@ pub(super) fn lowered_byte_slice_text(
         );
     }
     Ok(text[offset..end].into())
-}
-
-pub(super) fn lowered_parse_int_text(text: &str, span: Span) -> Result<i64, RuntimeError> {
-    let trimmed = text.trim();
-    let (negative, digits) = trimmed
-        .strip_prefix('-')
-        .map_or((false, trimmed), |rest| (true, rest));
-    let digits = digits.strip_prefix('+').unwrap_or(digits);
-    let (base, digits) = if let Some(rest) = digits
-        .strip_prefix("0x")
-        .or_else(|| digits.strip_prefix("0X"))
-    {
-        (16, rest)
-    } else if let Some(rest) = digits
-        .strip_prefix("0o")
-        .or_else(|| digits.strip_prefix("0O"))
-    {
-        (8, rest)
-    } else if let Some(rest) = digits
-        .strip_prefix("0b")
-        .or_else(|| digits.strip_prefix("0B"))
-    {
-        (2, rest)
-    } else {
-        (10, digits)
-    };
-    let digits = digits.replace('_', "");
-    if digits.is_empty() {
-        return Err(RuntimeError::new("parse-int", "expected integer").with_span(span));
-    }
-    let unsigned = i64::from_str_radix(&digits, base).map_err(|_| {
-        RuntimeError::new("parse-int", format!("invalid integer `{text}`")).with_span(span)
-    })?;
-    Ok(if negative { -unsigned } else { unsigned })
 }
 
 pub(super) fn lowered_join_list(
@@ -1059,8 +1013,12 @@ pub(super) fn lowered_str_method_value(
     let text_value = lowered_str_arg(text, name, span)?;
     match name {
         "trim" if args.is_empty() => lowered_trim_str_value(text, span),
-        "lower" if args.is_empty() => Ok(LoweredValue::Str(text_value.to_lowercase().into())),
-        "upper" if args.is_empty() => Ok(LoweredValue::Str(text_value.to_uppercase().into())),
+        "lower" if args.is_empty() => Ok(LoweredValue::Str(
+            crate::modules::text::lower_text(text_value).into(),
+        )),
+        "upper" if args.is_empty() => Ok(LoweredValue::Str(
+            crate::modules::text::upper_text(text_value).into(),
+        )),
         "reverse" if args.is_empty() => Ok(LoweredValue::Str(
             text_value.chars().rev().collect::<String>().into(),
         )),
@@ -1085,9 +1043,7 @@ pub(super) fn lowered_str_method_value(
         }
         "split" if args.len() == 1 => {
             let separator = lowered_str_arg(&args[0], "split", span)?;
-            Ok(LoweredValue::List(lowered_split_text(
-                text_value, separator,
-            )))
+            lowered_runtime_list(crate::modules::text::split_text(text_value, separator), span)
         }
         "wrap" if args.len() == 1 => {
             let LoweredValue::Int(width) = args[0] else {
@@ -1125,12 +1081,14 @@ pub(super) fn lowered_str_method_value(
                 crate::modules::text::squeeze_text(text_value, chars).into(),
             ))
         }
-        "parse_int" if args.is_empty() => match lowered_parse_int_text(text_value, span) {
-            Ok(value) => Ok(LoweredValue::ResultOk(Box::new(LoweredValue::Int(value)))),
-            Err(error) => Ok(LoweredValue::ResultErr(Box::new(Value::Error(Box::new(
-                error,
-            ))))),
-        },
+        "parse_int" if args.is_empty() => {
+            match crate::modules::text::parse_int_text(text_value, span) {
+                Ok(value) => Ok(LoweredValue::ResultOk(Box::new(LoweredValue::Int(value)))),
+                Err(error) => Ok(LoweredValue::ResultErr(Box::new(Value::Error(Box::new(
+                    error,
+                ))))),
+            }
+        }
         "parse_float" if args.is_empty() => {
             match crate::modules::text::parse_float_text(text_value, span) {
                 Ok(value) => Ok(LoweredValue::ResultOk(Box::new(LoweredValue::Float(
@@ -1308,7 +1266,7 @@ pub(super) fn lowered_bytes_method_value(
         "count_lines" if args.is_empty() => Ok(LoweredValue::Int(
             crate::runtime::text_bytes::count_lines_bytes(bytes) as i64,
         )),
-        "len" if args.is_empty() => Ok(LoweredValue::Int(bytes.len() as i64)),
+        "len" if args.is_empty() => Ok(LoweredValue::Int(crate::modules::bytes::len(bytes))),
         "dump" if args.is_empty() || args.len() == 1 => {
             let format = match args.first() {
                 Some(value) => lowered_str_arg(value, "dump", span)?,
@@ -1401,39 +1359,16 @@ pub(super) fn lowered_bytes_method_value(
             let LoweredValue::Int(offset) = &args[0] else {
                 return Err(RuntimeError::new("type-error", "slice expected Int").with_span(span));
             };
-            if *offset < 0 {
-                return Err(
-                    RuntimeError::new("bytes-slice", "offset cannot be negative").with_span(span),
-                );
-            }
-            let (arc, start, end) =
-                lowered_bytes_parts(receiver).expect("checked lowered bytes value");
-            let len = end - start;
-            let offset = *offset as usize;
-            if offset > len {
-                return Err(
-                    RuntimeError::new("bytes-slice", "offset is past end of byte data")
-                        .with_span(span),
-                );
-            }
-            let slice_end = match args.get(1) {
-                Some(LoweredValue::Int(length)) if *length < 0 => {
-                    return Err(
-                        RuntimeError::new("bytes-slice", "length cannot be negative")
-                            .with_span(span),
-                    );
-                }
-                Some(LoweredValue::Int(length)) => offset.saturating_add(*length as usize).min(len),
+            let length = match args.get(1) {
+                Some(LoweredValue::Int(length)) => Some(*length),
                 Some(_) => {
                     return Err(RuntimeError::new("type-error", "slice length expected Int")
                         .with_span(span));
                 }
-                None => len,
+                None => None,
             };
-            Ok(lowered_bytes_view_value(
-                arc,
-                start + offset,
-                start + slice_end,
+            Ok(LoweredValue::Bytes(
+                crate::modules::bytes::slice(bytes.to_vec(), *offset, length, span)?.into(),
             ))
         }
         "utf8" if args.is_empty() => match std::str::from_utf8(bytes) {

@@ -1,5 +1,4 @@
 #![allow(clippy::single_call_fn)]
-#![allow(dead_code)]
 
 use crate::runtime::value::{RuntimeError, Value};
 use crate::source::Span;
@@ -184,4 +183,39 @@ fn wrap_word(word: &str, width: usize) -> Vec<String> {
         chunks.push(current);
     }
     chunks
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::source::SourceId;
+
+    fn test_span() -> Span {
+        Span::new(SourceId::new(0), 0, 0)
+    }
+
+    fn strings(values: Vec<Value>) -> Vec<String> {
+        values
+            .into_iter()
+            .map(|value| match value {
+                Value::Str(text) => text.to_string(),
+                other => panic!("expected Str, found {}", other.type_name()),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn text_helpers_cover_script_methods() {
+        assert_eq!(strings(split_text("ab", "")), ["a", "b"]);
+        assert_eq!(strings(split_text("a,b", ",")), ["a", "b"]);
+        assert_eq!(lower_text("HeLLo"), "hello");
+        assert_eq!(upper_text("HeLLo"), "HELLO");
+        assert_eq!(parse_int_text("0x2a", test_span()).expect("parse int"), 42);
+        assert_eq!(
+            parse_int_text("nope", test_span())
+                .expect_err("invalid int")
+                .kind,
+            "parse-int"
+        );
+    }
 }
