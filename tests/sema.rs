@@ -129,7 +129,6 @@ fn checker_rejects_stage_5_acceptance_cases() {
             "let b = b\"x\"\nproc compile(src: Path) -> Result[Unit] { return Ok() }\ncompile (b) ?\n",
             "check.proc-command-syntax",
         ),
-        ("let values = []\n", "check.empty-list"),
         (
             "proc bad() -> Result[Unit] { return 1 }\n",
             "check.type-mismatch",

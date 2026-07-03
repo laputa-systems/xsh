@@ -271,7 +271,7 @@ impl Checker {
         source: &str,
         range: ArenaRange,
         expected: Option<&Type>,
-        span: Span,
+        _span: Span,
     ) -> Type {
         let items: Vec<ExprId> = arena.arena.expr_ids(range).collect();
         if items.is_empty() {

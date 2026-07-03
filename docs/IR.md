@@ -5,6 +5,9 @@ acceleration layer for eligible pure functions and selected whole-script
 regions. It is not a bytecode format, not a serialized program representation,
 and not a replacement for the tree-walking evaluator.
 
+For iterative work on `compact.unlowered-*` diagnostics and corpus gaps, read
+`docs/COMPACT-LOWERABILITY.md` alongside this guide.
+
 ## Architecture
 
 XSH executes through an AST-first pipeline:

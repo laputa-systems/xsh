@@ -3406,7 +3406,7 @@ impl Evaluator {
             }
             let Some(lowered) = lowered_statements.get(index).cloned().flatten() else {
                 if compact_should_skip_auto_main_stmt(program, &root, index, auto_main_required)
-                    || compact_top_level_stmt_is_skippable(program, stmt)
+                    || compact_top_level_stmt_is_skippable(program, stmt, false)
                 {
                     continue;
                 }
@@ -3732,7 +3732,7 @@ impl Evaluator {
         program: &ArenaProgram,
         source_id: SourceId,
     ) -> Option<CompactLoweredRunPlan> {
-        self.prepare_compact_lowered_only_or_diagnostic(program, source_id)
+        self.prepare_compact_lowered_only_or_diagnostic(program, source_id, false)
             .ok()
     }
 
@@ -3744,7 +3744,7 @@ impl Evaluator {
         command_name: String,
     ) -> Vec<Diagnostic> {
         let mut evaluator = Self::new_with_sources_and_command(argv, sources, command_name);
-        match evaluator.prepare_compact_lowered_only_or_diagnostic(program, source_id) {
+        match evaluator.prepare_compact_lowered_only_or_diagnostic(program, source_id, true) {
             Ok(_) => Vec::new(),
             Err(diagnostic) => vec![diagnostic],
         }
@@ -3754,6 +3754,7 @@ impl Evaluator {
         &mut self,
         program: &ArenaProgram,
         source_id: SourceId,
+        allow_checker_only: bool,
     ) -> Result<CompactLoweredRunPlan, Diagnostic> {
         if self.trace_enabled {
             return Err(compact_lowerability_diagnostic(
@@ -3816,7 +3817,7 @@ impl Evaluator {
                 compact_should_skip_auto_main_stmt(program, &root, index, auto_main_required);
             if self.lowered_program.statements[index].is_none()
                 && !skip_auto_main
-                && !compact_top_level_stmt_is_skippable(program, stmt)
+                && !compact_top_level_stmt_is_skippable(program, stmt, allow_checker_only)
             {
                 return Err(compact_lowerability_diagnostic(
                     program.arena.stmt(stmt).span,
@@ -4282,7 +4283,7 @@ impl Evaluator {
         for (index, stmt) in root.iter().copied().enumerate() {
             let span = program.arena.stmt(stmt).span;
             let Some(lowered) = lowered_statements.get(index).cloned().flatten() else {
-                if compact_top_level_stmt_is_skippable(program, stmt) {
+                if compact_top_level_stmt_is_skippable(program, stmt, false) {
                     continue;
                 }
                 diagnostics.push(runtime_diagnostic(
@@ -6057,13 +6058,24 @@ fn diagnostic_primary_span(diagnostic: &Diagnostic) -> Option<Span> {
         .or_else(|| diagnostic.labels.first().map(|label| label.span))
 }
 
-fn compact_top_level_stmt_is_skippable(program: &ArenaProgram, id: StmtId) -> bool {
+fn compact_top_level_stmt_is_skippable(
+    program: &ArenaProgram,
+    id: StmtId,
+    allow_checker_only: bool,
+) -> bool {
     if compact_is_main_at_args_call(program, id) {
         return true;
     }
     match program.arena.stmt(id).kind {
-        ArenaStmtKind::Export(inner) => compact_top_level_stmt_is_skippable(program, inner),
+        ArenaStmtKind::Export(inner) => {
+            compact_top_level_stmt_is_skippable(program, inner, allow_checker_only)
+        }
         ArenaStmtKind::Use(use_id) => compact_use_stmt_is_skippable(program, use_id),
+        ArenaStmtKind::Expr(expr)
+            if allow_checker_only && compact_expr_is_reveal_type_call(program, expr) =>
+        {
+            true
+        }
         ArenaStmtKind::TypeDef(_)
         | ArenaStmtKind::ErrorDef(_)
         | ArenaStmtKind::ProcDef(_)
@@ -6086,6 +6098,13 @@ fn compact_use_stmt_is_skippable(
         return false;
     };
     path.next().is_none() && api_spec().is_standard_module(name.as_str())
+}
+
+fn compact_expr_is_reveal_type_call(program: &ArenaProgram, expr: ExprId) -> bool {
+    let ArenaExprKind::Call { callee, .. } = program.arena.expr(expr).kind else {
+        return false;
+    };
+    matches!(program.arena.expr(callee).kind, ArenaExprKind::Ident(name) if name == "reveal_type")
 }
 
 fn compact_root_proc_main_requires_auto_call(
