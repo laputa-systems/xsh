@@ -2956,7 +2956,7 @@ fn cli_forms() -> &'static [&'static str] {
         "xsh SCRIPT [ARGS...]",
         "xsh -- SCRIPT ARGS...",
         "xshi",
-        "xsht check [--strict] [--annotate] [PATH...]",
+        "xsht check [--strict] [--summary] [--annotate] [PATH...]",
         "xsht fmt [--check] [FILE...]",
         "xsht lint [--fix] [--runless] [FILE...]",
         "xsht ast SCRIPT",

@@ -105,7 +105,7 @@ effect: `error` -> `?` propagation outside retry attempt blocks
 cli: xsh SCRIPT [ARGS...]
 cli: xsh -- SCRIPT ARGS...
 cli: xshi
-cli: xsht check [--strict] [--annotate] [PATH...]
+cli: xsht check [--strict] [--summary] [--annotate] [PATH...]
 cli: xsht fmt [--check] [FILE...]
 cli: xsht lint [--fix] [--runless] [FILE...]
 cli: xsht ast SCRIPT

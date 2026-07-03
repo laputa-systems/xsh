@@ -2973,7 +2973,7 @@ CLI commands:
 - `xsht --help`.
 - `xsht help [COMMAND]`.
 - `xsht COMMAND --help`.
-- `xsht check [--strict] [--annotate] [PATH...]`.
+- `xsht check [--strict] [--summary] [--annotate] [PATH...]`.
 - `xsht fmt [--check] [FILE...]`.
 - `xsht lint [--fix] [--runless] [FILE...]`.
 - `xsht ast SCRIPT`.

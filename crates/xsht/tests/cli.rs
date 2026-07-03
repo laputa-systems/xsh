@@ -264,6 +264,105 @@ fn check_explicit_directory_uses_directory_config() {
 }
 
 #[test]
+fn check_summary_groups_directory_failures_by_code() {
+    let root = TempDir::new().expect("create temp root");
+    let project = root.path().join("project");
+    fs::create_dir_all(&project).expect("create project dir");
+    fs::write(project.join("parse.xsh"), "let value =\n").expect("write parse script");
+    fs::write(
+        project.join("lower.xsh"),
+        "proc main(...argv: List[Str]) [error] -> Result[Unit] {
+  with value = fallible() {
+    print ${value}
+  } else |err| {
+    return Err(err)
+  }
+  return Ok()
+}
+
+proc fallible() [error] -> Result[Str] {
+  return \"ok\"
+}
+",
+    )
+    .expect("write lowerability script");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+        .args(["check", "--summary", "project"])
+        .current_dir(root.path())
+        .output()
+        .expect("run xsht check");
+
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("parse.expected-expression"),
+        "stderr: {stderr}"
+    );
+    assert!(
+        stderr.contains("compact.unlowered-main"),
+        "stderr: {stderr}"
+    );
+    assert!(stderr.contains("xsht check summary:"), "stderr: {stderr}");
+    assert!(
+        stderr.contains("parse.expected-expression: 1"),
+        "stderr: {stderr}"
+    );
+    assert!(
+        stderr.contains("compact.unlowered-main: 1"),
+        "stderr: {stderr}"
+    );
+}
+
+#[test]
+fn check_directory_lowerability_failure_exits_nonzero() {
+    let root = TempDir::new().expect("create temp root");
+    let project = root.path().join("project");
+    fs::create_dir_all(&project).expect("create project dir");
+    fs::write(project.join("ok.xsh"), "let value = 1\n").expect("write ok script");
+    fs::write(
+        project.join("bad.xsh"),
+        "proc main(...argv: List[Str]) [error] -> Result[Unit] {
+  with value = fallible() {
+    print ${value}
+  } else |err| {
+    return Err(err)
+  }
+  return Ok()
+}
+
+proc fallible() [error] -> Result[Str] {
+  return \"ok\"
+}
+",
+    )
+    .expect("write bad script");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+        .args(["check", "project"])
+        .current_dir(root.path())
+        .output()
+        .expect("run xsht check");
+
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("compact.unlowered-main"),
+        "stderr: {stderr}"
+    );
+}
+
+#[test]
 fn check_compact_lowerability_reports_dependency_blocker() {
     let root = TempDir::new().expect("create temp root");
     let script = root.path().join("main.xsh");

@@ -1,6 +1,6 @@
 use crate::xsht::cli::{
     AnnotationPolicy, AnnotationSelection, CliOutput, TraceFormat, TraceOptions, ast_script,
-    check_paths_with_options, docs_command, format_files, grep_scripts, lint_files,
+    check_paths_with_summary_options, docs_command, format_files, grep_scripts, lint_files,
     refactor_scripts, trace_script,
 };
 use crate::xsht::test::{TestOptions, test_scripts};
@@ -34,10 +34,11 @@ const CHECK_HELP: &str = "\
 xsht check
 
 Usage:
-  xsht check [--strict] [--annotate[=default|signatures|locals|all|CLASS,...]] [PATH...]
+  xsht check [--strict] [--summary] [--annotate[=default|signatures|locals|all|CLASS,...]] [PATH...]
 
 Options:
   --strict       Enable strict dynamic-data migration diagnostics
+  --summary      Append diagnostic counts by code after normal diagnostics
   --annotate     Apply configured inferred annotations in place
 ";
 
@@ -158,7 +159,10 @@ pub fn main() -> ExitCode {
             paths,
             strict,
             annotation_selection,
-        }) => finish_with_perf(|| check_paths_with_options(&paths, strict, annotation_selection)),
+            summary,
+        }) => finish_with_perf(|| {
+            check_paths_with_summary_options(&paths, strict, annotation_selection, summary)
+        }),
         Ok(Command::Fmt { files, check }) => finish_with_perf(|| format_files(&files, check)),
         Ok(Command::Lint {
             files,
@@ -189,6 +193,7 @@ enum Command {
         paths: Vec<String>,
         strict: bool,
         annotation_selection: Option<AnnotationSelection>,
+        summary: bool,
     },
     Fmt {
         files: Vec<String>,
@@ -274,11 +279,13 @@ fn help_for_command(command: &str) -> Option<&'static str> {
 
 fn parse_check(args: &[String]) -> Result<Command, String> {
     let mut strict = false;
+    let mut summary = false;
     let mut annotation_selection = None;
     let mut paths = Vec::new();
     for arg in args {
         match arg.as_str() {
             "--strict" => strict = true,
+            "--summary" => summary = true,
             "--annotate" => annotation_selection = Some(AnnotationSelection::Configured),
             "--help" | "-h" => return Ok(Command::Help(CHECK_HELP)),
             other if other.starts_with("--annotate=") => {
@@ -300,6 +307,7 @@ fn parse_check(args: &[String]) -> Result<Command, String> {
         paths,
         strict,
         annotation_selection,
+        summary,
     })
 }
 

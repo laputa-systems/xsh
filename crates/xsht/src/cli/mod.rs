@@ -107,8 +107,8 @@ mod syntax_tree;
 mod trace;
 
 pub use check::{
-    AnnotationPolicy, AnnotationSelection, check_paths_with_options, check_script,
-    check_script_with_options,
+    AnnotationPolicy, AnnotationSelection, check_paths_with_options,
+    check_paths_with_summary_options, check_script, check_script_with_options,
 };
 pub use coverage::CoverageCollector;
 pub use docs::docs_command;

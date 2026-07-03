@@ -4,10 +4,11 @@ use crate::xsht::cli::{
 };
 use crate::xsht::config::{config_for_dir, config_for_file};
 use crate::xsht::format::Formatter;
+use std::collections::BTreeMap;
 use std::cmp::Reverse;
 use std::fs;
 use std::path::{Path, PathBuf};
-use xsh::diagnostic::{Diagnostic, DiagnosticRenderer, Label};
+use xsh::diagnostic::{Diagnostic, DiagnosticRenderer, Label, LabelStyle};
 use xsh::loader::{self, parse_load_check_file};
 use xsh::runtime::eval::Evaluator;
 use xsh::sema::check::{AnnotationFact, AnnotationFactKind, CheckOptions, Checker};
@@ -121,6 +122,15 @@ pub fn check_paths_with_options(
     strict_dynamic: bool,
     annotation_selection: Option<AnnotationSelection>,
 ) -> CliOutput {
+    check_paths_with_summary_options(paths, strict_dynamic, annotation_selection, false)
+}
+
+pub fn check_paths_with_summary_options(
+    paths: &[String],
+    strict_dynamic: bool,
+    annotation_selection: Option<AnnotationSelection>,
+    summary: bool,
+) -> CliOutput {
     if let Some(output) = cancellation_output() {
         return output;
     }
@@ -213,6 +223,7 @@ pub fn check_paths_with_options(
     let mut sources = SourceMap::new();
     let mut source_ids: rustc_hash::FxHashMap<String, SourceId> = rustc_hash::FxHashMap::default();
 
+    let mut summary_counts = CheckSummary::default();
     let mut status = 0;
     let mut stderr = String::new();
     let mut seen_diagnostics: rustc_hash::FxHashSet<String> = rustc_hash::FxHashSet::default();
@@ -295,6 +306,7 @@ pub fn check_paths_with_options(
                 .collect();
             if !new_diags.is_empty() {
                 stderr.push_str(&DiagnosticRenderer::new().render(&new_diags, &sources));
+                summary_counts.observe_diagnostics(&new_diags, &sources);
             }
             status = 2;
             continue;
@@ -311,6 +323,7 @@ pub fn check_paths_with_options(
                 .collect();
             if !new_diags.is_empty() {
                 stderr.push_str(&DiagnosticRenderer::new().render(&new_diags, &sources));
+                summary_counts.observe_diagnostics(&new_diags, &sources);
             }
             status = 2;
             continue;
@@ -333,6 +346,7 @@ pub fn check_paths_with_options(
                 .collect();
             if !new_diags.is_empty() {
                 stderr.push_str(&DiagnosticRenderer::new().render(&new_diags, &sources));
+                summary_counts.observe_diagnostics(&new_diags, &sources);
             }
             status = 2;
             continue;
@@ -384,6 +398,10 @@ pub fn check_paths_with_options(
         stderr.push_str(&type_stderr);
     }
 
+    if summary {
+        summary_counts.write_to(&mut stderr);
+    }
+
     CliOutput {
         status,
         stdout: Vec::new(),
@@ -391,6 +409,71 @@ pub fn check_paths_with_options(
         trace_text: String::new(),
         syscall_summary: None,
     }
+}
+
+#[derive(Clone, Debug, Default)]
+struct CheckSummary {
+    by_code: BTreeMap<String, CheckSummaryEntry>,
+}
+
+#[derive(Clone, Debug)]
+struct CheckSummaryEntry {
+    count: usize,
+    first: String,
+}
+
+impl CheckSummary {
+    fn observe_diagnostics(&mut self, diagnostics: &[Diagnostic], sources: &SourceMap) {
+        for diagnostic in diagnostics {
+            let code = diagnostic
+                .code
+                .as_deref()
+                .unwrap_or("diagnostic.uncoded")
+                .to_string();
+            let first = diagnostic_summary_location(diagnostic, sources);
+            self.by_code
+                .entry(code)
+                .and_modify(|entry| entry.count += 1)
+                .or_insert(CheckSummaryEntry { count: 1, first });
+        }
+    }
+
+    fn write_to(&self, stderr: &mut String) {
+        if !stderr.is_empty() && !stderr.ends_with('\n') {
+            stderr.push('\n');
+        }
+        stderr.push_str("xsht check summary:\n");
+        if self.by_code.is_empty() {
+            stderr.push_str("  no diagnostics\n");
+            return;
+        }
+        for (code, entry) in &self.by_code {
+            stderr.push_str(&format!(
+                "  {code}: {} (first: {})\n",
+                entry.count, entry.first
+            ));
+        }
+    }
+}
+
+fn diagnostic_summary_location(diagnostic: &Diagnostic, sources: &SourceMap) -> String {
+    let span = diagnostic
+        .labels
+        .iter()
+        .find(|label| matches!(label.style, LabelStyle::Primary))
+        .map(|label| label.span)
+        .or_else(|| diagnostic.labels.first().map(|label| label.span))
+        .or(diagnostic.span);
+    let Some(span) = span else {
+        return diagnostic.message.clone();
+    };
+    let Some(location) = sources.location(span.source_id, span.start()) else {
+        return diagnostic.message.clone();
+    };
+    format!(
+        "{}:{}:{} {}",
+        location.file, location.line, location.column, diagnostic.message
+    )
 }
 
 pub fn check_script_with_options(script: &str, strict_dynamic: bool, annotate: bool) -> CliOutput {
