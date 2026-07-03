@@ -2993,7 +2993,7 @@ Exit codes:
 - `0`: success.
 - `1`: lint failure for `xsht lint`, format mismatch for `xsht fmt --check`,
   or test failure for `xsht test`.
-- `2`: source, lex, parse, resolve, or check failure.
+- `2`: source, lex, parse, resolve, check, or compact lowerability failure.
 - `3`: runtime failure or top-level propagated `Err`.
 - `4`: internal implementation error.
 - `128 + signal`: tooling interrupted by a handled OS signal such as SIGINT.
@@ -3005,6 +3005,11 @@ precedence over script-selected statuses.
 files under the current directory, plus configured `include` files or
 directories from `xsht-config.ini`. Directory traversal uses the same `exclude`
 patterns from `xsht-config.ini` as other path-oriented tooling.
+
+After a program parses, resolves, and type-checks, `xsht check` also verifies
+that the entry program can be lowered for the compact runtime. This pass does
+not execute user code or perform script effects; it reports lowerability
+diagnostics with the same renderer and exit status as other check failures.
 
 `xsht lint` uses the nearest `xsht-config.ini` in each linted file's ancestor
 directories. Relative `module_path` entries are resolved from that config

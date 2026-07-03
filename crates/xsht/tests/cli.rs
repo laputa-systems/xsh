@@ -183,6 +183,106 @@ fn check_annotate_uses_xsht_config_line_width() {
 }
 
 #[test]
+fn check_reports_compact_lowerability_by_default() {
+    let root = TempDir::new().expect("create temp root");
+    let script = root.path().join("main.xsh");
+    fs::write(
+        &script,
+        "proc fallible() [error] -> Result[Str] {
+  return \"ok\"
+}
+
+proc main(...argv: List[Str]) [error] -> Result[Unit] {
+  with value = fallible() {
+    print ${value}
+  } else |err| {
+    return Err(err)
+  }
+  return Ok()
+}
+",
+    )
+    .expect("write script");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+        .args(["check", "main.xsh"])
+        .current_dir(root.path())
+        .output()
+        .expect("run xsht check");
+
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("compact.unlowered-main"),
+        "stderr: {stderr}"
+    );
+    assert!(
+        stderr.contains("proc main could not be lowered: unsupported statement in body"),
+        "stderr: {stderr}"
+    );
+    assert!(
+        stderr.contains("unsupported statement in body"),
+        "stderr: {stderr}"
+    );
+}
+
+#[test]
+fn check_compact_lowerability_reports_dependency_blocker() {
+    let root = TempDir::new().expect("create temp root");
+    let script = root.path().join("main.xsh");
+    fs::write(
+        &script,
+        "pure helper(x: Int = 1 + 1) -> Int {
+  return x
+}
+
+proc main(...argv: List[Str]) [error] -> Result[Unit] {
+  let _ = helper()
+  return Ok()
+}
+",
+    )
+    .expect("write script");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+        .args(["check", "main.xsh"])
+        .current_dir(root.path())
+        .output()
+        .expect("run xsht check");
+
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("compact.unlowered-main"),
+        "stderr: {stderr}"
+    );
+    assert!(
+        stderr.contains(
+            "proc main could not be lowered because helper has an unsupported parameter default"
+        ),
+        "stderr: {stderr}"
+    );
+    assert!(
+        stderr.contains("proc main requires compact lowering"),
+        "stderr: {stderr}"
+    );
+    assert!(
+        stderr.contains("unsupported parameter default"),
+        "stderr: {stderr}"
+    );
+}
+
+#[test]
 fn lint_returns_interrupted_status_for_pending_sigint() {
     let _lock = SIGNAL_TEST_LOCK.lock().unwrap();
     let _guard = xsh::runtime::process::install_cancellation_signal_handlers()

@@ -3534,6 +3534,119 @@ print ${value}
 }
 
 #[test]
+fn compact_proc_main_lowers_unqualified_imported_proc_call() {
+    let stamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("system time should be after epoch")
+        .as_nanos();
+    let root = std::env::temp_dir().join(format!("xsh-compact-main-import-{stamp}"));
+    fs::create_dir_all(&root).expect("create temp module dir");
+    fs::write(
+        root.join("compact_main_import.xsh"),
+        "export proc imported_value(value: Str, suffix: Str = \"!\") [error] -> Result[Str] {
+  return value + suffix
+}
+",
+    )
+    .expect("write helper module");
+    let script = root.join("main.xsh");
+    fs::write(
+        &script,
+        "use compact_main_import
+
+proc main(...argv: List[Str]) [error] -> Result[Unit] {
+  let value = imported_value(\"ok\", suffix: \"!\")?
+  print ${value}
+  return Ok()
+}
+",
+    )
+    .expect("write main script");
+    let script_text = script.to_string_lossy().into_owned();
+    let (sources, parsed) = parse_script(&script_text).expect("parse temp script");
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = {
+        let sid = parsed
+            .arena
+            .arena
+            .span_source_id
+            .expect("loaded arena should have a primary source");
+        let text = sources
+            .get(sid)
+            .map(|s| s.text().to_string())
+            .unwrap_or_default();
+        Checker::check_arena(&parsed.arena, &text)
+    };
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let source_id = parsed
+        .arena
+        .arena
+        .span_source_id
+        .expect("loaded arena should have a primary source");
+    let evaluator = Evaluator::new_with_sources(Vec::new(), sources);
+    let output = evaluator
+        .eval_compact_lowered_only(&parsed.arena, source_id)
+        .expect("proc main with unqualified imported proc call should compact lower");
+    assert_eq!(output.stdout, b"ok!\n");
+    assert!(output.traceback.is_none());
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn compact_proc_main_lowers_assign_from_run() {
+    let stamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("system time should be after epoch")
+        .as_nanos();
+    let root = std::env::temp_dir().join(format!("xsh-compact-assign-run-{stamp}"));
+    fs::create_dir_all(&root).expect("create temp script dir");
+    let script = root.join("main.xsh");
+    fs::write(
+        &script,
+        "proc main(...argv: List[Str]) [process, error] -> Result[Unit] {
+  var text = \"\"
+  text = run.builtin.text echo \"hi\" ?
+  print ${text.trim()}
+  return Ok()
+}
+",
+    )
+    .expect("write main script");
+    let script_text = script.to_string_lossy().into_owned();
+    let (sources, parsed) = parse_script(&script_text).expect("parse temp script");
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = {
+        let sid = parsed
+            .arena
+            .arena
+            .span_source_id
+            .expect("loaded arena should have a primary source");
+        let text = sources
+            .get(sid)
+            .map(|s| s.text().to_string())
+            .unwrap_or_default();
+        Checker::check_arena(&parsed.arena, &text)
+    };
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let source_id = parsed
+        .arena
+        .arena
+        .span_source_id
+        .expect("loaded arena should have a primary source");
+    let evaluator = Evaluator::new_with_sources(Vec::new(), sources);
+    let output = evaluator
+        .eval_compact_lowered_only(&parsed.arena, source_id)
+        .expect("proc main with assign-from-run should compact lower");
+    assert_eq!(output.stdout, b"hi\n");
+    assert!(output.traceback.is_none());
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
 fn pure_text_lines_map_block_pipeline_lowers() {
     let stamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)

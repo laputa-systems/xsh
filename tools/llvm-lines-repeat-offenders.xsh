@@ -391,7 +391,13 @@ proc print_text(rows: List[Offender], limit: Int, artifact: Str) [io] {
   }
 }
 
-proc print_summary(rows: List[Offender], filter: Str, include_dependencies: Bool, grand: Int, use_json: Bool) [io] {
+proc print_summary(
+  rows: List[Offender],
+  filter: Str,
+  include_dependencies: Bool,
+  grand: Int,
+  use_json: Bool,
+) [error, io] {
   var duplicated = 0
   var instances = 0
 
@@ -406,7 +412,20 @@ proc print_summary(rows: List[Offender], filter: Str, include_dependencies: Bool
   let pct = if g > 0 { dup.float() * 100.0 / g.float() } else { 0.0 }
 
   if use_json {
-    io.write_stdout(json.encode({filter: filter, scope: scope, offenders: rows.len(), instances: instances, duplicated: duplicated, grand_total: grand, pct: pct}, pretty: true)?)?
+    io.write_stdout(
+      json.encode(
+        {
+          filter: filter,
+          scope: scope,
+          offenders: rows.len(),
+          instances: instances,
+          duplicated: duplicated,
+          grand_total: grand,
+          pct: pct,
+        },
+        pretty: true,
+      )?,
+    )?
   } else if g > 0 {
     print f"scope=${scope} filter=\"${filter}\" offenders=${rows.len()} instances=${instances} duplicated=${duplicated} (${pct}% of ${grand})"
   } else {
@@ -439,10 +458,7 @@ proc main(...argv: List[Str]) [fs, process, error, io] {
   let filtered = filter_offenders(rows, opts.filter, opts.min_duplicated)
 
   if opts.sum {
-    let grand = match total_from_llvm_lines(input.text) {
-      Ok(n) => n
-      Err(_) => -1
-    }
+    let grand = match total_from_llvm_lines(input.text) { Ok(n) => n, Err(_) => -1 }
     print_summary(filtered, opts.filter, opts.all, grand, opts.json)
   } else {
     let shown = if opts.limit <= 0 or opts.limit > filtered.len() { filtered } else { filtered |> take(opts.limit) }

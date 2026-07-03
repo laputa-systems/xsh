@@ -2861,6 +2861,33 @@ fn lower_const_param_default(
             }
             LoweredValue::List(values)
         }
+        ArenaExprKind::Record(fields) => {
+            let mut values = BTreeMap::new();
+            for field in arena.record_fields(fields) {
+                match field.kind {
+                    ArenaRecordFieldKind::Named { name, value, .. } => {
+                        values.insert(
+                            Arc::from(name.as_str()),
+                            lower_const_param_default(arena, value, LoweredType::Any)?,
+                        );
+                    }
+                    ArenaRecordFieldKind::Spread { expr, .. } => {
+                        let spread = lower_const_param_default(arena, expr, LoweredType::Any)?;
+                        match spread {
+                            LoweredValue::Record(spread) => values.extend(spread),
+                            LoweredValue::RecordVec(spread) => {
+                                for (name, value) in spread {
+                                    values.insert(Arc::from(name.as_str()), value);
+                                }
+                            }
+                            _ => return None,
+                        }
+                    }
+                    ArenaRecordFieldKind::Shorthand { .. } => return None,
+                }
+            }
+            LoweredValue::Record(values)
+        }
         _ => return None,
     };
     lowered_value_matches(kind, &value).then_some(value)
@@ -2951,7 +2978,7 @@ impl CompactLowerConstructProbe<'_, '_> {
         let mut bindings = self
             .top_level_known
             .iter()
-            .filter(|(name, _binding)| slots.resolve(**name).is_none())
+            .filter(|(name, binding)| binding.slot && slots.resolve(**name).is_none())
             .map(|(name, binding)| (*name, binding.kind, binding.mutable))
             .collect::<Vec<_>>();
         bindings.sort_unstable_by_key(|(name, _, _)| *name);
@@ -3652,11 +3679,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                     slots,
                 ))
             }
-            ArenaStmtKind::Assign {
-                target,
-                op,
-                value: ArenaExprOrRun::Expr(value),
-            } => {
+            ArenaStmtKind::Assign { target, op, value } => {
                 let ArenaAssignTargetKind::Name(target) =
                     self.program.arena.assign_target(target).kind
                 else {
@@ -3673,7 +3696,12 @@ impl CompactLowerConstructProbe<'_, '_> {
                     ));
                 };
                 let mut slots = top_level_slots(known);
-                let value = self.lower_expr(value, &mut slots, None, None)?;
+                let value = match value {
+                    ArenaExprOrRun::Expr(expr) => self.lower_expr(expr, &mut slots, None, None)?,
+                    ArenaExprOrRun::Run(run) => {
+                        self.lower_run_binding_value(run, &mut slots, None, None)?
+                    }
+                };
                 Some(lowered_top_level(
                     LoweredTopLevelKind::Assign {
                         target,
@@ -3803,6 +3831,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                         result_ok: None,
                         checked: None,
                         mutable: false,
+                        slot: true,
                     },
                 );
                 if use_stmt.alias.is_none()
@@ -3843,6 +3872,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                                         result_ok: None,
                                         checked: None,
                                         mutable: false,
+                                        slot: true,
                                     },
                                 );
                             }
@@ -3855,6 +3885,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                                         result_ok: None,
                                         checked: None,
                                         mutable: false,
+                                        slot: false,
                                     },
                                 );
                             }
@@ -3867,6 +3898,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                                         result_ok: None,
                                         checked: None,
                                         mutable: false,
+                                        slot: false,
                                     },
                                 );
                             }
@@ -3897,6 +3929,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                                 result_ok: None,
                                 checked: None,
                                 mutable,
+                                slot: true,
                             },
                         );
                     }
@@ -3926,6 +3959,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                             .or_else(|| self.infer_lowered_expr_result_ok_type(value, known)),
                         checked: self.top_level_binding_checked_type(ty, value, known),
                         mutable: matches!(stmt.kind, ArenaStmtKind::Var { .. }),
+                        slot: true,
                     },
                 );
             }
@@ -3963,6 +3997,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                             .or_else(|| self.infer_lowered_run_result_ok_type(run)),
                         checked: self.top_level_run_binding_checked_type(ty, run),
                         mutable: matches!(stmt.kind, ArenaStmtKind::Var { .. }),
+                        slot: true,
                     },
                 );
             }
@@ -4954,11 +4989,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                 let slot = slots.declare(name);
                 Some(LoweredStmt::Let { slot, value })
             }
-            ArenaStmtKind::Assign {
-                target,
-                op,
-                value: ArenaExprOrRun::Expr(value),
-            } => {
+            ArenaStmtKind::Assign { target, op, value } => {
                 let root_name = self.assign_target_root_name(target)?;
                 let slot = if let Some(slot) = slots.resolve(root_name) {
                     slot
@@ -4979,7 +5010,14 @@ impl CompactLowerConstructProbe<'_, '_> {
                         });
                     }
                 };
-                let value = self.lower_expr(value, slots, current_function, item_slot)?;
+                let value = match value {
+                    ArenaExprOrRun::Expr(expr) => {
+                        self.lower_expr(expr, slots, current_function, item_slot)?
+                    }
+                    ArenaExprOrRun::Run(run) => {
+                        self.lower_run_binding_value(run, slots, current_function, item_slot)?
+                    }
+                };
                 match self.program.arena.assign_target(target).kind {
                     ArenaAssignTargetKind::Name(_) if op == AssignOp::Set => {
                         if let Some(value) = lower_bool_expr_candidate(&value)
@@ -8195,12 +8233,15 @@ impl CompactLowerConstructProbe<'_, '_> {
     fn compact_unqualified_function_key(&self, name: Name) -> Option<LoweredFunctionKey> {
         if let Some(namespace) = self.current_namespace {
             let qualified = QualifiedName::new(namespace, name);
-            return self
-                .compact_qualified_function_available(qualified)
-                .then_some(LoweredFunctionKey::Qualified(qualified));
+            if self.compact_qualified_function_available(qualified) {
+                return Some(LoweredFunctionKey::Qualified(qualified));
+            }
+            return self.compact_imported_unqualified_function_key(name);
         }
-        self.compact_function_available(name)
-            .then_some(LoweredFunctionKey::Name(name))
+        if self.compact_function_available(name) {
+            return Some(LoweredFunctionKey::Name(name));
+        }
+        self.compact_imported_unqualified_function_key(name)
     }
 
     fn compact_unqualified_function_sig(
@@ -8214,13 +8255,59 @@ impl CompactLowerConstructProbe<'_, '_> {
                 .qualified_pures
                 .get(&qualified)
                 .or_else(|| self.declarations.qualified_procs.get(&qualified))
-                .or_else(|| self.declarations.qualified_streams.get(&qualified));
+                .or_else(|| self.declarations.qualified_streams.get(&qualified))
+                .or_else(|| self.compact_imported_unqualified_function_sig(name));
         }
         self.declarations
             .pures
             .get(&name)
             .or_else(|| self.declarations.procs.get(&name))
             .or_else(|| self.declarations.streams.get(&name))
+            .or_else(|| self.compact_imported_unqualified_function_sig(name))
+    }
+
+    fn compact_imported_unqualified_function_key(&self, name: Name) -> Option<LoweredFunctionKey> {
+        if !matches!(
+            self.top_level_known.get(&name).map(|binding| binding.kind),
+            Some(LoweredType::Pure | LoweredType::Proc | LoweredType::Stream)
+        ) {
+            return None;
+        }
+        self.compact_unique_qualified_function(name)
+            .map(LoweredFunctionKey::Qualified)
+    }
+
+    fn compact_imported_unqualified_function_sig(
+        &self,
+        name: Name,
+    ) -> Option<&crate::sema::check::CompactFunctionSig> {
+        let qualified = self.compact_unique_qualified_function(name)?;
+        self.declarations
+            .qualified_pures
+            .get(&qualified)
+            .or_else(|| self.declarations.qualified_procs.get(&qualified))
+            .or_else(|| self.declarations.qualified_streams.get(&qualified))
+    }
+
+    fn compact_unique_qualified_function(&self, name: Name) -> Option<QualifiedName> {
+        let mut found = None;
+        for qualified in self
+            .declarations
+            .qualified_pures
+            .keys()
+            .chain(self.declarations.qualified_procs.keys())
+            .chain(self.declarations.qualified_streams.keys())
+            .copied()
+            .filter(|qualified| qualified.member == name)
+        {
+            if !self.compact_qualified_function_available(qualified) {
+                continue;
+            }
+            if found.replace(qualified).is_some() {
+                return None;
+            }
+        }
+        found
     }
 
     fn compact_qualified_function_available(&self, name: QualifiedName) -> bool {
@@ -10292,6 +10379,7 @@ fn top_level_known_with_runtime_bindings() -> FxHashMap<Name, LoweredTopLevelBin
         result_ok: None,
         checked: None,
         mutable: false,
+        slot: true,
     };
     known.insert(Name::intern("args"), args.clone());
     known.insert(Name::intern("ARGV"), args);
@@ -10299,7 +10387,10 @@ fn top_level_known_with_runtime_bindings() -> FxHashMap<Name, LoweredTopLevelBin
 }
 
 pub(super) fn top_level_slots(known: &FxHashMap<Name, LoweredTopLevelBinding>) -> SlotScope {
-    let mut names = known.keys().cloned().collect::<Vec<_>>();
+    let mut names = known
+        .iter()
+        .filter_map(|(name, binding)| binding.slot.then_some(*name))
+        .collect::<Vec<_>>();
     names.sort_unstable();
     SlotScope::from_names(names)
 }
@@ -10314,6 +10405,9 @@ pub(super) fn lowered_top_level(
         .into_entries()
         .filter_map(|(name, slot)| {
             let binding = known.get(&name)?;
+            if !binding.slot {
+                return None;
+            }
             Some(LoweredTopLevelSlot {
                 name,
                 slot,

@@ -50,14 +50,15 @@ Use `xsht check` before running a script whose effects matter:
 xsht check examples/hello.xsh
 ```
 
-This catches syntax errors, missing modules, name errors, type errors, and
-invalid effect boundaries without starting processes or changing files.
+This catches syntax errors, missing modules, name errors, type errors, invalid
+effect boundaries, and compact-runtime lowerability failures without starting
+processes or changing files.
 
 `xsht check` accepts files or directories. With no path, it checks all `.xsh`
 files under the current directory, plus configured `include` files or
 directories from `xsht-config.ini`, skipping paths matched by `exclude`. It exits
-with status `0` on success and `2` for source, parse, resolve, or check
-failures.
+with status `0` on success and `2` for source, parse, resolve, check, or
+compact lowerability failures.
 
 When a type is not what you expect, temporarily add `reveal_type(expr)`.
 `xsht check` prints the inferred type as a note. Normal `xsh` execution rejects

@@ -115,6 +115,9 @@ cli: xsht docs build
 cli: xsht docs check
 ```
 
+`xsht check` performs parse, resolve, type, effect, and compact-runtime
+lowerability checks without executing the script.
+
 ## Trace Events
 
 ```xsh-reference

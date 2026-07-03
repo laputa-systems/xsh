@@ -1043,7 +1043,10 @@ pub(super) fn lowered_str_method_value(
         }
         "split" if args.len() == 1 => {
             let separator = lowered_str_arg(&args[0], "split", span)?;
-            lowered_runtime_list(crate::modules::text::split_text(text_value, separator), span)
+            lowered_runtime_list(
+                crate::modules::text::split_text(text_value, separator),
+                span,
+            )
         }
         "wrap" if args.len() == 1 => {
             let LoweredValue::Int(width) = args[0] else {

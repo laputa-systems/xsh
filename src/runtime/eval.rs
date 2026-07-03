@@ -758,6 +758,7 @@ struct LoweredTopLevelBinding {
     result_ok: Option<LoweredType>,
     checked: Option<Type>,
     mutable: bool,
+    slot: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -2690,7 +2691,8 @@ impl Evaluator {
         sources: SourceMap,
         cwd: PathBuf,
     ) -> Self {
-        Self::new_with_sources_and_command_inner::<false>(
+        Self::new_with_sources_and_command_inner(
+            false,
             argv,
             sources,
             "command".to_string(),
@@ -2713,7 +2715,8 @@ impl Evaluator {
         cwd: Option<PathBuf>,
     ) -> (Self, EvaluatorInitTimings) {
         let mut timings = EvaluatorInitTimings::default();
-        let evaluator = Self::new_with_sources_and_command_inner::<true>(
+        let evaluator = Self::new_with_sources_and_command_inner(
+            true,
             argv,
             sources,
             "command".to_string(),
@@ -2728,20 +2731,21 @@ impl Evaluator {
         sources: SourceMap,
         command_name: String,
     ) -> Self {
-        Self::new_with_sources_and_command_inner::<false>(argv, sources, command_name, None, None)
+        Self::new_with_sources_and_command_inner(false, argv, sources, command_name, None, None)
     }
 
-    fn new_with_sources_and_command_inner<const PROFILE: bool>(
+    fn new_with_sources_and_command_inner(
+        profile: bool,
         argv: Vec<String>,
         sources: SourceMap,
         command_name: String,
         cwd: Option<PathBuf>,
         timings: Option<&mut EvaluatorInitTimings>,
     ) -> Self {
-        let start = PROFILE.then(Instant::now);
+        let start = profile.then(Instant::now);
         let cwd =
             cwd.unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
-        let after_current_dir = PROFILE.then(Instant::now);
+        let after_current_dir = profile.then(Instant::now);
         let mut evaluator = Self {
             sources: Arc::new(sources),
             command_name,
@@ -2789,7 +2793,7 @@ impl Evaluator {
             test_calls: Vec::new(),
             test_temp_counter: 0,
         };
-        let after_struct_init = PROFILE.then(Instant::now);
+        let after_struct_init = profile.then(Instant::now);
         let argv = Value::List(argv.into_iter().map(|s| Value::Str(s.into())).collect());
         evaluator.define(
             "args",
@@ -2805,8 +2809,8 @@ impl Evaluator {
                 mutable: false,
             },
         );
-        let after_args_bindings = PROFILE.then(Instant::now);
-        if PROFILE
+        let after_args_bindings = profile.then(Instant::now);
+        if profile
             && let (
                 Some(timings),
                 Some(start),
@@ -3728,14 +3732,39 @@ impl Evaluator {
         program: &ArenaProgram,
         source_id: SourceId,
     ) -> Option<CompactLoweredRunPlan> {
-        if self.trace_enabled {
-            return None;
+        self.prepare_compact_lowered_only_or_diagnostic(program, source_id)
+            .ok()
+    }
+
+    pub fn compact_lowerability_diagnostics(
+        program: &ArenaProgram,
+        source_id: SourceId,
+        sources: SourceMap,
+        argv: Vec<String>,
+        command_name: String,
+    ) -> Vec<Diagnostic> {
+        let mut evaluator = Self::new_with_sources_and_command(argv, sources, command_name);
+        match evaluator.prepare_compact_lowered_only_or_diagnostic(program, source_id) {
+            Ok(_) => Vec::new(),
+            Err(diagnostic) => vec![diagnostic],
         }
-        if !self
-            .install_compact_lowered_program(program, source_id)
-            .is_empty()
-        {
-            return None;
+    }
+
+    fn prepare_compact_lowered_only_or_diagnostic(
+        &mut self,
+        program: &ArenaProgram,
+        source_id: SourceId,
+    ) -> Result<CompactLoweredRunPlan, Diagnostic> {
+        if self.trace_enabled {
+            return Err(compact_lowerability_diagnostic(
+                zero_span(),
+                "compact lowerability cannot be checked while tracing is enabled",
+                "compact.trace-enabled",
+            ));
+        }
+        let install_diagnostics = self.install_compact_lowered_program(program, source_id);
+        if let Some(diagnostic) = install_diagnostics.into_iter().next() {
+            return Err(diagnostic);
         }
         let root = program.statement_ids().collect::<Vec<_>>();
         let auto_main_required = compact_root_proc_main_requires_auto_call(
@@ -3744,18 +3773,42 @@ impl Evaluator {
             &self.lowered_program.statements,
         );
         if auto_main_required && !self.lowered_procs.contains_key(&Name::intern("main")) {
-            return None;
+            if let Some(diagnostic) =
+                self.compact_unlowered_main_diagnostic(program, &root, source_id)
+            {
+                return Err(diagnostic);
+            }
+            let span = root
+                .iter()
+                .copied()
+                .find_map(|stmt| compact_root_proc_main_span(program, stmt))
+                .unwrap_or_else(zero_span);
+            return Err(compact_lowerability_diagnostic(
+                span,
+                "proc main could not be lowered to the compact runtime",
+                "compact.unlowered-main",
+            ));
         }
         let compact_auto_main_args = if auto_main_required {
             let Some(args) = self.compact_auto_main_args() else {
-                return None;
+                return Err(compact_lowerability_diagnostic(
+                    zero_span(),
+                    "script arguments could not be converted for compact main dispatch",
+                    "compact.main-args",
+                ));
             };
             args
         } else {
             Vec::new()
         };
         if self.lowered_program.statements.len() != root.len() {
-            return None;
+            return Err(compact_lowerability_diagnostic(
+                root.first()
+                    .map(|stmt| program.arena.stmt(*stmt).span)
+                    .unwrap_or_else(zero_span),
+                "compact lowered statement count did not match the source program",
+                "compact.statement-count",
+            ));
         }
         let mut statements = Vec::with_capacity(root.len());
         for (index, stmt) in root.iter().copied().enumerate() {
@@ -3765,14 +3818,18 @@ impl Evaluator {
                 && !skip_auto_main
                 && !compact_top_level_stmt_is_skippable(program, stmt)
             {
-                return None;
+                return Err(compact_lowerability_diagnostic(
+                    program.arena.stmt(stmt).span,
+                    "top-level statement could not be lowered to the compact runtime",
+                    "compact.unlowered-statement",
+                ));
             }
             statements.push(CompactLoweredTopLevelPlan {
                 span: program.arena.stmt(stmt).span,
                 skip_auto_main,
             });
         }
-        Some(CompactLoweredRunPlan {
+        Ok(CompactLoweredRunPlan {
             script_span: statements
                 .first()
                 .map(|statement| statement.span)
@@ -3781,6 +3838,34 @@ impl Evaluator {
             auto_main_required,
             compact_auto_main_args,
         })
+    }
+
+    // When `proc main` fails to lower, walk main's static dependency chain to
+    // find the closest function whose own signature or body has a concrete
+    // unsupported construct. The in-isolation probe (`probe_compact_lower_function_units`)
+    // treats every user function as a call candidate, so a unit that fails to
+    // lower in isolation has a real blocker in its own signature/body rather
+    // than an unresolved callee. Reporting that leaf is far more actionable
+    // than the generic "proc main could not be lowered" message.
+    fn compact_unlowered_main_diagnostic(
+        &self,
+        program: &ArenaProgram,
+        root: &[StmtId],
+        source_id: SourceId,
+    ) -> Option<Diagnostic> {
+        let declarations = Checker::check_compact_declarations(program);
+        if !declarations.diagnostics.is_empty() {
+            return None;
+        }
+        let bodies = Checker::probe_compact_bodies(program, &declarations);
+        if !bodies.diagnostics.is_empty() {
+            return None;
+        }
+        let source_id = program.source_text_source_id().unwrap_or(source_id);
+        let source = self.sources.get(source_id).map(|source| source.text())?;
+        let units =
+            lower::probe_compact_lower_function_units(program, &declarations, &bodies, source);
+        compact_blocker_diagnostic_for_main(program, root, &units)
     }
 
     pub(crate) fn eval_installed_compact_lowered_only(
@@ -3795,7 +3880,33 @@ impl Evaluator {
         plan: CompactLoweredRunPlan,
     ) -> Result<EvalOutput, Self> {
         if self.lowered_program.statements.len() != plan.statements.len() {
-            return Err(self);
+            let span = plan.script_span;
+            let message = "compact lowered statement count did not match the source program";
+            let diagnostics = vec![runtime_diagnostic(
+                span,
+                message,
+                "runtime.compact-statement-count",
+            )];
+            let traceback = Some(self.traceback_for_value(
+                span,
+                "runtime.error",
+                &Value::Error(Box::new(RuntimeError::new(
+                    "compact-statement-count",
+                    message,
+                ))),
+            ));
+            return Ok(EvalOutput {
+                stdout: self.stdout,
+                stderr: self.stderr,
+                trace_events: self.trace_events,
+                diagnostics,
+                traceback,
+                sources: Self::unwrap_sources(self.sources),
+                status: 0,
+                cwd: self.cwd,
+                env: self.env.into_snapshot(),
+                last_status: self.last_status,
+            });
         }
         let lowered_statements = self.lowered_program.statements.clone();
 
@@ -3890,7 +4001,21 @@ impl Evaluator {
                     break;
                 }
                 Ok(None) => {
-                    return Err(self);
+                    let message = "statement could not run in the compact runtime";
+                    diagnostics.push(runtime_diagnostic(
+                        span,
+                        message,
+                        "runtime.compact-unsupported-statement",
+                    ));
+                    traceback = Some(self.traceback_for_value(
+                        span,
+                        "runtime.error",
+                        &Value::Error(Box::new(RuntimeError::new(
+                            "compact-unsupported-statement",
+                            message,
+                        ))),
+                    ));
+                    break;
                 }
                 Err(error) => {
                     if let Some(signal) = error.abort {
@@ -3947,42 +4072,58 @@ impl Evaluator {
             let zero = zero_span();
             let call_result =
                 self.call_lowered_proc(Name::intern("main"), &plan.compact_auto_main_args, zero);
-            let Some(call_result) = call_result else {
-                return Err(self);
-            };
-            match call_result {
-                Ok(Value::Result(ResultValue::Err(error))) => {
-                    if let Some(stop_status) = self.handle_cli_parse_stop(error.as_ref()) {
-                        status = stop_status;
-                        stopped = true;
-                        self.pending_traceback = None;
-                    } else {
-                        traceback = Some(self.pending_traceback.take().unwrap_or_else(|| {
-                            self.traceback_for_value(zero, "main", error.as_ref())
-                        }));
+            if let Some(call_result) = call_result {
+                match call_result {
+                    Ok(Value::Result(ResultValue::Err(error))) => {
+                        if let Some(stop_status) = self.handle_cli_parse_stop(error.as_ref()) {
+                            status = stop_status;
+                            stopped = true;
+                            self.pending_traceback = None;
+                        } else {
+                            traceback = Some(self.pending_traceback.take().unwrap_or_else(|| {
+                                self.traceback_for_value(zero, "main", error.as_ref())
+                            }));
+                        }
                     }
-                }
-                Ok(value) => last_value = value,
-                Err(error) => {
-                    if let Some(signal) = error.abort {
-                        abort = Some(signal);
-                        status = signal.status;
-                    } else {
-                        let pending_traceback = self.pending_traceback.take();
-                        diagnostics.push(runtime_diagnostic(
-                            error.span.unwrap_or(zero),
-                            &error.message,
-                            "runtime.error",
-                        ));
-                        traceback = Some(pending_traceback.unwrap_or_else(|| {
-                            self.traceback_for_value(
+                    Ok(value) => last_value = value,
+                    Err(error) => {
+                        if let Some(signal) = error.abort {
+                            abort = Some(signal);
+                            status = signal.status;
+                        } else {
+                            let pending_traceback = self.pending_traceback.take();
+                            diagnostics.push(runtime_diagnostic(
                                 error.span.unwrap_or(zero),
+                                &error.message,
                                 "runtime.error",
-                                &Value::Error(Box::new(error)),
-                            )
-                        }));
+                            ));
+                            traceback = Some(pending_traceback.unwrap_or_else(|| {
+                                self.traceback_for_value(
+                                    error.span.unwrap_or(zero),
+                                    "runtime.error",
+                                    &Value::Error(Box::new(error)),
+                                )
+                            }));
+                        }
                     }
                 }
+            } else {
+                let span = plan.script_span;
+                let message = "proc main could not run in the compact runtime";
+                diagnostics.push(runtime_diagnostic(
+                    span,
+                    message,
+                    "runtime.compact-unsupported-main",
+                ));
+                traceback = Some(self.traceback_for_value(
+                    span,
+                    "main",
+                    &Value::Error(Box::new(RuntimeError::new(
+                        "compact-unsupported-main",
+                        message,
+                    ))),
+                ));
+                stopped = true;
             }
         }
 
@@ -4279,7 +4420,7 @@ impl Evaluator {
         program: &ArenaProgram,
         source_id: SourceId,
     ) -> Vec<Diagnostic> {
-        self.install_compact_lowered::<false>(program, source_id, true, None, None)
+        self.install_compact_lowered(false, program, source_id, true, None, None)
     }
 
     pub(crate) fn install_compact_lowered_program_profiled(
@@ -4288,13 +4429,8 @@ impl Evaluator {
         source_id: SourceId,
     ) -> (Vec<Diagnostic>, CompactInstallTimings) {
         let mut timings = CompactInstallTimings::default();
-        let diagnostics = self.install_compact_lowered::<true>(
-            program,
-            source_id,
-            true,
-            None,
-            Some(&mut timings),
-        );
+        let diagnostics =
+            self.install_compact_lowered(true, program, source_id, true, None, Some(&mut timings));
         (diagnostics, timings)
     }
 
@@ -4303,7 +4439,7 @@ impl Evaluator {
         program: &ArenaProgram,
         source_id: SourceId,
     ) -> Vec<Diagnostic> {
-        self.install_compact_lowered::<false>(program, source_id, false, None, None)
+        self.install_compact_lowered(false, program, source_id, false, None, None)
     }
 
     pub fn install_compact_lowered_functions_with_source(
@@ -4312,27 +4448,28 @@ impl Evaluator {
         source_id: SourceId,
         source: &str,
     ) -> Vec<Diagnostic> {
-        self.install_compact_lowered::<false>(program, source_id, false, Some(source), None)
+        self.install_compact_lowered(false, program, source_id, false, Some(source), None)
     }
 
-    fn install_compact_lowered<const PROFILE: bool>(
+    fn install_compact_lowered(
         &mut self,
+        profile: bool,
         program: &ArenaProgram,
         source_id: SourceId,
         install_top_level: bool,
         explicit_source: Option<&str>,
         timings: Option<&mut CompactInstallTimings>,
     ) -> Vec<Diagnostic> {
-        let start = PROFILE.then(Instant::now);
+        let start = profile.then(Instant::now);
         let declarations = Checker::check_compact_declarations(program);
-        let after_declarations = PROFILE.then(Instant::now);
+        let after_declarations = profile.then(Instant::now);
         if !declarations.diagnostics.is_empty() {
             return declarations.diagnostics;
         }
         self.install_compact_runtime_declarations(&declarations);
-        let after_runtime_declarations = PROFILE.then(Instant::now);
+        let after_runtime_declarations = profile.then(Instant::now);
         let bodies = Checker::probe_compact_bodies(program, &declarations);
-        let after_bodies = PROFILE.then(Instant::now);
+        let after_bodies = profile.then(Instant::now);
         if !bodies.diagnostics.is_empty() {
             return bodies.diagnostics;
         }
@@ -4350,7 +4487,7 @@ impl Evaluator {
             &self.lowered_qualified_pures,
             &self.lowered_qualified_procs,
         );
-        let after_functions = PROFILE.then(Instant::now);
+        let after_functions = profile.then(Instant::now);
         let functions = LowerableFunctions::all(
             &lowered_functions.pures,
             &lowered_functions.procs,
@@ -4366,7 +4503,7 @@ impl Evaluator {
                 &functions,
             )
         });
-        let after_top_level = PROFILE.then(Instant::now);
+        let after_top_level = profile.then(Instant::now);
         Arc::make_mut(&mut self.lowered_pures).extend(lowered_functions.pures);
         Arc::make_mut(&mut self.lowered_procs).extend(lowered_functions.procs);
         Arc::make_mut(&mut self.lowered_qualified_pures).extend(lowered_functions.qualified_pures);
@@ -4374,8 +4511,8 @@ impl Evaluator {
         if let Some(lowered) = lowered {
             self.lowered_program = Arc::new(lowered);
         }
-        let after_commit = PROFILE.then(Instant::now);
-        if PROFILE
+        let after_commit = profile.then(Instant::now);
+        if profile
             && let (
                 Some(timings),
                 Some(start),
@@ -5830,6 +5967,90 @@ fn runtime_diagnostic(span: Span, message: &str, code: &str) -> Diagnostic {
         .with_label(crate::diagnostic::Label::primary(span, message))
 }
 
+fn compact_lowerability_diagnostic(span: Span, message: &str, code: &str) -> Diagnostic {
+    crate::diagnostic::Diagnostic::error(message)
+        .with_code(code)
+        .with_label(crate::diagnostic::Label::primary(span, message))
+}
+
+fn compact_blocker_diagnostic_for_main(
+    program: &ArenaProgram,
+    root: &[StmtId],
+    units: &[LoweredFunctionUnit],
+) -> Option<Diagnostic> {
+    let mut index_by_key: FxHashMap<LoweredFunctionKey, usize> = FxHashMap::default();
+    for (index, unit) in units.iter().enumerate() {
+        index_by_key.insert(unit.key(), index);
+    }
+    let main_key = LoweredFunctionKey::Name(Name::intern("main"));
+    let main_index = *index_by_key.get(&main_key)?;
+    let main_span = root
+        .iter()
+        .copied()
+        .find_map(|stmt| compact_root_proc_main_span(program, stmt))
+        .unwrap_or_else(zero_span);
+    let mut visited = vec![false; units.len()];
+    let mut queue = std::collections::VecDeque::new();
+    queue.push_back(main_index);
+    while let Some(index) = queue.pop_front() {
+        if visited[index] {
+            continue;
+        }
+        visited[index] = true;
+        let unit = &units[index];
+        if !unit.is_lowered() {
+            return Some(compact_blocker_diagnostic(main_span, unit));
+        }
+        for edge in unit.dependency_edges() {
+            if let Some(&next) = index_by_key.get(edge) {
+                queue.push_back(next);
+            }
+        }
+    }
+    None
+}
+
+fn compact_blocker_diagnostic(main_span: Span, unit: &LoweredFunctionUnit) -> Diagnostic {
+    let tail = unit
+        .blocker()
+        .map(compact_function_blocker_reason_tail)
+        .unwrap_or("construct");
+    let label_text = format!("unsupported {tail}");
+    let main_name = Name::intern("main");
+    if matches!(unit.key(), LoweredFunctionKey::Name(name) if name == main_name) {
+        let message = format!("proc main could not be lowered: {label_text}");
+        return Diagnostic::error(message)
+            .with_code("compact.unlowered-main")
+            .with_label(crate::diagnostic::Label::primary(
+                unit.source_span(),
+                label_text,
+            ));
+    }
+    let display = unit.key().display_name();
+    let message = format!("proc main could not be lowered because {display} has an {label_text}");
+    Diagnostic::error(message)
+        .with_code("compact.unlowered-main")
+        .with_label(crate::diagnostic::Label::primary(
+            main_span,
+            "proc main requires compact lowering",
+        ))
+        .with_label(crate::diagnostic::Label::secondary(
+            unit.source_span(),
+            label_text,
+        ))
+}
+
+fn compact_function_blocker_reason_tail(blocker: LoweredFunctionBlocker) -> &'static str {
+    match blocker {
+        LoweredFunctionBlocker::ReturnType => "return type",
+        LoweredFunctionBlocker::ParamDefault => "parameter default",
+        LoweredFunctionBlocker::ParamType => "parameter type",
+        LoweredFunctionBlocker::BlockParams => "block parameter",
+        LoweredFunctionBlocker::Body => "statement in body",
+        LoweredFunctionBlocker::NoReturn => "tail expression",
+    }
+}
+
 fn diagnostic_primary_span(diagnostic: &Diagnostic) -> Option<Span> {
     diagnostic
         .span
@@ -5952,6 +6173,18 @@ fn compact_root_proc_main_exists(program: &ArenaProgram, id: StmtId) -> bool {
         ArenaStmtKind::Export(inner) => compact_root_proc_main_exists(program, inner),
         ArenaStmtKind::ProcDef(def) => program.arena.function_def(def).name == Name::intern("main"),
         _ => false,
+    }
+}
+
+fn compact_root_proc_main_span(program: &ArenaProgram, id: StmtId) -> Option<Span> {
+    match program.arena.stmt(id).kind {
+        ArenaStmtKind::Export(inner) => compact_root_proc_main_span(program, inner),
+        ArenaStmtKind::ProcDef(def)
+            if program.arena.function_def(def).name == Name::intern("main") =>
+        {
+            Some(program.arena.stmt(id).span)
+        }
+        _ => None,
     }
 }
 

@@ -9,6 +9,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use xsh::diagnostic::{Diagnostic, DiagnosticRenderer, Label};
 use xsh::loader::{self, parse_load_check_file};
+use xsh::runtime::eval::Evaluator;
 use xsh::sema::check::{AnnotationFact, AnnotationFactKind, CheckOptions, Checker};
 use xsh::source::{SourceId, SourceMap, Span};
 use xsh::syntax::parser::Parser;
@@ -203,11 +204,23 @@ pub fn check_paths_with_options(
 
     let mut status = 0;
     let mut stderr = String::new();
+    let mut seen_diagnostics: rustc_hash::FxHashSet<String> = rustc_hash::FxHashSet::default();
+    let mut checked_files: rustc_hash::FxHashSet<String> = rustc_hash::FxHashSet::default();
     for file in files {
         if let Some(output) = cancellation_output() {
             return output;
         }
         let path_str = file.to_string_lossy().into_owned();
+
+        let canonical = file
+            .canonicalize()
+            .unwrap_or_else(|_| file.clone())
+            .to_string_lossy()
+            .into_owned();
+        if !checked_files.insert(canonical) {
+            continue;
+        }
+
         let line_width = match formatter_line_width_for_script(&path_str, &config) {
             Ok(line_width) => line_width,
             Err(message) => {
@@ -261,7 +274,15 @@ pub fn check_paths_with_options(
         );
 
         if !parsed.diagnostics.is_empty() {
-            stderr.push_str(&DiagnosticRenderer::new().render(&parsed.diagnostics, &sources));
+            let new_diags: Vec<_> = parsed
+                .diagnostics
+                .iter()
+                .filter(|d| seen_diagnostics.insert(diagnostic_key(d, &sources)))
+                .cloned()
+                .collect();
+            if !new_diags.is_empty() {
+                stderr.push_str(&DiagnosticRenderer::new().render(&new_diags, &sources));
+            }
             status = 2;
             continue;
         }
@@ -269,12 +290,40 @@ pub fn check_paths_with_options(
         let entry_text = sources.get(source_id).map(|s| s.text()).unwrap_or("");
         let checked = Checker::check_arena_with_options(&parsed.arena, entry_text, check_options);
         if !checked.diagnostics.is_empty() {
-            stderr.push_str(&DiagnosticRenderer::new().render(&checked.diagnostics, &sources));
+            let new_diags: Vec<_> = checked
+                .diagnostics
+                .iter()
+                .filter(|d| seen_diagnostics.insert(diagnostic_key(d, &sources)))
+                .cloned()
+                .collect();
+            if !new_diags.is_empty() {
+                stderr.push_str(&DiagnosticRenderer::new().render(&new_diags, &sources));
+            }
             status = 2;
             continue;
         }
 
         let mut type_stderr = DiagnosticRenderer::new().render(&checked.reveal_types, &sources);
+
+        let diagnostics = Evaluator::compact_lowerability_diagnostics(
+            &parsed.arena,
+            source_id,
+            sources.clone(),
+            Vec::new(),
+            xsh::runner::script_command_name(&path_str),
+        );
+        if !diagnostics.is_empty() {
+            let new_diags: Vec<_> = diagnostics
+                .iter()
+                .filter(|d| seen_diagnostics.insert(diagnostic_key(d, &sources)))
+                .cloned()
+                .collect();
+            if !new_diags.is_empty() {
+                stderr.push_str(&DiagnosticRenderer::new().render(&new_diags, &sources));
+            }
+            status = 2;
+            continue;
+        }
 
         if let Some(annotation_policy) = annotation_policy {
             let Some(original) = sources.get(source_id).map(|s| s.text().to_string()) else {
@@ -438,6 +487,25 @@ fn check_one_script(
     let mut stderr =
         DiagnosticRenderer::new().render(&checked.reveal_types, &checked_program.sources);
 
+    let diagnostics = Evaluator::compact_lowerability_diagnostics(
+        &checked_program.parsed.arena,
+        checked_program.entry_source_id,
+        checked_program.sources.clone(),
+        Vec::new(),
+        xsh::runner::script_command_name(script),
+    );
+    if !diagnostics.is_empty() {
+        return CliOutput {
+            status: 2,
+            stdout: Vec::new(),
+            stderr: text_bytes(
+                DiagnosticRenderer::new().render(&diagnostics, &checked_program.sources),
+            ),
+            trace_text: String::new(),
+            syscall_summary: None,
+        };
+    }
+
     if let Some(annotation_policy) = annotation_policy {
         let Some(original) = checked_program.entry_source_text() else {
             return CliOutput {
@@ -499,6 +567,36 @@ fn check_one_script(
         stderr: text_bytes(stderr),
         trace_text: String::new(),
         syscall_summary: None,
+    }
+}
+
+fn diagnostic_key(diagnostic: &Diagnostic, sources: &SourceMap) -> String {
+    let span = diagnostic
+        .labels
+        .first()
+        .map(|label| label.span)
+        .or(diagnostic.span);
+    let location = span.and_then(|span| {
+        sources
+            .location(span.source_id, span.start())
+            .map(|loc| (span, loc))
+    });
+    match location {
+        Some((span, loc)) => format!(
+            "{:?}:{}:{}:{}:{}:{}",
+            diagnostic.severity,
+            diagnostic.code.as_deref().unwrap_or(""),
+            diagnostic.message,
+            loc.file,
+            span.start(),
+            span.end()
+        ),
+        None => format!(
+            "{:?}:{}:{}",
+            diagnostic.severity,
+            diagnostic.code.as_deref().unwrap_or(""),
+            diagnostic.message
+        ),
     }
 }
 

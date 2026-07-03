@@ -86,7 +86,7 @@ pub fn run_script(options: RunOptions) -> ScriptOutput {
                 // invalid; run the (still-present) checker to surface its
                 // diagnostics. A clean check here would mean a genuine lowering
                 // gap — report it so it is investigated rather than silently run.
-                return run_checked_fallback(&options.script, entry_source);
+                return run_checked_fallback(&options.script, entry_source, options.args.clone());
             }
             Err(err) => {
                 return ScriptOutput {
@@ -165,7 +165,11 @@ pub(crate) fn try_run_compact_lowered_script(
 /// A program that parsed cleanly but did not lower to the compact runtime.
 /// Run the checker to surface diagnostics (the common case: the program is
 /// invalid). If the checker is clean, this is a real lowering gap — report it.
-fn run_checked_fallback(script: &str, entry_source: EntrySource) -> ScriptOutput {
+fn run_checked_fallback(
+    script: &str,
+    entry_source: EntrySource,
+    args: Vec<String>,
+) -> ScriptOutput {
     let checked_program = parse_load_check_entry_source_with_token_table(
         script,
         entry_source,
@@ -185,6 +189,22 @@ fn run_checked_fallback(script: &str, entry_source: EntrySource) -> ScriptOutput
             status: 2,
             stdout: Vec::new(),
             stderr: text_bytes(checked_program.render_check_diagnostics()),
+        };
+    }
+    let diagnostics = Evaluator::compact_lowerability_diagnostics(
+        &checked_program.parsed.arena,
+        checked_program.entry_source_id,
+        checked_program.sources.clone(),
+        args,
+        script_command_name(script),
+    );
+    if !diagnostics.is_empty() {
+        return ScriptOutput {
+            status: 2,
+            stdout: Vec::new(),
+            stderr: text_bytes(
+                DiagnosticRenderer::new().render(&diagnostics, &checked_program.sources),
+            ),
         };
     }
     ScriptOutput {
@@ -300,7 +320,7 @@ fn script_output_from_eval(
     }
 }
 
-fn script_command_name(script: &str) -> String {
+pub fn script_command_name(script: &str) -> String {
     let path = std::path::Path::new(script);
     let name = path
         .file_name()
