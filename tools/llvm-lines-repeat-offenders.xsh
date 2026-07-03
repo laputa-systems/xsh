@@ -1,9 +1,17 @@
 # Summarize repeated monomorphized functions in a cargo-llvm-lines table.
 #
+# Each generic function monomorphized more than once is a "repeat offender":
+# collapsing its copies into a single non-generic inner function reclaims the
+# duplicated lines. This script lists those offenders and, with --sum, reports
+# the reclaimable total as a share of the module's llvm-lines (TOTAL).
+#
 # Typical use after an existing measurement:
 #
 #   cargo llvm-lines --release --no-default-features --features tools --lib > /tmp/xsh-llvm-lines.txt
 #   target/release/xsh tools/llvm-lines-repeat-offenders.xsh -- /tmp/xsh-llvm-lines.txt --limit 40 --examples 1
+#   target/release/xsh tools/llvm-lines-repeat-offenders.xsh -- /tmp/xsh-llvm-lines.txt --sum               # owned reclaimable total
+#   target/release/xsh tools/llvm-lines-repeat-offenders.xsh -- /tmp/xsh-llvm-lines.txt --sum --all         # + dependencies
+#   target/release/xsh tools/llvm-lines-repeat-offenders.xsh -- /tmp/xsh-llvm-lines.txt --sum --all --filter slice::sort
 #
 # Standalone measurement mode:
 #
@@ -12,6 +20,12 @@
 # By default, only functions owned by the xsh crate are shown. Pass --all to include
 # std/dependency items, which is often useful when looking for call sites that pull
 # in generic library machinery such as sort or BTreeMap bulk construction.
+#
+# --filter SUBSTRING restricts both the table and the --sum total to offenders
+# whose normalized name contains the substring (e.g. "slice::sort", "btree").
+# --sum switches from the per-offender table to a one-line reclaimable-lines
+# total (and a percentage of the llvm-lines (TOTAL)); combine with --json for a
+# machine-readable summary object.
 #
 # The generated-mode artifact is intentionally bounded: the script analyzes the
 # complete captured llvm-lines output in memory, then stores only the header and the
@@ -23,12 +37,15 @@ type Options = {
   limit: Int,
   min_instances: Int,
   min_total_lines: Int,
+  min_duplicated: Int,
   examples: Int,
   all: Bool,
   json: Bool,
+  sum: Bool,
   generate: Bool,
   artifact_rows: Int,
   artifact: Str,
+  filter: Str,
 }
 
 type MonoRow = {name: Str, original: Str, lines: Int, copies: Int}
@@ -258,6 +275,35 @@ pure offenders_from_text(
   return offenders |> sort-by --desc .duplicated_lines
 }
 
+pure total_from_llvm_lines(text: Str) -> Result[Int] {
+  for line in text.lines() {
+    let trimmed = line.trim()
+
+    if trimmed.contains("(TOTAL)") {
+      let fields = trimmed.fields()
+
+      if fields.len() >= 1 {
+        let total: Int = json.decode(fields[0])?
+        return Ok(total)
+      }
+    }
+  }
+
+  return Ok(-1)
+}
+
+pure filter_offenders(rows: List[Offender], filter: Str, min_duplicated: Int) -> List[Offender] {
+  var out: List[Offender] = []
+
+  for row in rows {
+    if row.duplicated_lines >= min_duplicated and (filter == "" or row.name.contains(filter)) {
+      out = out.push(row)
+    }
+  }
+
+  return out
+}
+
 pure bounded_llvm_lines_artifact(text: Str, artifact_rows: Int) -> Str {
   let max_rows = if artifact_rows < 0 { 0 } else { artifact_rows }
   var output: List[Str] = []
@@ -345,6 +391,29 @@ proc print_text(rows: List[Offender], limit: Int, artifact: Str) [io] {
   }
 }
 
+proc print_summary(rows: List[Offender], filter: Str, include_dependencies: Bool, grand: Int, use_json: Bool) [io] {
+  var duplicated = 0
+  var instances = 0
+
+  for row in rows {
+    duplicated += row.duplicated_lines
+    instances += row.instances
+  }
+
+  let scope = if include_dependencies { "all" } else { "owned" }
+  let dup = duplicated
+  let g = grand
+  let pct = if g > 0 { dup.float() * 100.0 / g.float() } else { 0.0 }
+
+  if use_json {
+    io.write_stdout(json.encode({filter: filter, scope: scope, offenders: rows.len(), instances: instances, duplicated: duplicated, grand_total: grand, pct: pct}, pretty: true)?)?
+  } else if g > 0 {
+    print f"scope=${scope} filter=\"${filter}\" offenders=${rows.len()} instances=${instances} duplicated=${duplicated} (${pct}% of ${grand})"
+  } else {
+    print f"scope=${scope} filter=\"${filter}\" offenders=${rows.len()} instances=${instances} duplicated=${duplicated}"
+  }
+}
+
 proc main(...argv: List[Str]) [fs, process, error, io] {
   let opts: Options = cli.parse(
     argv_for_parse(argv),
@@ -353,22 +422,35 @@ proc main(...argv: List[Str]) [fs, process, error, io] {
       limit: {form: "--limit N", default: 30},
       min_instances: {form: "--min-instances N", default: 2},
       min_total_lines: {form: "--min-total-lines N", default: 0},
+      min_duplicated: {form: "--min-duplicated N", default: 0},
       examples: {form: "--examples N", default: 2},
       artifact_rows: {form: "--artifact-rows N", default: 200},
       artifact: {form: "--artifact PATH", default: ""},
+      filter: {kind: "Str", default: ""},
       all: "Bool",
       json: "Bool",
+      sum: "Bool",
       generate: "Bool",
     },
   )?
 
   let input = if opts.generate { generated_input(opts.artifact, opts.artifact_rows)? } else { read_input(opts.input)? }
   let rows = offenders_from_text(input.text, opts.min_instances, opts.min_total_lines, opts.examples, opts.all)?
-  let shown = if opts.limit <= 0 or opts.limit > rows.len() { rows } else { rows |> take(opts.limit) }
+  let filtered = filter_offenders(rows, opts.filter, opts.min_duplicated)
 
-  if opts.json {
-    io.write_stdout(json.encode({artifact: input.artifact, rows: shown}, pretty: true)?)?
+  if opts.sum {
+    let grand = match total_from_llvm_lines(input.text) {
+      Ok(n) => n
+      Err(_) => -1
+    }
+    print_summary(filtered, opts.filter, opts.all, grand, opts.json)
   } else {
-    print_text(rows, opts.limit, input.artifact)
+    let shown = if opts.limit <= 0 or opts.limit > filtered.len() { filtered } else { filtered |> take(opts.limit) }
+
+    if opts.json {
+      io.write_stdout(json.encode({artifact: input.artifact, rows: shown}, pretty: true)?)?
+    } else {
+      print_text(filtered, opts.limit, input.artifact)
+    }
   }
 }
