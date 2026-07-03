@@ -102,29 +102,21 @@ and pipeline type-propagation pass:
 cargo test --test runtime coverage::ir_coverage_scans_multiline_top_level_regions_once -- --nocapture
 ```
 
-Current broad failure shape:
+Current broad failure shape after completing Tranche 3:
 
-- `./target/debug/xsht check --summary .`: `compact.unlowered-main: 23` and
-  `compact.unlowered-statement: 1`.
+- `./target/debug/xsht check --summary .`: no diagnostics.
 - `./target/debug/xsht check --summary ../laputa`: no diagnostics.
 - `./target/debug/xsht check --summary ../packages`:
   `compact.unlowered-main: 1`, first blocker
-  `pm.xsh::build_install_packages` (`build_packages(build_ctx, [pkg])?`).
-  A reduced `fs.walk(...) |> map { entry.path.strip_prefix(dest)? }` fixture now
-  passes; the current package chain advances through `local.build_packages` to
-  `local.prepare_build_package_source`, then to
-  `sources.prepare_package_source_tree`.
+  `pm.xsh::handle_cli_command` (`invoke_extension(command, ctx, parsed.raw)?`).
+  Earlier package chains through `build_install_packages -> build_packages`
+  now lower past that point.
 - `./target/debug/xsht check --summary tools/xsh-ir-coverage.xsh`:
   no diagnostics.
 - `coverage::ir_coverage_scans_multiline_top_level_regions_once`: rerun before
   closing Tranche 7; direct `xsht check` no longer reports a lowerability gap
   for `tools/xsh-ir-coverage.xsh`.
-- `cargo test --test runtime`: still fails. Current compact-related clusters
-  include showcase scripts blocked by `all_files.len`, `src.rename`,
-  `counts.get`, `json_b.keys`, `totals.keys`, `files.len`,
-  `without_offset.replace`, `preview.len`, and `count_language`; stream tests
-  blocked by `*.keys`; and three `runtime.test-missing` failures surfaced by
-  `xsht test` after compact check failures abort parts of the native test run.
+- `cargo test --test runtime`: still needs a final Tranche 7 rerun.
 
 Key files for the current pass:
 
@@ -242,23 +234,23 @@ enough for one agent turn.
 
 ### Tranche 3: Shared Core And Showcase Body Gaps
 
-- [ ] Reduce and fix the shared `common_int` blocker used by
+- [x] Reduce and fix the shared `common_int` blocker used by
   `core/head.xsh`, `core/seq.xsh`, `core/shuf.xsh`, `core/split.xsh`,
   `core/strings.xsh`, `core/tail.xsh`, and `core/tar.xsh`. Gate: those scripts
   either pass `xsht check` or advance to later blockers.
-- [ ] Reduce and fix direct unsupported `main` bodies in small `core/` and
+- [x] Reduce and fix direct unsupported `main` bodies in small `core/` and
   `showcase/` scripts such as `core/basename.xsh`, `core/sort.xsh`,
   `showcase/archive-unpack.xsh`, `showcase/batch-rename.xsh`,
   `showcase/bytes-inspect.xsh`, `showcase/json-diff.xsh`,
   `showcase/loc.xsh`, and `showcase/secret-scan.xsh`. Gate: each fixed script
   has a targeted runtime or `xsht check` regression case when the lowering gap
   is not already covered.
-- [ ] Reduce and fix larger showcase helper blockers:
+- [x] Reduce and fix larger showcase helper blockers:
   `showcase/hyperfine.xsh::print_summary`,
   `showcase/perf-collapse.xsh::clean_symbol`, and
   `showcase/run-retry.xsh::run_attempt`. Gate: each script either passes or
   reports a later, more specific blocker.
-- [ ] Keep `showcase/tokei.xsh` in the tranche even if it needs multiple
+- [x] Keep `showcase/tokei.xsh` in the tranche even if it needs multiple
   passes. Gate: `./target/debug/xsht check --summary showcase/tokei.xsh` eventually
   passes and no public `Value` behavior changes to make that happen.
 
@@ -474,7 +466,7 @@ lowering changes.
 
 As of the current baseline, the north-star gates are:
 
-- [ ] `./target/debug/xsht check .`
+- [x] `./target/debug/xsht check .`
 - [x] `./target/debug/xsht check ../laputa`
 - [ ] `./target/debug/xsht check ../packages`
 
@@ -482,10 +474,11 @@ Narrow gates that are currently useful while closing the first tranches:
 
 - [x] `./target/debug/xsht check --summary tools/xsh-ir-coverage.xsh`
 - [ ] `./target/debug/xsht check --summary ../packages/pm.xsh`
-- [ ] `./target/debug/xsht check --summary core/head.xsh`
-- [ ] `./target/debug/xsht check --summary core/rg.xsh`
-- [ ] `./target/debug/xsht check --summary core/tree.xsh`
-- [ ] `./target/debug/xsht check --summary showcase/ecount.xsh`
+- [x] `./target/debug/xsht check --summary core/head.xsh`
+- [x] `./target/debug/xsht check --summary core/rg.xsh`
+- [x] `./target/debug/xsht check --summary core/tree.xsh`
+- [x] `./target/debug/xsht check --summary showcase/ecount.xsh`
+- [x] `./target/debug/xsht check --summary showcase/tokei.xsh`
 - [ ] `cargo test --test runtime coverage::ir_coverage_scans_multiline_top_level_regions_once -- --nocapture`
 - [ ] `cargo test --test runtime collections::fs_files_recurses_with_raw_walk_and_preserves_entry_ext -- --nocapture`
 - [ ] `cargo test --test runtime streams::reduce_by_parallel_jobs_matches_serial -- --nocapture`

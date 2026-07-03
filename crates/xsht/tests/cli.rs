@@ -492,7 +492,7 @@ let report = {corpus: scan_corpus()}
 }
 
 #[test]
-fn check_main_dependency_reports_first_nested_call_blocker() {
+fn check_main_dependency_lowers_result_context_chain() {
     let root = TempDir::new().expect("create temp root");
     let script = root.path().join("main.xsh");
     fs::write(
@@ -522,22 +522,14 @@ proc main(...argv: List[Str]) [error] -> Result[Unit] {
 
     assert_eq!(
         output.status.code(),
-        Some(2),
+        Some(0),
         "stderr: {}",
         String::from_utf8_lossy(&output.stderr)
     );
-    let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        stderr.contains("common_int has an unsupported statement in body"),
-        "stderr: {stderr}"
-    );
-    assert!(
-        stderr.contains("first blocker: call `<field>.context`"),
-        "stderr: {stderr}"
-    );
-    assert!(
-        stderr.contains("first unsupported lowered construct: call `<field>.context`"),
-        "stderr: {stderr}"
+        output.stderr.is_empty(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
     );
 }
 

@@ -1162,7 +1162,7 @@ pure count_html(text: Bytes, embed: Bool) -> Scan {
 }
 
 pure count_language(language: Language, text: Bytes) -> Scan {
-  let empty = {stats: zero_stats(), deep: zero_stats()}
+  let empty: Scan = {stats: zero_stats(), deep: zero_stats()}
 
   match language {
     LangTsx => count_slash_plain(text)

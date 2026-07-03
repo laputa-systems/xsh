@@ -17,7 +17,7 @@ proc main(...argv: List[Str]) [fs, error] {
     },
   )?
 
-  let root = if opts.root.display() == "." {
+  let root: Path = if opts.root.display() == "." {
     match fs.gitroot() { Ok(r) => r, Err(_) => fs.cwd()? }
   } else {
     opts.root.resolve()?
@@ -74,7 +74,7 @@ proc main(...argv: List[Str]) [fs, error] {
 
           for item in src.lines() |> enumerate() {
             let line_num = item.index + 1
-            let line = item.value
+            let line: Str = item.value
 
             for pattern in patterns {
               if pattern.re.matches(line) {

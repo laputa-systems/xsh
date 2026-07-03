@@ -4302,12 +4302,15 @@ impl CompactLowerConstructProbe<'_, '_> {
             .get(&value)
             .filter(|ty| !matches!(ty, Type::Invalid))
             .cloned();
-        let actual = table_type
-            .as_ref()
-            .filter(|ty| compact_checked_type_is_concrete(ty))
-            .cloned()
+        let actual = self
+            .infer_checked_expr_type_with_slots(value, slots)
             .or_else(|| self.infer_checked_expr_type(value, &self.top_level_known))
-            .or_else(|| self.infer_checked_expr_type_with_slots(value, slots))
+            .or_else(|| {
+                table_type
+                    .as_ref()
+                    .filter(|ty| compact_checked_type_is_concrete(ty))
+                    .cloned()
+            })
             .or_else(|| {
                 self.infer_lowered_expr_type(value, &self.top_level_known)
                     .and_then(type_for_lowered_type)
@@ -4365,15 +4368,18 @@ impl CompactLowerConstructProbe<'_, '_> {
         {
             return lowered_method_supported_for_type(ty, name, arg_count);
         }
-        let Some(ty) = self.infer_checked_expr_type(base, &self.top_level_known) else {
+        let Some(ty) = self
+            .infer_checked_expr_type_with_slots(base, slots)
+            .or_else(|| self.infer_checked_expr_type(base, &self.top_level_known))
+        else {
             return true;
         };
         lowered_method_supported_for_type(&ty, name, arg_count)
     }
 
     fn infer_loop_item_checked_type(&self, iter: ExprId, slots: &SlotScope) -> Option<Type> {
-        self.infer_checked_expr_type(iter, &self.top_level_known)
-            .or_else(|| self.infer_checked_expr_type_with_slots(iter, slots))
+        self.infer_checked_expr_type_with_slots(iter, slots)
+            .or_else(|| self.infer_checked_expr_type(iter, &self.top_level_known))
             .and_then(|ty| match ty {
                 Type::List(item) | Type::Stream(item) => Some(*item),
                 _ => None,
@@ -4412,6 +4418,15 @@ impl CompactLowerConstructProbe<'_, '_> {
                     .infer_checked_expr_type_with_slots(base, slots)
                     .or_else(|| self.infer_checked_expr_type(base, &self.top_level_known))?;
                 self.infer_checked_field_type_from_type(&base_ty, name)
+            }
+            ArenaExprKind::Index { base, .. } => {
+                let base_ty = self
+                    .infer_checked_expr_type_with_slots(base, slots)
+                    .or_else(|| self.infer_checked_expr_type(base, &self.top_level_known))?;
+                match base_ty {
+                    Type::List(item) | Type::Map(item) => Some(*item),
+                    _ => None,
+                }
             }
             ArenaExprKind::Call { callee, args } => {
                 let args_vec = self.program.arena.call_args(args);
@@ -4529,7 +4544,14 @@ impl CompactLowerConstructProbe<'_, '_> {
                     _ => None,
                 }
             }
-            StreamStageKind::Count => Some(Type::Int),
+            StreamStageKind::Count => {
+                if stage.block.is_some() {
+                    Some(Type::Map(Box::new(Type::Int)))
+                } else {
+                    Some(Type::Int)
+                }
+            }
+            StreamStageKind::ReduceBy => Some(Type::Map(Box::new(Type::Any))),
             StreamStageKind::Any | StreamStageKind::All => Some(Type::Bool),
             StreamStageKind::Sum => Some(Type::Int),
             StreamStageKind::Where
@@ -4538,8 +4560,26 @@ impl CompactLowerConstructProbe<'_, '_> {
             | StreamStageKind::UniqueBy
             | StreamStageKind::Take
             | StreamStageKind::Drop
-            | StreamStageKind::Batch
-            | StreamStageKind::Shuffle => Some(input.clone()),
+            | StreamStageKind::Shuffle => match input {
+                Type::List(item) | Type::Stream(item) => Some(Type::List(item.clone())),
+                _ => None,
+            },
+            StreamStageKind::Batch => match input {
+                Type::List(item) | Type::Stream(item) => {
+                    Some(Type::List(Box::new(Type::List(item.clone()))))
+                }
+                _ => None,
+            },
+            StreamStageKind::Enumerate => {
+                let value = match input {
+                    Type::List(item) | Type::Stream(item) => item.as_ref().clone(),
+                    _ => return None,
+                };
+                let mut fields = BTreeMap::new();
+                fields.insert(Name::intern("index"), Type::Int);
+                fields.insert(Name::intern("value"), value);
+                Some(Type::List(Box::new(Type::Record(fields))))
+            }
             _ => lowered_checked_type(input).and_then(type_for_lowered_type),
         }
     }
@@ -4682,7 +4722,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                 ));
             }
             if module == "fs"
-                && (name == "files" || name == "walk")
+                && (name == "files" || name == "walk" || name == "ls" || name == "children")
                 && let Some(entry) = standard_record_type("FsEntry")
             {
                 return Some(Type::List(Box::new(entry)));
@@ -4726,6 +4766,9 @@ impl CompactLowerConstructProbe<'_, '_> {
 
     fn infer_checked_field_type_from_type(&self, base_ty: &Type, name: Name) -> Option<Type> {
         match base_ty {
+            Type::Optional(inner) | Type::Result(inner, _) => {
+                self.infer_checked_field_type_from_type(inner, name)
+            }
             Type::Record(fields) => fields.get(&name).cloned(),
             Type::Module(exports) => exports.get(&name).map(ModuleExportType::field_type),
             Type::Path => match name.as_str() {
@@ -5938,8 +5981,15 @@ impl CompactLowerConstructProbe<'_, '_> {
                     current_function,
                     item_slot,
                 )?;
-                let item_ty = if str_lines_base.is_some() {
-                    Some(Type::Str)
+                let item_ty = if let Some(base) = str_lines_base {
+                    self.infer_checked_expr_type_with_slots(base, slots)
+                        .or_else(|| self.infer_checked_expr_type(base, &self.top_level_known))
+                        .and_then(|ty| match ty {
+                            Type::Bytes => Some(Type::Bytes),
+                            Type::Str => Some(Type::Str),
+                            _ => None,
+                        })
+                        .or(Some(Type::Str))
                 } else {
                     self.infer_loop_item_checked_type(iter, slots)
                 };
@@ -11212,9 +11262,10 @@ fn infer_checked_method_return_type(receiver: &Type, name: Name) -> Option<Type>
             "base64_decode" | "base32_decode" => {
                 Some(Type::Result(Box::new(Type::Bytes), Box::new(Type::Error)))
             }
-            "parse_int" | "count_lines" | "count_words" | "count_chars" | "count_bytes"
-            | "byte_len" | "byte_at" | "find" => Some(Type::Int),
-            "parse_float" => Some(Type::Float),
+            "parse_int" => Some(Type::Result(Box::new(Type::Int), Box::new(Type::Error))),
+            "parse_float" => Some(Type::Result(Box::new(Type::Float), Box::new(Type::Error))),
+            "count_lines" | "count_words" | "count_chars" | "count_bytes" | "byte_len"
+            | "byte_at" | "find" => Some(Type::Int),
             "starts_with" | "ends_with" | "contains" => Some(Type::Bool),
             _ => None,
         },
@@ -11222,6 +11273,7 @@ fn infer_checked_method_return_type(receiver: &Type, name: Name) -> Option<Type>
             "trim" | "lower" | "slice" => Some(Type::Bytes),
             "base64" | "base32" | "dump" => Some(Type::Str),
             "strings" => Some(Type::List(Box::new(Type::Str))),
+            "lines" => Some(Type::Stream(Box::new(Type::Bytes))),
             "chunks" => Some(Type::List(Box::new(Type::Bytes))),
             "utf8" => Some(Type::Result(Box::new(Type::Str), Box::new(Type::Error))),
             "compare" => {
@@ -11240,6 +11292,14 @@ fn infer_checked_method_return_type(receiver: &Type, name: Name) -> Option<Type>
         },
         Type::Digest => match name.as_str() {
             "hex" | "base64" => Some(Type::Str),
+            _ => None,
+        },
+        Type::Regex => match name.as_str() {
+            "matches" => Some(Type::Bool),
+            "find" => standard_record_type("RegexMatch")
+                .map(|ty| Type::List(Box::new(ty))),
+            "captures" => Some(Type::List(Box::new(Type::Str))),
+            "replace" => Some(Type::Str),
             _ => None,
         },
         Type::Path => match name.as_str() {
