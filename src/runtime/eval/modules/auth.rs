@@ -1,7 +1,7 @@
 #![allow(clippy::single_call_fn)]
 
 use std::env;
-use std::ffi::{CStr, CString};
+use std::ffi::CString;
 use std::fs::File;
 use std::io::{self, Read};
 use std::os::unix::process::CommandExt;
@@ -9,12 +9,10 @@ use std::path::PathBuf;
 use std::process::{Command, ExitStatus};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use super::crypt::try_crypt;
+
 const DEFAULT_PATH: &str = "/usr/bin:/sbin:/bin";
 const DEFAULT_SHELL: &str = "/bin/sh";
-
-unsafe extern "C" {
-    fn crypt(key: *const libc::c_char, salt: *const libc::c_char) -> *mut libc::c_char;
-}
 
 #[derive(Clone, Debug)]
 pub(crate) struct SessionUser {
@@ -37,31 +35,16 @@ pub(crate) fn verify_password(password: &str, hash: &str) -> bool {
     if hash.is_empty() || hash.starts_with('!') || hash.starts_with('*') {
         return false;
     }
-    let Ok(password) = CString::new(password) else {
-        return false;
-    };
-    let Ok(hash_c) = CString::new(hash) else {
-        return false;
-    };
-    let computed = unsafe { crypt(password.as_ptr(), hash_c.as_ptr()) };
-    if computed.is_null() {
-        return false;
+    match try_crypt(password, hash) {
+        Some(computed) => computed.as_bytes() == hash.as_bytes(),
+        None => false,
     }
-    unsafe { CStr::from_ptr(computed) }.to_bytes() == hash_c.as_bytes()
 }
 
 pub(crate) fn hash_password(password: &str, algorithm: &str) -> Result<String, String> {
     let algorithm = parse_algorithm(algorithm)?;
     let salt = build_salt(algorithm)?;
-    let password = CString::new(password).map_err(|_| "password contains NUL byte".to_string())?;
-    let salt_c = CString::new(salt).map_err(|_| "salt contains NUL byte".to_string())?;
-    let hashed = unsafe { crypt(password.as_ptr(), salt_c.as_ptr()) };
-    if hashed.is_null() {
-        return Err("failed to hash password".to_string());
-    }
-    Ok(unsafe { CStr::from_ptr(hashed) }
-        .to_string_lossy()
-        .into_owned())
+    try_crypt(password, &salt).ok_or_else(|| "failed to hash password".to_string())
 }
 
 pub(crate) fn login_session(user: &SessionUser, preserve_env: bool, host: &str) -> io::Result<i32> {
@@ -305,5 +288,30 @@ fn default_shell(shell: &str) -> String {
         String::from(DEFAULT_SHELL)
     } else {
         shell.to_string()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn verify_self_hash() {
+        for algo in ["md5", "sha256", "sha512"] {
+            let hash = hash_password("test password", algo).unwrap();
+            assert!(
+                verify_password("test password", &hash),
+                "algo={algo} hash={hash}"
+            );
+            assert!(
+                !verify_password("wrong password", &hash),
+                "algo={algo}"
+            );
+        }
+    }
+
+    #[test]
+    fn des_is_unsupported() {
+        assert!(hash_password("password", "des").is_err());
     }
 }

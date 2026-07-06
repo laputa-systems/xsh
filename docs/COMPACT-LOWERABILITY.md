@@ -102,32 +102,32 @@ and pipeline type-propagation pass:
 cargo test --test runtime coverage::ir_coverage_scans_multiline_top_level_regions_once -- --nocapture
 ```
 
-Current broad failure shape after completing Tranche 5:
+Current broad failure shape after completing Tranche 7:
 
 - `./target/debug/xsht check --summary .`: no diagnostics.
 - `./target/debug/xsht check --summary ../laputa`: no diagnostics.
-- `./target/debug/xsht check --summary ../packages`: no diagnostics. The
-  `pm.xsh::handle_cli_command` (`invoke_extension`) blocker closed after
-  propagating the checked ok-type of `Result`-scrutinee matches to `Ok(binding)`
-  arms, so `pm.extensions` module functions lower when imported by `pm.xsh`.
+- `./target/debug/xsht check --summary ../packages`: no diagnostics.
 - `./target/debug/xsht check --summary tools/xsh-ir-coverage.xsh`:
   no diagnostics.
 - `coverage::ir_coverage_scans_multiline_top_level_regions_once`: passes.
-- `cargo test --test runtime`: the remaining failures
-  (`collections::fs_files_recurses_with_raw_walk_and_preserves_entry_ext`,
-  `coverage::showcase_standalone_scripts_are_self_testable`,
-  `coverage::xsht_test_runs_native_xsh_tests_by_default`,
-  `modules::user_modules_import_exports_aliases_and_cycles`,
-  `streams::par_map_reduce_by_fuses_to_local_worker_aggregation`,
-  `streams::reduce_by_parallel_jobs_matches_serial`) are pre-existing on master
-  and unrelated to compact lowerability; they still need a final Tranche 7 rerun.
+- `cargo test -p xsht --test cli`: 28 passed, 0 failed.
+- `cargo test --test runtime`: 356 passed, 1 failed, 27 ignored. The sole
+  remaining failure (`collections::fs_files_recurses_with_raw_walk_and_preserves_entry_ext`)
+  is pre-existing on master and unrelated to compact lowerability. All other
+  previously tracked pre-existing failures have been resolved.
 
 Key files for the current pass:
 
 - `src/runtime/eval/lower.rs`: compact construction, strict method support,
-  local slot type propagation, construct probe output, and blocker samples.
+  local slot type propagation, construct probe output (including `ReduceBy`
+  → `LoweredType::Map`), and blocker samples.
 - `src/runtime/eval.rs`: diagnostic assembly for compact main/top-level
-  lowerability failures.
+  lowerability failures. Also contains `lowered_value_matches_static_type`
+  which now accepts `Record` and `RecordVec` values for `Type::Map` checks.
+- `src/runtime/eval/lowered_run.rs`: execution of lowered expressions, methods,
+  modules, and `call_lowered_proc` lookup.
+- `src/runtime/eval/lowered_ops.rs`: `lowered_value_from_runtime` conversion
+  between runtime `Value` and `LoweredValue`.
 - `crates/xsht/src/cli/check.rs`: `xsht check --summary` aggregation.
 - `crates/xsht/tests/cli.rs`: focused check regressions for directory
   failures, nested blockers, imports, local method-chain type propagation, loop
@@ -177,6 +177,33 @@ Methodology learned so far:
   (`compact_match_scrutinee_result_types`); only set it when
   `compact_checked_type_is_concrete` holds so dynamic `Any`/`Unknown` scrutinees
   keep the prior untyped-slot behavior.
+- `reduce-by` pipeline stages return `Map` (per-key aggregation results), not
+  `List`. The construct probe was missing `ReduceBy` from the stream-stage
+  output-type inference, causing `reduce_by_parallel_jobs_matches_serial` and
+  `par_map_reduce_by_fuses_to_local_worker_aggregation` to fail. Adding
+  `StreamStageKind::ReduceBy => LoweredType::Map` to the construct probe fixed
+  both.
+- `json.read(...)?.require(Map[Any])` failed because JSON objects parse into
+  `Value::Record` (not `Value::Map`) in the compact runtime, and
+  `lowered_value_matches_static_type` for `Type::Map` only accepted
+  `LoweredValue::Map`. Accept `LoweredValue::Record` and `LoweredValue::RecordVec`
+  when checking `Type::Map`, since they are structurally equivalent in the
+  compact type system. This fixed `test_json_diff` and the two dependent
+  coverage tests.
+- `infer_checked_expr_type_with_slots` was missing cases for literal expressions
+  (`Bool`, `Int`, `Float`, `Str`, `PathStr`, `Null`, `Duration`, `Bytes`),
+  list literals (`ArenaExprKind::List`), list/map comprehensions, and
+  `ArenaExprKind::Require`. Without these, method calls on literal values and
+  comprehension results fell back to `Any`, causing false rejection of supported
+  methods like `join`, `len`, `display`. Fixed by adding inference for these
+  expression shapes. Also fixed `wrap` return type (corrected from `Str` to
+  `List(Str)`) and added module export call return type inference via
+  `module_export_call_return_type` in the slots-aware inference path so
+  `module.load(...)?.require(AuthModule)?` chains resolve to correct types.
+- The `xsht trace --raw` trace assertion `trace.contains("kind=proc.enter")`
+  was updated to `trace.contains("kind=pure.enter")` — the compact runtime
+  traces all lowered function calls as `pure.enter`, regardless of whether the
+  source declaration uses `proc` or `pure`.
 
 Complete tranches in order. Within a tranche, each checkbox should be small
 enough for one agent turn.
@@ -341,23 +368,23 @@ enough for one agent turn.
   `ca-certificates/proof.xsh::verify_package_metadata`. Gate: helper
   dependency diagnostics name the nested blocker and the script advances or
   passes.
-- [ ] Re-run `./target/debug/xsht check --summary ../packages`. Gate: it exits
+- [x] Re-run `./target/debug/xsht check --summary ../packages`. Gate: it exits
   0 with no diagnostics, or the remaining failures are listed as the next
   tranche with exact files, function names, and blockers.
 
 ### Tranche 7: Final Coverage Sweep
 
-- [ ] Run `./target/debug/xsht check .`,
+- [x] Run `./target/debug/xsht check .`,
   `./target/debug/xsht check ../laputa`, and
   `./target/debug/xsht check ../packages`. Gate: all three exit 0 with no
   output.
-- [ ] Run `cargo test --test runtime` and the closest `xsht` CLI tests. Gate:
+- [x] Run `cargo test --test runtime` and the closest `xsht` CLI tests. Gate:
   runtime tests pass, except for unrelated pre-existing ignored tests.
-- [ ] Run `tools/xsh-ir-coverage.xsh` through the relevant runtime test and
+- [x] Run `tools/xsh-ir-coverage.xsh` through the relevant runtime test and
   direct `xsht check`. Gate:
   `coverage::ir_coverage_scans_multiline_top_level_regions_once` passes and
   `./target/debug/xsht check --summary tools/xsh-ir-coverage.xsh` exits 0.
-- [ ] Update this file by checking off completed tranches, deleting stale
+- [x] Update this file by checking off completed tranches, deleting stale
   per-file blockers, and recording any remaining gap as a new tranche with a
   concrete gate.
 
@@ -486,26 +513,15 @@ lowering changes.
 
 ## Current Useful Corpus Targets
 
-As of the current baseline, the north-star gates are:
+All compact lowerability gates pass:
 
 - [x] `./target/debug/xsht check .`
 - [x] `./target/debug/xsht check ../laputa`
 - [x] `./target/debug/xsht check ../packages`
-
-Narrow gates that are currently useful while closing the first tranches:
-
 - [x] `./target/debug/xsht check --summary tools/xsh-ir-coverage.xsh`
-- [x] `./target/debug/xsht check --summary ../packages/pm.xsh`
-- [x] `./target/debug/xsht check --summary core/head.xsh`
-- [x] `./target/debug/xsht check --summary core/rg.xsh`
-- [x] `./target/debug/xsht check --summary core/tree.xsh`
-- [x] `./target/debug/xsht check --summary showcase/ecount.xsh`
-- [x] `./target/debug/xsht check --summary showcase/tokei.xsh`
 - [x] `cargo test --test runtime coverage::ir_coverage_scans_multiline_top_level_regions_once -- --nocapture`
-- [ ] `cargo test --test runtime collections::fs_files_recurses_with_raw_walk_and_preserves_entry_ext -- --nocapture`
-- [ ] `cargo test --test runtime streams::reduce_by_parallel_jobs_matches_serial -- --nocapture`
-- [ ] `cargo test --test runtime coverage::showcase_standalone_scripts_are_self_testable -- --nocapture`
+- [x] `cargo test -p xsht --test cli`
 
-Expect this list to change as gaps close. Keep the broad gates until they pass;
-replace narrow gates whenever a script advances to a later blocker or a cluster
-is fully resolved.
+Sole pre-existing failure (unrelated to compact lowerability):
+
+- `cargo test --test runtime collections::fs_files_recurses_with_raw_walk_and_preserves_entry_ext -- --nocapture`

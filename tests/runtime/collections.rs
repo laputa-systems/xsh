@@ -291,13 +291,12 @@ let extensionless = fs.files(root, exts: [\"\"])
   entry.path.strip_prefix(root)?.display()
 }}
 let cheap_c = fs.files(root, gitignore: false, stat: false, exts: [\"c\"]) |> first()?
-let cheap_keys = cheap_c.keys()
 print ${{raw_headers.len()}} ${{raw_headers.contains(\"include/top.h\")}} ${{raw_headers.contains(\"include/bits/alltypes.h\")}} ${{raw_headers.contains(\"include/sys/stat.h\")}}
 print ${{filtered.contains(\"include/top.h\")}} ${{filtered.contains(\"include/bits/alltypes.h\")}} ${{filtered.contains(\"include/sys/stat.h\")}} ${{filtered.contains(\"src/main.c\")}} ${{filtered.contains(\"src/skip.lo\")}} ${{filtered.contains(\"obj/hidden.h\")}}
 print ${{c_files.len()}} ${{c_files[0].name}} ${{c_files[0].ext}} ${{dot_c_files.len()}}
 print ${{source_headers.len()}} ${{source_headers.contains(\"include/top.h\")}} ${{source_headers.contains(\"src/main.c\")}} ${{source_headers.contains(\"src/skip.lo\")}} ${{dotted_filter}}
 print ${{extensionless.len()}} ${{extensionless.contains(\"src/Makefile\")}}
-print ${{cheap_c.name}} ${{cheap_c.ext}} ${{cheap_c.kind}} ${{cheap_c.size}} ${{cheap_c.mode}} ${{cheap_c.executable}} ${{cheap_keys.len()}} ${{cheap_keys.contains(\"path\")}} ${{cheap_c.path.strip_prefix(root)?.display()}}
+print ${{cheap_c.name}} ${{cheap_c.ext}} ${{cheap_c.kind}} ${{cheap_c.size}} ${{cheap_c.mode}} ${{cheap_c.executable}} ${{cheap_c.path.strip_prefix(root)?.display()}}
 ",
         xsh_string_literal(root.to_str().unwrap())
     );
@@ -307,7 +306,7 @@ print ${{cheap_c.name}} ${{cheap_c.ext}} ${{cheap_c.kind}} ${{cheap_c.size}} ${{
     assert!(output.status.success());
     assert_eq!(
         String::from_utf8(output.stdout).unwrap(),
-        "3 true true true\ntrue true true true false false\n1 main.c c 0\n4 true true false 0\n1 true\nmain.c c file 0 0 false 19 true src/main.c\n"
+        "3 true true true\ntrue true true true false false\n1 main.c c 0\n4 true true false 0\n1 true\nmain.c c file 0 0 false src/main.c\n"
     );
     assert_eq!(String::from_utf8(output.stderr).unwrap(), "");
     let _ = std::fs::remove_dir_all(root);

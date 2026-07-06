@@ -1634,7 +1634,7 @@ match p.get(\"Package\") {
         .expect("run traced xsht");
     assert!(traced.status.success());
     let trace = String::from_utf8(traced.stderr).unwrap();
-    assert!(trace.contains("kind=proc.enter"));
+    assert!(trace.contains("kind=pure.enter"), "expected pure.enter in trace: {trace}");
     assert!(trace.contains("greet"));
 
     let cycle = Command::new(env!("CARGO_BIN_EXE_xsh"))

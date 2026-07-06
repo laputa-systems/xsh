@@ -4389,6 +4389,14 @@ impl CompactLowerConstructProbe<'_, '_> {
     fn infer_checked_expr_type_with_slots(&self, value: ExprId, slots: &SlotScope) -> Option<Type> {
         match self.program.arena.expr(value).kind {
             ArenaExprKind::Ident(name) => slots.binding_type(name).cloned(),
+            ArenaExprKind::Bool(_) => Some(Type::Bool),
+            ArenaExprKind::Int(_) => Some(Type::Int),
+            ArenaExprKind::Float(_) => Some(Type::Float),
+            ArenaExprKind::Str(_) | ArenaExprKind::FmtString(_) => Some(Type::Str),
+            ArenaExprKind::PathStr(_) | ArenaExprKind::PathFmtString(_) => Some(Type::Path),
+            ArenaExprKind::Null => Some(Type::Null),
+            ArenaExprKind::Duration(_) => Some(Type::Duration),
+            ArenaExprKind::Bytes(_) => Some(Type::Bytes),
             ArenaExprKind::If {
                 branches,
                 else_value,
@@ -4448,7 +4456,34 @@ impl CompactLowerConstructProbe<'_, '_> {
                 else {
                     return None;
                 };
-                let base_ty = self.infer_checked_expr_type_with_slots(base, slots)?;
+                let base_ty = self.infer_checked_expr_type_with_slots(base, slots);
+                if name == "require" {
+                    let [arg] = args_vec else {
+                        return None;
+                    };
+                    let contract = compact_call_arg_expr(arg)?;
+                    let contract_ty = match self.program.arena.expr(contract).kind {
+                        ArenaExprKind::Ident(name) => match self.declarations.types.get(&name) {
+                            Some(CompactTypeDefInfo::Module(exports)) => {
+                                Type::Module(exports.clone())
+                            }
+                            _ => self.infer_checked_expr_type(contract, &self.top_level_known)?,
+                        },
+                        _ => self.infer_checked_expr_type(contract, &self.top_level_known)?,
+                    };
+                    return Some(Type::Result(Box::new(contract_ty), Box::new(Type::Error)));
+                }
+                let base_ty = base_ty?;
+                if name == "set" || name == "remove" || name == "push" {
+                    return Some(base_ty);
+                }
+                if name == "keys" {
+                    return Some(Type::List(Box::new(Type::Str)));
+                }
+                if name == "values" {
+                    let item = self.infer_checked_get_value_type(base, args, &self.top_level_known)?;
+                    return Some(Type::List(Box::new(item)));
+                }
                 if name == "get" {
                     return match (&base_ty, args_vec.len()) {
                         (Type::List(item) | Type::Map(item), 1) => {
@@ -4468,10 +4503,71 @@ impl CompactLowerConstructProbe<'_, '_> {
                     };
                 }
                 if !lowered_method_supported_for_type(&base_ty, name, args_vec.len()) {
+                    if let Some(return_ty) = module_export_call_return_type(base_ty.clone(), name) {
+                        return Some(return_ty);
+                    }
                     return None;
                 }
                 infer_checked_method_return_type(&base_ty, name)
             }
+            ArenaExprKind::Require { schema, .. } => {
+                let contract_ty = match self.program.arena.type_expr_tags.get(schema.index()) {
+                    Some(ArenaTypeExprTag::Named) => {
+                        let name = Name::from_symbol(Symbol::from_raw(
+                            self.program.arena.type_expr_data[schema.index()].lhs,
+                        ));
+                        match self.declarations.types.get(&name) {
+                            Some(CompactTypeDefInfo::Module(exports)) => {
+                                Type::Module(exports.clone())
+                            }
+                            _ => lowered_arena_type(&self.program.arena, schema, self.declarations)
+                                .and_then(type_for_lowered_type)
+                                .unwrap_or(Type::Any),
+                        }
+                    }
+                    _ => lowered_arena_type(&self.program.arena, schema, self.declarations)
+                        .and_then(type_for_lowered_type)
+                        .unwrap_or(Type::Any),
+                };
+                Some(Type::Result(Box::new(contract_ty), Box::new(Type::Error)))
+            }
+            ArenaExprKind::List(items) => {
+                let item_types: Vec<Type> = self
+                    .program
+                    .arena
+                    .expr_ids(items)
+                    .filter_map(|item| self.infer_checked_expr_type_with_slots(item, slots))
+                    .map(|ty| ty.result_ok().cloned().unwrap_or(ty))
+                    .collect();
+                let first = item_types.first().cloned();
+                let unified = item_types
+                    .into_iter()
+                    .reduce(|acc, ty| if acc == ty { acc } else { Type::Any })?;
+                first.filter(|first| unified == *first).or(Some(unified))
+                .map(|item_ty| Type::List(Box::new(item_ty)))
+            }
+            ArenaExprKind::ListComp {
+                expr: value_expr,
+                iter,
+                ..
+            } => {
+                let item_ty = self
+                    .infer_checked_expr_type_with_slots(value_expr, slots)
+                    .or_else(|| {
+                        let iter_ty = self
+                            .infer_checked_expr_type_with_slots(iter, slots)
+                            .or_else(|| {
+                                self.infer_checked_expr_type(iter, &self.top_level_known)
+                            })?;
+                        match iter_ty {
+                            Type::List(item) | Type::Stream(item) => Some(*item),
+                            _ => None,
+                        }
+                    });
+                item_ty.map(|item_ty| Type::List(Box::new(item_ty)))
+                    .or_else(|| Some(Type::List(Box::new(Type::Any))))
+            }
+            ArenaExprKind::MapComp { .. } => Some(Type::Map(Box::new(Type::Any))),
             ArenaExprKind::Try(expr) => self
                 .infer_checked_expr_type_with_slots(expr, slots)
                 .and_then(|ty| ty.result_ok().cloned()),
@@ -4759,6 +4855,12 @@ impl CompactLowerConstructProbe<'_, '_> {
                     Box::new(Type::Error),
                 ));
             }
+            if module == "Path" && name == "parse_bytes" {
+                return Some(Type::Result(
+                    Box::new(Type::Path),
+                    Box::new(Type::Error),
+                ));
+            }
         }
         if let Some(return_ty) = self
             .infer_checked_expr_type(base, known)
@@ -5006,6 +5108,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                     {
                         last_stream.and_then(|stage| self.infer_fold_result_type(stage, known))
                     }
+                    Some(kind) if kind == StreamStageKind::ReduceBy => Some(LoweredType::Map),
                     _ => Some(LoweredType::List),
                 }
             }
@@ -5043,6 +5146,9 @@ impl CompactLowerConstructProbe<'_, '_> {
                         ) =>
                     {
                         self.infer_fold_result_type(stage, known)
+                    }
+                    Some(stage) if stage.kind == StreamStageKind::ReduceBy => {
+                        Some(LoweredType::Map)
                     }
                     _ => Some(LoweredType::List),
                 }
@@ -11300,8 +11406,8 @@ fn infer_checked_method_return_type(receiver: &Type, name: Name) -> Option<Type>
         }
         Type::Str => match name.as_str() {
             "trim" | "lower" | "upper" | "reverse" | "format" | "replace" | "translate"
-            | "delete" | "squeeze" | "byte_slice" | "slice" | "wrap" => Some(Type::Str),
-            "lines" | "words" | "fields" | "split" => Some(Type::List(Box::new(Type::Str))),
+            | "delete" | "squeeze" | "byte_slice" | "slice" => Some(Type::Str),
+            "lines" | "words" | "fields" | "split" | "wrap" => Some(Type::List(Box::new(Type::Str))),
             "base64_decode" | "base32_decode" => {
                 Some(Type::Result(Box::new(Type::Bytes), Box::new(Type::Error)))
             }

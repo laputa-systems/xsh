@@ -199,7 +199,7 @@ cov-native:
 
 test:
 	cargo test
-	cargo run -p xsht -- test --cov tests/xsh/stdlib
+	cargo run -p xsht -- test
 
 test-core:
 	docker build -t xsh-test -f Dockerfile.test .

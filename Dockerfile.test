@@ -16,6 +16,10 @@ RUN gcc_crt_dir="$(dirname "$(find /usr/lib/gcc -name crtbeginS.o -print -quit)"
     && for obj in crtbegin.o crtbeginS.o crtbeginT.o crtend.o crtendS.o; do \
         if [ -f "${gcc_crt_dir}/${obj}" ]; then ln -sf "${gcc_crt_dir}/${obj}" "/usr/lib/${obj}"; fi; \
     done
+# The prebuilt LLVM's rust-lld is not linked against zlib, so it cannot read
+# Alpine's zlib-compressed debug sections in musl crt object files. Strip debug
+# info from all crt objects in /usr/lib so executable link probes succeed.
+RUN strip --strip-debug /usr/lib/crt*.o /usr/lib/[S]*.o 2>/dev/null || true
 ENV PATH="/root/.cargo/bin:$PATH"
 # Keep Dockerfile.test on the same compiler family as release.yml. The release
 # workflow restores this tarball from the GitHub cache or downloads the same URL,

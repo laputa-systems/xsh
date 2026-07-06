@@ -41,7 +41,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 mod lower;
 mod lowered_ops;
-use lowered_ops::lowered_value_from_runtime;
+use lowered_ops::{lowered_value_from_runtime, lowered_value_from_runtime_any};
 mod lowered_run;
 mod modules;
 mod process_handle;
@@ -3550,6 +3550,44 @@ impl Evaluator {
             }
         }
 
+        // Final signal check after the statement loop.  A child process (e.g.
+        // `sh -c "kill -USR1 \$PPID"`) may send a signal and exit on CPU A
+        // while this process's `waitpid(NOHANG)` returns on CPU B.  The
+        // child's `exit` changes its zombie state atomically, so `waitpid`
+        // sees it immediately.  But the child's `kill` sets TIF_SIGPENDING on
+        // our task_struct — the cross-CPU IPI may not arrive until after
+        // `waitpid` returns to userspace.  Signal delivery only happens at
+        // the next kernel re-entry.  If the script has no more syscalls
+        // (e.g. the last statement was a fast `run`), TIF_SIGPENDING stays
+        // unobserved, the handler never writes PRIMARY_SIGNAL, and
+        // service_pending_signal never sees the hook signal.
+        // yield_now() forces sched_yield, a real syscall, so the kernel
+        // checks pending signals before returning and delivers any that
+        // raced in after the last poll.  Handle the result inline to
+        // propagate shutdown status from the hook's abort(0).
+        std::thread::yield_now();
+        if let Err(error) = self.service_pending_signal(script_span) {
+            diagnostics.push(runtime_diagnostic(
+                error.span.unwrap_or(script_span),
+                &error.message,
+                "runtime.error",
+            ));
+            traceback = Some(self.pending_traceback.take().unwrap_or_else(|| {
+                self.traceback_for_value(
+                    error.span.unwrap_or(script_span),
+                    "signal.hook",
+                    &Value::Error(Box::new(error)),
+                )
+            }));
+        }
+        if self.signal_state.shutdown_complete {
+            if traceback.is_none() && abort.is_none() && !stopped {
+                if let Some(shutdown_status) = self.signal_state.shutdown_status {
+                    status = shutdown_status;
+                }
+            }
+        }
+
         if auto_main_required && traceback.is_none() && abort.is_none() && !stopped {
             let zero = zero_span();
             let call_result =
@@ -4124,6 +4162,44 @@ impl Evaluator {
             }
             if self.signal_state.shutdown_complete {
                 break;
+            }
+        }
+
+        // Final signal check after the statement loop.  A child process (e.g.
+        // `sh -c "kill -USR1 \$PPID"`) may send a signal and exit on CPU A
+        // while this process's `waitpid(NOHANG)` returns on CPU B.  The
+        // child's `exit` changes its zombie state atomically, so `waitpid`
+        // sees it immediately.  But the child's `kill` sets TIF_SIGPENDING on
+        // our task_struct — the cross-CPU IPI may not arrive until after
+        // `waitpid` returns to userspace.  Signal delivery only happens at
+        // the next kernel re-entry.  If the script has no more syscalls
+        // (e.g. the last statement was a fast `run`), TIF_SIGPENDING stays
+        // unobserved, the handler never writes PRIMARY_SIGNAL, and
+        // service_pending_signal never sees the hook signal.
+        // yield_now() forces sched_yield, a real syscall, so the kernel
+        // checks pending signals before returning and delivers any that
+        // raced in after the last poll.  Handle the result inline to
+        // propagate shutdown status from the hook's abort(0).
+        std::thread::yield_now();
+        if let Err(error) = self.service_pending_signal(script_span) {
+            diagnostics.push(runtime_diagnostic(
+                error.span.unwrap_or(script_span),
+                &error.message,
+                "runtime.error",
+            ));
+            traceback = Some(self.pending_traceback.take().unwrap_or_else(|| {
+                self.traceback_for_value(
+                    error.span.unwrap_or(script_span),
+                    "signal.hook",
+                    &Value::Error(Box::new(error)),
+                )
+            }));
+        }
+        if self.signal_state.shutdown_complete {
+            if traceback.is_none() && abort.is_none() && !stopped {
+                if let Some(shutdown_status) = self.signal_state.shutdown_status {
+                    status = shutdown_status;
+                }
             }
         }
 
@@ -5949,6 +6025,20 @@ fn lowered_value_matches_static_type(value: &LoweredValue, ty: &Type) -> bool {
             LoweredValue::Map(items) => items
                 .values()
                 .all(|item| lowered_value_matches_static_type(item, item_ty)),
+            LoweredValue::Record(record) => record
+                .values()
+                .all(|item| lowered_value_matches_static_type(item, item_ty)),
+            LoweredValue::RecordVec(record) => record
+                .iter()
+                .all(|(_, item)| lowered_value_matches_static_type(item, item_ty)),
+            LoweredValue::FsEntry(entry) => {
+                entry.to_record_map().is_ok_and(|record| {
+                    record
+                        .values()
+                        .filter_map(|value| lowered_value_from_runtime_any(value))
+                        .all(|item| lowered_value_matches_static_type(&item, item_ty))
+                })
+            }
             _ => false,
         },
         Type::Stream(_) => matches!(value, LoweredValue::Stream(_)),

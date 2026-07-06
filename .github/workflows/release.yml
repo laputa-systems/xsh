@@ -144,13 +144,16 @@ jobs:
           ln -sf "../${{ matrix.target }}/debug/xshi" target/debug/xshi
           ln -sf "../${{ matrix.target }}/debug/xsh-test-sleeper" target/debug/xsh-test-sleeper
 
-      - name: Test
+      - name: test
         run: |
           if [ "${{ matrix.os }}" = linux ]; then
             cargo test --target ${{ matrix.target }} -- --nocapture --quiet
           else
             cargo test -- --nocapture --quiet
           fi
+
+      - name: xsh tests
+        run: cargo run -p xsht -- test
 
       - name: Build dist binaries
         run: make dist TARGET=${{ matrix.target }}

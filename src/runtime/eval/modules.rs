@@ -16,6 +16,8 @@ use std::time::Duration;
 use xsh_registry::types::BuiltinTypeName;
 
 pub(in crate::runtime::eval) mod auth;
+#[path = "modules/lib/crypt.rs"]
+pub(super) mod crypt;
 mod fs;
 #[path = "modules/linux.rs"]
 mod linux_eval;
