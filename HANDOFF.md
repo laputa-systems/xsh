@@ -2,8 +2,6 @@
 
 ## Current State
 
-The original package build failure is fixed.
-
 `make boot` in `../laputa` now gets through:
 
 - baselayout proof/build/install
@@ -33,6 +31,22 @@ qemu-watch: line 38: -netdev: command not found
 ```
 
 `console.log` is empty.
+
+I should add that I've retried `make boot` and get a different error indicating we may want to make fs-root-symlink idempotent.
+
+baselayout ok
+baselayout proof ok
+baselayout baselayout-1-14 26 built
+runtime traceback
+executable: /Users/josh/d/laputa-systems/xsh/target/debug/xsh
+operation: result.propagate
+error: fs-root-symlink: File exists (os error 17)
+call path:
+  1. proc main at /Users/josh/d/laputa-systems/packages/pm.xsh:1:1-1:1
+  2. proc build_install_packages at /Users/josh/d/laputa-systems/packages/pm.xsh:2597:5-2597:30
+  3. pure local.install_built_packages at /Users/josh/d/laputa-systems/packages/pm.xsh:1830:5-1830:44
+  4. pure local.install_manifest_entries at /Users/josh/d/laputa-systems/packages/pm/local.xsh:1561:5-1561:117
+
 
 ## Fixed This Turn
 
@@ -116,11 +130,6 @@ These were already in the worktree before the final fix:
   - Direct dynamic build-handle repro; succeeds and remains useful as a contrast
     case for the formerly failing statically imported PM path.
 
-Deleted:
-
-- `tools/repro-fs-copy-tree-socket.xsh`
-  - No longer useful. It only proved strict `copy_tree` diagnostics; the real
-    bug was wrong cwd.
 
 ## Verification
 
@@ -161,8 +170,3 @@ Investigate the VM launch wrapper in `../laputa`, starting from the generated
 the QEMU executable/argv prefix is missing, causing the first QEMU argument
 (`-netdev`) to be executed as a shell command.
 
-Suggested prompt:
-
-```text
-Continue from HANDOFF.md in /Users/josh/d/laputa-systems/xsh. The XSH package-build cwd bug is fixed and the minimized PM repro passes. `make boot` now gets through package builds/install and rootfs image creation, then fails at VM launch with `boot-console-silent`; qemu.log says `qemu-watch: line 38: -netdev: command not found` and console.log is empty. Please inspect the Laputa boot/qemu-watch generation path, fix the missing QEMU executable/argv prefix, and rerun `make boot`. Keep the existing XSH changes scoped; do not loosen `fs.copy_tree` semantics.
-```
