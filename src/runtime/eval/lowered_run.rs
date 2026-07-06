@@ -2667,11 +2667,16 @@ fn lowered_path_list_arg(
     operation: &str,
     span: Span,
 ) -> Result<Vec<PathValue>, RuntimeError> {
-    let LoweredValue::List(items) = value else {
-        return Err(
-            RuntimeError::new("type-error", format!("{operation} expected List[Path]"))
-                .with_span(span),
-        );
+    let items = match value {
+        LoweredValue::List(items) => items,
+        LoweredValue::SharedList(items) => items.iter().cloned().collect(),
+        _ => {
+            return Err(RuntimeError::new(
+                "type-error",
+                format!("{operation} expected List[Path]"),
+            )
+            .with_span(span));
+        }
     };
     let mut paths = Vec::with_capacity(items.len());
     for item in items {
@@ -8656,6 +8661,15 @@ impl Evaluator {
                     linux_module::partition_table(&host_path, span)
                 }
                 RuntimeOp::LinuxUeventStream => linux_module::uevent_stream(span),
+                RuntimeOp::LinuxChroot => {
+                    let path = lowered_path_arg(
+                        unix_require_arg(values.first().cloned(), "linux.chroot", span)?,
+                        "linux.chroot",
+                        span,
+                    )?;
+                    let host_path = self.host_path(&path);
+                    linux_module::chroot(&host_path, span)
+                }
                 // Boot / privileged operations are not safe in a non-privileged
                 // container; return Ok(()) so scripts can feature-gate on errors.
                 _ => Ok(Value::ok(Value::Unit)),
@@ -9703,6 +9717,9 @@ impl Evaluator {
                 LoweredStmtFlow::Return(value) if matches!(value, LoweredValue::Stream(_)) => {
                     Ok(value)
                 }
+                LoweredStmtFlow::Return(LoweredValue::Unit) => Ok(LoweredValue::Stream(Box::new(
+                    StreamValue::from_values(items),
+                ))),
                 LoweredStmtFlow::Return(value) => Err(RuntimeError::new(
                     "type-error",
                     format!("stream producer returned {}", value.type_name()),
@@ -9777,12 +9794,28 @@ impl Evaluator {
                 )
                 .with_span(call_span));
             };
-            let Some(value) = lowered_value_from_runtime(&binding.value, capture.kind) else {
+            let Some(value) = self
+                .lookup_lowered_capture(capture.name, capture.kind)
+                .or_else(|| lowered_value_from_runtime_any(&binding.value))
+            else {
+                let detail = if capture.kind == LoweredType::Module {
+                    format!(
+                        " (found runtime value of type `{}`; the module namespace \
+                         may have been overwritten by a same-named export or \
+                         top-level binding)",
+                        binding.value.type_name()
+                    )
+                } else {
+                    format!(
+                        " (found runtime value of type `{}`)",
+                        binding.value.type_name()
+                    )
+                };
                 return Err(RuntimeError::new(
                     "type-error",
                     format!(
-                        "captured name `{}` no longer matches lowered type",
-                        capture.name
+                        "captured name `{}` no longer matches lowered type {:?}{}",
+                        capture.name, capture.kind, detail
                     ),
                 )
                 .with_span(call_span));
@@ -9790,6 +9823,14 @@ impl Evaluator {
             slots[capture.slot] = value;
         }
         Ok(())
+    }
+
+    fn lookup_lowered_capture(&self, name: Name, kind: LoweredType) -> Option<LoweredValue> {
+        self.scopes.iter().rev().find_map(|scope| {
+            scope
+                .get(&name)
+                .and_then(|binding| lowered_value_from_runtime(&binding.value, kind))
+        })
     }
 
     fn write_back_lowered_captures(
@@ -10978,17 +11019,32 @@ impl Evaluator {
             module_source_id,
             &module_text,
         );
+        let dynamic_namespace = Name::intern(format!("dynamic:{key}"));
+        let exported_functions = self.module_namespace_export_functions(&parsed.arena);
+        for (name, pure) in &exported_functions {
+            let qualified = QualifiedName::new(dynamic_namespace, *name);
+            if *pure {
+                if let Some(function) = self.lowered_pures.get(name).cloned() {
+                    Arc::make_mut(&mut self.lowered_qualified_pures).insert(qualified, function);
+                }
+            } else if let Some(function) = self.lowered_procs.get(name).cloned() {
+                Arc::make_mut(&mut self.lowered_qualified_procs).insert(qualified, function);
+            }
+        }
         let declarations = crate::sema::check::Checker::check_compact_declarations(&parsed.arena);
         if declarations.diagnostics.is_empty() {
-            for (name, pure) in self.module_namespace_export_functions(&parsed.arena) {
-                let function = crate::runtime::value::FunctionName::name(name);
-                let sig = if pure {
-                    declarations.pures.get(&name)
+            for (name, pure) in &exported_functions {
+                let function = crate::runtime::value::FunctionName::qualified(QualifiedName::new(
+                    dynamic_namespace,
+                    *name,
+                ));
+                let sig = if *pure {
+                    declarations.pures.get(name)
                 } else {
-                    declarations.procs.get(&name)
+                    declarations.procs.get(name)
                 };
                 if let Some(sig) = sig {
-                    self.record_module_export_signature(function, pure, sig);
+                    self.record_module_export_signature(function, *pure, sig);
                 }
             }
         }
@@ -11027,6 +11083,12 @@ impl Evaluator {
             // (installed under the module namespace) can read the module-scope
             // values they capture when invoked.
             for (name, value) in bindings {
+                if self
+                    .lookup(name)
+                    .is_some_and(|binding| matches!(binding.value, Value::Module(_)))
+                {
+                    continue;
+                }
                 self.define(
                     name,
                     super::Binding {
@@ -11041,11 +11103,15 @@ impl Evaluator {
         };
 
         // Build the export record: exported `let` values from the child run,
-        // plus handles for exported functions (unqualified, matching how they
-        // were installed in Pass 1).
+        // plus handles for exported functions under this dynamic module's
+        // private namespace so same-named exports from other loaded files do
+        // not overwrite them.
         let mut record = child_exports;
-        for (name, pure) in self.module_namespace_export_functions(&parsed.arena) {
-            let function = crate::runtime::value::FunctionName::name(name);
+        for (name, pure) in exported_functions {
+            let function = crate::runtime::value::FunctionName::qualified(QualifiedName::new(
+                dynamic_namespace,
+                name,
+            ));
             let value = if pure {
                 Value::Pure(function)
             } else {
@@ -11163,6 +11229,7 @@ impl Evaluator {
                         &declarations,
                         &bodies,
                         &source,
+                        &self.sources,
                         module.name,
                         &functions,
                     );
@@ -11293,9 +11360,24 @@ impl Evaluator {
                     );
                 }
                 let import_name = alias.unwrap_or(*namespace);
+                // Evaluate module statements, protecting every `Value::Module`
+                // binding from being overwritten by subsequent module-level
+                // `let`/`var` statements.  Nested `use` statements create
+                // Module namespace bindings; a later `let sources = [...]`
+                // would overwrite the namespace, causing capture type
+                // mismatches when functions defined before the `let` are
+                // called.
                 for (module_span, module_stmt) in module_statements {
                     if matches!(module_stmt.kind, LoweredTopLevelKind::Defer { .. }) {
                         continue;
+                    }
+                    let mut modules_before_stmt: Vec<(Name, RecordMap)> = Vec::new();
+                    if let Some(scope) = self.scopes.last() {
+                        for (&name, binding) in scope.iter() {
+                            if let Value::Module(record) = &binding.value {
+                                modules_before_stmt.push((name, record.clone()));
+                            }
+                        }
                     }
                     match self.eval_lowered_top_level_stmt(module_stmt, *module_span)? {
                         Some(Flow::Continue(_)) | None => {}
@@ -11308,6 +11390,30 @@ impl Evaluator {
                                 format!("invalid control flow while importing {key}"),
                             )
                             .with_span(*module_span));
+                        }
+                    }
+                    // Restore any Module binding this stmt overwrote.
+                    for (name, record) in &modules_before_stmt {
+                        if let Some(binding) = self.lookup(*name)
+                            && !matches!(&binding.value, Value::Module(_)) {
+                                self.define(
+                                    *name,
+                                    Binding {
+                                        value: Value::Module(record.clone()),
+                                        mutable: false,
+                                    },
+                                );
+                            }
+                    }
+                }
+                // Snapshot all Module bindings that survived (or were
+                // created by) the per-statement protect/restore above.
+                // We protect them from the exports loop below.
+                let mut modules_protected: Vec<(Name, RecordMap)> = Vec::new();
+                if let Some(scope) = self.scopes.last() {
+                    for (&name, binding) in scope.iter() {
+                        if let Value::Module(record) = &binding.value {
+                            modules_protected.push((name, record.clone()));
                         }
                     }
                 }
@@ -11343,6 +11449,20 @@ impl Evaluator {
                             },
                         );
                     }
+                }
+                // Restore any Module namespace overwritten by a Proc/Pure
+                // export in the loop above.
+                for (name, module_record) in modules_protected {
+                    if let Some(binding) = self.lookup(name)
+                        && !matches!(&binding.value, Value::Module(_)) {
+                            self.define(
+                                name,
+                                Binding {
+                                    value: Value::Module(module_record),
+                                    mutable: false,
+                                },
+                            );
+                        }
                 }
                 self.define(
                     import_name,
@@ -12771,6 +12891,7 @@ impl Evaluator {
                             let _traceback =
                                 self.pending_traceback.take().unwrap_or_else(|| Traceback {
                                     failing_span: Some(*span),
+                                    exe_path: self.exe_path.clone(),
                                     operation_kind: "result.propagate".to_string(),
                                     error: TraceError { kind, message },
                                     frames: self.call_stack.clone(),
@@ -14251,6 +14372,38 @@ impl Evaluator {
                     lowered_result_err_value(run_error_to_runtime(error, *span))
                 }
             };
+            return Ok(ControlFlow::Continue(value));
+        }
+        if name == "call"
+            && let Some((function, pure)) = match &receiver {
+                LoweredValue::Pure(function) => Some((*function, true)),
+                LoweredValue::Proc(function) => Some((*function, false)),
+                _ => None,
+            }
+        {
+            let args = values
+                .into_iter()
+                .map(LoweredValue::into_value)
+                .collect::<Vec<_>>();
+            let result = self
+                .call_lowered_function_value_with_values(function, pure, &args, *span)
+                .ok_or_else(|| {
+                    RuntimeError::new(
+                        "unresolved-call",
+                        format!(
+                            "method call target {} could not be lowered",
+                            function.display_name()
+                        ),
+                    )
+                    .with_span(*span)
+                })??;
+            let value = lowered_value_from_runtime_any(&result).ok_or_else(|| {
+                RuntimeError::new(
+                    "type-error",
+                    format!("method call returned unsupported {}", result.type_name()),
+                )
+                .with_span(*span)
+            })?;
             return Ok(ControlFlow::Continue(value));
         }
         match receiver {

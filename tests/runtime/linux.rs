@@ -324,6 +324,26 @@ env XSH_LINUX_REAL=1 XSH_LINUX_DRY_RUN=0 {
     );
 }
 
+#[cfg(target_os = "linux")]
+#[test]
+fn linux_real_chroot_reports_real_error() {
+    let output = run_temp_script(
+        "linux-real-chroot-error",
+        r#"
+let missing = fp"/tmp/xsh-missing-chroot-${process.current_pid()?}"
+env XSH_LINUX_REAL=1 XSH_LINUX_DRY_RUN=0 {
+  test.error_kind(linux.chroot(missing), "linux-chroot")?
+} ?
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
 #[test]
 fn linux_module_dry_run_primitives_are_observable() {
     let root = temp_path("linux-dry-run");

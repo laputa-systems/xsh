@@ -2553,6 +2553,7 @@ pub(super) struct ModuleExportSignature {
 pub struct Evaluator {
     sources: Arc<SourceMap>,
     command_name: String,
+    exe_path: String,
     scopes: Vec<FxHashMap<Name, Binding>>,
     // Signatures of functions exported by dynamically loaded modules
     // (`module.load`), keyed by the export's `FunctionName`. Captured from the
@@ -2607,6 +2608,7 @@ pub struct Evaluator {
 struct LoweredSharedState {
     sources: Arc<SourceMap>,
     command_name: String,
+    exe_path: String,
     scopes: Vec<FxHashMap<Name, Binding>>,
     module_export_signatures:
         Arc<FxHashMap<crate::runtime::value::FunctionName, ModuleExportSignature>>,
@@ -2755,6 +2757,10 @@ impl Evaluator {
         let mut evaluator = Self {
             sources: Arc::new(sources),
             command_name,
+            exe_path: std::env::current_exe()
+                .ok()
+                .and_then(|p| p.to_str().map(String::from))
+                .unwrap_or_default(),
             scopes: vec![FxHashMap::default()],
             module_export_signatures: Arc::new(FxHashMap::default()),
             lowered_pures: Arc::new(FxHashMap::default()),
@@ -2911,6 +2917,7 @@ impl Evaluator {
         Arc::new(LoweredSharedState {
             sources: self.sources.clone(),
             command_name: self.command_name.clone(),
+            exe_path: self.exe_path.clone(),
             scopes: self.scopes.clone(),
             module_export_signatures: self.module_export_signatures.clone(),
             lowered_pures: self.lowered_pures.clone(),
@@ -2933,6 +2940,7 @@ impl Evaluator {
         Self {
             sources: shared.sources.clone(),
             command_name: shared.command_name.clone(),
+            exe_path: shared.exe_path.clone(),
             scopes: shared.scopes.clone(),
             module_export_signatures: shared.module_export_signatures.clone(),
             lowered_pures: shared.lowered_pures.clone(),
@@ -3143,6 +3151,7 @@ impl Evaluator {
                     .to_string();
                 let traceback = self.pending_traceback.take().unwrap_or_else(|| Traceback {
                     failing_span: Some(call_span),
+                    exe_path: self.exe_path_for_traceback(),
                     operation_kind: "signal.hook".to_string(),
                     error: TraceError { kind, message },
                     frames: self.call_stack.clone(),
@@ -3580,13 +3589,11 @@ impl Evaluator {
                 )
             }));
         }
-        if self.signal_state.shutdown_complete {
-            if traceback.is_none() && abort.is_none() && !stopped {
-                if let Some(shutdown_status) = self.signal_state.shutdown_status {
+        if self.signal_state.shutdown_complete
+            && traceback.is_none() && abort.is_none() && !stopped
+                && let Some(shutdown_status) = self.signal_state.shutdown_status {
                     status = shutdown_status;
                 }
-            }
-        }
 
         if auto_main_required && traceback.is_none() && abort.is_none() && !stopped {
             let zero = zero_span();
@@ -3812,6 +3819,24 @@ impl Evaluator {
         let install_diagnostics = self.install_compact_lowered_program(program, source_id);
         if let Some(diagnostic) = install_diagnostics.into_iter().next() {
             return Err(diagnostic);
+        }
+        if allow_checker_only
+            && let Some(source) = self
+                .sources
+                .get(program.source_text_source_id().unwrap_or(source_id))
+                .map(|s| s.text())
+        {
+            let capture_diagnostics = lower::validate_compact_lowered_capture_types(
+                program,
+                source,
+                &self.lowered_pures,
+                &self.lowered_procs,
+                &self.lowered_qualified_pures,
+                &self.lowered_qualified_procs,
+            );
+            if let Some(diagnostic) = capture_diagnostics.into_iter().next() {
+                return Err(diagnostic);
+            }
         }
         let root = program.statement_ids().collect::<Vec<_>>();
         let auto_main_required = compact_root_proc_main_requires_auto_call(
@@ -4195,13 +4220,11 @@ impl Evaluator {
                 )
             }));
         }
-        if self.signal_state.shutdown_complete {
-            if traceback.is_none() && abort.is_none() && !stopped {
-                if let Some(shutdown_status) = self.signal_state.shutdown_status {
+        if self.signal_state.shutdown_complete
+            && traceback.is_none() && abort.is_none() && !stopped
+                && let Some(shutdown_status) = self.signal_state.shutdown_status {
                     status = shutdown_status;
                 }
-            }
-        }
 
         if plan.auto_main_required && traceback.is_none() && abort.is_none() && !stopped {
             let zero = zero_span();
@@ -4619,6 +4642,7 @@ impl Evaluator {
             &declarations,
             &bodies,
             source,
+            &self.sources,
             &self.lowered_qualified_pures,
             &self.lowered_qualified_procs,
         );
@@ -4636,6 +4660,7 @@ impl Evaluator {
                 &declarations,
                 &bodies,
                 source,
+                &self.sources,
                 &functions,
             )
         });
@@ -4727,6 +4752,7 @@ impl Evaluator {
                 );
                 let traceback = self.pending_traceback.take().unwrap_or_else(|| Traceback {
                     failing_span: Some(span),
+                    exe_path: self.exe_path_for_traceback(),
                     operation_kind: "result.propagate".to_string(),
                     error: TraceError {
                         kind: kind.clone(),
@@ -4746,6 +4772,7 @@ impl Evaluator {
                 )),
                 traceback: Traceback {
                     failing_span: Some(span),
+                    exe_path: self.exe_path_for_traceback(),
                     operation_kind: "result.propagate".to_string(),
                     error: TraceError::new("type-error", "`?` expected Result"),
                     frames: self.call_stack.clone(),
@@ -4754,9 +4781,14 @@ impl Evaluator {
         }
     }
 
+    fn exe_path_for_traceback(&self) -> String {
+        self.exe_path.clone()
+    }
+
     fn traceback_for_value(&self, span: Span, operation: &str, value: &Value) -> Traceback {
         Traceback {
             failing_span: Some(span),
+            exe_path: self.exe_path_for_traceback(),
             operation_kind: operation.to_string(),
             error: TraceError::new(
                 value.error_kind().unwrap_or("runtime-error"),
@@ -5189,6 +5221,7 @@ fn signal_hook_error(result: &Result<Flow, RuntimeError>) -> Option<TraceError> 
 pub fn apply_question(
     value: Value,
     question_span: Span,
+    exe_path: String,
     frames: Vec<TracebackFrame>,
     trace_events: &mut Vec<TraceEvent>,
 ) -> EvalFlow {
@@ -5213,6 +5246,7 @@ pub fn apply_question(
                 error,
                 traceback: Traceback {
                     failing_span: Some(question_span),
+                    exe_path,
                     operation_kind: "result.propagate".to_string(),
                     error: TraceError { kind, message },
                     frames,
@@ -5229,6 +5263,7 @@ pub fn apply_question(
             )),
             traceback: Traceback {
                 failing_span: Some(question_span),
+                exe_path,
                 operation_kind: "result.propagate".to_string(),
                 error: TraceError::new("type-error", "`?` expected Result"),
                 frames,
@@ -6031,14 +6066,12 @@ fn lowered_value_matches_static_type(value: &LoweredValue, ty: &Type) -> bool {
             LoweredValue::RecordVec(record) => record
                 .iter()
                 .all(|(_, item)| lowered_value_matches_static_type(item, item_ty)),
-            LoweredValue::FsEntry(entry) => {
-                entry.to_record_map().is_ok_and(|record| {
-                    record
-                        .values()
-                        .filter_map(|value| lowered_value_from_runtime_any(value))
-                        .all(|item| lowered_value_matches_static_type(&item, item_ty))
-                })
-            }
+            LoweredValue::FsEntry(entry) => entry.to_record_map().is_ok_and(|record| {
+                record
+                    .values()
+                    .filter_map(lowered_value_from_runtime_any)
+                    .all(|item| lowered_value_matches_static_type(&item, item_ty))
+            }),
             _ => false,
         },
         Type::Stream(_) => matches!(value, LoweredValue::Stream(_)),
@@ -6115,7 +6148,7 @@ fn lowered_value_matches_static_type(value: &LoweredValue, ty: &Type) -> bool {
 fn runtime_diagnostic(span: Span, message: &str, code: &str) -> Diagnostic {
     crate::diagnostic::Diagnostic::error(message)
         .with_code(code)
-        .with_label(crate::diagnostic::Label::primary(span, message))
+        .with_label(crate::diagnostic::Label::primary(span, ""))
 }
 
 fn compact_lowerability_diagnostic(span: Span, message: &str, code: &str) -> Diagnostic {

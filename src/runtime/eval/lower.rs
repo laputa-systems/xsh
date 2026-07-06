@@ -1,11 +1,12 @@
 //! AST -> lowered-IR lowering pass, split out of `eval.rs`.
 
+use crate::diagnostic::{Diagnostic, Label};
 use crate::modules::{ModuleFnSig, RuntimeOp, api_spec};
 use crate::runtime::value::{DurationValue, PathValue, RecordMap, RuntimeError, Value};
-use crate::sema::check::{CompactBodyProbeOutput, CompactDeclOutput, CompactTypeDefInfo};
+use crate::sema::check::{Checker, CompactBodyProbeOutput, CompactDeclOutput, CompactTypeDefInfo};
 use crate::sema::records::standard_record_type;
 use crate::sema::types::{CallableParamType, ModuleExportType, Type};
-use crate::source::Span;
+use crate::source::{SourceMap, Span};
 use crate::symbol::{Name, QualifiedName, Symbol};
 use crate::syntax::arena::{
     ArenaAssignTargetKind, ArenaBindingTargetKind, ArenaBuilderEntryKind, ArenaCallArg,
@@ -1498,6 +1499,7 @@ pub(super) fn probe_compact_lower_constructed_bodies(
         declarations,
         bodies,
         source,
+        sources: None,
         current_namespace: None,
         functions: None,
         top_level_known: FxHashMap::default(),
@@ -1537,6 +1539,7 @@ pub(super) fn probe_compact_lower_function_units(
             declarations,
             bodies,
             source,
+            None,
             function.namespace,
             function.id,
             Some(&functions),
@@ -1546,6 +1549,7 @@ pub(super) fn probe_compact_lower_function_units(
             declarations,
             bodies,
             source,
+            sources: None,
             current_namespace: function.namespace,
             functions: Some(&functions),
             top_level_known,
@@ -1589,6 +1593,7 @@ pub(super) fn probe_compact_lower_function_units_with_available(
             declarations,
             bodies,
             source,
+            None,
             function.namespace,
             function.id,
             Some(&functions),
@@ -1598,6 +1603,7 @@ pub(super) fn probe_compact_lower_function_units_with_available(
             declarations,
             bodies,
             source,
+            sources: None,
             current_namespace: function.namespace,
             functions: Some(&functions),
             top_level_known,
@@ -1620,6 +1626,7 @@ pub(super) fn lower_compact_top_level_program_with_probe(
     declarations: &CompactDeclOutput,
     bodies: &CompactBodyProbeOutput,
     source: &str,
+    sources: &SourceMap,
     functions: &LowerableFunctions<'_>,
 ) -> (LoweredProgram, CompactLowerConstructProbeOutput) {
     let mut probe = CompactLowerConstructProbe {
@@ -1627,6 +1634,7 @@ pub(super) fn lower_compact_top_level_program_with_probe(
         declarations,
         bodies,
         source,
+        sources: Some(sources),
         current_namespace: None,
         functions: Some(functions),
         top_level_known: compact_top_level_known(
@@ -1634,6 +1642,7 @@ pub(super) fn lower_compact_top_level_program_with_probe(
             declarations,
             bodies,
             source,
+            Some(sources),
             None,
             Some(functions),
         ),
@@ -1650,6 +1659,7 @@ pub(super) fn lower_compact_module_program(
     declarations: &CompactDeclOutput,
     bodies: &CompactBodyProbeOutput,
     source: &str,
+    sources: &SourceMap,
     namespace: Name,
     functions: &LowerableFunctions<'_>,
 ) -> LoweredProgram {
@@ -1664,6 +1674,7 @@ pub(super) fn lower_compact_module_program(
         declarations,
         bodies,
         source,
+        sources: Some(sources),
         current_namespace: Some(namespace),
         functions: Some(functions),
         top_level_known: compact_top_level_known(
@@ -1671,6 +1682,7 @@ pub(super) fn lower_compact_module_program(
             declarations,
             bodies,
             source,
+            Some(sources),
             Some(namespace),
             Some(functions),
         ),
@@ -1685,6 +1697,7 @@ fn compact_top_level_known(
     declarations: &CompactDeclOutput,
     bodies: &CompactBodyProbeOutput,
     source: &str,
+    sources: Option<&SourceMap>,
     namespace: Option<Name>,
     functions: Option<&LowerableFunctions<'_>>,
 ) -> FxHashMap<Name, LoweredTopLevelBinding> {
@@ -1702,6 +1715,7 @@ fn compact_top_level_known(
         declarations,
         bodies,
         source,
+        sources,
         current_namespace: namespace,
         functions,
         top_level_known: FxHashMap::default(),
@@ -1716,6 +1730,7 @@ fn compact_function_top_level_known(
     declarations: &CompactDeclOutput,
     bodies: &CompactBodyProbeOutput,
     source: &str,
+    sources: Option<&SourceMap>,
     namespace: Option<Name>,
     function_id: FunctionDefId,
     functions: Option<&LowerableFunctions<'_>>,
@@ -1734,6 +1749,7 @@ fn compact_function_top_level_known(
         declarations,
         bodies,
         source,
+        sources,
         current_namespace: namespace,
         functions,
         top_level_known: FxHashMap::default(),
@@ -1771,6 +1787,7 @@ pub(super) fn lower_compact_root_functions(
     declarations: &CompactDeclOutput,
     bodies: &CompactBodyProbeOutput,
     source: &str,
+    sources: &SourceMap,
     qualified_pures: &FxHashMap<QualifiedName, Arc<LoweredPureFunction>>,
     qualified_procs: &FxHashMap<QualifiedName, Arc<LoweredPureFunction>>,
 ) -> CompactLoweredFunctions {
@@ -1786,6 +1803,7 @@ pub(super) fn lower_compact_root_functions(
             declarations,
             bodies,
             source,
+            Some(sources),
             &root,
             &mut lowered,
         );
@@ -1794,6 +1812,7 @@ pub(super) fn lower_compact_root_functions(
             declarations,
             bodies,
             source,
+            Some(sources),
             &root,
             &mut lowered,
             true,
@@ -1805,6 +1824,7 @@ pub(super) fn lower_compact_root_functions(
             declarations,
             bodies,
             source,
+            Some(sources),
             &root,
             &mut lowered,
             false,
@@ -1823,6 +1843,7 @@ fn lower_compact_root_function_sweep(
     declarations: &CompactDeclOutput,
     bodies: &CompactBodyProbeOutput,
     source: &str,
+    sources: Option<&SourceMap>,
     root: &[CompactFunctionDef],
     lowered: &mut CompactLoweredFunctions,
 ) -> bool {
@@ -1844,6 +1865,7 @@ fn lower_compact_root_function_sweep(
             declarations,
             bodies,
             source,
+            sources,
             function.namespace,
             function.id,
             Some(&functions),
@@ -1853,6 +1875,7 @@ fn lower_compact_root_function_sweep(
             declarations,
             bodies,
             source,
+            sources,
             current_namespace: function.namespace,
             functions: Some(&functions),
             top_level_known,
@@ -1874,6 +1897,7 @@ fn lower_compact_function_sccs(
     declarations: &CompactDeclOutput,
     bodies: &CompactBodyProbeOutput,
     source: &str,
+    sources: Option<&SourceMap>,
     root: &[CompactFunctionDef],
     lowered: &mut CompactLoweredFunctions,
     pure: bool,
@@ -1923,6 +1947,7 @@ fn lower_compact_function_sccs(
                 declarations,
                 bodies,
                 source,
+                sources,
                 function.namespace,
                 function.id,
                 Some(&functions),
@@ -1932,6 +1957,7 @@ fn lower_compact_function_sccs(
                 declarations,
                 bodies,
                 source,
+                sources,
                 current_namespace: function.namespace,
                 functions: Some(&functions),
                 top_level_known,
@@ -2452,6 +2478,7 @@ struct CompactLowerConstructProbe<'a, 'defs> {
     declarations: &'a CompactDeclOutput,
     bodies: &'a CompactBodyProbeOutput,
     source: &'a str,
+    sources: Option<&'a SourceMap>,
     current_namespace: Option<Name>,
     functions: Option<&'a LowerableFunctions<'defs>>,
     top_level_known: FxHashMap<Name, LoweredTopLevelBinding>,
@@ -3099,6 +3126,56 @@ const _: [(); COMPACT_CALL_BLOCKER_KIND_COUNT] = [(); 6];
 const _: [(); COMPACT_COMMAND_BLOCKER_KIND_COUNT] = [(); 6];
 
 impl CompactLowerConstructProbe<'_, '_> {
+    fn text_value_in_span<'a>(
+        &'a self,
+        text: &'a crate::syntax::arena::ArenaText,
+        context: Span,
+    ) -> Option<&'a str> {
+        match text {
+            crate::syntax::arena::ArenaText::Source(bytes) => {
+                let start = bytes.start as usize;
+                let span = Span::new(context.source_id, start, start + bytes.len as usize);
+                self.sources
+                    .and_then(|sources| sources.span_text(span))
+                    .or_else(|| self.program.arena.text_value(text, self.source))
+            }
+            crate::syntax::arena::ArenaText::Cooked(value) => Some(value.as_ref()),
+        }
+    }
+
+    fn bare_text_value_in_span<'a>(
+        &'a self,
+        text: &'a crate::syntax::arena::ArenaText,
+        context: Span,
+    ) -> Option<&'a str> {
+        let value = self.text_value_in_span(text, context)?;
+        if value.is_empty() {
+            self.sources
+                .and_then(|sources| sources.span_text(context))
+                .filter(|text| !text.is_empty())
+                .or(Some(value))
+        } else {
+            Some(value)
+        }
+    }
+
+    fn text_value<'a>(&'a self, text: &'a crate::syntax::arena::ArenaText) -> Option<&'a str> {
+        match text {
+            crate::syntax::arena::ArenaText::Source(bytes) => {
+                let start = bytes.start as usize;
+                let span = Span::new(
+                    self.program.arena.span_source_id?,
+                    start,
+                    start + bytes.len as usize,
+                );
+                self.sources
+                    .and_then(|sources| sources.span_text(span))
+                    .or_else(|| self.program.arena.text_value(text, self.source))
+            }
+            crate::syntax::arena::ArenaText::Cooked(value) => Some(value.as_ref()),
+        }
+    }
+
     fn probe_program(&mut self) {
         let root = self.program.statement_ids().collect::<Vec<_>>();
         self.top_level_known = self.collect_top_level_known(&root);
@@ -3193,6 +3270,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                         self.declarations,
                         self.bodies,
                         self.source,
+                        self.sources,
                         self.current_namespace,
                         def,
                         self.functions,
@@ -3231,6 +3309,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                         self.declarations,
                         self.bodies,
                         self.source,
+                        self.sources,
                         self.current_namespace,
                         def,
                         self.functions,
@@ -3703,6 +3782,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                         declarations: self.declarations,
                         bodies: self.bodies,
                         source: self.source,
+                        sources: self.sources,
                         current_namespace: Some(module.name),
                         functions: self.functions,
                         top_level_known: compact_top_level_known(
@@ -3710,6 +3790,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                             self.declarations,
                             self.bodies,
                             self.source,
+                            self.sources,
                             Some(module.name),
                             self.functions,
                         ),
@@ -4039,16 +4120,6 @@ impl CompactLowerConstructProbe<'_, '_> {
                 let Some(namespace) = compact_use_import_namespace(self.program, use_id) else {
                     return;
                 };
-                known.insert(
-                    namespace,
-                    LoweredTopLevelBinding {
-                        kind: LoweredType::Module,
-                        result_ok: None,
-                        checked: None,
-                        mutable: false,
-                        slot: true,
-                    },
-                );
                 if use_stmt.alias.is_none()
                     && let Some(module) = self
                         .program
@@ -4121,6 +4192,16 @@ impl CompactLowerConstructProbe<'_, '_> {
                         }
                     }
                 }
+                known.insert(
+                    namespace,
+                    LoweredTopLevelBinding {
+                        kind: LoweredType::Module,
+                        result_ok: None,
+                        checked: None,
+                        mutable: false,
+                        slot: true,
+                    },
+                );
             }
             ArenaStmtKind::Let {
                 target,
@@ -4481,7 +4562,8 @@ impl CompactLowerConstructProbe<'_, '_> {
                     return Some(Type::List(Box::new(Type::Str)));
                 }
                 if name == "values" {
-                    let item = self.infer_checked_get_value_type(base, args, &self.top_level_known)?;
+                    let item =
+                        self.infer_checked_get_value_type(base, args, &self.top_level_known)?;
                     return Some(Type::List(Box::new(item)));
                 }
                 if name == "get" {
@@ -4543,8 +4625,10 @@ impl CompactLowerConstructProbe<'_, '_> {
                 let unified = item_types
                     .into_iter()
                     .reduce(|acc, ty| if acc == ty { acc } else { Type::Any })?;
-                first.filter(|first| unified == *first).or(Some(unified))
-                .map(|item_ty| Type::List(Box::new(item_ty)))
+                first
+                    .filter(|first| unified == *first)
+                    .or(Some(unified))
+                    .map(|item_ty| Type::List(Box::new(item_ty)))
             }
             ArenaExprKind::ListComp {
                 expr: value_expr,
@@ -4564,7 +4648,8 @@ impl CompactLowerConstructProbe<'_, '_> {
                             _ => None,
                         }
                     });
-                item_ty.map(|item_ty| Type::List(Box::new(item_ty)))
+                item_ty
+                    .map(|item_ty| Type::List(Box::new(item_ty)))
                     .or_else(|| Some(Type::List(Box::new(Type::Any))))
             }
             ArenaExprKind::MapComp { .. } => Some(Type::Map(Box::new(Type::Any))),
@@ -4856,10 +4941,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                 ));
             }
             if module == "Path" && name == "parse_bytes" {
-                return Some(Type::Result(
-                    Box::new(Type::Path),
-                    Box::new(Type::Error),
-                ));
+                return Some(Type::Result(Box::new(Type::Path), Box::new(Type::Error)));
             }
         }
         if let Some(return_ty) = self
@@ -6187,8 +6269,12 @@ impl CompactLowerConstructProbe<'_, '_> {
                             });
                         }
                     }
-                    let (pattern, cleanup) =
-                        self.lower_pattern(arm.pattern, slots, ok_binding_ty.as_ref(), err_binding_ty.as_ref())?;
+                    let (pattern, cleanup) = self.lower_pattern(
+                        arm.pattern,
+                        slots,
+                        ok_binding_ty.as_ref(),
+                        err_binding_ty.as_ref(),
+                    )?;
                     let body = match self.lower_block(arm.block, slots, current_function, item_slot)
                     {
                         Some(body) => body,
@@ -6475,12 +6561,13 @@ impl CompactLowerConstructProbe<'_, '_> {
         let [target] = args else {
             return None;
         };
+        let target = self.lower_command_arg(target, slots, current_function, item_slot)?;
         let body = match block {
             Some(block) => self.lower_block(block, slots, current_function, item_slot)?,
             None => Vec::new(),
         };
         Some(LoweredStmt::Cd {
-            target: self.lower_command_arg(target, slots, current_function, item_slot)?,
+            target,
             body,
             propagate_result: stmt.propagate,
             span: self.program.arena.span(stmt.span),
@@ -6560,12 +6647,11 @@ impl CompactLowerConstructProbe<'_, '_> {
                 self.lower_expr(*expr, slots, current_function, item_slot)
             }
             ArenaCommandArgKind::Word(parts) => {
+                let span = self.program.arena.span(arg.span);
                 let parts = self.program.arena.word_parts(*parts).collect::<Vec<_>>();
                 if let [ArenaWordPart::Bare(text)] = parts.as_slice() {
-                    let text = self.program.arena.text_value(text, self.source)?;
-                    if let Some(value) =
-                        lower_command_word_reference(text, slots, self.program.arena.span(arg.span))
-                    {
+                    let text = self.bare_text_value_in_span(text, span)?;
+                    if let Some(value) = lower_command_word_reference(text, slots, span) {
                         return Some(value);
                     }
                 }
@@ -6577,9 +6663,14 @@ impl CompactLowerConstructProbe<'_, '_> {
                 let mut lowered = Vec::with_capacity(parts.len());
                 for part in parts {
                     match part {
-                        ArenaWordPart::Bare(text) | ArenaWordPart::Quoted(text) => {
+                        ArenaWordPart::Bare(text) => {
                             lowered.push(LoweredFmtPart::Text(Arc::from(
-                                self.program.arena.text_value(&text, self.source)?,
+                                self.bare_text_value_in_span(&text, span)?,
+                            )));
+                        }
+                        ArenaWordPart::Quoted(text) => {
+                            lowered.push(LoweredFmtPart::Text(Arc::from(
+                                self.text_value_in_span(&text, span)?,
                             )));
                         }
                         ArenaWordPart::Shorthand(expr) | ArenaWordPart::Interpolation(expr) => {
@@ -6948,13 +7039,14 @@ impl CompactLowerConstructProbe<'_, '_> {
         item_slot: Option<usize>,
     ) -> Option<LoweredRunArg> {
         if let ArenaCommandArgKind::Word(parts) = &target.kind {
+            let span = self.program.arena.span(target.span);
             let parts = self.program.arena.word_parts(*parts).collect::<Vec<_>>();
             if let [ArenaWordPart::Bare(text)] = parts.as_slice() {
-                let text = self.program.arena.text_value(text, self.source)?;
+                let text = self.bare_text_value_in_span(text, span)?;
                 if let Some(slot) = slots.resolve(Name::intern(text)) {
                     return Some(LoweredRunArg {
                         kind: LoweredRunArgKind::Single(LoweredExpr::Param(slot)),
-                        span: self.program.arena.span(target.span),
+                        span,
                     });
                 }
             }
@@ -7026,9 +7118,14 @@ impl CompactLowerConstructProbe<'_, '_> {
                         let mut lowered = Vec::with_capacity(parts.len());
                         for part in parts {
                             match part {
-                                ArenaWordPart::Bare(text) | ArenaWordPart::Quoted(text) => {
+                                ArenaWordPart::Bare(text) => {
                                     lowered.push(LoweredFmtPart::Text(Arc::from(
-                                        self.program.arena.text_value(&text, self.source)?,
+                                        self.bare_text_value_in_span(&text, span)?,
+                                    )));
+                                }
+                                ArenaWordPart::Quoted(text) => {
+                                    lowered.push(LoweredFmtPart::Text(Arc::from(
+                                        self.text_value_in_span(&text, span)?,
                                     )));
                                 }
                                 ArenaWordPart::Shorthand(expr)
@@ -7318,8 +7415,12 @@ impl CompactLowerConstructProbe<'_, '_> {
                     self.compact_match_scrutinee_result_types(value, slots);
                 let mut lowered_arms = Vec::with_capacity(arms.len());
                 for arm in arms {
-                    let (pattern, cleanup) =
-                        self.lower_pattern(arm.pattern, slots, ok_binding_ty.as_ref(), err_binding_ty.as_ref())?;
+                    let (pattern, cleanup) = self.lower_pattern(
+                        arm.pattern,
+                        slots,
+                        ok_binding_ty.as_ref(),
+                        err_binding_ty.as_ref(),
+                    )?;
                     let value = self
                         .lower_expr(arm.value, slots, current_function, item_slot)
                         .unwrap_or(LoweredExpr::Unit);
@@ -7671,9 +7772,7 @@ impl CompactLowerConstructProbe<'_, '_> {
         for part in parts {
             match part {
                 ArenaFmtPart::Text(text) => {
-                    lowered.push(LoweredFmtPart::Text(Arc::from(
-                        self.program.arena.text_value(&text, self.source)?,
-                    )));
+                    lowered.push(LoweredFmtPart::Text(Arc::from(self.text_value(&text)?)));
                 }
                 ArenaFmtPart::Expr(expr, spec) => {
                     let span = self.program.arena.expr(expr).span;
@@ -10198,8 +10297,12 @@ impl CompactLowerConstructProbe<'_, '_> {
             if !self.program.arena.block(arm.block).params.is_empty() {
                 return None;
             }
-            let (pattern, cleanup) =
-                self.lower_pattern(arm.pattern, slots, ok_binding_ty.as_ref(), err_binding_ty.as_ref())?;
+            let (pattern, cleanup) = self.lower_pattern(
+                arm.pattern,
+                slots,
+                ok_binding_ty.as_ref(),
+                err_binding_ty.as_ref(),
+            )?;
             // Each arm body gets its own scope so block-local bindings (e.g.
             // `var parts`) don't leak into sibling arms. (The regular match path
             // gets this from `lower_block`; the tail path uses `lower_tail_block`
@@ -10268,8 +10371,12 @@ impl CompactLowerConstructProbe<'_, '_> {
             let [stmt] = statements.as_slice() else {
                 return None;
             };
-            let (pattern, cleanup) =
-                self.lower_pattern(arm.pattern, slots, ok_binding_ty.as_ref(), err_binding_ty.as_ref())?;
+            let (pattern, cleanup) = self.lower_pattern(
+                arm.pattern,
+                slots,
+                ok_binding_ty.as_ref(),
+                err_binding_ty.as_ref(),
+            )?;
             let value = match self.lower_arm_value_expr(*stmt, slots, current_function, item_slot) {
                 Some(value) => value,
                 None => {
@@ -11407,7 +11514,9 @@ fn infer_checked_method_return_type(receiver: &Type, name: Name) -> Option<Type>
         Type::Str => match name.as_str() {
             "trim" | "lower" | "upper" | "reverse" | "format" | "replace" | "translate"
             | "delete" | "squeeze" | "byte_slice" | "slice" => Some(Type::Str),
-            "lines" | "words" | "fields" | "split" | "wrap" => Some(Type::List(Box::new(Type::Str))),
+            "lines" | "words" | "fields" | "split" | "wrap" => {
+                Some(Type::List(Box::new(Type::Str)))
+            }
             "base64_decode" | "base32_decode" => {
                 Some(Type::Result(Box::new(Type::Bytes), Box::new(Type::Error)))
             }
@@ -11445,8 +11554,7 @@ fn infer_checked_method_return_type(receiver: &Type, name: Name) -> Option<Type>
         },
         Type::Regex => match name.as_str() {
             "matches" => Some(Type::Bool),
-            "find" => standard_record_type("RegexMatch")
-                .map(|ty| Type::List(Box::new(ty))),
+            "find" => standard_record_type("RegexMatch").map(|ty| Type::List(Box::new(ty))),
             "captures" => Some(Type::List(Box::new(Type::Str))),
             "replace" => Some(Type::Str),
             _ => None,
@@ -12665,5 +12773,644 @@ pub(super) fn cleanup_pipeline_stage_item_slot(
 ) {
     if let Some(name) = cleanup {
         slots.retire(name, slot, "pipeline.item");
+    }
+}
+
+pub(super) fn validate_compact_lowered_capture_types(
+    program: &ArenaProgram,
+    source: &str,
+    pures: &FxHashMap<Name, Arc<LoweredPureFunction>>,
+    procs: &FxHashMap<Name, Arc<LoweredPureFunction>>,
+    qualified_pures: &FxHashMap<QualifiedName, Arc<LoweredPureFunction>>,
+    qualified_procs: &FxHashMap<QualifiedName, Arc<LoweredPureFunction>>,
+) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+
+    // Cross-module raw-AST check: runs first so it fires even when
+    // check_compact_declarations or probe_compact_bodies have diagnostics
+    // (which would otherwise early-return before we reach the per-function
+    // validation below).  Scans root and module statements for let/var
+    // that rebind names captured as Module by any lowered function.
+    {
+        let mut captured_modules: FxHashSet<Name> = FxHashSet::default();
+        let mut captured_modules_by_function: FxHashMap<LoweredFunctionKey, FxHashSet<Name>> =
+            FxHashMap::default();
+        for (name, lowered) in pures {
+            collect_lowered_module_captures(
+                LoweredFunctionKey::Name(*name),
+                lowered,
+                &mut captured_modules,
+                &mut captured_modules_by_function,
+            );
+        }
+        for (name, lowered) in procs {
+            collect_lowered_module_captures(
+                LoweredFunctionKey::Name(*name),
+                lowered,
+                &mut captured_modules,
+                &mut captured_modules_by_function,
+            );
+        }
+        for (name, lowered) in qualified_pures {
+            collect_lowered_module_captures(
+                LoweredFunctionKey::Qualified(*name),
+                lowered,
+                &mut captured_modules,
+                &mut captured_modules_by_function,
+            );
+        }
+        for (name, lowered) in qualified_procs {
+            collect_lowered_module_captures(
+                LoweredFunctionKey::Qualified(*name),
+                lowered,
+                &mut captured_modules,
+                &mut captured_modules_by_function,
+            );
+        }
+        if !captured_modules.is_empty() {
+            for stmt in program.statement_ids() {
+                let target = match program.arena.stmt(stmt).kind {
+                    ArenaStmtKind::Let { target, .. } | ArenaStmtKind::Var { target, .. } => target,
+                    _ => continue,
+                };
+                let name = match program.arena.binding_target(target).kind {
+                    ArenaBindingTargetKind::Name(name) => name,
+                    _ => continue,
+                };
+                if captured_modules.contains(&name) {
+                    let span = program.arena.stmt(stmt).span;
+                    diagnostics.push(
+                        Diagnostic::error(format!(
+                            "a function captures `{}` as Module, \
+                             but a root-level `let`/`var` rebinds it; \
+                             at the call site the lowered type will not match",
+                            name,
+                        ))
+                        .with_code("check.capture-root-shadow")
+                        .with_span(span)
+                        .with_label(Label::primary(span, "rebinding is here")),
+                    );
+                }
+            }
+            for module in &program.modules {
+                for stmt in program.module_statements(module) {
+                    let target = match program.arena.stmt(stmt).kind {
+                        ArenaStmtKind::Let { target, .. } | ArenaStmtKind::Var { target, .. } => {
+                            target
+                        }
+                        _ => continue,
+                    };
+                    let name = match program.arena.binding_target(target).kind {
+                        ArenaBindingTargetKind::Name(name) => name,
+                        _ => continue,
+                    };
+                    if captured_modules.contains(&name) {
+                        let span = program.arena.stmt(stmt).span;
+                        diagnostics.push(
+                            Diagnostic::error(format!(
+                                "a function captures `{}` as Module, \
+                                 but a module-level `let`/`var` rebinds it; \
+                                 at the call site the lowered type will not match",
+                                name,
+                            ))
+                            .with_code("check.capture-root-shadow")
+                            .with_span(span)
+                            .with_label(Label::primary(span, "rebinding is here")),
+                        );
+                    }
+                }
+            }
+            validate_capture_body_shadows(program, &captured_modules_by_function, &mut diagnostics);
+        }
+    }
+
+    let declarations = Checker::check_compact_declarations(program);
+    if !declarations.diagnostics.is_empty() {
+        return diagnostics;
+    }
+    let bodies = Checker::probe_compact_bodies(program, &declarations);
+    if !bodies.diagnostics.is_empty() {
+        return diagnostics;
+    }
+
+    let functions = LowerableFunctions::all(pures, procs, qualified_pures, qualified_procs);
+
+    let all_defs = compact_function_defs(program);
+
+    let def_by_key: FxHashMap<LoweredFunctionKey, (FunctionDefId, Option<Name>)> = all_defs
+        .iter()
+        .map(|def| (def.key, (def.id, def.namespace)))
+        .collect();
+
+    for (name, lowered) in pures {
+        let key = LoweredFunctionKey::Name(*name);
+        if let Some(&(func_id, namespace)) = def_by_key.get(&key) {
+            let known = compact_function_top_level_known(
+                program,
+                &declarations,
+                &bodies,
+                source,
+                None,
+                namespace,
+                func_id,
+                Some(&functions),
+            );
+            validate_captures(&known, name.as_str(), &lowered.captures, &mut diagnostics);
+            validate_captures_future_shadow(
+                program,
+                &declarations,
+                &bodies,
+                source,
+                namespace,
+                func_id,
+                &lowered.captures,
+                &known,
+                name.as_str(),
+                &mut diagnostics,
+            );
+        }
+    }
+
+    for (name, lowered) in procs {
+        let key = LoweredFunctionKey::Name(*name);
+        if let Some(&(func_id, namespace)) = def_by_key.get(&key) {
+            let known = compact_function_top_level_known(
+                program,
+                &declarations,
+                &bodies,
+                source,
+                None,
+                namespace,
+                func_id,
+                Some(&functions),
+            );
+            validate_captures(&known, name.as_str(), &lowered.captures, &mut diagnostics);
+            validate_captures_future_shadow(
+                program,
+                &declarations,
+                &bodies,
+                source,
+                namespace,
+                func_id,
+                &lowered.captures,
+                &known,
+                name.as_str(),
+                &mut diagnostics,
+            );
+        }
+    }
+
+    for (qname, lowered) in qualified_pures {
+        let key = LoweredFunctionKey::Qualified(*qname);
+        if let Some(&(func_id, namespace)) = def_by_key.get(&key) {
+            let known = compact_function_top_level_known(
+                program,
+                &declarations,
+                &bodies,
+                source,
+                None,
+                namespace,
+                func_id,
+                Some(&functions),
+            );
+            validate_captures(
+                &known,
+                &qname.to_string(),
+                &lowered.captures,
+                &mut diagnostics,
+            );
+            validate_captures_future_shadow(
+                program,
+                &declarations,
+                &bodies,
+                source,
+                namespace,
+                func_id,
+                &lowered.captures,
+                &known,
+                &qname.to_string(),
+                &mut diagnostics,
+            );
+        }
+    }
+
+    for (qname, lowered) in qualified_procs {
+        let key = LoweredFunctionKey::Qualified(*qname);
+        if let Some(&(func_id, namespace)) = def_by_key.get(&key) {
+            let known = compact_function_top_level_known(
+                program,
+                &declarations,
+                &bodies,
+                source,
+                None,
+                namespace,
+                func_id,
+                Some(&functions),
+            );
+            validate_captures(
+                &known,
+                &qname.to_string(),
+                &lowered.captures,
+                &mut diagnostics,
+            );
+            validate_captures_future_shadow(
+                program,
+                &declarations,
+                &bodies,
+                source,
+                namespace,
+                func_id,
+                &lowered.captures,
+                &known,
+                &qname.to_string(),
+                &mut diagnostics,
+            );
+        }
+    }
+
+    diagnostics
+}
+
+fn collect_lowered_module_captures(
+    key: LoweredFunctionKey,
+    lowered: &LoweredPureFunction,
+    captured_modules: &mut FxHashSet<Name>,
+    captured_modules_by_function: &mut FxHashMap<LoweredFunctionKey, FxHashSet<Name>>,
+) {
+    for capture in &lowered.captures {
+        if capture.kind == LoweredType::Module {
+            captured_modules.insert(capture.name);
+            captured_modules_by_function
+                .entry(key)
+                .or_default()
+                .insert(capture.name);
+        }
+    }
+}
+
+fn validate_captures(
+    known: &FxHashMap<Name, LoweredTopLevelBinding>,
+    func_name: &str,
+    captures: &[LoweredTopLevelSlot],
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    for capture in captures {
+        let Some(binding) = known.get(&capture.name) else {
+            diagnostics.push(
+                Diagnostic::error(format!(
+                    "function `{func_name}` captures unknown name `{}`",
+                    capture.name,
+                ))
+                .with_code("check.capture-unknown"),
+            );
+            continue;
+        };
+        if binding.kind != capture.kind && binding.kind != LoweredType::Any {
+            diagnostics.push(
+                Diagnostic::error(format!(
+                    "function `{func_name}` captures `{}` as {:?} but binding is {:?}",
+                    capture.name, capture.kind, binding.kind,
+                ))
+                .with_code("check.capture-type-mismatch"),
+            );
+        }
+    }
+}
+
+fn validate_capture_body_shadows(
+    program: &ArenaProgram,
+    captured_modules_by_function: &FxHashMap<LoweredFunctionKey, FxHashSet<Name>>,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    for function in compact_function_defs(program) {
+        let mut captured_modules = function_visible_module_names(program, function);
+        if let Some(lowered_captures) = captured_modules_by_function.get(&function.key) {
+            captured_modules.extend(lowered_captures.iter().copied());
+        }
+        if captured_modules.is_empty() {
+            continue;
+        }
+        let def = program.arena.function_def(function.id);
+        validate_capture_body_shadow_block(
+            program,
+            def.body,
+            &captured_modules,
+            &function.key.display_name(),
+            diagnostics,
+        );
+    }
+}
+
+fn function_visible_module_names(
+    program: &ArenaProgram,
+    function: CompactFunctionDef,
+) -> FxHashSet<Name> {
+    let statements = match function.namespace {
+        Some(namespace) => program
+            .modules
+            .iter()
+            .find(|module| module.name == namespace)
+            .map(|module| program.module_statements(module).collect::<Vec<_>>())
+            .unwrap_or_default(),
+        None => program.statement_ids().collect::<Vec<_>>(),
+    };
+    let mut modules = FxHashSet::default();
+    for stmt in statements {
+        if compact_stmt_contains_function_def(program, stmt, function.id) {
+            break;
+        }
+        collect_visible_module_names_from_stmt(program, stmt, &mut modules);
+    }
+    modules
+}
+
+fn collect_visible_module_names_from_stmt(
+    program: &ArenaProgram,
+    stmt: StmtId,
+    modules: &mut FxHashSet<Name>,
+) {
+    match program.arena.stmt(stmt).kind {
+        ArenaStmtKind::Export(inner) => {
+            collect_visible_module_names_from_stmt(program, inner, modules);
+        }
+        ArenaStmtKind::Use(use_id) => {
+            if let Some(namespace) = compact_use_import_namespace(program, use_id) {
+                modules.insert(namespace);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn validate_capture_body_shadow_block(
+    program: &ArenaProgram,
+    block: BlockId,
+    captured_modules: &FxHashSet<Name>,
+    func_name: &str,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    for stmt in program
+        .arena
+        .stmt_ids(program.arena.block(block).statements)
+    {
+        validate_capture_body_shadow_stmt(program, stmt, captured_modules, func_name, diagnostics);
+    }
+}
+
+fn validate_capture_body_shadow_stmt(
+    program: &ArenaProgram,
+    stmt: StmtId,
+    captured_modules: &FxHashSet<Name>,
+    func_name: &str,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    match program.arena.stmt(stmt).kind {
+        ArenaStmtKind::Let { target, .. }
+        | ArenaStmtKind::Var { target, .. }
+        | ArenaStmtKind::Guard { target, .. } => {
+            validate_capture_body_shadow_target(
+                program,
+                target,
+                program.arena.stmt(stmt).span,
+                captured_modules,
+                func_name,
+                diagnostics,
+            );
+            if let ArenaStmtKind::Guard { else_block, .. } = program.arena.stmt(stmt).kind {
+                validate_capture_body_shadow_block(
+                    program,
+                    else_block,
+                    captured_modules,
+                    func_name,
+                    diagnostics,
+                );
+            }
+        }
+        ArenaStmtKind::For { target, block, .. } => {
+            validate_capture_body_shadow_target(
+                program,
+                target,
+                program.arena.stmt(stmt).span,
+                captured_modules,
+                func_name,
+                diagnostics,
+            );
+            validate_capture_body_shadow_block(
+                program,
+                block,
+                captured_modules,
+                func_name,
+                diagnostics,
+            );
+        }
+        ArenaStmtKind::With {
+            bindings,
+            body,
+            else_param,
+            else_block,
+        } => {
+            for binding in program.arena.with_bindings(bindings) {
+                validate_capture_body_shadow_name(
+                    binding.name,
+                    program.arena.span(binding.span),
+                    captured_modules,
+                    func_name,
+                    diagnostics,
+                );
+            }
+            if let Some(name) = else_param {
+                validate_capture_body_shadow_name(
+                    name,
+                    program.arena.span(program.arena.block(else_block).span),
+                    captured_modules,
+                    func_name,
+                    diagnostics,
+                );
+            }
+            validate_capture_body_shadow_block(
+                program,
+                body,
+                captured_modules,
+                func_name,
+                diagnostics,
+            );
+            validate_capture_body_shadow_block(
+                program,
+                else_block,
+                captured_modules,
+                func_name,
+                diagnostics,
+            );
+        }
+        ArenaStmtKind::If {
+            branches,
+            else_block,
+        } => {
+            for branch in program.arena.if_branches(branches) {
+                validate_capture_body_shadow_block(
+                    program,
+                    branch.block,
+                    captured_modules,
+                    func_name,
+                    diagnostics,
+                );
+            }
+            if let Some(block) = else_block {
+                validate_capture_body_shadow_block(
+                    program,
+                    block,
+                    captured_modules,
+                    func_name,
+                    diagnostics,
+                );
+            }
+        }
+        ArenaStmtKind::While { block, .. } | ArenaStmtKind::Loop { block } => {
+            validate_capture_body_shadow_block(
+                program,
+                block,
+                captured_modules,
+                func_name,
+                diagnostics,
+            );
+        }
+        ArenaStmtKind::Match { arms, .. } => {
+            for arm in program.arena.match_arms(arms) {
+                validate_capture_body_shadow_block(
+                    program,
+                    arm.block,
+                    captured_modules,
+                    func_name,
+                    diagnostics,
+                );
+            }
+        }
+        ArenaStmtKind::GuardedStmt { stmt, .. } | ArenaStmtKind::Export(stmt) => {
+            validate_capture_body_shadow_stmt(
+                program,
+                stmt,
+                captured_modules,
+                func_name,
+                diagnostics,
+            );
+        }
+        _ => {}
+    }
+}
+
+fn validate_capture_body_shadow_target(
+    program: &ArenaProgram,
+    target: BindingTargetId,
+    span: Span,
+    captured_modules: &FxHashSet<Name>,
+    func_name: &str,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    match program.arena.binding_target(target).kind {
+        ArenaBindingTargetKind::Name(name) => {
+            validate_capture_body_shadow_name(name, span, captured_modules, func_name, diagnostics);
+        }
+        ArenaBindingTargetKind::Record { fields, .. } => {
+            for field in program.arena.destructure_fields(fields) {
+                validate_capture_body_shadow_name(
+                    field.name,
+                    program.arena.span(field.span),
+                    captured_modules,
+                    func_name,
+                    diagnostics,
+                );
+            }
+        }
+    }
+}
+
+fn validate_capture_body_shadow_name(
+    name: Name,
+    span: Span,
+    captured_modules: &FxHashSet<Name>,
+    func_name: &str,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    if !captured_modules.contains(&name) || is_discard_name(name) {
+        return;
+    }
+    diagnostics.push(
+        Diagnostic::error(format!(
+            "function `{func_name}` can call a lowered function that captures \
+             `{name}` as Module, but this binding shadows that module name; \
+             at the call site the lowered type may not match",
+        ))
+        .with_code("check.capture-root-shadow")
+        .with_span(span)
+        .with_label(Label::primary(span, "shadowing binding is here")),
+    );
+}
+
+fn validate_captures_future_shadow(
+    program: &ArenaProgram,
+    declarations: &CompactDeclOutput,
+    bodies: &CompactBodyProbeOutput,
+    source: &str,
+    namespace: Option<Name>,
+    function_id: FunctionDefId,
+    captures: &[LoweredTopLevelSlot],
+    known_at_def: &FxHashMap<Name, LoweredTopLevelBinding>,
+    func_name: &str,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    let statements = match namespace {
+        Some(namespace) => program
+            .modules
+            .iter()
+            .find(|module| module.name == namespace)
+            .map(|module| program.module_statements(module).collect::<Vec<_>>())
+            .unwrap_or_default(),
+        None => program.statement_ids().collect::<Vec<_>>(),
+    };
+    let probe = CompactLowerConstructProbe {
+        program,
+        declarations,
+        bodies,
+        source,
+        sources: None,
+        current_namespace: namespace,
+        functions: None,
+        top_level_known: FxHashMap::default(),
+        output: CompactLowerConstructProbeOutput::default(),
+        last_blocker_detail: None,
+    };
+    let mut known = known_at_def.clone();
+    let mut found_func = false;
+    for stmt in statements {
+        if !found_func {
+            if compact_stmt_contains_function_def(program, stmt, function_id) {
+                found_func = true;
+            }
+            continue;
+        }
+        probe.record_top_level_binding(stmt, &mut known);
+    }
+    for capture in captures {
+        let Some(binding) = known.get(&capture.name) else {
+            continue;
+        };
+        // A subsequent statement rebinds this name.  If the capture kind
+        // doesn't match the future binding type, that's a mismatch.
+        // LoweredType::Any means the lowerer could not determine a more
+        // specific type; for Module captures any non-Module rebinding
+        // (including Any) is a problem because the namespace is lost.
+        let type_changed = binding.kind != capture.kind
+            && (binding.kind != LoweredType::Any || capture.kind == LoweredType::Module);
+        if type_changed {
+            diagnostics.push(
+                Diagnostic::error(format!(
+                    "function `{func_name}` captures `{}` as {:?}, \
+                     but a later statement rebinds it to {:?}; \
+                     at the call site the lowered type may not match",
+                    capture.name, capture.kind, binding.kind,
+                ))
+                .with_code("check.capture-future-shadow"),
+            );
+        }
     }
 }

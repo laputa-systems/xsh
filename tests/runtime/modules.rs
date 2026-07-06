@@ -1634,7 +1634,10 @@ match p.get(\"Package\") {
         .expect("run traced xsht");
     assert!(traced.status.success());
     let trace = String::from_utf8(traced.stderr).unwrap();
-    assert!(trace.contains("kind=pure.enter"), "expected pure.enter in trace: {trace}");
+    assert!(
+        trace.contains("kind=pure.enter"),
+        "expected pure.enter in trace: {trace}"
+    );
     assert!(trace.contains("greet"));
 
     let cycle = Command::new(env!("CARGO_BIN_EXE_xsh"))
@@ -1697,6 +1700,72 @@ shower.call(pkg)?
     assert_eq!(
         String::from_utf8(output.stdout).unwrap(),
         "pkg:demo\npkg:demo\n"
+    );
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn proc_call_from_module_preserves_runtime_cwd() {
+    let root = temp_path("module-proc-call-cwd-root");
+    let src = root.join("src");
+    let caller = root.join("caller.xsh");
+    let callee = root.join("callee.xsh");
+    let main = root.join("main.xsh");
+    let out = root.join("cwd.txt");
+    std::fs::create_dir_all(&src).expect("create source dir");
+    std::fs::write(
+        &callee,
+        "\
+export proc write_cwd(out: Path) [fs, error] {
+  fs.write(out, fs.cwd()?.display())?
+}
+",
+    )
+    .expect("write callee");
+    std::fs::write(
+        &caller,
+        format!(
+            "\
+export proc invoke(src: Path, out: Path) [fs, error] {{
+  let module_exports = module.load(fp\"{}\")?
+  cd src {{
+    let write_cwd: Proc = module_exports.get(\"write_cwd\")?
+    write_cwd.call(out)?
+  }} ?
+}}
+",
+            callee.display()
+        ),
+    )
+    .expect("write caller");
+    std::fs::write(
+        &main,
+        format!(
+            "\
+use caller as c
+
+let src = fp\"{}\"
+let out = fp\"{}\"
+c.invoke(src, out)?
+print ${{out.read_text()?}}
+",
+            src.display(),
+            out.display()
+        ),
+    )
+    .expect("write main");
+
+    let output = xsh([main.to_str().unwrap()]);
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        String::from_utf8(output.stdout).unwrap(),
+        format!("{}\n", src.display())
     );
 
     let _ = std::fs::remove_dir_all(root);
@@ -1812,6 +1881,43 @@ let _encoded = json.encode(value) ?
     assert!(trace.contains("json-compatible"), "{trace}");
     assert!(trace.contains("Path is not JSON-compatible"), "{trace}");
     assert!(trace.contains("traceback"), "{trace}");
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn archive_tar_create_accepts_sorted_path_entries() {
+    let root = temp_path("archive-tar-create-sorted-paths");
+    let _ = std::fs::remove_dir_all(&root);
+    let src = root.join("src");
+    let out = root.join("out");
+    std::fs::create_dir_all(src.join("dir")).expect("create source");
+    std::fs::create_dir_all(&out).expect("create output root");
+    std::fs::write(src.join("dir").join("b.txt"), "bravo\n").expect("write b");
+    std::fs::write(src.join("dir").join("a.txt"), "alpha\n").expect("write a");
+
+    let script = format!(
+        "\
+let src = Path({})
+let out = Path({})
+let tarball = fp\"${{out}}/pkg.tar\"
+var entries: List[Path] = [p\"dir/b.txt\", p\"dir/a.txt\"]
+entries = entries |> sort-by .display()
+archive.tar_create(tarball, src, entries)?
+print ${{archive.tar_list(tarball)?.len()}}
+",
+        xsh_string_literal(&src.to_string_lossy()),
+        xsh_string_literal(&out.to_string_lossy())
+    );
+
+    let output = run_temp_script("archive-tar-create-sorted-paths", &script);
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(String::from_utf8(output.stdout).unwrap(), "2\n");
 
     let _ = std::fs::remove_dir_all(root);
 }

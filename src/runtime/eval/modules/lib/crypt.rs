@@ -95,7 +95,7 @@ fn md5_crypt(password: &[u8], salt: &[u8]) -> String {
     let mut bit = plen;
     while bit != 0 {
         if bit & 1 != 0 {
-            ctx.update(&[0u8]);
+            ctx.update([0u8]);
         } else if !password.is_empty() {
             ctx.update(&password[..1]);
         }
@@ -109,7 +109,7 @@ fn md5_crypt(password: &[u8], salt: &[u8]) -> String {
         if i & 1 != 0 {
             ctx.update(password);
         } else {
-            ctx.update(&final_hash);
+            ctx.update(final_hash);
         }
         if i % 3 != 0 {
             ctx.update(salt);
@@ -118,7 +118,7 @@ fn md5_crypt(password: &[u8], salt: &[u8]) -> String {
             ctx.update(password);
         }
         if i & 1 != 0 {
-            ctx.update(&final_hash);
+            ctx.update(final_hash);
         } else {
             ctx.update(password);
         }
@@ -128,11 +128,16 @@ fn md5_crypt(password: &[u8], salt: &[u8]) -> String {
     let mut out = Vec::with_capacity(22);
     let f = final_hash.as_slice();
     let mut buf = [0u8; 4];
-    encode_3bytes(f[0], f[6], f[12], &mut buf); out.extend_from_slice(&buf);
-    encode_3bytes(f[1], f[7], f[13], &mut buf); out.extend_from_slice(&buf);
-    encode_3bytes(f[2], f[8], f[14], &mut buf); out.extend_from_slice(&buf);
-    encode_3bytes(f[3], f[9], f[15], &mut buf); out.extend_from_slice(&buf);
-    encode_3bytes(f[4], f[10], f[5], &mut buf);  out.extend_from_slice(&buf);
+    encode_3bytes(f[0], f[6], f[12], &mut buf);
+    out.extend_from_slice(&buf);
+    encode_3bytes(f[1], f[7], f[13], &mut buf);
+    out.extend_from_slice(&buf);
+    encode_3bytes(f[2], f[8], f[14], &mut buf);
+    out.extend_from_slice(&buf);
+    encode_3bytes(f[3], f[9], f[15], &mut buf);
+    out.extend_from_slice(&buf);
+    encode_3bytes(f[4], f[10], f[5], &mut buf);
+    out.extend_from_slice(&buf);
 
     let v = u32::from(f[11]);
     buf[0] = itoa64_byte(v as u8);
@@ -233,9 +238,15 @@ fn sha_crypt<D: Digest + OutputSizeUser>(password: &[u8], salt: &[u8], rounds: u
 
     if ds <= 32 {
         for &(a, b, c) in &[
-            (0, 10, 20), (21, 1, 11), (12, 22, 2),
-            (3, 13, 23), (24, 4, 14), (15, 25, 5),
-            (6, 16, 26), (27, 7, 17), (18, 28, 8),
+            (0, 10, 20),
+            (21, 1, 11),
+            (12, 22, 2),
+            (3, 13, 23),
+            (24, 4, 14),
+            (15, 25, 5),
+            (6, 16, 26),
+            (27, 7, 17),
+            (18, 28, 8),
             (9, 19, 29),
         ] {
             rearranged.extend_from_slice(&[f[a], f[b], f[c]]);
@@ -244,11 +255,26 @@ fn sha_crypt<D: Digest + OutputSizeUser>(password: &[u8], salt: &[u8], rounds: u
         rearranged.push(f[31]);
     } else {
         for &(a, b, c) in &[
-            (0, 21, 42), (22, 43, 1), (44, 2, 23), (3, 24, 45),
-            (25, 46, 4), (47, 5, 26), (6, 27, 48), (28, 49, 7),
-            (50, 8, 29), (9, 30, 51), (31, 52, 10), (53, 11, 32),
-            (12, 33, 54), (34, 55, 13), (56, 14, 35), (15, 36, 57),
-            (37, 58, 16), (59, 17, 38), (18, 39, 60), (40, 61, 19),
+            (0, 21, 42),
+            (22, 43, 1),
+            (44, 2, 23),
+            (3, 24, 45),
+            (25, 46, 4),
+            (47, 5, 26),
+            (6, 27, 48),
+            (28, 49, 7),
+            (50, 8, 29),
+            (9, 30, 51),
+            (31, 52, 10),
+            (53, 11, 32),
+            (12, 33, 54),
+            (34, 55, 13),
+            (56, 14, 35),
+            (15, 36, 57),
+            (37, 58, 16),
+            (59, 17, 38),
+            (18, 39, 60),
+            (40, 61, 19),
             (62, 20, 41),
         ] {
             rearranged.extend_from_slice(&[f[a], f[b], f[c]]);
@@ -266,7 +292,11 @@ fn sha_crypt<D: Digest + OutputSizeUser>(password: &[u8], salt: &[u8], rounds: u
     }
     if !remainder.is_empty() {
         let v = u32::from(remainder[0])
-            | if remainder.len() > 1 { u32::from(remainder[1]) << 8 } else { 0 };
+            | if remainder.len() > 1 {
+                u32::from(remainder[1]) << 8
+            } else {
+                0
+            };
         hash_out.push(itoa64_byte(v as u8));
         hash_out.push(itoa64_byte((v >> 6) as u8));
         if remainder.len() > 1 {

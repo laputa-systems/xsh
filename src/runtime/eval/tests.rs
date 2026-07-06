@@ -39,7 +39,13 @@ fn ok_question_unwraps_value() {
     let span = Span::new(SourceId::new(0), 0, 1);
     let mut events = Vec::new();
 
-    let flow = apply_question(Value::ok(Value::Int(7)), span, Vec::new(), &mut events);
+    let flow = apply_question(
+        Value::ok(Value::Int(7)),
+        span,
+        String::new(),
+        Vec::new(),
+        &mut events,
+    );
 
     assert_eq!(flow, EvalFlow::Value(Value::Int(7)));
     assert!(events.is_empty());
@@ -61,6 +67,7 @@ fn err_question_propagates_and_traces() {
     let flow = apply_question(
         Value::err(error_constructor("x", "failed")),
         span,
+        String::new(),
         frames,
         &mut events,
     );

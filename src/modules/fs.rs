@@ -1498,9 +1498,15 @@ fn copy_tree_inner(
         copy_symlink(&target, dest, overwrite, span)?;
         stats.symlinks += 1;
     } else {
-        return Err(
-            RuntimeError::new("fs-copy-tree", "source entry is not copyable").with_span(span),
-        );
+        return Err(RuntimeError::new(
+            "fs-copy-tree",
+            format!(
+                "source entry is not copyable: {} (mode {:o})",
+                source.display(),
+                metadata.mode()
+            ),
+        )
+        .with_span(span));
     }
     Ok(())
 }

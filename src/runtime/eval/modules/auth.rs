@@ -303,10 +303,7 @@ mod tests {
                 verify_password("test password", &hash),
                 "algo={algo} hash={hash}"
             );
-            assert!(
-                !verify_password("wrong password", &hash),
-                "algo={algo}"
-            );
+            assert!(!verify_password("wrong password", &hash), "algo={algo}");
         }
     }
 

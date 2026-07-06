@@ -232,6 +232,16 @@ impl SourceFile {
     }
 }
 
+fn resolve_source_path(name: String) -> String {
+    if !name.contains(std::path::MAIN_SEPARATOR) {
+        return name;
+    }
+    std::path::absolute(&name)
+        .ok()
+        .and_then(|p| p.to_str().map(String::from))
+        .unwrap_or(name)
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct SourceMap {
     files: Vec<SourceFile>,
@@ -244,7 +254,9 @@ impl SourceMap {
 
     pub fn add_file(&mut self, name: impl Into<String>, text: impl Into<String>) -> SourceId {
         let id = SourceId::new(self.files.len());
-        self.files.push(SourceFile::new(id, name, text));
+        let name = name.into();
+        let resolved = resolve_source_path(name);
+        self.files.push(SourceFile::new(id, resolved, text));
         id
     }
 
@@ -254,7 +266,9 @@ impl SourceMap {
         bytes: Vec<u8>,
     ) -> Result<SourceId, SourceLoadError> {
         let id = SourceId::new(self.files.len());
-        let file = SourceFile::from_utf8(id, name, bytes)?;
+        let name = name.into();
+        let resolved = resolve_source_path(name);
+        let file = SourceFile::from_utf8(id, resolved, bytes)?;
         self.files.push(file);
         Ok(id)
     }

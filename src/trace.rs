@@ -2792,6 +2792,7 @@ impl TraceSink for MemoryTraceSink {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Traceback {
     pub failing_span: Option<Span>,
+    pub exe_path: String,
     pub operation_kind: String,
     pub error: TraceError,
     pub frames: Vec<TracebackFrame>,
@@ -2830,13 +2831,11 @@ impl TracebackRenderer {
 
     pub fn render(&self, traceback: &Traceback, sources: &SourceMap) -> String {
         let mut output = String::new();
-        output.push_str("runtime traceback: ");
-        output.push_str(&traceback.error.message);
-        output.push('\n');
+        output.push_str("runtime traceback\n");
 
-        if let Some(span) = traceback.failing_span {
-            output.push_str(" --> ");
-            render_span_text(span, sources, &mut output);
+        if !traceback.exe_path.is_empty() {
+            output.push_str("executable: ");
+            output.push_str(&traceback.exe_path);
             output.push('\n');
         }
 
@@ -2845,8 +2844,10 @@ impl TracebackRenderer {
         output.push('\n');
         output.push_str("error: ");
         output.push_str(&traceback.error.kind);
-        output.push_str(": ");
-        output.push_str(&traceback.error.message);
+        if !traceback.error.message.is_empty() && traceback.error.message != traceback.error.kind {
+            output.push_str(": ");
+            output.push_str(&traceback.error.message);
+        }
         output.push('\n');
 
         if !traceback.frames.is_empty() {
@@ -3531,6 +3532,7 @@ mod tests {
         );
         let traceback = Traceback {
             failing_span: Some(Span::new(id, 34, 43)),
+            exe_path: String::new(),
             operation_kind: "run".to_string(),
             error: TraceError::new("nonzero-exit", "process exited with status 1"),
             frames: vec![
@@ -3551,7 +3553,6 @@ mod tests {
 
         let rendered = TracebackRenderer::new().render(&traceback, &sources);
 
-        assert!(rendered.contains(" --> sample.xsh:2:3-2:12\n"));
         assert!(rendered.contains("  1. proc main at sample.xsh:1:1-1:5\n"));
         assert!(rendered.contains("  2. pure helper at sample.xsh:1:6-1:12\n"));
     }
