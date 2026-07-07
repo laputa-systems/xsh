@@ -8672,7 +8672,325 @@ impl Evaluator {
                 }
                 // Boot / privileged operations are not safe in a non-privileged
                 // container; return Ok(()) so scripts can feature-gate on errors.
-                _ => Ok(Value::ok(Value::Unit)),
+                RuntimeOp::LinuxDepmod => {
+                    let version = lowered_str_arg_owned(
+                        values.first().cloned(),
+                        "",
+                        "linux.depmod",
+                        span,
+                    )?;
+                    linux_module::depmod(&version, span)
+                }
+                RuntimeOp::LinuxFsck => {
+                    let device = lowered_path_arg(
+                        unix_require_arg(values.first().cloned(), "linux.fsck", span)?,
+                        "linux.fsck",
+                        span,
+                    )?;
+                    let fstype = lowered_str_arg_owned(
+                        values.get(1).cloned(),
+                        "",
+                        "linux.fsck",
+                        span,
+                    )?;
+                    let repair = lowered_bool_arg_or(
+                        values.get(2).cloned(),
+                        false,
+                        "linux.fsck",
+                        span,
+                    )?;
+                    let host_device = self.host_path(&device);
+                    linux_module::fsck(&host_device, &fstype, repair, span)
+                }
+                RuntimeOp::LinuxHalt => linux_module::halt(span),
+                RuntimeOp::LinuxHwclock => linux_module::hwclock(span),
+                RuntimeOp::LinuxInsmod => {
+                    let path = lowered_path_arg(
+                        unix_require_arg(values.first().cloned(), "linux.insmod", span)?,
+                        "linux.insmod",
+                        span,
+                    )?;
+                    let params = lowered_str_arg_owned(
+                        values.get(1).cloned(),
+                        "",
+                        "linux.insmod",
+                        span,
+                    )?;
+                    let host_path = self.host_path(&path);
+                    linux_module::insmod(&host_path, &params, span)
+                }
+                RuntimeOp::LinuxKillAll => {
+                    let signal_str = lowered_str_arg_owned(
+                        values.first().cloned(),
+                        "TERM",
+                        "linux.kill_all",
+                        span,
+                    )?;
+                    let signal = process_module::signal_info(&signal_str, span)?.number;
+                    let except_pid1 = lowered_bool_arg_or(
+                        values.get(1).cloned(),
+                        false,
+                        "linux.kill_all",
+                        span,
+                    )?;
+                    linux_module::kill_all(signal, except_pid1, span)
+                }
+                RuntimeOp::LinuxLoopAttach => {
+                    let file = lowered_path_arg(
+                        unix_require_arg(values.first().cloned(), "linux.loop_attach", span)?,
+                        "linux.loop_attach",
+                        span,
+                    )?;
+                    let device = values
+                        .get(1)
+                        .cloned()
+                        .map(|value| lowered_path_arg(value, "linux.loop_attach", span))
+                        .transpose()?;
+                    let host_file = self.host_path(&file);
+                    let host_device = device.as_ref().map(|pv| self.host_path(pv));
+                    linux_module::loop_attach(&host_file, host_device.as_deref(), span)
+                }
+                RuntimeOp::LinuxLoopDetach => {
+                    let device = lowered_path_arg(
+                        unix_require_arg(values.first().cloned(), "linux.loop_detach", span)?,
+                        "linux.loop_detach",
+                        span,
+                    )?;
+                    let host_device = self.host_path(&device);
+                    linux_module::loop_detach(&host_device, span)
+                }
+                RuntimeOp::LinuxMknod => {
+                    let path = lowered_path_arg(
+                        unix_require_arg(values.first().cloned(), "linux.mknod", span)?,
+                        "linux.mknod",
+                        span,
+                    )?;
+                    let kind = lowered_str_arg_owned(
+                        values.get(1).cloned(),
+                        "",
+                        "linux.mknod",
+                        span,
+                    )?;
+                    let major = lowered_int_arg(values.get(2).cloned(), "linux.mknod", span)?;
+                    let minor = lowered_int_arg(values.get(3).cloned(), "linux.mknod", span)?;
+                    let host_path = self.host_path(&path);
+                    linux_module::mknod(&host_path, &kind, major, minor, span)
+                }
+                RuntimeOp::LinuxMkswap => {
+                    let device = lowered_path_arg(
+                        unix_require_arg(values.first().cloned(), "linux.mkswap", span)?,
+                        "linux.mkswap",
+                        span,
+                    )?;
+                    let host_device = self.host_path(&device);
+                    linux_module::mkswap(&host_device, span)
+                }
+                RuntimeOp::LinuxModprobe => {
+                    let name = lowered_str_arg_owned(
+                        values.first().cloned(),
+                        "",
+                        "linux.modprobe",
+                        span,
+                    )?;
+                    let params = lowered_str_arg_owned(
+                        values.get(1).cloned(),
+                        "",
+                        "linux.modprobe",
+                        span,
+                    )?;
+                    linux_module::modprobe(&name, &params, span)
+                }
+                RuntimeOp::LinuxMount => {
+                    let source = lowered_str_arg_owned(
+                        values.first().cloned(),
+                        "",
+                        "linux.mount",
+                        span,
+                    )?;
+                    let target = lowered_path_arg(
+                        unix_require_arg(values.get(1).cloned(), "linux.mount", span)?,
+                        "linux.mount",
+                        span,
+                    )?;
+                    let fstype = lowered_str_arg_owned(
+                        values.get(2).cloned(),
+                        "",
+                        "linux.mount",
+                        span,
+                    )?;
+                    let options =
+                        lowered_optional_str_list(values.get(3).cloned(), "linux.mount", span)?;
+                    let host_target = self.host_path(&target);
+                    linux_module::mount(&source, &host_target, &fstype, &options, span)
+                }
+                RuntimeOp::LinuxMountAll => linux_module::mount_all(span),
+                RuntimeOp::LinuxPivotRoot => {
+                    let new_root = lowered_path_arg(
+                        unix_require_arg(values.first().cloned(), "linux.pivot_root", span)?,
+                        "linux.pivot_root",
+                        span,
+                    )?;
+                    let put_old = lowered_path_arg(
+                        unix_require_arg(values.get(1).cloned(), "linux.pivot_root", span)?,
+                        "linux.pivot_root",
+                        span,
+                    )?;
+                    let host_new_root = self.host_path(&new_root);
+                    let host_put_old = self.host_path(&put_old);
+                    linux_module::pivot_root(&host_new_root, &host_put_old, span)
+                }
+                RuntimeOp::LinuxPoweroff => linux_module::poweroff(span),
+                RuntimeOp::LinuxReboot => linux_module::reboot_system(span),
+                RuntimeOp::LinuxRfkillBlock => {
+                    let id = lowered_int_arg(values.first().cloned(), "linux.rfkill_block", span)?;
+                    linux_module::rfkill_set(id, true, span)
+                }
+                RuntimeOp::LinuxRfkillList => linux_module::rfkill_list(span),
+                RuntimeOp::LinuxRfkillUnblock => {
+                    let id =
+                        lowered_int_arg(values.first().cloned(), "linux.rfkill_unblock", span)?;
+                    linux_module::rfkill_set(id, false, span)
+                }
+                RuntimeOp::LinuxRmmod => {
+                    let name =
+                        lowered_str_arg_owned(values.first().cloned(), "", "linux.rmmod", span)?;
+                    let force =
+                        lowered_bool_arg_or(values.get(1).cloned(), false, "linux.rmmod", span)?;
+                    linux_module::rmmod(&name, force, span)
+                }
+                RuntimeOp::LinuxSetFileAttrs => {
+                    let path = lowered_path_arg(
+                        unix_require_arg(values.first().cloned(), "linux.set_file_attrs", span)?,
+                        "linux.set_file_attrs",
+                        span,
+                    )?;
+                    let flags =
+                        lowered_int_arg(values.get(1).cloned(), "linux.set_file_attrs", span)?;
+                    let host_path = self.host_path(&path);
+                    linux_module::set_file_attrs(&host_path, flags, span)
+                }
+                RuntimeOp::LinuxSetFileVersion => {
+                    let path = lowered_path_arg(
+                        unix_require_arg(values.first().cloned(), "linux.set_file_version", span)?,
+                        "linux.set_file_version",
+                        span,
+                    )?;
+                    let version =
+                        lowered_int_arg(values.get(1).cloned(), "linux.set_file_version", span)?;
+                    let host_path = self.host_path(&path);
+                    linux_module::set_file_version(&host_path, version, span)
+                }
+                RuntimeOp::LinuxSetHwclock => {
+                    let epoch_ms =
+                        lowered_int_arg(values.first().cloned(), "linux.set_hwclock", span)?;
+                    linux_module::set_hwclock(epoch_ms, span)
+                }
+                RuntimeOp::LinuxSetSystemClock => {
+                    let epoch_ms =
+                        lowered_int_arg(values.first().cloned(), "linux.set_system_clock", span)?;
+                    linux_module::set_system_clock(epoch_ms, span)
+                }
+                RuntimeOp::LinuxSwapon => {
+                    let device = lowered_path_arg(
+                        unix_require_arg(values.first().cloned(), "linux.swapon", span)?,
+                        "linux.swapon",
+                        span,
+                    )?;
+                    let priority =
+                        lowered_int_arg_or(values.get(1).cloned(), -1, "linux.swapon", span)?;
+                    let host_device = self.host_path(&device);
+                    linux_module::swapon(&host_device, priority, span)
+                }
+                RuntimeOp::LinuxSwaponAll => linux_module::swapon_all(span),
+                RuntimeOp::LinuxSwapoff => {
+                    let device = lowered_path_arg(
+                        unix_require_arg(values.first().cloned(), "linux.swapoff", span)?,
+                        "linux.swapoff",
+                        span,
+                    )?;
+                    let host_device = self.host_path(&device);
+                    linux_module::swapoff(&host_device, span)
+                }
+                RuntimeOp::LinuxSwapoffAll => linux_module::swapoff_all(span),
+                RuntimeOp::LinuxSwitchRoot => {
+                    let new_root = lowered_path_arg(
+                        unix_require_arg(values.first().cloned(), "linux.switch_root", span)?,
+                        "linux.switch_root",
+                        span,
+                    )?;
+                    let init = lowered_path_arg(
+                        unix_require_arg(values.get(1).cloned(), "linux.switch_root", span)?,
+                        "linux.switch_root",
+                        span,
+                    )?;
+                    let host_new_root = self.host_path(&new_root);
+                    let host_init = self.host_path(&init);
+                    linux_module::switch_root(&host_new_root, &host_init, span)
+                }
+                RuntimeOp::LinuxSysctlLoadDirs => {
+                    let dirs = lowered_path_list(
+                        values.first().cloned(),
+                        "linux.sysctl_load_dirs",
+                        span,
+                    )?;
+                    let fallback = values
+                        .get(1)
+                        .cloned()
+                        .map(|value| lowered_path_arg(value, "linux.sysctl_load_dirs", span))
+                        .transpose()?;
+                    let host_dirs: Vec<PathBuf> =
+                        dirs.iter().map(|pv| self.host_path(pv)).collect();
+                    let host_fallback = fallback.as_ref().map(|pv| self.host_path(pv));
+                    linux_module::sysctl_load_dirs(
+                        &host_dirs,
+                        host_fallback.as_deref(),
+                        span,
+                    )
+                }
+                RuntimeOp::LinuxSysctlSet => {
+                    let key = lowered_str_arg_owned(
+                        values.first().cloned(),
+                        "",
+                        "linux.sysctl_set",
+                        span,
+                    )?;
+                    let value = lowered_str_arg_owned(
+                        values.get(1).cloned(),
+                        "",
+                        "linux.sysctl_set",
+                        span,
+                    )?;
+                    linux_module::sysctl_set(&key, &value, span)
+                }
+                RuntimeOp::LinuxUmountAll => {
+                    let types = lowered_optional_str_list(
+                        values.first().cloned(),
+                        "linux.umount_all",
+                        span,
+                    )?;
+                    linux_module::umount_all(&types, span)
+                }
+                RuntimeOp::LinuxWritePartitionTable => {
+                    let device = lowered_path_arg(
+                        unix_require_arg(
+                            values.first().cloned(),
+                            "linux.write_partition_table",
+                            span,
+                        )?,
+                        "linux.write_partition_table",
+                        span,
+                    )?;
+                    let table = lowered_record_arg(
+                        values.get(1).cloned(),
+                        "linux.write_partition_table",
+                        span,
+                    )?;
+                    let host_device = self.host_path(&device);
+                    linux_module::write_partition_table(&host_device, &table, span)
+                }
+                _ => unreachable!(
+                    "new linux RuntimeOp routed to eval_linux_call_value must be handled"
+                ),
             };
         }
         match op {
