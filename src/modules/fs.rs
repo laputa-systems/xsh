@@ -326,8 +326,23 @@ pub(crate) fn rooted_symlink(
     if overwrite {
         let _ = root.remove_file(path);
     }
-    root.symlink(target, path)
-        .map_err(|error| RuntimeError::new("fs-root-symlink", error.to_string()).with_span(span))
+    match root.symlink(target, path) {
+        Ok(()) => Ok(()),
+        Err(error) => {
+            // Idempotent re-install: a prior install already created this
+            // symlink pointing at the same target. Treat that as success so
+            // package re-installs don't require callers to pre-clear every
+            // symlink. Any other EEXIST (different target, or a non-symlink
+            // entry) still surfaces as the original error below.
+            if error.kind() == std::io::ErrorKind::AlreadyExists
+                && root.read_link_contents(path).ok() == Some(target.to_path_buf())
+            {
+                Ok(())
+            } else {
+                Err(RuntimeError::new("fs-root-symlink", error.to_string()).with_span(span))
+            }
+        }
+    }
 }
 
 pub(crate) fn rooted_chmod(
