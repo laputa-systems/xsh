@@ -35,6 +35,7 @@ use crate::trace::{
     TraceArg, TraceError, TraceKind, TracePayload, Traceback, TracebackFrame, TracebackFrameKind,
 };
 use rustc_hash::FxHashMap;
+use std::cell::Cell;
 use std::collections::BTreeMap;
 #[cfg(target_os = "macos")]
 use std::ffi::CStr;
@@ -148,6 +149,308 @@ const LOWERED_PAR_MAP_WORKER_STACK_SIZE: usize = 1 << 20;
 const LOWERED_PAR_MAP_MAX_WORKERS: usize = 6;
 const LOWERED_SHARED_LIST_THRESHOLD: usize = 16;
 const LOWERED_STREAMING_RESULT_COMPACT_THRESHOLD: usize = 1024;
+const LOWERED_EVAL_DEPTH_LIMIT: usize = 2048;
+const LOWERED_SMALL_STACK_EVAL_DEPTH_LIMIT: usize = 128;
+
+fn lowered_par_map_worker_stack_size() -> usize {
+    super::debug_test_eval_stack_size(LOWERED_PAR_MAP_WORKER_STACK_SIZE)
+}
+
+fn lowered_eval_depth_limit() -> usize {
+    if cfg!(debug_assertions) && std::env::var_os("XSH_TEST_SMALL_EVAL_STACK").is_some() {
+        LOWERED_SMALL_STACK_EVAL_DEPTH_LIMIT
+    } else {
+        LOWERED_EVAL_DEPTH_LIMIT
+    }
+}
+
+thread_local! {
+    static LOWERED_EVAL_DEPTH: Cell<usize> = const { Cell::new(0) };
+}
+
+struct LoweredEvalDepthReset<'a> {
+    depth: &'a Cell<usize>,
+    previous: usize,
+}
+
+impl Drop for LoweredEvalDepthReset<'_> {
+    fn drop(&mut self) {
+        self.depth.set(self.previous);
+    }
+}
+
+fn with_lowered_eval_depth<R>(
+    span: Span,
+    f: impl FnOnce() -> Result<R, RuntimeError>,
+) -> Result<R, RuntimeError> {
+    LOWERED_EVAL_DEPTH.with(|depth| {
+        let current = depth.get();
+        if current >= lowered_eval_depth_limit() {
+            return Err(RuntimeError::new(
+                "compact.stack-depth",
+                "lowered evaluation exceeded the stack-depth limit",
+            )
+            .with_span(span));
+        }
+        depth.set(current + 1);
+        let _reset = LoweredEvalDepthReset {
+            depth,
+            previous: current,
+        };
+        f()
+    })
+}
+
+enum LoweredIntExprFrame<'a> {
+    Expr(&'a LoweredExpr),
+    Apply(BinaryOp, Span),
+}
+
+enum LoweredTypedIntFrame<'a> {
+    Expr(&'a LoweredIntExpr),
+    Apply(BinaryOp),
+}
+
+#[derive(Clone, Copy)]
+enum LoweredRecursiveTarget {
+    SelfCall,
+    Function(LoweredFunctionKey),
+}
+
+struct LoweredRecursiveIntStep {
+    param_slot: usize,
+    base_limit: i64,
+    base_value: i64,
+    addend: i64,
+    decrement: i64,
+    target: LoweredRecursiveTarget,
+}
+
+fn lowered_int_param(expr: &LoweredExpr) -> Option<usize> {
+    match expr {
+        LoweredExpr::Param(slot) => Some(*slot),
+        _ => None,
+    }
+}
+
+fn lowered_int_literal(expr: &LoweredExpr) -> Option<i64> {
+    match expr {
+        LoweredExpr::Int(value) => Some(*value),
+        _ => None,
+    }
+}
+
+fn lowered_ok_int_literal(expr: &LoweredExpr) -> Option<i64> {
+    match expr {
+        LoweredExpr::Ok(value) => lowered_int_literal(value),
+        _ => None,
+    }
+}
+
+fn lowered_ok_param_plus_int(expr: &LoweredExpr, slot: usize) -> Option<i64> {
+    let LoweredExpr::Ok(value) = expr else {
+        return None;
+    };
+    lowered_param_plus_int(value, slot)
+}
+
+fn lowered_param_plus_int(expr: &LoweredExpr, slot: usize) -> Option<i64> {
+    let LoweredExpr::Binary {
+        op: BinaryOp::Add,
+        left,
+        right,
+        ..
+    } = expr
+    else {
+        return None;
+    };
+    match (
+        lowered_int_param(left).filter(|candidate| *candidate == slot),
+        lowered_int_literal(right),
+        lowered_int_literal(left),
+        lowered_int_param(right).filter(|candidate| *candidate == slot),
+    ) {
+        (Some(_), Some(value), _, _) | (_, _, Some(value), Some(_)) => Some(value),
+        _ => None,
+    }
+}
+
+fn lowered_param_decrement_arg(arg: &LoweredCallArg, slot: usize) -> Option<i64> {
+    let LoweredCallArg::Single(expr) = arg else {
+        return None;
+    };
+    let LoweredExpr::Binary {
+        op: BinaryOp::Sub,
+        left,
+        right,
+        ..
+    } = expr
+    else {
+        return None;
+    };
+    if lowered_int_param(left) == Some(slot) {
+        lowered_int_literal(right)
+    } else {
+        None
+    }
+}
+
+fn lowered_recursive_call(
+    expr: &LoweredExpr,
+    slot: usize,
+) -> Option<(LoweredRecursiveTarget, i64)> {
+    match expr {
+        LoweredExpr::SelfCall { args, .. } if args.len() == 1 => Some((
+            LoweredRecursiveTarget::SelfCall,
+            lowered_param_decrement_arg(&args[0], slot)?,
+        )),
+        LoweredExpr::Call { function, args, .. } if args.len() == 1 => Some((
+            LoweredRecursiveTarget::Function(*function),
+            lowered_param_decrement_arg(&args[0], slot)?,
+        )),
+        _ => None,
+    }
+}
+
+fn lowered_base_return(body: &[LoweredStmt]) -> Option<i64> {
+    let [LoweredStmt::Return { value }] = body else {
+        return None;
+    };
+    lowered_int_literal(value).or_else(|| lowered_ok_int_literal(value))
+}
+
+fn lowered_int_base_condition(expr: &LoweredExpr) -> Option<(usize, i64)> {
+    let LoweredExpr::Binary {
+        op: BinaryOp::Le,
+        left,
+        right,
+        ..
+    } = expr
+    else {
+        return None;
+    };
+    Some((lowered_int_param(left)?, lowered_int_literal(right)?))
+}
+
+fn lowered_plain_recursive_step(lowered: &LoweredPureFunction) -> Option<LoweredRecursiveIntStep> {
+    if !matches!(
+        lowered.return_kind,
+        LoweredReturnKind::Plain(LoweredType::Int)
+    ) {
+        return None;
+    }
+    let [
+        LoweredStmt::If {
+            branches,
+            else_body: None,
+        },
+        LoweredStmt::Return { value },
+    ] = lowered.body.as_slice()
+    else {
+        return None;
+    };
+    let [(condition, base_body)] = branches.as_slice() else {
+        return None;
+    };
+    let (param_slot, base_limit) = lowered_int_base_condition(condition)?;
+    let base_value = lowered_base_return(base_body)?;
+    let LoweredExpr::Binary {
+        op: BinaryOp::Add,
+        left,
+        right,
+        ..
+    } = value
+    else {
+        return None;
+    };
+    let (addend, target, decrement) = if let Some(addend) = lowered_int_literal(left)
+        && let Some((target, decrement)) = lowered_recursive_call(right, param_slot)
+    {
+        (addend, target, decrement)
+    } else if let Some(addend) = lowered_int_literal(right)
+        && let Some((target, decrement)) = lowered_recursive_call(left, param_slot)
+    {
+        (addend, target, decrement)
+    } else {
+        return None;
+    };
+    Some(LoweredRecursiveIntStep {
+        param_slot,
+        base_limit,
+        base_value,
+        addend,
+        decrement,
+        target,
+    })
+}
+
+fn lowered_result_recursive_step(lowered: &LoweredPureFunction) -> Option<LoweredRecursiveIntStep> {
+    if !matches!(
+        lowered.return_kind,
+        LoweredReturnKind::Result(LoweredType::Int)
+    ) {
+        return None;
+    }
+    let [
+        LoweredStmt::If {
+            branches: base_branches,
+            else_body: None,
+        },
+        recursive_stmt,
+        LoweredStmt::Return { .. },
+    ] = lowered.body.as_slice()
+    else {
+        return None;
+    };
+    let [(base_condition, base_body)] = base_branches.as_slice() else {
+        return None;
+    };
+    let (param_slot, base_limit) = lowered_int_base_condition(base_condition)?;
+    let base_value = lowered_base_return(base_body)?;
+    let recursive_body = match recursive_stmt {
+        LoweredStmt::If {
+            branches,
+            else_body: None,
+        } => {
+            let [(LoweredExpr::Bool(true), body)] = branches.as_slice() else {
+                return None;
+            };
+            body
+        }
+        LoweredStmt::IfBool {
+            branches,
+            else_body: None,
+        } => {
+            let [(LoweredBoolExpr::Bool(true), body)] = branches.as_slice() else {
+                return None;
+            };
+            body
+        }
+        _ => return None,
+    };
+    let [
+        LoweredStmt::Let { slot, value },
+        LoweredStmt::Return {
+            value: return_value,
+        },
+    ] = recursive_body.as_slice()
+    else {
+        return None;
+    };
+    let LoweredExpr::Try(call) = value else {
+        return None;
+    };
+    let (target, decrement) = lowered_recursive_call(call, param_slot)?;
+    let addend = lowered_ok_param_plus_int(return_value, *slot)?;
+    Some(LoweredRecursiveIntStep {
+        param_slot,
+        base_limit,
+        base_value,
+        addend,
+        decrement,
+        target,
+    })
+}
 
 fn btree_map<K: Ord, V>(entries: Vec<(K, V)>) -> BTreeMap<K, V> {
     let mut map = BTreeMap::new();
@@ -3291,7 +3594,7 @@ impl Evaluator {
             let shared_state = shared_state.clone();
             handles.push(
                 std::thread::Builder::new()
-                    .stack_size(LOWERED_PAR_MAP_WORKER_STACK_SIZE)
+                    .stack_size(lowered_par_map_worker_stack_size())
                     .spawn(move || {
                         let mut worker = LoweredWorker::new(shared_state);
                         let mut worker_slots = (*base_slots).clone();
@@ -3599,7 +3902,7 @@ impl Evaluator {
             let shared_state = shared_state.clone();
             handles.push(
                 std::thread::Builder::new()
-                    .stack_size(LOWERED_PAR_MAP_WORKER_STACK_SIZE)
+                    .stack_size(lowered_par_map_worker_stack_size())
                     .spawn(move || {
                         let mut worker = LoweredWorker::new(shared_state);
                         let mut worker_slots = (*base_slots).clone();
@@ -9971,13 +10274,89 @@ impl Evaluator {
         Some(result)
     }
 
+    fn try_eval_lowered_recursive_int_function(
+        &mut self,
+        lowered: &LoweredPureFunction,
+        slots: &mut [LoweredValue],
+    ) -> Result<Option<LoweredValue>, RuntimeError> {
+        if self.trace_enabled || lowered.has_defers {
+            return Ok(None);
+        }
+        let result_wrapped = matches!(lowered.return_kind, LoweredReturnKind::Result(_));
+        let Some(first_step) = lowered_plain_recursive_step(lowered)
+            .or_else(|| lowered_result_recursive_step(lowered))
+        else {
+            return Ok(None);
+        };
+        let LoweredValue::Int(mut n) = slots[first_step.param_slot] else {
+            return Ok(None);
+        };
+
+        let mut current = Arc::new(lowered.clone());
+        let mut step = first_step;
+        let mut acc = 0i64;
+        loop {
+            if step.decrement <= 0 {
+                return Ok(None);
+            }
+            if n <= step.base_limit {
+                let value = LoweredValue::Int(acc + step.base_value);
+                return Ok(Some(if result_wrapped {
+                    lowered_result_ok(value)
+                } else {
+                    value
+                }));
+            }
+            acc += step.addend;
+            n -= step.decrement;
+            current = match step.target {
+                LoweredRecursiveTarget::SelfCall => current.clone(),
+                LoweredRecursiveTarget::Function(function) => {
+                    let Some(next) = self.lowered_function(function) else {
+                        return Ok(None);
+                    };
+                    next
+                }
+            };
+            step = match current.return_kind {
+                LoweredReturnKind::Plain(LoweredType::Int) => {
+                    let Some(step) = lowered_plain_recursive_step(&current) else {
+                        return Ok(None);
+                    };
+                    step
+                }
+                LoweredReturnKind::Result(LoweredType::Int) => {
+                    let Some(step) = lowered_result_recursive_step(&current) else {
+                        return Ok(None);
+                    };
+                    step
+                }
+                _ => return Ok(None),
+            };
+        }
+    }
+
     pub(super) fn eval_lowered_function(
         &mut self,
         lowered: &LoweredPureFunction,
         slots: &mut [LoweredValue],
         call_span: Span,
     ) -> Result<LoweredValue, RuntimeError> {
+        with_lowered_eval_depth(call_span, || {
+            self.eval_lowered_function_inner(lowered, slots, call_span)
+        })
+    }
+
+    fn eval_lowered_function_inner(
+        &mut self,
+        lowered: &LoweredPureFunction,
+        slots: &mut [LoweredValue],
+        call_span: Span,
+    ) -> Result<LoweredValue, RuntimeError> {
         self.hydrate_lowered_captures(lowered, slots, call_span)?;
+        if let Some(value) = self.try_eval_lowered_recursive_int_function(lowered, slots)? {
+            return Ok(value);
+        }
         if matches!(
             lowered.return_kind,
             LoweredReturnKind::Plain(LoweredType::Stream)
@@ -10431,6 +10810,18 @@ impl Evaluator {
         expr: &LoweredExpr,
         slots: &mut [LoweredValue],
     ) -> Result<Option<LoweredValue>, RuntimeError> {
+        self.eval_lowered_plain_expr_inner(lowered, expr, slots)
+    }
+
+    fn eval_lowered_plain_expr_inner(
+        &mut self,
+        lowered: &LoweredPureFunction,
+        expr: &LoweredExpr,
+        slots: &mut [LoweredValue],
+    ) -> Result<Option<LoweredValue>, RuntimeError> {
+        if let Some(value) = self.eval_lowered_int_expr_iterative(expr, slots)? {
+            return Ok(Some(LoweredValue::Int(value)));
+        }
         match expr {
             LoweredExpr::Null => Ok(Some(LoweredValue::Null)),
             LoweredExpr::Unit => Ok(Some(LoweredValue::Unit)),
@@ -11971,7 +12362,18 @@ impl Evaluator {
         slots: &mut [LoweredValue],
         call_span: Span,
     ) -> Result<ControlFlow<LoweredValue, i64>, RuntimeError> {
-        let _ = call_span;
+        self.eval_lowered_typed_int_inner(expr, slots, call_span)
+    }
+
+    fn eval_lowered_typed_int_inner(
+        &mut self,
+        expr: &LoweredIntExpr,
+        slots: &mut [LoweredValue],
+        call_span: Span,
+    ) -> Result<ControlFlow<LoweredValue, i64>, RuntimeError> {
+        if let Some(value) = self.eval_lowered_typed_int_iterative(expr, slots, call_span)? {
+            return Ok(ControlFlow::Continue(value));
+        }
         match expr {
             LoweredIntExpr::Int(value) => Ok(ControlFlow::Continue(*value)),
             LoweredIntExpr::Slot(slot) => match slots[*slot] {
@@ -12031,7 +12433,152 @@ impl Evaluator {
         }
     }
 
+    fn eval_lowered_typed_int_iterative(
+        &mut self,
+        expr: &LoweredIntExpr,
+        slots: &mut [LoweredValue],
+        call_span: Span,
+    ) -> Result<Option<i64>, RuntimeError> {
+        let mut frames = vec![LoweredTypedIntFrame::Expr(expr)];
+        let mut values = Vec::new();
+        while let Some(frame) = frames.pop() {
+            match frame {
+                LoweredTypedIntFrame::Expr(expr) => match expr {
+                    LoweredIntExpr::Int(value) => values.push(*value),
+                    LoweredIntExpr::Slot(slot) => match slots[*slot] {
+                        LoweredValue::Int(value) => values.push(value),
+                        _ => {
+                            return Err(RuntimeError::new(
+                                "type-error",
+                                "lowered expression expected Int",
+                            )
+                            .with_span(call_span));
+                        }
+                    },
+                    LoweredIntExpr::Binary { op, left, right } => {
+                        frames.push(LoweredTypedIntFrame::Apply(*op));
+                        frames.push(LoweredTypedIntFrame::Expr(right));
+                        frames.push(LoweredTypedIntFrame::Expr(left));
+                    }
+                    _ => return Ok(None),
+                },
+                LoweredTypedIntFrame::Apply(op) => {
+                    let right = values.pop().expect("right int value");
+                    let left = values.pop().expect("left int value");
+                    let value = match op {
+                        BinaryOp::Add => left + right,
+                        BinaryOp::Sub => left - right,
+                        BinaryOp::Mul => left * right,
+                        BinaryOp::Div => {
+                            if right == 0 {
+                                return Err(RuntimeError::new(
+                                    "division-by-zero",
+                                    "division by zero",
+                                )
+                                .with_span(call_span));
+                            }
+                            left / right
+                        }
+                        BinaryOp::Rem => {
+                            if right == 0 {
+                                return Err(RuntimeError::new(
+                                    "division-by-zero",
+                                    "division by zero",
+                                )
+                                .with_span(call_span));
+                            }
+                            left % right
+                        }
+                        _ => unreachable!(),
+                    };
+                    values.push(value);
+                }
+            }
+        }
+        Ok(values.pop())
+    }
+
+    fn eval_lowered_int_expr_iterative(
+        &mut self,
+        expr: &LoweredExpr,
+        slots: &mut [LoweredValue],
+    ) -> Result<Option<i64>, RuntimeError> {
+        let mut frames = vec![LoweredIntExprFrame::Expr(expr)];
+        let mut values = Vec::new();
+        while let Some(frame) = frames.pop() {
+            match frame {
+                LoweredIntExprFrame::Expr(expr) => match expr {
+                    LoweredExpr::Int(value) => values.push(*value),
+                    LoweredExpr::Param(slot) => match slots[*slot] {
+                        LoweredValue::Int(value) => values.push(value),
+                        _ => return Ok(None),
+                    },
+                    LoweredExpr::Binary {
+                        op,
+                        left,
+                        right,
+                        span,
+                    } if matches!(
+                        op,
+                        BinaryOp::Add
+                            | BinaryOp::Sub
+                            | BinaryOp::Mul
+                            | BinaryOp::Div
+                            | BinaryOp::Rem
+                    ) =>
+                    {
+                        frames.push(LoweredIntExprFrame::Apply(*op, *span));
+                        frames.push(LoweredIntExprFrame::Expr(right));
+                        frames.push(LoweredIntExprFrame::Expr(left));
+                    }
+                    _ => return Ok(None),
+                },
+                LoweredIntExprFrame::Apply(op, span) => {
+                    let right = values.pop().expect("right int value");
+                    let left = values.pop().expect("left int value");
+                    let value = match op {
+                        BinaryOp::Add => left + right,
+                        BinaryOp::Sub => left - right,
+                        BinaryOp::Mul => left * right,
+                        BinaryOp::Div => {
+                            if right == 0 {
+                                return Err(RuntimeError::new(
+                                    "division-by-zero",
+                                    "division by zero",
+                                )
+                                .with_span(span));
+                            }
+                            left / right
+                        }
+                        BinaryOp::Rem => {
+                            if right == 0 {
+                                return Err(RuntimeError::new(
+                                    "division-by-zero",
+                                    "division by zero",
+                                )
+                                .with_span(span));
+                            }
+                            left % right
+                        }
+                        _ => unreachable!(),
+                    };
+                    values.push(value);
+                }
+            }
+        }
+        Ok(values.pop())
+    }
+
     pub(super) fn eval_lowered_typed_bool(
+        &mut self,
+        expr: &LoweredBoolExpr,
+        slots: &mut [LoweredValue],
+        call_span: Span,
+    ) -> Result<ControlFlow<LoweredValue, bool>, RuntimeError> {
+        self.eval_lowered_typed_bool_inner(expr, slots, call_span)
+    }
+
+    fn eval_lowered_typed_bool_inner(
         &mut self,
         expr: &LoweredBoolExpr,
         slots: &mut [LoweredValue],
@@ -12137,6 +12684,16 @@ impl Evaluator {
     }
 
     pub(super) fn eval_lowered_stmt(
+        &mut self,
+        lowered: &LoweredPureFunction,
+        stmt: &LoweredStmt,
+        slots: &mut [LoweredValue],
+        call_span: Span,
+    ) -> Result<LoweredStmtFlow, RuntimeError> {
+        self.eval_lowered_stmt_inner(lowered, stmt, slots, call_span)
+    }
+
+    fn eval_lowered_stmt_inner(
         &mut self,
         lowered: &LoweredPureFunction,
         stmt: &LoweredStmt,
@@ -13287,6 +13844,16 @@ impl Evaluator {
         slots: &mut [LoweredValue],
         call_span: Span,
     ) -> Result<ControlFlow<LoweredValue, bool>, RuntimeError> {
+        self.eval_lowered_bool_inner(lowered, expr, slots, call_span)
+    }
+
+    fn eval_lowered_bool_inner(
+        &mut self,
+        lowered: &LoweredPureFunction,
+        expr: &LoweredExpr,
+        slots: &mut [LoweredValue],
+        call_span: Span,
+    ) -> Result<ControlFlow<LoweredValue, bool>, RuntimeError> {
         if let Some(value) = self.eval_lowered_bool_candidate(lowered, expr, slots)? {
             return Ok(value);
         }
@@ -13305,6 +13872,15 @@ impl Evaluator {
     }
 
     pub(super) fn eval_lowered_bool_candidate(
+        &mut self,
+        lowered: &LoweredPureFunction,
+        expr: &LoweredExpr,
+        slots: &mut [LoweredValue],
+    ) -> Result<Option<ControlFlow<LoweredValue, bool>>, RuntimeError> {
+        self.eval_lowered_bool_candidate_inner(lowered, expr, slots)
+    }
+
+    fn eval_lowered_bool_candidate_inner(
         &mut self,
         lowered: &LoweredPureFunction,
         expr: &LoweredExpr,
@@ -13470,6 +14046,15 @@ impl Evaluator {
     }
 
     pub(super) fn eval_lowered_int_candidate(
+        &mut self,
+        lowered: &LoweredPureFunction,
+        expr: &LoweredExpr,
+        slots: &mut [LoweredValue],
+    ) -> Result<Option<ControlFlow<LoweredValue, i64>>, RuntimeError> {
+        self.eval_lowered_int_candidate_inner(lowered, expr, slots)
+    }
+
+    fn eval_lowered_int_candidate_inner(
         &mut self,
         lowered: &LoweredPureFunction,
         expr: &LoweredExpr,
@@ -14824,6 +15409,16 @@ impl Evaluator {
     }
 
     pub(super) fn eval_lowered_expr(
+        &mut self,
+        lowered: &LoweredPureFunction,
+        expr: &LoweredExpr,
+        slots: &mut [LoweredValue],
+        call_span: Span,
+    ) -> Result<ControlFlow<LoweredValue, LoweredValue>, RuntimeError> {
+        self.eval_lowered_expr_inner(lowered, expr, slots, call_span)
+    }
+
+    fn eval_lowered_expr_inner(
         &mut self,
         lowered: &LoweredPureFunction,
         expr: &LoweredExpr,
@@ -16562,7 +17157,7 @@ impl Evaluator {
                                         let shared_state = shared_state.clone();
                                         handles.push(
                                             std::thread::Builder::new()
-                                                .stack_size(LOWERED_PAR_MAP_WORKER_STACK_SIZE)
+                                                .stack_size(lowered_par_map_worker_stack_size())
                                                 .spawn_scoped(scope, move || {
                                             let mut worker = LoweredWorker::new(shared_state);
                                             let mut worker_slots = (*base_slots).clone();
@@ -16906,7 +17501,7 @@ impl Evaluator {
                                         let shared_state = shared_state.clone();
                                         handles.push(
                                             std::thread::Builder::new()
-                                                .stack_size(LOWERED_PAR_MAP_WORKER_STACK_SIZE)
+                                                .stack_size(lowered_par_map_worker_stack_size())
                                                 .spawn_scoped(scope, move || {
                                             let mut worker = LoweredWorker::new(shared_state);
                                             let mut worker_slots = (*base_slots).clone();

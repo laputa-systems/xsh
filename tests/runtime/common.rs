@@ -209,6 +209,22 @@ pub(crate) fn run_temp_script_with_args<const N: usize>(
     output
 }
 
+pub(crate) fn run_temp_script_with_env<const N: usize>(
+    name: &str,
+    source: &str,
+    leading_args: [&str; N],
+    env: &[(&str, &str)],
+) -> std::process::Output {
+    let path = write_temp_script(name, source);
+    let mut command = command_for_script_with_leading_args(&path, &leading_args);
+    for (key, value) in env {
+        command.env(key, value);
+    }
+    let output = command.output().expect("run script");
+    let _ = std::fs::remove_file(path);
+    output
+}
+
 fn command_for_script_with_leading_args(path: &Path, leading_args: &[&str]) -> Command {
     let trace_args = translated_trace_args(leading_args);
     let mut command = if let Some(args) = trace_args {

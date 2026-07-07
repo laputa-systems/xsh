@@ -6560,12 +6560,20 @@ fn run_eval_on_large_stack<R: Send>(f: impl FnOnce() -> R + Send) -> R {
     const EVAL_STACK_SIZE: usize = 64 * 1024 * 1024;
     std::thread::scope(|scope| {
         std::thread::Builder::new()
-            .stack_size(EVAL_STACK_SIZE)
+            .stack_size(debug_test_eval_stack_size(EVAL_STACK_SIZE))
             .spawn_scoped(scope, f)
             .expect("spawn evaluation worker thread")
             .join()
             .unwrap_or_else(|payload| std::panic::resume_unwind(payload))
     })
+}
+
+pub(in crate::runtime) fn debug_test_eval_stack_size(default: usize) -> usize {
+    if cfg!(debug_assertions) && std::env::var_os("XSH_TEST_SMALL_EVAL_STACK").is_some() {
+        16 * 1024 * 1024
+    } else {
+        default
+    }
 }
 
 fn next_event_id(events: &[TraceEvent]) -> u64 {

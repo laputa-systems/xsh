@@ -202,6 +202,17 @@ bug, suspect an upstream node that lowered to `Unit`.
 - Lowered `par-map` caps default workers at 6. Release worker stacks are 1 MiB;
   debug workers use 64 MiB. The outer lowered evaluator runs on a scoped 64 MiB
   worker stack so recursive XSH calls do not depend on the main-thread stack.
+- Lowered evaluation has a `compact.stack-depth` guard shared by the main
+  lowered evaluator, fast lowered expression paths, statement execution,
+  function calls, and lowered `par-map` workers. Thread stack size is a safety
+  margin, not the correctness mechanism: deeply recursive XSH code must either
+  complete or fail with the structured stack-depth diagnostic before the native
+  Rust stack is at risk. Hot recursive Int/Result[Int] call series and nested
+  integer expression trees use explicit loop stacks, so package-manager-shaped
+  recursion and lowered worker recursion do not depend on native call depth.
+  `XSH_TEST_SMALL_EVAL_STACK=1 cargo test --test runtime stack_depth -- --ignored`
+  forces reduced 16 MiB debug stacks for the main evaluator and lowered workers
+  to keep that boundary reproducible.
 - The collection self-assignment specialization is split out behind a guarded
   `Set`-method helper so ordinary lowered assignments stay on the compact main
   statement path. The outer evaluator stack reservation is now 64 MiB; the
@@ -222,9 +233,12 @@ gap rather than a user error. When a whole script is "not available", check the
 arena-parse diagnostics in the runner first.
 - **Eval stack:** the lowered evaluator still runs on a scoped worker thread so
   recursive XSH calls do not depend on the main-thread stack. The worker stack
-  is 64 MiB (`run_eval_on_large_stack` in `eval.rs`), after splitting the
-  collection self-assignment method updates out of the main statement match. A
-  panic in the worker is resumed on the main thread (not swallowed).
+  is 64 MiB (`run_eval_on_large_stack` in `eval.rs`), but native stack
+  reservation is only a margin. Lowered expression, statement, typed fast-path,
+  and call evaluators share depth accounting and report `compact.stack-depth`
+  before the native stack is at risk. The hot recursive Int call and nested Int
+  expression paths run on explicit stacks first. A panic in the worker is
+  resumed on the main thread (not swallowed).
 - **Auto-main:** `compact_root_proc_main_requires_auto_call` decides whether a
   script of only `proc main` is auto-invoked; `compact_auto_main_args` supplies
   the CLI args and coerces each positional `Str` arg to its declared `main` param
