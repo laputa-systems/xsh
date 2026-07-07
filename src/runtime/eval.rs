@@ -3590,10 +3590,13 @@ impl Evaluator {
             }));
         }
         if self.signal_state.shutdown_complete
-            && traceback.is_none() && abort.is_none() && !stopped
-                && let Some(shutdown_status) = self.signal_state.shutdown_status {
-                    status = shutdown_status;
-                }
+            && traceback.is_none()
+            && abort.is_none()
+            && !stopped
+            && let Some(shutdown_status) = self.signal_state.shutdown_status
+        {
+            status = shutdown_status;
+        }
 
         if auto_main_required && traceback.is_none() && abort.is_none() && !stopped {
             let zero = zero_span();
@@ -4221,10 +4224,13 @@ impl Evaluator {
             }));
         }
         if self.signal_state.shutdown_complete
-            && traceback.is_none() && abort.is_none() && !stopped
-                && let Some(shutdown_status) = self.signal_state.shutdown_status {
-                    status = shutdown_status;
-                }
+            && traceback.is_none()
+            && abort.is_none()
+            && !stopped
+            && let Some(shutdown_status) = self.signal_state.shutdown_status
+        {
+            status = shutdown_status;
+        }
 
         if plan.auto_main_required && traceback.is_none() && abort.is_none() && !stopped {
             let zero = zero_span();

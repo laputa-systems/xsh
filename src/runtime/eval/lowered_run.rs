@@ -8673,12 +8673,8 @@ impl Evaluator {
                 // Boot / privileged operations are not safe in a non-privileged
                 // container; return Ok(()) so scripts can feature-gate on errors.
                 RuntimeOp::LinuxDepmod => {
-                    let version = lowered_str_arg_owned(
-                        values.first().cloned(),
-                        "",
-                        "linux.depmod",
-                        span,
-                    )?;
+                    let version =
+                        lowered_str_arg_owned(values.first().cloned(), "", "linux.depmod", span)?;
                     linux_module::depmod(&version, span)
                 }
                 RuntimeOp::LinuxFsck => {
@@ -8687,18 +8683,10 @@ impl Evaluator {
                         "linux.fsck",
                         span,
                     )?;
-                    let fstype = lowered_str_arg_owned(
-                        values.get(1).cloned(),
-                        "",
-                        "linux.fsck",
-                        span,
-                    )?;
-                    let repair = lowered_bool_arg_or(
-                        values.get(2).cloned(),
-                        false,
-                        "linux.fsck",
-                        span,
-                    )?;
+                    let fstype =
+                        lowered_str_arg_owned(values.get(1).cloned(), "", "linux.fsck", span)?;
+                    let repair =
+                        lowered_bool_arg_or(values.get(2).cloned(), false, "linux.fsck", span)?;
                     let host_device = self.host_path(&device);
                     linux_module::fsck(&host_device, &fstype, repair, span)
                 }
@@ -8710,12 +8698,8 @@ impl Evaluator {
                         "linux.insmod",
                         span,
                     )?;
-                    let params = lowered_str_arg_owned(
-                        values.get(1).cloned(),
-                        "",
-                        "linux.insmod",
-                        span,
-                    )?;
+                    let params =
+                        lowered_str_arg_owned(values.get(1).cloned(), "", "linux.insmod", span)?;
                     let host_path = self.host_path(&path);
                     linux_module::insmod(&host_path, &params, span)
                 }
@@ -8727,12 +8711,8 @@ impl Evaluator {
                         span,
                     )?;
                     let signal = process_module::signal_info(&signal_str, span)?.number;
-                    let except_pid1 = lowered_bool_arg_or(
-                        values.get(1).cloned(),
-                        false,
-                        "linux.kill_all",
-                        span,
-                    )?;
+                    let except_pid1 =
+                        lowered_bool_arg_or(values.get(1).cloned(), false, "linux.kill_all", span)?;
                     linux_module::kill_all(signal, except_pid1, span)
                 }
                 RuntimeOp::LinuxLoopAttach => {
@@ -8765,12 +8745,8 @@ impl Evaluator {
                         "linux.mknod",
                         span,
                     )?;
-                    let kind = lowered_str_arg_owned(
-                        values.get(1).cloned(),
-                        "",
-                        "linux.mknod",
-                        span,
-                    )?;
+                    let kind =
+                        lowered_str_arg_owned(values.get(1).cloned(), "", "linux.mknod", span)?;
                     let major = lowered_int_arg(values.get(2).cloned(), "linux.mknod", span)?;
                     let minor = lowered_int_arg(values.get(3).cloned(), "linux.mknod", span)?;
                     let host_path = self.host_path(&path);
@@ -8786,38 +8762,22 @@ impl Evaluator {
                     linux_module::mkswap(&host_device, span)
                 }
                 RuntimeOp::LinuxModprobe => {
-                    let name = lowered_str_arg_owned(
-                        values.first().cloned(),
-                        "",
-                        "linux.modprobe",
-                        span,
-                    )?;
-                    let params = lowered_str_arg_owned(
-                        values.get(1).cloned(),
-                        "",
-                        "linux.modprobe",
-                        span,
-                    )?;
+                    let name =
+                        lowered_str_arg_owned(values.first().cloned(), "", "linux.modprobe", span)?;
+                    let params =
+                        lowered_str_arg_owned(values.get(1).cloned(), "", "linux.modprobe", span)?;
                     linux_module::modprobe(&name, &params, span)
                 }
                 RuntimeOp::LinuxMount => {
-                    let source = lowered_str_arg_owned(
-                        values.first().cloned(),
-                        "",
-                        "linux.mount",
-                        span,
-                    )?;
+                    let source =
+                        lowered_str_arg_owned(values.first().cloned(), "", "linux.mount", span)?;
                     let target = lowered_path_arg(
                         unix_require_arg(values.get(1).cloned(), "linux.mount", span)?,
                         "linux.mount",
                         span,
                     )?;
-                    let fstype = lowered_str_arg_owned(
-                        values.get(2).cloned(),
-                        "",
-                        "linux.mount",
-                        span,
-                    )?;
+                    let fstype =
+                        lowered_str_arg_owned(values.get(2).cloned(), "", "linux.mount", span)?;
                     let options =
                         lowered_optional_str_list(values.get(3).cloned(), "linux.mount", span)?;
                     let host_target = self.host_path(&target);
@@ -8928,11 +8888,8 @@ impl Evaluator {
                     linux_module::switch_root(&host_new_root, &host_init, span)
                 }
                 RuntimeOp::LinuxSysctlLoadDirs => {
-                    let dirs = lowered_path_list(
-                        values.first().cloned(),
-                        "linux.sysctl_load_dirs",
-                        span,
-                    )?;
+                    let dirs =
+                        lowered_path_list(values.first().cloned(), "linux.sysctl_load_dirs", span)?;
                     let fallback = values
                         .get(1)
                         .cloned()
@@ -8941,11 +8898,7 @@ impl Evaluator {
                     let host_dirs: Vec<PathBuf> =
                         dirs.iter().map(|pv| self.host_path(pv)).collect();
                     let host_fallback = fallback.as_ref().map(|pv| self.host_path(pv));
-                    linux_module::sysctl_load_dirs(
-                        &host_dirs,
-                        host_fallback.as_deref(),
-                        span,
-                    )
+                    linux_module::sysctl_load_dirs(&host_dirs, host_fallback.as_deref(), span)
                 }
                 RuntimeOp::LinuxSysctlSet => {
                     let key = lowered_str_arg_owned(
@@ -11713,15 +11666,16 @@ impl Evaluator {
                     // Restore any Module binding this stmt overwrote.
                     for (name, record) in &modules_before_stmt {
                         if let Some(binding) = self.lookup(*name)
-                            && !matches!(&binding.value, Value::Module(_)) {
-                                self.define(
-                                    *name,
-                                    Binding {
-                                        value: Value::Module(record.clone()),
-                                        mutable: false,
-                                    },
-                                );
-                            }
+                            && !matches!(&binding.value, Value::Module(_))
+                        {
+                            self.define(
+                                *name,
+                                Binding {
+                                    value: Value::Module(record.clone()),
+                                    mutable: false,
+                                },
+                            );
+                        }
                     }
                 }
                 // Snapshot all Module bindings that survived (or were
@@ -11772,15 +11726,16 @@ impl Evaluator {
                 // export in the loop above.
                 for (name, module_record) in modules_protected {
                     if let Some(binding) = self.lookup(name)
-                        && !matches!(&binding.value, Value::Module(_)) {
-                            self.define(
-                                name,
-                                Binding {
-                                    value: Value::Module(module_record),
-                                    mutable: false,
-                                },
-                            );
-                        }
+                        && !matches!(&binding.value, Value::Module(_))
+                    {
+                        self.define(
+                            name,
+                            Binding {
+                                value: Value::Module(module_record),
+                                mutable: false,
+                            },
+                        );
+                    }
                 }
                 self.define(
                     import_name,

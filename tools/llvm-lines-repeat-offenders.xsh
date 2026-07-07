@@ -289,15 +289,17 @@ pure total_from_llvm_lines(text: Str) -> Result[Int] {
     }
   }
 
-  return Ok(-1)
+  -1
 }
 
 pure filter_offenders(rows: List[Offender], filter: Str, min_duplicated: Int) -> List[Offender] {
   var out: List[Offender] = []
 
   for row in rows {
-    if row.duplicated_lines >= min_duplicated and (filter == "" or row.name.contains(filter)) {
-      out = out.push(row)
+    if row.duplicated_lines >= min_duplicated {
+      if filter == "" or row.name.contains(filter) {
+        out = out.push(row)
+      }
     }
   }
 

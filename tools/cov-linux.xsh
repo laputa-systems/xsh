@@ -38,7 +38,7 @@ proc cargo_bin_dir(root: Path) [process, env] -> Path {
 }
 
 proc rust_host() [process, error] -> Result[Str] {
-  let version: Str = run.text rustc -vV?
+  let version: Str = run.text rustc -vV ?
 
   for line in version.lines() {
     if line.starts_with("host: ") {
@@ -50,7 +50,7 @@ proc rust_host() [process, error] -> Result[Str] {
 }
 
 proc find_llvm_tool(tool: Str) [fs, process, error] -> Result[Path] {
-  let sysroot_raw: Str = run.text rustc --print sysroot?
+  let sysroot_raw: Str = run.text rustc --print sysroot ?
   let sysroot = fp"${sysroot_raw.trim()}"
   let host = rust_host()?
   let candidates = [fp"${sysroot}/lib/rustlib/${host}/bin/${tool}", fp"${sysroot}/bin/${tool}"]
