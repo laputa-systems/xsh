@@ -14,6 +14,32 @@ fn minimal_modules_execute_success_paths() {
 }
 
 #[test]
+fn fs_root_symlink_preserves_default_parents_with_named_overwrite() {
+    let root = temp_path("root-symlink-overwrite-defaults");
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).expect("create root");
+    let source = format!(
+        r#"
+let root = fs.open_root(Path({}))?
+let overwrite = false
+fs.root_symlink(root, p"target", p"nested/link", overwrite: overwrite)?
+print ${{fs.root_readlink(root, p"nested/link")?.display()}}
+fs.close_root(root)?
+"#,
+        xsh_string_literal(root.to_str().unwrap())
+    );
+    let output = run_temp_script("root-symlink-overwrite-defaults", &source);
+    let _ = std::fs::remove_dir_all(root);
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(String::from_utf8(output.stdout).unwrap(), "target\n");
+}
+
+#[test]
 fn cli_parse_help_prints_usage_and_exits_successfully() {
     let path = write_temp_script(
         "cli-help",
@@ -673,8 +699,17 @@ fn dynamic_module_load_returns_exports_and_proc_call_invokes_proc_values() {
     let package = root.join("package.xsh");
     let helper = root.join("helper.xsh");
     let main = root.join("main.xsh");
-    std::fs::write(&helper, "export let helper_name = \"demo\"\n")
-        .expect("write dynamic helper module");
+    std::fs::write(
+        &helper,
+        r#"
+export let helper_name = "demo"
+
+export pure helper_label(value: Str) -> Str {
+  return f"helper:${value}"
+}
+"#,
+    )
+    .expect("write dynamic helper module");
     std::fs::write(
         &package,
         r#"

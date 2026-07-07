@@ -200,7 +200,7 @@ bug, suspect an upstream node that lowered to `Unit`.
 - Lowered `par-map` writes worker results directly into indexed result slots
   instead of returning per-worker chunk vectors.
 - Lowered `par-map` caps default workers at 6. Release worker stacks are 1 MiB;
-  debug workers use 8 MiB. The outer lowered evaluator runs on a scoped 64 MiB
+  debug workers use 64 MiB. The outer lowered evaluator runs on a scoped 64 MiB
   worker stack so recursive XSH calls do not depend on the main-thread stack.
 - The collection self-assignment specialization is split out behind a guarded
   `Set`-method helper so ordinary lowered assignments stay on the compact main

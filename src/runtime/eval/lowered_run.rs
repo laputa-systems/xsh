@@ -142,7 +142,7 @@ pub(super) fn print_perf_counters() {
 pub(super) fn print_perf_counters() {}
 
 #[cfg(debug_assertions)]
-const LOWERED_PAR_MAP_WORKER_STACK_SIZE: usize = 8 << 20;
+const LOWERED_PAR_MAP_WORKER_STACK_SIZE: usize = 64 << 20;
 #[cfg(not(debug_assertions))]
 const LOWERED_PAR_MAP_WORKER_STACK_SIZE: usize = 1 << 20;
 const LOWERED_PAR_MAP_MAX_WORKERS: usize = 6;
@@ -4960,10 +4960,18 @@ impl Evaluator {
                 }
             }
             RuntimeOp::FsRootSymlink if (3..=5).contains(&values.len()) => {
-                let overwrite =
-                    lowered_bool_arg_or(values.get(4).cloned(), false, "fs.root_symlink", span)?;
-                let parents =
-                    lowered_bool_arg_or(values.get(3).cloned(), true, "fs.root_symlink", span)?;
+                let (parents, overwrite) = match (values.get(3).cloned(), values.get(4).cloned()) {
+                    (Some(value), Some(overwrite)) => (
+                        lowered_bool_arg_or(Some(value), true, "fs.root_symlink", span)?,
+                        lowered_bool_arg_or(Some(overwrite), false, "fs.root_symlink", span)?,
+                    ),
+                    (Some(value), None) => (
+                        true,
+                        lowered_bool_arg_or(Some(value), false, "fs.root_symlink", span)?,
+                    ),
+                    (None, None) => (true, false),
+                    (None, Some(_)) => unreachable!("checked value length"),
+                };
                 let path = lowered_path_arg(
                     values.get(2).cloned().expect("checked value length"),
                     "fs.root_symlink",

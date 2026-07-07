@@ -2976,7 +2976,7 @@ fn compact_module_exports_for_use(
                 let qualified =
                     LoweredFunctionKey::Qualified(QualifiedName::new(function_namespace, name));
                 if functions.is_some_and(|functions| !functions.contains(qualified)) {
-                    return None;
+                    continue;
                 }
                 exports.push(LoweredModuleExport {
                     name,
@@ -2989,7 +2989,7 @@ fn compact_module_exports_for_use(
                 let qualified =
                     LoweredFunctionKey::Qualified(QualifiedName::new(function_namespace, name));
                 if functions.is_some_and(|functions| !functions.contains(qualified)) {
-                    return None;
+                    continue;
                 }
                 exports.push(LoweredModuleExport {
                     name,
