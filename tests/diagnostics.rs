@@ -1,6 +1,13 @@
 use xsh::diagnostic::{Diagnostic, DiagnosticRenderer, Label};
 use xsh::source::{SourceMap, Span};
 
+fn resolved_fixture_path() -> String {
+    std::path::absolute("fixtures/diagnostics/synthetic.xsh")
+        .ok()
+        .and_then(|p| p.to_str().map(String::from))
+        .unwrap_or_else(|| "fixtures/diagnostics/synthetic.xsh".to_string())
+}
+
 #[test]
 fn synthetic_diagnostic_fixture_output_is_stable() {
     let mut sources = SourceMap::new();
@@ -15,10 +22,11 @@ fn synthetic_diagnostic_fixture_output_is_stable() {
         .render(std::slice::from_ref(&diagnostic), &sources);
     let machine = diagnostic.to_machine(&sources);
 
-    assert_eq!(
-        rendered,
-        "err: expected expression\n  fixtures/diagnostics/synthetic.xsh:1:8\n  let x =\n         ^ initializer required\n"
+    let expected = format!(
+        "err: expected expression\n  {}:1:8\n  let x =\n         ^ initializer required\n",
+        resolved_fixture_path()
     );
+    assert_eq!(rendered, expected);
     assert_eq!(machine.span.unwrap().start_line, 1);
     assert_eq!(
         machine.labels[0].message.as_deref(),
