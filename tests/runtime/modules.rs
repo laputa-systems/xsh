@@ -822,6 +822,76 @@ match checked {{
 }
 
 #[test]
+fn dynamic_module_proc_bareword_run_args_resolve_correctly() {
+    let root = temp_path("bareword-run-args-root");
+    std::fs::create_dir_all(&root).expect("create bareword run args root");
+    let package = root.join("package.xsh");
+    let main = root.join("main.xsh");
+
+    std::fs::write(
+        &package,
+        r#"
+export let name = "bareword-test"
+export let ver = "1.0"
+export let rel = "1"
+export let deps: List[Str] = []
+export let mkdeps: List[Str] = []
+export let sources: List[Path] = []
+export let checksums: List[Str] = []
+
+export proc build(dest: Path) [fs, process, error] {
+  var patched_ninja = "rule link\n command = cc\nrule compile\n command = cc\n"
+
+  patched_ninja = patched_ninja.replace(
+    """rule link
+ command = cc""",
+    f"""rule link
+ command = /usr/bin/cc""",
+  )
+
+  patched_ninja = patched_ninja.replace(
+    """rule compile
+ command = cc""",
+    f"""rule compile
+ command = /usr/bin/cc""",
+  )
+
+  fs.write(fp"/tmp/bareword-run-test", patched_ninja)?
+  run echo "-C" "build" samu ?
+  run echo apples ?
+}
+"#,
+    )
+    .expect("write package module");
+    std::fs::write(
+        &main,
+        format!(
+            r#"
+let loaded = module.load(Path({}))?
+let build_fn: Proc = loaded.get("build")?
+build_fn.call(p"/tmp/bareword-dest")?
+"#,
+            xsh_string_literal(package.to_str().unwrap()),
+        ),
+    )
+    .expect("write main script");
+
+    let output = xsh([main.to_str().unwrap()]);
+
+    let _ = std::fs::remove_dir_all(root);
+    let _ = std::fs::remove_file("/tmp/bareword-run-test");
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("-C build samu"), "missing '-C build samu' in: {stdout}");
+    assert!(stdout.contains("apples"), "missing 'apples' in: {stdout}");
+}
+
+#[test]
 fn dynamic_module_load_reports_module_restriction_errors() {
     let root = temp_path("dynamic-module-restriction");
     std::fs::create_dir_all(&root).expect("create dynamic module root");

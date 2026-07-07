@@ -3135,9 +3135,10 @@ impl CompactLowerConstructProbe<'_, '_> {
             crate::syntax::arena::ArenaText::Source(bytes) => {
                 let start = bytes.start as usize;
                 let span = Span::new(context.source_id, start, start + bytes.len as usize);
-                self.sources
-                    .and_then(|sources| sources.span_text(span))
-                    .or_else(|| self.program.arena.text_value(text, self.source))
+                self.program
+                    .arena
+                    .text_value(text, self.source)
+                    .or_else(|| self.sources.and_then(|sources| sources.span_text(span)))
             }
             crate::syntax::arena::ArenaText::Cooked(value) => Some(value.as_ref()),
         }
@@ -3168,9 +3169,10 @@ impl CompactLowerConstructProbe<'_, '_> {
                     start,
                     start + bytes.len as usize,
                 );
-                self.sources
-                    .and_then(|sources| sources.span_text(span))
-                    .or_else(|| self.program.arena.text_value(text, self.source))
+                self.program
+                    .arena
+                    .text_value(text, self.source)
+                    .or_else(|| self.sources.and_then(|sources| sources.span_text(span)))
             }
             crate::syntax::arena::ArenaText::Cooked(value) => Some(value.as_ref()),
         }
