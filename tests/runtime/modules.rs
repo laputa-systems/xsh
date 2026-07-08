@@ -619,6 +619,96 @@ match checked {{
 }
 
 #[test]
+fn package_style_module_hook_calls_run_on_compact_runtime() {
+    let root = temp_path("package-style-module-hooks");
+    let dynamic_src = root.join("dynamic-src");
+    let dynamic_out = root.join("dynamic-out");
+    let static_src = root.join("static-src");
+    let static_out = root.join("static-out");
+    std::fs::create_dir_all(&root).expect("create package hook root");
+    std::fs::create_dir_all(&dynamic_src).expect("create dynamic source dir");
+    std::fs::create_dir_all(&static_src).expect("create static source dir");
+    let package = root.join("PKGBUILD.xsh");
+    let dynamic_main = root.join("dynamic-main.xsh");
+    let static_main = root.join("static-main.xsh");
+
+    std::fs::write(
+        &package,
+        r#"
+export let name = "demo"
+
+export proc build(dest: Path) [fs, error] -> Result[Unit] {
+  fs.mkdir(dest)?
+  fs.write(fp"${dest}/ok", f"${name}:${fs.cwd()?.name()}\n")?
+}
+"#,
+    )
+    .expect("write package hook module");
+    std::fs::write(
+        &dynamic_main,
+        format!(
+            r#"
+type Pkg = module {{
+  export let name: Str
+  export proc build(dest: Path) [fs, error] -> Result[Unit]
+}}
+
+let pkg = module.load(Path({package}))?.require(Pkg)?
+pkg.build(Path({dest}))?
+"#,
+            package = xsh_string_literal(package.to_str().unwrap()),
+            dest = xsh_string_literal(dynamic_out.to_str().unwrap()),
+        ),
+    )
+    .expect("write dynamic package hook main");
+    std::fs::write(
+        &static_main,
+        r#"
+use PKGBUILD
+
+proc main(src: Path, dest: Path) [fs, process, env, error] -> Result[Unit] {
+  fs.remove(dest, missing_ok: true)?
+  fs.mkdir(dest)?
+  cd src {
+    build(dest)?
+  } ?
+}
+
+main(@args)?
+"#,
+    )
+    .expect("write static package hook main");
+
+    let dynamic = xsh([dynamic_main.to_str().unwrap()]);
+    let static_output = xsh([
+        static_main.to_str().unwrap(),
+        static_src.to_str().unwrap(),
+        static_out.to_str().unwrap(),
+    ]);
+
+    assert!(
+        dynamic.status.success(),
+        "{}",
+        String::from_utf8_lossy(&dynamic.stderr)
+    );
+    assert!(
+        static_output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&static_output.stderr)
+    );
+    assert_eq!(
+        std::fs::read_to_string(dynamic_out.join("ok")).expect("read dynamic marker"),
+        "demo:xsh\n"
+    );
+    assert_eq!(
+        std::fs::read_to_string(static_out.join("ok")).expect("read static marker"),
+        "demo:static-src\n"
+    );
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
 fn dynamic_module_proc_bareword_run_args_resolve_correctly() {
     let root = temp_path("bareword-run-args-root");
     std::fs::create_dir_all(&root).expect("create bareword run args root");

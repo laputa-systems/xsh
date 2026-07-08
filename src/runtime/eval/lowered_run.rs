@@ -10630,9 +10630,6 @@ impl Evaluator {
         if pure {
             return self.call_lowered_qualified_pure(function, args, call_span);
         }
-        if self.qualified_function_modules.contains_key(&function) {
-            return None;
-        }
         let lowered = self.lowered_qualified_procs.get(&function)?.clone();
         let mut slots = self.try_bind_lowered_runtime_args(&lowered, args)?;
         let result = self
