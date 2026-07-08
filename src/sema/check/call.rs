@@ -64,6 +64,10 @@ fn contract_type_is_valid(text: &str) -> bool {
         || standard_record_type(text).is_some()
 }
 
+fn process_command_argv_item_type_is_valid(ty: &Type) -> bool {
+    matches!(ty, Type::Str | Type::Path | Type::Any | Type::Unknown)
+}
+
 fn args_parse_type_from_name(text: &str) -> Option<(Type, bool)> {
     let text = text.trim();
     if let Some(inner) = text
@@ -1039,12 +1043,7 @@ impl Checker {
                 "check.type-mismatch",
             );
         }
-        self.check_optional_api_arg_arena(
-            arena,
-            source,
-            slots[1],
-            Some(&Type::List(Box::new(Type::Str))),
-        );
+        self.check_process_command_argv_argv_arena(arena, source, slots[1], span);
         let expected = [
             Type::Path,
             Type::Record(BTreeMap::new()),
@@ -1067,6 +1066,52 @@ impl Checker {
             self.check_static_positive_call_int_arena(arena, expr_id, "cpu_max must be positive");
         }
         Type::Command
+    }
+
+    fn check_process_command_argv_argv_arena(
+        &mut self,
+        arena: &ArenaProgram,
+        source: &str,
+        arg: Option<&ArenaCallArgKind>,
+        span: Span,
+    ) {
+        let Some(arg) = arg else {
+            self.error(span, "incorrect standard API arity", "check.arity");
+            return;
+        };
+
+        let expr_id = call_arg_expr_id_arena(arg);
+        let expr = arena.arena.expr(expr_id);
+
+        if let ArenaExprKind::List(items) = expr.kind {
+            for item in arena.arena.expr_ids(items) {
+                let item_ty = self.check_expr_arena(arena, source, item, None);
+                if !process_command_argv_item_type_is_valid(&item_ty) {
+                    self.error(
+                        arena.arena.expr(item).span,
+                        "process.command_argv argv items must be Str or Path",
+                        "check.type-mismatch",
+                    );
+                }
+            }
+            return;
+        }
+
+        let actual = self.check_call_arg_arena(arena, source, arg, None);
+        match actual {
+            Type::List(item) if process_command_argv_item_type_is_valid(&item) => {}
+            Type::Any | Type::Unknown => {}
+            Type::List(_) => self.error(
+                call_arg_span_arena(arena, arg),
+                "process.command_argv argv must contain Str or Path items",
+                "check.type-mismatch",
+            ),
+            _ => self.error(
+                call_arg_span_arena(arena, arg),
+                "process.command_argv argv must be a List",
+                "check.type-mismatch",
+            ),
+        }
     }
 
     fn check_static_positive_call_int_arena(

@@ -275,7 +275,9 @@ module process
   argv_words(text: Str) -> Result[List[Str], Error] pure
   command() -> Command effect
   command_argv(target: Str, argv: List[Str], cwd: Path = default, env: Record = default, stdin: Path = default, stdout: Path = default, stderr: Path = default, stdout_append: Bool = default, stderr_append: Bool = default, timeout: Duration = default, detach: Bool = default, new_session: Bool = default, ignore_hup: Bool = default, cpu_max: Int = default) -> Command pure
+  command_argv(target: Str, argv: List[Path], cwd: Path = default, env: Record = default, stdin: Path = default, stdout: Path = default, stderr: Path = default, stdout_append: Bool = default, stderr_append: Bool = default, timeout: Duration = default, detach: Bool = default, new_session: Bool = default, ignore_hup: Bool = default, cpu_max: Int = default) -> Command pure
   command_argv(target: Path, argv: List[Str], cwd: Path = default, env: Record = default, stdin: Path = default, stdout: Path = default, stderr: Path = default, stdout_append: Bool = default, stderr_append: Bool = default, timeout: Duration = default, detach: Bool = default, new_session: Bool = default, ignore_hup: Bool = default, cpu_max: Int = default) -> Command pure
+  command_argv(target: Path, argv: List[Path], cwd: Path = default, env: Record = default, stdin: Path = default, stdout: Path = default, stderr: Path = default, stdout_append: Bool = default, stderr_append: Bool = default, timeout: Duration = default, detach: Bool = default, new_session: Bool = default, ignore_hup: Bool = default, cpu_max: Int = default) -> Command pure
   current_pid() -> Result[Int, Error] effect
   kill(pid: Int, signal: Str = default) -> Result[Unit, Error] effect
   list() -> Result[Stream[{argv: Str, argv0: Str, command: Str, parent_pid: Int, pid: Int, runtime_seconds: Int, start_time: Str, start_time_ms: Int, status: Str, uid: Int, user: Str}], Error] effect

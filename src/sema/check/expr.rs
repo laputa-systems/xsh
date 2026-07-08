@@ -28,6 +28,22 @@ pub(super) fn expr_or_run_span_arena(arena: &ArenaProgram, value: ArenaExprOrRun
     }
 }
 
+fn merge_list_literal_item_ty(current: &Type, next: &Type) -> Option<Type> {
+    if next.matches_expected(current) {
+        return Some(current.clone());
+    }
+    if current.matches_expected(next) {
+        return Some(next.clone());
+    }
+    if matches!(
+        (current, next),
+        (Type::Str, Type::Path) | (Type::Path, Type::Str)
+    ) {
+        return Some(Type::Any);
+    }
+    None
+}
+
 #[allow(dead_code)]
 impl Checker {
     pub(super) fn lookup_expr_ident(&mut self, name: Name, span: Span) -> Type {
@@ -296,11 +312,12 @@ impl Checker {
 
         let mut first = self.check_expr_arena(arena, source, items[0], None);
         for &item in &items[1..] {
-            let item_ty = self.check_expr_arena(arena, source, item, Some(&first));
+            let item_ty = self.check_expr_arena(arena, source, item, None);
             let item_span = arena.arena.expr(item).span;
-            self.expect_type(&first, &item_ty, item_span);
-            if first == Type::Any || item_ty == Type::Any {
-                first = Type::Any;
+            if let Some(merged) = merge_list_literal_item_ty(&first, &item_ty) {
+                first = merged;
+            } else {
+                self.expect_type(&first, &item_ty, item_span);
             }
         }
         Type::List(Box::new(first))

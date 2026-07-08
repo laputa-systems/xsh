@@ -650,8 +650,12 @@ let spawned = process.spawn(process.command {
 })?
 let argv_words = process.argv_words("true")?
 let command_from_str = process.command_argv("true", argv_words)
-let command_from_path = process.command_argv(Path("true"), ["true"], Path("."), {}, 1s, false, false, false)
+let command_from_path = process.command_argv(Path("true"), ["true"], Path("."))
 let command_from_named = process.command_argv("true", ["true"], stdout: Path("out.log"), stderr: Path("err.log"), stdout_append: true, stderr_append: true, timeout: 1s, ignore_hup: true, cpu_max: 80)
+let marker: Path = /tmp/marker
+let command_with_path_argv = process.command_argv("echo", ["echo", marker])
+let mixed_argv = [Path("echo"), "hello", marker]
+let command_with_mixed_argv_var = process.command_argv(Path("echo"), mixed_argv)
 let planned_status = process.run(command_from_str)?
 let parsed_number = "0x2a".parse_int()?
 let tokens = cli.tokens(["-dc", "--wrap=0", "file"], ["wrap"])?
@@ -1547,7 +1551,11 @@ fn checker_rejects_foundation_contract_errors() {
         ("run --cpumax=0 true\n", "check.cpumax"),
         ("run true | run --cpumax=80 cat\n", "check.pipeline-cpumax"),
         (
-            "let command = process.command_argv(\"true\", [1])\n",
+            "let command = process.command_argv(\"true\", 1)\n",
+            "check.type-mismatch",
+        ),
+        (
+            "let command = process.command_argv(\"true\", [\"true\", {bad: true}])\n",
             "check.type-mismatch",
         ),
         (

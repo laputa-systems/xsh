@@ -4435,9 +4435,8 @@ impl CompactLowerConstructProbe<'_, '_> {
         value: ExprId,
         slots: &SlotScope,
     ) -> Option<Type> {
-        let expected = ty
-            .map(|ty| compact_runtime_type(&self.program.arena, ty, self.declarations))
-            .filter(compact_checked_type_is_concrete);
+        let expected =
+            ty.map(|ty| compact_runtime_type(&self.program.arena, ty, self.declarations));
         let table_type = self
             .bodies
             .expr_types

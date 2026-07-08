@@ -2505,7 +2505,7 @@ when `XSH_UNIX_DRY_RUN_LOG` is set. `unix.set_hostname` is gated unless
   into argv words using whitespace, single quotes, double quotes, and
   backslash escapes. Unquoted shell operators, expansions, globs, command
   substitution, and compound-command syntax are rejected.
-- `process.command_argv(target: Str|Path, argv: List[Str], cwd: Path = default,
+- `process.command_argv(target: Str|Path, argv: List[Str|Path], cwd: Path = default,
   env: Record = default, stdin: Path = default, stdout: Path = default,
   stderr: Path = default, stdout_append: Bool = false,
   stderr_append: Bool = false, timeout: Duration = default,

@@ -811,6 +811,32 @@ print ${entry_name(raw)}
 }
 
 #[test]
+fn compact_lowered_only_accepts_explicit_list_any_annotation() {
+    let source = r#"
+proc make(toolchain: Path) [error] {
+  var argv: List[Any] = [toolchain, "-target"]
+  print ${argv.len()}
+}
+
+make(/bin/cc)?
+"#;
+    let mut sources = SourceMap::new();
+    let source_id = sources.add_file("compact-list-any-annotation.xsh", source);
+    let parsed = Parser::parse_source_arena_only(source_id, source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+
+    let evaluator = Evaluator::new_with_sources(Vec::new(), sources);
+    let output = evaluator
+        .eval_compact_lowered_only(&parsed.arena, source_id)
+        .expect("List[Any] annotations should stay permissive in compact lowered bindings");
+
+    assert_eq!(output.stdout, b"2\n");
+    assert_eq!(output.status, 0);
+    assert!(output.traceback.is_none());
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+}
+
+#[test]
 fn compact_lowered_only_preserves_result_top_level_slots() {
     let source = r#"
 pure parse_count(raw: Str) -> Result[Int] {

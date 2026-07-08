@@ -593,9 +593,13 @@ Process discovery, command construction, execution, spawning, and signals.
   Params: `text: Str`
 - `process.command() -> Command` - effect; Returns `Command`. ID `module.process.command.0`.
 - `process.command_argv(target: Str, argv: List[Str], cwd: Path = default, env: Record = default, stdin: Path = default, stdout: Path = default, stderr: Path = default, stdout_append: Bool = default, stderr_append: Bool = default, timeout: Duration = default, detach: Bool = default, new_session: Bool = default, ignore_hup: Bool = default, cpu_max: Int = default) -> Command` - pure; Returns `Command`. ID `module.process.command_argv.0`.
-  Params: `target: Str`, `argv: List[Str]`, `cwd: Path = default`, `env: Record = default`, `timeout: Duration = default`, `detach: Bool = default`, `new_session: Bool = default`, `ignore_hup: Bool = default`, `cpu_max: Int = default`
-- `process.command_argv(target: Path, argv: List[Str], cwd: Path = default, env: Record = default, stdin: Path = default, stdout: Path = default, stderr: Path = default, stdout_append: Bool = default, stderr_append: Bool = default, timeout: Duration = default, detach: Bool = default, new_session: Bool = default, ignore_hup: Bool = default, cpu_max: Int = default) -> Command` - pure; Returns `Command`. ID `module.process.command_argv.1`.
-  Params: `target: Path`, `argv: List[Str]`, `cwd: Path = default`, `env: Record = default`, `timeout: Duration = default`, `detach: Bool = default`, `new_session: Bool = default`, `ignore_hup: Bool = default`, `cpu_max: Int = default`
+  Params: `target: Str`, `argv: List[Str]`, `cwd: Path = default`, `env: Record = default`, `stdin: Path = default`, `stdout: Path = default`, `stderr: Path = default`, `stdout_append: Bool = default`, `stderr_append: Bool = default`, `timeout: Duration = default`, `detach: Bool = default`, `new_session: Bool = default`, `ignore_hup: Bool = default`, `cpu_max: Int = default`
+- `process.command_argv(target: Str, argv: List[Path], cwd: Path = default, env: Record = default, stdin: Path = default, stdout: Path = default, stderr: Path = default, stdout_append: Bool = default, stderr_append: Bool = default, timeout: Duration = default, detach: Bool = default, new_session: Bool = default, ignore_hup: Bool = default, cpu_max: Int = default) -> Command` - pure; Returns `Command`. ID `module.process.command_argv.1`.
+  Params: `target: Str`, `argv: List[Path]`, `cwd: Path = default`, `env: Record = default`, `stdin: Path = default`, `stdout: Path = default`, `stderr: Path = default`, `stdout_append: Bool = default`, `stderr_append: Bool = default`, `timeout: Duration = default`, `detach: Bool = default`, `new_session: Bool = default`, `ignore_hup: Bool = default`, `cpu_max: Int = default`
+- `process.command_argv(target: Path, argv: List[Str], cwd: Path = default, env: Record = default, stdin: Path = default, stdout: Path = default, stderr: Path = default, stdout_append: Bool = default, stderr_append: Bool = default, timeout: Duration = default, detach: Bool = default, new_session: Bool = default, ignore_hup: Bool = default, cpu_max: Int = default) -> Command` - pure; Returns `Command`. ID `module.process.command_argv.2`.
+  Params: `target: Path`, `argv: List[Str]`, `cwd: Path = default`, `env: Record = default`, `stdin: Path = default`, `stdout: Path = default`, `stderr: Path = default`, `stdout_append: Bool = default`, `stderr_append: Bool = default`, `timeout: Duration = default`, `detach: Bool = default`, `new_session: Bool = default`, `ignore_hup: Bool = default`, `cpu_max: Int = default`
+- `process.command_argv(target: Path, argv: List[Path], cwd: Path = default, env: Record = default, stdin: Path = default, stdout: Path = default, stderr: Path = default, stdout_append: Bool = default, stderr_append: Bool = default, timeout: Duration = default, detach: Bool = default, new_session: Bool = default, ignore_hup: Bool = default, cpu_max: Int = default) -> Command` - pure; Returns `Command`. ID `module.process.command_argv.3`.
+  Params: `target: Path`, `argv: List[Path]`, `cwd: Path = default`, `env: Record = default`, `stdin: Path = default`, `stdout: Path = default`, `stderr: Path = default`, `stdout_append: Bool = default`, `stderr_append: Bool = default`, `timeout: Duration = default`, `detach: Bool = default`, `new_session: Bool = default`, `ignore_hup: Bool = default`, `cpu_max: Int = default`
 - `process.current_pid() -> Result[Int, Error]` - effect; Returns `Int` or `Error` failure data. ID `module.process.current_pid.0`.
 - `process.kill(pid: Int, signal: Str = default) -> Result[Unit, Error]` - effect; Returns `Unit` or `Error` failure data. ID `module.process.kill.0`.
   Params: `pid: Int`, `signal: Str = default`
@@ -813,7 +817,7 @@ Process-scoped utility helpers.
 - `Float` - 13 method(s)
 - `Int` - 1 method(s)
 - `List` - 6 method(s)
-- `Map` - 7 method(s)
+- `Map` - 8 method(s)
 - `Path` - 31 method(s)
 - `PathConstructor` - 1 method(s)
 - `ProcessHandle` - 1 method(s)
@@ -920,6 +924,7 @@ Process-scoped utility helpers.
 - `Map.has(key: Str) -> Bool` - pure; Returns `Bool`. ID `method.Map.has.0`.
   Params: `key: Str`
 - `Map.keys() -> List[Str]` - pure; Returns `List[Str]`. ID `method.Map.keys.0`.
+- `Map.len() -> Int` - pure; Returns `Int`. ID `method.Map.len.0`.
 - `Map.push(key: Str, value: Any) -> Map[List[Any]]` - pure; Returns `Map[List[Any]]`. ID `method.Map.push.0`.
   Params: `key: Str`, `value: Any`
 - `Map.remove(key: Str) -> Map[Any]` - pure; Returns `Map[Any]`. ID `method.Map.remove.0`.

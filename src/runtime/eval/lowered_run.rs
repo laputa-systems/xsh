@@ -2046,6 +2046,50 @@ fn lowered_str_list_arg(
     Ok(strings)
 }
 
+fn lowered_argv_list(
+    value: Option<LoweredValue>,
+    operation: &str,
+    span: Span,
+) -> Result<Vec<Vec<u8>>, RuntimeError> {
+    let Some(value) = value else {
+        return Err(RuntimeError::new(
+            "type-error",
+            format!("{operation} expected List[Str] or List[Path]"),
+        )
+        .with_span(span));
+    };
+    let items = match value {
+        LoweredValue::List(items) => items,
+        LoweredValue::SharedList(items) => items.iter().cloned().collect(),
+        _ => {
+            return Err(RuntimeError::new(
+                "type-error",
+                format!("{operation} expected List[Str] or List[Path]"),
+            )
+            .with_span(span));
+        }
+    };
+    let mut words = Vec::with_capacity(items.len());
+    for item in items {
+        match item {
+            LoweredValue::Str(text) => words.push(text.as_bytes().to_vec()),
+            LoweredValue::StrView(view) => words.push(view.as_str().as_bytes().to_vec()),
+            LoweredValue::Path(path) => words.push(path.bytes),
+            other => {
+                return Err(RuntimeError::new(
+                    "type-error",
+                    format!(
+                        "{operation} expected List[Str] or List[Path], found List containing {}",
+                        other.type_name()
+                    ),
+                )
+                .with_span(span));
+            }
+        }
+    }
+    Ok(words)
+}
+
 fn lowered_optional_str_list(
     value: Option<LoweredValue>,
     operation: &str,
@@ -2403,12 +2447,12 @@ fn lowered_command_plan_value(
     span: Span,
 ) -> Result<LoweredValue, RuntimeError> {
     let target = lowered_command_target_bytes(target, span)?;
-    let argv_words = lowered_str_list_arg(Some(argv), "process.command_argv", span)?;
+    let argv_words = lowered_argv_list(Some(argv), "process.command_argv", span)?;
     if argv_words.is_empty() {
         return Err(RuntimeError::new("argv-empty", "argv must contain argv[0]").with_span(span));
     }
     for word in &argv_words {
-        if word.contains('\0') {
+        if word.contains(&0) {
             return Err(
                 RuntimeError::new("nul-argv", "argv items cannot contain NUL bytes")
                     .with_span(span),
@@ -2417,7 +2461,7 @@ fn lowered_command_plan_value(
     }
     let mut argv = Vec::with_capacity(argv_words.len().saturating_sub(1));
     for word in argv_words.into_iter().skip(1) {
-        argv.push(word.into_bytes());
+        argv.push(word);
     }
     let cwd = cwd
         .map(|value| lowered_path_like_arg(value, "process.command_argv", span))
