@@ -1023,94 +1023,25 @@ impl<'a> Linter<'a> {
     }
 
     fn annotation_is_needless(&self, annotation: &Type, init: &ArenaExpr, exported: bool) -> bool {
-        match &init.kind {
-            ArenaExprKind::Str(_) => *annotation == Type::Str,
-            ArenaExprKind::Bool(_) => *annotation == Type::Bool,
-            ArenaExprKind::Int(_) => *annotation == Type::Int,
-            ArenaExprKind::Float(_) => *annotation == Type::Float,
-            ArenaExprKind::Duration(_) => *annotation == Type::Duration,
-            ArenaExprKind::PathStr(_) => *annotation == Type::Path,
-            ArenaExprKind::Bytes(_) => *annotation == Type::Bytes,
-            ArenaExprKind::Null => *annotation == Type::Null,
-            ArenaExprKind::List(items) if !items.is_empty() => {
-                let Type::List(elem_ty) = annotation else {
-                    return false;
-                };
-                self.list_literal_matches_type(init, elem_ty)
-            }
-            _ => {
-                if self.is_empty_collection(init) {
-                    return false;
-                }
-                if self.is_dynamic_expr(init) {
-                    return false;
-                }
-                let init_span = init.span;
-                let Some(actual) = self.expr_types.get(&init_span) else {
-                    return false;
-                };
-                if exported {
-                    *actual == *annotation
-                } else {
-                    actual.matches_expected(annotation)
-                        && annotation.matches_expected(actual)
-                }
-            }
+        if self.is_empty_collection(init) {
+            return false;
+        }
+        let Some(actual) = self.expr_types.get(&init.span) else {
+            return false;
+        };
+        if matches!(actual, Type::Any | Type::Unknown | Type::Invalid) {
+            return false;
+        }
+        if exported {
+            *actual == *annotation
+        } else {
+            actual.matches_expected(annotation) && annotation.matches_expected(actual)
         }
     }
 
     fn is_empty_collection(&self, init: &ArenaExpr) -> bool {
         matches!(&init.kind, ArenaExprKind::List(items) if items.is_empty())
             || matches!(&init.kind, ArenaExprKind::Record(fields) if fields.is_empty())
-    }
-
-    fn is_dynamic_expr(&self, init: &ArenaExpr) -> bool {
-        matches!(
-            &init.kind,
-            ArenaExprKind::Call { .. }
-                | ArenaExprKind::Field { .. }
-                | ArenaExprKind::NullSafeField { .. }
-                | ArenaExprKind::Index { .. }
-                | ArenaExprKind::Try(_)
-                | ArenaExprKind::Require { .. }
-                | ArenaExprKind::Unary { .. }
-                | ArenaExprKind::Binary { .. }
-                | ArenaExprKind::Pipeline { .. }
-                | ArenaExprKind::StructuredPipeline { .. }
-                | ArenaExprKind::Run(_)
-                | ArenaExprKind::Spawn(_)
-                | ArenaExprKind::EnvGet { .. }
-                | ArenaExprKind::Loop { .. }
-                | ArenaExprKind::Retry { .. }
-        )
-    }
-
-    fn list_literal_matches_type(&self, list_expr: &ArenaExpr, elem_ty: &Type) -> bool {
-        let ArenaExprKind::List(items) = &list_expr.kind else {
-            return false;
-        };
-        let exprs: Vec<_> = self.arena.expr_ids(*items).collect();
-        if exprs.is_empty() {
-            return false;
-        }
-        exprs.iter().all(|&e_id| {
-            let e = self.arena.expr(e_id);
-            self.expr_literal_matches_type(&e.kind, elem_ty)
-        })
-    }
-
-    fn expr_literal_matches_type(&self, kind: &ArenaExprKind, expected: &Type) -> bool {
-        match (kind, expected) {
-            (ArenaExprKind::Str(_), Type::Str) => true,
-            (ArenaExprKind::Bool(_), Type::Bool) => true,
-            (ArenaExprKind::Int(_), Type::Int) => true,
-            (ArenaExprKind::Float(_), Type::Float) => true,
-            (ArenaExprKind::Duration(_), Type::Duration) => true,
-            (ArenaExprKind::PathStr(_), Type::Path) => true,
-            (ArenaExprKind::Bytes(_), Type::Bytes) => true,
-            (ArenaExprKind::Null, Type::Null) => true,
-            _ => false,
-        }
     }
 
     fn lint_result_path_parse_roundtrip(&mut self, expr: ExprId) {

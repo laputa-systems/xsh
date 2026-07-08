@@ -17,7 +17,7 @@ pure repo_path(root: Path, value: Str) -> Path {
 }
 
 proc env_path(root: Path, name: Str, default: Path) [env] -> Path {
-  let value: Str = (env.get(name) ?? "").trim()
+  let value = (env.get(name) ?? "").trim()
 
   if value == "" {
     return default
@@ -27,7 +27,7 @@ proc env_path(root: Path, name: Str, default: Path) [env] -> Path {
 }
 
 proc xsht_path(root: Path) [env] -> Path {
-  let configured: Str = (env.get("XSHT") ?? "").trim()
+  let configured = (env.get("XSHT") ?? "").trim()
 
   if configured != "" {
     return repo_path(root, configured)
@@ -58,7 +58,7 @@ pure suite_test_args(name: Str, suite_json: Path) -> List[Str] {
 
 proc discover_suites(root: Path) [fs, error] -> Result[List[Suite]] {
   var suites: List[Suite] = [{name: ".", path: root}]
-  var seen: Map[Bool] = map.empty().set(root.display(), true)
+  var seen = map.empty().set(root.display(), true)
   let core = fp"${root}/core"
 
   if fp"${core}/tests".exists()? {
@@ -72,7 +72,7 @@ proc discover_suites(root: Path) [fs, error] -> Result[List[Suite]] {
     for entry in fs.walk(prototypes)?
       |> where .kind == "dir" and .name == "tests"
       |> sort-by .path {
-      let parent: Path = entry.path.parent()
+      let parent = entry.path.parent()
 
       if ! seen.get(parent.display(), false) {
         seen[parent.display()] = true
@@ -164,7 +164,7 @@ proc merge_reports(root: Path, inputs: List[SuiteInput]) [fs, error] -> Result[R
 
   for api_id in api_hits.keys() |> sort {
     let hits = api_hits.get(api_id)?
-    let total: Int = hits.tests + hits.examples
+    let total = hits.tests + hits.examples
 
     if total > 0 {
       covered_rows = covered_rows.push({api_id: api_id, tests: hits.tests, examples: hits.examples, total: total})
@@ -232,14 +232,14 @@ proc render_text(report: Record) [error] -> Result[Str] {
 
 proc main(...argv: List[Str]) [fs, process, env, error, io] {
   let _ = argv
-  let root: Path = fs.cwd()?
-  let out_dir: Path = env_path(root, "XSH_COV_DIR", fp"${root}/target/xsh-cov")
-  let json_path: Path = env_path(root, "XSH_COV_JSON", fp"${out_dir}/coverage.json")
-  let text_path: Path = env_path(root, "XSH_COV_REPORT", fp"${out_dir}/coverage.txt")
+  let root = fs.cwd()?
+  let out_dir = env_path(root, "XSH_COV_DIR", fp"${root}/target/xsh-cov")
+  let json_path = env_path(root, "XSH_COV_JSON", fp"${out_dir}/coverage.json")
+  let text_path = env_path(root, "XSH_COV_REPORT", fp"${out_dir}/coverage.txt")
   let suites = discover_suites(root)?
   let inputs = run_suites(root, suites, out_dir, xsht_path(root))?
   let report = merge_reports(root, inputs)?
-  let report_text: Str = render_text(report)?
+  let report_text = render_text(report)?
   json_path.parent().mkdir()?
   text_path.parent().mkdir()?
   json.write(json_path, report)?

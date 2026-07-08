@@ -7,11 +7,11 @@ proc test_skip() {
 }
 
 proc test_temp(ctx: TestContext) [fs, error] {
-  let one: Path = test.temp_path(ctx)
-  let two: Path = test.temp_path(ctx)
+  let one = test.temp_path(ctx)
+  let two = test.temp_path(ctx)
   test.ne(one, two)?
-  let file: Path = test.temp_file(ctx, name: "data", contents: b"ok")?
-  let data: Str = fs.read_text(file)?
+  let file = test.temp_file(ctx, name: "data", contents: b"ok")?
+  let data = fs.read_text(file)?
   test.eq(data, "ok")?
 }
 

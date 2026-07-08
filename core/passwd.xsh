@@ -106,7 +106,7 @@ proc target_user(options: PasswdOptions, passwd: List[auth.PasswdEntry]) [fs, pr
 
 proc main(...argv: List[Str]) [fs, process, env, time, error, io] -> Result[Int] {
   let options = parse_passwd_args(argv)?
-  let passwd: List[auth.PasswdEntry] = auth.read_passwd_entries()?
+  let passwd = auth.read_passwd_entries()?
   let records = auth.read_shadow_records()?
 
   match target_user(options, passwd) {

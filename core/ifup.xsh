@@ -425,7 +425,7 @@ proc dhcp_packet(
   chunks = chunks.push(bytes.zero(16 - mac.len())?)
   chunks = chunks.push(bytes.zero(192)?)
   chunks = chunks.push(bytes.from_ints(DHCP_MAGIC)?)
-  var options: List[Int] = [53, 1, msg_type, 61, 7, 1].extend(mac)
+  var options = [53, 1, msg_type, 61, 7, 1].extend(mac)
 
   if requested_ip.len() == 4 {
     options = options.extend([50, 4]).extend(requested_ip)

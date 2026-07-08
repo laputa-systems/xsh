@@ -9,8 +9,8 @@ proc main(...argv: List[Str]) [fs, error] {
   let opts: Opts = cli.parse(argv, {a: {form: "A", kind: "Path", file: true}, b: {form: "B", kind: "Path", file: true}})?
   let json_a = json.read(opts.a.resolve()?)?.require(Map[Any])?
   let json_b = json.read(opts.b.resolve()?)?.require(Map[Any])?
-  let keys_a: List[Str] = json_a.keys()
-  let keys_b: List[Str] = json_b.keys()
+  let keys_a = json_a.keys()
+  let keys_b = json_b.keys()
   let removed: List[Str] = keys_a |> where ! json_b.has(.)
   let added: List[Str] = keys_b |> where ! json_a.has(.)
   let common: List[Str] = keys_a |> where json_b.has(.)

@@ -74,7 +74,7 @@ proc main(...argv: List[Str]) [fs, error] {
 
           for item in src.lines() |> enumerate() {
             let line_num = item.index + 1
-            let line: Str = item.value
+            let line = item.value
 
             for pattern in patterns {
               if pattern.re.matches(line) {

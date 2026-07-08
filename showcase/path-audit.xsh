@@ -41,7 +41,7 @@ proc main(...argv: List[Str]) [fs, env, error] {
   let parts = env.path_entries(opts.env_var)?
   var dir_findings: List[DirFinding] = []
   var valid_dirs: List[Path] = []
-  var seen_dirs: Map[Bool] = set.empty()
+  var seen_dirs = set.empty()
 
   for part in parts {
     let label = if part.empty { f"${opts.env_var}[${part.index}]" } else { part.raw }
