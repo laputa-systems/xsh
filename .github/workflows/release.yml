@@ -135,6 +135,14 @@ jobs:
       - name: Build with dist profile
         run: cargo test --no-run --locked --profile dist --no-default-features --features "net tools" --target ${{ matrix.target }}
 
+      - name: Link target debug tools for core tests
+        run: |
+          mkdir -p target/debug
+          ln -sf "../${{ matrix.target }}/dist/xsh" target/debug/xsh
+          ln -sf "../${{ matrix.target }}/dist/xsht" target/debug/xsht
+          ln -sf "../${{ matrix.target }}/dist/xshi" target/debug/xshi 2>/dev/null || true
+          ln -sf "../${{ matrix.target }}/dist/xsh-test-sleeper" target/debug/xsh-test-sleeper 2>/dev/null || true
+
       - name: test
         run: cargo test --profile dist --no-default-features --features "net tools" --target ${{ matrix.target }} -- --nocapture --quiet
 
