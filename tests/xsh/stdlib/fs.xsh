@@ -211,7 +211,7 @@ proc test_fs_walk_is_parallel_unordered_and_honors_gitignore(ctx: TestContext) [
     |> sort-by .
 
   let par_files = fs.files(root) |> count()
-  let has_hidden = par |> any .contains("hidden")
+  let has_hidden = par |> any "hidden" in .
 
   # 200 .txt files survive; plus root and sub directories.
   test.eq(par.len(), 202)?
@@ -261,26 +261,26 @@ proc test_fs_walk_honors_gitignore_by_default_and_can_disable_it(ctx: TestContex
       entry.path.strip_prefix(root)?.display()
     }
 
-  test.ok(filtered.contains("visible.txt"))?
-  test.ok(filtered.contains("keep.log"))?
-  test.ok(! filtered.contains("a.log"))?
-  test.ok(! filtered.contains("ignored/hidden.txt"))?
-  test.ok(! filtered.contains("nested/a.log"))?
-  test.ok(! filtered.contains("build/output.txt"))?
-  test.ok(! filtered.contains(".git/config"))?
-  test.ok(! filtered.contains(".cache/secret.txt"))?
-  test.ok(! filtered.contains(".env"))?
-  test.ok(raw.contains("a.log"))?
-  test.ok(raw.contains("ignored/hidden.txt"))?
-  test.ok(raw.contains("nested/a.log"))?
-  test.ok(raw.contains("build/output.txt"))?
-  test.ok(! raw.contains(".git/config"))?
-  test.ok(! raw.contains(".cache/secret.txt"))?
-  test.ok(! raw.contains(".env"))?
-  test.ok(raw_hidden.contains(".gitignore"))?
-  test.ok(raw_hidden.contains(".git/config"))?
-  test.ok(raw_hidden.contains(".cache/secret.txt"))?
-  test.ok(raw_hidden.contains(".env"))?
+  test.ok("visible.txt" in filtered)?
+  test.ok("keep.log" in filtered)?
+  test.ok(! ("a.log" in filtered))?
+  test.ok(! ("ignored/hidden.txt" in filtered))?
+  test.ok(! ("nested/a.log" in filtered))?
+  test.ok(! ("build/output.txt" in filtered))?
+  test.ok(! (".git/config" in filtered))?
+  test.ok(! (".cache/secret.txt" in filtered))?
+  test.ok(! (".env" in filtered))?
+  test.ok("a.log" in raw)?
+  test.ok("ignored/hidden.txt" in raw)?
+  test.ok("nested/a.log" in raw)?
+  test.ok("build/output.txt" in raw)?
+  test.ok(! (".git/config" in raw))?
+  test.ok(! (".cache/secret.txt" in raw))?
+  test.ok(! (".env" in raw))?
+  test.ok(".gitignore" in raw_hidden)?
+  test.ok(".git/config" in raw_hidden)?
+  test.ok(".cache/secret.txt" in raw_hidden)?
+  test.ok(".env" in raw_hidden)?
 }
 
 proc test_fs_files_recurses_with_raw_walk_and_preserves_entry_ext(ctx: TestContext) [fs, error] {
@@ -333,26 +333,26 @@ proc test_fs_files_recurses_with_raw_walk_and_preserves_entry_ext(ctx: TestConte
 
   let cheap_c = (fs.files(root, gitignore: false, stat: false, exts: ["c"]) |> first())?
   test.eq(raw_headers.len(), 3)?
-  test.ok(raw_headers.contains("include/top.h"))?
-  test.ok(raw_headers.contains("include/bits/alltypes.h"))?
-  test.ok(raw_headers.contains("include/sys/stat.h"))?
-  test.ok(filtered.contains("include/top.h"))?
-  test.ok(filtered.contains("include/bits/alltypes.h"))?
-  test.ok(filtered.contains("include/sys/stat.h"))?
-  test.ok(filtered.contains("src/main.c"))?
-  test.ok(! filtered.contains("src/skip.lo"))?
-  test.ok(! filtered.contains("obj/hidden.h"))?
+  test.ok("include/top.h" in raw_headers)?
+  test.ok("include/bits/alltypes.h" in raw_headers)?
+  test.ok("include/sys/stat.h" in raw_headers)?
+  test.ok("include/top.h" in filtered)?
+  test.ok("include/bits/alltypes.h" in filtered)?
+  test.ok("include/sys/stat.h" in filtered)?
+  test.ok("src/main.c" in filtered)?
+  test.ok(! ("src/skip.lo" in filtered))?
+  test.ok(! ("obj/hidden.h" in filtered))?
   test.eq(c_files.len(), 1)?
   test.eq(c_files[0].name, "main.c")?
   test.eq(c_files[0].ext, "c")?
   test.eq(dot_c_files.len(), 0)?
   test.eq(source_headers.len(), 4)?
-  test.ok(source_headers.contains("include/top.h"))?
-  test.ok(source_headers.contains("src/main.c"))?
-  test.ok(! source_headers.contains("src/skip.lo"))?
+  test.ok("include/top.h" in source_headers)?
+  test.ok("src/main.c" in source_headers)?
+  test.ok(! ("src/skip.lo" in source_headers))?
   test.eq(fs.files(root, exts: [".c"]) |> count(), 0)?
   test.eq(extensionless.len(), 1)?
-  test.ok(extensionless.contains("src/Makefile"))?
+  test.ok("src/Makefile" in extensionless)?
   test.eq(cheap_c.name, "main.c")?
   test.eq(cheap_c.ext, "c")?
   test.eq(cheap_c.kind, "file")?

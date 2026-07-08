@@ -14,6 +14,24 @@ fn minimal_modules_execute_success_paths() {
 }
 
 #[test]
+fn membership_operator_supports_strings_lists_bytes_and_paths() {
+    let source = "\
+test.ok(\"lib\" in \"usr/lib/libz.so\")?
+test.ok(\"libz.so\" in [\"libz.so\", \"libc.so\"])?
+test.ok(b\"TODO\" in b\"one TODO two\")?
+test.ok(p\"usr/lib\" in p\"usr/lib/libz.so\")?
+test.eq(p\"bin\" in p\"usr/lib/libz.so\", false)?
+";
+    let output = run_temp_script("membership-operator", source);
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn loaded_modules_refine_to_typed_module_contracts() {
     let output = xsh(["tests/fixtures/runtime/module-contract.xsh"]);
 

@@ -1577,3 +1577,79 @@ let source_path: Path = p\"src/main.c\"
         "expected 4 needless annotation diagnostics"
     );
 }
+
+#[test]
+fn linter_autofixes_contains_membership_to_in() {
+    let source = "\
+proc main(names: List[Str], name: Str, text: Str, source_path: Path) {
+  if names.contains(name) {}
+  if ! names.contains(name) {}
+  if [\"a\", \"b\"].contains(name) {}
+  if text.contains(\"needle\") {}
+  if source_path.display().contains(\"/\") {}
+}
+";
+    let parsed = parse_lint_source(source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let diagnostics = lint_and_assert_fmt_stable(
+        &parsed.arena,
+        source,
+        LintOptions {
+            expr_types: checked.expr_types,
+            ..LintOptions::default()
+        },
+    );
+    let replacements: Vec<_> = diagnostics
+        .iter()
+        .filter(|d| d.code.as_deref() == Some("lint.prefer-in"))
+        .map(|d| {
+            d.fix_hints
+                .first()
+                .and_then(|hint| hint.replacement.as_deref())
+                .expect("prefer-in diagnostic has replacement")
+        })
+        .collect();
+
+    assert_eq!(
+        replacements,
+        [
+            "name in names",
+            "(name in names)",
+            "name in [\"a\", \"b\"]",
+            "\"needle\" in text",
+            "\"/\" in source_path.display()",
+        ]
+    );
+}
+
+#[test]
+fn linter_skips_contains_to_in_when_rewrite_could_reorder_effects() {
+    let source = "\
+proc main(source_path: Path, names: List[Str]) [fs, error] {
+  if fs.read_text(source_path)?.contains(\"needle\") {}
+  if names.contains(fs.read_text(source_path)?) {}
+}
+";
+    let parsed = parse_lint_source(source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let diagnostics = lint_and_assert_fmt_stable(
+        &parsed.arena,
+        source,
+        LintOptions {
+            expr_types: checked.expr_types,
+            ..LintOptions::default()
+        },
+    );
+    assert!(
+        !diagnostics
+            .iter()
+            .any(|d| d.code.as_deref() == Some("lint.prefer-in")),
+        "effectful contains calls should not be autofixed"
+    );
+}

@@ -16,7 +16,7 @@ proc test_df(ctx: TestContext) [fs, process, error] {
   test.contains(output, "Filesystem 1024-blocks Used Available Capacity Mounted on")?
   test.contains(output, f" ${stats.blocks_1k} ")?
   let fake_used = root.du()?
-  test.ok(! output.contains(f"${resolved} ${fake_used} ${fake_used} 0 100% ${resolved}"))?
+  test.ok(! (f"${resolved} ${fake_used} ${fake_used} 0 100% ${resolved}" in output))?
 }
 
 proc test_df_matches_alpine_kp(ctx: TestContext) [fs, process, env, error] {

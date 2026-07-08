@@ -119,7 +119,7 @@ pure is_llvm_lines_row(line: Str) -> Bool {
 }
 
 pure maybe_add_example(examples: List[Str], value: Str, limit: Int) -> List[Str] {
-  if examples.len() < limit and ! examples.contains(value) {
+  if examples.len() < limit and ! (value in examples) {
     return examples.push(value)
   }
 
@@ -131,7 +131,7 @@ pure option_takes_value(arg: Str) -> Bool {
 }
 
 pure has_generate_arg(argv: List[Str]) -> Bool {
-  return argv.contains("--generate")
+  return "--generate" in argv
 }
 
 pure has_positional_input(argv: List[Str]) -> Bool {
@@ -178,17 +178,15 @@ pure maybe_push_offender(
   let duplicated_lines = total_lines - max_instance_lines
 
   if instances >= min_instances and total_lines >= min_total_lines and duplicated_lines > 0 {
-    return offenders.push(
-      {
-        name: name,
-        instances: instances,
-        total_lines: total_lines,
-        duplicated_lines: duplicated_lines,
-        max_instance_lines: max_instance_lines,
-        copies: copies,
-        examples: examples,
-      },
-    )
+    return offenders.push({
+      name: name,
+      instances: instances,
+      total_lines: total_lines,
+      duplicated_lines: duplicated_lines,
+      max_instance_lines: max_instance_lines,
+      copies: copies,
+      examples: examples,
+    })
   }
 
   return offenders
@@ -206,7 +204,7 @@ pure offenders_from_text(
   for line in text.lines() {
     let trimmed = line.trim()
 
-    if trimmed.contains("::<") and is_llvm_lines_row(trimmed) {
+    if "::<" in trimmed and is_llvm_lines_row(trimmed) {
       let row = parse_mono_row(trimmed)?
 
       if include_dependencies or is_project_owned(row.name) {
@@ -279,7 +277,7 @@ pure total_from_llvm_lines(text: Str) -> Result[Int] {
   for line in text.lines() {
     let trimmed = line.trim()
 
-    if trimmed.contains("(TOTAL)") {
+    if "(TOTAL)" in trimmed {
       let fields = trimmed.fields()
 
       if fields.len() >= 1 {
@@ -297,7 +295,7 @@ pure filter_offenders(rows: List[Offender], filter: Str, min_duplicated: Int) ->
 
   for row in rows {
     if row.duplicated_lines >= min_duplicated {
-      if filter == "" or row.name.contains(filter) {
+      if filter == "" or filter in row.name {
         out = out.push(row)
       }
     }

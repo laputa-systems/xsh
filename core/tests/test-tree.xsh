@@ -19,14 +19,14 @@ proc test_tree_renders_sorted_branches_and_symlinks(ctx: TestContext) [fs, proce
   test.contains(lines[4], "link-a ->")?
   test.eq(lines[5], "`-- z.txt")?
   test.contains(output, "1 directory, 4 files")?
-  test.ok(! output.contains(".hidden"))?
+  test.ok(! (".hidden" in output))?
   let all = run.text xsh_bin() tree.xsh -- -a $root ?
   test.contains(all, ".hidden")?
   let dirs = run.text xsh_bin() tree.xsh -- -d $root ?
   test.contains(dirs, "dir")?
-  test.ok(! dirs.contains("a.txt"))?
+  test.ok(! ("a.txt" in dirs))?
   let shallow = run.text xsh_bin() tree.xsh -- -L 1 $root ?
-  test.ok(! shallow.contains("file.txt"))?
+  test.ok(! ("file.txt" in shallow))?
 }
 
 proc test_tree_supports_multiple_roots_and_rejects_flags(ctx: TestContext) [fs, process, error] {

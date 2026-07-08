@@ -13,7 +13,7 @@ pure glob_match(pattern: Str, text: Str) -> Bool {
   }
 
   if pattern.starts_with("*") and pattern.ends_with("*") {
-    return text.contains(parts[1])
+    return parts[1] in text
   }
 
   if pattern.starts_with("*") {

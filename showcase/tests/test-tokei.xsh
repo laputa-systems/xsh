@@ -101,10 +101,10 @@ comment */
 
   # tokei-format table: heavy rules, capitalized header, embedded ("|-") child rows,
   # per-language "(Total)" subtotals, and the grand "Total".
-  test.ok(table.contains("Language"))?
-  test.ok(table.contains("\u{2501}"))?
-  test.ok(table.contains("|- JavaScript"))?
-  test.ok(! table.contains("|- TSX"))?
-  test.ok(table.contains("(Total)"))?
-  test.ok(table.contains("Total"))?
+  test.ok("Language" in table)?
+  test.ok("\u{2501}" in table)?
+  test.ok("|- JavaScript" in table)?
+  test.ok(! ("|- TSX" in table))?
+  test.ok("(Total)" in table)?
+  test.ok("Total" in table)?
 }

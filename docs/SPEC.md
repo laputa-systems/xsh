@@ -744,8 +744,8 @@ Operators:
 - Path composition is written with formatted path literals, such as
   `fp"${root}/child"`. The `/` operator is numeric division only.
 - `in` and `not in` test membership for `List`, substring containment for
-  `Str`, byte containment for `Bytes`, byte containment for `Path`, and exact
-  entry membership for `env.PATH`.
+  `Str`, byte containment for `Bytes`, display-text substring containment for
+  `Path`, and exact entry membership for `env.PATH`.
 - `.` accesses record fields and standard methods.
 - `.require(Type)` validates the receiver against a type expression and returns
   `Result[Type]`. The type argument is syntax, not a runtime identifier.
@@ -3054,6 +3054,10 @@ annotated.
 guarded by the CST. A replacement span containing comments is skipped unless the
 specific fixer knows how to preserve or reattach them. Rewritten files must
 parse, resolve imports, check, and format before they are written.
+It removes provably needless local binding annotations and rewrites simple
+`.contains(value)` membership or substring checks to `value in receiver` when
+the checker proves that `in` has the same semantics and the rewrite does not
+move effectful expressions.
 
 During `xsht check`, `reveal_type(expr)` is a checker-only builtin that accepts
 one positional argument, reports the inferred type as a note, and has type

@@ -35,22 +35,22 @@ pure octal_mode(raw: Str) -> Result[Int] {
 }
 
 pure who_classes(who: Str) -> Str {
-  return if who == "" or who.contains("a") { "ugo" } else { who }
+  return if who == "" or "a" in who { "ugo" } else { who }
 }
 
 pure class_mask(who: Str) -> Int {
   var mask = 0
   let classes = who_classes(who)
 
-  if classes.contains("u") {
+  if "u" in classes {
     mask = mask + 0o4700
   }
 
-  if classes.contains("g") {
+  if "g" in classes {
     mask = mask + 0o2070
   }
 
-  if classes.contains("o") {
+  if "o" in classes {
     mask = mask + 0o1007
   }
 
@@ -63,7 +63,7 @@ pure perm_mask(perms: Str, who: Str, current: Int, is_dir: Bool) -> Int {
   let executable = is_dir or current % 512 % 2 == 1 or current % 64 >= 8 or current % 512 >= 64
 
   for perm in perms.split("") {
-    if classes.contains("u") {
+    if "u" in classes {
       match perm {
         "r" => mask = mask + 0o400
         "w" => mask = mask + 0o200
@@ -78,7 +78,7 @@ pure perm_mask(perms: Str, who: Str, current: Int, is_dir: Bool) -> Int {
       }
     }
 
-    if classes.contains("g") {
+    if "g" in classes {
       match perm {
         "r" => mask = mask + 0o40
         "w" => mask = mask + 0o20
@@ -93,7 +93,7 @@ pure perm_mask(perms: Str, who: Str, current: Int, is_dir: Bool) -> Int {
       }
     }
 
-    if classes.contains("o") {
+    if "o" in classes {
       match perm {
         "r" => mask = mask + 0o4
         "w" => mask = mask + 0o2
@@ -166,9 +166,9 @@ pure symbolic_mode(spec: Str, current: Int, is_dir: Bool) -> Result[Int] {
     var perms = ""
 
     for ch in clause.split("") {
-      if op == "" and "ugoa".contains(ch) {
+      if op == "" and ch in "ugoa" {
         who = f"${who}${ch}"
-      } else if op == "" and "+-=".contains(ch) {
+      } else if op == "" and ch in "+-=" {
         op = ch
       } else {
         perms = f"${perms}${ch}"
@@ -193,7 +193,7 @@ pure symbolic_mode(spec: Str, current: Int, is_dir: Bool) -> Result[Int] {
 }
 
 pure mode_for(spec: Str, current: Int, is_dir: Bool) -> Result[Int] {
-  if spec.contains("+") or spec.contains("-") or spec.contains("=") {
+  if "+" in spec or "-" in spec or "=" in spec {
     return symbolic_mode(spec, current, is_dir)
   }
 

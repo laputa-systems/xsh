@@ -50,6 +50,12 @@ struct Writer<'a> {
     line_width: usize,
 }
 
+#[derive(Clone, Copy, Debug)]
+struct CallChainSegment {
+    name: Name,
+    args: xsh::syntax::arena::ArenaRange,
+}
+
 /// A decoded type expression node, mirroring the arena's compact type-expr
 /// encoding without referencing the old recursive AST.
 enum ArenaTypeExprKind {
@@ -1262,6 +1268,9 @@ impl<'a> Writer<'a> {
         if parens {
             output.push('(');
         }
+        if !parens && self.try_write_stable_call_chain(expr_id, output) {
+            return;
+        }
         match &kind {
             ArenaExprKind::Null => output.push_str("null"),
             ArenaExprKind::Bool(value) => output.push_str(if *value { "true" } else { "false" }),
@@ -1269,7 +1278,12 @@ impl<'a> Writer<'a> {
             ArenaExprKind::Float(value) => self.arena.float_literal(*value).write(output),
             ArenaExprKind::Duration(value) => self.arena.duration_literal(*value).write(output),
             ArenaExprKind::Str(value) => {
-                write_str_literal(self.arena.string_literal(*value), output)
+                let span = self.arena.expr(expr_id).span;
+                if let Some(original) = original_preserved_string_literal(&self.source, span) {
+                    output.push_str(original);
+                } else {
+                    write_str_literal(self.arena.string_literal(*value), output);
+                }
             }
             ArenaExprKind::PathStr(value) => {
                 let value = self.arena.string_literal(*value);
@@ -1284,8 +1298,22 @@ impl<'a> Writer<'a> {
                 output.push('g');
                 write_quoted(self.arena.string_literal(*value), output);
             }
-            ArenaExprKind::FmtString(parts) => self.write_fmt_string(*parts, output),
-            ArenaExprKind::PathFmtString(parts) => self.write_path_fmt_string(*parts, output),
+            ArenaExprKind::FmtString(parts) => {
+                let span = self.arena.expr(expr_id).span;
+                if let Some(original) = original_multiline_string_literal(&self.source, span) {
+                    output.push_str(original);
+                } else {
+                    self.write_fmt_string(*parts, output);
+                }
+            }
+            ArenaExprKind::PathFmtString(parts) => {
+                let span = self.arena.expr(expr_id).span;
+                if let Some(original) = original_multiline_string_literal(&self.source, span) {
+                    output.push_str(original);
+                } else {
+                    self.write_path_fmt_string(*parts, output);
+                }
+            }
             ArenaExprKind::Bytes(value) => write_bytes(self.arena.bytes_literal(*value), output),
             ArenaExprKind::Ident(name) => output.push_str(name.as_str()),
             ArenaExprKind::Item => output.push('.'),
@@ -1545,10 +1573,12 @@ impl<'a> Writer<'a> {
             .iter()
             .map(|f| f.kind.clone())
             .collect();
+        let original_multiline = record_fields_original_multiline(self.arena, &self.source, &field_kinds);
         let inline =
             self.render_inline(|writer, inline| writer.write_record_inline(fields, inline));
         if field_kinds.is_empty()
-            || (field_kinds.len() < MULTILINE_RECORD_FIELD_THRESHOLD
+            || (!original_multiline
+                && field_kinds.len() < MULTILINE_RECORD_FIELD_THRESHOLD
                 && self.fits_inline(output, &inline))
         {
             output.push_str(&inline);
@@ -1943,16 +1973,25 @@ impl<'a> Writer<'a> {
     }
 
     fn write_record_schema(&mut self, fields: xsh::syntax::arena::ArenaRange, output: &mut String) {
-        let field_ids: Vec<(Name, TypeExprId)> = self
-            .arena
-            .schema_fields(fields)
+        let schema_fields = self.arena.schema_fields(fields).to_vec();
+        let field_ids: Vec<(Name, TypeExprId)> = schema_fields
             .iter()
             .map(|f| (f.name, f.ty))
             .collect();
+        let original_multiline = schema_fields
+            .first()
+            .zip(schema_fields.last())
+            .and_then(|(first, last)| {
+                let start = self.arena.span(first.span).start();
+                let end = self.arena.span(last.span).end();
+                self.source.get(start..end)
+            })
+            .is_some_and(|source| source.contains('\n'));
         let inline =
             self.render_inline(|writer, inline| writer.write_record_schema_inline(fields, inline));
         if field_ids.is_empty()
-            || (field_ids.len() < MULTILINE_SCHEMA_FIELD_THRESHOLD
+            || (!original_multiline
+                && field_ids.len() < MULTILINE_SCHEMA_FIELD_THRESHOLD
                 && self.fits_inline(output, &inline))
         {
             output.push_str(&inline);
@@ -2065,13 +2104,19 @@ impl<'a> Writer<'a> {
             .collect();
         let inline =
             self.render_inline(|writer, inline| writer.write_call_args_inline(args, inline));
-        if arg_kinds.is_empty()
-            || self.fits_inline(output, &inline)
-            || (arg_kinds.len() == 1
-                && self.call_arg_is_multiline_literal(&arg_kinds[0])
-                && self.fits_multiline_inline(output, &inline))
-        {
+        if arg_kinds.is_empty() || self.fits_inline(output, &inline) {
             output.push_str(&inline);
+            return;
+        }
+        if arg_kinds.len() == 1
+            && self.call_arg_is_multiline_literal(&arg_kinds[0])
+            && self.fits_multiline_inline(output, &inline)
+        {
+            if self.call_arg_is_multiline_record(&arg_kinds[0]) {
+                self.write_multiline_inline(&inline, output);
+            } else {
+                output.push_str(&inline);
+            }
             return;
         }
 
@@ -2084,6 +2129,37 @@ impl<'a> Writer<'a> {
         }
         self.write_indent(indent, output);
         output.push(')');
+    }
+
+    fn try_write_stable_call_chain(&mut self, expr_id: ExprId, output: &mut String) -> bool {
+        let Some((base, segments)) = call_chain_segments(self.arena, expr_id) else {
+            return false;
+        };
+        if segments.len() < 2 {
+            return false;
+        }
+        let expr_span = self.arena.expr(expr_id).span;
+        if self
+            .source
+            .get(expr_span.range())
+            .is_some_and(|source| source.contains('#'))
+        {
+            return false;
+        }
+        let inline = self.render_inline(|writer, inline| {
+            writer.write_expr(base, 0, inline);
+            for segment in &segments {
+                inline.push('.');
+                inline.push_str(segment.name.as_str());
+                writer.write_call_args_inline(segment.args, inline);
+            }
+        });
+        if self.fits_inline(output, &inline) {
+            return false;
+        }
+
+        output.push_str(&inline);
+        true
     }
 
     fn write_call_args_inline(
@@ -2105,6 +2181,17 @@ impl<'a> Writer<'a> {
             self.write_call_arg(arg, output);
         }
         output.push(')');
+    }
+
+    fn write_multiline_inline(&self, inline: &str, output: &mut String) {
+        let prefix = current_line_indent(output).to_string();
+        for (index, line) in inline.split('\n').enumerate() {
+            if index > 0 {
+                output.push('\n');
+                output.push_str(&prefix);
+            }
+            output.push_str(line);
+        }
     }
 
     fn write_call_arg(&mut self, arg: &xsh::syntax::arena::ArenaCallArgKind, output: &mut String) {
@@ -2362,9 +2449,31 @@ impl<'a> Writer<'a> {
         }
     }
 
+    fn call_arg_is_multiline_record(&self, arg: &xsh::syntax::arena::ArenaCallArgKind) -> bool {
+        use xsh::syntax::arena::ArenaCallArgKind;
+        match arg {
+            ArenaCallArgKind::Positional(expr) | ArenaCallArgKind::Named { value: expr, .. } => {
+                matches!(self.arena.expr(*expr).kind, ArenaExprKind::Record(_))
+            }
+            ArenaCallArgKind::Splice { value, .. } => {
+                matches!(self.arena.expr(*value).kind, ArenaExprKind::Record(_))
+            }
+        }
+    }
+
     fn expr_is_multiline_literal(&self, expr_id: ExprId) -> bool {
         match self.arena.expr(expr_id).kind {
             ArenaExprKind::Str(value) => self.arena.string_literal(value).contains('\n'),
+            ArenaExprKind::Record(fields) => {
+                let field_kinds: Vec<ArenaRecordFieldKind> = self
+                    .arena
+                    .record_fields(fields)
+                    .iter()
+                    .map(|f| f.kind.clone())
+                    .collect();
+                record_fields_original_multiline(self.arena, &self.source, &field_kinds)
+                    || field_kinds.len() >= MULTILINE_RECORD_FIELD_THRESHOLD
+            }
             ArenaExprKind::FmtString(parts) | ArenaExprKind::PathFmtString(parts) => {
                 self.arena.fmt_parts(parts).any(|part| match part {
                     ArenaFmtPart::Text(text) => self.text_value(&text).contains('\n'),
@@ -2495,6 +2604,57 @@ fn expr_precedence(kind: &ArenaExprKind) -> u8 {
     }
 }
 
+fn original_preserved_string_literal(source: &str, span: Span) -> Option<&str> {
+    let original = source.get(span.range())?;
+    let trimmed = original.trim_start();
+    (trimmed.starts_with('r') || trimmed.contains("\"\"\"")).then_some(original)
+}
+
+fn original_multiline_string_literal(source: &str, span: Span) -> Option<&str> {
+    let original = source.get(span.range())?;
+    original.contains("\"\"\"").then_some(original)
+}
+
+fn record_fields_original_multiline(
+    arena: &AstArena,
+    source: &str,
+    fields: &[ArenaRecordFieldKind],
+) -> bool {
+    let Some(first) = fields.first().and_then(|field| record_field_span(arena, field)) else {
+        return false;
+    };
+    let Some(last) = fields.last().and_then(|field| record_field_span(arena, field)) else {
+        return false;
+    };
+    source
+        .get(first.start()..last.end())
+        .is_some_and(|source| source.contains('\n'))
+}
+
+fn record_field_span(arena: &AstArena, field: &ArenaRecordFieldKind) -> Option<Span> {
+    match field {
+        ArenaRecordFieldKind::Named { span, .. }
+        | ArenaRecordFieldKind::Shorthand { span, .. }
+        | ArenaRecordFieldKind::Spread { span, .. } => Some(arena.span(*span)),
+    }
+}
+
+fn call_chain_segments(
+    arena: &AstArena,
+    expr_id: ExprId,
+) -> Option<(ExprId, Vec<CallChainSegment>)> {
+    let ArenaExprKind::Call { callee, args } = arena.expr(expr_id).kind else {
+        return None;
+    };
+    let ArenaExprKind::Field { base, name } = arena.expr(callee).kind else {
+        return None;
+    };
+    let (root, mut segments) =
+        call_chain_segments(arena, base).unwrap_or_else(|| (base, Vec::new()));
+    segments.push(CallChainSegment { name, args });
+    Some((root, segments))
+}
+
 fn indent_for_expr(output: &str) -> usize {
     output.rsplit('\n').next().map_or(0, |line| {
         line.chars().take_while(|ch| *ch == ' ').count() / 2
@@ -2510,6 +2670,12 @@ fn current_line_width(output: &str) -> usize {
         .rsplit('\n')
         .next()
         .map_or(0, |line| line.chars().count())
+}
+
+fn current_line_indent(output: &str) -> &str {
+    output.rsplit('\n').next().map_or("", |line| {
+        &line[..line.len() - line.trim_start_matches(' ').len()]
+    })
 }
 
 fn binary_op_text(op: BinaryOp) -> &'static str {

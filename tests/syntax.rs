@@ -1878,7 +1878,7 @@ let plain = r"${name}"
 let label = f"\${name}:${name}"
 run echo "\$name" "\${name}"
 "#;
-    let expected = r#"let plain = "\${name}"
+    let expected = r#"let plain = r"${name}"
 let label = f"\${name}:${name}"
 run echo "\$name" "\${name}"
 "#;
@@ -2093,6 +2093,130 @@ proc main(
             .filter(|line| !line.starts_with("  auth_bin_dir:"))
             .all(|line| line.chars().count() <= 120)
     );
+}
+
+#[test]
+fn formatter_preserves_readable_multiline_package_shapes() {
+    let source = "export type CMultiTarget = {
+  tasks: List[MakeTask],
+  groups: Map[CompileTasks],
+  outputs: Map[Path],
+  deps: List[Str],
+}
+let target = make.c_program({
+  cc,
+  triple,
+  cflags,
+  defs,
+  includes,
+  root: p\".\",
+  sources,
+  out_dir: p\"obj\",
+  out: p\"obj/tool\",
+  libs: [],
+  ldflags: [],
+  deps: [],
+})
+let value = path_value.display().replace(\"/\", \"_\").replace(\".cxx\", ext).replace(\".cpp\", ext).replace(\".cc\", ext).replace(\".c\", ext).replace(\".S\", ext).replace(\".s\", ext)
+let script = r\"\"\"print f\"${value}\"
+\"\"\"
+";
+    let expected = "export type CMultiTarget = {
+  tasks: List[MakeTask],
+  groups: Map[CompileTasks],
+  outputs: Map[Path],
+  deps: List[Str],
+}
+
+let target = make.c_program({
+  cc,
+  triple,
+  cflags,
+  defs,
+  includes,
+  root: p\".\",
+  sources,
+  out_dir: p\"obj\",
+  out: p\"obj/tool\",
+  libs: [],
+  ldflags: [],
+  deps: [],
+})
+
+let value = path_value.display().replace(\"/\", \"_\").replace(\".cxx\", ext).replace(\".cpp\", ext).replace(\".cc\", ext).replace(\".c\", ext).replace(\".S\", ext).replace(\".s\", ext)
+
+let script = r\"\"\"print f\"${value}\"
+\"\"\"
+";
+
+    let first = Formatter::new().format_source(SourceId::new(0), source);
+
+    assert!(
+        first.diagnostics.is_empty(),
+        "{:?}",
+        first.diagnostics
+    );
+    assert_eq!(first.formatted, expected);
+
+    let second = Formatter::new().format_source(SourceId::new(0), &first.formatted);
+    assert!(
+        second.diagnostics.is_empty(),
+        "{:?}",
+        second.diagnostics
+    );
+    assert_eq!(second.formatted, first.formatted);
+}
+
+#[test]
+fn formatter_indents_single_multiline_record_call_args_in_nested_contexts() {
+    let source = "pure make_row() -> Result[Record] {
+  return Ok({
+    name: \"demo\",
+    enabled: true,
+  })
+}
+
+pure push_row(rows: List[Record]) -> List[Record] {
+  return rows.push({
+    name: \"demo\",
+    enabled: true,
+  })
+}
+";
+    let expected = source;
+
+    let formatted = Formatter::new().format_source(SourceId::new(0), source);
+
+    assert!(
+        formatted.diagnostics.is_empty(),
+        "{:?}",
+        formatted.diagnostics
+    );
+    assert_eq!(formatted.formatted, expected);
+}
+
+#[test]
+fn formatter_preserves_indented_multiline_format_strings() {
+    let source = "proc write_line(text: Str, name: Str) [fs, error] {
+  text.write_atomic(f\"\"\"hello ${name}
+\"\"\")?
+}
+
+proc write_path(text: Str, name: Str) [fs, error] {
+  text.write_atomic(fp\"\"\"hello ${name}
+\"\"\")?
+}
+";
+    let expected = source;
+
+    let formatted = Formatter::new().format_source(SourceId::new(0), source);
+
+    assert!(
+        formatted.diagnostics.is_empty(),
+        "{:?}",
+        formatted.diagnostics
+    );
+    assert_eq!(formatted.formatted, expected);
 }
 
 #[test]

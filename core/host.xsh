@@ -37,7 +37,7 @@ proc main(...argv: List[Str]) [net, error] {
     for item in dns.lookup(name, query_type, server)? {
       print f"${item.name} has ${item.record} ${item.value}"
     }
-  } else if name.contains(".") and name.split(".").len() == 4 {
+  } else if "." in name and name.split(".").len() == 4 {
     for item in dns.reverse(name)? {
       print f"${name} domain name pointer ${item}"
     }

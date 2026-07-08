@@ -13,7 +13,7 @@ pure glob_match(pattern: Str, text: Str) -> Bool {
   }
 
   if pattern.starts_with("*") and pattern.ends_with("*") {
-    return text.contains(parts[1])
+    return parts[1] in text
   }
 
   if pattern.starts_with("*") {
@@ -28,7 +28,7 @@ pure glob_match(pattern: Str, text: Str) -> Bool {
 }
 
 pure hidden_path(path_text: Str) -> Bool {
-  return path_text.starts_with(".") or path_text.contains("/.")
+  return path_text.starts_with(".") or "/." in path_text
 }
 
 proc main(...argv: List[Str]) [fs, error, io] {

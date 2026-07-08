@@ -40,7 +40,7 @@ proc test_bytes_methods_and_decode_errors() [error] {
   test.eq(b"abc".len(), 3)?
   let report = b"  Header\r\nalpha\nTODO item\nomega  "
   test.eq(report.trim(), b"Header\r\nalpha\nTODO item\nomega")?
-  test.ok(report.contains(b"TODO"))?
+  test.ok(b"TODO" in report)?
   test.ok(report.trim().starts_with(b"Header"))?
   test.ok(report.trim().ends_with(b"omega"))?
   test.eq(report.lines().collect(), [b"  Header", b"alpha", b"TODO item", b"omega  "])?

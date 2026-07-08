@@ -63,7 +63,7 @@ Needle
   test.contains(fixed_case, "Needle")?
   let globbed = run.text xsh_bin() rg.xsh -- -H -g "*.txt" -g "!*.log" alpha $root ?
   test.contains(globbed, "keep.txt")?
-  test.ok(! globbed.contains("drop.log"))?
+  test.ok(! ("drop.log" in globbed))?
   let compact = run.text xsh_bin() rg.xsh -- -eneedle $keep ?
 
   test.eq(

@@ -65,7 +65,7 @@ pure complement(chars: Str) -> Str {
   var out = ""
 
   for ch in ascii_chars().split("") {
-    if ! expanded.contains(ch) {
+    if ! (ch in expanded) {
       out = f"${out}${ch}"
     }
   }

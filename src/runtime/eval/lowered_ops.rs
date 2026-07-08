@@ -82,6 +82,17 @@ pub(super) fn lowered_binary_value(
             ),
         };
     }
+    if let (Some(left_bytes), Some(right_bytes)) =
+        (lowered_bytes_value(&left), lowered_bytes_value(&right))
+    {
+        return match op {
+            BinaryOp::In => Ok(LoweredValue::Bool(bytes_contains(right_bytes, left_bytes))),
+            BinaryOp::NotIn => Ok(LoweredValue::Bool(!bytes_contains(right_bytes, left_bytes))),
+            _ => Err(
+                RuntimeError::new("type-error", "invalid lowered binary operation").with_span(span),
+            ),
+        };
+    }
     if let Some(left_text) = lowered_str_value(&left)
         && let LoweredValue::Path(path) = &right
     {
@@ -93,6 +104,21 @@ pub(super) fn lowered_binary_value(
             BinaryOp::NotIn => Ok(LoweredValue::Bool(!bytes_contains(
                 path.display().as_bytes(),
                 left_text.as_bytes(),
+            ))),
+            _ => Err(
+                RuntimeError::new("type-error", "invalid lowered binary operation").with_span(span),
+            ),
+        };
+    }
+    if let (LoweredValue::Path(left), LoweredValue::Path(right)) = (&left, &right) {
+        return match op {
+            BinaryOp::In => Ok(LoweredValue::Bool(bytes_contains(
+                right.display().as_bytes(),
+                left.display().as_bytes(),
+            ))),
+            BinaryOp::NotIn => Ok(LoweredValue::Bool(!bytes_contains(
+                right.display().as_bytes(),
+                left.display().as_bytes(),
             ))),
             _ => Err(
                 RuntimeError::new("type-error", "invalid lowered binary operation").with_span(span),
@@ -434,6 +460,13 @@ pub(super) fn lowered_contains_value(
             let needle = lowered_str_arg(needle, "contains", span)?;
             let text = lowered_str_value(receiver).expect("checked lowered string");
             Ok(bytes_contains(text.as_bytes(), needle.as_bytes()))
+        }
+        LoweredValue::Path(path) => {
+            let needle = match needle {
+                LoweredValue::Path(needle) => needle.display(),
+                _ => lowered_str_arg(needle, "contains", span)?.to_string(),
+            };
+            Ok(bytes_contains(path.display().as_bytes(), needle.as_bytes()))
         }
         LoweredValue::List(items) => Ok(items.iter().any(|item| item == needle)),
         LoweredValue::SharedList(items) => Ok(items.iter().any(|item| item == needle)),

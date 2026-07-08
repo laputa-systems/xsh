@@ -12,7 +12,7 @@ proc test_tar_create_list_extract(ctx: TestContext) [fs, process, error] {
   test.contains(listed, "file.txt")?
   let filtered = run.text xsh_bin() tar.xsh -- -tf $tarball file.txt ?
   test.contains(filtered, "file.txt")?
-  test.ok(! filtered.contains("other.txt"))?
+  test.ok(! ("other.txt" in filtered))?
   let out = test.temp_dir(ctx, name: "tar-out")?
   run.text xsh_bin() tar.xsh -- -xf $tarball -C $out ?
   test.contains(fp"${out}/file.txt".read_text()?, "tar payload")?

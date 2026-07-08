@@ -76,7 +76,7 @@ pure is_ws(c: Str) -> Bool {
 }
 
 pure is_digit(c: Str) -> Bool {
-  return c != "" and "0123456789".contains(c)
+  return c != "" and c in "0123456789"
 }
 
 # Scan a quoted string starting at `pos` (which points at the opening quote),
@@ -369,7 +369,7 @@ type Tok =
   | TEOF
 
 pure is_alpha(c: Str) -> Bool {
-  return c != "" and "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_".contains(c)
+  return c != "" and c in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_"
 }
 
 pure is_ident_start(c: Str) -> Bool {
@@ -452,11 +452,11 @@ pure lex_op(chars: List[Str], pos: Int) -> Str {
     return "//"
   }
 
-  if d == "=" and c != "" and "=!<>+-*/%|".contains(c) {
+  if d == "=" and c != "" and c in "=!<>+-*/%|" {
     return c + "="
   }
 
-  if c != "" and "=<>+-*/%".contains(c) {
+  if c != "" and c in "=<>+-*/%" {
     return c
   }
 
@@ -2955,7 +2955,7 @@ pure contains_json(a: Json, b: Json) -> Bool {
     }
     JStr(bs) => {
       match a {
-        JStr(as_) => return as_.contains(bs)
+        JStr(as_) => return bs in as_
         _ => return false
       }
     }
@@ -4574,19 +4574,19 @@ pure re_and_flags(callargs: List[Jq], input: Json, scope: Env) -> Result[ReFlags
 pure compile_re(restr: Str, flags: Str) -> Result[Regex] {
   var inner = ""
 
-  if flags.contains("i") {
+  if "i" in flags {
     inner = inner + "i"
   }
 
-  if flags.contains("s") {
+  if "s" in flags {
     inner = inner + "s"
   }
 
-  if flags.contains("m") {
+  if "m" in flags {
     inner = inner + "m"
   }
 
-  if flags.contains("x") {
+  if "x" in flags {
     inner = inner + "x"
   }
 
@@ -4664,7 +4664,7 @@ pure eval_regex(name: Str, callargs: List[Jq], input: Json, scope: Env) -> Resul
 
   if name == "match" {
     var out: List[Json] = []
-    let global = rf.flags.contains("g")
+    let global = "g" in rf.flags
     var i = 0
 
     for m in spans {
@@ -4951,17 +4951,15 @@ pure parse_args(argv: List[Str]) -> Result[Args] {
     i = i + 1
   }
 
-  return Ok(
-    {
-      filter: filter,
-      files: files,
-      compact: compact,
-      raw_output: raw_output,
-      null_input: null_input,
-      slurp: slurp,
-      sort_keys: sort_keys,
-    },
-  )
+  return Ok({
+    filter: filter,
+    files: files,
+    compact: compact,
+    raw_output: raw_output,
+    null_input: null_input,
+    slurp: slurp,
+    sort_keys: sort_keys,
+  })
 }
 
 # Emit one output value per jq rules: -r unwraps a top-level string.

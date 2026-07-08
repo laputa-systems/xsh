@@ -5,7 +5,7 @@ proc test_collection_number_text_status_and_result_methods() [process, error] {
   let pushed = base.push("beta")
   let extended = pushed.extend(["gamma"])
   test.eq(extended.len(), 3)?
-  test.ok(extended.contains("gamma"))?
+  test.ok("gamma" in extended)?
   test.eq(extended.get(0)?, "alpha")?
   test.eq(extended.get(9, "fallback"), "fallback")?
   test.eq(["a", "b", "c"].join(":"), "a:b:c")?
@@ -25,7 +25,7 @@ beta""",
 
   test.ok(text.trim().starts_with("alpha"))?
   test.ok(text.trim().ends_with("beta"))?
-  test.ok(text.contains("alpha"))?
+  test.ok("alpha" in text)?
   test.eq(text.trim().lines().collect().len(), 2)?
   test.eq(text.words().len(), 3)?
   test.eq("a,b,c".split(",")[1], "b")?

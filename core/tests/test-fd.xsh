@@ -8,7 +8,7 @@ proc test_fd_finds_by_name_extension_and_type(ctx: TestContext) [fs, process, er
   fp"${root}/beta.log".write("b")?
   let output = run.text xsh_bin() fd.xsh -- alpha -t f -e txt $root ?
   test.contains(output, "alpha.txt")?
-  test.ok(! output.contains("beta.log"))?
+  test.ok(! ("beta.log" in output))?
 }
 
 proc test_fd_hidden_and_glob(ctx: TestContext) [fs, process, error] {
@@ -36,6 +36,6 @@ proc test_fd_multiple_roots_exclude_depth_and_executable(ctx: TestContext) [fs, 
   let output = run.text xsh_bin() fd.xsh -- --glob "*.sh" -t x -E "skip*" -d1 $left $right ?
   test.contains(output, "keep.sh")?
   test.contains(output, "other.sh")?
-  test.ok(! output.contains("skip.log"))?
-  test.ok(! output.contains("deep.sh"))?
+  test.ok(! ("skip.log" in output))?
+  test.ok(! ("deep.sh" in output))?
 }

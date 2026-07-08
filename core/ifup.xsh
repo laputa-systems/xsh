@@ -94,14 +94,14 @@ pure glob_match(pattern: Str, text: Str) -> Bool {
     return true
   }
 
-  if ! pattern.contains("*") {
+  if ! ("*" in pattern) {
     return pattern == text
   }
 
   let parts = pattern.split("*")
 
   if pattern.starts_with("*") and pattern.ends_with("*") {
-    return text.contains(parts[1])
+    return parts[1] in text
   }
 
   if pattern.starts_with("*") {
@@ -126,7 +126,7 @@ pure append_current(config: Config, current: Interface) -> Config {
 proc parse_source_path(source: Str, config: Config) [fs, error] -> Result[Config] {
   let path_value = fp"${source}"
 
-  if ! source.contains("*") {
+  if ! ("*" in source) {
     return parse_interfaces_file(path_value, config)?
   }
 

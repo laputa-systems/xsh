@@ -134,39 +134,39 @@ proc test_cli_parse_advanced_descriptors() [fs, error] {
   test.eq(env_full.values.profile, "prod")?
   test.eq(env_full.sources.profile, "env")?
   let usage = cli.usage(schema, "demo")
-  test.ok(usage.contains("usage: demo [OPTIONS]"))?
-  test.ok(usage.contains("--mode MODE"))?
-  test.ok(usage.contains("-h, --help"))?
-  test.ok(! usage.contains("--secret"))?
+  test.ok("usage: demo [OPTIONS]" in usage)?
+  test.ok("--mode MODE" in usage)?
+  test.ok("-h, --help" in usage)?
+  test.ok(! ("--secret" in usage))?
 
   match cli.parse(["--help"], schema, "demo sub") {
     Ok(_) => test.fail("implicit help should stop parsing")?
-    Err(error) => test.ok(error.message.contains("usage: demo sub [OPTIONS]"))?
+    Err(error) => test.ok("usage: demo sub [OPTIONS]" in error.message)?
   }
 
   match cli.parse(["--mode", "xml", "--left", "a"], schema) {
     Ok(_) => test.fail("choice validation should fail")?
-    Err(error) => test.ok(error.message.contains("expects one of"))?
+    Err(error) => test.ok("expects one of" in error.message)?
   }
 
   match cli.parse(["--json", "--table", "--left", "a"], schema) {
     Ok(_) => test.fail("conflict validation should fail")?
-    Err(error) => test.ok(error.message.contains("conflicts"))?
+    Err(error) => test.ok("conflicts" in error.message)?
   }
 
   match cli.parse([], schema) {
     Ok(_) => test.fail("required group validation should fail")?
-    Err(error) => test.ok(error.message.contains("required group"))?
+    Err(error) => test.ok("required group" in error.message)?
   }
 
   match cli.parse(["--count", "-1", "--left", "a"], schema) {
     Ok(_) => test.fail("UInt validation should fail")?
-    Err(error) => test.ok(error.message.contains("expects UInt"))?
+    Err(error) => test.ok("expects UInt" in error.message)?
   }
 
   match cli.parse(["--config", f"${root}/missing.toml", "--left", "a"], schema) {
     Ok(_) => test.fail("file path validation should fail")?
-    Err(error) => test.ok(error.message.contains("expects a file path"))?
+    Err(error) => test.ok("expects a file path" in error.message)?
   }
 }
 

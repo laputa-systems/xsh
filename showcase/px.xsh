@@ -89,7 +89,7 @@ pure is_decimal(text: Str) -> Bool {
   }
 
   for ch in text.split("") {
-    if ! "0123456789".contains(ch) {
+    if ! (ch in "0123456789") {
       return false
     }
   }
@@ -140,7 +140,7 @@ pure unique_ints(items: List[Int]) -> List[Int] {
   var unique: List[Int] = []
 
   for item in items {
-    if ! unique.contains(item) {
+    if ! (item in unique) {
       unique = unique.push(item)
     }
   }
@@ -312,10 +312,10 @@ pure process_matches_pattern(row: Process, pattern: Query, full: Bool, own_pid: 
   let command = command_text(process_row(row))
 
   if full {
-    return command.contains(pattern.text)
+    return pattern.text in command
   }
 
-  return row.command.contains(pattern.text) or row.argv0.contains(pattern.text)
+  return pattern.text in row.command or pattern.text in row.argv0
 }
 
 pure process_matches_any(row: Process, patterns: List[Query], full: Bool, own_pid: Int) -> Bool {
@@ -358,12 +358,10 @@ pure thread_matches_pattern(row: Thread, pattern: Query, full: Bool, own_pid: In
   let command = command_text(thread_row(row))
 
   if full {
-    return command.contains(pattern.text) or row.thread_name.contains(pattern.text)
+    return pattern.text in command or pattern.text in row.thread_name
   }
 
-  return row.command.contains(pattern.text) or row.argv0.contains(pattern.text) or row.thread_name.contains(
-    pattern.text,
-  )
+  return pattern.text in row.command or pattern.text in row.argv0 or pattern.text in row.thread_name
 }
 
 pure thread_matches_any(row: Thread, patterns: List[Query], full: Bool, own_pid: Int) -> Bool {

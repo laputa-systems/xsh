@@ -6,7 +6,7 @@ proc main(target: Str, ...bins: List[Str]) [process, error, io] {
     let candidate = fp"${bin_dir}/${bin}"
     let result = run.capture --text "readelf" -d $candidate ?
 
-    if result.stdout.contains("NEEDED") {
+    if "NEEDED" in result.stdout {
       eprint f"${bin} is not static"
       abort(1)
     }

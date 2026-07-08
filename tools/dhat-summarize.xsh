@@ -52,7 +52,7 @@ pure is_noise(frame: Str) -> Bool {
   ]
 
   for needle in needles {
-    if frame.contains(needle) {
+    if needle in frame {
       return true
     }
   }

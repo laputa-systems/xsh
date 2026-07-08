@@ -143,7 +143,7 @@ proc print_children(
   ascii: Bool,
   visited: List[Int],
 ) [error] {
-  if visited.contains(parent_pid) {
+  if parent_pid in visited {
     return
   }
 
@@ -220,7 +220,7 @@ proc print_parent_chain(
   ascii: Bool,
   visited: List[Int],
 ) [error] -> Result[Str] {
-  if visited.contains(pid) {
+  if pid in visited {
     return ""
   }
 

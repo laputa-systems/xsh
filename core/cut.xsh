@@ -21,7 +21,7 @@ pure selected_index(index: Int, spec: Str) -> Bool {
   let position = index + 1
 
   for raw in spec.split(",") {
-    if raw.contains("-") {
+    if "-" in raw {
       let parts = raw.split("-")
       let start = if parts.get(0, "") == "" { 1 } else { parts[0].parse_int() ?? 1 }
       let end_text = parts.get(1, "")
@@ -48,7 +48,7 @@ pure selected_index(index: Int, spec: Str) -> Bool {
 }
 
 pure cut_fields(line: Str, delimiter: Str, spec: Str, separated_only: Bool) -> Str {
-  if ! line.contains(delimiter) {
+  if ! (delimiter in line) {
     return if separated_only { "" } else { line }
   }
 

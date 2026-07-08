@@ -19,7 +19,7 @@ proc wait_for_process_marker(pid: Int, marker: Str) [process, time, error] {
   var attempts = 0
 
   while ! visible and attempts < 20 {
-    visible = process.list()? |> any .pid == pid and (.command.contains(marker) or .argv0.contains(marker))
+    visible = process.list()? |> any .pid == pid and (marker in .command or marker in .argv0)
 
     if ! visible {
       time.sleep(25ms)?

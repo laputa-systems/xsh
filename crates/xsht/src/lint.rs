@@ -2432,6 +2432,7 @@ impl<'a> Linter<'a> {
     fn lint_call_style(&mut self, callee: ExprId, args: ArenaRange, span: Span) {
         self.lint_path_constructor(callee, args, span);
         self.lint_redundant_defaults(callee, args);
+        self.lint_prefer_in(callee, args, span);
         self.lint_prefer_method(callee, args, span);
         self.lint_join_to_concat(callee, args, span);
     }
@@ -2660,6 +2661,59 @@ impl<'a> Linter<'a> {
                 "rewrite as method call",
                 replacement,
             )),
+        );
+    }
+
+    fn lint_prefer_in(&mut self, callee: ExprId, args: ArenaRange, span: Span) {
+        let ArenaExprKind::Field {
+            base: receiver,
+            name,
+        } = self.arena.expr(callee).kind
+        else {
+            return;
+        };
+        if name != "contains" || args.len() != 1 {
+            return;
+        }
+        let Some(arg) = self.arena.call_args(args).first() else {
+            return;
+        };
+        let ArenaCallArgKind::Positional(needle) = arg.kind else {
+            return;
+        };
+        let Some(receiver_ty) = self.expr_types.get(&self.arena.expr(receiver).span) else {
+            return;
+        };
+        if !prefer_in_receiver_type(receiver_ty) {
+            return;
+        }
+        if expr_may_have_effects(self.arena, receiver) || expr_may_have_effects(self.arena, needle)
+        {
+            return;
+        }
+        let Some(receiver_text) = self.source.get(self.arena.expr(receiver).span.range()) else {
+            return;
+        };
+        let Some(needle_text) = self.source.get(self.arena.expr(needle).span.range()) else {
+            return;
+        };
+        if receiver_text.contains('#') || needle_text.contains('#') {
+            return;
+        }
+        let replacement = if call_is_directly_negated(&self.source, span) {
+            format!("({needle_text} in {receiver_text})")
+        } else {
+            format!("{needle_text} in {receiver_text}")
+        };
+        self.diagnostics.push(
+            Diagnostic::new(Severity::Warning, "prefer `in` over `.contains(...)`")
+                .with_code("lint.prefer-in")
+                .with_label(Label::secondary(span, "use membership syntax instead"))
+                .with_fix_hint(FixHint::replacement(
+                    span,
+                    "rewrite with `in`",
+                    replacement,
+                )),
         );
     }
 
@@ -5119,6 +5173,135 @@ fn is_safe_const_expr(arena: &AstArena, expr: ExprId) -> bool {
         | ArenaExprKind::Loop { .. }
         | ArenaExprKind::Retry { .. } => false,
     }
+}
+
+fn prefer_in_receiver_type(ty: &Type) -> bool {
+    matches!(
+        ty,
+        Type::List(_) | Type::Str | Type::Bytes | Type::Path
+    )
+}
+
+fn call_is_directly_negated(source: &str, span: Span) -> bool {
+    let bytes = source.as_bytes();
+    let mut pos = span.start();
+    while pos > 0 && matches!(bytes[pos - 1], b' ' | b'\t') {
+        pos -= 1;
+    }
+    pos > 0 && bytes[pos - 1] == b'!'
+}
+
+fn expr_may_have_effects(arena: &AstArena, expr: ExprId) -> bool {
+    match arena.expr(expr).kind {
+        ArenaExprKind::Null
+        | ArenaExprKind::Bool(_)
+        | ArenaExprKind::Int(_)
+        | ArenaExprKind::Float(_)
+        | ArenaExprKind::Duration(_)
+        | ArenaExprKind::Str(_)
+        | ArenaExprKind::PathStr(_)
+        | ArenaExprKind::GlobStr(_)
+        | ArenaExprKind::Bytes(_)
+        | ArenaExprKind::Ident(_)
+        | ArenaExprKind::Item
+        | ArenaExprKind::LastStatus
+        | ArenaExprKind::EnvPathList => false,
+        ArenaExprKind::FmtString(parts) | ArenaExprKind::PathFmtString(parts) => arena
+            .fmt_parts(parts)
+            .any(|part| matches!(part, ArenaFmtPart::Expr(expr, _) if expr_may_have_effects(arena, expr))),
+        ArenaExprKind::List(items) => arena.expr_ids(items).any(|item| expr_may_have_effects(arena, item)),
+        ArenaExprKind::Record(fields) => arena.record_fields(fields).iter().any(|field| match field.kind {
+            ArenaRecordFieldKind::Named { value, .. } => expr_may_have_effects(arena, value),
+            ArenaRecordFieldKind::Spread { expr, .. } => expr_may_have_effects(arena, expr),
+            ArenaRecordFieldKind::Shorthand { .. } => false,
+        }),
+        ArenaExprKind::Unary { expr, .. } | ArenaExprKind::Try(expr) => {
+            expr_may_have_effects(arena, expr)
+        }
+        ArenaExprKind::Binary { left, right, .. } => {
+            expr_may_have_effects(arena, left) || expr_may_have_effects(arena, right)
+        }
+        ArenaExprKind::Field { base, .. } | ArenaExprKind::NullSafeField { base, .. } => {
+            expr_may_have_effects(arena, base)
+        }
+        ArenaExprKind::Index { base, index } => {
+            expr_may_have_effects(arena, base) || expr_may_have_effects(arena, index)
+        }
+        ArenaExprKind::Slice { base, start, end } => {
+            expr_may_have_effects(arena, base)
+                || start.is_some_and(|start| expr_may_have_effects(arena, start))
+                || end.is_some_and(|end| expr_may_have_effects(arena, end))
+        }
+        ArenaExprKind::Call { callee, args } => {
+            !pure_method_call_for_prefer_in(arena, callee)
+                || arena
+                    .call_args(args)
+                    .iter()
+                    .any(|arg| call_arg_may_have_effects(arena, arg))
+        }
+        ArenaExprKind::If {
+            branches,
+            else_value,
+        } => {
+            arena.if_expr_branches(branches).iter().any(|branch| {
+                expr_may_have_effects(arena, branch.condition)
+                    || expr_may_have_effects(arena, branch.value)
+            }) || expr_may_have_effects(arena, else_value)
+        }
+        ArenaExprKind::Match { value, arms } => {
+            expr_may_have_effects(arena, value)
+                || arena.match_expr_arms(arms).iter().any(|arm| {
+                    arm.guard
+                        .is_some_and(|guard| expr_may_have_effects(arena, guard))
+                        || expr_may_have_effects(arena, arm.value)
+                })
+        }
+        ArenaExprKind::ListComp { .. }
+        | ArenaExprKind::MapComp { .. }
+        | ArenaExprKind::EnvGet { .. }
+        | ArenaExprKind::Pipeline { .. }
+        | ArenaExprKind::StructuredPipeline { .. }
+        | ArenaExprKind::Run(_)
+        | ArenaExprKind::Spawn(_)
+        | ArenaExprKind::Wait(_)
+        | ArenaExprKind::BuilderCall { .. }
+        | ArenaExprKind::Require { .. }
+        | ArenaExprKind::Loop { .. }
+        | ArenaExprKind::Retry { .. } => true,
+    }
+}
+
+fn call_arg_may_have_effects(arena: &AstArena, arg: &ArenaCallArg) -> bool {
+    match arg.kind {
+        ArenaCallArgKind::Positional(expr)
+        | ArenaCallArgKind::Named { value: expr, .. }
+        | ArenaCallArgKind::Splice { value: expr, .. } => expr_may_have_effects(arena, expr),
+    }
+}
+
+fn pure_method_call_for_prefer_in(arena: &AstArena, callee: ExprId) -> bool {
+    let ArenaExprKind::Field { base, name } = arena.expr(callee).kind else {
+        return false;
+    };
+    matches!(
+        name.as_str(),
+        "display"
+            | "name"
+            | "stem"
+            | "ext"
+            | "parent"
+            | "join"
+            | "len"
+            | "lower"
+            | "upper"
+            | "trim"
+            | "starts_with"
+            | "ends_with"
+            | "split"
+            | "fields"
+            | "words"
+            | "replace"
+    ) && !expr_may_have_effects(arena, base)
 }
 
 fn effects_annotation(effects: &FxHashSet<Effect>) -> String {

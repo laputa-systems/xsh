@@ -118,11 +118,11 @@ pure enum_variants(source: Str, enum_name: Str) -> List[Str] {
 }
 
 pure list_intersection(left: List[Str], right: List[Str]) -> List[Str] {
-  [item for item in left if right.contains(item)]
+  [item for item in left if item in right]
 }
 
 pure list_difference(left: List[Str], right: List[Str]) -> List[Str] {
-  [item for item in left if ! right.contains(item)]
+  [item for item in left if ! (item in right)]
 }
 
 pure percent(covered: Int, total: Int) -> Int {
@@ -181,14 +181,14 @@ pure lowered_method_names(source: Str) -> List[Str] {
     }
 
     for token in quoted_tokens(line) {
-      if ! methods.contains(token) {
+      if ! (token in methods) {
         methods = methods.push(token)
       }
     }
 
     # The list is a `const LOWERED_METHOD_NAMES: &[&str] = &[ ... ];` array, so
     # the closing bracket terminates it.
-    if line.contains("]") {
+    if "]" in line {
       return methods |> sort
     }
   }
@@ -229,10 +229,10 @@ pure standard_record_names(source: Str) -> List[Str] {
   for raw in source.lines() {
     let line = raw.trim()
 
-    if line.starts_with("(\"") and line.contains("\",") {
+    if line.starts_with("(\"") and "\"," in line {
       let name = line.split("\"").get(1, "")
 
-      if name != "" and ! names.contains(name) {
+      if name != "" and ! (name in names) {
         names = names.push(name)
       }
     }
@@ -272,7 +272,7 @@ pure pure_function_names(source: Str) -> List[Str] {
     if starts_pure(line) {
       let name = pure_name(line)
 
-      if name != "" and ! names.contains(name) {
+      if name != "" and ! (name in names) {
         names = names.push(name)
       }
     }
@@ -290,7 +290,7 @@ pure proc_function_names(source: Str) -> List[Str] {
     if starts_proc(line) {
       let name = proc_name(line)
 
-      if name != "" and ! names.contains(name) {
+      if name != "" and ! (name in names) {
         names = names.push(name)
       }
     }
@@ -305,10 +305,10 @@ pure record_schema_names(source: Str) -> List[Str] {
   for raw in source.lines() {
     let line = raw.trim().replace("export type ", "type ")
 
-    if line.starts_with("type ") and line.contains("= {") {
+    if line.starts_with("type ") and "= {" in line {
       let name = line.split("type ").get(1, "").split("=").get(0, "").trim()
 
-      if name != "" and ! names.contains(name) {
+      if name != "" and ! (name in names) {
         names = names.push(name)
       }
     }
@@ -323,10 +323,10 @@ pure tag_union_names(source: Str) -> List[Str] {
   for raw in source.lines() {
     let line = raw.trim().replace("export type ", "type ")
 
-    if line.starts_with("type ") and line.contains("=") and ! line.contains("= {") and line.contains("|") {
+    if line.starts_with("type ") and "=" in line and ! ("= {" in line) and "|" in line {
       let name = line.split("type ").get(1, "").split("=").get(0, "").trim()
 
-      if name != "" and ! names.contains(name) {
+      if name != "" and ! (name in names) {
         names = names.push(name)
       }
     }
@@ -368,7 +368,7 @@ pure extend_unique(values: List[Str], extra: List[Str]) -> List[Str] {
   var result = values
 
   for item in extra {
-    if item != "" and ! result.contains(item) {
+    if item != "" and ! (item in result) {
       result = result.push(item)
     }
   }
@@ -382,13 +382,13 @@ pure error_variant_names(source: Str) -> List[Str] {
   for raw in source.lines() {
     let line = raw.trim().replace("export error ", "error ")
 
-    if line.starts_with("error ") and line.contains("=") {
+    if line.starts_with("error ") and "=" in line {
       let variants = line.split("=").get(1, "").split("|")
 
       for raw_variant in variants {
         let name = raw_variant.trim().replace("(", " ").fields().get(0, "")
 
-        if name != "" and ! names.contains(name) {
+        if name != "" and ! (name in names) {
           names = names.push(name)
         }
       }
@@ -403,12 +403,12 @@ pure lowerable_named_type(raw: Str, record_types: List[Str]) -> Bool {
     return true
   }
 
-  if record_types.contains(raw) {
+  if raw in record_types {
     return true
   }
 
   let short = raw.split(".").get(raw.split(".").len() - 1, raw)
-  return record_types.contains(short)
+  return short in record_types
 }
 
 pure lowerable_type(raw: Str, allow_result: Bool, record_types: List[Str]) -> Bool {
@@ -431,7 +431,7 @@ pure lowerable_type(raw: Str, allow_result: Bool, record_types: List[Str]) -> Bo
 }
 
 pure add_reason(reasons: List[Str], reason: Str) -> List[Str] {
-  if reason == "" or reasons.contains(reason) {
+  if reason == "" or reason in reasons {
     return reasons
   }
 
@@ -475,14 +475,12 @@ pure method_reasons(
   while index < parts.len() {
     let part = parts.get(index, "")
 
-    if part.contains("(") {
+    if "(" in part {
       let method = part.split("(").get(0, "").trim()
       let receiver = receiver_name(parts.get(index - 1, ""))
       let qualified = f"${receiver}.${method}"
 
-      if ! known_module_receiver(receiver) and plausible_field_call_name(method) and ! lowered_methods.contains(method) and ! error_variants.contains(
-        method,
-      ) and ! pure_functions.contains(qualified) {
+      if ! known_module_receiver(receiver) and plausible_field_call_name(method) and ! (method in lowered_methods) and ! (method in error_variants) and ! (qualified in pure_functions) {
         reasons = add_reason(reasons, f"method.${method}")
       }
     }
@@ -529,7 +527,7 @@ pure known_module_receiver(name: Str) -> Bool {
     "unix",
   ]
 
-  return modules.contains(name)
+  return name in modules
 }
 
 pure plausible_field_call_name(name: Str) -> Bool {
@@ -537,15 +535,15 @@ pure plausible_field_call_name(name: Str) -> Bool {
     return false
   }
 
-  if name.contains(" ") or name.contains("}") or name.contains("{") or name.contains("|") or name.contains(")") {
+  if " " in name or "}" in name or "{" in name or "|" in name or ")" in name {
     return false
   }
 
-  if name.contains("$") or name.contains("\"") or name.contains("'") or name.contains(":") {
+  if "$" in name or "\"" in name or "'" in name or ":" in name {
     return false
   }
 
-  if name.contains(",") or name.contains("/") or name.contains("[") or name.contains("]") or name.contains("+") {
+  if "," in name or "/" in name or "[" in name or "]" in name or "+" in name {
     return false
   }
 
@@ -557,17 +555,13 @@ pure plausible_field_call_name(name: Str) -> Bool {
 }
 
 pure supported_lowered_pipeline_line(line: Str) -> Bool {
-  let supported_stage = line.contains("|> take(") or line.contains("|> drop(") or line.contains("|> where ") or line.contains(
-    "|> map ",
-  ) or line.contains("|> enumerate()") or line.contains("|> sort") or line.contains("|> sort-by ") or line.contains(
-    "|> group-by ",
-  ) or line.contains("|> text.lines")
+  let supported_stage = "|> take(" in line or "|> drop(" in line or "|> where " in line or "|> map " in line or "|> enumerate()" in line or "|> sort" in line or "|> sort-by " in line or "|> group-by " in line or "|> text.lines" in line
 
   if ! supported_stage {
     return false
   }
 
-  if line.contains("{ |") and ! line.contains("|> map { |") {
+  if "{ |" in line and ! ("|> map { |" in line) {
     return false
   }
 
@@ -600,7 +594,7 @@ pure supported_lowered_pipeline_line(line: Str) -> Bool {
   ]
 
   for marker in unsupported {
-    if line.contains(marker) {
+    if marker in line {
       return false
     }
   }
@@ -637,7 +631,7 @@ pure body_line_reasons(
     return reasons
   }
 
-  if trimmed.contains("|>") and ! supported_lowered_pipeline_line(trimmed) {
+  if "|>" in trimmed and ! supported_lowered_pipeline_line(trimmed) {
     reasons = add_reason(reasons, "expr.pipeline")
   }
 
@@ -782,11 +776,11 @@ proc scan_pures_in_file(
     in_triple_string = line_scan.in_triple_string
 
     if ! in_pure {
-      continue when was_in_triple_string or line.contains("\"\"\"")
+      continue when was_in_triple_string or "\"\"\"" in line
 
       if starts_pure(line) {
         in_pure = true
-        seen_body = line.contains("{")
+        seen_body = "{" in line
         depth = line_scan.brace_delta
         start_line = line_no
         signature = line
@@ -820,7 +814,7 @@ proc scan_pures_in_file(
       }
 
       signature = f"${signature} ${line}"
-      seen_body = line.contains("{")
+      seen_body = "{" in line
 
       if seen_body {
         body = line
@@ -886,11 +880,11 @@ proc scan_procs_in_file(
     in_triple_string = line_scan.in_triple_string
 
     if ! in_proc {
-      continue when was_in_triple_string or line.contains("\"\"\"")
+      continue when was_in_triple_string or "\"\"\"" in line
 
       if starts_proc(line) {
         in_proc = true
-        seen_body = line.contains("{")
+        seen_body = "{" in line
         depth = line_scan.brace_delta
         start_line = line_no
         signature = line
@@ -924,7 +918,7 @@ proc scan_procs_in_file(
       }
 
       signature = f"${signature} ${line}"
-      seen_body = line.contains("{")
+      seen_body = "{" in line
 
       if seen_body {
         body = line
@@ -1172,13 +1166,11 @@ pure script_shape(line: Str) -> Str {
     return "Command"
   }
 
-  if normalized.contains(" = ") or normalized.contains(" += ") or normalized.contains(" -= ") or normalized.contains(
-    " *= ",
-  ) or normalized.contains(" /= ") or normalized.contains(" %= ") {
+  if " = " in normalized or " += " in normalized or " -= " in normalized or " *= " in normalized or " /= " in normalized or " %= " in normalized {
     return "Assign"
   }
 
-  if normalized.fields().len() == 1 and ! normalized.contains("(") {
+  if normalized.fields().len() == 1 and ! ("(" in normalized) {
     return "TailBareIdent"
   }
 
@@ -1225,7 +1217,7 @@ pure script_region_reasons(
     reasons = add_reason(reasons, f"stmt.${shape}")
   }
 
-  if text.contains("run ") or text.contains(" run.") {
+  if "run " in text or " run." in text {
     reasons = add_reason(reasons, "expr.run")
   }
 
@@ -1432,7 +1424,7 @@ proc scan_script_statements_in_file(
     }
 
     if skip_signature {
-      if line.contains("{") {
+      if "{" in line {
         skip_depth = line_scan.brace_delta
 
         if skip_depth < 0 {
@@ -1500,7 +1492,7 @@ proc scan_script_statements_in_file(
         pending_depth = 0
       }
     } else {
-      if non_executable_signature_start(line) and ! line.contains("{") {
+      if non_executable_signature_start(line) and ! ("{" in line) {
         skip_signature = true
         continue
       }

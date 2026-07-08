@@ -354,19 +354,19 @@ pure lang_for_shebang(text: Bytes) -> Language {
       return LangUnknown
     }
 
-    if first.contains("python") {
+    if "python" in first {
       return LangPython
     }
 
-    if first.contains("node") {
+    if "node" in first {
       return LangJavaScript
     }
 
-    if first.contains("bash") {
+    if "bash" in first {
       return LangBash
     }
 
-    if first.contains("/sh") or first.contains(" sh") {
+    if "/sh" in first or " sh" in first {
       return LangShell
     }
 
@@ -488,7 +488,7 @@ pure count_hash_language(text: Bytes) -> Scan {
     return count_code_text(text)
   }
 
-  if ! text.starts_with(b" ") and ! text.starts_with(b"\t") and ! text.contains(b"\n ") and ! text.contains(b"\n\t") {
+  if ! text.starts_with(b" ") and ! text.starts_with(b"\t") and ! (b"\n " in text) and ! (b"\n\t" in text) {
     return count_hash_unindented(text)
   }
 
@@ -509,7 +509,7 @@ pure count_hash_language(text: Bytes) -> Scan {
 }
 
 pure count_json(text: Bytes) -> Scan {
-  if ! text.starts_with(b"\n") and ! text.contains(b"\n\n") {
+  if ! text.starts_with(b"\n") and ! (b"\n\n" in text) {
     let stats = {blanks: 0, code: text.count_lines(), comments: 0, blobs: map.empty()}
     return {stats, deep: stats}
   }
@@ -571,7 +571,7 @@ pure count_lua(text: Bytes) -> Scan {
     if in_block {
       comments += 1
 
-      if trimmed.contains(b"]]") {
+      if b"]]" in trimmed {
         in_block = false
       }
     } else if trimmed == b"" {
@@ -579,7 +579,7 @@ pure count_lua(text: Bytes) -> Scan {
     } else if trimmed.starts_with(b"--[[") {
       comments += 1
 
-      if ! trimmed.contains(b"]]") {
+      if ! (b"]]" in trimmed) {
         in_block = true
       }
     } else if trimmed.starts_with(b"--") {
@@ -606,11 +606,11 @@ pure rust_fence_contains_doc_fence(text: Bytes) -> Bool {
 }
 
 pure count_slash_plain(text: Bytes) -> Scan {
-  if ! text.contains(b"/") {
+  if ! (b"/" in text) {
     return count_code_text(text)
   }
 
-  if ! text.contains(b"//") and ! text.contains(b"/*") {
+  if ! (b"//" in text) and ! (b"/*" in text) {
     return count_code_text(text)
   }
 
@@ -620,13 +620,13 @@ pure count_slash_plain(text: Bytes) -> Scan {
   var block_depth = 0
 
   for line in text.lines() {
-    if block_depth == 0 and ! line.contains(b"/") {
+    if block_depth == 0 and ! (b"/" in line) {
       if line.trim() == b"" {
         blanks += 1
       } else {
         code += 1
       }
-    } else if block_depth == 0 and ! line.contains(b"//") and ! line.contains(b"/*") {
+    } else if block_depth == 0 and ! (b"//" in line) and ! (b"/*" in line) {
       code += 1
     } else {
       let trimmed = line.trim()
@@ -635,14 +635,14 @@ pure count_slash_plain(text: Bytes) -> Scan {
         blanks += 1
       } else if block_depth == 0 and trimmed.starts_with(b"//") {
         comments += 1
-      } else if block_depth == 0 and ! trimmed.starts_with(b"/") and (! line.contains(b"/*") or line.contains(b"*/")) {
+      } else if block_depth == 0 and ! trimmed.starts_with(b"/") and (! (b"/*" in line) or b"*/" in line) {
         code += 1
-      } else if block_depth == 0 and trimmed.starts_with(b"/*") and ! line.contains(b"*/") {
+      } else if block_depth == 0 and trimmed.starts_with(b"/*") and ! (b"*/" in line) {
         comments += 1
         block_depth = 1
       } else if block_depth > 0 and trimmed == b"" {
         blanks += 1
-      } else if block_depth > 0 and ! line.contains(b"*/") {
+      } else if block_depth > 0 and ! (b"*/" in line) {
         comments += 1
       } else if block_depth > 0 and trimmed.ends_with(b"*/") {
         comments += 1
@@ -718,11 +718,11 @@ pure count_slash_plain(text: Bytes) -> Scan {
 }
 
 pure count_slash_language(text: Bytes, nested: Bool, collect_doc_markdown: Bool) -> Scan {
-  if ! text.contains(b"/") {
+  if ! (b"/" in text) {
     return count_code_text(text)
   }
 
-  if ! text.contains(b"//") and ! text.contains(b"/*") {
+  if ! (b"//" in text) and ! (b"/*" in text) {
     return count_code_text(text)
   }
 
@@ -733,13 +733,13 @@ pure count_slash_language(text: Bytes, nested: Bool, collect_doc_markdown: Bool)
   var block_depth = 0
 
   for line in text.lines() {
-    if block_depth == 0 and ! line.contains(b"/") {
+    if block_depth == 0 and ! (b"/" in line) {
       if line.trim() == b"" {
         blanks += 1
       } else {
         code += 1
       }
-    } else if block_depth == 0 and ! line.contains(b"//") and ! line.contains(b"/*") {
+    } else if block_depth == 0 and ! (b"//" in line) and ! (b"/*" in line) {
       code += 1
     } else {
       let trimmed = line.trim()
@@ -750,16 +750,16 @@ pure count_slash_language(text: Bytes, nested: Bool, collect_doc_markdown: Bool)
         blanks += 1
       } else if block_depth == 0 and trimmed.starts_with(b"//") {
         comments += 1
-      } else if block_depth == 0 and ! trimmed.starts_with(b"/") and (! line.contains(b"/*") or line.contains(b"*/")) {
+      } else if block_depth == 0 and ! trimmed.starts_with(b"/") and (! (b"/*" in line) or b"*/" in line) {
         code += 1
-      } else if block_depth == 0 and trimmed.starts_with(b"/*") and ! line.contains(b"*/") {
+      } else if block_depth == 0 and trimmed.starts_with(b"/*") and ! (b"*/" in line) {
         comments += 1
         block_depth = 1
       } else if block_depth > 0 and trimmed == b"" {
         blanks += 1
-      } else if block_depth > 0 and ! line.contains(b"*/") and (! nested or ! line.contains(b"/*")) {
+      } else if block_depth > 0 and ! (b"*/" in line) and (! nested or ! (b"/*" in line)) {
         comments += 1
-      } else if block_depth > 0 and trimmed.ends_with(b"*/") and (! nested or ! line.contains(b"/*")) {
+      } else if block_depth > 0 and trimmed.ends_with(b"*/") and (! nested or ! (b"/*" in line)) {
         comments += 1
         block_depth -= 1
       } else {
@@ -845,7 +845,7 @@ pure count_slash_language(text: Bytes, nested: Bool, collect_doc_markdown: Bool)
 }
 
 pure count_markdown(text: Bytes) -> Scan {
-  if ! text.contains(b"```") {
+  if ! (b"```" in text) {
     let stats = count_markdown_prose(text)
     return {stats, deep: stats}
   }
@@ -1060,10 +1060,10 @@ pure count_markdown(text: Bytes) -> Scan {
 # children (true for HTML) or counted as ordinary markup code (false for SVG/XML, which
 # tokei reports with no children).
 pure count_html(text: Bytes, embed: Bool) -> Scan {
-  if ! text.contains(b"<!--") {
+  if ! (b"<!--" in text) {
     let lower_text = text.lower()
 
-    if ! embed or ! lower_text.contains(b"<script") and ! lower_text.contains(b"<style") {
+    if ! embed or ! (b"<script" in lower_text) and ! (b"<style" in lower_text) {
       return count_code_text(text)
     }
   }
@@ -1112,7 +1112,7 @@ pure count_html(text: Bytes, embed: Bool) -> Scan {
     } else if in_comment {
       comments += 1
 
-      if trimmed.contains(b"-->") {
+      if b"-->" in trimmed {
         in_comment = false
       }
     } else if trimmed == b"" {
@@ -1120,17 +1120,17 @@ pure count_html(text: Bytes, embed: Bool) -> Scan {
     } else if trimmed.starts_with(b"<!--") {
       comments += 1
 
-      if ! trimmed.contains(b"-->") {
+      if ! (b"-->" in trimmed) {
         in_comment = true
       }
     } else {
       code += 1
       let lower = trimmed.lower()
 
-      if embed and lower.starts_with(b"<script") and ! lower.contains(b"</script") {
+      if embed and lower.starts_with(b"<script") and ! (b"</script" in lower) {
         in_script = true
         script_lines = []
-      } else if embed and lower.starts_with(b"<style") and ! lower.contains(b"</style") {
+      } else if embed and lower.starts_with(b"<style") and ! (b"</style" in lower) {
         in_style = true
         style_lines = []
       }
@@ -1197,7 +1197,7 @@ pure count_language(language: Language, text: Bytes) -> Scan {
 }
 
 pure hidden_relative(rel: Str) -> Bool {
-  return rel.starts_with(".") or rel.contains("/.")
+  return rel.starts_with(".") or "/." in rel
 }
 
 pure ignored_by_patterns(rel: Str, patterns: List[Str]) -> Bool {
@@ -1324,18 +1324,16 @@ proc main(...argv: List[Str]) [fs, error] {
           # never double-count. `blobs` only ever holds non-zero embedded stats.
           let label = language_label(language)
 
-          out = out.push(
-            {
-              key: label,
-              files: 1,
-              blanks: scan.stats.blanks,
-              code: scan.stats.code,
-              comments: scan.stats.comments,
-              total_blanks: scan.deep.blanks,
-              total_code: scan.deep.code,
-              total_comments: scan.deep.comments,
-            },
-          )
+          out = out.push({
+            key: label,
+            files: 1,
+            blanks: scan.stats.blanks,
+            code: scan.stats.code,
+            comments: scan.stats.comments,
+            total_blanks: scan.deep.blanks,
+            total_code: scan.deep.code,
+            total_comments: scan.deep.comments,
+          })
 
           let has_child_blobs = match language {
             LangHtml => true,
@@ -1352,18 +1350,16 @@ proc main(...argv: List[Str]) [fs, error] {
               let blob = scan.stats.blobs.get(child, zero_stats()).require(Stats) ?? zero_stats()
               let cs = blob_deep(blob)
 
-              out = out.push(
-                {
-                  key: f"${label}\t${child}",
-                  files: 1,
-                  blanks: cs.blanks,
-                  code: cs.code,
-                  comments: cs.comments,
-                  total_blanks: 0,
-                  total_code: 0,
-                  total_comments: 0,
-                },
-              )
+              out = out.push({
+                key: f"${label}\t${child}",
+                files: 1,
+                blanks: cs.blanks,
+                code: cs.code,
+                comments: cs.comments,
+                total_blanks: 0,
+                total_code: 0,
+                total_comments: 0,
+              })
             }
           }
         }

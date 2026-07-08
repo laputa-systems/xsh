@@ -16,7 +16,7 @@ proc test_ls(ctx: TestContext) [fs, process, error] {
   let long = run.text xsh_bin() ls.xsh -- -l $root ?
   test.contains(long, "file")?
   let nested = run.text xsh_bin() ls.xsh -- fp"${root}/dir" ?
-  test.ok(! nested.contains(fp"${root}/dir".display()))?
+  test.ok(! (fp"${root}/dir".display() in nested))?
   let file_operand = run.text xsh_bin() ls.xsh -- fp"${root}/a.txt" ?
   test.contains(file_operand, fp"${root}/a.txt".display())?
 }
