@@ -19,6 +19,7 @@ proc test_hash_digests_checksums_and_digest_methods(ctx: TestContext) [fs, error
   test.eq(check.path, data_path.name())?
   hash.verify_file(data_path, sha256: digest.hex())?
   test.error_kind(hash.verify_file(data_path, sha256: "00"), "checksum-format")?
+
   test.error_kind(
     hash.verify_file(data_path, sha256: "0000000000000000000000000000000000000000000000000000000000000000"),
     "checksum-mismatch",

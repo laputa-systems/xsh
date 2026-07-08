@@ -54,7 +54,7 @@ install-Darwin: install-darwin
 install-Linux: install-linux
 
 install-darwin:
-	RUSTFLAGS="$(strip $(DARWIN_DIST_RUSTFLAGS))" cargo build --release --no-default-features --features "net tools" --bin xsh-multicall
+	RUSTFLAGS="$(strip $(DARWIN_DIST_RUSTFLAGS))" cargo build --release --no-default-features --features "native-tests net tools" --bin xsh-multicall
 	cp ./target/release/xsh-multicall ~/usr/bin/xsh-multicall
 	ln -sf xsh-multicall ~/usr/bin/xsh
 	ln -sf xsh-multicall ~/usr/bin/xshi
@@ -68,7 +68,7 @@ LINUX_INSTALL_RUSTFLAGS ?= -C linker=clang -C link-arg=-B$(CURDIR)/$(LINUX_INSTA
 LINUX_INSTALL_ENV = PATH="$$HOME/.cargo/bin:$$PATH" CC=clang AR=llvm-ar CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=clang CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS="$(strip $(LINUX_INSTALL_RUSTFLAGS))"
 
 install-linux: $(LINUX_INSTALL_CRT_OBJS)
-	$(LINUX_INSTALL_ENV) cargo build --release --no-default-features --features "net tools" --bin xsh-multicall
+	$(LINUX_INSTALL_ENV) cargo build --release --no-default-features --features "native-tests net tools" --bin xsh-multicall
 	cp ./target/release/xsh-multicall ~/usr/bin/xsh-multicall
 	ln -sf xsh-multicall ~/usr/bin/xsh
 	ln -sf xsh-multicall ~/usr/bin/xshi

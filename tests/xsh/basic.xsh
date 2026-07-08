@@ -43,16 +43,14 @@ proc test_net_mock(ctx: TestContext) [net, error] {
     ctx,
     "net.request",
     {url: "https://example.test/"},
-    Ok(
-      {
-        status: 200,
-        reason: "OK",
-        bytes: 2,
-        headers: [{name: "content-type", value: "text/plain"}],
-        url: "https://example.test/",
-        body: b"ok",
-      },
-    ),
+    Ok({
+      status: 200,
+      reason: "OK",
+      bytes: 2,
+      headers: [{name: "content-type", value: "text/plain"}],
+      url: "https://example.test/",
+      body: b"ok",
+    }),
   )?
 
   let response = net.request({method: "GET", url: "https://example.test/"})?

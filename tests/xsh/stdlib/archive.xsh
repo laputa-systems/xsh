@@ -18,7 +18,7 @@ proc test_archive_tar_cpio_and_compression(ctx: TestContext) [fs, error] {
   test.ok(entries.len() >= 3, "tar list should include dir, file, and symlink")?
   test.ok(entries |> any .path.display().ends_with("dir/a.txt"), "tar entry missing")?
   let sorted_tarball = fp"${out}/sorted.tar"
-  var sorted_entries: List[Path] = [p"dir/a.txt"]
+  var sorted_entries = [p"dir/a.txt"]
   sorted_entries = sorted_entries |> sort-by .display()
   archive.tar_create(sorted_tarball, src, sorted_entries)?
   test.eq(archive.tar_list(sorted_tarball)?.len(), 1)?

@@ -105,11 +105,7 @@ async fn extract_file(
     Ok(())
 }
 
-async fn zip_reader(
-    path: PathBuf,
-    kind: &str,
-    span: Span,
-) -> Result<ZipFileReader, RuntimeError> {
+async fn zip_reader(path: PathBuf, kind: &str, span: Span) -> Result<ZipFileReader, RuntimeError> {
     let mut input = fs::File::open(path).map_err(|error| archive_error(kind, error, span))?;
     let mut data = Vec::new();
     input

@@ -43,7 +43,13 @@ proc test_bytes_methods_and_decode_errors() [error] {
   let encoded = b"\0hello\xff".base64()
   test.eq(encoded, "AGhlbGxv/w==")?
   test.eq(encoded.base64_decode()?, b"\0hello\xff")?
-  test.eq("Y\nWJj".base64_decode()?, b"abc")?
+
+  test.eq(
+    """Y
+WJj""".base64_decode()?,
+    b"abc",
+  )?
+
   test.eq("Zm9v".base64_decode()?, b"foo")?
   let base32 = b"foobar".base32()
   test.eq(base32, "MZXW6YTBOI======")?

@@ -14,30 +14,26 @@ proc test_net_module_with_mocks(ctx: TestContext) [fs, net, error] {
     ctx,
     "net.download",
     {url: "https://example.test/file"},
-    Ok(
-      {
-        status: 200,
-        reason: "OK",
-        bytes: 2,
-        headers: [{name: "content-type", value: "text/plain"}],
-        url: "https://example.test/file",
-      },
-    ),
+    Ok({
+      status: 200,
+      reason: "OK",
+      bytes: 2,
+      headers: [{name: "content-type", value: "text/plain"}],
+      url: "https://example.test/file",
+    }),
   )?
 
   test.mock(
     ctx,
     "net.upload",
     {url: "https://example.test/upload"},
-    Ok(
-      {
-        status: 200,
-        reason: "OK",
-        bytes: 2,
-        headers: [{name: "content-type", value: "text/plain"}],
-        url: "https://example.test/upload",
-      },
-    ),
+    Ok({
+      status: 200,
+      reason: "OK",
+      bytes: 2,
+      headers: [{name: "content-type", value: "text/plain"}],
+      url: "https://example.test/upload",
+    }),
   )?
 
   test.eq(net.request({method: "GET", url: "https://example.test/"})?.body, b"ok")?

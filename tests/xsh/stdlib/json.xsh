@@ -22,12 +22,17 @@ proc test_json_read_write_lines_and_paths(ctx: TestContext) [fs, error] {
 proc test_json_decode_type_patterns_and_public_boundaries() [error] {
   let decoded = json.decode("{\"quote\":\"\\\"\",\"line\":\"a\\nb\",\"snow\":\"\\u2603\",\"music\":\"\\uD834\\uDD1E\"}")?
   test.eq(decoded.quote, "\"")?
-  test.eq(decoded.line, "a\nb")?
+
+  test.eq(
+    decoded.line,
+    """a
+b""",
+  )?
+
   test.eq(decoded.snow, "\u{2603}")?
   test.eq(decoded.music, "\u{1d11e}")?
   test.eq(json.decode("1.25")?.require(Float)?.format(precision: 2), "1.25")?
   test.error_kind(json.decode("9223372036854775808"), "json")?
-
   test.eq(json_label(json.decode("1")?)?, "int 1.0")?
   test.eq(json_label(json.decode("1.25")?)?, "float 1.25")?
   test.eq(json_label(json.decode("\"x\"")?)?, "str x")?
@@ -35,14 +40,18 @@ proc test_json_decode_type_patterns_and_public_boundaries() [error] {
   test.eq(json_label(json.decode("[1,2]")?)?, "int-list")?
   test.eq(json_label(json.decode("[1,\"x\"]")?)?, "other")?
 
-  let rows = "\n{\"b\":2}\n\n{\"a\":1}\n" |> json.lines()
+  let rows = """
+{"b":2}
+
+{"a":1}
+""" |> json.lines
+
   let encoded = json.encode({z: 1, a: 2, nested: {b: 1, a: 2}})?
   test.eq(rows[0].b, 2)?
   test.eq(rows[1].a, 1)?
   test.eq(encoded, "{\"a\":2,\"nested\":{\"a\":2,\"b\":1},\"z\":1}")?
   test.error_kind(json.decode("not json"), "json")?
-
-  let data = {path: Path("src")}
+  let data = {path: p"src"}
   let path_value = data["path"]
   test.error_kind(json.encode(path_value), "json-compatible")?
 }

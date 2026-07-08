@@ -260,14 +260,10 @@ async fn append_create_entry<W: AsyncWrite + Unpin + Send>(
     header.set_metadata(&metadata);
 
     if file_type.is_file() {
-        let file =
-            File::open(&entry.source).map_err(|error| archive_error("archive-create", error, span))?;
+        let file = File::open(&entry.source)
+            .map_err(|error| archive_error("archive-create", error, span))?;
         builder
-            .append_data(
-                &mut header,
-                &entry.archive_name,
-                BlockingAsyncIo::new(file),
-            )
+            .append_data(&mut header, &entry.archive_name, BlockingAsyncIo::new(file))
             .await
             .map_err(|error| archive_error("archive-create", error, span))?;
         return Ok(());
@@ -291,8 +287,15 @@ async fn append_create_entry<W: AsyncWrite + Unpin + Send>(
         return Ok(());
     }
 
-    append_special_create_entry(builder, &entry.source, &entry.archive_name, &metadata, header, span)
-        .await
+    append_special_create_entry(
+        builder,
+        &entry.source,
+        &entry.archive_name,
+        &metadata,
+        header,
+        span,
+    )
+    .await
 }
 
 async fn append_special_create_entry<W: AsyncWrite + Unpin + Send>(
@@ -305,7 +308,9 @@ async fn append_special_create_entry<W: AsyncWrite + Unpin + Send>(
 ) -> Result<(), RuntimeError> {
     let file_type = metadata.file_type();
     if file_type.is_socket() {
-        return Err(RuntimeError::new("archive-create", "socket cannot be archived").with_span(span));
+        return Err(
+            RuntimeError::new("archive-create", "socket cannot be archived").with_span(span),
+        );
     }
     if file_type.is_char_device() || file_type.is_block_device() {
         let dev_id = metadata.rdev();

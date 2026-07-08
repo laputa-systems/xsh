@@ -1573,7 +1573,8 @@ impl<'a> Writer<'a> {
             .iter()
             .map(|f| f.kind.clone())
             .collect();
-        let original_multiline = record_fields_original_multiline(self.arena, &self.source, &field_kinds);
+        let original_multiline =
+            record_fields_original_multiline(self.arena, &self.source, &field_kinds);
         let inline =
             self.render_inline(|writer, inline| writer.write_record_inline(fields, inline));
         if field_kinds.is_empty()
@@ -1974,10 +1975,8 @@ impl<'a> Writer<'a> {
 
     fn write_record_schema(&mut self, fields: xsh::syntax::arena::ArenaRange, output: &mut String) {
         let schema_fields = self.arena.schema_fields(fields).to_vec();
-        let field_ids: Vec<(Name, TypeExprId)> = schema_fields
-            .iter()
-            .map(|f| (f.name, f.ty))
-            .collect();
+        let field_ids: Vec<(Name, TypeExprId)> =
+            schema_fields.iter().map(|f| (f.name, f.ty)).collect();
         let original_multiline = schema_fields
             .first()
             .zip(schema_fields.last())
@@ -2620,10 +2619,16 @@ fn record_fields_original_multiline(
     source: &str,
     fields: &[ArenaRecordFieldKind],
 ) -> bool {
-    let Some(first) = fields.first().and_then(|field| record_field_span(arena, field)) else {
+    let Some(first) = fields
+        .first()
+        .and_then(|field| record_field_span(arena, field))
+    else {
         return false;
     };
-    let Some(last) = fields.last().and_then(|field| record_field_span(arena, field)) else {
+    let Some(last) = fields
+        .last()
+        .and_then(|field| record_field_span(arena, field))
+    else {
         return false;
     };
     source

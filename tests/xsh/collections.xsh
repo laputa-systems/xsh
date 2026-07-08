@@ -33,7 +33,7 @@ proc missing(file: Path) [error] -> Result[Str, FsError] {
 proc test_nominal_error_payload_and_facet_patterns() [error] {
   match missing(p"missing") {
     Ok(text) => test.fail(f"unexpected ok ${text}")?
-    Err(FsError.NotFound { file }) => test.eq(file.display(), "missing")?
+    Err(FsError.NotFound {file: file}) => test.eq(file.display(), "missing")?
     Err(is PermissionDenied) => test.fail("unexpected permission facet")?
     Err(error) => test.fail(error.message)?
   }
@@ -59,7 +59,7 @@ pure count_lines(lines: List[Str]) -> Stats {
 
 proc test_local_accumulator_field_mutation() [error] {
   let stats = count_lines(["alpha", "", "# note", "beta"])
-  var counts: Map[Int] = map.empty()
+  var counts: Map[Int] = {}
   counts["code"] = stats.code
   counts["comments"] = stats.comments
   test.eq(stats.blanks, 1)?
@@ -69,6 +69,7 @@ proc test_local_accumulator_field_mutation() [error] {
 
 proc test_compact_sugar_forms(ctx: TestContext) [error] {
   let root = test.temp_dir(ctx, name: "compact-sugar")?
+
   let output = test.run_script(
     ctx,
     f"""
@@ -87,7 +88,12 @@ print \${label} \${value} \${files |> count()}
   )?
 
   test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "three 3 1\n")?
+
+  test.eq(
+    output.stdout,
+    """three 3 1
+""",
+  )?
 }
 
 proc test_ergonomic_sugar_pass_forms(ctx: TestContext) [fs, error] {
@@ -100,16 +106,15 @@ proc test_ergonomic_sugar_pass_forms(ctx: TestContext) [fs, error] {
   path = fp"${root}/changed"
   var printed_path = ""
 
-  for {name, path, ..} in [pkg] {
-    printed_path = path.display
+  for item in [pkg] {
+    printed_path = item.path.display
   }
 
   let jobs = env.Str.XSH_ERGONOMIC_SUGAR_MISSING ?? "1"
-  let ok = Ok("set") ?? (env.Str.XSH_ERGONOMIC_SUGAR_MISSING ?)
+  let ok = Ok("set") ?? env.Str.XSH_ERGONOMIC_SUGAR_MISSING?
   json.write(fp"${root}/meta.json", {name, version, jobs, ok})?
   let metadata = json.read(fp"${root}/meta.json")?
   fs.remove(fp"${root}/missing", missing_ok: true)?
-
   test.eq(printed_path, fp"${root}/nested/dir".display())?
   test.eq(name, "demo")?
   test.eq(version, "1")?

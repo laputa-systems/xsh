@@ -71,6 +71,7 @@ pub struct Linter<'a> {
     tag_variants: FxHashSet<String>,
     type_declarations: FxHashMap<String, Span>,
     used_type_names: FxHashSet<String>,
+    assigned_names: FxHashSet<Name>,
 }
 
 /// A decoded type expression node, mirroring the arena's compact type-expr
@@ -137,6 +138,7 @@ impl<'a> Linter<'a> {
             tag_variants: FxHashSet::default(),
             type_declarations: FxHashMap::default(),
             used_type_names: FxHashSet::default(),
+            assigned_names: FxHashSet::default(),
         };
         linter.define(
             "args",
@@ -156,6 +158,7 @@ impl<'a> Linter<'a> {
     }
 
     fn lint_program(&mut self, statements: &[StmtId]) {
+        self.collect_assigned_names(statements);
         self.lint_import_blocks(statements);
         self.lint_top_level_const_order(statements);
         for &stmt_id in statements {
@@ -199,6 +202,89 @@ impl<'a> Linter<'a> {
         }
         self.lint_implicit_main(statements);
         self.lint_unused_types();
+    }
+
+    fn collect_assigned_names(&mut self, statements: &[StmtId]) {
+        for &stmt in statements {
+            self.collect_assigned_names_stmt(stmt);
+        }
+    }
+
+    fn collect_assigned_names_block(&mut self, block: BlockId) {
+        let statements = self.arena.block(block).statements;
+        for stmt in self.arena.stmt_ids(statements).collect::<Vec<_>>() {
+            self.collect_assigned_names_stmt(stmt);
+        }
+    }
+
+    fn collect_assigned_names_stmt(&mut self, stmt_id: StmtId) {
+        match self.arena.stmt(stmt_id).kind {
+            ArenaStmtKind::Export(inner) | ArenaStmtKind::GuardedStmt { stmt: inner, .. } => {
+                self.collect_assigned_names_stmt(inner)
+            }
+            ArenaStmtKind::Assign { target, .. } => self.collect_assigned_names_target(target),
+            ArenaStmtKind::ProcDef(def)
+            | ArenaStmtKind::PureDef(def)
+            | ArenaStmtKind::StreamDef(def) => {
+                self.collect_assigned_names_block(self.arena.function_def(def).body);
+            }
+            ArenaStmtKind::SignalHook(hook) => {
+                self.collect_assigned_names_block(self.arena.signal_hook(hook).body);
+            }
+            ArenaStmtKind::If {
+                branches,
+                else_block,
+            } => {
+                for branch in self.arena.if_branches(branches).to_vec() {
+                    self.collect_assigned_names_block(branch.block);
+                }
+                if let Some(block) = else_block {
+                    self.collect_assigned_names_block(block);
+                }
+            }
+            ArenaStmtKind::While { block, .. }
+            | ArenaStmtKind::For { block, .. }
+            | ArenaStmtKind::Loop { block } => self.collect_assigned_names_block(block),
+            ArenaStmtKind::With {
+                body, else_block, ..
+            } => {
+                self.collect_assigned_names_block(body);
+                self.collect_assigned_names_block(else_block);
+            }
+            ArenaStmtKind::Guard { else_block, .. } => {
+                self.collect_assigned_names_block(else_block);
+            }
+            ArenaStmtKind::Match { arms, .. } => {
+                for arm in self.arena.match_arms(arms).to_vec() {
+                    self.collect_assigned_names_block(arm.block);
+                }
+            }
+            ArenaStmtKind::Use(_)
+            | ArenaStmtKind::TypeDef(_)
+            | ArenaStmtKind::ErrorDef(_)
+            | ArenaStmtKind::Let { .. }
+            | ArenaStmtKind::Var { .. }
+            | ArenaStmtKind::Return(_)
+            | ArenaStmtKind::Yield(_)
+            | ArenaStmtKind::Defer(_)
+            | ArenaStmtKind::Break { .. }
+            | ArenaStmtKind::Continue
+            | ArenaStmtKind::Command(_)
+            | ArenaStmtKind::TailBareIdent(_)
+            | ArenaStmtKind::Expr(_) => {}
+        }
+    }
+
+    fn collect_assigned_names_target(&mut self, target: AssignTargetId) {
+        match self.arena.assign_target(target).kind {
+            ArenaAssignTargetKind::Name(name) => {
+                self.assigned_names.insert(name);
+            }
+            ArenaAssignTargetKind::Field { base, .. }
+            | ArenaAssignTargetKind::Index { base, .. } => {
+                self.collect_assigned_names_target(base);
+            }
+        }
     }
 
     fn lint_import_blocks(&mut self, statements: &[StmtId]) {
@@ -440,8 +526,16 @@ impl<'a> Linter<'a> {
                 target,
                 ty,
                 initializer,
+            } => {
+                self.lint_empty_map_initializer(ty, &initializer);
+                if let Some(type_expr) = ty {
+                    self.collect_type_expr_refs(type_expr);
+                    self.lint_needless_annotation(target, false, type_expr, &initializer, exported);
+                }
+                self.lint_expr_or_run(&initializer);
+                self.define_binding_target(target, stmt.span, true);
             }
-            | ArenaStmtKind::Var {
+            ArenaStmtKind::Var {
                 target,
                 ty,
                 initializer,
@@ -449,7 +543,7 @@ impl<'a> Linter<'a> {
                 self.lint_empty_map_initializer(ty, &initializer);
                 if let Some(type_expr) = ty {
                     self.collect_type_expr_refs(type_expr);
-                    self.lint_needless_annotation(stmt.span, type_expr, &initializer, exported);
+                    self.lint_needless_annotation(target, true, type_expr, &initializer, exported);
                 }
                 self.lint_expr_or_run(&initializer);
                 self.define_binding_target(target, stmt.span, true);
@@ -981,11 +1075,18 @@ impl<'a> Linter<'a> {
 
     fn lint_needless_annotation(
         &mut self,
-        _stmt_span: Span,
+        target: BindingTargetId,
+        mutable: bool,
         ty: TypeExprId,
         initializer: &ArenaExprOrRun,
         exported: bool,
     ) {
+        if mutable
+            && let ArenaBindingTargetKind::Name(name) = self.arena.binding_target(target).kind
+            && self.assigned_names.contains(&name)
+        {
+            return;
+        }
         let annotation_ty = Type::from_arena(self.arena, ty);
         if matches!(annotation_ty, Type::Any | Type::Unknown | Type::Invalid) {
             return;
@@ -2709,11 +2810,7 @@ impl<'a> Linter<'a> {
             Diagnostic::new(Severity::Warning, "prefer `in` over `.contains(...)`")
                 .with_code("lint.prefer-in")
                 .with_label(Label::secondary(span, "use membership syntax instead"))
-                .with_fix_hint(FixHint::replacement(
-                    span,
-                    "rewrite with `in`",
-                    replacement,
-                )),
+                .with_fix_hint(FixHint::replacement(span, "rewrite with `in`", replacement)),
         );
     }
 
@@ -4798,11 +4895,24 @@ impl LintExprVisitor<'_, '_> {
                     literal_command_word(arena, &self.linter.source, &segment.target)
                 && expects_nonzero_status(&target)
             {
-                self.linter.warning(
-                    seg_span,
-                    "remove `?` when inspecting an expected nonzero status",
-                    "lint.run-status",
-                    "nonzero status is expected for this command",
+                let deletion_span = scan_run_propagate_deletion_span(
+                    &self.linter.source,
+                    arena.span(run_form.span),
+                );
+                self.linter.diagnostics.push(
+                    Diagnostic::new(
+                        Severity::Warning,
+                        "remove `?` when inspecting an expected nonzero status",
+                    )
+                    .with_code("lint.run-status")
+                    .with_label(Label::secondary(
+                        seg_span,
+                        "nonzero status is expected for this command",
+                    ))
+                    .with_fix_hint(FixHint::deletion(
+                        deletion_span,
+                        "remove status propagation",
+                    )),
                 );
             }
         }
@@ -4974,6 +5084,20 @@ fn scan_before_colon(source: &str, ty_start: usize) -> usize {
 
 fn scan_after_type(_source: &str, ty_end: usize) -> usize {
     ty_end
+}
+
+fn scan_run_propagate_deletion_span(source: &str, run_span: Span) -> Span {
+    let bytes = source.as_bytes();
+    let mut end = run_span.end();
+    while end < bytes.len() && matches!(bytes[end], b' ' | b'\t') {
+        end += 1;
+    }
+    if end < bytes.len() && bytes[end] == b'?' {
+        end += 1;
+        Span::new(run_span.source_id, run_span.end(), end)
+    } else {
+        Span::new(run_span.source_id, run_span.end(), run_span.end())
+    }
 }
 
 fn span_end_after_following_newlines(source: &str, mut end: usize) -> usize {
@@ -5176,10 +5300,7 @@ fn is_safe_const_expr(arena: &AstArena, expr: ExprId) -> bool {
 }
 
 fn prefer_in_receiver_type(ty: &Type) -> bool {
-    matches!(
-        ty,
-        Type::List(_) | Type::Str | Type::Bytes | Type::Path
-    )
+    matches!(ty, Type::List(_) | Type::Str | Type::Bytes | Type::Path)
 }
 
 fn call_is_directly_negated(source: &str, span: Span) -> bool {

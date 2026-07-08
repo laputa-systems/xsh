@@ -811,6 +811,49 @@ print ${counts.has("x")}
     }
 
     #[test]
+    fn lint_fix_rewrites_needless_annotation_through_ast() {
+        let source = "\
+let name: Str = \"pkg\"
+print ${name}
+";
+        let config = config();
+        let result = lint_one_file_with_fixes(0, "fixture.xsh", source.to_string(), &config);
+        let LintResultKind::Write { text, .. } = result.kind else {
+            panic!("expected fixed source to be written");
+        };
+
+        assert!(text.contains("let name = \"pkg\""));
+        assert!(!text.contains(": Str"));
+    }
+
+    #[test]
+    fn lint_fix_keeps_var_annotation_when_reassigned() {
+        let source = "\
+var build_env: Record = {A: \"1\"}
+build_env = {A: \"1\", B: \"2\"}
+let _ = build_env.has(\"B\")
+";
+        let config = config();
+        let result = lint_one_file_with_fixes(0, "fixture.xsh", source.to_string(), &config);
+
+        assert!(matches!(result.kind, LintResultKind::Clean));
+    }
+
+    #[test]
+    fn lint_fix_removes_run_status_propagation_through_ast() {
+        let source = "\
+run test -f p\"missing\" ?
+";
+        let config = config();
+        let result = lint_one_file_with_fixes(0, "fixture.xsh", source.to_string(), &config);
+        let LintResultKind::Write { text, .. } = result.kind else {
+            panic!("expected fixed source to be written");
+        };
+
+        assert_eq!(text, "run test -f p\"missing\"\n");
+    }
+
+    #[test]
     fn lint_fix_rewrites_tail_return_binding_through_ast() {
         let source = "\
 proc overlap(left: List[Str], right: List[Str]) -> List[Str] {

@@ -21,16 +21,14 @@ proc main(...argv: List[Str]) [net, time, error] {
   print f"waiting for ${opts.url}  timeout=${opts.timeout}s  interval=${interval}s"
 
   while elapsed <= opts.timeout {
-    match net.request(
-      {
-        method: "GET",
-        url: opts.url,
-        timeout: 2s,
-        redirects: 3,
-        fail_status: false,
-        max_body_bytes: 256,
-      },
-    ) {
+    match net.request({
+      method: "GET",
+      url: opts.url,
+      timeout: 2s,
+      redirects: 3,
+      fail_status: false,
+      max_body_bytes: 256,
+    }) {
       Ok(response) => {
         let ok = if opts.status > 0 {
           response.status == opts.status

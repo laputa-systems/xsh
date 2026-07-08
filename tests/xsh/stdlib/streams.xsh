@@ -129,8 +129,14 @@ proc test_implicit_standard_read_helpers_and_pipe_shorthand(ctx: TestContext) [f
   let file = test.temp_file(ctx, name: "pipe-shorthand-input", contents: b"ok\nwarn one\nwarn two\n")?
   let file_text = fs.read_text(file)?
   let piped = file.read_bytes()?.utf8()?
-  let warnings = piped |> text.lines() |> where { "warn" in . }
-  let names = [{path: "b"}, {path: "a"}] |> map .path |> sort
+
+  let warnings = piped
+    |> text.lines
+    |> where "warn" in .
+
+  let names = [{path: "b"}, {path: "a"}]
+    |> map .path
+    |> sort
 
   test.eq(file_text, piped)?
   test.eq(warnings[0], "warn one")?

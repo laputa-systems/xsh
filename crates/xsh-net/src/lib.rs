@@ -5,8 +5,8 @@ use crossbeam_channel::RecvTimeoutError;
 use rustc_hash::FxHashSet;
 use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
 use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
-use rustls::{ClientConnection, StreamOwned};
 use rustls::{ClientConfig, DigitallySignedStruct, RootCertStore, SignatureScheme};
+use rustls::{ClientConnection, StreamOwned};
 use rustls_platform_verifier::BuilderVerifierExt;
 use std::collections::HashMap;
 use std::ffi::{CStr, CString};
@@ -1326,7 +1326,8 @@ impl HttpConnection {
             head.push_str("\r\n");
         }
         head.push_str("\r\n");
-        self.write_all(head.as_bytes()).map_err(net_transport_error)?;
+        self.write_all(head.as_bytes())
+            .map_err(net_transport_error)?;
         if !request.body.is_empty() {
             self.write_all(&request.body).map_err(net_transport_error)?;
         }

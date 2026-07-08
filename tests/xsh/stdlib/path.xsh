@@ -64,19 +64,22 @@ proc test_path_methods(ctx: TestContext) [fs, error] {
 proc test_path_edge_cases_and_standard_record_schema(ctx: TestContext) [fs, process, error] {
   let root = test.temp_dir(ctx, name: "path-edge")?
   let spaced = fp"${root}/space name"
-  let lined = fp"${root}/line\nname"
+
+  let lined = fp"""${root}/line
+name"""
+
   let dashed = fp"${root}/-leading"
   spaced.write("a")?
   lined.write("b")?
   dashed.write("c")?
-  run test -f (spaced) ?
-  run test -f (lined) ?
-  run test -f (dashed) ?
-
+  run test -f $spaced
+  run test -f $lined
+  run test -f $dashed
   let meta = spaced.metadata()?
   test.eq(path_entry_name(meta), "space name")?
-
   let raw_path = Path.parse_bytes(b"bad\xffname")?
+  test.ok("bad" in raw_path.display())?
+
   let raw = test.run_script(
     ctx,
     r"""
@@ -100,6 +103,7 @@ proc test_absolute_glob_traverses_symlinked_literal_components(ctx: TestContext)
   real.mkdir()
   fp"${real}/hit.txt".write("ok")?
   fs.symlink(real, link)?
+
   let output = test.run_script(
     ctx,
     f"""
@@ -109,5 +113,10 @@ print \${files[0]}
   )?
 
   test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "hit.txt\n")?
+
+  test.eq(
+    output.stdout,
+    """hit.txt
+""",
+  )?
 }

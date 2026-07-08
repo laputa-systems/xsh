@@ -3019,7 +3019,7 @@ fn compact_module_exports_for_use(
     program: &ArenaProgram,
     key: &str,
     _namespace: Name,
-    functions: Option<&LowerableFunctions<'_>>,
+    _functions: Option<&LowerableFunctions<'_>>,
 ) -> Option<Vec<LoweredModuleExport>> {
     let module = program
         .modules
@@ -3045,11 +3045,6 @@ fn compact_module_exports_for_use(
             }
             ArenaStmtKind::ProcDef(def) => {
                 let name = program.arena.function_def(def).name;
-                let qualified =
-                    LoweredFunctionKey::Qualified(QualifiedName::new(function_namespace, name));
-                if functions.is_some_and(|functions| !functions.contains(qualified)) {
-                    continue;
-                }
                 exports.push(LoweredModuleExport {
                     name,
                     kind: LoweredModuleExportKind::Proc,
@@ -3058,11 +3053,6 @@ fn compact_module_exports_for_use(
             }
             ArenaStmtKind::PureDef(def) => {
                 let name = program.arena.function_def(def).name;
-                let qualified =
-                    LoweredFunctionKey::Qualified(QualifiedName::new(function_namespace, name));
-                if functions.is_some_and(|functions| !functions.contains(qualified)) {
-                    continue;
-                }
                 exports.push(LoweredModuleExport {
                     name,
                     kind: LoweredModuleExportKind::Pure,
@@ -4583,9 +4573,10 @@ impl CompactLowerConstructProbe<'_, '_> {
                             self.infer_checked_expr_type(branch.value, &self.top_level_known)
                         });
                     if let Some(branch_ty) = branch_ty
-                        && branch_ty != expected {
-                            return None;
-                        }
+                        && branch_ty != expected
+                    {
+                        return None;
+                    }
                 }
                 Some(expected)
             }

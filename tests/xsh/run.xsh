@@ -117,7 +117,12 @@ print ${out}
 """,
   )?
 
-  test.eq(output.stdout, "out\n")?
+  test.eq(
+    output.stdout,
+    """out
+""",
+  )?
+
   test.eq(output.stderr, "err")?
 }
 
@@ -166,11 +171,21 @@ main(args)?
   test.eq(nul_target.status, 3)?
   test.contains(nul_target.stderr, "nul")?
 
-  let nul_path = test.run_script(ctx, "let _ = Path(\"bad\\0path\")\n")?
+  let nul_path = test.run_script(
+    ctx,
+    """let _ = Path("bad\\0path")
+""",
+  )?
+
   test.eq(nul_path.status, 3)?
   test.contains(nul_path.stderr, "nul")?
 
-  let nul_argv = test.run_script(ctx, "run printf (\"bad\\0arg\") ?\n")?
+  let nul_argv = test.run_script(
+    ctx,
+    """run printf ("bad\\0arg") ?
+""",
+  )?
+
   test.eq(nul_argv.status, 3)?
   test.contains(nul_argv.stderr, "nul")?
 
@@ -187,7 +202,12 @@ pair(@parts)?
   )?
 
   test.ok(spliced.success, spliced.stderr)?
-  test.eq(spliced.stdout, "left right\n")?
+
+  test.eq(
+    spliced.stdout,
+    """left right
+""",
+  )?
 
   let no_arm = test.run_script(
     ctx,
@@ -204,14 +224,18 @@ match value {
 
 proc test_legacy_test_and_getopt_spellings_are_not_command_aliases(ctx: TestContext) [error] {
   for source in [
-    "test -f file\n",
-    "[ -f file ]\n",
-    "[[ name == value ]]\n",
-    "getopt -- --root dest\n",
+    """test -f file
+""",
+    """[ -f file ]
+""",
+    """[[ name == value ]]
+""",
+    """getopt -- --root dest
+""",
   ] {
     let output = test.run_script(ctx, source)?
-
     test.ok(! output.success, source)?
+
     test.ok(
       "check.unresolved-proc-command" in output.stderr or "check.unresolved-name" in output.stderr or "parse" in output.stderr or "lex" in output.stderr,
       output.stderr,

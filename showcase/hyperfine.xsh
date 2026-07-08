@@ -212,19 +212,17 @@ proc export_json(results: List[Summary], dest: Str) [fs, error] {
   for result in results {
     var times_s = [t / 1000.0 for t in result.times_ms]
 
-    entries = entries.push(
-      {
-        command: result.name,
-        mean: result.mean_ms / 1000.0,
-        stddev: result.stddev_ms / 1000.0,
-        median: result.median_ms / 1000.0,
-        user: result.user_ms / 1000.0,
-        system: result.system_ms / 1000.0,
-        min: result.min_ms / 1000.0,
-        max: result.max_ms / 1000.0,
-        times: times_s,
-      },
-    )
+    entries = entries.push({
+      command: result.name,
+      mean: result.mean_ms / 1000.0,
+      stddev: result.stddev_ms / 1000.0,
+      median: result.median_ms / 1000.0,
+      user: result.user_ms / 1000.0,
+      system: result.system_ms / 1000.0,
+      min: result.min_ms / 1000.0,
+      max: result.max_ms / 1000.0,
+      times: times_s,
+    })
   }
 
   let encoded = json.encode({results: entries}, pretty: true)?

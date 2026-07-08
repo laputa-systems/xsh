@@ -52,17 +52,15 @@ export pure parse_passwd(text: Str) -> Result[List[PasswdEntry]] {
     let gid = fields[3].parse_int() ?? -1
     continue when uid < 0 or gid < 0
 
-    entries = entries.push(
-      {
-        name: fields[0],
-        password: fields[1],
-        uid: uid,
-        gid: gid,
-        gecos: fields[4],
-        home: fp"${fields[5]}",
-        shell: fields[6],
-      },
-    )
+    entries = entries.push({
+      name: fields[0],
+      password: fields[1],
+      uid: uid,
+      gid: gid,
+      gecos: fields[4],
+      home: fp"${fields[5]}",
+      shell: fields[6],
+    })
   }
 
   return entries
@@ -304,15 +302,13 @@ export pure upsert_shadow(records: List[Any], username: Str, password: Str, last
 
   for item in records {
     if ! item.raw and item.username == username {
-      out = out.push(
-        {
-          raw: false,
-          username: username,
-          password: password,
-          rest: shadow_rest_with_defaults(item.rest, last_change),
-          line: "",
-        },
-      )
+      out = out.push({
+        raw: false,
+        username: username,
+        password: password,
+        rest: shadow_rest_with_defaults(item.rest, last_change),
+        line: "",
+      })
 
       found = true
     } else {

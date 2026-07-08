@@ -2151,19 +2151,11 @@ let script = r\"\"\"print f\"${value}\"
 
     let first = Formatter::new().format_source(SourceId::new(0), source);
 
-    assert!(
-        first.diagnostics.is_empty(),
-        "{:?}",
-        first.diagnostics
-    );
+    assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
     assert_eq!(first.formatted, expected);
 
     let second = Formatter::new().format_source(SourceId::new(0), &first.formatted);
-    assert!(
-        second.diagnostics.is_empty(),
-        "{:?}",
-        second.diagnostics
-    );
+    assert!(second.diagnostics.is_empty(), "{:?}", second.diagnostics);
     assert_eq!(second.formatted, first.formatted);
 }
 

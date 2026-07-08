@@ -72,7 +72,6 @@ printf '%s|%s|%s|%s' "$CC" "$CFLAGS" "$DESTDIR" "$XSH_ENV_SCOPE"
     let entries = env.list()?
     let home = env.Path.HOME?
     let path_list = env.PathList.PATH?
-
     test.eq(dest, "/tmp/xsh-env-scope")?
     test.eq(dest_path.display(), "/tmp/xsh-env-scope")?
     test.eq(empty, "")?
@@ -85,20 +84,20 @@ printf '%s|%s|%s|%s' "$CC" "$CFLAGS" "$DESTDIR" "$XSH_ENV_SCOPE"
     test.eq(truthy, false)?
     test.eq(count, 7)?
     test.eq(fallback_path, root)?
-
     let line = run.text CC=cc CFLAGS="-O2 -pipe" env-scope-tool ?
     test.eq(line, "cc|-O2 -pipe|/tmp/xsh-env-scope|block")?
   } ?
 
-  let _removed = env.PATH.pop()?
+  let removed_path = env.PATH.pop()?
+  test.eq(removed_path, root)?
   test.ok(root not in env.PATH)?
 }
 
-proc test_path_literals_method_sugar_and_expr_env_blocks(ctx: TestContext) [fs, process, error] {
+proc test_path_literals_method_sugar_and_expr_env_blocks(ctx: TestContext) [fs, process, env, error] {
   let root = test.temp_dir(ctx, name: "sugar")?
   let child_name = "child"
   let child = fp"${root}/${child_name}"
-  root.mkdir(parents: true)?
+  root.mkdir()?
 
   env {
     HOME = root
@@ -110,13 +109,16 @@ proc test_path_literals_method_sugar_and_expr_env_blocks(ctx: TestContext) [fs, 
     let home = env.Path.HOME?
     let encoded = env.Str.ENCODED?
     let decoded = encoded.base64_decode()?
-    let lines = " alpha\nbeta ".trim().lines().collect()
+
+    let lines = """ alpha
+beta """.trim().lines().collect()
+
     test.eq(home, root)?
     test.ok("child" in env.Path.CHILD?)
     test.eq(decoded, b"abc")?
     test.eq(lines[1], "beta")?
     test.eq(b"abc".compare(b"abd").byte, 3)?
-    let line = run.text sh -c r"""printf '%s|%s|%s' "$HOME" "$DIGEST" "$COUNT";""" ?
+    let line = run.text sh -c "printf '%s|%s|%s' \"\$HOME\" \"\$DIGEST\" \"\$COUNT\";" ?
     test.eq(line, f"${root.display()}|ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad|3")?
   } ?
 }
