@@ -997,6 +997,9 @@ impl<'a> Linter<'a> {
         if !self.annotation_is_needless(&annotation_ty, &init, exported) {
             return;
         }
+        if self.annotation_refs_user_type(ty) {
+            return;
+        }
         let ty_span = self.arena.type_expr_span(ty);
         let deletion_start = scan_before_colon(&self.source, ty_span.start());
         let deletion_end = scan_after_type(&self.source, ty_span.end());
@@ -1036,6 +1039,26 @@ impl<'a> Linter<'a> {
             *actual == *annotation
         } else {
             actual.matches_expected(annotation) && annotation.matches_expected(actual)
+        }
+    }
+
+    fn annotation_refs_user_type(&self, ty: TypeExprId) -> bool {
+        self.type_expr_refs_user_type(ty)
+    }
+
+    fn type_expr_refs_user_type(&self, ty: TypeExprId) -> bool {
+        match type_expr_kind(self.arena, ty) {
+            ArenaTypeExprKind::Named(name) => self.type_declarations.contains_key(name.as_str()),
+            ArenaTypeExprKind::List(inner)
+            | ArenaTypeExprKind::Map(inner)
+            | ArenaTypeExprKind::Stream(inner)
+            | ArenaTypeExprKind::Module(inner)
+            | ArenaTypeExprKind::Optional(inner) => self.type_expr_refs_user_type(inner),
+            ArenaTypeExprKind::Result { ok, err } => {
+                self.type_expr_refs_user_type(ok)
+                    || err.is_some_and(|err| self.type_expr_refs_user_type(err))
+            }
+            ArenaTypeExprKind::Qualified => false,
         }
     }
 

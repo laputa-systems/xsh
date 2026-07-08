@@ -16,8 +16,6 @@ error ScriptError = Failed(kind: Str, message: Str)
 # With no argument, collapses a built-in sample.
 type Options = {input: Path, comm: Str, include: Str, exclude: Str, top: Int, leaf_first: Bool}
 
-type StackCount = {stack: Str, count: Int}
-
 pure usage() -> Str {
   return "usage: xsh showcase/perf-collapse.xsh -- PERF_SCRIPT [--comm NAME] [--include REGEX] [--exclude REGEX] [--top N] [--leaf-first]"
 }

@@ -53,7 +53,7 @@ path = "src/lib.rs"
 doctest = false
 
 [features]
-default = ["net", "tools"]
+default = ["native-tests", "net", "tools"]
 # In-process heap profiler (`make prof-dhat`). Installs `dhat::Alloc` as the
 # global allocator and writes a dh_view.html-compatible JSON on exit. Mutually
 # exclusive with `perf-metrics` (both install a #[global_allocator]).

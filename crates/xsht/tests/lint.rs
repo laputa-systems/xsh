@@ -1439,7 +1439,10 @@ let rows: List[Record] = json.read(index)?
         .iter()
         .filter(|d| d.code.as_deref() == Some("lint.needless-annotation"))
         .collect();
-    assert!(needless.is_empty(), "should not lint module call initializers");
+    assert!(
+        needless.is_empty(),
+        "should not lint module call initializers"
+    );
 }
 
 #[test]
@@ -1463,7 +1466,10 @@ var entries: List[Entry] = []
         .iter()
         .filter(|d| d.code.as_deref() == Some("lint.needless-annotation"))
         .collect();
-    assert!(needless.is_empty(), "should not lint empty list initializers");
+    assert!(
+        needless.is_empty(),
+        "should not lint empty list initializers"
+    );
 }
 
 #[test]
@@ -1565,5 +1571,9 @@ let source_path: Path = p\"src/main.c\"
         .iter()
         .filter(|d| d.code.as_deref() == Some("lint.needless-annotation"))
         .collect();
-    assert_eq!(needless.len(), 4, "expected 4 needless annotation diagnostics");
+    assert_eq!(
+        needless.len(),
+        4,
+        "expected 4 needless annotation diagnostics"
+    );
 }

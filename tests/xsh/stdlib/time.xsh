@@ -25,13 +25,19 @@ proc test_time_module() [process, time, error] {
 proc test_time_module_formats_local_time_under_tz(ctx: TestContext) [error] {
   let output = test.run_script(
     ctx,
-    r"""print ${time.format(0, "%Y-%m-%d %H:%M %Z %z", utc: false)?}
+    """print \${time.format(0, "%Y-%m-%d %H:%M %Z %z", utc: false)?}
 """,
     [],
     {TZ: "America/New_York"},
   )?
 
   test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "1969-12-31 19:00 EST -0500\n")?
+
+  test.eq(
+    output.stdout,
+    """1969-12-31 19:00 EST -0500
+""",
+  )?
+
   test.eq(output.stderr, "")?
 }

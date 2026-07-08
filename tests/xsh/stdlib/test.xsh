@@ -6,10 +6,10 @@ proc test_test_helpers() [error] {
 proc test_run_script_captures_status_env_args_and_bytes(ctx: TestContext) [error] {
   let ok = test.run_script(
     ctx,
-    r"""
-print ${ARGV[0]}
-print ${env.get("XSH_RUN_SCRIPT_TEST")?}
-io.write_stdout_bytes(b"\xff\x00a")?
+    """
+print \${ARGV[0]}
+print \${env.get("XSH_RUN_SCRIPT_TEST")?}
+io.write_stdout_bytes(b"\\xff\\x00a")?
 """,
     ["argument"],
     {XSH_RUN_SCRIPT_TEST: "env-value"},
@@ -19,9 +19,14 @@ io.write_stdout_bytes(b"\xff\x00a")?
   test.eq(ok.status, 0)?
   test.contains(ok.stdout, "argument", ok.stdout)?
   test.contains(ok.stdout, "env-value", ok.stdout)?
-  test.ok(ok.stdout_bytes.ends_with(b"\xff\x00a"), ok.stdout)?
+  test.ok(ok.stdout_bytes.ends_with(b"\xff\0a"), ok.stdout)?
 
-  let failed = test.run_script(ctx, "abort(7)\n")?
+  let failed = test.run_script(
+    ctx,
+    """abort(7)
+""",
+  )?
+
   test.ok(! failed.success, failed.stdout)?
   test.eq(failed.status, 7)?
 }
@@ -29,8 +34,8 @@ io.write_stdout_bytes(b"\xff\x00a")?
 proc test_run_xsht_trace_accepts_trace_flags_and_script_args(ctx: TestContext) [error] {
   let output = test.run_xsht_trace(
     ctx,
-    r"""
-print ${ARGV[0]}
+    """
+print \${ARGV[0]}
 run true ?
 """,
     ["--trace", "--raw"],
@@ -38,7 +43,13 @@ run true ?
   )?
 
   test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "script-arg\n")?
+
+  test.eq(
+    output.stdout,
+    """script-arg
+""",
+  )?
+
   test.contains(output.stderr, "kind=script.enter")?
   test.contains(output.stderr, "kind=run.start")?
 }

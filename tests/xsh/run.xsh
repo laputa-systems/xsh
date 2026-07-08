@@ -386,23 +386,45 @@ proc test_whole_script_run_error_diagnostics(ctx: TestContext) [error] {
 }
 
 proc test_pipeline_failures_and_trace_are_visible(ctx: TestContext) [error] {
-  let plain = test.run_script(ctx, "run false | run true ?\n")?
+  let plain = test.run_script(
+    ctx,
+    """run false | run true ?
+""",
+  )?
+
   test.eq(plain.status, 3)?
   test.contains(plain.stderr, "pipeline segment 0")?
   test.contains(plain.stderr, "false")?
 
-  let late = test.run_script(ctx, "run true | run false ?\n")?
+  let late = test.run_script(
+    ctx,
+    """run true | run false ?
+""",
+  )?
+
   test.eq(late.status, 3)?
   test.contains(late.stderr, "pipeline segment 1")?
 
-  let traced = test.run_xsht_trace(ctx, "run false | run true ?\n", ["--raw"])?
+  let traced = test.run_xsht_trace(
+    ctx,
+    """run false | run true ?
+""",
+    ["--raw"],
+  )?
+
   test.eq(traced.status, 3)?
   test.contains(traced.stderr, "kind=pipeline.enter")?
   test.contains(traced.stderr, "kind=pipeline.segment.end")?
   test.contains(traced.stderr, "index=0")?
   test.contains(traced.stderr, "success:false")?
 
-  let json_trace = test.run_xsht_trace(ctx, "run false | run true ?\n", ["--raw", "--trace-format", "jsonl"])?
+  let json_trace = test.run_xsht_trace(
+    ctx,
+    """run false | run true ?
+""",
+    ["--raw", "--trace-format", "jsonl"],
+  )?
+
   test.eq(json_trace.status, 3)?
   test.contains(json_trace.stderr, "\"kind\":\"pipeline.segment.end\"")?
   test.contains(json_trace.stderr, "\"index\":0")?
@@ -410,7 +432,6 @@ proc test_pipeline_failures_and_trace_are_visible(ctx: TestContext) [error] {
 }
 
 proc test_run_trace_reports_redirection_method_and_env_details(ctx: TestContext) [error] {
-  let missing = test.temp_path(ctx, name: "missing-redirection-input")
   let redirection = test.run_xsht_trace(
     ctx,
     f"""
@@ -419,24 +440,32 @@ run cat < (missing) ?
 """,
     ["--trace", "--raw"],
   )?
+
   test.eq(redirection.status, 3)?
   test.contains(redirection.stderr, "kind=redirection.setup")?
   test.contains(redirection.stderr, "error={kind:b\"redirection\"")?
 
   let method_trace = test.run_xsht_trace(
     ctx,
-    r"""let demo_path = Path("demo.txt")
-print ${demo_path.display()}
+    """let demo_path = Path("demo.txt")
+print \${demo_path.display()}
 """,
     ["--trace", "--raw", "--trace-format", "jsonl"],
   )?
+
   test.ok(method_trace.success, method_trace.stderr)?
   test.contains(method_trace.stderr, "\"kind\":\"method.call\"")?
   test.contains(method_trace.stderr, "\"kind\":\"method.result\"")?
   test.contains(method_trace.stderr, "\"api_id\":\"method.Path.display\"")?
   test.contains(method_trace.stderr, "\"api_id\":\"core.print\"")?
 
-  let env_trace = test.run_xsht_trace(ctx, "run XSH_STAGE3_TRACE=value sh -c \"true\" ?\n", ["--raw"])?
+  let env_trace = test.run_xsht_trace(
+    ctx,
+    """run XSH_STAGE3_TRACE=value sh -c "true" ?
+""",
+    ["--raw"],
+  )?
+
   test.ok(env_trace.success, env_trace.stderr)?
   test.contains(env_trace.stderr, "env={b\"XSH_STAGE3_TRACE\":b\"value\"}")?
 
@@ -451,6 +480,7 @@ cd tests {
 """,
     ["--trace", "--raw"],
   )?
+
   test.eq(cd_error.status, 3)?
   test.contains(cd_error.stderr, "kind=cwd.enter")?
   test.contains(cd_error.stderr, "kind=cwd.exit")?
@@ -460,7 +490,7 @@ cd tests {
 proc test_trace_output_covers_baseline_event_kinds(ctx: TestContext) [error] {
   let success = test.run_xsht_trace(
     ctx,
-    r"""
+    """
 let _term = process.signal("TERM")?
 
 pure decorate(value: Str) -> Str {
@@ -469,7 +499,7 @@ pure decorate(value: Str) -> Str {
 
 proc say(value: Str) -> Result[Unit] {
   let rendered = decorate(value)
-  print ${rendered}
+  print \${rendered}
   return Ok()
 }
 
@@ -485,7 +515,9 @@ main(args)?
 """,
     ["--trace", "--raw"],
   )?
+
   test.ok(success.success, success.stderr)?
+
   for kind in [
     "kind=script.enter",
     "kind=script.exit",
@@ -518,6 +550,7 @@ main(args)?
 """,
     ["--trace", "--raw"],
   )?
+
   test.eq(runtime_error.status, 3)?
   test.contains(runtime_error.stderr, "kind=runtime.error")?
   test.contains(runtime_error.stderr, "index-out-of-range")?

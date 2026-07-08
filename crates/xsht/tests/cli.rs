@@ -818,6 +818,62 @@ fn check_where_pipeline_preserves_item_type_for_loop() {
 }
 
 #[test]
+fn check_nested_par_map_enumerate_preserves_line_type() {
+    let root = TempDir::new().expect("create temp root");
+    let script = root.path().join("main.xsh");
+    fs::write(
+        &script,
+        "type Finding = {line: Int, text: Str}
+
+proc read_source(src: Str) [error] -> Result[Str] {
+  return Ok(src)
+}
+
+proc main(...argv: List[Str]) [error] -> Result[Unit] {
+  let sources = [\" alpha\\n beta \"]
+  let findings: List[Finding] = sources
+    |> par-map { |source|
+      var hits: List[Finding] = []
+
+      match read_source(source) {
+        Ok(src) => {
+          for item in src.lines() |> enumerate() {
+            let line_num = item.index + 1
+            let line = item.value
+            hits = hits.push({line: line_num, text: line.trim()})
+          }
+        }
+        Err(_) => {}
+      }
+
+      hits
+    }
+    |> flat-map { |hits|
+      hits
+    }
+
+  print ${findings.len()}
+  return Ok()
+}
+",
+    )
+    .expect("write script");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+        .args(["check", "main.xsh"])
+        .current_dir(root.path())
+        .output()
+        .expect("run xsht check");
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn check_path_property_field_type_flows_to_method_call() {
     let root = TempDir::new().expect("create temp root");
     let script = root.path().join("main.xsh");

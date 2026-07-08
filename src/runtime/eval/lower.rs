@@ -3197,6 +3197,13 @@ const _: [(); COMPACT_EXPR_KIND_COUNT] = [(); 39];
 const _: [(); COMPACT_CALL_BLOCKER_KIND_COUNT] = [(); 6];
 const _: [(); COMPACT_COMMAND_BLOCKER_KIND_COUNT] = [(); 6];
 
+fn stream_item_type(ty: &Type) -> Option<&Type> {
+    match ty {
+        Type::List(item) | Type::Stream(item) => Some(item.as_ref()),
+        _ => None,
+    }
+}
+
 impl CompactLowerConstructProbe<'_, '_> {
     fn text_value_in_span<'a>(
         &'a self,
@@ -4566,16 +4573,21 @@ impl CompactLowerConstructProbe<'_, '_> {
                 branches,
                 else_value,
             } => {
-                let expected = self.infer_checked_expr_type_with_slots(else_value, slots)?;
-                self.program
-                    .arena
-                    .if_expr_branches(branches)
-                    .iter()
-                    .all(|branch| {
-                        self.infer_checked_expr_type_with_slots(branch.value, slots)
-                            == Some(expected.clone())
-                    })
-                    .then_some(expected)
+                let expected = self
+                    .infer_checked_expr_type_with_slots(else_value, slots)
+                    .or_else(|| self.infer_checked_expr_type(else_value, &self.top_level_known))?;
+                for branch in self.program.arena.if_expr_branches(branches) {
+                    let branch_ty = self
+                        .infer_checked_expr_type_with_slots(branch.value, slots)
+                        .or_else(|| {
+                            self.infer_checked_expr_type(branch.value, &self.top_level_known)
+                        });
+                    if let Some(branch_ty) = branch_ty
+                        && branch_ty != expected {
+                            return None;
+                        }
+                }
+                Some(expected)
             }
             ArenaExprKind::Pipeline { input, stages } => {
                 self.infer_checked_pipeline_type_with_slots(input, stages, slots)
@@ -7385,16 +7397,25 @@ impl CompactLowerConstructProbe<'_, '_> {
             ArenaExprKind::Pipeline { input, stages } => {
                 let pipe_stages = self.program.arena.pipe_stages(stages).to_vec();
                 let mut lowered_stages = Vec::with_capacity(pipe_stages.len());
+                let mut current_ty = self
+                    .infer_checked_expr_type(input, &self.top_level_known)
+                    .or_else(|| self.infer_checked_expr_type_with_slots(input, slots))
+                    .map(|ty| ty.result_ok().cloned().unwrap_or(ty));
                 for pipe_stage in &pipe_stages {
                     let ArenaPipeStageKind::Stream(ref stream_stage) = pipe_stage.kind else {
                         lowered_stages.push(LoweredPipelineStage::Collect);
                         continue;
                     };
+                    let item_ty = current_ty.as_ref().and_then(stream_item_type);
                     lowered_stages.push(self.lower_pipeline_stage(
                         stream_stage,
                         slots,
                         current_function,
+                        item_ty,
                     )?);
+                    current_ty = current_ty.and_then(|ty| {
+                        self.infer_checked_stream_stage_type_with_slots(&ty, stream_stage, slots)
+                    });
                 }
                 Some(LoweredExpr::ListPipeline {
                     input: Box::new(self.lower_expr(input, slots, current_function, item_slot)?),
@@ -7405,12 +7426,21 @@ impl CompactLowerConstructProbe<'_, '_> {
             ArenaExprKind::StructuredPipeline { input, stages } => {
                 let stages = self.program.arena.stream_stages(stages).to_vec();
                 let mut lowered_stages = Vec::with_capacity(stages.len());
+                let mut current_ty = self
+                    .infer_checked_expr_type(input, &self.top_level_known)
+                    .or_else(|| self.infer_checked_expr_type_with_slots(input, slots))
+                    .map(|ty| ty.result_ok().cloned().unwrap_or(ty));
                 for stage in &stages {
+                    let item_ty = current_ty.as_ref().and_then(stream_item_type);
                     lowered_stages.push(self.lower_pipeline_stage(
                         stage,
                         slots,
                         current_function,
+                        item_ty,
                     )?);
+                    current_ty = current_ty.and_then(|ty| {
+                        self.infer_checked_stream_stage_type_with_slots(&ty, stage, slots)
+                    });
                 }
                 Some(LoweredExpr::ListPipeline {
                     input: Box::new(self.lower_expr(input, slots, current_function, item_slot)?),
@@ -9552,6 +9582,7 @@ impl CompactLowerConstructProbe<'_, '_> {
         stage: &ArenaStreamStage,
         slots: &mut SlotScope,
         current_function: Option<Name>,
+        item_ty: Option<&Type>,
     ) -> Option<LoweredPipelineStage> {
         match stage.kind {
             StreamStageKind::TextStreamLines => {
@@ -9663,7 +9694,7 @@ impl CompactLowerConstructProbe<'_, '_> {
             }
             StreamStageKind::SortBy => {
                 if let Some((slot, key)) =
-                    self.try_lower_pipeline_stage_shorthand(stage, slots, current_function)
+                    self.try_lower_pipeline_stage_shorthand(stage, slots, current_function, item_ty)
                 {
                     return Some(LoweredPipelineStage::SortBy {
                         slot,
@@ -9675,7 +9706,8 @@ impl CompactLowerConstructProbe<'_, '_> {
                         )?,
                     });
                 }
-                let (slot, key) = self.lower_pipeline_stage_expr(stage, slots, current_function)?;
+                let (slot, key) =
+                    self.lower_pipeline_stage_expr(stage, slots, current_function, item_ty)?;
                 Some(LoweredPipelineStage::SortBy {
                     slot,
                     key,
@@ -9691,11 +9723,12 @@ impl CompactLowerConstructProbe<'_, '_> {
                     return None;
                 }
                 if let Some((slot, key)) =
-                    self.try_lower_pipeline_stage_shorthand(stage, slots, current_function)
+                    self.try_lower_pipeline_stage_shorthand(stage, slots, current_function, item_ty)
                 {
                     return Some(LoweredPipelineStage::UniqueBy { slot, key });
                 }
-                let (slot, key) = self.lower_pipeline_stage_expr(stage, slots, current_function)?;
+                let (slot, key) =
+                    self.lower_pipeline_stage_expr(stage, slots, current_function, item_ty)?;
                 Some(LoweredPipelineStage::UniqueBy { slot, key })
             }
             StreamStageKind::GroupBy => {
@@ -9707,11 +9740,12 @@ impl CompactLowerConstructProbe<'_, '_> {
                     }
                 }
                 if let Some((slot, key)) =
-                    self.try_lower_pipeline_stage_shorthand(stage, slots, current_function)
+                    self.try_lower_pipeline_stage_shorthand(stage, slots, current_function, item_ty)
                 {
                     return Some(LoweredPipelineStage::GroupBy { slot, key });
                 }
-                let (slot, key) = self.lower_pipeline_stage_expr(stage, slots, current_function)?;
+                let (slot, key) =
+                    self.lower_pipeline_stage_expr(stage, slots, current_function, item_ty)?;
                 Some(LoweredPipelineStage::GroupBy { slot, key })
             }
             StreamStageKind::Count => {
@@ -9726,9 +9760,12 @@ impl CompactLowerConstructProbe<'_, '_> {
                     if stage.block.is_some() {
                         return None;
                     }
-                    if let Some((slot, key)) =
-                        self.try_lower_pipeline_stage_shorthand(stage, slots, current_function)
-                    {
+                    if let Some((slot, key)) = self.try_lower_pipeline_stage_shorthand(
+                        stage,
+                        slots,
+                        current_function,
+                        item_ty,
+                    ) {
                         return Some(LoweredPipelineStage::CountBy { slot, key });
                     }
                     return None;
@@ -9736,7 +9773,8 @@ impl CompactLowerConstructProbe<'_, '_> {
                 if stage.block.is_none() {
                     return Some(LoweredPipelineStage::Count);
                 }
-                let (slot, key) = self.lower_pipeline_stage_expr(stage, slots, current_function)?;
+                let (slot, key) =
+                    self.lower_pipeline_stage_expr(stage, slots, current_function, item_ty)?;
                 Some(LoweredPipelineStage::CountBy { slot, key })
             }
             StreamStageKind::Where => {
@@ -9744,12 +9782,12 @@ impl CompactLowerConstructProbe<'_, '_> {
                     return None;
                 }
                 if let Some((slot, predicate)) =
-                    self.try_lower_pipeline_stage_shorthand(stage, slots, current_function)
+                    self.try_lower_pipeline_stage_shorthand(stage, slots, current_function, item_ty)
                 {
                     return Some(LoweredPipelineStage::Where { slot, predicate });
                 }
                 let (slot, predicate) =
-                    self.lower_pipeline_stage_expr(stage, slots, current_function)?;
+                    self.lower_pipeline_stage_expr(stage, slots, current_function, item_ty)?;
                 Some(LoweredPipelineStage::Where { slot, predicate })
             }
             StreamStageKind::Map => {
@@ -9767,18 +9805,19 @@ impl CompactLowerConstructProbe<'_, '_> {
                     let ArenaCallArgKind::Positional(expr) = arg.kind else {
                         return None;
                     };
-                    let (slot, _cleanup) = self.lower_pipeline_stage_item_slot(stage, slots)?;
+                    let (slot, _cleanup) =
+                        self.lower_pipeline_stage_item_slot(stage, slots, item_ty)?;
                     let value = self.lower_expr(expr, slots, current_function, Some(slot))?;
                     cleanup_pipeline_stage_item_slot(slots, _cleanup, slot);
                     return Some(LoweredPipelineStage::Map { slot, value });
                 }
                 if let Some((slot, value)) =
-                    self.lower_pipeline_stage_expr(stage, slots, current_function)
+                    self.lower_pipeline_stage_expr(stage, slots, current_function, item_ty)
                 {
                     return Some(LoweredPipelineStage::Map { slot, value });
                 }
                 let (slot, body, value) =
-                    self.lower_pipeline_stage_block(stage, slots, current_function)?;
+                    self.lower_pipeline_stage_block(stage, slots, current_function, item_ty)?;
                 Some(LoweredPipelineStage::MapBlock { slot, body, value })
             }
             StreamStageKind::FlatMap => {
@@ -9786,17 +9825,17 @@ impl CompactLowerConstructProbe<'_, '_> {
                     return None;
                 }
                 if let Some((slot, value)) =
-                    self.try_lower_pipeline_stage_shorthand(stage, slots, current_function)
+                    self.try_lower_pipeline_stage_shorthand(stage, slots, current_function, item_ty)
                 {
                     return Some(LoweredPipelineStage::FlatMap { slot, value });
                 }
                 if let Some((slot, value)) =
-                    self.lower_pipeline_stage_expr(stage, slots, current_function)
+                    self.lower_pipeline_stage_expr(stage, slots, current_function, item_ty)
                 {
                     return Some(LoweredPipelineStage::FlatMap { slot, value });
                 }
                 let (slot, body, value) =
-                    self.lower_pipeline_stage_block(stage, slots, current_function)?;
+                    self.lower_pipeline_stage_block(stage, slots, current_function, item_ty)?;
                 Some(LoweredPipelineStage::FlatMapBlock { slot, body, value })
             }
             StreamStageKind::Any => {
@@ -9804,12 +9843,12 @@ impl CompactLowerConstructProbe<'_, '_> {
                     return None;
                 }
                 if let Some((slot, predicate)) =
-                    self.try_lower_pipeline_stage_shorthand(stage, slots, current_function)
+                    self.try_lower_pipeline_stage_shorthand(stage, slots, current_function, item_ty)
                 {
                     return Some(LoweredPipelineStage::Any { slot, predicate });
                 }
                 let (slot, predicate) =
-                    self.lower_pipeline_stage_expr(stage, slots, current_function)?;
+                    self.lower_pipeline_stage_expr(stage, slots, current_function, item_ty)?;
                 Some(LoweredPipelineStage::Any { slot, predicate })
             }
             StreamStageKind::All => {
@@ -9817,12 +9856,12 @@ impl CompactLowerConstructProbe<'_, '_> {
                     return None;
                 }
                 if let Some((slot, predicate)) =
-                    self.try_lower_pipeline_stage_shorthand(stage, slots, current_function)
+                    self.try_lower_pipeline_stage_shorthand(stage, slots, current_function, item_ty)
                 {
                     return Some(LoweredPipelineStage::All { slot, predicate });
                 }
                 let (slot, predicate) =
-                    self.lower_pipeline_stage_expr(stage, slots, current_function)?;
+                    self.lower_pipeline_stage_expr(stage, slots, current_function, item_ty)?;
                 Some(LoweredPipelineStage::All { slot, predicate })
             }
             StreamStageKind::Take | StreamStageKind::Drop => {
@@ -9936,12 +9975,12 @@ impl CompactLowerConstructProbe<'_, '_> {
                     }
                 }
                 if let Some((slot, value)) =
-                    self.lower_pipeline_stage_expr(stage, slots, current_function)
+                    self.lower_pipeline_stage_expr(stage, slots, current_function, item_ty)
                 {
                     return Some(LoweredPipelineStage::ParMap { slot, value });
                 }
                 let (slot, body, value) =
-                    self.lower_pipeline_stage_block(stage, slots, current_function)?;
+                    self.lower_pipeline_stage_block(stage, slots, current_function, item_ty)?;
                 Some(LoweredPipelineStage::ParMapBlock { slot, body, value })
             }
             StreamStageKind::Each => {
@@ -9953,7 +9992,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                     parallel = true;
                 }
                 let block = stage.block?;
-                let (slot, cleanup) = self.lower_pipeline_stage_item_slot(stage, slots)?;
+                let (slot, cleanup) = self.lower_pipeline_stage_item_slot(stage, slots, item_ty)?;
                 let saved = slots.enter();
                 let body =
                     self.lower_block_in_current_scope(block, slots, current_function, Some(slot))?;
@@ -9967,7 +10006,7 @@ impl CompactLowerConstructProbe<'_, '_> {
             }
             StreamStageKind::Tee => {
                 let block = stage.block?;
-                let (slot, cleanup) = self.lower_pipeline_stage_item_slot(stage, slots)?;
+                let (slot, cleanup) = self.lower_pipeline_stage_item_slot(stage, slots, item_ty)?;
                 let saved = slots.enter();
                 let body =
                     self.lower_block_in_current_scope(block, slots, current_function, Some(slot))?;
@@ -10007,7 +10046,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                         return None;
                     }
                 }
-                self.lower_pipeline_stage_reduce_by(stage, slots, current_function, op?)
+                self.lower_pipeline_stage_reduce_by(stage, slots, current_function, op?, item_ty)
             }
             StreamStageKind::Shuffle => {
                 if !stage.options.is_empty() || stage.block.is_some() {
@@ -10027,7 +10066,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                 Some(LoweredPipelineStage::Shuffle { seed })
             }
             StreamStageKind::Fold | StreamStageKind::Reduce => {
-                self.lower_pipeline_stage_fold(stage, slots, current_function)
+                self.lower_pipeline_stage_fold(stage, slots, current_function, item_ty)
             }
         }
     }
@@ -10059,6 +10098,7 @@ impl CompactLowerConstructProbe<'_, '_> {
         stage: &ArenaStreamStage,
         slots: &mut SlotScope,
         current_function: Option<Name>,
+        _item_ty: Option<&Type>,
     ) -> Option<(usize, LoweredExpr)> {
         if stage.block.is_some() || stage.args.is_empty() {
             return None;
@@ -10108,6 +10148,7 @@ impl CompactLowerConstructProbe<'_, '_> {
         stage: &ArenaStreamStage,
         slots: &mut SlotScope,
         current_function: Option<Name>,
+        item_ty: Option<&Type>,
     ) -> Option<LoweredPipelineStage> {
         if !stage.options.is_empty() {
             return None;
@@ -10153,7 +10194,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                     slots.exit(saved);
                     return None;
                 }
-                slots.declare(item.name)
+                slots.declare_with_type(item.name, item_ty.cloned())
             }
             _ => slots.reserve("pipeline.item"),
         };
@@ -10203,6 +10244,7 @@ impl CompactLowerConstructProbe<'_, '_> {
         slots: &mut SlotScope,
         current_function: Option<Name>,
         op: ReduceByOp,
+        item_ty: Option<&Type>,
     ) -> Option<LoweredPipelineStage> {
         // `reduce-by` takes no positional args; the block maps each item to a
         // `{key, value}` record and the runtime aggregates `value` per key.
@@ -10231,7 +10273,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                     slots.exit(saved);
                     return None;
                 }
-                slots.declare(item.name)
+                slots.declare_with_type(item.name, item_ty.cloned())
             }
             _ => {
                 slots.exit(saved);
@@ -10282,6 +10324,7 @@ impl CompactLowerConstructProbe<'_, '_> {
         stage: &ArenaStreamStage,
         slots: &mut SlotScope,
         current_function: Option<Name>,
+        item_ty: Option<&Type>,
     ) -> Option<(usize, LoweredExpr)> {
         let block = stage.block?;
         let statements = self.program.arena.block(block).statements;
@@ -10289,7 +10332,7 @@ impl CompactLowerConstructProbe<'_, '_> {
         let [stmt] = statements.as_slice() else {
             return None;
         };
-        let (slot, cleanup) = self.lower_pipeline_stage_item_slot(stage, slots)?;
+        let (slot, cleanup) = self.lower_pipeline_stage_item_slot(stage, slots, item_ty)?;
         let expr = match self.lower_tail_stmt_as_expr(*stmt, slots, current_function, Some(slot)) {
             Some(expr) => expr,
             None => {
@@ -10306,6 +10349,7 @@ impl CompactLowerConstructProbe<'_, '_> {
         stage: &ArenaStreamStage,
         slots: &mut SlotScope,
         current_function: Option<Name>,
+        item_ty: Option<&Type>,
     ) -> Option<(usize, Vec<LoweredStmt>, LoweredExpr)> {
         let block = stage.block?;
         let statements = self.program.arena.block(block).statements;
@@ -10314,7 +10358,7 @@ impl CompactLowerConstructProbe<'_, '_> {
             return None;
         };
         let saved = slots.enter();
-        let (slot, _cleanup) = match self.lower_pipeline_stage_item_slot(stage, slots) {
+        let (slot, _cleanup) = match self.lower_pipeline_stage_item_slot(stage, slots, item_ty) {
             Some(value) => value,
             None => {
                 slots.exit(saved);
@@ -10346,6 +10390,7 @@ impl CompactLowerConstructProbe<'_, '_> {
         &self,
         stage: &ArenaStreamStage,
         slots: &mut SlotScope,
+        item_ty: Option<&Type>,
     ) -> Option<(usize, Option<Name>)> {
         let block = stage.block?;
         let params = self
@@ -10358,7 +10403,10 @@ impl CompactLowerConstructProbe<'_, '_> {
                 if slots.is_bound_non_capture(param.name) {
                     return None;
                 }
-                Some((slots.declare(param.name), Some(param.name)))
+                Some((
+                    slots.declare_with_type(param.name, item_ty.cloned()),
+                    Some(param.name),
+                ))
             }
             _ => None,
         }
