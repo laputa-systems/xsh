@@ -370,17 +370,23 @@ impl Checker {
         match name {
             "push" => {
                 self.check_standard_arg_shape_arena(arena, args, &["item"], span);
-                let value_ty = self.check_api_arg_arena(arena, source, args, 0, Some(&item_ty));
-                Type::List(Box::new(merge_collection_item_ty(item_ty, value_ty)))
+                let value_ty = self.check_api_arg_arena(arena, source, args, 0, None);
+                let merged = merge_collection_item_ty(item_ty.clone(), value_ty.clone());
+                if merged == item_ty && !value_ty.matches_expected(&item_ty) {
+                    self.expect_type(&item_ty, &value_ty, call_arg_span_arena(arena, &args[0].kind));
+                }
+                Type::List(Box::new(merged))
             }
             "extend" => {
                 self.check_standard_arg_shape_arena(arena, args, &["other"], span);
-                let expected = Type::List(Box::new(item_ty.clone()));
-                let actual = self.check_api_arg_arena(arena, source, args, 0, Some(&expected));
-                Type::List(Box::new(merge_collection_item_ty(
-                    item_ty,
-                    collection_item_ty(&actual),
-                )))
+                let actual = self.check_api_arg_arena(arena, source, args, 0, None);
+                let actual_item_ty = collection_item_ty(&actual);
+                let merged = merge_collection_item_ty(item_ty.clone(), actual_item_ty.clone());
+                if merged == item_ty && !actual_item_ty.matches_expected(&item_ty) {
+                    let expected = Type::List(Box::new(item_ty));
+                    self.expect_type(&expected, &actual, call_arg_span_arena(arena, &args[0].kind));
+                }
+                Type::List(Box::new(merged))
             }
             "contains" => {
                 self.check_standard_arg_shape_arena(arena, args, &["item"], span);

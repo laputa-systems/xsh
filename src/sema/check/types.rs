@@ -335,6 +335,11 @@ pub(super) fn merge_collection_item_ty(primary: Type, fallback: Type) -> Type {
         fallback
     } else if primary == Type::Any || fallback == Type::Any {
         Type::Any
+    } else if matches!(
+        (&primary, &fallback),
+        (Type::Str, Type::Path) | (Type::Path, Type::Str)
+    ) {
+        Type::Any
     } else {
         primary
     }
