@@ -3462,6 +3462,70 @@ print ${value}
 }
 
 #[test]
+fn compact_install_lowers_module_print_flush_without_printing_flag() {
+    let stamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("system time should be after epoch")
+        .as_nanos();
+    let root = std::env::temp_dir().join(format!("xsh-compact-module-print-flush-{stamp}"));
+    fs::create_dir_all(&root).expect("create temp module dir");
+    fs::write(
+        root.join("compact_helper.xsh"),
+        "export proc emit() [] {
+  print --flush ${\"laputa-pm\"} \"proof:\" \"ok\"
+}
+",
+    )
+    .expect("write helper module");
+    let script = root.join("main.xsh");
+    fs::write(
+        &script,
+        "use compact_helper
+
+proc main() [] {
+  compact_helper.emit()
+}
+",
+    )
+    .expect("write main script");
+    let script_text = script.to_string_lossy().into_owned();
+    let (sources, parsed) = parse_script(&script_text).expect("parse temp script");
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let source_id = parsed
+        .arena
+        .arena
+        .span_source_id
+        .expect("loaded arena should have a primary source");
+    let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources);
+    evaluator.install_compact_lowered_functions(&parsed.arena, source_id);
+
+    let emit = evaluator
+        .lowered_qualified_procs
+        .get(&QualifiedName::new(
+            Name::intern("compact_helper"),
+            Name::intern("emit"),
+        ))
+        .expect("compact-lowered module emit");
+    let Some(LoweredStmt::Print {
+        args,
+        flush,
+        stderr,
+        ..
+    }) = emit
+        .body
+        .iter()
+        .find(|stmt| matches!(stmt, LoweredStmt::Print { .. }))
+    else {
+        panic!("emit should lower a print statement: {:?}", emit.body);
+    };
+    assert!(*flush);
+    assert!(!*stderr);
+    assert_eq!(args.len(), 3, "--flush must be consumed by the print API");
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
 fn compact_top_level_use_imports_loaded_user_module() {
     let stamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)

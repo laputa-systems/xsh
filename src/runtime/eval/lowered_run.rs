@@ -13476,6 +13476,7 @@ impl Evaluator {
             LoweredStmt::Print {
                 args,
                 stderr,
+                flush,
                 propagate_result,
                 span,
             } => {
@@ -13502,12 +13503,14 @@ impl Evaluator {
                     Some(trace_name),
                     TracePayload::Core { argv },
                 );
-                if *stderr {
-                    self.stderr.extend_from_slice(line.as_bytes());
-                    self.stderr.push(b'\n');
+                if *stderr && *flush {
+                    self.flush_stderr_line(&line);
+                } else if *stderr {
+                    self.write_stderr_line(&line);
+                } else if *flush {
+                    self.flush_stdout_line(&line);
                 } else {
-                    self.stdout.extend_from_slice(line.as_bytes());
-                    self.stdout.push(b'\n');
+                    self.write_stdout_line(&line);
                 }
                 self.trace_exit(
                     TraceKind::CoreResult,

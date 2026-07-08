@@ -1261,10 +1261,12 @@ Command-style proc calls are not accepted. Use expression-call syntax so
 argument boundaries and types remain explicit.
 
 `print` writes its arguments separated by one space and appends a newline to
-stdout. `eprint` does the same on stderr. Both return `Unit`. They accept
-human-facing scalar output: `Str`, `Int`, `Bool`, and `Path`. `Path`
-interpolation and printing use display conversion and must not canonicalize,
-resolve, or otherwise change the path.
+stdout. `eprint` does the same on stderr. `print --flush` and `eprint --flush`
+write to the process's inherited stdout or stderr immediately instead of the
+captured script-output buffer; `--flush` is recognized only as the first
+argument. Both return `Unit`. They accept human-facing scalar output: `Str`,
+`Int`, `Bool`, and `Path`. `Path` interpolation and printing use display
+conversion and must not canonicalize, resolve, or otherwise change the path.
 
 Script stdout and stderr are byte streams. Text-producing APIs append UTF-8
 bytes; `io.write_stdout_bytes` appends bytes exactly and does not check

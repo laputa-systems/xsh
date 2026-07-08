@@ -982,6 +982,7 @@ enum LoweredStmt {
     Print {
         args: Vec<LoweredExpr>,
         stderr: bool,
+        flush: bool,
         propagate_result: bool,
         span: Span,
     },
@@ -3335,6 +3336,34 @@ impl Evaluator {
         run_eval_on_large_stack(move || self.eval_inner(program, source_id))
     }
 
+    pub(super) fn write_stdout_line(&mut self, line: &str) {
+        self.stdout.extend_from_slice(line.as_bytes());
+        self.stdout.push(b'\n');
+    }
+
+    pub(super) fn write_stderr_line(&mut self, line: &str) {
+        self.stderr.extend_from_slice(line.as_bytes());
+        self.stderr.push(b'\n');
+    }
+
+    pub(super) fn flush_stdout_line(&mut self, line: &str) {
+        use std::io::Write;
+
+        let mut stdout = std::io::stdout().lock();
+        let _ = stdout.write_all(line.as_bytes());
+        let _ = stdout.write_all(b"\n");
+        let _ = stdout.flush();
+    }
+
+    pub(super) fn flush_stderr_line(&mut self, line: &str) {
+        use std::io::Write;
+
+        let mut stderr = std::io::stderr().lock();
+        let _ = stderr.write_all(line.as_bytes());
+        let _ = stderr.write_all(b"\n");
+        let _ = stderr.flush();
+    }
+
     fn eval_inner(mut self, program: &ArenaProgram, source_id: SourceId) -> EvalOutput {
         let install_diagnostics = self.install_compact_lowered_program(program, source_id);
         let root = program.statement_ids().collect::<Vec<_>>();
@@ -4809,15 +4838,13 @@ impl Evaluator {
             return None;
         };
         if error.kind == "cli-help" {
-            self.stdout.extend_from_slice(error.message.as_bytes());
-            self.stdout.push(b'\n');
+            self.write_stdout_line(&error.message);
             return Some(0);
         }
         if error.kind == "cli-parse"
             && matches!(error.payload.get("cli_usage"), Some(Value::Bool(true)))
         {
-            self.stderr.extend_from_slice(error.message.as_bytes());
-            self.stderr.push(b'\n');
+            self.write_stderr_line(&error.message);
             return Some(2);
         }
         None

@@ -2895,6 +2895,32 @@ fn compact_expr_call_blocker_callee(program: &ArenaProgram, expr: ExprId) -> Opt
     }
 }
 
+fn print_flush_arg(
+    program: &ArenaProgram,
+    source: &str,
+    sources: Option<&SourceMap>,
+    arg: &crate::syntax::arena::ArenaCommandArg,
+) -> bool {
+    let arg_span = program.arena.span(arg.span);
+    if sources
+        .and_then(|sources| sources.span_text(arg_span))
+        .is_some_and(|value| value == "--flush")
+    {
+        return true;
+    }
+
+    let ArenaCommandArgKind::Word(parts) = &arg.kind else {
+        return false;
+    };
+    let parts = program.arena.word_parts(*parts).collect::<Vec<_>>();
+    let [ArenaWordPart::Bare(text)] = parts.as_slice() else {
+        return false;
+    };
+    let value = program.arena.text_value(text, source);
+
+    value == Some("--flush")
+}
+
 fn compact_command_blocker_index(
     program: &ArenaProgram,
     command: crate::syntax::arena::CommandStmtId,
@@ -6497,13 +6523,18 @@ impl CompactLowerConstructProbe<'_, '_> {
             return None;
         }
         let args = self.program.arena.command_args(args).to_vec();
-        let mut lowered = Vec::with_capacity(args.len());
-        for arg in &args {
+        let flush = args
+            .first()
+            .is_some_and(|arg| print_flush_arg(self.program, self.source, self.sources, arg));
+        let print_args = if flush { &args[1..] } else { args.as_slice() };
+        let mut lowered = Vec::with_capacity(print_args.len());
+        for arg in print_args {
             lowered.push(self.lower_command_arg(arg, slots, current_function, item_slot)?);
         }
         Some(LoweredStmt::Print {
             args: lowered,
             stderr: name == CoreCommand::Eprint,
+            flush,
             propagate_result: stmt.propagate,
             span: self.program.arena.span(stmt.span),
         })
