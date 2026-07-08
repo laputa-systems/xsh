@@ -352,7 +352,7 @@ pub(crate) fn write_nested_coverage_trace(
             dir.display()
         )
     })?;
-    let rendered = render_coverage_trace_jsonl(&output.trace_events);
+    let rendered = render_coverage_trace_jsonl(&output.trace_events, &output.sources);
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_nanos())
@@ -386,28 +386,85 @@ pub(crate) fn write_nested_coverage_trace(
     ))
 }
 
-pub fn render_coverage_trace_jsonl(events: &[TraceEvent]) -> String {
+pub fn render_coverage_trace_jsonl(events: &[TraceEvent], sources: &SourceMap) -> String {
     let mut output = String::new();
-    for event in events {
-        let Some(api_id) = &event.api_id else {
-            continue;
-        };
+    for file in sources.files() {
         let value = crate::modules::json::raw_json_object([
             (
                 "kind".to_string(),
-                crate::modules::json::raw_json_string(event.kind.as_str()),
+                crate::modules::json::raw_json_string("source.file"),
             ),
             (
-                "api_id".to_string(),
-                crate::modules::json::raw_json_string(api_id),
+                "file".to_string(),
+                crate::modules::json::raw_json_string(file.name()),
+            ),
+            (
+                "line_count".to_string(),
+                crate::modules::json::raw_json_usize(file.line_count()),
             ),
         ]);
         output.push_str(&crate::modules::json::compact_raw_json(&value));
         output.push('\n');
     }
+    for event in events {
+        let mut fields = vec![(
+            "kind".to_string(),
+            crate::modules::json::raw_json_string(event.kind.as_str()),
+        )];
+
+        if let Some(api_id) = &event.api_id {
+            fields.push((
+                "api_id".to_string(),
+                crate::modules::json::raw_json_string(api_id),
+            ));
+        }
+
+        if let Some(name) = &event.name {
+            fields.push((
+                "name".to_string(),
+                crate::modules::json::raw_json_string(name),
+            ));
+        }
+
+        if let Some(span) = event.source_span
+            && let (Some(start), Some(end)) = (
+                sources.location(span.source_id, span.start()),
+                sources.location(span.source_id, span.end()),
+            )
+        {
+            fields.push((
+                "source_span".to_string(),
+                crate::modules::json::raw_json_object([
+                    (
+                        "file".to_string(),
+                        crate::modules::json::raw_json_string(start.file),
+                    ),
+                    (
+                        "start_line".to_string(),
+                        crate::modules::json::raw_json_usize(start.line),
+                    ),
+                    (
+                        "end_line".to_string(),
+                        crate::modules::json::raw_json_usize(end.line),
+                    ),
+                    (
+                        "start_offset".to_string(),
+                        crate::modules::json::raw_json_usize(span.start()),
+                    ),
+                    (
+                        "end_offset".to_string(),
+                        crate::modules::json::raw_json_usize(span.end()),
+                    ),
+                ]),
+            ));
+        }
+
+        let value = crate::modules::json::raw_json_object(fields);
+        output.push_str(&crate::modules::json::compact_raw_json(&value));
+        output.push('\n');
+    }
     output
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;

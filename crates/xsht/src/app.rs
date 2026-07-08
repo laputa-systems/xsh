@@ -104,7 +104,7 @@ Options:
   --all                   Run native tests and cataloged example integration tests
   --list                  List matching tests without running them
   --exact                 Match FILTER exactly
-  --cov                   Run matching tests and print XSH API coverage
+  --cov                   Run matching tests and print XSH source/API coverage
   --nocapture             Print test stdout and stderr while tests run
   --fail-fast             Stop after the first failure
   --keep-temp             Preserve native test temporary directories

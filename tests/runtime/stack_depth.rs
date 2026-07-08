@@ -32,6 +32,19 @@ fn nested_expression_source(depth: usize) -> String {
     source
 }
 
+fn nested_native_test_source(depth: usize) -> String {
+    let mut source = String::from("proc test_nested() [error] {\n");
+    for _ in 0..depth {
+        source.push_str("  if true {\n");
+    }
+    source.push_str("  test.eq(\"ok\", \"ok\")?\n");
+    for _ in 0..depth {
+        source.push_str("  }\n");
+    }
+    source.push_str("}\n");
+    source
+}
+
 #[test]
 fn small_stack_mode_runs_simple_script() {
     let output = run_temp_script_with_env(
@@ -86,5 +99,31 @@ fn small_stack_par_map_worker_recursion_does_not_abort() {
     run_small_stack_stress(
         "stack-depth-par-map-worker-recursion",
         include_str!("../fixtures/runtime/stack-depth/par-map-worker-recursion.xsh"),
+    );
+}
+
+#[test]
+#[ignore = "stress gate for stack-depth runtime safety work"]
+fn small_stack_xsht_native_test_body_does_not_abort() {
+    let root = temp_path("stack-depth-xsht-native-test");
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(root.join("tests")).expect("create native test dir");
+    std::fs::write(root.join("tests/deep.xsh"), nested_native_test_source(120))
+        .expect("write native test");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+        .args(["test", "--exact", "tests/deep.xsh::test_nested"])
+        .env("XSH_TEST_SMALL_EVAL_STACK", "1")
+        .current_dir(&root)
+        .output()
+        .expect("run xsht test");
+    let _ = std::fs::remove_dir_all(root);
+
+    assert!(
+        output.status.success(),
+        "xsht native test aborted or failed under small-stack mode\nstatus: {}\nstdout:\n{}\nstderr:\n{}",
+        output.status,
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
     );
 }

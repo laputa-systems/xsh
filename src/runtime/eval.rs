@@ -4454,6 +4454,16 @@ impl Evaluator {
     }
 
     pub fn eval_test(
+        self,
+        program: &ArenaProgram,
+        source_id: SourceId,
+        test_name: &str,
+        ctx: Value,
+    ) -> TestEvalOutput {
+        run_eval_on_large_stack(move || self.eval_test_inner(program, source_id, test_name, ctx))
+    }
+
+    fn eval_test_inner(
         mut self,
         program: &ArenaProgram,
         source_id: SourceId,

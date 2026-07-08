@@ -620,7 +620,8 @@ fn run_native_test(
     }
 
     let coverage_trace = if options.collect_coverage() {
-        let mut trace = render_coverage_trace_jsonl(&evaluated.output.trace_events);
+        let mut trace =
+            render_coverage_trace_jsonl(&evaluated.output.trace_events, &evaluated.output.sources);
         if let Some(dir) = &nested_coverage_dir {
             match read_nested_coverage_traces(dir) {
                 Ok(nested) => trace.push_str(&nested),

@@ -126,10 +126,11 @@ Native test IDs are stable names such as
 `tests/xsh/net.xsh::test_fetch`. Catalog example IDs are
 `examples::hello`, `examples::dns-net`, and so on.
 
-`--cov` runs matching native and example tests, then prints API coverage derived
-from raw JSONL traces. `--cov-json` writes the same coverage data as structured
-JSON without printing the coverage report. Use `make cov` for Linux LLVM source
-coverage of the Rust implementation plus the aggregated XSH API coverage report.
+`--cov` runs matching native and example tests, then prints XSH source line/proc
+coverage and standard API coverage derived from raw JSONL traces. `--cov-json`
+writes the same coverage data as structured JSON without printing the coverage
+report. Use `make cov` for Linux LLVM source coverage of the Rust implementation
+plus the aggregated XSH coverage report.
 
 ## What You Know Now
 
