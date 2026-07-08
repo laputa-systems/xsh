@@ -70,8 +70,8 @@ perf-metrics = ["dep:libmimalloc-sys"]
 tools = []
 
 [dependencies]
-astral-futures-tar = { path = "../astral-futures-tar", default-features = false, features = ["futures"] }
-astral_async_zip = { version = "0.0.18", default-features = false, features = ["deflate"] }
+astral-futures-tar = { git = "https://github.com/laputa-systems/astral-futures-tar.git", rev = "253b5f991d68e811933f3a56542ed413bb250cdf", default-features = false, features = ["futures"] }
+astral_async_zip = { version = "0.0.20", default-features = false, features = ["deflate"] }
 bzip2 = "0.6.1"
 cap-directories = "4.0.2"
 cap-fs-ext = "4.0.2"
@@ -85,21 +85,21 @@ data-encoding = "2"
 bstr = { version = "1", default-features = false, features = ["std", "unicode"] }
 diffy = { version = "0.5.0", default-features = false, features = ["std"] }
 flate2 = { version = "1.1.9", default-features = false, features = ["zlib-rs"] }
-futures-lite = { version = "2.1.0", default-features = false, features = ["std"] }
+futures-lite = { version = "2.6.1", default-features = false, features = ["std"] }
 ignore = "=0.4.25"
-jiff = { version = "0.2.28", default-features = false, features = ["std", "tz-system", "tzdb-zoneinfo", "perf-inline"] }
-lzma-rust2 = { version = "0.16.4", default-features = false, features = ["std", "encoder", "xz", "optimization"] }
+jiff = { version = "0.2.31", default-features = false, features = ["std", "tz-system", "tzdb-zoneinfo", "perf-inline"] }
+lzma-rust2 = { version = "0.16.5", default-features = false, features = ["std", "encoder", "xz", "optimization"] }
 md-5 = "0.11"
 memchr = "2"
 miniserde = "0.1"
 pulldown-cmark = { version = "0.13.4", optional = true, default-features = false, features = ["html"] }
 regex-lite = "0.1.9"
-rustc-hash = "2.1.2"
+rustc-hash = "2.1.3"
 rustix = { version = "1.1.4", features = [
     "event", "fs", "linux_5_11", "mount", "net", "param", "pipe", "process", "stdio", "system",
     "termios", "time",
 ] }
-rustls = { version = "0.23.40", optional = true, default-features = false, features = ["aws_lc_rs", "std", "tls12"] }
+rustls = { version = "0.23.41", optional = true, default-features = false, features = ["aws_lc_rs", "std", "tls12"] }
 sha1 = "0.11"
 sha2 = "0.11"
 smallvec = "1.15.2"
