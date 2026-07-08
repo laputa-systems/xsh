@@ -191,9 +191,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: xsh-${{ matrix.package }}
-          path: |
-            dist/*.xz
-            dist/*.sha256
+          path: dist/*
           if-no-files-found: error
 
   release:
@@ -201,11 +199,32 @@ jobs:
     needs: package
     runs-on: ubuntu-24.04
     steps:
+      - uses: actions/checkout@v4
+
       - name: Download package artifacts
         uses: actions/download-artifact@v4
         with:
           path: dist
           merge-multiple: true
+
+      - name: Package core scripts
+        env:
+          RELEASE_TAG: release-${{ github.sha }}
+        run: |
+          set -euo pipefail
+          core_tar="dist/core-${RELEASE_TAG}.tar.xz"
+          core_stage="$(mktemp -d)"
+          trap 'rm -rf "$core_stage"' EXIT
+          find core -path core/tests -prune -o -type f -name '*.xsh' -print \
+            | sort \
+            | while IFS= read -r source; do
+                dest="$core_stage/${source%.xsh}"
+                mkdir -p "$(dirname "$dest")"
+                cp "$source" "$dest"
+                chmod 0755 "$dest"
+              done
+          tar -C "$core_stage" -cJf "$core_tar" core
+          sha256sum "$core_tar" > "dist/core-${RELEASE_TAG}.sha256"
 
       - name: Create pre-release
         env:
