@@ -132,34 +132,17 @@ jobs:
         if: matrix.os == 'linux'
         run: cargo clean -p aws-lc-sys --target ${{ matrix.target }}
 
-      - name: Compile
-        run: cargo test --no-run --locked --target ${{ matrix.target }}
-
-      - name: Link target debug tools for core tests
-        if: matrix.os == 'linux'
-        run: |
-          mkdir -p target/debug
-          ln -sf "../${{ matrix.target }}/debug/xsh" target/debug/xsh
-          ln -sf "../${{ matrix.target }}/debug/xsht" target/debug/xsht
-          ln -sf "../${{ matrix.target }}/debug/xshi" target/debug/xshi
-          ln -sf "../${{ matrix.target }}/debug/xsh-test-sleeper" target/debug/xsh-test-sleeper
+      - name: Build with dist profile
+        run: cargo test --no-run --locked --profile dist --no-default-features --features "net tools" --target ${{ matrix.target }}
 
       - name: test
-        run: |
-          if [ "${{ matrix.os }}" = linux ]; then
-            cargo test --target ${{ matrix.target }} -- --nocapture --quiet
-          else
-            cargo test -- --nocapture --quiet
-          fi
-
-      - name: xsh tests
-        run: cargo run -p xsht -- test
-
-      - name: Build dist binaries
-        run: make dist TARGET=${{ matrix.target }}
+        run: cargo test --profile dist --no-default-features --features "net tools" --target ${{ matrix.target }} -- --nocapture --quiet
 
       - name: Prepare multicall runner
         run: ln -sf xsh-multicall "target/${{ matrix.target }}/dist/xsh"
+
+      - name: xsh tests
+        run: target/${{ matrix.target }}/dist/xsht test
 
       - name: Verify static linkage
         if: matrix.os == 'linux'

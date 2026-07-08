@@ -200,7 +200,11 @@ strip = "debuginfo"
 [profile.release]
 lto = "thin"
 opt-level = 3
-panic = "abort"
+# Redundant: DIST_RUSTFLAGS in the Makefile already passes -Cpanic=immediate-abort
+# for dist builds. Keeping it here would prevent cargo test --profile dist (the test
+# harness needs catch_unwind).  Profile-guided install builds (make install-darwin,
+# make install-linux) are dev tools and don't need panic=abort.
+# panic = "abort"
 
 [profile.dist]
 inherits = "release"
