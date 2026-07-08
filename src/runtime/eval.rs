@@ -61,12 +61,38 @@ pub struct EvalOutput {
     pub last_status: Option<ProcessStatus>,
 }
 
+#[cfg(feature = "native-tests")]
 #[derive(Clone, Debug, Default)]
 pub struct TestEvalOutput {
     pub output: EvalOutput,
     pub result: Option<Value>,
 }
 
+#[cfg(feature = "native-tests")]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum NativeTestRunKind {
+    Xsh,
+    XshtTrace,
+}
+
+#[cfg(feature = "native-tests")]
+#[derive(Clone, Debug)]
+pub struct NativeTestRunRequest {
+    pub kind: NativeTestRunKind,
+    pub script_path: PathValue,
+    pub source: String,
+    pub tool_args: Vec<String>,
+    pub script_args: Vec<String>,
+    pub env: BTreeMap<String, String>,
+    pub stdin: Vec<u8>,
+    pub span: Span,
+}
+
+#[cfg(feature = "native-tests")]
+pub type NativeTestHost =
+    Arc<dyn Fn(NativeTestRunRequest) -> Result<Value, RuntimeError> + Send + Sync>;
+
+#[cfg(feature = "native-tests")]
 pub struct PreparedTestProgram {
     program: Arc<ArenaProgram>,
     root: Vec<StmtId>,
@@ -436,6 +462,7 @@ struct EvaluatorSignalState {
     hook_span: Option<Span>,
 }
 
+#[cfg(feature = "native-tests")]
 #[derive(Clone, Debug)]
 pub(super) struct TestMock {
     pub matcher: RecordMap,
@@ -443,6 +470,7 @@ pub(super) struct TestMock {
     pub remaining: i64,
 }
 
+#[cfg(feature = "native-tests")]
 #[derive(Clone, Debug)]
 pub(super) struct TestCall {
     pub op: String,
@@ -2615,8 +2643,13 @@ pub struct Evaluator {
     process_handles: BTreeMap<u64, LiveProcessHandle>,
     scope_ids: Vec<u64>,
     signal_state: EvaluatorSignalState,
+    #[cfg(feature = "native-tests")]
     pub(super) test_mocks: FxHashMap<String, Vec<TestMock>>,
+    #[cfg(feature = "native-tests")]
     pub(super) test_calls: Vec<TestCall>,
+    #[cfg(feature = "native-tests")]
+    pub(super) native_test_host: Option<NativeTestHost>,
+    #[cfg(feature = "native-tests")]
     test_temp_counter: u64,
 }
 
@@ -2640,6 +2673,8 @@ struct LoweredSharedState {
     active_modules: Vec<String>,
     cwd: PathBuf,
     env: RuntimeEnv,
+    #[cfg(feature = "native-tests")]
+    native_test_host: Option<NativeTestHost>,
 }
 
 struct LoweredWorker {
@@ -2676,6 +2711,7 @@ impl LoweredWorker {
     }
 }
 
+#[cfg(feature = "native-tests")]
 impl PreparedTestProgram {
     pub fn eval_test(
         &self,
@@ -2873,8 +2909,13 @@ impl Evaluator {
             process_handles: BTreeMap::new(),
             scope_ids: vec![0],
             signal_state: EvaluatorSignalState::default(),
+            #[cfg(feature = "native-tests")]
             test_mocks: FxHashMap::default(),
+            #[cfg(feature = "native-tests")]
             test_calls: Vec::new(),
+            #[cfg(feature = "native-tests")]
+            native_test_host: None,
+            #[cfg(feature = "native-tests")]
             test_temp_counter: 0,
         };
         let after_struct_init = profile.then(Instant::now);
@@ -2925,6 +2966,12 @@ impl Evaluator {
 
     pub fn with_tracing(mut self) -> Self {
         self.trace_enabled = true;
+        self
+    }
+
+    #[cfg(feature = "native-tests")]
+    pub fn with_native_test_host(mut self, host: NativeTestHost) -> Self {
+        self.native_test_host = Some(host);
         self
     }
 
@@ -3000,6 +3047,8 @@ impl Evaluator {
             active_modules: self.active_modules.clone(),
             cwd: self.cwd.clone(),
             env: self.env.clone(),
+            #[cfg(feature = "native-tests")]
+            native_test_host: self.native_test_host.clone(),
         })
     }
 
@@ -3027,6 +3076,8 @@ impl Evaluator {
             stderr: Vec::new(),
             cwd: shared.cwd.clone(),
             env: shared.env.clone(),
+            #[cfg(feature = "native-tests")]
+            native_test_host: shared.native_test_host.clone(),
             interactive: false,
             interactive_command_dispatcher: None,
             last_status: None,
@@ -3049,8 +3100,11 @@ impl Evaluator {
             process_handles: BTreeMap::new(),
             scope_ids: (0..shared.scopes.len() as u64).collect(),
             signal_state: EvaluatorSignalState::default(),
+            #[cfg(feature = "native-tests")]
             test_mocks: FxHashMap::default(),
+            #[cfg(feature = "native-tests")]
             test_calls: Vec::new(),
+            #[cfg(feature = "native-tests")]
             test_temp_counter: 0,
         }
     }
@@ -4525,6 +4579,7 @@ impl Evaluator {
         Some(args)
     }
 
+    #[cfg(feature = "native-tests")]
     pub fn eval_test(
         self,
         program: &ArenaProgram,
@@ -4535,6 +4590,7 @@ impl Evaluator {
         run_eval_on_large_stack(move || self.eval_test_inner(program, source_id, test_name, ctx))
     }
 
+    #[cfg(feature = "native-tests")]
     pub fn prepare_test_program(
         mut self,
         program: Arc<ArenaProgram>,
@@ -4566,6 +4622,7 @@ impl Evaluator {
         }
     }
 
+    #[cfg(feature = "native-tests")]
     fn eval_test_inner(
         mut self,
         program: &ArenaProgram,
@@ -4582,6 +4639,7 @@ impl Evaluator {
         self.eval_installed_test_inner(program, &root, script_span, test_name, ctx)
     }
 
+    #[cfg(feature = "native-tests")]
     fn eval_installed_test_inner(
         mut self,
         program: &ArenaProgram,
@@ -4620,6 +4678,7 @@ impl Evaluator {
         self.finish_test_output(diagnostics, traceback, result)
     }
 
+    #[cfg(feature = "native-tests")]
     fn eval_installed_test_setup(
         &mut self,
         program: &ArenaProgram,
@@ -4703,6 +4762,7 @@ impl Evaluator {
         (diagnostics, traceback)
     }
 
+    #[cfg(feature = "native-tests")]
     fn eval_installed_test_call_inner(
         mut self,
         script_span: Span,
@@ -4734,6 +4794,7 @@ impl Evaluator {
         self.finish_test_output(diagnostics, traceback, result)
     }
 
+    #[cfg(feature = "native-tests")]
     fn call_installed_test_proc(
         &mut self,
         script_span: Span,
@@ -4785,6 +4846,7 @@ impl Evaluator {
         }
     }
 
+    #[cfg(feature = "native-tests")]
     fn finish_test_output(
         self,
         diagnostics: Vec<Diagnostic>,
@@ -5533,6 +5595,7 @@ pub fn apply_question(
     }
 }
 
+#[cfg(feature = "native-tests")]
 fn display_value(value: &Value, span: Span) -> Result<String, RuntimeError> {
     match value {
         Value::Str(value) => Ok(value.to_string()),

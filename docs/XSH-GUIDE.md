@@ -43,7 +43,6 @@ Markdown under `docs/` is the primary generated artifact for agents, code review
 - `docs/COVERAGE.md`: practical coverage plan and harness notes.
 - `docs/FRONTEND.md`: compact frontend, lowered IR, symbol identity, registry invariant, and benchmark contract.
 - `perf/README.md`: performance scenarios, profiling, PGO, and syscall tracing.
-- `docs/THREADRIPPER.md`: remote amd64 Alpine host notes for native musl work.
 
 ## Maintenance
 

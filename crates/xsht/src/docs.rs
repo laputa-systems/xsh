@@ -839,9 +839,7 @@ fn guide_markdown(chapters: &[ChapterDoc]) -> String {
     output.push_str(
         "- `perf/README.md`: performance scenarios, profiling, PGO, and syscall tracing.\n",
     );
-    output.push_str(
-        "- `docs/THREADRIPPER.md`: remote amd64 Alpine host notes for native musl work.\n\n",
-    );
+    output.push('\n');
     output.push_str("## Maintenance\n\n");
     output.push_str(
         "Edit `docs-src/`, `examples/catalog.json`, and the implementation metadata. Use the formatter-free docs gate in `docs/TEST-MAP.md`.\n",

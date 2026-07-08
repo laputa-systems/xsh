@@ -65,7 +65,9 @@ pub fn record_schemas() -> BTreeMap<&'static str, Type> {
         ("Spawn", spawn_record_type()),
         ("SystemMemory", system_memory_type()),
         ("SystemOsRelease", system_os_release_type()),
+        #[cfg(feature = "native-tests")]
         ("TestCall", test_call_type()),
+        #[cfg(feature = "native-tests")]
         ("TestContext", test_context_type()),
         ("Uname", uname_record_type()),
         ("UnixChildEvent", unix_child_event_type()),
@@ -726,6 +728,7 @@ pub fn measured_command_type() -> Type {
     ]))
 }
 
+#[cfg(feature = "native-tests")]
 pub fn test_context_type() -> Type {
     Type::Record(name_type_map(vec![
         ("name".to_string(), Type::Str),
@@ -734,6 +737,7 @@ pub fn test_context_type() -> Type {
     ]))
 }
 
+#[cfg(feature = "native-tests")]
 pub fn test_call_type() -> Type {
     Type::Record(name_type_map(vec![
         ("op".to_string(), Type::Str),
@@ -741,6 +745,7 @@ pub fn test_call_type() -> Type {
     ]))
 }
 
+#[cfg(feature = "native-tests")]
 pub fn test_script_output_type() -> Type {
     Type::Record(name_type_map(vec![
         ("success".to_string(), Type::Bool),

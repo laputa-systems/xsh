@@ -126,3 +126,134 @@ Regression coverage should include both `xsht lint` diagnostics and
 `xsht lint --fix` output, plus a check that the fixed source still passes
 `xsht check` and has the same exported module contract where exports are
 involved.
+
+### `in` should either support `Path` or reject it at check time
+
+**Symptom**
+
+`in` works as expected for list membership and string substring checks:
+
+```xsh
+print ("a" in ["a", "b"])
+print ("musl" in "ld-musl-aarch64")
+```
+
+But `Path in Path` currently typechecks and then fails at runtime:
+
+```xsh
+proc main() [error] {
+  print (p"usr/lib" in p"usr/lib/libz.so.1")
+}
+
+main()?
+```
+
+Observed failure:
+
+```text
+err[runtime.error]: invalid lowered binary operation
+  /tmp/xsh-in-check.xsh:2:10
+    print (p"usr/lib" in p"usr/lib/libz.so.1")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+error: type-error: invalid lowered binary operation
+```
+
+**Desired behavior**
+
+Either:
+
+- support `Path in Path` with clearly documented semantics, likely substring
+  containment on display-normalized path text, or
+- reject the expression during checking with a precise diagnostic.
+
+Given xsh's path ergonomics goals, supporting it is preferable if the semantics
+are not surprising.
+
+**Minimal tests**
+
+Add checker/runtime coverage for:
+
+```xsh
+test.ok("lib" in "usr/lib/libz.so")?
+test.ok("libz.so" in [ "libz.so", "libc.so" ])?
+test.ok(p"usr/lib" in p"usr/lib/libz.so")?
+test.eq(p"bin" in p"usr/lib/libz.so", false)?
+```
+
+### `xsht lint --fix` should rewrite simple `.contains(...)` membership to `in`
+
+**Symptom**
+
+Older package code often spells membership or substring checks through
+`.contains(...)`:
+
+```xsh
+if deps.contains("musl") {
+  ...
+}
+
+if line.contains("=") {
+  ...
+}
+
+if ["prepare", "build"].contains(mode) {
+  ...
+}
+```
+
+The preferred idiom is the built-in `in` operator:
+
+```xsh
+if "musl" in deps {
+  ...
+}
+
+if "=" in line {
+  ...
+}
+
+if mode in ["prepare", "build"] {
+  ...
+}
+```
+
+**Desired behavior**
+
+Add a lint, likely `lint.prefer-in`, that reports simple `.contains(...)`
+calls on receivers where `in` is semantically equivalent. With `--fix`, rewrite
+the expression while preserving grouping where needed.
+
+**Autofix criteria**
+
+Safe initial cases:
+
+- `list.contains(value)` -> `value in list`
+- `str.contains(needle)` -> `needle in str`
+- literal-list receivers, e.g. `["a", "b"].contains(x)` -> `x in ["a", "b"]`
+- negated cases, e.g. `! items.contains(x)` -> `! (x in items)` unless parser
+  precedence makes the parentheses unnecessary and unambiguous
+- method chains with simple receivers, e.g. `path.display().contains("/")` ->
+  `"/" in path.display()`
+
+Skip or warn without autofix:
+
+- Types where `.contains(...)` does not match `in` semantics.
+- Receivers or arguments with side effects unless evaluation order is proven
+  unchanged.
+- Cases where the checker accepts `.contains(...)` but `in` currently lowers
+  incorrectly. Known example: `Path in Path` typechecks but fails at runtime;
+  see the adjacent `Path` membership ticket.
+
+**Minimal tests**
+
+Lint and autofix coverage should include:
+
+```xsh
+if names.contains(name) {}
+if ! names.contains(name) {}
+if ["a", "b"].contains(name) {}
+if text.contains("needle") {}
+if path.display().contains("/") {}
+```
+
+The fixed output should pass `xsht check` and preserve behavior.

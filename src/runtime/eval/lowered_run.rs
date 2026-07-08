@@ -46,12 +46,12 @@ use std::ops::ControlFlow;
 use std::os::fd::AsRawFd;
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
 use std::os::unix::fs::OpenOptionsExt;
-use std::os::unix::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+#[cfg(feature = "native-tests")]
+use super::display_value;
 use super::lower::{
     lowered_empty_string_literal, lowered_literal_value, lowered_match_no_arm,
     lowered_needle_bytes, lowered_pattern_matches, lowered_record_field, lowered_stmt_flow_to_flow,
@@ -70,9 +70,12 @@ use super::lowered_ops::{
 };
 use super::modules::{
     auth as auth_module, display_spawn_argv, intercept_test_host_call, record_int_field,
-    record_path, record_str, run_error_to_runtime, test_contains_value, test_error_kind,
-    test_failure, test_mock_expected_return_type, test_temp_path, test_value_matches_type,
-    utils_cache_key, validate_module_contract,
+    record_path, record_str, run_error_to_runtime, utils_cache_key, validate_module_contract,
+};
+#[cfg(feature = "native-tests")]
+use super::modules::{
+    test_contains_value, test_error_kind, test_failure, test_mock_expected_return_type,
+    test_temp_path, test_value_matches_type,
 };
 use super::{
     Binding, Evaluator, Flow, FsRootHandle, LowerableFunctions, LoweredBoolExpr, LoweredCallArg,
@@ -82,15 +85,17 @@ use super::{
     LoweredRunArg, LoweredRunArgKind, LoweredRunEnv, LoweredRunPipelineSegment,
     LoweredRunRedirection, LoweredStmt, LoweredStmtFlow, LoweredStrPredicate, LoweredTagValue,
     LoweredTopLevelKind, LoweredTopLevelStmt, LoweredType, LoweredValue, LoweredWorker, Name,
-    ReduceByOp, ScanCondition, TestMock, assign_lowered_bytes_view, assign_lowered_str_view,
-    bytes_contains, check_env_name, compound_assignment_value, display_value, exit_status,
-    lowered_inline_stats_field_value, lowered_inline_stats_to_record_vec, lowered_record_vec_get,
-    lowered_record_vec_get_mut, lowered_record_vec_insert, lowered_record_vec_or_stats,
-    lowered_stats_field_value, lowered_str_view_value, lowered_value_matches_static_type,
-    module_error, module_io_error, path_absolute_value, path_value_from_pathbuf,
-    pathbuf_from_path_value, runtime_error_from_value, splice_to_argv, trace_env_overlay,
-    trace_status, value_matches_static_type, value_to_argv_bytes,
+    ReduceByOp, ScanCondition, assign_lowered_bytes_view, assign_lowered_str_view, bytes_contains,
+    check_env_name, compound_assignment_value, exit_status, lowered_inline_stats_field_value,
+    lowered_inline_stats_to_record_vec, lowered_record_vec_get, lowered_record_vec_get_mut,
+    lowered_record_vec_insert, lowered_record_vec_or_stats, lowered_stats_field_value,
+    lowered_str_view_value, lowered_value_matches_static_type, module_error, module_io_error,
+    path_absolute_value, path_value_from_pathbuf, pathbuf_from_path_value,
+    runtime_error_from_value, splice_to_argv, trace_env_overlay, trace_status,
+    value_matches_static_type, value_to_argv_bytes,
 };
+#[cfg(feature = "native-tests")]
+use super::{NativeTestRunKind, NativeTestRunRequest, TestMock};
 use cap_directories::{ProjectDirs, UserDirs, ambient_authority as directories_authority};
 use cap_tempfile::{TempDir, TempFile, ambient_authority as tempfile_authority};
 
@@ -166,6 +171,7 @@ fn lowered_eval_depth_limit() -> usize {
     }
 }
 
+#[cfg(feature = "native-tests")]
 impl Evaluator {
     fn lowered_test_run_script(
         &mut self,
@@ -191,73 +197,18 @@ impl Evaluator {
         name: &str,
         span: Span,
     ) -> Result<BTreeMap<Arc<str>, LoweredValue>, RuntimeError> {
-        let script_name = if name.is_empty() { "script.xsh" } else { name };
-        let path = test_temp_path(self, ctx, script_name, span)?;
-        let host_path = self.host_path(&path);
-        if let Some(parent) = host_path.parent() {
-            std::fs::create_dir_all(parent).map_err(|error| {
-                RuntimeError::new("test-run-xsh", error.to_string()).with_span(span)
-            })?;
-        }
-        std::fs::write(&host_path, source).map_err(|error| {
-            RuntimeError::new("test-run-xsh", error.to_string()).with_span(span)
-        })?;
-
-        let mut command = Command::new(test_xsh_binary());
-        command.args(xsh_args);
-        command.arg(&host_path);
-        command.args(script_args);
-        command.envs(env);
-        command.stdout(Stdio::piped());
-        command.stderr(Stdio::piped());
-        if stdin.is_empty() {
-            command.stdin(Stdio::null());
-        } else {
-            command.stdin(Stdio::piped());
-        }
-
-        let mut child = command.spawn().map_err(|error| {
-            RuntimeError::new("test-run-xsh", error.to_string()).with_span(span)
-        })?;
-        if !stdin.is_empty()
-            && let Some(mut child_stdin) = child.stdin.take()
-        {
-            child_stdin.write_all(stdin).map_err(|error| {
-                RuntimeError::new("test-run-xsh", error.to_string()).with_span(span)
-            })?;
-        }
-        let output = child.wait_with_output().map_err(|error| {
-            RuntimeError::new("test-run-xsh", error.to_string()).with_span(span)
-        })?;
-        let status = output
-            .status
-            .code()
-            .or_else(|| output.status.signal().map(|signal| 128 + signal))
-            .unwrap_or(-1) as i64;
-
-        Ok(BTreeMap::from([
-            (
-                Arc::from("success"),
-                LoweredValue::Bool(output.status.success()),
-            ),
-            (Arc::from("status"), LoweredValue::Int(status)),
-            (
-                Arc::from("stdout"),
-                LoweredValue::Str(String::from_utf8_lossy(&output.stdout).into()),
-            ),
-            (
-                Arc::from("stderr"),
-                LoweredValue::Str(String::from_utf8_lossy(&output.stderr).into()),
-            ),
-            (
-                Arc::from("stdout_bytes"),
-                LoweredValue::Bytes(output.stdout.into()),
-            ),
-            (
-                Arc::from("stderr_bytes"),
-                LoweredValue::Bytes(output.stderr.into()),
-            ),
-        ]))
+        self.lowered_native_test_run(
+            NativeTestRunKind::Xsh,
+            ctx,
+            source,
+            xsh_args,
+            script_args,
+            env,
+            stdin,
+            name,
+            span,
+            "test-run-xsh",
+        )
     }
 
     fn lowered_test_run_xsht_trace(
@@ -271,99 +222,63 @@ impl Evaluator {
         name: &str,
         span: Span,
     ) -> Result<BTreeMap<Arc<str>, LoweredValue>, RuntimeError> {
+        self.lowered_native_test_run(
+            NativeTestRunKind::XshtTrace,
+            ctx,
+            source,
+            trace_args,
+            script_args,
+            env,
+            stdin,
+            name,
+            span,
+            "test-run-xsht-trace",
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn lowered_native_test_run(
+        &mut self,
+        kind: NativeTestRunKind,
+        ctx: &RecordMap,
+        source: &str,
+        tool_args: &[String],
+        script_args: &[String],
+        env: &BTreeMap<String, String>,
+        stdin: &[u8],
+        name: &str,
+        span: Span,
+        error_kind: &str,
+    ) -> Result<BTreeMap<Arc<str>, LoweredValue>, RuntimeError> {
         let script_name = if name.is_empty() { "script.xsh" } else { name };
-        let path = test_temp_path(self, ctx, script_name, span)?;
-        let host_path = self.host_path(&path);
-        if let Some(parent) = host_path.parent() {
-            std::fs::create_dir_all(parent).map_err(|error| {
-                RuntimeError::new("test-run-xsht-trace", error.to_string()).with_span(span)
-            })?;
-        }
-        std::fs::write(&host_path, source).map_err(|error| {
-            RuntimeError::new("test-run-xsht-trace", error.to_string()).with_span(span)
+        let script_path = test_temp_path(self, ctx, script_name, span)?;
+        let Some(host) = self.native_test_host.clone() else {
+            return Err(
+                RuntimeError::new(error_kind, "native test host is not installed").with_span(span),
+            );
+        };
+        let value = host(NativeTestRunRequest {
+            kind,
+            script_path,
+            source: source.to_string(),
+            tool_args: tool_args.to_vec(),
+            script_args: script_args.to_vec(),
+            env: env.clone(),
+            stdin: stdin.to_vec(),
+            span,
         })?;
-
-        let mut command = Command::new(test_binary("xsht"));
-        command.arg("trace");
-        command.args(trace_args.iter().filter(|arg| arg.as_str() != "--trace"));
-        command.arg(&host_path);
-        command.args(script_args);
-        command.envs(env);
-        command.stdout(Stdio::piped());
-        command.stderr(Stdio::piped());
-        if stdin.is_empty() {
-            command.stdin(Stdio::null());
-        } else {
-            command.stdin(Stdio::piped());
-        }
-
-        let mut child = command.spawn().map_err(|error| {
-            RuntimeError::new("test-run-xsht-trace", error.to_string()).with_span(span)
-        })?;
-        if !stdin.is_empty()
-            && let Some(mut child_stdin) = child.stdin.take()
-        {
-            child_stdin.write_all(stdin).map_err(|error| {
-                RuntimeError::new("test-run-xsht-trace", error.to_string()).with_span(span)
-            })?;
-        }
-        let output = child.wait_with_output().map_err(|error| {
-            RuntimeError::new("test-run-xsht-trace", error.to_string()).with_span(span)
-        })?;
-        let status = output
-            .status
-            .code()
-            .or_else(|| output.status.signal().map(|signal| 128 + signal))
-            .unwrap_or(-1) as i64;
-
-        Ok(BTreeMap::from([
-            (
-                Arc::from("success"),
-                LoweredValue::Bool(output.status.success()),
-            ),
-            (Arc::from("status"), LoweredValue::Int(status)),
-            (
-                Arc::from("stdout"),
-                LoweredValue::Str(String::from_utf8_lossy(&output.stdout).into()),
-            ),
-            (
-                Arc::from("stderr"),
-                LoweredValue::Str(String::from_utf8_lossy(&output.stderr).into()),
-            ),
-            (
-                Arc::from("stdout_bytes"),
-                LoweredValue::Bytes(output.stdout.into()),
-            ),
-            (
-                Arc::from("stderr_bytes"),
-                LoweredValue::Bytes(output.stderr.into()),
-            ),
-        ]))
-    }
-}
-
-fn test_xsh_binary() -> PathBuf {
-    test_binary("xsh")
-}
-
-fn test_binary(name: &str) -> PathBuf {
-    let env_name = format!("CARGO_BIN_EXE_{name}");
-    if let Some(path) = std::env::var_os(env_name) {
-        return PathBuf::from(path);
-    }
-    if let Ok(current) = std::env::current_exe()
-        && let Some(dir) = current.parent()
-    {
-        let sibling = dir.join(name);
-        if sibling.exists() {
-            return sibling;
+        match lowered_runtime_value(value, span)? {
+            LoweredValue::Record(record) => Ok(record),
+            other => Err(RuntimeError::new(
+                error_kind,
+                format!(
+                    "native test host returned {}, expected Record",
+                    other.type_name()
+                ),
+            )
+            .with_span(span)),
         }
     }
-    let target_debug = PathBuf::from("target/debug").join(name);
-    if target_debug.exists() {
-        return target_debug;
-    }
-    PathBuf::from(name)
 }
 
 thread_local! {
@@ -1932,6 +1847,7 @@ fn read_host_path_string(path: &Path, operation: &str, span: Span) -> Result<Str
         .map_err(|error| RuntimeError::new(operation, error.to_string()).with_span(span))
 }
 
+#[cfg(feature = "native-tests")]
 fn create_host_dir_all(path: &Path, operation: &str, span: Span) -> Result<(), RuntimeError> {
     let (root, rel) = if path.is_absolute() {
         (Path::new("/"), path.strip_prefix("/").unwrap_or(path))
@@ -2477,6 +2393,7 @@ fn lowered_record_arg(
     }
 }
 
+#[cfg(feature = "native-tests")]
 fn lowered_optional_str_record(
     value: Option<LoweredValue>,
     operation: &str,
@@ -2517,6 +2434,7 @@ fn lowered_optional_str_record(
     Ok(env)
 }
 
+#[cfg(feature = "native-tests")]
 fn lowered_bytes_arg_or_empty(
     value: Option<LoweredValue>,
     operation: &str,
@@ -7841,6 +7759,7 @@ impl Evaluator {
             RuntimeOp::SystemOsRelease if values.is_empty() => {
                 lowered_runtime_result(system::os_release(span), span)?
             }
+            #[cfg(feature = "native-tests")]
             RuntimeOp::TestOk if values.len() == 1 || values.len() == 2 => {
                 let message = lowered_str_arg_owned(
                     values.get(1).cloned(),
@@ -7859,6 +7778,7 @@ impl Evaluator {
                     lowered_runtime_value(test_failure(message), span)?
                 }
             }
+            #[cfg(feature = "native-tests")]
             RuntimeOp::TestEq if values.len() == 2 || values.len() == 3 => {
                 let left = values[0].clone().into_value();
                 let right = values[1].clone().into_value();
@@ -7878,6 +7798,7 @@ impl Evaluator {
                     lowered_runtime_value(test_failure(detail), span)?
                 }
             }
+            #[cfg(feature = "native-tests")]
             RuntimeOp::TestNe if values.len() == 2 || values.len() == 3 => {
                 let left = values[0].clone().into_value();
                 let right = values[1].clone().into_value();
@@ -7893,6 +7814,7 @@ impl Evaluator {
                     lowered_runtime_value(test_failure(detail), span)?
                 }
             }
+            #[cfg(feature = "native-tests")]
             RuntimeOp::TestContains if values.len() == 2 || values.len() == 3 => {
                 let haystack = values[0].clone().into_value();
                 let needle = values[1].clone().into_value();
@@ -7913,6 +7835,7 @@ impl Evaluator {
                     lowered_runtime_value(test_failure(detail), span)?
                 }
             }
+            #[cfg(feature = "native-tests")]
             RuntimeOp::TestNotContains if values.len() == 2 || values.len() == 3 => {
                 let haystack = values[0].clone().into_value();
                 let needle = values[1].clone().into_value();
@@ -7933,6 +7856,7 @@ impl Evaluator {
                     lowered_runtime_value(test_failure(detail), span)?
                 }
             }
+            #[cfg(feature = "native-tests")]
             RuntimeOp::TestErrorKind if values.len() == 2 || values.len() == 3 => {
                 let value = values[0].clone().into_value();
                 let expected =
@@ -7954,11 +7878,13 @@ impl Evaluator {
                     lowered_runtime_value(test_failure(detail), span)?
                 }
             }
+            #[cfg(feature = "native-tests")]
             RuntimeOp::TestFail if values.is_empty() || values.len() == 1 => {
                 let message =
                     lowered_str_arg_owned(values.pop(), "test failed", "test.fail", span)?;
                 lowered_runtime_value(test_failure(message), span)?
             }
+            #[cfg(feature = "native-tests")]
             RuntimeOp::TestSkip if values.is_empty() || values.len() == 1 => {
                 let message =
                     lowered_str_arg_owned(values.pop(), "test skipped", "test.skip", span)?;
@@ -7970,12 +7896,14 @@ impl Evaluator {
                     span,
                 )?
             }
+            #[cfg(feature = "native-tests")]
             RuntimeOp::TestTempPath if values.len() == 1 || values.len() == 2 => {
                 let ctx = lowered_record_arg(values.first().cloned(), "test.temp_path", span)?;
                 let name =
                     lowered_str_arg_owned(values.get(1).cloned(), "", "test.temp_path", span)?;
                 LoweredValue::Path(test_temp_path(self, &ctx, &name, span)?)
             }
+            #[cfg(feature = "native-tests")]
             RuntimeOp::TestTempDir if values.len() == 1 || values.len() == 2 => {
                 let ctx = lowered_record_arg(values.first().cloned(), "test.temp_dir", span)?;
                 let name =
@@ -7986,6 +7914,7 @@ impl Evaluator {
                     Err(error) => lowered_result_err_value(error),
                 }
             }
+            #[cfg(feature = "native-tests")]
             RuntimeOp::TestTempFile if (1..=3).contains(&values.len()) => {
                 let ctx = lowered_record_arg(values.first().cloned(), "test.temp_file", span)?;
                 let name =
@@ -8004,6 +7933,7 @@ impl Evaluator {
                     Err(error) => lowered_result_err_value(error),
                 }
             }
+            #[cfg(feature = "native-tests")]
             RuntimeOp::TestMock if (4..=5).contains(&values.len()) => {
                 let _ctx = lowered_record_arg(values.first().cloned(), "test.mock", span)?;
                 let op = lowered_str_arg_owned(values.get(1).cloned(), "", "test.mock", span)?;
@@ -8036,6 +7966,7 @@ impl Evaluator {
                     lowered_result_ok(LoweredValue::Unit)
                 }
             }
+            #[cfg(feature = "native-tests")]
             RuntimeOp::TestCalls if values.len() == 1 || values.len() == 2 => {
                 let _ctx = lowered_record_arg(values.first().cloned(), "test.calls", span)?;
                 let op = lowered_str_arg_owned(values.get(1).cloned(), "", "test.calls", span)?;
@@ -8053,6 +7984,7 @@ impl Evaluator {
                 }
                 LoweredValue::List(calls)
             }
+            #[cfg(feature = "native-tests")]
             RuntimeOp::TestRunScript if (2..=6).contains(&values.len()) => {
                 let ctx = lowered_record_arg(values.first().cloned(), "test.run_script", span)?;
                 let source =
@@ -8075,6 +8007,7 @@ impl Evaluator {
                     Err(error) => lowered_result_err_value(error),
                 }
             }
+            #[cfg(feature = "native-tests")]
             RuntimeOp::TestRunXsh if (2..=7).contains(&values.len()) => {
                 let ctx = lowered_record_arg(values.first().cloned(), "test.run_xsh", span)?;
                 let source =
@@ -8093,39 +8026,39 @@ impl Evaluator {
                     "test.run_xsh",
                     span,
                 )?;
-                match self
-                    .lowered_test_run_xsh(&ctx, &source, &xsh_args, &script_args, &env, &stdin, &name, span)
-                {
+                match self.lowered_test_run_xsh(
+                    &ctx,
+                    &source,
+                    &xsh_args,
+                    &script_args,
+                    &env,
+                    &stdin,
+                    &name,
+                    span,
+                ) {
                     Ok(record) => lowered_result_ok(LoweredValue::Record(record)),
                     Err(error) => lowered_result_err_value(error),
                 }
             }
+            #[cfg(feature = "native-tests")]
             RuntimeOp::TestRunXshtTrace if (2..=7).contains(&values.len()) => {
-                let ctx =
-                    lowered_record_arg(values.first().cloned(), "test.run_xsht_trace", span)?;
-                let source = lowered_str_arg_owned(
-                    values.get(1).cloned(),
-                    "",
-                    "test.run_xsht_trace",
-                    span,
-                )?;
-                let trace_args = lowered_optional_str_list(
-                    values.get(2).cloned(),
-                    "test.run_xsht_trace",
-                    span,
-                )?;
-                let script_args = lowered_optional_str_list(
-                    values.get(3).cloned(),
-                    "test.run_xsht_trace",
-                    span,
-                )?;
+                let ctx = lowered_record_arg(values.first().cloned(), "test.run_xsht_trace", span)?;
+                let source =
+                    lowered_str_arg_owned(values.get(1).cloned(), "", "test.run_xsht_trace", span)?;
+                let trace_args =
+                    lowered_optional_str_list(values.get(2).cloned(), "test.run_xsht_trace", span)?;
+                let script_args =
+                    lowered_optional_str_list(values.get(3).cloned(), "test.run_xsht_trace", span)?;
                 let env = lowered_optional_str_record(
                     values.get(4).cloned(),
                     "test.run_xsht_trace",
                     span,
                 )?;
-                let stdin =
-                    lowered_bytes_arg_or_empty(values.get(5).cloned(), "test.run_xsht_trace", span)?;
+                let stdin = lowered_bytes_arg_or_empty(
+                    values.get(5).cloned(),
+                    "test.run_xsht_trace",
+                    span,
+                )?;
                 let name = lowered_str_arg_owned(
                     values.get(6).cloned(),
                     "script.xsh",

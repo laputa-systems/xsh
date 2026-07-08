@@ -8,15 +8,19 @@ use crate::xsht::docs::{OutputPolicy, load_example_catalog};
 use miniserde::json::{Object, Value as JsonValue};
 use std::collections::BTreeMap;
 use std::fs;
+use std::io::Write;
+use std::os::unix::ffi::OsStringExt;
+use std::os::unix::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex, mpsc};
 use std::time::{SystemTime, UNIX_EPOCH};
 use xsh::diagnostic::{Diagnostic, DiagnosticRenderer, Label};
 use xsh::parse_script_with_module_roots;
 use xsh::runner::{RunOptions, XSH_COVERAGE_TRACE_DIR, render_coverage_trace_jsonl, run_script};
-use xsh::runtime::eval::{Evaluator, PreparedTestProgram};
+use xsh::runtime::eval::{Evaluator, NativeTestRunKind, NativeTestRunRequest, PreparedTestProgram};
 use xsh::runtime::process::path_bytes;
-use xsh::runtime::value::{PathValue, RecordMap, ResultValue, Value};
+use xsh::runtime::value::{PathValue, RecordMap, ResultValue, RuntimeError, Value};
 use xsh::sema::check::Checker;
 use xsh::sema::types::Type;
 use xsh::syntax::arena::{ArenaProgram, ArenaStmtKind, FunctionDefId, StmtId};
@@ -580,6 +584,7 @@ fn discover_native_tests(
         let sources = Arc::new(sources);
         let prepared = Arc::new(
             Evaluator::new_with_shared_sources(Vec::new(), Arc::clone(&sources))
+                .with_native_test_host(Arc::new(native_test_host))
                 .prepare_test_program(Arc::clone(&arena), source_id),
         );
         for stmt_id in arena.statement_ids() {
@@ -745,6 +750,116 @@ fn run_native_test(
         coverage_trace,
         coverage_scope: "tests",
     }
+}
+
+fn native_test_host(request: NativeTestRunRequest) -> Result<Value, RuntimeError> {
+    let script_path = PathBuf::from(std::ffi::OsString::from_vec(
+        request.script_path.bytes.clone(),
+    ));
+    if let Some(parent) = script_path.parent() {
+        fs::create_dir_all(parent).map_err(|error| {
+            RuntimeError::new(native_test_error_kind(request.kind), error.to_string())
+                .with_span(request.span)
+        })?;
+    }
+    fs::write(&script_path, request.source).map_err(|error| {
+        RuntimeError::new(native_test_error_kind(request.kind), error.to_string())
+            .with_span(request.span)
+    })?;
+
+    let mut command = match request.kind {
+        NativeTestRunKind::Xsh => {
+            let mut command = Command::new(test_binary("xsh"));
+            command.args(&request.tool_args);
+            command.arg(&script_path);
+            command
+        }
+        NativeTestRunKind::XshtTrace => {
+            let mut command = Command::new(test_binary("xsht"));
+            command.arg("trace");
+            command.args(
+                request
+                    .tool_args
+                    .iter()
+                    .filter(|arg| arg.as_str() != "--trace"),
+            );
+            command.arg(&script_path);
+            command
+        }
+    };
+    command.args(&request.script_args);
+    command.envs(&request.env);
+    command.stdout(Stdio::piped());
+    command.stderr(Stdio::piped());
+    if request.stdin.is_empty() {
+        command.stdin(Stdio::null());
+    } else {
+        command.stdin(Stdio::piped());
+    }
+
+    let mut child = command.spawn().map_err(|error| {
+        RuntimeError::new(native_test_error_kind(request.kind), error.to_string())
+            .with_span(request.span)
+    })?;
+    if !request.stdin.is_empty()
+        && let Some(mut child_stdin) = child.stdin.take()
+    {
+        child_stdin.write_all(&request.stdin).map_err(|error| {
+            RuntimeError::new(native_test_error_kind(request.kind), error.to_string())
+                .with_span(request.span)
+        })?;
+    }
+    let output = child.wait_with_output().map_err(|error| {
+        RuntimeError::new(native_test_error_kind(request.kind), error.to_string())
+            .with_span(request.span)
+    })?;
+    let status = output
+        .status
+        .code()
+        .or_else(|| output.status.signal().map(|signal| 128 + signal))
+        .unwrap_or(-1) as i64;
+
+    Ok(Value::Record(RecordMap::from([
+        (Arc::from("success"), Value::Bool(output.status.success())),
+        (Arc::from("status"), Value::Int(status)),
+        (
+            Arc::from("stdout"),
+            Value::Str(String::from_utf8_lossy(&output.stdout).into()),
+        ),
+        (
+            Arc::from("stderr"),
+            Value::Str(String::from_utf8_lossy(&output.stderr).into()),
+        ),
+        (Arc::from("stdout_bytes"), Value::Bytes(output.stdout)),
+        (Arc::from("stderr_bytes"), Value::Bytes(output.stderr)),
+    ])))
+}
+
+fn native_test_error_kind(kind: NativeTestRunKind) -> &'static str {
+    match kind {
+        NativeTestRunKind::Xsh => "test-run-xsh",
+        NativeTestRunKind::XshtTrace => "test-run-xsht-trace",
+    }
+}
+
+fn test_binary(name: &str) -> PathBuf {
+    let env_name = format!("CARGO_BIN_EXE_{name}");
+    if let Some(path) = std::env::var_os(env_name) {
+        return PathBuf::from(path);
+    }
+    if let Ok(current) = std::env::current_exe()
+        && let Some(dir) = current.parent()
+    {
+        let sibling = dir.join(name);
+        if sibling.exists() {
+            return sibling;
+        }
+    }
+    let target_debug = PathBuf::from("target/debug").join(name);
+    if target_debug.exists() {
+        return target_debug;
+    }
+    PathBuf::from(name)
 }
 
 fn text_bytes(text: impl Into<String>) -> Vec<u8> {

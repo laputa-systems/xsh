@@ -51,38 +51,63 @@ Keep in Rust unless the native harness grows more facilities:
 
 ## Test-Only Ops Placement
 
-The new helpers are currently language-facing `test` module APIs:
+The native helpers are language-facing `test` module APIs:
 
 - `test.run_script`
 - `test.run_xsh`
 - `test.run_xsht_trace`
 
-They are declared in `crates/xsh-registry`, adapted by `src/modules/signature.rs`,
-checked by the main checker, lowered as `RuntimeOp`s, and executed inside the
-main `Evaluator`.
+The implemented split keeps native test typechecking/lowering in `xsh`, but
+behind a non-default `native-tests` feature:
 
-Moving their implementation fully into `crates/xsht` is not currently a simple
-file move. Native tests are parsed, checked, lowered, and evaluated by the main
-`xsh` frontend/runtime. `xsht` owns discovery, scheduling, temp roots, reporting,
-coverage aggregation, and example execution, but module call signatures and
-runtime dispatch are not injectable per tool invocation.
+- `crates/xsh-registry` now gates `RuntimeOp::Test*`, `TestContext`,
+  `TestCall`, `TestScriptOutput`, and the `test` module signatures behind
+  `native-tests`.
+- `xsh` exposes a matching `native-tests` feature and gates native test
+  evaluator APIs and dispatch.
+- `crates/xsht` depends on `xsh` with explicit features:
+  `native-tests`, `net`, and `tools`.
+- The subprocess implementation for `test.run_script`, `test.run_xsh`, and
+  `test.run_xsht_trace` lives in `crates/xsht` as an `Evaluator` native-test
+  host callback. Core `xsh` keeps only argument conversion, temp-path
+  allocation, and callback dispatch.
 
-Feasible directions:
+This avoids a Cargo cycle. `xsh` cannot directly call into `xsht`, because
+`xsht` already depends on `xsh`; the dependency direction remains:
 
-1. Keep the public `test` module signatures in `xsh-registry`, but route
-   test-only host behavior through an `Evaluator` host callback installed by
-   `xsht`. This would move subprocess implementation details out of
-   `lowered_run.rs` while preserving normal checking/lowering.
-2. Add an overlay API spec for native-test mode. `xsht` would pass extra
-   module signatures into parsing/checking/lowering. This is more invasive
-   because the checker and lowerer currently read the global standard API spec.
-3. Keep the helpers in the main runtime, but isolate their implementation in a
-   small `src/runtime/eval/modules/test.rs` adapter. This does not move them
-   into `crates/xsht`, but it reduces main-runtime clutter and keeps test-only
-   code clearly fenced.
+```text
+xsht -> xsh -> xsh-registry
+```
 
-Most practical next step: option 1. Add a narrow `TestHost`/`NativeTestHost`
-interface to `Evaluator` or `LoweredSharedState`, with default implementations
-that return a structured unsupported error outside `xsht`. Then `xsht` can
-install the subprocess runner for native tests without making the main runtime
-know how to find `xsht` or spawn child scripts.
+## Core Footprint Investigation
+
+Goal: reduce the binary and compile footprint of `xsh` core, not just move files.
+
+Observed from local builds:
+
+- `cargo build --no-default-features --bin xsh` succeeds.
+- `cargo build --no-default-features --features net --bin xsh` succeeds.
+- A no-default debug `xsh` binary still contains strings for
+  `run_script`, `run_xsh`, `run_xsht_trace`, `test-run-xsht-trace`, and
+  `xsht trace`. That means the test-only surface is currently compiled into core
+  even when `tools` is disabled.
+- `cargo bloat --no-default-features --bin xsh --release --filter test_ -n 30`
+  reports about 16.2 KiB of `.text` matching test helpers. The new subprocess
+  helpers account for about 7.3 KiB:
+  - `Evaluator::lowered_test_run_xsh`: about 3.8 KiB
+  - `Evaluator::lowered_test_run_xsht_trace`: about 3.5 KiB
+- The direct binary-size win is modest. The cleaner value is compile-surface and
+  architecture: core should not know how to find `xsht`, spawn `xsht trace`, or
+  expose native-test-only APIs unless a test feature is enabled.
+
+Implemented verification:
+
+- `cargo check --no-default-features --bin xsh`
+- `cargo check --no-default-features --features net --bin xsh`
+- `cargo build --no-default-features --bin xsh`
+- Fresh no-default `target/debug/xsh` string scan no longer matches
+  `run_script`, `run_xsh`, `run_xsht_trace`, `test-run-xsh`,
+  `test-run-xsht-trace`, `TestContext`, `TestCall`, or `TestScriptOutput`.
+- `cargo check -p xsht`
+- `cargo run -p xsht -- test tests/xsh`
+- `cargo test --test runtime`

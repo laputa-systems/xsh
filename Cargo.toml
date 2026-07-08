@@ -60,6 +60,7 @@ default = ["net", "tools"]
 dhat-heap = ["dep:dhat"]
 docs-html = ["tools", "dep:pulldown-cmark"]
 linux-priv-tests = []
+native-tests = ["xsh-registry/native-tests"]
 net = [
     "dep:rustls",
     "dep:xsh-net",

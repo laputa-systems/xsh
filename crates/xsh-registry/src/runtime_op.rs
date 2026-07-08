@@ -365,21 +365,37 @@ pub enum RuntimeOp {
     TextFind,
     TextParseInt,
     TextParseFloat,
+    #[cfg(feature = "native-tests")]
     TestOk,
+    #[cfg(feature = "native-tests")]
     TestEq,
+    #[cfg(feature = "native-tests")]
     TestNe,
+    #[cfg(feature = "native-tests")]
     TestContains,
+    #[cfg(feature = "native-tests")]
     TestNotContains,
+    #[cfg(feature = "native-tests")]
     TestErrorKind,
+    #[cfg(feature = "native-tests")]
     TestFail,
+    #[cfg(feature = "native-tests")]
     TestSkip,
+    #[cfg(feature = "native-tests")]
     TestTempPath,
+    #[cfg(feature = "native-tests")]
     TestTempDir,
+    #[cfg(feature = "native-tests")]
     TestTempFile,
+    #[cfg(feature = "native-tests")]
     TestMock,
+    #[cfg(feature = "native-tests")]
     TestCalls,
+    #[cfg(feature = "native-tests")]
     TestRunScript,
+    #[cfg(feature = "native-tests")]
     TestRunXsh,
+    #[cfg(feature = "native-tests")]
     TestRunXshtTrace,
     TimeNow,
     TimeSleep,

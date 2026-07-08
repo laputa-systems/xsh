@@ -1,14 +1,14 @@
 {
   "cli_forms": [
-    "xsh SCRIPT [ARGS...]",
-    "xsh -- SCRIPT ARGS...",
+    "xsh [--strict-lower] SCRIPT [ARGS...]",
+    "xsh [--strict-lower] -- SCRIPT ARGS...",
     "xshi",
-    "xsht check [--strict] [--annotate] [PATH...]",
+    "xsht check [--strict] [--summary] [--annotate] [PATH...]",
     "xsht fmt [--check] [FILE...]",
     "xsht lint [--fix] [--runless] [FILE...]",
     "xsht ast SCRIPT",
     "xsht trace [--raw] [--trace-format text|jsonl|flamegraph] [--trace-file FILE] [--syscalls] [--trace-top-syscalls N] SCRIPT [ARGS...]",
-    "xsht test [--cov] [OPTIONS] [FILTER]",
+    "xsht test [--strict-lower] [--cov] [OPTIONS] [FILTER]",
     "xsht docs build",
     "xsht docs check"
   ],
@@ -768,6 +768,16 @@
           "return_type": "List[Str]",
           "returns": "Returns `List[Str]`.",
           "summary": "`keys` method for `Map` values."
+        },
+        {
+          "id": "method.Map.len.0",
+          "name": "len",
+          "overload_index": 0,
+          "params": [],
+          "pure": true,
+          "return_type": "Int",
+          "returns": "Returns `Int`.",
+          "summary": "`len` method for `Map` values."
         },
         {
           "id": "method.Map.push.0",
@@ -7448,6 +7458,36 @@
             },
             {
               "defaulted": true,
+              "doc": "Optional `stdin` argument; omitted calls use the runtime default.",
+              "name": "stdin",
+              "type": "Path"
+            },
+            {
+              "defaulted": true,
+              "doc": "Optional `stdout` argument; omitted calls use the runtime default.",
+              "name": "stdout",
+              "type": "Path"
+            },
+            {
+              "defaulted": true,
+              "doc": "Optional `stderr` argument; omitted calls use the runtime default.",
+              "name": "stderr",
+              "type": "Path"
+            },
+            {
+              "defaulted": true,
+              "doc": "Optional `stdout_append` argument; omitted calls use the runtime default.",
+              "name": "stdout_append",
+              "type": "Bool"
+            },
+            {
+              "defaulted": true,
+              "doc": "Optional `stderr_append` argument; omitted calls use the runtime default.",
+              "name": "stderr_append",
+              "type": "Bool"
+            },
+            {
+              "defaulted": true,
               "doc": "Optional `timeout` argument; omitted calls use the runtime default.",
               "name": "timeout",
               "type": "Duration"
@@ -7492,6 +7532,102 @@
               "defaulted": false,
               "doc": "Required `target` argument.",
               "name": "target",
+              "type": "Str"
+            },
+            {
+              "defaulted": false,
+              "doc": "Required `argv` argument.",
+              "name": "argv",
+              "type": "List[Path]"
+            },
+            {
+              "defaulted": true,
+              "doc": "Optional `cwd` argument; omitted calls use the runtime default.",
+              "name": "cwd",
+              "type": "Path"
+            },
+            {
+              "defaulted": true,
+              "doc": "Optional `env` argument; omitted calls use the runtime default.",
+              "name": "env",
+              "type": "Record"
+            },
+            {
+              "defaulted": true,
+              "doc": "Optional `stdin` argument; omitted calls use the runtime default.",
+              "name": "stdin",
+              "type": "Path"
+            },
+            {
+              "defaulted": true,
+              "doc": "Optional `stdout` argument; omitted calls use the runtime default.",
+              "name": "stdout",
+              "type": "Path"
+            },
+            {
+              "defaulted": true,
+              "doc": "Optional `stderr` argument; omitted calls use the runtime default.",
+              "name": "stderr",
+              "type": "Path"
+            },
+            {
+              "defaulted": true,
+              "doc": "Optional `stdout_append` argument; omitted calls use the runtime default.",
+              "name": "stdout_append",
+              "type": "Bool"
+            },
+            {
+              "defaulted": true,
+              "doc": "Optional `stderr_append` argument; omitted calls use the runtime default.",
+              "name": "stderr_append",
+              "type": "Bool"
+            },
+            {
+              "defaulted": true,
+              "doc": "Optional `timeout` argument; omitted calls use the runtime default.",
+              "name": "timeout",
+              "type": "Duration"
+            },
+            {
+              "defaulted": true,
+              "doc": "Optional `detach` argument; omitted calls use the runtime default.",
+              "name": "detach",
+              "type": "Bool"
+            },
+            {
+              "defaulted": true,
+              "doc": "Optional `new_session` argument; omitted calls use the runtime default.",
+              "name": "new_session",
+              "type": "Bool"
+            },
+            {
+              "defaulted": true,
+              "doc": "Optional `ignore_hup` argument; omitted calls use the runtime default.",
+              "name": "ignore_hup",
+              "type": "Bool"
+            },
+            {
+              "defaulted": true,
+              "doc": "Optional `cpu_max` argument; omitted calls use the runtime default.",
+              "name": "cpu_max",
+              "type": "Int"
+            }
+          ],
+          "pure": true,
+          "return_type": "Command",
+          "returns": "Returns `Command`.",
+          "summary": "Process discovery, command construction, execution, spawning, and signals `command_argv` operation."
+        },
+        {
+          "command": false,
+          "id": "module.process.command_argv.2",
+          "name": "command_argv",
+          "overload_index": 2,
+          "params": [
+            {
+              "defaulted": false,
+              "doc": "Required `target` argument.",
+              "name": "target",
               "type": "Path"
             },
             {
@@ -7511,6 +7647,132 @@
               "doc": "Optional `env` argument; omitted calls use the runtime default.",
               "name": "env",
               "type": "Record"
+            },
+            {
+              "defaulted": true,
+              "doc": "Optional `stdin` argument; omitted calls use the runtime default.",
+              "name": "stdin",
+              "type": "Path"
+            },
+            {
+              "defaulted": true,
+              "doc": "Optional `stdout` argument; omitted calls use the runtime default.",
+              "name": "stdout",
+              "type": "Path"
+            },
+            {
+              "defaulted": true,
+              "doc": "Optional `stderr` argument; omitted calls use the runtime default.",
+              "name": "stderr",
+              "type": "Path"
+            },
+            {
+              "defaulted": true,
+              "doc": "Optional `stdout_append` argument; omitted calls use the runtime default.",
+              "name": "stdout_append",
+              "type": "Bool"
+            },
+            {
+              "defaulted": true,
+              "doc": "Optional `stderr_append` argument; omitted calls use the runtime default.",
+              "name": "stderr_append",
+              "type": "Bool"
+            },
+            {
+              "defaulted": true,
+              "doc": "Optional `timeout` argument; omitted calls use the runtime default.",
+              "name": "timeout",
+              "type": "Duration"
+            },
+            {
+              "defaulted": true,
+              "doc": "Optional `detach` argument; omitted calls use the runtime default.",
+              "name": "detach",
+              "type": "Bool"
+            },
+            {
+              "defaulted": true,
+              "doc": "Optional `new_session` argument; omitted calls use the runtime default.",
+              "name": "new_session",
+              "type": "Bool"
+            },
+            {
+              "defaulted": true,
+              "doc": "Optional `ignore_hup` argument; omitted calls use the runtime default.",
+              "name": "ignore_hup",
+              "type": "Bool"
+            },
+            {
+              "defaulted": true,
+              "doc": "Optional `cpu_max` argument; omitted calls use the runtime default.",
+              "name": "cpu_max",
+              "type": "Int"
+            }
+          ],
+          "pure": true,
+          "return_type": "Command",
+          "returns": "Returns `Command`.",
+          "summary": "Process discovery, command construction, execution, spawning, and signals `command_argv` operation."
+        },
+        {
+          "command": false,
+          "id": "module.process.command_argv.3",
+          "name": "command_argv",
+          "overload_index": 3,
+          "params": [
+            {
+              "defaulted": false,
+              "doc": "Required `target` argument.",
+              "name": "target",
+              "type": "Path"
+            },
+            {
+              "defaulted": false,
+              "doc": "Required `argv` argument.",
+              "name": "argv",
+              "type": "List[Path]"
+            },
+            {
+              "defaulted": true,
+              "doc": "Optional `cwd` argument; omitted calls use the runtime default.",
+              "name": "cwd",
+              "type": "Path"
+            },
+            {
+              "defaulted": true,
+              "doc": "Optional `env` argument; omitted calls use the runtime default.",
+              "name": "env",
+              "type": "Record"
+            },
+            {
+              "defaulted": true,
+              "doc": "Optional `stdin` argument; omitted calls use the runtime default.",
+              "name": "stdin",
+              "type": "Path"
+            },
+            {
+              "defaulted": true,
+              "doc": "Optional `stdout` argument; omitted calls use the runtime default.",
+              "name": "stdout",
+              "type": "Path"
+            },
+            {
+              "defaulted": true,
+              "doc": "Optional `stderr` argument; omitted calls use the runtime default.",
+              "name": "stderr",
+              "type": "Path"
+            },
+            {
+              "defaulted": true,
+              "doc": "Optional `stdout_append` argument; omitted calls use the runtime default.",
+              "name": "stdout_append",
+              "type": "Bool"
+            },
+            {
+              "defaulted": true,
+              "doc": "Optional `stderr_append` argument; omitted calls use the runtime default.",
+              "name": "stderr_append",
+              "type": "Bool"
             },
             {
               "defaulted": true,
@@ -8324,6 +8586,162 @@
           "return_type": "Result[Unit, Error]",
           "returns": "Returns `Unit` or `Error` failure data.",
           "summary": "Native XSH test assertions, temp resources, and host-effect mocks `ok` operation."
+        },
+        {
+          "command": false,
+          "id": "module.test.run_script.0",
+          "name": "run_script",
+          "overload_index": 0,
+          "params": [
+            {
+              "defaulted": false,
+              "doc": "Required `ctx` argument.",
+              "name": "ctx",
+              "type": "{file: Path, name: Str, temp_root: Path}"
+            },
+            {
+              "defaulted": false,
+              "doc": "Required `source` argument.",
+              "name": "source",
+              "type": "Str"
+            },
+            {
+              "defaulted": true,
+              "doc": "Optional `args` argument; omitted calls use the runtime default.",
+              "name": "args",
+              "type": "List[Str]"
+            },
+            {
+              "defaulted": true,
+              "doc": "Optional `env` argument; omitted calls use the runtime default.",
+              "name": "env",
+              "type": "Record"
+            },
+            {
+              "defaulted": true,
+              "doc": "Optional `stdin` argument; omitted calls use the runtime default.",
+              "name": "stdin",
+              "type": "Bytes"
+            },
+            {
+              "defaulted": true,
+              "doc": "Optional `name` argument; omitted calls use the runtime default.",
+              "name": "name",
+              "type": "Str"
+            }
+          ],
+          "pure": false,
+          "return_type": "Result[{status: Int, stderr: Str, stderr_bytes: Bytes, stdout: Str, stdout_bytes: Bytes, success: Bool}, Error]",
+          "returns": "Returns `{status: Int, stderr: Str, stderr_bytes: Bytes, stdout: Str, stdout_bytes: Bytes, success: Bool}` or `Error` failure data.",
+          "summary": "Native XSH test assertions, temp resources, and host-effect mocks `run_script` operation."
+        },
+        {
+          "command": false,
+          "id": "module.test.run_xsh.0",
+          "name": "run_xsh",
+          "overload_index": 0,
+          "params": [
+            {
+              "defaulted": false,
+              "doc": "Required `ctx` argument.",
+              "name": "ctx",
+              "type": "{file: Path, name: Str, temp_root: Path}"
+            },
+            {
+              "defaulted": false,
+              "doc": "Required `source` argument.",
+              "name": "source",
+              "type": "Str"
+            },
+            {
+              "defaulted": true,
+              "doc": "Optional `xsh_args` argument; omitted calls use the runtime default.",
+              "name": "xsh_args",
+              "type": "List[Str]"
+            },
+            {
+              "defaulted": true,
+              "doc": "Optional `script_args` argument; omitted calls use the runtime default.",
+              "name": "script_args",
+              "type": "List[Str]"
+            },
+            {
+              "defaulted": true,
+              "doc": "Optional `env` argument; omitted calls use the runtime default.",
+              "name": "env",
+              "type": "Record"
+            },
+            {
+              "defaulted": true,
+              "doc": "Optional `stdin` argument; omitted calls use the runtime default.",
+              "name": "stdin",
+              "type": "Bytes"
+            },
+            {
+              "defaulted": true,
+              "doc": "Optional `name` argument; omitted calls use the runtime default.",
+              "name": "name",
+              "type": "Str"
+            }
+          ],
+          "pure": false,
+          "return_type": "Result[{status: Int, stderr: Str, stderr_bytes: Bytes, stdout: Str, stdout_bytes: Bytes, success: Bool}, Error]",
+          "returns": "Returns `{status: Int, stderr: Str, stderr_bytes: Bytes, stdout: Str, stdout_bytes: Bytes, success: Bool}` or `Error` failure data.",
+          "summary": "Native XSH test assertions, temp resources, and host-effect mocks `run_xsh` operation."
+        },
+        {
+          "command": false,
+          "id": "module.test.run_xsht_trace.0",
+          "name": "run_xsht_trace",
+          "overload_index": 0,
+          "params": [
+            {
+              "defaulted": false,
+              "doc": "Required `ctx` argument.",
+              "name": "ctx",
+              "type": "{file: Path, name: Str, temp_root: Path}"
+            },
+            {
+              "defaulted": false,
+              "doc": "Required `source` argument.",
+              "name": "source",
+              "type": "Str"
+            },
+            {
+              "defaulted": true,
+              "doc": "Optional `trace_args` argument; omitted calls use the runtime default.",
+              "name": "trace_args",
+              "type": "List[Str]"
+            },
+            {
+              "defaulted": true,
+              "doc": "Optional `script_args` argument; omitted calls use the runtime default.",
+              "name": "script_args",
+              "type": "List[Str]"
+            },
+            {
+              "defaulted": true,
+              "doc": "Optional `env` argument; omitted calls use the runtime default.",
+              "name": "env",
+              "type": "Record"
+            },
+            {
+              "defaulted": true,
+              "doc": "Optional `stdin` argument; omitted calls use the runtime default.",
+              "name": "stdin",
+              "type": "Bytes"
+            },
+            {
+              "defaulted": true,
+              "doc": "Optional `name` argument; omitted calls use the runtime default.",
+              "name": "name",
+              "type": "Str"
+            }
+          ],
+          "pure": false,
+          "return_type": "Result[{status: Int, stderr: Str, stderr_bytes: Bytes, stdout: Str, stdout_bytes: Bytes, success: Bool}, Error]",
+          "returns": "Returns `{status: Int, stderr: Str, stderr_bytes: Bytes, stdout: Str, stdout_bytes: Bytes, success: Bool}` or `Error` failure data.",
+          "summary": "Native XSH test assertions, temp resources, and host-effect mocks `run_xsht_trace` operation."
         },
         {
           "command": false,

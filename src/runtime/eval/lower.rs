@@ -514,6 +514,10 @@ fn lowered_module_sig_type(sig: &ModuleFnSig) -> Option<LoweredType> {
 }
 
 fn lowered_module_op_supported(op: RuntimeOp) -> bool {
+    #[cfg(feature = "native-tests")]
+    if lowered_native_test_op_supported(op) {
+        return true;
+    }
     matches!(
         op,
         RuntimeOp::CpuCount
@@ -714,22 +718,6 @@ fn lowered_module_op_supported(op: RuntimeOp) -> bool {
             | RuntimeOp::SystemUname
             | RuntimeOp::SystemMemory
             | RuntimeOp::SystemOsRelease
-            | RuntimeOp::TestOk
-            | RuntimeOp::TestEq
-            | RuntimeOp::TestNe
-            | RuntimeOp::TestContains
-            | RuntimeOp::TestNotContains
-            | RuntimeOp::TestErrorKind
-            | RuntimeOp::TestFail
-            | RuntimeOp::TestSkip
-            | RuntimeOp::TestTempPath
-            | RuntimeOp::TestTempDir
-            | RuntimeOp::TestTempFile
-            | RuntimeOp::TestMock
-            | RuntimeOp::TestCalls
-            | RuntimeOp::TestRunScript
-            | RuntimeOp::TestRunXsh
-            | RuntimeOp::TestRunXshtTrace
             | RuntimeOp::TimeNow
             | RuntimeOp::TimeSleep
             | RuntimeOp::TimeMillis
@@ -833,6 +821,29 @@ fn lowered_module_op_supported(op: RuntimeOp) -> bool {
             | RuntimeOp::UserAdd
             | RuntimeOp::UserRemove
             | RuntimeOp::UtilsCache
+    )
+}
+
+#[cfg(feature = "native-tests")]
+fn lowered_native_test_op_supported(op: RuntimeOp) -> bool {
+    matches!(
+        op,
+        RuntimeOp::TestOk
+            | RuntimeOp::TestEq
+            | RuntimeOp::TestNe
+            | RuntimeOp::TestContains
+            | RuntimeOp::TestNotContains
+            | RuntimeOp::TestErrorKind
+            | RuntimeOp::TestFail
+            | RuntimeOp::TestSkip
+            | RuntimeOp::TestTempPath
+            | RuntimeOp::TestTempDir
+            | RuntimeOp::TestTempFile
+            | RuntimeOp::TestMock
+            | RuntimeOp::TestCalls
+            | RuntimeOp::TestRunScript
+            | RuntimeOp::TestRunXsh
+            | RuntimeOp::TestRunXshtTrace
     )
 }
 

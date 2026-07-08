@@ -16,8 +16,8 @@ change.
 
 Support docs such as `docs/AGENT-ROUTING.md`, `docs/TEST-MAP.md`,
 `docs/GENERATED-DOCS.md`, `docs/JSON.md`, `docs/STREAMS.md`, `docs/FRONTEND.md`,
-`docs/COVERAGE.md`, and `docs/THREADRIPPER.md` are maintained
-directly unless a future generator says otherwise.
+and `docs/COVERAGE.md` are maintained directly unless a future generator says
+otherwise.
 
 ## Workflow
 

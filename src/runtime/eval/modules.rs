@@ -1,7 +1,10 @@
 #![allow(clippy::single_call_fn)]
 
 use super::ModuleExportSignature;
-use super::{Evaluator, TestCall, module_error};
+#[cfg(feature = "native-tests")]
+use super::TestCall;
+use super::{Evaluator, module_error};
+#[cfg(feature = "native-tests")]
 use crate::modules::api_spec;
 use crate::modules::net::{NetBody, NetHeader};
 use crate::runtime::process::{
@@ -96,6 +99,7 @@ impl Evaluator {
     }
 }
 
+#[cfg(feature = "native-tests")]
 pub(super) fn test_failure(message: impl Into<String>) -> Value {
     Value::err(Value::Error(Box::new(RuntimeError::new(
         "test-fail",
@@ -103,6 +107,7 @@ pub(super) fn test_failure(message: impl Into<String>) -> Value {
     ))))
 }
 
+#[cfg(feature = "native-tests")]
 pub(super) fn test_contains_value(haystack: &Value, needle: &Value) -> bool {
     match (haystack, needle) {
         (Value::Str(haystack), Value::Str(needle)) => haystack.contains(&**needle),
@@ -117,6 +122,7 @@ pub(super) fn test_contains_value(haystack: &Value, needle: &Value) -> bool {
     }
 }
 
+#[cfg(feature = "native-tests")]
 pub(super) fn test_error_kind(value: &Value) -> Option<String> {
     match value {
         Value::Result(ResultValue::Ok(inner)) => test_error_kind(inner),
@@ -125,6 +131,7 @@ pub(super) fn test_error_kind(value: &Value) -> Option<String> {
     }
 }
 
+#[cfg(feature = "native-tests")]
 pub(super) fn test_temp_path(
     evaluator: &mut Evaluator,
     ctx: &RecordMap,
@@ -147,6 +154,7 @@ pub(super) fn test_temp_path(
         .map_err(|error| error.with_span(span))
 }
 
+#[cfg(feature = "native-tests")]
 pub(super) fn intercept_test_host_call(
     evaluator: &mut Evaluator,
     op: &str,
@@ -173,6 +181,17 @@ pub(super) fn intercept_test_host_call(
     ))))
 }
 
+#[cfg(not(feature = "native-tests"))]
+pub(super) fn intercept_test_host_call(
+    _evaluator: &mut Evaluator,
+    _op: &str,
+    _args: RecordMap,
+    _span: Span,
+) -> Option<Value> {
+    None
+}
+
+#[cfg(feature = "native-tests")]
 pub(super) fn test_record_matches(matcher: &RecordMap, actual: &RecordMap) -> bool {
     matcher.iter().all(|(field, expected)| {
         actual
@@ -181,6 +200,7 @@ pub(super) fn test_record_matches(matcher: &RecordMap, actual: &RecordMap) -> bo
     })
 }
 
+#[cfg(feature = "native-tests")]
 pub(super) fn test_value_matches(expected: &Value, actual: &Value) -> bool {
     match (expected, actual) {
         (Value::Record(expected), Value::Record(actual)) => test_record_matches(expected, actual),
@@ -188,6 +208,7 @@ pub(super) fn test_value_matches(expected: &Value, actual: &Value) -> bool {
     }
 }
 
+#[cfg(feature = "native-tests")]
 pub(super) fn test_mock_expected_return_type(op: &str) -> Option<Type> {
     let (module, name) = op.split_once('.')?;
     if !matches!(module, "dns" | "net") {
@@ -199,6 +220,7 @@ pub(super) fn test_mock_expected_return_type(op: &str) -> Option<Type> {
         .map(|sig| sig.return_ty.clone())
 }
 
+#[cfg(feature = "native-tests")]
 pub(super) fn test_value_matches_type(value: &Value, ty: &Type) -> bool {
     match ty {
         Type::Any | Type::Unknown | Type::Invalid => true,

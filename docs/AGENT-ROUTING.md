@@ -31,7 +31,7 @@ verification commands.
 | Interactive shell | `docs/SPEC-INTERACTIVE.md`; `docs/ARCHITECTURE.md` Interactive | `crates/xshi/src/interactive/*`, `crates/xsht/src/cli/mod.rs`, `src/runtime/process.rs` | `tests/runtime/interactive.rs` |
 | Lowered IR or interpreter speed | `docs/FRONTEND.md`; `perf/README.md`; `docs/ARCHITECTURE.md` Agent Map For IR Work | `src/runtime/eval/lower.rs`, `lowered_ops.rs`, `lowered_run.rs`, `src/runtime/eval.rs` | `tools/xsh-ir-coverage.xsh`, `perf/interpreter/*`, targeted runtime tests |
 | Docs, examples, or references | `docs/DOCS-STYLE.md`; `docs/GENERATED-DOCS.md`; `docs-src/README.md` | `docs-src/*`, `src/docs.rs`, `examples/catalog.json`, generated docs | docs commands in `docs/TEST-MAP.md` |
-| Remote amd64 musl work | `docs/THREADRIPPER.md`; `perf/README.md` if profiling | remote checkout only | native command from the task |
+| Remote amd64 musl work | `../laputa/AGENTS.md` Threadripper Notes; `perf/README.md` if profiling | remote checkout only | native command from the task |
 
 ## Spec Sections
 
