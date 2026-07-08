@@ -2685,9 +2685,7 @@ impl PreparedTestProgram {
         env_overlay: Vec<(Vec<u8>, Vec<u8>)>,
     ) -> TestEvalOutput {
         run_eval_on_large_stack(move || {
-            if !trace_enabled
-                && let Some(failure) = &self.setup_failure
-            {
+            if !trace_enabled && let Some(failure) = &self.setup_failure {
                 return failure.clone();
             }
             let shared = if trace_enabled {
@@ -2709,11 +2707,7 @@ impl PreparedTestProgram {
                     ctx,
                 )
             } else {
-                evaluator.eval_installed_test_call_inner(
-                    self.script_span,
-                    test_name,
-                    ctx,
-                )
+                evaluator.eval_installed_test_call_inner(self.script_span, test_name, ctx)
             }
         })
     }
@@ -3878,7 +3872,7 @@ impl Evaluator {
         program: &ArenaProgram,
         source_id: SourceId,
     ) -> Result<EvalOutput, Self> {
-        let Some(plan) = self.prepare_compact_lowered_only(program, source_id) else {
+        let Some(plan) = self.prepare_compact_lowered_only(program, source_id, true) else {
             return Err(self);
         };
         self.try_eval_installed_compact_lowered_only_inner(plan)
@@ -3888,9 +3882,15 @@ impl Evaluator {
         &mut self,
         program: &ArenaProgram,
         source_id: SourceId,
+        strict_dynamic_methods: bool,
     ) -> Option<CompactLoweredRunPlan> {
-        self.prepare_compact_lowered_only_or_diagnostic(program, source_id, false)
-            .ok()
+        self.prepare_compact_lowered_only_or_diagnostic(
+            program,
+            source_id,
+            false,
+            strict_dynamic_methods,
+        )
+        .ok()
     }
 
     pub fn compact_lowerability_diagnostics(
@@ -3901,7 +3901,7 @@ impl Evaluator {
         command_name: String,
     ) -> Vec<Diagnostic> {
         let mut evaluator = Self::new_with_sources_and_command(argv, sources, command_name);
-        match evaluator.prepare_compact_lowered_only_or_diagnostic(program, source_id, true) {
+        match evaluator.prepare_compact_lowered_only_or_diagnostic(program, source_id, true, true) {
             Ok(_) => Vec::new(),
             Err(diagnostic) => vec![diagnostic],
         }
@@ -3912,6 +3912,7 @@ impl Evaluator {
         program: &ArenaProgram,
         source_id: SourceId,
         allow_checker_only: bool,
+        strict_dynamic_methods: bool,
     ) -> Result<CompactLoweredRunPlan, Diagnostic> {
         if self.trace_enabled {
             return Err(compact_lowerability_diagnostic(
@@ -3920,7 +3921,11 @@ impl Evaluator {
                 "compact.trace-enabled",
             ));
         }
-        let install_diagnostics = self.install_compact_lowered_program(program, source_id);
+        let install_diagnostics = self.install_compact_lowered_program_with_dynamic_mode(
+            program,
+            source_id,
+            strict_dynamic_methods,
+        );
         if let Some(diagnostic) = install_diagnostics.into_iter().next() {
             return Err(diagnostic);
         }
@@ -4809,7 +4814,24 @@ impl Evaluator {
         program: &ArenaProgram,
         source_id: SourceId,
     ) -> Vec<Diagnostic> {
-        self.install_compact_lowered(false, program, source_id, true, None, None)
+        self.install_compact_lowered(false, program, source_id, true, None, true, None)
+    }
+
+    fn install_compact_lowered_program_with_dynamic_mode(
+        &mut self,
+        program: &ArenaProgram,
+        source_id: SourceId,
+        strict_dynamic_methods: bool,
+    ) -> Vec<Diagnostic> {
+        self.install_compact_lowered(
+            false,
+            program,
+            source_id,
+            true,
+            None,
+            strict_dynamic_methods,
+            None,
+        )
     }
 
     pub(crate) fn install_compact_lowered_program_profiled(
@@ -4818,8 +4840,15 @@ impl Evaluator {
         source_id: SourceId,
     ) -> (Vec<Diagnostic>, CompactInstallTimings) {
         let mut timings = CompactInstallTimings::default();
-        let diagnostics =
-            self.install_compact_lowered(true, program, source_id, true, None, Some(&mut timings));
+        let diagnostics = self.install_compact_lowered(
+            true,
+            program,
+            source_id,
+            true,
+            None,
+            true,
+            Some(&mut timings),
+        );
         (diagnostics, timings)
     }
 
@@ -4828,7 +4857,7 @@ impl Evaluator {
         program: &ArenaProgram,
         source_id: SourceId,
     ) -> Vec<Diagnostic> {
-        self.install_compact_lowered(false, program, source_id, false, None, None)
+        self.install_compact_lowered(false, program, source_id, false, None, true, None)
     }
 
     pub fn install_compact_lowered_functions_with_source(
@@ -4837,7 +4866,7 @@ impl Evaluator {
         source_id: SourceId,
         source: &str,
     ) -> Vec<Diagnostic> {
-        self.install_compact_lowered(false, program, source_id, false, Some(source), None)
+        self.install_compact_lowered(false, program, source_id, false, Some(source), true, None)
     }
 
     fn install_compact_lowered(
@@ -4847,6 +4876,7 @@ impl Evaluator {
         source_id: SourceId,
         install_top_level: bool,
         explicit_source: Option<&str>,
+        strict_dynamic_methods: bool,
         timings: Option<&mut CompactInstallTimings>,
     ) -> Vec<Diagnostic> {
         let start = profile.then(Instant::now);
@@ -4876,6 +4906,7 @@ impl Evaluator {
             &self.sources,
             &self.lowered_qualified_pures,
             &self.lowered_qualified_procs,
+            strict_dynamic_methods,
         );
         let after_functions = profile.then(Instant::now);
         let functions = LowerableFunctions::all(
@@ -4893,6 +4924,7 @@ impl Evaluator {
                 source,
                 &self.sources,
                 &functions,
+                strict_dynamic_methods,
             )
         });
         let after_top_level = profile.then(Instant::now);

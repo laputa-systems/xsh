@@ -32,6 +32,7 @@ pub(crate) struct TestOptions {
     pub(crate) nocapture: bool,
     pub(crate) fail_fast: bool,
     pub(crate) keep_temp: bool,
+    pub(crate) strict_lower: bool,
     pub(crate) jobs: Option<usize>,
     pub(crate) coverage: bool,
     pub(crate) coverage_json_out: Option<String>,
@@ -314,7 +315,10 @@ fn test_jobs(options: &TestOptions, cases_len: usize) -> usize {
     {
         return 1;
     }
-    options.jobs.unwrap_or_else(default_test_jobs).min(cases_len)
+    options
+        .jobs
+        .unwrap_or_else(default_test_jobs)
+        .min(cases_len)
 }
 
 fn default_test_jobs() -> usize {
@@ -845,6 +849,7 @@ fn run_example_test(
             script: case.path.clone(),
             args: case.args,
             coverage_trace_dir: coverage_trace_dir.clone(),
+            strict_lower: options.strict_lower,
         })
         .into()
     };

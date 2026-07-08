@@ -2953,15 +2953,15 @@ fn code_span(value: &str) -> String {
 
 fn cli_forms() -> &'static [&'static str] {
     &[
-        "xsh SCRIPT [ARGS...]",
-        "xsh -- SCRIPT ARGS...",
+        "xsh [--strict-lower] SCRIPT [ARGS...]",
+        "xsh [--strict-lower] -- SCRIPT ARGS...",
         "xshi",
         "xsht check [--strict] [--summary] [--annotate] [PATH...]",
         "xsht fmt [--check] [FILE...]",
         "xsht lint [--fix] [--runless] [FILE...]",
         "xsht ast SCRIPT",
         "xsht trace [--raw] [--trace-format text|jsonl|flamegraph] [--trace-file FILE] [--syscalls] [--trace-top-syscalls N] SCRIPT [ARGS...]",
-        "xsht test [--cov] [OPTIONS] [FILTER]",
+        "xsht test [--strict-lower] [--cov] [OPTIONS] [FILTER]",
         "xsht docs build",
         "xsht docs check",
     ]

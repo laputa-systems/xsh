@@ -223,14 +223,15 @@ bug, suspect an upstream node that lowered to `Unit`.
   Keep this script-level shape; it removed a large nested scan/report graph
   without adding evaluator fusion complexity.
 
-**Runner flow & the "compact lowering not available" fallback** (`src/runner.rs`).
+**Runner flow & strict lowerability** (`src/runner.rs`).
 A script runs as: arena-only parse, drop CST, prepare/install compact lowered
 plan, drop arena, then `Evaluator::eval_installed_compact_lowered_only`. If
-preparation or evaluation returns the evaluator instead of output, the runner
-falls back to the checker only to surface diagnostics. A clean check there
-prints "compact lowering not available" (exit 1), which means a genuine lowering
-gap rather than a user error. When a whole script is "not available", check the
-arena-parse diagnostics in the runner first.
+`--strict-lower` is not set, normal script execution allows supported dynamic
+lowered operations on `Any`/`Unknown` receivers and lets runtime dispatch decide
+whether the actual value supports the method. `xsh --strict-lower` and
+`xsht test --strict-lower` preserve the stricter diagnostic behavior:
+after parse/check passes, a compact-lowerability gap reports the compact
+diagnostic instead of permitting those dynamic lowered operations.
 - **Eval stack:** the lowered evaluator still runs on a scoped worker thread so
   recursive XSH calls do not depend on the main-thread stack. The worker stack
   is 64 MiB (`run_eval_on_large_stack` in `eval.rs`), but native stack
@@ -507,8 +508,96 @@ acceleration layer for eligible pure functions and selected whole-script
 regions. It is not a bytecode format, not a serialized program representation,
 and not a replacement for the tree-walking evaluator.
 
-For iterative work on `compact.unlowered-*` diagnostics and corpus gaps, read
-`docs/COMPACT-LOWERABILITY.md` alongside the lowered-IR sections.
+### Lowerability Diagnostics And Corpus Work
+
+The compact runtime should reject unsupported source shapes explicitly. `xsht
+check` reports compact lowerability diagnostics without executing the script,
+and `xsh` must not silently accept a source shape by falling back to an
+unsupported path.
+
+Treat every `compact.unlowered-*` or `runtime.unlowered-*` diagnostic as one of
+three cases:
+
+1. The compact runtime can already express the behavior, but the lowerer lost
+   type information or is missing a construction case.
+2. The compact runtime needs a new `LoweredExpr`, `LoweredStmt`, `LoweredType`,
+   `LoweredValue`, or runtime operation path.
+3. The source shape should remain unsupported, and the diagnostic should name
+   the blocking construct, receiver type, module operation, method, or function
+   dependency.
+
+Keep lowering strict. Do not make `Any`, `Unknown`, records, modules, dynamic
+calls, or unchecked receiver shapes permissive to pass a corpus check. Dynamic
+receivers remain rejected unless a concrete checked type proves the lowered
+method or operation is valid. The narrow exceptions are explicit dynamic
+introspection surfaces such as supported `Any.has(name)` and single-argument
+`Any.get(name)`, whose result remains dynamic unless an annotation supplies a
+concrete type.
+
+Use `xsht check --summary PATH` for broad passes. The summary preserves normal
+diagnostics and appends counts by diagnostic code plus the first observed
+location, which makes parse, check, compact-lowerability, and
+runtime-lowerability failures visible as separate buckets:
+
+```sh
+for root in . ../laputa ../packages; do
+  ./target/debug/xsht check --summary "$root" || true
+done
+```
+
+Start with the smallest failing command, then widen:
+
+```sh
+cargo build --bin xsh --bin xsht
+./target/debug/xsht check --summary path/to/script.xsh
+cargo test -p xsht --test cli TARGET -- --nocapture
+cargo test --test runtime TARGET -- --nocapture
+```
+
+When the public diagnostic points only at a top-level statement, reduce the
+script by deleting surrounding statements until one expression remains. If that
+is still unclear, add a temporary env-gated trace near the `lower_expr` blocker
+path in `src/runtime/eval/lower.rs`, run with `XSH_LOWER_DEBUG=1` or a local
+one-off trace, then remove the trace before finishing. The construct probe
+records blocker counters and sample spans; prefer threading those details into
+diagnostics over ad hoc string matching.
+
+A lowerability change is done when the targeted command passes or has fewer
+unsupported-lowering diagnostics than its baseline, remaining unsupported
+constructs have specific diagnostics, strict dynamic behavior is preserved, and
+the closest runtime, sema, or `xsht` tests cover the newly supported or newly
+diagnosed construct.
+
+Common failure classes:
+
+- A concrete type is lost as `Any` or `Unknown`. Fix local slot, `Try(...)`
+  ok-type, top-level slot metadata, method return, module return, env
+  pseudo-field, or standard-record propagation instead of weakening method
+  gates.
+- A known method is missing receiver-specific return inference. Add the
+  concrete checked return shape and keep `Type::Any` and `Type::Unknown`
+  rejected.
+- A known module operation is missing compact construction. Check
+  `lowered_module_op_supported`, argument construction in lowering, and
+  execution in `lowered_run.rs`; reuse registry signatures and existing runtime
+  helpers.
+- A top-level statement lowers in pieces but is rejected. The probe substitutes
+  placeholders while counting blockers, but real lowering must reject any
+  statement with blocker events. Find the first blocker event rather than the
+  final placeholder.
+- Checker-only forms such as `reveal_type(...)` may be skipped by `xsht check`
+  lowerability, but normal `xsh` execution must still reject them.
+
+Broad compact-lowerability gates currently expected to pass are:
+
+```sh
+./target/debug/xsht check .
+./target/debug/xsht check ../laputa
+./target/debug/xsht check ../packages
+./target/debug/xsht check --summary tools/xsh-ir-coverage.xsh
+cargo test --test runtime coverage::ir_coverage_scans_multiline_top_level_regions_once -- --nocapture
+cargo test -p xsht --test cli
+```
 
 ### Architecture
 

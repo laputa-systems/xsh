@@ -1604,6 +1604,7 @@ pub(super) fn lowered_record_method_value(
     span: Span,
 ) -> Result<LoweredValue, RuntimeError> {
     match name {
+        "len" if args.is_empty() => Ok(LoweredValue::Int(record.len() as i64)),
         "has" if args.len() == 1 => {
             let field = lowered_str_arg(&args[0], "has", span)?;
             Ok(LoweredValue::Bool(record.contains_key(field)))
@@ -2208,6 +2209,7 @@ pub(super) fn lowered_record_method_ref(
     span: Span,
 ) -> Result<Option<LoweredValue>, RuntimeError> {
     match name {
+        "len" if args.is_empty() => Ok(Some(LoweredValue::Int(record.len() as i64))),
         "has" if args.len() == 1 => {
             let field = lowered_str_arg(&args[0], "has", span)?;
             Ok(Some(LoweredValue::Bool(record.contains_key(field))))
@@ -2236,6 +2238,7 @@ fn lowered_record_vec_method_ref(
     span: Span,
 ) -> Result<Option<LoweredValue>, RuntimeError> {
     match name {
+        "len" if args.is_empty() => Ok(Some(LoweredValue::Int(record.len() as i64))),
         "has" if args.len() == 1 => {
             let field = lowered_str_arg(&args[0], "has", span)?;
             Ok(Some(LoweredValue::Bool(

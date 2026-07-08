@@ -102,15 +102,15 @@ effect: `error` -> `?` propagation outside retry attempt blocks
 ## CLI Forms
 
 ```xsh-reference
-cli: xsh SCRIPT [ARGS...]
-cli: xsh -- SCRIPT ARGS...
+cli: xsh [--strict-lower] SCRIPT [ARGS...]
+cli: xsh [--strict-lower] -- SCRIPT ARGS...
 cli: xshi
 cli: xsht check [--strict] [--summary] [--annotate] [PATH...]
 cli: xsht fmt [--check] [FILE...]
 cli: xsht lint [--fix] [--runless] [FILE...]
 cli: xsht ast SCRIPT
 cli: xsht trace [--raw] [--trace-format text|jsonl|flamegraph] [--trace-file FILE] [--syscalls] [--trace-top-syscalls N] SCRIPT [ARGS...]
-cli: xsht test [--cov] [OPTIONS] [FILTER]
+cli: xsht test [--strict-lower] [--cov] [OPTIONS] [FILTER]
 cli: xsht docs build
 cli: xsht docs check
 ```

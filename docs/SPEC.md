@@ -2972,7 +2972,7 @@ propagated `Err` values. A traceback includes:
 
 CLI commands:
 
-- `xsh SCRIPT -- ARGS...`.
+- `xsh [--strict-lower] SCRIPT -- ARGS...`.
 - `xsh -- SCRIPT ARGS...` for shebang-compatible script execution.
 - `xshi`.
 - `xsht --help`.
@@ -2998,7 +2998,8 @@ Exit codes:
 - `0`: success.
 - `1`: lint failure for `xsht lint`, format mismatch for `xsht fmt --check`,
   or test failure for `xsht test`.
-- `2`: source, lex, parse, resolve, check, or compact lowerability failure.
+- `2`: source, lex, parse, resolve, check, or strict compact lowerability
+  failure.
 - `3`: runtime failure or top-level propagated `Err`.
 - `4`: internal implementation error.
 - `128 + signal`: tooling interrupted by a handled OS signal such as SIGINT.

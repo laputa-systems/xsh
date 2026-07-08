@@ -33,6 +33,7 @@ pub struct RunOptions {
     pub script: String,
     pub args: Vec<String>,
     pub coverage_trace_dir: Option<PathBuf>,
+    pub strict_lower: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -81,12 +82,13 @@ pub fn run_script(options: RunOptions) -> ScriptOutput {
                 return output;
             }
             Ok(CompactRunAttempt::Fallback { entry_source }) => {
-                // The program parsed cleanly but did not lower to the compact
-                // runtime. At 407/407 corpus coverage this means the program is
-                // invalid; run the (still-present) checker to surface its
-                // diagnostics. A clean check here would mean a genuine lowering
-                // gap — report it so it is investigated rather than silently run.
-                return run_checked_fallback(&options.script, entry_source, options.args.clone());
+                return run_checked_fallback(
+                    &options.script,
+                    entry_source,
+                    options.args.clone(),
+                    options.strict_lower,
+                    None,
+                );
             }
             Err(err) => {
                 return ScriptOutput {
@@ -169,6 +171,8 @@ fn run_checked_fallback(
     script: &str,
     entry_source: EntrySource,
     args: Vec<String>,
+    strict_lower: bool,
+    coverage_trace_dir: Option<PathBuf>,
 ) -> ScriptOutput {
     let checked_program = parse_load_check_entry_source_with_token_table(
         script,
@@ -191,29 +195,40 @@ fn run_checked_fallback(
             stderr: text_bytes(checked_program.render_check_diagnostics()),
         };
     }
-    let diagnostics = Evaluator::compact_lowerability_diagnostics(
-        &checked_program.parsed.arena,
-        checked_program.entry_source_id,
-        checked_program.sources.clone(),
-        args,
-        script_command_name(script),
-    );
-    if !diagnostics.is_empty() {
+    if strict_lower {
+        let diagnostics = Evaluator::compact_lowerability_diagnostics(
+            &checked_program.parsed.arena,
+            checked_program.entry_source_id,
+            checked_program.sources.clone(),
+            args,
+            script_command_name(script),
+        );
+        if !diagnostics.is_empty() {
+            return ScriptOutput {
+                status: 2,
+                stdout: Vec::new(),
+                stderr: text_bytes(
+                    DiagnosticRenderer::new().render(&diagnostics, &checked_program.sources),
+                ),
+            };
+        }
         return ScriptOutput {
-            status: 2,
+            status: 1,
             stdout: Vec::new(),
-            stderr: text_bytes(
-                DiagnosticRenderer::new().render(&diagnostics, &checked_program.sources),
-            ),
+            stderr: text_bytes(format!(
+                "xsh: compact lowering not available for '{script}'\n"
+            )),
         };
     }
-    ScriptOutput {
-        status: 1,
-        stdout: Vec::new(),
-        stderr: text_bytes(format!(
-            "xsh: compact lowering not available for '{script}'\n"
-        )),
-    }
+
+    let command_name = script_command_name(script);
+    let evaluator =
+        Evaluator::new_with_sources_and_command(args, checked_program.sources, command_name);
+    let output = evaluator.eval(
+        &checked_program.parsed.arena,
+        checked_program.entry_source_id,
+    );
+    script_output_from_eval(output, coverage_trace_dir)
 }
 
 fn try_run_compact_lowered_script_with_fallback(
@@ -266,7 +281,9 @@ fn try_run_compact_lowered_entry_source(
         sources,
         script_command_name(&options.script),
     );
-    let Some(plan) = evaluator.prepare_compact_lowered_only(&arena, source_id) else {
+    let Some(plan) =
+        evaluator.prepare_compact_lowered_only(&arena, source_id, options.strict_lower)
+    else {
         return compact_fallback(evaluator.into_sources(), source_id);
     };
     drop(arena);
@@ -503,6 +520,7 @@ add_one(4)
             script: path.to_string_lossy().into_owned(),
             args: Vec::new(),
             coverage_trace_dir: None,
+            strict_lower: false,
         })
         .expect("compact runner attempt")
         .expect("covered compact script");
@@ -527,6 +545,7 @@ print $root
             script: path.to_string_lossy().into_owned(),
             args: vec!["/tmp/xsh-compact".to_string()],
             coverage_trace_dir: None,
+            strict_lower: false,
         })
         .expect("compact runner attempt")
         .expect("path parse and print should be compact-covered");
@@ -553,6 +572,7 @@ print $child
             script: path.to_string_lossy().into_owned(),
             args: vec!["/tmp/xsh-compact".to_string()],
             coverage_trace_dir: None,
+            strict_lower: false,
         })
         .expect("compact runner attempt")
         .expect("Path constructor binding should be compact-covered");
@@ -579,6 +599,7 @@ print $child
             script: path.to_string_lossy().into_owned(),
             args: Vec::new(),
             coverage_trace_dir: None,
+            strict_lower: false,
         })
         .expect("compact runner attempt")
         .expect("Path constructor default should be compact-covered");
@@ -605,6 +626,7 @@ print $child
             script: path.to_string_lossy().into_owned(),
             args: Vec::new(),
             coverage_trace_dir: None,
+            strict_lower: false,
         })
         .expect("compact runner attempt")
         .expect("Result[Unit] fallthrough should be compact-covered");
@@ -635,6 +657,7 @@ proc main() [error] {
             script: path.to_string_lossy().into_owned(),
             args: Vec::new(),
             coverage_trace_dir: None,
+            strict_lower: false,
         })
         .expect("compact runner attempt")
         .expect("named helper call should be compact-covered");
@@ -663,6 +686,7 @@ fail()
             script: path.to_string_lossy().into_owned(),
             args: Vec::new(),
             coverage_trace_dir: None,
+            strict_lower: false,
         })
         .expect("compact runner attempt")
         .expect("top-level Result error should be compact-covered");
@@ -689,6 +713,7 @@ print $root
             script: path.to_string_lossy().into_owned(),
             args: vec!["/tmp/xsh-compact-use".to_string()],
             coverage_trace_dir: None,
+            strict_lower: false,
         })
         .expect("compact runner attempt")
         .expect("standard use should not require compatibility Program");
@@ -728,6 +753,7 @@ print ${value}
             script: path.to_string_lossy().into_owned(),
             args: Vec::new(),
             coverage_trace_dir: None,
+            strict_lower: false,
         })
         .expect("compact runner attempt")
         .expect("user module use should not require compatibility Program");
@@ -755,6 +781,7 @@ print ${value}
             script: path.to_string_lossy().into_owned(),
             args: vec!["one".to_string(), "two".to_string()],
             coverage_trace_dir: None,
+            strict_lower: false,
         })
         .expect("compact runner attempt")
         .expect("implicit rest main should be compact-covered");
@@ -781,6 +808,7 @@ print $root
             script: path.to_string_lossy().into_owned(),
             args: vec!["/tmp/xsh-compact-default".to_string()],
             coverage_trace_dir: None,
+            strict_lower: false,
         });
         let after = COMPACT_RUNNER_SUCCESSES.load(Ordering::Relaxed);
 
@@ -816,6 +844,7 @@ print $root
             script: script.clone(),
             args: Vec::new(),
             coverage_trace_dir: None,
+            strict_lower: false,
         })
         .expect("compact runner attempt");
         let CompactRunAttempt::Fallback { entry_source } = attempt else {
@@ -872,6 +901,7 @@ for row in counts {
             script: path.to_string_lossy().into_owned(),
             args: vec![corpus.to_string_lossy().into_owned()],
             coverage_trace_dir: None,
+            strict_lower: false,
         })
         .expect("compact runner attempt")
         .expect("extension-count shape should be compact-covered");
@@ -907,6 +937,7 @@ print $total
             script: path.to_string_lossy().into_owned(),
             args: Vec::new(),
             coverage_trace_dir: None,
+            strict_lower: false,
         })
         .expect("compact runner attempt")
         .expect("range/flat-map/sum/collect shape should be compact-covered");
@@ -972,6 +1003,7 @@ for row in rows {
             script: path.to_string_lossy().into_owned(),
             args: vec![corpus.to_string_lossy().into_owned()],
             coverage_trace_dir: None,
+            strict_lower: false,
         })
         .expect("compact runner attempt")
         .expect("json-log-rollup shape should be compact-covered");
@@ -1047,6 +1079,7 @@ print ${manifest |> count()} $total_size manifest[0].path manifest[0].sha256 man
             script: path.to_string_lossy().into_owned(),
             args: vec![corpus.to_string_lossy().into_owned()],
             coverage_trace_dir: None,
+            strict_lower: false,
         })
         .expect("compact runner attempt")
         .expect("manifest-hash shape should be compact-covered");
@@ -1107,6 +1140,7 @@ print ${entries |> count()} config.count_lines() payload.sha256().hex()
             script: path.to_string_lossy().into_owned(),
             args: vec![corpus.to_string_lossy().into_owned()],
             coverage_trace_dir: None,
+            strict_lower: false,
         })
         .expect("compact runner attempt")
         .expect("archive-package shape should be compact-covered");

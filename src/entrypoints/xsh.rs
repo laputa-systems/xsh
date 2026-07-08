@@ -8,6 +8,8 @@ const HELP: &str = "\
 xsh 0.0.1
 
 Usage:
+  xsh [--strict-lower] SCRIPT [ARGS...]
+  xsh [--strict-lower] -- SCRIPT ARGS...
   xsh SCRIPT [ARGS...]
   xsh -- SCRIPT ARGS...
   xsh --startup
@@ -15,6 +17,8 @@ Usage:
 
 --startup boots the interpreter and exits immediately, running no program. It
 exposes the fixed startup cost for benchmarking (e.g. as a calibration baseline).
+--strict-lower reports compact-lowering failures instead of allowing supported
+dynamic lowered operations.
 ";
 
 pub fn main() -> ExitCode {
@@ -70,8 +74,17 @@ fn parse_run(args: Vec<String>) -> Result<Option<RunOptions>, String> {
     }
 
     let mut index = 0;
-    if let Some(arg) = args.get(index) {
+    let mut strict_lower = false;
+    loop {
+        let Some(arg) = args.get(index) else {
+            break;
+        };
         match arg.as_str() {
+            "--strict-lower" => {
+                strict_lower = true;
+                index += 1;
+                continue;
+            }
             "-i" | "--interactive" => {
                 return Err("interactive mode moved to `xshi`; run `xshi` instead".to_string());
             }
@@ -89,6 +102,7 @@ fn parse_run(args: Vec<String>) -> Result<Option<RunOptions>, String> {
             }
             _ => {}
         }
+        break;
     }
     if let Some(arg) = args.get(index)
         && matches!(
@@ -110,6 +124,7 @@ fn parse_run(args: Vec<String>) -> Result<Option<RunOptions>, String> {
             script,
             args: args[index..].to_vec(),
             coverage_trace_dir: None,
+            strict_lower,
         }));
     }
 
@@ -128,6 +143,7 @@ fn parse_run(args: Vec<String>) -> Result<Option<RunOptions>, String> {
         script,
         args: script_args,
         coverage_trace_dir: None,
+        strict_lower,
     }))
 }
 
