@@ -1651,42 +1651,74 @@ fn apply_redirections(
     command: &mut Command,
     redirections: &[ProcessRedirection],
 ) -> Result<(), RunError> {
-    for redirection in redirections {
+    let mut index = 0;
+    while index < redirections.len() {
+        if let (
+            ProcessRedirection::File {
+                stream: first_stream,
+                mode: first_mode,
+                path: first_path,
+            },
+            Some(ProcessRedirection::File {
+                stream: second_stream,
+                mode: second_mode,
+                path: second_path,
+            }),
+        ) = (&redirections[index], redirections.get(index + 1))
+            && stdout_stderr_pair(*first_stream, *second_stream)
+            && first_mode == second_mode
+            && first_path == second_path
+        {
+            let file = file_redirection_file(first_path, *first_mode)?;
+            let cloned = file.try_clone().map_err(map_redirection_error)?;
+            apply_file_stdio(command, *first_stream, Stdio::from(file));
+            apply_file_stdio(command, *second_stream, Stdio::from(cloned));
+            index += 2;
+            continue;
+        }
+
+        let redirection = &redirections[index];
         match redirection {
             ProcessRedirection::File { stream, mode, path } => {
                 let stdio = file_redirection(path, *mode)?;
-                match stream {
-                    RedirectionStream::Stdin => {
-                        command.stdin(stdio);
-                    }
-                    RedirectionStream::Stdout => {
-                        command.stdout(stdio);
-                    }
-                    RedirectionStream::Stderr => {
-                        command.stderr(stdio);
-                    }
-                }
+                apply_file_stdio(command, *stream, stdio);
             }
             ProcessRedirection::Dup { stream, fd } => {
                 let stdio = duplicate_fd(*fd)?;
-                match stream {
-                    RedirectionStream::Stdin => {
-                        command.stdin(stdio);
-                    }
-                    RedirectionStream::Stdout => {
-                        command.stdout(stdio);
-                    }
-                    RedirectionStream::Stderr => {
-                        command.stderr(stdio);
-                    }
-                }
+                apply_file_stdio(command, *stream, stdio);
             }
         }
+        index += 1;
     }
     Ok(())
 }
 
-fn file_redirection(path: &Path, mode: FileRedirectionMode) -> Result<Stdio, RunError> {
+fn stdout_stderr_pair(first: RedirectionStream, second: RedirectionStream) -> bool {
+    matches!(
+        (first, second),
+        (RedirectionStream::Stdout, RedirectionStream::Stderr)
+            | (RedirectionStream::Stderr, RedirectionStream::Stdout)
+    )
+}
+
+fn apply_file_stdio(command: &mut Command, stream: RedirectionStream, stdio: Stdio) {
+    match stream {
+        RedirectionStream::Stdin => {
+            command.stdin(stdio);
+        }
+        RedirectionStream::Stdout => {
+            command.stdout(stdio);
+        }
+        RedirectionStream::Stderr => {
+            command.stderr(stdio);
+        }
+    }
+}
+
+fn file_redirection_file(
+    path: &Path,
+    mode: FileRedirectionMode,
+) -> Result<std::fs::File, RunError> {
     let mut options = OpenOptions::new();
     match mode {
         FileRedirectionMode::Read => {
@@ -1699,10 +1731,11 @@ fn file_redirection(path: &Path, mode: FileRedirectionMode) -> Result<Stdio, Run
             options.write(true).create(true).append(true);
         }
     }
-    options
-        .open(path)
-        .map(Stdio::from)
-        .map_err(map_redirection_error)
+    options.open(path).map_err(map_redirection_error)
+}
+
+fn file_redirection(path: &Path, mode: FileRedirectionMode) -> Result<Stdio, RunError> {
+    file_redirection_file(path, mode).map(Stdio::from)
 }
 
 fn duplicate_fd(fd: i32) -> Result<Stdio, RunError> {

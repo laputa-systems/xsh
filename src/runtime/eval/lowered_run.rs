@@ -20,9 +20,9 @@ use crate::runtime::process::{
 };
 use crate::runtime::run::execute_run_with_policy;
 use crate::runtime::value::{
-    CommandPlan, DurationValue, FunctionName, LiveStream, PathValue, ProcessHandleValue, RecordMap,
-    RegexValue, RunError, RuntimeError, StreamValue, Value, error_constructor,
-    structured_error_constructor,
+    CommandPlan, CommandRedirection, CommandRedirectionMode, CommandRedirectionStream,
+    DurationValue, FunctionName, LiveStream, PathValue, ProcessHandleValue, RecordMap, RegexValue,
+    RunError, RuntimeError, StreamValue, Value, error_constructor, structured_error_constructor,
 };
 use crate::sema::types::{CallableType, ModuleExportType, Type};
 use crate::source::{SourceId, Span};
@@ -2339,11 +2339,62 @@ fn lowered_command_arg(
     }
 }
 
+fn lowered_command_redirections(
+    stdin: Option<LoweredValue>,
+    stdout: Option<LoweredValue>,
+    stderr: Option<LoweredValue>,
+    stdout_append: bool,
+    stderr_append: bool,
+    operation: &str,
+    span: Span,
+) -> Result<Vec<CommandRedirection>, RuntimeError> {
+    let mut redirections = Vec::new();
+
+    if let Some(value) = stdin {
+        redirections.push(CommandRedirection::File {
+            stream: CommandRedirectionStream::Stdin,
+            mode: CommandRedirectionMode::Read,
+            path: lowered_path_like_arg(value, operation, span)?,
+        });
+    }
+
+    if let Some(value) = stdout {
+        redirections.push(CommandRedirection::File {
+            stream: CommandRedirectionStream::Stdout,
+            mode: if stdout_append {
+                CommandRedirectionMode::Append
+            } else {
+                CommandRedirectionMode::Write
+            },
+            path: lowered_path_like_arg(value, operation, span)?,
+        });
+    }
+
+    if let Some(value) = stderr {
+        redirections.push(CommandRedirection::File {
+            stream: CommandRedirectionStream::Stderr,
+            mode: if stderr_append {
+                CommandRedirectionMode::Append
+            } else {
+                CommandRedirectionMode::Write
+            },
+            path: lowered_path_like_arg(value, operation, span)?,
+        });
+    }
+
+    Ok(redirections)
+}
+
 fn lowered_command_plan_value(
     target: LoweredValue,
     argv: LoweredValue,
     cwd: Option<LoweredValue>,
     env: Option<LoweredValue>,
+    stdin: Option<LoweredValue>,
+    stdout: Option<LoweredValue>,
+    stderr: Option<LoweredValue>,
+    stdout_append: Option<LoweredValue>,
+    stderr_append: Option<LoweredValue>,
     timeout: Option<LoweredValue>,
     detach: Option<LoweredValue>,
     new_session: Option<LoweredValue>,
@@ -2375,6 +2426,17 @@ fn lowered_command_plan_value(
         .map(|value| lowered_env_record_arg(value, "process.command_argv", span))
         .transpose()?
         .unwrap_or_default();
+    let stdout_append = lowered_bool_arg_or(stdout_append, false, "process.command_argv", span)?;
+    let stderr_append = lowered_bool_arg_or(stderr_append, false, "process.command_argv", span)?;
+    let redirections = lowered_command_redirections(
+        stdin,
+        stdout,
+        stderr,
+        stdout_append,
+        stderr_append,
+        "process.command_argv",
+        span,
+    )?;
     let timeout = timeout
         .map(|value| lowered_duration_arg(Some(value), "process.command_argv", span))
         .transpose()?;
@@ -2399,6 +2461,7 @@ fn lowered_command_plan_value(
         argv,
         cwd,
         env,
+        redirections,
         timeout,
         cpu_max,
         detach,
@@ -11091,6 +11154,11 @@ impl Evaluator {
                 argv,
                 cwd,
                 env,
+                stdin,
+                stdout,
+                stderr,
+                stdout_append,
+                stderr_append,
                 timeout,
                 detach,
                 new_session,
@@ -11112,6 +11180,41 @@ impl Evaluator {
                     None => None,
                 };
                 let env = match env {
+                    Some(value) => match self.eval_lowered_plain_expr(lowered, value, slots)? {
+                        Some(value) => Some(value),
+                        None => return Ok(None),
+                    },
+                    None => None,
+                };
+                let stdin = match stdin {
+                    Some(value) => match self.eval_lowered_plain_expr(lowered, value, slots)? {
+                        Some(value) => Some(value),
+                        None => return Ok(None),
+                    },
+                    None => None,
+                };
+                let stdout = match stdout {
+                    Some(value) => match self.eval_lowered_plain_expr(lowered, value, slots)? {
+                        Some(value) => Some(value),
+                        None => return Ok(None),
+                    },
+                    None => None,
+                };
+                let stderr = match stderr {
+                    Some(value) => match self.eval_lowered_plain_expr(lowered, value, slots)? {
+                        Some(value) => Some(value),
+                        None => return Ok(None),
+                    },
+                    None => None,
+                };
+                let stdout_append = match stdout_append {
+                    Some(value) => match self.eval_lowered_plain_expr(lowered, value, slots)? {
+                        Some(value) => Some(value),
+                        None => return Ok(None),
+                    },
+                    None => None,
+                };
+                let stderr_append = match stderr_append {
                     Some(value) => match self.eval_lowered_plain_expr(lowered, value, slots)? {
                         Some(value) => Some(value),
                         None => return Ok(None),
@@ -11158,6 +11261,11 @@ impl Evaluator {
                     argv,
                     cwd,
                     env,
+                    stdin,
+                    stdout,
+                    stderr,
+                    stdout_append,
+                    stderr_append,
                     timeout,
                     detach,
                     new_session,
@@ -14630,6 +14738,11 @@ impl Evaluator {
         let mut plan = None;
         let mut cwd = None;
         let mut env = BTreeMap::new();
+        let mut stdin = None;
+        let mut stdout = None;
+        let mut stderr = None;
+        let mut stdout_append = false;
+        let mut stderr_append = false;
         let mut timeout = None;
         let mut cpu_max = None;
         let mut detach = None;
@@ -14648,6 +14761,17 @@ impl Evaluator {
                         }
                         "env" => {
                             env.extend(lowered_env_record_arg(value, "process.command", *span)?)
+                        }
+                        "stdin" => stdin = Some(value),
+                        "stdout" => stdout = Some(value),
+                        "stderr" => stderr = Some(value),
+                        "stdout_append" => {
+                            stdout_append =
+                                lowered_bool_builder_field(value, "stdout_append", *span)?
+                        }
+                        "stderr_append" => {
+                            stderr_append =
+                                lowered_bool_builder_field(value, "stderr_append", *span)?
                         }
                         "timeout" => {
                             timeout =
@@ -14768,6 +14892,7 @@ impl Evaluator {
                         argv,
                         cwd: None,
                         env: run_env,
+                        redirections: Vec::new(),
                         timeout: run_timeout,
                         cpu_max: run_cpu_max,
                         detach: false,
@@ -14785,6 +14910,15 @@ impl Evaluator {
             plan.cwd = cwd;
         }
         plan.env.extend(env);
+        plan.redirections.extend(lowered_command_redirections(
+            stdin,
+            stdout,
+            stderr,
+            stdout_append,
+            stderr_append,
+            "process.command",
+            span,
+        )?);
         if timeout.is_some() {
             plan.timeout = timeout;
         }
@@ -19026,6 +19160,11 @@ impl Evaluator {
                 argv,
                 cwd,
                 env,
+                stdin,
+                stdout,
+                stderr,
+                stdout_append,
+                stderr_append,
                 timeout,
                 detach,
                 new_session,
@@ -19049,6 +19188,41 @@ impl Evaluator {
                     None => None,
                 };
                 let env = match env {
+                    Some(value) => match self.eval_lowered_expr(lowered, value, slots, *span)? {
+                        ControlFlow::Continue(value) => Some(value),
+                        ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+                    },
+                    None => None,
+                };
+                let stdin = match stdin {
+                    Some(value) => match self.eval_lowered_expr(lowered, value, slots, *span)? {
+                        ControlFlow::Continue(value) => Some(value),
+                        ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+                    },
+                    None => None,
+                };
+                let stdout = match stdout {
+                    Some(value) => match self.eval_lowered_expr(lowered, value, slots, *span)? {
+                        ControlFlow::Continue(value) => Some(value),
+                        ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+                    },
+                    None => None,
+                };
+                let stderr = match stderr {
+                    Some(value) => match self.eval_lowered_expr(lowered, value, slots, *span)? {
+                        ControlFlow::Continue(value) => Some(value),
+                        ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+                    },
+                    None => None,
+                };
+                let stdout_append = match stdout_append {
+                    Some(value) => match self.eval_lowered_expr(lowered, value, slots, *span)? {
+                        ControlFlow::Continue(value) => Some(value),
+                        ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+                    },
+                    None => None,
+                };
+                let stderr_append = match stderr_append {
                     Some(value) => match self.eval_lowered_expr(lowered, value, slots, *span)? {
                         ControlFlow::Continue(value) => Some(value),
                         ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
@@ -19095,6 +19269,11 @@ impl Evaluator {
                     argv,
                     cwd,
                     env,
+                    stdin,
+                    stdout,
+                    stderr,
+                    stdout_append,
+                    stderr_append,
                     timeout,
                     detach,
                     new_session,

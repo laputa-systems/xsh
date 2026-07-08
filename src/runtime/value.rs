@@ -765,11 +765,35 @@ pub struct CommandPlan {
     pub argv: Vec<Vec<u8>>,
     pub cwd: Option<PathValue>,
     pub env: BTreeMap<String, String>,
+    pub redirections: Vec<CommandRedirection>,
     pub timeout: Option<DurationValue>,
     pub cpu_max: Option<i64>,
     pub detach: bool,
     pub new_session: bool,
     pub ignore_hup: bool,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum CommandRedirection {
+    File {
+        stream: CommandRedirectionStream,
+        mode: CommandRedirectionMode,
+        path: PathValue,
+    },
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CommandRedirectionStream {
+    Stdin,
+    Stdout,
+    Stderr,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CommandRedirectionMode {
+    Read,
+    Write,
+    Append,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

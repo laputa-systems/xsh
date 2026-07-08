@@ -122,6 +122,11 @@ struct LoweredProcessCommandArgvArgs {
     argv: ExprId,
     cwd: Option<ExprId>,
     env: Option<ExprId>,
+    stdin: Option<ExprId>,
+    stdout: Option<ExprId>,
+    stderr: Option<ExprId>,
+    stdout_append: Option<ExprId>,
+    stderr_append: Option<ExprId>,
     timeout: Option<ExprId>,
     detach: Option<ExprId>,
     new_session: Option<ExprId>,
@@ -250,6 +255,11 @@ fn lower_process_command_argv_args(args: &[ArenaCallArg]) -> Option<LoweredProce
         "argv",
         "cwd",
         "env",
+        "stdin",
+        "stdout",
+        "stderr",
+        "stdout_append",
+        "stderr_append",
         "timeout",
         "detach",
         "new_session",
@@ -259,7 +269,7 @@ fn lower_process_command_argv_args(args: &[ArenaCallArg]) -> Option<LoweredProce
     if !(2..=names.len()).contains(&args.len()) {
         return None;
     }
-    let mut slots: [Option<ExprId>; 9] = [None; 9];
+    let mut slots: [Option<ExprId>; 14] = [None; 14];
     let mut next_positional = 0usize;
     for arg in args {
         match arg.kind {
@@ -286,11 +296,16 @@ fn lower_process_command_argv_args(args: &[ArenaCallArg]) -> Option<LoweredProce
         argv: slots[1]?,
         cwd: slots[2],
         env: slots[3],
-        timeout: slots[4],
-        detach: slots[5],
-        new_session: slots[6],
-        ignore_hup: slots[7],
-        cpu_max: slots[8],
+        stdin: slots[4],
+        stdout: slots[5],
+        stderr: slots[6],
+        stdout_append: slots[7],
+        stderr_append: slots[8],
+        timeout: slots[9],
+        detach: slots[10],
+        new_session: slots[11],
+        ignore_hup: slots[12],
+        cpu_max: slots[13],
     })
 }
 
@@ -8329,6 +8344,51 @@ impl CompactLowerConstructProbe<'_, '_> {
                                 None => None,
                             },
                             env: match options.env {
+                                Some(expr) => Some(Box::new(self.lower_expr(
+                                    expr,
+                                    slots,
+                                    current_function,
+                                    item_slot,
+                                )?)),
+                                None => None,
+                            },
+                            stdin: match options.stdin {
+                                Some(expr) => Some(Box::new(self.lower_expr(
+                                    expr,
+                                    slots,
+                                    current_function,
+                                    item_slot,
+                                )?)),
+                                None => None,
+                            },
+                            stdout: match options.stdout {
+                                Some(expr) => Some(Box::new(self.lower_expr(
+                                    expr,
+                                    slots,
+                                    current_function,
+                                    item_slot,
+                                )?)),
+                                None => None,
+                            },
+                            stderr: match options.stderr {
+                                Some(expr) => Some(Box::new(self.lower_expr(
+                                    expr,
+                                    slots,
+                                    current_function,
+                                    item_slot,
+                                )?)),
+                                None => None,
+                            },
+                            stdout_append: match options.stdout_append {
+                                Some(expr) => Some(Box::new(self.lower_expr(
+                                    expr,
+                                    slots,
+                                    current_function,
+                                    item_slot,
+                                )?)),
+                                None => None,
+                            },
+                            stderr_append: match options.stderr_append {
                                 Some(expr) => Some(Box::new(self.lower_expr(
                                     expr,
                                     slots,

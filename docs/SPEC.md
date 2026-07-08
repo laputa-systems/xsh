@@ -2506,8 +2506,10 @@ when `XSH_UNIX_DRY_RUN_LOG` is set. `unix.set_hostname` is gated unless
   backslash escapes. Unquoted shell operators, expansions, globs, command
   substitution, and compound-command syntax are rejected.
 - `process.command_argv(target: Str|Path, argv: List[Str], cwd: Path = default,
-  env: Record = default, timeout: Duration = default, detach: Bool = false,
-  new_session: Bool = false, ignore_hup: Bool = false,
+  env: Record = default, stdin: Path = default, stdout: Path = default,
+  stderr: Path = default, stdout_append: Bool = false,
+  stderr_append: Bool = false, timeout: Duration = default,
+  detach: Bool = false, new_session: Bool = false, ignore_hup: Bool = false,
   cpu_max: Int = default) -> Command`.
 - `process.run(command: Command) -> Result[Status, ProcessError]`.
 - `process.spawn(command: Command) -> Result[Record]`, returning
@@ -2751,15 +2753,16 @@ Builder checks reports unknown fields, duplicate fields, invalid nested
 commands, missing required fields, and domain check failures with source
 spans from the builder block.
 
-`process.command { ... }` accepts `cwd: Path`, `env: Record`,
-`timeout: Duration`, `cpu_max: Int`, `detach: Bool`, `new_session: Bool`,
-`ignore_hup: Bool`, and exactly one plain `run` entry. It captures a typed
-process plan without executing it. `process.command_argv` builds the same typed
-plan from data; its `argv` list is the full argv vector and must include
-`argv[0]`. XSH resolves `target` as the executable and passes the remaining
-argv items as process arguments. `process.run` executes a command plan, returns
-completed nonzero exits and signal terminations as `Ok(Status)`, and returns
-setup, timeout, or cancellation failures as `Err(ProcessError)`.
+`process.command { ... }` accepts `cwd: Path`, `env: Record`, `stdin: Path`,
+`stdout: Path`, `stderr: Path`, `stdout_append: Bool`,
+`stderr_append: Bool`, `timeout: Duration`, `cpu_max: Int`, `detach: Bool`,
+`new_session: Bool`, `ignore_hup: Bool`, and exactly one plain `run` entry. It
+captures a typed process plan without executing it. `process.command_argv`
+builds the same typed plan from data; its `argv` list is the full argv vector
+and must include `argv[0]`. XSH resolves `target` as the executable and passes
+the remaining argv items as process arguments. `process.run` executes a command
+plan, returns completed nonzero exits and signal terminations as `Ok(Status)`,
+and returns setup, timeout, or cancellation failures as `Err(ProcessError)`.
 `process.spawn` consumes the detach/session/HUP fields. Both `process.run` and
 `process.spawn` consume `cpu_max` by applying it to the child process tree when
 supported. Plain `run` execution does not consume detach/session/HUP fields.

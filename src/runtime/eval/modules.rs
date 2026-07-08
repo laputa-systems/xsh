@@ -4,9 +4,12 @@ use super::ModuleExportSignature;
 use super::{Evaluator, TestCall, module_error};
 use crate::modules::api_spec;
 use crate::modules::net::{NetBody, NetHeader};
-use crate::runtime::process::ProcessInvocation;
+use crate::runtime::process::{
+    FileRedirectionMode, ProcessInvocation, ProcessRedirection, RedirectionStream,
+};
 use crate::runtime::value::{
-    CommandPlan, PathValue, RecordMap, ResultValue, RunError, RuntimeError, Value,
+    CommandPlan, CommandRedirection, CommandRedirectionMode, CommandRedirectionStream, PathValue,
+    RecordMap, ResultValue, RunError, RuntimeError, Value,
 };
 use crate::sema::types::Type;
 use crate::source::Span;
@@ -58,13 +61,32 @@ impl Evaluator {
             .as_ref()
             .map(|cwd| self.host_path(cwd))
             .unwrap_or_else(|| self.cwd.clone());
+        let redirections = plan
+            .redirections
+            .iter()
+            .map(|redirection| match redirection {
+                CommandRedirection::File { stream, mode, path } => ProcessRedirection::File {
+                    stream: match stream {
+                        CommandRedirectionStream::Stdin => RedirectionStream::Stdin,
+                        CommandRedirectionStream::Stdout => RedirectionStream::Stdout,
+                        CommandRedirectionStream::Stderr => RedirectionStream::Stderr,
+                    },
+                    mode: match mode {
+                        CommandRedirectionMode::Read => FileRedirectionMode::Read,
+                        CommandRedirectionMode::Write => FileRedirectionMode::Write,
+                        CommandRedirectionMode::Append => FileRedirectionMode::Append,
+                    },
+                    path: self.host_path(path),
+                },
+            })
+            .collect();
         Ok(ProcessInvocation {
             target: plan.target.clone(),
             argv: plan.argv.clone(),
             cwd,
             env,
             env_overlay,
-            redirections: Vec::new(),
+            redirections,
             timeout: plan
                 .timeout
                 .as_ref()

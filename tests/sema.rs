@@ -642,12 +642,16 @@ let spawned = process.spawn(process.command {
   detach = true
   new_session = true
   ignore_hup = true
+  stdout = Path("builder.out")
+  stderr = Path("builder.err")
+  stdout_append = true
+  stderr_append = true
   run sh -c "true"
 })?
 let argv_words = process.argv_words("true")?
 let command_from_str = process.command_argv("true", argv_words)
 let command_from_path = process.command_argv(Path("true"), ["true"], Path("."), {}, 1s, false, false, false)
-let command_from_named = process.command_argv("true", ["true"], timeout: 1s, ignore_hup: true, cpu_max: 80)
+let command_from_named = process.command_argv("true", ["true"], stdout: Path("out.log"), stderr: Path("err.log"), stdout_append: true, stderr_append: true, timeout: 1s, ignore_hup: true, cpu_max: 80)
 let planned_status = process.run(command_from_str)?
 let parsed_number = "0x2a".parse_int()?
 let tokens = cli.tokens(["-dc", "--wrap=0", "file"], ["wrap"])?

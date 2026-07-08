@@ -960,6 +960,11 @@ impl Checker {
             "argv",
             "cwd",
             "env",
+            "stdin",
+            "stdout",
+            "stderr",
+            "stdout_append",
+            "stderr_append",
             "timeout",
             "detach",
             "new_session",
@@ -969,7 +974,7 @@ impl Checker {
         if !(2..=names.len()).contains(&args.len()) {
             self.error(span, "incorrect standard API arity", "check.arity");
         }
-        let mut slots: [Option<&ArenaCallArgKind>; 9] = [None; 9];
+        let mut slots: [Option<&ArenaCallArgKind>; 14] = [None; 14];
         let mut next_positional = 0;
         for arg in args {
             match &arg.kind {
@@ -1043,6 +1048,11 @@ impl Checker {
         let expected = [
             Type::Path,
             Type::Record(BTreeMap::new()),
+            Type::Path,
+            Type::Path,
+            Type::Path,
+            Type::Bool,
+            Type::Bool,
             Type::Duration,
             Type::Bool,
             Type::Bool,
@@ -1052,7 +1062,7 @@ impl Checker {
         for (offset, expected) in expected.iter().enumerate() {
             self.check_optional_api_arg_arena(arena, source, slots[offset + 2], Some(expected));
         }
-        if let Some(arg) = slots[8] {
+        if let Some(arg) = slots[13] {
             let expr_id = call_arg_expr_id_arena(arg);
             self.check_static_positive_call_int_arena(arena, expr_id, "cpu_max must be positive");
         }

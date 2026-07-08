@@ -887,7 +887,10 @@ build_fn.call(p"/tmp/bareword-dest")?
         String::from_utf8_lossy(&output.stderr)
     );
     let stdout = String::from_utf8(output.stdout).unwrap();
-    assert!(stdout.contains("-C build samu"), "missing '-C build samu' in: {stdout}");
+    assert!(
+        stdout.contains("-C build samu"),
+        "missing '-C build samu' in: {stdout}"
+    );
     assert!(stdout.contains("apples"), "missing 'apples' in: {stdout}");
 }
 

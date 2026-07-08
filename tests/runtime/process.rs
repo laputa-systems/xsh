@@ -163,6 +163,76 @@ print ${{status.ok}} ${{env_status.ok}} ${{false_status.exited_with(1)}}
 }
 
 #[test]
+fn process_command_argv_redirects_stdio_to_files() {
+    let root = temp_path("process-command-argv-redirection");
+    std::fs::create_dir_all(&root).expect("create root");
+    let log = root.join("combined.log");
+    let input = root.join("input.txt");
+    std::fs::write(&input, "from-stdin").expect("write input");
+    let output = run_temp_script(
+        "process-command-argv-redirection",
+        &format!(
+            "\
+let input = Path({})
+let log = Path({})
+let command = process.command_argv(\"sh\", [\"sh\", \"-c\", \"cat; printf stderr-line >&2\"], stdin: input, stdout: log, stderr: log)
+let status = process.run(command)?
+print ${{status.ok}}
+print (log.read_text()?)
+",
+            xsh_string_literal(input.to_str().expect("input utf8")),
+            xsh_string_literal(log.to_str().expect("log utf8")),
+        ),
+    );
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        String::from_utf8(output.stdout).unwrap(),
+        "true\nfrom-stdinstderr-line\n"
+    );
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn process_command_builder_redirects_stdio_to_files() {
+    let root = temp_path("process-command-builder-redirection");
+    std::fs::create_dir_all(&root).expect("create root");
+    let log = root.join("builder.log");
+    let output = run_temp_script(
+        "process-command-builder-redirection",
+        &format!(
+            "\
+let log = Path({})
+let command = process.command {{
+  stdout = log
+  stderr = log
+  run sh -c \"printf builder-out; printf builder-err >&2\"
+}}
+let status = process.run(command)?
+print ${{status.ok}}
+print (log.read_text()?)
+",
+            xsh_string_literal(log.to_str().expect("log utf8")),
+        ),
+    );
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        String::from_utf8(output.stdout).unwrap(),
+        "true\nbuilder-outbuilder-err\n"
+    );
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
 fn process_errors_match_nominal_timeout_variant() {
     let output = run_temp_script(
         "process-error-timeout-pattern",
