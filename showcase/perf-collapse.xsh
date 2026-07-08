@@ -211,7 +211,7 @@ pure collapse_text(source: Str, opts: Options) -> Result[Map[Int]] {
 }
 
 proc print_folded(counts: Map[Int], top: Int) [error] {
-  let rows: List[StackCount] = [{stack: key, count: counts.get(key, 0)} for key in counts.keys()]
+  let rows = [{stack: key, count: counts.get(key, 0)} for key in counts.keys()]
   let sorted = rows |> sort-by --desc .count
   let limit = if top <= 0 or top > sorted.len() { sorted.len() } else { top }
 

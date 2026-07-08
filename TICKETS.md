@@ -257,3 +257,171 @@ if path.display().contains("/") {}
 ```
 
 The fixed output should pass `xsht check` and preserve behavior.
+
+### `xsht fmt` should preserve readable multiline record/type shapes
+
+**Symptom**
+
+Running `xsht fmt` over the package repo produced syntactically valid output but
+made several idiomatic package shapes less readable.
+
+Examples from `packages/pm/make.xsh`:
+
+```xsh
+export type CMultiTarget = {
+  tasks: List[MakeTask],
+  groups: Map[CompileTasks],
+  outputs: Map[Path],
+  deps: List[Str],
+}
+```
+
+was collapsed to:
+
+```xsh
+export type CMultiTarget = {tasks: List[MakeTask], groups: Map[CompileTasks], outputs: Map[Path], deps: List[Str]}
+```
+
+Small API type declarations are much easier to scan in multiline form,
+especially when they are part of a public helper surface.
+
+The formatter also rewrote package build calls from the compact, natural shape:
+
+```xsh
+let tool = make.c_program({
+  cc,
+  triple,
+  cflags,
+  defs,
+  includes,
+  root: p".",
+  sources,
+  out_dir: p"obj",
+  out: p"obj/tool",
+  libs: [],
+  ldflags: [],
+  deps: [],
+})
+```
+
+to:
+
+```xsh
+let tool = make.c_program(
+  {
+    cc,
+    triple,
+    cflags,
+    defs,
+    includes,
+    root: p".",
+    sources,
+    out_dir: p"obj",
+    out: p"obj/tool",
+    libs: [],
+    ldflags: [],
+    deps: [],
+  },
+)
+```
+
+That adds vertical noise and makes the PM make call shape feel less natural.
+
+It also broke fluent chains in a hard-to-read way:
+
+```xsh
+return src.display().replace("/", "_").replace(".cxx", ext).replace(".cpp", ext).replace(".cc", ext).replace(
+  ".c",
+  ext,
+).replace(".S", ext).replace(".s", ext)
+```
+
+And it rewrote a raw string literal in `packages/pm/build.xsh` from
+`r"""..."""` to an escaped normal triple string. That may preserve behavior, but
+formatting should not change literal flavor unless the source syntax actually
+requires it.
+
+**Desired behavior**
+
+Keep existing multiline record/type shapes when they are already multiline.
+Prefer multiline formatting for:
+
+- record type declarations with more than a small number of fields
+- record type declarations with nested generic types
+- public/exported type declarations
+- record literals passed as the sole argument to a call, especially
+  `make.c_program({ ... })`, `make.c_multi_program({ ... })`, and similar
+  builder-style APIs
+
+For builder-style calls with a single record literal argument, preserve or
+produce:
+
+```xsh
+call({
+  field: value,
+})
+```
+
+not:
+
+```xsh
+call(
+  {
+    field: value,
+  },
+)
+```
+
+For fluent method chains, prefer either one line when short or a consistent
+chain layout when long:
+
+```xsh
+return src.display()
+  .replace("/", "_")
+  .replace(".cxx", ext)
+  .replace(".cpp", ext)
+```
+
+rather than breaking one middle call and then continuing the chain on the same
+line.
+
+For string literals, preserve raw/triple/raw-triple literal style when possible.
+Escaping a raw literal into a normal literal should be treated as a semantic
+rewrite, not ordinary formatting.
+
+**Minimal tests**
+
+Add formatter fixture coverage for:
+
+```xsh
+export type CMultiTarget = {
+  tasks: List[MakeTask],
+  groups: Map[CompileTasks],
+  outputs: Map[Path],
+  deps: List[Str],
+}
+
+let target = make.c_program({
+  cc,
+  triple,
+  cflags,
+  defs,
+  includes,
+  root: p".",
+  sources,
+  out_dir: p"obj",
+  out: p"obj/tool",
+  libs: [],
+  ldflags: [],
+  deps: [],
+})
+
+let value = path.display().replace("/", "_").replace(".cxx", ext).replace(".cpp", ext).replace(".cc", ext)
+
+let script = r"""print f"${value}"
+"""
+```
+
+The fixed-point formatted output should preserve the multiline record type,
+preserve the builder-call shape, use a coherent chain layout, and keep the raw
+string literal raw.

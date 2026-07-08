@@ -17,7 +17,7 @@ proc main(...argv: List[Str]) [fs, error] {
     },
   )?
 
-  let root: Path = if opts.root.display() == "." {
+  let root = if opts.root.display() == "." {
     match fs.gitroot() { Ok(r) => r, Err(_) => fs.cwd()? }
   } else {
     opts.root.resolve()?

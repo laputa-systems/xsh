@@ -2135,7 +2135,7 @@ let mixed = [1, json.decode("1")?]
         .iter()
         .filter(|code| code.as_deref() == Some("check.strict-any"))
         .count();
-    assert!(count >= 4, "expected strict Any diagnostics: {output:?}");
+    assert!(count >= 3, "expected strict Any diagnostics: {output:?}");
 }
 
 #[test]

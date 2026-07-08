@@ -18,7 +18,7 @@ type Config = {auto: List[Str], interfaces: List[Interface]}
 # Minimal IPv4 DHCP client (RFC 2131), modeled on busybox udhcpc but pared down
 # to the DISCOVER/OFFER/REQUEST/ACK handshake. The broadcast UDP socket is
 # provided by the linux.dhcp_* primitives; everything else is plain byte work.
-let DHCP_MAGIC: List[Int] = [99, 130, 83, 99]
+let DHCP_MAGIC = [99, 130, 83, 99]
 let DHCP_DISCOVER = 1
 let DHCP_OFFER = 2
 let DHCP_REQUEST = 3

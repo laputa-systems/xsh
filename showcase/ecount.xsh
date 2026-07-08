@@ -4,7 +4,7 @@
 # Unlike fd | awk extension counters, extensionless files are counted as (none).
 # Usage: xsh showcase/ecount.xsh -- [--size] [ROOT]
 # Example: xsh showcase/ecount.xsh -- --size src
-let argv: List[Str] = args
+let argv = args
 var show_size = false
 var path_arg = ""
 

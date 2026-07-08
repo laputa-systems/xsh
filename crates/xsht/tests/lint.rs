@@ -1276,3 +1276,294 @@ proc main(foo: Path) {
     assert_eq!(fixes[3].0, "foo.display()");
     assert_eq!(fixes[3].1, "$foo");
 }
+
+#[test]
+fn linter_autofixes_needless_str_annotation() {
+    let source = "\
+let name: Str = \"pkg\"
+";
+    let parsed = parse_lint_source(source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let diagnostics = lint_and_assert_fmt_stable(
+        &parsed.arena,
+        source,
+        LintOptions {
+            expr_types: checked.expr_types,
+            ..LintOptions::default()
+        },
+    );
+    let diagnostic = diagnostics
+        .iter()
+        .find(|d| d.code.as_deref() == Some("lint.needless-annotation"))
+        .expect("expected needless-annotation diagnostic");
+
+    assert_eq!(
+        diagnostic
+            .fix_hints
+            .first()
+            .and_then(|hint| hint.replacement.as_deref()),
+        Some(""),
+        "fix hint should delete the annotation"
+    );
+}
+
+#[test]
+fn linter_autofixes_needless_scalar_annotations() {
+    let source = "\
+let ok: Bool = true
+let count: Int = 1
+let ratio: Float = 3.14
+let root: Path = p\"src\"
+";
+    let parsed = parse_lint_source(source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let diagnostics = lint_and_assert_fmt_stable(
+        &parsed.arena,
+        source,
+        LintOptions {
+            expr_types: checked.expr_types,
+            ..LintOptions::default()
+        },
+    );
+    let needless: Vec<_> = diagnostics
+        .iter()
+        .filter(|d| d.code.as_deref() == Some("lint.needless-annotation"))
+        .collect();
+    assert_eq!(needless.len(), 4, "expected 4 needless diagnostics");
+    for d in &needless {
+        assert!(
+            !d.fix_hints.is_empty(),
+            "every needless diagnostic should have a fix hint"
+        );
+    }
+}
+
+#[test]
+fn linter_autofixes_needless_list_annotations() {
+    let source = "\
+let deps: List[Str] = [\"musl\"]
+var argv: List[Str] = [\"cc\", \"-O2\"]
+let paths: List[Path] = [p\"src/main.c\", p\"lib/foo.c\"]
+";
+    let parsed = parse_lint_source(source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let diagnostics = lint_and_assert_fmt_stable(
+        &parsed.arena,
+        source,
+        LintOptions {
+            expr_types: checked.expr_types,
+            ..LintOptions::default()
+        },
+    );
+    let needless: Vec<_> = diagnostics
+        .iter()
+        .filter(|d| d.code.as_deref() == Some("lint.needless-annotation"))
+        .collect();
+    assert_eq!(needless.len(), 3, "expected 3 needless list diagnostics");
+}
+
+#[test]
+fn linter_autofixes_needless_export_str_annotation() {
+    let source = "\
+export let rel: Str = \"1\"
+";
+    let parsed = parse_lint_source(source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let diagnostics = lint_and_assert_fmt_stable(
+        &parsed.arena,
+        source,
+        LintOptions {
+            expr_types: checked.expr_types,
+            ..LintOptions::default()
+        },
+    );
+    let diagnostic = diagnostics
+        .iter()
+        .find(|d| d.code.as_deref() == Some("lint.needless-annotation"))
+        .expect("expected needless-annotation diagnostic for exported binding");
+    assert!(!diagnostic.fix_hints.is_empty());
+}
+
+#[test]
+fn linter_skips_needless_for_method_call_initializer() {
+    let source = "\
+let name: Str = metadata.get(\"name\")?
+";
+    let parsed = parse_lint_source(source);
+    let checked = Checker::check_arena(&parsed.arena, source);
+
+    let diagnostics = lint_and_assert_fmt_stable(
+        &parsed.arena,
+        source,
+        LintOptions {
+            expr_types: checked.expr_types,
+            ..LintOptions::default()
+        },
+    );
+    let needless: Vec<_> = diagnostics
+        .iter()
+        .filter(|d| d.code.as_deref() == Some("lint.needless-annotation"))
+        .collect();
+    assert!(needless.is_empty(), "should not lint dynamic initializers");
+}
+
+#[test]
+fn linter_skips_needless_for_module_call_initializer() {
+    let source = "\
+let rows: List[Record] = json.read(index)?
+";
+    let parsed = parse_lint_source(source);
+    let checked = Checker::check_arena(&parsed.arena, source);
+
+    let diagnostics = lint_and_assert_fmt_stable(
+        &parsed.arena,
+        source,
+        LintOptions {
+            expr_types: checked.expr_types,
+            ..LintOptions::default()
+        },
+    );
+    let needless: Vec<_> = diagnostics
+        .iter()
+        .filter(|d| d.code.as_deref() == Some("lint.needless-annotation"))
+        .collect();
+    assert!(needless.is_empty(), "should not lint module call initializers");
+}
+
+#[test]
+fn linter_skips_needless_for_empty_list_initializer() {
+    let source = "\
+type Entry = {name: Str}
+var entries: List[Entry] = []
+";
+    let parsed = parse_lint_source(source);
+    let checked = Checker::check_arena(&parsed.arena, source);
+
+    let diagnostics = lint_and_assert_fmt_stable(
+        &parsed.arena,
+        source,
+        LintOptions {
+            expr_types: checked.expr_types,
+            ..LintOptions::default()
+        },
+    );
+    let needless: Vec<_> = diagnostics
+        .iter()
+        .filter(|d| d.code.as_deref() == Some("lint.needless-annotation"))
+        .collect();
+    assert!(needless.is_empty(), "should not lint empty list initializers");
+}
+
+#[test]
+fn linter_skips_needless_for_proc_params() {
+    let source = "\
+proc main(...argv: List[Str]) [error] {}
+";
+    let parsed = parse_lint_source(source);
+    let checked = Checker::check_arena(&parsed.arena, source);
+
+    let diagnostics = lint_and_assert_fmt_stable(
+        &parsed.arena,
+        source,
+        LintOptions {
+            expr_types: checked.expr_types,
+            ..LintOptions::default()
+        },
+    );
+    let needless: Vec<_> = diagnostics
+        .iter()
+        .filter(|d| d.code.as_deref() == Some("lint.needless-annotation"))
+        .collect();
+    assert!(needless.is_empty(), "should never lint proc parameters");
+}
+
+#[test]
+fn linter_autofixes_needless_var_annotation() {
+    let source = "\
+var count: Int = 0
+";
+    let parsed = parse_lint_source(source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let diagnostics = lint_and_assert_fmt_stable(
+        &parsed.arena,
+        source,
+        LintOptions {
+            expr_types: checked.expr_types,
+            ..LintOptions::default()
+        },
+    );
+    let diagnostic = diagnostics
+        .iter()
+        .find(|d| d.code.as_deref() == Some("lint.needless-annotation"))
+        .expect("expected needless-annotation diagnostic for var binding");
+    assert!(!diagnostic.fix_hints.is_empty());
+}
+
+#[test]
+fn linter_skips_needless_for_dynamic_try_initializer() {
+    let source = "\
+let name: Str = getenv(\"X\")?.display()
+";
+    // Note: this won't check cleanly, but we just want to verify the lint
+    // doesn't fire for expressions involving Try + Field access
+    let parsed = parse_lint_source(source);
+    let checked = Checker::check_arena(&parsed.arena, source);
+
+    let diagnostics = Linter::lint(
+        &parsed.arena,
+        source,
+        LintOptions {
+            expr_types: checked.expr_types,
+            ..LintOptions::default()
+        },
+    )
+    .diagnostics;
+    let needless: Vec<_> = diagnostics
+        .iter()
+        .filter(|d| d.code.as_deref() == Some("lint.needless-annotation"))
+        .collect();
+    assert!(needless.is_empty(), "should not lint dynamic initializers");
+}
+
+#[test]
+fn linter_needless_annotation_fix_preserves_source() {
+    let source = "\
+let name: Str = \"pkg\"
+let deps: List[Str] = [\"musl\", \"zlib\"]
+var argv: List[Str] = [\"cc\", \"-O2\"]
+let source_path: Path = p\"src/main.c\"
+";
+    let parsed = parse_lint_source(source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let diagnostics = lint_and_assert_fmt_stable(
+        &parsed.arena,
+        source,
+        LintOptions {
+            expr_types: checked.expr_types,
+            ..LintOptions::default()
+        },
+    );
+    let needless: Vec<_> = diagnostics
+        .iter()
+        .filter(|d| d.code.as_deref() == Some("lint.needless-annotation"))
+        .collect();
+    assert_eq!(needless.len(), 4, "expected 4 needless annotation diagnostics");
+}

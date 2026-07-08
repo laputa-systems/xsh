@@ -83,7 +83,7 @@ pure is_digit(c: Str) -> Bool {
 # returning the raw quoted substring (escapes intact) and the position after it.
 pure scan_string(chars: List[Str], pos: Int) -> Result[RawStr] {
   var p = pos + 1
-  var buf: List[Str] = ["\""]
+  var buf = ["\""]
 
   while p < chars.len() {
     let c = chars.get(p, "")
@@ -2588,7 +2588,7 @@ pure eval_arith_update(op: Str, pathexpr: Jq, rhs: Jq, input: Json, scope: Env) 
 # String interpolation: cartesian over each \(...) slot, formatting interpolated
 # values (literal chunks pass through untouched).
 pure eval_str_interp(parts: List[Jq], fmt: Str, input: Json, scope: Env) -> Result[List[Json]] {
-  var partials: List[Str] = [""]
+  var partials = [""]
 
   for part in parts {
     match part {

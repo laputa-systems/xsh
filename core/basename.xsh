@@ -1,8 +1,8 @@
 #!/usr/bin/env -S xsh --
 pure basename_value(name: Str, suffix: Str) -> Str {
   let parts: List[Str] = name.split("/")
-  let raw: Str = if parts.len() > 0 { parts[parts.len() - 1] } else { name }
-  let base: Str = if raw == "" and parts.len() > 1 { parts[parts.len() - 2] } else { raw }
+  let raw = if parts.len() > 0 { parts[parts.len() - 1] } else { name }
+  let base = if raw == "" and parts.len() > 1 { parts[parts.len() - 2] } else { raw }
 
   if suffix != "" and base.ends_with(suffix) {
     return base.replace(suffix, "")

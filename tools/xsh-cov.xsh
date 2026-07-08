@@ -59,14 +59,14 @@ pure suite_test_args(name: Str, suite_json: Path) -> List[Str] {
 proc discover_suites(root: Path) [fs, error] -> Result[List[Suite]] {
   var suites: List[Suite] = [{name: ".", path: root}]
   var seen: Map[Bool] = map.empty().set(root.display(), true)
-  let core: Path = fp"${root}/core"
+  let core = fp"${root}/core"
 
   if fp"${core}/tests".exists()? {
     seen[core.display()] = true
     suites = suites.push({name: "core", path: core})
   }
 
-  let prototypes: Path = fp"${root}/prototypes"
+  let prototypes = fp"${root}/prototypes"
 
   if prototypes.exists()? {
     for entry in fs.walk(prototypes)?
@@ -92,10 +92,10 @@ proc run_suites(
 ) [fs, process, error, io] -> Result[List[SuiteInput]] {
   out_dir.mkdir()?
   var outputs: List[SuiteInput] = []
-  var failed: Bool = false
+  var failed = false
 
   for suite in suites {
-    let suite_json: Path = fp"${out_dir}/${suite_json_name(suite.name)}"
+    let suite_json = fp"${out_dir}/${suite_json_name(suite.name)}"
     print f"coverage suite ${suite.name}"
 
     cd suite.path {
@@ -152,7 +152,7 @@ proc merge_reports(root: Path, inputs: List[SuiteInput]) [fs, error] -> Result[R
   for api_id in sorted_standard {
     let group_name: Str = api_id.split(".").get(0, "other")
     let current = totals.get(group_name, {covered: 0, total: 0})
-    let covered: Int = if api_hits.has(api_id) { 1 } else { 0 }
+    let covered = if api_hits.has(api_id) { 1 } else { 0 }
     totals[group_name] = {covered: current.covered + covered, total: current.total + 1}
   }
 
@@ -182,7 +182,7 @@ proc merge_reports(root: Path, inputs: List[SuiteInput]) [fs, error] -> Result[R
 }
 
 proc render_text(report: Record) [error] -> Result[Str] {
-  var lines: List[Str] = ["coverage report", "API coverage"]
+  var lines = ["coverage report", "API coverage"]
   let totals: List[Record] = report.get("totals")?
 
   for row in totals {
@@ -198,7 +198,7 @@ proc render_text(report: Record) [error] -> Result[Str] {
   if uncovered.len() == 0 {
     lines = lines.push("  none")
   } else {
-    var count: Int = 0
+    var count = 0
 
     for api_id in uncovered {
       if count < 80 {
@@ -231,7 +231,7 @@ proc render_text(report: Record) [error] -> Result[Str] {
 }
 
 proc main(...argv: List[Str]) [fs, process, env, error, io] {
-  let _: List[Str] = argv
+  let _ = argv
   let root: Path = fs.cwd()?
   let out_dir: Path = env_path(root, "XSH_COV_DIR", fp"${root}/target/xsh-cov")
   let json_path: Path = env_path(root, "XSH_COV_JSON", fp"${out_dir}/coverage.json")

@@ -1597,11 +1597,7 @@ pure render_reason_groups(groups: List[ReasonGroup]) -> List[Str] {
 }
 
 pure render_report(report: CoverageReport) -> Str {
-  var lines: List[Str] = [
-    "lowered IR coverage",
-    "scope: static AST surface compared to the current lowered IR capability map",
-    "",
-  ]
+  var lines = ["lowered IR coverage", "scope: static AST surface compared to the current lowered IR capability map", ""]
 
   for row in report.rows {
     lines = lines.extend(render_row(row))

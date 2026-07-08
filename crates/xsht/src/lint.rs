@@ -10,13 +10,13 @@ use xsh::symbol::Symbol;
 use xsh::syntax::arena::{
     ArenaAssignTargetKind, ArenaBindingTargetKind, ArenaBuilderEntryKind, ArenaCallArg,
     ArenaCallArgKind, ArenaCommand, ArenaCommandArg, ArenaCommandArgKind, ArenaEnvAssignment,
-    ArenaEnvAssignmentValue, ArenaExprKind, ArenaExprOrRun, ArenaFmtPart, ArenaFunctionDef,
-    ArenaMatchExprArm, ArenaModuleContractEntryKind, ArenaPatternKind, ArenaPipeStage,
-    ArenaPipeStageKind, ArenaProgram, ArenaRange, ArenaRecordField, ArenaRecordFieldKind,
-    ArenaRedirection, ArenaRedirectionTarget, ArenaSpawnTarget, ArenaStmtKind, ArenaStreamStage,
-    ArenaTypeDefBody, ArenaTypeExprTag, ArenaWordPart, AssignTargetId, AstArena, BindingTargetId,
-    BlockId, BuilderBlockId, CommandStmtId, ExprId, FunctionDefId, PatternId, RunFormId, StmtId,
-    TypeExprId,
+    ArenaEnvAssignmentValue, ArenaExpr, ArenaExprKind, ArenaExprOrRun, ArenaFmtPart,
+    ArenaFunctionDef, ArenaMatchExprArm, ArenaModuleContractEntryKind, ArenaPatternKind,
+    ArenaPipeStage, ArenaPipeStageKind, ArenaProgram, ArenaRange, ArenaRecordField,
+    ArenaRecordFieldKind, ArenaRedirection, ArenaRedirectionTarget, ArenaSpawnTarget,
+    ArenaStmtKind, ArenaStreamStage, ArenaTypeDefBody, ArenaTypeExprTag, ArenaWordPart,
+    AssignTargetId, AstArena, BindingTargetId, BlockId, BuilderBlockId, CommandStmtId, ExprId,
+    FunctionDefId, PatternId, RunFormId, StmtId, TypeExprId,
 };
 use xsh::syntax::node::{
     AssignOp, BinaryOp, CoreCommand, Effect, RunKind, StreamStageKind, UnaryOp,
@@ -446,10 +446,11 @@ impl<'a> Linter<'a> {
                 ty,
                 initializer,
             } => {
-                if let Some(ty) = ty {
-                    self.collect_type_expr_refs(ty);
-                }
                 self.lint_empty_map_initializer(ty, &initializer);
+                if let Some(type_expr) = ty {
+                    self.collect_type_expr_refs(type_expr);
+                    self.lint_needless_annotation(stmt.span, type_expr, &initializer, exported);
+                }
                 self.lint_expr_or_run(&initializer);
                 self.define_binding_target(target, stmt.span, true);
             }
@@ -976,6 +977,140 @@ impl<'a> Linter<'a> {
                     "{}".to_string(),
                 )),
         );
+    }
+
+    fn lint_needless_annotation(
+        &mut self,
+        _stmt_span: Span,
+        ty: TypeExprId,
+        initializer: &ArenaExprOrRun,
+        exported: bool,
+    ) {
+        let annotation_ty = Type::from_arena(self.arena, ty);
+        if matches!(annotation_ty, Type::Any | Type::Unknown | Type::Invalid) {
+            return;
+        }
+        let ArenaExprOrRun::Expr(init_expr_id) = initializer else {
+            return;
+        };
+        let init = self.arena.expr(*init_expr_id);
+        if !self.annotation_is_needless(&annotation_ty, &init, exported) {
+            return;
+        }
+        let ty_span = self.arena.type_expr_span(ty);
+        let deletion_start = scan_before_colon(&self.source, ty_span.start());
+        let deletion_end = scan_after_type(&self.source, ty_span.end());
+        if deletion_start >= deletion_end {
+            return;
+        }
+        // Don't fix across comments
+        if self.source[deletion_start..deletion_end].contains('#') {
+            return;
+        }
+        let deletion_span = Span::new(ty_span.source_id, deletion_start, deletion_end);
+        self.diagnostics.push(
+            Diagnostic::new(Severity::Warning, "needless type annotation")
+                .with_code("lint.needless-annotation")
+                .with_label(Label::secondary(
+                    ty_span,
+                    "this type annotation is redundant with the initializer",
+                ))
+                .with_fix_hint(FixHint::deletion(
+                    deletion_span,
+                    "remove needless annotation",
+                )),
+        );
+    }
+
+    fn annotation_is_needless(&self, annotation: &Type, init: &ArenaExpr, exported: bool) -> bool {
+        match &init.kind {
+            ArenaExprKind::Str(_) => *annotation == Type::Str,
+            ArenaExprKind::Bool(_) => *annotation == Type::Bool,
+            ArenaExprKind::Int(_) => *annotation == Type::Int,
+            ArenaExprKind::Float(_) => *annotation == Type::Float,
+            ArenaExprKind::Duration(_) => *annotation == Type::Duration,
+            ArenaExprKind::PathStr(_) => *annotation == Type::Path,
+            ArenaExprKind::Bytes(_) => *annotation == Type::Bytes,
+            ArenaExprKind::Null => *annotation == Type::Null,
+            ArenaExprKind::List(items) if !items.is_empty() => {
+                let Type::List(elem_ty) = annotation else {
+                    return false;
+                };
+                self.list_literal_matches_type(init, elem_ty)
+            }
+            _ => {
+                if self.is_empty_collection(init) {
+                    return false;
+                }
+                if self.is_dynamic_expr(init) {
+                    return false;
+                }
+                let init_span = init.span;
+                let Some(actual) = self.expr_types.get(&init_span) else {
+                    return false;
+                };
+                if exported {
+                    *actual == *annotation
+                } else {
+                    actual.matches_expected(annotation)
+                        && annotation.matches_expected(actual)
+                }
+            }
+        }
+    }
+
+    fn is_empty_collection(&self, init: &ArenaExpr) -> bool {
+        matches!(&init.kind, ArenaExprKind::List(items) if items.is_empty())
+            || matches!(&init.kind, ArenaExprKind::Record(fields) if fields.is_empty())
+    }
+
+    fn is_dynamic_expr(&self, init: &ArenaExpr) -> bool {
+        matches!(
+            &init.kind,
+            ArenaExprKind::Call { .. }
+                | ArenaExprKind::Field { .. }
+                | ArenaExprKind::NullSafeField { .. }
+                | ArenaExprKind::Index { .. }
+                | ArenaExprKind::Try(_)
+                | ArenaExprKind::Require { .. }
+                | ArenaExprKind::Unary { .. }
+                | ArenaExprKind::Binary { .. }
+                | ArenaExprKind::Pipeline { .. }
+                | ArenaExprKind::StructuredPipeline { .. }
+                | ArenaExprKind::Run(_)
+                | ArenaExprKind::Spawn(_)
+                | ArenaExprKind::EnvGet { .. }
+                | ArenaExprKind::Loop { .. }
+                | ArenaExprKind::Retry { .. }
+        )
+    }
+
+    fn list_literal_matches_type(&self, list_expr: &ArenaExpr, elem_ty: &Type) -> bool {
+        let ArenaExprKind::List(items) = &list_expr.kind else {
+            return false;
+        };
+        let exprs: Vec<_> = self.arena.expr_ids(*items).collect();
+        if exprs.is_empty() {
+            return false;
+        }
+        exprs.iter().all(|&e_id| {
+            let e = self.arena.expr(e_id);
+            self.expr_literal_matches_type(&e.kind, elem_ty)
+        })
+    }
+
+    fn expr_literal_matches_type(&self, kind: &ArenaExprKind, expected: &Type) -> bool {
+        match (kind, expected) {
+            (ArenaExprKind::Str(_), Type::Str) => true,
+            (ArenaExprKind::Bool(_), Type::Bool) => true,
+            (ArenaExprKind::Int(_), Type::Int) => true,
+            (ArenaExprKind::Float(_), Type::Float) => true,
+            (ArenaExprKind::Duration(_), Type::Duration) => true,
+            (ArenaExprKind::PathStr(_), Type::Path) => true,
+            (ArenaExprKind::Bytes(_), Type::Bytes) => true,
+            (ArenaExprKind::Null, Type::Null) => true,
+            _ => false,
+        }
     }
 
     fn lint_result_path_parse_roundtrip(&mut self, expr: ExprId) {
@@ -4812,6 +4947,25 @@ fn scan_before_arrow(source: &str, ty_start: usize) -> usize {
         }
     }
     i
+}
+
+fn scan_before_colon(source: &str, ty_start: usize) -> usize {
+    let bytes = source.as_bytes();
+    let mut i = ty_start;
+    while i > 0 && bytes[i - 1] == b' ' {
+        i -= 1;
+    }
+    if i > 0 && bytes[i - 1] == b':' {
+        i -= 1;
+        while i > 0 && bytes[i - 1] == b' ' {
+            i -= 1;
+        }
+    }
+    i
+}
+
+fn scan_after_type(_source: &str, ty_end: usize) -> usize {
+    ty_end
 }
 
 fn span_end_after_following_newlines(source: &str, mut end: usize) -> usize {

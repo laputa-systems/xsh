@@ -4,7 +4,7 @@ let greeting = f"hello ${name}"
 let banner = f"""${greeting}
 from xsh"""
 
-let roots: List[Path] = [/usr, /usr/local]
+let roots = [/usr, /usr/local]
 let scores = [2, 3, 5]
 let ratio = scores[2].float() / 2.0
 let release = {name: "xsh", root: roots[1], enabled: true}
