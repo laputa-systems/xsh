@@ -6,6 +6,10 @@ proc test_tui_helpers() [error] {
   test.eq(tui.show_cursor(), "\u{1b}[?25h")?
   test.eq(tui.left_pad("x", 3), "  x")?
   test.eq(tui.right_pad("x", 3), "x  ")?
+  let styled = f"${tui.red()}x${tui.reset()}"
+  test.eq(styled, "\u{1b}[31mx\u{1b}[0m")?
+  test.eq(tui.left_pad(styled, 3), f"  ${styled}")?
+  test.eq(tui.right_pad(styled, 3), f"${styled}  ")?
   test.ok(tui.reset().contains("\u{1b}["))?
   test.ok(tui.red().contains("\u{1b}["))?
   test.ok(tui.green().contains("\u{1b}["))?

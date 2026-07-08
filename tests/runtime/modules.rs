@@ -14,32 +14,6 @@ fn minimal_modules_execute_success_paths() {
 }
 
 #[test]
-fn fs_root_symlink_preserves_default_parents_with_named_overwrite() {
-    let root = temp_path("root-symlink-overwrite-defaults");
-    let _ = std::fs::remove_dir_all(&root);
-    std::fs::create_dir_all(&root).expect("create root");
-    let source = format!(
-        r#"
-let root = fs.open_root(Path({}))?
-let overwrite = false
-fs.root_symlink(root, p"target", p"nested/link", overwrite: overwrite)?
-print ${{fs.root_readlink(root, p"nested/link")?.display()}}
-fs.close_root(root)?
-"#,
-        xsh_string_literal(root.to_str().unwrap())
-    );
-    let output = run_temp_script("root-symlink-overwrite-defaults", &source);
-    let _ = std::fs::remove_dir_all(root);
-
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    assert_eq!(String::from_utf8(output.stdout).unwrap(), "target\n");
-}
-
-#[test]
 fn cli_parse_help_prints_usage_and_exits_successfully() {
     let path = write_temp_script(
         "cli-help",
@@ -93,74 +67,6 @@ print ${opts.path}
 }
 
 #[test]
-fn tui_module_sequences_and_width_aware_padding_execute() {
-    let output = run_temp_script(
-        "tui-module",
-        r#"
-let red = tui.red()
-let reset = tui.reset()
-let styled = f"${red}x${reset}"
-print ${styled == "\u{1b}[31mx\u{1b}[0m"}
-print f"'${tui.left_pad(styled, 3)}' '${tui.right_pad(styled, 3)}'"
-print ${tui.clear() == "\u{1b}[2J"} ${tui.home() == "\u{1b}[H"} ${tui.erase_line() == "\u{1b}[2K"}
-"#,
-    );
-
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    assert_eq!(
-        String::from_utf8(output.stdout).unwrap(),
-        "true\n'  \u{1b}[31mx\u{1b}[0m' '\u{1b}[31mx\u{1b}[0m  '\ntrue true true\n"
-    );
-}
-
-#[test]
-fn time_module_formats_compact_durations() {
-    let output = run_temp_script(
-        "time-duration-compact",
-        r#"
-print f"'${time.duration_compact(-1)}' '${time.duration_compact(0)}' '${time.duration_compact(69)}'"
-print f"'${time.duration_compact(2 * 3600 + 15 * 60)}' '${time.duration_compact(25 * 3600 + 4 * 60)}'"
-"#,
-    );
-
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    assert_eq!(
-        String::from_utf8(output.stdout).unwrap(),
-        "'    0:00' '    0:00' '    1:09'\n'   2h15m' '  1d01h'\n"
-    );
-    assert_eq!(String::from_utf8(output.stderr).unwrap(), "");
-}
-
-#[test]
-fn time_module_formats_utc_with_jiff_strtime() {
-    let output = run_temp_script(
-        "time-format-utc",
-        r#"
-print ${time.format(0, "%Y-%m-%dT%H:%M:%S%:z", utc: true)?}
-"#,
-    );
-
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    assert_eq!(
-        String::from_utf8(output.stdout).unwrap(),
-        "1970-01-01T00:00:00+00:00\n"
-    );
-    assert_eq!(String::from_utf8(output.stderr).unwrap(), "");
-}
-
-#[test]
 fn time_module_formats_local_time_under_tz() {
     let path = write_temp_script(
         "time-format-local",
@@ -183,35 +89,6 @@ print ${time.format(0, "%Y-%m-%d %H:%M %Z %z", utc: false)?}
     assert_eq!(
         String::from_utf8(output.stdout).unwrap(),
         "1969-12-31 19:00 EST -0500\n"
-    );
-    assert_eq!(String::from_utf8(output.stderr).unwrap(), "");
-}
-
-#[test]
-fn time_module_reports_jiff_format_errors() {
-    let output = run_temp_script(
-        "time-format-errors",
-        r#"
-match time.format(0, "%", utc: true) {
-  Err(error) => print ${error.kind}
-}
-match time.format(0, "%#", utc: true) {
-  Err(error) => print ${error.kind}
-}
-match time.format(999999999999999999, "%Y", utc: true) {
-  Err(error) => print ${error.kind}
-}
-"#,
-    );
-
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    assert_eq!(
-        String::from_utf8(output.stdout).unwrap(),
-        "time-format\ntime-format\ntime-format\n"
     );
     assert_eq!(String::from_utf8(output.stderr).unwrap(), "");
 }

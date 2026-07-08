@@ -245,32 +245,6 @@ main(@args)
 }
 
 #[test]
-fn command_proc_args_resolve_bare_value_references() {
-    let output = run_temp_script(
-        "bare-command-refs",
-        "\
-type Row = {name: Str}
-
-proc show(row: Row, prefix: Str) {
-  print ${prefix} ${row.name}
-}
-
-let rows = [{name: \"alpha\"}]
-let prefix = \"item\"
-show(rows[0], prefix)
-show(rows[0], \"prefix\")
-",
-    );
-
-    assert!(output.status.success());
-    assert_eq!(
-        String::from_utf8(output.stdout).unwrap(),
-        "item alpha\nprefix alpha\n"
-    );
-    assert_eq!(String::from_utf8(output.stderr).unwrap(), "");
-}
-
-#[test]
 fn abort_sets_script_exit_status_and_runs_defers_by_default() {
     let output = run_temp_script(
         "abort-runs-defers",
@@ -343,74 +317,11 @@ fn run_error_diagnostic_includes_cwd_and_argv() {
 }
 
 #[test]
-fn grouped_multiline_run_invocation_executes() {
-    let output = run_temp_script(
-        "grouped-run",
-        "run (\n  printf\n  \"%s %s\\n\"\n  \"grouped\"\n  \"run\"\n) ?\n",
-    );
-
-    assert!(output.status.success());
-    assert_eq!(String::from_utf8(output.stdout).unwrap(), "grouped run\n");
-}
-
-#[test]
 fn run_status_false_returns_status_value() {
     let output = xsh(["tests/fixtures/runtime/run-status-false.xsh"]);
 
     assert!(output.status.success());
     assert_eq!(String::from_utf8(output.stdout).unwrap(), "true\n");
-}
-
-#[test]
-fn run_status_can_drive_conditions() {
-    let output = run_temp_script(
-        "run-status-condition",
-        "if ! run.status false {\n  print \"missing\"\n}\nif run.status true {\n  print \"ok\"\n}\n",
-    );
-
-    assert!(output.status.success());
-    assert_eq!(String::from_utf8(output.stdout).unwrap(), "missing\nok\n");
-}
-
-#[test]
-fn path_absolute_uses_current_runtime_cwd_without_requiring_existing_path() {
-    let output = run_temp_script(
-        "path-absolute",
-        "let cwd = fs.cwd()?\nlet p = path.absolute(Path(\"target/../target/lang-absolute-demo\"))?\nprint ${p == fp\"${cwd}/target/lang-absolute-demo\"}\n",
-    );
-
-    assert!(output.status.success());
-    assert_eq!(String::from_utf8(output.stdout).unwrap(), "true\n");
-}
-
-#[test]
-fn boolean_operators_short_circuit() {
-    let output = run_temp_script(
-        "boolean-short-circuit",
-        r#"
-let items = [1]
-if false and items[9] == 0 {
-  print "bad-and"
-}
-if true or items[9] == 0 {
-  print "ok-or"
-}
-if items.len() > 0 and items[0] == 1 {
-  print "ok-and"
-}
-"#,
-    );
-
-    assert!(output.status.success());
-    assert_eq!(String::from_utf8(output.stdout).unwrap(), "ok-or\nok-and\n");
-}
-
-#[test]
-fn result_unit_statements_propagate_by_default() {
-    let output = run_temp_script("result-unit-statement", "time.sleep(1ms)\nprint \"ok\"\n");
-
-    assert!(output.status.success());
-    assert_eq!(String::from_utf8(output.stdout).unwrap(), "ok\n");
 }
 
 #[test]
@@ -467,81 +378,6 @@ fn run_capture_bytes_does_not_decode_utf8() {
     assert_eq!(String::from_utf8(output.stdout).unwrap(), "ok\n");
 }
 
-#[test]
-fn script_stdout_can_emit_invalid_utf8_bytes() {
-    let output = run_temp_script(
-        "invalid-utf8-stdout",
-        "io.write_stdout_bytes(b\"\\xff\\x00a\")?\n",
-    );
-
-    assert!(output.status.success());
-    assert_eq!(output.stdout, [0xff, 0x00, b'a']);
-}
-
-#[test]
-fn run_capture_record_captures_status_stdout_and_stderr() {
-    let output = run_temp_script(
-        "run-capture-record",
-        r#"
-let text_capture = run.capture --text sh -c "printf out; printf err >&2; exit 7" ?
-print ${text_capture.status.exited_with(7)} ${text_capture.stdout} ${text_capture.stderr}
-let byte_capture_result = run.capture --bytes sh -c "head -c 1 /dev/zero >&2; printf ok"
-let value = byte_capture_result?
-print ${value.stdout.len()} ${value.stderr.len()}
-"#,
-    );
-
-    assert!(output.status.success());
-    assert_eq!(
-        String::from_utf8(output.stdout).unwrap(),
-        "true out err\n2 1\n"
-    );
-}
-
-#[test]
-fn run_builtin_forms_execute_like_plain_run_forms() {
-    let output = run_temp_script(
-        "run-builtin-forms",
-        r#"
-let status = run.builtin.status false
-print ${status.exited_with(1)}
-let text = run.builtin.text echo hello ?
-print ${text.trim()}
-let capture = run.builtin.capture --text printf "out"
-let captured_record = capture?
-print ${captured_record.status.ok} ${captured_record.stdout}
-"#,
-    );
-
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    assert_eq!(
-        String::from_utf8(output.stdout).unwrap(),
-        "true\nhello\ntrue out\n"
-    );
-}
-
-#[test]
-fn run_builtin_unknown_name_returns_process_error() {
-    let output = run_temp_script(
-        "run-builtin-unknown",
-        r#"
-env PATH="/bin:/usr/bin" {
-  match run.builtin.text command-not-builtin {
-    Err(e) => print ${e.kind}
-    Ok(_) => print "ok"
-  }
-}
-"#,
-    );
-
-    assert!(output.status.success());
-    assert_eq!(String::from_utf8(output.stdout).unwrap(), "not-found\n");
-}
-
 #[cfg(target_os = "linux")]
 #[test]
 fn run_cpumax_writes_fake_cgroup_scope_and_cleans_up() {
@@ -570,51 +406,6 @@ fn run_cpumax_writes_fake_cgroup_scope_and_cleans_up() {
 }
 
 #[test]
-fn function_tail_values_return_declared_values() {
-    let output = run_temp_script(
-        "function-tail-values",
-        r#"
-pure object_path(src: Path) -> Path {
-  src.with_ext("o")
-}
-proc wrap(value: Str) -> Result[Str] {
-  Ok(f"${value}.ok")
-}
-proc command_tail(value: Str) -> Result[Str] {
-  wrap(value)
-}
-proc marker() -> Result[Unit] {
-  print "proc-tail"
-}
-proc choose(label: Str) -> Result[Unit] {
-  marker()?
-}
-error TailError = tail_error(message: Str)
-pure result_unit_tail_error() -> Result[Unit] {
-  Err(TailError.tail_error(message: "bad"))
-}
-let obj = object_path(Path("main.c"))
-let values = ["ok"] |> map { |value| command_tail(value)? }
-let failed = result_unit_tail_error()
-choose("ignored")?
-match failed {
-  Err(e) => print ${obj.name} ${values[0]} ${e.kind}
-}
-"#,
-    );
-
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    assert_eq!(
-        String::from_utf8(output.stdout).unwrap(),
-        "proc-tail\nmain.o ok.ok TailError.tail_error\n"
-    );
-}
-
-#[test]
 fn run_trace_preserves_argv_boundaries() {
     let output = xsht([
         "trace",
@@ -628,72 +419,6 @@ fn run_trace_preserves_argv_boundaries() {
     assert!(stderr.contains("b\"hello world\""));
     assert!(stderr.contains("b\"line\\nfeed\""));
     assert!(stderr.contains("b\"-dash\""));
-}
-
-#[test]
-fn byte_pipeline_executes_without_shell_and_redirects_stdout() {
-    let out = temp_path("pipeline output");
-    let source = format!(
-        "\
-let out = Path({})
-run printf \"%s\\n\" \"hello\" | run tr a-z A-Z > (out) ?
-",
-        xsh_string_literal(out.to_str().unwrap())
-    );
-
-    let output = run_temp_script("pipeline-redirect", &source);
-
-    assert!(output.status.success());
-    assert_eq!(output.stdout, b"");
-    assert_eq!(std::fs::read(&out).unwrap(), b"HELLO\n");
-    let _ = std::fs::remove_file(out);
-}
-
-#[test]
-fn acceptance_tar_gzip_pipeline_writes_archive() {
-    let root = temp_path("tar-gzip-root");
-    let src = root.join("src");
-    let tarball = root.join("archive.tar.gz");
-    std::fs::create_dir_all(&src).unwrap();
-    std::fs::write(src.join("file.txt"), "contents\n").unwrap();
-    let source = format!(
-        "\
-let root = Path({})
-let tarball = Path({})
-cd (root) {{
-  run tar cf - src | run gzip -9 > (tarball) ?
-}} ?
-",
-        xsh_string_literal(root.to_str().unwrap()),
-        xsh_string_literal(tarball.to_str().unwrap())
-    );
-
-    let output = run_temp_script("tar-gzip-pipeline", &source);
-
-    assert!(output.status.success());
-    assert!(std::fs::metadata(&tarball).unwrap().len() > 0);
-    let _ = std::fs::remove_dir_all(root);
-}
-
-#[test]
-fn plain_run_updates_last_status_and_direct_binding() {
-    let output = run_temp_script(
-        "last-status",
-        "\
-run.status false
-let last = $?
-print ${last.exited_with(1)}
-let bound = run sh -c \"exit 7\"
-print ${bound.segments[0].code == 7}
-print ${bound.ok}
-",
-    );
-
-    assert!(output.status.success());
-    assert_eq!(
-        String::from_utf8(output.stdout).unwrap(),
-        "true\ntrue\nfalse\n"
-    );
 }
 
 #[test]
@@ -754,46 +479,6 @@ fn redirection_setup_failure_is_traced() {
 }
 
 #[test]
-fn redirection_paths_and_fd_duplication_use_typed_boundaries() {
-    let root = temp_path("redir-root");
-    std::fs::create_dir_all(&root).unwrap();
-    let spaced = root.join("space name");
-    let lined = root.join("line\nname");
-    let dashed = root.join("-leading");
-    let errlog = root.join("err log");
-    let source = format!(
-        "\
-let spaced = Path({})
-let lined = Path({})
-let dashed = Path({})
-let errlog = Path({})
-run printf \"a\" > (spaced) ?
-run printf \"b\" >> (spaced) ?
-run cat < (spaced) > (lined) ?
-run cat < (lined) > (dashed) ?
-run sh -c \"printf err >&2\" 2> (errlog) ?
-run sh -c \"printf more >&2\" 2>> (errlog) ?
-run printf \"dup\" >& 2 ?
-run true <& 0 ?
-",
-        xsh_string_literal(spaced.to_str().unwrap()),
-        xsh_string_literal(lined.to_str().unwrap()),
-        xsh_string_literal(dashed.to_str().unwrap()),
-        xsh_string_literal(errlog.to_str().unwrap())
-    );
-
-    let output = run_temp_script("redirection-edge-paths", &source);
-
-    assert!(output.status.success());
-    assert_eq!(std::fs::read(&spaced).unwrap(), b"ab");
-    assert_eq!(std::fs::read(&lined).unwrap(), b"ab");
-    assert_eq!(std::fs::read(&dashed).unwrap(), b"ab");
-    assert_eq!(std::fs::read(&errlog).unwrap(), b"errmore");
-    assert_eq!(String::from_utf8(output.stderr).unwrap(), "dup");
-    let _ = std::fs::remove_dir_all(root);
-}
-
-#[test]
 fn concise_language_sugar_runs_with_edge_cases() {
     let source = r#"
 pure label(value: Str) -> Result[Str] {
@@ -833,32 +518,6 @@ print ${names[0]}
         String::from_utf8(output.stdout).unwrap(),
         "ok return\ntrue true demo:x}:1 ${not_interp}:ok:ca\nnote.txt\n"
     );
-}
-
-#[test]
-fn pipeline_status_preserves_exec_failure_and_broken_pipe_segments() {
-    let exec = run_temp_script(
-        "pipeline-exec-failure",
-        "\
-env PATH=\"/bin:/usr/bin\" {
-  let status = run xsh-definitely-missing-command | run true
-  print ${status.segments[0].kind}
-  print ${status.segments[0].error_kind}
-}
-",
-    );
-    let broken = run_temp_script(
-        "pipeline-broken-pipe",
-        "\
-let status = run yes | run head -n 1
-print ${status.segments[0].kind == \"signal\"}
-",
-    );
-
-    assert!(exec.status.success());
-    assert_eq!(String::from_utf8(exec.stdout).unwrap(), "exec\nnot-found\n");
-    assert!(broken.status.success());
-    assert_eq!(String::from_utf8(broken.stdout).unwrap(), "y\ntrue\n");
 }
 
 #[test]
@@ -982,64 +641,6 @@ fn process_failures_report_distinct_error_kinds() {
                 .contains("permission-denied")
         );
     }
-}
-
-#[test]
-fn signaled_status_exposes_total_signal_helpers() {
-    let output = run_temp_script(
-        "signal-status",
-        "\
-let status = run sh -c \"kill -TERM $$\"
-print ${status.signaled()}
-let signal = status.signal_number() ?
-print ${signal > 0}
-",
-    );
-
-    assert!(output.status.success());
-    assert_eq!(String::from_utf8(output.stdout).unwrap(), "true\ntrue\n");
-}
-
-#[test]
-fn large_stdout_capture_drains_without_deadlock_and_enforces_limit() {
-    let large = run_temp_script(
-        "large-capture",
-        "\
-let out = run.bytes head -c 131072 /dev/zero ?
-print \"ok\"
-",
-    );
-    let limit = run_temp_script(
-        "capture-limit",
-        "\
-let out = run.bytes head -c 16777217 /dev/zero ?
-print \"unreachable\"
-",
-    );
-
-    assert!(large.status.success());
-    assert_eq!(String::from_utf8(large.stdout).unwrap(), "ok\n");
-    assert_eq!(limit.status.code(), Some(3));
-    assert!(
-        String::from_utf8(limit.stderr)
-            .unwrap()
-            .contains("capture-limit")
-    );
-}
-
-#[test]
-fn invalid_utf8_text_capture_is_a_run_error() {
-    let output = run_temp_script(
-        "invalid-text-capture",
-        "let out = run.text sh -c \"printf '\\\\377'\" ?\n",
-    );
-
-    assert_eq!(output.status.code(), Some(3));
-    assert!(
-        String::from_utf8(output.stderr)
-            .unwrap()
-            .contains("invalid-utf8")
-    );
 }
 
 #[test]
