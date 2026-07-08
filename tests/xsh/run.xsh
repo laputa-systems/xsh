@@ -108,6 +108,19 @@ proc test_run_capture_record_captures_status_stdout_and_stderr() [process, error
   test.eq(byte_capture.stderr.len(), 1)?
 }
 
+proc test_run_text_captures_stdout_and_inherits_stderr(ctx: TestContext) [error] {
+  let output = test.run_script(
+    ctx,
+    r"""
+let out = run.text sh -c "printf out; printf err >&2" ?
+print ${out}
+""",
+  )?
+
+  test.eq(output.stdout, "out\n")?
+  test.eq(output.stderr, "err")?
+}
+
 proc test_run_builtin_forms_execute_like_plain_run_forms() [process, error] {
   let status = run.builtin.status false
   test.ok(status.exited_with(1))?
@@ -122,6 +135,87 @@ proc test_run_builtin_unknown_name_returns_process_error() [process, env, error]
   env PATH="/bin:/usr/bin" {
     let missing = run.builtin.text command-not-builtin
     test.error_kind(missing, "not-found")?
+  }
+}
+
+proc test_modules_are_not_command_namespaces(ctx: TestContext) [error] {
+  let output = test.run_script(
+    ctx,
+    """use fs
+fs read
+""",
+  )?
+
+  test.eq(output.status, 2)?
+  test.contains(output.stderr, "check.unresolved-proc-command")?
+}
+
+proc test_nul_run_targets_proc_splice_and_match_diagnostics(ctx: TestContext) [error] {
+  let nul_target = test.run_script(
+    ctx,
+    """
+proc main(args: List[Str]) -> Result[Unit] {
+  run ("\0") ?
+  return Ok()
+}
+
+main(args)?
+""",
+  )?
+
+  test.eq(nul_target.status, 3)?
+  test.contains(nul_target.stderr, "nul")?
+
+  let nul_path = test.run_script(ctx, "let _ = Path(\"bad\\0path\")\n")?
+  test.eq(nul_path.status, 3)?
+  test.contains(nul_path.stderr, "nul")?
+
+  let nul_argv = test.run_script(ctx, "run printf (\"bad\\0arg\") ?\n")?
+  test.eq(nul_argv.status, 3)?
+  test.contains(nul_argv.stderr, "nul")?
+
+  let spliced = test.run_script(
+    ctx,
+    r"""
+proc pair(a: Str, b: Str) -> Result[Unit] {
+  print ${a} ${b}
+  return Ok()
+}
+let parts = ["left", "right"]
+pair(@parts)?
+""",
+  )?
+
+  test.ok(spliced.success, spliced.stderr)?
+  test.eq(spliced.stdout, "left right\n")?
+
+  let no_arm = test.run_script(
+    ctx,
+    """let value = 1
+match value {
+  2 => print "two"
+}
+""",
+  )?
+
+  test.eq(no_arm.status, 3)?
+  test.contains(no_arm.stderr, "match did not match any arm")?
+}
+
+proc test_legacy_test_and_getopt_spellings_are_not_command_aliases(ctx: TestContext) [error] {
+  for source in [
+    "test -f file\n",
+    "[ -f file ]\n",
+    "[[ name == value ]]\n",
+    "getopt -- --root dest\n",
+  ] {
+    let output = test.run_script(ctx, source)?
+
+    test.ok(! output.success, source)?
+    test.ok(
+      "check.unresolved-proc-command" in output.stderr or "check.unresolved-name" in output.stderr or "parse" in output.stderr or "lex" in output.stderr,
+      output.stderr,
+    )?
   }
 }
 

@@ -17,6 +17,11 @@ proc test_archive_tar_cpio_and_compression(ctx: TestContext) [fs, error] {
   let entries = archive.tar_list(tarball)?
   test.ok(entries.len() >= 3, "tar list should include dir, file, and symlink")?
   test.ok(entries |> any .path.display().ends_with("dir/a.txt"), "tar entry missing")?
+  let sorted_tarball = fp"${out}/sorted.tar"
+  var sorted_entries: List[Path] = [p"dir/a.txt"]
+  sorted_entries = sorted_entries |> sort-by .display()
+  archive.tar_create(sorted_tarball, src, sorted_entries)?
+  test.eq(archive.tar_list(sorted_tarball)?.len(), 1)?
   let extracted = fp"${out}/extract"
   archive.tar_extract(tarball, extracted)?
   test.eq(fp"${extracted}/dir/a.txt".read_text()?.trim(), "alpha")?

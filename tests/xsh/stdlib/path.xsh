@@ -3,6 +3,14 @@ proc test_path_absolute() [fs, error] {
   test.ok(absolute.display().ends_with("/docs"))?
 }
 
+proc test_membership_operator_supports_strings_lists_bytes_and_paths() [error] {
+  test.ok("lib" in "usr/lib/libz.so")?
+  test.ok("libz.so" in ["libz.so", "libc.so"])?
+  test.ok(b"TODO" in b"one TODO two")?
+  test.ok(p"usr/lib" in p"usr/lib/libz.so")?
+  test.eq(p"bin" in p"usr/lib/libz.so", false)?
+}
+
 proc test_path_methods(ctx: TestContext) [fs, error] {
   let root = test.temp_dir(ctx, name: "path-methods")?
   let file = fp"${root}/dir/file.txt"
@@ -51,4 +59,55 @@ proc test_path_methods(ctx: TestContext) [fs, error] {
   let parsed = fp"${relative_text}"
   test.eq(parsed.display(), "relative/path")?
   test.eq(Path.parse_bytes(b"byte/path")?.display(), "byte/path")?
+}
+
+proc test_path_edge_cases_and_standard_record_schema(ctx: TestContext) [fs, process, error] {
+  let root = test.temp_dir(ctx, name: "path-edge")?
+  let spaced = fp"${root}/space name"
+  let lined = fp"${root}/line\nname"
+  let dashed = fp"${root}/-leading"
+  spaced.write("a")?
+  lined.write("b")?
+  dashed.write("c")?
+  run test -f (spaced) ?
+  run test -f (lined) ?
+  run test -f (dashed) ?
+
+  let meta = spaced.metadata()?
+  test.eq(path_entry_name(meta), "space name")?
+
+  let raw_path = Path.parse_bytes(b"bad\xffname")?
+  let raw = test.run_script(
+    ctx,
+    r"""
+let raw_path = Path.parse_bytes(b"bad\xffname")?
+run printf "%s" (raw_path) ?
+""",
+  )?
+
+  test.ok(raw.success, raw.stderr)?
+  test.eq(raw.stdout_bytes, b"bad\xffname")?
+}
+
+pure path_entry_name(entry: FsEntry) -> Str {
+  return entry.name
+}
+
+proc test_absolute_glob_traverses_symlinked_literal_components(ctx: TestContext) [fs, error] {
+  let root = test.temp_dir(ctx, name: "absolute-glob-symlink")?
+  let real = fp"${root}/real"
+  let link = fp"${root}/link"
+  real.mkdir()
+  fp"${real}/hit.txt".write("ok")?
+  fs.symlink(real, link)?
+  let output = test.run_script(
+    ctx,
+    f"""
+let files = g"${link.display()}/*.txt" |> map { |entry_path| entry_path.name }
+print \${files[0]}
+""",
+  )?
+
+  test.ok(output.success, output.stderr)?
+  test.eq(output.stdout, "hit.txt\n")?
 }

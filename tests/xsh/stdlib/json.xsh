@@ -19,6 +19,53 @@ proc test_json_read_write_lines_and_paths(ctx: TestContext) [fs, error] {
   test.error_kind(json.get(value, ["items", "bad"]), "json-path")?
 }
 
+proc test_json_decode_type_patterns_and_public_boundaries() [error] {
+  let decoded = json.decode("{\"quote\":\"\\\"\",\"line\":\"a\\nb\",\"snow\":\"\\u2603\",\"music\":\"\\uD834\\uDD1E\"}")?
+  test.eq(decoded.quote, "\"")?
+  test.eq(decoded.line, "a\nb")?
+  test.eq(decoded.snow, "\u{2603}")?
+  test.eq(decoded.music, "\u{1d11e}")?
+  test.eq(json.decode("1.25")?.require(Float)?.format(precision: 2), "1.25")?
+  test.error_kind(json.decode("9223372036854775808"), "json")?
+
+  test.eq(json_label(json.decode("1")?)?, "int 1.0")?
+  test.eq(json_label(json.decode("1.25")?)?, "float 1.25")?
+  test.eq(json_label(json.decode("\"x\"")?)?, "str x")?
+  test.eq(json_label(json.decode("null")?)?, "null")?
+  test.eq(json_label(json.decode("[1,2]")?)?, "int-list")?
+  test.eq(json_label(json.decode("[1,\"x\"]")?)?, "other")?
+
+  let rows = "\n{\"b\":2}\n\n{\"a\":1}\n" |> json.lines()
+  let encoded = json.encode({z: 1, a: 2, nested: {b: 1, a: 2}})?
+  test.eq(rows[0].b, 2)?
+  test.eq(rows[1].a, 1)?
+  test.eq(encoded, "{\"a\":2,\"nested\":{\"a\":2,\"b\":1},\"z\":1}")?
+  test.error_kind(json.decode("not json"), "json")?
+
+  let data = {path: Path("src")}
+  let path_value = data["path"]
+  test.error_kind(json.encode(path_value), "json-compatible")?
+}
+
+pure json_label(value: Any) -> Result[Str] {
+  match value {
+    i is Int => return Ok(f"int ${i.float().format(precision: 1)}")
+    f is Float => return Ok(f"float ${f.format(precision: 2)}")
+    s is Str => return Ok(f"str ${s}")
+    _ is Null => return Ok("null")
+    _ is List[Int] => return Ok("int-list")
+    _ => return Ok("other")
+  }
+}
+
+proc test_json_path_helpers_report_invalid_paths() [error] {
+  let data = {items: [1]}
+  test.error_kind(json.get(data, ["items", 4]), "json-path")?
+  test.error_kind(json.set(data, ["items", 2], 3), "json-path")?
+  test.error_kind(json.remove(data, ["missing"]), "json-path")?
+  test.error_kind(json.get(data, [-1]), "json-path")?
+}
+
 proc test_json_rejection_is_trace_visible(ctx: TestContext) [error] {
   let output = test.run_xsht_trace(
     ctx,

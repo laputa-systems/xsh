@@ -46,3 +46,77 @@ printf '%s|%s|%s' "$XSH_STDLIB_ENV" "$DESTDIR" "$PATH"
     test.ok(entries[3].empty)?
   } ?
 }
+
+proc test_env_overlays_blocks_lookup_and_path_mutation_affect_children(ctx: TestContext) [fs, process, env, error] {
+  let root = test.temp_dir(ctx, name: "env-scope")?
+  let tool = fp"${root}/env-scope-tool"
+
+  tool.write("""#!/bin/sh
+printf '%s|%s|%s|%s' "$CC" "$CFLAGS" "$DESTDIR" "$XSH_ENV_SCOPE"
+""")?
+
+  tool.chmod(0o755)?
+  env.PATH.append(root)?
+  test.ok(root in env.PATH)?
+
+  env XSH_ENV_SCOPE=block DESTDIR=/tmp/xsh-env-scope HOME=$root {
+    let dest = env.Str.DESTDIR?
+    let dest_path = env.path("DESTDIR")?
+    let fallback = env.get_or("XSH_ENV_SCOPE_MISSING", "fallback")?
+    let empty = env.get_or("XSH_ENV_SCOPE_MISSING_EMPTY")?
+    let truthy = env.bool("XSH_ENV_SCOPE", false)?
+    let default_bool = env.bool("XSH_ENV_SCOPE_BOOL_MISSING")?
+    let count = env.int("XSH_ENV_SCOPE_COUNT", 7)?
+    let default_count = env.int("XSH_ENV_SCOPE_COUNT_MISSING")?
+    let fallback_path = env.path("XSH_ENV_SCOPE_MISSING_PATH", root)?
+    let entries = env.list()?
+    let home = env.Path.HOME?
+    let path_list = env.PathList.PATH?
+
+    test.eq(dest, "/tmp/xsh-env-scope")?
+    test.eq(dest_path.display(), "/tmp/xsh-env-scope")?
+    test.eq(empty, "")?
+    test.eq(default_bool, false)?
+    test.eq(default_count, 0)?
+    test.eq(home, root)?
+    test.ok(root in path_list)?
+    test.ok(entries |> any .name == "DESTDIR" and .value == "/tmp/xsh-env-scope")?
+    test.eq(fallback, "fallback")?
+    test.eq(truthy, false)?
+    test.eq(count, 7)?
+    test.eq(fallback_path, root)?
+
+    let line = run.text CC=cc CFLAGS="-O2 -pipe" env-scope-tool ?
+    test.eq(line, "cc|-O2 -pipe|/tmp/xsh-env-scope|block")?
+  } ?
+
+  let _removed = env.PATH.pop()?
+  test.ok(root not in env.PATH)?
+}
+
+proc test_path_literals_method_sugar_and_expr_env_blocks(ctx: TestContext) [fs, process, error] {
+  let root = test.temp_dir(ctx, name: "sugar")?
+  let child_name = "child"
+  let child = fp"${root}/${child_name}"
+  root.mkdir(parents: true)?
+
+  env {
+    HOME = root
+    CHILD = child
+    DIGEST = b"abc".sha256().hex()
+    ENCODED = b"abc".base64()
+    COUNT = 3
+  } {
+    let home = env.Path.HOME?
+    let encoded = env.Str.ENCODED?
+    let decoded = encoded.base64_decode()?
+    let lines = " alpha\nbeta ".trim().lines().collect()
+    test.eq(home, root)?
+    test.ok("child" in env.Path.CHILD?)
+    test.eq(decoded, b"abc")?
+    test.eq(lines[1], "beta")?
+    test.eq(b"abc".compare(b"abd").byte, 3)?
+    let line = run.text sh -c r"""printf '%s|%s|%s' "$HOME" "$DIGEST" "$COUNT";""" ?
+    test.eq(line, f"${root.display()}|ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad|3")?
+  } ?
+}

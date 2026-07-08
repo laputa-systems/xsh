@@ -125,6 +125,20 @@ beta
   [{name: "small", size: 1}, {name: "large", size: 4}] |> table.print(columns: ["name", "size"])
 }
 
+proc test_implicit_standard_read_helpers_and_pipe_shorthand(ctx: TestContext) [fs, error] {
+  let file = test.temp_file(ctx, name: "pipe-shorthand-input", contents: b"ok\nwarn one\nwarn two\n")?
+  let file_text = fs.read_text(file)?
+  let piped = file.read_bytes()?.utf8()?
+  let warnings = piped |> text.lines() |> where { "warn" in . }
+  let names = [{path: "b"}, {path: "a"}] |> map .path |> sort
+
+  test.eq(file_text, piped)?
+  test.eq(warnings[0], "warn one")?
+  test.eq(warnings[1], "warn two")?
+  test.eq(names, ["a", "b"])?
+  test.ok(cpu.count() > 0)?
+}
+
 proc test_core_commands_and_byte_pipeline(ctx: TestContext) [fs, process, env, error] {
   let root = test.temp_dir(ctx, name: "core-byte-pipeline")?
   let output = fp"${root}/out.txt"

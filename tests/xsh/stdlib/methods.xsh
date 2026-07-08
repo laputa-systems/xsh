@@ -13,6 +13,15 @@ proc test_collection_number_text_status_and_result_methods() [process, error] {
   test.eq(3.2.floor()?, 3)?
   test.eq(3.2.ceil()?, 4)?
   test.eq(3.5.round()?, 4)?
+  test.eq("3.14159".parse_float()?, 3.14159)?
+  test.error_kind("not-a-number".parse_float(), "parse-float")?
+  test.eq(16.0.sqrt(), 4.0)?
+  test.eq(2.0.pow(3.0), 8.0)?
+  test.eq((-3.5).abs(), 3.5)?
+  test.eq(0.0.sin(), 0.0)?
+  test.eq(0.0.cos(), 1.0)?
+  let exp_roundtrip = 2.0.ln().exp()
+  test.ok((exp_roundtrip - 2.0).abs() < 0.00000000000001)?
 
   let text = """  alpha beta
 beta  """
@@ -80,6 +89,10 @@ beta""".find("z"),
 
   test.eq("42".parse_int()?, 42)?
   test.error_kind("nope".parse_int(), "parse-int")?
+  test.eq("hello" + " " + "world", "hello world")?
+  let name = "Alice"
+  test.eq("Hello, " + name + "!", "Hello, Alice!")?
+  test.eq("a" + "b" + "c", "abc")?
   let status = run.status false
   test.ok(status.exited())?
   test.ok(! status.signaled())?
