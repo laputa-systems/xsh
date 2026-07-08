@@ -805,7 +805,7 @@ print ${counts.has("x")}
             panic!("expected fixed source to be written");
         };
 
-        assert!(text.contains("let counts: Map[Int] = {}"));
+        assert!(text.contains("let counts = {}"));
         assert!(text.contains("print counts.has(\"x\")"));
         assert!(!text.contains("map.empty()"));
     }

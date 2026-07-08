@@ -14,5 +14,41 @@ pub mod format;
 pub mod grep;
 #[path = "lint.rs"]
 pub mod lint;
+#[cfg(feature = "native-tests")]
 #[path = "xsht/test.rs"]
 pub(crate) mod test;
+#[cfg(not(feature = "native-tests"))]
+pub(crate) mod test {
+    use crate::xsht::cli::CliOutput;
+
+    #[allow(dead_code)]
+    #[derive(Clone, Debug)]
+    pub(crate) struct TestOptions {
+        pub(crate) filter: Option<String>,
+        pub(crate) native: bool,
+        pub(crate) examples: bool,
+        pub(crate) list: bool,
+        pub(crate) exact: bool,
+        pub(crate) nocapture: bool,
+        pub(crate) fail_fast: bool,
+        pub(crate) keep_temp: bool,
+        pub(crate) strict_lower: bool,
+        pub(crate) jobs: Option<usize>,
+        pub(crate) coverage: bool,
+        pub(crate) coverage_json_out: Option<String>,
+        pub(crate) trace_top_syscalls: Option<usize>,
+        pub(crate) syscall_json_out: Option<String>,
+        pub(crate) syscall_budgets:
+            Option<std::collections::BTreeMap<String, std::collections::BTreeMap<String, u64>>>,
+    }
+
+    pub(crate) fn test_scripts(_: TestOptions) -> CliOutput {
+        CliOutput {
+            status: 2,
+            stdout: Vec::new(),
+            stderr: b"xsht test requires a build with the native-tests feature\n".to_vec(),
+            trace_text: String::new(),
+            syscall_summary: None,
+        }
+    }
+}

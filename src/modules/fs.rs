@@ -844,6 +844,10 @@ fn mount_sources(span: Span) -> Result<Vec<MountSource>, RuntimeError> {
                 .with_span(span),
         );
     }
+    if entries.is_null() {
+        return Err(RuntimeError::new("fs-mount", "getmntinfo returned a null mount table")
+            .with_span(span));
+    }
     let entries = unsafe { std::slice::from_raw_parts(entries, count as usize) };
     Ok(entries
         .iter()
