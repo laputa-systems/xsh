@@ -54,7 +54,7 @@ pub struct EvalOutput {
     pub trace_events: Vec<TraceEvent>,
     pub diagnostics: Vec<Diagnostic>,
     pub traceback: Option<Traceback>,
-    pub sources: SourceMap,
+    pub sources: Arc<SourceMap>,
     pub status: u8,
     pub cwd: PathBuf,
     pub env: BTreeMap<Vec<u8>, Vec<u8>>,
@@ -65,6 +65,15 @@ pub struct EvalOutput {
 pub struct TestEvalOutput {
     pub output: EvalOutput,
     pub result: Option<Value>,
+}
+
+pub struct PreparedTestProgram {
+    program: Arc<ArenaProgram>,
+    root: Vec<StmtId>,
+    script_span: Span,
+    shared: Arc<LoweredSharedState>,
+    setup_shared: Arc<LoweredSharedState>,
+    setup_failure: Option<TestEvalOutput>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -2667,6 +2676,49 @@ impl LoweredWorker {
     }
 }
 
+impl PreparedTestProgram {
+    pub fn eval_test(
+        &self,
+        test_name: &str,
+        ctx: Value,
+        trace_enabled: bool,
+        env_overlay: Vec<(Vec<u8>, Vec<u8>)>,
+    ) -> TestEvalOutput {
+        run_eval_on_large_stack(move || {
+            if !trace_enabled
+                && let Some(failure) = &self.setup_failure
+            {
+                return failure.clone();
+            }
+            let shared = if trace_enabled {
+                &self.shared
+            } else {
+                &self.setup_shared
+            };
+            let mut evaluator = LoweredWorker::new(Arc::clone(shared)).evaluator;
+            for (name, value) in env_overlay {
+                evaluator = evaluator.with_env_var(name, value);
+            }
+            if trace_enabled {
+                evaluator = evaluator.with_tracing();
+                evaluator.eval_installed_test_inner(
+                    &self.program,
+                    &self.root,
+                    self.script_span,
+                    test_name,
+                    ctx,
+                )
+            } else {
+                evaluator.eval_installed_test_call_inner(
+                    self.script_span,
+                    test_name,
+                    ctx,
+                )
+            }
+        })
+    }
+}
+
 pub(in crate::runtime::eval) enum FsRootHandle {
     Dir(cap_std::fs::Dir),
     TempDir(cap_tempfile::TempDir),
@@ -2700,6 +2752,10 @@ impl Evaluator {
         Self::new_with_sources_and_command(argv, sources, "command".to_string())
     }
 
+    pub fn new_with_shared_sources(argv: Vec<String>, sources: Arc<SourceMap>) -> Self {
+        Self::new_with_shared_sources_and_command(argv, sources, "command".to_string())
+    }
+
     pub(crate) fn new_with_sources_at_cwd(
         argv: Vec<String>,
         sources: SourceMap,
@@ -2708,7 +2764,7 @@ impl Evaluator {
         Self::new_with_sources_and_command_inner(
             false,
             argv,
-            sources,
+            Arc::new(sources),
             "command".to_string(),
             Some(cwd),
             None,
@@ -2732,7 +2788,7 @@ impl Evaluator {
         let evaluator = Self::new_with_sources_and_command_inner(
             true,
             argv,
-            sources,
+            Arc::new(sources),
             "command".to_string(),
             cwd,
             Some(&mut timings),
@@ -2745,13 +2801,28 @@ impl Evaluator {
         sources: SourceMap,
         command_name: String,
     ) -> Self {
+        Self::new_with_sources_and_command_inner(
+            false,
+            argv,
+            Arc::new(sources),
+            command_name,
+            None,
+            None,
+        )
+    }
+
+    pub fn new_with_shared_sources_and_command(
+        argv: Vec<String>,
+        sources: Arc<SourceMap>,
+        command_name: String,
+    ) -> Self {
         Self::new_with_sources_and_command_inner(false, argv, sources, command_name, None, None)
     }
 
     fn new_with_sources_and_command_inner(
         profile: bool,
         argv: Vec<String>,
-        sources: SourceMap,
+        sources: Arc<SourceMap>,
         command_name: String,
         cwd: Option<PathBuf>,
         timings: Option<&mut EvaluatorInitTimings>,
@@ -2761,7 +2832,7 @@ impl Evaluator {
             cwd.unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
         let after_current_dir = profile.then(Instant::now);
         let mut evaluator = Self {
-            sources: Arc::new(sources),
+            sources,
             command_name,
             exe_path: std::env::current_exe()
                 .ok()
@@ -2856,10 +2927,6 @@ impl Evaluator {
 
     pub fn into_sources(self) -> SourceMap {
         Arc::try_unwrap(self.sources).unwrap_or_else(|sources| (*sources).clone())
-    }
-
-    fn unwrap_sources(sources: Arc<SourceMap>) -> SourceMap {
-        Arc::try_unwrap(sources).unwrap_or_else(|sources| (*sources).clone())
     }
 
     pub fn with_tracing(mut self) -> Self {
@@ -2975,7 +3042,7 @@ impl Evaluator {
             call_stack: Vec::new(),
             pending_traceback: None,
             stream_items: Vec::new(),
-            unix_next_pid: 0,
+            unix_next_pid: 1000,
             fs_locks: Vec::new(),
             fs_roots: Vec::new(),
             net_agents: FxHashMap::default(),
@@ -2984,9 +3051,9 @@ impl Evaluator {
             signal_hooks: FxHashMap::default(),
             signal_handler_guards: Vec::new(),
             active_process_groups: Vec::new(),
-            next_process_handle_id: 0,
+            next_process_handle_id: 1,
             process_handles: BTreeMap::new(),
-            scope_ids: Vec::new(),
+            scope_ids: (0..shared.scopes.len() as u64).collect(),
             signal_state: EvaluatorSignalState::default(),
             test_mocks: FxHashMap::default(),
             test_calls: Vec::new(),
@@ -3427,7 +3494,7 @@ impl Evaluator {
                 trace_events: self.trace_events,
                 diagnostics,
                 traceback,
-                sources: Self::unwrap_sources(self.sources),
+                sources: self.sources,
                 status,
                 cwd: self.cwd,
                 env: self.env.into_snapshot(),
@@ -3780,7 +3847,7 @@ impl Evaluator {
             trace_events: self.trace_events,
             diagnostics,
             traceback,
-            sources: Self::unwrap_sources(self.sources),
+            sources: self.sources,
             status,
             cwd: self.cwd,
             env: self.env.into_snapshot(),
@@ -4060,7 +4127,7 @@ impl Evaluator {
                 trace_events: self.trace_events,
                 diagnostics,
                 traceback,
-                sources: Self::unwrap_sources(self.sources),
+                sources: self.sources,
                 status: 0,
                 cwd: self.cwd,
                 env: self.env.into_snapshot(),
@@ -4420,7 +4487,7 @@ impl Evaluator {
             trace_events: self.trace_events,
             diagnostics,
             traceback,
-            sources: Self::unwrap_sources(self.sources),
+            sources: self.sources,
             status,
             cwd: self.cwd,
             env: self.env.into_snapshot(),
@@ -4463,6 +4530,37 @@ impl Evaluator {
         run_eval_on_large_stack(move || self.eval_test_inner(program, source_id, test_name, ctx))
     }
 
+    pub fn prepare_test_program(
+        mut self,
+        program: Arc<ArenaProgram>,
+        source_id: SourceId,
+    ) -> PreparedTestProgram {
+        self.install_compact_lowered_program(&program, source_id);
+        let root = program.statement_ids().collect::<Vec<_>>();
+        let script_span = root
+            .first()
+            .map(|stmt| program.arena.stmt(*stmt).span)
+            .unwrap_or_else(zero_span);
+        let shared = self.lowered_shared_state();
+        let (diagnostics, traceback) = self.eval_installed_test_setup(&program, &root);
+        let (setup_shared, setup_failure) = if traceback.is_some() {
+            (
+                Arc::clone(&shared),
+                Some(self.finish_test_output(diagnostics, traceback, None)),
+            )
+        } else {
+            (self.lowered_shared_state(), None)
+        };
+        PreparedTestProgram {
+            program,
+            root,
+            script_span,
+            shared,
+            setup_shared,
+            setup_failure,
+        }
+    }
+
     fn eval_test_inner(
         mut self,
         program: &ArenaProgram,
@@ -4472,11 +4570,21 @@ impl Evaluator {
     ) -> TestEvalOutput {
         self.install_compact_lowered_program(program, source_id);
         let root = program.statement_ids().collect::<Vec<_>>();
-        let lowered_statements = self.lowered_program.statements.clone();
         let script_span = root
             .first()
             .map(|stmt| program.arena.stmt(*stmt).span)
             .unwrap_or_else(zero_span);
+        self.eval_installed_test_inner(program, &root, script_span, test_name, ctx)
+    }
+
+    fn eval_installed_test_inner(
+        mut self,
+        program: &ArenaProgram,
+        root: &[StmtId],
+        script_span: Span,
+        test_name: &str,
+        ctx: Value,
+    ) -> TestEvalOutput {
         self.trace_enter(
             TraceKind::ScriptEnter,
             Some(script_span),
@@ -4485,8 +4593,36 @@ impl Evaluator {
         );
 
         let mut result = None;
-        let mut traceback = None;
+        let (mut diagnostics, mut traceback) = self.eval_installed_test_setup(program, root);
+
+        if traceback.is_none() {
+            match self.call_installed_test_proc(script_span, test_name, ctx) {
+                Ok(value) => result = value,
+                Err((diagnostic, call_traceback, value)) => {
+                    diagnostics.push(diagnostic);
+                    traceback = Some(call_traceback);
+                    result = value;
+                }
+            }
+        }
+
+        self.trace_exit(
+            TraceKind::ScriptExit,
+            Some(script_span),
+            Some("test"),
+            TracePayload::None,
+        );
+        self.finish_test_output(diagnostics, traceback, result)
+    }
+
+    fn eval_installed_test_setup(
+        &mut self,
+        program: &ArenaProgram,
+        root: &[StmtId],
+    ) -> (Vec<Diagnostic>, Option<Traceback>) {
+        let lowered_statements = self.lowered_program.statements.clone();
         let mut diagnostics = Vec::new();
+        let mut traceback = None;
         for (index, stmt) in root.iter().copied().enumerate() {
             let span = program.arena.stmt(stmt).span;
             let Some(lowered) = lowered_statements.get(index).cloned().flatten() else {
@@ -4559,52 +4695,97 @@ impl Evaluator {
                 }
             }
         }
+        (diagnostics, traceback)
+    }
 
-        if traceback.is_none() {
-            let name = Name::intern(test_name);
-            let args = match self.lowered_procs.get(&name) {
-                Some(def) if def.params.is_empty() => Vec::new(),
-                Some(_) => vec![ctx],
-                None => Vec::new(),
-            };
-            match self.call_lowered_proc(name, &args, script_span) {
-                Some(Ok(value)) => result = Some(value),
-                Some(Err(error)) => {
-                    let span = error.span.unwrap_or(script_span);
-                    let pending_traceback = self.pending_traceback.take();
-                    self.trace_leaf(
-                        TraceKind::RuntimeError,
-                        Some(span),
-                        None,
-                        TracePayload::RuntimeError {
-                            error: TraceError::new(&error.kind, &error.message),
-                        },
-                    );
-                    diagnostics.push(runtime_diagnostic(span, &error.message, "runtime.error"));
-                    traceback = Some(pending_traceback.unwrap_or_else(|| {
-                        self.traceback_for_value(span, "test.call", &Value::Error(Box::new(error)))
-                    }));
-                }
-                None => {
-                    diagnostics.push(runtime_diagnostic(
-                        script_span,
-                        "test proc was not found",
-                        "runtime.test-missing",
-                    ));
-                    result = Some(Value::err(Value::Error(Box::new(RuntimeError::new(
-                        "test-missing",
-                        test_name,
-                    )))));
-                }
+    fn eval_installed_test_call_inner(
+        mut self,
+        script_span: Span,
+        test_name: &str,
+        ctx: Value,
+    ) -> TestEvalOutput {
+        self.trace_enter(
+            TraceKind::ScriptEnter,
+            Some(script_span),
+            Some("test"),
+            TracePayload::None,
+        );
+        let mut diagnostics = Vec::new();
+        let mut traceback = None;
+        let result = match self.call_installed_test_proc(script_span, test_name, ctx) {
+            Ok(value) => value,
+            Err((diagnostic, call_traceback, value)) => {
+                diagnostics.push(diagnostic);
+                traceback = Some(call_traceback);
+                value
             }
-        }
-
+        };
         self.trace_exit(
             TraceKind::ScriptExit,
             Some(script_span),
             Some("test"),
             TracePayload::None,
         );
+        self.finish_test_output(diagnostics, traceback, result)
+    }
+
+    fn call_installed_test_proc(
+        &mut self,
+        script_span: Span,
+        test_name: &str,
+        ctx: Value,
+    ) -> Result<Option<Value>, (Diagnostic, Traceback, Option<Value>)> {
+        let name = Name::intern(test_name);
+        let args = match self.lowered_procs.get(&name) {
+            Some(def) if def.params.is_empty() => Vec::new(),
+            Some(_) => vec![ctx],
+            None => Vec::new(),
+        };
+        match self.call_lowered_proc(name, &args, script_span) {
+            Some(Ok(value)) => Ok(Some(value)),
+            Some(Err(error)) => {
+                let span = error.span.unwrap_or(script_span);
+                let pending_traceback = self.pending_traceback.take();
+                self.trace_leaf(
+                    TraceKind::RuntimeError,
+                    Some(span),
+                    None,
+                    TracePayload::RuntimeError {
+                        error: TraceError::new(&error.kind, &error.message),
+                    },
+                );
+                let diagnostic = runtime_diagnostic(span, &error.message, "runtime.error");
+                let traceback = pending_traceback.unwrap_or_else(|| {
+                    self.traceback_for_value(span, "test.call", &Value::Error(Box::new(error)))
+                });
+                Err((diagnostic, traceback, None))
+            }
+            None => {
+                let diagnostic = runtime_diagnostic(
+                    script_span,
+                    "test proc was not found",
+                    "runtime.test-missing",
+                );
+                let traceback = self.traceback_for_value(
+                    script_span,
+                    "test.call",
+                    &Value::Error(Box::new(RuntimeError::new("test-missing", test_name))),
+                );
+                let result = Some(Value::err(Value::Error(Box::new(RuntimeError::new(
+                    "test-missing",
+                    test_name,
+                )))));
+                Err((diagnostic, traceback, result))
+            }
+        }
+    }
+
+    fn finish_test_output(
+        self,
+        diagnostics: Vec<Diagnostic>,
+        traceback: Option<Traceback>,
+        result: Option<Value>,
+    ) -> TestEvalOutput {
         let status = if traceback.is_some() { 3 } else { 0 };
         TestEvalOutput {
             output: EvalOutput {
@@ -4613,7 +4794,7 @@ impl Evaluator {
                 trace_events: self.trace_events,
                 diagnostics,
                 traceback,
-                sources: Self::unwrap_sources(self.sources),
+                sources: self.sources,
                 status,
                 cwd: self.cwd,
                 env: self.env.into_snapshot(),

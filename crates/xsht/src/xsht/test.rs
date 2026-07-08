@@ -9,17 +9,16 @@ use miniserde::json::{Object, Value as JsonValue};
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, mpsc};
 use std::time::{SystemTime, UNIX_EPOCH};
 use xsh::diagnostic::{Diagnostic, DiagnosticRenderer, Label};
 use xsh::parse_script_with_module_roots;
 use xsh::runner::{RunOptions, XSH_COVERAGE_TRACE_DIR, render_coverage_trace_jsonl, run_script};
-use xsh::runtime::eval::Evaluator;
+use xsh::runtime::eval::{Evaluator, PreparedTestProgram};
 use xsh::runtime::process::path_bytes;
 use xsh::runtime::value::{PathValue, RecordMap, ResultValue, Value};
 use xsh::sema::check::Checker;
 use xsh::sema::types::Type;
-use xsh::source::SourceMap;
 use xsh::syntax::arena::{ArenaProgram, ArenaStmtKind, FunctionDefId, StmtId};
 use xsh::trace::{SyscallSummary, TracebackRenderer};
 
@@ -33,6 +32,7 @@ pub(crate) struct TestOptions {
     pub(crate) nocapture: bool,
     pub(crate) fail_fast: bool,
     pub(crate) keep_temp: bool,
+    pub(crate) jobs: Option<usize>,
     pub(crate) coverage: bool,
     pub(crate) coverage_json_out: Option<String>,
     pub(crate) trace_top_syscalls: Option<usize>,
@@ -135,12 +135,12 @@ pub(crate) fn test_scripts(options: TestOptions) -> CliOutput {
     let mut coverage = options.collect_coverage().then(CoverageCollector::new);
     let mut baseline_entries: Vec<(String, SyscallSummary)> = Vec::new();
 
-    for (index, case) in cases.into_iter().enumerate() {
+    let ordered_outcomes = run_test_cases(cases, &run_id, &options);
+
+    for (id, mut outcome) in ordered_outcomes {
         if let Some(output) = cancellation_output() {
             return output;
         }
-        let id = case.id().to_string();
-        let mut outcome = run_test_case(case, index, &run_id, &options);
 
         // Budget checking: fail if any syscall count exceeds the configured budget.
         if let Some(summary) = &outcome.syscall_summary
@@ -285,6 +285,95 @@ pub(crate) fn test_scripts(options: TestOptions) -> CliOutput {
     }
 }
 
+fn run_test_cases(
+    cases: Vec<TestCase>,
+    run_id: &str,
+    options: &TestOptions,
+) -> Vec<(String, TestOutcome)> {
+    let jobs = test_jobs(options, cases.len());
+    if jobs <= 1 {
+        return cases
+            .into_iter()
+            .enumerate()
+            .map(|(index, case)| {
+                let id = case.id().to_string();
+                let outcome = run_test_case(case, index, run_id, options);
+                (id, outcome)
+            })
+            .collect();
+    }
+
+    run_test_cases_parallel(cases, run_id, options, jobs)
+}
+
+fn test_jobs(options: &TestOptions, cases_len: usize) -> usize {
+    if cases_len <= 1
+        || options.fail_fast
+        || options.nocapture
+        || options.trace_top_syscalls.is_some()
+    {
+        return 1;
+    }
+    options.jobs.unwrap_or_else(default_test_jobs).min(cases_len)
+}
+
+fn default_test_jobs() -> usize {
+    std::thread::available_parallelism()
+        .map(usize::from)
+        .unwrap_or(1)
+        .clamp(1, 8)
+}
+
+fn run_test_cases_parallel(
+    cases: Vec<TestCase>,
+    run_id: &str,
+    options: &TestOptions,
+    jobs: usize,
+) -> Vec<(String, TestOutcome)> {
+    let total = cases.len();
+    let queue = Arc::new(Mutex::new(
+        cases
+            .into_iter()
+            .enumerate()
+            .collect::<std::collections::VecDeque<_>>(),
+    ));
+    let (tx, rx) = mpsc::channel();
+
+    std::thread::scope(|scope| {
+        for _ in 0..jobs {
+            let queue = Arc::clone(&queue);
+            let tx = tx.clone();
+            scope.spawn(move || {
+                loop {
+                    let Some((index, case)) = queue
+                        .lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner())
+                        .pop_front()
+                    else {
+                        break;
+                    };
+                    let id = case.id().to_string();
+                    let outcome = run_test_case(case, index, run_id, options);
+                    if tx.send((index, id, outcome)).is_err() {
+                        break;
+                    }
+                }
+            });
+        }
+    });
+    drop(tx);
+
+    let mut outcomes = Vec::with_capacity(total);
+    for item in rx {
+        outcomes.push(item);
+    }
+    outcomes.sort_by_key(|(index, _, _)| *index);
+    outcomes
+        .into_iter()
+        .map(|(_, id, outcome)| (id, outcome))
+        .collect()
+}
+
 enum TestCase {
     Native(NativeTestCase),
     Example(ExampleTestCase),
@@ -306,9 +395,7 @@ struct NativeTestCase {
     id: String,
     file: String,
     name: String,
-    arena: xsh::syntax::arena::ArenaProgram,
-    source_id: xsh::source::SourceId,
-    sources: SourceMap,
+    prepared: Arc<PreparedTestProgram>,
     has_ctx: bool,
 }
 
@@ -485,11 +572,17 @@ fn discover_native_tests(
             continue;
         }
 
-        for stmt_id in parsed.arena.statement_ids() {
-            let Some(def_id) = exported_test_proc(&parsed.arena, stmt_id) else {
+        let arena = Arc::new(parsed.arena);
+        let sources = Arc::new(sources);
+        let prepared = Arc::new(
+            Evaluator::new_with_shared_sources(Vec::new(), Arc::clone(&sources))
+                .prepare_test_program(Arc::clone(&arena), source_id),
+        );
+        for stmt_id in arena.statement_ids() {
+            let Some(def_id) = exported_test_proc(&arena, stmt_id) else {
                 continue;
             };
-            let name = parsed.arena.arena.function_def(def_id).name;
+            let name = arena.arena.function_def(def_id).name;
             if !name.as_str().starts_with("test_") {
                 continue;
             }
@@ -497,14 +590,12 @@ fn discover_native_tests(
             if !test_id_matches(&id, options) {
                 continue;
             }
-            match native_test_signature_uses_ctx(&parsed.arena, def_id) {
+            match native_test_signature_uses_ctx(&arena, def_id) {
                 Ok(has_ctx) => cases.push(TestCase::Native(NativeTestCase {
                     id,
                     file: file_name.clone(),
                     name: name.to_string(),
-                    arena: parsed.arena.clone(),
-                    source_id,
-                    sources: sources.clone(),
+                    prepared: Arc::clone(&prepared),
                     has_ctx,
                 })),
                 Err(message) => cases.push(TestCase::Invalid { id, message }),
@@ -598,15 +689,13 @@ fn run_native_test(
     let nested_coverage_dir = options
         .collect_coverage()
         .then(|| temp_root.join("coverage-traces"));
-    let mut evaluator = Evaluator::new_with_sources(Vec::new(), case.sources.clone());
+    let mut env_overlay = Vec::new();
     if let Some(dir) = &nested_coverage_dir {
-        evaluator =
-            evaluator.with_env_var(XSH_COVERAGE_TRACE_DIR.as_bytes().to_vec(), path_bytes(dir));
+        env_overlay.push((XSH_COVERAGE_TRACE_DIR.as_bytes().to_vec(), path_bytes(dir)));
     }
-    if options.collect_coverage() {
-        evaluator = evaluator.with_tracing();
-    }
-    let evaluated = evaluator.eval_test(&case.arena, case.source_id, &case.name, ctx);
+    let evaluated =
+        case.prepared
+            .eval_test(&case.name, ctx, options.collect_coverage(), env_overlay);
 
     let mut detail = String::new();
     if !evaluated.output.diagnostics.is_empty() {

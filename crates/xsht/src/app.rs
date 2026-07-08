@@ -105,6 +105,7 @@ Options:
   --list                  List matching tests without running them
   --exact                 Match FILTER exactly
   --cov                   Run matching tests and print XSH source/API coverage
+  --jobs N                Run up to N tests concurrently
   --nocapture             Print test stdout and stderr while tests run
   --fail-fast             Stop after the first failure
   --keep-temp             Preserve native test temporary directories
@@ -318,6 +319,7 @@ fn parse_test(args: &[String]) -> Result<Command, String> {
     let mut list = false;
     let mut exact = false;
     let mut coverage = false;
+    let mut jobs = None;
     let mut nocapture = false;
     let mut fail_fast = false;
     let mut keep_temp = false;
@@ -335,6 +337,18 @@ fn parse_test(args: &[String]) -> Result<Command, String> {
             "--list" => list = true,
             "--exact" => exact = true,
             "--cov" => coverage = true,
+            "--jobs" | "-j" => {
+                let value = iter
+                    .next()
+                    .ok_or_else(|| "`--jobs` requires N".to_string())?;
+                let n = value
+                    .parse::<usize>()
+                    .map_err(|_| "`--jobs` must be a positive integer".to_string())?;
+                if n == 0 {
+                    return Err("`--jobs` must be a positive integer".to_string());
+                }
+                jobs = Some(n);
+            }
             "--nocapture" => nocapture = true,
             "--fail-fast" => fail_fast = true,
             "--keep-temp" => keep_temp = true,
@@ -407,6 +421,7 @@ fn parse_test(args: &[String]) -> Result<Command, String> {
             nocapture,
             fail_fast,
             keep_temp,
+            jobs,
             coverage,
             coverage_json_out,
             trace_top_syscalls,

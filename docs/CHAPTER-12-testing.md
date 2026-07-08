@@ -116,6 +116,7 @@ xsht test --exact tests/xsh/basic.xsh::test_pass
 xsht test --list
 xsht test --nocapture
 xsht test --fail-fast
+xsht test --jobs 4
 xsht test --examples [FILTER]
 xsht test --all [FILTER]
 xsht test --cov [FILTER]
@@ -125,6 +126,10 @@ xsht test --cov-json target/xsh-cov/root.json [FILTER]
 Native test IDs are stable names such as
 `tests/xsh/net.xsh::test_fetch`. Catalog example IDs are
 `examples::hello`, `examples::dns-net`, and so on.
+
+Tests run concurrently by default, capped to a small worker count. Use
+`--jobs 1` for serial execution. `--nocapture`, `--fail-fast`, and syscall
+tracing run serially so their output and stopping behavior stay predictable.
 
 `--cov` runs matching native and example tests, then prints XSH source line/proc
 coverage and standard API coverage derived from raw JSONL traces. `--cov-json`

@@ -39,6 +39,19 @@ fn xsht_lint_help_is_subcommand_specific() {
 }
 
 #[test]
+fn xsht_test_help_lists_parallelism_option() {
+    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+        .args(["test", "--help"])
+        .output()
+        .expect("run xsht test help");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("xsht test [OPTIONS] [FILTER]"));
+    assert!(stdout.contains("--jobs N"));
+}
+
+#[test]
 fn xsht_lint_short_help_is_accepted() {
     let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
         .args(["lint", "-h"])
