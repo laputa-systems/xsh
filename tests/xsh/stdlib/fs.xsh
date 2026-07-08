@@ -194,15 +194,23 @@ proc test_fs_walk_is_parallel_unordered_and_honors_gitignore(ctx: TestContext) [
   let ignored = fp"${root}/ignored"
   sub.mkdir()?
   ignored.mkdir()?
-  fp"${root}/.gitignore".write("ignored/\n*.log\n")?
+
+  fp"${root}/.gitignore".write("""ignored/
+*.log
+""")?
+
   for index in [0] |> range(0, 200) {
     fp"${sub}/f${index}.txt".write("x")?
     fp"${sub}/f${index}.log".write("x")?
   }
+
   fp"${ignored}/hidden.txt".write("x")?
 
-  let par = fs.walk(root) |> map .path.display() |> sort-by .
-  let par_files = fs.walk(root) |> where .kind == "file" |> count()
+  let par = fs.walk(root)
+    |> map .path.display()
+    |> sort-by .
+
+  let par_files = fs.files(root) |> count()
   let has_hidden = par |> any .contains("hidden")
 
   # 200 .txt files survive; plus root and sub directories.
@@ -218,7 +226,13 @@ proc test_fs_walk_honors_gitignore_by_default_and_can_disable_it(ctx: TestContex
   fp"${root}/build".mkdir()?
   fp"${root}/.git".mkdir()?
   fp"${root}/.cache".mkdir()?
-  fp"${root}/.gitignore".write("ignored/\n*.log\n!keep.log\n/build\n")?
+
+  fp"${root}/.gitignore".write("""ignored/
+*.log
+!keep.log
+/build
+""")?
+
   fp"${root}/visible.txt".write("visible")?
   fp"${root}/a.log".write("ignored")?
   fp"${root}/keep.log".write("kept")?
@@ -229,20 +243,19 @@ proc test_fs_walk_honors_gitignore_by_default_and_can_disable_it(ctx: TestContex
   fp"${root}/.cache/secret.txt".write("hidden")?
   fp"${root}/.env".write("hidden")?
 
-  let filtered = fs.walk(root)
-    |> where .kind == "file"
+  let filtered = fs.files(root)
     |> sort-by .path
     |> map { |entry|
       entry.path.strip_prefix(root)?.display()
     }
-  let raw = fs.walk(root, gitignore: false)
-    |> where .kind == "file"
+
+  let raw = fs.files(root, gitignore: false)
     |> sort-by .path
     |> map { |entry|
       entry.path.strip_prefix(root)?.display()
     }
-  let raw_hidden = fs.walk(root, gitignore: false, hidden: true)
-    |> where .kind == "file"
+
+  let raw_hidden = fs.files(root, gitignore: false, hidden: true)
     |> sort-by .path
     |> map { |entry|
       entry.path.strip_prefix(root)?.display()
@@ -272,11 +285,17 @@ proc test_fs_walk_honors_gitignore_by_default_and_can_disable_it(ctx: TestContex
 
 proc test_fs_files_recurses_with_raw_walk_and_preserves_entry_ext(ctx: TestContext) [fs, error] {
   let root = test.temp_dir(ctx, name: "fs-files-recursive")?
-  fp"${root}/include/bits".mkdir(parents: true)?
-  fp"${root}/include/sys".mkdir(parents: true)?
+  fp"${root}/include/bits".mkdir()?
+  fp"${root}/include/sys".mkdir()?
   fp"${root}/src".mkdir()?
   fp"${root}/obj".mkdir()?
-  fp"${root}/.gitignore".write("*.lo\n*.so\n*.a\n/obj/\n")?
+
+  fp"${root}/.gitignore".write("""*.lo
+*.so
+*.a
+/obj/
+""")?
+
   fp"${root}/include/top.h".write("top")?
   fp"${root}/include/bits/alltypes.h".write("bits")?
   fp"${root}/include/sys/stat.h".write("sys")?
@@ -290,25 +309,29 @@ proc test_fs_files_recurses_with_raw_walk_and_preserves_entry_ext(ctx: TestConte
     |> map { |entry|
       entry.path.strip_prefix(root)?.display()
     }
+
   let filtered = fs.files(root)
     |> sort-by .path
     |> map { |entry|
       entry.path.strip_prefix(root)?.display()
     }
+
   let c_files = fs.files(fp"${root}/src", gitignore: false) |> where .ext == "c"
   let dot_c_files = fs.files(fp"${root}/src", gitignore: false) |> where .ext == ".c"
+
   let source_headers = fs.files(root, exts: ["h", "c"])
     |> sort-by .path
     |> map { |entry|
       entry.path.strip_prefix(root)?.display()
     }
+
   let extensionless = fs.files(root, exts: [""])
     |> sort-by .path
     |> map { |entry|
       entry.path.strip_prefix(root)?.display()
     }
-  let cheap_c = fs.files(root, gitignore: false, stat: false, exts: ["c"]) |> first()?
 
+  let cheap_c = (fs.files(root, gitignore: false, stat: false, exts: ["c"]) |> first())?
   test.eq(raw_headers.len(), 3)?
   test.ok(raw_headers.contains("include/top.h"))?
   test.ok(raw_headers.contains("include/bits/alltypes.h"))?
@@ -343,7 +366,10 @@ proc test_filesystem_path_and_install_apis(ctx: TestContext) [fs, error] {
   let root = test.temp_dir(ctx, name: "fs-path-install")?
   let note = fp"${root}/note.txt"
   note.write_atomic("old")?
-  note.write_atomic("hello\n")?
+
+  note.write_atomic("""hello
+""")?
+
   let note_text = note.read_text()?
   note.chmod(0o600)?
   let link = fp"${root}/note.link"
@@ -357,7 +383,6 @@ proc test_filesystem_path_and_install_apis(ctx: TestContext) [fs, error] {
   let cwd = fs.cwd()?
   let scratch = fs.tempdir()?
   let temp = fs.tempfile()?
-
   test.eq(entries[0].name, "note.link")?
   test.eq(entries[1].name, "note.txt")?
   test.eq(files[0].mode % 512, 0o600)?
@@ -369,10 +394,15 @@ proc test_filesystem_path_and_install_apis(ctx: TestContext) [fs, error] {
   test.eq(stripped.display(), "note.txt")?
   test.ok(usage >= 6)?
   test.eq(resolved.name(), root.name())?
-  test.eq(note_text, "hello\n")?
+
+  test.eq(
+    note_text,
+    """hello
+""",
+  )?
+
   test.ok(fs.root_exists(scratch, p".")?)?
   test.ok(fs.root_exists(temp.root, temp.path)?)?
-
   let copy = fp"${root}/copy.txt"
   let moved = fp"${root}/moved.txt"
   let hard = fp"${root}/hard.txt"
@@ -384,7 +414,7 @@ proc test_filesystem_path_and_install_apis(ctx: TestContext) [fs, error] {
   let moved_text = moved.read_text()?
   let moved_meta = moved.metadata()?
   let installed = fp"${root}/bin/tool"
-  fs.install(moved, installed, 0o755, parents: true)?
+  fs.install(moved, installed, 0o755)?
   let install_refused = fs.install(moved, installed, 0o755)
   fs.install(moved, installed, 0o700, parents: false, overwrite: true)?
   let installed_meta = installed.metadata()?
@@ -401,7 +431,6 @@ proc test_filesystem_path_and_install_apis(ctx: TestContext) [fs, error] {
   moved.hardlink(hard)?
   hard.unlink()?
   let link_target = link.readlink()?
-
   test.eq(moved_text, "hell")?
   test.eq(moved_meta.size, 4)?
   test.eq(link_target.display(), note.display())?
@@ -419,12 +448,15 @@ proc test_filesystem_path_and_install_apis(ctx: TestContext) [fs, error] {
 proc test_filesystem_package_policy_apis(ctx: TestContext) [fs, error] {
   let root = test.temp_dir(ctx, name: "package-policy-fs")?
   let src = fp"${root}/src"
-  fp"${src}/dir".mkdir(parents: true)?
+  fp"${src}/dir".mkdir()?
   let tool = fp"${src}/dir/tool"
-  tool.write("tool\n")?
+
+  tool.write("""tool
+""")?
+
   tool.chmod(0o755)?
-  fs.symlink(Path("dir/tool"), fp"${src}/tool.link")?
-  let copied = fs.copy_tree(src, fp"${root}/copy", parents: true)?
+  fs.symlink(p"dir/tool", fp"${src}/tool.link")?
+  let copied = fs.copy_tree(src, fp"${root}/copy")?
   let me = user.current()?
   let grp = group.current()?
   let copied_tool = fp"${root}/copy/dir/tool"
@@ -435,10 +467,9 @@ proc test_filesystem_package_policy_apis(ctx: TestContext) [fs, error] {
   test.ok(! lock.shared)?
   fs.unlock(lock)?
   let installed = fp"${root}/image/usr/bin/tool"
-  fs.install_as(copied_tool, installed, 0o755, me, grp, parents: true)?
+  fs.install_as(copied_tool, installed, 0o755, me, grp)?
   let installed_meta = installed.metadata()?
-  let removed = fs.remove_manifest(fp"${root}/image", [Path("usr/bin/tool")])?
-
+  let removed = fs.remove_manifest(fp"${root}/image", [p"usr/bin/tool"])?
   test.eq(copied.files, 1)?
   test.eq(copied.dirs, 2)?
   test.eq(copied.symlinks, 1)?
@@ -446,7 +477,7 @@ proc test_filesystem_package_policy_apis(ctx: TestContext) [fs, error] {
   test.eq(removed.removed, 1)?
   test.eq(removed.pruned_dirs, 2)?
   test.ok(! fs.exists(installed)?)?
-  test.error_kind(fs.remove_manifest(fp"${root}/image", [Path("../escape")], missing_ok: true), "fs-remove-manifest")?
+  test.error_kind(fs.remove_manifest(fp"${root}/image", [../escape], missing_ok: true), "fs-remove-manifest")?
   test.error_kind(fs.copy_tree(src, fp"${root}/copy"), "fs-copy-tree")?
 }
 
@@ -455,10 +486,9 @@ proc test_stable_tables_sort_files_and_process_records(ctx: TestContext) [fs, pr
   fp"${root}/small".write("a")?
   fp"${root}/large".write("abcd")?
   let entries = fs.ls(root) |> sort-by .size
-
   test.eq(entries[0].name, "small")?
   test.eq(entries[0].size, 1)?
   test.eq(entries[1].name, "large")?
   test.eq(entries[1].size, 4)?
-  test.ok(process.list() |> count() > 0)?
+  test.ok((process.list() |> count()) > 0)?
 }

@@ -741,6 +741,17 @@ pub fn test_call_type() -> Type {
     ]))
 }
 
+pub fn test_script_output_type() -> Type {
+    Type::Record(name_type_map(vec![
+        ("success".to_string(), Type::Bool),
+        ("status".to_string(), Type::Int),
+        ("stdout".to_string(), Type::Str),
+        ("stderr".to_string(), Type::Str),
+        ("stdout_bytes".to_string(), Type::Bytes),
+        ("stderr_bytes".to_string(), Type::Bytes),
+    ]))
+}
+
 pub fn uname_record_type() -> Type {
     Type::Record(name_type_map(vec![
         ("sysname".to_string(), Type::Str),

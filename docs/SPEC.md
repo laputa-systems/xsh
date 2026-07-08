@@ -3112,9 +3112,27 @@ state, mock registry, call log, and temp root.
 
 `TestContext` is `{name: Str, file: Path, temp_root: Path}`. `TestCall` is
 `{op: Str, args: Record}`. The standard `test` module provides assertions,
-skip/fail helpers, temp path/file/dir helpers, and v1 host-effect mocks for
-`dns.*` and `net.*` operations. Assertion failures return structured test
-failure errors; skips return structured test skip errors.
+skip/fail helpers, temp path/file/dir helpers, whole-script subprocess helpers,
+and v1 host-effect mocks for `dns.*` and `net.*` operations. Assertion failures
+return structured test failure errors; skips return structured test skip errors.
+
+`test.run_script(ctx, source, args: List[Str] = [], env: Record = {}, stdin:
+Bytes = b"", name: Str = "script.xsh")` writes `source` under the test temp
+root, runs it with `xsh`, and returns `{success: Bool, status: Int, stdout:
+Str, stderr: Str, stdout_bytes: Bytes, stderr_bytes: Bytes}`. The text fields
+are lossy UTF-8 views of the captured byte fields.
+
+`test.run_xsh(ctx, source, xsh_args: List[Str] = [], script_args: List[Str] =
+[], env: Record = {}, stdin: Bytes = b"", name: Str = "script.xsh")` is the
+same helper with a separate leading `xsh_args` list for flags before the script
+path.
+
+`test.run_xsht_trace(ctx, source, trace_args: List[Str] = [], script_args:
+List[Str] = [], env: Record = {}, stdin: Bytes = b"", name: Str =
+"script.xsh")` writes `source` under the test temp root and runs it through
+`xsht trace`. A legacy `--trace` marker in `trace_args` is ignored so migrated
+Rust tests can preserve their old argument lists while moving assertions into
+native XSH.
 
 Mocked host operations use public op names such as `dns.lookup` and
 `net.request`. Matchers are partial records checked against normalized call

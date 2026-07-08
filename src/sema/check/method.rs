@@ -373,7 +373,11 @@ impl Checker {
                 let value_ty = self.check_api_arg_arena(arena, source, args, 0, None);
                 let merged = merge_collection_item_ty(item_ty.clone(), value_ty.clone());
                 if merged == item_ty && !value_ty.matches_expected(&item_ty) {
-                    self.expect_type(&item_ty, &value_ty, call_arg_span_arena(arena, &args[0].kind));
+                    self.expect_type(
+                        &item_ty,
+                        &value_ty,
+                        call_arg_span_arena(arena, &args[0].kind),
+                    );
                 }
                 Type::List(Box::new(merged))
             }
@@ -384,7 +388,11 @@ impl Checker {
                 let merged = merge_collection_item_ty(item_ty.clone(), actual_item_ty.clone());
                 if merged == item_ty && !actual_item_ty.matches_expected(&item_ty) {
                     let expected = Type::List(Box::new(item_ty));
-                    self.expect_type(&expected, &actual, call_arg_span_arena(arena, &args[0].kind));
+                    self.expect_type(
+                        &expected,
+                        &actual,
+                        call_arg_span_arena(arena, &args[0].kind),
+                    );
                 }
                 Type::List(Box::new(merged))
             }

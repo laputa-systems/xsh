@@ -1,32 +1,6 @@
 use super::common::*;
 
 #[test]
-fn table_and_sort_stream_stages_are_trace_observable() {
-    let output = run_temp_script_with_args(
-        "table-trace",
-        "\
-let rows = [{name: \"b\", size: 2}, {name: \"a\", size: 1}]
-(rows) |> sort-by { .size } |> table.print(columns: [\"name\", \"size\"])
-",
-        ["--trace", "--raw"],
-    );
-
-    assert!(output.status.success());
-    assert_eq!(
-        String::from_utf8(output.stdout).unwrap(),
-        "┌──────┬──────┐\n│ name │ size │\n├──────┼──────┤\n│ a    │    1 │\n├──────┼──────┤\n│ b    │    2 │\n└──────┴──────┘\n"
-    );
-    let trace = String::from_utf8(output.stderr).unwrap();
-    assert!(trace.contains("kind=stream.stage.enter"));
-    assert!(trace.contains("kind=stream.stage.exit"));
-    assert!(trace.contains("name=\"sort-by\""));
-    assert!(trace.contains("stage=b\"sort-by\""));
-    assert!(trace.contains("name=\"table.print\""));
-    assert!(trace.contains("stage=b\"table.print\""));
-    assert!(trace.contains("item_count=2"));
-}
-
-#[test]
 fn projected_reduce_by_preserves_duplicate_output_field_behavior() {
     let output = run_temp_script(
         "projected-reduce-by-duplicate-output-field",
@@ -360,22 +334,6 @@ match patch.apply(apply_root, symlink_patch) {{
 }
 
 #[test]
-fn adapter_stream_stages_are_trace_observable() {
-    let output = run_temp_script_with_args(
-        "stream-adapter-trace",
-        "\"a\\nb\\n\" |> text.lines()\n",
-        ["--trace", "--raw"],
-    );
-
-    assert!(output.status.success());
-    let trace = String::from_utf8(output.stderr).unwrap();
-    assert!(trace.contains("kind=stream.stage.enter"));
-    assert!(trace.contains("kind=stream.stage.exit"));
-    assert!(trace.contains("name=\"text.lines\""));
-    assert!(trace.contains("stage=b\"text.lines\""));
-}
-
-#[test]
 fn json_lines_adapter_fails_fast_with_source_context() {
     let output = run_temp_script(
         "json-lines-error",
@@ -388,43 +346,6 @@ fn json_lines_adapter_fails_fast_with_source_context() {
             .unwrap()
             .contains("json-lines")
     );
-}
-
-#[test]
-fn structured_stream_errors_include_stage_item_and_trace_context() {
-    let output = run_temp_script_with_args(
-        "stream-error",
-        "\
-let xs = [\"only\"]
-let values = [1] |> map { |index| xs[index] }
-print ${values[0]}
-",
-        ["--trace", "--raw"],
-    );
-
-    assert_eq!(output.status.code(), Some(3));
-    let stderr = String::from_utf8(output.stderr).unwrap();
-    assert!(stderr.contains("stream stage `map` item 0 failed"));
-    assert!(stderr.contains("index-out-of-range"));
-    assert!(stderr.contains("kind=stream.item.error"));
-    assert!(stderr.contains("item_index=0"));
-}
-
-#[test]
-fn batch_stream_stage_is_trace_observable() {
-    let output = run_temp_script_with_args(
-        "batch-trace",
-        "[1, 2, 3] |> batch --count=2\n",
-        ["--trace", "--raw"],
-    );
-
-    assert!(output.status.success());
-    let trace = String::from_utf8(output.stderr).unwrap();
-    assert!(trace.contains("kind=stream.stage.enter"));
-    assert!(trace.contains("kind=stream.stage.exit"));
-    assert!(trace.contains("name=\"batch\""));
-    assert!(trace.contains("stage=b\"batch\""));
-    assert!(trace.contains("item_count=3"));
 }
 
 #[test]
@@ -448,41 +369,6 @@ fn batch_max_argv_splits_long_path_lists_before_running_commands() {
     assert!(output.status.success());
     assert_eq!(String::from_utf8(output.stdout).unwrap(), "ok\n");
     assert_eq!(String::from_utf8(output.stderr).unwrap(), "");
-}
-
-#[test]
-fn parallel_stream_failures_are_aggregate_errors_with_item_trace() {
-    let output = run_temp_script_with_args(
-        "parallel-stream-error",
-        "\
-let xs = [\"only\"]
-let values = [1, 2, 3] |> par-map --jobs=1 { |index| xs[index] }
-",
-        ["--trace", "--raw"],
-    );
-
-    assert_eq!(output.status.code(), Some(0));
-    let stderr = String::from_utf8(output.stderr).unwrap();
-    assert!(stderr.contains("par-map error"));
-    assert!(stderr.contains("kind=parallel.job.start"));
-    assert!(stderr.contains("kind=parallel.job.end"));
-    assert!(stderr.contains("item_index=0"));
-}
-
-#[test]
-fn parallel_stream_failure_with_idle_workers_exits() {
-    let output = run_temp_script_with_args(
-        "parallel-stream-error-idle-workers",
-        "\
-let xs = [\"only\"]
-let values = [1, 2, 3] |> par-map --jobs=8 { |index| xs[index] }
-",
-        ["--trace", "--raw"],
-    );
-
-    assert_eq!(output.status.code(), Some(0));
-    let stderr = String::from_utf8(output.stderr).unwrap();
-    assert!(stderr.contains("par-map error"));
 }
 
 #[test]

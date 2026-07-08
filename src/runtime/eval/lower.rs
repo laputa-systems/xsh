@@ -727,6 +727,9 @@ fn lowered_module_op_supported(op: RuntimeOp) -> bool {
             | RuntimeOp::TestTempFile
             | RuntimeOp::TestMock
             | RuntimeOp::TestCalls
+            | RuntimeOp::TestRunScript
+            | RuntimeOp::TestRunXsh
+            | RuntimeOp::TestRunXshtTrace
             | RuntimeOp::TimeNow
             | RuntimeOp::TimeSleep
             | RuntimeOp::TimeMillis

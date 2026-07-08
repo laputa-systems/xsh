@@ -695,6 +695,10 @@ Native XSH test assertions, temp resources, and host-effect mocks.
   Params: `haystack: Any`, `needle: Any`, `message: Str = default`
 - `test.ok(condition: Bool, message: Str = default) -> Result[Unit, Error]` - pure; Returns `Unit` or `Error` failure data. ID `module.test.ok.0`.
   Params: `condition: Bool`, `message: Str = default`
+- `test.run_script(ctx: {file: Path, name: Str, temp_root: Path}, source: Str, args: List[Str] = default, env: Record = default, stdin: Bytes = default, name: Str = default) -> Result[{status: Int, stderr: Str, stderr_bytes: Bytes, stdout: Str, stdout_bytes: Bytes, success: Bool}, Error]` - effect; Returns `{status: Int, stderr: Str, stderr_bytes: Bytes, stdout: Str, stdout_bytes: Bytes, success: Bool}` or `Error` failure data. ID `module.test.run_script.0`.
+- `test.run_xsh(ctx: {file: Path, name: Str, temp_root: Path}, source: Str, xsh_args: List[Str] = default, script_args: List[Str] = default, env: Record = default, stdin: Bytes = default, name: Str = default) -> Result[{status: Int, stderr: Str, stderr_bytes: Bytes, stdout: Str, stdout_bytes: Bytes, success: Bool}, Error]` - effect; Returns `{status: Int, stderr: Str, stderr_bytes: Bytes, stdout: Str, stdout_bytes: Bytes, success: Bool}` or `Error` failure data. ID `module.test.run_xsh.0`.
+- `test.run_xsht_trace(ctx: {file: Path, name: Str, temp_root: Path}, source: Str, trace_args: List[Str] = default, script_args: List[Str] = default, env: Record = default, stdin: Bytes = default, name: Str = default) -> Result[{status: Int, stderr: Str, stderr_bytes: Bytes, stdout: Str, stdout_bytes: Bytes, success: Bool}, Error]` - effect; Returns `{status: Int, stderr: Str, stderr_bytes: Bytes, stdout: Str, stdout_bytes: Bytes, success: Bool}` or `Error` failure data. ID `module.test.run_xsht_trace.0`.
+  Params: `ctx: {file: Path, name: Str, temp_root: Path}`, `source: Str`, `args: List[Str] = default`, `env: Record = default`, `stdin: Bytes = default`, `name: Str = default`
 - `test.skip(message: Str = default) -> Result[Unit, Error]` - pure; Returns `Unit` or `Error` failure data. ID `module.test.skip.0`.
   Params: `message: Str = default`
 - `test.temp_dir(ctx: {file: Path, name: Str, temp_root: Path}, name: Str = default) -> Result[Path, Error]` - effect; Returns `Path` or `Error` failure data. ID `module.test.temp_dir.0`.
@@ -1503,6 +1507,15 @@ Process-scoped utility helpers.
 - `file: Path`
 - `name: Str`
 - `temp_root: Path`
+
+### `TestScriptOutput`
+
+- `status: Int`
+- `stderr: Str`
+- `stderr_bytes: Bytes`
+- `stdout: Str`
+- `stdout_bytes: Bytes`
+- `success: Bool`
 
 ### `Uname`
 

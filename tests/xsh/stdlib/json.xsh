@@ -18,3 +18,21 @@ proc test_json_read_write_lines_and_paths(ctx: TestContext) [fs, error] {
   test.error_kind(json.decode("{"), "json")?
   test.error_kind(json.get(value, ["items", "bad"]), "json-path")?
 }
+
+proc test_json_rejection_is_trace_visible(ctx: TestContext) [error] {
+  let output = test.run_xsht_trace(
+    ctx,
+    """
+let data = {path: Path("src")}
+let value = data["path"]
+let _encoded = json.encode(value) ?
+""",
+    ["--trace", "--raw"],
+  )?
+
+  test.eq(output.status, 3)?
+  test.contains(output.stderr, "kind=result.propagate")?
+  test.contains(output.stderr, "json-compatible")?
+  test.contains(output.stderr, "Path is not JSON-compatible")?
+  test.contains(output.stderr, "traceback")?
+}

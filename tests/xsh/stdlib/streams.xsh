@@ -231,8 +231,8 @@ proc test_parallel_count_and_group_by_match_serial() [error] {
   let nums = [0] |> range(0, 20000)
   let cpar = nums |> count { if . % 2 == 0 { "even" } else { "odd" } }
   let cser = nums |> count --jobs=1 { if . % 2 == 0 { "even" } else { "odd" } }
-  let gpar = nums |> group-by { . % 3 } |> sort-by .key |> map { |g| g.items }
-  let gser = nums |> group-by --jobs=1 { . % 3 } |> sort-by .key |> map { |g| g.items }
+  let gpar = nums |> group-by { |n| n % 3 } |> sort-by { |g| g.key } |> map { |g| g.items }
+  let gser = nums |> group-by --jobs=1 { |n| n % 3 } |> sort-by { |g| g.key } |> map { |g| g.items }
 
   test.eq(cpar.get("even", 0), cser.get("even", 0))?
   test.eq(cpar.get("odd", 0), cser.get("odd", 0))?
@@ -243,7 +243,7 @@ proc test_parallel_count_and_group_by_match_serial() [error] {
 
 proc test_stream_adapters_bridge_text_bytes_and_json_lines() [process, error] {
   let captured = run.text printf "%s\n" "a.txt" "b.log" ?
-  let paths = captured |> text.lines() |> map { |line| Path(line) }
+  let paths = captured |> text.lines() |> map { |line| fp"${line}" }
   let chunks = b"abcde" |> bytes.chunks(2)
   let rows = "{\"name\":\"a\",\"size\":1}\n{\"name\":\"b\",\"size\":2}\n"
     |> json.lines()
@@ -290,9 +290,9 @@ proc test_flat_map_consumes_live_streams_returned_by_blocks(ctx: TestContext) [f
 
 proc test_sort_by_desc_reverses_sort_order() [error] {
   let nums = [3, 1, 4, 1, 5, 9, 2, 6]
-  let asc = nums |> sort-by .
-  let desc = nums |> sort-by --desc .
-  let words = ["banana", "apple", "cherry"] |> sort-by --desc .
+  let asc = nums |> sort-by { |n| n }
+  let desc = nums |> sort-by --desc { |n| n }
+  let words = ["banana", "apple", "cherry"] |> sort-by --desc { |word| word }
 
   test.eq(asc[0], 1)?
   test.eq(asc[7], 9)?
@@ -304,13 +304,13 @@ proc test_sort_by_desc_reverses_sort_order() [error] {
 
 proc test_structured_stream_batch_count_and_argv_limits() [process, error] {
   let by_count = [1, 2, 3, 4, 5] |> batch --count=2
-  let by_size = [Path("aaaa"), Path("bbbb"), Path("cccc")] |> batch --max-bytes=10
+  let by_size = [p"aaaa", p"bbbb", p"cccc"] |> batch --max-bytes=10
 
   test.eq(by_count, [[1, 2], [3, 4], [5]])?
-  test.eq(by_size[0], [Path("aaaa"), Path("bbbb")])?
-  test.eq(by_size[1], [Path("cccc")])?
+  test.eq(by_size[0], [p"aaaa", p"bbbb"])?
+  test.eq(by_size[1], [p"cccc"])?
 
-  [Path("one"), Path("two")] |> batch --max-argv |> each { |files|
+  [p"one", p"two"] |> batch --max-argv |> each { |files|
     run true @files ?
   }
 
@@ -339,34 +339,127 @@ proc test_structured_streams_walk_filter_map_collect_and_count(ctx: TestContext)
   fp"${root}/a.txt".write("a")?
   fp"${nested}/b.txt".write("b")?
 
-  let entries = fs.walk(root)
-    |> where .kind == "file"
-    |> collect()
+  let entries = fs.files(root) |> collect()
   let names = entries
     |> map .name
     |> sort-by .
-  let count = fs.walk(root)
-    |> where .kind == "file"
-    |> count()
+  let count = fs.files(root) |> count()
 
   test.eq(names, ["a.txt", "b.txt"])?
   test.eq(count, 2)?
 }
 
-proc test_fs_walk_lazy_folding_terminals_match_eager_results(ctx: TestContext) [fs, error] {
-  # count/sum/min/max/fold drive the live walk by folding one item at a time.
+proc test_table_print_wraps_cells_to_terminal_width(ctx: TestContext) [error] {
+  let output = test.run_script(
+    ctx,
+    """
+let rows = [{name: "very-long-command-name-that-keeps-going", size: 123}]
+(rows) |> table.print(columns: ["name", "size"])
+""",
+    [],
+    {COLUMNS: "40"},
+  )?
+
+  test.ok(output.success, output.stderr)?
+  test.not_contains(output.stdout, "…")?
+  test.contains(output.stdout, "very-long-command-name-that-k")?
+  test.contains(output.stdout, "eeps-going")?
+  for line in output.stdout.lines() {
+    test.ok(line.count_chars() <= 40, line)?
+  }
+}
+
+proc test_stream_stages_are_trace_observable(ctx: TestContext) [error] {
+  let table_trace = test.run_xsht_trace(
+    ctx,
+    """
+let rows = [{name: "b", size: 2}, {name: "a", size: 1}]
+(rows) |> sort-by { |row| row.size } |> table.print(columns: ["name", "size"])
+""",
+    ["--trace", "--raw"],
+  )?
+  test.ok(table_trace.success, table_trace.stderr)?
+  test.contains(table_trace.stdout, "│ a")?
+  test.contains(table_trace.stdout, "│ b")?
+  test.contains(table_trace.stderr, "kind=stream.stage.enter")?
+  test.contains(table_trace.stderr, "kind=stream.stage.exit")?
+  test.contains(table_trace.stderr, "name=\"sort-by\"")?
+  test.contains(table_trace.stderr, "stage=b\"sort-by\"")?
+  test.contains(table_trace.stderr, "name=\"table.print\"")?
+  test.contains(table_trace.stderr, "stage=b\"table.print\"")?
+  test.contains(table_trace.stderr, "item_count=2")?
+
+  let adapter_trace = test.run_xsht_trace(ctx, "\"a\\nb\\n\" |> text.lines()\n", ["--raw"])?
+  test.ok(adapter_trace.success, adapter_trace.stderr)?
+  test.contains(adapter_trace.stderr, "kind=stream.stage.enter")?
+  test.contains(adapter_trace.stderr, "kind=stream.stage.exit")?
+  test.contains(adapter_trace.stderr, "name=\"text.lines\"")?
+  test.contains(adapter_trace.stderr, "stage=b\"text.lines\"")?
+
+  let batch_trace = test.run_xsht_trace(ctx, "[1, 2, 3] |> batch --count=2\n", ["--raw"])?
+  test.ok(batch_trace.success, batch_trace.stderr)?
+  test.contains(batch_trace.stderr, "kind=stream.stage.enter")?
+  test.contains(batch_trace.stderr, "kind=stream.stage.exit")?
+  test.contains(batch_trace.stderr, "name=\"batch\"")?
+  test.contains(batch_trace.stderr, "stage=b\"batch\"")?
+  test.contains(batch_trace.stderr, "item_count=3")?
+}
+
+proc test_stream_errors_include_trace_context(ctx: TestContext) [error] {
+  let stream_error = test.run_xsht_trace(
+    ctx,
+    r"""
+let xs = ["only"]
+let values = [1] |> map { |index| xs[index] }
+print ${values[0]}
+""",
+    ["--trace", "--raw"],
+  )?
+  test.eq(stream_error.status, 3)?
+  test.contains(stream_error.stderr, "stream stage `map` item 0 failed")?
+  test.contains(stream_error.stderr, "index-out-of-range")?
+  test.contains(stream_error.stderr, "kind=stream.item.error")?
+  test.contains(stream_error.stderr, "item_index=0")?
+
+  let par_error = test.run_xsht_trace(
+    ctx,
+    """
+let xs = ["only"]
+let values = [1, 2, 3] |> par-map --jobs=1 { |index| xs[index] }
+""",
+    ["--trace", "--raw"],
+  )?
+  test.eq(par_error.status, 0)?
+  test.contains(par_error.stderr, "par-map error")?
+  test.contains(par_error.stderr, "kind=parallel.job.start")?
+  test.contains(par_error.stderr, "kind=parallel.job.end")?
+  test.contains(par_error.stderr, "item_index=0")?
+
+  let idle_error = test.run_xsht_trace(
+    ctx,
+    """
+let xs = ["only"]
+let values = [1, 2, 3] |> par-map --jobs=8 { |index| xs[index] }
+""",
+    ["--trace", "--raw"],
+  )?
+  test.eq(idle_error.status, 0)?
+  test.contains(idle_error.stderr, "par-map error")?
+}
+
+proc test_fs_files_lazy_folding_terminals_match_eager_results(ctx: TestContext) [fs, error] {
+  # count/sum/min/max/fold drive the live stream by folding one item at a time.
   let root = test.temp_dir(ctx, name: "fs-walk-fold")?
   fp"${root}/a.txt".write("a")?
   fp"${root}/bb.txt".write("bb")?
   fp"${root}/ccc.txt".write("ccc")?
 
-  test.eq(fs.walk(root) |> where .kind == "file" |> count(), 3)?
-  test.eq(fs.walk(root) |> where .kind == "file" |> map .size |> sum(), 6)?
-  test.eq((fs.walk(root) |> where .kind == "file" |> map .size |> min())?, 1)?
-  test.eq((fs.walk(root) |> where .kind == "file" |> map .size |> max())?, 3)?
+  test.eq(fs.files(root) |> count(), 3)?
+  test.eq(fs.files(root) |> map .size |> sum(), 6)?
+  test.eq((fs.files(root) |> map .size |> min())?, 1)?
+  test.eq((fs.files(root) |> map .size |> max())?, 3)?
   test.eq(
-    fs.walk(root)
-      |> where .kind == "file"
+    fs.files(root)
       |> map .size
       |> fold(0) { |acc|
         acc + .

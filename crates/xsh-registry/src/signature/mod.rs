@@ -10,9 +10,10 @@ use crate::records::{
     net_response_type, patch_result_type, process_entry_type, process_port_type,
     process_stats_type, process_thread_type, process_wait_any_type, regex_match_type,
     signal_record_type, spawn_record_type, system_memory_type, system_os_release_type,
-    test_call_type, test_context_type, uname_record_type, unix_child_event_type, unix_id_type,
-    unix_kill_all_result_type, unix_logged_process_group_type, unix_pid1_event_type,
-    unix_pid1_shutdown_type, unix_spawned_child_type, unix_tty_attrs_type, user_record_type,
+    test_call_type, test_context_type, test_script_output_type, uname_record_type,
+    unix_child_event_type, unix_id_type, unix_kill_all_result_type, unix_logged_process_group_type,
+    unix_pid1_event_type, unix_pid1_shutdown_type, unix_spawned_child_type, unix_tty_attrs_type,
+    user_record_type,
 };
 pub use crate::runtime_op::RuntimeOp;
 pub(in crate::signature) use crate::types::Type;

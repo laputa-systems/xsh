@@ -46,7 +46,9 @@ use std::ops::ControlFlow;
 use std::os::fd::AsRawFd;
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
 use std::os::unix::fs::OpenOptionsExt;
+use std::os::unix::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -162,6 +164,206 @@ fn lowered_eval_depth_limit() -> usize {
     } else {
         LOWERED_EVAL_DEPTH_LIMIT
     }
+}
+
+impl Evaluator {
+    fn lowered_test_run_script(
+        &mut self,
+        ctx: &RecordMap,
+        source: &str,
+        args: &[String],
+        env: &BTreeMap<String, String>,
+        stdin: &[u8],
+        name: &str,
+        span: Span,
+    ) -> Result<BTreeMap<Arc<str>, LoweredValue>, RuntimeError> {
+        self.lowered_test_run_xsh(ctx, source, &[], args, env, stdin, name, span)
+    }
+
+    fn lowered_test_run_xsh(
+        &mut self,
+        ctx: &RecordMap,
+        source: &str,
+        xsh_args: &[String],
+        script_args: &[String],
+        env: &BTreeMap<String, String>,
+        stdin: &[u8],
+        name: &str,
+        span: Span,
+    ) -> Result<BTreeMap<Arc<str>, LoweredValue>, RuntimeError> {
+        let script_name = if name.is_empty() { "script.xsh" } else { name };
+        let path = test_temp_path(self, ctx, script_name, span)?;
+        let host_path = self.host_path(&path);
+        if let Some(parent) = host_path.parent() {
+            std::fs::create_dir_all(parent).map_err(|error| {
+                RuntimeError::new("test-run-xsh", error.to_string()).with_span(span)
+            })?;
+        }
+        std::fs::write(&host_path, source).map_err(|error| {
+            RuntimeError::new("test-run-xsh", error.to_string()).with_span(span)
+        })?;
+
+        let mut command = Command::new(test_xsh_binary());
+        command.args(xsh_args);
+        command.arg(&host_path);
+        command.args(script_args);
+        command.envs(env);
+        command.stdout(Stdio::piped());
+        command.stderr(Stdio::piped());
+        if stdin.is_empty() {
+            command.stdin(Stdio::null());
+        } else {
+            command.stdin(Stdio::piped());
+        }
+
+        let mut child = command.spawn().map_err(|error| {
+            RuntimeError::new("test-run-xsh", error.to_string()).with_span(span)
+        })?;
+        if !stdin.is_empty()
+            && let Some(mut child_stdin) = child.stdin.take()
+        {
+            child_stdin.write_all(stdin).map_err(|error| {
+                RuntimeError::new("test-run-xsh", error.to_string()).with_span(span)
+            })?;
+        }
+        let output = child.wait_with_output().map_err(|error| {
+            RuntimeError::new("test-run-xsh", error.to_string()).with_span(span)
+        })?;
+        let status = output
+            .status
+            .code()
+            .or_else(|| output.status.signal().map(|signal| 128 + signal))
+            .unwrap_or(-1) as i64;
+
+        Ok(BTreeMap::from([
+            (
+                Arc::from("success"),
+                LoweredValue::Bool(output.status.success()),
+            ),
+            (Arc::from("status"), LoweredValue::Int(status)),
+            (
+                Arc::from("stdout"),
+                LoweredValue::Str(String::from_utf8_lossy(&output.stdout).into()),
+            ),
+            (
+                Arc::from("stderr"),
+                LoweredValue::Str(String::from_utf8_lossy(&output.stderr).into()),
+            ),
+            (
+                Arc::from("stdout_bytes"),
+                LoweredValue::Bytes(output.stdout.into()),
+            ),
+            (
+                Arc::from("stderr_bytes"),
+                LoweredValue::Bytes(output.stderr.into()),
+            ),
+        ]))
+    }
+
+    fn lowered_test_run_xsht_trace(
+        &mut self,
+        ctx: &RecordMap,
+        source: &str,
+        trace_args: &[String],
+        script_args: &[String],
+        env: &BTreeMap<String, String>,
+        stdin: &[u8],
+        name: &str,
+        span: Span,
+    ) -> Result<BTreeMap<Arc<str>, LoweredValue>, RuntimeError> {
+        let script_name = if name.is_empty() { "script.xsh" } else { name };
+        let path = test_temp_path(self, ctx, script_name, span)?;
+        let host_path = self.host_path(&path);
+        if let Some(parent) = host_path.parent() {
+            std::fs::create_dir_all(parent).map_err(|error| {
+                RuntimeError::new("test-run-xsht-trace", error.to_string()).with_span(span)
+            })?;
+        }
+        std::fs::write(&host_path, source).map_err(|error| {
+            RuntimeError::new("test-run-xsht-trace", error.to_string()).with_span(span)
+        })?;
+
+        let mut command = Command::new(test_binary("xsht"));
+        command.arg("trace");
+        command.args(trace_args.iter().filter(|arg| arg.as_str() != "--trace"));
+        command.arg(&host_path);
+        command.args(script_args);
+        command.envs(env);
+        command.stdout(Stdio::piped());
+        command.stderr(Stdio::piped());
+        if stdin.is_empty() {
+            command.stdin(Stdio::null());
+        } else {
+            command.stdin(Stdio::piped());
+        }
+
+        let mut child = command.spawn().map_err(|error| {
+            RuntimeError::new("test-run-xsht-trace", error.to_string()).with_span(span)
+        })?;
+        if !stdin.is_empty()
+            && let Some(mut child_stdin) = child.stdin.take()
+        {
+            child_stdin.write_all(stdin).map_err(|error| {
+                RuntimeError::new("test-run-xsht-trace", error.to_string()).with_span(span)
+            })?;
+        }
+        let output = child.wait_with_output().map_err(|error| {
+            RuntimeError::new("test-run-xsht-trace", error.to_string()).with_span(span)
+        })?;
+        let status = output
+            .status
+            .code()
+            .or_else(|| output.status.signal().map(|signal| 128 + signal))
+            .unwrap_or(-1) as i64;
+
+        Ok(BTreeMap::from([
+            (
+                Arc::from("success"),
+                LoweredValue::Bool(output.status.success()),
+            ),
+            (Arc::from("status"), LoweredValue::Int(status)),
+            (
+                Arc::from("stdout"),
+                LoweredValue::Str(String::from_utf8_lossy(&output.stdout).into()),
+            ),
+            (
+                Arc::from("stderr"),
+                LoweredValue::Str(String::from_utf8_lossy(&output.stderr).into()),
+            ),
+            (
+                Arc::from("stdout_bytes"),
+                LoweredValue::Bytes(output.stdout.into()),
+            ),
+            (
+                Arc::from("stderr_bytes"),
+                LoweredValue::Bytes(output.stderr.into()),
+            ),
+        ]))
+    }
+}
+
+fn test_xsh_binary() -> PathBuf {
+    test_binary("xsh")
+}
+
+fn test_binary(name: &str) -> PathBuf {
+    let env_name = format!("CARGO_BIN_EXE_{name}");
+    if let Some(path) = std::env::var_os(env_name) {
+        return PathBuf::from(path);
+    }
+    if let Ok(current) = std::env::current_exe()
+        && let Some(dir) = current.parent()
+    {
+        let sibling = dir.join(name);
+        if sibling.exists() {
+            return sibling;
+        }
+    }
+    let target_debug = PathBuf::from("target/debug").join(name);
+    if target_debug.exists() {
+        return target_debug;
+    }
+    PathBuf::from(name)
 }
 
 thread_local! {
@@ -2273,6 +2475,46 @@ fn lowered_record_arg(
             RuntimeError::new("arity", format!("{operation} expected an argument")).with_span(span),
         ),
     }
+}
+
+fn lowered_optional_str_record(
+    value: Option<LoweredValue>,
+    operation: &str,
+    span: Span,
+) -> Result<BTreeMap<String, String>, RuntimeError> {
+    let Some(value) = value else {
+        return Ok(BTreeMap::new());
+    };
+    let fields = match value {
+        LoweredValue::Record(fields) | LoweredValue::Module(fields) => fields,
+        LoweredValue::RecordVec(fields) => fields
+            .into_iter()
+            .map(|(name, value)| (Arc::from(name.as_str()), value))
+            .collect(),
+        other => {
+            return Err(RuntimeError::new(
+                "type-error",
+                format!("{operation} expected Record, found {}", other.type_name()),
+            )
+            .with_span(span));
+        }
+    };
+
+    let mut env = BTreeMap::new();
+    for (key, value) in fields {
+        let Some(text) = lowered_str_value(&value) else {
+            return Err(RuntimeError::new(
+                "type-error",
+                format!(
+                    "{operation} env field `{key}` expected Str, found {}",
+                    value.type_name()
+                ),
+            )
+            .with_span(span));
+        };
+        env.insert(key.to_string(), text.to_string());
+    }
+    Ok(env)
 }
 
 fn lowered_bytes_arg_or_empty(
@@ -7810,6 +8052,99 @@ impl Evaluator {
                     ])));
                 }
                 LoweredValue::List(calls)
+            }
+            RuntimeOp::TestRunScript if (2..=6).contains(&values.len()) => {
+                let ctx = lowered_record_arg(values.first().cloned(), "test.run_script", span)?;
+                let source =
+                    lowered_str_arg_owned(values.get(1).cloned(), "", "test.run_script", span)?;
+                let args =
+                    lowered_optional_str_list(values.get(2).cloned(), "test.run_script", span)?;
+                let env =
+                    lowered_optional_str_record(values.get(3).cloned(), "test.run_script", span)?;
+                let stdin =
+                    lowered_bytes_arg_or_empty(values.get(4).cloned(), "test.run_script", span)?;
+                let name = lowered_str_arg_owned(
+                    values.get(5).cloned(),
+                    "script.xsh",
+                    "test.run_script",
+                    span,
+                )?;
+                match self.lowered_test_run_script(&ctx, &source, &args, &env, &stdin, &name, span)
+                {
+                    Ok(record) => lowered_result_ok(LoweredValue::Record(record)),
+                    Err(error) => lowered_result_err_value(error),
+                }
+            }
+            RuntimeOp::TestRunXsh if (2..=7).contains(&values.len()) => {
+                let ctx = lowered_record_arg(values.first().cloned(), "test.run_xsh", span)?;
+                let source =
+                    lowered_str_arg_owned(values.get(1).cloned(), "", "test.run_xsh", span)?;
+                let xsh_args =
+                    lowered_optional_str_list(values.get(2).cloned(), "test.run_xsh", span)?;
+                let script_args =
+                    lowered_optional_str_list(values.get(3).cloned(), "test.run_xsh", span)?;
+                let env =
+                    lowered_optional_str_record(values.get(4).cloned(), "test.run_xsh", span)?;
+                let stdin =
+                    lowered_bytes_arg_or_empty(values.get(5).cloned(), "test.run_xsh", span)?;
+                let name = lowered_str_arg_owned(
+                    values.get(6).cloned(),
+                    "script.xsh",
+                    "test.run_xsh",
+                    span,
+                )?;
+                match self
+                    .lowered_test_run_xsh(&ctx, &source, &xsh_args, &script_args, &env, &stdin, &name, span)
+                {
+                    Ok(record) => lowered_result_ok(LoweredValue::Record(record)),
+                    Err(error) => lowered_result_err_value(error),
+                }
+            }
+            RuntimeOp::TestRunXshtTrace if (2..=7).contains(&values.len()) => {
+                let ctx =
+                    lowered_record_arg(values.first().cloned(), "test.run_xsht_trace", span)?;
+                let source = lowered_str_arg_owned(
+                    values.get(1).cloned(),
+                    "",
+                    "test.run_xsht_trace",
+                    span,
+                )?;
+                let trace_args = lowered_optional_str_list(
+                    values.get(2).cloned(),
+                    "test.run_xsht_trace",
+                    span,
+                )?;
+                let script_args = lowered_optional_str_list(
+                    values.get(3).cloned(),
+                    "test.run_xsht_trace",
+                    span,
+                )?;
+                let env = lowered_optional_str_record(
+                    values.get(4).cloned(),
+                    "test.run_xsht_trace",
+                    span,
+                )?;
+                let stdin =
+                    lowered_bytes_arg_or_empty(values.get(5).cloned(), "test.run_xsht_trace", span)?;
+                let name = lowered_str_arg_owned(
+                    values.get(6).cloned(),
+                    "script.xsh",
+                    "test.run_xsht_trace",
+                    span,
+                )?;
+                match self.lowered_test_run_xsht_trace(
+                    &ctx,
+                    &source,
+                    &trace_args,
+                    &script_args,
+                    &env,
+                    &stdin,
+                    &name,
+                    span,
+                ) {
+                    Ok(record) => lowered_result_ok(LoweredValue::Record(record)),
+                    Err(error) => lowered_result_err_value(error),
+                }
             }
             RuntimeOp::TuiReset if values.is_empty() => {
                 LoweredValue::Str(tui::sequence(Sequence::Reset).into())

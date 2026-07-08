@@ -14,86 +14,6 @@ fn minimal_modules_execute_success_paths() {
 }
 
 #[test]
-fn cli_parse_help_prints_usage_and_exits_successfully() {
-    let path = write_temp_script(
-        "cli-help",
-        r#"
-type Opts = {verbose: Bool, paths: List[Str]}
-
-let opts: Opts = cli.parse(
-  ARGV,
-  {
-    verbose: {form: "-v --verbose", default: false, help: "show extra output"},
-    paths: {form: "...PATH", repeated: true},
-  },
-)?
-
-print ${opts.paths.len()}
-"#,
-    );
-    let path_text = path.to_string_lossy().to_string();
-    let output = xsh([path_text.as_str(), "--help"]);
-    let _ = std::fs::remove_file(path);
-
-    assert!(output.status.success());
-    assert_eq!(String::from_utf8(output.stderr).unwrap(), "");
-    let stdout = String::from_utf8(output.stdout).unwrap();
-    assert!(stdout.contains("usage: "));
-    assert!(stdout.contains("cli-help"));
-    assert!(!stdout.contains("usage: command "));
-    assert!(stdout.contains("[...PATH] [OPTIONS]"));
-    assert!(stdout.contains("-v, --verbose"));
-    assert!(stdout.contains("-h, --help"));
-    assert!(!stdout.contains("\n0\n"));
-}
-
-#[test]
-fn cli_parse_failure_prints_usage_without_traceback() {
-    let output = run_temp_script(
-        "cli-usage-error",
-        r#"
-type Opts = {path: Str}
-let opts: Opts = cli.parse(ARGV, {path: {form: "PATH"}})?
-print ${opts.path}
-"#,
-    );
-
-    assert_eq!(output.status.code(), Some(2));
-    assert_eq!(String::from_utf8(output.stdout).unwrap(), "");
-    let stderr = String::from_utf8(output.stderr).unwrap();
-    assert!(stderr.contains("missing required argument PATH"));
-    assert!(stderr.contains("usage:"));
-    assert!(!stderr.contains("traceback"));
-}
-
-#[test]
-fn time_module_formats_local_time_under_tz() {
-    let path = write_temp_script(
-        "time-format-local",
-        r#"
-print ${time.format(0, "%Y-%m-%d %H:%M %Z %z", utc: false)?}
-"#,
-    );
-    let output = Command::new(env!("CARGO_BIN_EXE_xsh"))
-        .arg(&path)
-        .env("TZ", "America/New_York")
-        .output()
-        .expect("run local time script");
-    let _ = std::fs::remove_file(path);
-
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    assert_eq!(
-        String::from_utf8(output.stdout).unwrap(),
-        "1969-12-31 19:00 EST -0500\n"
-    );
-    assert_eq!(String::from_utf8(output.stderr).unwrap(), "");
-}
-
-#[test]
 fn loaded_modules_refine_to_typed_module_contracts() {
     let output = xsh(["tests/fixtures/runtime/module-contract.xsh"]);
 
@@ -949,19 +869,6 @@ print ${{(tool_dir) not in env.PATH}}
 }
 
 #[test]
-fn env_overlay_is_visible_in_text_trace() {
-    let output = run_temp_script_with_args(
-        "env-trace",
-        "run XSH_STAGE3_TRACE=value sh -c \"true\" ?\n",
-        ["--trace", "--raw"],
-    );
-
-    assert!(output.status.success());
-    let stderr = String::from_utf8(output.stderr).unwrap();
-    assert!(stderr.contains("env={b\"XSH_STAGE3_TRACE\":b\"value\"}"));
-}
-
-#[test]
 fn path_literals_method_sugar_and_expr_env_blocks_execute() {
     let root = temp_path("sugar-root");
     let source = format!(
@@ -1520,27 +1427,6 @@ fn nul_is_rejected_in_paths_and_argv_items() {
 }
 
 #[test]
-fn core_cd_restores_runtime_cwd_trace_when_block_errors() {
-    let output = run_temp_script_with_args(
-        "cd-error",
-        "\
-let before = run.text pwd ?
-cd tests {
-  let xs = [\"x\"]
-  let bad = xs[1]
-} ?
-",
-        ["--trace", "--raw"],
-    );
-
-    assert_eq!(output.status.code(), Some(3));
-    let stderr = String::from_utf8(output.stderr).unwrap();
-    assert!(stderr.contains("kind=cwd.enter"));
-    assert!(stderr.contains("kind=cwd.exit"));
-    assert!(stderr.contains("index-out-of-range"));
-}
-
-#[test]
 fn user_modules_import_exports_aliases_and_cycles() {
     let root = temp_path("module-imports-root");
     std::fs::create_dir_all(&root).expect("create module root");
@@ -1850,22 +1736,6 @@ let _encoded = json.encode(value) ?
     let stderr = String::from_utf8(rejected.stderr).unwrap();
     assert!(stderr.contains("json-compatible"), "{stderr}");
     assert!(stderr.contains("Path is not JSON-compatible"), "{stderr}");
-
-    let traced_rejected = run_temp_script_with_args(
-        "json-reject-trace",
-        "\
-let data = {path: Path(\"src\")}
-let value = data[\"path\"]
-let _encoded = json.encode(value) ?
-",
-        ["--trace", "--raw"],
-    );
-    assert_eq!(traced_rejected.status.code(), Some(3));
-    let trace = String::from_utf8(traced_rejected.stderr).unwrap();
-    assert!(trace.contains("kind=result.propagate"), "{trace}");
-    assert!(trace.contains("json-compatible"), "{trace}");
-    assert!(trace.contains("Path is not JSON-compatible"), "{trace}");
-    assert!(trace.contains("traceback"), "{trace}");
 
     let _ = std::fs::remove_dir_all(root);
 }

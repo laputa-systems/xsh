@@ -57,30 +57,3 @@ total=50\n"
     );
     let _ = std::fs::remove_dir_all(root);
 }
-
-#[test]
-fn table_print_wraps_cells_to_terminal_width_without_ellipsis() {
-    let path = write_temp_script(
-        "table-wrap",
-        "\
-let rows = [{name: \"very-long-command-name-that-keeps-going\", size: 123}]
-(rows) |> table.print(columns: [\"name\", \"size\"])
-",
-    );
-    let output = Command::new(env!("CARGO_BIN_EXE_xsh"))
-        .env("COLUMNS", "40")
-        .arg(&path)
-        .output()
-        .expect("run xsh");
-    let _ = std::fs::remove_file(path);
-
-    assert!(output.status.success());
-    let stdout = String::from_utf8(output.stdout).unwrap();
-    assert!(!stdout.contains('…'), "{stdout}");
-    assert!(stdout.contains("very-long-command-name-that-k"), "{stdout}");
-    assert!(stdout.contains("eeps-going"), "{stdout}");
-    assert!(
-        stdout.lines().all(|line| line.chars().count() <= 40),
-        "{stdout}"
-    );
-}

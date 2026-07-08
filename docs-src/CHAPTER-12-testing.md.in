@@ -79,6 +79,43 @@ proc test_temp(ctx: TestContext) -> Result[Unit] {
 Temp roots are cleaned after each test by default. Use `xsht test --keep-temp`
 when debugging filesystem state.
 
+## Run Child Scripts
+
+Use `test.run_script` when a test needs to assert whole-script behavior such as
+exit status, stdout/stderr, invalid UTF-8 output, script arguments, or
+environment-sensitive code:
+
+```xsh
+proc test_child_script(ctx: TestContext) -> Result[Unit] {
+  let output = test.run_script(
+    ctx,
+    r"""print ${ARGV[0]}
+""",
+    ["demo"],
+    {MODE: "test"},
+  )?
+
+  test.ok(output.success, output.stderr)?
+  test.eq(output.status, 0)?
+  test.eq(output.stdout, "demo\n")?
+}
+```
+
+The returned record includes `success`, numeric `status`, lossy text fields
+`stdout` and `stderr`, and exact byte fields `stdout_bytes` and `stderr_bytes`.
+
+Use `test.run_xsh` when the test needs to pass flags to the `xsh` executable
+before the script path. Use `test.run_xsht_trace` for trace-mode tests:
+
+```xsh
+proc test_trace(ctx: TestContext) -> Result[Unit] {
+  let output = test.run_xsht_trace(ctx, "run true ?\n", ["--raw"])?
+
+  test.ok(output.success, output.stderr)?
+  test.contains(output.stderr, "kind=run.start")?
+}
+```
+
 ## Mock Host Boundaries
 
 Tests can mock DNS and net host calls:

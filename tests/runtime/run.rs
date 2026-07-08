@@ -227,68 +227,6 @@ fn xsh_accepts_leading_double_dash_for_shebang_scripts() {
 }
 
 #[test]
-fn final_top_level_int_sets_script_exit_status() {
-    let output = run_temp_script(
-        "int-exit-status",
-        "\
-proc main(value = 7) -> UInt {
-  return value
-}
-
-main(@args)
-",
-    );
-
-    assert_eq!(output.status.code(), Some(7));
-    assert_eq!(String::from_utf8(output.stdout).unwrap(), "");
-    assert_eq!(String::from_utf8(output.stderr).unwrap(), "");
-}
-
-#[test]
-fn abort_sets_script_exit_status_and_runs_defers_by_default() {
-    let output = run_temp_script(
-        "abort-runs-defers",
-        "\
-defer run printf \"%s\\n\" top ?
-
-proc main() -> Result[Unit] {
-  defer run printf \"%s\\n\" proc ?
-  abort(9)
-  return Ok()
-}
-
-main()?
-",
-    );
-
-    assert_eq!(output.status.code(), Some(9));
-    assert_eq!(String::from_utf8(output.stdout).unwrap(), "proc\ntop\n");
-    assert_eq!(String::from_utf8(output.stderr).unwrap(), "");
-}
-
-#[test]
-fn forced_abort_skips_defers() {
-    let output = run_temp_script(
-        "abort-force",
-        "\
-defer run printf \"%s\\n\" top ?
-
-proc main() -> Result[Unit] {
-  defer run printf \"%s\\n\" proc ?
-  abort(11, force: true)
-  return Ok()
-}
-
-main()?
-",
-    );
-
-    assert_eq!(output.status.code(), Some(11));
-    assert_eq!(String::from_utf8(output.stdout).unwrap(), "");
-    assert_eq!(String::from_utf8(output.stderr).unwrap(), "");
-}
-
-#[test]
 fn run_printf_preserves_one_data_argument() {
     let output = xsh(["tests/fixtures/runtime/run-printf.xsh"]);
 
@@ -306,41 +244,11 @@ fn plain_run_false_propagates_run_error_status() {
 }
 
 #[test]
-fn run_error_diagnostic_includes_cwd_and_argv() {
-    let output = run_temp_script("run-failure-details", "run false \"two words\" ?\n");
-
-    assert_eq!(output.status.code(), Some(3));
-    let stderr = String::from_utf8(output.stderr).unwrap();
-    assert!(stderr.contains("nonzero-exit"), "{stderr}");
-    assert!(stderr.contains("cwd: "), "{stderr}");
-    assert!(stderr.contains("argv: false 'two words'"), "{stderr}");
-}
-
-#[test]
 fn run_status_false_returns_status_value() {
     let output = xsh(["tests/fixtures/runtime/run-status-false.xsh"]);
 
     assert!(output.status.success());
     assert_eq!(String::from_utf8(output.stdout).unwrap(), "true\n");
-}
-
-#[test]
-fn auto_main_returned_err_is_script_failure() {
-    let output = run_temp_script(
-        "auto-main-returned-err",
-        r#"
-error AppError = usage(message: Str)
-proc main(...argv: List[Str]) [error] {
-  let _ = argv
-  return Err(AppError.usage(message: "bad args"))
-}
-"#,
-    );
-
-    assert_eq!(output.status.code(), Some(3));
-    let stderr = String::from_utf8(output.stderr).unwrap();
-    assert!(stderr.contains("usage"));
-    assert!(stderr.contains("bad args"));
 }
 
 #[test]
@@ -350,16 +258,6 @@ fn signaled_status_exit_code_is_structured_error() {
     assert_eq!(output.status.code(), Some(3));
     let stderr = String::from_utf8(output.stderr).unwrap();
     assert!(stderr.contains("status-kind"));
-}
-
-#[test]
-fn missing_run_target_is_exec_failure_not_exit_127() {
-    let output = xsh(["tests/fixtures/runtime/run-missing.xsh"]);
-
-    assert_eq!(output.status.code(), Some(3));
-    let stderr = String::from_utf8(output.stderr).unwrap();
-    assert!(stderr.contains("not-found"));
-    assert!(!stderr.contains("127"));
 }
 
 #[test]
@@ -422,63 +320,6 @@ fn run_trace_preserves_argv_boundaries() {
 }
 
 #[test]
-fn failed_left_pipeline_segment_is_diagnostic_and_trace_visible() {
-    let plain = run_temp_script("pipeline-left-failure", "run false | run true ?\n");
-    let late = run_temp_script("pipeline-late-failure", "run true | run false ?\n");
-    let traced = run_temp_script_with_args(
-        "pipeline-left-failure-trace",
-        "run false | run true ?\n",
-        ["--trace", "--raw"],
-    );
-    let json = run_temp_script_with_args(
-        "pipeline-left-failure-json",
-        "run false | run true ?\n",
-        ["--trace", "--raw", "--trace-format", "jsonl"],
-    );
-
-    assert_eq!(plain.status.code(), Some(3));
-    let stderr = String::from_utf8(plain.stderr).unwrap();
-    assert!(stderr.contains("pipeline segment 0"));
-    assert!(stderr.contains("false"));
-
-    assert_eq!(late.status.code(), Some(3));
-    assert!(
-        String::from_utf8(late.stderr)
-            .unwrap()
-            .contains("pipeline segment 1")
-    );
-
-    assert_eq!(traced.status.code(), Some(3));
-    let trace = String::from_utf8(traced.stderr).unwrap();
-    assert!(trace.contains("kind=pipeline.enter"));
-    assert!(trace.contains("kind=pipeline.segment.end"));
-    assert!(trace.contains("index=0"));
-    assert!(trace.contains("success:false"));
-
-    assert_eq!(json.status.code(), Some(3));
-    let json_trace = String::from_utf8(json.stderr).unwrap();
-    assert!(json_trace.contains("\"kind\":\"pipeline.segment.end\""));
-    assert!(json_trace.contains("\"index\":0"));
-    assert!(json_trace.contains("\"success\":false"));
-}
-
-#[test]
-fn redirection_setup_failure_is_traced() {
-    let missing = temp_path("missing-redirection-input");
-    let source = format!(
-        "let missing = Path({})\nrun cat < (missing) ?\n",
-        xsh_string_literal(missing.to_str().unwrap())
-    );
-    let output =
-        run_temp_script_with_args("redirection-failure-trace", &source, ["--trace", "--raw"]);
-
-    assert_eq!(output.status.code(), Some(3));
-    let stderr = String::from_utf8(output.stderr).unwrap();
-    assert!(stderr.contains("kind=redirection.setup"));
-    assert!(stderr.contains("error={kind:b\"redirection\""));
-}
-
-#[test]
 fn concise_language_sugar_runs_with_edge_cases() {
     let source = r#"
 pure label(value: Str) -> Result[Str] {
@@ -536,26 +377,6 @@ fn xsht_trace_jsonl_is_on_stderr() {
     assert!(stderr.contains("\"hot_commands\":"));
     assert!(stderr.contains("\"script_duration_us\":"));
 }
-
-#[test]
-fn xsht_trace_jsonl_includes_method_events_and_api_ids() {
-    let output = run_temp_script_with_args(
-        "method-trace-jsonl",
-        "let demo_path = Path(\"demo.txt\")\nprint ${demo_path.display()}\n",
-        ["--trace", "--raw", "--trace-format", "jsonl"],
-    );
-
-    assert!(output.status.success());
-    let stderr = String::from_utf8(output.stderr).unwrap();
-    assert!(stderr.contains("\"kind\":\"method.call\""), "{stderr}");
-    assert!(stderr.contains("\"kind\":\"method.result\""), "{stderr}");
-    assert!(
-        stderr.contains("\"api_id\":\"method.Path.display\""),
-        "{stderr}"
-    );
-    assert!(stderr.contains("\"api_id\":\"core.print\""), "{stderr}");
-}
-
 #[test]
 fn xsht_trace_file_keeps_runtime_stderr_separate() {
     let path = temp_xsh_path("trace-file");
@@ -641,84 +462,6 @@ fn process_failures_report_distinct_error_kinds() {
                 .contains("permission-denied")
         );
     }
-}
-
-#[test]
-fn trace_output_covers_baseline_event_kinds() {
-    let success = run_temp_script_with_args(
-        "trace-success",
-        "\
-let _term = process.signal(\"TERM\")?
-
-pure decorate(value: Str) -> Str {
-  return value
-}
-
-proc say(value: Str) -> Result[Unit] {
-  let rendered = decorate(value)
-  print ${rendered}
-  return Ok()
-}
-
-proc main(args: List[Str]) -> Result[Unit] {
-  say(\"traced\")?
-  cd tests {
-    run true ?
-  } ?
-  return Ok()
-}
-
-main(args)?
-",
-        ["--trace", "--raw"],
-    );
-    let propagated = xsht(["trace", "--raw", "examples/trace-error.xsh"]);
-    let runtime_error = run_temp_script_with_args(
-        "trace-runtime-error",
-        "\
-proc main(args: List[Str]) -> Result[Unit] {
-  let values = [\"only\"]
-  let missing = values[1]
-  return Ok()
-}
-
-main(args)?
-",
-        ["--trace", "--raw"],
-    );
-
-    assert!(success.status.success());
-    let success_trace = String::from_utf8(success.stderr).unwrap();
-    for kind in [
-        "kind=proc.enter",
-        "kind=proc.exit",
-        "kind=pure.enter",
-        "kind=pure.exit",
-        "kind=core.call",
-        "kind=core.result",
-        "kind=module.call",
-        "kind=module.result",
-        "kind=run.start",
-        "kind=run.end",
-        "kind=cwd.enter",
-        "kind=cwd.exit",
-    ] {
-        assert!(success_trace.contains(kind), "{kind}: {success_trace}");
-    }
-
-    assert_eq!(propagated.status.code(), Some(3));
-    assert!(
-        String::from_utf8(propagated.stderr)
-            .unwrap()
-            .contains("kind=result.propagate")
-    );
-
-    assert_eq!(runtime_error.status.code(), Some(3));
-    assert!(
-        String::from_utf8(runtime_error.stderr)
-            .unwrap()
-            .contains("kind=runtime.error")
-    );
 }
 
 #[test]
