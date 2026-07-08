@@ -1,22 +1,16 @@
 #![allow(clippy::single_call_fn)]
 
-use bytes::Bytes;
 use cap_net_ext::{Blocking, PoolExt, TcpListenerExt};
 use crossbeam_channel::RecvTimeoutError;
-use http_body_util::{BodyExt, Full};
-use hyper::body::Incoming;
-use hyper::{Request, Response, Uri};
-use hyper_rustls::ConfigBuilderExt;
-use hyper_rustls::HttpsConnector;
-use hyper_util::client::legacy::Client;
-use hyper_util::rt::{TokioExecutor, TokioIo};
 use rustc_hash::FxHashSet;
 use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
 use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
+use rustls::{ClientConnection, StreamOwned};
 use rustls::{ClientConfig, DigitallySignedStruct, RootCertStore, SignatureScheme};
+use rustls_platform_verifier::BuilderVerifierExt;
+use std::collections::HashMap;
 use std::ffi::{CStr, CString};
 use std::fs::{self, File, OpenOptions};
-use std::future::Future;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::io::{self, Read, Write};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, ToSocketAddrs, UdpSocket};
@@ -25,18 +19,9 @@ use std::os::fd::{FromRawFd, IntoRawFd};
 #[cfg(windows)]
 use std::os::windows::io::{FromRawSocket, IntoRawSocket};
 use std::path::{Path, PathBuf};
-use std::pin::Pin;
-use std::sync::Arc;
-use std::task::{Context, Poll};
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use tower_service::Service;
-
-type HyperClient = Client<HttpsConnector<CapNetConnector>, Full<Bytes>>;
-
-type ConnectorFuture = Pin<
-    Box<dyn Future<Output = Result<TokioIo<tokio::net::TcpStream>, io::Error>> + Send + 'static>,
->;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct NetError {
@@ -651,8 +636,10 @@ fn dns_io_error(error: io::Error) -> NetError {
 
 #[derive(Clone)]
 pub struct NetAgent {
-    client: HyperClient,
-    runtime: Arc<tokio::runtime::Runtime>,
+    tls_config: Arc<ClientConfig>,
+    pool: Arc<Mutex<HashMap<Origin, Vec<PooledConnection>>>>,
+    max_idle_per_host: usize,
+    idle_timeout: Duration,
 }
 
 impl std::fmt::Debug for NetAgent {
@@ -756,24 +743,12 @@ pub struct NetResponse {
 }
 
 pub fn make_agent(key: &NetAgentKey) -> NetResult<NetAgent> {
-    let runtime = tokio::runtime::Builder::new_multi_thread()
-        .enable_io()
-        .enable_time()
-        .build()
-        .map_err(|error| NetError::new("net-runtime", error.to_string()))?;
     let tls_config = tls_config_for_key(key)?;
-    let https = hyper_rustls::HttpsConnectorBuilder::new()
-        .with_tls_config(tls_config)
-        .https_or_http()
-        .enable_http1()
-        .wrap_connector(CapNetConnector);
-    let client = Client::builder(TokioExecutor::new())
-        .pool_idle_timeout(key.idle_timeout)
-        .pool_max_idle_per_host(key.max_idle_per_host)
-        .build(https);
     Ok(NetAgent {
-        client,
-        runtime: Arc::new(runtime),
+        tls_config: Arc::new(tls_config),
+        pool: Arc::new(Mutex::new(HashMap::new())),
+        max_idle_per_host: key.max_idle_per_host,
+        idle_timeout: key.idle_timeout,
     })
 }
 
@@ -784,7 +759,7 @@ pub fn request(agent: &NetAgent, request: NetRequest) -> NetResult<NetResponse> 
     let url = request.url.clone();
     let http_request = request_builder(&request)?;
     let response = run_request(agent, http_request, &config)?;
-    response_record(agent, response, max_body_bytes, &url, true)
+    response_record(response, max_body_bytes, &url, true)
 }
 
 pub fn download(agent: &NetAgent, download: NetDownload) -> NetResult<NetResponse> {
@@ -810,20 +785,15 @@ pub fn download(agent: &NetAgent, download: NetDownload) -> NetResult<NetRespons
     };
     let http_request = request_builder(&request)?;
     let response = run_request(agent, http_request, &request_config(&request))?;
-    let status = response.status().as_u16() as i64;
-    let reason = response
-        .status()
-        .canonical_reason()
-        .unwrap_or("")
-        .to_string();
-    let headers = response_headers(response.headers());
+    let status = response.status as i64;
+    let reason = response.reason.clone();
+    let headers = response.headers.clone();
     let output = if download.atomic {
         temp_download_path(&download.dest)
     } else {
         download.dest.clone()
     };
     let result = write_response_body(
-        agent,
         response,
         &output,
         request.max_body_bytes,
@@ -886,36 +856,35 @@ pub fn upload(agent: &NetAgent, upload: NetUpload) -> NetResult<NetResponse> {
     drop(file);
     let http_request = request_builder(&request)?;
     let response = run_request(agent, http_request, &request_config(&request))?;
-    response_record(agent, response, request.max_body_bytes, &request.url, false)
+    response_record(response, request.max_body_bytes, &request.url, false)
 }
 
-fn request_builder(request: &NetRequest) -> NetResult<Request<Full<Bytes>>> {
+fn request_builder(request: &NetRequest) -> NetResult<HttpRequest> {
     validate_method(&request.method, false)?;
-    let mut builder = Request::builder()
-        .method(request.method.as_str())
-        .uri(request.url.as_str());
     for header in &request.headers {
         if header.name.trim().is_empty() {
             return Err(NetError::new("net-header", "header name cannot be empty"));
         }
-        builder = builder.header(header.name.as_str(), header.value.as_str());
     }
-    builder
-        .body(Full::new(request_body_bytes(&request.body)?))
-        .map_err(|error| NetError::new("net-request", error.to_string()))
+    Ok(HttpRequest {
+        method: request.method.clone(),
+        url: UrlParts::parse(&request.url)?,
+        headers: request.headers.clone(),
+        body: request_body_bytes(&request.body)?,
+    })
 }
 
-fn request_body_bytes(body: &NetBody) -> NetResult<Bytes> {
+fn request_body_bytes(body: &NetBody) -> NetResult<Vec<u8>> {
     match body {
-        NetBody::Empty => Ok(Bytes::new()),
-        NetBody::Bytes(bytes) => Ok(Bytes::from(bytes.clone())),
+        NetBody::Empty => Ok(Vec::new()),
+        NetBody::Bytes(bytes) => Ok(bytes.clone()),
         NetBody::File(path) => {
             let mut file =
                 File::open(path).map_err(|error| NetError::from_io("net-body-file", error))?;
             let mut bytes = Vec::new();
             file.read_to_end(&mut bytes)
                 .map_err(|error| NetError::from_io("net-body-file", error))?;
-            Ok(Bytes::from(bytes))
+            Ok(bytes)
         }
     }
 }
@@ -931,87 +900,75 @@ fn request_config(request: &NetRequest) -> RequestConfig {
 
 fn run_request(
     agent: &NetAgent,
-    request: Request<Full<Bytes>>,
+    request: HttpRequest,
     config: &RequestConfig,
-) -> NetResult<Response<Incoming>> {
-    agent
-        .runtime
-        .block_on(run_request_async(agent.client.clone(), request, config))
-}
-
-async fn run_request_async(
-    client: HyperClient,
-    request: Request<Full<Bytes>>,
-    config: &RequestConfig,
-) -> NetResult<Response<Incoming>> {
-    let response = request_with_redirects(client, request, config).await?;
-    if config.fail_status && !response.status().is_success() {
+) -> NetResult<HttpResponse> {
+    let response = request_with_redirects(agent, request, config)?;
+    if config.fail_status && !(200..300).contains(&response.status) {
         return Err(NetError::new(
             "net-status",
-            format!("HTTP status {}", response.status().as_u16()),
+            format!("HTTP status {}", response.status),
         ));
     }
     Ok(response)
 }
 
-async fn request_with_redirects(
-    client: HyperClient,
-    mut request: Request<Full<Bytes>>,
+fn request_with_redirects(
+    agent: &NetAgent,
+    mut request: HttpRequest,
     config: &RequestConfig,
-) -> NetResult<Response<Incoming>> {
+) -> NetResult<HttpResponse> {
     for _ in 0..=config.redirects {
-        let response = send_once(client.clone(), request.clone(), config).await?;
-        if !is_redirect(response.status()) {
+        let response = send_once(agent, &request, config)?;
+        if !is_redirect(response.status) {
             return Ok(response);
         }
-        let Some(location) = response.headers().get(hyper::header::LOCATION).cloned() else {
+        let Some(location) = response
+            .headers
+            .iter()
+            .find(|header| header.name.eq_ignore_ascii_case("location"))
+            .map(|header| header.value.clone())
+        else {
             return Err(NetError::new(
                 "net-redirect",
                 "redirect missing Location header",
             ));
         };
-        let location = location
-            .to_str()
-            .map_err(|error| NetError::new("net-redirect", error.to_string()))?;
-        let uri = redirect_uri(request.uri(), location)?;
-        let (mut parts, body) = request.into_parts();
-        parts.uri = uri;
-        request = Request::from_parts(parts, body);
+        request.url = redirect_url(&request.url, &location)?;
     }
     Err(NetError::new("net-redirect", "too many redirects"))
 }
 
-async fn send_once(
-    client: HyperClient,
-    request: Request<Full<Bytes>>,
+fn send_once(
+    agent: &NetAgent,
+    request: &HttpRequest,
     config: &RequestConfig,
-) -> NetResult<Response<Incoming>> {
-    let future = client.request(request);
-    if let Some(timeout) = config.timeout.or(config.connect_timeout) {
-        tokio::time::timeout(timeout, future)
-            .await
-            .map_err(|_| NetError::new("net-timeout", "request timed out"))?
-            .map_err(hyper_error)
-    } else {
-        future.await.map_err(hyper_error)
+) -> NetResult<HttpResponse> {
+    let timeout = config.timeout.or(config.connect_timeout);
+    let deadline = timeout.and_then(|duration| SystemTime::now().checked_add(duration));
+    let mut connection = agent.connection(&request.url, timeout)?;
+    let result = connection.send(request, deadline);
+    match result {
+        Ok((response, reusable)) => {
+            if reusable {
+                agent.recycle(request.url.origin(), connection);
+            }
+            Ok(response)
+        }
+        Err(error) => Err(error),
     }
 }
 
 fn response_record(
-    agent: &NetAgent,
-    response: Response<Incoming>,
+    response: HttpResponse,
     max_body_bytes: u64,
     url: &str,
     include_body: bool,
 ) -> NetResult<NetResponse> {
-    let status = response.status().as_u16() as i64;
-    let reason = response
-        .status()
-        .canonical_reason()
-        .unwrap_or("")
-        .to_string();
-    let headers = response_headers(response.headers());
-    let body = collect_body(agent, response.into_body(), max_body_bytes)?;
+    let status = response.status as i64;
+    let reason = response.reason;
+    let headers = response.headers;
+    let body = limited_body(response.body, max_body_bytes)?;
     let bytes = body.len() as i64;
     Ok(NetResponse {
         status,
@@ -1024,14 +981,12 @@ fn response_record(
 }
 
 fn write_response_body(
-    agent: &NetAgent,
-    response: Response<Incoming>,
+    response: HttpResponse,
     path: &Path,
     limit: u64,
     overwrite: bool,
 ) -> NetResult<i64> {
-    let body = response.into_body();
-    let bytes = collect_body(agent, body, limit)?;
+    let bytes = limited_body(response.body, limit)?;
     let mut file = OpenOptions::new()
         .write(true)
         .create(true)
@@ -1044,42 +999,18 @@ fn write_response_body(
     Ok(bytes.len() as i64)
 }
 
-fn collect_body(agent: &NetAgent, body: Incoming, limit: u64) -> NetResult<Vec<u8>> {
-    agent.runtime.block_on(async move {
-        let collected = body.collect().await.map_err(hyper_error)?;
-        let bytes = collected.to_bytes();
-        if bytes.len() as u64 > limit {
-            return Err(NetError::new(
-                "net-body-limit",
-                "response body exceeds limit",
-            ));
-        }
-        Ok(bytes.to_vec())
-    })
-}
-
-fn response_headers(headers: &hyper::HeaderMap) -> Vec<NetHeader> {
-    headers
-        .iter()
-        .map(|(name, value)| NetHeader {
-            name: name.as_str().to_string(),
-            value: String::from_utf8_lossy(value.as_bytes()).into_owned(),
-        })
-        .collect()
+fn limited_body(body: Vec<u8>, limit: u64) -> NetResult<Vec<u8>> {
+    if body.len() as u64 > limit {
+        return Err(NetError::new(
+            "net-body-limit",
+            "response body exceeds limit",
+        ));
+    }
+    Ok(body)
 }
 
 fn validate_url(url: &str) -> NetResult<()> {
-    let uri = url
-        .parse::<Uri>()
-        .map_err(|error| NetError::new("net-url", error.to_string()))?;
-    match uri.scheme_str() {
-        Some("http" | "https") => Ok(()),
-        Some(_) => Err(NetError::new(
-            "net-scheme",
-            "URL scheme must be http or https",
-        )),
-        None => Err(NetError::new("net-url", "URL must include a scheme")),
-    }
+    UrlParts::parse(url).map(|_| ())
 }
 
 fn validate_method(method: &str, upload: bool) -> NetResult<()> {
@@ -1116,7 +1047,7 @@ fn load_ca_certs(path: &Path) -> NetResult<Vec<CertificateDer<'static>>> {
     Ok(certs)
 }
 
-fn hyper_error(error: impl std::error::Error) -> NetError {
+fn net_transport_error(error: io::Error) -> NetError {
     let message = error.to_string();
     let kind = if message.contains("dns-not-found") {
         "dns-not-found"
@@ -1157,7 +1088,7 @@ fn tls_config_for_key(key: &NetAgentKey) -> NetResult<ClientConfig> {
         builder.with_root_certificates(roots).with_no_client_auth()
     } else {
         builder
-            .try_with_platform_verifier()
+            .with_platform_verifier()
             .map_err(|error| NetError::new("net-tls", error.to_string()))?
             .with_no_client_auth()
     };
@@ -1172,41 +1103,402 @@ struct RequestConfig {
     fail_status: bool,
 }
 
-#[derive(Clone, Copy, Debug)]
-struct CapNetConnector;
+#[derive(Clone, Debug)]
+struct HttpRequest {
+    method: String,
+    url: UrlParts,
+    headers: Vec<NetHeader>,
+    body: Vec<u8>,
+}
 
-impl Service<Uri> for CapNetConnector {
-    type Response = TokioIo<tokio::net::TcpStream>;
-    type Error = io::Error;
-    type Future = ConnectorFuture;
+#[derive(Clone, Debug)]
+struct HttpResponse {
+    status: u16,
+    reason: String,
+    headers: Vec<NetHeader>,
+    body: Vec<u8>,
+}
 
-    fn poll_ready(&mut self, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        Poll::Ready(Ok(()))
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+struct Origin {
+    scheme: String,
+    host: String,
+    port: u16,
+}
+
+#[derive(Clone, Debug)]
+struct UrlParts {
+    scheme: String,
+    host: String,
+    port: u16,
+    path: String,
+}
+
+impl UrlParts {
+    fn parse(url: &str) -> NetResult<Self> {
+        let (scheme, rest) = url
+            .split_once("://")
+            .ok_or_else(|| NetError::new("net-url", "URL must include a scheme"))?;
+        if !matches!(scheme, "http" | "https") {
+            return Err(NetError::new(
+                "net-scheme",
+                "URL scheme must be http or https",
+            ));
+        }
+        let (authority, path) = match rest.find(['/', '?', '#']) {
+            Some(index) => (&rest[..index], &rest[index..]),
+            None => (rest, "/"),
+        };
+        if authority.is_empty() {
+            return Err(NetError::new("net-url", "URL must include a host"));
+        }
+        let default_port = if scheme == "https" { 443 } else { 80 };
+        let (host, port) = parse_authority(authority, default_port)?;
+        Ok(Self {
+            scheme: scheme.to_string(),
+            host,
+            port,
+            path: path.to_string(),
+        })
     }
 
-    fn call(&mut self, uri: Uri) -> Self::Future {
-        Box::pin(async move {
-            let addrs = resolve_uri_socket_addrs(&uri)?;
-            let stream = tokio::task::spawn_blocking(move || connect_cap_tcp_stream(addrs))
-                .await
-                .map_err(|error| io::Error::other(format!("net-connect: {error}")))??;
-            Ok(TokioIo::new(tokio::net::TcpStream::from_std(stream)?))
-        })
+    fn origin(&self) -> Origin {
+        Origin {
+            scheme: self.scheme.clone(),
+            host: self.host.clone(),
+            port: self.port,
+        }
+    }
+
+    fn authority(&self) -> String {
+        let default_port = if self.scheme == "https" { 443 } else { 80 };
+        let host = if self.host.contains(':') && !self.host.starts_with('[') {
+            format!("[{}]", self.host)
+        } else {
+            self.host.clone()
+        };
+        if self.port == default_port {
+            host
+        } else {
+            format!("{host}:{}", self.port)
+        }
     }
 }
 
-fn resolve_uri_socket_addrs(uri: &Uri) -> io::Result<Vec<SocketAddr>> {
-    let host = uri
-        .host()
-        .ok_or_else(|| io::Error::other("net-url: URL must include a host"))?;
-    let port = uri
-        .port_u16()
-        .or_else(|| match uri.scheme_str() {
-            Some("http") => Some(80),
-            Some("https") => Some(443),
-            _ => None,
-        })
-        .ok_or_else(|| io::Error::other("net-url: URL must include a port"))?;
+fn parse_authority(authority: &str, default_port: u16) -> NetResult<(String, u16)> {
+    if let Some(rest) = authority.strip_prefix('[') {
+        let (host, rest) = rest
+            .split_once(']')
+            .ok_or_else(|| NetError::new("net-url", "invalid IPv6 host"))?;
+        let port = if let Some(port) = rest.strip_prefix(':') {
+            port.parse::<u16>()
+                .map_err(|error| NetError::new("net-url", error.to_string()))?
+        } else if rest.is_empty() {
+            default_port
+        } else {
+            return Err(NetError::new("net-url", "invalid URL authority"));
+        };
+        return Ok((host.to_string(), port));
+    }
+    let (host, port) = match authority.rsplit_once(':') {
+        Some((host, port)) if !host.contains(':') => {
+            let port = port
+                .parse::<u16>()
+                .map_err(|error| NetError::new("net-url", error.to_string()))?;
+            (host, port)
+        }
+        _ => (authority, default_port),
+    };
+    if host.is_empty() {
+        return Err(NetError::new("net-url", "URL must include a host"));
+    }
+    Ok((host.to_string(), port))
+}
+
+struct PooledConnection {
+    connection: HttpConnection,
+    idle_since: SystemTime,
+}
+
+enum HttpConnection {
+    Plain(std::net::TcpStream),
+    Tls(Box<StreamOwned<ClientConnection, std::net::TcpStream>>),
+}
+
+impl NetAgent {
+    fn connection(&self, url: &UrlParts, timeout: Option<Duration>) -> NetResult<HttpConnection> {
+        let origin = url.origin();
+        if let Some(connection) = self.take_idle(&origin) {
+            connection.set_timeouts(timeout)?;
+            return Ok(connection);
+        }
+        let addrs = resolve_url_socket_addrs(url).map_err(net_transport_error)?;
+        let stream = connect_cap_tcp_stream(addrs).map_err(net_transport_error)?;
+        stream
+            .set_read_timeout(timeout)
+            .map_err(|error| NetError::from_io("net-io", error))?;
+        stream
+            .set_write_timeout(timeout)
+            .map_err(|error| NetError::from_io("net-io", error))?;
+        if url.scheme == "https" {
+            let server_name = ServerName::try_from(url.host.clone())
+                .map_err(|error| NetError::new("net-tls", error.to_string()))?;
+            let connection = ClientConnection::new(self.tls_config.clone(), server_name)
+                .map_err(|error| NetError::new("net-tls", error.to_string()))?;
+            Ok(HttpConnection::Tls(Box::new(StreamOwned::new(
+                connection, stream,
+            ))))
+        } else {
+            Ok(HttpConnection::Plain(stream))
+        }
+    }
+
+    fn take_idle(&self, origin: &Origin) -> Option<HttpConnection> {
+        let mut pool = self.pool.lock().ok()?;
+        let entries = pool.get_mut(origin)?;
+        let now = SystemTime::now();
+        while let Some(entry) = entries.pop() {
+            let fresh = now
+                .duration_since(entry.idle_since)
+                .map(|idle| idle <= self.idle_timeout)
+                .unwrap_or(true);
+            if fresh {
+                return Some(entry.connection);
+            }
+        }
+        None
+    }
+
+    fn recycle(&self, origin: Origin, connection: HttpConnection) {
+        let Ok(mut pool) = self.pool.lock() else {
+            return;
+        };
+        let entries = pool.entry(origin).or_default();
+        if entries.len() >= self.max_idle_per_host {
+            return;
+        }
+        entries.push(PooledConnection {
+            connection,
+            idle_since: SystemTime::now(),
+        });
+    }
+}
+
+impl HttpConnection {
+    fn set_timeouts(&self, timeout: Option<Duration>) -> NetResult<()> {
+        match self {
+            Self::Plain(stream) => set_stream_timeouts(stream, timeout),
+            Self::Tls(stream) => set_stream_timeouts(stream.get_ref(), timeout),
+        }
+    }
+
+    fn send(
+        &mut self,
+        request: &HttpRequest,
+        _deadline: Option<SystemTime>,
+    ) -> NetResult<(HttpResponse, bool)> {
+        self.write_request(request)?;
+        self.flush().map_err(net_transport_error)?;
+        let (response, reusable) = self.read_response(&request.method)?;
+        Ok((response, reusable))
+    }
+
+    fn write_request(&mut self, request: &HttpRequest) -> NetResult<()> {
+        let mut head = format!(
+            "{} {} HTTP/1.1\r\nHost: {}\r\nConnection: keep-alive\r\n",
+            request.method,
+            request.url.path,
+            request.url.authority()
+        );
+        let mut has_content_length = false;
+        for header in &request.headers {
+            if header.name.eq_ignore_ascii_case("content-length") {
+                has_content_length = true;
+            }
+            head.push_str(&header.name);
+            head.push_str(": ");
+            head.push_str(&header.value);
+            head.push_str("\r\n");
+        }
+        if !has_content_length {
+            head.push_str("Content-Length: ");
+            head.push_str(&request.body.len().to_string());
+            head.push_str("\r\n");
+        }
+        head.push_str("\r\n");
+        self.write_all(head.as_bytes()).map_err(net_transport_error)?;
+        if !request.body.is_empty() {
+            self.write_all(&request.body).map_err(net_transport_error)?;
+        }
+        Ok(())
+    }
+
+    fn read_response(&mut self, method: &str) -> NetResult<(HttpResponse, bool)> {
+        let header_bytes = self.read_header_block()?;
+        let header_text = String::from_utf8_lossy(&header_bytes);
+        let mut lines = header_text.split("\r\n");
+        let status_line = lines
+            .next()
+            .ok_or_else(|| NetError::new("net-protocol", "missing HTTP status line"))?;
+        let parts = status_line.splitn(3, ' ').collect::<Vec<_>>();
+        if parts.len() < 2 || !parts[0].starts_with("HTTP/") {
+            return Err(NetError::new("net-protocol", "invalid HTTP status line"));
+        }
+        let status = parts[1]
+            .parse::<u16>()
+            .map_err(|error| NetError::new("net-protocol", error.to_string()))?;
+        let reason = parts.get(2).copied().unwrap_or("").to_string();
+        let mut headers = Vec::new();
+        let mut content_length = None;
+        let mut chunked = false;
+        let mut connection_close = false;
+        for line in lines {
+            if line.is_empty() {
+                continue;
+            }
+            let Some((name, value)) = line.split_once(':') else {
+                continue;
+            };
+            let name = name.trim().to_string();
+            let value = value.trim().to_string();
+            if name.eq_ignore_ascii_case("content-length") {
+                content_length = value.parse::<usize>().ok();
+            }
+            if name.eq_ignore_ascii_case("transfer-encoding")
+                && value.to_ascii_lowercase().contains("chunked")
+            {
+                chunked = true;
+            }
+            if name.eq_ignore_ascii_case("connection")
+                && value.to_ascii_lowercase().contains("close")
+            {
+                connection_close = true;
+            }
+            headers.push(NetHeader { name, value });
+        }
+        let (body, framed) = if method == "HEAD" || matches!(status, 100..=199 | 204 | 304) {
+            (Vec::new(), true)
+        } else if chunked {
+            (self.read_chunked_body()?, true)
+        } else if let Some(length) = content_length {
+            (self.read_exact_vec(length)?, true)
+        } else {
+            (self.read_to_end_vec()?, false)
+        };
+        Ok((
+            HttpResponse {
+                status,
+                reason,
+                headers,
+                body,
+            },
+            framed && !connection_close,
+        ))
+    }
+
+    fn read_header_block(&mut self) -> NetResult<Vec<u8>> {
+        let mut bytes = Vec::new();
+        let mut byte = [0_u8; 1];
+        while !bytes.ends_with(b"\r\n\r\n") {
+            self.read_exact(&mut byte).map_err(net_transport_error)?;
+            bytes.push(byte[0]);
+            if bytes.len() > 64 * 1024 {
+                return Err(NetError::new("net-protocol", "HTTP headers too large"));
+            }
+        }
+        Ok(bytes)
+    }
+
+    fn read_line(&mut self) -> NetResult<String> {
+        let mut bytes = Vec::new();
+        let mut byte = [0_u8; 1];
+        while !bytes.ends_with(b"\r\n") {
+            self.read_exact(&mut byte).map_err(net_transport_error)?;
+            bytes.push(byte[0]);
+            if bytes.len() > 8192 {
+                return Err(NetError::new("net-protocol", "HTTP line too large"));
+            }
+        }
+        Ok(String::from_utf8_lossy(&bytes).trim_end().to_string())
+    }
+
+    fn read_chunked_body(&mut self) -> NetResult<Vec<u8>> {
+        let mut body = Vec::new();
+        loop {
+            let line = self.read_line()?;
+            let size_text = line.split(';').next().unwrap_or("").trim();
+            let size = usize::from_str_radix(size_text, 16)
+                .map_err(|error| NetError::new("net-protocol", error.to_string()))?;
+            if size == 0 {
+                loop {
+                    let trailer = self.read_line()?;
+                    if trailer.is_empty() {
+                        break;
+                    }
+                }
+                return Ok(body);
+            }
+            body.extend_from_slice(&self.read_exact_vec(size)?);
+            let mut crlf = [0_u8; 2];
+            self.read_exact(&mut crlf).map_err(net_transport_error)?;
+            if crlf != *b"\r\n" {
+                return Err(NetError::new("net-protocol", "invalid chunk terminator"));
+            }
+        }
+    }
+
+    fn read_exact_vec(&mut self, length: usize) -> NetResult<Vec<u8>> {
+        let mut body = vec![0_u8; length];
+        if length > 0 {
+            self.read_exact(&mut body).map_err(net_transport_error)?;
+        }
+        Ok(body)
+    }
+
+    fn read_to_end_vec(&mut self) -> NetResult<Vec<u8>> {
+        let mut body = Vec::new();
+        self.read_to_end(&mut body).map_err(net_transport_error)?;
+        Ok(body)
+    }
+}
+
+impl Read for HttpConnection {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        match self {
+            Self::Plain(stream) => stream.read(buf),
+            Self::Tls(stream) => stream.read(buf),
+        }
+    }
+}
+
+impl Write for HttpConnection {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        match self {
+            Self::Plain(stream) => stream.write(buf),
+            Self::Tls(stream) => stream.write(buf),
+        }
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        match self {
+            Self::Plain(stream) => stream.flush(),
+            Self::Tls(stream) => stream.flush(),
+        }
+    }
+}
+
+fn set_stream_timeouts(stream: &std::net::TcpStream, timeout: Option<Duration>) -> NetResult<()> {
+    stream
+        .set_read_timeout(timeout)
+        .map_err(|error| NetError::from_io("net-io", error))?;
+    stream
+        .set_write_timeout(timeout)
+        .map_err(|error| NetError::from_io("net-io", error))
+}
+
+fn resolve_url_socket_addrs(url: &UrlParts) -> io::Result<Vec<SocketAddr>> {
+    let host = &url.host;
+    let port = url.port;
     let addrs =
         resolve_socket_addrs(host, port, AddressFamily::Any, None).map_err(net_error_to_io)?;
     let addrs = addrs.into_iter().take(16).collect::<Vec<_>>();
@@ -1237,7 +1529,7 @@ fn connect_cap_tcp_addr(addr: SocketAddr) -> io::Result<std::net::TcpStream> {
     let mut pool = cap_std::net::Pool::new();
     pool.insert_socket_addr(addr, cap_std::ambient_authority());
     let stream = pool.connect_into_tcp_stream(socket, addr)?;
-    stream.set_nonblocking(true)?;
+    stream.set_nonblocking(false)?;
     Ok(cap_tcp_stream_into_std(stream))
 }
 
@@ -1259,36 +1551,25 @@ fn net_error_to_io(error: NetError) -> io::Error {
     io::Error::other(format!("{}: {}", error.kind, error.message))
 }
 
-fn is_redirect(status: hyper::StatusCode) -> bool {
-    matches!(status.as_u16(), 301 | 302 | 303 | 307 | 308)
+fn is_redirect(status: u16) -> bool {
+    matches!(status, 301 | 302 | 303 | 307 | 308)
 }
 
-fn redirect_uri(base: &Uri, location: &str) -> NetResult<Uri> {
-    if let Ok(uri) = location.parse::<Uri>()
-        && uri.scheme().is_some()
-    {
-        validate_url(location)?;
-        return Ok(uri);
+fn redirect_url(base: &UrlParts, location: &str) -> NetResult<UrlParts> {
+    if location.contains("://") {
+        return UrlParts::parse(location);
     }
-    let scheme = base
-        .scheme_str()
-        .ok_or_else(|| NetError::new("net-redirect", "base URL missing scheme"))?;
-    let authority = base
-        .authority()
-        .ok_or_else(|| NetError::new("net-redirect", "base URL missing authority"))?;
     let path = if location.starts_with('/') {
         location.to_string()
     } else {
-        let base_path = base.path();
-        let parent = base_path
+        let parent = base
+            .path
             .rsplit_once('/')
             .map(|(parent, _)| parent)
             .unwrap_or("");
         format!("{parent}/{location}")
     };
-    format!("{scheme}://{authority}{path}")
-        .parse::<Uri>()
-        .map_err(|error| NetError::new("net-redirect", error.to_string()))
+    UrlParts::parse(&format!("{}://{}{}", base.scheme, base.authority(), path))
 }
 
 #[derive(Debug)]

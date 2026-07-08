@@ -23,13 +23,10 @@ use std::path::{Path, PathBuf};
 const BUFFER_SIZE: usize = 64 * 1024;
 
 fn block_on_archive<T>(
-    span: Span,
+    _span: Span,
     future: impl Future<Output = Result<T, RuntimeError>>,
 ) -> Result<T, RuntimeError> {
-    tokio::runtime::Builder::new_multi_thread()
-        .build()
-        .map_err(|error| RuntimeError::new("archive-runtime", error.to_string()).with_span(span))?
-        .block_on(future)
+    futures_lite::future::block_on(future)
 }
 
 pub(crate) fn compress_file(
