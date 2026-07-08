@@ -187,7 +187,7 @@ pure parse_getty_args(argv: List[Str]) -> Result[GettyOptions] {
 
 proc run_external_login(options: GettyOptions, username: Str) [process, error] -> Result[Int] {
   let login = if options.login == "" { process.which("login")?.display() } else { options.login }
-  var argv: List[Str] = [login]
+  var argv = [login]
 
   if options.host != "" {
     argv = argv.push("-h")
