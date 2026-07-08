@@ -10,15 +10,15 @@ use crate::modules::compression::{
 use crate::runtime::process::path_bytes;
 use crate::runtime::value::{PathValue, RuntimeError, Value};
 use crate::source::Span;
+use astral_futures_tar::{Archive, Builder, EntryType, Header};
+use futures_lite::StreamExt;
+use futures_lite::io::{AsyncRead, AsyncWrite, copy, empty};
 use std::collections::BTreeMap;
-use std::fs;
+use std::fs::{self, File};
 use std::io::Write;
-use std::os::unix::fs::{PermissionsExt, symlink};
+use std::os::unix::fs::{FileTypeExt, MetadataExt, PermissionsExt, symlink};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use tokio::io::AsyncRead;
-use tokio_stream::StreamExt;
-use tokio_tar::{Archive, Builder, EntryType};
 
 use super::{archive_error, block_on_archive};
 
@@ -163,17 +163,7 @@ async fn tar_create_async(
         collect_create_entry(&source, &archive_name, span, &mut create_entries)?;
     }
     for entry in create_entries {
-        if entry.is_dir {
-            builder
-                .append_dir(&entry.archive_name, &entry.source)
-                .await
-                .map_err(|error| archive_error("archive-create", error, span))?;
-        } else {
-            builder
-                .append_path_with_name(&entry.source, &entry.archive_name)
-                .await
-                .map_err(|error| archive_error("archive-create", error, span))?;
-        }
+        append_create_entry(&mut builder, &entry, span).await?;
     }
     let writer = builder
         .into_inner()
@@ -187,7 +177,6 @@ async fn tar_create_async(
 struct CreateEntry {
     source: PathBuf,
     archive_name: PathBuf,
-    is_dir: bool,
 }
 
 fn collect_create_entry(
@@ -215,11 +204,11 @@ fn collect_create_entry_with_meta(
             .map_err(|error| archive_error("archive-create", error, span))?;
         dir_entries.sort_unstable_by_key(|entry| entry.file_name());
         for entry in dir_entries {
-            let child_meta = entry
-                .metadata()
+            let child_path = entry.path();
+            let child_meta = fs::symlink_metadata(&child_path)
                 .map_err(|error| archive_error("archive-create", error, span))?;
             collect_create_entry_with_meta(
-                &entry.path(),
+                &child_path,
                 &PathBuf::from(entry.file_name()),
                 &child_meta,
                 span,
@@ -232,7 +221,6 @@ fn collect_create_entry_with_meta(
         entries.push(CreateEntry {
             source: source.to_path_buf(),
             archive_name: archive_name.to_path_buf(),
-            is_dir: true,
         });
         let mut dir_entries = fs::read_dir(source)
             .map_err(|error| archive_error("archive-create", error, span))?
@@ -240,11 +228,11 @@ fn collect_create_entry_with_meta(
             .map_err(|error| archive_error("archive-create", error, span))?;
         dir_entries.sort_unstable_by_key(|entry| entry.file_name());
         for entry in dir_entries {
-            let child_meta = entry
-                .metadata()
+            let child_path = entry.path();
+            let child_meta = fs::symlink_metadata(&child_path)
                 .map_err(|error| archive_error("archive-create", error, span))?;
             collect_create_entry_with_meta(
-                &entry.path(),
+                &child_path,
                 &archive_name.join(entry.file_name()),
                 &child_meta,
                 span,
@@ -256,13 +244,94 @@ fn collect_create_entry_with_meta(
     entries.push(CreateEntry {
         source: source.to_path_buf(),
         archive_name: archive_name.to_path_buf(),
-        is_dir: false,
     });
     Ok(())
 }
 
+async fn append_create_entry<W: AsyncWrite + Unpin + Send>(
+    builder: &mut Builder<W>,
+    entry: &CreateEntry,
+    span: Span,
+) -> Result<(), RuntimeError> {
+    let metadata = fs::symlink_metadata(&entry.source)
+        .map_err(|error| archive_error("archive-create", error, span))?;
+    let file_type = metadata.file_type();
+    let mut header = Header::new_gnu();
+    header.set_metadata(&metadata);
+
+    if file_type.is_file() {
+        let file =
+            File::open(&entry.source).map_err(|error| archive_error("archive-create", error, span))?;
+        builder
+            .append_data(
+                &mut header,
+                &entry.archive_name,
+                BlockingAsyncIo::new(file),
+            )
+            .await
+            .map_err(|error| archive_error("archive-create", error, span))?;
+        return Ok(());
+    }
+
+    if file_type.is_dir() {
+        builder
+            .append_data(&mut header, &entry.archive_name, empty())
+            .await
+            .map_err(|error| archive_error("archive-create", error, span))?;
+        return Ok(());
+    }
+
+    if file_type.is_symlink() {
+        let target = fs::read_link(&entry.source)
+            .map_err(|error| archive_error("archive-create", error, span))?;
+        builder
+            .append_link_data(&mut header, &entry.archive_name, &target, empty())
+            .await
+            .map_err(|error| archive_error("archive-create", error, span))?;
+        return Ok(());
+    }
+
+    append_special_create_entry(builder, &entry.source, &entry.archive_name, &metadata, header, span)
+        .await
+}
+
+async fn append_special_create_entry<W: AsyncWrite + Unpin + Send>(
+    builder: &mut Builder<W>,
+    source: &Path,
+    archive_name: &Path,
+    metadata: &fs::Metadata,
+    mut header: Header,
+    span: Span,
+) -> Result<(), RuntimeError> {
+    let file_type = metadata.file_type();
+    if file_type.is_socket() {
+        return Err(RuntimeError::new("archive-create", "socket cannot be archived").with_span(span));
+    }
+    if file_type.is_char_device() || file_type.is_block_device() {
+        let dev_id = metadata.rdev();
+        let dev_major = ((dev_id >> 32) & 0xffff_f000) | ((dev_id >> 8) & 0x0000_0fff);
+        let dev_minor = ((dev_id >> 12) & 0xffff_ff00) | (dev_id & 0x0000_00ff);
+        header
+            .set_device_major(dev_major as u32)
+            .map_err(|error| archive_error("archive-create", error, span))?;
+        header
+            .set_device_minor(dev_minor as u32)
+            .map_err(|error| archive_error("archive-create", error, span))?;
+    } else if !file_type.is_fifo() {
+        return Err(RuntimeError::new(
+            "archive-create",
+            format!("{} has unknown file type", source.display()),
+        )
+        .with_span(span));
+    }
+    builder
+        .append_data(&mut header, archive_name, empty())
+        .await
+        .map_err(|error| archive_error("archive-create", error, span))
+}
+
 async fn extract_entry<R: AsyncRead + Unpin>(
-    entry: &mut tokio_tar::Entry<R>,
+    entry: &mut astral_futures_tar::Entry<R>,
     dest: &Path,
     path: &Path,
     overwrite: bool,
@@ -315,7 +384,7 @@ async fn extract_entry<R: AsyncRead + Unpin>(
             .open(&output)
             .map_err(|error| archive_error("archive-extract", error, span))?;
         let mut async_output = BlockingAsyncIo::new(file);
-        tokio::io::copy(entry, &mut async_output)
+        copy(&mut *entry, &mut async_output)
             .await
             .map_err(|error| archive_error("archive-extract", error, span))?;
         file = async_output.into_inner();
@@ -328,7 +397,7 @@ async fn extract_entry<R: AsyncRead + Unpin>(
 
 fn set_entry_mode<R: AsyncRead + Unpin>(
     output: &Path,
-    entry: &tokio_tar::Entry<R>,
+    entry: &astral_futures_tar::Entry<R>,
     span: Span,
 ) -> Result<(), RuntimeError> {
     let mode = entry
@@ -340,7 +409,7 @@ fn set_entry_mode<R: AsyncRead + Unpin>(
 }
 
 fn archive_entry_record<R: AsyncRead + Unpin>(
-    entry: &tokio_tar::Entry<R>,
+    entry: &astral_futures_tar::Entry<R>,
     span: Span,
 ) -> Result<Value, RuntimeError> {
     let header = entry.header();

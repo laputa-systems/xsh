@@ -70,8 +70,8 @@ perf-metrics = ["dep:libmimalloc-sys"]
 tools = []
 
 [dependencies]
-astral-tokio-tar = { version = "0.6.2", default-features = false }
-astral_async_zip = { version = "0.0.18", default-features = false, features = ["full"] }
+astral-futures-tar = { path = "../astral-futures-tar", default-features = false, features = ["futures"] }
+astral_async_zip = { version = "0.0.18", default-features = false, features = ["deflate"] }
 bzip2 = "0.6.1"
 cap-directories = "4.0.2"
 cap-fs-ext = "4.0.2"
@@ -104,8 +104,6 @@ sha1 = "0.11"
 sha2 = "0.11"
 smallvec = "1.15.2"
 tempfile = "3"
-tokio = { version = "1", default-features = false, features = ["fs", "io-util", "net", "rt", "rt-multi-thread", "time"] }
-tokio-stream = { version = "0.1", default-features = false }
 xsh-net = { path = "crates/xsh-net", optional = true }
 xsh-registry = { path = "crates/xsh-registry" }
 

@@ -5,117 +5,80 @@ XSH does not want an async task runtime as part of the language runtime model.
 boundary deliberately: XSH coordinates processes, files, streams, and focused
 host APIs rather than exposing an application event loop.
 
-Tokio is still present today because several selected host-library APIs are
-Tokio-shaped. This file tracks what is actually required, what can be narrowed,
-and what is out of scope unless the dependency choice changes.
+Tokio is not part of XSH's resolved dependency graph. This file records the
+choices that keep it that way and the verification commands that should stay
+green when archive or network dependencies change.
 
 ## Current Direct Uses
 
-- `src/modules/archive/mod.rs` creates a Tokio runtime for archive operations.
-- `src/modules/archive/tar.rs` uses `tokio_tar`, `tokio::io`, and
-  `tokio_stream::StreamExt`.
-- `src/modules/archive/zip.rs` uses `async_zip::tokio::read::fs::ZipFileReader`
-  and `tokio::task::JoinSet`.
-- `src/modules/compression.rs` implements Tokio `AsyncRead` and `AsyncWrite`
-  adapters over blocking readers and writers for archive code.
-- `crates/xsh-net/src/lib.rs` stores a Tokio runtime in `NetAgent` and uses
-  Hyper through `hyper-util`'s Tokio executor and I/O adapter.
+- `src/modules/archive/tar.rs` uses `astral_futures_tar` with the crate's
+  futures backend.
+- `src/modules/archive/zip.rs` uses `astral_async_zip`'s base `futures` I/O API.
+- `src/modules/compression.rs` implements futures `AsyncRead` and `AsyncWrite`
+  adapters over blocking readers and writers for tar archive code.
+- `crates/xsh-net/src/lib.rs` uses a small blocking HTTP/1.1 transport with
+  Rustls for HTTPS and an internal per-origin idle connection pool.
 
 ## Dependency Reality
 
-`astral-tokio-tar` does not support an alternative async runtime. It directly
-depends on `tokio` and `tokio-stream`, and its public API is Tokio-oriented.
-Replacing it with a synchronous or non-Tokio tar implementation is a larger
-archive dependency decision and is not part of the current cleanup scope.
+Tar handling uses the local `astral-futures-tar` port with
+`default-features = false` and `features = ["futures"]`, removing the tar path's
+Tokio and `tokio-stream` requirements while keeping the existing archive module
+surface.
 
-`astral_async_zip` does have a non-Tokio base API built on `futures` I/O traits.
-Our current `features = ["full"]` enables `tokio-fs`, and our code uses the
-Tokio filesystem reader. This can likely be narrowed without replacing the
-crate.
+`astral_async_zip` is configured with only ZIP deflate support and without
+`tokio` or `tokio-fs`. XSH reads ZIP files into memory and uses the base
+`futures` reader, preserving ordinary stored/deflated ZIP list/extract behavior
+without a Tokio archive runtime.
 
-`xsh-net` currently depends on Tokio structurally:
+`xsh-net` no longer depends on Hyper, `hyper-util`, `hyper-rustls`, or Tokio.
+Its transport keeps the existing language-facing API while making the runtime
+boundary explicit:
 
-- `hyper` is mostly runtime-agnostic, but our client stack uses `hyper-util`.
-- `hyper-util`'s client features enable Tokio networking, synchronization,
-  runtime, and timers.
-- `hyper-rustls` depends on `hyper-util` with Tokio support and on
-  `tokio-rustls`.
-- `tokio-rustls` is Tokio-specific.
+- DNS and TCP connection setup remain capability-aware.
+- HTTP is HTTP/1.1 only.
+- HTTPS uses `rustls` directly with either platform verification, a caller
+  supplied CA bundle, or explicit verification disabling.
+- Request, connect, and read/write timeouts use blocking socket timeouts.
+- Redirects, response body limits, upload bodies, atomic downloads, and
+  overwrite policy stay in `xsh-net`.
+- Idle connection reuse is handled by a small per-origin pool keyed by scheme,
+  host, and port.
 
-Keeping `xsh-net` on the current Hyper/Rustls stack means keeping Tokio.
-Replacing Tokio there would mean choosing or building a different HTTP/TLS
-transport, not simply swapping `tokio` for `futures-lite`.
+## Maintenance Direction
 
-## Cleanup Direction
+The practical goal is to keep XSH's host helpers free of a general async task
+runtime while still using focused libraries where they fit.
 
-The practical goal is to minimize XSH's direct Tokio surface while accepting the
-Tokio dependency where selected crates require it.
+Watch points:
 
-Near-term cleanup candidates:
-
-1. Remove the direct `tokio-stream` dependency from `Cargo.toml` if tar entry
-   iteration can use an already-present stream extension trait. This will not
-   remove `tokio-stream` from the dependency graph while `astral-tokio-tar`
-   remains, but it avoids declaring it as an XSH dependency.
-2. Move ZIP handling away from `async_zip`'s `tokio-fs` path and onto the base
-   `futures` I/O API. This should remove the `astral_async_zip -> tokio` and
-   `astral_async_zip -> tokio-util` edges if feature selection is kept explicit.
-3. Keep `tokio` as a direct dependency as long as archive tar support and
-   `xsh-net` use their current libraries.
-
-Out of scope for this cleanup:
-
-- Replacing `astral-tokio-tar`.
-- Removing or disabling `xsh-net`.
-- Rewriting HTTP/TLS transport away from Hyper, `hyper-rustls`, and
-  `tokio-rustls`.
+- Do not re-enable `astral_async_zip`'s `full`, `tokio`, or `tokio-fs`
+  features. Add non-deflate ZIP compression features only if XSH intentionally
+  supports those ZIP entry methods.
+- Do not switch `astral_futures_tar` back to its default Tokio feature set.
+- Do not add HTTP client crates that hide a Tokio runtime or pull in
+  `tokio-rustls` unless the architectural tradeoff is explicit.
+- Keep network behavior covered by tests for redirects, timeouts, TLS verify
+  on/off, custom CA files, body limits, download overwrite/atomic behavior,
+  upload bodies, and connection reuse.
 
 ## Async HTTPS Without Tokio
 
-Removing Tokio from `xsh-net` does not mean removing async HTTPS. It means
-choosing a different async I/O runtime and HTTP/TLS stack. `futures-lite` or
-`futures` can provide traits and utilities, but sockets, timers, spawning, and
-driving readiness still need a runtime such as `smol`/`async-io`, `async-std`,
-or a custom reactor.
+The implemented transport is not async. That is intentional for now: XSH does
+not need a process-wide async task runtime to issue ordinary HTTP requests from
+scripts. Blocking sockets with explicit timeouts preserve the language runtime
+boundary and avoid introducing an application event loop.
 
-Plausible approaches:
+If XSH later needs truly async HTTPS inside `xsh-net`, that should be treated as
+a new transport decision rather than a Tokio dependency cleanup. The likely
+options are:
 
-| Option | Shape | Pros | Cons |
-|---|---|---|---|
-| Hyper without Tokio | Keep `hyper`, replace `hyper-util`'s Tokio adapter and `tokio-rustls` with custom runtime glue over `smol`/`async-io` plus non-Tokio Rustls. | Best HTTP protocol quality; keeps low-level control; preserves current request/response model. | Highest engineering cost; requires executor, timer, I/O, TLS, connector, and likely pool work. |
-| `async-h1` plus Rustls | Use `async-h1` for HTTP/1.1, `async-io`/`smol` for sockets, and `futures-rustls` or `async-tls` for HTTPS. | Smaller stack; naturally non-Tokio; easy to reason about. | HTTP/1.1 only; more client behavior becomes ours, including pooling and connection reuse edge cases. |
-| `surf` or `http-client` h1 backend | Use the higher-level `async-h1`/Rustls backend exposed by those crates. | Fastest experiment for non-Tokio async HTTPS. | Adds an abstraction layer that may fight XSH's capability-aware connector, TLS policy, and error classification. |
-| `isahc` / libcurl | Use libcurl through a runtime-agnostic async Rust API. | Mature HTTP behavior, HTTP/2 support, redirects, timeouts, pooling, and TLS handled by libcurl. | Native C dependency; harder to preserve capability-aware DNS/connect behavior and Rustls-specific TLS policy. |
-
-The best first spike is Hyper without Tokio. Hyper itself exposes runtime traits
-for executors, timers, and I/O transports; the Tokio coupling comes from our
-current `hyper-util`, `hyper-rustls`, and `tokio-rustls` path. A non-Tokio Hyper
-transport keeps us closest to the current design while preserving control over:
-
-- capability-aware DNS and TCP connect behavior;
-- custom CA files and TLS verification mode;
-- redirects and request timeout semantics;
-- body size limits;
-- atomic downloads and overwrite policy;
-- upload body handling;
-- XSH-specific error kind classification.
-
-The likely hard part is connection pooling. Hyper's convenient pooled client is
-currently reached through `hyper-util`'s Tokio-oriented client stack. A
-non-Tokio Hyper transport may need to use lower-level connection handshakes and
-own a small HTTP/1 connection pool inside `xsh-net`.
-
-Suggested sequence:
-
-1. Add an internal `HttpTransport` boundary in `xsh-net`, with the current Tokio
-   Hyper implementation behind it.
-2. Lock current behavior with focused tests for redirects, timeouts, TLS verify
-   on/off, custom CA files, body limits, download overwrite/atomic behavior, and
-   upload bodies.
-3. Prototype a `smol`/`async-io` plus Hyper HTTP/1 plus non-Tokio Rustls
-   transport.
-4. If Hyper runtime glue becomes too large or fragile, compare the prototype
-   against an `async-h1` transport before committing to the larger rewrite.
+| Option | Shape | Tradeoff |
+|---|---|---|
+| Keep blocking HTTP/1.1 | Maintain the current Rustls transport and idle pool. | Smallest dependency surface; HTTP/1.1 only. |
+| Hyper without Tokio | Add custom runtime glue over another reactor plus non-Tokio Rustls. | Best protocol quality, highest implementation cost. |
+| `async-h1` plus Rustls | Use `async-io`/`smol` sockets and a smaller HTTP/1.1 stack. | Natural non-Tokio fit, but more client behavior remains ours. |
+| `isahc` / libcurl | Delegate HTTP behavior to libcurl. | Mature behavior, but adds a native C dependency and weakens Rustls-specific policy control. |
 
 ## Verification Commands
 
@@ -124,11 +87,14 @@ Useful dependency checks:
 ```sh
 cargo tree -i tokio
 cargo tree -i tokio-stream
+cargo tree -i hyper
+cargo tree -i hyper-rustls
 cargo tree -i futures-lite
+cargo tree -i astral-futures-tar
 cargo tree -e features -i tokio
 ```
 
-Useful behavior checks after archive dependency cleanup:
+Useful behavior checks after archive or network dependency cleanup:
 
 ```sh
 cargo test --test runtime archive

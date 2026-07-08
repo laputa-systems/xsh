@@ -6,13 +6,13 @@ use bzip2::write::BzEncoder;
 use flate2::Compression as GzipCompression;
 use flate2::bufread::MultiGzDecoder;
 use flate2::write::GzEncoder;
+use futures_lite::io::{AsyncRead, AsyncWrite};
 use lzma_rust2::{LzmaOptions, LzmaReader, LzmaWriter, XzOptions, XzReader, XzWriter};
 use std::fs::{self, File};
 use std::io::{self, BufRead, BufReader, BufWriter, Read, Write};
 use std::path::Path;
 use std::pin::Pin;
 use std::task::{Context, Poll};
-use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
 const BUFFER_SIZE: usize = 64 * 1024;
 const DEFAULT_LEVEL: u32 = 6;
@@ -44,15 +44,9 @@ impl<T: Read + Unpin> AsyncRead for BlockingAsyncIo<T> {
     fn poll_read(
         mut self: Pin<&mut Self>,
         _cx: &mut Context<'_>,
-        buf: &mut ReadBuf<'_>,
-    ) -> Poll<io::Result<()>> {
-        match self.inner.read(buf.initialize_unfilled()) {
-            Ok(read) => {
-                buf.advance(read);
-                Poll::Ready(Ok(()))
-            }
-            Err(error) => Poll::Ready(Err(error)),
-        }
+        buf: &mut [u8],
+    ) -> Poll<io::Result<usize>> {
+        Poll::Ready(self.inner.read(buf))
     }
 }
 
@@ -69,7 +63,7 @@ impl<T: Write + Unpin> AsyncWrite for BlockingAsyncIo<T> {
         Poll::Ready(self.inner.flush())
     }
 
-    fn poll_shutdown(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+    fn poll_close(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         Poll::Ready(self.inner.flush())
     }
 }

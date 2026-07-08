@@ -4,19 +4,17 @@ use crate::modules::archive::policy::{
 use crate::runtime::process::path_bytes;
 use crate::runtime::value::{PathValue, RuntimeError, Value};
 use crate::source::Span;
-use async_zip::{StoredZipEntry, tokio::read::fs::ZipFileReader};
+use async_zip::{StoredZipEntry, base::read::mem::ZipFileReader};
 use futures_lite::io::AsyncReadExt;
 use std::fmt;
 use std::fs;
-use std::io::Write;
+use std::io::{Read, Write};
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use tokio::task::JoinSet;
 
 use super::{BUFFER_SIZE, archive_error, block_on_archive};
 
-const ZIP_EXTRACT_CONCURRENCY: usize = 4;
 const ZIP_EXTRACT_KIND: &str = "archive-zip-extract";
 
 pub(crate) fn zip_list(path: PathBuf, span: Span) -> Result<Vec<Value>, RuntimeError> {
@@ -24,9 +22,7 @@ pub(crate) fn zip_list(path: PathBuf, span: Span) -> Result<Vec<Value>, RuntimeE
 }
 
 async fn zip_list_async(path: PathBuf, span: Span) -> Result<Vec<Value>, RuntimeError> {
-    let reader = ZipFileReader::new(path)
-        .await
-        .map_err(|error| zip_runtime_error("archive-zip-open", error, span))?;
+    let reader = zip_reader(path, "archive-zip-open", span).await?;
     reader
         .file()
         .entries()
@@ -50,9 +46,7 @@ async fn zip_extract_async(
     overwrite: bool,
     span: Span,
 ) -> Result<(), RuntimeError> {
-    let reader = ZipFileReader::new(path)
-        .await
-        .map_err(|error| zip_runtime_error("archive-zip-open", error, span))?;
+    let reader = zip_reader(path, "archive-zip-open", span).await?;
     fs::create_dir_all(&dest).map_err(|error| archive_error(ZIP_EXTRACT_KIND, error, span))?;
     let plan = extraction_plan(&reader, &dest, overwrite, span)?;
     for output in &plan.dirs {
@@ -66,35 +60,14 @@ async fn extract_files(
     files: Vec<ZipFilePlan>,
     span: Span,
 ) -> Result<(), RuntimeError> {
-    let mut pending = files.into_iter();
-    let mut tasks = JoinSet::new();
-    loop {
-        while tasks.len() < ZIP_EXTRACT_CONCURRENCY {
-            let Some(file) = pending.next() else {
-                break;
-            };
-            tasks.spawn(extract_file(reader.clone(), file, span));
-        }
-        let Some(result) = tasks.join_next().await else {
-            break;
-        };
-        match result {
-            Ok(Ok(())) => {}
-            Ok(Err(error)) => {
-                tasks.abort_all();
-                return Err(error);
-            }
-            Err(error) => {
-                tasks.abort_all();
-                return Err(zip_runtime_error(ZIP_EXTRACT_KIND, error, span));
-            }
-        }
+    for file in files {
+        extract_file(&reader, file, span).await?;
     }
     Ok(())
 }
 
 async fn extract_file(
-    reader: ZipFileReader,
+    reader: &ZipFileReader,
     file: ZipFilePlan,
     span: Span,
 ) -> Result<(), RuntimeError> {
@@ -130,6 +103,21 @@ async fn extract_file(
             .map_err(|error| archive_error(ZIP_EXTRACT_KIND, error, span))?;
     }
     Ok(())
+}
+
+async fn zip_reader(
+    path: PathBuf,
+    kind: &str,
+    span: Span,
+) -> Result<ZipFileReader, RuntimeError> {
+    let mut input = fs::File::open(path).map_err(|error| archive_error(kind, error, span))?;
+    let mut data = Vec::new();
+    input
+        .read_to_end(&mut data)
+        .map_err(|error| archive_error(kind, error, span))?;
+    ZipFileReader::new(data)
+        .await
+        .map_err(|error| zip_runtime_error(kind, error, span))
 }
 
 #[derive(Debug)]
