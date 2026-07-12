@@ -43,7 +43,7 @@ proc test_tee_reads_stdin_and_appends(ctx: TestContext) [fs, process, env, error
   out.write("""first
 """)?
 
-  let stdout = run.text xsh_bin() core_script("tee.xsh") < ${input} -- -a $out ?
+  let stdout = run.text xsh_bin() core_script("tee.xsh") -- -a $out < ${input} ?
 
   test.eq(
     stdout,

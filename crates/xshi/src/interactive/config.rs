@@ -156,37 +156,6 @@ fn apply_config_env(session: &mut Session, value: &Value, stderr: &mut dyn Write
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use super::super::session::set_env_bytes;
-    use std::sync::Arc;
-    use xsh::runtime::value::RecordMap;
-
-    #[test]
-    fn apply_config_env_uppercases_lowered_ini_keys() {
-        let mut session = Session::new();
-        set_env_bytes(&mut session.env, b"PATH", b"/usr/bin");
-        set_env_bytes(&mut session.env, b"HOME", b"/home/user");
-
-        let mut section = RecordMap::new();
-        section.insert(
-            Arc::from("path"),
-            Value::Str("$HOME/.cargo/bin:$PATH".into()),
-        );
-        let value = Value::Record(section);
-
-        apply_config_env(&mut session, &value, &mut Vec::new());
-
-        assert_eq!(
-            session.env.get(b"PATH".as_slice()).map(|v| String::from_utf8_lossy(v).to_string()),
-            Some("/home/user/.cargo/bin:/usr/bin".to_string()),
-            "config key 'path' must be stored as uppercase 'PATH' \
-             so standard tools and $PATH expansion see it",
-        );
-    }
-}
-
 fn expand_config_vars(session: &Session, value: &str) -> String {
     let mut out = String::new();
     let mut chars = value.chars().peekable();
@@ -238,5 +207,39 @@ fn apply_config_aliases(session: &mut Session, value: &Value, stderr: &mut dyn W
         } else {
             writeln!(stderr, "xshi: skipping invalid alias entry").ok();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::session::set_env_bytes;
+    use super::*;
+    use std::sync::Arc;
+    use xsh::runtime::value::RecordMap;
+
+    #[test]
+    fn apply_config_env_uppercases_lowered_ini_keys() {
+        let mut session = Session::new();
+        set_env_bytes(&mut session.env, b"PATH", b"/usr/bin");
+        set_env_bytes(&mut session.env, b"HOME", b"/home/user");
+
+        let mut section = RecordMap::new();
+        section.insert(
+            Arc::from("path"),
+            Value::Str("$HOME/.cargo/bin:$PATH".into()),
+        );
+        let value = Value::Record(section);
+
+        apply_config_env(&mut session, &value, &mut Vec::new());
+
+        assert_eq!(
+            session
+                .env
+                .get(b"PATH".as_slice())
+                .map(|v| String::from_utf8_lossy(v).to_string()),
+            Some("/home/user/.cargo/bin:/usr/bin".to_string()),
+            "config key 'path' must be stored as uppercase 'PATH' \
+             so standard tools and $PATH expansion see it",
+        );
     }
 }
