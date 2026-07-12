@@ -6,7 +6,10 @@ use crate::xsht::cli::{
 use crate::xsht::test::{TestOptions, test_scripts};
 use std::process::ExitCode;
 use xsh::perf::{AllocationSnapshot, allocation_metrics_requested, allocation_snapshot};
-use xsh::runtime::process::{clear_cancellation_request, install_cancellation_signal_handlers};
+use xsh::runtime::process::{
+    clear_cancellation_request, install_cancellation_signal_handlers,
+    install_immediate_cancellation_signal_handlers,
+};
 
 const HELP: &str = "\
 xsht 0.0.1
@@ -143,7 +146,13 @@ Options:
 ";
 
 pub fn main() -> ExitCode {
-    let _signal_guard = match install_cancellation_signal_handlers() {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let immediate_cancellation = args.first().is_some_and(|arg| arg == "test");
+    let _signal_guard = match if immediate_cancellation {
+        install_immediate_cancellation_signal_handlers()
+    } else {
+        install_cancellation_signal_handlers()
+    } {
         Ok(guard) => guard,
         Err(error) => {
             eprintln!("xsht: failed to install signal handlers: {error}");
@@ -152,7 +161,7 @@ pub fn main() -> ExitCode {
     };
     clear_cancellation_request();
 
-    match parse_tool(std::env::args().skip(1).collect()) {
+    match parse_tool(args) {
         Ok(Command::Help(text)) => {
             print!("{text}");
             ExitCode::SUCCESS

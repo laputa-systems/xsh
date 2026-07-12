@@ -19,7 +19,9 @@ use xsh::diagnostic::{Diagnostic, DiagnosticRenderer, Label};
 use xsh::parse_script_with_module_roots;
 use xsh::runner::{RunOptions, XSH_COVERAGE_TRACE_DIR, render_coverage_trace_jsonl, run_script};
 use xsh::runtime::eval::{Evaluator, NativeTestRunKind, NativeTestRunRequest, PreparedTestProgram};
-use xsh::runtime::process::{cancellation_requested_signal, path_bytes};
+use xsh::runtime::process::{
+    cancellation_escalated_signal, cancellation_requested_signal, path_bytes,
+};
 use xsh::runtime::value::{PathValue, RecordMap, ResultValue, RuntimeError, Value};
 use xsh::sema::check::Checker;
 use xsh::sema::types::Type;
@@ -404,10 +406,13 @@ where
                     break;
                 }
             }
-            Err(mpsc::RecvTimeoutError::Timeout) => {
-                if cancellation_requested_signal().is_some() {
-                    break;
-                }
+                Err(mpsc::RecvTimeoutError::Timeout) => {
+                    if cancellation_escalated_signal().is_some() {
+                        unsafe { libc::_exit(130) };
+                    }
+                    if cancellation_requested_signal().is_some() {
+                        break;
+                    }
             }
             Err(mpsc::RecvTimeoutError::Disconnected) => break,
         }
