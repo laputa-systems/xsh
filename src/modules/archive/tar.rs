@@ -10,7 +10,7 @@ use crate::modules::compression::{
 use crate::runtime::process::path_bytes;
 use crate::runtime::value::{PathValue, RuntimeError, Value};
 use crate::source::Span;
-use astral_futures_tar::{Archive, Builder, EntryType, Header};
+use astral_futures_tar::{Archive, Builder, EntryType, Header, HeaderMode};
 use futures_lite::StreamExt;
 use futures_lite::io::{AsyncRead, AsyncWrite, copy, empty};
 use std::collections::BTreeMap;
@@ -257,7 +257,7 @@ async fn append_create_entry<W: AsyncWrite + Unpin + Send>(
         .map_err(|error| archive_error("archive-create", error, span))?;
     let file_type = metadata.file_type();
     let mut header = Header::new_gnu();
-    header.set_metadata(&metadata);
+    header.set_metadata_in_mode(&metadata, HeaderMode::Deterministic);
 
     if file_type.is_file() {
         let file = File::open(&entry.source)
