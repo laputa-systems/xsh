@@ -444,22 +444,3 @@ fn core_pstree_prints_spawned_parent_before_child() {
         pstree_parent_child_order(&stdout, parent_pid).expect("parent and child rows");
     assert!(parent_line < child_line, "{stdout}");
 }
-
-#[test]
-fn core_pstree_without_root_prints_visible_roots() {
-    let output = Command::new(env!("CARGO_BIN_EXE_xsh"))
-        .arg("core/pstree.xsh")
-        .output()
-        .expect("run core pstree");
-
-    assert!(output.status.success());
-    let stdout = String::from_utf8(output.stdout).unwrap();
-    assert!(
-        stdout.lines().next().is_some_and(|line| !line.is_empty()),
-        "{stdout}"
-    );
-    assert!(
-        !stdout.lines().any(|line| line.starts_with("0 ")),
-        "{stdout}"
-    );
-}

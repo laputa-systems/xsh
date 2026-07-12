@@ -902,7 +902,7 @@ fn xsht_test_lists_and_filters_native_tests() {
     assert!(exact.status.success());
     let stdout = String::from_utf8(exact.stdout).unwrap();
     assert!(stdout.contains("running 1 tests"));
-    assert!(stdout.contains("test tests/xsh/basic.xsh::test_pass ... ok"));
+    assert!(stdout.contains("tests/xsh/basic.xsh::test_pass ... ok"));
 }
 
 #[test]
@@ -943,7 +943,7 @@ proc test_beta() [error] {
     assert!(filtered.status.success());
     let stdout = String::from_utf8(filtered.stdout).unwrap();
     assert!(stdout.contains("running 1 tests"));
-    assert!(stdout.contains("test tests/sub/main.xsh::test_beta ... ok"));
+    assert!(stdout.contains("tests/sub/main.xsh::test_beta ... ok"));
 
     let _ = std::fs::remove_dir_all(root);
 }
@@ -1015,7 +1015,7 @@ proc test_imported_helper() [error] {
     assert!(output.status.success(), "{output:?}");
     let stdout = String::from_utf8(output.stdout).unwrap();
     assert!(stdout.contains("running 1 tests"));
-    assert!(stdout.contains("test tests/main.xsh::test_imported_helper ... ok"));
+    assert!(stdout.contains("tests/main.xsh::test_imported_helper ... ok"));
     assert_eq!(String::from_utf8(output.stderr).unwrap(), "");
 
     let _ = std::fs::remove_dir_all(root);
@@ -1054,7 +1054,7 @@ proc test_beta() [error] {
     let stdout = stdout_text(&fail_fast);
     assert!(stdout.contains("running 2 tests"), "{stdout}");
     assert!(
-        stdout.contains("test tests/main.xsh::test_alpha ... FAILED"),
+        stdout.contains("tests/main.xsh::test_alpha ... FAILED"),
         "{stdout}"
     );
     assert!(
@@ -1110,7 +1110,7 @@ fn xsht_test_runs_catalog_examples_only_when_requested() {
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).unwrap();
     assert!(stdout.contains("running 1 tests"));
-    assert!(stdout.contains("test examples::hello ... ok"));
+    assert!(stdout.contains("examples::hello ... ok"));
     assert!(all.status.success());
     assert_eq!(String::from_utf8(all.stdout).unwrap(), "examples::hello\n");
 }
@@ -1139,7 +1139,7 @@ fn xsht_test_cov_exact_prints_coverage_sections() {
     assert!(output.status.success(), "{:?}", output);
     let stdout = String::from_utf8(output.stdout).unwrap();
     assert!(stdout.contains("running 1 tests"));
-    assert!(stdout.contains("test tests/xsh/basic.xsh::test_pass ... ok"));
+    assert!(stdout.contains("tests/xsh/basic.xsh::test_pass ... ok"));
     assert!(stdout.contains("coverage report"));
     assert!(stdout.contains("API coverage"));
     assert!(stdout.contains("uncovered standard APIs"));

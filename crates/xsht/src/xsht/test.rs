@@ -8,18 +8,18 @@ use crate::xsht::docs::{OutputPolicy, load_example_catalog};
 use miniserde::json::{Object, Value as JsonValue};
 use std::collections::BTreeMap;
 use std::fs;
-use std::io::Write;
+use std::io::{IsTerminal, Write};
 use std::os::unix::ffi::OsStringExt;
 use std::os::unix::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex, mpsc};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use xsh::diagnostic::{Diagnostic, DiagnosticRenderer, Label};
 use xsh::parse_script_with_module_roots;
 use xsh::runner::{RunOptions, XSH_COVERAGE_TRACE_DIR, render_coverage_trace_jsonl, run_script};
 use xsh::runtime::eval::{Evaluator, NativeTestRunKind, NativeTestRunRequest, PreparedTestProgram};
-use xsh::runtime::process::path_bytes;
+use xsh::runtime::process::{cancellation_requested_signal, path_bytes};
 use xsh::runtime::value::{PathValue, RecordMap, ResultValue, RuntimeError, Value};
 use xsh::sema::check::Checker;
 use xsh::sema::types::Type;
@@ -59,7 +59,7 @@ pub(crate) fn test_scripts(options: TestOptions) -> CliOutput {
 
     let mut cases = Vec::new();
     let mut stdout = String::new();
-    let mut stderr = String::new();
+    let stderr = String::new();
 
     if options.native {
         let config = match load_config() {
@@ -135,7 +135,7 @@ pub(crate) fn test_scripts(options: TestOptions) -> CliOutput {
         };
     }
 
-    stdout.push_str(&format!("running {} tests\n", cases.len()));
+    write_test_output(&format!("running {} tests\n", cases.len()));
 
     let run_id = test_run_id();
     let mut passed = 0usize;
@@ -145,11 +145,11 @@ pub(crate) fn test_scripts(options: TestOptions) -> CliOutput {
     let mut coverage = options.collect_coverage().then(CoverageCollector::new);
     let mut baseline_entries: Vec<(String, SyscallSummary)> = Vec::new();
 
-    let ordered_outcomes = run_test_cases(cases, &run_id, &options);
-
-    for (id, mut outcome) in ordered_outcomes {
+    let mut interrupted = None;
+    run_test_cases(cases, &run_id, &options, |id, mut outcome| {
         if let Some(output) = cancellation_output() {
-            return output;
+            interrupted = Some(output);
+            return false;
         }
 
         // Budget checking: fail if any syscall count exceeds the configured budget.
@@ -180,11 +180,11 @@ pub(crate) fn test_scripts(options: TestOptions) -> CliOutput {
         }
 
         if options.nocapture {
-            stdout.push_str(&bytes_text_lossy(&outcome.stdout));
-            stderr.push_str(&bytes_text_lossy(&outcome.stderr));
+            write_test_output(&bytes_text_lossy(&outcome.stdout));
+            write_test_error(&bytes_text_lossy(&outcome.stderr));
             if options.trace_top_syscalls.is_some() && !outcome.trace_text.is_empty() {
-                stderr.push_str(&format!("# test: {id}\n"));
-                stderr.push_str(&outcome.trace_text);
+                write_test_error(&format!("# test: {id}\n"));
+                write_test_error(&outcome.trace_text);
             }
         }
         if let Some(collector) = coverage.as_mut()
@@ -192,34 +192,44 @@ pub(crate) fn test_scripts(options: TestOptions) -> CliOutput {
             && let Err(message) = collector.ingest_jsonl(outcome.coverage_scope, trace)
         {
             failed += 1;
-            stdout.push_str("test coverage ... FAILED\n");
+            write_test_output("test coverage ... FAILED\n");
             failure_details.push(("coverage".to_string(), message, Vec::new(), Vec::new()));
             if options.fail_fast {
-                break;
+                return false;
             }
         }
-        match outcome.kind {
+        let stop = match &outcome.kind {
             TestOutcomeKind::Passed => {
                 passed += 1;
-                stdout.push_str(&format!("test {id} ... ok\n"));
+                write_test_result(&id, "ok", outcome.duration);
+                false
             }
             TestOutcomeKind::Skipped(message) => {
                 skipped += 1;
-                if message.is_empty() {
-                    stdout.push_str(&format!("test {id} ... skipped\n"));
+                let status = if message.is_empty() {
+                    "skipped".to_string()
                 } else {
-                    stdout.push_str(&format!("test {id} ... skipped: {message}\n"));
-                }
+                    format!("skipped: {message}")
+                };
+                write_test_result(&id, &status, outcome.duration);
+                false
             }
             TestOutcomeKind::Failed(message) => {
                 failed += 1;
-                stdout.push_str(&format!("test {id} ... FAILED\n"));
-                failure_details.push((id.clone(), message, outcome.stdout, outcome.stderr));
-                if options.fail_fast {
-                    break;
-                }
+                write_test_result(&id, "FAILED", outcome.duration);
+                failure_details.push((id.clone(), message.clone(), outcome.stdout, outcome.stderr));
+                options.fail_fast
             }
-        }
+        };
+        !stop
+    });
+    if interrupted.is_none()
+        && let Some(output) = cancellation_output()
+    {
+        return output;
+    }
+    if let Some(output) = interrupted {
+        return output;
     }
 
     // Write baseline JSON if requested.
@@ -295,25 +305,28 @@ pub(crate) fn test_scripts(options: TestOptions) -> CliOutput {
     }
 }
 
-fn run_test_cases(
+fn run_test_cases<F>(
     cases: Vec<TestCase>,
     run_id: &str,
     options: &TestOptions,
-) -> Vec<(String, TestOutcome)> {
+    mut on_outcome: F,
+)
+where
+    F: FnMut(String, TestOutcome) -> bool,
+{
     let jobs = test_jobs(options, cases.len());
     if jobs <= 1 {
-        return cases
-            .into_iter()
-            .enumerate()
-            .map(|(index, case)| {
-                let id = case.id().to_string();
-                let outcome = run_test_case(case, index, run_id, options);
-                (id, outcome)
-            })
-            .collect();
+        for (index, case) in cases.into_iter().enumerate() {
+            let id = case.id().to_string();
+            let outcome = run_test_case(case, index, run_id, options);
+            if !on_outcome(id, outcome) {
+                break;
+            }
+        }
+        return;
     }
 
-    run_test_cases_parallel(cases, run_id, options, jobs)
+    run_test_cases_parallel(cases, run_id, options, jobs, on_outcome);
 }
 
 fn test_jobs(options: &TestOptions, cases_len: usize) -> usize {
@@ -337,13 +350,16 @@ fn default_test_jobs() -> usize {
         .clamp(1, 8)
 }
 
-fn run_test_cases_parallel(
+fn run_test_cases_parallel<F>(
     cases: Vec<TestCase>,
     run_id: &str,
     options: &TestOptions,
     jobs: usize,
-) -> Vec<(String, TestOutcome)> {
-    let total = cases.len();
+    mut on_outcome: F,
+)
+where
+    F: FnMut(String, TestOutcome) -> bool,
+{
     let queue = Arc::new(Mutex::new(
         cases
             .into_iter()
@@ -352,39 +368,50 @@ fn run_test_cases_parallel(
     ));
     let (tx, rx) = mpsc::channel();
 
-    std::thread::scope(|scope| {
-        for _ in 0..jobs {
-            let queue = Arc::clone(&queue);
-            let tx = tx.clone();
-            scope.spawn(move || {
-                loop {
-                    let Some((index, case)) = queue
-                        .lock()
-                        .unwrap_or_else(|poisoned| poisoned.into_inner())
-                        .pop_front()
-                    else {
-                        break;
-                    };
-                    let id = case.id().to_string();
-                    let outcome = run_test_case(case, index, run_id, options);
-                    if tx.send((index, id, outcome)).is_err() {
-                        break;
-                    }
+    let options = Arc::new(options.clone());
+    let run_id = Arc::new(run_id.to_string());
+    for _ in 0..jobs {
+        let queue = Arc::clone(&queue);
+        let tx = tx.clone();
+        let options = Arc::clone(&options);
+        let run_id = Arc::clone(&run_id);
+        std::thread::spawn(move || {
+            loop {
+                if cancellation_requested_signal().is_some() {
+                    break;
                 }
-            });
-        }
-    });
+                let Some((index, case)) = queue
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .pop_front()
+                else {
+                    break;
+                };
+                let id = case.id().to_string();
+                let outcome = run_test_case(case, index, &run_id, &options);
+                if tx.send((index, id, outcome)).is_err() {
+                    break;
+                }
+            }
+        });
+    }
     drop(tx);
 
-    let mut outcomes = Vec::with_capacity(total);
-    for item in rx {
-        outcomes.push(item);
+    loop {
+        match rx.recv_timeout(Duration::from_millis(50)) {
+            Ok((_, id, outcome)) => {
+                if !on_outcome(id, outcome) {
+                    break;
+                }
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                if cancellation_requested_signal().is_some() {
+                    break;
+                }
+            }
+            Err(mpsc::RecvTimeoutError::Disconnected) => break,
+        }
     }
-    outcomes.sort_by_key(|(index, _, _)| *index);
-    outcomes
-        .into_iter()
-        .map(|(_, id, outcome)| (id, outcome))
-        .collect()
 }
 
 enum TestCase {
@@ -424,6 +451,7 @@ struct ExampleTestCase {
 
 struct TestOutcome {
     kind: TestOutcomeKind,
+    duration: Duration,
     stdout: Vec<u8>,
     stderr: Vec<u8>,
     trace_text: String,
@@ -641,11 +669,13 @@ fn discover_example_tests(options: &TestOptions) -> Result<Vec<TestCase>, String
 }
 
 fn run_test_case(case: TestCase, index: usize, run_id: &str, options: &TestOptions) -> TestOutcome {
-    match case {
+    let started = Instant::now();
+    let mut outcome = match case {
         TestCase::Native(case) => run_native_test(case, index, run_id, options),
         TestCase::Example(case) => run_example_test(case, index, run_id, options),
         TestCase::Invalid { message, .. } => TestOutcome {
             kind: TestOutcomeKind::Failed(message),
+            duration: Duration::ZERO,
             stdout: Vec::new(),
             stderr: Vec::new(),
             trace_text: String::new(),
@@ -653,7 +683,9 @@ fn run_test_case(case: TestCase, index: usize, run_id: &str, options: &TestOptio
             coverage_trace: None,
             coverage_scope: "tests",
         },
-    }
+    };
+    outcome.duration = started.elapsed();
+    outcome
 }
 
 fn run_native_test(
@@ -672,6 +704,7 @@ fn run_native_test(
                 "failed to create temp root '{}': {err}",
                 temp_root.display()
             )),
+            duration: Duration::ZERO,
             stdout: Vec::new(),
             stderr: Vec::new(),
             trace_text: String::new(),
@@ -687,6 +720,7 @@ fn run_native_test(
             Err(message) => {
                 return TestOutcome {
                     kind: TestOutcomeKind::Failed(message),
+                    duration: Duration::ZERO,
                     stdout: Vec::new(),
                     stderr: Vec::new(),
                     trace_text: String::new(),
@@ -756,6 +790,7 @@ fn run_native_test(
 
     TestOutcome {
         kind,
+        duration: Duration::ZERO,
         stdout: evaluated.output.stdout,
         stderr: evaluated.output.stderr,
         trace_text: String::new(),
@@ -888,6 +923,84 @@ fn text_bytes(text: impl Into<String>) -> Vec<u8> {
     text.into().into_bytes()
 }
 
+fn write_test_output(text: &str) {
+    let mut stdout = std::io::stdout().lock();
+    let _ = stdout.write_all(text.as_bytes());
+    let _ = stdout.flush();
+}
+
+fn write_test_error(text: &str) {
+    let mut stderr = std::io::stderr().lock();
+    let _ = stderr.write_all(text.as_bytes());
+    let _ = stderr.flush();
+}
+
+fn write_test_result(id: &str, status: &str, duration: Duration) {
+    let status = if test_color_enabled() {
+        let color = match status {
+            "ok" => "\x1b[32m",
+            "FAILED" => "\x1b[31m",
+            _ => "\x1b[33m",
+        };
+        format!("{color}{status}\x1b[0m")
+    } else {
+        status.to_string()
+    };
+    let duration_text = format_test_duration(duration);
+    let duration_text = if test_color_enabled() {
+        let color = if duration < Duration::from_millis(500) {
+            "\x1b[90m"
+        } else if duration < Duration::from_secs(1) {
+            "\x1b[33m"
+        } else {
+            "\x1b[31m"
+        };
+        format!("{color}{duration_text}\x1b[0m")
+    } else {
+        duration_text
+    };
+    write_test_output(&format!(
+        "{id} ... {status} {duration_text}\n"
+    ));
+}
+
+fn test_color_enabled() -> bool {
+    std::io::stdout().is_terminal() && std::env::var_os("NO_COLOR").is_none()
+}
+
+fn format_test_duration(duration: Duration) -> String {
+    let millis = duration.as_millis();
+    if millis < 1_000 {
+        return format!("{millis}ms");
+    }
+
+    let seconds = millis / 1_000;
+    if seconds < 60 {
+        if millis % 1_000 == 0 {
+            return format!("{seconds}s");
+        }
+        return format!("{:.1}s", millis as f64 / 1_000.0);
+    }
+
+    let minutes = seconds / 60;
+    let remaining_seconds = seconds % 60;
+    if minutes < 60 {
+        return if remaining_seconds == 0 {
+            format!("{minutes}m")
+        } else {
+            format!("{minutes}m{remaining_seconds}s")
+        };
+    }
+
+    let hours = minutes / 60;
+    let remaining_minutes = minutes % 60;
+    if remaining_minutes == 0 {
+        format!("{hours}h")
+    } else {
+        format!("{hours}h{remaining_minutes}m")
+    }
+}
+
 fn bytes_text_lossy(bytes: &[u8]) -> String {
     String::from_utf8_lossy(bytes).into_owned()
 }
@@ -921,6 +1034,21 @@ fn test_context_value(id: &str, file: &str, temp_root: &Path) -> Result<Value, S
         (Arc::from("file"), Value::Path(file)),
         (Arc::from("temp_root"), Value::Path(temp_root)),
     ])))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{format_test_duration, Duration};
+
+    #[test]
+    fn formats_test_durations_for_humans() {
+        assert_eq!(format_test_duration(Duration::from_millis(5)), "5ms");
+        assert_eq!(format_test_duration(Duration::from_millis(1_500)), "1.5s");
+        assert_eq!(
+            format_test_duration(Duration::from_secs(2 * 60 + 5)),
+            "2m5s"
+        );
+    }
 }
 
 fn read_nested_coverage_traces(dir: &Path) -> Result<String, String> {
@@ -1026,6 +1154,7 @@ fn run_example_test(
     };
     TestOutcome {
         kind,
+        duration: Duration::ZERO,
         stdout: output.stdout,
         stderr: output.stderr,
         trace_text: output.trace_text,
