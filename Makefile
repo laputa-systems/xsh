@@ -195,8 +195,10 @@ cov-native:
 	    $(COV_CARGO) run --bin xsh -- tools/cov-linux.xsh
 
 # cargo test -- -Zunstable-options --report-time
-test:
+test: test-xsh-native
 	cargo test
+
+test-xsh-native:
 	cargo run -p xsht -- test
 
 test-core:

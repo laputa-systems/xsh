@@ -22,7 +22,13 @@ print f"\${value} \${attempts}"
   )?
 
   test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "done 3\n")?
+
+  test.eq(
+    output.stdout,
+    """done 3
+""",
+  )?
+
   test.eq(output.stderr, "")?
 }
 
@@ -80,7 +86,13 @@ print f"\${value} \${attempts} \${cleaned}"
   )?
 
   test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "ok 2 2\n")?
+
+  test.eq(
+    output.stdout,
+    """ok 2 2
+""",
+  )?
+
   test.eq(output.stderr, "")?
 }
 
@@ -101,7 +113,13 @@ print \${result}
   )?
 
   test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "outer\n")?
+
+  test.eq(
+    output.stdout,
+    """outer
+""",
+  )?
+
   test.eq(output.stderr, "")?
 }
 
@@ -130,7 +148,13 @@ print \${value}
   )?
 
   test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "ok\n")?
+
+  test.eq(
+    output.stdout,
+    """ok
+""",
+  )?
+
   test.contains(output.stderr, "\"kind\":\"retry.attempt\"")?
   test.contains(output.stderr, "\"attempt\":1")?
   test.contains(output.stderr, "\"attempt\":2")?

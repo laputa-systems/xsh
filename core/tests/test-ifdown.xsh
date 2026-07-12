@@ -1,16 +1,20 @@
 proc xsh_bin() [env] -> Path {
-  let bin = (env.get("CARGO_BIN_EXE_xsh") ?? "")
+  let bin = env.get("CARGO_BIN_EXE_xsh") ?? ""
+
   if bin != "" {
     return fp"${bin}"
   }
+
   return ../target/debug/xsh
 }
 
 proc core_script(name: Str) [env] -> Path {
-  let dir = (env.get("XSH_CORE_DIR") ?? "")
+  let dir = env.get("XSH_CORE_DIR") ?? ""
+
   if dir != "" {
     return fp"${dir}/${name}"
   }
+
   return ../name
 }
 
@@ -31,7 +35,7 @@ iface eth0 inet static
   )?
 }
 
-proc test_ifdown_all_removes_configured_interfaces(ctx: TestContext) [env, fs, process, error] {
+proc test_ifdown_all_removes_configured_interfaces(ctx: TestContext) [fs, process, env, error] {
   let root = test.temp_dir(ctx, name: "ifdown-all")?
   let interfaces = fp"${root}/interfaces"
   let state = fp"${root}/ifstate"
@@ -40,11 +44,16 @@ proc test_ifdown_all_removes_configured_interfaces(ctx: TestContext) [env, fs, p
   write_interfaces(interfaces, hook_log)?
 
   # Bring up eth0 first.
-  run XSH_LINUX_DRY_RUN=1 XSH_LINUX_DRY_RUN_LOG=$linux_log XSH_IFUP_INTERFACES=$interfaces XSH_IFUP_STATE=$state xsh_bin() core_script("ifup.xsh") -- eth0 ?
+  run XSH_LINUX_DRY_RUN=1 XSH_LINUX_DRY_RUN_LOG=$linux_log XSH_IFUP_INTERFACES=$interfaces XSH_IFUP_STATE=$state xsh_bin() core_script(
+    "ifup.xsh",
+  ) -- eth0 ?
+
   test.contains(state.read_text()?, "eth0=eth0")?
 
   # Bring down with ifdown -a.
-  run XSH_LINUX_DRY_RUN=1 XSH_LINUX_DRY_RUN_LOG=$linux_log XSH_IFUP_INTERFACES=$interfaces XSH_IFUP_STATE=$state xsh_bin() core_script("ifdown.xsh") -- -a ?
+  run XSH_LINUX_DRY_RUN=1 XSH_LINUX_DRY_RUN_LOG=$linux_log XSH_IFUP_INTERFACES=$interfaces XSH_IFUP_STATE=$state xsh_bin() core_script(
+    "ifdown.xsh",
+  ) -- -a ?
 
   # State should be cleared after teardown.
   test.eq(state.exists()?, false)?
@@ -57,22 +66,29 @@ proc test_ifdown_all_removes_configured_interfaces(ctx: TestContext) [env, fs, p
   test.contains(linux_text, "\"interface\":\"eth0\"")?
 }
 
-proc test_ifdown_runs_hooks(ctx: TestContext) [env, fs, process, error] {
+proc test_ifdown_runs_hooks(ctx: TestContext) [fs, process, env, error] {
   let root = test.temp_dir(ctx, name: "ifdown-hooks")?
   let interfaces = fp"${root}/interfaces"
   let state = fp"${root}/ifstate"
   let linux_log = fp"${root}/linux.jsonl"
   let hook_log = fp"${root}/hooks.log"
   write_interfaces(interfaces, hook_log)?
-  run XSH_LINUX_DRY_RUN=1 XSH_LINUX_DRY_RUN_LOG=$linux_log XSH_IFUP_INTERFACES=$interfaces XSH_IFUP_STATE=$state xsh_bin() core_script("ifup.xsh") -- eth0 ?
-  run XSH_LINUX_DRY_RUN=1 XSH_LINUX_DRY_RUN_LOG=$linux_log XSH_IFUP_INTERFACES=$interfaces XSH_IFUP_STATE=$state xsh_bin() core_script("ifdown.xsh") -- eth0 ?
+
+  run XSH_LINUX_DRY_RUN=1 XSH_LINUX_DRY_RUN_LOG=$linux_log XSH_IFUP_INTERFACES=$interfaces XSH_IFUP_STATE=$state xsh_bin() core_script(
+    "ifup.xsh",
+  ) -- eth0 ?
+
+  run XSH_LINUX_DRY_RUN=1 XSH_LINUX_DRY_RUN_LOG=$linux_log XSH_IFUP_INTERFACES=$interfaces XSH_IFUP_STATE=$state xsh_bin() core_script(
+    "ifdown.xsh",
+  ) -- eth0 ?
+
   let hooks = hook_log.read_text()?
   test.contains(hooks, "pre-down:eth0:eth0:inet:static")?
   test.contains(hooks, "down:eth0:10.0.1.42")?
   test.contains(hooks, "post-down:post-down")?
 }
 
-proc test_ifdown_dhcp_sends_release(ctx: TestContext) [env, fs, process, error] {
+proc test_ifdown_dhcp_sends_release(ctx: TestContext) [fs, process, env, error] {
   let root = test.temp_dir(ctx, name: "ifdown-dhcp-release")?
   let interfaces = fp"${root}/interfaces"
   let state = fp"${root}/ifstate"
@@ -91,7 +107,10 @@ iface eth0 inet dhcp
 
   # Dry-run has no real DHCP, so the RELEASE send will log but not actually
   # reach a server.  This is fine — we just verify the primitive was called.
-  let status = run.status XSH_LINUX_DRY_RUN=1 XSH_LINUX_DRY_RUN_LOG=$linux_log XSH_IFUP_INTERFACES=$interfaces XSH_IFUP_STATE=$state xsh_bin() core_script("ifdown.xsh") -- eth0 2> $err
+  let status = run.status XSH_LINUX_DRY_RUN=1 XSH_LINUX_DRY_RUN_LOG=$linux_log XSH_IFUP_INTERFACES=$interfaces XSH_IFUP_STATE=$state xsh_bin() core_script(
+    "ifdown.xsh",
+  ) -- eth0 2> $err
+
   test.eq(status.ok, true)?
   let linux_text = linux_log.read_text()?
   test.contains(linux_text, "\"op\":\"link_down\"")?
@@ -99,7 +118,7 @@ iface eth0 inet dhcp
   test.contains(linux_text, "\"op\":\"del_default_ipv4_route\"")?
 }
 
-proc test_ifdown_skips_unconfigured_interface(ctx: TestContext) [env, fs, process, error] {
+proc test_ifdown_skips_unconfigured_interface(ctx: TestContext) [fs, process, env, error] {
   let root = test.temp_dir(ctx, name: "ifdown-skip")?
   let interfaces = fp"${root}/interfaces"
   let state = fp"${root}/ifstate"
@@ -115,11 +134,14 @@ iface eth0 inet static
   )?
 
   # Don't pre-seed state — ifdown should be a no-op for unconfigured interfaces.
-  run XSH_LINUX_DRY_RUN=1 XSH_LINUX_DRY_RUN_LOG=$linux_log XSH_IFUP_INTERFACES=$interfaces XSH_IFUP_STATE=$state xsh_bin() core_script("ifdown.xsh") -- eth0 ?
+  run XSH_LINUX_DRY_RUN=1 XSH_LINUX_DRY_RUN_LOG=$linux_log XSH_IFUP_INTERFACES=$interfaces XSH_IFUP_STATE=$state xsh_bin() core_script(
+    "ifdown.xsh",
+  ) -- eth0 ?
+
   test.eq(linux_log.exists()?, false)?
 }
 
-proc test_ifdown_logical_selection(ctx: TestContext) [env, fs, process, error] {
+proc test_ifdown_logical_selection(ctx: TestContext) [fs, process, env, error] {
   let root = test.temp_dir(ctx, name: "ifdown-logical")?
   let interfaces = fp"${root}/interfaces"
   let state = fp"${root}/ifstate"
@@ -134,7 +156,11 @@ proc test_ifdown_logical_selection(ctx: TestContext) [env, fs, process, error] {
   )?
 
   fs.write(state, "eth0=office")?
-  run XSH_LINUX_DRY_RUN=1 XSH_LINUX_DRY_RUN_LOG=$linux_log XSH_IFUP_INTERFACES=$interfaces XSH_IFUP_STATE=$state xsh_bin() core_script("ifdown.xsh") -- eth0=office ?
+
+  run XSH_LINUX_DRY_RUN=1 XSH_LINUX_DRY_RUN_LOG=$linux_log XSH_IFUP_INTERFACES=$interfaces XSH_IFUP_STATE=$state xsh_bin() core_script(
+    "ifdown.xsh",
+  ) -- eth0=office ?
+
   test.contains(linux_log.read_text()?, "\"interface\":\"eth0\"")?
   test.eq(state.exists()?, false)?
 }

@@ -675,18 +675,24 @@ main(args)?
 }
 
 proc test_run_fixture_behaviors(ctx: TestContext) [process, error] {
-  test.eq(run.text printf "%s\n" "hello world" ?, "hello world\n")?
+  test.eq(
+    run.text printf "%s\n" "hello world"?,
+    """hello world
+""",
+  )?
 
-  let failed = test.run_script(ctx, "run false\n")?
+  let failed = test.run_script(
+    ctx,
+    """run false
+""",
+  )?
+
   test.eq(failed.status, 3)?
   test.contains(failed.stderr, "nonzero-exit")?
-
   let status = run.status false
   test.ok(status.exited_with(1))?
-
   let text = run.text printf "%s" "hello" ?
   test.eq(text, "hello")?
-
   let raw = run.bytes head -c 1 /dev/zero ?
   test.eq(raw, b"\0")?
 }

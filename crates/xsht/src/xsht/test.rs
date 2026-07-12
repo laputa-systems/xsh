@@ -307,12 +307,7 @@ pub(crate) fn test_scripts(options: TestOptions) -> CliOutput {
     }
 }
 
-fn run_test_cases<F>(
-    cases: Vec<TestCase>,
-    run_id: &str,
-    options: &TestOptions,
-    mut on_outcome: F,
-)
+fn run_test_cases<F>(cases: Vec<TestCase>, run_id: &str, options: &TestOptions, mut on_outcome: F)
 where
     F: FnMut(String, TestOutcome) -> bool,
 {
@@ -358,8 +353,7 @@ fn run_test_cases_parallel<F>(
     options: &TestOptions,
     jobs: usize,
     mut on_outcome: F,
-)
-where
+) where
     F: FnMut(String, TestOutcome) -> bool,
 {
     let queue = Arc::new(Mutex::new(
@@ -406,13 +400,13 @@ where
                     break;
                 }
             }
-                Err(mpsc::RecvTimeoutError::Timeout) => {
-                    if cancellation_escalated_signal().is_some() {
-                        unsafe { libc::_exit(130) };
-                    }
-                    if cancellation_requested_signal().is_some() {
-                        break;
-                    }
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                if cancellation_escalated_signal().is_some() {
+                    unsafe { libc::_exit(130) };
+                }
+                if cancellation_requested_signal().is_some() {
+                    break;
+                }
             }
             Err(mpsc::RecvTimeoutError::Disconnected) => break,
         }
@@ -964,9 +958,7 @@ fn write_test_result(id: &str, status: &str, duration: Duration) {
     } else {
         duration_text
     };
-    write_test_output(&format!(
-        "{id} ... {status} {duration_text}\n"
-    ));
+    write_test_output(&format!("{id} ... {status} {duration_text}\n"));
 }
 
 fn test_color_enabled() -> bool {
@@ -981,7 +973,7 @@ fn format_test_duration(duration: Duration) -> String {
 
     let seconds = millis / 1_000;
     if seconds < 60 {
-        if millis % 1_000 == 0 {
+        if millis.is_multiple_of(1_000) {
             return format!("{seconds}s");
         }
         return format!("{:.1}s", millis as f64 / 1_000.0);
@@ -1039,21 +1031,6 @@ fn test_context_value(id: &str, file: &str, temp_root: &Path) -> Result<Value, S
         (Arc::from("file"), Value::Path(file)),
         (Arc::from("temp_root"), Value::Path(temp_root)),
     ])))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{format_test_duration, Duration};
-
-    #[test]
-    fn formats_test_durations_for_humans() {
-        assert_eq!(format_test_duration(Duration::from_millis(5)), "5ms");
-        assert_eq!(format_test_duration(Duration::from_millis(1_500)), "1.5s");
-        assert_eq!(
-            format_test_duration(Duration::from_secs(2 * 60 + 5)),
-            "2m5s"
-        );
-    }
 }
 
 fn read_nested_coverage_traces(dir: &Path) -> Result<String, String> {
@@ -1258,4 +1235,19 @@ fn write_syscall_baseline(entries: &[(String, SyscallSummary)], path: &str) -> R
 
 fn json_u64(value: u64) -> JsonValue {
     JsonValue::Number(miniserde::json::Number::U64(value))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Duration, format_test_duration};
+
+    #[test]
+    fn formats_test_durations_for_humans() {
+        assert_eq!(format_test_duration(Duration::from_millis(5)), "5ms");
+        assert_eq!(format_test_duration(Duration::from_millis(1_500)), "1.5s");
+        assert_eq!(
+            format_test_duration(Duration::from_secs(2 * 60 + 5)),
+            "2m5s"
+        );
+    }
 }

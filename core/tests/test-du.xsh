@@ -1,20 +1,24 @@
 proc xsh_bin() [env] -> Path {
-  let bin = (env.get("CARGO_BIN_EXE_xsh") ?? "")
+  let bin = env.get("CARGO_BIN_EXE_xsh") ?? ""
+
   if bin != "" {
     return fp"${bin}"
   }
+
   return ../target/debug/xsh
 }
 
 proc core_script(name: Str) [env] -> Path {
-  let dir = (env.get("XSH_CORE_DIR") ?? "")
+  let dir = env.get("XSH_CORE_DIR") ?? ""
+
   if dir != "" {
     return fp"${dir}/${name}"
   }
+
   return ../name
 }
 
-proc test_du(ctx: TestContext) [env, fs, process, error] {
+proc test_du(ctx: TestContext) [fs, process, env, error] {
   let target = test.temp_file(ctx, name: "du.txt", contents: b"abcdef")?
   let output = run.text xsh_bin() core_script("du.xsh") -- $target ?
   test.contains(output, "du.txt")?
@@ -24,7 +28,7 @@ proc test_du(ctx: TestContext) [env, fs, process, error] {
   test.contains(human, "K")?
 }
 
-proc test_du_recursive_all_and_total(ctx: TestContext) [env, fs, process, error] {
+proc test_du_recursive_all_and_total(ctx: TestContext) [fs, process, env, error] {
   let root = test.temp_dir(ctx, name: "du-tree")?
   fp"${root}/a.txt".write("aaa")?
   fs.mkdir(fp"${root}/sub")?

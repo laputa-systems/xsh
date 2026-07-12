@@ -1,20 +1,24 @@
 proc xsh_bin() [env] -> Path {
-  let bin = (env.get("CARGO_BIN_EXE_xsh") ?? "")
+  let bin = env.get("CARGO_BIN_EXE_xsh") ?? ""
+
   if bin != "" {
     return fp"${bin}"
   }
+
   return ../target/debug/xsh
 }
 
 proc core_script(name: Str) [env] -> Path {
-  let dir = (env.get("XSH_CORE_DIR") ?? "")
+  let dir = env.get("XSH_CORE_DIR") ?? ""
+
   if dir != "" {
     return fp"${dir}/${name}"
   }
+
   return ../name
 }
 
-proc test_seq_range() [env, process, error] {
+proc test_seq_range() [process, env, error] {
   let output = run.text xsh_bin() core_script("seq.xsh") -- 2 2 6 ?
 
   test.eq(
@@ -26,7 +30,7 @@ proc test_seq_range() [env, process, error] {
   )?
 }
 
-proc test_seq_descending_negative_separator_and_width() [env, process, error] {
+proc test_seq_descending_negative_separator_and_width() [process, env, error] {
   let descending = run.text xsh_bin() core_script("seq.xsh") -- 3 -2 -1 ?
 
   test.eq(
@@ -56,7 +60,7 @@ proc test_seq_descending_negative_separator_and_width() [env, process, error] {
   )?
 }
 
-proc test_seq_rejects_zero_step(ctx: TestContext) [env, fs, process, error] {
+proc test_seq_rejects_zero_step(ctx: TestContext) [fs, process, env, error] {
   let err = test.temp_path(ctx, name: "seq.err")
   let status = run.status xsh_bin() core_script("seq.xsh") -- 1 0 3 2> $err
   test.ok(! status.exited_with(0))?

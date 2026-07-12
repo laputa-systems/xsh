@@ -1,20 +1,24 @@
 proc xsh_bin() [env] -> Path {
-  let bin = (env.get("CARGO_BIN_EXE_xsh") ?? "")
+  let bin = env.get("CARGO_BIN_EXE_xsh") ?? ""
+
   if bin != "" {
     return fp"${bin}"
   }
+
   return ../target/debug/xsh
 }
 
 proc core_script(name: Str) [env] -> Path {
-  let dir = (env.get("XSH_CORE_DIR") ?? "")
+  let dir = env.get("XSH_CORE_DIR") ?? ""
+
   if dir != "" {
     return fp"${dir}/${name}"
   }
+
   return ../name
 }
 
-proc test_tr_translate_delete_squeeze_and_stdin(ctx: TestContext) [env, fs, process, error] {
+proc test_tr_translate_delete_squeeze_and_stdin(ctx: TestContext) [fs, process, env, error] {
   let input = test.temp_file(ctx, name: "tr.txt", contents: b"abbc\n")?
   let translated = run.text xsh_bin() core_script("tr.xsh") -- a A $input ?
   let upper = run.text xsh_bin() core_script("tr.xsh") -- a-z A-Z $input ?
@@ -36,7 +40,7 @@ proc test_tr_translate_delete_squeeze_and_stdin(ctx: TestContext) [env, fs, proc
   test.eq(stdin_output.trim(), "Abc")?
 }
 
-proc test_tr_rejects_bad_usage(ctx: TestContext) [env, fs, process, error] {
+proc test_tr_rejects_bad_usage(ctx: TestContext) [fs, process, env, error] {
   let err = test.temp_path(ctx, name: "tr.err")
   let status = run.status xsh_bin() core_script("tr.xsh") -- a 2> $err
   test.ok(! status.exited_with(0))?

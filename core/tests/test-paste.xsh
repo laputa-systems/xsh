@@ -1,20 +1,24 @@
 proc xsh_bin() [env] -> Path {
-  let bin = (env.get("CARGO_BIN_EXE_xsh") ?? "")
+  let bin = env.get("CARGO_BIN_EXE_xsh") ?? ""
+
   if bin != "" {
     return fp"${bin}"
   }
+
   return ../target/debug/xsh
 }
 
 proc core_script(name: Str) [env] -> Path {
-  let dir = (env.get("XSH_CORE_DIR") ?? "")
+  let dir = env.get("XSH_CORE_DIR") ?? ""
+
   if dir != "" {
     return fp"${dir}/${name}"
   }
+
   return ../name
 }
 
-proc test_paste_parallel_serial_and_delimiters(ctx: TestContext) [env, fs, process, error] {
+proc test_paste_parallel_serial_and_delimiters(ctx: TestContext) [fs, process, env, error] {
   let left = test.temp_file(ctx, name: "left.txt", contents: b"a\nb\n")?
   let right = test.temp_file(ctx, name: "right.txt", contents: b"1\n2\n3\n")?
   let parallel = run.text xsh_bin() core_script("paste.xsh") -- $left $right ?
@@ -36,7 +40,7 @@ b	2
   )?
 }
 
-proc test_paste_reads_stdin_and_rejects_flags(ctx: TestContext) [env, fs, process, error] {
+proc test_paste_reads_stdin_and_rejects_flags(ctx: TestContext) [fs, process, env, error] {
   let script = core_script("paste.xsh")
 
   let command = f"""printf 'a

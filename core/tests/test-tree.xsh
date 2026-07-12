@@ -1,20 +1,24 @@
 proc xsh_bin() [env] -> Path {
-  let bin = (env.get("CARGO_BIN_EXE_xsh") ?? "")
+  let bin = env.get("CARGO_BIN_EXE_xsh") ?? ""
+
   if bin != "" {
     return fp"${bin}"
   }
+
   return ../target/debug/xsh
 }
 
 proc core_script(name: Str) [env] -> Path {
-  let dir = (env.get("XSH_CORE_DIR") ?? "")
+  let dir = env.get("XSH_CORE_DIR") ?? ""
+
   if dir != "" {
     return fp"${dir}/${name}"
   }
+
   return ../name
 }
 
-proc test_tree_renders_sorted_branches_and_symlinks(ctx: TestContext) [env, fs, process, error] {
+proc test_tree_renders_sorted_branches_and_symlinks(ctx: TestContext) [fs, process, env, error] {
   let root = test.temp_dir(ctx, name: "tree")?
   fp"${root}/dir".mkdir()?
   fp"${root}/dir/file.txt".write("ok")?
@@ -41,7 +45,7 @@ proc test_tree_renders_sorted_branches_and_symlinks(ctx: TestContext) [env, fs, 
   test.ok(! ("file.txt" in shallow))?
 }
 
-proc test_tree_supports_multiple_roots_and_rejects_flags(ctx: TestContext) [env, fs, process, error] {
+proc test_tree_supports_multiple_roots_and_rejects_flags(ctx: TestContext) [fs, process, env, error] {
   let left = test.temp_dir(ctx, name: "tree-left")?
   let right = test.temp_dir(ctx, name: "tree-right")?
   fp"${left}/a".write("a")?

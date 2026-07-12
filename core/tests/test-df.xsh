@@ -1,16 +1,20 @@
 proc xsh_bin() [env] -> Path {
-  let bin = (env.get("CARGO_BIN_EXE_xsh") ?? "")
+  let bin = env.get("CARGO_BIN_EXE_xsh") ?? ""
+
   if bin != "" {
     return fp"${bin}"
   }
+
   return ../target/debug/xsh
 }
 
 proc core_script(name: Str) [env] -> Path {
-  let dir = (env.get("XSH_CORE_DIR") ?? "")
+  let dir = env.get("XSH_CORE_DIR") ?? ""
+
   if dir != "" {
     return fp"${dir}/${name}"
   }
+
   return ../name
 }
 
@@ -19,7 +23,7 @@ proc normalize_df(text: Str) [error] -> Str {
   return lines.join("\n")
 }
 
-proc test_df(ctx: TestContext) [env, fs, process, error] {
+proc test_df(ctx: TestContext) [fs, process, env, error] {
   let root = test.temp_dir(ctx, name: "df")?
   fp"${root}/payload.txt".write("abcdef")?
   let resolved = root.resolve()?
@@ -31,7 +35,7 @@ proc test_df(ctx: TestContext) [env, fs, process, error] {
   test.ok(! (f"${resolved} ${fake_used} ${fake_used} 0 100% ${resolved}" in output))?
 }
 
-proc test_df_matches_alpine_kp(ctx: TestContext) [env, fs, process, env, error] {
+proc test_df_matches_alpine_kp(ctx: TestContext) [fs, process, env, error] {
   if env.bool("XSH_SKIP_LIVE_COREUTILS_COMPARISONS")? {
     test.skip("live coreutils comparison disabled")
   }
