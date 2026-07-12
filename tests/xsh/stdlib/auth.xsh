@@ -58,11 +58,11 @@ exit 17
   }
 
   let password_hash = applet.hash_password("secret", "sha512")?
-  test.ok(password_hash != "")?
-  test.ok(applet.verify_password("secret", password_hash))?
-  test.ok(! applet.verify_password("wrong", password_hash))?
-  test.ok(applet.current_euid() >= 0)?
-  test.ok(applet.current_exe()?.exists()?)?
+  test.ok(password_hash != "", "hash_password returned empty string")?
+  test.ok(applet.verify_password("secret", password_hash), "verify_password rejected correct password")?
+  test.ok(! applet.verify_password("wrong", password_hash), "verify_password accepted wrong password")?
+  test.ok(applet.current_euid() >= 0, "current_euid is negative")?
+  test.ok(applet.current_exe()?.exists()?, "current_exe path does not exist")?
   test.eq(applet.login_session(session_user, false, "")?, 17)?
   test.eq(applet.sulogin_session(session_user)?, 17)?
   test.eq(applet.su_session(session_user, false, false, shell.display(), "", [])?, 17)?
