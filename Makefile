@@ -226,14 +226,14 @@ test-linux:
 	        target/debug/xsht test'
 
 test-linux-ci:
-	cargo test --no-run --locked --profile $(DIST_PROFILE) --features "linux-priv-tests net tools" --target $(TARGET) --keep-going
-	cargo test --profile $(DIST_PROFILE) --features "linux-priv-tests net tools" --target $(TARGET) -- --nocapture --quiet --keep-going
+	cargo test --no-run --locked --profile $(DIST_PROFILE) --features "linux-priv-tests net tools" --target $(TARGET)
+	cargo test --profile $(DIST_PROFILE) --features "linux-priv-tests net tools" --target $(TARGET) -- --nocapture
 	cargo test --profile $(DIST_PROFILE) --features "linux-priv-tests net tools" --target $(TARGET) --test runtime os_stress -- --ignored --test-threads=1 --nocapture
 	target/$(TARGET)/$(DIST_PROFILE_DIR)/xsht test
 
 test-macos-ci:
-	cargo test --no-run --locked --profile $(DIST_PROFILE) --features "net tools" --target $(TARGET) --keep-going
-	cargo test --profile $(DIST_PROFILE) --features "net tools" --target $(TARGET) -- --nocapture --quiet --keep-going
+	cargo test --no-run --locked --profile $(DIST_PROFILE) --features "net tools" --target $(TARGET)
+	cargo test --profile $(DIST_PROFILE) --features "net tools" --target $(TARGET) -- --nocapture
 	cargo test --profile $(DIST_PROFILE) --features "net tools" --target $(TARGET) --test runtime os_stress -- --ignored --test-threads=1 --nocapture
 	target/$(TARGET)/$(DIST_PROFILE_DIR)/xsht test
 
