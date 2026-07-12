@@ -284,7 +284,9 @@ on USR1 [] {
   abort(0)
 }
 
-run sh -c "kill -USR1 \$PPID" ?
+let pid = process.current_pid()?
+process.kill(pid, signal: "USR1")?
+process.stats(pid)?
 ```
 
 Hooks run at evaluator checkpoints, not inside OS signal handlers. They are for

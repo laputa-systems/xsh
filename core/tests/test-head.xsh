@@ -26,16 +26,9 @@ proc test_head_lines(ctx: TestContext) [fs, process, env, error] {
   test.ok(! ("three" in output))?
 }
 
-proc test_head_reads_stdin() [fs, process, env, error] {
-  let xsh = xsh_bin().resolve()?
-  let script = core_script("head.xsh").resolve()?
-
-  let command = f"""printf 'one
-two
-three
-' | ${xsh.display()} ${script.display()} -- -n2"""
-
-  let output = run.text sh -c $command ?
+proc test_head_reads_stdin(ctx: TestContext) [fs, process, env, error] {
+  let input = test.temp_file(ctx, name: "stdin.txt", contents: b"one\ntwo\nthree\n")?
+  let output = run.text xsh_bin() core_script("head.xsh") < ${input} -- -n2 ?
   test.contains(output, "one")?
   test.contains(output, "two")?
   test.ok(! ("three" in output))?

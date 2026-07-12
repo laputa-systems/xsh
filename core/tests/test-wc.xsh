@@ -29,10 +29,8 @@ proc test_wc_counts(ctx: TestContext) [fs, process, env, error] {
   test.contains(output, "words.txt")?
 }
 
-proc test_wc_reads_stdin() [fs, process, env, error] {
-  let xsh = xsh_bin().resolve()?
-  let script = core_script("wc.xsh").resolve()?
-  let command = f"printf 'one two\\nthree\\n' | ${xsh.display()} ${script.display()} -- -lwc"
-  let output = run.text sh -c $command ?
+proc test_wc_reads_stdin(ctx: TestContext) [fs, process, env, error] {
+  let input = test.temp_file(ctx, name: "stdin.txt", contents: b"one two\nthree\n")?
+  let output = run.text xsh_bin() core_script("wc.xsh") < ${input} -- -lwc ?
   test.eq(normalized_counts(output), "2 3 14")?
 }

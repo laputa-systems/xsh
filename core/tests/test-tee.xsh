@@ -37,15 +37,13 @@ proc test_tee_input_file(ctx: TestContext) [fs, process, env, error] {
 }
 
 proc test_tee_reads_stdin_and_appends(ctx: TestContext) [fs, process, env, error] {
+  let input = test.temp_file(ctx, name: "stdin.txt", contents: b"second\n")?
   let out = test.temp_path(ctx, name: "append.txt")
 
   out.write("""first
 """)?
 
-  let xsh = xsh_bin().resolve()?
-  let script = core_script("tee.xsh").resolve()?
-  let command = f"printf 'second\\n' | ${xsh.display()} ${script.display()} -- -a ${out.display()}"
-  let stdout = run.text sh -c $command ?
+  let stdout = run.text xsh_bin() core_script("tee.xsh") < ${input} -- -a $out ?
 
   test.eq(
     stdout,
