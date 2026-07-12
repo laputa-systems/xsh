@@ -1,4 +1,4 @@
-.PHONY: lint docs test test-native cov test-core test-linux test-linux-priv test-linux-os-stress test-linux-cpumax test-trace test-trace-save test-trace-compare perf-linux perf-linux-extension-count perf-linux-flamegraph perf-linux-showcases perf-linux-showcase-flamegraphs prof prof-layout prof-parse-corpus prof-pgo prof-dhat prof-callgrind prof-cachegrind prof-valgrind prof-compare prof-baseline prof-baseline-frontend prof-baseline-runtime install-darwin install-linux dist dist-ci
+.PHONY: lint docs test cov test-core test-linux test-linux-priv test-linux-os-stress test-linux-cpumax test-trace test-trace-save test-trace-compare perf-linux perf-linux-extension-count perf-linux-flamegraph perf-linux-showcases perf-linux-showcase-flamegraphs prof prof-layout prof-parse-corpus prof-pgo prof-dhat prof-callgrind prof-cachegrind prof-valgrind prof-compare prof-baseline prof-baseline-frontend prof-baseline-runtime install-darwin install-linux dist dist-ci
 
 DARWIN_CODESIGN_FLAGS ?=
 ifneq ($(DARWIN_CODESIGN_ENTITLEMENTS),)
@@ -175,9 +175,6 @@ docs:
 	cargo test -p xsht --features docs-html docs
 	cargo test --test runtime example_
 
-test-native:
-	cargo run -p xsht -- test
-
 cov: cov-$(COV_BACKEND)
 
 cov-docker:
@@ -197,6 +194,7 @@ cov-native:
 	    CC_x86_64_unknown_linux_musl="$(COV_NATIVE_LINKER)" \
 	    $(COV_CARGO) run --bin xsh -- tools/cov-linux.xsh
 
+# cargo test -- -Zunstable-options --report-time
 test:
 	cargo test
 	cargo run -p xsht -- test

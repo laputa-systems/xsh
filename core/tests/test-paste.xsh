@@ -1,12 +1,24 @@
-pure xsh_bin() -> Path {
+proc xsh_bin() [env] -> Path {
+  let bin = (env.get("CARGO_BIN_EXE_xsh") ?? "")
+  if bin != "" {
+    return fp"${bin}"
+  }
   return ../target/debug/xsh
 }
 
-proc test_paste_parallel_serial_and_delimiters(ctx: TestContext) [fs, process, error] {
+proc core_script(name: Str) [env] -> Path {
+  let dir = (env.get("XSH_CORE_DIR") ?? "")
+  if dir != "" {
+    return fp"${dir}/${name}"
+  }
+  return ../name
+}
+
+proc test_paste_parallel_serial_and_delimiters(ctx: TestContext) [env, fs, process, error] {
   let left = test.temp_file(ctx, name: "left.txt", contents: b"a\nb\n")?
   let right = test.temp_file(ctx, name: "right.txt", contents: b"1\n2\n3\n")?
-  let parallel = run.text xsh_bin() paste.xsh -- $left $right ?
-  let serial = run.text xsh_bin() paste.xsh -- -s -d: $left $right ?
+  let parallel = run.text xsh_bin() core_script("paste.xsh") -- $left $right ?
+  let serial = run.text xsh_bin() core_script("paste.xsh") -- -s -d: $left $right ?
 
   test.eq(
     parallel,
@@ -24,8 +36,8 @@ b	2
   )?
 }
 
-proc test_paste_reads_stdin_and_rejects_flags(ctx: TestContext) [fs, process, error] {
-  let script = p"paste.xsh"
+proc test_paste_reads_stdin_and_rejects_flags(ctx: TestContext) [env, fs, process, error] {
+  let script = core_script("paste.xsh")
 
   let command = f"""printf 'a
 b
@@ -40,7 +52,7 @@ b
   )?
 
   let err = test.temp_path(ctx, name: "paste.err")
-  let status = run.status xsh_bin() paste.xsh -- -z 2> $err
+  let status = run.status xsh_bin() core_script("paste.xsh") -- -z 2> $err
   test.ok(! status.exited_with(0))?
   test.contains(err.read_text()?, "unsupported option")?
 }

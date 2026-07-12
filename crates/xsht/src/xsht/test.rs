@@ -75,7 +75,12 @@ pub(crate) fn test_scripts(options: TestOptions) -> CliOutput {
             }
         };
         let module_roots: Vec<PathBuf> = config.module_path.iter().map(PathBuf::from).collect();
-        for root in [Path::new("tests"), Path::new("showcase/tests")] {
+        let test_roots: Vec<PathBuf> = if config.test_roots.is_empty() {
+            vec![PathBuf::from("tests")]
+        } else {
+            config.test_roots.iter().map(PathBuf::from).collect()
+        };
+        for root in &test_roots {
             match discover_native_tests(root, &config.exclude, &module_roots, &options) {
                 Ok(native) => cases.extend(native),
                 Err(message) => {
@@ -699,6 +704,14 @@ fn run_native_test(
         .collect_coverage()
         .then(|| temp_root.join("coverage-traces"));
     let mut env_overlay = Vec::new();
+    let xsh_binary = absolute_path(&test_binary("xsh"));
+    let core_dir = Path::new(&case.file)
+        .parent()
+        .and_then(Path::parent)
+        .map(absolute_path)
+        .unwrap_or_else(|| absolute_path(Path::new(".")));
+    env_overlay.push((b"CARGO_BIN_EXE_xsh".to_vec(), path_bytes(&xsh_binary)));
+    env_overlay.push((b"XSH_CORE_DIR".to_vec(), path_bytes(&core_dir)));
     if let Some(dir) = &nested_coverage_dir {
         env_overlay.push((XSH_COVERAGE_TRACE_DIR.as_bytes().to_vec(), path_bytes(dir)));
     }
@@ -860,6 +873,15 @@ fn test_binary(name: &str) -> PathBuf {
         return target_debug;
     }
     PathBuf::from(name)
+}
+
+fn absolute_path(path: &Path) -> PathBuf {
+    if path.is_absolute() {
+        return path.to_path_buf();
+    }
+    std::env::current_dir()
+        .map(|cwd| cwd.join(path))
+        .unwrap_or_else(|_| path.to_path_buf())
 }
 
 fn text_bytes(text: impl Into<String>) -> Vec<u8> {

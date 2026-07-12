@@ -1,9 +1,21 @@
-pure xsh_bin() -> Path {
+proc xsh_bin() [env] -> Path {
+  let bin = (env.get("CARGO_BIN_EXE_xsh") ?? "")
+  if bin != "" {
+    return fp"${bin}"
+  }
   return ../target/debug/xsh
 }
 
-proc test_seq_range() [process, error] {
-  let output = run.text xsh_bin() seq.xsh -- 2 2 6 ?
+proc core_script(name: Str) [env] -> Path {
+  let dir = (env.get("XSH_CORE_DIR") ?? "")
+  if dir != "" {
+    return fp"${dir}/${name}"
+  }
+  return ../name
+}
+
+proc test_seq_range() [env, process, error] {
+  let output = run.text xsh_bin() core_script("seq.xsh") -- 2 2 6 ?
 
   test.eq(
     output,
@@ -14,8 +26,8 @@ proc test_seq_range() [process, error] {
   )?
 }
 
-proc test_seq_descending_negative_separator_and_width() [process, error] {
-  let descending = run.text xsh_bin() seq.xsh -- 3 -2 -1 ?
+proc test_seq_descending_negative_separator_and_width() [env, process, error] {
+  let descending = run.text xsh_bin() core_script("seq.xsh") -- 3 -2 -1 ?
 
   test.eq(
     descending,
@@ -25,7 +37,7 @@ proc test_seq_descending_negative_separator_and_width() [process, error] {
 """,
   )?
 
-  let separated = run.text xsh_bin() seq.xsh -- -s, 1 3 ?
+  let separated = run.text xsh_bin() core_script("seq.xsh") -- -s, 1 3 ?
 
   test.eq(
     separated,
@@ -33,7 +45,7 @@ proc test_seq_descending_negative_separator_and_width() [process, error] {
 """,
   )?
 
-  let padded = run.text xsh_bin() seq.xsh -- -w 8 10 ?
+  let padded = run.text xsh_bin() core_script("seq.xsh") -- -w 8 10 ?
 
   test.eq(
     padded,
@@ -44,9 +56,9 @@ proc test_seq_descending_negative_separator_and_width() [process, error] {
   )?
 }
 
-proc test_seq_rejects_zero_step(ctx: TestContext) [fs, process, error] {
+proc test_seq_rejects_zero_step(ctx: TestContext) [env, fs, process, error] {
   let err = test.temp_path(ctx, name: "seq.err")
-  let status = run.status xsh_bin() seq.xsh -- 1 0 3 2> $err
+  let status = run.status xsh_bin() core_script("seq.xsh") -- 1 0 3 2> $err
   test.ok(! status.exited_with(0))?
   test.contains(err.read_text()?, "increment cannot be zero")?
 }

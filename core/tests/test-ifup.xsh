@@ -1,5 +1,17 @@
-pure xsh_bin() -> Path {
+proc xsh_bin() [env] -> Path {
+  let bin = (env.get("CARGO_BIN_EXE_xsh") ?? "")
+  if bin != "" {
+    return fp"${bin}"
+  }
   return ../target/debug/xsh
+}
+
+proc core_script(name: Str) [env] -> Path {
+  let dir = (env.get("XSH_CORE_DIR") ?? "")
+  if dir != "" {
+    return fp"${dir}/${name}"
+  }
+  return ../name
 }
 
 proc write_interfaces(path_value: Path, hook_log: Path) [fs, error] {
@@ -19,14 +31,14 @@ iface eth0 inet static
   )?
 }
 
-proc test_ifup_all_applies_auto_static_and_hooks(ctx: TestContext) [fs, process, error] {
+proc test_ifup_all_applies_auto_static_and_hooks(ctx: TestContext) [env, fs, process, error] {
   let root = test.temp_dir(ctx, name: "ifup-all")?
   let interfaces = fp"${root}/interfaces"
   let state = fp"${root}/ifstate"
   let linux_log = fp"${root}/linux.jsonl"
   let hook_log = fp"${root}/hooks.log"
   write_interfaces(interfaces, hook_log)?
-  run XSH_LINUX_DRY_RUN=1 XSH_LINUX_DRY_RUN_LOG=$linux_log XSH_IFUP_INTERFACES=$interfaces XSH_IFUP_STATE=$state xsh_bin() ifup.xsh -- -a ?
+  run XSH_LINUX_DRY_RUN=1 XSH_LINUX_DRY_RUN_LOG=$linux_log XSH_IFUP_INTERFACES=$interfaces XSH_IFUP_STATE=$state xsh_bin() core_script("ifup.xsh") -- -a ?
   let linux_text = linux_log.read_text()?
   test.contains(linux_text, "\"op\":\"link_up\"")?
   test.contains(linux_text, "\"interface\":\"lo\"")?
@@ -42,7 +54,7 @@ proc test_ifup_all_applies_auto_static_and_hooks(ctx: TestContext) [fs, process,
   test.contains(state.read_text()?, "eth0=eth0")?
 }
 
-proc test_ifup_dhcp_runs_discovery(ctx: TestContext) [fs, process, error] {
+proc test_ifup_dhcp_runs_discovery(ctx: TestContext) [env, fs, process, error] {
   let root = test.temp_dir(ctx, name: "ifup-dhcp")?
   let interfaces = fp"${root}/interfaces"
   let state = fp"${root}/ifstate"
@@ -56,7 +68,7 @@ iface eth0 inet dhcp
 """,
   )?
 
-  let status = run.status XSH_LINUX_DRY_RUN=1 XSH_LINUX_DRY_RUN_LOG=$linux_log XSH_IFUP_INTERFACES=$interfaces XSH_IFUP_STATE=$state xsh_bin() ifup.xsh -- -a 2> $err
+  let status = run.status XSH_LINUX_DRY_RUN=1 XSH_LINUX_DRY_RUN_LOG=$linux_log XSH_IFUP_INTERFACES=$interfaces XSH_IFUP_STATE=$state xsh_bin() core_script("ifup.xsh") -- -a 2> $err
 
   # Dry-run has no DHCP server, so discovery wires the sockets then fails cleanly.
   test.eq(status.ok, false)?
@@ -70,19 +82,19 @@ iface eth0 inet dhcp
   test.contains(err.read_text()?, "no DHCP offer")?
 }
 
-proc test_ifup_state_skips_configured_interface(ctx: TestContext) [fs, process, error] {
+proc test_ifup_state_skips_configured_interface(ctx: TestContext) [env, fs, process, error] {
   let root = test.temp_dir(ctx, name: "ifup-state")?
   let interfaces = fp"${root}/interfaces"
   let state = fp"${root}/ifstate"
   let linux_log = fp"${root}/linux.jsonl"
   let hook_log = fp"${root}/hooks.log"
   write_interfaces(interfaces, hook_log)?
-  run XSH_LINUX_DRY_RUN=1 XSH_LINUX_DRY_RUN_LOG=$linux_log XSH_IFUP_INTERFACES=$interfaces XSH_IFUP_STATE=$state xsh_bin() ifup.xsh -- eth0 ?
-  run XSH_LINUX_DRY_RUN=1 XSH_LINUX_DRY_RUN_LOG=$linux_log XSH_IFUP_INTERFACES=$interfaces XSH_IFUP_STATE=$state xsh_bin() ifup.xsh -- eth0 ?
+  run XSH_LINUX_DRY_RUN=1 XSH_LINUX_DRY_RUN_LOG=$linux_log XSH_IFUP_INTERFACES=$interfaces XSH_IFUP_STATE=$state xsh_bin() core_script("ifup.xsh") -- eth0 ?
+  run XSH_LINUX_DRY_RUN=1 XSH_LINUX_DRY_RUN_LOG=$linux_log XSH_IFUP_INTERFACES=$interfaces XSH_IFUP_STATE=$state xsh_bin() core_script("ifup.xsh") -- eth0 ?
   test.eq(hook_log.read_text()?.split("up:eth0").len(), 2)?
 }
 
-proc test_ifup_logical_selection(ctx: TestContext) [fs, process, error] {
+proc test_ifup_logical_selection(ctx: TestContext) [env, fs, process, error] {
   let root = test.temp_dir(ctx, name: "ifup-logical")?
   let interfaces = fp"${root}/interfaces"
   let state = fp"${root}/ifstate"
@@ -96,12 +108,12 @@ proc test_ifup_logical_selection(ctx: TestContext) [fs, process, error] {
 """,
   )?
 
-  run XSH_LINUX_DRY_RUN=1 XSH_LINUX_DRY_RUN_LOG=$linux_log XSH_IFUP_INTERFACES=$interfaces XSH_IFUP_STATE=$state xsh_bin() ifup.xsh -- eth0=office ?
+  run XSH_LINUX_DRY_RUN=1 XSH_LINUX_DRY_RUN_LOG=$linux_log XSH_IFUP_INTERFACES=$interfaces XSH_IFUP_STATE=$state xsh_bin() core_script("ifup.xsh") -- eth0=office ?
   test.contains(linux_log.read_text()?, "\"interface\":\"eth0\"")?
   test.contains(state.read_text()?, "eth0=office")?
 }
 
-proc test_ifup_source_glob(ctx: TestContext) [fs, process, error] {
+proc test_ifup_source_glob(ctx: TestContext) [env, fs, process, error] {
   let root = test.temp_dir(ctx, name: "ifup-source")?
   let interfaces = fp"${root}/interfaces"
   let sourced = fp"${root}/interfaces.d"
@@ -124,6 +136,6 @@ auto eth0
 """,
   )?
 
-  run XSH_LINUX_DRY_RUN=1 XSH_LINUX_DRY_RUN_LOG=$linux_log XSH_IFUP_INTERFACES=$interfaces XSH_IFUP_STATE=$state xsh_bin() ifup.xsh -- -a ?
+  run XSH_LINUX_DRY_RUN=1 XSH_LINUX_DRY_RUN_LOG=$linux_log XSH_IFUP_INTERFACES=$interfaces XSH_IFUP_STATE=$state xsh_bin() core_script("ifup.xsh") -- -a ?
   test.contains(linux_log.read_text()?, "\"address\":\"10.0.1.42\"")?
 }

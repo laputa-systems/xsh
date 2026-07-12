@@ -1,5 +1,17 @@
-pure xsh_bin() -> Path {
+proc xsh_bin() [env] -> Path {
+  let bin = (env.get("CARGO_BIN_EXE_xsh") ?? "")
+  if bin != "" {
+    return fp"${bin}"
+  }
   return ../target/debug/xsh
+}
+
+proc core_script(name: Str) [env] -> Path {
+  let dir = (env.get("XSH_CORE_DIR") ?? "")
+  if dir != "" {
+    return fp"${dir}/${name}"
+  }
+  return ../name
 }
 
 error BusyboxTestError = ProcessList(message: Str)
@@ -32,25 +44,25 @@ proc parent_for(pid: Int) [process, time, error] -> Result[Int] {
   return Err(BusyboxTestError.ProcessList(message: f"spawned process ${pid} was not visible"))
 }
 
-proc test_pstree_renders_tree_with_pid_labels() [process, time, error] {
+proc test_pstree_renders_tree_with_pid_labels() [env, process, time, error] {
   let child = spawn run sleep 30 ?
   let parent_pid = parent_for(child.pid)?
-  let output = run.text xsh_bin() pstree.xsh -- -p $parent_pid ?
+  let output = run.text xsh_bin() core_script("pstree.xsh") -- -p $parent_pid ?
   test.contains(output, f"[${parent_pid}]")?
   test.contains(output, f"sleep [${child.pid}]")?
   test.ok("\u{251c}\u{2500}" in output or "\u{2514}\u{2500}" in output or "|-" in output or "`-" in output)?
   test.ok(! ("->" in output))?
 }
 
-proc test_pstree_rejects_unknown_pid(ctx: TestContext) [fs, process, error] {
+proc test_pstree_rejects_unknown_pid(ctx: TestContext) [env, fs, process, error] {
   let err = test.temp_path(ctx, name: "pstree.err")
-  let status = run.status xsh_bin() pstree.xsh -- 999999999 2> $err
+  let status = run.status xsh_bin() core_script("pstree.xsh") -- 999999999 2> $err
   test.ok(! status.exited_with(0))?
   test.contains(err.read_text()?, "no such pid")?
 }
 
-proc test_pstree_default_prints_visible_root() [process, error] {
-  let output = run.text xsh_bin() pstree.xsh ?
+proc test_pstree_default_prints_visible_root() [env, process, error] {
+  let output = run.text xsh_bin() core_script("pstree.xsh") ?
   test.ok(output.trim() != "")?
   test.contains(output, "pstree.xsh")?
   test.contains(output, "[")?
