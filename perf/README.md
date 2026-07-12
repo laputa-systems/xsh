@@ -135,6 +135,26 @@ allocation baseline with:
 target/release/xsh perf/allocation-compare.xsh -- perf/allocation-baseline.json target/perf/YYYYMMDD-HHMMSS/allocation.json
 ```
 
+## xsht corpus benchmark
+
+`perf/fmt-corpus.sh` measures read-only `xsht fmt --check`, `xsht check`, or
+`xsht lint` over the repository XSH corpus (`core`, `examples`, `showcase`,
+`tests/xsh`, and `tools`). These are end-to-end CLI measurements including file
+loading and module processing. It writes per-operation Hyperfine and allocation
+output under `target/perf/` and reports the corpus file and byte counts:
+
+```sh
+perf/fmt-corpus.sh
+perf/fmt-corpus.sh --runs 20 --warmup 5
+perf/fmt-corpus.sh --operation all --alloc
+```
+
+The normal timing run uses a plain release binary. `--alloc` rebuilds with
+`perf-metrics` and runs one allocation-counting pass after timing for every
+selected operation; treat that pass as a memory diagnostic, not as a timing
+comparison. Use `--no-build` with an already-built `target/release/xsht` when
+iterating on the tools.
+
 ## Comprehensive profiling and PGO (`make prof`)
 
 `allocation-compare` answers *how much* is allocated; the `make prof` family

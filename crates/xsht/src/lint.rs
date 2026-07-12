@@ -56,7 +56,7 @@ struct Binding {
 
 pub struct Linter<'a> {
     arena: &'a AstArena,
-    source: String,
+    source: &'a str,
     runless: bool,
     runless_except: Vec<String>,
     interactive_command_replacement: Option<fn(&str) -> Option<&'static str>>,
@@ -120,10 +120,10 @@ fn type_expr_kind(arena: &AstArena, id: TypeExprId) -> ArenaTypeExprKind {
 }
 
 impl<'a> Linter<'a> {
-    pub fn lint(program: &'a ArenaProgram, source: &str, options: LintOptions) -> LintOutput {
+    pub fn lint(program: &'a ArenaProgram, source: &'a str, options: LintOptions) -> LintOutput {
         let mut linter = Self {
             arena: &program.arena,
-            source: source.to_string(),
+            source,
             runless: options.runless,
             runless_except: options.runless_except,
             interactive_command_replacement: options.interactive_command_replacement,
@@ -358,7 +358,7 @@ impl<'a> Linter<'a> {
     fn lint_top_level_const_order(&mut self, statements: &[StmtId]) {
         let mut saw_function = false;
         for &stmt_id in statements {
-            let phase = top_level_phase(self.arena, stmt_id, &self.source);
+            let phase = top_level_phase(self.arena, stmt_id, self.source);
             if phase == TopLevelPhase::SafeConst && saw_function {
                 self.diagnostics.push(
                     Diagnostic::new(
@@ -389,7 +389,7 @@ impl<'a> Linter<'a> {
             left.start().cmp(&right.start())
         });
         for (name, span) in unused {
-            let deletion_span = scan_return_stmt_span(&self.source, span);
+            let deletion_span = scan_return_stmt_span(self.source, span);
             self.diagnostics.push(
                 xsh::diagnostic::Diagnostic::new(
                     xsh::diagnostic::Severity::Warning,
@@ -499,7 +499,7 @@ impl<'a> Linter<'a> {
         if !is_explicit_call {
             return;
         }
-        let deletion_span = scan_return_stmt_span(&self.source, last_stmt.span);
+        let deletion_span = scan_return_stmt_span(self.source, last_stmt.span);
         self.diagnostics.push(
             xsh::diagnostic::Diagnostic::new(
                 xsh::diagnostic::Severity::Warning,
@@ -689,7 +689,7 @@ impl<'a> Linter<'a> {
         if !def.return_ty_defaulted && !exported && result_unit_type_expr(self.arena, def.return_ty)
         {
             let ty_span = self.arena.type_expr_span(def.return_ty);
-            let deletion_start = scan_before_arrow(&self.source, ty_span.start());
+            let deletion_start = scan_before_arrow(self.source, ty_span.start());
             let deletion_span = Span::new(ty_span.source_id, deletion_start, ty_span.end());
             self.diagnostics.push(
                 Diagnostic::new(
@@ -741,7 +741,7 @@ impl<'a> Linter<'a> {
             }
             let annotation = effects_annotation(&union);
             let Some(effect_span) =
-                scan_effect_list_span(self.arena, &def, stmt_span, &self.source)
+                scan_effect_list_span(self.arena, &def, stmt_span, self.source)
             else {
                 return;
             };
@@ -770,7 +770,7 @@ impl<'a> Linter<'a> {
             (body_span.start(), body_span.source_id)
         } else {
             let return_ty_span = self.arena.type_expr_span(def.return_ty);
-            let pos = scan_before_arrow(&self.source, return_ty_span.start());
+            let pos = scan_before_arrow(self.source, return_ty_span.start());
             (pos, return_ty_span.source_id)
         };
         let insert_span = Span::new(source_id, insert_pos, insert_pos);
@@ -845,7 +845,7 @@ impl<'a> Linter<'a> {
         };
         let last_stmt = self.arena.stmt(last_id);
         if matches!(last_stmt.kind, ArenaStmtKind::Return(None)) {
-            let deletion_span = scan_return_stmt_span(&self.source, last_stmt.span);
+            let deletion_span = scan_return_stmt_span(self.source, last_stmt.span);
             self.diagnostics.push(
                 Diagnostic::new(
                     Severity::Warning,
@@ -1102,8 +1102,8 @@ impl<'a> Linter<'a> {
             return;
         }
         let ty_span = self.arena.type_expr_span(ty);
-        let deletion_start = scan_before_colon(&self.source, ty_span.start());
-        let deletion_end = scan_after_type(&self.source, ty_span.end());
+        let deletion_start = scan_before_colon(self.source, ty_span.start());
+        let deletion_end = scan_after_type(self.source, ty_span.end());
         if deletion_start >= deletion_end {
             return;
         }
@@ -1636,7 +1636,7 @@ impl<'a> Linter<'a> {
         {
             return;
         }
-        let deletion_span = scan_return_stmt_span(&self.source, return_stmt.span);
+        let deletion_span = scan_return_stmt_span(self.source, return_stmt.span);
         self.diagnostics.push(
             Diagnostic::new(
                 Severity::Warning,
@@ -1697,7 +1697,7 @@ impl<'a> Linter<'a> {
         let replacement_span = Span::new(
             binding_stmt.span.source_id,
             binding_stmt.span.start(),
-            span_end_after_following_newlines(&self.source, return_stmt.span.end()),
+            span_end_after_following_newlines(self.source, return_stmt.span.end()),
         );
         let mut diagnostic = Diagnostic::new(
             Severity::Warning,
@@ -1817,7 +1817,7 @@ impl<'a> Linter<'a> {
         }
         let val_span = self.expr_or_run_span(value);
         // Include the whitespace before `Ok()` so deletion leaves a clean `return`.
-        let deletion_start = scan_back_space(&self.source, val_span.start());
+        let deletion_start = scan_back_space(self.source, val_span.start());
         let deletion_span = Span::new(val_span.source_id, deletion_start, val_span.end());
         self.diagnostics.push(
             Diagnostic::new(
@@ -1880,7 +1880,7 @@ impl<'a> Linter<'a> {
                 Span::new(
                     last_stmt.span.source_id,
                     last_stmt.span.start(),
-                    span_end_after_following_newlines(&self.source, last_stmt.span.end()),
+                    span_end_after_following_newlines(self.source, last_stmt.span.end()),
                 ),
                 "use the plain tail value",
                 replacement,
@@ -2125,7 +2125,7 @@ impl<'a> Linter<'a> {
         let combined = Span::new(
             var_stmt.span.source_id,
             var_stmt.span.start(),
-            span_end_after_following_newlines(&self.source, for_stmt.span.end()),
+            span_end_after_following_newlines(self.source, for_stmt.span.end()),
         );
         self.diagnostics.push(
             Diagnostic::new(
@@ -2222,7 +2222,7 @@ impl<'a> Linter<'a> {
         let combined = Span::new(
             var_stmt.span.source_id,
             var_stmt.span.start(),
-            span_end_after_following_newlines(&self.source, for_stmt.span.end()),
+            span_end_after_following_newlines(self.source, for_stmt.span.end()),
         );
         self.diagnostics.push(
             Diagnostic::new(
@@ -2383,7 +2383,7 @@ impl<'a> Linter<'a> {
         if self.runless {
             for segment in self.arena.run_segments(run.segments).to_vec() {
                 let seg_span = self.arena.span(segment.span);
-                let name = command_name(self.arena, &self.source, &segment.target);
+                let name = command_name(self.arena, self.source, &segment.target);
                 let exempt = name
                     .as_deref()
                     .is_some_and(|n| self.runless_except.iter().any(|e| e == n));
@@ -2801,7 +2801,7 @@ impl<'a> Linter<'a> {
         if receiver_text.contains('#') || needle_text.contains('#') {
             return;
         }
-        let replacement = if call_is_directly_negated(&self.source, span) {
+        let replacement = if call_is_directly_negated(self.source, span) {
             format!("({needle_text} in {receiver_text})")
         } else {
             format!("{needle_text} in {receiver_text}")
@@ -2968,7 +2968,7 @@ impl<'a> Linter<'a> {
                 }
                 _ => continue,
             };
-            let deletion_span = scan_pipe_stage_deletion_span(&self.source, stage_span);
+            let deletion_span = scan_pipe_stage_deletion_span(self.source, stage_span);
             self.diagnostics.push(
                 Diagnostic::new(Severity::Warning, message)
                     .with_code(code)
@@ -4703,7 +4703,7 @@ impl LintExprVisitor<'_, '_> {
                 let part_list: Vec<ArenaWordPart> = self.linter.arena.word_parts(parts).collect();
                 if allow_bare_refs
                     && let Some(text) =
-                        bare_command_word_parts(self.linter.arena, &self.linter.source, &part_list)
+                        bare_command_word_parts(self.linter.arena, self.linter.source, &part_list)
                     && let Some((root, _)) = parse_command_word_reference(&text)
                 {
                     self.linter.mark_used(root);
@@ -4892,11 +4892,11 @@ impl LintExprVisitor<'_, '_> {
             if segment.kind == RunKind::Plain
                 && run_form.propagate
                 && let Some(target) =
-                    literal_command_word(arena, &self.linter.source, &segment.target)
+                    literal_command_word(arena, self.linter.source, &segment.target)
                 && expects_nonzero_status(&target)
             {
                 let deletion_span = scan_run_propagate_deletion_span(
-                    &self.linter.source,
+                    self.linter.source,
                     arena.span(run_form.span),
                 );
                 self.linter.diagnostics.push(

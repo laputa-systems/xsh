@@ -279,6 +279,19 @@ fn parser_and_formatter_accept_float_literals() {
 }
 
 #[test]
+fn formatter_reuses_parsed_program_without_changing_output() {
+    let source = "let value =   1\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let direct = Formatter::new().format_source(SourceId::new(0), source);
+    let reused = Formatter::new().format_parsed_source(source, &parsed);
+
+    assert_eq!(reused.formatted, direct.formatted);
+    assert!(reused.diagnostics.is_empty(), "{:?}", reused.diagnostics);
+}
+
+#[test]
 fn parser_and_formatter_accept_map_comprehensions() {
     let source =
         "let by_name = {item.name: item.version for item in items if item.version != \"\"}\n";

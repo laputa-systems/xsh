@@ -201,7 +201,7 @@ fn format_one_file(index: usize, file: &str) -> FormatResult {
     };
     let formatted = Formatter::new()
         .with_line_width(config.line_width())
-        .format_source(checked_program.entry_source_id, text);
+        .format_parsed_source(text, &checked_program.parsed);
     if !formatted.diagnostics.is_empty() {
         return FormatResult {
             index,

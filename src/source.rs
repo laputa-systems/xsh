@@ -1,5 +1,6 @@
 use std::fmt;
 use std::ops::Range;
+use std::sync::Arc;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Ord, PartialOrd)]
 pub struct SourceId(u32);
@@ -244,7 +245,7 @@ fn resolve_source_path(name: String) -> String {
 
 #[derive(Clone, Debug, Default)]
 pub struct SourceMap {
-    files: Vec<SourceFile>,
+    files: Arc<Vec<SourceFile>>,
 }
 
 impl SourceMap {
@@ -256,7 +257,7 @@ impl SourceMap {
         let id = SourceId::new(self.files.len());
         let name = name.into();
         let resolved = resolve_source_path(name);
-        self.files.push(SourceFile::new(id, resolved, text));
+        Arc::make_mut(&mut self.files).push(SourceFile::new(id, resolved, text));
         id
     }
 
@@ -269,7 +270,7 @@ impl SourceMap {
         let name = name.into();
         let resolved = resolve_source_path(name);
         let file = SourceFile::from_utf8(id, resolved, bytes)?;
-        self.files.push(file);
+        Arc::make_mut(&mut self.files).push(file);
         Ok(id)
     }
 
@@ -290,7 +291,7 @@ impl SourceMap {
     }
 
     pub fn files(&self) -> &[SourceFile] {
-        &self.files
+        self.files.as_slice()
     }
 }
 
@@ -332,5 +333,16 @@ mod tests {
 
         assert_eq!(err.name, "bad.xsh");
         assert_eq!(err.offset, 2);
+    }
+
+    #[test]
+    fn cloned_source_maps_are_independent_when_mutated() {
+        let mut original = SourceMap::new();
+        original.add_file("original.xsh", "let value = 1\n");
+        let mut clone = original.clone();
+        clone.add_file("clone.xsh", "let value = 2\n");
+
+        assert_eq!(original.files().len(), 1);
+        assert_eq!(clone.files().len(), 2);
     }
 }
