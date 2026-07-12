@@ -128,29 +128,13 @@ jobs:
       - name: Install Rust target
         run: rustup target add ${{ matrix.target }}
 
-      - name: Clear cached aws-lc build artifacts
-        if: matrix.os == 'linux'
-        run: cargo clean -p aws-lc-sys --target ${{ matrix.target }}
-
-      - name: Build with dist profile
-        run: CARGO_BUILD_WARNINGS=deny cargo test --no-run --locked --profile dist --no-default-features --features "net tools" --target ${{ matrix.target }} --keep-going
-
-      - name: Link target debug tools for core tests
+      - name: Test
         run: |
-          mkdir -p target/debug
-          ln -sf "../${{ matrix.target }}/dist/xsh" target/debug/xsh
-          ln -sf "../${{ matrix.target }}/dist/xsht" target/debug/xsht
-          ln -sf "../${{ matrix.target }}/dist/xshi" target/debug/xshi 2>/dev/null || true
-          ln -sf "../${{ matrix.target }}/dist/xsh-test-sleeper" target/debug/xsh-test-sleeper 2>/dev/null || true
+          ci_target=linux; case ${{ matrix.os }} in darwin) ci_target=macos;; esac
+          make test-${ci_target}-ci TARGET=${{ matrix.target }}
 
-      - name: test
-        run: CARGO_BUILD_WARNINGS=deny cargo test --profile dist --no-default-features --features "net tools" --target ${{ matrix.target }} --keep-going -- --nocapture --quiet
-
-      - name: Prepare multicall runner
-        run: ln -sf xsh-multicall "target/${{ matrix.target }}/dist/xsh"
-
-      - name: xsh tests
-        run: target/${{ matrix.target }}/dist/xsht test
+      - name: Build optimized binary
+        run: make dist TARGET=${{ matrix.target }}
 
       - name: Verify static linkage
         if: matrix.os == 'linux'

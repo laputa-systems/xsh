@@ -1,4 +1,4 @@
-.PHONY: build lint docs test cov test-core test-linux test-linux-priv test-linux-os-stress test-linux-cpumax test-trace test-trace-save test-trace-compare perf-linux perf-linux-extension-count perf-linux-flamegraph perf-linux-showcases perf-linux-showcase-flamegraphs prof prof-layout prof-parse-corpus prof-pgo prof-dhat prof-callgrind prof-cachegrind prof-valgrind prof-compare prof-baseline prof-baseline-frontend prof-baseline-runtime install-darwin install-linux dist dist-ci
+.PHONY: build lint docs test cov test-linux test-linux-ci test-macos-ci test-trace test-trace-save test-trace-compare perf-linux perf-linux-extension-count perf-linux-flamegraph perf-linux-showcases perf-linux-showcase-flamegraphs prof prof-layout prof-parse-corpus prof-pgo prof-dhat prof-callgrind prof-cachegrind prof-valgrind prof-compare prof-baseline prof-baseline-frontend prof-baseline-runtime install-darwin install-linux dist dist-ci
 
 DARWIN_CODESIGN_FLAGS ?=
 ifneq ($(DARWIN_CODESIGN_ENTITLEMENTS),)
@@ -129,19 +129,7 @@ endif
 dist: dist-$(shell uname -s)
 
 dist-Darwin:
-ifeq ($(TARGET),aarch64-apple-darwin)
-	$(DIST_ENV) cargo build --target-dir $(CURDIR)/target/dist-build --locked --profile $(DIST_PROFILE) $(DIST_BUILD_STD_FLAGS) --target $(TARGET) --no-default-features --features "net tools" --bin $(DIST_BIN)
-	mkdir -p target/$(TARGET)
-	rm -rf target/$(TARGET)/dist target/$(TARGET)/$(DIST_PROFILE_DIR)
-	ln -sfn ../dist-build/$(TARGET)/dist target/$(TARGET)/dist
-	ln -sfn ../dist-build/$(TARGET)/$(DIST_PROFILE_DIR) target/$(TARGET)/$(DIST_PROFILE_DIR)
-else ifeq ($(TARGET),x86_64-apple-darwin)
-	$(DIST_ENV) cargo build --target-dir $(CURDIR)/target/dist-build --locked --profile $(DIST_PROFILE) $(DIST_BUILD_STD_FLAGS) --target $(TARGET) --no-default-features --features "net tools" --bin $(DIST_BIN)
-	mkdir -p target/$(TARGET)
-	rm -rf target/$(TARGET)/dist target/$(TARGET)/$(DIST_PROFILE_DIR)
-	ln -sfn ../dist-build/$(TARGET)/dist target/$(TARGET)/dist
-	ln -sfn ../dist-build/$(TARGET)/$(DIST_PROFILE_DIR) target/$(TARGET)/$(DIST_PROFILE_DIR)
-else
+ifeq ($(filter $(TARGET),aarch64-apple-darwin x86_64-apple-darwin),)
 	docker build -t xsh-test -f Dockerfile.test .
 	docker run --rm \
 		-v $(CURDIR):/work \
@@ -158,6 +146,13 @@ else
 			ln -sf /usr/lib/libc.so "$$SR/libc.so" && \
 			make dist DOCKER_BUILD=1 DIST_BUILD_STD_FLAGS= \
 		'
+else
+	$(DIST_ENV) cargo build --target-dir $(CURDIR)/target/dist-build --locked --profile $(DIST_PROFILE) $(DIST_BUILD_STD_FLAGS) --target $(TARGET) --no-default-features --features "net tools" --bin $(DIST_BIN)
+	mkdir -p target/$(TARGET)
+	rm -rf target/$(TARGET)/dist target/$(TARGET)/$(DIST_PROFILE_DIR)
+	ln -sfn ../dist-build/$(TARGET)/dist target/$(TARGET)/dist
+	ln -sfn ../dist-build/$(TARGET)/$(DIST_PROFILE_DIR) target/$(TARGET)/$(DIST_PROFILE_DIR)
+	ln -sf $(DIST_BIN) target/$(TARGET)/dist/xsh
 endif
 
 dist-Linux:
@@ -166,6 +161,7 @@ dist-Linux:
 	rm -rf target/$(TARGET)/dist target/$(TARGET)/$(DIST_PROFILE_DIR)
 	ln -sfn ../dist-build/$(TARGET)/dist target/$(TARGET)/dist
 	ln -sfn ../dist-build/$(TARGET)/$(DIST_PROFILE_DIR) target/$(TARGET)/$(DIST_PROFILE_DIR)
+	ln -sf $(DIST_BIN) target/$(TARGET)/dist/xsh
 
 dist-ci: dist
 	@echo "=== verifying static linkage ==="
@@ -213,54 +209,47 @@ test: test-xsh-native
 test-xsh-native:
 	cargo run -p xsht -- test
 
-test-core:
-	docker build -t xsh-test -f Dockerfile.test .
-	docker run --rm -v $(CURDIR):/work -v $(CURDIR)/target/aarch64-unknown-linux-musl:/work/target -v xsh-cargo-registry:/root/.cargo/registry -w /work xsh-test sh -c "cargo build -p xsht && ln -sf /work/target/debug/xsh /bin/xsh && target/debug/xsht test --fail-fast"
-
 test-linux:
 	docker build -t xsh-test -f Dockerfile.test .
-	docker run --rm -v $(CURDIR):/work -v $(CURDIR)/target/aarch64-unknown-linux-musl:/work/target -v xsh-cargo-registry:/root/.cargo/registry -w /work xsh-test sh -c "ln -sf /work/target/debug/xsh /bin/xsh && cargo test"
-
-test-linux-priv:
-	docker build -t xsh-test -f Dockerfile.test .
 	docker run --rm \
-	    --cap-add SYS_ADMIN \
-	    --cap-add MKNOD \
-	    --cap-add NET_ADMIN \
-	    --device /dev/loop-control \
-	    -v $(CURDIR):/work \
-	    -v $(CURDIR)/target/aarch64-unknown-linux-musl:/work/target \
-	    -w /work \
-	    xsh-test cargo test --features linux-priv-tests --test linux_priv
-
-test-linux-os-stress:
-	docker build -t xsh-test -f Dockerfile.test .
-	docker run --rm \
+	    --privileged \
 	    -e XSH_OS_STRESS_REPEAT=$${XSH_OS_STRESS_REPEAT:-25} \
 	    -v $(CURDIR):/work \
 	    -v $(CURDIR)/target/aarch64-unknown-linux-musl:/work/target \
+	    -v xsh-cargo-registry:/root/.cargo/registry \
 	    -w /work \
-	    xsh-test cargo test --test runtime os_stress -- --ignored --test-threads=1 --nocapture
+	    xsh-test \
+	    sh -c 'set -eu; \
+	        ln -sf /work/target/debug/xsh /bin/xsh; \
+	        cargo test --features linux-priv-tests; \
+	        cargo test --test runtime os_stress -- --ignored --test-threads=1 --nocapture; \
+	        target/debug/xsht test'
 
-test-linux-cpumax:
-	docker build -t xsh-test -f Dockerfile.test .
-	docker run --rm --privileged \
-	    -v $(CURDIR):/work \
-	    -v $(CURDIR)/target/aarch64-unknown-linux-musl:/work/target \
-	    -w /work \
-	    xsh-test sh -c 'set -eu; mnt=/tmp/xsh-cg; root=$$mnt/xsh-test-root; runner=$$root/runner; mkdir -p "$$mnt"; mount -t cgroup2 none "$$mnt"; cleanup() { set +e; echo $$$$ > "$$mnt/cgroup.procs" 2>/dev/null; rmdir "$$runner" 2>/dev/null; rmdir "$$root" 2>/dev/null; umount "$$mnt" 2>/dev/null; }; trap cleanup EXIT; mkdir "$$root" "$$runner"; echo $$$$ > "$$runner/cgroup.procs"; printf "+cpu\n" > "$$mnt/cgroup.subtree_control"; XSH_TEST_CGROUP_ROOT="$$root" XSH_TEST_CGROUP_MOUNT="$$mnt" cargo test --test runtime run_cpumax_uses_real_cgroup_v2_when_available -- --nocapture'
+test-linux-ci:
+	cargo test --no-run --locked --profile $(DIST_PROFILE) --features "linux-priv-tests net tools" --target $(TARGET) --keep-going
+	cargo test --profile $(DIST_PROFILE) --features "linux-priv-tests net tools" --target $(TARGET) -- --nocapture --quiet --keep-going
+	cargo test --profile $(DIST_PROFILE) --features "linux-priv-tests net tools" --target $(TARGET) --test runtime os_stress -- --ignored --test-threads=1 --nocapture
+	target/$(TARGET)/$(DIST_PROFILE_DIR)/xsht test
+
+test-macos-ci:
+	cargo test --no-run --locked --profile $(DIST_PROFILE) --features "net tools" --target $(TARGET) --keep-going
+	cargo test --profile $(DIST_PROFILE) --features "net tools" --target $(TARGET) -- --nocapture --quiet --keep-going
+	cargo test --profile $(DIST_PROFILE) --features "net tools" --target $(TARGET) --test runtime os_stress -- --ignored --test-threads=1 --nocapture
+	target/$(TARGET)/$(DIST_PROFILE_DIR)/xsht test
+
+TRACE_DOCKER_RUN = docker run --rm --cap-add SYS_PTRACE --security-opt seccomp=unconfined -v $(CURDIR):/work -v $(CURDIR)/target/aarch64-unknown-linux-musl:/work/target -v xsh-cargo-registry:/root/.cargo/registry -w /work xsh-test sh -c "cargo build --bin xsh && cargo build -p xsht
 
 test-trace:
 	docker build -t xsh-test -f Dockerfile.test .
-	docker run --rm --cap-add SYS_PTRACE --security-opt seccomp=unconfined -v $(CURDIR):/work -v $(CURDIR)/target/aarch64-unknown-linux-musl:/work/target -v xsh-cargo-registry:/root/.cargo/registry -w /work xsh-test sh -c "cargo build --bin xsh && cargo build -p xsht && target/debug/xsht test --examples --nocapture --trace-top-syscalls 8"
+	$(TRACE_DOCKER_RUN) && target/debug/xsht test --examples --nocapture --trace-top-syscalls 8"
 
 test-trace-save:
 	docker build -t xsh-test -f Dockerfile.test .
-	docker run --rm --cap-add SYS_PTRACE --security-opt seccomp=unconfined -v $(CURDIR):/work -v $(CURDIR)/target/aarch64-unknown-linux-musl:/work/target -v xsh-cargo-registry:/root/.cargo/registry -w /work xsh-test sh -c "cargo build --bin xsh && cargo build -p xsht && target/debug/xsht test --examples --nocapture --trace-top-syscalls 12 --trace-json-out perf/baseline.json"
+	$(TRACE_DOCKER_RUN) && target/debug/xsht test --examples --nocapture --trace-top-syscalls 12 --trace-json-out perf/baseline.json"
 
 test-trace-compare:
 	docker build -t xsh-test -f Dockerfile.test .
-	docker run --rm --cap-add SYS_PTRACE --security-opt seccomp=unconfined -v $(CURDIR):/work -v $(CURDIR)/target/aarch64-unknown-linux-musl:/work/target -v xsh-cargo-registry:/root/.cargo/registry -w /work xsh-test sh -c "cargo build --bin xsh && cargo build -p xsht && target/debug/xsht test --examples --nocapture --trace-top-syscalls 12 --trace-json-out /tmp/current.json && target/debug/xsh perf/trace-compare.xsh -- perf/baseline.json /tmp/current.json"
+	$(TRACE_DOCKER_RUN) && target/debug/xsht test --examples --nocapture --trace-top-syscalls 12 --trace-json-out /tmp/current.json && target/debug/xsh perf/trace-compare.xsh -- perf/baseline.json /tmp/current.json"
 
 perf-linux:
 	docker build -t xsh-test -f Dockerfile.test .
