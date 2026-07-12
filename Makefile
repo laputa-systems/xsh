@@ -1,4 +1,4 @@
-.PHONY: lint docs test cov test-core test-linux test-linux-priv test-linux-os-stress test-linux-cpumax test-trace test-trace-save test-trace-compare perf-linux perf-linux-extension-count perf-linux-flamegraph perf-linux-showcases perf-linux-showcase-flamegraphs prof prof-layout prof-parse-corpus prof-pgo prof-dhat prof-callgrind prof-cachegrind prof-valgrind prof-compare prof-baseline prof-baseline-frontend prof-baseline-runtime install-darwin install-linux dist dist-ci
+.PHONY: build lint docs test cov test-core test-linux test-linux-priv test-linux-os-stress test-linux-cpumax test-trace test-trace-save test-trace-compare perf-linux perf-linux-extension-count perf-linux-flamegraph perf-linux-showcases perf-linux-showcase-flamegraphs prof prof-layout prof-parse-corpus prof-pgo prof-dhat prof-callgrind prof-cachegrind prof-valgrind prof-compare prof-baseline prof-baseline-frontend prof-baseline-runtime install-darwin install-linux dist dist-ci
 
 DARWIN_CODESIGN_FLAGS ?=
 ifneq ($(DARWIN_CODESIGN_ENTITLEMENTS),)
@@ -73,6 +73,16 @@ install-linux: $(LINUX_INSTALL_CRT_OBJS)
 	ln -sf xsh-multicall ~/usr/bin/xsh
 	ln -sf xsh-multicall ~/usr/bin/xshi
 	ln -sf xsh-multicall ~/usr/bin/xsht
+
+# Debug build for native musl hosts. rust-lld can't find libc and libgcc_s in
+# /usr/lib by default; symlink them into the toolchain sysroot so it resolves.
+# This mirrors what the Docker CI does (dist-Linux at line 152).
+BUILD_SYSROOT_LIB := $(shell rustc --print sysroot)/lib/rustlib/x86_64-unknown-linux-musl/lib
+build:
+	ln -sf /usr/lib/libgcc_s.so.1 $(BUILD_SYSROOT_LIB)/libgcc_s.so
+	ln -sf /usr/lib/libgcc_s.so.1 $(BUILD_SYSROOT_LIB)/libgcc_s.so.1
+	ln -sf /usr/lib/libc.so $(BUILD_SYSROOT_LIB)/libc.so
+	cargo build
 
 # Fully-static musl dist build. Musl targets default to +crt-static, so the
 # binary embeds libc with no runtime dependency on ld-musl-*.so.1.
