@@ -226,56 +226,6 @@ fn xsh_accepts_leading_double_dash_for_shebang_scripts() {
     assert_eq!(String::from_utf8(output.stderr).unwrap(), "");
 }
 
-#[test]
-fn run_printf_preserves_one_data_argument() {
-    let output = xsh(["tests/fixtures/runtime/run-printf.xsh"]);
-
-    assert!(output.status.success());
-    assert_eq!(String::from_utf8(output.stdout).unwrap(), "hello world\n");
-}
-
-#[test]
-fn plain_run_false_propagates_run_error_status() {
-    let output = xsh(["tests/fixtures/runtime/run-false.xsh"]);
-
-    assert_eq!(output.status.code(), Some(3));
-    let stderr = String::from_utf8(output.stderr).unwrap();
-    assert!(stderr.contains("nonzero-exit"));
-}
-
-#[test]
-fn run_status_false_returns_status_value() {
-    let output = xsh(["tests/fixtures/runtime/run-status-false.xsh"]);
-
-    assert!(output.status.success());
-    assert_eq!(String::from_utf8(output.stdout).unwrap(), "true\n");
-}
-
-#[test]
-fn signaled_status_exit_code_is_structured_error() {
-    let output = xsh(["tests/fixtures/runtime/run-signaled-exit-code.xsh"]);
-
-    assert_eq!(output.status.code(), Some(3));
-    let stderr = String::from_utf8(output.stderr).unwrap();
-    assert!(stderr.contains("status-kind"));
-}
-
-#[test]
-fn run_capture_text_returns_str() {
-    let output = xsh(["tests/fixtures/runtime/run-capture-text.xsh"]);
-
-    assert!(output.status.success());
-    assert_eq!(String::from_utf8(output.stdout).unwrap(), "hello\n");
-}
-
-#[test]
-fn run_capture_bytes_does_not_decode_utf8() {
-    let output = xsh(["tests/fixtures/runtime/run-capture-bytes.xsh"]);
-
-    assert!(output.status.success());
-    assert_eq!(String::from_utf8(output.stdout).unwrap(), "ok\n");
-}
-
 #[cfg(target_os = "linux")]
 #[test]
 fn run_cpumax_writes_fake_cgroup_scope_and_cleans_up() {

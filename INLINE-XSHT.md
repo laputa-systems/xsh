@@ -16,22 +16,19 @@ Snapshot after the next native-test migration pass:
 | `tests/runtime/unix.rs` | 12 | Unix dry-run/process group/TTY style behavior. |
 | `tests/runtime/streams.rs` | 12 | Remaining cases are mostly generated stress, signal/cancellation, or behavior where the Rust harness controls the process. |
 | `tests/runtime/common.rs` | 10 | Harness helper definitions and internal helper use, not migration targets by themselves. |
-| `tests/runtime/run.rs` | 8 | Mostly CLI/tooling, cgroup/platform, or direct `xsht`/trace-file behavior. |
-| `tests/runtime/retry.rs` | 5 | Candidate for native migration if native tests get retry/state helpers. |
+| `tests/runtime/run.rs` | 2 | Remaining cases are mostly CLI/tooling, cgroup/platform, or direct `xsht`/trace-file behavior. |
 | `tests/runtime/coverage.rs` | 4 | Tooling/check/lint integration; likely belongs in Rust unless native tests can run `xsht` subcommands generally. |
 | `tests/runtime/stack_depth.rs` | 2 | Stack-size environment and failure-mode coverage. |
 | `tests/runtime/collections.rs` | 1 | Left because direct native migration exposed a laziness/evaluation-order mismatch. |
 | `tests/runtime/interactive.rs` | 1 | Interactive harness behavior. |
 
-Total current matches: 128, including the 10 helper-definition matches in
+Total current matches: 117, including the 10 helper-definition matches in
 `tests/runtime/common.rs`.
 
 ## Migration Priority
 
 Good native-test candidates:
 
-- `tests/runtime/retry.rs` if the assertions do not need Rust-side sleeps,
-  cancellation, or shared state.
 - Small `tests/runtime/run.rs` cases that can be expressed with
   `test.run_script`, `test.run_xsh`, or `test.run_xsht_trace`.
 

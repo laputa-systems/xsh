@@ -6,6 +6,40 @@ any known workarounds. When a ticket is resolved, delete it.
 
 ## Open
 
+### Optimize the slow macOS `pstree` process listing path
+
+**Symptom**
+
+`unix::core_pstree_without_root_prints_visible_roots` takes approximately 16
+seconds on macOS. Running `target/debug/xsh core/pstree.xsh` directly shows the
+same cost, so the Rust assertion is not the bottleneck.
+
+**Desired behavior**
+
+The default `pstree` view should enumerate and render the host process tree in
+well under a second for ordinary developer machines.
+
+**Likely area**
+
+`process.list()` on macOS and the collection-heavy process grouping and parent
+lookup logic in `core/pstree.xsh`. The current implementation loads the entire
+process table and performs substantial interpreted sorting, grouping, and
+scanning.
+
+**Minimal reproduction**
+
+```sh
+time target/debug/xsh core/pstree.xsh
+cargo test --test runtime unix::core_pstree_without_root_prints_visible_roots
+```
+
+**Possible directions**
+
+- Reduce per-process work in the macOS `process.list()` implementation.
+- Provide an indexed or purpose-built process-tree operation for `pstree`.
+- Optimize the XSH grouping, sorting, and parent lookup operations used by the
+  applet.
+
 ### Long-running XSH scripts should respond promptly to Ctrl-C and SIGTERM
 
 **Symptom**
@@ -80,4 +114,3 @@ Both should exit promptly on Ctrl-C and SIGTERM.
 Use `kill -KILL` on the stuck `xsh` process. Callers such as Make targets can
 reduce exposure by running smaller independent XSH invocations, so a single
 stuck script holds less work.
-

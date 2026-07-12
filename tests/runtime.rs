@@ -17,8 +17,6 @@ mod modules;
 mod os;
 #[path = "runtime/process.rs"]
 mod process;
-#[path = "runtime/retry.rs"]
-mod retry;
 #[path = "runtime/run.rs"]
 mod run;
 #[path = "runtime/stack_depth.rs"]

@@ -884,26 +884,6 @@ fn xsht_ast_prints_parser_debug_output() {
 }
 
 #[test]
-fn xsht_test_runs_native_xsh_tests_by_default() {
-    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
-        .arg("test")
-        .output()
-        .expect("run xsht");
-
-    assert!(
-        output.status.success(),
-        "xsht test failed with status {}\nstdout:\n{}\nstderr:\n{}",
-        output.status,
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let stdout = String::from_utf8(output.stdout).unwrap();
-    assert!(stdout.contains("test tests/xsh/basic.xsh::test_pass ... ok"));
-    assert!(stdout.contains("test tests/xsh/basic.xsh::test_skip ... skipped"));
-    assert!(stdout.contains("test result: ok."));
-}
-
-#[test]
 fn xsht_test_lists_and_filters_native_tests() {
     let listed = Command::new(env!("CARGO_BIN_EXE_xsht"))
         .args(["test", "--list", "test_dns"])

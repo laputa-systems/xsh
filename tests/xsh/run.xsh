@@ -673,3 +673,32 @@ main(args)?
   test.contains(runtime_error.stderr, "kind=runtime.error")?
   test.contains(runtime_error.stderr, "index-out-of-range")?
 }
+
+proc test_run_fixture_behaviors(ctx: TestContext) [process, error] {
+  test.eq(run.text printf "%s\n" "hello world" ?, "hello world\n")?
+
+  let failed = test.run_script(ctx, "run false\n")?
+  test.eq(failed.status, 3)?
+  test.contains(failed.stderr, "nonzero-exit")?
+
+  let status = run.status false
+  test.ok(status.exited_with(1))?
+
+  let text = run.text printf "%s" "hello" ?
+  test.eq(text, "hello")?
+
+  let raw = run.bytes head -c 1 /dev/zero ?
+  test.eq(raw, b"\0")?
+}
+
+proc test_signaled_status_exit_code_is_structured_error(ctx: TestContext) [error] {
+  let output = test.run_script(
+    ctx,
+    """let status = run sh -c "kill -TERM $$"
+let _ = status.exit_code()?
+""",
+  )?
+
+  test.eq(output.status, 3)?
+  test.contains(output.stderr, "status-kind")?
+}
