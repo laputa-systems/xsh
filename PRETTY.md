@@ -1,5 +1,3 @@
-# Pretty Printing XSH
-
 This document records the design direction for making `xsht fmt` produce
 beautiful XSH source. It is an implementation note, not a second language
 specification. Syntax and source-visible language behavior belong in

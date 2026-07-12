@@ -31,6 +31,9 @@ fn example_corpus_runs_with_expected_output() {
         if case.requires_net && !cfg!(feature = "net") {
             continue;
         }
+        if case.skip {
+            continue;
+        }
         let mut command = Command::new(env!("CARGO_BIN_EXE_xsh"));
         command.arg(&case.path);
         if !case.args.is_empty() {

@@ -55,6 +55,9 @@ pub struct ExampleCase {
     /// True for examples that exercise the `net` feature (HTTP/DNS); test
     /// runners skip these when xsh is built without `net`.
     pub requires_net: bool,
+    /// True for examples that should be skipped by test runners (e.g.
+    /// platform-dependent or flaky examples).
+    pub skip: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -240,6 +243,7 @@ fn parse_example_case(value: &miniserde::json::Value) -> Result<ExampleCase, Str
         stderr: parse_output_policy(json_field(value, "stderr")?)?,
         trace: json_optional_bool_field(value, "trace")?.unwrap_or(false),
         requires_net: json_optional_bool_field(value, "requires_net")?.unwrap_or(false),
+        skip: json_optional_bool_field(value, "skip")?.unwrap_or(false),
     })
 }
 
