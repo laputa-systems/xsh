@@ -1385,7 +1385,11 @@ impl<'a> Writer<'a> {
             }
             ArenaExprKind::Call { callee, args } => {
                 self.write_expr(*callee, precedence, output);
-                self.write_call_args(*args, output);
+                let callee_end = self.arena.expr(*callee).span.end();
+                let call_end = self.arena.expr(expr_id).span.end();
+                let original_multiline =
+                    self.call_args_original_multiline(*args, callee_end, call_end);
+                self.write_call_args(*args, original_multiline, output);
             }
             ArenaExprKind::Field { base, name } => {
                 if matches!(self.arena.expr(*base).kind, ArenaExprKind::Item) {
@@ -1766,7 +1770,7 @@ impl<'a> Writer<'a> {
         if !stage.args.is_empty()
             || (stage.block.is_none() && stage.kind.canonical_parens_when_empty())
         {
-            self.write_call_args(stage.args, output);
+            self.write_call_args(stage.args, false, output);
         }
         if let Some(expr) = self.inline_stream_block_expr(stage) {
             output.push(' ');
@@ -2094,7 +2098,12 @@ impl<'a> Writer<'a> {
         }
     }
 
-    fn write_call_args(&mut self, args: xsh::syntax::arena::ArenaRange, output: &mut String) {
+    fn write_call_args(
+        &mut self,
+        args: xsh::syntax::arena::ArenaRange,
+        original_multiline: bool,
+        output: &mut String,
+    ) {
         let arg_kinds: Vec<xsh::syntax::arena::ArenaCallArgKind> = self
             .arena
             .call_args(args)
@@ -2103,7 +2112,7 @@ impl<'a> Writer<'a> {
             .collect();
         let inline =
             self.render_inline(|writer, inline| writer.write_call_args_inline(args, inline));
-        if arg_kinds.is_empty() || self.fits_inline(output, &inline) {
+        if arg_kinds.is_empty() || (!original_multiline && self.fits_inline(output, &inline)) {
             output.push_str(&inline);
             return;
         }
@@ -2130,6 +2139,37 @@ impl<'a> Writer<'a> {
         output.push(')');
     }
 
+    fn call_args_original_multiline(
+        &self,
+        args: xsh::syntax::arena::ArenaRange,
+        callee_end: usize,
+        call_end: usize,
+    ) -> bool {
+        let mut previous_end = callee_end;
+        for arg in self.arena.call_args(args) {
+            let span = match &arg.kind {
+                xsh::syntax::arena::ArenaCallArgKind::Positional(expr) => {
+                    self.arena.expr(*expr).span
+                }
+                xsh::syntax::arena::ArenaCallArgKind::Splice { span, .. }
+                | xsh::syntax::arena::ArenaCallArgKind::Named { span, .. } => {
+                    self.arena.span(*span)
+                }
+            };
+            if self
+                .source
+                .get(previous_end..span.start())
+                .is_some_and(|gap| gap.contains('\n'))
+            {
+                return true;
+            }
+            previous_end = span.end();
+        }
+        self.source
+            .get(previous_end..call_end)
+            .is_some_and(|gap| gap.contains('\n'))
+    }
+
     fn try_write_stable_call_chain(&mut self, expr_id: ExprId, output: &mut String) -> bool {
         let Some((base, segments)) = call_chain_segments(self.arena, expr_id) else {
             return false;
@@ -2153,11 +2193,21 @@ impl<'a> Writer<'a> {
                 writer.write_call_args_inline(segment.args, inline);
             }
         });
-        if self.fits_inline(output, &inline) {
+        if self.fits_inline(output, &inline) && !self.expr_source_is_multiline(expr_id) {
             return false;
         }
 
-        output.push_str(&inline);
+        self.write_expr(base, 0, output);
+        let indent = continuation_indent_for_expr(output);
+        for (index, segment) in segments.iter().enumerate() {
+            if index > 0 {
+                output.push('\n');
+                self.write_indent(indent, output);
+            }
+            output.push('.');
+            output.push_str(segment.name.as_str());
+            self.write_call_args(segment.args, false, output);
+        }
         true
     }
 
@@ -2255,7 +2305,7 @@ impl<'a> Writer<'a> {
                 let inline = self.render_inline(|writer, inline| {
                     writer.write_if_expr(branches, else_value, inline);
                 });
-                if self.fits_inline(output, &inline) {
+                if self.fits_inline(output, &inline) && !self.expr_source_is_multiline(expr_id) {
                     output.push_str(&inline);
                 } else {
                     self.write_if_expr_multiline(branches, else_value, output);
@@ -2267,10 +2317,30 @@ impl<'a> Writer<'a> {
                 let inline = self.render_inline(|writer, inline| {
                     writer.write_match_expr(value, arms, inline);
                 });
-                if self.fits_inline(output, &inline) {
+                if self.fits_inline(output, &inline) && !self.expr_source_is_multiline(expr_id) {
                     output.push_str(&inline);
                 } else {
                     self.write_match_expr_multiline(value, arms, output);
+                }
+            }
+            ArenaExprKind::ListComp { .. } => {
+                let inline = self.render_inline(|writer, inline| {
+                    writer.write_expr(expr_id, 0, inline);
+                });
+                if self.fits_inline(output, &inline) && !self.expr_source_is_multiline(expr_id) {
+                    output.push_str(&inline);
+                } else {
+                    self.write_list_comp_multiline(expr_id, output);
+                }
+            }
+            ArenaExprKind::MapComp { .. } => {
+                let inline = self.render_inline(|writer, inline| {
+                    writer.write_expr(expr_id, 0, inline);
+                });
+                if self.fits_inline(output, &inline) && !self.expr_source_is_multiline(expr_id) {
+                    output.push_str(&inline);
+                } else {
+                    self.write_map_comp_multiline(expr_id, output);
                 }
             }
             _ => self.write_expr(expr_id, 0, output),
@@ -2287,8 +2357,78 @@ impl<'a> Writer<'a> {
             ArenaExprKind::Match { value, arms } => {
                 self.write_match_expr_multiline(*value, *arms, output)
             }
+            ArenaExprKind::ListComp { .. } => self.write_list_comp_multiline(expr_id, output),
+            ArenaExprKind::MapComp { .. } => self.write_map_comp_multiline(expr_id, output),
             _ => self.write_expr_safe(expr_id, output),
         }
+    }
+
+    fn write_list_comp_multiline(&mut self, expr_id: ExprId, output: &mut String) {
+        let ArenaExprKind::ListComp {
+            expr,
+            target,
+            iter,
+            condition,
+        } = self.arena.expr(expr_id).kind
+        else {
+            return self.write_expr(expr_id, 0, output);
+        };
+        let indent = indent_for_expr(output);
+        output.push_str("[\n");
+        self.write_indent(indent + 1, output);
+        self.write_expr_safe(expr, output);
+        output.push('\n');
+        self.write_indent(indent + 1, output);
+        output.push_str("for ");
+        self.write_binding_target(target, output);
+        output.push_str(" in ");
+        self.write_expr(iter, 0, output);
+        if let Some(condition) = condition {
+            output.push_str(" if ");
+            self.write_expr(condition, 0, output);
+        }
+        output.push('\n');
+        self.write_indent(indent, output);
+        output.push(']');
+    }
+
+    fn write_map_comp_multiline(&mut self, expr_id: ExprId, output: &mut String) {
+        let ArenaExprKind::MapComp {
+            key,
+            value,
+            target,
+            iter,
+            condition,
+        } = self.arena.expr(expr_id).kind
+        else {
+            return self.write_expr(expr_id, 0, output);
+        };
+        let indent = indent_for_expr(output);
+        output.push_str("{\n");
+        self.write_indent(indent + 1, output);
+        self.write_expr_safe(key, output);
+        output.push_str(": ");
+        self.write_expr_safe(value, output);
+        output.push('\n');
+        self.write_indent(indent + 1, output);
+        output.push_str("for ");
+        self.write_binding_target(target, output);
+        output.push_str(" in ");
+        self.write_expr(iter, 0, output);
+        if let Some(condition) = condition {
+            output.push_str(" if ");
+            self.write_expr(condition, 0, output);
+        }
+        output.push('\n');
+        self.write_indent(indent, output);
+        output.push('}');
+    }
+
+    fn expr_source_is_multiline(&self, expr_id: ExprId) -> bool {
+        let span = self.arena.expr(expr_id).span;
+        self.source
+            .get(span.range())
+            .is_some_and(|source| source.contains('\n'))
     }
 
     fn write_comments_before(&mut self, offset: usize, indent: usize, output: &mut String) -> bool {

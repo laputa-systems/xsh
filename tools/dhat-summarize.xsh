@@ -99,7 +99,11 @@ let ranked = doc.pps
   |> sort-by --desc .tb
   |> take(top)
 
-let sites = [{frames: site_frames(pp, doc.ftbl), total_bytes: pp.tb, max_bytes: pp.mb, total_blocks: pp.tbk} for pp in ranked]
+let sites = [
+  {frames: site_frames(pp, doc.ftbl), total_bytes: pp.tb, max_bytes: pp.mb, total_blocks: pp.tbk}
+  for pp in ranked
+]
+
 print f"dhat allocation summary: ${scenario}"
 print f"  total: ${total_bytes} bytes in ${total_blocks} blocks; peak (t-gmax): ${gmax_bytes} bytes"
 print f"  top ${sites.len()} sites by total bytes:"

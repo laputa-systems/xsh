@@ -41,8 +41,10 @@ proc main(...argv: List[Str]) [fs, error] {
     |> par-map { |entry|
       let rel = entry.path.relative_to(root).display()
 
-      var hits = [{rel: rel, line: item.index + 1, text: item.value.trim()} for item in entry.path.lines()?
-        |> enumerate() if re.matches(item.value)]
+      var hits = [
+        {rel: rel, line: item.index + 1, text: item.value.trim()}
+        for item in entry.path.lines()? |> enumerate() if re.matches(item.value)
+      ]
 
       {rel: rel, hits: hits}
     }

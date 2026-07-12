@@ -396,7 +396,8 @@ blue
   test.eq(
     """x
 y
-""".lines().collect()[1],
+""".lines()
+  .collect()[1],
     "y",
   )?
 

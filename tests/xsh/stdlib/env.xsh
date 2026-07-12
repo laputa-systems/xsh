@@ -111,7 +111,9 @@ proc test_path_literals_method_sugar_and_expr_env_blocks(ctx: TestContext) [fs, 
     let decoded = encoded.base64_decode()?
 
     let lines = """ alpha
-beta """.trim().lines().collect()
+beta """.trim()
+  .lines()
+  .collect()
 
     test.eq(home, root)?
     test.ok("child" in env.Path.CHILD?)

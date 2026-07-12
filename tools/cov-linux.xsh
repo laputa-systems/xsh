@@ -75,9 +75,12 @@ proc remove_dir(target: Path) [fs, error] {
 }
 
 proc collect_profraw(raw_dir: Path) [fs, error] -> Result[List[Str]] {
-  var paths = [entry.path.display() for entry in fs.children(raw_dir)?
-    |> where .kind == "file" and .name.ends_with(".profraw")
-    |> sort-by .path]
+  var paths = [
+    entry.path.display()
+    for entry in fs.children(raw_dir)?
+      |> where .kind == "file" and .name.ends_with(".profraw")
+      |> sort-by .path
+  ]
 
   if paths.len() == 0 {
     return Err(CoverageError.Failed(f"coverage: no .profraw files were produced in ${raw_dir.display()}"))

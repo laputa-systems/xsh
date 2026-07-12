@@ -259,6 +259,7 @@ impl<'a> Parser<'a> {
         let mut left = self.parse_prefix_arena_only(arena)?;
         let mut pending_pipeline: Option<ArenaPendingPipeline> = None;
         loop {
+            self.skip_postfix_newlines();
             self.skip_pipeline_newlines();
             if command_arg_root && self.current_start() > left.span.end() {
                 break;
@@ -839,6 +840,7 @@ impl<'a> Parser<'a> {
         } else {
             None
         };
+        self.skip_newlines();
         let end = self
             .expect(
                 TokenKindMatch::RBracket,
@@ -987,6 +989,7 @@ impl<'a> Parser<'a> {
         } else {
             None
         };
+        self.skip_newlines();
         let end = self
             .expect(
                 TokenKindMatch::RBrace,
@@ -1405,6 +1408,7 @@ impl<'a> Parser<'a> {
     ) -> Option<ArenaOnlyExpr> {
         let mut left = self.parse_prefix_arena_only(arena)?;
         loop {
+            self.skip_postfix_newlines();
             if self.at(TokenKindMatch::Dot) && self.peek_tag(1) != Some(TokenTag::Dot) {
                 self.bump();
                 let name = self.expect_member_name("expected field name after `.`")?;

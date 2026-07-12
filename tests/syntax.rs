@@ -2143,7 +2143,14 @@ let target = make.c_program({
   deps: [],
 })
 
-let value = path_value.display().replace(\"/\", \"_\").replace(\".cxx\", ext).replace(\".cpp\", ext).replace(\".cc\", ext).replace(\".c\", ext).replace(\".S\", ext).replace(\".s\", ext)
+let value = path_value.display()
+  .replace(\"/\", \"_\")
+  .replace(\".cxx\", ext)
+  .replace(\".cpp\", ext)
+  .replace(\".cc\", ext)
+  .replace(\".c\", ext)
+  .replace(\".S\", ext)
+  .replace(\".s\", ext)
 
 let script = r\"\"\"print f\"${value}\"
 \"\"\"
@@ -2299,6 +2306,80 @@ let label = render(
         .format_source(SourceId::new(0), &first.formatted);
     assert!(second.diagnostics.is_empty(), "{:?}", second.diagnostics);
     assert_eq!(second.formatted, first.formatted);
+}
+
+#[test]
+fn formatter_preserves_multiline_match_expressions() {
+    let source = "let shebang = match fs.read_text(script) {\n  Ok(text_value) => text_value.split(\"\\n\").get(0, \"\")\n  Err(_) => \"\"\n}\n";
+    let expected = "let shebang = match fs.read_text(script) {\n  Ok(text_value) => text_value.split(\"\\n\").get(0, \"\"),\n  Err(_) => \"\",\n}\n";
+
+    let formatted = Formatter::new().format_source(SourceId::new(0), source);
+
+    assert!(
+        formatted.diagnostics.is_empty(),
+        "{:?}",
+        formatted.diagnostics
+    );
+    assert_eq!(formatted.formatted, expected);
+}
+
+#[test]
+fn formatter_preserves_multiline_call_argument_lists() {
+    let source = "let command = make_command(\n  target,\n  args,\n  cwd: root,\n)\n";
+
+    let formatted = Formatter::new().format_source(SourceId::new(0), source);
+
+    assert!(
+        formatted.diagnostics.is_empty(),
+        "{:?}",
+        formatted.diagnostics
+    );
+    assert_eq!(formatted.formatted, source);
+}
+
+#[test]
+fn formatter_preserves_multiline_comprehensions() {
+    let source = "let upstream_sources = [{\n  source: source.source.display(),\n  kind: source.kind,\n  architectures: source.architectures,\n  checksums: source.checksums,\n} for source in pkg.upstream_sources]\nlet by_name = {\n  item.name: item.version\n  for item in items\n}\n";
+    let expected = "let upstream_sources = [\n  {\n    source: source.source.display(),\n    kind: source.kind,\n    architectures: source.architectures,\n    checksums: source.checksums,\n  }\n  for source in pkg.upstream_sources\n]\n\nlet by_name = {\n  item.name: item.version\n  for item in items\n}\n";
+
+    let formatted = Formatter::new().format_source(SourceId::new(0), source);
+
+    assert!(
+        formatted.diagnostics.is_empty(),
+        "{:?}",
+        formatted.diagnostics
+    );
+    assert_eq!(formatted.formatted, expected);
+}
+
+#[test]
+fn formatter_breaks_long_call_chains_between_calls() {
+    let source = "let files = common.push({path: p\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\", kind: \"binary\"}).push({path: p\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\", kind: \"binary\"}).push({path: p\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\", kind: \"binary\"})\n";
+
+    let formatted = Formatter::new().format_source(SourceId::new(0), source);
+
+    assert!(
+        formatted.diagnostics.is_empty(),
+        "{:?}",
+        formatted.diagnostics
+    );
+    assert!(
+        formatted.formatted.contains("\n  .push"),
+        "{}",
+        formatted.formatted
+    );
+
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), &formatted.formatted);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    assert_eq!(parsed.arena.statement_ids().count(), 1);
+    assert!(
+        formatted.formatted.contains("common.push("),
+        "{}",
+        formatted.formatted
+    );
+
+    let second = Formatter::new().format_source(SourceId::new(0), &formatted.formatted);
+    assert_eq!(second.formatted, formatted.formatted);
 }
 
 #[test]

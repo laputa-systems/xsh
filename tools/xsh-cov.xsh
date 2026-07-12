@@ -156,8 +156,10 @@ proc merge_reports(root: Path, inputs: List[SuiteInput]) [fs, error] -> Result[R
     totals[group_name] = {covered: current.covered + covered, total: current.total + 1}
   }
 
-  let total_rows = [{group: group_name, covered: totals.get(group_name)?.covered, total: totals.get(group_name)?.total} for group_name in totals.keys()
-    |> sort]
+  let total_rows = [
+    {group: group_name, covered: totals.get(group_name)?.covered, total: totals.get(group_name)?.total}
+    for group_name in totals.keys() |> sort
+  ]
 
   let uncovered = sorted_standard |> where ! api_hits.has(.)
   var covered_rows: List[Record] = []

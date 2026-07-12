@@ -747,6 +747,8 @@ Operators:
   `Str`, byte containment for `Bytes`, display-text substring containment for
   `Path`, and exact entry membership for `env.PATH`.
 - `.` accesses record fields and standard methods.
+- A newline immediately before a `.` postfix operator continues the same
+  expression, so long method chains may use one method per line.
 - `.require(Type)` validates the receiver against a type expression and returns
   `Result[Type]`. The type argument is syntax, not a runtime identifier.
 - `?.` is a null-safe field access: if the base is `null`, the expression

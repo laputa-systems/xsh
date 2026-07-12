@@ -90,9 +90,12 @@ proc remove_dir(target: Path) [fs, error] {
 proc collect_profraw(raw_dir: Path) [process, error] -> Result[List[Str]] {
   let find_output: Str = run.text find $raw_dir -type f -name "*.profraw" ?
 
-  var paths = [line for line in find_output.lines()
-    |> where .trim() != ""
-    |> sort]
+  var paths = [
+    line
+    for line in find_output.lines()
+      |> where .trim() != ""
+      |> sort
+  ]
 
   if paths.len() == 0 {
     return Err(ProfileError.Failed(f"prof: no .profraw files were produced in ${raw_dir.display()}"))
@@ -102,9 +105,12 @@ proc collect_profraw(raw_dir: Path) [process, error] -> Result[List[Str]] {
 }
 
 proc xsh_files(dir: Path) [fs, error] -> Result[List[Path]] {
-  return [entry.path for entry in fs.children(dir)?
-    |> where .kind == "file" and .path.ext() == "xsh" and ! .name.ends_with("_helper.xsh")
-    |> sort-by .name]
+  return [
+    entry.path
+    for entry in fs.children(dir)?
+      |> where .kind == "file" and .path.ext() == "xsh" and ! .name.ends_with("_helper.xsh")
+      |> sort-by .name
+  ]
 }
 
 proc main() [fs, process, env, error, io] {

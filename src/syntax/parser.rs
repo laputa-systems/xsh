@@ -457,6 +457,21 @@ impl<'a> Parser<'a> {
         }
     }
 
+    pub(in crate::syntax::parser) fn skip_postfix_newlines(&mut self) {
+        if self.current_tag() != TokenTag::Newline {
+            return;
+        }
+        let mut index = self.index;
+        while self.token_table.tag_at(index) == Some(TokenTag::Newline) {
+            index += 1;
+        }
+        if self.token_table.tag_at(index) == Some(TokenTag::Dot)
+            && self.token_table.tag_at(index + 1) != Some(TokenTag::Dot)
+        {
+            self.index = index;
+        }
+    }
+
     pub(in crate::syntax::parser) fn skip_comments(&mut self) {
         while self.current_tag() == TokenTag::Comment {
             self.bump();
