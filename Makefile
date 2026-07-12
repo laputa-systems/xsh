@@ -15,6 +15,8 @@ PROF_CARGO_BIN ?= $(patsubst %/,%,$(dir $(PROF_CARGO)))
 PROF_NATIVE_LINKER ?= $(COV_NATIVE_LINKER)
 DIST_PROFILE ?= dist
 DIST_PROFILE_DIR = $(if $(filter release,$(DIST_PROFILE)),release,$(DIST_PROFILE))
+CARGO_BUILD_WARNINGS = deny
+export CARGO_BUILD_WARNINGS
 DIST_BUILD_STD_FLAGS ?= -Z build-std=std
 DIST_RUSTFLAGS = -Zlocation-detail=none -Zunstable-options -Cpanic=immediate-abort
 DIST_TARGET_RUSTFLAGS =
@@ -42,7 +44,7 @@ DIST_DARWIN_RUSTFLAGS ?= $(DARWIN_DIST_RUSTFLAGS) $(DIST_RUSTFLAGS) $(DIST_TARGE
 
 lint:
 	cargo fmt --all
-	cargo clippy --fix --allow-dirty --all-targets --all-features --quiet -- -D warnings
+	cargo clippy --fix --allow-dirty --all-targets --all-features --quiet
 	cargo build -p xsht
 	./target/debug/xsht lint --fix
 	./target/debug/xsht fmt

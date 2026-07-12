@@ -133,7 +133,7 @@ jobs:
         run: cargo clean -p aws-lc-sys --target ${{ matrix.target }}
 
       - name: Build with dist profile
-        run: cargo test --no-run --locked --profile dist --no-default-features --features "net tools" --target ${{ matrix.target }}
+        run: CARGO_BUILD_WARNINGS=deny cargo test --no-run --locked --profile dist --no-default-features --features "net tools" --target ${{ matrix.target }} --keep-going
 
       - name: Link target debug tools for core tests
         run: |
@@ -144,7 +144,7 @@ jobs:
           ln -sf "../${{ matrix.target }}/dist/xsh-test-sleeper" target/debug/xsh-test-sleeper 2>/dev/null || true
 
       - name: test
-        run: cargo test --profile dist --no-default-features --features "net tools" --target ${{ matrix.target }} -- --nocapture --quiet
+        run: CARGO_BUILD_WARNINGS=deny cargo test --profile dist --no-default-features --features "net tools" --target ${{ matrix.target }} --keep-going -- --nocapture --quiet
 
       - name: Prepare multicall runner
         run: ln -sf xsh-multicall "target/${{ matrix.target }}/dist/xsh"
