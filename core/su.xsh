@@ -1,4 +1,4 @@
-#!/usr/bin/env -S xsh --
+#!/bin/xsh
 use lib.auth as auth
 
 type SuOptions = {login: Bool, preserve_env: Bool, shell: Str, command: Str, user: Str, extra_args: List[Str]}

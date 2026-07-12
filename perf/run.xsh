@@ -23,6 +23,7 @@ type Options = {
   syscalls: Bool,
   keep_corpus: Bool,
   xsh: Path,
+  xsht: Path,
   no_build: Bool,
   top_syscalls: Int,
 }
@@ -35,6 +36,7 @@ let opts: Options = cli.parse(
     syscalls: {form: "--syscalls", default: false},
     keep_corpus: {form: "--keep-corpus", default: false},
     xsh: {form: "--xsh PATH", default: p"target/release/xsh"},
+    xsht: {form: "--xsht PATH", default: p"target/release/xsht"},
     no_build: {form: "--no-build", default: false},
     top_syscalls: {form: "--top-syscalls N", default: 8},
   },
@@ -145,10 +147,10 @@ proc run_with_time(label: Str, target: Path, rest: List[Str]) [process, env, err
   run XSH_PERF_ALLOC=1 /usr/bin/time $target @rest > $stdout 2> $stderr ?
 }
 
-proc run_syscalls(label: Str, target: Path, rest: List[Str]) [process, error] {
+proc run_syscalls(label: Str, script: Path, rest: List[Str]) [process, error] {
   let trace = fp"${results}/${label}.syscalls"
   let stderr = fp"${results}/${label}.syscalls.stderr"
-  run XSH_PERF_ALLOC=1 $target --trace --syscalls --trace-top-syscalls $opts.top_syscalls --trace-file $trace @rest > /dev/null 2> $stderr ?
+  run XSH_PERF_ALLOC=1 $opts.xsht trace --syscalls --trace-top-syscalls $opts.top_syscalls --trace-file $trace $script @rest > /dev/null 2> $stderr ?
 }
 
 proc run_fd_syscalls(label: Str) [fs, process, error] {
@@ -164,14 +166,14 @@ cd corpus {
 """,
   )?
 
-  run_syscalls(label, opts.xsh, [wrapper.display(), "--", corpus.display()])?
+  run_syscalls(label, wrapper, ["--", corpus.display()])?
 }
 
 proc run_xsh_scenario(name: Str) [process, env, error] {
   run_with_time(name, opts.xsh, [f"perf/scenarios/${name}.xsh", "--", corpus.display()])?
 
   if opts.syscalls {
-    run_syscalls(name, opts.xsh, [f"perf/scenarios/${name}.xsh", "--", corpus.display()])?
+    run_syscalls(name, fp"perf/scenarios/${name}.xsh", ["--", corpus.display()])?
   }
 }
 
@@ -272,6 +274,7 @@ proc write_allocation_json() [fs, error] {
 
 if ! opts.no_build {
   run cargo build --release --features perf-metrics --bin xsh ?
+  run cargo build --release -p xsht ?
 }
 
 fs.mkdir(results)?

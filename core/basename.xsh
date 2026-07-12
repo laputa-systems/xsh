@@ -1,4 +1,4 @@
-#!/usr/bin/env -S xsh --
+#!/bin/xsh
 pure basename_value(name: Str, suffix: Str) -> Str {
   let parts = name.split("/")
   let raw = if parts.len() > 0 { parts[parts.len() - 1] } else { name }

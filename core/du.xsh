@@ -1,4 +1,4 @@
-#!/usr/bin/env -S xsh --
+#!/bin/xsh
 error AppletError = Usage(message: Str) : Usage
 
 type DuOptions = {summarize: Bool, all: Bool, human: Bool, apparent: Bool, megabytes: Bool}

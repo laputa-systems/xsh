@@ -1,4 +1,4 @@
-#!/usr/bin/env -S xsh --
+#!/bin/xsh
 proc main(...argv: List[Str]) [time, error] {
   var utc = false
   var format = "%a %b %d %H:%M:%S %Y"

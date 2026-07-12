@@ -1,4 +1,4 @@
-#!/usr/bin/env -S xsh --
+#!/bin/xsh
 proc read_text_inputs(paths: List[Str]) [fs, error, io] -> Result[Str] {
   var out = ""
 

@@ -1,4 +1,4 @@
-#!/usr/bin/env -S xsh --
+#!/bin/xsh
 error AppletError = Usage(message: Str) : Usage
 
 proc main(...argv: List[Str]) [fs, error, io] {

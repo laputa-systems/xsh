@@ -1,4 +1,4 @@
-#!/usr/bin/env -S xsh --
+#!/bin/xsh
 error AppletError = Usage(message: Str) : Usage
 
 proc read_text_inputs(paths: List[Str]) [fs, error, io] -> Result[Str] {

@@ -20,5 +20,5 @@ proc test_env_split_string_as_single_shebang_arg_runs_command() [process, error]
 }
 
 proc test_env_uses_direct_xsh_shebang() [fs, error] {
-  test.ok(p"env.xsh".read_text()?.starts_with("#!/usr/local/bin/xsh --"))?
+  test.ok(p"env.xsh".read_text()?.starts_with("#!/bin/xsh"))?
 }

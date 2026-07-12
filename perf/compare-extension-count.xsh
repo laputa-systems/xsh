@@ -1,10 +1,11 @@
-type Options = {syscalls: Bool, xsh: Path, no_build: Bool, top_syscalls: Int}
+type Options = {syscalls: Bool, xsh: Path, xsht: Path, no_build: Bool, top_syscalls: Int}
 
 let opts: Options = cli.parse(
   args,
   {
     syscalls: {form: "--syscalls", default: false},
     xsh: {form: "--xsh PATH", default: p"target/release/xsh"},
+    xsht: {form: "--xsht PATH", default: p"target/release/xsht"},
     no_build: {form: "--no-build", default: false},
     top_syscalls: {form: "--top-syscalls N", default: 12},
   },
@@ -45,10 +46,10 @@ proc run_with_time(label: Str, target: Path, rest: List[Str]) [process, env, err
   run XSH_PERF_ALLOC=1 /usr/bin/time $target @rest > $stdout 2> $stderr ?
 }
 
-proc run_syscalls(label: Str, target: Path, rest: List[Str]) [process, error] {
+proc run_syscalls(label: Str, script: Path, rest: List[Str]) [process, error] {
   let trace = fp"${results}/${label}.syscalls"
   let stderr = fp"${results}/${label}.syscalls.stderr"
-  run XSH_PERF_ALLOC=1 $target --trace --syscalls --trace-top-syscalls $opts.top_syscalls --trace-file $trace @rest > /dev/null 2> $stderr ?
+  run XSH_PERF_ALLOC=1 $opts.xsht trace --syscalls --trace-top-syscalls $opts.top_syscalls --trace-file $trace $script @rest > /dev/null 2> $stderr ?
 }
 
 proc run_fd_syscalls(label: Str) [fs, process, error] {
@@ -64,7 +65,7 @@ cd root {
 """,
   )?
 
-  run_syscalls(label, opts.xsh, [wrapper.display(), "--", repo.display()])?
+  run_syscalls(label, wrapper, ["--", repo.display()])?
 }
 
 proc print_time_summary(label: Str) [fs, error] {
@@ -116,6 +117,7 @@ proc print_summary(label: Str) [fs, error] {
 
 if ! opts.no_build {
   run cargo build --release --features perf-metrics --bin xsh ?
+  run cargo build --release -p xsht ?
 }
 
 match process.which("fd") {
@@ -161,7 +163,7 @@ ${xsh_lines.join()}
 }
 
 if opts.syscalls {
-  run_syscalls("extension-count-example", opts.xsh, ["examples/extension-count.xsh"])?
+  run_syscalls("extension-count-example", fp"examples/extension-count.xsh", [])?
   run_fd_syscalls("extension-count-fd")?
 }
 

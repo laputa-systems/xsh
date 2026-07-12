@@ -1,4 +1,4 @@
-#!/usr/bin/env -S xsh --
+#!/bin/xsh
 type Counts = {lines: Int, words: Int, bytes: Int}
 
 pure count_text(text_data: Str) -> Counts {

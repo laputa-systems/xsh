@@ -1,4 +1,4 @@
-#!/usr/local/bin/xsh --
+#!/bin/xsh
 error IfdownError = Usage(message: Str) : Usage | Config(message: Str) | Hook(message: Str) | State(message: Str)
 
 type Interface = {

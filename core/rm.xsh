@@ -1,4 +1,4 @@
-#!/usr/bin/env -S xsh --
+#!/bin/xsh
 error AppletError = Usage(message: Str) : Usage
 
 pure reject_unsupported(applet_name: Str, flag: Str) -> Error {

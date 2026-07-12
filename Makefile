@@ -203,11 +203,11 @@ test:
 
 test-core:
 	docker build -t xsh-test -f Dockerfile.test .
-	docker run --rm -v $(CURDIR):/work -v $(CURDIR)/target/aarch64-unknown-linux-musl:/work/target -v xsh-cargo-registry:/root/.cargo/registry -w /work xsh-test sh -c "cargo build -p xsht && target/debug/xsht test --fail-fast"
+	docker run --rm -v $(CURDIR):/work -v $(CURDIR)/target/aarch64-unknown-linux-musl:/work/target -v xsh-cargo-registry:/root/.cargo/registry -w /work xsh-test sh -c "cargo build -p xsht && ln -sf /work/target/debug/xsh /bin/xsh && target/debug/xsht test --fail-fast"
 
 test-linux:
 	docker build -t xsh-test -f Dockerfile.test .
-	docker run --rm -v $(CURDIR):/work -v $(CURDIR)/target/aarch64-unknown-linux-musl:/work/target -v xsh-cargo-registry:/root/.cargo/registry -w /work xsh-test cargo test
+	docker run --rm -v $(CURDIR):/work -v $(CURDIR)/target/aarch64-unknown-linux-musl:/work/target -v xsh-cargo-registry:/root/.cargo/registry -w /work xsh-test sh -c "ln -sf /work/target/debug/xsh /bin/xsh && cargo test"
 
 test-linux-priv:
 	docker build -t xsh-test -f Dockerfile.test .
@@ -252,28 +252,28 @@ test-trace-compare:
 
 perf-linux:
 	docker build -t xsh-test -f Dockerfile.test .
-	docker run --rm -v $(CURDIR):/work -v $(CURDIR)/target/aarch64-unknown-linux-musl:/work/target -v xsh-cargo-registry:/root/.cargo/registry -w /work xsh-test cargo build --release --features perf-metrics --bin xsh
-	docker run --rm --cap-add SYS_PTRACE --security-opt seccomp=unconfined -v $(CURDIR):/work -v $(CURDIR)/target/aarch64-unknown-linux-musl:/work/target -v xsh-cargo-registry:/root/.cargo/registry -w /work xsh-test target/release/xsh perf/run.xsh -- --scenario extension-count --scale $${XSH_PERF_SCALE:-8} --syscalls --no-build --xsh target/release/xsh
+	docker run --rm -v $(CURDIR):/work -v $(CURDIR)/target/aarch64-unknown-linux-musl:/work/target -v xsh-cargo-registry:/root/.cargo/registry -w /work xsh-test sh -c "cargo build --release --features perf-metrics --bin xsh && cargo build --release -p xsht"
+	docker run --rm --cap-add SYS_PTRACE --security-opt seccomp=unconfined -v $(CURDIR):/work -v $(CURDIR)/target/aarch64-unknown-linux-musl:/work/target -v xsh-cargo-registry:/root/.cargo/registry -w /work xsh-test target/release/xsh perf/run.xsh -- --scenario extension-count --scale $${XSH_PERF_SCALE:-8} --syscalls --no-build --xsh target/release/xsh --xsht target/release/xsht
 
 perf-linux-extension-count:
 	docker build -t xsh-test -f Dockerfile.test .
-	docker run --rm -v $(CURDIR):/work -v $(CURDIR)/target/aarch64-unknown-linux-musl:/work/target -v xsh-cargo-registry:/root/.cargo/registry -w /work xsh-test cargo build --release --features perf-metrics --bin xsh
-	docker run --rm --cap-add SYS_PTRACE --security-opt seccomp=unconfined -v $(CURDIR):/work -v $(CURDIR)/target/aarch64-unknown-linux-musl:/work/target -v xsh-cargo-registry:/root/.cargo/registry -w /work xsh-test target/release/xsh perf/compare-extension-count.xsh -- --syscalls --no-build --xsh target/release/xsh
+	docker run --rm -v $(CURDIR):/work -v $(CURDIR)/target/aarch64-unknown-linux-musl:/work/target -v xsh-cargo-registry:/root/.cargo/registry -w /work xsh-test sh -c "cargo build --release --features perf-metrics --bin xsh && cargo build --release -p xsht"
+	docker run --rm --cap-add SYS_PTRACE --security-opt seccomp=unconfined -v $(CURDIR):/work -v $(CURDIR)/target/aarch64-unknown-linux-musl:/work/target -v xsh-cargo-registry:/root/.cargo/registry -w /work xsh-test target/release/xsh perf/compare-extension-count.xsh -- --syscalls --no-build --xsh target/release/xsh --xsht target/release/xsht
 
 perf-linux-flamegraph:
 	docker build -t xsh-test -f Dockerfile.test .
 	docker run --rm --privileged --cap-add SYS_ADMIN --cap-add SYS_PTRACE --security-opt seccomp=unconfined -v $(CURDIR):/work -v $(CURDIR)/target/aarch64-unknown-linux-musl:/work/target -v xsh-cargo-registry:/root/.cargo/registry -w /work xsh-test sh -c "cargo build --release --features perf-metrics --bin xsh && mkdir -p target/perf && rm -f target/perf/extension-count.* && target/release/xsh perf/make-corpus.xsh -- --root /work/target/perf/corpus --scale $${XSH_PERF_SCALE:-8} && perf record -F $${XSH_PERF_FREQ:-999} -g -o target/perf/extension-count.perf.data -- target/release/xsh perf/scenarios/extension-count.xsh -- /work/target/perf/corpus && perf script --demangle -i target/perf/extension-count.perf.data > target/perf/extension-count.perf.script && target/release/xsh showcase/perf-collapse.xsh -- target/perf/extension-count.perf.script > target/perf/extension-count.folded && target/release/xsh showcase/flamegraph.xsh -- target/perf/extension-count.folded > target/perf/extension-count.svg && target/release/xsh showcase/perf-collapse.xsh -- --top 20 target/perf/extension-count.perf.script > target/perf/extension-count.top && head -20 target/perf/extension-count.top"
-	docker run --rm -v $(CURDIR):/host -v xsh-test-target:/target alpine:3.21 sh -c "mkdir -p /host/target/perf && cp /target/perf/extension-count.* /host/target/perf/"
+	docker run --rm -v $(CURDIR):/host alpine:3.21 sh -c "mkdir -p /host/target/perf && cp /host/target/aarch64-unknown-linux-musl/perf/extension-count.* /host/target/perf/"
 
 perf-linux-showcases:
 	docker build -t xsh-test -f Dockerfile.test .
 	docker run --rm --cap-add SYS_PTRACE --security-opt seccomp=unconfined -v $(CURDIR):/work -v $(CURDIR)/target/aarch64-unknown-linux-musl:/work/target -v xsh-cargo-registry:/root/.cargo/registry -w /work xsh-test sh -c "cargo build --release --features perf-metrics --bin xsh && cargo build --release -p xsht && target/release/xsh perf/showcase-tests.xsh -- --showcase $${SHOWCASE:-all} --syscalls --repeat $${XSH_PERF_REPEAT:-1} --min-duration-ms $${XSH_PERF_MIN_DURATION_MS:-0} --no-build --xsh target/release/xsh --xsht target/release/xsht"
-	docker run --rm -v $(CURDIR):/host -v xsh-test-target:/target alpine:3.21 sh -c "mkdir -p /host/target/perf && cp -R /target/perf/showcase-tests-* /host/target/perf/ 2>/dev/null || true"
+	docker run --rm -v $(CURDIR):/host alpine:3.21 sh -c "mkdir -p /host/target/perf && cp -R /host/target/aarch64-unknown-linux-musl/perf/showcase-tests-* /host/target/perf/ 2>/dev/null || true"
 
 perf-linux-showcase-flamegraphs:
 	docker build -t xsh-test -f Dockerfile.test .
 	docker run --rm --privileged --cap-add SYS_ADMIN --cap-add SYS_PTRACE --security-opt seccomp=unconfined -v $(CURDIR):/work -v $(CURDIR)/target/aarch64-unknown-linux-musl:/work/target -v xsh-cargo-registry:/root/.cargo/registry -w /work xsh-test sh -c "cargo build --release --features perf-metrics --bin xsh && cargo build --release -p xsht && target/release/xsh perf/showcase-tests.xsh -- --showcase $${SHOWCASE:-all} --syscalls --flamegraphs --repeat $${XSH_PERF_REPEAT:-1} --min-duration-ms $${XSH_PERF_MIN_DURATION_MS:-1000} --no-build --freq $${XSH_PERF_FREQ:-999} --xsh target/release/xsh --xsht target/release/xsht"
-	docker run --rm -v $(CURDIR):/host -v xsh-test-target:/target alpine:3.21 sh -c "mkdir -p /host/target/perf && cp -R /target/perf/showcase-tests-* /host/target/perf/ 2>/dev/null || true"
+	docker run --rm -v $(CURDIR):/host alpine:3.21 sh -c "mkdir -p /host/target/perf && cp -R /host/target/aarch64-unknown-linux-musl/perf/showcase-tests-* /host/target/perf/ 2>/dev/null || true"
 
 # Comprehensive profiling, all on the `profiling` profile with `net` excluded
 # (tools-only), targeting only the `xsh` binary. PGO + the Valgrind big guns

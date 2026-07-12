@@ -1,4 +1,4 @@
-#!/usr/local/bin/xsh --
+#!/bin/xsh
 error EnvError = Usage(message: Str) : Usage | Failed(message: Str)
 
 pure split_words(text: Str) -> List[Str] {

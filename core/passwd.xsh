@@ -1,4 +1,4 @@
-#!/usr/bin/env -S xsh --
+#!/bin/xsh
 use lib.auth as auth
 
 type PasswdOptions = {algorithm: Str, action: Str, user: Str}

@@ -1,4 +1,4 @@
-#!/usr/bin/env -S xsh --
+#!/bin/xsh
 proc main(...argv: List[Str]) [process] -> Result[Int] {
   return applet.mdev(argv)
 }

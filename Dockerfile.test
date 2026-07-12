@@ -1,50 +1,58 @@
-FROM alpine:3.21
+FROM alpine:3.24.1
 ARG TARGETARCH
 ARG LLVM_VERSION=22.1.8
-RUN apk add --no-cache --virtual .rustup-bootstrap curl \
-    && apk add --no-cache build-base ca-certificates-bundle coreutils curl util-linux e2fsprogs git kmod linux-headers tzdata zip valgrind valgrind-scripts \
-    && curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain none \
-    && apk del .rustup-bootstrap
-# release.yml builds Linux packages with the musl-linked LLVM release from
-# laputa-systems/llvm-prebuilt-musl. That clang does not search Alpine's GCC
-# private libdir for startup files, but C build scripts such as aws-lc-sys still
-# perform executable link probes. Expose the Alpine GCC crt objects in /usr/lib,
-# one of clang's default library search directories, so the Docker repro matches
-# CI's usable prebuilt-clang environment instead of failing before Cargo links
-# Rust code.
-RUN gcc_crt_dir="$(dirname "$(find /usr/lib/gcc -name crtbeginS.o -print -quit)")" \
-    && for obj in crtbegin.o crtbeginS.o crtbeginT.o crtend.o crtendS.o; do \
-        if [ -f "${gcc_crt_dir}/${obj}" ]; then ln -sf "${gcc_crt_dir}/${obj}" "/usr/lib/${obj}"; fi; \
-    done
-# The prebuilt LLVM's rust-lld is not linked against zlib, so it cannot read
-# Alpine's zlib-compressed debug sections in musl crt object files. Strip debug
-# info from all crt objects in /usr/lib so executable link probes succeed.
-RUN strip --strip-debug /usr/lib/crt*.o /usr/lib/[S]*.o 2>/dev/null || true
-ENV PATH="/root/.cargo/bin:$PATH"
+RUN apk add --no-cache musl-dev libgcc git tzdata zip valgrind valgrind-scripts perf strace fd
 # Keep Dockerfile.test on the same compiler family as release.yml. The release
 # workflow restores this tarball from the GitHub cache or downloads the same URL,
 # then points CC/target flags at its clang.
+ADD https://github.com/laputa-systems/llvm-prebuilt-musl/releases/download/llvm-musl-22.1.8/clang+llvm-22.1.8-x86_64-linux-musl.tar.xz /tmp/llvm-x86_64.tar.xz
+ADD https://github.com/laputa-systems/llvm-prebuilt-musl/releases/download/llvm-musl-22.1.8/clang+llvm-22.1.8-aarch64-linux-musl.tar.xz /tmp/llvm-aarch64.tar.xz
 RUN case "$TARGETARCH" in \
-        amd64) llvm_arch=x86_64 ;; \
-        arm64) llvm_arch=aarch64 ;; \
-        *) echo "unsupported TARGETARCH: $TARGETARCH" >&2; exit 1 ;; \
+        amd64) f=/tmp/llvm-x86_64.tar.xz ;; \
+        arm64) f=/tmp/llvm-aarch64.tar.xz ;; \
     esac \
-    && curl -fsSL "https://github.com/laputa-systems/llvm-prebuilt-musl/releases/download/llvm-musl-${LLVM_VERSION}/clang+llvm-${LLVM_VERSION}-${llvm_arch}-linux-musl.tar.xz" \
-        | tar xJ -C /opt \
-    && ln -s "/opt/clang+llvm-${LLVM_VERSION}-${llvm_arch}-linux-musl" /opt/llvm-musl
+    && mkdir -p /opt/llvm-musl \
+    && tar xf "$f" -C /opt/llvm-musl --strip-components=1 \
+    && rm /tmp/llvm-x86_64.tar.xz /tmp/llvm-aarch64.tar.xz
+ENV PATH="/opt/llvm-musl/bin:$PATH"
+# The prebuilt LLVM tree does not ship GNU crtbegin/crtend objects. aws-lc-sys
+# links temporary C probe executables, so provide empty target-correct stubs
+# instead of installing GCC just for those linker inputs.
+RUN for target in aarch64-unknown-linux-musl x86_64-unknown-linux-musl; do \
+        stub_dir="/usr/lib/xsh-crt/$target"; \
+        mkdir -p "$stub_dir"; \
+        for obj in crtbegin.o crtbeginS.o crtbeginT.o crtend.o crtendS.o; do \
+            clang --target="$target" -x c -c /dev/null -o "$stub_dir/$obj"; \
+        done; \
+    done
+# The prebuilt LLVM's rust-lld is not linked against zlib, so it cannot read
+# Alpine's zlib-compressed debug sections in musl crt object files.
+RUN llvm-strip --strip-debug /usr/lib/crt*.o /usr/lib/[S]*.o 2>/dev/null || true
+ADD https://static.rust-lang.org/rustup/dist/x86_64-unknown-linux-musl/rustup-init /rustup-init-x86_64
+ADD https://static.rust-lang.org/rustup/dist/aarch64-unknown-linux-musl/rustup-init /rustup-init-aarch64
+RUN case "$TARGETARCH" in \
+        amd64) init=/rustup-init-x86_64 ;; \
+        arm64) init=/rustup-init-aarch64 ;; \
+    esac \
+    && cp "$init" /rustup-init \
+    && chmod +x /rustup-init \
+    && /rustup-init -y --default-toolchain none \
+    && rm /rustup-init /rustup-init-x86_64 /rustup-init-aarch64
 # These mirror the Linux package job's compiler environment. The include path is
-# /usr/include in Alpine because musl and linux-headers are not split into
-# Debian-style /usr/include/${arch}-linux-musl directories.
+# Alpine's musl-dev headers live under /usr/include, unlike Debian-style
+# /usr/include/${arch}-linux-musl directories.
 ENV PATH="/opt/llvm-musl/bin:/root/.cargo/bin:$PATH" \
     CC="/opt/llvm-musl/bin/clang" \
+    AR="/opt/llvm-musl/bin/llvm-ar" \
+    RANLIB="/opt/llvm-musl/bin/llvm-ranlib" \
     CC_AARCH64_UNKNOWN_LINUX_MUSL="/opt/llvm-musl/bin/clang" \
     CC_X86_64_UNKNOWN_LINUX_MUSL="/opt/llvm-musl/bin/clang" \
     CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER="rust-lld" \
     CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER="rust-lld" \
-    CFLAGS_aarch64_unknown_linux_musl="--target=aarch64-unknown-linux-musl -I/usr/include" \
-    CFLAGS_x86_64_unknown_linux_musl="--target=x86_64-unknown-linux-musl -I/usr/include" \
-    AWS_LC_SYS_CFLAGS_aarch64_unknown_linux_musl="--target=aarch64-unknown-linux-musl -I/usr/include" \
-    AWS_LC_SYS_CFLAGS_x86_64_unknown_linux_musl="--target=x86_64-unknown-linux-musl -I/usr/include" \
+    CFLAGS_aarch64_unknown_linux_musl="--target=aarch64-unknown-linux-musl -B/usr/lib/xsh-crt/aarch64-unknown-linux-musl -I/usr/include" \
+    CFLAGS_x86_64_unknown_linux_musl="--target=x86_64-unknown-linux-musl -B/usr/lib/xsh-crt/x86_64-unknown-linux-musl -I/usr/include" \
+    AWS_LC_SYS_CFLAGS_aarch64_unknown_linux_musl="--target=aarch64-unknown-linux-musl -B/usr/lib/xsh-crt/aarch64-unknown-linux-musl -I/usr/include" \
+    AWS_LC_SYS_CFLAGS_x86_64_unknown_linux_musl="--target=x86_64-unknown-linux-musl -B/usr/lib/xsh-crt/x86_64-unknown-linux-musl -I/usr/include" \
     AWS_LC_SYS_NO_JITTER_ENTROPY="1"
 # The dist Makefile owns the musl target Rust flags, including the
 # __isoc23_sscanf=sscanf and __isoc23_strtol=strtol aliases. Those aliases keep
@@ -59,9 +67,10 @@ ENV PATH="/opt/llvm-musl/bin:/root/.cargo/bin:$PATH" \
 # privileged Makefile targets for real loop/mount coverage, and use an
 # unprivileged run only to reproduce graceful handling of read-only or denied
 # loop-device surfaces.
-RUN rustup toolchain install nightly-2026-04-20
-RUN rustup target add --toolchain nightly-2026-04-20 aarch64-unknown-linux-musl x86_64-unknown-linux-musl
-RUN rustup component add --toolchain nightly-2026-04-20 llvm-tools-preview
+RUN rustup toolchain install nightly-2026-04-20 \
+    --target aarch64-unknown-linux-musl \
+    --target x86_64-unknown-linux-musl \
+    --component llvm-tools-preview
 # Host proc-macro crates link dynamically while Cargo is building. The musl
 # rustup sysroot does not always expose the Alpine libc and libgcc_s names that
 # rust-lld searches for, so install stable symlinks in the host target libdir.

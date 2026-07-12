@@ -186,6 +186,7 @@ fs.mkdir(results.parent)?
 fs.mkdir(results)?
 
 let showcases = fs.files(p"showcase")
+  |> where .path.parent().name() == "showcase"
   |> where .path.ext() == "xsh"
   |> sort-by .name
 

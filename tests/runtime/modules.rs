@@ -589,6 +589,12 @@ match checked {{
 
 #[test]
 fn package_style_module_hook_calls_run_on_compact_runtime() {
+    let cwd_name = std::env::current_dir()
+        .expect("read current directory")
+        .file_name()
+        .expect("current directory has a name")
+        .to_string_lossy()
+        .into_owned();
     let root = temp_path("package-style-module-hooks");
     let dynamic_src = root.join("dynamic-src");
     let dynamic_out = root.join("dynamic-out");
@@ -667,7 +673,7 @@ main(@args)?
     );
     assert_eq!(
         std::fs::read_to_string(dynamic_out.join("ok")).expect("read dynamic marker"),
-        "demo:xsh\n"
+        format!("demo:{cwd_name}\n")
     );
     assert_eq!(
         std::fs::read_to_string(static_out.join("ok")).expect("read static marker"),
