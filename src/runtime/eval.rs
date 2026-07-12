@@ -865,6 +865,7 @@ enum LoweredRecordEntry {
     Spread(LoweredExpr),
 }
 
+#[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug)]
 enum LoweredProcessCommandBuilderEntry {
     Field {
@@ -1026,7 +1027,6 @@ enum LoweredStmt {
     Cd {
         target: LoweredExpr,
         body: Vec<LoweredStmt>,
-        propagate_result: bool,
         span: Span,
     },
     Env {

@@ -29,6 +29,8 @@ disallowed_types = { level = "deny", priority = 1 }
 single_call_fn = { level = "allow", priority = 1 }
 multiple_crate_versions = { level = "allow", priority = 1 }
 result_large_err = { level = "allow", priority = 1 }
+too_many_arguments = { level = "allow", priority = 1 }
+type_complexity = { level = "allow", priority = 1 }
 
 [lints.clippy]
 nursery = { level = "allow", priority = -2 }
@@ -46,6 +48,8 @@ disallowed_types = { level = "deny", priority = 1 }
 single_call_fn = { level = "allow", priority = 1 }
 multiple_crate_versions = { level = "allow", priority = 1 }
 result_large_err = { level = "allow", priority = 1 }
+too_many_arguments = { level = "allow", priority = 1 }
+type_complexity = { level = "allow", priority = 1 }
 
 [lib]
 name = "xsh"

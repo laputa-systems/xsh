@@ -3676,12 +3676,9 @@ impl CompactLowerConstructProbe<'_, '_> {
         if samples.len() < 8 {
             samples.push(self.program.arena.stmt(id).span);
         }
-        match self.program.arena.stmt(id).kind {
-            kind => {
-                let index = compact_stmt_kind_index(kind);
-                self.output.top_level_blocker_stmt_kinds[index] += 1;
-            }
-        }
+        let kind = self.program.arena.stmt(id).kind;
+        let index = compact_stmt_kind_index(kind);
+        self.output.top_level_blocker_stmt_kinds[index] += 1;
         match self.program.arena.stmt(id).kind {
             ArenaStmtKind::Let {
                 ty,
@@ -5256,28 +5253,19 @@ impl CompactLowerConstructProbe<'_, '_> {
                     ArenaPipeStageKind::Expr(_) => None,
                 });
                 match last_stream.map(|s| s.kind.clone()) {
-                    Some(kind) if kind == StreamStageKind::Count => Some(LoweredType::Int),
-                    Some(kind) if matches!(kind, StreamStageKind::Any | StreamStageKind::All) => {
-                        Some(LoweredType::Bool)
-                    }
-                    Some(kind) if kind == StreamStageKind::Sum => Some(LoweredType::Int),
-                    Some(kind)
-                        if matches!(
-                            kind,
-                            StreamStageKind::First
-                                | StreamStageKind::Last
-                                | StreamStageKind::Min
-                                | StreamStageKind::Max
-                        ) =>
-                    {
-                        Some(LoweredType::Result)
-                    }
-                    Some(kind)
-                        if matches!(kind, StreamStageKind::Fold | StreamStageKind::Reduce) =>
-                    {
+                    Some(StreamStageKind::Count) => Some(LoweredType::Int),
+                    Some(StreamStageKind::Any | StreamStageKind::All) => Some(LoweredType::Bool),
+                    Some(StreamStageKind::Sum) => Some(LoweredType::Int),
+                    Some(
+                        StreamStageKind::First
+                        | StreamStageKind::Last
+                        | StreamStageKind::Min
+                        | StreamStageKind::Max,
+                    ) => Some(LoweredType::Result),
+                    Some(StreamStageKind::Fold | StreamStageKind::Reduce) => {
                         last_stream.and_then(|stage| self.infer_fold_result_type(stage, known))
                     }
-                    Some(kind) if kind == StreamStageKind::ReduceBy => Some(LoweredType::Map),
+                    Some(StreamStageKind::ReduceBy) => Some(LoweredType::Map),
                     _ => Some(LoweredType::List),
                 }
             }
@@ -6661,7 +6649,6 @@ impl CompactLowerConstructProbe<'_, '_> {
         Some(LoweredStmt::Cd {
             target,
             body,
-            propagate_result: stmt.propagate,
             span: self.program.arena.span(stmt.span),
         })
     }
@@ -9242,8 +9229,9 @@ impl CompactLowerConstructProbe<'_, '_> {
                         fields,
                     });
                 }
-                if (name == "Ok" || name == "Err") && positional.is_some() {
-                    let positional = positional.as_ref().expect("checked positional args");
+                if (name == "Ok" || name == "Err")
+                    && let Some(positional) = positional.as_ref()
+                {
                     let value = match positional.as_slice() {
                         [] if name == "Ok" => Box::new(LoweredExpr::Unit),
                         [value] => {
@@ -9257,8 +9245,9 @@ impl CompactLowerConstructProbe<'_, '_> {
                         Some(LoweredExpr::Err(value))
                     };
                 }
-                if name == "range" && positional.is_some() {
-                    let positional = positional.as_ref().expect("checked positional args");
+                if name == "range"
+                    && let Some(positional) = positional.as_ref()
+                {
                     let (start, end) = match positional.as_slice() {
                         [end] => (None, *end),
                         [start, end] => (Some(*start), *end),
@@ -9275,8 +9264,9 @@ impl CompactLowerConstructProbe<'_, '_> {
                         span,
                     });
                 }
-                if name == "Path" && positional.is_some() {
-                    let positional = positional.as_ref().expect("checked positional args");
+                if name == "Path"
+                    && let Some(positional) = positional.as_ref()
+                {
                     let [value] = positional.as_slice() else {
                         return None;
                     };
@@ -9290,8 +9280,9 @@ impl CompactLowerConstructProbe<'_, '_> {
                         span,
                     });
                 }
-                if name == "env" && positional.is_some() {
-                    let positional = positional.as_ref().expect("checked positional args");
+                if name == "env"
+                    && let Some(positional) = positional.as_ref()
+                {
                     let [value] = positional.as_slice() else {
                         return None;
                     };
@@ -10153,9 +10144,7 @@ impl CompactLowerConstructProbe<'_, '_> {
         let block = stage.block?;
         let statements = self.program.arena.block(block).statements;
         let ids = self.program.arena.stmt_ids(statements).collect::<Vec<_>>();
-        let Some((&tail, prefix)) = ids.split_last() else {
-            return None;
-        };
+        let (&tail, prefix) = ids.split_last()?;
         let ArenaStmtKind::Expr(expr) = self.program.arena.stmt(tail).kind else {
             return None;
         };
@@ -10245,9 +10234,7 @@ impl CompactLowerConstructProbe<'_, '_> {
         let block = stage.block?;
         let statements = self.program.arena.block(block).statements;
         let ids = self.program.arena.stmt_ids(statements).collect::<Vec<_>>();
-        let Some((&tail, prefix)) = ids.split_last() else {
-            return None;
-        };
+        let (&tail, prefix) = ids.split_last()?;
         let ArenaStmtKind::Expr(expr) = self.program.arena.stmt(tail).kind else {
             return None;
         };
@@ -10345,9 +10332,7 @@ impl CompactLowerConstructProbe<'_, '_> {
         let block = stage.block?;
         let statements = self.program.arena.block(block).statements;
         let ids = self.program.arena.stmt_ids(statements).collect::<Vec<_>>();
-        let Some((&tail, prefix)) = ids.split_last() else {
-            return None;
-        };
+        let (&tail, prefix) = ids.split_last()?;
         let saved = slots.enter();
         let (slot, _cleanup) = match self.lower_pipeline_stage_item_slot(stage, slots, item_ty) {
             Some(value) => value,
@@ -12472,12 +12457,9 @@ fn try_lower_scan_lines(
                     LoweredStmt::Assign {
                         slot,
                         op: AssignOp::Add,
-                        value,
+                        value: LoweredExpr::Int(1),
                         ..
-                    } => match value {
-                        LoweredExpr::Int(1) => *slot,
-                        _ => return None,
-                    },
+                    } => *slot,
                     _ => return None,
                 };
                 let scan_condition = match condition {

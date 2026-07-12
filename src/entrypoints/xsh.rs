@@ -75,10 +75,7 @@ fn parse_run(args: Vec<String>) -> Result<Option<RunOptions>, String> {
 
     let mut index = 0;
     let mut strict_lower = false;
-    loop {
-        let Some(arg) = args.get(index) else {
-            break;
-        };
+    while let Some(arg) = args.get(index) {
         match arg.as_str() {
             "--strict-lower" => {
                 strict_lower = true;

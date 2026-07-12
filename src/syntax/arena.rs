@@ -520,7 +520,6 @@ impl<'a> ArenaProgramBuilder<'a> {
         let mut lowerer = ArenaLowerer {
             arena: AstArena::with_source_len(source.len()),
             source: Some(source),
-            ..ArenaLowerer::default()
         };
         lowerer.reserve_frontend_capacity(tokens);
         Self {
@@ -4773,7 +4772,7 @@ impl ArenaLowerer<'_> {
         self.arena.extra.reserve(tokens / 3 + 1);
     }
 
-    fn pushed_range<T>(table: &mut Vec<T>, start: usize) -> ArenaRange {
+    fn pushed_range<T>(table: &mut [T], start: usize) -> ArenaRange {
         ArenaRange::new(start, table.len() - start)
     }
 

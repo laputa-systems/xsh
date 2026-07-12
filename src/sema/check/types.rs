@@ -333,12 +333,13 @@ pub(super) fn map_item_ty(ty: &Type) -> Type {
 pub(super) fn merge_collection_item_ty(primary: Type, fallback: Type) -> Type {
     if primary == Type::Unknown {
         fallback
-    } else if primary == Type::Any || fallback == Type::Any {
-        Type::Any
-    } else if matches!(
-        (&primary, &fallback),
-        (Type::Str, Type::Path) | (Type::Path, Type::Str)
-    ) {
+    } else if primary == Type::Any
+        || fallback == Type::Any
+        || matches!(
+            (&primary, &fallback),
+            (Type::Str, Type::Path) | (Type::Path, Type::Str)
+        )
+    {
         Type::Any
     } else {
         primary

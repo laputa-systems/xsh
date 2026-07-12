@@ -929,10 +929,7 @@ impl<'a> Parser<'a> {
         let mut rest_start = 0usize;
         let mut search_start = 0usize;
         let bytes = raw.as_bytes();
-        loop {
-            let Some(relative) = raw[search_start..].find('$') else {
-                break;
-            };
+        while let Some(relative) = raw[search_start..].find('$') {
             let dollar = search_start + relative;
             if literal::is_escaped(bytes, dollar) {
                 search_start = dollar + 1;

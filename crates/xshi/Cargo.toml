@@ -38,3 +38,4 @@ wildcard_imports = { level = "deny", priority = 0 }
 disallowed_types = { level = "deny", priority = 1 }
 single_call_fn = { level = "allow", priority = 1 }
 multiple_crate_versions = { level = "allow", priority = 1 }
+too_many_arguments = { level = "allow", priority = 1 }

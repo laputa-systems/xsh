@@ -740,8 +740,7 @@ impl<'a> Linter<'a> {
                 union.insert(effect);
             }
             let annotation = effects_annotation(&union);
-            let Some(effect_span) =
-                scan_effect_list_span(self.arena, &def, stmt_span, self.source)
+            let Some(effect_span) = scan_effect_list_span(self.arena, &def, stmt_span, self.source)
             else {
                 return;
             };
@@ -4895,10 +4894,8 @@ impl LintExprVisitor<'_, '_> {
                     literal_command_word(arena, self.linter.source, &segment.target)
                 && expects_nonzero_status(&target)
             {
-                let deletion_span = scan_run_propagate_deletion_span(
-                    self.linter.source,
-                    arena.span(run_form.span),
-                );
+                let deletion_span =
+                    scan_run_propagate_deletion_span(self.linter.source, arena.span(run_form.span));
                 self.linter.diagnostics.push(
                     Diagnostic::new(
                         Severity::Warning,

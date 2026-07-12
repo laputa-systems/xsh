@@ -2,13 +2,12 @@
 
 use cap_net_ext::{Blocking, PoolExt, TcpListenerExt};
 use crossbeam_channel::RecvTimeoutError;
-use rustc_hash::FxHashSet;
+use rustc_hash::{FxHashMap, FxHashSet};
 use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
 use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
 use rustls::{ClientConfig, DigitallySignedStruct, RootCertStore, SignatureScheme};
 use rustls::{ClientConnection, StreamOwned};
 use rustls_platform_verifier::BuilderVerifierExt;
-use std::collections::HashMap;
 use std::ffi::{CStr, CString};
 use std::fs::{self, File, OpenOptions};
 use std::hash::{DefaultHasher, Hash, Hasher};
@@ -637,7 +636,7 @@ fn dns_io_error(error: io::Error) -> NetError {
 #[derive(Clone)]
 pub struct NetAgent {
     tls_config: Arc<ClientConfig>,
-    pool: Arc<Mutex<HashMap<Origin, Vec<PooledConnection>>>>,
+    pool: Arc<Mutex<FxHashMap<Origin, Vec<PooledConnection>>>>,
     max_idle_per_host: usize,
     idle_timeout: Duration,
 }
@@ -746,7 +745,7 @@ pub fn make_agent(key: &NetAgentKey) -> NetResult<NetAgent> {
     let tls_config = tls_config_for_key(key)?;
     Ok(NetAgent {
         tls_config: Arc::new(tls_config),
-        pool: Arc::new(Mutex::new(HashMap::new())),
+        pool: Arc::new(Mutex::new(FxHashMap::default())),
         max_idle_per_host: key.max_idle_per_host,
         idle_timeout: key.idle_timeout,
     })

@@ -579,8 +579,7 @@ fn lowered_par_map_worker_count(item_count: Option<usize>) -> usize {
     let available = std::thread::available_parallelism()
         .map(|n| n.get())
         .unwrap_or(4)
-        .min(LOWERED_PAR_MAP_MAX_WORKERS)
-        .max(1);
+        .clamp(1, LOWERED_PAR_MAP_MAX_WORKERS);
     item_count.map_or(available, |count| available.min(count).max(1))
 }
 
@@ -3629,20 +3628,15 @@ impl Evaluator {
             .filter_map(|v| lowered_value_from_runtime_any(&v))
             .collect();
         if stream.source.is_some() {
-            loop {
-                match stream.next_live(span)? {
-                    Some(value) => {
-                        let Some(item) = lowered_value_from_runtime_any(&value) else {
-                            return Err(RuntimeError::new(
-                                "type-error",
-                                format!("stream produced unsupported {}", value.type_name()),
-                            )
-                            .with_span(span));
-                        };
-                        lowered.push(item);
-                    }
-                    None => break,
-                }
+            while let Some(value) = stream.next_live(span)? {
+                let Some(item) = lowered_value_from_runtime_any(&value) else {
+                    return Err(RuntimeError::new(
+                        "type-error",
+                        format!("stream produced unsupported {}", value.type_name()),
+                    )
+                    .with_span(span));
+                };
+                lowered.push(item);
             }
         }
         Ok(lowered)
@@ -3724,23 +3718,14 @@ impl Evaluator {
             }
         }
         if stream.source.is_some() {
-            loop {
-                match stream.next_live(span)? {
-                    Some(value) => {
-                        let Some(val) = lowered_value_from_runtime_any(&value) else {
-                            continue;
-                        };
-                        if let Some(val) = self.eval_stream_prefix_item(
-                            lowered,
-                            val,
-                            &stages[..consumed],
-                            slots,
-                            span,
-                        )? {
-                            items.push(val);
-                        }
-                    }
-                    None => break,
+            while let Some(value) = stream.next_live(span)? {
+                let Some(val) = lowered_value_from_runtime_any(&value) else {
+                    continue;
+                };
+                if let Some(val) =
+                    self.eval_stream_prefix_item(lowered, val, &stages[..consumed], slots, span)?
+                {
+                    items.push(val);
                 }
             }
         }
@@ -13946,12 +13931,7 @@ impl Evaluator {
                     Ok(LoweredStmtFlow::None)
                 }
             }
-            LoweredStmt::Cd {
-                target,
-                body,
-                propagate_result,
-                span,
-            } => {
+            LoweredStmt::Cd { target, body, span } => {
                 let target = match self.eval_lowered_expr(lowered, target, slots, call_span)? {
                     ControlFlow::Continue(value) => lowered_path_like_arg(value, "cd", *span)?,
                     ControlFlow::Break(value) => return Ok(LoweredStmtFlow::Propagate(value)),
@@ -14002,13 +13982,7 @@ impl Evaluator {
                     },
                 );
                 match result? {
-                    LoweredStmtFlow::None => {
-                        if *propagate_result {
-                            Ok(LoweredStmtFlow::None)
-                        } else {
-                            Ok(LoweredStmtFlow::None)
-                        }
-                    }
+                    LoweredStmtFlow::None => Ok(LoweredStmtFlow::None),
                     flow @ (LoweredStmtFlow::Return(_)
                     | LoweredStmtFlow::Propagate(_)
                     | LoweredStmtFlow::Break(_)
