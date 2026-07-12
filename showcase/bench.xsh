@@ -9,9 +9,22 @@ proc main(...cmd: List[Str]) [time, error] {
   let opts: Opts = cli.parse(
     cmd,
     {
-      runs: {form: "--runs N", kind: "UInt", default: 10, min: 1},
-      warmup: {form: "--warmup N", kind: "UInt", default: 0},
-      argv: {form: "...COMMAND", repeated: true, required: true},
+      runs: {
+        form: "--runs N",
+        kind: "UInt",
+        default: 10,
+        min: 1,
+      },
+      warmup: {
+        form: "--warmup N",
+        kind: "UInt",
+        default: 0,
+      },
+      argv: {
+        form: "...COMMAND",
+        repeated: true,
+        required: true,
+      },
     },
   )?
 

@@ -9,9 +9,23 @@ proc main(...argv: List[Str]) [fs, error] {
   let opts: Opts = cli.parse(
     argv,
     {
-      component: {form: "COMPONENT", choices: ["major", "minor", "patch"], help: "major | minor | patch"},
-      manifest: {form: "--manifest PATH", default: p"Cargo.toml"},
-      dry_run: {form: "--dry-run", default: true},
+      component: {
+        form: "COMPONENT",
+        choices: [
+          "major",
+          "minor",
+          "patch",
+        ],
+        help: "major | minor | patch",
+      },
+      manifest: {
+        form: "--manifest PATH",
+        default: p"Cargo.toml",
+      },
+      dry_run: {
+        form: "--dry-run",
+        default: true,
+      },
     },
   )?
 

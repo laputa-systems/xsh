@@ -42,12 +42,145 @@ struct PendingComment {
     text: String,
 }
 
+#[derive(Clone, Debug)]
+enum Doc {
+    Text(String),
+    Line,
+    SoftLine,
+    Indent(usize, Box<Doc>),
+    Dedent(usize, Box<Doc>),
+    Group {
+        flat: Box<Doc>,
+        broken: Box<Doc>,
+        prefer_broken: bool,
+    },
+    Concat(Vec<Doc>),
+}
+
+impl Doc {
+    fn text(text: impl Into<String>) -> Self {
+        Self::Text(text.into())
+    }
+
+    fn group(flat: Self, broken: Self, prefer_broken: bool) -> Self {
+        Self::Group {
+            flat: Box::new(flat),
+            broken: Box::new(broken),
+            prefer_broken,
+        }
+    }
+
+    fn render(&self, line_width: usize, column: usize) -> String {
+        self.render_with_indent(line_width, column, 0)
+    }
+
+    fn render_with_indent(&self, line_width: usize, column: usize, indent: usize) -> String {
+        let mut renderer = DocRenderer {
+            line_width,
+            output: String::new(),
+            column,
+            indent,
+        };
+        renderer.render(self, RenderMode::Broken);
+        renderer.output
+    }
+
+    fn flat_width(&self) -> Option<usize> {
+        match self {
+            Self::Text(text) => (!text.contains('\n')).then(|| text.chars().count()),
+            Self::Line => Some(1),
+            Self::SoftLine => Some(1),
+            Self::Indent(_, doc) => doc.flat_width(),
+            Self::Dedent(_, doc) => doc.flat_width(),
+            Self::Concat(parts) => parts.iter().try_fold(0usize, |width, part| {
+                part.flat_width().map(|value| width + value)
+            }),
+            Self::Group { flat, .. } => flat.flat_width(),
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+enum RenderMode {
+    Flat,
+    Broken,
+}
+
+struct DocRenderer {
+    line_width: usize,
+    output: String,
+    column: usize,
+    indent: usize,
+}
+
+impl DocRenderer {
+    fn render(&mut self, doc: &Doc, mode: RenderMode) {
+        match doc {
+            Doc::Text(text) => {
+                self.output.push_str(text);
+                if let Some((_, suffix)) = text.rsplit_once('\n') {
+                    self.column = suffix.chars().count();
+                } else {
+                    self.column += text.chars().count();
+                }
+            }
+            Doc::Line => match mode {
+                RenderMode::Flat => self.output.push(' '),
+                RenderMode::Broken => {
+                    self.output.push('\n');
+                    self.output.push_str(&"  ".repeat(self.indent));
+                    self.column = self.indent * 2;
+                }
+            },
+            Doc::SoftLine => match mode {
+                RenderMode::Flat => self.output.push(' '),
+                RenderMode::Broken => {
+                    self.output.push('\n');
+                    self.output.push_str(&"  ".repeat(self.indent));
+                    self.column = self.indent * 2;
+                }
+            },
+            Doc::Indent(amount, doc) => {
+                self.indent += amount;
+                self.render(doc, mode);
+                self.indent -= amount;
+            }
+            Doc::Dedent(amount, doc) => {
+                self.indent -= amount;
+                self.render(doc, mode);
+                self.indent += amount;
+            }
+            Doc::Concat(parts) => {
+                for part in parts {
+                    self.render(part, mode);
+                }
+            }
+            Doc::Group {
+                flat,
+                broken,
+                prefer_broken,
+            } => {
+                let fits = flat
+                    .flat_width()
+                    .is_some_and(|width| self.column + width <= self.line_width);
+                if matches!(mode, RenderMode::Flat) || (!prefer_broken && fits) {
+                    self.render(flat, RenderMode::Flat);
+                } else {
+                    self.render(broken, RenderMode::Broken);
+                }
+            }
+        }
+    }
+}
+
 struct Writer<'a> {
     arena: &'a AstArena,
     source: String,
     comments: Vec<PendingComment>,
     next_comment: usize,
     line_width: usize,
+    force_collection_expanded: bool,
+    inline_only: bool,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -178,6 +311,8 @@ impl Formatter {
                 comments,
                 next_comment: 0,
                 line_width: self.line_width,
+                force_collection_expanded: false,
+                inline_only: false,
             }
             .format_program(program),
             diagnostics: Vec::new(),
@@ -190,12 +325,10 @@ impl<'a> Writer<'a> {
         let mut output = String::new();
         let mut previous: Option<ArenaStmtKind> = None;
         let mut previous_end: Option<usize> = None;
-        let mut previous_multiline = false;
 
         for stmt_id in program.statement_ids() {
             let stmt = self.arena.stmt(stmt_id);
             let pending_comment = self.has_comment_before(stmt.span.start());
-            let current_multiline = self.stmt_preview(stmt_id, 0).contains('\n');
             if !output.is_empty() {
                 output.push('\n');
                 let original_blank =
@@ -203,8 +336,6 @@ impl<'a> Writer<'a> {
                 if previous
                     .as_ref()
                     .is_some_and(|prev| needs_top_level_blank(prev, &stmt.kind))
-                    || previous_multiline
-                    || current_multiline
                     || pending_comment
                     || original_blank
                 {
@@ -214,7 +345,6 @@ impl<'a> Writer<'a> {
             self.write_stmt(stmt_id, 0, &mut output);
             previous = Some(stmt.kind);
             previous_end = Some(stmt.span.end());
-            previous_multiline = current_multiline;
         }
 
         if self.next_comment < self.comments.len() {
@@ -233,7 +363,7 @@ impl<'a> Writer<'a> {
     fn gap_has_blank_line(&self, start: usize, end: usize) -> bool {
         self.source
             .get(start..end)
-            .is_some_and(|gap| !gap.contains('#') && gap.bytes().any(|byte| byte == b'\n'))
+            .is_some_and(|gap| !gap.contains('#') && gap.contains('\n'))
     }
 
     fn write_stmt(&mut self, stmt_id: StmtId, indent: usize, output: &mut String) {
@@ -983,19 +1113,21 @@ impl<'a> Writer<'a> {
             return;
         }
         output.push('\n');
-        let mut previous_multiline = false;
+        let mut previous_end: Option<usize> = None;
         for (index, stmt_id) in stmts.iter().enumerate() {
-            let stmt_span = self.arena.stmt(*stmt_id).span;
+            let stmt = self.arena.stmt(*stmt_id);
+            let stmt_span = stmt.span;
             let pending_comment = self.has_comment_before(stmt_span.start());
-            let current_multiline = self.stmt_preview(*stmt_id, indent + 1).contains('\n');
             if index > 0 {
                 output.push('\n');
-                if previous_multiline || current_multiline || pending_comment {
+                let original_blank =
+                    previous_end.is_some_and(|end| self.gap_has_blank_line(end, stmt_span.start()));
+                if pending_comment || original_blank {
                     output.push('\n');
                 }
             }
             self.write_stmt(*stmt_id, indent + 1, output);
-            previous_multiline = current_multiline;
+            previous_end = Some(stmt_span.end());
         }
         output.push('\n');
         self.write_indent(indent, output);
@@ -1268,6 +1400,12 @@ impl<'a> Writer<'a> {
         if parens {
             output.push('(');
         }
+        if self.write_expr_with_internal_comment(expr_id, output) {
+            if parens {
+                output.push(')');
+            }
+            return;
+        }
         if !parens && self.try_write_stable_call_chain(expr_id, output) {
             return;
         }
@@ -1318,7 +1456,7 @@ impl<'a> Writer<'a> {
             ArenaExprKind::Ident(name) => output.push_str(name.as_str()),
             ArenaExprKind::Item => output.push('.'),
             ArenaExprKind::LastStatus => output.push_str("$?"),
-            ArenaExprKind::List(items) => self.write_list(*items, output),
+            ArenaExprKind::List(items) => self.write_list(expr_id, *items, output),
             ArenaExprKind::ListComp {
                 expr,
                 target,
@@ -1500,6 +1638,27 @@ impl<'a> Writer<'a> {
         }
     }
 
+    fn write_expr_with_internal_comment(&mut self, expr_id: ExprId, output: &mut String) -> bool {
+        let span = self.arena.expr(expr_id).span;
+        let has_comment = self.comments[self.next_comment..].iter().any(|comment| {
+            comment.span.start() >= span.start() && comment.span.start() < span.end()
+        });
+        if !has_comment {
+            return false;
+        }
+        if let Some(raw) = self.source.get(span.range()) {
+            output.push_str(raw);
+        }
+        while self
+            .comments
+            .get(self.next_comment)
+            .is_some_and(|comment| comment.span.start() < span.end())
+        {
+            self.next_comment += 1;
+        }
+        true
+    }
+
     fn write_pipe_stage(
         &mut self,
         stage: &xsh::syntax::arena::ArenaPipeStage,
@@ -1537,11 +1696,20 @@ impl<'a> Writer<'a> {
         }
     }
 
-    fn write_list(&mut self, items: xsh::syntax::arena::ArenaRange, output: &mut String) {
+    fn write_list(
+        &mut self,
+        expr_id: ExprId,
+        items: xsh::syntax::arena::ArenaRange,
+        output: &mut String,
+    ) {
         let item_ids: Vec<ExprId> = self.arena.expr_ids(items).collect();
         let inline = self.render_inline(|writer, inline| writer.write_list_inline(items, inline));
-        if item_ids.is_empty()
+        let original_multiline = self.expr_source_is_multiline(expr_id);
+        if self.inline_only
+            || item_ids.is_empty()
             || (item_ids.len() < MULTILINE_LIST_ITEM_THRESHOLD && self.fits_inline(output, &inline))
+                && !original_multiline
+                && !self.force_collection_expanded
         {
             output.push_str(&inline);
             return;
@@ -1551,7 +1719,10 @@ impl<'a> Writer<'a> {
         output.push_str("[\n");
         for item in &item_ids {
             self.write_indent(indent + 1, output);
-            self.write_expr(*item, 0, output);
+            let previous_force = self.force_collection_expanded;
+            self.force_collection_expanded = true;
+            self.write_expr_safe(*item, output);
+            self.force_collection_expanded = previous_force;
             output.push_str(",\n");
         }
         self.write_indent(indent, output);
@@ -1565,7 +1736,7 @@ impl<'a> Writer<'a> {
             if index > 0 {
                 output.push_str(", ");
             }
-            self.write_expr(*item, 0, output);
+            self.write_expr_safe(*item, output);
         }
         output.push(']');
     }
@@ -1584,7 +1755,8 @@ impl<'a> Writer<'a> {
         if field_kinds.is_empty()
             || (!original_multiline
                 && field_kinds.len() < MULTILINE_RECORD_FIELD_THRESHOLD
-                && self.fits_inline(output, &inline))
+                && self.fits_inline(output, &inline)
+                && !self.force_collection_expanded)
         {
             output.push_str(&inline);
             return;
@@ -1594,7 +1766,10 @@ impl<'a> Writer<'a> {
         output.push_str("{\n");
         for field in &field_kinds {
             self.write_indent(indent + 1, output);
+            let previous_force = self.force_collection_expanded;
+            self.force_collection_expanded = true;
             self.write_record_field(field, output);
+            self.force_collection_expanded = previous_force;
             output.push_str(",\n");
         }
         self.write_indent(indent, output);
@@ -1623,12 +1798,12 @@ impl<'a> Writer<'a> {
             ArenaRecordFieldKind::Named { name, value, .. } => {
                 output.push_str(name.as_str());
                 output.push_str(": ");
-                self.write_expr(*value, 0, output);
+                self.write_expr_safe(*value, output);
             }
             ArenaRecordFieldKind::Shorthand { name, .. } => output.push_str(name.as_str()),
             ArenaRecordFieldKind::Spread { expr, .. } => {
                 output.push_str("...");
-                self.write_expr(*expr, 0, output);
+                self.write_expr_safe(*expr, output);
             }
         }
     }
@@ -2129,14 +2304,46 @@ impl<'a> Writer<'a> {
         }
 
         let indent = indent_for_expr(output);
-        output.push_str("(\n");
-        for arg in &arg_kinds {
-            self.write_indent(indent + 1, output);
-            self.write_call_arg_multiline(arg, output);
-            output.push_str(",\n");
+        let broken = self.render_broken_call_args_doc(&arg_kinds, indent);
+        let doc = Doc::group(Doc::text(inline), broken, original_multiline);
+        output.push_str(&doc.render_with_indent(
+            self.line_width,
+            current_line_width(output),
+            indent,
+        ));
+    }
+
+    fn render_broken_call_args_doc(
+        &mut self,
+        args: &[xsh::syntax::arena::ArenaCallArgKind],
+        indent: usize,
+    ) -> Doc {
+        let mut body = vec![Doc::Line];
+        let continuation = "  ".repeat(indent + 1);
+        for (index, arg) in args.iter().enumerate() {
+            let mut output = String::new();
+            self.write_call_arg_multiline(arg, &mut output);
+            let output = if output.trim_start().contains("\"\"\"") {
+                output
+            } else {
+                output.replace('\n', &format!("\n{continuation}"))
+            };
+            body.push(Doc::text(output));
+            body.push(Doc::text(","));
+            if index + 1 < args.len() {
+                body.push(Doc::Line);
+            }
         }
-        self.write_indent(indent, output);
-        output.push(')');
+        Doc::Concat(vec![
+            Doc::text("("),
+            Doc::Indent(
+                1,
+                Box::new(Doc::Concat(vec![
+                    Doc::Concat(body),
+                    Doc::Dedent(1, Box::new(Doc::Concat(vec![Doc::Line, Doc::text(")")]))),
+                ])),
+            ),
+        ])
     }
 
     fn call_args_original_multiline(
@@ -2305,7 +2512,10 @@ impl<'a> Writer<'a> {
                 let inline = self.render_inline(|writer, inline| {
                     writer.write_if_expr(branches, else_value, inline);
                 });
-                if self.fits_inline(output, &inline) && !self.expr_source_is_multiline(expr_id) {
+                if self.inline_only
+                    || (self.fits_inline(output, &inline)
+                        && !self.expr_source_is_multiline(expr_id))
+                {
                     output.push_str(&inline);
                 } else {
                     self.write_if_expr_multiline(branches, else_value, output);
@@ -2317,7 +2527,10 @@ impl<'a> Writer<'a> {
                 let inline = self.render_inline(|writer, inline| {
                     writer.write_match_expr(value, arms, inline);
                 });
-                if self.fits_inline(output, &inline) && !self.expr_source_is_multiline(expr_id) {
+                if self.inline_only
+                    || (self.fits_inline(output, &inline)
+                        && !self.expr_source_is_multiline(expr_id))
+                {
                     output.push_str(&inline);
                 } else {
                     self.write_match_expr_multiline(value, arms, output);
@@ -2327,7 +2540,10 @@ impl<'a> Writer<'a> {
                 let inline = self.render_inline(|writer, inline| {
                     writer.write_expr(expr_id, 0, inline);
                 });
-                if self.fits_inline(output, &inline) && !self.expr_source_is_multiline(expr_id) {
+                if self.inline_only
+                    || (self.fits_inline(output, &inline)
+                        && !self.expr_source_is_multiline(expr_id))
+                {
                     output.push_str(&inline);
                 } else {
                     self.write_list_comp_multiline(expr_id, output);
@@ -2337,7 +2553,10 @@ impl<'a> Writer<'a> {
                 let inline = self.render_inline(|writer, inline| {
                     writer.write_expr(expr_id, 0, inline);
                 });
-                if self.fits_inline(output, &inline) && !self.expr_source_is_multiline(expr_id) {
+                if self.inline_only
+                    || (self.fits_inline(output, &inline)
+                        && !self.expr_source_is_multiline(expr_id))
+                {
                     output.push_str(&inline);
                 } else {
                     self.write_map_comp_multiline(expr_id, output);
@@ -2384,7 +2603,9 @@ impl<'a> Writer<'a> {
         output.push_str(" in ");
         self.write_expr(iter, 0, output);
         if let Some(condition) = condition {
-            output.push_str(" if ");
+            output.push('\n');
+            self.write_indent(indent + 1, output);
+            output.push_str("if ");
             self.write_expr(condition, 0, output);
         }
         output.push('\n');
@@ -2416,7 +2637,9 @@ impl<'a> Writer<'a> {
         output.push_str(" in ");
         self.write_expr(iter, 0, output);
         if let Some(condition) = condition {
-            output.push_str(" if ");
+            output.push('\n');
+            self.write_indent(indent + 1, output);
+            output.push_str("if ");
             self.write_expr(condition, 0, output);
         }
         output.push('\n');
@@ -2527,6 +2750,8 @@ impl<'a> Writer<'a> {
             comments: Vec::new(),
             next_comment: 0,
             line_width: self.line_width,
+            force_collection_expanded: false,
+            inline_only: true,
         };
         let mut output = String::new();
         f(&mut writer, &mut output);

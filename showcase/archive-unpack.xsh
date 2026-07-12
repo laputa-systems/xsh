@@ -9,12 +9,33 @@ proc main(...argv: List[Str]) [fs, error] {
   let opts: Opts = cli.parse(
     argv,
     {
-      archive: {form: "...ARCHIVE", repeated: true, required_group: "input"},
-      out: {form: "--out DIR", default: p"."},
-      list: {form: "--list", default: false},
-      compress: {form: "--compress FILE", default: "", required_group: "input"},
-      decompress: {form: "--decompress FILE", default: "", required_group: "input"},
-      dry_run: {form: "--dry-run", default: true},
+      archive: {
+        form: "...ARCHIVE",
+        repeated: true,
+        required_group: "input",
+      },
+      out: {
+        form: "--out DIR",
+        default: p".",
+      },
+      list: {
+        form: "--list",
+        default: false,
+      },
+      compress: {
+        form: "--compress FILE",
+        default: "",
+        required_group: "input",
+      },
+      decompress: {
+        form: "--decompress FILE",
+        default: "",
+        required_group: "input",
+      },
+      dry_run: {
+        form: "--dry-run",
+        default: true,
+      },
     },
   )?
 

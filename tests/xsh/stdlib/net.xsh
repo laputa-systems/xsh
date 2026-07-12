@@ -3,7 +3,12 @@ proc test_net_module_with_mocks(ctx: TestContext) [fs, net, error] {
     status: 200,
     reason: "OK",
     bytes: 2,
-    headers: [{name: "content-type", value: "text/plain"}],
+    headers: [
+      {
+        name: "content-type",
+        value: "text/plain",
+      },
+    ],
     url: "https://example.test/",
     body: b"ok",
   }

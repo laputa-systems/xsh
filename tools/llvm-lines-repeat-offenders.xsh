@@ -437,15 +437,42 @@ proc main(...argv: List[Str]) [fs, process, error, io] {
   let opts: Options = cli.parse(
     argv_for_parse(argv),
     {
-      input: {form: "INPUT", default: "-"},
-      limit: {form: "--limit N", default: 30},
-      min_instances: {form: "--min-instances N", default: 2},
-      min_total_lines: {form: "--min-total-lines N", default: 0},
-      min_duplicated: {form: "--min-duplicated N", default: 0},
-      examples: {form: "--examples N", default: 2},
-      artifact_rows: {form: "--artifact-rows N", default: 200},
-      artifact: {form: "--artifact PATH", default: ""},
-      filter: {kind: "Str", default: ""},
+      input: {
+        form: "INPUT",
+        default: "-",
+      },
+      limit: {
+        form: "--limit N",
+        default: 30,
+      },
+      min_instances: {
+        form: "--min-instances N",
+        default: 2,
+      },
+      min_total_lines: {
+        form: "--min-total-lines N",
+        default: 0,
+      },
+      min_duplicated: {
+        form: "--min-duplicated N",
+        default: 0,
+      },
+      examples: {
+        form: "--examples N",
+        default: 2,
+      },
+      artifact_rows: {
+        form: "--artifact-rows N",
+        default: 200,
+      },
+      artifact: {
+        form: "--artifact PATH",
+        default: "",
+      },
+      filter: {
+        kind: "Str",
+        default: "",
+      },
       all: "Bool",
       json: "Bool",
       sum: "Bool",

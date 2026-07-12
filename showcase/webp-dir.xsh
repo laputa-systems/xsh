@@ -11,10 +11,25 @@ proc main(...argv: List[Str]) [fs, process, error] {
   let opts = cli.parse(
     argv,
     {
-      quality: {kind: "Int", short: "q", default: 85},
-      jobs: {kind: "Int", short: "j", default: cpu.count()},
-      apply: {kind: "Bool", default: false},
-      root: {kind: "Path", positional: true, default: p"."},
+      quality: {
+        kind: "Int",
+        short: "q",
+        default: 85,
+      },
+      jobs: {
+        kind: "Int",
+        short: "j",
+        default: cpu.count(),
+      },
+      apply: {
+        kind: "Bool",
+        default: false,
+      },
+      root: {
+        kind: "Path",
+        positional: true,
+        default: p".",
+      },
     },
   )?
 

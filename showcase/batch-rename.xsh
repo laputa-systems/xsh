@@ -9,13 +9,34 @@ proc main(...argv: List[Str]) [fs, error] {
   let opts: Opts = cli.parse(
     argv,
     {
-      root: {form: "--root DIR", default: p"."},
-      ext: {form: "--ext EXT", default: ""},
-      normalize: {form: "--normalize", default: false},
-      prefix: {form: "--prefix STR", default: ""},
-      suffix: {form: "--suffix STR", default: ""},
-      number: {form: "--number", default: false},
-      dry_run: {form: "--dry-run", default: true},
+      root: {
+        form: "--root DIR",
+        default: p".",
+      },
+      ext: {
+        form: "--ext EXT",
+        default: "",
+      },
+      normalize: {
+        form: "--normalize",
+        default: false,
+      },
+      prefix: {
+        form: "--prefix STR",
+        default: "",
+      },
+      suffix: {
+        form: "--suffix STR",
+        default: "",
+      },
+      number: {
+        form: "--number",
+        default: false,
+      },
+      dry_run: {
+        form: "--dry-run",
+        default: true,
+      },
     },
   )?
 

@@ -9,9 +9,21 @@ proc main(...argv: List[Str]) [fs, error] {
   let opts: Opts = cli.parse(
     argv,
     {
-      file: {form: "...FILE", repeated: true, required: true},
-      compare: {form: "--compare FILE", default: ""},
-      chunk_size: {form: "--chunk-size N", kind: "UInt", default: 512, min: 1},
+      file: {
+        form: "...FILE",
+        repeated: true,
+        required: true,
+      },
+      compare: {
+        form: "--compare FILE",
+        default: "",
+      },
+      chunk_size: {
+        form: "--chunk-size N",
+        kind: "UInt",
+        default: 512,
+        min: 1,
+      },
     },
   )?
 

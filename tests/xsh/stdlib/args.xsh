@@ -21,9 +21,21 @@ proc test_args_parse_tokens_and_commands() [error] {
   let parsed: ParsedArgs = cli.parse(
     ["--count", "3", "-D", "one", "-Dtwo", "--verbose", "src/main.xsh"],
     {
-      count: {kind: "Int", required: true},
-      define: {kind: "Str", repeated: true, short: ["D"]},
-      file: {kind: "Path", positional: true},
+      count: {
+        kind: "Int",
+        required: true,
+      },
+      define: {
+        kind: "Str",
+        repeated: true,
+        short: [
+          "D",
+        ],
+      },
+      file: {
+        kind: "Path",
+        positional: true,
+      },
       verbose: "Bool",
     },
   )?
@@ -51,8 +63,24 @@ proc test_args_parse_tokens_and_commands() [error] {
   test.contains(usage, "usage: demo")?
 
   let command_specs = {
-    build: {positionals: ["root"], types: {root: "Path"}, rest: "raw"},
-    clean: {positionals: ["root"], types: {root: "Path"}, rest: "raw"},
+    build: {
+      positionals: [
+        "root",
+      ],
+      types: {
+        root: "Path",
+      },
+      rest: "raw",
+    },
+    clean: {
+      positionals: [
+        "root",
+      ],
+      types: {
+        root: "Path",
+      },
+      rest: "raw",
+    },
   }
 
   let command: CommandArgs = cli.commands(
@@ -74,10 +102,22 @@ proc test_cli_parse_compact_forms() [error] {
   let parsed: ParsedArgs = cli.parse(
     ["--total", "3", "-D", "one", "-Dtwo", "--verbose", "src/main.xsh"],
     {
-      count: {form: "--total N", default: 0},
-      define: {form: "-D NAME", repeated: true},
-      file: {form: "FILE", default: p"."},
-      verbose: {form: "-v --verbose", default: false},
+      count: {
+        form: "--total N",
+        default: 0,
+      },
+      define: {
+        form: "-D NAME",
+        repeated: true,
+      },
+      file: {
+        form: "FILE",
+        default: p".",
+      },
+      verbose: {
+        form: "-v --verbose",
+        default: false,
+      },
     },
   )?
 
@@ -98,19 +138,78 @@ proc test_cli_parse_advanced_descriptors() [fs, error] {
   config.write("ready")?
 
   let schema = {
-    mode: {form: "--mode MODE", default: "text", choices: ["text", "json"]},
-    color: {form: "--color[=WHEN]", default: "auto", optional_default: "always", choices: ["auto", "always", "never"]},
-    config: {form: "--config PATH", kind: "Path", file: true, default: config},
-    workspace: {form: "--workspace DIR", kind: "Path", default: root},
-    timeout: {form: "--timeout DURATION", default: 1s, positive: true},
-    count: {form: "--count N", kind: "UInt", default: 1, min: 1},
-    verbose: {form: "-v --verbose", default: false, deprecated: "use --log-level instead"},
-    json: {form: "--json", default: false, conflicts: "table"},
-    table: {form: "--table", default: false},
-    output: {form: "--output PATH", default: "", requires: "mode"},
-    secret: {form: "--secret VALUE", default: "", hidden: true},
-    left: {form: "--left VALUE", required_group: "input"},
-    right: {form: "--right VALUE", required_group: "input"},
+    mode: {
+      form: "--mode MODE",
+      default: "text",
+      choices: [
+        "text",
+        "json",
+      ],
+    },
+    color: {
+      form: "--color[=WHEN]",
+      default: "auto",
+      optional_default: "always",
+      choices: [
+        "auto",
+        "always",
+        "never",
+      ],
+    },
+    config: {
+      form: "--config PATH",
+      kind: "Path",
+      file: true,
+      default: config,
+    },
+    workspace: {
+      form: "--workspace DIR",
+      kind: "Path",
+      default: root,
+    },
+    timeout: {
+      form: "--timeout DURATION",
+      default: 1s,
+      positive: true,
+    },
+    count: {
+      form: "--count N",
+      kind: "UInt",
+      default: 1,
+      min: 1,
+    },
+    verbose: {
+      form: "-v --verbose",
+      default: false,
+      deprecated: "use --log-level instead",
+    },
+    json: {
+      form: "--json",
+      default: false,
+      conflicts: "table",
+    },
+    table: {
+      form: "--table",
+      default: false,
+    },
+    output: {
+      form: "--output PATH",
+      default: "",
+      requires: "mode",
+    },
+    secret: {
+      form: "--secret VALUE",
+      default: "",
+      hidden: true,
+    },
+    left: {
+      form: "--left VALUE",
+      required_group: "input",
+    },
+    right: {
+      form: "--right VALUE",
+      required_group: "input",
+    },
   }
 
   let full = cli.parse_full(["--color", "-v", "--left", "a"], schema)?
@@ -175,10 +274,19 @@ proc test_cli_commands_accept_aliases_forms_and_options() [error] {
     ["b", "--verbose", "target/demo", "--", "--dry-run"],
     {
       build: {
-        aliases: ["b"],
+        aliases: [
+          "b",
+        ],
         form: "build ROOT ...REST",
-        types: {root: "Path"},
-        options: {verbose: {form: "-v --verbose", default: false}},
+        types: {
+          root: "Path",
+        },
+        options: {
+          verbose: {
+            form: "-v --verbose",
+            default: false,
+          },
+        },
       },
     },
   )?

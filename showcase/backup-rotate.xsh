@@ -9,11 +9,28 @@ proc main(...argv: List[Str]) [fs, error] {
   let opts: Opts = cli.parse(
     argv,
     {
-      dir: {form: "--dir DIR", default: p"."},
-      keep: {form: "--keep N", kind: "UInt", default: 5, min: 1},
-      pattern: {form: "--pattern REGEX", default: ""},
-      dry_run: {form: "--dry-run", default: true},
-      verbose: {form: "--verbose", default: false},
+      dir: {
+        form: "--dir DIR",
+        default: p".",
+      },
+      keep: {
+        form: "--keep N",
+        kind: "UInt",
+        default: 5,
+        min: 1,
+      },
+      pattern: {
+        form: "--pattern REGEX",
+        default: "",
+      },
+      dry_run: {
+        form: "--dry-run",
+        default: true,
+      },
+      verbose: {
+        form: "--verbose",
+        default: false,
+      },
     },
   )?
 

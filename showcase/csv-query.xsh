@@ -11,12 +11,32 @@ proc main(...argv: List[Str]) [fs, error] {
   let opts: Opts = cli.parse(
     argv,
     {
-      file: {form: "FILE", kind: "Path", file: true},
-      filter: {form: "--filter COL=VAL", default: ""},
-      sort: {form: "--sort COL", default: ""},
-      group: {form: "--group COL", default: ""},
-      limit: {form: "--limit N", kind: "UInt", default: 0},
-      count: {form: "--count", default: false},
+      file: {
+        form: "FILE",
+        kind: "Path",
+        file: true,
+      },
+      filter: {
+        form: "--filter COL=VAL",
+        default: "",
+      },
+      sort: {
+        form: "--sort COL",
+        default: "",
+      },
+      group: {
+        form: "--group COL",
+        default: "",
+      },
+      limit: {
+        form: "--limit N",
+        kind: "UInt",
+        default: 0,
+      },
+      count: {
+        form: "--count",
+        default: false,
+      },
     },
   )?
 

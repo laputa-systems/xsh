@@ -11,8 +11,17 @@ proc main(...argv: List[Str]) [process, error] {
   let opts: Opts = cli.parse(
     argv,
     {
-      count: {form: "--count N", kind: "UInt", default: 3, min: 1},
-      hosts: {form: "...HOST", repeated: true, required: true},
+      count: {
+        form: "--count N",
+        kind: "UInt",
+        default: 3,
+        min: 1,
+      },
+      hosts: {
+        form: "...HOST",
+        repeated: true,
+        required: true,
+      },
     },
   )?
 

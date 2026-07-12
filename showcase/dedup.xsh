@@ -11,9 +11,18 @@ proc main(...argv: List[Str]) [fs, error] {
   let opts: Opts = cli.parse(
     argv,
     {
-      root: {form: "--root DIR", default: p"."},
-      dry_run: {form: "--dry-run", default: true},
-      verbose: {form: "--verbose", default: false},
+      root: {
+        form: "--root DIR",
+        default: p".",
+      },
+      dry_run: {
+        form: "--dry-run",
+        default: true,
+      },
+      verbose: {
+        form: "--verbose",
+        default: false,
+      },
     },
   )?
 

@@ -44,7 +44,7 @@ another special case. The most visible failure modes are:
 - long URLs, paths, predicates, and generated strings exceeding the width
   target in ways that are unavoidable but need to remain visually deliberate.
 
-The package corpus is a useful stress test because it contains long metadata
+The package corpus (at ../packages) is a useful stress test because it contains long metadata
 records, generated source lists, nested comprehensions, method chains, and
 source-shaped calls.
 

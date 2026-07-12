@@ -27,9 +27,18 @@ proc main(...argv: List[Str]) [fs, error] {
   let opts: Opts = cli.parse(
     argv,
     {
-      root: {form: "--root DIR", default: p"."},
-      fail: {form: "--fail", default: false},
-      show_ok: {form: "--show-ok", default: false},
+      root: {
+        form: "--root DIR",
+        default: p".",
+      },
+      fail: {
+        form: "--fail",
+        default: false,
+      },
+      show_ok: {
+        form: "--show-ok",
+        default: false,
+      },
     },
   )?
 

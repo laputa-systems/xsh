@@ -1,9 +1,21 @@
 type Package = {name: Str, ver: Str, optional: Bool}
 
 let pkgs: List[Package] = [
-  {name: "curl", ver: "8.0", optional: false},
-  {name: "jq", ver: "1.7", optional: true},
-  {name: "git", ver: "2.40", optional: false},
+  {
+    name: "curl",
+    ver: "8.0",
+    optional: false,
+  },
+  {
+    name: "jq",
+    ver: "1.7",
+    optional: true,
+  },
+  {
+    name: "git",
+    ver: "2.40",
+    optional: false,
+  },
 ]
 
 # basic transform

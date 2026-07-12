@@ -233,13 +233,38 @@ proc main(...argv: List[Str]) [fs, process, time, error, io] {
   let opts: Opts = cli.parse(
     argv,
     {
-      warmup: {form: "--warmup N", kind: "UInt", default: 0},
-      runs: {form: "--runs N", kind: "UInt", default: 10, min: 1},
-      shell: {form: "--shell S", default: ""},
-      subtract_startup: {form: "--subtract-startup", default: false},
-      ignore_failure: {form: "--ignore-failure", default: false},
-      export_json: {form: "--export-json FILE", default: ""},
-      commands: {form: "...COMMAND", repeated: true, required: true},
+      warmup: {
+        form: "--warmup N",
+        kind: "UInt",
+        default: 0,
+      },
+      runs: {
+        form: "--runs N",
+        kind: "UInt",
+        default: 10,
+        min: 1,
+      },
+      shell: {
+        form: "--shell S",
+        default: "",
+      },
+      subtract_startup: {
+        form: "--subtract-startup",
+        default: false,
+      },
+      ignore_failure: {
+        form: "--ignore-failure",
+        default: false,
+      },
+      export_json: {
+        form: "--export-json FILE",
+        default: "",
+      },
+      commands: {
+        form: "...COMMAND",
+        repeated: true,
+        required: true,
+      },
     },
   )?
 

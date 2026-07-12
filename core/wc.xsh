@@ -64,10 +64,22 @@ proc main(...argv: List[Str]) [fs, error, io] {
   let parsed = cli.parse(
     argv,
     {
-      lines: {form: "-l --lines", default: false},
-      words: {form: "-w --words", default: false},
-      bytes: {form: "-c --bytes", default: false},
-      paths: {form: "...FILE", repeated: true},
+      lines: {
+        form: "-l --lines",
+        default: false,
+      },
+      words: {
+        form: "-w --words",
+        default: false,
+      },
+      bytes: {
+        form: "-c --bytes",
+        default: false,
+      },
+      paths: {
+        form: "...FILE",
+        repeated: true,
+      },
     },
   )?
 

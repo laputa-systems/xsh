@@ -5,9 +5,18 @@ let argv = ["--pattern", "proc", "--verbose", "--limit", "20"]
 let opts: Opts = cli.parse(
   argv,
   {
-    pattern: {form: "--pattern PATTERN", required: true},
-    verbose: {form: "--verbose", default: false},
-    limit: {form: "--limit N", default: 50},
+    pattern: {
+      form: "--pattern PATTERN",
+      required: true,
+    },
+    verbose: {
+      form: "--verbose",
+      default: false,
+    },
+    limit: {
+      form: "--limit N",
+      default: 50,
+    },
   },
 )?
 

@@ -9,10 +9,27 @@ proc main(...argv: List[Str]) [net, time, error] {
   let opts: Opts = cli.parse(
     argv,
     {
-      url: {form: "URL"},
-      timeout: {form: "--timeout N", kind: "UInt", default: 30, min: 1},
-      interval: {form: "--interval N", kind: "UInt", default: 2, min: 1},
-      status: {form: "--status CODE", kind: "UInt", default: 0, max: 599},
+      url: {
+        form: "URL",
+      },
+      timeout: {
+        form: "--timeout N",
+        kind: "UInt",
+        default: 30,
+        min: 1,
+      },
+      interval: {
+        form: "--interval N",
+        kind: "UInt",
+        default: 2,
+        min: 1,
+      },
+      status: {
+        form: "--status CODE",
+        kind: "UInt",
+        default: 0,
+        max: 599,
+      },
     },
   )?
 

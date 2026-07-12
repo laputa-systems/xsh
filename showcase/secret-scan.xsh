@@ -11,9 +11,18 @@ proc main(...argv: List[Str]) [fs, error] {
   let opts: Opts = cli.parse(
     argv,
     {
-      root: {form: "--root DIR", default: p"."},
-      ext: {form: "--ext EXT", repeated: true},
-      verbose: {form: "--verbose", default: false},
+      root: {
+        form: "--root DIR",
+        default: p".",
+      },
+      ext: {
+        form: "--ext EXT",
+        repeated: true,
+      },
+      verbose: {
+        form: "--verbose",
+        default: false,
+      },
     },
   )?
 
@@ -49,11 +58,26 @@ proc main(...argv: List[Str]) [fs, error] {
 
   # Compile patterns once before scanning.
   let patterns = [
-    {kind: "aws-key", re: regex.compile("AKIA[0-9A-Z]{16}")?},
-    {kind: "private-key", re: regex.compile("-----BEGIN .* PRIVATE KEY-----")?},
-    {kind: "api-key", re: regex.compile("(?i)(api[_-]?key|secret[_-]?key)\\s*[:=]\\s*['\"][A-Za-z0-9\\-_]{16,}['\"]")?},
-    {kind: "jwt", re: regex.compile("eyJ[A-Za-z0-9_-]+\\.eyJ[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+")?},
-    {kind: "gh-token", re: regex.compile("gh[pousr]_[A-Za-z0-9]{36}")?},
+    {
+      kind: "aws-key",
+      re: regex.compile("AKIA[0-9A-Z]{16}")?,
+    },
+    {
+      kind: "private-key",
+      re: regex.compile("-----BEGIN .* PRIVATE KEY-----")?,
+    },
+    {
+      kind: "api-key",
+      re: regex.compile("(?i)(api[_-]?key|secret[_-]?key)\\s*[:=]\\s*['\"][A-Za-z0-9\\-_]{16,}['\"]")?,
+    },
+    {
+      kind: "jwt",
+      re: regex.compile("eyJ[A-Za-z0-9_-]+\\.eyJ[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+")?,
+    },
+    {
+      kind: "gh-token",
+      re: regex.compile("gh[pousr]_[A-Za-z0-9]{36}")?,
+    },
   ]
 
   let files = fs.files(root)

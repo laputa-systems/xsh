@@ -1700,10 +1700,8 @@ let choice = if count > 1 { "many" } else { "one" }
 let value = match Ok(count) { Ok(n) => n, Err(_) => 0 }
 p"tmp".remove(missing_ok: true)?
 let slash = /tmp/xsh
-
 let multiline = """alpha
 beta"""
-
 let quoted_multiline = """alpha
 \"""
 beta"""
@@ -1745,12 +1743,10 @@ h2.cancel(signal:"TERM",kill_after:0ms)?
 let s = wait h?
 let hs = [spawn run true ?, spawn run.builtin false ?]
 let statuses = wait hs?
-
 let cmd = process.command {
   cpu_max = 80
   run.builtin true
 }
-
 let h2 = spawn cmd?
 h2.cancel(signal: "TERM", kill_after: 0ms)?
 "#;
@@ -1794,7 +1790,6 @@ let once=retry [] {
     let expected = r#"let value = retry [1s, 2s, 0ms] {
   fetch()?
 }?
-
 let once = retry [] {
   Ok("done")
 }
@@ -1949,11 +1944,9 @@ print ${names[0]} ${sizes[0]}
 ";
     let expected = "\
 let names = fs.walk(root) |> where .kind == \"file\"
-
 let sizes = fs.walk(root)
   |> where .kind == \"file\"
   |> map .size
-
 print ${names[0]} ${sizes[0]}
 ";
 
@@ -2047,7 +2040,6 @@ let paths = [
   fp\"${root}/tmp\",
   fp\"${root}/usr/lib/services\",
 ]
-
 let metadata = {
   name: pkg.name,
   version: pkg.ver,
@@ -2058,7 +2050,6 @@ let metadata = {
   installed_root: root.display(),
   work_dir: work.display(),
 }
-
 let command = process.command_argv(
   service_target,
   argv_prefix.extend([proof_log.display(), \"heartbeat\"]),
@@ -2142,7 +2133,6 @@ let target = make.c_program({
   ldflags: [],
   deps: [],
 })
-
 let value = path_value.display()
   .replace(\"/\", \"_\")
   .replace(\".cxx\", ext)
@@ -2151,7 +2141,6 @@ let value = path_value.display()
   .replace(\".c\", ext)
   .replace(\".S\", ext)
   .replace(\".s\", ext)
-
 let script = r\"\"\"print f\"${value}\"
 \"\"\"
 ";
@@ -2286,7 +2275,6 @@ let choice = if user_name == \"administrator\" and mode == \"production\" {
 } else {
   \"deny\"
 }
-
 let label = render(
   match result {
     Ok(value) => value,
@@ -2338,9 +2326,20 @@ fn formatter_preserves_multiline_call_argument_lists() {
 }
 
 #[test]
+fn formatter_indents_broken_call_arguments_in_nested_blocks() {
+    let source = "proc main() {\nlet value=make(\ntarget,\n{alpha:1,beta:2,gamma:3,delta:4,epsilon:5,zeta:6},\n)\n}\n";
+    let expected = "proc main() {\n  let value = make(\n    target,\n    {\n      alpha: 1,\n      beta: 2,\n      gamma: 3,\n      delta: 4,\n      epsilon: 5,\n      zeta: 6,\n    },\n  )\n}\n";
+    let first = Formatter::new().format_source(SourceId::new(0), source);
+    assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
+    assert_eq!(first.formatted, expected);
+    let second = Formatter::new().format_source(SourceId::new(0), &first.formatted);
+    assert_eq!(second.formatted, first.formatted);
+}
+
+#[test]
 fn formatter_preserves_multiline_comprehensions() {
     let source = "let upstream_sources = [{\n  source: source.source.display(),\n  kind: source.kind,\n  architectures: source.architectures,\n  checksums: source.checksums,\n} for source in pkg.upstream_sources]\nlet by_name = {\n  item.name: item.version\n  for item in items\n}\n";
-    let expected = "let upstream_sources = [\n  {\n    source: source.source.display(),\n    kind: source.kind,\n    architectures: source.architectures,\n    checksums: source.checksums,\n  }\n  for source in pkg.upstream_sources\n]\n\nlet by_name = {\n  item.name: item.version\n  for item in items\n}\n";
+    let expected = "let upstream_sources = [\n  {\n    source: source.source.display(),\n    kind: source.kind,\n    architectures: source.architectures,\n    checksums: source.checksums,\n  }\n  for source in pkg.upstream_sources\n]\nlet by_name = {\n  item.name: item.version\n  for item in items\n}\n";
 
     let formatted = Formatter::new().format_source(SourceId::new(0), source);
 
@@ -2534,7 +2533,6 @@ print \"done\"
     let expected = "\
 proc main() {
   let before = 1
-
   if true {
     # explain command shape
     run echo \"ok\" ?
@@ -2644,6 +2642,107 @@ fn formatter_is_idempotent_on_example_catalog() {
             "{}: formatter is not idempotent (running fmt twice gives different output)",
             case.path,
         );
+    }
+}
+
+#[test]
+fn formatter_pretty_corpus_has_stable_golden_shape() {
+    let source = include_str!("fixtures/syntax/valid/pretty.xsh");
+    let formatted = Formatter::new()
+        .with_line_width(60)
+        .format_source(SourceId::new(0), source);
+    assert!(
+        formatted.diagnostics.is_empty(),
+        "{:?}",
+        formatted.diagnostics
+    );
+    let expected = "# curated formatter corpus
+let source = p\".\"
+let items = [
+  {
+    name: \"one\",
+    enabled: true,
+  },
+  {
+    name: \"two\",
+    enabled: false,
+  },
+]
+let source_shaped = [
+  1,
+  2,
+]
+let rows = [
+  {
+    name: \"short\",
+  },
+  {
+    name: \"a deliberately long record value that forces its sibling to break too\",
+  },
+]
+let nested = [
+  {
+    meta: {
+      name: \"short\",
+    },
+  },
+  {
+    meta: {
+      name: \"another deliberately long nested record value\",
+    },
+  },
+]
+let filtered = [item.name for item in items if item.enabled]
+let by_name = {
+  item.name: f\"${item.name}\"
+  for item in items
+  if item.enabled
+}
+let chain = source.display()
+  .replace(\"/\", \"_\")
+  .replace(\"-\", \"_\")
+
+# fmt: skip
+let skipped=1+2
+";
+    assert_eq!(formatted.formatted, expected);
+    assert_parse_and_check(SourceId::new(0), &formatted.formatted);
+    let second = Formatter::new()
+        .with_line_width(60)
+        .format_source(SourceId::new(0), &formatted.formatted);
+    assert_eq!(second.formatted, formatted.formatted);
+}
+
+#[test]
+fn formatter_is_idempotent_on_package_corpus() {
+    fn files(root: &std::path::Path, output: &mut Vec<std::path::PathBuf>) {
+        for entry in std::fs::read_dir(root).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                files(&path, output);
+            } else if path.extension().is_some_and(|extension| extension == "xsh") {
+                output.push(path);
+            }
+        }
+    }
+
+    let root = std::path::Path::new("../packages");
+    if !root.is_dir() {
+        return;
+    }
+    let mut paths = Vec::new();
+    files(root, &mut paths);
+    for path in paths {
+        let source = std::fs::read_to_string(&path).unwrap();
+        let first = Formatter::new().format_source(SourceId::new(0), &source);
+        assert!(
+            first.diagnostics.is_empty(),
+            "{}: {:?}",
+            path.display(),
+            first.diagnostics
+        );
+        let second = Formatter::new().format_source(SourceId::new(0), &first.formatted);
+        assert_eq!(second.formatted, first.formatted, "{}", path.display());
     }
 }
 

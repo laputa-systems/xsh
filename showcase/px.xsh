@@ -544,11 +544,29 @@ proc main(...argv: List[Str]) [fs, process, env, time, error] {
   let opts: Options = cli.parse(
     normalize_kill_args(argv),
     {
-      full: {form: "-f", default: false},
-      show_threads: {form: "-t", default: false},
-      kill: {form: "--kill[=SIGNAL]", kind: "UInt", optional_default: 15, max: 128},
-      port: {form: "-p PORT", kind: "UInt", default: 0},
-      patterns: {form: "...PATTERN", repeated: true},
+      full: {
+        form: "-f",
+        default: false,
+      },
+      show_threads: {
+        form: "-t",
+        default: false,
+      },
+      kill: {
+        form: "--kill[=SIGNAL]",
+        kind: "UInt",
+        optional_default: 15,
+        max: 128,
+      },
+      port: {
+        form: "-p PORT",
+        kind: "UInt",
+        default: 0,
+      },
+      patterns: {
+        form: "...PATTERN",
+        repeated: true,
+      },
     },
   )?
 

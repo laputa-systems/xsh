@@ -18,11 +18,27 @@ proc main(...argv: List[Str]) [fs, process, time, error] {
   let opts: Opts = cli.parse(
     argv,
     {
-      root: {form: "--root DIR", default: p"."},
-      ext: {form: "--ext EXT", repeated: true},
-      interval: {form: "--interval N", default: 1},
-      once: {form: "--once", default: false},
-      cmd: {form: "...COMMAND", repeated: true, required: true},
+      root: {
+        form: "--root DIR",
+        default: p".",
+      },
+      ext: {
+        form: "--ext EXT",
+        repeated: true,
+      },
+      interval: {
+        form: "--interval N",
+        default: 1,
+      },
+      once: {
+        form: "--once",
+        default: false,
+      },
+      cmd: {
+        form: "...COMMAND",
+        repeated: true,
+        required: true,
+      },
     },
   )?
 

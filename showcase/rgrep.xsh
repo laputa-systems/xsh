@@ -13,11 +13,28 @@ proc main(...argv: List[Str]) [fs, error] {
   let opts: Opts = cli.parse(
     argv,
     {
-      pattern: {form: "--pattern PATTERN", required: true},
-      root: {form: "--root DIR", default: p"."},
-      ext: {form: "--ext EXT", repeated: true},
-      verbose: {form: "--verbose", default: false},
-      limit: {form: "--limit N", kind: "UInt", default: 50, min: 1},
+      pattern: {
+        form: "--pattern PATTERN",
+        required: true,
+      },
+      root: {
+        form: "--root DIR",
+        default: p".",
+      },
+      ext: {
+        form: "--ext EXT",
+        repeated: true,
+      },
+      verbose: {
+        form: "--verbose",
+        default: false,
+      },
+      limit: {
+        form: "--limit N",
+        kind: "UInt",
+        default: 50,
+        min: 1,
+      },
     },
   )?
 
@@ -43,7 +60,8 @@ proc main(...argv: List[Str]) [fs, error] {
 
       var hits = [
         {rel: rel, line: item.index + 1, text: item.value.trim()}
-        for item in entry.path.lines()? |> enumerate() if re.matches(item.value)
+        for item in entry.path.lines()? |> enumerate()
+        if re.matches(item.value)
       ]
 
       {rel: rel, hits: hits}

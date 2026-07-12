@@ -4636,10 +4636,22 @@ pure match_object(m: Span) -> Json {
 
   return JObj(
     [
-      {k: "offset", v: JNum(m.start.float())},
-      {k: "length", v: JNum((m.end - m.start).float())},
-      {k: "string", v: JStr(m.text)},
-      {k: "captures", v: JArr(nocaps)},
+      {
+        k: "offset",
+        v: JNum(m.start.float()),
+      },
+      {
+        k: "length",
+        v: JNum((m.end - m.start).float()),
+      },
+      {
+        k: "string",
+        v: JStr(m.text),
+      },
+      {
+        k: "captures",
+        v: JArr(nocaps),
+      },
     ],
   )
 }

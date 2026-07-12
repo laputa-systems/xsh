@@ -5,10 +5,22 @@ type Cli = {command: Str, action: Str, root: Path, raw: List[Str]}
 let opts: BuildOptions = cli.parse(
   args,
   {
-    root: {form: "--root PATH", default: p"dest"},
-    jobs: {form: "-j --jobs N", default: cpu.count()},
-    define: {form: "-D --define NAME=VALUE", repeated: true},
-    verbose: {form: "-v --verbose", default: false},
+    root: {
+      form: "--root PATH",
+      default: p"dest",
+    },
+    jobs: {
+      form: "-j --jobs N",
+      default: cpu.count(),
+    },
+    define: {
+      form: "-D --define NAME=VALUE",
+      repeated: true,
+    },
+    verbose: {
+      form: "-v --verbose",
+      default: false,
+    },
   },
 )?
 
@@ -22,8 +34,24 @@ let captures = capture_re.captures(line)
 let rewritten = whitespace_re.replace(line, "|")
 
 let command_specs = {
-  build: {positionals: ["root"], types: {root: "Path"}, rest: "raw"},
-  clean: {positionals: ["root"], types: {root: "Path"}, rest: "raw"},
+  build: {
+    positionals: [
+      "root",
+    ],
+    types: {
+      root: "Path",
+    },
+    rest: "raw",
+  },
+  clean: {
+    positionals: [
+      "root",
+    ],
+    types: {
+      root: "Path",
+    },
+    rest: "raw",
+  },
 }
 
 let parsed_cli: Cli = cli.commands(

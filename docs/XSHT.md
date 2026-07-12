@@ -90,6 +90,20 @@ comments and source-faithful trivia decisions. It targets
 columns. The line width is a layout target, not a guarantee; unbreakable
 strings, paths, comments, and `fmt: skip` regions may exceed it.
 
+Layout is selected through a small document model in
+`crates/xsht/src/format.rs`. Groups provide flat and broken alternatives,
+source-shaped groups can prefer the broken alternative, and nested groups make
+their own width decisions. Collection groups use one broken shape for sibling
+records and lists, expanding nested collections when a compact island would
+make the parent harder to read. Multiline comprehensions keep their expression,
+`for`, and optional `if` clauses on stable continuation lines.
+
+Blank lines express logical sections or an authored blank line. A multiline
+call, collection, pipeline, or control-flow expression does not add a blank
+line merely because it occupies more than one output line. The curated
+formatter corpus is `tests/fixtures/syntax/valid/pretty.xsh`; its test checks
+the golden output, parsing, checking, and a second formatting pass.
+
 Comments must stay attached to the construct they document. A leading comment
 before a statement remains a leading comment. A same-line trailing comment after
 a complete statement remains on that statement. A statement containing nested

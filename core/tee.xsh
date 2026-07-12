@@ -3,10 +3,22 @@ proc main(...argv: List[Str]) [fs, error, io] {
   let parsed = cli.parse(
     argv,
     {
-      append: {form: "-a --append", default: false},
-      ignore_interrupts: {form: "-i --ignore-interrupts", default: false},
-      input: {form: "--input PATH", default: ""},
-      outputs: {form: "...FILE", repeated: true},
+      append: {
+        form: "-a --append",
+        default: false,
+      },
+      ignore_interrupts: {
+        form: "-i --ignore-interrupts",
+        default: false,
+      },
+      input: {
+        form: "--input PATH",
+        default: "",
+      },
+      outputs: {
+        form: "...FILE",
+        repeated: true,
+      },
     },
   )?
 

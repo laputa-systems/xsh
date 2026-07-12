@@ -28,8 +28,18 @@ proc main(...argv: List[Str]) [fs, error] {
   let opts: Opts = cli.parse(
     argv,
     {
-      a: {form: "--a FILE", kind: "Path", file: true, required: true},
-      b: {form: "--b FILE", kind: "Path", file: true, required: true},
+      a: {
+        form: "--a FILE",
+        kind: "Path",
+        file: true,
+        required: true,
+      },
+      b: {
+        form: "--b FILE",
+        kind: "Path",
+        file: true,
+        required: true,
+      },
     },
   )?
 

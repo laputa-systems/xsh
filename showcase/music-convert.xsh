@@ -89,10 +89,23 @@ proc main(...argv: List[Str]) [fs, process, error] {
   let opts: Opts = cli.parse(
     argv,
     {
-      root: {form: "--root DIR", default: p"."},
-      out: {form: "--out DIR", kind: "Path", required: true},
-      dry_run: {form: "--dry-run", default: true},
-      verbose: {form: "--verbose", default: false},
+      root: {
+        form: "--root DIR",
+        default: p".",
+      },
+      out: {
+        form: "--out DIR",
+        kind: "Path",
+        required: true,
+      },
+      dry_run: {
+        form: "--dry-run",
+        default: true,
+      },
+      verbose: {
+        form: "--verbose",
+        default: false,
+      },
     },
   )?
 

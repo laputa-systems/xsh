@@ -31,10 +31,22 @@ proc main(...argv: List[Str]) [fs, env, error] {
   let opts: Opts = cli.parse(
     argv,
     {
-      env_var: {form: "--var NAME", default: "PATH"},
-      fail: {form: "--fail", default: false},
-      show_ok: {form: "--show-ok", default: false},
-      duplicates_only: {form: "--duplicates-only", default: false},
+      env_var: {
+        form: "--var NAME",
+        default: "PATH",
+      },
+      fail: {
+        form: "--fail",
+        default: false,
+      },
+      show_ok: {
+        form: "--show-ok",
+        default: false,
+      },
+      duplicates_only: {
+        form: "--duplicates-only",
+        default: false,
+      },
     },
   )?
 
