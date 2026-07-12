@@ -258,6 +258,7 @@ async fn append_create_entry<W: AsyncWrite + Unpin + Send>(
     let file_type = metadata.file_type();
     let mut header = Header::new_gnu();
     header.set_metadata_in_mode(&metadata, HeaderMode::Deterministic);
+    header.set_mode(metadata.mode());
 
     if file_type.is_file() {
         let file = File::open(&entry.source)

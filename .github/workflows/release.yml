@@ -128,13 +128,13 @@ jobs:
       - name: Install Rust target
         run: rustup target add ${{ matrix.target }}
 
+      - name: Build optimized binary
+        run: make dist TARGET=${{ matrix.target }}
+
       - name: Test
         run: |
           ci_target=linux; case ${{ matrix.os }} in darwin) ci_target=macos;; esac
           make test-${ci_target}-ci TARGET=${{ matrix.target }}
-
-      - name: Build optimized binary
-        run: make dist TARGET=${{ matrix.target }}
 
       - name: Verify static linkage
         if: matrix.os == 'linux'
