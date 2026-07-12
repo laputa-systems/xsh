@@ -143,7 +143,7 @@ fn apply_config_env(session: &mut Session, value: &Value, stderr: &mut dyn Write
             writeln!(stderr, "xshi: skipping invalid env entry").ok();
             continue;
         };
-        let name = name.to_string();
+        let name = name.to_ascii_uppercase();
         if !valid_env_name(&name) {
             writeln!(stderr, "xshi: skipping invalid env entry").ok();
             continue;
@@ -153,6 +153,37 @@ fn apply_config_env(session: &mut Session, value: &Value, stderr: &mut dyn Write
         if name == "PATH" {
             session.refresh_path_commands();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use super::super::session::set_env_bytes;
+    use std::sync::Arc;
+    use xsh::runtime::value::RecordMap;
+
+    #[test]
+    fn apply_config_env_uppercases_lowered_ini_keys() {
+        let mut session = Session::new();
+        set_env_bytes(&mut session.env, b"PATH", b"/usr/bin");
+        set_env_bytes(&mut session.env, b"HOME", b"/home/user");
+
+        let mut section = RecordMap::new();
+        section.insert(
+            Arc::from("path"),
+            Value::Str("$HOME/.cargo/bin:$PATH".into()),
+        );
+        let value = Value::Record(section);
+
+        apply_config_env(&mut session, &value, &mut Vec::new());
+
+        assert_eq!(
+            session.env.get(b"PATH".as_slice()).map(|v| String::from_utf8_lossy(v).to_string()),
+            Some("/home/user/.cargo/bin:/usr/bin".to_string()),
+            "config key 'path' must be stored as uppercase 'PATH' \
+             so standard tools and $PATH expansion see it",
+        );
     }
 }
 
