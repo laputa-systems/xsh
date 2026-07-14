@@ -6,6 +6,78 @@ any known workarounds. When a ticket is resolved, delete it.
 
 ## Open
 
+### Reduce `par-map` overhead for filesystem-bound workloads
+
+**Symptom**
+
+The Linux Kbuild local-record prototype scans 629 active directories through
+XSH `par-map`. On the macOS arm64 Docker path, forced-cold discovery remains
+roughly 38–41 seconds, and changing the worker count from 1 through 64 does
+not materially change the result. This is an observation, not yet proof of a
+runtime defect: the workload may be dominated by filesystem latency or worker
+serialization.
+
+**Desired behavior**
+
+Independent XSH tasks that read and parse separate files should obtain useful
+parallel speedup when the host has available CPU and I/O capacity, without
+large per-worker startup, serialization, or result-collection overhead.
+
+**Likely area**
+
+`par-map` lowering and worker scheduling, especially closure/result
+serialization and filesystem effects across Docker or other mounted
+filesystems. The investigation should first distinguish scheduler overhead
+from the underlying filesystem using a standalone benchmark.
+
+**Minimal reproduction**
+
+From the Laputa checkout, after the source tree is warm:
+
+```sh
+make linux-plan-only PKGNAME=linux \
+  XSH_LINUX_KBUILD_LOCAL_RECORDS=1 \
+  XSH_LINUX_KBUILD_FORCE_DISCOVER=1 \
+  XSH_LINUX_KBUILD_DISCOVER_JOBS=1
+
+make linux-plan-only PKGNAME=linux \
+  XSH_LINUX_KBUILD_LOCAL_RECORDS=1 \
+  XSH_LINUX_KBUILD_FORCE_DISCOVER=1 \
+  XSH_LINUX_KBUILD_DISCOVER_JOBS=8
+```
+
+Compare the `linux-kbuild-timing-done discover` values and CPU utilization.
+Require identical complete plans before comparing timings.
+
+### Provide efficient direct-directory entry enumeration
+
+**Symptom**
+
+XSH scripts that must honor a two-file precedence rule, such as Linux
+`Kbuild` over `Makefile`, currently choose between repeated `exists`/read
+probes or a recursive `fs.files` index. The recursive index is too broad for
+this use, while the repeated probes are costly across mounted source trees.
+
+**Desired behavior**
+
+Expose a standard, non-recursive directory-entry operation that can enumerate
+one directory's names and kinds with optional metadata. A script should be
+able to select the preferred file and read exactly one source file while
+retaining ordinary XSH error propagation.
+
+**Likely area**
+
+The standard `fs` module and its filesystem lowering. Preserve the existing
+`fs.files`/`fs.walk` semantics; this ticket is for a narrow direct-directory
+operation rather than a Linux-specific API.
+
+**Minimal reproduction**
+
+The Linux source reader in `packages/repo/linux/kbuild.xsh` must probe
+`Kbuild` and `Makefile` for hundreds of active directories. Compare its
+forced-cold timing with a prototype using a direct-entry operation, and verify
+that Kbuild precedence and complete plan equivalence are unchanged.
+
 ### Optimize the slow macOS `pstree` process listing path
 
 **Symptom**
