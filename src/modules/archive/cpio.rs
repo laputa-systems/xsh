@@ -2,7 +2,7 @@ use crate::modules::archive::policy::{
     archive_member_path, clean_archive_path, prepare_output_path, refuse_existing,
     validate_link_target,
 };
-use crate::runtime::value::{PathValue, RuntimeError, Value};
+use crate::runtime::value::{LiveStream, PathValue, RuntimeError, StreamValue, Value};
 use crate::source::Span;
 use std::ffi::OsString;
 use std::fs::{self, File};
@@ -14,21 +14,32 @@ use std::sync::Arc;
 
 use super::{BUFFER_SIZE, archive_error, copy_exact, create_output_file};
 
-pub(crate) fn cpio_list(path: PathBuf, span: Span) -> Result<Vec<Value>, RuntimeError> {
-    let mut reader = BufReader::with_capacity(
+pub(crate) fn cpio_list(path: PathBuf, span: Span) -> Result<StreamValue, RuntimeError> {
+    let reader = BufReader::with_capacity(
         BUFFER_SIZE,
         File::open(path).map_err(|error| archive_error("archive-cpio-open", error, span))?,
     );
-    let mut records = Vec::new();
-    loop {
-        let entry = read_cpio_entry(&mut reader, span)?;
+    Ok(StreamValue::from_live(
+        "archive.cpio_list",
+        CpioListStream { reader, span },
+    ))
+}
+
+struct CpioListStream {
+    reader: BufReader<File>,
+    span: Span,
+}
+
+impl LiveStream for CpioListStream {
+    fn next(&mut self, span: Span) -> Result<Option<Value>, RuntimeError> {
+        let entry = read_cpio_entry(&mut self.reader, self.span)?;
         if entry.name == b"TRAILER!!!" {
-            break;
+            return Ok(None);
         }
-        records.push(cpio_entry_record(&entry, span)?);
-        skip_cpio_data(&mut reader, entry.size, span)?;
+        let record = cpio_entry_record(&entry, span)?;
+        skip_cpio_data(&mut self.reader, entry.size, self.span)?;
+        Ok(Some(record))
     }
-    Ok(records)
 }
 
 pub(crate) fn cpio_extract(

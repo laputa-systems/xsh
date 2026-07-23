@@ -19,7 +19,7 @@ let installed = fp"${dest}/usr/bin/tool"
 print entries.len() installed.read_text()?.trim() ${installed.metadata()?.mode % 512 == 493}
 let cpio = fp"${root}/pkg.cpio"
 archive.cpio_create(cpio, src, [p"."])
-let cpio_entries = archive.cpio_list(cpio)?
+let cpio_entries = archive.cpio_list(cpio)?.collect()
 let cpio_dest = fp"${root}/cpio"
 archive.cpio_extract(cpio, cpio_dest)
 let gz = fp"${root}/tool.gz"

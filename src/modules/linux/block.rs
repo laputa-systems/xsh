@@ -12,7 +12,7 @@ use super::{
     VFAT_LABEL32_OFFSET, VFAT_SERIAL16_OFFSET, VFAT_SERIAL32_OFFSET, XFS_LABEL_OFFSET,
     XFS_SUPER_SIZE, XFS_UUID_OFFSET, str_value,
 };
-use crate::runtime::value::{PathValue, RecordMap, RuntimeError, Value};
+use crate::runtime::value::{LiveStream, PathValue, RecordMap, RuntimeError, StreamValue, Value};
 use crate::source::Span;
 use std::ffi::OsStr;
 use std::fs::{self, File, OpenOptions};
@@ -41,22 +41,40 @@ pub(super) fn blkid_info(device: &Path) -> io::Result<BlkidInfo> {
     Ok(info)
 }
 
-pub(super) fn block_devices_impl(span: Span) -> Result<Vec<Value>, RuntimeError> {
-    let mut records = Vec::new();
-    let entries = fs::read_dir("/sys/block").map_err(|error| {
+pub(super) fn block_devices_impl(span: Span) -> Result<StreamValue, RuntimeError> {
+    let mut entries = Vec::new();
+    let directory = fs::read_dir("/sys/block").map_err(|error| {
         RuntimeError::new("linux-block-devices", error.to_string()).with_span(span)
     })?;
-    for entry in entries {
+    for entry in directory {
         let entry = entry.map_err(|error| {
             RuntimeError::new("linux-block-devices", error.to_string()).with_span(span)
         })?;
         let name = entry.file_name().to_string_lossy().into_owned();
         let sys_path = entry.path();
         let dev_path = PathBuf::from("/dev").join(&name);
-        records.push(block_device_record(&name, &sys_path, &dev_path, span)?);
+        entries.push((name, sys_path, dev_path));
     }
-    records.sort_unstable_by_key(record_path_text);
-    Ok(records)
+    entries.sort_unstable_by(|left, right| left.2.cmp(&right.2));
+    Ok(StreamValue::from_live(
+        "linux.block_devices",
+        BlockDeviceStream {
+            entries: entries.into_iter(),
+        },
+    ))
+}
+
+struct BlockDeviceStream {
+    entries: std::vec::IntoIter<(String, PathBuf, PathBuf)>,
+}
+
+impl LiveStream for BlockDeviceStream {
+    fn next(&mut self, span: Span) -> Result<Option<Value>, RuntimeError> {
+        let Some((name, sys_path, dev_path)) = self.entries.next() else {
+            return Ok(None);
+        };
+        block_device_record(&name, &sys_path, &dev_path, span).map(Some)
+    }
 }
 
 fn block_device_record(
@@ -110,16 +128,6 @@ fn block_device_record(
 
 fn read_sysfs_i64(path: &Path) -> io::Result<i64> {
     Ok(fs::read_to_string(path)?.trim().parse().unwrap_or(0))
-}
-
-fn record_path_text(value: &Value) -> String {
-    match value {
-        Value::Record(record) => match record.get("path") {
-            Some(Value::Path(path)) => String::from_utf8_lossy(&path.bytes).into_owned(),
-            _ => String::new(),
-        },
-        _ => String::new(),
-    }
 }
 
 fn path_sort_key(value: &Value) -> Option<String> {

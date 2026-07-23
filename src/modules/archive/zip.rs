@@ -2,7 +2,7 @@ use crate::modules::archive::policy::{
     clean_archive_path, prepare_output_path_with_kind, refuse_existing_with_kind,
 };
 use crate::runtime::process::path_bytes;
-use crate::runtime::value::{PathValue, RuntimeError, Value};
+use crate::runtime::value::{LiveStream, PathValue, RuntimeError, StreamValue, Value};
 use crate::source::Span;
 use async_zip::{StoredZipEntry, base::read::mem::ZipFileReader};
 use futures_lite::io::AsyncReadExt;
@@ -17,18 +17,31 @@ use super::{BUFFER_SIZE, archive_error, block_on_archive};
 
 const ZIP_EXTRACT_KIND: &str = "archive-zip-extract";
 
-pub(crate) fn zip_list(path: PathBuf, span: Span) -> Result<Vec<Value>, RuntimeError> {
+pub(crate) fn zip_list(path: PathBuf, span: Span) -> Result<StreamValue, RuntimeError> {
     block_on_archive(span, zip_list_async(path, span))
 }
 
-async fn zip_list_async(path: PathBuf, span: Span) -> Result<Vec<Value>, RuntimeError> {
+async fn zip_list_async(path: PathBuf, span: Span) -> Result<StreamValue, RuntimeError> {
     let reader = zip_reader(path, "archive-zip-open", span).await?;
-    reader
-        .file()
-        .entries()
-        .iter()
-        .map(|entry| zip_entry_record(entry, span))
-        .collect()
+    Ok(StreamValue::from_live(
+        "archive.zip_list",
+        ZipListStream { reader, index: 0 },
+    ))
+}
+
+struct ZipListStream {
+    reader: ZipFileReader,
+    index: usize,
+}
+
+impl LiveStream for ZipListStream {
+    fn next(&mut self, span: Span) -> Result<Option<Value>, RuntimeError> {
+        let Some(entry) = self.reader.file().entries().get(self.index) else {
+            return Ok(None);
+        };
+        self.index += 1;
+        zip_entry_record(entry, span).map(Some)
+    }
 }
 
 pub(crate) fn zip_extract(

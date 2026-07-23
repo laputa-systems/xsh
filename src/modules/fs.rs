@@ -714,11 +714,55 @@ pub(crate) fn filesystem_stats(path: &Path, span: Span) -> Result<FilesystemStat
     })
 }
 
-pub(crate) fn mounts(span: Span) -> Result<Vec<FsMount>, RuntimeError> {
-    mount_sources(span)?
-        .into_iter()
-        .map(|source| mount_record(source, span))
-        .collect()
+pub(crate) fn mounts(span: Span) -> Result<StreamValue, RuntimeError> {
+    Ok(StreamValue::from_live(
+        "fs.mounts",
+        FsMountStream {
+            sources: mount_sources(span)?.into_iter(),
+        },
+    ))
+}
+
+struct FsMountStream {
+    sources: std::vec::IntoIter<MountSource>,
+}
+
+impl LiveStream for FsMountStream {
+    fn next(&mut self, span: Span) -> Result<Option<Value>, RuntimeError> {
+        let Some(source) = self.sources.next() else {
+            return Ok(None);
+        };
+        let mount = mount_record(source, span)?;
+        fs_mount_value(mount, span).map(Some)
+    }
+}
+
+fn fs_mount_value(mount: FsMount, span: Span) -> Result<Value, RuntimeError> {
+    let mounted_on =
+        PathValue::new(path_bytes(&mount.mounted_on)).map_err(|error| error.with_span(span))?;
+    Ok(Value::Record(RecordMap::from([
+        (Arc::from("filesystem"), Value::Str(mount.filesystem.into())),
+        (Arc::from("mounted_on"), Value::Path(mounted_on)),
+        (Arc::from("fstype"), Value::Str(mount.fstype.into())),
+        (Arc::from("blocks_1k"), Value::Int(mount.blocks_1k as i64)),
+        (Arc::from("used_1k"), Value::Int(mount.used_1k as i64)),
+        (
+            Arc::from("available_1k"),
+            Value::Int(mount.available_1k as i64),
+        ),
+        (
+            Arc::from("capacity_percent"),
+            Value::Int(mount.capacity_percent as i64),
+        ),
+        (Arc::from("files"), Value::Int(mount.files as i64)),
+        (Arc::from("files_used"), Value::Int(mount.files_used as i64)),
+        (Arc::from("files_free"), Value::Int(mount.files_free as i64)),
+        (
+            Arc::from("files_capacity_percent"),
+            Value::Int(mount.files_capacity_percent as i64),
+        ),
+        (Arc::from("readonly"), Value::Bool(mount.readonly)),
+    ])))
 }
 
 pub(crate) fn mount_for(path: &Path, span: Span) -> Result<FsMount, RuntimeError> {
@@ -882,6 +926,7 @@ fn mount_sources(span: Span) -> Result<Vec<MountSource>, RuntimeError> {
 #[cfg(test)]
 mod tests {
     use super::{df_capacity_percent, mount_for, mounts};
+    use crate::runtime::value::Value;
     use crate::source::{SourceId, Span};
     use std::path::Path;
 
@@ -900,11 +945,19 @@ mod tests {
     #[test]
     fn mounts_include_root_and_positive_counters() {
         let mounts = mounts(test_span()).expect("read mounts");
-        assert!(
-            mounts
-                .iter()
-                .any(|mount| mount.mounted_on == Path::new("/"))
-        );
+        let mut includes_root = false;
+        while let Some(mount) = mounts.next_live(test_span()).expect("read mount") {
+            if let Value::Record(record) = mount
+                && record.get("mounted_on")
+                    == Some(&Value::Path(
+                        crate::runtime::value::PathValue::from_text("/").expect("root path"),
+                    ))
+            {
+                includes_root = true;
+                break;
+            }
+        }
+        assert!(includes_root);
         let root = mount_for(Path::new("/"), test_span()).expect("root mount");
         assert_eq!(root.mounted_on, Path::new("/"));
         assert!(root.blocks_1k > 0);

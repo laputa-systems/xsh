@@ -4,7 +4,7 @@ proc test_unix_dry_run_covers_module_surface(ctx: TestContext) [fs, process, env
   let command = process.command_argv("demo", ["demo", "arg"])
 
   env XSH_UNIX_DRY_RUN=1 XSH_UNIX_DRY_RUN_SIGNAL=USR1 XSH_UNIX_UPTIME_SECONDS=17 XSH_UNIX_DRY_RUN_LOG=$log {
-    test.eq(unix.reap_child_events()?.len(), 0)?
+    test.eq(unix.reap_child_events()?.collect().len(), 0)?
     unix.pid1_setup(["TERM"], subreaper: true, allow_non_pid1: true)?
     let event = unix.wait_pid1_event()?
     test.eq(event.kind, "signal")?

@@ -31,7 +31,7 @@ proc test_fs_tree_metadata_install_and_locking(ctx: TestContext) [fs, error] {
   test.ok(! fs.sticky(0o0755))?
   test.ok(! file_meta.world_writable)?
   test.ok(fs.filesystem_stats(root)?.blocks_1k > 0)?
-  let mounts = fs.mounts()?
+  let mounts = fs.mounts()?.collect()
   test.ok(mounts.len() > 0)?
   test.ok(mounts |> any .mounted_on.display() == "/")?
   let root_mount = fs.mount_for(root)?

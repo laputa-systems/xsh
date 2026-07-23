@@ -1661,11 +1661,11 @@ uid/gid changes, cwd/env setup, and process status.
   members: List[Path] = []) -> Result[Unit]`.
 - `archive.tar_create(path: Path, root: Path, entries: List[Path],
   compression: Str = "auto", overwrite: Bool = false) -> Result[Unit]`.
-- `archive.cpio_list(path: Path) -> Result[List[Record]]`.
+- `archive.cpio_list(path: Path) -> Result[Stream[Record]]`; consume it directly or call `.collect()` for a list.
 - `archive.cpio_extract(path: Path, dest: Path, overwrite: Bool = false) -> Result[Unit]`.
 - `archive.cpio_create(path: Path, root: Path, entries: List[Path],
   overwrite: Bool = false) -> Result[Unit]`.
-- `archive.zip_list(path: Path) -> Result[List[Record]]`.
+- `archive.zip_list(path: Path) -> Result[Stream[Record]]`; consume it directly or call `.collect()` for a list.
 - `archive.zip_extract(path: Path, dest: Path, overwrite: Bool = false) -> Result[Unit]`.
 - `archive.compress(source: Path, dest: Path, format: Str = "auto",
   level: Int = 6, overwrite: Bool = false) -> Result[Unit]`.
@@ -1838,7 +1838,7 @@ files are written through a temporary file in the destination directory.
 - `fs.children(path: Path, stat: Bool = true, ordered: Bool = true) -> Result[Stream[Record]]`.
 - `fs.metadata(path: Path) -> Result[Record]`.
 - `fs.filesystem_stats(path: Path) -> Result[Record]`.
-- `fs.mounts() -> Result[List[Record]]`.
+- `fs.mounts() -> Result[Stream[Record]]`; call `.collect()` when a reusable list is needed.
 - `fs.mount_for(path: Path) -> Result[Record]`.
 - `fs.cwd() -> Result[Path]`.
 - `fs.read_text(path: Path) -> Result[Str]`, requiring valid UTF-8.
@@ -2386,22 +2386,22 @@ and `linux.file_version` defaults to `0`. They accept
 - `linux.link_up(interface: Str) -> Result[Unit]`.
 - `linux.set_ipv4_address(interface: Str, address: Str, netmask: Str) -> Result[Unit]`.
 - `linux.add_default_ipv4_route(gateway: Str, interface: Str = "") -> Result[Unit]`.
-- `linux.interfaces() -> Result[List[Record]]`, returning
+- `linux.interfaces() -> Result[Stream[Record]]`, returning
   `{name, flags, mtu, mac, addresses}` records from `/sys/class/net` and
   `getifaddrs(3)`.
-- `linux.routes() -> Result[List[Record]]`, returning
+- `linux.routes() -> Result[Stream[Record]]`, returning
   `{family, dst, prefix_len, gateway, dev, metric, flags}` records from
   `/proc/net/route` and `/proc/net/ipv6_route`.
 - `linux.meminfo() -> Result[Record]`, returning
   `{total, free, available, buffers, cached, swap_total, swap_free}` byte
   counts from `/proc/meminfo`.
-- `linux.modules() -> Result[List[Record]]`, returning `{name, size, used_by}`
+- `linux.modules() -> Result[Stream[Record]]`, returning `{name, size, used_by}`
   records from `/proc/modules`.
-- `linux.dmesg() -> Result[List[Str]]`, returning kernel log messages read from
+- `linux.dmesg() -> Result[Stream[Str]]`, returning kernel log messages read from
   `/dev/kmsg` or the kernel log buffer.
 - `linux.is_mountpoint(path: Path) -> Result[Bool]`, comparing the path and
   parent device metadata.
-- `linux.disk_usage(path: Path = default) -> Result[List[Record]]`, returning
+- `linux.disk_usage(path: Path = default) -> Result[Stream[Record]]`, returning
   `{device, mount, fstype, total, used, available}` byte counts from
   `/proc/mounts` and `statvfs(2)`. Omitting `path` returns all mounts; passing a
   path returns the best matching mount.
@@ -2447,8 +2447,8 @@ when `XSH_UNIX_DRY_RUN_LOG` is set. `unix.set_hostname` is gated unless
 `unix.tty` read the host by default, with dry-run overrides through
 `XSH_UNIX_UPTIME_SECONDS` and `XSH_UNIX_TTY`.
 
-- `unix.reap_child_events() -> Result[List[Record]]`, returning
-  `{pid, status}` records.
+- `unix.reap_child_events() -> Result[Stream[Record]]`, returning a single-use
+  stream of currently available `{pid, status}` records.
 - `unix.wait_pid1_event(timeout: Duration = default) -> Result[Record]`,
   returning `{kind, signal, children}` for the next PID 1 event. `kind` is
   `signal`, `children`, `poll`, or `timeout`. With no `timeout`, the call does a

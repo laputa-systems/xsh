@@ -38,7 +38,9 @@ pub(crate) fn depmod(version: &str, span: Span) -> Result<Value, RuntimeError> {
 
 pub(crate) fn open_files(pid: Option<i64>, span: Span) -> Result<Value, RuntimeError> {
     match open_files_impl(pid, span) {
-        Ok(records) => Ok(Value::ok(Value::List(records))),
+        Ok(stream) => Ok(Value::ok(Value::stream(
+            crate::runtime::value::StreamValue::from_live("linux.open_files", stream),
+        ))),
         Err(error) => Ok(Value::err(Value::Error(Box::new(error)))),
     }
 }
@@ -46,7 +48,7 @@ pub(crate) fn open_files(pid: Option<i64>, span: Span) -> Result<Value, RuntimeE
 #[allow(clippy::single_call_fn)]
 pub(crate) fn block_devices(span: Span) -> Result<Value, RuntimeError> {
     match super::block::block_devices_impl(span) {
-        Ok(records) => Ok(Value::ok(Value::List(records))),
+        Ok(stream) => Ok(Value::ok(Value::stream(stream))),
         Err(error) => Ok(Value::err(Value::Error(Box::new(error)))),
     }
 }

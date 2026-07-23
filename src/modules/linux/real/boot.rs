@@ -1,8 +1,8 @@
-use super::common::{cstring_text, error_value, io_error, ok_unit, record_int};
+use super::common::{cstring_text, error_value, io_error, ok_unit};
 use super::mount::read_mounts;
 use super::{LinuxRtcTime, RTC_RD_TIME, RTC_SET_TIME};
 use crate::modules::linux::str_value;
-use crate::runtime::value::{RuntimeError, Value};
+use crate::runtime::value::{LiveStream, RuntimeError, StreamValue, Value};
 use crate::source::Span;
 use rustix::mount::{UnmountFlags, unmount};
 use rustix::{fs as rfs, process as rprocess};
@@ -263,9 +263,76 @@ pub(crate) fn set_system_clock(epoch_ms: i64, span: Span) -> Result<Value, Runti
 }
 
 pub(crate) fn rfkill_list(span: Span) -> Result<Value, RuntimeError> {
-    match read_rfkill_entries() {
-        Ok(entries) => Ok(Value::ok(Value::List(entries))),
+    match fs::read_dir("/sys/class/rfkill") {
+        Ok(entries) => {
+            let mut paths = Vec::new();
+            for entry in entries {
+                let entry = match entry {
+                    Ok(entry) => entry,
+                    Err(error) => return Ok(io_error("linux-rfkill", error, span)),
+                };
+                let name = entry.file_name().to_string_lossy().into_owned();
+                let Some(id) = name
+                    .strip_prefix("rfkill")
+                    .and_then(|value| value.parse::<i64>().ok())
+                else {
+                    continue;
+                };
+                paths.push((id, entry.path()));
+            }
+            paths.sort_unstable_by_key(|(id, _)| *id);
+            Ok(Value::ok(Value::stream(StreamValue::from_live(
+                "linux.rfkill_list",
+                RfkillStream {
+                    entries: paths.into_iter(),
+                },
+            ))))
+        }
         Err(error) => Ok(io_error("linux-rfkill", error, span)),
+    }
+}
+
+struct RfkillStream {
+    entries: std::vec::IntoIter<(i64, PathBuf)>,
+}
+
+impl LiveStream for RfkillStream {
+    fn next(&mut self, span: Span) -> Result<Option<Value>, RuntimeError> {
+        let Some((id, path)) = self.entries.next() else {
+            return Ok(None);
+        };
+        let record = crate::runtime::value::RecordMap::from([
+            (Arc::from("id"), Value::Int(id)),
+            (
+                Arc::from("name"),
+                str_value(read_trimmed(path.join("name")).map_err(|error| {
+                    RuntimeError::new("linux-rfkill", error.to_string()).with_span(span)
+                })?),
+            ),
+            (
+                Arc::from("type"),
+                str_value(read_trimmed(path.join("type")).map_err(|error| {
+                    RuntimeError::new("linux-rfkill", error.to_string()).with_span(span)
+                })?),
+            ),
+            (
+                Arc::from("soft_blocked"),
+                Value::Bool(
+                    read_trimmed(path.join("soft")).map_err(|error| {
+                        RuntimeError::new("linux-rfkill", error.to_string()).with_span(span)
+                    })? == "1",
+                ),
+            ),
+            (
+                Arc::from("hard_blocked"),
+                Value::Bool(
+                    read_trimmed(path.join("hard")).map_err(|error| {
+                        RuntimeError::new("linux-rfkill", error.to_string()).with_span(span)
+                    })? == "1",
+                ),
+            ),
+        ]);
+        Ok(Some(Value::Record(record)))
     }
 }
 
@@ -380,42 +447,6 @@ fn epoch_ms_to_rtc(epoch_ms: i64) -> Result<LinuxRtcTime, RuntimeError> {
         tm_yday: tm.tm_yday,
         tm_isdst: 0,
     })
-}
-
-fn read_rfkill_entries() -> io::Result<Vec<Value>> {
-    let mut entries = Vec::new();
-    for entry in fs::read_dir("/sys/class/rfkill")? {
-        let entry = entry?;
-        let name = entry.file_name().to_string_lossy().into_owned();
-        let Some(id) = name
-            .strip_prefix("rfkill")
-            .and_then(|value| value.parse::<i64>().ok())
-        else {
-            continue;
-        };
-        let path = entry.path();
-        entries.push(Value::Record(crate::runtime::value::RecordMap::from([
-            (Arc::from("id"), Value::Int(id)),
-            (
-                Arc::from("name"),
-                str_value(read_trimmed(path.join("name"))?),
-            ),
-            (
-                Arc::from("type"),
-                str_value(read_trimmed(path.join("type"))?),
-            ),
-            (
-                Arc::from("soft_blocked"),
-                Value::Bool(read_trimmed(path.join("soft"))? == "1"),
-            ),
-            (
-                Arc::from("hard_blocked"),
-                Value::Bool(read_trimmed(path.join("hard"))? == "1"),
-            ),
-        ])));
-    }
-    entries.sort_unstable_by_key(|entry| record_int(entry, "id"));
-    Ok(entries)
 }
 
 fn read_trimmed(path: PathBuf) -> io::Result<String> {

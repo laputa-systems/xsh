@@ -1,9 +1,9 @@
-use super::common::{cstring_path, error_value, io_error, ok_unit, path_value, record_path};
+use super::common::{cstring_path, error_value, io_error, ok_unit, path_value};
 use super::{LO_NAME_SIZE, LOOP_CLR_FD, LOOP_CTL_GET_FREE, LOOP_GET_STATUS64, LOOP_SET_FD};
 use super::{LOOP_SET_STATUS64, LoopInfo64, SWAP_FLAG_PREFER, SWAP_FLAG_PRIO_SHIFT};
 use super::{SWAP_HEADER_OFFSET, SWAP_HEADER_SIZE, SWAP_MAGIC, SWAP_UUID_OFFSET, UeventStream};
 use crate::modules::linux::BLKGETSIZE64;
-use crate::runtime::value::{PathValue, RuntimeError, StreamValue, Value};
+use crate::runtime::value::{LiveStream, PathValue, RuntimeError, StreamValue, Value};
 use crate::source::Span;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Seek, SeekFrom, Write};
@@ -125,26 +125,43 @@ pub(crate) fn loop_detach(device: &Path, span: Span) -> Result<Value, RuntimeErr
 }
 
 pub(crate) fn loop_list(span: Span) -> Result<Value, RuntimeError> {
-    let mut records = Vec::new();
     let entries = match fs::read_dir("/dev") {
         Ok(entries) => entries,
         Err(error) => return Ok(io_error("linux-loop", error, span)),
     };
+    let mut paths = Vec::new();
     for entry in entries.flatten() {
         let name = entry.file_name().to_string_lossy().into_owned();
         if !name.starts_with("loop") || !name[4..].chars().all(|ch| ch.is_ascii_digit()) {
             continue;
         }
-        match loop_device_record(&entry.path(), span) {
-            Ok(Some(record)) => records.push(record),
-            Ok(None) => {}
-            Err(error) => return Ok(Value::err(Value::Error(Box::new(error)))),
+        paths.push(entry.path());
+    }
+    paths.sort_unstable();
+    Ok(Value::ok(Value::stream(StreamValue::from_live(
+        "linux.loop_list",
+        LoopDeviceStream {
+            paths: paths.into_iter(),
+        },
+    ))))
+}
+
+struct LoopDeviceStream {
+    paths: std::vec::IntoIter<PathBuf>,
+}
+
+impl LiveStream for LoopDeviceStream {
+    fn next(&mut self, span: Span) -> Result<Option<Value>, RuntimeError> {
+        loop {
+            let Some(path) = self.paths.next() else {
+                return Ok(None);
+            };
+            match loop_device_record(&path, span)? {
+                Some(record) => return Ok(Some(record)),
+                None => continue,
+            }
         }
     }
-    records.sort_unstable_by(|left, right| {
-        record_path(left, "device").cmp(&record_path(right, "device"))
-    });
-    Ok(Value::ok(Value::List(records)))
 }
 
 pub(crate) fn mkswap(device: &Path, span: Span) -> Result<Value, RuntimeError> {

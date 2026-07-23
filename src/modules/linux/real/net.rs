@@ -1,6 +1,6 @@
-use super::common::{error_value, io_error, ok_unit, record_str};
+use super::common::{error_value, io_error, ok_unit};
 use crate::modules::linux::str_value;
-use crate::runtime::value::{RuntimeError, Value};
+use crate::runtime::value::{LiveStream, RuntimeError, StreamValue, Value};
 use crate::source::Span;
 use rustix::net::{AddressFamily, SocketFlags, SocketType, socket_with};
 use std::ffi::CStr;
@@ -305,7 +305,7 @@ pub(crate) fn dhcp_send_release(
     };
     let xid = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))
+        .map_err(|e| io::Error::other(e.to_string()))
         .map(|d| d.as_secs() as u32)
         .unwrap_or(0);
     let packet = build_dhcp_release(xid, &mac, &addr, &sid);
@@ -374,18 +374,41 @@ fn bind_to_device(fd: RawFd, interface: &str) -> io::Result<()> {
 }
 
 pub(crate) fn interfaces(span: Span) -> Result<Value, RuntimeError> {
-    let mut records = Vec::new();
     let entries = match fs::read_dir("/sys/class/net") {
         Ok(entries) => entries,
         Err(error) => return Ok(io_error("linux-interfaces", error, span)),
     };
-    for entry in entries {
-        let entry = match entry {
-            Ok(entry) => entry,
-            Err(error) => return Ok(io_error("linux-interfaces", error, span)),
+    let paths = entries
+        .map(|entry| entry.map(|entry| entry.path()))
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| io_error("linux-interfaces", error, span));
+    let paths = match paths {
+        Ok(paths) => paths,
+        Err(error) => return Ok(error),
+    };
+    let mut paths = paths;
+    paths.sort_unstable_by_key(|path| path.file_name().map(|name| name.to_os_string()));
+    Ok(Value::ok(Value::stream(StreamValue::from_live(
+        "linux.interfaces",
+        InterfaceStream {
+            paths: paths.into_iter(),
+        },
+    ))))
+}
+
+struct InterfaceStream {
+    paths: std::vec::IntoIter<std::path::PathBuf>,
+}
+
+impl LiveStream for InterfaceStream {
+    fn next(&mut self, _span: Span) -> Result<Option<Value>, RuntimeError> {
+        let Some(path) = self.paths.next() else {
+            return Ok(None);
         };
-        let name = entry.file_name().to_string_lossy().into_owned();
-        let path = entry.path();
+        let name = path
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_default();
         let flags = read_sys_u32(&path.join("flags")).unwrap_or(0);
         let mtu = match interface_mtu(&name) {
             Ok(mtu) => mtu,
@@ -394,42 +417,118 @@ pub(crate) fn interfaces(span: Span) -> Result<Value, RuntimeError> {
         let mac = fs::read_to_string(path.join("address"))
             .map(|value| value.trim().to_string())
             .unwrap_or_default();
-        records.push(Value::Record(crate::runtime::value::RecordMap::from([
-            (Arc::from("name"), str_value(name.clone())),
-            (
-                Arc::from("flags"),
-                Value::List(
-                    interface_flag_names(flags)
-                        .into_iter()
-                        .map(|flag| str_value(flag.to_string()))
-                        .collect(),
+        Ok(Some(Value::Record(crate::runtime::value::RecordMap::from(
+            [
+                (Arc::from("name"), str_value(name.clone())),
+                (
+                    Arc::from("flags"),
+                    Value::List(
+                        interface_flag_names(flags)
+                            .into_iter()
+                            .map(|flag| str_value(flag.to_string()))
+                            .collect(),
+                    ),
                 ),
-            ),
-            (Arc::from("mtu"), Value::Int(mtu as i64)),
-            (Arc::from("mac"), str_value(mac)),
-            (
-                Arc::from("addresses"),
-                Value::List(interface_addresses(&name).unwrap_or_default()),
-            ),
-        ])));
+                (Arc::from("mtu"), Value::Int(mtu as i64)),
+                (Arc::from("mac"), str_value(mac)),
+                (
+                    Arc::from("addresses"),
+                    Value::List(interface_addresses(&name).unwrap_or_default()),
+                ),
+            ],
+        ))))
     }
-    records.sort_unstable_by_key(|left| record_str(left, "name"));
-    Ok(Value::ok(Value::List(records)))
 }
 
 pub(crate) fn routes(span: Span) -> Result<Value, RuntimeError> {
-    let mut records = Vec::new();
+    let mut lines = Vec::new();
     match fs::read_to_string("/proc/net/route") {
-        Ok(text) => records.extend(parse_ipv4_routes(&text)),
+        Ok(text) => lines.extend(
+            text.lines()
+                .skip(1)
+                .map(|line| RouteLine::V4(line.to_owned())),
+        ),
         Err(error) if error.kind() == io::ErrorKind::NotFound => {}
         Err(error) => return Ok(io_error("linux-routes", error, span)),
     }
     match fs::read_to_string("/proc/net/ipv6_route") {
-        Ok(text) => records.extend(parse_ipv6_routes(&text)),
+        Ok(text) => lines.extend(text.lines().map(|line| RouteLine::V6(line.to_owned()))),
         Err(error) if error.kind() == io::ErrorKind::NotFound => {}
         Err(error) => return Ok(io_error("linux-routes", error, span)),
     }
-    Ok(Value::ok(Value::List(records)))
+    Ok(Value::ok(Value::stream(StreamValue::from_live(
+        "linux.routes",
+        RouteStream {
+            lines: lines.into_iter(),
+        },
+    ))))
+}
+
+enum RouteLine {
+    V4(String),
+    V6(String),
+}
+
+struct RouteStream {
+    lines: std::vec::IntoIter<RouteLine>,
+}
+
+impl LiveStream for RouteStream {
+    fn next(&mut self, _span: Span) -> Result<Option<Value>, RuntimeError> {
+        for line in self.lines.by_ref() {
+            let value = match line {
+                RouteLine::V4(line) => parse_ipv4_route_line(&line),
+                RouteLine::V6(line) => parse_ipv6_route_line(&line),
+            };
+            if value.is_some() {
+                return Ok(value);
+            }
+        }
+        Ok(None)
+    }
+}
+
+fn parse_ipv4_route_line(line: &str) -> Option<Value> {
+    let fields = line.split_whitespace().collect::<Vec<_>>();
+    if fields.len() < 11 {
+        return None;
+    }
+    let destination = parse_ipv4_hex(fields[1])?;
+    let gateway = parse_ipv4_hex(fields[2])?;
+    let flags = u16::from_str_radix(fields[3], 16).ok()?;
+    let metric = fields[6].parse::<i64>().unwrap_or(0);
+    let mask = parse_ipv4_hex(fields[7])?;
+    let prefix_len = u32::from(mask).count_ones();
+    Some(route_record(
+        "inet",
+        route_dst(destination.to_string(), prefix_len),
+        prefix_len as i64,
+        gateway.to_string(),
+        fields[0].to_string(),
+        metric,
+        route_flags(flags),
+    ))
+}
+
+fn parse_ipv6_route_line(line: &str) -> Option<Value> {
+    let fields = line.split_whitespace().collect::<Vec<_>>();
+    if fields.len() < 10 {
+        return None;
+    }
+    let destination = parse_ipv6_hex(fields[0])?;
+    let prefix_len = u8::from_str_radix(fields[1], 16).ok()? as i64;
+    let gateway = parse_ipv6_hex(fields[4])?;
+    let metric = i64::from_str_radix(fields[5], 16).unwrap_or(0);
+    let flags = u16::from_str_radix(fields[8], 16).unwrap_or(0);
+    Some(route_record(
+        "inet6",
+        route_dst(destination.to_string(), prefix_len as u32),
+        prefix_len,
+        gateway.to_string(),
+        fields[9].to_string(),
+        metric,
+        route_flags(flags),
+    ))
 }
 
 fn parse_ipv4_routes(text: &str) -> Vec<Value> {
@@ -601,10 +700,9 @@ fn add_default_ipv4_route_with_socket(
         })?)
     };
     let mut route: libc::rtentry = unsafe { std::mem::zeroed() };
-    route.rt_gateway = unsafe { std::mem::transmute(ipv4_sockaddr(gateway)) };
-    route.rt_dst = unsafe { std::mem::transmute(ipv4_sockaddr(std::net::Ipv4Addr::UNSPECIFIED)) };
-    route.rt_genmask =
-        unsafe { std::mem::transmute(ipv4_sockaddr(std::net::Ipv4Addr::UNSPECIFIED)) };
+    route.rt_gateway = ipv4_sockaddr(gateway);
+    route.rt_dst = ipv4_sockaddr(std::net::Ipv4Addr::UNSPECIFIED);
+    route.rt_genmask = ipv4_sockaddr(std::net::Ipv4Addr::UNSPECIFIED);
     route.rt_flags = (libc::RTF_UP | libc::RTF_GATEWAY) as libc::c_ushort;
     if let Some(interface) = interface.as_ref() {
         route.rt_dev = interface.as_ptr() as *mut libc::c_char;
@@ -647,10 +745,9 @@ fn del_default_ipv4_route_with_socket(
     let interface_c = CString::new(interface)
         .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "interface name contains NUL"))?;
     let mut route: libc::rtentry = unsafe { std::mem::zeroed() };
-    route.rt_gateway = unsafe { std::mem::transmute(ipv4_sockaddr(gateway)) };
-    route.rt_dst = unsafe { std::mem::transmute(ipv4_sockaddr(std::net::Ipv4Addr::UNSPECIFIED)) };
-    route.rt_genmask =
-        unsafe { std::mem::transmute(ipv4_sockaddr(std::net::Ipv4Addr::UNSPECIFIED)) };
+    route.rt_gateway = ipv4_sockaddr(gateway);
+    route.rt_dst = ipv4_sockaddr(std::net::Ipv4Addr::UNSPECIFIED);
+    route.rt_genmask = ipv4_sockaddr(std::net::Ipv4Addr::UNSPECIFIED);
     route.rt_flags = (libc::RTF_UP | libc::RTF_GATEWAY) as libc::c_ushort;
     route.rt_dev = interface_c.as_ptr() as *mut libc::c_char;
     if unsafe { libc::ioctl(fd, libc::SIOCDELRT as _, &route) } != 0 {

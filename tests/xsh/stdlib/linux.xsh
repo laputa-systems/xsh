@@ -21,14 +21,14 @@ proc test_linux_dry_run_covers_module_surface(ctx: TestContext) [fs, process, en
     linux.add_default_ipv4_route("192.0.2.1", interface: "eth0")?
     linux.del_default_ipv4_route("192.0.2.1", interface: "eth0")?
     linux.dhcp_send_release("eth0", "192.0.2.10", "192.0.2.1")?
-    test.eq(linux.interfaces()?[0].name, "eth0")?
-    test.eq(linux.routes()?[0].gateway, "192.0.2.1")?
+    test.eq(linux.interfaces()?.collect()[0].name, "eth0")?
+    test.eq(linux.routes()?.collect()[0].gateway, "192.0.2.1")?
     test.ok(linux.meminfo()?.total > 0)?
-    test.eq(linux.modules()?[0].name, "xsh_demo")?
-    test.contains(linux.dmesg()?[0], "xsh")?
+    test.eq(linux.modules()?.collect()[0].name, "xsh_demo")?
+    test.contains(linux.dmesg()?.collect()[0], "xsh")?
     test.ok(linux.is_mountpoint(/proc)?)?
-    test.eq(linux.disk_usage(/)?[0].device, "rootfs")?
-    test.eq(linux.block_devices()?[0].name, "vda")?
+    test.eq(linux.disk_usage(/)?.collect()[0].device, "rootfs")?
+    test.eq(linux.block_devices()?.collect()[0].name, "vda")?
     let sysctl_value = linux.sysctl_get("kernel.pid_max")?
     linux.sysctl_set("kernel.pid_max", sysctl_value)?
     let attrs = linux.file_attrs(seed)?
@@ -44,12 +44,12 @@ proc test_linux_dry_run_covers_module_surface(ctx: TestContext) [fs, process, en
     let epoch_ms = linux.hwclock()?
     linux.set_hwclock(epoch_ms)?
     linux.set_system_clock(epoch_ms)?
-    let rfkill = linux.rfkill_list()?
+    let rfkill = linux.rfkill_list()?.collect()
     linux.rfkill_block(rfkill[0].id)?
     linux.rfkill_unblock(rfkill[0].id)?
     let loop_device = linux.loop_attach(seed)?
     linux.loop_detach(loop_device)?
-    test.eq(linux.loop_list()?[0].device, loop_device)?
+    test.eq(linux.loop_list()?.collect()[0].device, loop_device)?
     linux.mkswap(seed)?
     linux.swapon(seed, priority: 1)?
     linux.swapoff(seed)?
@@ -57,7 +57,7 @@ proc test_linux_dry_run_covers_module_surface(ctx: TestContext) [fs, process, en
     test.eq(linux.modinfo("demo")?.params[0].name, "debug")?
     linux.modprobe("demo", params: "debug=1")?
     linux.depmod("dry-run")?
-    test.eq(linux.open_files(123)?[0].type, "file")?
+    test.eq(linux.open_files(123)?.collect()[0].type, "file")?
     let table = linux.partition_table(seed)?
     test.eq(table.partitions[0].name, "root")?
     linux.write_partition_table(seed, table)?

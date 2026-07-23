@@ -72,7 +72,7 @@ Archive creation, extraction, listing, compression, and decompression.
   Params: `path: Path`, `root: Path`, `entries: List[Path]`, `overwrite: Bool = default`
 - `archive.cpio_extract(path: Path, dest: Path, overwrite: Bool = default) -> Result[Unit, Error]` - effect, command; Returns `Unit` or `Error` failure data. ID `module.archive.cpio_extract.0`.
   Params: `path: Path`, `dest: Path`, `overwrite: Bool = default`
-- `archive.cpio_list(path: Path) -> Result[List[{kind: Str, link_name: Str, mode: Int, modified: Int, path: Path, size: Int}], Error]` - effect; Returns `List[{kind: Str, link_name: Str, mode: Int, modified: Int, path: Path, size: Int}]` or `Error` failure data. ID `module.archive.cpio_list.0`.
+- `archive.cpio_list(path: Path) -> Result[Stream[{kind: Str, link_name: Str, mode: Int, modified: Int, path: Path, size: Int}], Error]` - effect; Returns a live archive-order stream or `Error` failure data. ID `module.archive.cpio_list.0`.
   Params: `path: Path`
 - `archive.decompress(source: Path, dest: Path, format: Str = default, overwrite: Bool = default) -> Result[Unit, Error]` - effect; Returns `Unit` or `Error` failure data. ID `module.archive.decompress.0`.
   Params: `source: Path`, `dest: Path`, `format: Str = default`, `overwrite: Bool = default`
@@ -86,7 +86,7 @@ Archive creation, extraction, listing, compression, and decompression.
   Params: `path: Path`, `compression: Str = default`, `members: List[Path] = default`
 - `archive.zip_extract(path: Path, dest: Path, overwrite: Bool = default) -> Result[Unit, Error]` - effect, command; Returns `Unit` or `Error` failure data. ID `module.archive.zip_extract.0`.
   Params: `path: Path`, `dest: Path`, `overwrite: Bool = default`
-- `archive.zip_list(path: Path) -> Result[List[{kind: Str, link_name: Str, mode: Int, modified: Int, path: Path, size: Int}], Error]` - effect; Returns `List[{kind: Str, link_name: Str, mode: Int, modified: Int, path: Path, size: Int}]` or `Error` failure data. ID `module.archive.zip_list.0`.
+- `archive.zip_list(path: Path) -> Result[Stream[{kind: Str, link_name: Str, mode: Int, modified: Int, path: Path, size: Int}], Error]` - effect; Returns a live archive-order stream or `Error` failure data. ID `module.archive.zip_list.0`.
   Params: `path: Path`
 
 ### `bytes`
@@ -243,7 +243,7 @@ Filesystem reads, writes, metadata, links, permissions, locking, and installatio
   Params: `path: Path`, `mode: Int`
 - `fs.mount_for(path: Path) -> Result[{available_1k: Int, blocks_1k: Int, capacity_percent: Int, files: Int, files_capacity_percent: Int, files_free: Int, files_used: Int, filesystem: Str, fstype: Str, mounted_on: Path, readonly: Bool, used_1k: Int}, Error]` - effect; Returns `{available_1k: Int, blocks_1k: Int, capacity_percent: Int, files: Int, files_capacity_percent: Int, files_free: Int, files_used: Int, filesystem: Str, fstype: Str, mounted_on: Path, readonly: Bool, used_1k: Int}` or `Error` failure data. ID `module.fs.mount_for.0`.
   Params: `path: Path`
-- `fs.mounts() -> Result[List[{available_1k: Int, blocks_1k: Int, capacity_percent: Int, files: Int, files_capacity_percent: Int, files_free: Int, files_used: Int, filesystem: Str, fstype: Str, mounted_on: Path, readonly: Bool, used_1k: Int}], Error]` - effect; Returns `List[{available_1k: Int, blocks_1k: Int, capacity_percent: Int, files: Int, files_capacity_percent: Int, files_free: Int, files_used: Int, filesystem: Str, fstype: Str, mounted_on: Path, readonly: Bool, used_1k: Int}]` or `Error` failure data. ID `module.fs.mounts.0`.
+- `fs.mounts() -> Result[Stream[{available_1k: Int, blocks_1k: Int, capacity_percent: Int, files: Int, files_capacity_percent: Int, files_free: Int, files_used: Int, filesystem: Str, fstype: Str, mounted_on: Path, readonly: Bool, used_1k: Int}], Error]` - effect; Returns a single-use stream or `Error` failure data. ID `module.fs.mounts.0`.
 - `fs.open_root(path: Path) -> Result[{id: Int}, Error]` - effect; Returns `{id: Int}` or `Error` failure data. ID `module.fs.open_root.0`.
   Params: `path: Path`
 - `fs.other_executable(mode: Int) -> Bool` - pure; Returns `Bool`. ID `module.fs.other_executable.0`.
@@ -421,7 +421,7 @@ Linux-specific boot, mount, device, and shutdown operations.
   Params: `gateway: Str`, `interface: Str = default`
 - `linux.blkid(device: Path) -> Result[{label: Str, part_entry_uuid: Str, part_table_type: Str, type: Str, uuid: Str}, Error]` - effect; Returns `{label: Str, part_entry_uuid: Str, part_table_type: Str, type: Str, uuid: Str}` or `Error` failure data. ID `module.linux.blkid.0`.
   Params: `device: Path`
-- `linux.block_devices() -> Result[List[{name: Str, partitioned: Bool, partitions: List[Path], path: Path, removable: Bool, rotational: Bool, sector_size: Int, sectors: Int, size: Int}], Error]` - effect; Returns `List[{name: Str, partitioned: Bool, partitions: List[Path], path: Path, removable: Bool, rotational: Bool, sector_size: Int, sectors: Int, size: Int}]` or `Error` failure data. ID `module.linux.block_devices.0`.
+- `linux.block_devices() -> Result[Stream[{name: Str, partitioned: Bool, partitions: List[Path], path: Path, removable: Bool, rotational: Bool, sector_size: Int, sectors: Int, size: Int}], Error]` - effect; Returns a single-use stream or `Error` failure data. ID `module.linux.block_devices.0`.
 - `linux.chroot(path: Path) -> Result[Unit, Error]` - effect, command; Returns `Unit` or `Error` failure data. ID `module.linux.chroot.0`.
   Params: `path: Path`
 - `linux.del_default_ipv4_route(gateway: Str, interface: Str) -> Result[Unit, Error]` - effect, command; Returns `Unit` or `Error` failure data. ID `module.linux.del_default_ipv4_route.0`.
@@ -438,9 +438,9 @@ Linux-specific boot, mount, device, and shutdown operations.
   Params: `interface: Str`, `address: Str`, `server_id: Str`
 - `linux.dhcp_socket(interface: Str) -> Result[Int, Error]` - effect; Returns `Int` or `Error` failure data. ID `module.linux.dhcp_socket.0`.
   Params: `interface: Str`
-- `linux.disk_usage(path: Path = default) -> Result[List[{available: Int, device: Str, fstype: Str, mount: Str, total: Int, used: Int}], Error]` - effect; Returns `List[{available: Int, device: Str, fstype: Str, mount: Str, total: Int, used: Int}]` or `Error` failure data. ID `module.linux.disk_usage.0`.
+- `linux.disk_usage(path: Path = default) -> Result[Stream[{available: Int, device: Str, fstype: Str, mount: Str, total: Int, used: Int}], Error]` - effect; Returns a single-use stream or `Error` failure data. ID `module.linux.disk_usage.0`.
   Params: `path: Path = default`
-- `linux.dmesg() -> Result[List[Str], Error]` - effect; Returns `List[Str]` or `Error` failure data. ID `module.linux.dmesg.0`.
+- `linux.dmesg() -> Result[Stream[Str], Error]` - effect; Returns a single-use stream or `Error` failure data. ID `module.linux.dmesg.0`.
 - `linux.file_attrs(path: Path) -> Result[{append_only: Bool, compression_requested: Bool, dirsync: Bool, flags: Int, immutable: Bool, indexed_directory: Bool, journaled_data: Bool, no_atime: Bool, no_dump: Bool, no_tailmerging: Bool, secure_deletion: Bool, sync: Bool, top_of_directory_hierarchies: Bool, undelete: Bool}, Error]` - effect; Returns `{append_only: Bool, compression_requested: Bool, dirsync: Bool, flags: Int, immutable: Bool, indexed_directory: Bool, journaled_data: Bool, no_atime: Bool, no_dump: Bool, no_tailmerging: Bool, secure_deletion: Bool, sync: Bool, top_of_directory_hierarchies: Bool, undelete: Bool}` or `Error` failure data. ID `module.linux.file_attrs.0`.
   Params: `path: Path`
 - `linux.file_version(path: Path) -> Result[Int, Error]` - effect; Returns `Int` or `Error` failure data. ID `module.linux.file_version.0`.
@@ -453,7 +453,7 @@ Linux-specific boot, mount, device, and shutdown operations.
 - `linux.hwclock() -> Result[Int, Error]` - effect; Returns `Int` or `Error` failure data. ID `module.linux.hwclock.0`.
 - `linux.insmod(path: Path, params: Str = default) -> Result[Unit, Error]` - effect; Returns `Unit` or `Error` failure data. ID `module.linux.insmod.0`.
   Params: `path: Path`, `params: Str = default`
-- `linux.interfaces() -> Result[List[{addresses: List[{addr: Str, family: Str, prefix_len: Int}], flags: List[Str], mac: Str, mtu: Int, name: Str}], Error]` - effect; Returns `List[{addresses: List[{addr: Str, family: Str, prefix_len: Int}], flags: List[Str], mac: Str, mtu: Int, name: Str}]` or `Error` failure data. ID `module.linux.interfaces.0`.
+- `linux.interfaces() -> Result[Stream[{addresses: List[{addr: Str, family: Str, prefix_len: Int}], flags: List[Str], mac: Str, mtu: Int, name: Str}], Error]` - effect; Returns a single-use stream or `Error` failure data. ID `module.linux.interfaces.0`.
 - `linux.is_mountpoint(path: Path) -> Result[Bool, Error]` - effect; Returns `Bool` or `Error` failure data. ID `module.linux.is_mountpoint.0`.
   Params: `path: Path`
 - `linux.kill_all(signal: Str = default, except_pid1: Bool = default) -> Result[Unit, Error]` - effect; Returns `Unit` or `Error` failure data. ID `module.linux.kill_all.0`.
@@ -466,7 +466,7 @@ Linux-specific boot, mount, device, and shutdown operations.
   Params: `file: Path`, `device: Path = default`
 - `linux.loop_detach(device: Path) -> Result[Unit, Error]` - effect, command; Returns `Unit` or `Error` failure data. ID `module.linux.loop_detach.0`.
   Params: `device: Path`
-- `linux.loop_list() -> Result[List[{device: Path, file: Path, offset: Int, size: Int}], Error]` - effect; Returns `List[{device: Path, file: Path, offset: Int, size: Int}]` or `Error` failure data. ID `module.linux.loop_list.0`.
+- `linux.loop_list() -> Result[Stream[{device: Path, file: Path, offset: Int, size: Int}], Error]` - effect; Returns a single-use stream or `Error` failure data. ID `module.linux.loop_list.0`.
 - `linux.meminfo() -> Result[{available: Int, buffers: Int, cached: Int, free: Int, swap_free: Int, swap_total: Int, total: Int}, Error]` - effect; Returns `{available: Int, buffers: Int, cached: Int, free: Int, swap_free: Int, swap_total: Int, total: Int}` or `Error` failure data. ID `module.linux.meminfo.0`.
 - `linux.mknod(path: Path, kind: Str, major: Int, minor: Int) -> Result[Unit, Error]` - effect, command; Returns `Unit` or `Error` failure data. ID `module.linux.mknod.0`.
   Params: `path: Path`, `kind: Str`, `major: Int`, `minor: Int`
@@ -476,11 +476,11 @@ Linux-specific boot, mount, device, and shutdown operations.
   Params: `name: Str`
 - `linux.modprobe(name: Str, params: Str = default) -> Result[Unit, Error]` - effect; Returns `Unit` or `Error` failure data. ID `module.linux.modprobe.0`.
   Params: `name: Str`, `params: Str = default`
-- `linux.modules() -> Result[List[{name: Str, size: Int, used_by: List[Str]}], Error]` - effect; Returns `List[{name: Str, size: Int, used_by: List[Str]}]` or `Error` failure data. ID `module.linux.modules.0`.
+- `linux.modules() -> Result[Stream[{name: Str, size: Int, used_by: List[Str]}], Error]` - effect; Returns a single-use stream or `Error` failure data. ID `module.linux.modules.0`.
 - `linux.mount(source: Str, target: Path, fstype: Str = default, options: List[Str] = default) -> Result[Unit, Error]` - effect; Returns `Unit` or `Error` failure data. ID `module.linux.mount.0`.
   Params: `source: Str`, `target: Path`, `fstype: Str = default`, `options: List[Str] = default`
 - `linux.mount_all() -> Result[Unit, Error]` - effect, command; Returns `Unit` or `Error` failure data. ID `module.linux.mount_all.0`.
-- `linux.open_files(pid: Int = default) -> Result[List[{command: Str, fd: Int, inode: Int, local: Str, path: Path, pid: Int, protocol: Str, remote: Str, type: Str}], Error]` - effect; Returns `List[{command: Str, fd: Int, inode: Int, local: Str, path: Path, pid: Int, protocol: Str, remote: Str, type: Str}]` or `Error` failure data. ID `module.linux.open_files.0`.
+- `linux.open_files(pid: Int = default) -> Result[Stream[{command: Str, fd: Int, inode: Int, local: Str, path: Path, pid: Int, protocol: Str, remote: Str, type: Str}], Error]` - effect; Returns a single-use stream or `Error` failure data. ID `module.linux.open_files.0`.
   Params: `pid: Int = default`
 - `linux.partition_table(device: Path) -> Result[{id: Str, label: Str, partitions: List[{end: Int, index: Int, name: Str, size: Int, start: Int, type: Str, uuid: Str}], sector_size: Int}, Error]` - effect; Returns `{id: Str, label: Str, partitions: List[{end: Int, index: Int, name: Str, size: Int, start: Int, type: Str, uuid: Str}], sector_size: Int}` or `Error` failure data. ID `module.linux.partition_table.0`.
   Params: `device: Path`
@@ -492,13 +492,13 @@ Linux-specific boot, mount, device, and shutdown operations.
 - `linux.reboot() -> Result[Unit, Error]` - effect, command; Returns `Unit` or `Error` failure data. ID `module.linux.reboot.0`.
 - `linux.rfkill_block(id: Int) -> Result[Unit, Error]` - effect, command; Returns `Unit` or `Error` failure data. ID `module.linux.rfkill_block.0`.
   Params: `id: Int`
-- `linux.rfkill_list() -> Result[List[{hard_blocked: Bool, id: Int, name: Str, soft_blocked: Bool, type: Str}], Error]` - effect; Returns `List[{hard_blocked: Bool, id: Int, name: Str, soft_blocked: Bool, type: Str}]` or `Error` failure data. ID `module.linux.rfkill_list.0`.
+- `linux.rfkill_list() -> Result[Stream[{hard_blocked: Bool, id: Int, name: Str, soft_blocked: Bool, type: Str}], Error]` - effect; Returns a single-use stream or `Error` failure data. ID `module.linux.rfkill_list.0`.
 - `linux.rfkill_unblock(id: Int) -> Result[Unit, Error]` - effect, command; Returns `Unit` or `Error` failure data. ID `module.linux.rfkill_unblock.0`.
   Params: `id: Int`
 - `linux.rmmod(name: Str, force: Bool = default) -> Result[Unit, Error]` - effect, command; Returns `Unit` or `Error` failure data. ID `module.linux.rmmod.0`.
   Params: `name: Str`, `force: Bool = default`
 - `linux.root_device() -> Result[Str, Error]` - effect; Returns `Str` or `Error` failure data. ID `module.linux.root_device.0`.
-- `linux.routes() -> Result[List[{dev: Str, dst: Str, family: Str, flags: List[Str], gateway: Str, metric: Int, prefix_len: Int}], Error]` - effect; Returns `List[{dev: Str, dst: Str, family: Str, flags: List[Str], gateway: Str, metric: Int, prefix_len: Int}]` or `Error` failure data. ID `module.linux.routes.0`.
+- `linux.routes() -> Result[Stream[{dev: Str, dst: Str, family: Str, flags: List[Str], gateway: Str, metric: Int, prefix_len: Int}], Error]` - effect; Returns a single-use stream or `Error` failure data. ID `module.linux.routes.0`.
 - `linux.set_file_attrs(path: Path, flags: Int) -> Result[Unit, Error]` - effect, command; Returns `Unit` or `Error` failure data. ID `module.linux.set_file_attrs.0`.
   Params: `path: Path`, `flags: Int`
 - `linux.set_file_version(path: Path, version: Int) -> Result[Unit, Error]` - effect, command; Returns `Unit` or `Error` failure data. ID `module.linux.set_file_version.0`.
@@ -770,7 +770,7 @@ Unix process-group, PID 1, hostname, uptime, exec, and reaping helpers.
   Params: `fd: Int`
 - `unix.pid1_setup(signals: List[Str], subreaper: Bool = default, allow_non_pid1: Bool = default) -> Result[Unit, Error]` - effect, command; Returns `Unit` or `Error` failure data. ID `module.unix.pid1_setup.0`.
   Params: `signals: List[Str]`, `subreaper: Bool = default`, `allow_non_pid1: Bool = default`
-- `unix.reap_child_events() -> Result[List[{pid: Int, status: Status}], Error]` - effect; Returns `List[{pid: Int, status: Status}]` or `Error` failure data. ID `module.unix.reap_child_events.0`.
+- `unix.reap_child_events() -> Result[Stream[{pid: Int, status: Status}], Error]` - effect; Returns a single-use stream of currently available events or `Error` failure data. ID `module.unix.reap_child_events.0`.
 - `unix.set_hostname(hostname: Str) -> Result[Unit, Error]` - effect, command; Returns `Unit` or `Error` failure data. ID `module.unix.set_hostname.0`.
   Params: `hostname: Str`
 - `unix.set_tty_attrs(attrs: Record, fd: Int = default) -> Result[Unit, Error]` - effect; Returns `Unit` or `Error` failure data. ID `module.unix.set_tty_attrs.0`.

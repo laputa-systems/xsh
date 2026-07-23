@@ -834,6 +834,15 @@ impl StreamValue {
         }
     }
 
+    pub(crate) fn from_values_live(name: &'static str, values: Vec<Value>) -> Self {
+        Self::from_live(
+            name,
+            ValuesStream {
+                values: values.into_iter(),
+            },
+        )
+    }
+
     pub(crate) fn from_live(name: &'static str, source: impl LiveStream + 'static) -> Self {
         Self {
             items: Vec::new(),
@@ -858,6 +867,16 @@ pub struct StreamItem {
 
 pub(crate) trait LiveStream: Send + Any {
     fn next(&mut self, span: Span) -> Result<Option<Value>, RuntimeError>;
+}
+
+struct ValuesStream {
+    values: std::vec::IntoIter<Value>,
+}
+
+impl LiveStream for ValuesStream {
+    fn next(&mut self, _span: Span) -> Result<Option<Value>, RuntimeError> {
+        Ok(self.values.next())
+    }
 }
 
 #[derive(Clone)]

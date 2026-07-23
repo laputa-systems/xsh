@@ -32,7 +32,7 @@ proc test_archive_tar_cpio_and_compression(ctx: TestContext) [fs, error] {
   test.error_kind(archive.tar_extract(tarball, extracted), "archive-extract")?
   let cpio = fp"${out}/pkg.cpio"
   archive.cpio_create(cpio, src, [p"."])?
-  let cpio_entries = archive.cpio_list(cpio)?
+  let cpio_entries = archive.cpio_list(cpio)?.collect()
   test.ok(cpio_entries.len() >= 3, "cpio list should include source entries")?
   let cpio_out = fp"${out}/cpio"
   archive.cpio_extract(cpio, cpio_out)?

@@ -5009,10 +5009,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                 } else {
                     Type::List(Box::new(entry))
                 };
-                return Some(Type::Result(
-                    Box::new(collection),
-                    Box::new(Type::Error),
-                ));
+                return Some(Type::Result(Box::new(collection), Box::new(Type::Error)));
             }
             if module == "fs"
                 && (name == "files" || name == "walk" || name == "ls" || name == "children")

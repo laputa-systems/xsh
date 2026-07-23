@@ -11,7 +11,7 @@ let log = fp\"${{root}}/unix.jsonl\"
 fs.mkdir(root, parents: true)?
 let command = process.command_argv(\"demo\", [\"demo\", \"arg\"])
 env XSH_UNIX_DRY_RUN=1 XSH_UNIX_DRY_RUN_SIGNAL=USR1 XSH_UNIX_DRY_RUN_PID=42 XSH_UNIX_UPTIME_SECONDS=17 XSH_UNIX_DRY_RUN_LOG=(log) {{
-  let reaped = unix.reap_child_events()?
+  let reaped = unix.reap_child_events()?.collect()
   let uptime = unix.uptime_seconds()?
   let tty = unix.tty()?
   let identity = unix.id()?
@@ -61,7 +61,7 @@ fn unix_module_dry_run_child_events_are_typed() {
         "\
 type ChildEvent = {pid: Int, status: Status}
 env XSH_UNIX_DRY_RUN=1 XSH_UNIX_DRY_RUN_EVENT_KIND=child XSH_UNIX_DRY_RUN_PID=42 XSH_UNIX_DRY_RUN_CHILD_PID=43 XSH_UNIX_DRY_RUN_STATUS_KIND=signal XSH_UNIX_DRY_RUN_STATUS_CODE=15 {
-  let child_events: List[ChildEvent] = unix.reap_child_events()?
+  let child_events: List[ChildEvent] = unix.reap_child_events()?.collect()
   print ${child_events[0].pid} ${child_events[0].status.signaled()} ${child_events[0].status.signal_number()?}
 } ?
 ",
@@ -138,7 +138,7 @@ var events: List[ChildEvent] = []
 var tries = 0
 while events.len() == 0 and tries < 100 {
   time.sleep(10ms)?
-  events = unix.reap_child_events()?
+  events = unix.reap_child_events()?.collect()
   tries += 1
 }
 print ${events[0].pid == child.pid} ${events[0].status.exited_with(1)}
@@ -177,7 +177,7 @@ var events: List[ChildEvent] = []
 var tries = 0
 while events.len() == 0 and tries < 100 {{
   time.sleep(10ms)?
-  events = unix.reap_child_events()?
+  events = unix.reap_child_events()?.collect()
   tries += 1
 }}
 print ${{events[0].pid == child.pid}} ${{events[0].status.signaled()}} ${{events[0].status.signal_number()? == term.number}}
@@ -218,7 +218,7 @@ while ! fs.exists(marker)? and tries < 100 {{
 }}
 unix.kill_process_group(child.pid, \"TERM\")?
 time.sleep(50ms)?
-let reaped = unix.reap_child_events()?
+let reaped = unix.reap_child_events()?.collect()
 match process.kill(child.pid, signal: \"0\") {{
   Err(e) => print ${{child.detach}} ${{child.new_session}} ${{child.ignore_hup}} ${{fs.exists(marker)?}} ${{reaped.len() >= 0}} ${{e.kind}}
 }}
@@ -258,7 +258,7 @@ var events: List[Record] = []
 var tries = 0
 while events.len() < 2 and tries < 100 {{
   time.sleep(10ms)?
-  events = events.extend(unix.reap_child_events()?)
+  events = events.extend(unix.reap_child_events()?.collect())
   tries += 1
 }}
 let log_text = fs.read_text(log)?

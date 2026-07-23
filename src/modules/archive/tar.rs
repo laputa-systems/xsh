@@ -280,7 +280,11 @@ async fn append_create_entry<W: AsyncWrite + Unpin + Send + Sync>(
     let mut header = Header::new_gnu();
     header.set_mtime(0);
     header.set_mode(metadata.mode());
-    header.set_size(if file_type.is_file() { metadata.len() } else { 0 });
+    header.set_size(if file_type.is_file() {
+        metadata.len()
+    } else {
+        0
+    });
     header.set_entry_type(if file_type.is_dir() {
         EntryType::dir()
     } else if file_type.is_file() {

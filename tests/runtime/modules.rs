@@ -1288,7 +1288,7 @@ print ${{archive.tar_list(tbz)?.collect().len()}} ${{archive.tar_list(txz)?.coll
 print ${{archive.tar_list(inferred)?.collect().len()}}
 let cpio = fp\"${{out}}/pkg.cpio\"
 archive.cpio_create(cpio, src, [Path(\".\")])?
-let cpio_entries = archive.cpio_list(cpio)?
+let cpio_entries = archive.cpio_list(cpio)?.collect()
 let cpio_dest = fp\"${{out}}/cpio\"
 archive.cpio_extract(cpio, cpio_dest)?
 print ${{cpio_entries.len()}} ${{fp\"${{cpio_dest}}/dir/a.txt\".read_text()?.trim()}}
@@ -1332,7 +1332,7 @@ payload.copy(unknown)?
 match archive.decompress(unknown, fp\"${{out}}/unknown.out\") {{
   Err(e) => print ${{e.kind}}
 }}
-let zip_entries = archive.zip_list(Path({}))?
+let zip_entries = archive.zip_list(Path({}))?.collect()
 archive.zip_extract(Path({}), fp\"${{out}}/zip\")?
 print ${{zip_entries.len()}} ${{fp\"${{out}}/zip/zip/note.txt\".read_text()?.trim()}}
 match archive.tar_extract(Path({}), fp\"${{out}}/bad-parent\") {{
@@ -1411,7 +1411,7 @@ fn archive_module_zip_extracts_many_files_and_overwrites() {
         "\
 let zip = Path({})
 let out = Path({})
-let entries = archive.zip_list(zip)?
+let entries = archive.zip_list(zip)?.collect()
 print ${{entries.len()}}
 match archive.zip_extract(zip, fp\"${{out}}/extract\") {{
   Err(e) => print ${{e.kind}}

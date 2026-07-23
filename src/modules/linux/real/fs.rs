@@ -4,7 +4,7 @@ use super::{FS_APPEND_FL, FS_COMPR_FL, FS_DIRSYNC_FL, FS_IMMUTABLE_FL, FS_INDEX_
 use super::{FS_JOURNAL_DATA_FL, FS_NOATIME_FL, FS_NODUMP_FL, FS_NOTAIL_FL};
 use super::{FS_SECRM_FL, FS_SYNC_FL, FS_TOPDIR_FL, FS_UNRM_FL, MountEntry};
 use crate::modules::linux::str_value;
-use crate::runtime::value::{RuntimeError, Value};
+use crate::runtime::value::{LiveStream, RuntimeError, StreamValue, Value};
 use crate::source::Span;
 use rustix::fs as rfs;
 use std::fs;
@@ -26,28 +26,40 @@ pub(crate) fn disk_usage(path: Option<&Path>, span: Span) -> Result<Value, Runti
         Ok(mounts) => mounts,
         Err(error) => return Ok(io_error("linux-disk-usage", error, span)),
     };
-    let records = match path {
+    let selected = match path {
         Some(path) => {
             let Some(mount) = mount_for_path(&mounts, path) else {
                 return Ok(error_value("linux-disk-usage", "mount not found", span));
             };
-            match disk_usage_record(mount, path, span) {
-                Ok(record) => vec![record],
-                Err(error) => return Ok(Value::err(Value::Error(Box::new(error)))),
-            }
+            (vec![mount.clone()], Some(path.to_path_buf()))
         }
-        None => {
-            let mut records = Vec::new();
-            for mount in &mounts {
-                match disk_usage_record(mount, Path::new(&mount.target), span) {
-                    Ok(record) => records.push(record),
-                    Err(error) => return Ok(Value::err(Value::Error(Box::new(error)))),
-                }
-            }
-            records
-        }
+        None => (mounts, None),
     };
-    Ok(Value::ok(Value::List(records)))
+    Ok(Value::ok(Value::stream(StreamValue::from_live(
+        "linux.disk_usage",
+        DiskUsageStream {
+            mounts: selected.0.into_iter(),
+            stat_path: selected.1,
+        },
+    ))))
+}
+
+struct DiskUsageStream {
+    mounts: std::vec::IntoIter<MountEntry>,
+    stat_path: Option<PathBuf>,
+}
+
+impl LiveStream for DiskUsageStream {
+    fn next(&mut self, span: Span) -> Result<Option<Value>, RuntimeError> {
+        let Some(mount) = self.mounts.next() else {
+            return Ok(None);
+        };
+        let path = self
+            .stat_path
+            .as_deref()
+            .unwrap_or_else(|| Path::new(&mount.target));
+        disk_usage_record(&mount, path, span).map(Some)
+    }
 }
 
 pub(crate) fn sysctl_get(key: &str, span: Span) -> Result<Value, RuntimeError> {

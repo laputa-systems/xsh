@@ -162,7 +162,7 @@ let target = Path({})
 env XSH_LINUX_REAL=1 XSH_LINUX_DRY_RUN=0 {{
   linux.mount(\"none\", target, fstype: \"tmpfs\", options: [\"size=4m\", \"nosuid\", \"nodev\"])?
   let mounted = linux.is_mountpoint(target)?
-  let usage = linux.disk_usage(target)?
+  let usage = linux.disk_usage(target)?.collect()
   print ${{mounted}} ${{usage[0].mount == target.display()}} ${{usage[0].fstype == \"tmpfs\"}} ${{usage[0].total > 0}}
 }} ?
 ",

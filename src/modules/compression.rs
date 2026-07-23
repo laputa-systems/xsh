@@ -7,9 +7,9 @@ use flate2::Compression as GzipCompression;
 use flate2::bufread::MultiGzDecoder;
 use flate2::write::GzEncoder;
 use futures_lite::io::{AsyncRead, AsyncWrite};
-use lzma_rust2::{
-    LzmaOptions, LzmaReader, LzmaWriter, XzOptions, XzReaderMt, XzWriter,
-};
+#[cfg(any(target_os = "linux", test))]
+use lzma_rust2::XzReader;
+use lzma_rust2::{LzmaOptions, LzmaReader, LzmaWriter, XzOptions, XzReaderMt, XzWriter};
 use std::fs::{self, File};
 use std::io::{self, BufRead, BufReader, BufWriter, Read, Write};
 use std::path::Path;
@@ -20,9 +20,8 @@ const BUFFER_SIZE: usize = 64 * 1024;
 const DEFAULT_LEVEL: u32 = 6;
 
 fn xz_worker_count() -> u32 {
-    std::thread::available_parallelism().map_or(1, |count| {
-        count.get().min(u32::MAX as usize) as u32
-    })
+    std::thread::available_parallelism()
+        .map_or(1, |count| count.get().min(u32::MAX as usize) as u32)
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

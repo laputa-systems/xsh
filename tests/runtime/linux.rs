@@ -257,29 +257,29 @@ env XSH_LINUX_REAL=1 XSH_LINUX_DRY_RUN=0 {
   linux.write_device(copy, source)?
   test.eq(dest.read_bytes()?, b"abc")?
   test.eq(copy.read_bytes()?, b"abcdef")?
-  test.ok(linux.interfaces()?.len() > 0)?
-  let routes = linux.routes()?
+  test.ok(linux.interfaces()?.collect().len() > 0)?
+  let routes = linux.routes()?.collect()
   test.ok(routes.len() >= 0)?
   test.ok(linux.meminfo()?.total > 0)?
-  let modules = linux.modules()?
+  let modules = linux.modules()?.collect()
   test.ok(modules.len() >= 0)?
   test.ok(linux.is_mountpoint(/)?)?
-  test.ok(linux.disk_usage(/)?[0].total > 0)?
-  let all_usage = linux.disk_usage()?
+  test.ok(linux.disk_usage(/)?.collect()[0].total > 0)?
+  let all_usage = linux.disk_usage()?.collect()
   test.ok(all_usage.len() > 0)?
   test.ok(linux.root_device()?.trim() != "")?
   let sysctl_value = linux.sysctl_get("kernel.ostype")?
   test.ok(sysctl_value != "")?
   match linux.loop_list() {
     Ok(loops) => {
-      test.ok(loops.len() >= 0)?
+      test.ok(loops |> count() >= 0)?
     }
     Err(err) => {
       test.error_kind(err, "linux-loop")?
     }
   }
-  let open_files = linux.open_files(process.current_pid()?)?
-  test.ok(open_files.len() >= 0)?
+  let open_files = linux.open_files(process.current_pid()?)?.collect()
+  test.ok(open_files |> count() >= 0)?
 
   match linux.file_attrs(source) {
     Ok(attrs) => {
@@ -368,13 +368,13 @@ env XSH_LINUX_DRY_RUN=1 XSH_LINUX_DRY_RUN_SIGNAL=USR2 XSH_LINUX_DRY_RUN_LOG=(log
   linux.link_up(\"lo\")?
   linux.set_ipv4_address(\"eth0\", \"192.0.2.10\", \"255.255.255.0\")?
   linux.add_default_ipv4_route(\"192.0.2.1\", interface: \"eth0\")?
-  let interfaces = linux.interfaces()?
-  let routes = linux.routes()?
+  let interfaces = linux.interfaces()?.collect()
+  let routes = linux.routes()?.collect()
   let meminfo = linux.meminfo()?
-  let modules = linux.modules()?
-  let dmesg = linux.dmesg()?
+  let modules = linux.modules()?.collect()
+  let dmesg = linux.dmesg()?.collect()
   let is_mount = linux.is_mountpoint(/proc)?
-  let usage = linux.disk_usage(/)?
+  let usage = linux.disk_usage(/)?.collect()
   let sysctl_value = linux.sysctl_get(\"kernel.pid_max\")?
   linux.sysctl_set(\"kernel.pid_max\", sysctl_value)?
   let attrs = linux.file_attrs(seed)?
@@ -388,12 +388,12 @@ env XSH_LINUX_DRY_RUN=1 XSH_LINUX_DRY_RUN_SIGNAL=USR2 XSH_LINUX_DRY_RUN_LOG=(log
   let epoch_ms = linux.hwclock()?
   linux.set_hwclock(epoch_ms)?
   linux.set_system_clock(epoch_ms)?
-  let rfkill = linux.rfkill_list()?
+  let rfkill = linux.rfkill_list()?.collect()
   linux.rfkill_block(rfkill[0].id)?
   linux.rfkill_unblock(rfkill[0].id)?
   let loop_device = linux.loop_attach(seed)?
   linux.loop_detach(loop_device)?
-  let loops = linux.loop_list()?
+  let loops = linux.loop_list()?.collect()
   linux.mkswap(seed)?
   linux.swapon(seed, priority: 1)?
   linux.swapoff(seed)?
@@ -401,7 +401,7 @@ env XSH_LINUX_DRY_RUN=1 XSH_LINUX_DRY_RUN_SIGNAL=USR2 XSH_LINUX_DRY_RUN_LOG=(log
   let info = linux.modinfo(\"demo\")?
   linux.modprobe(\"demo\", params: \"debug=1\")?
   linux.depmod(\"dry-run\")?
-  let open_files = linux.open_files(123)?
+  let open_files = linux.open_files(123)?.collect()
   let table = linux.partition_table(seed)?
   linux.write_partition_table(seed, table)?
   let fsck = linux.fsck(seed, fstype: \"ext4\")?
@@ -473,9 +473,9 @@ fn linux_module_dry_run_records_cover_seed_replacement_shapes() {
     let source = "\
 env XSH_LINUX_DRY_RUN=1 XSH_LINUX_SYSCTL_VALUE=65535 {
   let meminfo = linux.meminfo()?
-  let modules = linux.modules()?
-  let root_usage = linux.disk_usage()?
-  let tmp_usage = linux.disk_usage(/tmp)?
+  let modules = linux.modules()?.collect()
+  let root_usage = linux.disk_usage()?.collect()
+  let tmp_usage = linux.disk_usage(/tmp)?.collect()
   let sysctl_value = linux.sysctl_get(\"kernel.pid_max\")?
   print ${meminfo.total} ${meminfo.free} ${meminfo.available} ${meminfo.buffers} ${meminfo.cached} ${meminfo.swap_total} ${meminfo.swap_free}
   print ${modules[0].name} ${modules[0].size} ${modules[0].used_by[0]} ${modules[0].used_by.len()}
@@ -592,7 +592,7 @@ let log = fp\"${{root}}/unix.jsonl\"
 fs.mkdir(root, parents: true)?
 let command = process.command_argv(\"demo\", [\"demo\", \"arg\"])
 env XSH_UNIX_DRY_RUN=1 XSH_UNIX_DRY_RUN_SIGNAL=USR1 XSH_UNIX_DRY_RUN_PID=42 XSH_UNIX_UPTIME_SECONDS=17 XSH_UNIX_DRY_RUN_LOG=(log) {{
-  let reaped = unix.reap_child_events()?
+  let reaped = unix.reap_child_events()?.collect()
   let uptime = unix.uptime_seconds()?
   let tty = unix.tty()?
   let identity = unix.id()?
@@ -642,7 +642,7 @@ fn unix_module_dry_run_child_events_are_typed() {
         "\
 type ChildEvent = {pid: Int, status: Status}
 env XSH_UNIX_DRY_RUN=1 XSH_UNIX_DRY_RUN_EVENT_KIND=child XSH_UNIX_DRY_RUN_PID=42 XSH_UNIX_DRY_RUN_CHILD_PID=43 XSH_UNIX_DRY_RUN_STATUS_KIND=signal XSH_UNIX_DRY_RUN_STATUS_CODE=15 {
-  let child_events: List[ChildEvent] = unix.reap_child_events()?
+  let child_events: List[ChildEvent] = unix.reap_child_events()?.collect()
   print ${child_events[0].pid} ${child_events[0].status.signaled()} ${child_events[0].status.signal_number()?}
 } ?
 ",
@@ -722,7 +722,7 @@ var events: List[ChildEvent] = []
 var tries = 0
 while events.len() == 0 and tries < 100 {
   time.sleep(10ms)?
-  events = unix.reap_child_events()?
+  events = unix.reap_child_events()?.collect()
   tries += 1
 }
 print ${events[0].pid == child.pid} ${events[0].status.exited_with(1)}
@@ -761,7 +761,7 @@ var events: List[ChildEvent] = []
 var tries = 0
 while events.len() == 0 and tries < 100 {{
   time.sleep(10ms)?
-  events = unix.reap_child_events()?
+  events = unix.reap_child_events()?.collect()
   tries += 1
 }}
 print ${{events[0].pid == child.pid}} ${{events[0].status.signaled()}} ${{events[0].status.signal_number()? == term.number}}
@@ -802,7 +802,7 @@ while ! fs.exists(marker)? and tries < 100 {{
 }}
 unix.kill_process_group(child.pid, \"TERM\")?
 time.sleep(50ms)?
-let reaped = unix.reap_child_events()?
+let reaped = unix.reap_child_events()?.collect()
 match process.kill(child.pid, signal: \"0\") {{
   Err(e) => {{
     test.error_kind(e, \"process-missing\")?
@@ -845,7 +845,7 @@ var events: List[Record] = []
 var tries = 0
 while events.len() < 2 and tries < 100 {{
   time.sleep(10ms)?
-  events = events.extend(unix.reap_child_events()?)
+  events = events.extend(unix.reap_child_events()?.collect())
   tries += 1
 }}
 let log_text = fs.read_text(log)?

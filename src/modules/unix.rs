@@ -6,7 +6,7 @@ use crate::runtime::process::{
     ProcessInvocation, ProcessSegmentStatus, ProcessSegmentStatusKind, ProcessStatus,
     resolve_executable,
 };
-use crate::runtime::value::{RuntimeError, Value};
+use crate::runtime::value::{LiveStream, RuntimeError, StreamValue, Value};
 use crate::source::Span;
 use rustix::fd::BorrowedFd;
 use rustix::{fs as rfs, io as rio, pipe as rpipe, process as rprocess, stdio, termios};
@@ -150,12 +150,22 @@ pub(crate) fn wait_pid1_event_native(
 }
 
 pub(crate) fn reap_child_events(span: Span) -> Result<Value, RuntimeError> {
-    Ok(Value::ok(Value::List(
-        drain_child_events_native(span)?
-            .into_iter()
-            .map(child_event_record)
-            .collect(),
-    )))
+    Ok(Value::ok(Value::stream(StreamValue::from_live(
+        "unix.reap_child_events",
+        ChildEventStream {
+            events: drain_child_events_native(span)?.into_iter(),
+        },
+    ))))
+}
+
+struct ChildEventStream {
+    events: std::vec::IntoIter<ChildEvent>,
+}
+
+impl LiveStream for ChildEventStream {
+    fn next(&mut self, _span: Span) -> Result<Option<Value>, RuntimeError> {
+        Ok(self.events.next().map(child_event_record))
+    }
 }
 
 pub(crate) fn spawn_process_group_native(
@@ -574,8 +584,12 @@ pub(crate) fn kill_all(name: &str, signal: &str, span: Span) -> Result<Value, Ru
         Ok(processes) => processes,
         Err(error) => return Ok(Value::err(Value::Error(Box::new(error)))),
     };
+    let mut process_values = Vec::new();
+    while let Some(process) = processes.next_live(span)? {
+        process_values.push(process);
+    }
     let targets = matching_targets(
-        processes.iter(),
+        process_values.iter(),
         name,
         rprocess::getpid().as_raw_pid() as i64,
     );

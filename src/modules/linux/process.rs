@@ -1,17 +1,20 @@
 #![allow(clippy::single_call_fn)]
 
-use super::block::{path_value, record_int, record_str};
+use super::block::path_value;
 use super::str_value;
-use crate::runtime::value::{RuntimeError, Value};
+use crate::runtime::value::{LiveStream, RuntimeError, Value};
 use crate::source::Span;
 use rustc_hash::FxHashMap;
 use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-pub(super) fn open_files_impl(pid: Option<i64>, span: Span) -> Result<Vec<Value>, RuntimeError> {
+pub(super) fn open_files_impl(
+    pid: Option<i64>,
+    span: Span,
+) -> Result<OpenFilesStream, RuntimeError> {
     let sockets = socket_index();
-    let pids = if let Some(pid) = pid {
+    let mut pids = if let Some(pid) = pid {
         if pid < 0 {
             return Err(
                 RuntimeError::new("linux-open-files", "pid cannot be negative").with_span(span),
@@ -27,48 +30,77 @@ pub(super) fn open_files_impl(pid: Option<i64>, span: Span) -> Result<Vec<Value>
             .filter_map(|entry| entry.file_name().to_str()?.parse::<i32>().ok())
             .collect()
     };
-    let mut records = Vec::new();
-    for pid in pids {
-        let command = process_command(pid);
-        let fd_dir = PathBuf::from(format!("/proc/{pid}/fd"));
-        let Ok(entries) = fs::read_dir(&fd_dir) else {
-            continue;
-        };
-        for entry in entries.flatten() {
-            let Some(fd) = entry
-                .file_name()
-                .to_str()
-                .and_then(|name| name.parse::<i64>().ok())
-            else {
+    pids.sort_unstable();
+    Ok(OpenFilesStream {
+        pids: pids.into_iter(),
+        current: None,
+        sockets,
+    })
+}
+
+pub(super) struct OpenFilesStream {
+    pids: std::vec::IntoIter<i32>,
+    current: Option<OpenFilesPid>,
+    sockets: FxHashMap<i64, SocketInfo>,
+}
+
+struct OpenFilesPid {
+    pid: i32,
+    command: String,
+    entries: std::vec::IntoIter<(i64, PathBuf)>,
+}
+
+impl LiveStream for OpenFilesStream {
+    fn next(&mut self, span: Span) -> Result<Option<Value>, RuntimeError> {
+        loop {
+            if let Some(current) = &mut self.current {
+                for (fd, path) in current.entries.by_ref() {
+                    let Ok(target) = fs::read_link(&path) else {
+                        continue;
+                    };
+                    let target_text = target.to_string_lossy().into_owned();
+                    let (kind, inode, protocol, local, remote) = describe_fd_target(
+                        &target_text,
+                        self.sockets.get(&socket_inode(&target_text)),
+                    );
+                    return Ok(Some(Value::Record(crate::runtime::value::RecordMap::from(
+                        [
+                            (Arc::from("pid"), Value::Int(current.pid as i64)),
+                            (Arc::from("command"), str_value(current.command.clone())),
+                            (Arc::from("fd"), Value::Int(fd)),
+                            (Arc::from("type"), str_value(kind)),
+                            (Arc::from("path"), Value::Path(path_value(&target, span)?)),
+                            (Arc::from("inode"), Value::Int(inode)),
+                            (Arc::from("protocol"), str_value(protocol)),
+                            (Arc::from("local"), str_value(local)),
+                            (Arc::from("remote"), str_value(remote)),
+                        ],
+                    ))));
+                }
+                self.current = None;
+            }
+
+            let Some(pid) = self.pids.next() else {
+                return Ok(None);
+            };
+            let Ok(entries) = fs::read_dir(format!("/proc/{pid}/fd")) else {
                 continue;
             };
-            let Ok(target) = fs::read_link(entry.path()) else {
-                continue;
-            };
-            let target_text = target.to_string_lossy().into_owned();
-            let (kind, inode, protocol, local, remote) =
-                describe_fd_target(&target_text, sockets.get(&socket_inode(&target_text)));
-            records.push(Value::Record(crate::runtime::value::RecordMap::from([
-                (Arc::from("pid"), Value::Int(pid as i64)),
-                (Arc::from("command"), str_value(command.clone())),
-                (Arc::from("fd"), Value::Int(fd)),
-                (Arc::from("type"), str_value(kind)),
-                (Arc::from("path"), Value::Path(path_value(&target, span)?)),
-                (Arc::from("inode"), Value::Int(inode)),
-                (Arc::from("protocol"), str_value(protocol)),
-                (Arc::from("local"), str_value(local)),
-                (Arc::from("remote"), str_value(remote)),
-            ])));
+            let mut entries = entries
+                .flatten()
+                .filter_map(|entry| {
+                    let fd = entry.file_name().to_str()?.parse::<i64>().ok()?;
+                    Some((fd, entry.path()))
+                })
+                .collect::<Vec<_>>();
+            entries.sort_unstable_by_key(|(fd, _)| *fd);
+            self.current = Some(OpenFilesPid {
+                pid,
+                command: process_command(pid),
+                entries: entries.into_iter(),
+            });
         }
     }
-    records.sort_unstable_by_key(|record| {
-        (
-            record_int(record, "pid"),
-            record_int(record, "fd"),
-            record_str(record, "path"),
-        )
-    });
-    Ok(records)
 }
 
 struct SocketInfo {

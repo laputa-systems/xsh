@@ -410,16 +410,19 @@ mod tests {
     #[cfg(target_os = "linux")]
     fn open_files_reports_current_process_descriptors() {
         let pid = std::process::id() as i64;
-        let records = open_files_impl(Some(pid), span()).expect("open files");
-        assert!(
-            records.iter().any(|record| {
-                let record = record_value(record);
-                int_field(record, "pid") == pid
-                    && int_field(record, "fd") >= 0
-                    && !str_field(record, "type").is_empty()
-            }),
-            "{records:?}"
-        );
+        let mut records = open_files_impl(Some(pid), span()).expect("open files");
+        let mut found = false;
+        while let Some(record) = records.next(span()).expect("read open file") {
+            let record = record_value(&record);
+            if int_field(record, "pid") == pid
+                && int_field(record, "fd") >= 0
+                && !str_field(record, "type").is_empty()
+            {
+                found = true;
+                break;
+            }
+        }
+        assert!(found, "no descriptor found for current process");
     }
 
     #[test]

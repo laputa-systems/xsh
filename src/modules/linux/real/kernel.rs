@@ -2,7 +2,7 @@ use super::SYSLOG_ACTION_SIZE_BUFFER;
 use super::common::io_error;
 use super::{DEV_KMSG, PROC_MEMINFO, PROC_MODULES, SYSLOG_ACTION_READ_ALL};
 use crate::modules::linux::str_value;
-use crate::runtime::value::{RuntimeError, Value};
+use crate::runtime::value::{LiveStream, RuntimeError, StreamValue, Value};
 use crate::source::Span;
 use rustc_hash::FxHashMap;
 use std::fs::{self, OpenOptions};
@@ -26,15 +26,42 @@ pub(crate) fn modules(span: Span) -> Result<Value, RuntimeError> {
         Ok(text) => text,
         Err(error) => return Ok(io_error("linux-modules", error, span)),
     };
-    match parse_modules(&text, span) {
-        Ok(values) => Ok(Value::ok(Value::List(values))),
-        Err(error) => Ok(Value::err(Value::Error(Box::new(error)))),
+    Ok(Value::ok(Value::stream(StreamValue::from_live(
+        "linux.modules",
+        ModuleStream {
+            lines: text
+                .lines()
+                .filter(|line| !line.trim().is_empty())
+                .map(str::to_owned)
+                .collect::<Vec<_>>()
+                .into_iter(),
+        },
+    ))))
+}
+
+struct ModuleStream {
+    lines: std::vec::IntoIter<String>,
+}
+
+impl LiveStream for ModuleStream {
+    fn next(&mut self, span: Span) -> Result<Option<Value>, RuntimeError> {
+        self.lines
+            .next()
+            .map(|line| parse_module_line(&line, span))
+            .transpose()
     }
 }
 
 pub(crate) fn dmesg(span: Span) -> Result<Value, RuntimeError> {
     match read_kmsg() {
-        Ok(messages) => return Ok(Value::ok(Value::List(messages))),
+        Ok(messages) => {
+            return Ok(Value::ok(Value::stream(StreamValue::from_live(
+                "linux.dmesg",
+                KernelMessageStream {
+                    messages: messages.into_iter(),
+                },
+            ))));
+        }
         Err(error) if !matches!(error.kind(), io::ErrorKind::NotFound) => {
             if !matches!(
                 error.raw_os_error(),
@@ -47,8 +74,23 @@ pub(crate) fn dmesg(span: Span) -> Result<Value, RuntimeError> {
     }
 
     match read_kernel_log() {
-        Ok(messages) => Ok(Value::ok(Value::List(messages))),
+        Ok(messages) => Ok(Value::ok(Value::stream(StreamValue::from_live(
+            "linux.dmesg",
+            KernelMessageStream {
+                messages: messages.into_iter(),
+            },
+        )))),
         Err(error) => Ok(io_error("linux-dmesg", error, span)),
+    }
+}
+
+struct KernelMessageStream {
+    messages: std::vec::IntoIter<String>,
+}
+
+impl LiveStream for KernelMessageStream {
+    fn next(&mut self, _span: Span) -> Result<Option<Value>, RuntimeError> {
+        Ok(self.messages.next().map(str_value))
     }
 }
 
@@ -131,13 +173,6 @@ fn required_meminfo_value(
     })
 }
 
-fn parse_modules(text: &str, span: Span) -> Result<Vec<Value>, RuntimeError> {
-    text.lines()
-        .filter(|line| !line.trim().is_empty())
-        .map(|line| parse_module_line(line, span))
-        .collect()
-}
-
 fn parse_module_line(line: &str, span: Span) -> Result<Value, RuntimeError> {
     let mut fields = line.split_whitespace();
     let name = fields
@@ -193,7 +228,7 @@ fn parse_i64_field(
     })
 }
 
-fn read_kmsg() -> io::Result<Vec<Value>> {
+fn read_kmsg() -> io::Result<Vec<String>> {
     let mut file = OpenOptions::new()
         .read(true)
         .custom_flags(libc::O_NONBLOCK | libc::O_CLOEXEC)
@@ -207,7 +242,7 @@ fn read_kmsg() -> io::Result<Vec<Value>> {
     Ok(text
         .lines()
         .filter_map(parse_kmsg_line)
-        .map(|message| str_value(message.to_string()))
+        .map(str::to_owned)
         .collect())
 }
 
@@ -215,7 +250,7 @@ fn parse_kmsg_line(line: &str) -> Option<&str> {
     line.split_once(';').map(|(_, message)| message)
 }
 
-fn read_kernel_log() -> io::Result<Vec<Value>> {
+fn read_kernel_log() -> io::Result<Vec<String>> {
     let size = klogctl(SYSLOG_ACTION_SIZE_BUFFER, std::ptr::null_mut(), 0)?;
     if size <= 0 {
         return Ok(Vec::new());
@@ -230,7 +265,7 @@ fn read_kernel_log() -> io::Result<Vec<Value>> {
     Ok(text
         .lines()
         .map(strip_syslog_prefix)
-        .map(|message| str_value(message.to_string()))
+        .map(str::to_owned)
         .collect())
 }
 

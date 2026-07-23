@@ -332,7 +332,7 @@ fn archive_module() -> ModuleSig {
             "cpio_list",
             sig(
                 vec![param("path", Type::Path)],
-                result(Type::List(Box::new(archive_entry_type()))),
+                result(Type::Stream(Box::new(archive_entry_type()))),
                 false,
                 RuntimeOp::ArchiveCpioList,
             ),
@@ -398,7 +398,7 @@ fn archive_module() -> ModuleSig {
             "zip_list",
             sig(
                 vec![param("path", Type::Path)],
-                result(Type::List(Box::new(archive_entry_type()))),
+                result(Type::Stream(Box::new(archive_entry_type()))),
                 false,
                 RuntimeOp::ArchiveZipList,
             ),
@@ -1237,7 +1237,7 @@ fn fs_module() -> ModuleSig {
             "mounts",
             sig(
                 Vec::new(),
-                result(Type::List(Box::new(fs_mount_type()))),
+                result(Type::Stream(Box::new(fs_mount_type()))),
                 false,
                 RuntimeOp::FsMounts,
             ),
@@ -2344,7 +2344,7 @@ fn linux_module() -> ModuleSig {
             "interfaces",
             sig(
                 Vec::new(),
-                result(Type::List(Box::new(linux_interface_type()))),
+                result(Type::Stream(Box::new(linux_interface_type()))),
                 false,
                 RuntimeOp::LinuxInterfaces,
             ),
@@ -2353,7 +2353,7 @@ fn linux_module() -> ModuleSig {
             "routes",
             sig(
                 Vec::new(),
-                result(Type::List(Box::new(linux_route_type()))),
+                result(Type::Stream(Box::new(linux_route_type()))),
                 false,
                 RuntimeOp::LinuxRoutes,
             ),
@@ -2371,14 +2371,19 @@ fn linux_module() -> ModuleSig {
             "modules",
             sig(
                 Vec::new(),
-                result(Type::List(Box::new(linux_module_type()))),
+                result(Type::Stream(Box::new(linux_module_type()))),
                 false,
                 RuntimeOp::LinuxModules,
             ),
         ),
         (
             "dmesg",
-            sig(Vec::new(), result(list_str()), false, RuntimeOp::LinuxDmesg),
+            sig(
+                Vec::new(),
+                result(Type::Stream(Box::new(Type::Str))),
+                false,
+                RuntimeOp::LinuxDmesg,
+            ),
         ),
         (
             "is_mountpoint",
@@ -2393,7 +2398,7 @@ fn linux_module() -> ModuleSig {
             "disk_usage",
             sig(
                 vec![default_param("path", Type::Path)],
-                result(Type::List(Box::new(linux_disk_usage_type()))),
+                result(Type::Stream(Box::new(linux_disk_usage_type()))),
                 false,
                 RuntimeOp::LinuxDiskUsage,
             ),
@@ -2402,7 +2407,7 @@ fn linux_module() -> ModuleSig {
             "block_devices",
             sig(
                 Vec::new(),
-                result(Type::List(Box::new(linux_block_device_type()))),
+                result(Type::Stream(Box::new(linux_block_device_type()))),
                 false,
                 RuntimeOp::LinuxBlockDevices,
             ),
@@ -2578,7 +2583,7 @@ fn linux_module() -> ModuleSig {
             "rfkill_list",
             sig(
                 Vec::new(),
-                result(Type::List(Box::new(linux_rfkill_type()))),
+                result(Type::Stream(Box::new(linux_rfkill_type()))),
                 false,
                 RuntimeOp::LinuxRfkillList,
             ),
@@ -2626,7 +2631,7 @@ fn linux_module() -> ModuleSig {
             "loop_list",
             sig(
                 Vec::new(),
-                result(Type::List(Box::new(linux_loop_device_type()))),
+                result(Type::Stream(Box::new(linux_loop_device_type()))),
                 false,
                 RuntimeOp::LinuxLoopList,
             ),
@@ -2701,7 +2706,7 @@ fn linux_module() -> ModuleSig {
             "open_files",
             sig(
                 vec![default_param("pid", Type::Int)],
-                result(Type::List(Box::new(linux_open_file_type()))),
+                result(Type::Stream(Box::new(linux_open_file_type()))),
                 false,
                 RuntimeOp::LinuxOpenFiles,
             ),
@@ -2783,7 +2788,7 @@ fn unix_module() -> ModuleSig {
             "reap_child_events",
             sig(
                 Vec::new(),
-                result(Type::List(Box::new(unix_child_event_type()))),
+                result(Type::Stream(Box::new(unix_child_event_type()))),
                 false,
                 RuntimeOp::UnixReapChildEvents,
             ),

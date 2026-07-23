@@ -12,14 +12,14 @@ module archive
   compress(source: Path, dest: Path, format: Str = default, level: Int = default, overwrite: Bool = default) -> Result[Unit, Error] effect
   cpio_create(path: Path, root: Path, entries: List[Path], overwrite: Bool = default) -> Result[Unit, Error] effect
   cpio_extract(path: Path, dest: Path, overwrite: Bool = default) -> Result[Unit, Error] effect
-  cpio_list(path: Path) -> Result[List[{kind: Str, link_name: Str, mode: Int, modified: Int, path: Path, size: Int}], Error] effect
+  cpio_list(path: Path) -> Result[Stream[{kind: Str, link_name: Str, mode: Int, modified: Int, path: Path, size: Int}], Error] effect
   decompress(source: Path, dest: Path, format: Str = default, overwrite: Bool = default) -> Result[Unit, Error] effect
   decompress_bytes(source: Path, format: Str = default) -> Result[Bytes, Error] effect
   tar_create(path: Path, root: Path, entries: List[Path], compression: Str = default, overwrite: Bool = default) -> Result[Unit, Error] effect
   tar_extract(path: Path, dest: Path, strip_components: Int = default, compression: Str = default, overwrite: Bool = default, members: List[Path] = default) -> Result[Unit, Error] effect
   tar_list(path: Path, compression: Str = default, members: List[Path] = default) -> Result[Stream[{kind: Str, link_name: Str, mode: Int, modified: Int, path: Path, size: Int}], Error] effect
   zip_extract(path: Path, dest: Path, overwrite: Bool = default) -> Result[Unit, Error] effect
-  zip_list(path: Path) -> Result[List[{kind: Str, link_name: Str, mode: Int, modified: Int, path: Path, size: Int}], Error] effect
+  zip_list(path: Path) -> Result[Stream[{kind: Str, link_name: Str, mode: Int, modified: Int, path: Path, size: Int}], Error] effect
 
 module bytes
   concat(chunks: List[Bytes]) -> Bytes pure
@@ -96,7 +96,7 @@ module fs
   mkdir(path: Path, parents: Bool = default) -> Result[Unit, Error] effect
   mkfifo(path: Path, mode: Int) -> Result[Unit, Error] effect
   mount_for(path: Path) -> Result[{available_1k: Int, blocks_1k: Int, capacity_percent: Int, files: Int, files_capacity_percent: Int, files_free: Int, files_used: Int, filesystem: Str, fstype: Str, mounted_on: Path, readonly: Bool, used_1k: Int}, Error] effect
-  mounts() -> Result[List[{available_1k: Int, blocks_1k: Int, capacity_percent: Int, files: Int, files_capacity_percent: Int, files_free: Int, files_used: Int, filesystem: Str, fstype: Str, mounted_on: Path, readonly: Bool, used_1k: Int}], Error] effect
+  mounts() -> Result[Stream[{available_1k: Int, blocks_1k: Int, capacity_percent: Int, files: Int, files_capacity_percent: Int, files_free: Int, files_used: Int, filesystem: Str, fstype: Str, mounted_on: Path, readonly: Bool, used_1k: Int}], Error] effect
   open_root(path: Path) -> Result[{id: Int}, Error] effect
   other_executable(mode: Int) -> Bool pure
   owner_executable(mode: Int) -> Bool pure
@@ -186,48 +186,48 @@ module json
 module linux
   add_default_ipv4_route(gateway: Str, interface: Str = default) -> Result[Unit, Error] effect
   blkid(device: Path) -> Result[{label: Str, part_entry_uuid: Str, part_table_type: Str, type: Str, uuid: Str}, Error] effect
-  block_devices() -> Result[List[{name: Str, partitioned: Bool, partitions: List[Path], path: Path, removable: Bool, rotational: Bool, sector_size: Int, sectors: Int, size: Int}], Error] effect
+  block_devices() -> Result[Stream[{name: Str, partitioned: Bool, partitions: List[Path], path: Path, removable: Bool, rotational: Bool, sector_size: Int, sectors: Int, size: Int}], Error] effect
   chroot(path: Path) -> Result[Unit, Error] effect
   depmod(version: Str = default) -> Result[Unit, Error] effect
   dhcp_close(fd: Int) -> Result[Unit, Error] effect
   dhcp_recv(fd: Int, timeout_ms: Int) -> Result[Bytes, Error] effect
   dhcp_send(fd: Int, payload: Bytes) -> Result[Unit, Error] effect
   dhcp_socket(interface: Str) -> Result[Int, Error] effect
-  disk_usage(path: Path = default) -> Result[List[{available: Int, device: Str, fstype: Str, mount: Str, total: Int, used: Int}], Error] effect
-  dmesg() -> Result[List[Str], Error] effect
+  disk_usage(path: Path = default) -> Result[Stream[{available: Int, device: Str, fstype: Str, mount: Str, total: Int, used: Int}], Error] effect
+  dmesg() -> Result[Stream[Str], Error] effect
   file_attrs(path: Path) -> Result[{append_only: Bool, compression_requested: Bool, dirsync: Bool, flags: Int, immutable: Bool, indexed_directory: Bool, journaled_data: Bool, no_atime: Bool, no_dump: Bool, no_tailmerging: Bool, secure_deletion: Bool, sync: Bool, top_of_directory_hierarchies: Bool, undelete: Bool}, Error] effect
   file_version(path: Path) -> Result[Int, Error] effect
   fsck(device: Path, fstype: Str = default, repair: Bool = default) -> Result[{errors: List[Str], status: Int}, Error] effect
   halt() -> Result[Unit, Error] effect
   hwclock() -> Result[Int, Error] effect
   insmod(path: Path, params: Str = default) -> Result[Unit, Error] effect
-  interfaces() -> Result[List[{addresses: List[{addr: Str, family: Str, prefix_len: Int}], flags: List[Str], mac: Str, mtu: Int, name: Str}], Error] effect
+  interfaces() -> Result[Stream[{addresses: List[{addr: Str, family: Str, prefix_len: Int}], flags: List[Str], mac: Str, mtu: Int, name: Str}], Error] effect
   is_mountpoint(path: Path) -> Result[Bool, Error] effect
   kill_all(signal: Str = default, except_pid1: Bool = default) -> Result[Unit, Error] effect
   link_up(interface: Str) -> Result[Unit, Error] effect
   loop_attach(file: Path, device: Path = default) -> Result[Path, Error] effect
   loop_detach(device: Path) -> Result[Unit, Error] effect
-  loop_list() -> Result[List[{device: Path, file: Path, offset: Int, size: Int}], Error] effect
+  loop_list() -> Result[Stream[{device: Path, file: Path, offset: Int, size: Int}], Error] effect
   meminfo() -> Result[{available: Int, buffers: Int, cached: Int, free: Int, swap_free: Int, swap_total: Int, total: Int}, Error] effect
   mknod(path: Path, kind: Str, major: Int, minor: Int) -> Result[Unit, Error] effect
   mkswap(device: Path) -> Result[Unit, Error] effect
   modinfo(name: Str) -> Result[{description: Str, filename: Path, license: Str, name: Str, params: List[{description: Str, name: Str, type: Str}], version: Str}, Error] effect
   modprobe(name: Str, params: Str = default) -> Result[Unit, Error] effect
-  modules() -> Result[List[{name: Str, size: Int, used_by: List[Str]}], Error] effect
+  modules() -> Result[Stream[{name: Str, size: Int, used_by: List[Str]}], Error] effect
   mount(source: Str, target: Path, fstype: Str = default, options: List[Str] = default) -> Result[Unit, Error] effect
   mount_all() -> Result[Unit, Error] effect
-  open_files(pid: Int = default) -> Result[List[{command: Str, fd: Int, inode: Int, local: Str, path: Path, pid: Int, protocol: Str, remote: Str, type: Str}], Error] effect
+  open_files(pid: Int = default) -> Result[Stream[{command: Str, fd: Int, inode: Int, local: Str, path: Path, pid: Int, protocol: Str, remote: Str, type: Str}], Error] effect
   partition_table(device: Path) -> Result[{id: Str, label: Str, partitions: List[{end: Int, index: Int, name: Str, size: Int, start: Int, type: Str, uuid: Str}], sector_size: Int}, Error] effect
   pivot_root(new_root: Path, put_old: Path) -> Result[Unit, Error] effect
   poweroff() -> Result[Unit, Error] effect
   read_device(device: Path, dest: Path, bytes: Int) -> Result[Unit, Error] effect
   reboot() -> Result[Unit, Error] effect
   rfkill_block(id: Int) -> Result[Unit, Error] effect
-  rfkill_list() -> Result[List[{hard_blocked: Bool, id: Int, name: Str, soft_blocked: Bool, type: Str}], Error] effect
+  rfkill_list() -> Result[Stream[{hard_blocked: Bool, id: Int, name: Str, soft_blocked: Bool, type: Str}], Error] effect
   rfkill_unblock(id: Int) -> Result[Unit, Error] effect
   rmmod(name: Str, force: Bool = default) -> Result[Unit, Error] effect
   root_device() -> Result[Str, Error] effect
-  routes() -> Result[List[{dev: Str, dst: Str, family: Str, flags: List[Str], gateway: Str, metric: Int, prefix_len: Int}], Error] effect
+  routes() -> Result[Stream[{dev: Str, dst: Str, family: Str, flags: List[Str], gateway: Str, metric: Int, prefix_len: Int}], Error] effect
   set_file_attrs(path: Path, flags: Int) -> Result[Unit, Error] effect
   set_file_version(path: Path, version: Int) -> Result[Unit, Error] effect
   set_hwclock(epoch_ms: Int) -> Result[Unit, Error] effect
@@ -369,7 +369,7 @@ module unix
   notify_close(fd: Int) -> Result[Unit, Error] effect
   notify_ready(fd: Int) -> Result[Bool, Error] effect
   pid1_setup(signals: List[Str], subreaper: Bool = default, allow_non_pid1: Bool = default) -> Result[Unit, Error] effect
-  reap_child_events() -> Result[List[{pid: Int, status: Status}], Error] effect
+  reap_child_events() -> Result[Stream[{pid: Int, status: Status}], Error] effect
   set_hostname(hostname: Str) -> Result[Unit, Error] effect
   set_tty_attrs(attrs: Record, fd: Int = default) -> Result[Unit, Error] effect
   shutdown_process_groups(groups: List[Int], term_timeout: Duration, kill_timeout: Duration = default) -> Result[{kill_sent: Int, reaped: List[{pid: Int, status: Status}], remaining: List[Int], term_sent: Int}, Error] effect

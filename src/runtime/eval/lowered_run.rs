@@ -1279,9 +1279,13 @@ fn child_cpu_ns() -> (i64, i64) {
 }
 
 fn timeval_ns(tv: libc::timeval) -> i64 {
+    #[cfg(target_os = "linux")]
+    let usec = tv.tv_usec;
+    #[cfg(not(target_os = "linux"))]
+    let usec = i64::from(tv.tv_usec);
     tv.tv_sec
         .saturating_mul(1_000_000_000)
-        .saturating_add(i64::from(tv.tv_usec).saturating_mul(1_000))
+        .saturating_add(usec.saturating_mul(1_000))
 }
 
 fn cpu_ns_delta(before: (i64, i64)) -> (i64, i64) {
@@ -3019,6 +3023,8 @@ fn lowered_runtime_list_result(
     result: Result<Vec<Value>, RuntimeError>,
     span: Span,
 ) -> Result<LoweredValue, RuntimeError> {
+    // Only callers whose declared result is List may cross this boundary. A
+    // declared Stream must stay a Value::Stream until its consumer pulls it.
     lowered_runtime_value(
         match result {
             Ok(values) => Value::ok(Value::List(values)),
@@ -3026,6 +3032,26 @@ fn lowered_runtime_list_result(
         },
         span,
     )
+}
+
+fn lowered_runtime_stream_result(
+    result: Result<crate::runtime::value::StreamValue, RuntimeError>,
+    span: Span,
+) -> Result<LoweredValue, RuntimeError> {
+    lowered_runtime_value(
+        match result {
+            Ok(stream) => Value::ok(Value::stream(stream)),
+            Err(error) => Value::err(Value::Error(Box::new(error))),
+        },
+        span,
+    )
+}
+
+fn lowered_stream_from_values(values: Vec<LoweredValue>) -> LoweredValue {
+    LoweredValue::Stream(Box::new(StreamValue::from_values_live(
+        "linux.dry_run",
+        values.into_iter().map(LoweredValue::into_value).collect(),
+    )))
 }
 
 fn lowered_process_handle_list_arg(
@@ -4766,7 +4792,7 @@ impl Evaluator {
                     "archive.cpio_list",
                     span,
                 )?;
-                lowered_runtime_list_result(
+                lowered_runtime_stream_result(
                     archive_module::cpio_list(self.host_path(&path), span),
                     span,
                 )?
@@ -4851,12 +4877,7 @@ impl Evaluator {
                     span,
                 )?;
                 let path = lowered_path_arg(values.remove(0), "archive.tar_list", span)?;
-                match archive_module::tar_list(
-                    self.host_path(&path),
-                    &compression,
-                    members,
-                    span,
-                ) {
+                match archive_module::tar_list(self.host_path(&path), &compression, members, span) {
                     Ok(stream) => lowered_result_ok(LoweredValue::Stream(Box::new(stream))),
                     Err(error) => lowered_result_err_value(error),
                 }
@@ -4883,7 +4904,7 @@ impl Evaluator {
                     "archive.zip_list",
                     span,
                 )?;
-                lowered_runtime_list_result(
+                lowered_runtime_stream_result(
                     archive_module::zip_list(self.host_path(&path), span),
                     span,
                 )?
@@ -5148,16 +5169,9 @@ impl Evaluator {
                     Err(error) => lowered_result_err_value(error),
                 }
             }
-            RuntimeOp::FsMounts if values.is_empty() => match fs_module::mounts(span) {
-                Ok(mounts) => {
-                    let mut items = Vec::with_capacity(mounts.len());
-                    for mount in mounts {
-                        items.push(lowered_fs_mount_record(mount)?);
-                    }
-                    lowered_result_ok(LoweredValue::List(items))
-                }
-                Err(error) => lowered_result_err_value(error),
-            },
+            RuntimeOp::FsMounts if values.is_empty() => {
+                lowered_runtime_stream_result(fs_module::mounts(span), span)?
+            }
             RuntimeOp::FsMountFor if values.len() == 1 => {
                 let path = lowered_path_arg(
                     values.pop().expect("checked value length"),
@@ -6814,7 +6828,7 @@ impl Evaluator {
                     lowered_runtime_result(linux_module::interfaces(span), span)?
                 } else {
                     self.linux_dry_run_log("interfaces", &[], span)?;
-                    lowered_result_ok(LoweredValue::List(vec![LoweredValue::Record(
+                    lowered_result_ok(lowered_stream_from_values(vec![LoweredValue::Record(
                         BTreeMap::from([
                             (Arc::from("name"), LoweredValue::Str("eth0".into())),
                             (
@@ -6852,7 +6866,7 @@ impl Evaluator {
                     lowered_runtime_result(linux_module::routes(span), span)?
                 } else {
                     self.linux_dry_run_log("routes", &[], span)?;
-                    lowered_result_ok(LoweredValue::List(vec![LoweredValue::Record(
+                    lowered_result_ok(lowered_stream_from_values(vec![LoweredValue::Record(
                         BTreeMap::from([
                             (Arc::from("family"), LoweredValue::Str("inet".into())),
                             (Arc::from("dst"), LoweredValue::Str("default".into())),
@@ -7348,14 +7362,14 @@ impl Evaluator {
                 }
             }
             RuntimeOp::ProcessList if values.is_empty() => {
-                lowered_runtime_list_result(process_module::list_processes(span), span)?
+                lowered_runtime_stream_result(process_module::list_processes(span), span)?
             }
             RuntimeOp::ProcessThreads if values.is_empty() || values.len() == 1 => {
                 let pid = match values.pop() {
                     Some(value) => Some(lowered_int_arg(Some(value), "process.threads", span)?),
                     None => None,
                 };
-                lowered_runtime_list_result(process_module::list_threads(pid, span), span)?
+                lowered_runtime_stream_result(process_module::list_threads(pid, span), span)?
             }
             RuntimeOp::ProcessCurrentPid if values.is_empty() => {
                 lowered_result_ok(LoweredValue::Int(std::process::id() as i64))
@@ -7397,14 +7411,14 @@ impl Evaluator {
             }
             RuntimeOp::ProcessPort if values.len() == 1 => {
                 let port = lowered_int_arg(values.pop(), "process.port", span)?;
-                lowered_runtime_list_result(process_module::port_processes(port, span), span)?
+                lowered_runtime_stream_result(process_module::port_processes(port, span), span)?
             }
             RuntimeOp::ProcessPorts if values.is_empty() => {
-                lowered_runtime_list_result(process_module::listening_port_processes(span), span)?
+                lowered_runtime_stream_result(process_module::listening_port_processes(span), span)?
             }
             RuntimeOp::ProcessPortsForPid if values.len() == 1 => {
                 let pid = lowered_int_arg(values.pop(), "process.ports", span)?;
-                lowered_runtime_list_result(process_module::pid_port_processes(pid, span), span)?
+                lowered_runtime_stream_result(process_module::pid_port_processes(pid, span), span)?
             }
             RuntimeOp::ProcessSignal if values.len() == 1 => {
                 let signal = lowered_str_arg_owned(values.pop(), "", "process.signal", span)?;
@@ -9691,22 +9705,24 @@ impl Evaluator {
             }
             RuntimeOp::LinuxModules => {
                 self.linux_dry_run_log("modules", &[], span)?;
-                Ok(Value::ok(Value::List(vec![Value::Record(
-                    RecordMap::from([
+                Ok(Value::ok(Value::stream(StreamValue::from_values_live(
+                    "linux.modules",
+                    vec![Value::Record(RecordMap::from([
                         (Arc::from("name"), Value::Str("xsh_demo".into())),
                         (Arc::from("size"), Value::Int(4096)),
                         (
                             Arc::from("used_by"),
                             Value::List(vec![Value::Str("xsh_dep".into())]),
                         ),
-                    ]),
-                )])))
+                    ]))],
+                ))))
             }
             RuntimeOp::LinuxDmesg => {
                 self.linux_dry_run_log("dmesg", &[], span)?;
-                Ok(Value::ok(Value::List(vec![Value::Str(
-                    "xsh dry-run kernel message".into(),
-                )])))
+                Ok(Value::ok(Value::stream(StreamValue::from_values_live(
+                    "linux.dmesg",
+                    vec![Value::Str("xsh dry-run kernel message".into())],
+                ))))
             }
             RuntimeOp::LinuxIsMountpoint => {
                 let path = lowered_path_arg(
@@ -9728,54 +9744,58 @@ impl Evaluator {
                 };
                 let mount = path.unwrap_or_else(|| "/".to_string());
                 self.linux_dry_run_log("disk_usage", &[("path", mount.clone())], span)?;
-                Ok(Value::ok(Value::List(vec![Value::Record(
-                    RecordMap::from([
+                Ok(Value::ok(Value::stream(StreamValue::from_values_live(
+                    "linux.disk_usage",
+                    vec![Value::Record(RecordMap::from([
                         (Arc::from("device"), Value::Str("rootfs".into())),
                         (Arc::from("mount"), Value::Str(mount.into())),
                         (Arc::from("fstype"), Value::Str("tmpfs".into())),
                         (Arc::from("total"), Value::Int(1024 * 1024 * 1024)),
                         (Arc::from("used"), Value::Int(256 * 1024 * 1024)),
                         (Arc::from("available"), Value::Int(768 * 1024 * 1024)),
-                    ]),
-                )])))
+                    ]))],
+                ))))
             }
             RuntimeOp::LinuxBlockDevices => {
                 self.linux_dry_run_log("block_devices", &[], span)?;
-                Ok(Value::ok(Value::List(vec![
-                    Value::Record(RecordMap::from([
-                        (Arc::from("name"), Value::Str("vda".into())),
-                        (
-                            Arc::from("path"),
-                            Value::Path(path_value_from_pathbuf(PathBuf::from("/dev/vda"))?),
-                        ),
-                        (Arc::from("size"), Value::Int(128 * 1024 * 1024)),
-                        (Arc::from("sectors"), Value::Int(262144)),
-                        (Arc::from("sector_size"), Value::Int(512)),
-                        (Arc::from("removable"), Value::Bool(false)),
-                        (Arc::from("rotational"), Value::Bool(false)),
-                        (Arc::from("partitioned"), Value::Bool(false)),
-                        (Arc::from("partitions"), Value::List(Vec::new())),
-                    ])),
-                    Value::Record(RecordMap::from([
-                        (Arc::from("name"), Value::Str("vdb".into())),
-                        (
-                            Arc::from("path"),
-                            Value::Path(path_value_from_pathbuf(PathBuf::from("/dev/vdb"))?),
-                        ),
-                        (Arc::from("size"), Value::Int(128 * 1024 * 1024)),
-                        (Arc::from("sectors"), Value::Int(262144)),
-                        (Arc::from("sector_size"), Value::Int(512)),
-                        (Arc::from("removable"), Value::Bool(false)),
-                        (Arc::from("rotational"), Value::Bool(false)),
-                        (Arc::from("partitioned"), Value::Bool(true)),
-                        (
-                            Arc::from("partitions"),
-                            Value::List(vec![Value::Path(path_value_from_pathbuf(
-                                PathBuf::from("/dev/vdb1"),
-                            )?)]),
-                        ),
-                    ])),
-                ])))
+                Ok(Value::ok(Value::stream(StreamValue::from_values_live(
+                    "linux.block_devices",
+                    vec![
+                        Value::Record(RecordMap::from([
+                            (Arc::from("name"), Value::Str("vda".into())),
+                            (
+                                Arc::from("path"),
+                                Value::Path(path_value_from_pathbuf(PathBuf::from("/dev/vda"))?),
+                            ),
+                            (Arc::from("size"), Value::Int(128 * 1024 * 1024)),
+                            (Arc::from("sectors"), Value::Int(262144)),
+                            (Arc::from("sector_size"), Value::Int(512)),
+                            (Arc::from("removable"), Value::Bool(false)),
+                            (Arc::from("rotational"), Value::Bool(false)),
+                            (Arc::from("partitioned"), Value::Bool(false)),
+                            (Arc::from("partitions"), Value::List(Vec::new())),
+                        ])),
+                        Value::Record(RecordMap::from([
+                            (Arc::from("name"), Value::Str("vdb".into())),
+                            (
+                                Arc::from("path"),
+                                Value::Path(path_value_from_pathbuf(PathBuf::from("/dev/vdb"))?),
+                            ),
+                            (Arc::from("size"), Value::Int(128 * 1024 * 1024)),
+                            (Arc::from("sectors"), Value::Int(262144)),
+                            (Arc::from("sector_size"), Value::Int(512)),
+                            (Arc::from("removable"), Value::Bool(false)),
+                            (Arc::from("rotational"), Value::Bool(false)),
+                            (Arc::from("partitioned"), Value::Bool(true)),
+                            (
+                                Arc::from("partitions"),
+                                Value::List(vec![Value::Path(path_value_from_pathbuf(
+                                    PathBuf::from("/dev/vdb1"),
+                                )?)]),
+                            ),
+                        ])),
+                    ],
+                ))))
             }
             RuntimeOp::LinuxSysctlGet => {
                 let key =
@@ -10016,15 +10036,16 @@ impl Evaluator {
             }
             RuntimeOp::LinuxRfkillList => {
                 self.linux_dry_run_log("rfkill_list", &[], span)?;
-                Ok(Value::ok(Value::List(vec![Value::Record(
-                    RecordMap::from([
+                Ok(Value::ok(Value::stream(StreamValue::from_values_live(
+                    "linux.rfkill_list",
+                    vec![Value::Record(RecordMap::from([
                         (Arc::from("id"), Value::Int(0)),
                         (Arc::from("name"), Value::Str("phy0".into())),
                         (Arc::from("type"), Value::Str("wlan".into())),
                         (Arc::from("soft_blocked"), Value::Bool(false)),
                         (Arc::from("hard_blocked"), Value::Bool(false)),
-                    ]),
-                )])))
+                    ]))],
+                ))))
             }
             RuntimeOp::LinuxRfkillBlock | RuntimeOp::LinuxRfkillUnblock => {
                 let id = lowered_int_arg(values.first().cloned(), "linux.rfkill", span)?;
@@ -10070,8 +10091,9 @@ impl Evaluator {
             }
             RuntimeOp::LinuxLoopList => {
                 self.linux_dry_run_log("loop_list", &[], span)?;
-                Ok(Value::ok(Value::List(vec![Value::Record(
-                    RecordMap::from([
+                Ok(Value::ok(Value::stream(StreamValue::from_values_live(
+                    "linux.loop_list",
+                    vec![Value::Record(RecordMap::from([
                         (
                             Arc::from("device"),
                             Value::Path(path_value_from_pathbuf(PathBuf::from("/dev/loop0"))?),
@@ -10082,8 +10104,8 @@ impl Evaluator {
                         ),
                         (Arc::from("offset"), Value::Int(0)),
                         (Arc::from("size"), Value::Int(0)),
-                    ]),
-                )])))
+                    ]))],
+                ))))
             }
             RuntimeOp::LinuxMkswap => {
                 let device = lowered_path_arg(
@@ -10191,8 +10213,9 @@ impl Evaluator {
                 };
                 let pid_value = pid.unwrap_or(123);
                 self.linux_dry_run_log("open_files", &[("pid", pid_value.to_string())], span)?;
-                Ok(Value::ok(Value::List(vec![Value::Record(
-                    RecordMap::from([
+                Ok(Value::ok(Value::stream(StreamValue::from_values_live(
+                    "linux.open_files",
+                    vec![Value::Record(RecordMap::from([
                         (Arc::from("pid"), Value::Int(pid_value)),
                         (Arc::from("command"), Value::Str("xsh".into())),
                         (Arc::from("fd"), Value::Int(1)),
@@ -10205,8 +10228,8 @@ impl Evaluator {
                         (Arc::from("protocol"), Value::Str("".into())),
                         (Arc::from("local"), Value::Str("".into())),
                         (Arc::from("remote"), Value::Str("".into())),
-                    ]),
-                )])))
+                    ]))],
+                ))))
             }
             RuntimeOp::LinuxPartitionTable => {
                 let device = lowered_path_arg(

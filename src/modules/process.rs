@@ -2,7 +2,7 @@
 
 use crate::modules::time::{format_epoch_ms, now_epoch_ms};
 use crate::modules::user::name_for_uid;
-use crate::runtime::value::{RecordMap, RecordShape, RuntimeError, Value};
+use crate::runtime::value::{LiveStream, RecordMap, RecordShape, RuntimeError, StreamValue, Value};
 use crate::source::Span;
 use std::sync::{Arc, LazyLock};
 
@@ -62,11 +62,138 @@ pub(crate) struct SignalInfo {
     pub(crate) number: i32,
 }
 
-pub(crate) fn list_processes(span: Span) -> Result<Vec<Value>, RuntimeError> {
-    list_processes_impl(span)
+pub(crate) fn list_processes(span: Span) -> Result<StreamValue, RuntimeError> {
+    list_processes_stream(span)
 }
 
-pub(crate) fn list_threads(pid: Option<i64>, span: Span) -> Result<Vec<Value>, RuntimeError> {
+#[cfg(target_os = "linux")]
+fn list_processes_stream(span: Span) -> Result<StreamValue, RuntimeError> {
+    let now_ms = now_epoch_ms();
+    let boot_time_ms = linux_boot_time_ms(span)?;
+    let ticks_per_second = match rustix::param::clock_ticks_per_second() {
+        0 => 100,
+        ticks => ticks as i64,
+    };
+    let mut entries = std::fs::read_dir("/proc")
+        .map_err(|error| RuntimeError::new("process-list", error.to_string()).with_span(span))?
+        .flatten()
+        .filter_map(|entry| {
+            let pid = entry.file_name().to_str()?.parse::<i64>().ok()?;
+            let uid = entry.metadata().map(|metadata| metadata.uid()).unwrap_or(0);
+            Some((pid, entry.path(), uid))
+        })
+        .collect::<Vec<_>>();
+    entries.sort_unstable_by_key(|(pid, _, _)| *pid);
+    Ok(StreamValue::from_live(
+        "process.list",
+        LinuxProcessStream {
+            entries: entries.into_iter(),
+            now_ms,
+            boot_time_ms,
+            ticks_per_second,
+        },
+    ))
+}
+
+#[cfg(target_os = "linux")]
+struct LinuxProcessStream {
+    entries: std::vec::IntoIter<(i64, std::path::PathBuf, u32)>,
+    now_ms: i64,
+    boot_time_ms: i64,
+    ticks_per_second: i64,
+}
+
+#[cfg(target_os = "linux")]
+impl LiveStream for LinuxProcessStream {
+    fn next(&mut self, span: Span) -> Result<Option<Value>, RuntimeError> {
+        loop {
+            let Some((pid, path, uid)) = self.entries.next() else {
+                return Ok(None);
+            };
+            let Some(record) =
+                linux_process_record(pid, &path, self.boot_time_ms, self.ticks_per_second, uid)
+            else {
+                continue;
+            };
+            return Ok(Some(process_record_value(record, self.now_ms, span)));
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn list_processes_stream(span: Span) -> Result<StreamValue, RuntimeError> {
+    use std::ffi::c_void;
+
+    const PROC_ALL_PIDS: u32 = 1;
+    let needed = unsafe { libc::proc_listpids(PROC_ALL_PIDS, 0, std::ptr::null_mut(), 0) };
+    if needed < 0 {
+        return Err(
+            RuntimeError::new("process-list", std::io::Error::last_os_error().to_string())
+                .with_span(span),
+        );
+    }
+    let mut pids = vec![0i32; needed as usize / std::mem::size_of::<i32>() + 64];
+    let bytes = (pids.len() * std::mem::size_of::<i32>()) as i32;
+    let returned =
+        unsafe { libc::proc_listpids(PROC_ALL_PIDS, 0, pids.as_mut_ptr().cast::<c_void>(), bytes) };
+    if returned < 0 {
+        return Err(
+            RuntimeError::new("process-list", std::io::Error::last_os_error().to_string())
+                .with_span(span),
+        );
+    }
+    let count = returned as usize / std::mem::size_of::<i32>();
+    let mut pids = pids
+        .into_iter()
+        .take(count)
+        .filter(|pid| *pid > 0)
+        .collect::<Vec<_>>();
+    pids.sort_unstable();
+    Ok(StreamValue::from_live(
+        "process.list",
+        MacProcessStream {
+            pids: pids.into_iter(),
+            now_ms: now_epoch_ms(),
+        },
+    ))
+}
+
+#[cfg(target_os = "macos")]
+struct MacProcessStream {
+    pids: std::vec::IntoIter<i32>,
+    now_ms: i64,
+}
+
+#[cfg(target_os = "macos")]
+impl LiveStream for MacProcessStream {
+    fn next(&mut self, span: Span) -> Result<Option<Value>, RuntimeError> {
+        loop {
+            let Some(pid) = self.pids.next() else {
+                return Ok(None);
+            };
+            if let Some(record) = macos_process_record(pid) {
+                return Ok(Some(process_record_value(record, self.now_ms, span)));
+            }
+        }
+    }
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+fn list_processes_stream(_span: Span) -> Result<StreamValue, RuntimeError> {
+    Ok(StreamValue::from_live("process.list", EmptyProcessStream))
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+struct EmptyProcessStream;
+
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+impl LiveStream for EmptyProcessStream {
+    fn next(&mut self, _span: Span) -> Result<Option<Value>, RuntimeError> {
+        Ok(None)
+    }
+}
+
+pub(crate) fn list_threads(pid: Option<i64>, span: Span) -> Result<StreamValue, RuntimeError> {
     if let Some(pid) = pid
         && !(1..=i32::MAX as i64).contains(&pid)
     {
@@ -74,7 +201,226 @@ pub(crate) fn list_threads(pid: Option<i64>, span: Span) -> Result<Vec<Value>, R
             RuntimeError::new("pid-range", "pid must be a positive process id").with_span(span),
         );
     }
-    list_threads_impl(pid, span)
+    list_threads_stream(pid, span)
+}
+
+#[cfg(target_os = "linux")]
+fn list_threads_stream(pid: Option<i64>, span: Span) -> Result<StreamValue, RuntimeError> {
+    let now_ms = now_epoch_ms();
+    let boot_time_ms = linux_boot_time_ms(span)?;
+    let ticks_per_second = match rustix::param::clock_ticks_per_second() {
+        0 => 100,
+        ticks => ticks as i64,
+    };
+    let mut processes = if let Some(owner_pid) = pid {
+        let path = std::path::PathBuf::from(format!("/proc/{owner_pid}"));
+        let uid = std::fs::metadata(&path)
+            .map(|metadata| metadata.uid())
+            .unwrap_or(0);
+        vec![(owner_pid, path, uid)]
+    } else {
+        std::fs::read_dir("/proc")
+            .map_err(|error| {
+                RuntimeError::new("process-threads", error.to_string()).with_span(span)
+            })?
+            .flatten()
+            .filter_map(|entry| {
+                let owner_pid = entry.file_name().to_str()?.parse::<i64>().ok()?;
+                let uid = entry.metadata().map(|metadata| metadata.uid()).unwrap_or(0);
+                Some((owner_pid, entry.path(), uid))
+            })
+            .collect::<Vec<_>>()
+    };
+    processes.sort_unstable_by_key(|(owner_pid, _, _)| *owner_pid);
+    Ok(StreamValue::from_live(
+        "process.threads",
+        LinuxThreadStream {
+            processes: processes.into_iter(),
+            current: None,
+            now_ms,
+            boot_time_ms,
+            ticks_per_second,
+        },
+    ))
+}
+
+#[cfg(target_os = "linux")]
+struct LinuxThreadCursor {
+    process: ProcessRecord,
+    tasks: std::vec::IntoIter<(i64, std::path::PathBuf)>,
+}
+
+#[cfg(target_os = "linux")]
+struct LinuxThreadStream {
+    processes: std::vec::IntoIter<(i64, std::path::PathBuf, u32)>,
+    current: Option<LinuxThreadCursor>,
+    now_ms: i64,
+    boot_time_ms: i64,
+    ticks_per_second: i64,
+}
+
+#[cfg(target_os = "linux")]
+impl LiveStream for LinuxThreadStream {
+    fn next(&mut self, span: Span) -> Result<Option<Value>, RuntimeError> {
+        loop {
+            if let Some(cursor) = &mut self.current {
+                for (thread_id, path) in cursor.tasks.by_ref() {
+                    let Ok(stat) = std::fs::read_to_string(path.join("stat")) else {
+                        continue;
+                    };
+                    let Some(parsed) = parse_linux_stat(&stat) else {
+                        continue;
+                    };
+                    return Ok(Some(thread_record_value(
+                        ThreadRecord {
+                            process: cursor.process.clone(),
+                            pid: thread_id,
+                            thread_id,
+                            thread_name: parsed.command,
+                            status: parsed.status,
+                        },
+                        self.now_ms,
+                        span,
+                    )));
+                }
+                self.current = None;
+            }
+
+            let Some((owner_pid, process_path, uid)) = self.processes.next() else {
+                return Ok(None);
+            };
+            let Some(process) = linux_process_record(
+                owner_pid,
+                &process_path,
+                self.boot_time_ms,
+                self.ticks_per_second,
+                uid,
+            ) else {
+                continue;
+            };
+            let Ok(mut tasks) = std::fs::read_dir(process_path.join("task")) else {
+                continue;
+            };
+            let mut tasks = tasks
+                .by_ref()
+                .flatten()
+                .filter_map(|task| {
+                    let thread_id = task.file_name().to_str()?.parse::<i64>().ok()?;
+                    Some((thread_id, task.path()))
+                })
+                .collect::<Vec<_>>();
+            tasks.sort_unstable_by_key(|(thread_id, _)| *thread_id);
+            self.current = Some(LinuxThreadCursor {
+                process,
+                tasks: tasks.into_iter(),
+            });
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn list_threads_stream(pid: Option<i64>, span: Span) -> Result<StreamValue, RuntimeError> {
+    let mut pids = if let Some(pid) = pid {
+        vec![pid as i32]
+    } else {
+        macos_all_pids("process-threads", span)?
+    };
+    pids.sort_unstable();
+    Ok(StreamValue::from_live(
+        "process.threads",
+        MacThreadStream {
+            pids: pids.into_iter(),
+            current: None,
+            now_ms: now_epoch_ms(),
+        },
+    ))
+}
+
+#[cfg(target_os = "macos")]
+struct MacThreadCursor {
+    process: ProcessRecord,
+    threads: std::vec::IntoIter<u64>,
+}
+
+#[cfg(target_os = "macos")]
+struct MacThreadStream {
+    pids: std::vec::IntoIter<i32>,
+    current: Option<MacThreadCursor>,
+    now_ms: i64,
+}
+
+#[cfg(target_os = "macos")]
+impl LiveStream for MacThreadStream {
+    fn next(&mut self, span: Span) -> Result<Option<Value>, RuntimeError> {
+        loop {
+            if let Some(cursor) = &mut self.current {
+                for thread_id in cursor.threads.by_ref() {
+                    let Some(info) = macos_thread_info(cursor.process.pid as i32, thread_id) else {
+                        continue;
+                    };
+                    return Ok(Some(thread_record_value(
+                        ThreadRecord {
+                            process: cursor.process.clone(),
+                            pid: cursor.process.pid,
+                            thread_id: thread_id.min(i64::MAX as u64) as i64,
+                            thread_name: c_chars_to_string(&info.pth_name),
+                            status: macos_thread_status(info.pth_run_state),
+                        },
+                        self.now_ms,
+                        span,
+                    )));
+                }
+                self.current = None;
+            }
+            let Some(pid) = self.pids.next() else {
+                return Ok(None);
+            };
+            let Some(process) = macos_process_record(pid) else {
+                continue;
+            };
+            let mut threads = macos_thread_ids(pid);
+            threads.sort_unstable();
+            self.current = Some(MacThreadCursor {
+                process,
+                threads: threads.into_iter(),
+            });
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn macos_all_pids(kind: &str, span: Span) -> Result<Vec<i32>, RuntimeError> {
+    use std::ffi::c_void;
+    const PROC_ALL_PIDS: u32 = 1;
+    let needed = unsafe { libc::proc_listpids(PROC_ALL_PIDS, 0, std::ptr::null_mut(), 0) };
+    if needed < 0 {
+        return Err(
+            RuntimeError::new(kind, std::io::Error::last_os_error().to_string()).with_span(span),
+        );
+    }
+    let mut pids = vec![0i32; needed as usize / std::mem::size_of::<i32>() + 64];
+    let bytes = (pids.len() * std::mem::size_of::<i32>()) as i32;
+    let returned =
+        unsafe { libc::proc_listpids(PROC_ALL_PIDS, 0, pids.as_mut_ptr().cast::<c_void>(), bytes) };
+    if returned < 0 {
+        return Err(
+            RuntimeError::new(kind, std::io::Error::last_os_error().to_string()).with_span(span),
+        );
+    }
+    let count = returned as usize / std::mem::size_of::<i32>();
+    Ok(pids
+        .into_iter()
+        .take(count)
+        .filter(|pid| *pid > 0)
+        .collect())
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+fn list_threads_stream(_pid: Option<i64>, _span: Span) -> Result<StreamValue, RuntimeError> {
+    Ok(StreamValue::from_live(
+        "process.threads",
+        EmptyProcessStream,
+    ))
 }
 
 pub(crate) fn process_stats(pid: i64, span: Span) -> Result<Value, RuntimeError> {
@@ -86,13 +432,13 @@ pub(crate) fn process_stats(pid: i64, span: Span) -> Result<Value, RuntimeError>
     Ok(process_stats_record(process_stats_impl(pid, span)?))
 }
 
-pub(crate) fn port_processes(port: i64, span: Span) -> Result<Vec<Value>, RuntimeError> {
+pub(crate) fn port_processes(port: i64, span: Span) -> Result<StreamValue, RuntimeError> {
     if !(1..=u16::MAX as i64).contains(&port) {
         return Err(
             RuntimeError::new("port-range", "port must be between 1 and 65535").with_span(span),
         );
     }
-    port_processes_impl(Some(port as u16), None, span)
+    port_process_stream(Some(port as u16), None, span)
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -115,17 +461,128 @@ fn process_stats_record(stats: ProcessStatsRecord) -> Value {
     ]))
 }
 
-pub(crate) fn listening_port_processes(span: Span) -> Result<Vec<Value>, RuntimeError> {
-    port_processes_impl(None, None, span)
+pub(crate) fn listening_port_processes(span: Span) -> Result<StreamValue, RuntimeError> {
+    port_process_stream(None, None, span)
 }
 
-pub(crate) fn pid_port_processes(pid: i64, span: Span) -> Result<Vec<Value>, RuntimeError> {
+pub(crate) fn pid_port_processes(pid: i64, span: Span) -> Result<StreamValue, RuntimeError> {
     if !(1..=i32::MAX as i64).contains(&pid) {
         return Err(
             RuntimeError::new("pid-range", "pid must be a positive process id").with_span(span),
         );
     }
-    port_processes_impl(None, Some(pid), span)
+    port_process_stream(None, Some(pid), span)
+}
+
+fn port_process_stream(
+    port: Option<u16>,
+    pid: Option<i64>,
+    span: Span,
+) -> Result<StreamValue, RuntimeError> {
+    let records = port_process_records(port, pid, span)?;
+    Ok(StreamValue::from_live(
+        "process.ports",
+        PortRecordStream {
+            records: records.into_iter(),
+        },
+    ))
+}
+
+struct PortRecordStream {
+    records: std::vec::IntoIter<PortProcessRecord>,
+}
+
+impl LiveStream for PortRecordStream {
+    fn next(&mut self, _span: Span) -> Result<Option<Value>, RuntimeError> {
+        Ok(self.records.next().map(port_process_record_value))
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn port_process_records(
+    port: Option<u16>,
+    pid: Option<i64>,
+    span: Span,
+) -> Result<Vec<PortProcessRecord>, RuntimeError> {
+    let sockets = linux_port_sockets(port, span)?;
+    let target_inodes = sockets
+        .iter()
+        .filter_map(|socket| socket.inode)
+        .collect::<rustc_hash::FxHashSet<_>>();
+    if target_inodes.is_empty() {
+        return Ok(Vec::new());
+    }
+    let owners = match pid {
+        Some(pid) => linux_socket_owners_for_pid(pid, &target_inodes),
+        None => linux_socket_owners(&target_inodes, span)?,
+    };
+    let boot_time_ms = linux_boot_time_ms(span)?;
+    let ticks_per_second = match rustix::param::clock_ticks_per_second() {
+        0 => 100,
+        ticks => ticks as i64,
+    };
+    let mut records = Vec::new();
+    for socket in sockets {
+        let Some(inode) = socket.inode else {
+            continue;
+        };
+        let Some(socket_owners) = owners.get(&inode) else {
+            continue;
+        };
+        for owner in socket_owners {
+            let proc_path = std::path::PathBuf::from(format!("/proc/{}", owner.pid));
+            let uid = std::fs::metadata(&proc_path)
+                .map(|metadata| metadata.uid())
+                .unwrap_or(0);
+            let Some(process) =
+                linux_process_record(owner.pid, &proc_path, boot_time_ms, ticks_per_second, uid)
+            else {
+                continue;
+            };
+            records.push(PortProcessRecord {
+                pid: owner.pid,
+                fd: owner.fd,
+                inode: inode.min(i64::MAX as u64) as i64,
+                protocol: socket.protocol,
+                local_address: socket.local_address.clone(),
+                local_port: socket.local_port,
+                remote_address: socket.remote_address.clone(),
+                remote_port: socket.remote_port,
+                state: socket.state.clone(),
+                process,
+            });
+        }
+    }
+    records.sort_unstable_by_key(|record| {
+        (
+            record.pid,
+            protocol_name(record.protocol).to_string(),
+            record.fd,
+        )
+    });
+    Ok(records)
+}
+
+#[cfg(target_os = "macos")]
+fn port_process_records(
+    port: Option<u16>,
+    pid: Option<i64>,
+    span: Span,
+) -> Result<Vec<PortProcessRecord>, RuntimeError> {
+    if let Some(pid) = pid {
+        return Ok(macos_port_process_records(pid as i32, port));
+    }
+    let pids = macos_all_pids("process-port", span)?;
+    Ok(macos_port_process_records_parallel(&pids, port))
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+fn port_process_records(
+    _port: Option<u16>,
+    _pid: Option<i64>,
+    _span: Span,
+) -> Result<Vec<PortProcessRecord>, RuntimeError> {
+    Ok(Vec::new())
 }
 
 pub(crate) fn argv_words(text: &str, span: Span) -> Result<Vec<String>, RuntimeError> {
