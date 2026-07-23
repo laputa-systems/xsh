@@ -1558,6 +1558,28 @@ fn archive_module_omits_pax_global_headers_from_tar_listing() {
 }
 
 #[test]
+fn archive_module_streams_tar_listing_in_archive_order() {
+    let root = temp_path("archive-list-stream");
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).expect("create archive root");
+    let tarball = root.join("stream.tar");
+    write_test_tar_global_header(&tarball);
+    let script = format!(
+        "let entries = archive.tar_list_stream(Path({}))?\nvar paths: List[Str] = []\nfor entry in entries {{\n  paths = paths.push(entry.path.display())\n}}\nprint paths.join(\",\")\n",
+        xsh_string_literal(tarball.to_str().unwrap())
+    );
+    let output = run_temp_script("archive-list-stream", &script);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(String::from_utf8(output.stdout).unwrap(), "payload.txt\n");
+    assert_eq!(String::from_utf8(output.stderr).unwrap(), "");
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
 fn archive_module_extracts_tar_hardlinks_as_hardlinks() {
     let root = temp_path("archive-hardlink");
     let _ = std::fs::remove_dir_all(&root);

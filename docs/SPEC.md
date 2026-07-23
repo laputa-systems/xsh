@@ -1654,6 +1654,10 @@ uid/gid changes, cwd/env setup, and process status.
 
 - `archive.tar_list(path: Path, compression: Str = "auto",
   members: List[Path] = []) -> Result[List[Record]]`.
+- `archive.tar_list_stream(path: Path, compression: Str = "auto",
+  members: List[Path] = []) -> Result[Stream[Record]]`. The stream opens the
+  archive when created and yields selected entries in archive order as they
+  are consumed.
 - `archive.tar_extract(path: Path, dest: Path, strip_components: Int = 0,
   compression: Str = "auto", overwrite: Bool = false,
   members: List[Path] = []) -> Result[Unit]`.

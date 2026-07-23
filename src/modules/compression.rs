@@ -111,7 +111,7 @@ pub(crate) fn archive_reader(
     path: &Path,
     compression: Compression,
     span: Span,
-) -> Result<Box<dyn Read>, RuntimeError> {
+) -> Result<Box<dyn Read + Send>, RuntimeError> {
     let file = File::open(path).map_err(|error| error_with_kind("archive-open", error, span))?;
     let mut reader = BufReader::with_capacity(BUFFER_SIZE, file);
     let compression = match compression {

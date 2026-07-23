@@ -543,6 +543,7 @@ fn lowered_module_op_supported(op: RuntimeOp) -> bool {
             | RuntimeOp::ArchiveTarCreate
             | RuntimeOp::ArchiveTarExtract
             | RuntimeOp::ArchiveTarList
+            | RuntimeOp::ArchiveTarListStream
             | RuntimeOp::ArchiveZipExtract
             | RuntimeOp::ArchiveZipList
             | RuntimeOp::ElfInspect

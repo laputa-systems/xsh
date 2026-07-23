@@ -8,14 +8,14 @@ use crate::modules::compression::{
     parse as parse_compression,
 };
 use crate::runtime::process::path_bytes;
-use crate::runtime::value::{PathValue, RuntimeError, Value};
+use crate::runtime::value::{LiveStream, PathValue, RuntimeError, StreamValue, Value};
 use crate::source::Span;
 use async_tar::{Archive, Builder, Entry, EntryType, Header};
 use futures_lite::StreamExt;
 use futures_lite::io::{AsyncRead, AsyncWrite, Cursor, copy, empty};
 use std::collections::BTreeMap;
 use std::fs::{self, File};
-use std::io::Write;
+use std::io::{Read, Write};
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::{FileTypeExt, MetadataExt, PermissionsExt, symlink};
 use std::path::{Path, PathBuf};
@@ -30,6 +30,28 @@ pub(crate) fn tar_list(
     span: Span,
 ) -> Result<Vec<Value>, RuntimeError> {
     block_on_archive(span, tar_list_async(path, compression, members, span))
+}
+
+pub(crate) fn tar_list_stream(
+    path: PathBuf,
+    compression: &str,
+    members: Vec<PathValue>,
+    span: Span,
+) -> Result<StreamValue, RuntimeError> {
+    let reader = archive_reader(&path, parse_compression(compression, span)?, span)?;
+    let archive = Archive::new(BlockingAsyncIo::new(reader));
+    let entries = archive
+        .entries()
+        .map_err(|error| archive_error("archive-list", error, span))?;
+    let filters = archive_member_filters(members, span)?;
+    Ok(StreamValue::from_live(
+        "archive.tar_list_stream",
+        TarListStream {
+            entries,
+            filters,
+            span,
+        },
+    ))
 }
 
 async fn tar_list_async(
@@ -61,6 +83,39 @@ async fn tar_list_async(
         records.push(archive_entry_record(&entry, span)?);
     }
     Ok(records)
+}
+
+type TarEntries = async_tar::Entries<BlockingAsyncIo<Box<dyn Read + Send>>>;
+
+struct TarListStream {
+    entries: TarEntries,
+    filters: Vec<PathBuf>,
+    span: Span,
+}
+
+impl LiveStream for TarListStream {
+    fn next(&mut self, span: Span) -> Result<Option<Value>, RuntimeError> {
+        loop {
+            let entry = futures_lite::future::block_on(self.entries.next())
+                .transpose()
+                .map_err(|error| archive_error("archive-list", error, self.span))?;
+            let Some(entry) = entry else {
+                return Ok(None);
+            };
+            if entry.header().entry_type().is_pax_global_extensions() {
+                continue;
+            }
+            let raw_path: PathBuf = entry
+                .path()
+                .map_err(|error| archive_error("archive-list", error, span))?
+                .into_owned()
+                .into();
+            if !archive_member_selected(&raw_path, &self.filters) {
+                continue;
+            }
+            return archive_entry_record(&entry, span).map(Some);
+        }
+    }
 }
 
 pub(crate) fn tar_extract(

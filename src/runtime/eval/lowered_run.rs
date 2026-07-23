@@ -4856,6 +4856,37 @@ impl Evaluator {
                     span,
                 )?
             }
+            RuntimeOp::ArchiveTarListStream if (1..=3).contains(&values.len()) => {
+                let members = if values.get(2).is_some() {
+                    lowered_path_list_arg(
+                        values.remove(2),
+                        "archive.tar_list_stream",
+                        span,
+                    )?
+                } else {
+                    Vec::new()
+                };
+                let compression = lowered_str_arg_owned(
+                    values.get(1).cloned(),
+                    "auto",
+                    "archive.tar_list_stream",
+                    span,
+                )?;
+                let path = lowered_path_arg(
+                    values.remove(0),
+                    "archive.tar_list_stream",
+                    span,
+                )?;
+                match archive_module::tar_list_stream(
+                    self.host_path(&path),
+                    &compression,
+                    members,
+                    span,
+                ) {
+                    Ok(stream) => lowered_result_ok(LoweredValue::Stream(Box::new(stream))),
+                    Err(error) => lowered_result_err_value(error),
+                }
+            }
             RuntimeOp::ArchiveZipExtract if values.len() == 2 || values.len() == 3 => {
                 let overwrite = lowered_bool_arg_or(
                     values.get(2).cloned(),

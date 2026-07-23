@@ -83,6 +83,7 @@ Archive creation, extraction, listing, compression, and decompression.
 - `archive.tar_extract(path: Path, dest: Path, strip_components: Int = default, compression: Str = default, overwrite: Bool = default, members: List[Path] = default) -> Result[Unit, Error]` - effect; Returns `Unit` or `Error` failure data. ID `module.archive.tar_extract.0`.
   Params: `path: Path`, `dest: Path`, `strip_components: Int = default`, `compression: Str = default`, `overwrite: Bool = default`, `members: List[Path] = default`
 - `archive.tar_list(path: Path, compression: Str = default, members: List[Path] = default) -> Result[List[{kind: Str, link_name: Str, mode: Int, modified: Int, path: Path, size: Int}], Error]` - effect; Returns `List[{kind: Str, link_name: Str, mode: Int, modified: Int, path: Path, size: Int}]` or `Error` failure data. ID `module.archive.tar_list.0`.
+- `archive.tar_list_stream(path: Path, compression: Str = default, members: List[Path] = default) -> Result[Stream[{kind: Str, link_name: Str, mode: Int, modified: Int, path: Path, size: Int}], Error]` - effect; Returns a lazy archive-order stream of selected entries or `Error` failure data. ID `module.archive.tar_list_stream.0`.
   Params: `path: Path`, `compression: Str = default`, `members: List[Path] = default`
 - `archive.zip_extract(path: Path, dest: Path, overwrite: Bool = default) -> Result[Unit, Error]` - effect, command; Returns `Unit` or `Error` failure data. ID `module.archive.zip_extract.0`.
   Params: `path: Path`, `dest: Path`, `overwrite: Bool = default`
