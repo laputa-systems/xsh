@@ -1,7 +1,7 @@
 # Archive And Compression Unification
 
 This note records the current archive and compression implementation shape and
-the remaining archive-specific follow-up work.
+the archive-specific follow-up work.
 
 The completed direction is: keep the XSH-visible archive APIs synchronous,
 centralize archive compression policy in XSH, and use async-shaped archive
@@ -26,10 +26,10 @@ anymore. Tokio is not part of XSH's resolved dependency tree.
 
 The archive dependency tree is intentionally not Tokio-shaped:
 
-- Tar uses the local `astral-futures-tar` port with `default-features = false`
-  and `features = ["futures"]`.
-- The local tar crate's plain `futures` feature is trait-only. Its path-based
-  async filesystem helpers are behind `futures-fs`, which XSH does not enable.
+- Tar uses `async-tar` with `default-features = false` and
+  `features = ["runtime-async-std"]`.
+- XSH does not use async-tar's path-based filesystem helpers. Its own blocking
+  filesystem policy remains responsible for archive creation and extraction.
 - ZIP uses `astral_async_zip` with `default-features = false` and
   `features = ["deflate"]`.
 - `tokio`, `tokio-stream`, `astral-tokio-tar`, and the old `tar` crate are not
@@ -89,9 +89,9 @@ codecs, scheduling, cancellation policy, and a real async runtime. That would
 add complexity without a clear scripting-level benefit and would fight the
 boundary described in `docs/CHAPTER-15-why-not-xsh.md`.
 
-The dependency opportunity has already been narrowed: XSH does not use the tar
-crate's path-opening helpers, and the local `astral-futures-tar` futures backend
-no longer pulls in `async-fs`, `blocking`, or `async-channel`.
+The dependency opportunity has already been narrowed: XSH does not use
+async-tar's path-opening helpers, and the selected runtime feature does not
+enable its Tokio backend.
 
 ### What Async Tar Crates Buy
 
@@ -111,12 +111,12 @@ whose surrounding runtime is already async. It was a poor fit for XSH because
 archive commands are synchronous host operations at the language boundary, and
 XSH already owns archive path validation and extraction policy.
 
-`astral-futures-tar` keeps the useful part of that design without committing
-XSH to Tokio. It lets tar parsing and writing work over generic futures
-`AsyncRead`/`AsyncWrite` values, so XSH can use `futures-lite` and a small local
-`block_on` boundary. In the current XSH integration, local files are still
-opened and written with `std::fs`; `BlockingAsyncIo` only adapts those blocking
-objects to the async traits the tar crate expects.
+`async-tar` keeps the useful part of that design without requiring XSH to use
+Tokio. It lets tar parsing and writing work over async I/O values, so XSH can
+use `futures-lite` and a small local `block_on` boundary. In the current XSH
+integration, local files are still opened and written with `std::fs`;
+`BlockingAsyncIo` only adapts those blocking objects to the async traits the tar
+crate expects.
 
 Do not assume `async-fs` means native kernel async file I/O. On many platforms,
 Rust async filesystem crates expose an async facade over blocking filesystem
@@ -128,10 +128,7 @@ portability and policy tradeoffs.
 
 ## Tar
 
-Tar uses `astral-futures-tar`.
-
-The crate package is `astral-futures-tar`; the Rust crate name is
-`astral_futures_tar`.
+Tar uses `async-tar` with the `runtime-async-std` feature.
 
 XSH uses it for:
 
@@ -157,8 +154,7 @@ XSH already has stricter extraction behavior than generic tar unpack helpers:
 - stable XSH error kinds such as `archive-path`, `archive-escape`, and
   `archive-extract`
 
-This policy stays in XSH code and receives data from `astral_futures_tar`
-entries.
+This policy stays in XSH code and receives data from `async_tar` entries.
 
 ### Tar Extraction Boundary
 
@@ -186,10 +182,10 @@ The useful redesign target is therefore narrower:
   extraction is a user-visible bottleneck and we can preserve deterministic
   error behavior.
 
-For now, the material win is lower dependency weight without regressing archive
-behavior. `tools/archive-fat-trim-demo.xsh` demonstrates that `tokio`,
-`async-fs`, `blocking`, and `async-channel` are absent while tar create/list/
-extract still round trips an executable and a symlink.
+For now, the material win is avoiding a Tokio archive runtime without
+regressing archive behavior. `tools/archive-fat-trim-demo.xsh` demonstrates
+that Tokio is absent while tar create/list/extract still round trips an
+executable and a symlink.
 
 ## Compression
 
@@ -256,83 +252,6 @@ Linux module metadata reads use `src/modules/compression.rs` through
 module extension policy while avoiding duplicate gzip/xz/bzip2 handling in
 `src/modules/linux/kernel.rs`.
 
-## Completed Migration Stages
-
-### Stage 1: Coverage
-
-Regression coverage was added before replacing the original tar implementation.
-
-Coverage includes:
-
-- tar create/list/extract round trips
-- compressed tar round trips
-- archive entry record fields
-- file mode preservation
-- symlink listing and extraction
-- hardlink extraction
-- member prefix filtering
-- overwrite behavior
-- `strip_components`
-- path traversal rejection
-- symlink escape rejection
-- wrapper coverage for `core/tar.xsh`
-
-### Stage 2: Shared Archive Codec Layer
-
-Archive compression policy moved to `src/modules/compression.rs`.
-
-The public functions remain:
-
-- `archive.compress`
-- `archive.decompress`
-- `archive.decompress_bytes`
-- tar create/list/extract compression handling
-
-This stage kept:
-
-- individual codec crates instead of a generic direct `async-compression`
-  layer;
-- synchronous public `archive.*` APIs;
-- XSH-owned format parsing, extension inference, magic detection, level
-  validation, reader creation, and writer creation;
-- existing archive error kinds and path-safety policy.
-
-The codec internals may still block. True non-blocking codecs remain future
-work only if the language runtime model changes enough to justify them.
-
-### Stage 3: Linux Module Codec Reuse
-
-Linux module metadata reads now use the shared codec layer for `.ko.gz`,
-`.ko.xz`, and `.ko.bz2`.
-
-This removes duplicate gzip/xz/bzip2 handling from `src/modules/linux/kernel.rs`
-while preserving Linux's module extension policy.
-
-### Stage 4: Futures-Backed Tar
-
-Tar moved to `astral-futures-tar` with the futures backend.
-
-This stage kept:
-
-- synchronous `archive.*` Rust functions;
-- synchronous XSH-visible behavior;
-- existing error kinds;
-- existing path policy;
-- existing compression behavior;
-- no Tokio dependency.
-
-XSH now uses the tar writer's lower-level async trait methods instead of its
-path-based filesystem helpers, so the local `astral-futures-tar` crate can keep
-`async-fs` behind the opt-in `futures-fs` feature.
-
-### Stage 5: ZIP Migration And Feature Slimming
-
-ZIP moved to `astral_async_zip`'s base futures API.
-
-The dependency is configured without `full`, `tokio`, or `tokio-fs`, and with
-only `deflate` enabled. Public `archive.zip_list` and `archive.zip_extract`
-signatures are unchanged.
-
 ## Verification Gates
 
 For code changes, use the narrowest gate first, then the full relevant gate:
@@ -344,11 +263,11 @@ For code changes, use the narrowest gate first, then the full relevant gate:
 
 Do not build release binaries for this migration.
 
-For closeout-note-only edits, no Rust tests are required. Check for stale
-archive note references with:
+Check for stale tar dependency references with:
 
 ```sh
-rg 'tokio|tokio_tar|astral-tokio-tar|ZipFileReader::new\\(path|tokio::read|JoinSet|features = \\["full"\\]|name = "tar"' ARCHIVE-UNIFICATION.md
+rg 'astral-futures-tar|astral_futures_tar|astral-tokio-tar|tokio-stream|name = "tar"' Cargo.toml Cargo.lock
+cargo tree -e features -i tokio
 ```
 
 ## Future Work

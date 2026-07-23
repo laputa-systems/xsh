@@ -4,15 +4,9 @@
 # Run from the repository root:
 #   xsh tools/archive-fat-trim-demo.xsh
 let tokio_probe = run.capture --text cargo tree -i tokio ?
-let async_fs_probe = run.capture --text cargo tree -i async-fs ?
-let blocking_probe = run.capture --text cargo tree -i blocking ?
-let async_channel_probe = run.capture --text cargo tree -i async-channel ?
 
 print "dependency trim"
 print f"  tokio absent: ${! tokio_probe.status.exited_with(0)}"
-print f"  async-fs absent: ${! async_fs_probe.status.exited_with(0)}"
-print f"  blocking absent: ${! blocking_probe.status.exited_with(0)}"
-print f"  async-channel absent: ${! async_channel_probe.status.exited_with(0)}"
 
 let root_handle = fs.tempdir()?
 defer fs.close_root(root_handle)?

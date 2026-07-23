@@ -74,7 +74,7 @@ perf-metrics = ["dep:libmimalloc-sys"]
 tools = []
 
 [dependencies]
-astral-futures-tar = { git = "https://github.com/laputa-systems/astral-futures-tar.git", rev = "253b5f991d68e811933f3a56542ed413bb250cdf", default-features = false, features = ["futures"] }
+async-tar = { git = "https://github.com/dignifiedquire/async-tar.git", rev = "109365969684b9cfdbe2696d5185b4ebcfb29b4c", default-features = false, features = ["runtime-async-std"] }
 astral_async_zip = { version = "0.0.20", default-features = false, features = ["deflate"] }
 bzip2 = "0.6.1"
 cap-directories = "4.0.2"
