@@ -1536,6 +1536,28 @@ match archive.tar_extract(tarball, fp\"${{out}}/negative\", -1) {{
 }
 
 #[test]
+fn archive_module_omits_pax_global_headers_from_tar_listing() {
+    let root = temp_path("archive-pax-global");
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).expect("create archive root");
+    let tarball = root.join("global.tar");
+    write_test_tar_global_header(&tarball);
+    let script = format!(
+        "let entries = archive.tar_list(Path({}))?\nprint entries.len() entries[0].path\n",
+        xsh_string_literal(tarball.to_str().unwrap())
+    );
+    let output = run_temp_script("archive-pax-global", &script);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(String::from_utf8(output.stdout).unwrap(), "1 payload.txt\n");
+    assert_eq!(String::from_utf8(output.stderr).unwrap(), "");
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
 fn archive_module_extracts_tar_hardlinks_as_hardlinks() {
     let root = temp_path("archive-hardlink");
     let _ = std::fs::remove_dir_all(&root);

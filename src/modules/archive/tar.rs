@@ -47,6 +47,9 @@ async fn tar_list_async(
     let mut records = Vec::new();
     while let Some(entry) = entries.next().await {
         let entry = entry.map_err(|error| archive_error("archive-list", error, span))?;
+        if entry.header().entry_type().is_pax_global_extensions() {
+            continue;
+        }
         let raw_path: PathBuf = entry
             .path()
             .map_err(|error| archive_error("archive-list", error, span))?

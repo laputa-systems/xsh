@@ -7,7 +7,9 @@ use flate2::Compression as GzipCompression;
 use flate2::bufread::MultiGzDecoder;
 use flate2::write::GzEncoder;
 use futures_lite::io::{AsyncRead, AsyncWrite};
-use lzma_rust2::{LzmaOptions, LzmaReader, LzmaWriter, XzOptions, XzReader, XzWriter};
+use lzma_rust2::{
+    LzmaOptions, LzmaReader, LzmaWriter, XzOptions, XzReaderMt, XzWriter,
+};
 use std::fs::{self, File};
 use std::io::{self, BufRead, BufReader, BufWriter, Read, Write};
 use std::path::Path;
@@ -16,6 +18,12 @@ use std::task::{Context, Poll};
 
 const BUFFER_SIZE: usize = 64 * 1024;
 const DEFAULT_LEVEL: u32 = 6;
+
+fn xz_worker_count() -> u32 {
+    std::thread::available_parallelism().map_or(1, |count| {
+        count.get().min(u32::MAX as usize) as u32
+    })
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum Compression {
@@ -113,7 +121,10 @@ pub(crate) fn archive_reader(
     Ok(match compression {
         Some(Compression::Gz) => Box::new(MultiGzDecoder::new(reader)),
         Some(Compression::Bz2) => Box::new(MultiBzDecoder::new(reader)),
-        Some(Compression::Xz) => Box::new(XzReader::new(reader, true)),
+        Some(Compression::Xz) => Box::new(
+            XzReaderMt::new(reader, true, xz_worker_count())
+                .map_err(|error| error_with_kind("archive-open", error, span))?,
+        ),
         Some(Compression::Lzma) => Box::new(
             LzmaReader::new_mem_limit(reader, u32::MAX, None)
                 .map_err(|error| error_with_kind("archive-open", error, span))?,
@@ -141,7 +152,10 @@ pub(crate) fn codec_reader(
     Ok(match compression {
         Compression::Gz => Box::new(MultiGzDecoder::new(reader)),
         Compression::Bz2 => Box::new(MultiBzDecoder::new(reader)),
-        Compression::Xz => Box::new(XzReader::new(reader, true)),
+        Compression::Xz => Box::new(
+            XzReaderMt::new(reader, true, xz_worker_count())
+                .map_err(|error| error_with_kind("archive-open", error, span))?,
+        ),
         Compression::Lzma => Box::new(
             LzmaReader::new_mem_limit(reader, u32::MAX, None)
                 .map_err(|error| error_with_kind("archive-open", error, span))?,

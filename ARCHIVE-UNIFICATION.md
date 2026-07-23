@@ -35,10 +35,11 @@ The archive dependency tree is intentionally not Tokio-shaped:
 - `tokio`, `tokio-stream`, `astral-tokio-tar`, and the old `tar` crate are not
   in the resolved dependency graph.
 - Compression dependencies are:
-  - `flate2` for gzip;
-  - `bzip2` for bzip2;
-  - `lzma-rust2` for xz/lzma;
-  - `async-compression` only as a transitive ZIP-entry decoder through
+- `flate2` for gzip;
+- `bzip2` for bzip2;
+- `lzma-rust2` for xz/lzma. XZ archive and standalone file reads use its
+  indexed `XzReaderMt` decoder when the input is seekable;
+- `async-compression` only as a transitive ZIP-entry decoder through
     `astral_async_zip`.
 
 `astral_async_zip`'s compression features control only compression methods used

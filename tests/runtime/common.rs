@@ -357,6 +357,13 @@ pub(crate) fn write_test_tar_hardlink(
     write_raw_tar_end(&mut file);
 }
 
+pub(crate) fn write_test_tar_global_header(path: &std::path::Path) {
+    let mut file = std::fs::File::create(path).expect("create test tar");
+    write_raw_tar_entry(&mut file, "pax_global_header", b'g', "", b"17 comment=hello\n");
+    write_raw_tar_entry(&mut file, "payload.txt", b'0', "", b"payload\n");
+    write_raw_tar_end(&mut file);
+}
+
 pub(crate) fn write_test_zip(path: &std::path::Path, entries: &[(&str, &[u8])]) {
     assert_info_zip_30();
     let _ = std::fs::remove_file(path);
