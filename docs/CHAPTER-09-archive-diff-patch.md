@@ -27,7 +27,7 @@ tool.write("""demo
 tool.chmod(0o755)
 let tarball = fp"${root}/pkg.tar.gz"
 archive.tar_create(tarball, src, [p"."])
-let entries = archive.tar_list(tarball)?
+let entries = archive.tar_list(tarball)?.collect()
 let dest = fp"${root}/dest"
 archive.tar_extract(tarball, dest)
 let installed = fp"${dest}/usr/bin/tool"

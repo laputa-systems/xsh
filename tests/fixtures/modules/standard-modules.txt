@@ -17,8 +17,7 @@ module archive
   decompress_bytes(source: Path, format: Str = default) -> Result[Bytes, Error] effect
   tar_create(path: Path, root: Path, entries: List[Path], compression: Str = default, overwrite: Bool = default) -> Result[Unit, Error] effect
   tar_extract(path: Path, dest: Path, strip_components: Int = default, compression: Str = default, overwrite: Bool = default, members: List[Path] = default) -> Result[Unit, Error] effect
-  tar_list(path: Path, compression: Str = default, members: List[Path] = default) -> Result[List[{kind: Str, link_name: Str, mode: Int, modified: Int, path: Path, size: Int}], Error] effect
-  tar_list_stream(path: Path, compression: Str = default, members: List[Path] = default) -> Result[Stream[{kind: Str, link_name: Str, mode: Int, modified: Int, path: Path, size: Int}], Error] effect
+  tar_list(path: Path, compression: Str = default, members: List[Path] = default) -> Result[Stream[{kind: Str, link_name: Str, mode: Int, modified: Int, path: Path, size: Int}], Error] effect
   zip_extract(path: Path, dest: Path, overwrite: Bool = default) -> Result[Unit, Error] effect
   zip_list(path: Path) -> Result[List[{kind: Str, link_name: Str, mode: Int, modified: Int, path: Path, size: Int}], Error] effect
 

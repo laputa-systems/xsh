@@ -28,15 +28,6 @@ pub(crate) fn tar_list(
     compression: &str,
     members: Vec<PathValue>,
     span: Span,
-) -> Result<Vec<Value>, RuntimeError> {
-    block_on_archive(span, tar_list_async(path, compression, members, span))
-}
-
-pub(crate) fn tar_list_stream(
-    path: PathBuf,
-    compression: &str,
-    members: Vec<PathValue>,
-    span: Span,
 ) -> Result<StreamValue, RuntimeError> {
     let reader = archive_reader(&path, parse_compression(compression, span)?, span)?;
     let archive = Archive::new(BlockingAsyncIo::new(reader));
@@ -45,44 +36,13 @@ pub(crate) fn tar_list_stream(
         .map_err(|error| archive_error("archive-list", error, span))?;
     let filters = archive_member_filters(members, span)?;
     Ok(StreamValue::from_live(
-        "archive.tar_list_stream",
+        "archive.tar_list",
         TarListStream {
             entries,
             filters,
             span,
         },
     ))
-}
-
-async fn tar_list_async(
-    path: PathBuf,
-    compression: &str,
-    members: Vec<PathValue>,
-    span: Span,
-) -> Result<Vec<Value>, RuntimeError> {
-    let reader = archive_reader(&path, parse_compression(compression, span)?, span)?;
-    let archive = Archive::new(BlockingAsyncIo::new(reader));
-    let filters = archive_member_filters(members, span)?;
-    let mut entries = archive
-        .entries()
-        .map_err(|error| archive_error("archive-list", error, span))?;
-    let mut records = Vec::new();
-    while let Some(entry) = entries.next().await {
-        let entry = entry.map_err(|error| archive_error("archive-list", error, span))?;
-        if entry.header().entry_type().is_pax_global_extensions() {
-            continue;
-        }
-        let raw_path: PathBuf = entry
-            .path()
-            .map_err(|error| archive_error("archive-list", error, span))?
-            .into_owned()
-            .into();
-        if !archive_member_selected(&raw_path, &filters) {
-            continue;
-        }
-        records.push(archive_entry_record(&entry, span)?);
-    }
-    Ok(records)
 }
 
 type TarEntries = async_tar::Entries<BlockingAsyncIo<Box<dyn Read + Send>>>;

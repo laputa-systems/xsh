@@ -543,7 +543,6 @@ fn lowered_module_op_supported(op: RuntimeOp) -> bool {
             | RuntimeOp::ArchiveTarCreate
             | RuntimeOp::ArchiveTarExtract
             | RuntimeOp::ArchiveTarList
-            | RuntimeOp::ArchiveTarListStream
             | RuntimeOp::ArchiveZipExtract
             | RuntimeOp::ArchiveZipList
             | RuntimeOp::ElfInspect
@@ -5005,8 +5004,13 @@ impl CompactLowerConstructProbe<'_, '_> {
                 && (name == "tar_list" || name == "cpio_list" || name == "zip_list")
                 && let Some(entry) = standard_record_type("ArchiveEntry")
             {
+                let collection = if name == "tar_list" {
+                    Type::Stream(Box::new(entry.clone()))
+                } else {
+                    Type::List(Box::new(entry))
+                };
                 return Some(Type::Result(
-                    Box::new(Type::List(Box::new(entry))),
+                    Box::new(collection),
                     Box::new(Type::Error),
                 ));
             }
@@ -5678,7 +5682,7 @@ impl CompactLowerConstructProbe<'_, '_> {
             return Some(LoweredType::Unit);
         }
         if module == "archive" && name == "tar_list" {
-            return Some(LoweredType::List);
+            return Some(LoweredType::Stream);
         }
         if module == "archive" && name == "tar_extract" {
             return Some(LoweredType::Unit);

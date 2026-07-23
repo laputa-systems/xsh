@@ -27,7 +27,7 @@ per stage (`src/runtime/eval/stream.rs`).
 - **Eager.** A materialized source (a `List`, or an already-collected stream)
   flows through each stage's vec handler, producing a new `Vec<StreamItem>`.
 - **Lazy.** A *live* source (`is_live()`: `fs.walk`/`files`/`dirs`, file/text/byte
-  line streams, `run.stream`, `archive.tar_list_stream`, user `stream` producers,
+  line streams, `run.stream`, `archive.tar_list`, user `stream` producers,
   and device/uevent streams)
   is wrapped in `LazyPipeline { source, ops }`. Lazy-class stages **fuse** onto
   `ops` doing no work; the first materializing/terminal stage drains the pipeline

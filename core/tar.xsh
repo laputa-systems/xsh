@@ -64,7 +64,7 @@ proc main(...argv: List[Str]) [fs, error] {
 
     archive.tar_create(archive_path, root, operands, compression, overwrite: overwrite)?
   } else if mode == "list" {
-    for entry in archive.tar_list_stream(archive_path, compression, members: operands)? {
+    for entry in archive.tar_list(archive_path, compression, members: operands)? {
       print --flush $entry.path
     }
   } else if mode == "extract" {

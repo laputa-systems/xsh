@@ -1273,7 +1273,7 @@ archive.tar_create(tbz, src, [Path(\".\")], compression: \"bz2\")?
 archive.tar_create(txz, src, [Path(\".\")], compression: \"xz\")?
 archive.tar_create(plain, src, [Path(\".\")])?
 archive.tar_create(inferred, src, [Path(\".\")])?
-let entries = archive.tar_list(tgz)?
+let entries = archive.tar_list(tgz)?.collect()
 let dest = fp\"${{out}}/dest\"
 archive.tar_extract(tgz, dest)?
 let data = fp\"${{dest}}/dir/a.txt\".read_text()?.trim()
@@ -1284,8 +1284,8 @@ match archive.tar_extract(tgz, dest) {{
   Err(e) => print ${{entries.len()}} ${{data}} ${{e.kind}}
 }}
 print ${{stripped_data}}
-print ${{archive.tar_list(tbz)?.len()}} ${{archive.tar_list(txz)?.len()}} ${{archive.tar_list(plain)?.len()}}
-print ${{archive.tar_list(inferred)?.len()}}
+print ${{archive.tar_list(tbz)?.collect().len()}} ${{archive.tar_list(txz)?.collect().len()}} ${{archive.tar_list(plain)?.collect().len()}}
+print ${{archive.tar_list(inferred)?.collect().len()}}
 let cpio = fp\"${{out}}/pkg.cpio\"
 archive.cpio_create(cpio, src, [Path(\".\")])?
 let cpio_entries = archive.cpio_list(cpio)?
@@ -1481,12 +1481,14 @@ let out = Path({})
 let tarball = fp\"${{out}}/pkg.tar\"
 archive.tar_create(tarball, src, [p\".\"])?
 let entries = archive.tar_list(tarball)?
+var entry_count = 0
 var file_kind = \"missing\"
 var file_mode = 0
 var file_size = 0
 var link_kind = \"missing\"
 var link_name = \"missing\"
 for entry in entries {{
+  entry_count += 1
   if entry.path == p\"dir/a.txt\" {{
     file_kind = entry.kind
     file_mode = entry.mode % 512
@@ -1497,8 +1499,8 @@ for entry in entries {{
     link_name = entry.link_name
   }}
 }}
-print ${{entries.len()}} ${{file_kind}} ${{file_mode}} ${{file_size}} ${{link_kind}} ${{link_name}}
-print ${{archive.tar_list(tarball, \"\", [p\"dir\"])?.len()}}
+print ${{entry_count}} ${{file_kind}} ${{file_mode}} ${{file_size}} ${{link_kind}} ${{link_name}}
+print ${{archive.tar_list(tarball, \"\", [p\"dir\"])?.collect().len()}}
 let dest = fp\"${{out}}/dest\"
 archive.tar_extract(tarball, dest)?
 print ${{fp\"${{dest}}/dir/a.txt\".read_text()?.trim()}} ${{fp\"${{dest}}/dir/a.txt\".metadata()?.mode % 512}} ${{fp\"${{dest}}/link\".metadata()?.kind}} ${{fp\"${{dest}}/link\".readlink()?.display()}}
@@ -1543,7 +1545,7 @@ fn archive_module_omits_pax_global_headers_from_tar_listing() {
     let tarball = root.join("global.tar");
     write_test_tar_global_header(&tarball);
     let script = format!(
-        "let entries = archive.tar_list(Path({}))?\nprint entries.len() entries[0].path\n",
+        "let entries = archive.tar_list(Path({}))?.collect()\nprint entries.len() entries[0].path\n",
         xsh_string_literal(tarball.to_str().unwrap())
     );
     let output = run_temp_script("archive-pax-global", &script);
@@ -1559,16 +1561,16 @@ fn archive_module_omits_pax_global_headers_from_tar_listing() {
 
 #[test]
 fn archive_module_streams_tar_listing_in_archive_order() {
-    let root = temp_path("archive-list-stream");
+    let root = temp_path("archive-list");
     let _ = std::fs::remove_dir_all(&root);
     std::fs::create_dir_all(&root).expect("create archive root");
     let tarball = root.join("stream.tar");
     write_test_tar_global_header(&tarball);
     let script = format!(
-        "let entries = archive.tar_list_stream(Path({}))?\nvar paths: List[Str] = []\nfor entry in entries {{\n  paths = paths.push(entry.path.display())\n}}\nprint paths.join(\",\")\n",
+        "var paths: List[Str] = []\nfor entry in archive.tar_list(Path({}))? {{\n  paths = paths.push(entry.path.display())\n}}\nprint paths.join(\",\")\n",
         xsh_string_literal(tarball.to_str().unwrap())
     );
-    let output = run_temp_script("archive-list-stream", &script);
+    let output = run_temp_script("archive-list", &script);
     assert!(
         output.status.success(),
         "{}",

@@ -4851,33 +4851,7 @@ impl Evaluator {
                     span,
                 )?;
                 let path = lowered_path_arg(values.remove(0), "archive.tar_list", span)?;
-                lowered_runtime_list_result(
-                    archive_module::tar_list(self.host_path(&path), &compression, members, span),
-                    span,
-                )?
-            }
-            RuntimeOp::ArchiveTarListStream if (1..=3).contains(&values.len()) => {
-                let members = if values.get(2).is_some() {
-                    lowered_path_list_arg(
-                        values.remove(2),
-                        "archive.tar_list_stream",
-                        span,
-                    )?
-                } else {
-                    Vec::new()
-                };
-                let compression = lowered_str_arg_owned(
-                    values.get(1).cloned(),
-                    "auto",
-                    "archive.tar_list_stream",
-                    span,
-                )?;
-                let path = lowered_path_arg(
-                    values.remove(0),
-                    "archive.tar_list_stream",
-                    span,
-                )?;
-                match archive_module::tar_list_stream(
+                match archive_module::tar_list(
                     self.host_path(&path),
                     &compression,
                     members,
@@ -19381,23 +19355,7 @@ impl Evaluator {
                     Vec::new(),
                     *span,
                 ) {
-                    Ok(values) => {
-                        let mut lowered = Vec::with_capacity(values.len());
-                        for value in values {
-                            let Some(value) = lowered_value_from_runtime_any(&value) else {
-                                return Err(RuntimeError::new(
-                                    "type-error",
-                                    format!(
-                                        "archive.tar_list produced unsupported {}",
-                                        value.type_name()
-                                    ),
-                                )
-                                .with_span(*span));
-                            };
-                            lowered.push(value);
-                        }
-                        lowered_result_ok(LoweredValue::List(lowered))
-                    }
+                    Ok(stream) => lowered_result_ok(LoweredValue::Stream(Box::new(stream))),
                     Err(error) => lowered_result_err_value(error),
                 };
                 Ok(ControlFlow::Continue(value))

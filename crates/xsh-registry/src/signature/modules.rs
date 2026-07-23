@@ -345,22 +345,9 @@ fn archive_module() -> ModuleSig {
                     default_param("compression", Type::Str),
                     default_param("members", Type::List(Box::new(Type::Path))),
                 ],
-                result(Type::List(Box::new(archive_entry_type()))),
-                false,
-                RuntimeOp::ArchiveTarList,
-            ),
-        ),
-        (
-            "tar_list_stream",
-            sig(
-                vec![
-                    param("path", Type::Path),
-                    default_param("compression", Type::Str),
-                    default_param("members", Type::List(Box::new(Type::Path))),
-                ],
                 result(Type::Stream(Box::new(archive_entry_type()))),
                 false,
-                RuntimeOp::ArchiveTarListStream,
+                RuntimeOp::ArchiveTarList,
             ),
         ),
         (

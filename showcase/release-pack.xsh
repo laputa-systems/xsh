@@ -54,7 +54,7 @@ proc main(...argv: List[Str]) [fs, error] {
   json.write(manifest, {source: absolute_source.display(), files: entries})?
   let tarball = fp"${opts.output}/release.tar"
   archive.tar_create(tarball, stage, [p"."], "auto", true)?
-  let listed = archive.tar_list(tarball)?
+  let listed = archive.tar_list(tarball)?.collect()
   let digest = tarball.read_bytes()?.sha256().hex()
   print f"staged ${copied.files} files ${copied.dirs} dirs"
   print f"archive ${tarball} entries ${listed.len()} sha256 ${digest}"

@@ -6,7 +6,7 @@ mod tar;
 mod zip;
 
 pub(crate) use cpio::{cpio_create, cpio_extract, cpio_list};
-pub(crate) use tar::{tar_create, tar_extract, tar_list, tar_list_stream};
+pub(crate) use tar::{tar_create, tar_extract, tar_list};
 pub(crate) use zip::{zip_extract, zip_list};
 
 use crate::modules::compression::{

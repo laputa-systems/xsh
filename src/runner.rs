@@ -1103,7 +1103,7 @@ defer fs.close_root(work_root)?
 let work = fs.root_path(work_root)?
 let tarball = fp"${work}/package.tar.gz"
 archive.tar_create(tarball, pkgroot, [p"."], compression: "gz", overwrite: true)?
-let entries = archive.tar_list(tarball)?
+let entries = archive.tar_list(tarball)?.collect()
 let extracted = fp"${work}/extracted"
 archive.tar_extract(tarball, extracted)?
 let config = fp"${extracted}/etc/demo/config.toml".read_text()?

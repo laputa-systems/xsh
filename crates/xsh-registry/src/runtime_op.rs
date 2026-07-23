@@ -9,7 +9,6 @@ pub enum RuntimeOp {
     AppletSuloginSession,
     AppletMdev,
     ArchiveTarList,
-    ArchiveTarListStream,
     ArchiveTarExtract,
     ArchiveTarCreate,
     ArchiveCpioList,

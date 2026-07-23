@@ -71,7 +71,7 @@ proc main(...argv: List[Str]) [fs, error] {
   let archive_path = fp"${archive_arg}"
   let name = archive_path.name()
   let is_zip = name.ends_with(".zip")
-  let entries = if is_zip { archive.zip_list(archive_path)? } else { archive.tar_list(archive_path)? }
+  let entries = if is_zip { archive.zip_list(archive_path)? } else { archive.tar_list(archive_path)?.collect() }
 
   for e in entries |> sort-by .path {
     print f"  ${e.kind}  ${e.path.display()}  ${e.size}b"
