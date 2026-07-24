@@ -3,6 +3,9 @@ name = "xsh"
 version = "0.0.1"
 edition = "2024"
 publish = false
+# Keep the integration suites in explicit aggregator targets below; otherwise
+# Cargo discovers every tests/*.rs file as a separate test binary.
+autotests = false
 
 [workspace]
 members = [
@@ -191,6 +194,11 @@ test = false
 name = "xsh-parse-corpus-report"
 path = "tests/helpers/parse_corpus_report.rs"
 test = false
+
+[[test]]
+# The individual files are included as modules by this single test binary.
+name = "integration"
+path = "tests/integration.rs"
 
 [[test]]
 name = "linux_priv"

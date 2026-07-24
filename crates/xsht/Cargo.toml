@@ -3,6 +3,8 @@ name = "xsht"
 version = "0.0.1"
 edition = "2024"
 publish = false
+# Keep cli, grep, and lint in one integration binary instead of one per file.
+autotests = false
 
 [features]
 default = ["native-tests"]
@@ -25,6 +27,11 @@ xsh-registry = { path = "../xsh-registry" }
 syscalls = { version = "0.8.1", default-features = false, features = ["aarch64", "x86_64"] }
 
 [dev-dependencies]
+
+[[test]]
+# The individual suites are included as modules by this single test binary.
+name = "integration"
+path = "tests/integration.rs"
 
 [[test]]
 name = "docs"

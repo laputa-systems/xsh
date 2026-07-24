@@ -202,11 +202,10 @@ cov-native:
 	    CC_x86_64_unknown_linux_musl="$(COV_NATIVE_LINKER)" \
 	    $(COV_CARGO) run --bin xsh -- tools/cov-linux.xsh
 
-# cargo test -- -Zunstable-options --report-time
-test: test-xsh-native
-	cargo test
+test:
+	cargo test -- -Zunstable-options --report-time
 
-test-xsh-native:
+test-xsh-native-only:
 	cargo run -p xsht -- test
 
 test-linux:
