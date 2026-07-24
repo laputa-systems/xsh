@@ -1256,7 +1256,7 @@ fn xsht_test_cov_json_counts_example_runs_as_examples() {
 }
 
 #[test]
-fn showcase_standalone_scripts_are_self_testable() {
+fn xsh_native_tests() {
     let entries = std::fs::read_dir("showcase").expect("read showcase dir");
     let mut scripts = Vec::new();
 
@@ -1299,13 +1299,13 @@ fn showcase_standalone_scripts_are_self_testable() {
     }
 
     let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
-        .args(["test", "showcase/tests"])
+        .args(["test"])
         .output()
         .expect("run showcase tests");
 
     assert!(
         output.status.success(),
-        "showcase tests\nstdout:\n{}\nstderr:\n{}",
+        "xsh native tests\nstdout:\n{}\nstderr:\n{}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );

@@ -1,7 +1,3 @@
-pure xsh_bin() -> Path {
-  return p"target/debug/xsh"
-}
-
 proc test_ecount_counts_extensions(ctx: TestContext) [fs, process, error] {
   let root = test.temp_dir(ctx, name: "ecount-root")?
   fp"${root}/a.txt".write("alpha")?
@@ -12,7 +8,7 @@ proc test_ecount_counts_extensions(ctx: TestContext) [fs, process, error] {
 
   fp"${root}/README".write("ignored")?
   fp"${root}/.hidden.txt".write("ignored")?
-  let output = run.text xsh_bin() "showcase/ecount.xsh" -- $root ?
+  let output = run.text "xsh" "showcase/ecount.xsh" -- $root ?
   test.contains(output, "   1 (none)")?
   test.contains(output, "   1 xsh")?
   test.contains(output, "   2 txt")?
@@ -25,7 +21,7 @@ proc test_ecount_can_sum_sizes(ctx: TestContext) [fs, process, error] {
   fp"${root}/b.log".write("x")?
   fp"${root}/c.log".write("yz")?
   fp"${root}/README".write("zz")?
-  let output = run.text xsh_bin() "showcase/ecount.xsh" -- "--size" $root ?
+  let output = run.text "xsh" "showcase/ecount.xsh" -- "--size" $root ?
   test.contains(output, "   1            2 (none)")?
   test.contains(output, "   2            3 log")?
   test.contains(output, "   1            4 bin")?

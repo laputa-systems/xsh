@@ -1,7 +1,3 @@
-pure xsh_bin() -> Path {
-  return p"target/debug/xsh"
-}
-
 proc test_tokei_json_shape_counts_and_ignores(ctx: TestContext) [fs, process, error] {
   let root = test.temp_dir(ctx, name: "tokei-root")?
 
@@ -78,7 +74,7 @@ fn main() {
 comment */
 """)?
 
-  let output = run.text xsh_bin() "showcase/tokei.xsh" -- --json $root ?
+  let output = run.text "xsh" "showcase/tokei.xsh" -- --json $root ?
   let data = json.decode(output)?
   test.eq(data["BASH"]["code"], 1)?
   test.eq(data["Shell"]["blanks"], 1)?
@@ -97,7 +93,7 @@ comment */
   test.eq(data["Total"]["blanks"], 5)?
   test.ok(! data["Total"]["children"]["JSON"][0]["name"].contains(".hidden"))?
   test.eq(data["Rust"]["reports"].len(), 1)?
-  let table = run.text xsh_bin() "showcase/tokei.xsh" -- $root ?
+  let table = run.text "xsh" "showcase/tokei.xsh" -- $root ?
 
   # tokei-format table: heavy rules, capitalized header, embedded ("|-") child rows,
   # per-language "(Total)" subtotals, and the grand "Total".

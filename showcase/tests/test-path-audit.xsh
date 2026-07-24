@@ -1,7 +1,3 @@
-pure xsh_bin() -> Path {
-  return p"target/debug/xsh"
-}
-
 proc test_path_audit_findings(ctx: TestContext) [fs, process, env, error] {
   let root = test.temp_dir(ctx, name: "path-audit")?
   let bin1 = fp"${root}/bin1"
@@ -32,7 +28,7 @@ proc test_path_audit_findings(ctx: TestContext) [fs, process, env, error] {
   let raw = f"${bin1.display()}:${bin2.display()}:${duplicate.display()}:${missing.display()}:${file_entry.display()}::${world.display()}:${noexec.display()}"
 
   env XSH_SHOWCASE_PATH=$raw {
-    let output = run.text xsh_bin() "showcase/path-audit.xsh" -- --var XSH_SHOWCASE_PATH ?
+    let output = run.text "xsh" "showcase/path-audit.xsh" -- --var XSH_SHOWCASE_PATH ?
     test.contains(output, "Directory problems")?
     test.contains(output, "duplicate-directory")?
     test.contains(output, "missing-directory")?

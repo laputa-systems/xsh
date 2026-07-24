@@ -1,7 +1,3 @@
-pure xsh_bin() -> Path {
-  return p"target/debug/xsh"
-}
-
 proc test_file_audit_findings(ctx: TestContext) [fs, process, error] {
   let root = test.temp_dir(ctx, name: "file-audit")?
   let outside = test.temp_dir(ctx, name: "file-audit-outside")?
@@ -19,7 +15,7 @@ proc test_file_audit_findings(ctx: TestContext) [fs, process, error] {
   fs.symlink(p"missing-target", fp"${root}/broken")?
   fs.symlink(fp"${root}/world.txt", fp"${root}/absolute")?
   fs.symlink(fp"${outside}/target.txt", fp"${root}/escape")?
-  let output = run.text xsh_bin() "showcase/file-audit.xsh" -- --root $root ?
+  let output = run.text "xsh" "showcase/file-audit.xsh" -- --root $root ?
   test.contains(output, "broken-symlink broken")?
   test.contains(output, "absolute-symlink absolute")?
   test.contains(output, "escaping-symlink escape")?

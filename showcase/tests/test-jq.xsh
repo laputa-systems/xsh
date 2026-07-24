@@ -1,13 +1,9 @@
-pure xsh_bin() -> Path {
-  return p"target/debug/xsh"
-}
-
 # Run jq.xsh with a program and JSON input on stdin, returning compact stdout.
 proc run_jq(ctx: TestContext, program: Str, input: Str) [fs, process, error] -> Result[Str] {
   let infile = test.temp_file(ctx, name: "in.json", contents: bytes.from_text(input))?
 
   return run.text (
-    xsh_bin()
+    "xsh"
     "showcase/jq.xsh"
     "--"
     "-c"
