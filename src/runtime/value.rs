@@ -985,11 +985,14 @@ pub struct RuntimeError {
     pub span: Option<Span>,
     pub contexts: Vec<ErrorContext>,
     pub abort: Option<AbortSignal>,
+    pub(crate) family_name: Name,
+    pub(crate) variant_name: Name,
 }
 
 impl RuntimeError {
     pub fn new(kind: impl Into<String>, message: impl Into<String>) -> Self {
         let kind = kind.into();
+        let variant_name = Name::intern(&kind);
         Self {
             family: "Error".to_string(),
             variant: kind.clone(),
@@ -1000,6 +1003,8 @@ impl RuntimeError {
             span: None,
             contexts: Vec::new(),
             abort: None,
+            family_name: Name::ERROR,
+            variant_name,
         }
     }
 
@@ -1012,6 +1017,8 @@ impl RuntimeError {
     ) -> Self {
         let family = family.into();
         let variant = variant.into();
+        let family_name = Name::intern(&family);
+        let variant_name = Name::intern(&variant);
         let kind = payload
             .get("kind")
             .and_then(|value| match value {
@@ -1029,6 +1036,8 @@ impl RuntimeError {
             span: None,
             contexts: Vec::new(),
             abort: None,
+            family_name,
+            variant_name,
         }
     }
 
@@ -1043,7 +1052,17 @@ impl RuntimeError {
             span: None,
             contexts: Vec::new(),
             abort: Some(AbortSignal { status, force }),
+            family_name: Name::ERROR,
+            variant_name: Name::intern("Abort"),
         }
+    }
+
+    pub fn family_name(&self) -> Name {
+        self.family_name
+    }
+
+    pub fn variant_name(&self) -> Name {
+        self.variant_name
     }
 
     pub fn with_span(mut self, span: Span) -> Self {
@@ -1249,4 +1268,39 @@ fn run_error_status_summary(status: &ProcessStatus) -> (String, String) {
             segment.index, target, status_text
         ),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{RecordMap, RecordShape, RuntimeError, Value};
+    use std::sync::Arc;
+
+    #[test]
+    fn shaped_records_support_name_lookup() {
+        let shape = Box::leak(Box::new(RecordShape::new(
+            (0..8)
+                .map(|index| Arc::<str>::from(format!("field{index}")))
+                .collect(),
+        )));
+        let record = RecordMap::shaped(
+            shape,
+            (0..8).map(Value::Int).collect(),
+        );
+
+        assert_eq!(record.get_name(crate::symbol::Name::intern("field7")), Some(&Value::Int(7)));
+    }
+
+    #[test]
+    fn runtime_errors_cache_compact_family_and_variant_names() {
+        let error = RuntimeError::structured(
+            "FsError",
+            "NotFound",
+            RecordMap::new(),
+            Vec::new(),
+            "missing",
+        );
+
+        assert_eq!(error.family_name(), crate::symbol::Name::intern("FsError"));
+        assert_eq!(error.variant_name(), crate::symbol::Name::intern("NotFound"));
+    }
 }

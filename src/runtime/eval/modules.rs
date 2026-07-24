@@ -272,10 +272,10 @@ pub(super) fn test_value_matches_type(value: &Value, ty: &Type) -> bool {
         Type::EnvPathList => matches!(value, Value::EnvPathList),
         Type::Error => matches!(value, Value::Error(_)),
         Type::ErrorFamily(family) => {
-            matches!(value, Value::Error(error) if &error.family == family)
+            matches!(value, Value::Error(error) if error.family_name() == *family)
         }
         Type::ErrorVariant { family, variant } => {
-            matches!(value, Value::Error(error) if &error.family == family && &error.variant == variant)
+            matches!(value, Value::Error(error) if error.family_name() == *family && error.variant_name() == *variant)
         }
         Type::ErrorFacet(facet) => {
             matches!(value, Value::Error(error) if error.facets.iter().any(|value| value == facet))

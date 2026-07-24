@@ -11113,8 +11113,8 @@ impl CompactLowerConstructProbe<'_, '_> {
         }
         Some((
             LoweredPattern::ErrorVariant {
-                family: Arc::from(family.as_str()),
-                variant: Arc::from(variant.as_str()),
+                family,
+                variant,
                 fields: lowered,
                 result_wrapped,
             },
@@ -12765,20 +12765,20 @@ fn lowered_error_value_has_facet(value: &Value, facet: &str) -> bool {
 }
 
 fn lowered_error_variant_matches(
-    family: &str,
-    variant: &str,
+    family: &Name,
+    variant: &Name,
     fields: &LoweredErrorPatternFields,
     value: &Value,
     slots: &mut [LoweredValue],
 ) -> bool {
     match value {
         Value::Error(error) => {
-            error.family == family
-                && error.variant == variant
+            error.family_name() == *family
+                && error.variant_name() == *variant
                 && lowered_error_pattern_fields_match(&error.payload, fields, slots)
         }
-        Value::RunError(error) if family == "ProcessError" => {
-            if error.variant_name() != variant {
+        Value::RunError(error) if *family == Name::PROCESS_ERROR => {
+            if error.variant_name() != variant.as_str() {
                 return false;
             }
             let payload = error.payload();

@@ -1607,8 +1607,8 @@ enum LoweredPattern {
         unit_only: bool,
     },
     ErrorVariant {
-        family: Arc<str>,
-        variant: Arc<str>,
+        family: Name,
+        variant: Name,
         fields: LoweredErrorPatternFields,
         result_wrapped: bool,
     },
@@ -5738,6 +5738,7 @@ fn runtime_error_from_value(value: Value, span: Span) -> RuntimeError {
         }
         Value::RunError(error) => {
             let variant = error.variant_name().to_string();
+            let variant_name = Name::intern(&variant);
             let facets = error.facets();
             RuntimeError {
                 family: "ProcessError".to_string(),
@@ -5749,6 +5750,8 @@ fn runtime_error_from_value(value: Value, span: Span) -> RuntimeError {
                 span: error.span.or(Some(span)),
                 contexts: error.contexts,
                 abort: None,
+                family_name: Name::PROCESS_ERROR,
+                variant_name,
             }
         }
         value => RuntimeError::new(
@@ -6337,10 +6340,10 @@ pub(super) fn value_matches_static_type(value: &Value, ty: &Type) -> bool {
         Type::EnvPathList => matches!(value, Value::EnvPathList),
         Type::Error => matches!(value, Value::Error(_)),
         Type::ErrorFamily(family) => {
-            matches!(value, Value::Error(error) if &error.family == family)
+            matches!(value, Value::Error(error) if error.family_name() == *family)
         }
         Type::ErrorVariant { family, variant } => {
-            matches!(value, Value::Error(error) if &error.family == family && &error.variant == variant)
+            matches!(value, Value::Error(error) if error.family_name() == *family && error.variant_name() == *variant)
         }
         Type::ErrorFacet(facet) => {
             matches!(value, Value::Error(error) if error.facets.iter().any(|value| value == facet))
@@ -6448,10 +6451,10 @@ fn lowered_value_matches_static_type(value: &LoweredValue, ty: &Type) -> bool {
         Type::EnvPathList => false,
         Type::Error => matches!(value, LoweredValue::Error(_)),
         Type::ErrorFamily(family) => {
-            matches!(value, LoweredValue::Error(value) if matches!(value.as_ref(), Value::Error(error) if &error.family == family))
+            matches!(value, LoweredValue::Error(value) if matches!(value.as_ref(), Value::Error(error) if error.family_name() == *family))
         }
         Type::ErrorVariant { family, variant } => {
-            matches!(value, LoweredValue::Error(value) if matches!(value.as_ref(), Value::Error(error) if &error.family == family && &error.variant == variant))
+            matches!(value, LoweredValue::Error(value) if matches!(value.as_ref(), Value::Error(error) if error.family_name() == *family && error.variant_name() == *variant))
         }
         Type::ErrorFacet(facet) => {
             matches!(value, LoweredValue::Error(value) if matches!(value.as_ref(), Value::Error(error) if error.facets.iter().any(|value| value == facet)))
