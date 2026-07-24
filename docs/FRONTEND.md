@@ -450,7 +450,7 @@ probing allocation, or broad runtime value movement across ordinary XSH programs
    are reducing token/text churn, shrinking hot parser staging objects, avoiding
    repeated module/setup allocation per standalone file, and making body/function
    probing reuse compact structures instead of rebuilding transient maps. Measure
-   with `cargo bench -p xshi --bench bench small_corpus -- --sample-size 10
+   with `cargo bench -p xshi --profile profiling --features profiling --bench bench small_corpus -- --sample-size 10
    --warm-up-time 0.5 --measurement-time 1` and the allocation audit it prints.
 
 2. **Keep shrinking hot lowered frames only when it buys measurable runtime
@@ -891,7 +891,7 @@ Use the Criterion frontend group when changing parse, desugar, semantic check,
 lowering, or evaluator setup before top-level execution:
 
 ```sh
-cargo bench --bench bench frontend -- --sample-size 10 --warm-up-time 0.5 --measurement-time 1
+cargo bench -p xshi --profile profiling --features profiling --bench bench frontend -- --sample-size 10 --warm-up-time 0.5 --measurement-time 1
 ```
 
 The benchmark prints an allocation audit before Criterion timing. Treat
@@ -917,7 +917,7 @@ The scenarios cover:
 To run only the small-script floor lens:
 
 ```sh
-cargo bench -p xshi --bench bench small_corpus -- --sample-size 10 --warm-up-time 0.5 --measurement-time 1
+cargo bench -p xshi --profile profiling --features profiling --bench bench small_corpus -- --sample-size 10 --warm-up-time 0.5 --measurement-time 1
 ```
 
 As of the 2026-06-15 baseline after the string-churn cleanup, empty

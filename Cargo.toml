@@ -115,7 +115,6 @@ xsh-net = { path = "crates/xsh-net", optional = true }
 xsh-registry = { path = "crates/xsh-registry" }
 
 [dev-dependencies]
-criterion = { version = "0.8", features = ["html_reports"] }
 proc-macro2 = { version = "1", features = ["span-locations"] }
 syn = { version = "2", features = ["full", "visit"] }
 walkdir = "2"

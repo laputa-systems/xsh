@@ -2,7 +2,7 @@
   "kind": "small-corpus-frontend-baseline",
   "date": "2026-07-02",
   "commit": "7f2e7490eabde13056524127c42d1d4623a6da28",
-  "command": "cargo bench -p xshi --bench bench small_corpus -- --sample-size 10 --warm-up-time 0.5 --measurement-time 1",
+  "command": "cargo bench -p xshi --profile profiling --features profiling --bench bench small_corpus -- --sample-size 10 --warm-up-time 0.5 --measurement-time 1",
   "platform": {
     "arch": "aarch64",
     "host_arch": "arm64",

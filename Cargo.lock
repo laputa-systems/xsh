@@ -2587,7 +2587,6 @@ dependencies = [
  "cap-fs-ext",
  "cap-std",
  "cap-tempfile",
- "criterion",
  "crossbeam-channel",
  "data-encoding",
  "dhat",

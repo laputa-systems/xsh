@@ -6,7 +6,7 @@ and syscall problems before making runtime or module optimizations.
 For interpreter-only microbenchmarks, use:
 
 ```sh
-cargo bench --bench bench interpreter
+cargo bench -p xshi --profile profiling --features profiling --bench bench interpreter
 ```
 
 Those Criterion benchmarks include recursive Fibonacci and loop-heavy scripts
@@ -19,7 +19,7 @@ For front-end floor overhead on ordinary small scripts, use the Criterion
 frontend small-corpus lens:
 
 ```sh
-cargo bench -p xshi --bench bench small_corpus -- --sample-size 10 --warm-up-time 0.5 --measurement-time 1
+cargo bench -p xshi --profile profiling --features profiling --bench bench small_corpus -- --sample-size 10 --warm-up-time 0.5 --measurement-time 1
 ```
 
 That benchmark selects checked-in standalone `.xsh` files with at most 200 lines

@@ -14,14 +14,21 @@ xsh = { path = "../..", default-features = true }
 [features]
 default = []
 perf-metrics = ["xsh/perf-metrics"]
+# Keep the Criterion reporting stack out of ordinary tests and release builds.
+profiling = ["dep:criterion"]
 
 [dev-dependencies]
-criterion = { version = "0.8", features = ["html_reports"] }
 tempfile = "3"
+
+[dependencies.criterion]
+version = "0.8"
+features = ["html_reports"]
+optional = true
 
 [[bench]]
 name = "bench"
 harness = false
+required-features = ["profiling"]
 
 [lints.clippy]
 nursery = { level = "allow", priority = -2 }
