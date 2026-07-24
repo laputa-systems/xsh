@@ -19,7 +19,7 @@ mod tests {
         ISO9660_PVD_OFFSET, ISO9660_PVD_SIZE, ModuleIndex, VFAT_BOOT_SIZE, VFAT_LABEL32_OFFSET,
         VFAT_SERIAL32_OFFSET, XFS_LABEL_OFFSET, XFS_SUPER_SIZE, XFS_UUID_OFFSET, str_value,
     };
-    use crate::runtime::value::{RecordMap, ResultValue, Value};
+    use crate::runtime::value::{LiveStream, RecordMap, ResultValue, Value};
     use crate::source::{SourceId, Span};
     use std::fs::{self, File};
     use std::io::{Seek, SeekFrom, Write};

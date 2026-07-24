@@ -959,27 +959,6 @@ fn div_ceil(left: u64, right: u64) -> u64 {
     left / right + u64::from(!left.is_multiple_of(right))
 }
 
-pub(super) fn record_int(value: &Value, field: &str) -> i64 {
-    match value {
-        Value::Record(fields) => match fields.get(field) {
-            Some(Value::Int(value)) => *value,
-            _ => 0,
-        },
-        _ => 0,
-    }
-}
-
-pub(super) fn record_str(value: &Value, field: &str) -> String {
-    match value {
-        Value::Record(fields) => match fields.get(field) {
-            Some(Value::Str(value)) => value.to_string(),
-            Some(Value::Path(value)) => value.display(),
-            _ => String::new(),
-        },
-        _ => String::new(),
-    }
-}
-
 fn record_str_field(fields: &RecordMap, field: &str) -> Result<String, RuntimeError> {
     match fields.get(field) {
         Some(Value::Str(value)) => Ok(value.to_string()),

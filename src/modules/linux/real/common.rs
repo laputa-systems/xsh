@@ -11,36 +11,6 @@ pub(super) fn path_value(path: &Path, span: Span) -> Result<PathValue, RuntimeEr
     PathValue::new(path.as_os_str().as_bytes().to_vec()).map_err(|error| error.with_span(span))
 }
 
-pub(super) fn record_str(value: &Value, field: &str) -> String {
-    match value {
-        Value::Record(fields) => match fields.get(field) {
-            Some(Value::Str(value)) => value.to_string(),
-            _ => String::new(),
-        },
-        _ => String::new(),
-    }
-}
-
-pub(super) fn record_path(value: &Value, field: &str) -> Vec<u8> {
-    match value {
-        Value::Record(fields) => match fields.get(field) {
-            Some(Value::Path(value)) => value.bytes.clone(),
-            _ => Vec::new(),
-        },
-        _ => Vec::new(),
-    }
-}
-
-pub(super) fn record_int(value: &Value, field: &str) -> i64 {
-    match value {
-        Value::Record(fields) => match fields.get(field) {
-            Some(Value::Int(value)) => *value,
-            _ => 0,
-        },
-        _ => 0,
-    }
-}
-
 pub(super) fn parse_uevent_message(bytes: &[u8], span: Span) -> Result<Value, RuntimeError> {
     let mut action = String::new();
     let mut subsystem = String::new();
