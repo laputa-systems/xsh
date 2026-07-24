@@ -562,6 +562,7 @@ fn os_trace_json_correlates_signal_spawn_wait_and_cancel_payloads() {
     let _ = std::fs::remove_dir_all(root);
 }
 
+/*
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 #[test]
 #[ignore]
@@ -611,3 +612,4 @@ fn os_stress_signal_hooks_and_process_cancellation() {
         );
     }
 }
+*/

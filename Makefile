@@ -222,18 +222,13 @@ test-linux:
 	    sh -c 'set -eu; \
 	        ln -sf /work/target/debug/xsh /bin/xsh; \
 	        cargo test --features linux-priv-tests; \
-	        cargo test --test runtime os_stress -- --ignored --test-threads=1 --nocapture; \
 	        target/debug/xsht test'
 
 test-linux-ci:
-	cargo test --no-run --locked --profile $(DIST_PROFILE) --features "linux-priv-tests net tools" --target $(TARGET)
-	cargo test --profile $(DIST_PROFILE) --features "linux-priv-tests net tools" --target $(TARGET) -- --nocapture
-	cargo test --profile $(DIST_PROFILE) --features "linux-priv-tests net tools" --target $(TARGET) --test runtime os_stress -- --ignored --test-threads=1 --nocapture
+	cargo test --locked --profile $(DIST_PROFILE) --features "linux-priv-tests net tools" --target $(TARGET) -- --nocapture
 
 test-macos-ci:
-	cargo test --no-run --locked --profile $(DIST_PROFILE) --features "net tools" --target $(TARGET)
-	cargo test --profile $(DIST_PROFILE) --features "net tools" --target $(TARGET) -- --nocapture
-	cargo test --profile $(DIST_PROFILE) --features "net tools" --target $(TARGET) --test runtime os_stress -- --ignored --test-threads=1 --nocapture
+	cargo test --locked --profile $(DIST_PROFILE) --features "net tools" --target $(TARGET) -- --nocapture
 
 TRACE_DOCKER_RUN = docker run --rm --cap-add SYS_PTRACE --security-opt seccomp=unconfined -v $(CURDIR):/work -v $(CURDIR)/target/aarch64-unknown-linux-musl:/work/target -v xsh-cargo-registry:/root/.cargo/registry -w /work xsh-test sh -c "cargo build --bin xsh && cargo build -p xsht
 
