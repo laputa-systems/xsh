@@ -1,7 +1,3 @@
-pure xsh_bin() -> Path {
-  return p"target/debug/xsh"
-}
-
 proc test_group_lookup_and_mutation_contracts(ctx: TestContext) [fs, process, error] {
   let group_file = test.temp_path(ctx, name: "group")
 
@@ -22,8 +18,7 @@ proc test_group_lookup_and_mutation_contracts(ctx: TestContext) [fs, process, er
     contents: b"let added_group = group.add(\"builders\", gid: 2000)?\nprint ${added_group.name} ${added_group.gid}\ngroup.remove(\"builders\")?\n",
   )?
 
-  test.ok(xsh_bin().exists()?, "child xsh binary should be built before stdlib tests")?
-  let output = run.text XSH_GROUP_FILE=$group_file xsh_bin() $script ?
+  let output = run.text XSH_GROUP_FILE=$group_file "xsh" $script ?
   test.contains(output, "builders 2000")?
   test.error_kind(group.lookup("definitely-missing-xsh-group"), "group-not-found")?
   test.error_kind(group.add("-bad"), "group-name")?

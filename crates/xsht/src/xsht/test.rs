@@ -713,8 +713,9 @@ fn run_native_test(
         };
     }
 
+    let xsh_binary = absolute_path(&test_binary("xsh"));
     let ctx = if case.has_ctx {
-        match test_context_value(&case.id, &case.file, &temp_root) {
+        match test_context_value(&case.id, &case.file, &temp_root, &xsh_binary) {
             Ok(ctx) => ctx,
             Err(message) => {
                 return TestOutcome {
@@ -737,14 +738,16 @@ fn run_native_test(
         .collect_coverage()
         .then(|| temp_root.join("coverage-traces"));
     let mut env_overlay = Vec::new();
-    let xsh_binary = absolute_path(&test_binary("xsh"));
-    let core_dir = Path::new(&case.file)
-        .parent()
-        .and_then(Path::parent)
-        .map(absolute_path)
-        .unwrap_or_else(|| absolute_path(Path::new(".")));
     env_overlay.push((b"CARGO_BIN_EXE_xsh".to_vec(), path_bytes(&xsh_binary)));
-    env_overlay.push((b"XSH_CORE_DIR".to_vec(), path_bytes(&core_dir)));
+    if let Some(tool_dir) = xsh_binary.parent() {
+        let mut path_entries = vec![tool_dir.to_path_buf()];
+        if let Some(path) = std::env::var_os("PATH") {
+            path_entries.extend(std::env::split_paths(&path));
+        }
+        if let Ok(path) = std::env::join_paths(path_entries) {
+            env_overlay.push((b"PATH".to_vec(), path.into_vec()));
+        }
+    }
     if let Some(dir) = &nested_coverage_dir {
         env_overlay.push((XSH_COVERAGE_TRACE_DIR.as_bytes().to_vec(), path_bytes(dir)));
     }
@@ -1021,15 +1024,31 @@ fn sanitize_test_id(id: &str) -> String {
         .collect()
 }
 
-fn test_context_value(id: &str, file: &str, temp_root: &Path) -> Result<Value, String> {
+fn test_context_value(
+    id: &str,
+    file: &str,
+    temp_root: &Path,
+    xsh_binary: &Path,
+) -> Result<Value, String> {
     let file = PathValue::from_text(file)
         .map_err(|error| format!("invalid test file path: {}", error.message))?;
     let temp_root = PathValue::from_text(temp_root.to_string_lossy())
         .map_err(|error| format!("invalid temp root path: {}", error.message))?;
+    let core_dir = Path::new(&file.display())
+        .parent()
+        .and_then(Path::parent)
+        .map(absolute_path)
+        .unwrap_or_else(|| absolute_path(Path::new(".")));
+    let core_dir = PathValue::from_text(core_dir.to_string_lossy())
+        .map_err(|error| format!("invalid core directory path: {}", error.message))?;
+    let xsh_bin = PathValue::from_text(xsh_binary.to_string_lossy())
+        .map_err(|error| format!("invalid xsh binary path: {}", error.message))?;
     Ok(Value::Record(RecordMap::from([
         (Arc::from("name"), Value::Str(id.into())),
         (Arc::from("file"), Value::Path(file)),
         (Arc::from("temp_root"), Value::Path(temp_root)),
+        (Arc::from("core_dir"), Value::Path(core_dir)),
+        (Arc::from("xsh_bin"), Value::Path(xsh_bin)),
     ])))
 }
 

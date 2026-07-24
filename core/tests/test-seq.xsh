@@ -1,25 +1,5 @@
-proc xsh_bin() [env] -> Path {
-  let bin = env.get("CARGO_BIN_EXE_xsh") ?? ""
-
-  if bin != "" {
-    return fp"${bin}"
-  }
-
-  return ../target/debug/xsh
-}
-
-proc core_script(name: Str) [env] -> Path {
-  let dir = env.get("XSH_CORE_DIR") ?? ""
-
-  if dir != "" {
-    return fp"${dir}/${name}"
-  }
-
-  return ../name
-}
-
-proc test_seq_range() [process, env, error] {
-  let output = run.text xsh_bin() core_script("seq.xsh") -- 2 2 6 ?
+proc test_seq_range(ctx: TestContext) [process, env, error] {
+  let output = run.text ${ctx.xsh_bin} fp"${ctx.core_dir}/seq.xsh" -- 2 2 6 ?
 
   test.eq(
     output,
@@ -30,8 +10,8 @@ proc test_seq_range() [process, env, error] {
   )?
 }
 
-proc test_seq_descending_negative_separator_and_width() [process, env, error] {
-  let descending = run.text xsh_bin() core_script("seq.xsh") -- 3 -2 -1 ?
+proc test_seq_descending_negative_separator_and_width(ctx: TestContext) [process, env, error] {
+  let descending = run.text ${ctx.xsh_bin} fp"${ctx.core_dir}/seq.xsh" -- 3 -2 -1 ?
 
   test.eq(
     descending,
@@ -41,7 +21,7 @@ proc test_seq_descending_negative_separator_and_width() [process, env, error] {
 """,
   )?
 
-  let separated = run.text xsh_bin() core_script("seq.xsh") -- -s, 1 3 ?
+  let separated = run.text ${ctx.xsh_bin} fp"${ctx.core_dir}/seq.xsh" -- -s, 1 3 ?
 
   test.eq(
     separated,
@@ -49,7 +29,7 @@ proc test_seq_descending_negative_separator_and_width() [process, env, error] {
 """,
   )?
 
-  let padded = run.text xsh_bin() core_script("seq.xsh") -- -w 8 10 ?
+  let padded = run.text ${ctx.xsh_bin} fp"${ctx.core_dir}/seq.xsh" -- -w 8 10 ?
 
   test.eq(
     padded,
@@ -62,7 +42,7 @@ proc test_seq_descending_negative_separator_and_width() [process, env, error] {
 
 proc test_seq_rejects_zero_step(ctx: TestContext) [fs, process, env, error] {
   let err = test.temp_path(ctx, name: "seq.err")
-  let status = run.status xsh_bin() core_script("seq.xsh") -- 1 0 3 2> $err
+  let status = run.status ${ctx.xsh_bin} fp"${ctx.core_dir}/seq.xsh" -- 1 0 3 2> $err
   test.ok(! status.exited_with(0))?
   test.contains(err.read_text()?, "increment cannot be zero")?
 }

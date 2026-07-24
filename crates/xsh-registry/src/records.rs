@@ -734,6 +734,8 @@ pub fn test_context_type() -> Type {
         ("name".to_string(), Type::Str),
         ("file".to_string(), Type::Path),
         ("temp_root".to_string(), Type::Path),
+        ("core_dir".to_string(), Type::Path),
+        ("xsh_bin".to_string(), Type::Path),
     ]))
 }
 

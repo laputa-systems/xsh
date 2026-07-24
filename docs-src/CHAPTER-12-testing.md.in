@@ -64,13 +64,17 @@ or use a cataloged example instead.
 
 ## Use Temp Resources
 
-`TestContext` contains the stable test name, source file, and temp root:
+`TestContext` contains the stable test name, source file, temp root, the
+resolved `xsh` executable, and the directory containing the test's core
+scripts:
 
 ```xsh
 proc test_temp(ctx: TestContext) -> Result[Unit] {
   let path = test.temp_path(ctx)
   let dir = test.temp_dir(ctx, name: "work")?
   let file = test.temp_file(ctx, name: "input", contents: b"data")?
+  let child = ctx.xsh_bin
+  let core = ctx.core_dir
   test.ne(path, dir)?
   test.ok(file.name.starts_with("input"))?
 }

@@ -23,13 +23,7 @@ proc test_tui_helpers() [error] {
   test.ok(tui.dim().contains("\u{1b}["))?
 }
 
-pure xsh_bin() -> Path {
-  return p"target/debug/xsh"
-}
-
 proc test_tui_read_secret_piped_lines(ctx: TestContext) [fs, process, error] {
-  test.ok(xsh_bin().exists()?, "child xsh binary should be built before stdlib tests")?
-
   let script = test.temp_file(
     ctx,
     name: "read-secret.xsh",
@@ -39,7 +33,7 @@ proc test_tui_read_secret_piped_lines(ctx: TestContext) [fs, process, error] {
   let input = test.temp_file(ctx, name: "secret.in", contents: b"alpha\nbeta\n")?
 
   test.eq(
-    run.text xsh_bin() $script < ${input}?,
+    run.text "xsh" $script < ${input}?,
     """One: Two: alpha:beta
 """,
   )?

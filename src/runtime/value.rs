@@ -1282,12 +1282,12 @@ mod tests {
                 .map(|index| Arc::<str>::from(format!("field{index}")))
                 .collect(),
         )));
-        let record = RecordMap::shaped(
-            shape,
-            (0..8).map(Value::Int).collect(),
-        );
+        let record = RecordMap::shaped(shape, (0..8).map(Value::Int).collect());
 
-        assert_eq!(record.get_name(crate::symbol::Name::intern("field7")), Some(&Value::Int(7)));
+        assert_eq!(
+            record.get_name(crate::symbol::Name::intern("field7")),
+            Some(&Value::Int(7))
+        );
     }
 
     #[test]
@@ -1301,6 +1301,9 @@ mod tests {
         );
 
         assert_eq!(error.family_name(), crate::symbol::Name::intern("FsError"));
-        assert_eq!(error.variant_name(), crate::symbol::Name::intern("NotFound"));
+        assert_eq!(
+            error.variant_name(),
+            crate::symbol::Name::intern("NotFound")
+        );
     }
 }

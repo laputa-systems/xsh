@@ -1,16 +1,12 @@
-pure xsh_bin() -> Path {
-  return p"target/debug/xsh"
-}
-
 proc test_idiom_subcommand_dispatch() [process, error] {
-  let output: Str = run.text xsh_bin() examples/idiom-subcommand-dispatch.xsh ?
+  let output: Str = run.text "xsh" examples/idiom-subcommand-dispatch.xsh ?
   test.contains(output, "quick")?
   test.contains(output, "verbose")?
   test.contains(output, "error: unknown: unknown")?
 }
 
 proc test_idiom_enumerate() [process, error] {
-  let output: Str = run.text xsh_bin() examples/idiom-enumerate.xsh ?
+  let output: Str = run.text "xsh" examples/idiom-enumerate.xsh ?
   test.contains(output, "[keep]")?
   test.contains(output, "[dup ]")?
   test.contains(output, "1: line one")?
@@ -18,7 +14,7 @@ proc test_idiom_enumerate() [process, error] {
 }
 
 proc test_idiom_flat_map() [process, error] {
-  let output: Str = run.text xsh_bin() examples/idiom-flat-map.xsh ?
+  let output: Str = run.text "xsh" examples/idiom-flat-map.xsh ?
   test.contains(output, "the")?
   test.contains(output, "quick")?
   test.contains(output, "brown")?
@@ -26,18 +22,18 @@ proc test_idiom_flat_map() [process, error] {
 }
 
 proc test_idiom_any_all() [process, error] {
-  let output: Str = run.text xsh_bin() examples/idiom-any-all.xsh ?
+  let output: Str = run.text "xsh" examples/idiom-any-all.xsh ?
   test.contains(output, "true true false")?
 }
 
 proc test_idiom_sort_by_desc() [process, error] {
-  let output: Str = run.text xsh_bin() examples/idiom-sort-by-desc.xsh ?
+  let output: Str = run.text "xsh" examples/idiom-sort-by-desc.xsh ?
   test.contains(output, "large.txt")?
   test.contains(output, "cherry")?
 }
 
 proc test_idiom_building_maps() [process, error] {
-  let output: Str = run.text xsh_bin() examples/idiom-building-maps.xsh ?
+  let output: Str = run.text "xsh" examples/idiom-building-maps.xsh ?
   test.contains(output, "apple 3")?
   test.contains(output, "banana 2")?
   test.contains(output, "cherry 1")?
@@ -46,7 +42,7 @@ proc test_idiom_building_maps() [process, error] {
 }
 
 proc test_idiom_match_result_loop() [process, error] {
-  let output: Str = run.text xsh_bin() examples/idiom-match-result-loop.xsh ?
+  let output: Str = run.text "xsh" examples/idiom-match-result-loop.xsh ?
 
   test.eq(
     output,
@@ -56,7 +52,7 @@ proc test_idiom_match_result_loop() [process, error] {
 }
 
 proc test_idiom_dry_run() [process, error] {
-  let output: Str = run.text xsh_bin() examples/idiom-dry-run.xsh ?
+  let output: Str = run.text "xsh" examples/idiom-dry-run.xsh ?
   test.contains(output, "would keep: file-a.txt")?
   test.contains(output, "would drop: _hidden.txt")?
   test.contains(output, "dry run")?
@@ -71,18 +67,18 @@ proc test_idiom_dry_run() [process, error] {
 }
 
 proc test_idiom_reading_data() [process, error] {
-  let output: Str = run.text xsh_bin() examples/idiom-reading-data.xsh ?
+  let output: Str = run.text "xsh" examples/idiom-reading-data.xsh ?
   test.contains(output, "all fields present")?
   test.contains(output, "demo v1.0")?
 }
 
 proc test_idiom_typed_cli() [process, error] {
-  let output: Str = run.text xsh_bin() examples/idiom-typed-cli.xsh ?
+  let output: Str = run.text "xsh" examples/idiom-typed-cli.xsh ?
   test.contains(output, "proc true 20")?
 }
 
 proc test_idiom_temp_dir() [process, error] {
-  let output: Str = run.text xsh_bin() examples/idiom-temp-dir.xsh ?
+  let output: Str = run.text "xsh" examples/idiom-temp-dir.xsh ?
 
   test.eq(
     output,
@@ -92,18 +88,18 @@ proc test_idiom_temp_dir() [process, error] {
 }
 
 proc test_idiom_install_files() [process, error] {
-  let output: Str = run.text xsh_bin() examples/idiom-install-files.xsh ?
+  let output: Str = run.text "xsh" examples/idiom-install-files.xsh ?
   test.contains(output, "true")?
 }
 
 proc test_idiom_gitroot() [process, error] {
-  let output: Str = run.text xsh_bin() examples/idiom-gitroot.xsh ?
+  let output: Str = run.text "xsh" examples/idiom-gitroot.xsh ?
   test.contains(output, "repo root: /")?
   test.contains(output, "true")?
 }
 
 proc test_idiom_cache() [process, error] {
-  let output: Str = run.text xsh_bin() examples/idiom-cache.xsh ?
+  let output: Str = run.text "xsh" examples/idiom-cache.xsh ?
   test.contains(output, "root: /")?
   test.contains(output, "hello, world")?
   test.contains(output, "hello, xsh")?

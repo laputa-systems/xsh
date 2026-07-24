@@ -1,26 +1,6 @@
-proc xsh_bin() [env] -> Path {
-  let bin = env.get("CARGO_BIN_EXE_xsh") ?? ""
-
-  if bin != "" {
-    return fp"${bin}"
-  }
-
-  return ../target/debug/xsh
-}
-
-proc core_script(name: Str) [env] -> Path {
-  let dir = env.get("XSH_CORE_DIR") ?? ""
-
-  if dir != "" {
-    return fp"${dir}/${name}"
-  }
-
-  return ../name
-}
-
 proc test_cat_file_and_stdin(ctx: TestContext) [fs, process, env, error] {
   let input = test.temp_file(ctx, name: "input.txt", contents: b"file\n")?
-  let output = run.text xsh_bin() core_script("cat.xsh") -- $input ?
+  let output = run.text ${ctx.xsh_bin} fp"${ctx.core_dir}/cat.xsh" -- $input ?
 
   test.eq(
     output,
@@ -29,7 +9,7 @@ proc test_cat_file_and_stdin(ctx: TestContext) [fs, process, env, error] {
   )?
 
   let stdin = test.temp_file(ctx, name: "stdin.txt", contents: b"stdin\n")?
-  let stdin_output = run.text xsh_bin() core_script("cat.xsh") < ${stdin} ?
+  let stdin_output = run.text ${ctx.xsh_bin} fp"${ctx.core_dir}/cat.xsh" < ${stdin} ?
 
   test.eq(
     stdin_output,

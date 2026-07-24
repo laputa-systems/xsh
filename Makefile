@@ -203,10 +203,10 @@ cov-native:
 	    $(COV_CARGO) run --bin xsh -- tools/cov-linux.xsh
 
 test:
-	cargo test -- -Zunstable-options --report-time
+	cargo test --release -- -Zunstable-options --report-time
 
 test-xsh-native-only:
-	cargo run -p xsht -- test
+	cargo run --release -p xsht -- test
 
 test-linux:
 	docker build -t xsh-test -f Dockerfile.test .

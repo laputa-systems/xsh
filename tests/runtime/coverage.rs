@@ -1300,6 +1300,8 @@ fn xsh_native_tests() {
 
     let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
         .args(["test"])
+        .env("CARGO_BIN_EXE_xsh", env!("CARGO_BIN_EXE_xsh"))
+        .env("CARGO_BIN_EXE_xsht", env!("CARGO_BIN_EXE_xsht"))
         .output()
         .expect("run showcase tests");
 
