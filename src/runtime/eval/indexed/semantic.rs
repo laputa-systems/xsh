@@ -1,10 +1,11 @@
 use super::{
     IR_NONE, IrBuildError, IrData, IrRange, IrVerifyError, ShapeId, SignatureId, TypeId,
 };
-use crate::sema::types::{CallableType, ModuleExportType, Type};
+use crate::sema::types::{CallableParamType, CallableType, ModuleExportType, Type};
 use crate::symbol::{Name, Symbol};
 use crate::syntax::node::Effect;
 use rustc_hash::FxHashMap;
+use std::collections::BTreeMap;
 use std::mem::size_of;
 
 const PARAM_DEFAULTED: u32 = 1;
@@ -205,6 +206,173 @@ impl SemanticPools {
 
     pub(super) fn display_type(&self, id: TypeId) -> Result<String, IrVerifyError> {
         self.display_type_inner(id, 0)
+    }
+
+    pub(super) fn to_type(&self, id: TypeId) -> Result<Type, IrVerifyError> {
+        self.to_type_inner(id, 0)
+    }
+
+    fn to_type_inner(&self, id: TypeId, depth: usize) -> Result<Type, IrVerifyError> {
+        if depth > self.type_tags.len() {
+            return Err(IrVerifyError::new("type graph contains a cycle"));
+        }
+        let tag = self.type_tag(id)?;
+        let data = self.type_data[id.index()];
+        let child = |raw: u32| {
+            TypeId::from_raw(raw)
+                .ok_or_else(|| IrVerifyError::new("type child id is invalid"))
+                .and_then(|id| self.to_type_inner(id, depth + 1))
+        };
+        Ok(match tag {
+            TypeTag::Any => Type::Any,
+            TypeTag::Null => Type::Null,
+            TypeTag::Bool => Type::Bool,
+            TypeTag::Int => Type::Int,
+            TypeTag::Float => Type::Float,
+            TypeTag::Duration => Type::Duration,
+            TypeTag::Str => Type::Str,
+            TypeTag::Bytes => Type::Bytes,
+            TypeTag::Digest => Type::Digest,
+            TypeTag::Regex => Type::Regex,
+            TypeTag::Path => Type::Path,
+            TypeTag::List => Type::List(Box::new(child(data.lhs)?)),
+            TypeTag::Map => Type::Map(Box::new(child(data.lhs)?)),
+            TypeTag::Stream => Type::Stream(Box::new(child(data.lhs)?)),
+            TypeTag::Record => {
+                let (names, raw_types) = self.record_fields(id)?;
+                let mut fields = BTreeMap::new();
+                for (name, raw) in names.iter().copied().zip(raw_types.iter().copied()) {
+                    fields.insert(name, child(raw)?);
+                }
+                Type::Record(fields)
+            }
+            TypeTag::Module => {
+                let shape = ShapeId::from_raw(data.lhs)
+                    .ok_or_else(|| IrVerifyError::new("module shape id is invalid"))?;
+                let names = self.shape_fields(shape)?;
+                let start = data.rhs as usize;
+                let len = names
+                    .len()
+                    .checked_mul(2)
+                    .ok_or_else(|| IrVerifyError::new("module payload length overflows"))?;
+                let exports = self
+                    .type_extra
+                    .get(start..start + len)
+                    .ok_or_else(|| IrVerifyError::new("module payload is out of bounds"))?;
+                let mut fields = BTreeMap::new();
+                for (name, export) in names.iter().copied().zip(exports.chunks_exact(2)) {
+                    let optional = export[0] & MODULE_EXPORT_OPTIONAL != 0;
+                    let value = match export[0] & 0b11 {
+                        0 => ModuleExportType::Value {
+                            ty: child(export[1])?,
+                            optional,
+                        },
+                        1 => ModuleExportType::Proc {
+                            sig: self.to_signature(
+                                SignatureId::from_raw(export[1]).ok_or_else(|| {
+                                    IrVerifyError::new("module proc signature id is invalid")
+                                })?,
+                                depth + 1,
+                            )?,
+                            optional,
+                        },
+                        2 => ModuleExportType::Pure {
+                            sig: self.to_signature(
+                                SignatureId::from_raw(export[1]).ok_or_else(|| {
+                                    IrVerifyError::new("module pure signature id is invalid")
+                                })?,
+                                depth + 1,
+                            )?,
+                            optional,
+                        },
+                        _ => {
+                            return Err(IrVerifyError::new(
+                                "module export kind is invalid",
+                            ));
+                        }
+                    };
+                    fields.insert(name, value);
+                }
+                Type::Module(fields)
+            }
+            TypeTag::Result => Type::Result(
+                Box::new(child(data.lhs)?),
+                Box::new(child(data.rhs)?),
+            ),
+            TypeTag::Status => Type::Status,
+            TypeTag::EnvPathList => Type::EnvPathList,
+            TypeTag::Error => Type::Error,
+            TypeTag::ErrorFamily => {
+                Type::ErrorFamily(Name::from_symbol(Symbol::from_raw(data.lhs)))
+            }
+            TypeTag::ErrorVariant => Type::ErrorVariant {
+                family: Name::from_symbol(Symbol::from_raw(data.lhs)),
+                variant: Name::from_symbol(Symbol::from_raw(data.rhs)),
+            },
+            TypeTag::ErrorFacet => {
+                Type::ErrorFacet(Name::from_symbol(Symbol::from_raw(data.lhs)))
+            }
+            TypeTag::ProcessError => Type::ProcessError,
+            TypeTag::Pure => Type::Pure,
+            TypeTag::Proc => Type::Proc,
+            TypeTag::Command => Type::Command,
+            TypeTag::ProcessHandle => Type::ProcessHandle,
+            TypeTag::Unit => Type::Unit,
+            TypeTag::Tag => Type::Tag(Name::from_symbol(Symbol::from_raw(data.lhs))),
+            TypeTag::Optional => Type::Optional(Box::new(child(data.lhs)?)),
+        })
+    }
+
+    fn to_signature(
+        &self,
+        id: SignatureId,
+        depth: usize,
+    ) -> Result<CallableType, IrVerifyError> {
+        if depth > self.type_tags.len() + self.signature_data.len() {
+            return Err(IrVerifyError::new("semantic graph contains a cycle"));
+        }
+        let payload = self.signature_payload(id)?;
+        let effect_count = signature_effect_count(payload)?;
+        let effects = if payload[1] == IR_NONE {
+            None
+        } else {
+            let mut effects = Vec::with_capacity(effect_count);
+            for raw in &payload[3..3 + effect_count] {
+                effects.push(match *raw {
+                    value if value == EffectCode::Fs as u32 => Effect::Fs,
+                    value if value == EffectCode::Net as u32 => Effect::Net,
+                    value if value == EffectCode::Process as u32 => Effect::Process,
+                    value if value == EffectCode::Env as u32 => Effect::Env,
+                    value if value == EffectCode::Time as u32 => Effect::Time,
+                    value if value == EffectCode::Error as u32 => Effect::Error,
+                    value if value == EffectCode::Io as u32 => Effect::Io,
+                    _ => return Err(IrVerifyError::new("signature effect is invalid")),
+                });
+            }
+            Some(effects)
+        };
+        let mut params = Vec::with_capacity(payload[2] as usize);
+        for raw in payload[3 + effect_count..].chunks_exact(3) {
+            params.push(CallableParamType {
+                name: Name::from_symbol(Symbol::from_raw(raw[0])),
+                ty: self.to_type_inner(
+                    TypeId::from_raw(raw[1])
+                        .ok_or_else(|| IrVerifyError::new("parameter type id is invalid"))?,
+                    depth + 1,
+                )?,
+                defaulted: raw[2] & PARAM_DEFAULTED != 0,
+                rest: raw[2] & PARAM_REST != 0,
+            });
+        }
+        Ok(CallableType {
+            params,
+            return_ty: Box::new(self.to_type_inner(
+                TypeId::from_raw(payload[0])
+                    .ok_or_else(|| IrVerifyError::new("return type id is invalid"))?,
+                depth + 1,
+            )?),
+            effects,
+        })
     }
 
     fn display_type_inner(

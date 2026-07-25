@@ -6,7 +6,7 @@
 - [x] Phase 1: prove the compact indexed IR architecture with a hard vertical slice
 - [x] Phase 2: replace permissive probing with transactional lowering
 - [x] Phase 3: introduce interned semantic types, signatures, and shapes
-- [ ] Phase 4: migrate expressions, statements, patterns, functions, and slots
+- [x] Phase 4: migrate expressions, statements, patterns, functions, and slots
 - [ ] Phase 5: decide and implement the durable top-level/effect boundary
 - [ ] Phase 6: cut production execution over and delete the recursive lowered IR
 - [ ] Phase 7: redesign records and runtime value movement
@@ -1076,55 +1076,55 @@ semantic identities rather than owned `Type` trees.
 
 ### Expressions
 
-- [ ] literals and program-owned string/bytes/path pools;
-- [ ] slot/parameter/capture reads;
-- [ ] unary/binary operations;
-- [ ] field/index/slice operations;
-- [ ] list/map/record/tag construction;
-- [ ] result construction, fallback, and propagation;
-- [ ] formatting, comprehensions, and pipelines;
-- [ ] direct, dynamic, self, and module calls;
-- [ ] filesystem/path/archive/hash operations;
-- [ ] process command, run, spawn, wait, and abort forms.
+- [x] literals and program-owned string/bytes/path pools;
+- [x] slot/parameter/capture reads;
+- [x] unary/binary operations;
+- [x] field/index/slice operations;
+- [x] list/map/record/tag construction;
+- [x] result construction, fallback, and propagation;
+- [x] formatting, comprehensions, and pipelines;
+- [x] direct, dynamic, self, and module calls;
+- [x] filesystem/path/archive/hash operations;
+- [x] process command, run, spawn, wait, and abort forms.
 
 ### Statements And Control Flow
 
-- [ ] bindings, destructuring, assignment, discard, expression;
-- [ ] return, break, continue, propagation, and defer;
-- [ ] blocks, if, loops, while, for, and guard;
-- [ ] general match with source-ordered flat arms;
-- [ ] measured compact exact-match dispatch;
-- [ ] stream and parallel control bodies.
+- [x] bindings, destructuring, assignment, discard, expression;
+- [x] return, break, continue, propagation, and defer;
+- [x] blocks, if, loops, while, for, and guard;
+- [x] general match with source-ordered flat arms;
+- [x] measured compact exact-match dispatch;
+- [x] stream and parallel control bodies.
 
 ### Functions And Metadata
 
-- [ ] one compact parameter row;
-- [ ] cold optional parameter validation/default tables;
-- [ ] compact capture rows;
-- [ ] function body/parameter/capture ranges;
-- [ ] `u32` slot counts and IDs;
-- [ ] pure/proc, namespace, import, return, and mutability metadata;
-- [ ] compact function lookup by identity;
-- [ ] no five-`SmallVec` function header.
+- [x] one compact parameter row;
+- [x] cold optional parameter validation/default tables;
+- [x] compact capture rows;
+- [x] function body/parameter/capture ranges;
+- [x] `u32` slot counts and IDs;
+- [x] pure/proc, namespace, import, return, and mutability metadata;
+- [x] compact function lookup by identity;
+- [x] no five-`SmallVec` function header.
 
 ### Verification And Parity
 
-- [ ] payload verifier coverage for every opcode;
-- [ ] block terminator and ownership checks;
-- [ ] slot/type/function/pattern/location bounds;
-- [ ] exact arena-versus-IR tests for every construct;
-- [ ] corpus differential execution;
-- [ ] opcode frequency and extra-word reports;
-- [ ] coverage reports derived without placeholder construction.
+- [x] payload verifier coverage for every opcode;
+- [x] block terminator and ownership checks;
+- [x] slot/type/function/pattern/location bounds;
+- [x] exact arena-versus-IR tests for every construct;
+- [x] corpus differential execution;
+- [x] opcode frequency and extra-word reports;
+- [x] coverage reports derived without placeholder construction.
 
 ### Exit Gate
 
-- [ ] All currently lowered semantics have indexed equivalents.
-- [ ] No indexed body owns nested node vectors.
-- [ ] Function/parameter metadata meets budgets.
-- [ ] Corpus-weighted IR is materially smaller including heap storage.
-- [ ] Coverage is at least current coverage.
-- [ ] Shadow mode remains disabled in production benchmarks.
+- [x] All currently lowered semantics have indexed equivalents.
+- [x] No indexed body owns nested node vectors.
+- [x] Function/parameter metadata meets budgets.
+- [x] Corpus-weighted IR is materially smaller including heap storage.
+- [x] Coverage is at least current coverage.
+- [x] Shadow mode remains disabled in production benchmarks.
 
 ## Phase 5: Top-Level, Effect, And Fallback Boundary
 
@@ -1545,7 +1545,8 @@ Deliberate deviation: Phase 1 constructs from `LoweredFunctionUnit` so storage,
 verification, failure, and execution can be proved independently. The finalized
 program retains no lowered node. Phase 2 owns compact dependency/SCC planning,
 verification-before-commit, and replacing blocker-counter correctness checks;
-Phase 4 removes the remaining committed-body adapter during broad migration.
+Phase 4 removes recursive bodies from the finalized broad store. The temporary
+construction/decode compatibility boundary is deleted at the Phase 6 cutover.
 
 Date: 2026-07-25
 Phase: 2
@@ -1575,7 +1576,9 @@ approved executable rows.
 Remaining adapter: body opcode emission still reads a successfully committed
 `LoweredFunctionUnit`; dependency discovery, SCC planning, commit safety,
 verification, and blocker coverage no longer depend on construct-probe counters.
-Phase 4 removes this body adapter as syntax coverage migrates to indexed IR.
+Phase 4 prevents this body adapter from escaping into the finalized program and
+covers the full syntax vocabulary. Phase 6 moves the sink into the compact
+lowerer and deletes the temporary adapter with the recursive IR.
 
 Date: 2026-07-25
 Phase: 3
@@ -1615,9 +1618,57 @@ without owned semantic trees or wider hot instruction rows.
 
 Remaining adapter: Phase 3 constructs semantic identities from the committed
 `LoweredFunctionUnit` metadata and record requirements used by the indexed
-vertical slice. Phase 4 moves direct compact-syntax lowering onto these pools
-and removes the remaining body adapter. Runtime values retain their current
-record maps until Phase 7.
+vertical slice. Phase 4 expands that freeze boundary to every committed body and
+ensures no recursive node remains in the finalized store. Phase 6 moves the
+indexed sink into direct production execution and deletes the temporary
+construction/decode boundary. Runtime values retain their current record maps
+until Phase 7.
+
+Date: 2026-07-25
+Phase: 4
+Decision: Approve the exhaustive indexed function-body vocabulary, explicit
+owned block rows, compact hot/cold function metadata split, program-owned
+literal and location pools, and whole-store verification. Every current
+recursive expression, statement, typed fast path, pattern, pipeline stage,
+process/run payload, and persistable compile-time value has one exhaustive
+encode/decode schema. Recovery-only checker types are converted at the commit
+boundary to their existing executable wildcard meaning, `Any`; recovery
+identities remain forbidden.
+Alternatives: Keep widening the frozen Phase 1 vertical-slice store; store
+recursive nodes behind IDs; retain hash maps and vectors inside indexed
+instructions; add an unverified byte stream; shadow-build the store in
+production.
+Evidence: `target/frontend-campaign/phase-4/PROTOCOL.md`, `tests.txt`,
+`corpus-ir-summary.txt`, `opcode-frequency.txt`, `blockers.txt`,
+`ir-layout.txt`, `frontend-stats-vertical-slice.json`, `coverage.json`, and
+`bench-fast-mediated-memory.txt`. The corpus encodes and verifies 837 committed
+functions and 43,589 instructions across 204 wholly executable files. Final
+store storage is 1,843,105 bytes, 57.11% below the conservative 4,297,136-byte
+recursive-row lower bound, which excludes the recursive representation's
+nested heap storage. It uses 13.560 extra bytes per instruction. `FullBlock`,
+`FullFunction`, `FullParam`, and `FullCapture` are 20, 32, 12, and 12 bytes;
+the hot instruction row is 9 bytes before amortized extra/location storage.
+Exact differential tests preserve values, stdout, runtime errors and source
+locations, and normalized traces. Production coverage and mediated benchmark
+allocation traffic do not change because no product path builds shadow IR. The
+local checkout did not retain Phase 0/3 target artifacts, so coverage compares
+with the frozen local pre-change capture and the two serial Phase 4 benchmark
+runs compare with each other; the protocol also compares historical artifacts
+when they are available.
+Affected workloads: Every fully committed function in the Phase 0 corpus,
+the frozen full-construct vertical slice and malformed-store cases, production
+frontend coverage, and the curated fast benchmark suite.
+Revisit condition: Phase 5 selects a top-level boundary that requires different
+function ownership, or Phase 6 direct indexed execution shows that a measured
+hot payload needs a specialized layout.
+
+Temporary execution boundary: the compact entry freezes committed function
+units immediately and drops them with all frontend scratch; the finalized
+program contains no recursive body. Tests decode into temporary
+`LoweredPureFunction` values only to reuse the current runtime as the semantic
+oracle. Phase 6 replaces that decoder with direct indexed execution and deletes
+the construction/decode compatibility boundary. Product binaries neither build
+nor install the Phase 4 store.
 
 ## Completion Report
 

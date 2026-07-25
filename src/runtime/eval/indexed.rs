@@ -18,6 +18,7 @@ use std::num::NonZeroU32;
 use std::sync::Arc;
 
 mod semantic;
+mod full;
 
 use self::semantic::{SemanticPoolBuilder, SemanticPools, TypeTag};
 
@@ -4620,7 +4621,10 @@ mod tests {
         });
     }
 
-    fn collect_xsh_paths(path: &std::path::Path, paths: &mut Vec<std::path::PathBuf>) {
+    pub(super) fn collect_xsh_paths(
+        path: &std::path::Path,
+        paths: &mut Vec<std::path::PathBuf>,
+    ) {
         if path.is_file() {
             if path.extension().is_some_and(|extension| extension == "xsh") {
                 paths.push(path.to_path_buf());
@@ -4633,5 +4637,9 @@ mod tests {
         for entry in entries.flatten() {
             collect_xsh_paths(&entry.path(), paths);
         }
+    }
+
+    pub(super) fn read_xsh_source(path: &std::path::Path) -> std::io::Result<String> {
+        std::fs::read_to_string(path)
     }
 }

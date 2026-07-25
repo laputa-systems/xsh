@@ -81,11 +81,9 @@ coverage report aggregates counts, callees, and bounded sample locations. The
 indexed path does not inspect construct-probe blocker counters to decide whether
 rows are safe.
 
-The remaining adapter is explicit: opcode emission still consumes a committed
-`LoweredFunctionUnit` body while broad syntax migration is pending. Graph/SCC
-ownership, transactional safety, verification, and blocker reporting already
-belong to the indexed path; Phase 4 removes this body adapter as expressions and
-statements migrate directly from compact syntax and semantic identities.
+The Phase 1–3 store remains as the narrow historical prototype and graph/SCC
+evidence. Phase 4 adds the complete executable-body store described below
+rather than widening that frozen vertical-slice format.
 
 ### Interned Semantic Identities
 
@@ -114,6 +112,57 @@ Semantic pools are cold metadata beside the frozen instruction store. The
 common instruction remains the Phase 1 thirteen-byte
 tag/data/optional-location row, and Phase 2 dependency ordering, SCC commit
 watermarks, rollback, and verification-before-commit are unchanged.
+
+### Full Indexed Function Bodies
+
+Phase 4 adds a test-only complete indexed representation in
+`src/runtime/eval/indexed/full.rs`. Its exhaustive encoders cover every current
+`LoweredExpr`, `LoweredStmt`, typed integer/boolean expression,
+`LoweredPattern`, `LoweredPipelineStage`, process/run form, and persistable
+compile-time value variant. The finalized program owns no recursive lowered
+node, `Type`, runtime `Value`, AST, token, or CST reference.
+
+All hot instructions use a one-byte tag and eight-byte `IrData`. Variable
+payloads use shared `u32` extra storage. Strings and arbitrary bytes have
+separate program-owned blobs; source spans become compact location IDs; direct
+calls contain `IrFunctionId`; and types and signatures use the Phase 3 semantic
+pools. Recovery-only checker types are translated at the commit boundary to
+their existing runtime wildcard meaning, `Any`, so `Unknown` and `Invalid`
+never become executable semantic identities.
+
+Every `Vec`-backed variable sequence has an explicit compact block row.
+Statement blocks are distinguished from ordinary payload lists, record their
+function owner, and cannot be shared across parents. A function row is 32 bytes
+and names exact parameter, capture, body-block, and slot metadata. Parameter
+rows are 12 bytes; optional defaults and validations occupy sparse 12-byte cold
+rows; captures are 12 bytes; and blocks are 20 bytes. Function metadata that is
+cold during execution is stored in a separate eight-byte row.
+
+Finalization shrinks all columns and verifies tag/data parity, every payload
+schema, instruction and block ownership, function termination, slot bounds,
+type/signature/function/pattern/stage/value/string/byte/location IDs, dense
+function instruction ranges, and parameter/capture metadata. Failed body
+construction rewinds every graph, literal, location, operation, and semantic
+column to one checkpoint. The verifier must succeed before a `FullProgram` is
+returned.
+
+The current compact entry constructs committed function units as temporary
+lowering scratch and freezes them immediately into the indexed store. Tests
+drop the arena, checker outputs, units, and canonical maps before execution.
+The temporary decode back to `LoweredPureFunction` exists only so the current
+runtime can remain the semantic oracle until the Phase 5 boundary choice and
+Phase 6 indexed executor cutover. It is never installed or shadow-built by
+product binaries.
+
+The Phase 4 corpus evidence covers 837 committed functions and 43,589
+instructions across 204 wholly executable files. Finalized storage is
+1,843,105 bytes, 57.11% below a conservative 4,297,136-byte recursive-row lower
+bound that excludes the old representation's nested heap storage. The report
+also records all opcode frequencies and 13.560 extra bytes per instruction.
+Exact vertical-slice differential tests compare returned values, stdout,
+runtime errors and locations, and normalized traces after all frontend and
+adapter scratch is dropped. Run the full protocol with
+`scripts/frontend-campaign-phase4`.
 
 ## North Star
 
