@@ -59,6 +59,34 @@ store contains no lowered nodes and executes after the token table, CST, arena,
 checker output, construct probe, and lowering scratch are dropped. Phase 2 owns
 moving construction to the compact-ID dependency graph.
 
+### Dependency And Transaction Model
+
+Phase 2 builds every compact function identity and its parameter/capture
+metadata before emitting a body. Dependency discovery is a separate pass that
+combines the current function-unit edges with an independent scan of committed
+lowered bodies, then computes Tarjan SCCs once over compact `IrFunctionId`s.
+The dependency-first SCC order is construction scratch and is dropped after
+finalization.
+
+An SCC emits beyond an explicit commit watermark. Its function bodies remain
+pending until the partial verifier accepts instruction schemas, ownership,
+slots, calls, locations, and every nested block in the SCC. Verification moves
+the watermark; any blocker or verification failure clears pending bodies and
+rewinds every store column to the SCC checkpoint. Unsupported constructs never
+become `Unit` or another executable instruction.
+
+Blockers are structured records containing function identity, blocker kind and
+label, detail, compact source location, and optional callee. A separate compact
+coverage report aggregates counts, callees, and bounded sample locations. The
+indexed path does not inspect construct-probe blocker counters to decide whether
+rows are safe.
+
+The remaining adapter is explicit: opcode emission still consumes a committed
+`LoweredFunctionUnit` body while broad syntax migration is pending. Graph/SCC
+ownership, transactional safety, verification, and blocker reporting already
+belong to the indexed path; Phase 4 removes this body adapter as expressions and
+statements migrate directly from compact syntax and semantic identities.
+
 ## North Star
 
 - Dense token tables with token tags, byte starts, and compact payloads for data

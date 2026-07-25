@@ -2,7 +2,7 @@
 
 use super::{
     LoweredBoolExpr, LoweredCallArg, LoweredErrorExpr, LoweredExpr, LoweredFunctionKey,
-    LoweredFunctionKind, LoweredFunctionUnit, LoweredIntExpr, LoweredPattern,
+    LoweredFunctionBlocker, LoweredFunctionKind, LoweredFunctionUnit, LoweredIntExpr, LoweredPattern,
     LoweredPipelineStage, LoweredPureFunction, LoweredRecordEntry, LoweredReturnKind, LoweredStmt,
     LoweredType, LoweredValue,
 };
@@ -10,7 +10,7 @@ use crate::modules::RuntimeOp;
 use crate::sema::types::Type;
 use crate::source::{SourceId, SourceMap, Span};
 use crate::syntax::node::{AssignOp, BinaryOp};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write;
 use std::mem::size_of;
 use std::num::NonZeroU32;
@@ -679,6 +679,549 @@ impl IrBuildError {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub enum IrBlockerKind {
+    Lowered(LoweredFunctionBlocker),
+    Unsupported(&'static str),
+    Dependency,
+    Verification,
+}
+
+impl IrBlockerKind {
+    fn label(&self) -> &'static str {
+        match self {
+            Self::Lowered(blocker) => blocker.label(),
+            Self::Unsupported(label) => label,
+            Self::Dependency => "dependency",
+            Self::Verification => "verification",
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct IrBlocker {
+    pub function: IrFunctionId,
+    pub function_name: String,
+    pub kind: IrBlockerKind,
+    pub detail: String,
+    pub location: Option<IrLocation>,
+    pub callee: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct IrCoverageReport {
+    pub blockers: Vec<IrBlocker>,
+    pub counts: BTreeMap<String, usize>,
+    pub callees: BTreeMap<String, usize>,
+    pub samples: BTreeMap<String, Vec<IrLocation>>,
+}
+
+impl IrCoverageReport {
+    fn record(&mut self, blocker: IrBlocker) {
+        let label = blocker.kind.label().to_string();
+        *self.counts.entry(label.clone()).or_default() += 1;
+        if let Some(callee) = &blocker.callee {
+            *self.callees.entry(callee.clone()).or_default() += 1;
+        }
+        if let Some(location) = blocker.location {
+            let samples = self.samples.entry(label).or_default();
+            if !samples.contains(&location) && samples.len() < 8 {
+                samples.push(location);
+            }
+        }
+        self.blockers.push(blocker);
+    }
+
+    fn retained_bytes(&self) -> usize {
+        size_of::<Self>()
+            + self.blockers.capacity() * size_of::<IrBlocker>()
+            + self
+                .blockers
+                .iter()
+                .map(|blocker| {
+                    blocker.function_name.capacity()
+                        + blocker.detail.capacity()
+                        + blocker.callee.as_ref().map_or(0, String::capacity)
+                })
+                .sum::<usize>()
+            + self
+                .counts
+                .iter()
+                .map(|(label, _)| label.capacity() + size_of::<(String, usize)>())
+                .sum::<usize>()
+            + self
+                .callees
+                .iter()
+                .map(|(callee, _)| callee.capacity() + size_of::<(String, usize)>())
+                .sum::<usize>()
+            + self
+                .samples
+                .iter()
+                .map(|(label, samples)| {
+                    label.capacity()
+                        + size_of::<(String, Vec<IrLocation>)>()
+                        + samples.capacity() * size_of::<IrLocation>()
+                })
+                .sum::<usize>()
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct IrGraphStats {
+    pub functions: usize,
+    pub edges: usize,
+    pub sccs: usize,
+    pub recursive_sccs: usize,
+    pub max_scc_members: usize,
+}
+
+#[derive(Clone, Debug)]
+pub struct IrBuildOutcome {
+    pub program: Option<Box<IrProgram>>,
+    pub coverage: IrCoverageReport,
+    pub graph: IrGraphStats,
+    pub committed_functions: usize,
+    pub committed_instructions: usize,
+    pub graph_retained_bytes: usize,
+    pub coverage_retained_bytes: usize,
+}
+
+#[derive(Clone, Debug, Default)]
+struct IrDependencyGraph {
+    edges: Vec<IrRange>,
+    edge_targets: Vec<IrFunctionId>,
+    sccs: Vec<IrRange>,
+    scc_members: Vec<IrFunctionId>,
+    function_to_scc: Vec<u32>,
+    emission_order: Vec<u32>,
+}
+
+impl IrDependencyGraph {
+    fn discover(
+        units: &[&LoweredFunctionUnit],
+        functions: &BTreeMap<LoweredFunctionKey, IrFunctionId>,
+    ) -> Result<Self, IrBuildError> {
+        let mut adjacency = vec![Vec::<usize>::new(); units.len()];
+        let mut edges = Vec::with_capacity(units.len());
+        let mut edge_targets = Vec::new();
+        for unit in units {
+            let start = edge_targets.len();
+            let function = functions[&unit.key()];
+            let mut dependency_keys = unit.dependency_edges().iter().copied().collect::<BTreeSet<_>>();
+            if let Some(body) = unit.lowered_body() {
+                Self::discover_statement_dependencies(
+                    unit.key(),
+                    &body.body,
+                    &mut dependency_keys,
+                );
+            }
+            let mut dependencies = dependency_keys
+                .iter()
+                .filter_map(|key| functions.get(key).copied())
+                .collect::<Vec<_>>();
+            dependencies.sort();
+            dependencies.dedup();
+            adjacency[function.index()].extend(dependencies.iter().map(|id| id.index()));
+            edge_targets.extend(dependencies);
+            edges.push(IrRange::new(
+                u32::try_from(start)
+                    .map_err(|_| IrBuildError::format("graph_overflow", None, 0, 0))?,
+                u32::try_from(edge_targets.len() - start)
+                    .map_err(|_| IrBuildError::format("graph_overflow", None, 0, 0))?,
+            ));
+        }
+
+        let components = Self::tarjan(&adjacency);
+        let mut sccs = Vec::with_capacity(components.len());
+        let mut scc_members = Vec::new();
+        let mut function_to_scc = vec![0u32; units.len()];
+        for (scc_index, mut members) in components.into_iter().enumerate() {
+            members.sort_unstable();
+            let start = scc_members.len();
+            for member in members {
+                function_to_scc[member] = u32::try_from(scc_index)
+                    .map_err(|_| IrBuildError::format("graph_overflow", None, 0, 0))?;
+                scc_members.push(IrFunctionId::new(member)?);
+            }
+            sccs.push(IrRange::new(
+                u32::try_from(start)
+                    .map_err(|_| IrBuildError::format("graph_overflow", None, 0, 0))?,
+                u32::try_from(scc_members.len() - start)
+                    .map_err(|_| IrBuildError::format("graph_overflow", None, 0, 0))?,
+            ));
+        }
+
+        let mut scc_dependencies = vec![Vec::<usize>::new(); sccs.len()];
+        for (function, dependencies) in adjacency.iter().enumerate() {
+            let owner = function_to_scc[function] as usize;
+            for dependency in dependencies {
+                let dependency = function_to_scc[*dependency] as usize;
+                if dependency != owner && !scc_dependencies[owner].contains(&dependency) {
+                    scc_dependencies[owner].push(dependency);
+                }
+            }
+            scc_dependencies[owner].sort_unstable();
+        }
+        let mut emission_order = Vec::with_capacity(sccs.len());
+        let mut visited = vec![false; sccs.len()];
+        for scc in 0..sccs.len() {
+            Self::visit_scc(scc, &scc_dependencies, &mut visited, &mut emission_order);
+        }
+        Ok(Self {
+            edges,
+            edge_targets,
+            sccs,
+            scc_members,
+            function_to_scc,
+            emission_order: emission_order
+                .into_iter()
+                .map(|scc| u32::try_from(scc).expect("SCC count already fit in u32"))
+                .collect(),
+        })
+    }
+
+    fn discover_statement_dependencies(
+        current: LoweredFunctionKey,
+        statements: &[LoweredStmt],
+        dependencies: &mut BTreeSet<LoweredFunctionKey>,
+    ) {
+        for statement in statements {
+            match statement {
+                LoweredStmt::Let { value, .. }
+                | LoweredStmt::Assign { value, .. }
+                | LoweredStmt::Expr { value, .. }
+                | LoweredStmt::Return { value }
+                | LoweredStmt::Yield { value }
+                | LoweredStmt::BreakValue { value }
+                | LoweredStmt::Defer { value } => {
+                    Self::discover_expression_dependencies(current, value, dependencies);
+                }
+                LoweredStmt::Guard {
+                    value, else_body, ..
+                } => {
+                    Self::discover_expression_dependencies(current, value, dependencies);
+                    Self::discover_statement_dependencies(current, else_body, dependencies);
+                }
+                LoweredStmt::If {
+                    branches,
+                    else_body,
+                } => {
+                    for (condition, body) in branches {
+                        Self::discover_expression_dependencies(current, condition, dependencies);
+                        Self::discover_statement_dependencies(current, body, dependencies);
+                    }
+                    if let Some(body) = else_body {
+                        Self::discover_statement_dependencies(current, body, dependencies);
+                    }
+                }
+                LoweredStmt::IfBool {
+                    branches,
+                    else_body,
+                } => {
+                    for (_, body) in branches {
+                        Self::discover_statement_dependencies(current, body, dependencies);
+                    }
+                    if let Some(body) = else_body {
+                        Self::discover_statement_dependencies(current, body, dependencies);
+                    }
+                }
+                LoweredStmt::While {
+                    condition, body, ..
+                } => {
+                    Self::discover_expression_dependencies(current, condition, dependencies);
+                    Self::discover_statement_dependencies(current, body, dependencies);
+                }
+                LoweredStmt::WhileBool { body, .. } | LoweredStmt::Loop { body } => {
+                    Self::discover_statement_dependencies(current, body, dependencies);
+                }
+                LoweredStmt::Match {
+                    value, arms, ..
+                } => {
+                    Self::discover_expression_dependencies(current, value, dependencies);
+                    for (_, guard, body) in arms {
+                        if let Some(guard) = guard {
+                            Self::discover_expression_dependencies(current, guard, dependencies);
+                        }
+                        Self::discover_statement_dependencies(current, body, dependencies);
+                    }
+                }
+                LoweredStmt::For { iter, body, .. }
+                | LoweredStmt::ForRecord { iter, body, .. } => {
+                    Self::discover_expression_dependencies(current, iter, dependencies);
+                    Self::discover_statement_dependencies(current, body, dependencies);
+                }
+                LoweredStmt::ForStrLines { text, body, .. }
+                | LoweredStmt::Cd {
+                    target: text,
+                    body,
+                    ..
+                } => {
+                    Self::discover_expression_dependencies(current, text, dependencies);
+                    Self::discover_statement_dependencies(current, body, dependencies);
+                }
+                LoweredStmt::Print { args, .. } | LoweredStmt::Proc { args, .. } => {
+                    for arg in args {
+                        Self::discover_expression_dependencies(current, arg, dependencies);
+                    }
+                }
+                LoweredStmt::Run { value, .. } => {
+                    Self::discover_expression_dependencies(current, value, dependencies);
+                }
+                _ => {}
+            }
+        }
+    }
+
+    fn discover_expression_dependencies(
+        current: LoweredFunctionKey,
+        expression: &LoweredExpr,
+        dependencies: &mut BTreeSet<LoweredFunctionKey>,
+    ) {
+        match expression {
+            LoweredExpr::Binary { left, right, .. }
+            | LoweredExpr::ResultFallback { left, right } => {
+                Self::discover_expression_dependencies(current, left, dependencies);
+                Self::discover_expression_dependencies(current, right, dependencies);
+            }
+            LoweredExpr::IfExpr {
+                branches,
+                else_value,
+                ..
+            } => {
+                for (condition, value) in branches {
+                    Self::discover_expression_dependencies(current, condition, dependencies);
+                    Self::discover_expression_dependencies(current, value, dependencies);
+                }
+                Self::discover_expression_dependencies(current, else_value, dependencies);
+            }
+            LoweredExpr::MatchExpr { value, arms, .. } => {
+                Self::discover_expression_dependencies(current, value, dependencies);
+                for (_, guard, value) in arms {
+                    if let Some(guard) = guard {
+                        Self::discover_expression_dependencies(current, guard, dependencies);
+                    }
+                    Self::discover_expression_dependencies(current, value, dependencies);
+                }
+            }
+            LoweredExpr::Record(fields) => {
+                for field in fields {
+                    match field {
+                        LoweredRecordEntry::Field(_, value)
+                        | LoweredRecordEntry::Spread(value) => {
+                            Self::discover_expression_dependencies(current, value, dependencies);
+                        }
+                    }
+                }
+            }
+            LoweredExpr::List(values) => {
+                for value in values {
+                    Self::discover_expression_dependencies(current, value, dependencies);
+                }
+            }
+            LoweredExpr::ListPipeline { input, stages, .. } => {
+                Self::discover_expression_dependencies(current, input, dependencies);
+                for stage in stages {
+                    match stage {
+                        LoweredPipelineStage::Where { predicate, .. }
+                        | LoweredPipelineStage::Map { value: predicate, .. }
+                        | LoweredPipelineStage::FlatMap { value: predicate, .. }
+                        | LoweredPipelineStage::ParMap { value: predicate, .. }
+                        | LoweredPipelineStage::Any { predicate, .. }
+                        | LoweredPipelineStage::All { predicate, .. }
+                        | LoweredPipelineStage::UniqueBy { key: predicate, .. }
+                        | LoweredPipelineStage::SortBy { key: predicate, .. }
+                        | LoweredPipelineStage::GroupBy { key: predicate, .. }
+                        | LoweredPipelineStage::CountBy { key: predicate, .. } => {
+                            Self::discover_expression_dependencies(current, predicate, dependencies);
+                        }
+                        LoweredPipelineStage::MapBlock { body, value, .. }
+                        | LoweredPipelineStage::FlatMapBlock { body, value, .. }
+                        | LoweredPipelineStage::ParMapBlock { body, value, .. } => {
+                            Self::discover_statement_dependencies(current, body, dependencies);
+                            Self::discover_expression_dependencies(current, value, dependencies);
+                        }
+                        LoweredPipelineStage::Tee { body, .. }
+                        | LoweredPipelineStage::Each { body, .. } => {
+                            Self::discover_statement_dependencies(current, body, dependencies);
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            LoweredExpr::Field { base, .. }
+            | LoweredExpr::Require { value: base, .. }
+            | LoweredExpr::Try(base)
+            | LoweredExpr::Ok(base)
+            | LoweredExpr::Err(base) => {
+                Self::discover_expression_dependencies(current, base, dependencies);
+            }
+            LoweredExpr::Index { base, index, .. } => {
+                Self::discover_expression_dependencies(current, base, dependencies);
+                Self::discover_expression_dependencies(current, index, dependencies);
+            }
+            LoweredExpr::Call { function, args, .. } => {
+                dependencies.insert(*function);
+                for arg in args {
+                    match arg {
+                        LoweredCallArg::Single(value) | LoweredCallArg::Splice(value) => {
+                            Self::discover_expression_dependencies(current, value, dependencies);
+                        }
+                    }
+                }
+            }
+            LoweredExpr::SelfCall { args, .. } => {
+                dependencies.insert(current);
+                for arg in args {
+                    match arg {
+                        LoweredCallArg::Single(value) | LoweredCallArg::Splice(value) => {
+                            Self::discover_expression_dependencies(current, value, dependencies);
+                        }
+                    }
+                }
+            }
+            LoweredExpr::ModuleCall { args, .. } => {
+                for arg in args {
+                    Self::discover_expression_dependencies(current, arg, dependencies);
+                }
+            }
+            LoweredExpr::Error(error) => {
+                if let LoweredErrorExpr::Structured { fields, .. } = error.as_ref() {
+                    for (_, value) in fields {
+                        Self::discover_expression_dependencies(current, value, dependencies);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn tarjan(adjacency: &[Vec<usize>]) -> Vec<Vec<usize>> {
+        struct Tarjan<'a> {
+            adjacency: &'a [Vec<usize>],
+            next_index: usize,
+            indices: Vec<Option<usize>>,
+            lowlinks: Vec<usize>,
+            stack: Vec<usize>,
+            on_stack: Vec<bool>,
+            components: Vec<Vec<usize>>,
+        }
+
+        impl Tarjan<'_> {
+            fn visit(&mut self, node: usize) {
+                let index = self.next_index;
+                self.next_index += 1;
+                self.indices[node] = Some(index);
+                self.lowlinks[node] = index;
+                self.stack.push(node);
+                self.on_stack[node] = true;
+
+                for dependency in &self.adjacency[node] {
+                    if self.indices[*dependency].is_none() {
+                        self.visit(*dependency);
+                        self.lowlinks[node] = self.lowlinks[node].min(self.lowlinks[*dependency]);
+                    } else if self.on_stack[*dependency] {
+                        self.lowlinks[node] = self.lowlinks[node]
+                            .min(self.indices[*dependency].expect("visited node has index"));
+                    }
+                }
+
+                if self.lowlinks[node] == index {
+                    let mut component = Vec::new();
+                    loop {
+                        let member = self.stack.pop().expect("Tarjan stack is non-empty");
+                        self.on_stack[member] = false;
+                        component.push(member);
+                        if member == node {
+                            break;
+                        }
+                    }
+                    self.components.push(component);
+                }
+            }
+        }
+
+        let mut tarjan = Tarjan {
+            adjacency,
+            next_index: 0,
+            indices: vec![None; adjacency.len()],
+            lowlinks: vec![0; adjacency.len()],
+            stack: Vec::new(),
+            on_stack: vec![false; adjacency.len()],
+            components: Vec::new(),
+        };
+        for node in 0..adjacency.len() {
+            if tarjan.indices[node].is_none() {
+                tarjan.visit(node);
+            }
+        }
+        tarjan.components
+    }
+
+    fn visit_scc(
+        scc: usize,
+        dependencies: &[Vec<usize>],
+        visited: &mut [bool],
+        order: &mut Vec<usize>,
+    ) {
+        if visited[scc] {
+            return;
+        }
+        visited[scc] = true;
+        for dependency in &dependencies[scc] {
+            Self::visit_scc(*dependency, dependencies, visited, order);
+        }
+        order.push(scc);
+    }
+
+    fn dependencies(&self, function: IrFunctionId) -> &[IrFunctionId] {
+        let range = self.edges[function.index()];
+        let bounds = range
+            .bounds(self.edge_targets.len())
+            .expect("graph ranges are built in bounds");
+        &self.edge_targets[bounds]
+    }
+
+    fn members(&self, scc: usize) -> &[IrFunctionId] {
+        let range = self.sccs[scc];
+        let bounds = range
+            .bounds(self.scc_members.len())
+            .expect("SCC ranges are built in bounds");
+        &self.scc_members[bounds]
+    }
+
+    fn stats(&self) -> IrGraphStats {
+        let recursive_sccs = self
+            .sccs
+            .iter()
+            .enumerate()
+            .filter(|(scc, range)| {
+                if range.len > 1 {
+                    return true;
+                }
+                let function = self.members(*scc)[0];
+                self.dependencies(function).contains(&function)
+            })
+            .count();
+        IrGraphStats {
+            functions: self.edges.len(),
+            edges: self.edge_targets.len(),
+            sccs: self.sccs.len(),
+            recursive_sccs,
+            max_scc_members: self.sccs.iter().map(|range| range.len as usize).max().unwrap_or(0),
+        }
+    }
+
+    fn retained_bytes(&self) -> usize {
+        size_of::<Self>()
+            + self.edges.capacity() * size_of::<IrRange>()
+            + self.edge_targets.capacity() * size_of::<IrFunctionId>()
+            + self.sccs.capacity() * size_of::<IrRange>()
+            + self.scc_members.capacity() * size_of::<IrFunctionId>()
+            + self.function_to_scc.capacity() * size_of::<u32>()
+            + self.emission_order.capacity() * size_of::<u32>()
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct IrVerifyError {
     pub message: String,
 }
@@ -704,6 +1247,8 @@ struct IrCheckpoint {
     bytes: usize,
     byte_data: usize,
     locations: usize,
+    committed_instructions: usize,
+    committed_functions: usize,
 }
 
 #[derive(Default)]
@@ -713,6 +1258,8 @@ struct IrBuilder {
     locations: BTreeMap<(u32, u32), IrLocationId>,
     functions: BTreeMap<LoweredFunctionKey, IrFunctionId>,
     current_function: Option<IrFunctionId>,
+    committed_instructions: usize,
+    committed_functions: usize,
 }
 
 impl IrBuilder {
@@ -726,6 +1273,8 @@ impl IrBuilder {
             locations: BTreeMap::new(),
             functions: BTreeMap::new(),
             current_function: None,
+            committed_instructions: 0,
+            committed_functions: 0,
         }
     }
 
@@ -734,25 +1283,101 @@ impl IrBuilder {
         sources: Arc<SourceMap>,
         source_id: SourceId,
     ) -> Result<IrProgram, IrBuildError> {
+        let outcome = Self::build_graph_from_units(units, sources, source_id)?;
+        if let Some(program) = outcome.program {
+            return Ok(*program);
+        }
+        let blocker = outcome
+            .coverage
+            .blockers
+            .first()
+            .ok_or_else(|| IrBuildError::format("verification_failed", None, 0, 0))?;
+        Err(IrBuildError {
+            construct: match blocker.kind {
+                IrBlockerKind::Lowered(_) => "lowered_function_blocker",
+                IrBlockerKind::Unsupported(label) => label,
+                IrBlockerKind::Dependency => "dependency_blocker",
+                IrBlockerKind::Verification => "verification_failed",
+            },
+            location: blocker.location,
+            attempted_instructions: 0,
+            committed_instructions: outcome.committed_instructions,
+        })
+    }
+
+    fn build_graph_from_units(
+        units: &[LoweredFunctionUnit],
+        sources: Arc<SourceMap>,
+        source_id: SourceId,
+    ) -> Result<IrBuildOutcome, IrBuildError> {
         let mut builder = Self::new(source_id);
         let mut ordered = units.iter().collect::<Vec<_>>();
         ordered.sort_by_key(|unit| (unit.source_span().start(), unit.key().display_name()));
         builder.predeclare_functions(&ordered)?;
-        for unit in ordered {
-            let Some(body) = unit.lowered_body() else {
-                return Err(IrBuildError::format(
-                    "lowered_function_blocker",
-                    Some(unit.source_span()),
-                    0,
-                    0,
-                ));
-            };
-            let function_id = builder.functions[&unit.key()];
-            builder.build_function_transaction(function_id, &body)?;
+        let graph = IrDependencyGraph::discover(&ordered, &builder.functions)?;
+        let graph_stats = graph.stats();
+        let graph_retained_bytes = graph.retained_bytes();
+        let mut coverage = IrCoverageReport::default();
+        let mut failed_sccs = vec![false; graph.sccs.len()];
+
+        for scc_raw in &graph.emission_order {
+            let scc = *scc_raw as usize;
+            let members = graph.members(scc).to_vec();
+            let failed_dependency = members.iter().find_map(|function| {
+                graph
+                    .dependencies(*function)
+                    .iter()
+                    .find(|dependency| failed_sccs[graph.function_to_scc[dependency.index()] as usize])
+                    .copied()
+            });
+            if let Some(dependency) = failed_dependency {
+                failed_sccs[scc] = true;
+                for function in members {
+                    coverage.record(builder.dependency_blocker(function, dependency));
+                }
+                continue;
+            }
+
+            let blocked = members
+                .iter()
+                .filter(|function| ordered[function.index()].lowered_body().is_none())
+                .copied()
+                .collect::<Vec<_>>();
+            if !blocked.is_empty() {
+                failed_sccs[scc] = true;
+                for function in blocked {
+                    coverage.record(builder.lowered_blocker(function, ordered[function.index()]));
+                }
+                continue;
+            }
+
+            if let Err(blocker) = builder.emit_scc(&members, &ordered, &sources) {
+                failed_sccs[scc] = true;
+                coverage.record(blocker);
+            }
         }
-        builder
-            .finish(sources)
-            .map_err(|_| IrBuildError::format("verification_failed", None, 0, 0))
+
+        let committed_functions = builder.committed_functions;
+        let committed_instructions = builder.committed_instructions;
+        let coverage_retained_bytes = coverage.retained_bytes();
+        let program = if coverage.blockers.is_empty() {
+            Some(Box::new(
+                builder
+                    .finish(sources)
+                    .map_err(|_| IrBuildError::format("verification_failed", None, 0, 0))?,
+            ))
+        } else {
+            None
+        };
+        Ok(IrBuildOutcome {
+            program,
+            coverage,
+            graph: graph_stats,
+            committed_functions,
+            committed_instructions,
+            graph_retained_bytes,
+            coverage_retained_bytes,
+        })
     }
 
     fn estimate_supported_units(
@@ -801,15 +1426,83 @@ impl IrBuilder {
                     ));
                 }
             };
+            let params_start = self.store.params.len();
+            let captures_start = self.store.captures.len();
+            let (slot_count, return_kind) = if let Some(body) = unit.lowered_body() {
+                self.predeclare_params_and_captures(&body)?;
+                (
+                    u32::try_from(body.slot_count)
+                        .map_err(|_| IrBuildError::format("slot_overflow", None, 0, 0))?,
+                    Self::return_kind(body.return_kind)?,
+                )
+            } else {
+                for slot in 0..unit.param_count() {
+                    let placeholder = self.intern_string(&format!("param{slot}"))?.raw();
+                    self.store.params.push(IrParam {
+                        name: placeholder,
+                        slot: Self::slot(slot)?,
+                        ty: IrValueType::Any,
+                        flags: 0,
+                        reserved: [0; 2],
+                    });
+                }
+                (
+                    u32::try_from(unit.param_count())
+                        .map_err(|_| IrBuildError::format("slot_overflow", None, 0, 0))?,
+                    IrReturnKind::PlainUnit,
+                )
+            };
+            let params = Self::table_range(params_start, self.store.params.len())?;
+            let captures = Self::table_range(captures_start, self.store.captures.len())?;
             self.functions.insert(unit.key(), function_id);
             self.store.functions.push(IrFunction {
                 name: name.raw(),
-                params: IrRange::EMPTY,
-                captures: IrRange::EMPTY,
+                params,
+                captures,
                 body: IrOptionalId::NONE,
-                slot_count: 0,
+                slot_count,
                 kind: unit.kind().into(),
-                return_kind: IrReturnKind::PlainUnit,
+                return_kind,
+                reserved: [0; 2],
+            });
+        }
+        Ok(())
+    }
+
+    fn predeclare_params_and_captures(
+        &mut self,
+        function: &LoweredPureFunction,
+    ) -> Result<(), IrBuildError> {
+        for (slot, ((name, kind), rest)) in function
+            .params
+            .iter()
+            .zip(function.param_kinds.iter())
+            .zip(function.param_rest.iter())
+            .enumerate()
+        {
+            if *rest || function.param_defaults.get(slot).is_some_and(Option::is_some) {
+                return Err(IrBuildError::format("parameter_shape", None, 0, 0));
+            }
+            let ty = IrValueType::from_lowered(*kind)
+                .ok_or_else(|| IrBuildError::format("parameter_type", None, 0, 0))?;
+            let name = self.intern_string(name.as_str())?.raw();
+            self.store.params.push(IrParam {
+                name,
+                slot: Self::slot(slot)?,
+                ty,
+                flags: 0,
+                reserved: [0; 2],
+            });
+        }
+        for capture in &function.captures {
+            let ty = IrValueType::from_lowered(capture.kind)
+                .ok_or_else(|| IrBuildError::format("capture_type", None, 0, 0))?;
+            let name = self.intern_string(capture.name.as_str())?.raw();
+            self.store.captures.push(IrCapture {
+                name,
+                slot: Self::slot(capture.slot)?,
+                ty,
+                mutable: u8::from(capture.mutable),
                 reserved: [0; 2],
             });
         }
@@ -831,7 +1524,142 @@ impl IrBuilder {
             error.committed_instructions = self.store.tags.len() - checkpoint.instructions;
             return Err(error);
         }
+        self.committed_instructions = self.store.tags.len();
+        self.committed_functions += 1;
         Ok(())
+    }
+
+    fn emit_scc(
+        &mut self,
+        members: &[IrFunctionId],
+        units: &[&LoweredFunctionUnit],
+        sources: &SourceMap,
+    ) -> Result<(), IrBlocker> {
+        let checkpoint = self.checkpoint();
+        let mut pending = Vec::with_capacity(members.len());
+        for function_id in members {
+            let body = units[function_id.index()]
+                .lowered_body()
+                .expect("blocked functions are filtered before SCC emission");
+            self.current_function = Some(*function_id);
+            let emitted = self.emit_function_body(&body);
+            self.current_function = None;
+            match emitted {
+                Ok(body) => pending.push((*function_id, body)),
+                Err(error) => {
+                    let attempted = self.store.tags.len() - checkpoint.instructions;
+                    self.rewind(checkpoint);
+                    return Err(self.emit_blocker(*function_id, error, attempted));
+                }
+            }
+        }
+
+        for (function, body) in &pending {
+            self.store.functions[function.index()].body = IrOptionalId::some(body.raw());
+        }
+        if let Err(error) = IrVerifier::verify_partial(&self.store, sources) {
+            for (function, _) in &pending {
+                self.store.functions[function.index()].body = IrOptionalId::NONE;
+            }
+            self.rewind(checkpoint);
+            return Err(self.verification_blocker(members[0], error));
+        }
+
+        self.committed_instructions = self.store.tags.len();
+        self.committed_functions += members.len();
+        Ok(())
+    }
+
+    fn lowered_blocker(
+        &self,
+        function: IrFunctionId,
+        unit: &LoweredFunctionUnit,
+    ) -> IrBlocker {
+        let (span, detail) = unit
+            .blocker_detail()
+            .map(|(span, detail)| (*span, detail.clone()))
+            .unwrap_or_else(|| {
+                (
+                    unit.source_span(),
+                    unit.blocker()
+                        .map(LoweredFunctionBlocker::label)
+                        .unwrap_or("missing_body")
+                        .to_string(),
+                )
+            });
+        IrBlocker {
+            function,
+            function_name: self.function_name(function),
+            kind: IrBlockerKind::Lowered(unit.blocker().unwrap_or(LoweredFunctionBlocker::Body)),
+            callee: Self::detail_callee(&detail),
+            detail,
+            location: IrLocation::from_span(span).ok(),
+        }
+    }
+
+    fn dependency_blocker(
+        &self,
+        function: IrFunctionId,
+        dependency: IrFunctionId,
+    ) -> IrBlocker {
+        let callee = self.function_name(dependency);
+        IrBlocker {
+            function,
+            function_name: self.function_name(function),
+            kind: IrBlockerKind::Dependency,
+            detail: format!("dependency `{callee}` did not produce executable IR"),
+            location: None,
+            callee: Some(callee),
+        }
+    }
+
+    fn emit_blocker(
+        &self,
+        function: IrFunctionId,
+        error: IrBuildError,
+        attempted_instructions: usize,
+    ) -> IrBlocker {
+        IrBlocker {
+            function,
+            function_name: self.function_name(function),
+            kind: IrBlockerKind::Unsupported(error.construct),
+            detail: format!(
+                "{} after {attempted_instructions} uncommitted instructions",
+                error.construct
+            ),
+            location: error.location,
+            callee: None,
+        }
+    }
+
+    fn verification_blocker(
+        &self,
+        function: IrFunctionId,
+        error: IrVerifyError,
+    ) -> IrBlocker {
+        IrBlocker {
+            function,
+            function_name: self.function_name(function),
+            kind: IrBlockerKind::Verification,
+            detail: error.message,
+            location: None,
+            callee: None,
+        }
+    }
+
+    fn function_name(&self, function: IrFunctionId) -> String {
+        let raw = self.store.functions[function.index()].name;
+        let id = IrStringId::from_raw(raw).expect("builder stores valid function name ids");
+        self.store
+            .string(id)
+            .map(str::to_string)
+            .expect("builder stores valid function names")
+    }
+
+    fn detail_callee(detail: &str) -> Option<String> {
+        let start = detail.find('`')? + 1;
+        let end = detail[start..].find('`')? + start;
+        Some(detail[start..end].to_string())
     }
 
     fn build_function(
@@ -842,56 +1670,20 @@ impl IrBuilder {
         if function.has_defers {
             return Err(IrBuildError::format("function_defers", None, 0, 0));
         }
-        let params_start = self.store.params.len();
-        for (slot, ((name, kind), rest)) in function
-            .params
-            .iter()
-            .zip(function.param_kinds.iter())
-            .zip(function.param_rest.iter())
-            .enumerate()
-        {
-            if *rest || function.param_defaults.get(slot).is_some_and(Option::is_some) {
-                return Err(IrBuildError::format("parameter_shape", None, 0, 0));
-            }
-            let ty = IrValueType::from_lowered(*kind)
-                .ok_or_else(|| IrBuildError::format("parameter_type", None, 0, 0))?;
-            let name = self.intern_string(name.as_str())?.raw();
-            self.store.params.push(IrParam {
-                name,
-                slot: u32::try_from(slot)
-                    .map_err(|_| IrBuildError::format("slot_overflow", None, 0, 0))?,
-                ty,
-                flags: 0,
-                reserved: [0; 2],
-            });
-        }
-        let captures_start = self.store.captures.len();
-        for capture in &function.captures {
-            let ty = IrValueType::from_lowered(capture.kind)
-                .ok_or_else(|| IrBuildError::format("capture_type", None, 0, 0))?;
-            let name = self.intern_string(capture.name.as_str())?.raw();
-            self.store.captures.push(IrCapture {
-                name,
-                slot: u32::try_from(capture.slot)
-                    .map_err(|_| IrBuildError::format("slot_overflow", None, 0, 0))?,
-                ty,
-                mutable: u8::from(capture.mutable),
-                reserved: [0; 2],
-            });
-        }
-        let body = self.emit_block(&function.body)?;
-        let params = Self::table_range(params_start, self.store.params.len())?;
-        let captures = Self::table_range(captures_start, self.store.captures.len())?;
-        let slot_count = u32::try_from(function.slot_count)
-            .map_err(|_| IrBuildError::format("slot_overflow", None, 0, 0))?;
-        let return_kind = Self::return_kind(function.return_kind)?;
+        let body = self.emit_function_body(function)?;
         let stored = &mut self.store.functions[function_id.index()];
-        stored.params = params;
-        stored.captures = captures;
         stored.body = IrOptionalId::some(body.raw());
-        stored.slot_count = slot_count;
-        stored.return_kind = return_kind;
         Ok(())
+    }
+
+    fn emit_function_body(
+        &mut self,
+        function: &LoweredPureFunction,
+    ) -> Result<IrBlockId, IrBuildError> {
+        if function.has_defers {
+            return Err(IrBuildError::format("function_defers", None, 0, 0));
+        }
+        self.emit_block(&function.body)
     }
 
     fn table_range(start: usize, end: usize) -> Result<IrRange, IrBuildError> {
@@ -1501,6 +2293,8 @@ impl IrBuilder {
             bytes: self.store.bytes.len(),
             byte_data: self.store.byte_data.len(),
             locations: self.store.locations.len(),
+            committed_instructions: self.committed_instructions,
+            committed_functions: self.committed_functions,
         }
     }
 
@@ -1524,6 +2318,8 @@ impl IrBuilder {
         self.strings.retain(|_, id| id.index() < checkpoint.strings);
         self.locations
             .retain(|_, id| id.index() < checkpoint.locations);
+        self.committed_instructions = checkpoint.committed_instructions;
+        self.committed_functions = checkpoint.committed_functions;
     }
 
     fn push_instruction(
@@ -1608,7 +2404,18 @@ struct IrVerifier;
 
 impl IrVerifier {
     fn verify(program: &IrProgram) -> Result<(), IrVerifyError> {
-        let store = &program.store;
+        Self::verify_store(&program.store, &program.sources, false)
+    }
+
+    fn verify_partial(store: &IrStore, sources: &SourceMap) -> Result<(), IrVerifyError> {
+        Self::verify_store(store, sources, true)
+    }
+
+    fn verify_store(
+        store: &IrStore,
+        sources: &SourceMap,
+        allow_absent_bodies: bool,
+    ) -> Result<(), IrVerifyError> {
         if store.tags.len() != store.data.len()
             || store.tags.len() != store.instruction_locations.len()
         {
@@ -1621,8 +2428,7 @@ impl IrVerifier {
                 "pattern tag and data columns have different lengths",
             ));
         }
-        let source = program
-            .sources
+        let source = sources
             .get(store.source_id)
             .ok_or_else(|| IrVerifyError::new("program source id is missing"))?;
         for location in &store.locations {
@@ -1680,11 +2486,12 @@ impl IrVerifier {
             function.captures.bounds(store.captures.len()).ok_or_else(|| {
                 IrVerifyError::new("function capture range is out of bounds")
             })?;
-            let body = function
-                .body
-                .raw()
-                .and_then(IrBlockId::from_raw)
-                .ok_or_else(|| IrVerifyError::new("function body is absent or invalid"))?;
+            let Some(body) = function.body.raw().and_then(IrBlockId::from_raw) else {
+                if allow_absent_bodies {
+                    continue;
+                }
+                return Err(IrVerifyError::new("function body is absent or invalid"));
+            };
             if body.index() >= store.blocks.len() {
                 return Err(IrVerifyError::new("function body is out of bounds"));
             }
@@ -1703,10 +2510,12 @@ impl IrVerifier {
         let mut owners = vec![None; store.tags.len()];
         let mut states = vec![0u8; store.tags.len()];
         for (index, function) in store.functions.iter().enumerate() {
+            let Some(body) = function.body.raw().and_then(IrBlockId::from_raw) else {
+                continue;
+            };
             let function_id = IrFunctionId::new(index)
                 .map_err(|_| IrVerifyError::new("function id overflow"))?;
-            let body = IrBlockId::from_raw(function.body.raw().unwrap()).unwrap();
-            Self::verify_block(program, function_id, body, &mut owners, &mut states)?;
+            Self::verify_block(store, function_id, body, &mut owners, &mut states)?;
         }
         if owners.iter().any(Option::is_none) {
             return Err(IrVerifyError::new(
@@ -1723,13 +2532,12 @@ impl IrVerifier {
     }
 
     fn verify_block(
-        program: &IrProgram,
+        store: &IrStore,
         function_id: IrFunctionId,
         block_id: IrBlockId,
         owners: &mut [Option<IrFunctionId>],
         states: &mut [u8],
     ) -> Result<(), IrVerifyError> {
-        let store = &program.store;
         let block = store
             .blocks
             .get(block_id.index())
@@ -1740,19 +2548,18 @@ impl IrVerifier {
         for raw in store.payload(block.instructions)? {
             let instruction = IrInstId::from_raw(*raw)
                 .ok_or_else(|| IrVerifyError::new("block instruction id is invalid"))?;
-            Self::verify_instruction(program, function_id, instruction, owners, states)?;
+            Self::verify_instruction(store, function_id, instruction, owners, states)?;
         }
         Ok(())
     }
 
     fn verify_instruction(
-        program: &IrProgram,
+        store: &IrStore,
         function_id: IrFunctionId,
         id: IrInstId,
         owners: &mut [Option<IrFunctionId>],
         states: &mut [u8],
     ) -> Result<(), IrVerifyError> {
-        let store = &program.store;
         let index = id.index();
         let tag = *store
             .tags
@@ -1779,7 +2586,7 @@ impl IrVerifier {
          -> Result<(), IrVerifyError> {
             let child = IrInstId::from_raw(raw)
                 .ok_or_else(|| IrVerifyError::new("child instruction id is invalid"))?;
-            Self::verify_instruction(program, function_id, child, owners, states)
+            Self::verify_instruction(store, function_id, child, owners, states)
         };
         let verify_block = |raw: u32,
                             owners: &mut [Option<IrFunctionId>],
@@ -1787,7 +2594,7 @@ impl IrVerifier {
          -> Result<(), IrVerifyError> {
             let block = IrBlockId::from_raw(raw)
                 .ok_or_else(|| IrVerifyError::new("nested block id is invalid"))?;
-            Self::verify_block(program, function_id, block, owners, states)
+            Self::verify_block(store, function_id, block, owners, states)
         };
 
         match tag {
@@ -3105,6 +3912,147 @@ mod tests {
     }
 
     #[test]
+    fn dependency_graph_finds_self_and_mutual_recursion_before_emission() {
+        let (sources, source_id, units) = lowered_fixture("vertical-slice.xsh", VERTICAL_SLICE);
+        let outcome = IrBuilder::build_graph_from_units(&units, sources, source_id).unwrap();
+
+        assert!(outcome.program.is_some());
+        assert!(outcome.coverage.blockers.is_empty());
+        assert_eq!(
+            outcome.graph,
+            IrGraphStats {
+                functions: 7,
+                edges: 8,
+                sccs: 6,
+                recursive_sccs: 2,
+                max_scc_members: 2,
+            }
+        );
+        assert_eq!(outcome.committed_functions, 7);
+        assert_eq!(outcome.committed_instructions, 123);
+        assert!(outcome.graph_retained_bytes > 0);
+        println!(
+            "phase2 vertical functions={} edges={} sccs={} recursive_sccs={} max_scc_members={} committed_functions={} committed_instructions={} graph_retained_bytes={} coverage_retained_bytes={}",
+            outcome.graph.functions,
+            outcome.graph.edges,
+            outcome.graph.sccs,
+            outcome.graph.recursive_sccs,
+            outcome.graph.max_scc_members,
+            outcome.committed_functions,
+            outcome.committed_instructions,
+            outcome.graph_retained_bytes,
+            outcome.coverage_retained_bytes,
+        );
+    }
+
+    #[test]
+    fn structured_blockers_preserve_label_callee_and_sample_location() {
+        let (sources, source_id, units) =
+            lowered_fixture("vertical-slice-unsupported.xsh", UNSUPPORTED_SLICE);
+        let unit = &units[0];
+        let (expected_span, expected_detail) = unit.blocker_detail().unwrap();
+        let outcome = IrBuilder::build_graph_from_units(&units, sources, source_id).unwrap();
+
+        assert!(outcome.program.is_none());
+        assert_eq!(outcome.committed_functions, 0);
+        assert_eq!(outcome.committed_instructions, 0);
+        assert_eq!(outcome.coverage.blockers.len(), 1);
+        let blocker = &outcome.coverage.blockers[0];
+        assert_eq!(
+            blocker.kind,
+            IrBlockerKind::Lowered(unit.blocker().unwrap())
+        );
+        assert_eq!(blocker.kind.label(), unit.blocker().unwrap().label());
+        assert_eq!(&blocker.detail, expected_detail);
+        assert_eq!(blocker.callee.as_deref(), Some("sources.len"));
+        assert_eq!(
+            blocker.location,
+            IrLocation::from_span(*expected_span).ok()
+        );
+        assert_eq!(outcome.coverage.counts[unit.blocker().unwrap().label()], 1);
+        assert_eq!(outcome.coverage.callees["sources.len"], 1);
+        assert_eq!(
+            outcome.coverage.samples[unit.blocker().unwrap().label()],
+            vec![IrLocation::from_span(*expected_span).unwrap()]
+        );
+        println!(
+            "phase2 blocker label={} callee={} detail={:?} location={:?} coverage_retained_bytes={}",
+            blocker.kind.label(),
+            blocker.callee.as_deref().unwrap(),
+            blocker.detail,
+            blocker.location,
+            outcome.coverage_retained_bytes,
+        );
+    }
+
+    #[test]
+    fn failed_mutual_recursion_scc_leaves_checkpoint_uncommitted() {
+        let (sources, source_id, mut units) =
+            lowered_fixture("vertical-slice.xsh", VERTICAL_SLICE);
+        let odd_index = units
+            .iter()
+            .position(|unit| unit.key() == LoweredFunctionKey::Name(Name::intern("odd")))
+            .unwrap();
+        let mut odd_body = (*units[odd_index].lowered_body().unwrap()).clone();
+        odd_body.body.push(LoweredStmt::Defer {
+            value: LoweredExpr::Unit,
+        });
+        units[odd_index].body = Some(Arc::new(odd_body));
+
+        let mut ordered = units.iter().collect::<Vec<_>>();
+        ordered.sort_by_key(|unit| (unit.source_span().start(), unit.key().display_name()));
+        let mut builder = IrBuilder::new(source_id);
+        builder.predeclare_functions(&ordered).unwrap();
+        let graph = IrDependencyGraph::discover(&ordered, &builder.functions).unwrap();
+        let even = builder.functions[&LoweredFunctionKey::Name(Name::intern("even"))];
+        let odd = builder.functions[&LoweredFunctionKey::Name(Name::intern("odd"))];
+        let scc = graph.function_to_scc[even.index()] as usize;
+        assert_eq!(graph.function_to_scc[odd.index()] as usize, scc);
+        assert_eq!(graph.members(scc).len(), 2);
+        let checkpoint = builder.checkpoint();
+
+        let blocker = builder
+            .emit_scc(graph.members(scc), &ordered, &sources)
+            .expect_err("unsupported odd body must reject the entire SCC");
+
+        assert_eq!(blocker.function_name, "odd");
+        assert_eq!(
+            blocker.kind,
+            IrBlockerKind::Unsupported("unsupported_statement")
+        );
+        assert_eq!(builder.checkpoint(), checkpoint);
+        assert!(graph
+            .members(scc)
+            .iter()
+            .all(|function| builder.store.functions[function.index()].body == IrOptionalId::NONE));
+    }
+
+    #[test]
+    fn failed_scc_blocks_dependents_without_placeholder_rows() {
+        let (sources, source_id, mut units) =
+            lowered_fixture("vertical-slice.xsh", VERTICAL_SLICE);
+        let odd = units
+            .iter_mut()
+            .find(|unit| unit.key() == LoweredFunctionKey::Name(Name::intern("odd")))
+            .unwrap();
+        let mut body = (*odd.lowered_body().unwrap()).clone();
+        body.body.push(LoweredStmt::Defer {
+            value: LoweredExpr::Unit,
+        });
+        odd.body = Some(Arc::new(body));
+
+        let outcome = IrBuilder::build_graph_from_units(&units, sources, source_id).unwrap();
+
+        assert!(outcome.program.is_none());
+        assert_eq!(outcome.coverage.counts["unsupported_statement"], 1);
+        assert_eq!(outcome.coverage.counts["dependency"], 1);
+        assert_eq!(outcome.coverage.callees["even"], 1);
+        assert_eq!(outcome.committed_functions, 4);
+        assert!(outcome.committed_instructions > 0);
+        assert!(outcome.committed_instructions < 123);
+    }
+
+    #[test]
     fn partially_emitted_function_rewinds_every_store_column() {
         let (_sources, source_id, units) = lowered_fixture("vertical-slice.xsh", VERTICAL_SLICE);
         let mut ordered = units.iter().collect::<Vec<_>>();
@@ -3289,6 +4237,103 @@ mod tests {
                 IrStore::common_instruction_row_bytes(),
                 aggregate.extra_bytes_per_instruction(),
             );
+        });
+    }
+
+    #[test]
+    #[ignore = "Phase 2 evidence scans graph, SCC, and blocker results across the corpus"]
+    fn corpus_graph_scc_and_blocker_evidence() {
+        run_with_large_stack(|| {
+            let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+            let mut paths = Vec::new();
+            for relative in crate::frontend_stats::DEFAULT_ROOTS {
+                collect_xsh_paths(&root.join(relative), &mut paths);
+            }
+            paths.sort();
+            paths.dedup();
+            let mut files_measured = 0usize;
+            let mut executable_files = 0usize;
+            let mut functions = 0usize;
+            let mut edges = 0usize;
+            let mut sccs = 0usize;
+            let mut recursive_sccs = 0usize;
+            let mut committed_functions = 0usize;
+            let mut committed_instructions = 0usize;
+            let mut graph_retained_bytes = 0usize;
+            let mut coverage_retained_bytes = 0usize;
+            let mut blocker_counts = BTreeMap::<String, usize>::new();
+            let mut blocker_callees = BTreeMap::<String, usize>::new();
+            for path in paths {
+                let Ok(source) = std::fs::read_to_string(&path) else {
+                    continue;
+                };
+                let mut sources = SourceMap::new();
+                let source_id = sources.add_file(path.to_string_lossy(), source.clone());
+                let parsed = Parser::parse_source_arena_only(source_id, &source);
+                if !parsed.diagnostics.is_empty() {
+                    continue;
+                }
+                let declarations = Checker::check_compact_declarations(&parsed.arena);
+                if !declarations.diagnostics.is_empty() {
+                    continue;
+                }
+                let bodies = Checker::probe_compact_bodies(&parsed.arena, &declarations);
+                if !bodies.diagnostics.is_empty() {
+                    continue;
+                }
+                let units = super::super::probe_compact_lower_function_units(
+                    &parsed.arena,
+                    &declarations,
+                    &bodies,
+                    &source,
+                );
+                let Ok(outcome) = IrBuilder::build_graph_from_units(
+                    &units,
+                    Arc::new(sources),
+                    source_id,
+                ) else {
+                    continue;
+                };
+                files_measured += 1;
+                executable_files += usize::from(outcome.program.is_some());
+                functions += outcome.graph.functions;
+                edges += outcome.graph.edges;
+                sccs += outcome.graph.sccs;
+                recursive_sccs += outcome.graph.recursive_sccs;
+                committed_functions += outcome.committed_functions;
+                committed_instructions += outcome.committed_instructions;
+                graph_retained_bytes += outcome.graph_retained_bytes;
+                coverage_retained_bytes += outcome.coverage_retained_bytes;
+                for (label, count) in outcome.coverage.counts {
+                    *blocker_counts.entry(label).or_default() += count;
+                }
+                for (callee, count) in outcome.coverage.callees {
+                    *blocker_callees.entry(callee).or_default() += count;
+                }
+            }
+            assert!(files_measured > 0);
+            assert!(functions > 0);
+            assert!(sccs > 0);
+            assert!(committed_functions > 0);
+            println!(
+                "phase2 corpus files={} executable_files={} functions={} edges={} sccs={} recursive_sccs={} committed_functions={} committed_instructions={} graph_retained_bytes={} coverage_retained_bytes={}",
+                files_measured,
+                executable_files,
+                functions,
+                edges,
+                sccs,
+                recursive_sccs,
+                committed_functions,
+                committed_instructions,
+                graph_retained_bytes,
+                coverage_retained_bytes,
+            );
+            for (label, count) in blocker_counts {
+                println!("phase2 blocker_count label={label} count={count}");
+            }
+            for (callee, count) in blocker_callees {
+                println!("phase2 blocker_callee callee={callee} count={count}");
+            }
         });
     }
 

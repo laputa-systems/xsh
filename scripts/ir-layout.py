@@ -47,6 +47,10 @@ IR_TYPES = (
     "runtime::eval::indexed::IrParam",
     "runtime::eval::indexed::IrCapture",
     "runtime::eval::indexed::IrStore",
+    "runtime::eval::indexed::IrDependencyGraph",
+    "runtime::eval::indexed::IrBlocker",
+    "runtime::eval::indexed::IrCoverageReport",
+    "runtime::eval::indexed::IrBuildOutcome",
 )
 HEADER_RE = re.compile(
     r"^print-type-size type: `([^`]+)`: ([0-9]+) bytes, alignment: ([0-9]+) bytes$"

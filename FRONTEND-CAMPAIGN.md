@@ -4,7 +4,7 @@
 
 - [x] Phase 0: establish evidence and freeze the comparison protocol
 - [x] Phase 1: prove the compact indexed IR architecture with a hard vertical slice
-- [ ] Phase 2: replace permissive probing with transactional lowering
+- [x] Phase 2: replace permissive probing with transactional lowering
 - [ ] Phase 3: introduce interned semantic types, signatures, and shapes
 - [ ] Phase 4: migrate expressions, statements, patterns, functions, and slots
 - [ ] Phase 5: decide and implement the durable top-level/effect boundary
@@ -1017,29 +1017,29 @@ This removes the hardest correctness liability before broad opcode migration.
 
 ### Work Checklist
 
-- [ ] Define structured blockers with construct identity and source location.
-- [ ] Separate dependency discovery from instruction emission.
-- [ ] Build compact function identities before bodies.
-- [ ] Compute a dependency graph once.
-- [ ] Compute SCCs over compact function IDs.
-- [ ] Emit a function/SCC into transactional scratch.
-- [ ] Commit only after verification.
-- [ ] Rewind or drop all failed output.
-- [ ] Accumulate coverage diagnostics from blocker results.
-- [ ] Remove `Unit` substitution from migrated paths.
-- [ ] Remove blocker-counter comparisons as correctness checks.
-- [ ] Preserve blocker labels, counts, callees, and sample spans.
-- [ ] Shrink/split construct probe state as responsibilities move.
+- [x] Define structured blockers with construct identity and source location.
+- [x] Separate dependency discovery from instruction emission.
+- [x] Build compact function identities before bodies.
+- [x] Compute a dependency graph once.
+- [x] Compute SCCs over compact function IDs.
+- [x] Emit a function/SCC into transactional scratch.
+- [x] Commit only after verification.
+- [x] Rewind or drop all failed output.
+- [x] Accumulate coverage diagnostics from blocker results.
+- [x] Remove `Unit` substitution from migrated paths.
+- [x] Remove blocker-counter comparisons as correctness checks.
+- [x] Preserve blocker labels, counts, callees, and sample spans.
+- [x] Shrink/split construct probe state as responsibilities move.
 
 ### Exit Gate
 
-- [ ] Unsupported nodes create no executable instructions.
-- [ ] Counter state cannot decide whether code is safe.
-- [ ] Self/mutual recursion succeeds through the graph/SCC model.
-- [ ] Failed SCC construction leaves no committed state.
-- [ ] Coverage diagnostics retain current detail.
-- [ ] Probe/build allocations and retained state improve or remain flat.
-- [ ] Current production coverage does not regress.
+- [x] Unsupported nodes create no executable instructions.
+- [x] Counter state cannot decide whether code is safe.
+- [x] Self/mutual recursion succeeds through the graph/SCC model.
+- [x] Failed SCC construction leaves no committed state.
+- [x] Coverage diagnostics retain current detail.
+- [x] Probe/build allocations and retained state improve or remain flat.
+- [x] Current production coverage does not regress.
 
 ## Phase 3: Interned Semantic Identities
 
@@ -1543,8 +1543,39 @@ compact semantic IDs.
 
 Deliberate deviation: Phase 1 constructs from `LoweredFunctionUnit` so storage,
 verification, failure, and execution can be proved independently. The finalized
-program retains no lowered node. Phase 2 owns moving construction before the
-recursive lowered representation and replacing its blocker-counter protocol.
+program retains no lowered node. Phase 2 owns compact dependency/SCC planning,
+verification-before-commit, and replacing blocker-counter correctness checks;
+Phase 4 removes the remaining committed-body adapter during broad migration.
+
+Date: 2026-07-25
+Phase: 2
+Decision: Approve compact function identities, one dependency graph and Tarjan
+SCC plan, dependency-first SCC emission beyond a commit watermark, partial
+verification before commit, and structured blocker-derived coverage as the
+construction architecture.
+Alternatives: Retry/fixpoint emission driven by blocker counters; per-function
+commit before recursive peers verify; placeholder `Unit` instructions; keeping
+coverage state coupled to the oversized construct probe.
+Evidence: `target/frontend-campaign/phase-2/PROTOCOL.md`, `tests.txt`,
+`vertical-graph-summary.txt`, `blocker-detail-summary.txt`,
+`corpus-graph-summary.txt`, `frontend-stats-comparison.txt`, `coverage.json`,
+`ir-layout.txt`, and `bench-fast-mediated-memory.txt`. The hard slice contains
+7 functions, 8 edges, 6 SCCs, and 2 recursive SCCs; all 123 instructions commit.
+The corpus adapter measured 142 functions, 20 edges, 140 SCCs, and 6 recursive
+SCCs. Production frontend retained columns and coverage match Phase 0 exactly;
+mediated benchmark memory matches Phase 1 exactly. Splitting the result reduced
+`IrBuildOutcome` from 544 to 176 bytes.
+Affected workloads: Frozen vertical slice and blocker, all Phase 0 corpus roots,
+the production lowerability coverage report, frontend retained diagnostics, and
+the curated fast benchmark suite.
+Revisit condition: Broad opcode migration cannot preserve SCC-level rollback,
+structured blocker detail, or verification-before-commit without widening the
+approved executable rows.
+
+Remaining adapter: body opcode emission still reads a successfully committed
+`LoweredFunctionUnit`; dependency discovery, SCC planning, commit safety,
+verification, and blocker coverage no longer depend on construct-probe counters.
+Phase 4 removes this body adapter as syntax coverage migrates to indexed IR.
 
 ## Completion Report
 
