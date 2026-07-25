@@ -40,6 +40,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 mod lower;
+mod indexed;
 mod lowered_ops;
 use lowered_ops::{lowered_value_from_runtime, lowered_value_from_runtime_any};
 mod lowered_run;

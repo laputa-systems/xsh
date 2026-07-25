@@ -34,6 +34,31 @@ current shallow lowered fallback explicitly marked as estimated. Run the full
 Phase 0 protocol with `scripts/frontend-campaign-phase0`; its machine-specific
 evidence stays under `target/frontend-campaign/phase-0/`.
 
+## Indexed IR Prototype
+
+Phase 1 adds a test-only indexed executable store in
+`src/runtime/eval/indexed.rs`. It is not installed or constructed by product
+binaries. The prototype flattens the frozen vertical slice from the current
+lowered semantic oracle into parallel `IrTag`, eight-byte `IrData`, and compact
+location columns, with variable payloads in one `u32` extra array. Functions,
+blocks, parameters, captures, patterns, strings, bytes, and source locations
+live in separately measured pools. Finalization shrinks and verifies every
+column before the test executor accepts the program.
+
+The common instruction row is 13 retained bytes: one tag byte, eight data
+bytes, and a four-byte optional location ID. The frozen slice uses 3.675 extra
+bytes per instruction; the corpus-weighted prototype subset uses 3.475. No
+persistent instruction or pattern recursively owns another IR node.
+
+The deliberate Phase 1 deviation from the eventual pipeline is construction
+from `LoweredFunctionUnit` rather than directly from compact AST and semantic
+IDs. This keeps the phase focused on proving storage, verification,
+transactional failure, self-contained execution, and difficult semantic parity
+without prematurely taking on Phase 2 dependency/SCC migration. The finalized
+store contains no lowered nodes and executes after the token table, CST, arena,
+checker output, construct probe, and lowering scratch are dropped. Phase 2 owns
+moving construction to the compact-ID dependency graph.
+
 ## North Star
 
 - Dense token tables with token tags, byte starts, and compact payloads for data

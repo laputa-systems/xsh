@@ -16,6 +16,7 @@ area touched. Do not run formatter or autofix commands for agent work.
 | Benchmark workload | `cargo bench -p xsh-multicall --bench bench BENCHMARK -- --sample-count 1 --sample-size 1` | `make bench-fast` (campaign/memory) or `make bench` (latency) |
 | Arena or lowered-IR layout | `scripts/ir-layout.py` (or `--only TYPE` for a focused report) | focused Divan workload plus the applicable behavior tests |
 | Frontend retained/peak accounting | `cargo test -p xsh --lib frontend_stats::tests` and `cargo run --bin xsh-frontend-stats -- --json tests/fixtures/frontend-campaign` | `scripts/frontend-campaign-phase0` |
+| Indexed IR vertical slice | `cargo test -p xsh --lib runtime::eval::indexed::tests::` | `scripts/frontend-campaign-phase1` |
 | PGO workflow | `make pgo-profile` | `make bench-pgo` |
 | Syscall diagnostics | benchmark smoke test on the host | `make bench-syscalls` on Linux/Docker |
 | LLVM IR size | `tools/llvm-lines-repeat-offenders.xsh` over an existing capture | fresh `cargo llvm-lines` capture plus the applicable behavior/benchmark gate |

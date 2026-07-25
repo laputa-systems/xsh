@@ -3,7 +3,7 @@
 ## Campaign Status
 
 - [x] Phase 0: establish evidence and freeze the comparison protocol
-- [ ] Phase 1: prove the compact indexed IR architecture with a hard vertical slice
+- [x] Phase 1: prove the compact indexed IR architecture with a hard vertical slice
 - [ ] Phase 2: replace permissive probing with transactional lowering
 - [ ] Phase 3: introduce interned semantic types, signatures, and shapes
 - [ ] Phase 4: migrate expressions, statements, patterns, functions, and slots
@@ -954,61 +954,61 @@ includes difficult semantics rather than only literals and arithmetic.
 
 The prototype must represent and execute:
 
-- [ ] scalar and string literals;
-- [ ] slots, parameters, captures, assignment, and return;
-- [ ] direct and recursive function calls;
-- [ ] at least one mutually recursive pair;
-- [ ] if, loop, break/continue, and propagation;
-- [ ] a guarded match with bindings;
-- [ ] a record value and field access;
-- [ ] one `RuntimeOp`;
-- [ ] one traceable/erroring operation with an exact source location;
-- [ ] one unsupported operation that fails transactionally without placeholder
+- [x] scalar and string literals;
+- [x] slots, parameters, captures, assignment, and return;
+- [x] direct and recursive function calls;
+- [x] at least one mutually recursive pair;
+- [x] if, loop, break/continue, and propagation;
+- [x] a guarded match with bindings;
+- [x] a record value and field access;
+- [x] one `RuntimeOp`;
+- [x] one traceable/erroring operation with an exact source location;
+- [x] one unsupported operation that fails transactionally without placeholder
   code.
 
 ### Representation Work
 
-- [ ] Define compact IDs and optional sentinels.
-- [ ] Define `IrTag`, eight-byte `IrData`, `IrRange`, blocks, functions,
+- [x] Define compact IDs and optional sentinels.
+- [x] Define `IrTag`, eight-byte `IrData`, `IrRange`, blocks, functions,
   parameters, captures, literals, locations, and shared extra storage.
-- [ ] Assert all foundational layouts.
-- [ ] Implement typed payload append/decode APIs.
-- [ ] Implement checkpoint/rewind.
-- [ ] Implement immutable finalization.
-- [ ] Implement `IrVerifier`.
-- [ ] Verify tag/data agreement, bounds, payload schemas, block/function
+- [x] Assert all foundational layouts.
+- [x] Implement typed payload append/decode APIs.
+- [x] Implement checkpoint/rewind.
+- [x] Implement immutable finalization.
+- [x] Implement `IrVerifier`.
+- [x] Verify tag/data agreement, bounds, payload schemas, block/function
   ownership, slots, source locations, and optional sentinels.
-- [ ] Add deterministic dumps.
-- [ ] Add complete retained-byte accounting.
+- [x] Add deterministic dumps.
+- [x] Add complete retained-byte accounting.
 
 ### Execution Work
 
-- [ ] Execute only the vertical slice in a test-only path.
-- [ ] Compare exact values/errors/traces with the arena evaluator.
-- [ ] Exercise recursion and mutual recursion.
-- [ ] Exercise rollback after partially emitted difficult control flow.
-- [ ] Confirm no recursive owned IR node exists in the prototype.
-- [ ] Execute the finalized vertical slice after dropping its compact AST,
+- [x] Execute only the vertical slice in a test-only path.
+- [x] Compare exact values/errors/traces with the arena evaluator.
+- [x] Exercise recursion and mutual recursion.
+- [x] Exercise rollback after partially emitted difficult control flow.
+- [x] Confirm no recursive owned IR node exists in the prototype.
+- [x] Execute the finalized vertical slice after dropping its compact AST,
   tokens, CST, and construction scratch.
 
 ### Architecture Decision
 
-- [ ] Review the vertical slice against Zig AST/ZIR/AIR/InternPool principles.
-- [ ] Document any deliberate deviation.
-- [ ] Reject the design and repeat this phase if the difficult cases require
+- [x] Review the vertical slice against Zig AST/ZIR/AIR/InternPool principles.
+- [x] Document any deliberate deviation.
+- [x] Reject the design and repeat this phase if the difficult cases require
   wide rows or ad hoc owned payloads.
 
 ### Exit Gate
 
-- [ ] Common instruction storage is at most 16 amortized retained bytes.
-- [ ] Corpus-weighted extra payload estimate fits the initial 24-byte target.
-- [ ] Malformed stores are rejected before execution.
-- [ ] Failed lowering commits no instructions.
-- [ ] Difficult semantic parity is exact.
-- [ ] The vertical slice is self-contained for execution apart from the source
+- [x] Common instruction storage is at most 16 amortized retained bytes.
+- [x] Corpus-weighted extra payload estimate fits the initial 24-byte target.
+- [x] Malformed stores are rejected before execution.
+- [x] Failed lowering commits no instructions.
+- [x] Difficult semantic parity is exact.
+- [x] The vertical slice is self-contained for execution apart from the source
   map retained for diagnostics/tracing.
-- [ ] No production behavior or benchmark is changed.
-- [ ] The chosen representation is approved as the foundation for all later
+- [x] No production behavior or benchmark is changed.
+- [x] The chosen representation is approved as the foundation for all later
   phases.
 
 ## Phase 2: Transactional Lowering And Dependency Architecture
@@ -1520,6 +1520,31 @@ Affected workloads: Full frontend corpus, frozen vertical slice and blocker,
 repository check/format/lint, and curated runtime benchmark scripts.
 Revisit condition: Phase 1 changes stage ownership or exposes an exact recursive
 lowered retained-byte walker that can replace the labeled library fallback.
+
+Date: 2026-07-25
+Phase: 1
+Decision: Approve the parallel tag/data/location columns, shared `u32` extra
+storage, compact IDs, verified immutable finalization, and separate cold pools
+as the representation foundation for later phases.
+Alternatives: Recursive owned instruction enums; wide inline instruction rows;
+unverified bytecode; direct production cutover during the prototype.
+Evidence: `target/frontend-campaign/phase-1/PROTOCOL.md`, `tests.txt`,
+`vertical-dump.txt`, `vertical-storage.txt`, `corpus-storage-summary.txt`,
+`ir-layout.txt`, and `bench-fast-mediated-memory.txt`. The hard slice uses 123
+instructions at 13 common-row bytes and 3.675 extra bytes/instruction. The
+287-file corpus estimate covers 343 prototype instructions at 3.475 extra
+bytes/instruction. The mediated benchmark memory table matches Phase 0 exactly.
+Affected workloads: Frozen vertical slice and blocker, compact function units,
+all Phase 0 corpus roots for storage weighting, and the curated fast benchmark
+suite for production non-regression.
+Revisit condition: Phase 2 cannot preserve the same verified format while
+moving dependency discovery, SCC construction, and transactional emission to
+compact semantic IDs.
+
+Deliberate deviation: Phase 1 constructs from `LoweredFunctionUnit` so storage,
+verification, failure, and execution can be proved independently. The finalized
+program retains no lowered node. Phase 2 owns moving construction before the
+recursive lowered representation and replacing its blocker-counter protocol.
 
 ## Completion Report
 

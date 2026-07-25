@@ -73,6 +73,10 @@ const ALLOWED: &[(&str, &str)] = &[
         "frontend diagnostics read user-supplied corpus paths",
     ),
     (
+        "src/runtime/eval/indexed.rs",
+        "test-only indexed IR evidence scans the checked-in frontend corpus",
+    ),
+    (
         "crates/xsht/src/main.rs",
         "test entrypoint reads user-supplied test paths",
     ),

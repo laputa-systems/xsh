@@ -39,6 +39,14 @@ IR_TYPES = (
     "runtime::eval::lower::CompactLowerConstructProbe<'_, '_>",
     "runtime::eval::CompactLowerConstructProbeOutput",
     "runtime::eval::FrontendLoweredStats",
+    "runtime::eval::indexed::IrData",
+    "runtime::eval::indexed::IrRange",
+    "runtime::eval::indexed::IrLocation",
+    "runtime::eval::indexed::IrBlock",
+    "runtime::eval::indexed::IrFunction",
+    "runtime::eval::indexed::IrParam",
+    "runtime::eval::indexed::IrCapture",
+    "runtime::eval::indexed::IrStore",
 )
 HEADER_RE = re.compile(
     r"^print-type-size type: `([^`]+)`: ([0-9]+) bytes, alignment: ([0-9]+) bytes$"

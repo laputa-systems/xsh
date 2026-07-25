@@ -1,0 +1,93 @@
+#!/bin/sh
+set -eu
+
+root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+out=${1:-"$root/target/frontend-campaign/phase-1"}
+phase0="$root/target/frontend-campaign/phase-0"
+mkdir -p "$out"
+cd "$root"
+
+cat > "$out/PROTOCOL.md" <<'EOF'
+# Frontend Campaign Phase 1 Protocol
+
+The indexed IR remains unreachable from production. The frozen vertical slice
+is lowered through the current semantic oracle into an immutable tag/data/extra
+store, verified, and executed only by unit tests. Exact value, stdout, error
+location, and normalized trace rows are compared with the current evaluator.
+
+The common-row budget is the retained `IrTag` + `IrData` + optional-location
+columns after finalization. Extra bytes per instruction use the shared `u32`
+payload length divided by instruction count. The corpus estimate scans the same
+roots as Phase 0 and includes every function the narrow prototype can build;
+unsupported functions are skipped transactionally rather than represented by
+placeholder instructions.
+
+`make bench-fast` is run twice. Allocation count and allocation bytes must be
+identical. Peak count/bytes are mediated conservatively by taking each row's
+maximum across the two runs; the mediated table must match Phase 0 exactly.
+Wall time remains telemetry only.
+EOF
+
+cargo test -p xsh --lib runtime::eval::indexed::tests:: \
+  -- --test-threads=1 > "$out/tests.txt" 2>&1
+cargo test -p xsh --lib \
+  runtime::eval::indexed::tests::dumps_layouts_and_payload_budgets_are_stable \
+  -- --nocapture --test-threads=1 > "$out/vertical-dump.txt" 2>&1
+cargo test -p xsh --lib \
+  runtime::eval::indexed::tests::corpus_weighted_extra_payload_estimate \
+  -- --ignored --nocapture --test-threads=1 > "$out/corpus-storage.txt" 2>&1
+
+rg -o 'phase1 vertical .*' "$out/vertical-dump.txt" > "$out/vertical-storage.txt"
+rg -o 'phase1 corpus .*' "$out/corpus-storage.txt" > "$out/corpus-storage-summary.txt"
+scripts/ir-layout.py > "$out/ir-layout.txt"
+
+baseline=$(scripts/bench-baseline.py --fast --print-path)
+make bench-fast > "$out/bench-fast-1.txt" 2>&1
+cp "$baseline" "$out/bench-fast-1.tsv"
+make bench-fast > "$out/bench-fast-2.txt" 2>&1
+cp "$baseline" "$out/bench-fast-2.tsv"
+awk '!/^#/ {print $1, $3, $4, $5, $6}' "$out/bench-fast-1.tsv" \
+  > "$out/bench-fast-1-memory.txt"
+awk '!/^#/ {print $1, $3, $4, $5, $6}' "$out/bench-fast-2.tsv" \
+  > "$out/bench-fast-2-memory.txt"
+python3 - "$out/bench-fast-1-memory.txt" "$out/bench-fast-2-memory.txt" \
+  > "$out/bench-fast-mediated-memory.txt" <<'PY'
+import sys
+
+
+def rows(path):
+    parsed = {}
+    with open(path, encoding="utf-8") as handle:
+        for line in handle:
+            name, alloc_count, alloc_bytes, peak_count, peak_bytes = line.split()
+            parsed[name] = tuple(map(int, (alloc_count, alloc_bytes, peak_count, peak_bytes)))
+    return parsed
+
+
+first = rows(sys.argv[1])
+second = rows(sys.argv[2])
+if first.keys() != second.keys():
+    raise SystemExit("benchmark rows changed")
+for name in first:
+    first_alloc_count, first_alloc_bytes, first_peak_count, first_peak_bytes = first[name]
+    second_alloc_count, second_alloc_bytes, second_peak_count, second_peak_bytes = second[name]
+    if (first_alloc_count, first_alloc_bytes) != (second_alloc_count, second_alloc_bytes):
+        raise SystemExit(f"allocation traffic changed between Phase 1 runs for {name}")
+    print(
+        name,
+        first_alloc_count,
+        first_alloc_bytes,
+        max(first_peak_count, second_peak_count),
+        max(first_peak_bytes, second_peak_bytes),
+    )
+PY
+cmp "$phase0/bench-fast-2-memory.txt" "$out/bench-fast-mediated-memory.txt"
+
+wc -l src/runtime/eval/indexed.rs > "$out/line-counts.txt"
+{
+  date -u '+date_utc=%Y-%m-%dT%H:%M:%SZ'
+  uname -a
+  rustc -vV
+} > "$out/host.txt"
+
+printf 'phase 1 evidence written to %s\n' "$out"
