@@ -216,8 +216,8 @@ bug, suspect an upstream node that lowered to `Unit`.
 - The collection self-assignment specialization is split out behind a guarded
   `Set`-method helper so ordinary lowered assignments stay on the compact main
   statement path. The outer evaluator stack reservation is now 64 MiB; the
-  frame-shrink gate in `INTERPRETER-PERF.md` is complete, though this did not by
-  itself close the tokei wall/RSS gap.
+  frame-shrink work is complete, though this did not by itself close the tokei
+  wall/RSS gap.
 - `showcase/tokei.xsh`'s default table path returns final `SummaryRow` reduce
   rows from `par-map`, then does only `flat-map { |rows| rows } |> reduce-by`.
   Keep this script-level shape; it removed a large nested scan/report graph
@@ -434,28 +434,26 @@ lowered program type, such as `ArenaProgram` or `LoweredProgram`.
 
 - **Avoid strings and stringly typed logic.** Use `Name`, typed IDs, enums,
   `RuntimeOp`.
-- **Measure with the existing perf machinery.**
+- **Measure user-visible effects with the suite in `docs/BENCHMARKING.md`.**
 - **Do not run formatters or autofixers.**
 
 ## Improvement Opportunities
 
 These are durable compact/lowered-pipeline work items, not a backlog of
-showcase-specific tweaks. The primary objective in `INTERPRETER-PERF.md` is now
-the small-corpus frontend floor; the tokei native-parity work is a stretch goal.
+showcase-specific tweaks. Prefer improvements that benefit the representative
+workloads in `docs/BENCHMARKING.md`.
 Prefer changes that reduce parser/token churn, compact install cost, body/function
-probing allocation, or broad runtime value movement across ordinary XSH programs.
+   probing allocation, or broad runtime value movement across ordinary XSH programs.
 
-1. **Make the small-corpus frontend lean.** Fresh baseline pressure is split
-   between parse time and compact install/function/body probing. Good candidates
-   are reducing token/text churn, shrinking hot parser staging objects, avoiding
-   repeated module/setup allocation per standalone file, and making body/function
-   probing reuse compact structures instead of rebuilding transient maps. Measure
-   with `cargo bench -p xshi --profile profiling --features profiling --bench bench small_corpus -- --sample-size 10
-   --warm-up-time 0.5 --measurement-time 1` and the allocation audit it prints.
+1. **Make project checking lean.** Good candidates are reducing token/text
+   churn, shrinking hot parser staging objects, avoiding repeated module/setup
+   allocation per standalone file, and making body/function probing reuse
+   compact structures instead of rebuilding transient maps. Measure the complete
+   `xsht_check_xsh_repository` operation, including its allocation signals.
 
 2. **Keep shrinking hot lowered frames only when it buys measurable runtime
-   wins.** The 64 MiB outer eval-stack gate in `INTERPRETER-PERF.md` is
-   complete, so future work should not chase frame splitting as a standalone
+   wins.** The 64 MiB outer eval-stack work is complete, so future work should
+   not chase frame splitting as a standalone
    milestone. Continue splitting cold match arms, boxing unusually large locals,
    or moving deeply recursive paths to an explicit work stack only when release
    measurements show lower RSS, fewer instructions, or simpler broad evaluator
@@ -469,8 +467,7 @@ probing allocation, or broad runtime value movement across ordinary XSH programs
    apply to many scripts: cheaper small records, lower-clone method dispatch,
    more in-place collection updates when aliasing permits, or streaming JSON
    emission that does not retain extra script-visible state. Treat each as a
-   measured release A/B; several narrower variants have already been rejected in
-   `INTERPRETER-PERF.md`.
+   measured release A/B over a representative user-facing workload.
 
 4. **Guard that lowering threads every behavior-bearing arena field.** A common
    failure mode is lowered IR silently omitting something the arena carries:
@@ -484,23 +481,21 @@ probing allocation, or broad runtime value movement across ordinary XSH programs
    inline byte spans for every statement, expression, and type-expression row.
    A Zig-style `main_token`/token-range scheme could reduce frontend retained
    memory, but it must be applied selectively and measured with
-   `xsh-layout-report` plus corpus retained/allocation metrics. Preserve explicit
-   spans for cooked text, diagnostics, and cross-source module composition.
-   This is more likely to improve frontend corpus metrics than the current
-   runtime-heavy tokei benchmark.
+   `scripts/ir-layout.py` plus Divan's allocation and `max alloc` metrics on the
+   repository check workload. Preserve explicit spans for cooked text,
+   diagnostics, and cross-source module composition.
 
 6. **Close real compact construction gaps without recreating compatibility
    paths.** Compact-only is the baseline. Any remaining
-   `compact_blocked_*`/`unconstructed_*` buckets from parse-corpus reporting are
-   frontend completeness bugs, not a reason to revive recursive AST bridges.
-   Recheck current reports before naming specific blocked files; older examples
-   here have gone stale.
+   `compact.unlowered-*` diagnostics from `xsht check` are frontend completeness
+   bugs, not a reason to revive recursive AST bridges. Recheck the real
+   repository corpus before naming specific blocked files; older examples go
+   stale.
 
-7. **Keep perf reports and builders compact-native.** Future perf schemas should
-   name the compact pipeline state they actually measure and avoid
-   compatibility-era phase keys. When adding direct arena construction APIs,
-   watch `ArenaProgramBuilder` size with layout and corpus metrics; split cold
-   staging state out if rare constructs grow the parser's hot staging object.
+7. **Keep builders compact-native.** When adding direct arena construction
+   APIs, watch `ArenaProgramBuilder` with `scripts/ir-layout.py`; split cold
+   staging state out if rare constructs grow the parser's hot staging object,
+   and confirm the effect on the complete repository check benchmark.
 
 ## Lowered IR Guide
 This is the focused map for interpreter-speed work. The lowered IR is an
@@ -881,50 +876,22 @@ checkpoints as AST loops.
   `../laputa`, extracts the lowered surface from Rust source, and reports real
   fallback reasons.
 
-`perf/interpreter/`
-: End-to-end hyperfine scenarios for CLI startup, parse/check, and evaluation
-  together. Add or update a scenario whenever IR coverage expands.
-
 ### Frontend Benchmarking
 
-Use the Criterion frontend group when changing parse, desugar, semantic check,
-lowering, or evaluator setup before top-level execution:
+Use the shared Divan suite when changing parse, desugar, semantic check,
+lowering, or evaluator setup:
 
 ```sh
-cargo bench -p xshi --profile profiling --features profiling --bench bench frontend -- --sample-size 10 --warm-up-time 0.5 --measurement-time 1
+make bench
 ```
 
-The benchmark prints an allocation audit before Criterion timing. Treat
-allocation count and allocated bytes as the stable signal; local Criterion means
-are useful directionally but move enough between nearby runs that they should
-not gate small changes by themselves.
-
-The scenarios cover:
-
-- `empty`: fixed parser/checker/evaluator setup.
-- `loop_10k`: small top-level loop shape.
-- `pure_call_chain_20k`: lowered pure registry and call-chain setup.
-- `stream_callback_pure_5k`: large literal/list front-end pressure plus lowered
-  pure callbacks.
-- `mixed_glue_2k`: record/map/string glue with a lowerable pure.
-- `import_disk`: file reads, module parsing, and module resolution.
-- `small_corpus_le200_lines_16k`: checked-in standalone `.xsh` files with at
-  most 200 lines and 16 KiB, filtered to sources that parse and check cleanly as
-  individual scripts. This is the floor-overhead lens for ordinary small-script
-  front-end work. The parse/check/lower helper uses an explicit cwd so the
-  corpus does not measure host `current_dir()` syscall latency once per file.
-
-To run only the small-script floor lens:
-
-```sh
-cargo bench -p xshi --profile profiling --features profiling --bench bench small_corpus -- --sample-size 10 --warm-up-time 0.5 --measurement-time 1
-```
-
-As of the 2026-06-15 baseline after the string-churn cleanup, empty
-`parse/check/lower` is close to the fixed floor at about 68 allocations. The
-remaining interesting `+lower` allocation counts are concentrated in
-`pure_call_chain_20k`, `mixed_glue_2k`, and `stream_callback_pure_5k`; small
-bookkeeping cleanups are unlikely to move the suite much.
+The `xsht_check_xsh_repository`, `xsht_format_check_xsh_repository`, and
+`xsht_lint_xsh_repository` benchmarks exercise the frontend over the checked-in
+XSH corpus through complete tool operations. XSH execution benchmarks cover
+parse/check/lower/evaluate together. Treat latency as primary and Divan's
+allocation count and allocated bytes as explanatory signals. See
+`docs/BENCHMARKING.md` for the focused interpreter/IR diagnostic loop, workload,
+and PGO policy.
 
 Good remaining ideas:
 
@@ -939,9 +906,8 @@ Good remaining ideas:
   off, but it crosses formatter, diagnostics, checker, and runtime ownership.
 
 Lazy cwd remains a runtime-startup question rather than a front-end lowering
-question: the small-corpus frontend lens now excludes per-file cwd lookup, while
-cwd/path/process semantics still need a concrete current directory when a script
-actually executes.
+question; cwd/path/process semantics still need a concrete current directory
+when a script actually executes.
 
 ### Core Structures
 
@@ -1102,7 +1068,7 @@ make those bodies eligible for the fast path.
 Run the coverage tool for exact current numbers:
 
 ```sh
-target/release/xsh tools/xsh-ir-coverage.xsh -- --json target/perf/ir-coverage.json
+target/release/xsh tools/xsh-ir-coverage.xsh -- --json target/ir-coverage.json
 ```
 
 The pure-function percentage remains separate from the top-level script
@@ -1126,8 +1092,9 @@ The coverage boundary is:
    as script fallback points, not hidden IR work.
 4. Runtime gates: tracing, module-context entry calls, unsupported argument or
    return values, and unsupported body shapes keep the AST evaluator in charge.
-5. Benchmarks: IR expansion requires a corpus hit and a hyperfine scenario that
-   exercises the new surface without measuring unrelated subprocess cost.
+5. Benchmarks: IR expansion requires a corpus hit and an affected operation in
+   the shared Divan suite. Add a workload only when a user-visible path is not
+   already represented.
 
 The coverage tool is conservative. It scans source shape and lowered capability
 lists; it does not prove that a specific dynamic execution used IR, and it does
@@ -1159,9 +1126,8 @@ bytecode VM.
 4. Improve programmatic coverage precision for top-level regions and proc
    bodies, especially around imported module exports, effect annotations, and
    method false positives from line-based scanning.
-5. Continue building mixed glue benchmarks around package imports, JSON/records,
-   maps, path and regex helpers, result-heavy validation, stream callback setup,
-   and command-adjacent orchestration with minimal actual process work.
+5. Expand the curated suite only for missing user-visible workflows. Do not
+   revive internal glue loops or a separate lowered-IR corpus.
 
 ### Performance Methodology
 
@@ -1182,85 +1148,23 @@ be reverted, or kept only with a note explaining why the representation is still
 worthwhile (coverage or consistency rather than speed). See **Benchmark Loop**
 for the mechanical loop.
 
-#### Performance tooling
+#### Diagnostic workflow
 
-Decisions are release A/B; the harnesses below find and attribute the cost. The
-forcing benchmark is `showcase/tokei.xsh` over a large corpus (`/Users/josh/dev/sentry`)
-versus native release tokei. It is an interpreter/lowered-IR goal, **not** a
-license to grow the standard library with benchmark-shaped primitives.
-For this benchmark, byte-for-byte output parity means XSH against XSH's own
-saved output for the same corpus and options. Native tokei is a speed baseline
-and an accuracy lens, not a byte-for-byte output oracle.
+`docs/BENCHMARKING.md` owns the interpreter and IR measurement loop. Start from
+one affected user-facing Divan operation, use raw Divan allocation and peak-live
+measurements plus `scripts/ir-layout.py` or `tools/xsh-ir-coverage.xsh` to
+attribute the cost, and return to the complete suite for the decision. Native
+comparisons such as `showcase/tokei.xsh` remain useful case studies, but they
+are not a second benchmark gate or PGO workload.
 
-**Release A/B vs native tokei** (the decision currency — release only):
-
-```sh
-hyperfine --warmup 2 --runs 7 \
-  'target/release/xsh showcase/tokei.xsh -- /Users/josh/dev/sentry > /dev/null' \
-  '/Users/josh/d/tokei/target/release/tokei /Users/josh/dev/sentry > /dev/null' \
-  'target/release/xsh showcase/tokei.xsh -- --json /Users/josh/dev/sentry > /dev/null' \
-  '/Users/josh/d/tokei/target/release/tokei /Users/josh/dev/sentry -o json > /dev/null'
-```
-
-**Per-function instruction attribution** (Linux/Docker; deterministic Callgrind):
-
-```sh
-make prof-callgrind SCENARIO=extension-count
-# annotated per-function Ir in target/prof/callgrind.extension-count.txt
-```
-
-Callgrind instruction counts (`Ir`) are deterministic, so they double as the
-bytecode-VM decision gate and the before/after regression signal
-(`make prof-compare`). For per-call-stack allocation attribution use
-`make prof-dhat` (in-process dhat). See `perf/README.md`. **Caveat:** these
-profile the chosen scenario, so profile a `--json` run separately for report
-cost, and thin-LTO inlining can smear small hot functions into their callers.
-
-**Allocation volume** (instrumented mimalloc; the value-movement axis):
-
-```sh
-target/release/xsh perf/run.xsh                    # builds --features perf-metrics
-target/release/xsh perf/allocation-compare.xsh -- perf/allocation-baseline.json \
-  target/perf/<stamp>/allocation.json
-```
-
-**Which functions lower / which fall back.** `tools/xsh-ir-coverage.xsh --root .
---json /tmp/ir-cov.json` is a heuristic map — method coverage is reliable, but
-some *type* reasons are stale (e.g. it reports `type.param.Bytes` as unlowerable,
-which is false). To prove a specific function lowered, verify empirically:
-env-gate an `eprintln!` in `refresh_lowered_pures` listing `self.lowered_pures`
-keys vs the rejected `self.pures`, debug-build, and run on a small directory.
-(This is how the `map.empty()`, mutual-recursion, and `TailBareIdent` blockers
-were each found.)
-
-**Verification gate** for any lowered-IR or stream change, at least:
-
-```sh
-cargo check
-cargo test --lib            # + 2 KNOWN pre-existing failures:
-                            #   interactive::app::tests::expands_shell_arithmetic
-                            #   modules::tests::standard_module_contract_snapshot_is_stable
-target/release/xsht check showcase/tokei.xsh
-target/release/xsht test tokei --nocapture        # JSON shape/counts/ignores parity
-target/release/xsht fmt --check showcase/tokei.xsh showcase/tests/test-tokei.xsh
-```
-
-Format Rust with `rustfmt --edition 2024 <changed files>`, **not** crate-wide —
-the repo has pre-existing fmt drift, and a crate-wide `cargo fmt` churns unrelated
-files. New lowered behavior needs direct lowered tests with exact AST parity
-(mirror the `RuntimeOp` implementations in `src/runtime/eval/methods.rs` and
-`src/modules/`), and `--json`/totals output parity must be preserved against
-XSH's own saved output for the same corpus and options. Do not use native tokei
-as a byte-for-byte diff oracle. Native tokei is the performance baseline and an
-accuracy comparison lens; totals-vs-native-tokei differences are compared
-separately and must not be "fixed" as part of interpreter work unless the
-showcase behavior is intentionally changed.
+New lowered behavior needs direct tests with exact AST parity, normally in
+`src/runtime/eval/tests.rs`. Mirror normal `RuntimeOp` semantics from
+`src/runtime/eval/methods.rs` and `src/modules/`; do not change a showcase's
+observable output merely to match an external reference implementation.
 
 #### Current baseline and gap
 
-The current completion status and Sentry sample ranges live in
-`INTERPRETER-PERF.md`. Treat the historical values below as context, not as a
-fresh completion claim.
+Treat the historical values below as context, not as a fresh completion claim.
 
 Release `showcase/tokei.xsh` over `/Users/josh/dev/sentry` vs native release
 tokei (warm, hyperfine, 7 runs):
@@ -1291,9 +1195,8 @@ value-drop/clone + btree/record), not scanning or scope hashing.
 
 #### Open performance work
 
-CPU self-time attribution of a serial `showcase/tokei.xsh` scan over the Sentry
-corpus (historically via macOS `sample`; now reproduce per-function with
-`make prof-callgrind`) reshaped the priorities below. The *pre-fix* compute-only
+Historical CPU self-time attribution of a serial `showcase/tokei.xsh` scan over
+the Sentry corpus reshaped the priorities below. The *pre-fix* compute-only
 split was roughly:
 allocation/free ~27%, semantic type/schema work ~27%, generic AST eval ~15%,
 scope management ~6%, string/byte scan ~7%, and **lowered IR eval ~0%** — the hot
@@ -1376,9 +1279,8 @@ priority order:
    parallel list-merging `reduce-by` reducer (to group per-language report lists in
    parallel, deleting the serial ~18k-file dispatch loop in `--json`) was the
    planned next lever; it is no longer justified by the benchmark. If a future
-   change regresses `--json`, attribute a `--json` run specifically (the
-   `make prof-callgrind` scenarios profile the *default* serial scan and miss
-   report cost) before reaching for it.
+   change regresses `--json`, add or adapt a representative benchmark before
+   reaching for it.
 5. **(Done — `record_schemas` memoized.)** `sema::records::standard_record_type`
    rebuilt the whole `record_schemas()` `BTreeMap` (every schema `Type`) on each
    call; it is now memoized via a `LazyLock` (`src/sema/records.rs`), so the hot
@@ -1387,13 +1289,13 @@ priority order:
    hashes scope names via SipHash+RandomState, work the lowered scanners now avoid
    with integer slots — and dropped from ~27% to ~1% once they lowered.
 6. Cut allocation and value movement (still the largest single bucket). The
-   Gate-2 axis behind local record-accumulator mutation (see `LANG.md`); track
-   volume with the allocation harness (`perf/run.xsh` + `allocation-compare.xsh`).
+   Gate-2 axis behind local record-accumulator mutation is described in
+   `LANG.md`; track volume through Divan's allocation metrics.
 7. The string/byte scan itself (`memcmp`/memchr) is near-irreducible; do not chase
    it before 3–6.
 
-See **Performance tooling** above for the attribution, allocation, and coverage
-harnesses used to drive and verify the items above.
+See `docs/BENCHMARKING.md` for the current attribution, allocation, layout, and
+coverage workflow.
 
 #### Case study: tokei showcase
 
@@ -1478,26 +1380,10 @@ work rather than disposable scaffolding.
 
 ### Benchmark Loop
 
-Use hyperfine for IR changes because it measures the real CLI path:
-
-```sh
-hyperfine --warmup 3 'target/release/xsh perf/interpreter/path-ir-glue-5k.xsh >/dev/null'
-```
-
-For each meaningful IR expansion:
-
-1. Run `tools/xsh-ir-coverage.xsh` and pick a frequent real fallback.
-2. Add the smallest IR representation that preserves normal semantics.
-3. Add direct lowered tests in `src/runtime/eval/tests.rs`.
-4. Add or update a mixed glue scenario in `perf/interpreter/*.xsh`.
-5. Run focused hyperfine for that scenario.
-6. Run the full interpreter hyperfine set from `perf/interpreter/README.md`
-   when the expansion is broad enough to affect unrelated scenarios.
-7. Record clearly labeled focused or full-suite measurements in
-   `perf/interpreter-hyperfine-baseline.json`.
-8. Update this guide when pass shape, gates, structures, or covered surfaces
-   change.
-
-The useful priority order is corpus frequency, semantic safety, benchmark
-coverage, then implementation size. Easy-to-lower constructs are not worth
-adding unless they show up in real code or make a benchmark more representative.
+Use the interpreter and IR diagnostic workflow in `docs/BENCHMARKING.md`.
+Lowerability work starts with a frequent real fallback from
+`tools/xsh-ir-coverage.xsh`; representation work starts with allocation,
+peak-live, and `scripts/ir-layout.py` evidence from an affected real operation.
+Both finish with direct AST-parity tests and `make bench`. The useful priority
+order is corpus frequency, semantic safety, benchmark coverage, then
+implementation size.

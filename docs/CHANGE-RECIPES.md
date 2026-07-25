@@ -75,6 +75,6 @@ before adding a new abstraction.
 1. Read `docs/FRONTEND.md` and the IR map in `docs/ARCHITECTURE.md`.
 2. Confirm normal AST behavior is already correct.
 3. Add lowering only for exact pure/effect-free behavior.
-4. Update `tools/xsh-ir-coverage.xsh` and a `perf/interpreter/*.xsh` scenario
-   when the surface expands.
-5. Run targeted runtime tests plus the relevant IR coverage or perf check.
+4. Update `tools/xsh-ir-coverage.xsh` when the surface expands.
+5. Run targeted runtime tests and `make bench` when the change affects a
+   user-visible benchmark workload.

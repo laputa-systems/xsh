@@ -841,7 +841,10 @@ fn guide_markdown(chapters: &[ChapterDoc]) -> String {
         "- `docs/FRONTEND.md`: compact frontend, lowered IR, symbol identity, registry invariant, and benchmark contract.\n",
     );
     output.push_str(
-        "- `perf/README.md`: performance scenarios, profiling, PGO, and syscall tracing.\n",
+        "- `docs/BENCHMARKING.md`: user-facing benchmarks, PGO, baselines, and syscall diagnostics.\n",
+    );
+    output.push_str(
+        "- `LLVM-LINES.md`: release LLVM IR size analysis and repeated-monomorphization workflow.\n",
     );
     output.push('\n');
     output.push_str("## Maintenance\n\n");

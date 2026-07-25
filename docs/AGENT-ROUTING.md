@@ -29,9 +29,10 @@ verification commands.
 | Tracing and tracebacks | `docs/SPEC.md` section 18; `docs/ARCHITECTURE.md` Tracing And Errors | `src/trace.rs`, `src/runtime/eval.rs`, `crates/xsht/src/cli/mod.rs` | `tests/runtime/coverage.rs`, trace tests |
 | CLI or tooling | `docs/SPEC.md` section 19; `docs/REFERENCE.md`; `docs/XSHT.md` | `crates/xsht/src/cli/mod.rs`, `crates/xsht/src/cli/grep.rs`, `crates/xsht/src/cli/refactor.rs`, `src/docs.rs`, `src/runner.rs` | `crates/xsht/tests/cli.rs`, `crates/xsht/tests/grep.rs`, `crates/xsht/tests/docs.rs` |
 | Interactive shell | `docs/SPEC-INTERACTIVE.md`; `docs/ARCHITECTURE.md` Interactive | `crates/xshi/src/interactive/*`, `crates/xsht/src/cli/mod.rs`, `src/runtime/process.rs` | `tests/runtime/interactive.rs` |
-| Lowered IR or interpreter speed | `docs/FRONTEND.md`; `perf/README.md`; `docs/ARCHITECTURE.md` Agent Map For IR Work | `src/runtime/eval/lower.rs`, `lowered_ops.rs`, `lowered_run.rs`, `src/runtime/eval.rs` | `tools/xsh-ir-coverage.xsh`, `perf/interpreter/*`, targeted runtime tests |
+| Lowered IR or user-visible performance | `docs/FRONTEND.md`; `docs/BENCHMARKING.md`; `docs/ARCHITECTURE.md` Agent Map For IR Work | `src/runtime/eval/lower.rs`, `lowered_ops.rs`, `lowered_run.rs`, `src/runtime/eval.rs`, `crates/xsh-multicall/benches/bench.rs` | targeted runtime tests, `tools/xsh-ir-coverage.xsh`, `make bench` |
+| LLVM IR or generic code size | `LLVM-LINES.md`; `docs/BENCHMARKING.md` when runtime paths change | generic owners identified by `cargo llvm-lines` | `tools/llvm-lines-repeat-offenders.xsh`, targeted behavior tests, `make bench` when applicable |
 | Docs, examples, or references | `docs/DOCS-STYLE.md`; `docs/GENERATED-DOCS.md`; `docs-src/README.md` | `docs-src/*`, `src/docs.rs`, `examples/catalog.json`, generated docs | docs commands in `docs/TEST-MAP.md` |
-| Remote amd64 musl work | `../laputa/AGENTS.md` Threadripper Notes; `perf/README.md` if profiling | remote checkout only | native command from the task |
+| Remote amd64 musl work | `../laputa/AGENTS.md` Threadripper Notes; `docs/BENCHMARKING.md` for benchmarks | remote checkout only | native command from the task |
 
 ## Spec Sections
 

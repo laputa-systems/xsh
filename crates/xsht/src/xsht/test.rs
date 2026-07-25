@@ -1,12 +1,9 @@
 #![allow(clippy::single_call_fn)]
 
 use crate::xsht::cli::{
-    CliOutput, CoverageCollector, TraceFormat, TraceOptions, cancellation_output,
-    collect_xsh_files, load_config, trace_script,
+    CliOutput, CoverageCollector, cancellation_output, collect_xsh_files, load_config,
 };
 use crate::xsht::docs::{OutputPolicy, load_example_catalog};
-use miniserde::json::{Object, Value as JsonValue};
-use std::collections::BTreeMap;
 use std::fs;
 use std::io::{IsTerminal, Write};
 use std::os::unix::ffi::OsStringExt;
@@ -26,7 +23,7 @@ use xsh::runtime::value::{PathValue, RecordMap, ResultValue, RuntimeError, Value
 use xsh::sema::check::Checker;
 use xsh::sema::types::Type;
 use xsh::syntax::arena::{ArenaProgram, ArenaStmtKind, FunctionDefId, StmtId};
-use xsh::trace::{SyscallSummary, TracebackRenderer};
+use xsh::trace::TracebackRenderer;
 
 #[derive(Clone, Debug)]
 pub(crate) struct TestOptions {
@@ -42,11 +39,6 @@ pub(crate) struct TestOptions {
     pub(crate) jobs: Option<usize>,
     pub(crate) coverage: bool,
     pub(crate) coverage_json_out: Option<String>,
-    pub(crate) trace_top_syscalls: Option<usize>,
-    /// If set, write per-test syscall summaries to this file as a JSON baseline.
-    pub(crate) syscall_json_out: Option<String>,
-    /// Per-test syscall budgets: map from test id to map from syscall name (or "total") to limit.
-    pub(crate) syscall_budgets: Option<BTreeMap<String, BTreeMap<String, u64>>>,
 }
 
 impl TestOptions {
@@ -145,49 +137,16 @@ pub(crate) fn test_scripts(options: TestOptions) -> CliOutput {
     let mut skipped = 0usize;
     let mut failure_details = Vec::new();
     let mut coverage = options.collect_coverage().then(CoverageCollector::new);
-    let mut baseline_entries: Vec<(String, SyscallSummary)> = Vec::new();
-
     let mut interrupted = None;
-    run_test_cases(cases, &run_id, &options, |id, mut outcome| {
+    run_test_cases(cases, &run_id, &options, |id, outcome| {
         if let Some(output) = cancellation_output() {
             interrupted = Some(output);
             return false;
         }
 
-        // Budget checking: fail if any syscall count exceeds the configured budget.
-        if let Some(summary) = &outcome.syscall_summary
-            && let Some(budgets) = options.syscall_budgets.as_ref().and_then(|b| b.get(&id))
-        {
-            let budget_failures = check_syscall_budget(summary, budgets);
-            if !budget_failures.is_empty() {
-                let msg = budget_failures.join("; ");
-                // Downgrade to Failed if currently Passed, or append to existing failure.
-                outcome.kind = match outcome.kind {
-                    TestOutcomeKind::Passed => {
-                        TestOutcomeKind::Failed(format!("syscall budget exceeded: {msg}"))
-                    }
-                    TestOutcomeKind::Failed(existing) => TestOutcomeKind::Failed(format!(
-                        "{existing}; syscall budget exceeded: {msg}"
-                    )),
-                    other => other,
-                };
-            }
-        }
-
-        // Collect baseline data.
-        if options.syscall_json_out.is_some()
-            && let Some(summary) = outcome.syscall_summary.clone()
-        {
-            baseline_entries.push((id.clone(), summary));
-        }
-
         if options.nocapture {
             write_test_output(&bytes_text_lossy(&outcome.stdout));
             write_test_error(&bytes_text_lossy(&outcome.stderr));
-            if options.trace_top_syscalls.is_some() && !outcome.trace_text.is_empty() {
-                write_test_error(&format!("# test: {id}\n"));
-                write_test_error(&outcome.trace_text);
-            }
         }
         if let Some(collector) = coverage.as_mut()
             && let Some(trace) = &outcome.coverage_trace
@@ -232,23 +191,6 @@ pub(crate) fn test_scripts(options: TestOptions) -> CliOutput {
     }
     if let Some(output) = interrupted {
         return output;
-    }
-
-    // Write baseline JSON if requested.
-    if let Some(path) = &options.syscall_json_out {
-        match write_syscall_baseline(&baseline_entries, path) {
-            Ok(()) => {}
-            Err(message) => {
-                failed += 1;
-                stdout.push_str("test syscall-baseline ... FAILED\n");
-                failure_details.push((
-                    "syscall-baseline".to_string(),
-                    message,
-                    Vec::new(),
-                    Vec::new(),
-                ));
-            }
-        }
     }
 
     if let Some(path) = &options.coverage_json_out
@@ -330,7 +272,6 @@ fn test_jobs(options: &TestOptions, cases_len: usize) -> usize {
     if cases_len <= 1
         || options.fail_fast
         || options.nocapture
-        || options.trace_top_syscalls.is_some()
     {
         return 1;
     }
@@ -453,8 +394,6 @@ struct TestOutcome {
     duration: Duration,
     stdout: Vec<u8>,
     stderr: Vec<u8>,
-    trace_text: String,
-    syscall_summary: Option<SyscallSummary>,
     coverage_trace: Option<String>,
     coverage_scope: &'static str,
 }
@@ -677,8 +616,6 @@ fn run_test_case(case: TestCase, index: usize, run_id: &str, options: &TestOptio
             duration: Duration::ZERO,
             stdout: Vec::new(),
             stderr: Vec::new(),
-            trace_text: String::new(),
-            syscall_summary: None,
             coverage_trace: None,
             coverage_scope: "tests",
         },
@@ -706,8 +643,6 @@ fn run_native_test(
             duration: Duration::ZERO,
             stdout: Vec::new(),
             stderr: Vec::new(),
-            trace_text: String::new(),
-            syscall_summary: None,
             coverage_trace: None,
             coverage_scope: "tests",
         };
@@ -723,8 +658,6 @@ fn run_native_test(
                     duration: Duration::ZERO,
                     stdout: Vec::new(),
                     stderr: Vec::new(),
-                    trace_text: String::new(),
-                    syscall_summary: None,
                     coverage_trace: None,
                     coverage_scope: "tests",
                 };
@@ -795,8 +728,6 @@ fn run_native_test(
         duration: Duration::ZERO,
         stdout: evaluated.output.stdout,
         stderr: evaluated.output.stderr,
-        trace_text: String::new(),
-        syscall_summary: None,
         coverage_trace,
         coverage_scope: "tests",
     }
@@ -1093,32 +1024,19 @@ fn run_example_test(
     run_id: &str,
     options: &TestOptions,
 ) -> TestOutcome {
-    let syscalls = options.trace_top_syscalls.is_some();
     let coverage_trace_dir = options.collect_coverage().then(|| {
         std::env::temp_dir().join(format!(
             "xsh-test-{run_id}-{index}-{}-coverage-traces",
             sanitize_test_id(&case.id)
         ))
     });
-    let output: CliOutput = if syscalls {
-        trace_script(TraceOptions {
-            script: case.path.clone(),
-            args: case.args,
-            raw: false,
-            format: TraceFormat::Text,
-            file: None,
-            syscalls: true,
-            top_syscalls: options.trace_top_syscalls.unwrap_or(8),
-        })
-    } else {
-        run_script(RunOptions {
-            script: case.path.clone(),
-            args: case.args,
-            coverage_trace_dir: coverage_trace_dir.clone(),
-            strict_lower: options.strict_lower,
-        })
-        .into()
-    };
+    let output: CliOutput = run_script(RunOptions {
+        script: case.path.clone(),
+        args: case.args,
+        coverage_trace_dir: coverage_trace_dir.clone(),
+        strict_lower: options.strict_lower,
+    })
+    .into();
     let mut failures = Vec::new();
     let coverage_trace = if let Some(dir) = &coverage_trace_dir {
         match read_nested_coverage_traces(dir) {
@@ -1158,8 +1076,6 @@ fn run_example_test(
         duration: Duration::ZERO,
         stdout: output.stdout,
         stderr: output.stderr,
-        trace_text: output.trace_text,
-        syscall_summary: output.syscall_summary,
         coverage_trace,
         coverage_scope: "examples",
     }
@@ -1205,55 +1121,6 @@ fn output_policy_error(policy: &OutputPolicy, actual: &[u8], stream: &str) -> Re
         )),
         OutputPolicy::Empty => Err(format!("{stream} was not empty")),
     }
-}
-
-fn check_syscall_budget(summary: &SyscallSummary, budgets: &BTreeMap<String, u64>) -> Vec<String> {
-    let mut failures = Vec::new();
-    for (key, &limit) in budgets {
-        let actual = if key == "total" {
-            summary.syscall_count
-        } else {
-            summary
-                .by_syscall
-                .iter()
-                .find(|row| row.syscall == *key)
-                .map_or(0, |row| row.calls)
-        };
-        if actual > limit {
-            failures.push(format!("{key}={actual} > budget {limit}"));
-        }
-    }
-    failures
-}
-
-fn write_syscall_baseline(entries: &[(String, SyscallSummary)], path: &str) -> Result<(), String> {
-    let mut tests = Object::new();
-    for (id, summary) in entries {
-        let mut by_syscall = Object::new();
-        for row in &summary.by_syscall {
-            by_syscall.insert(row.syscall.clone(), json_u64(row.calls));
-        }
-        let mut entry = Object::new();
-        entry.insert("syscall_count".to_string(), json_u64(summary.syscall_count));
-        if let Some(wall_ns) = summary.wall_time_ns {
-            let wall_ms = wall_ns / 1_000_000;
-            entry.insert("wall_ms".to_string(), json_u64(wall_ms));
-        }
-        entry.insert("by_syscall".to_string(), JsonValue::Object(by_syscall));
-        tests.insert(id.clone(), JsonValue::Object(entry));
-    }
-
-    let mut root = Object::new();
-    root.insert("version".to_string(), json_u64(1));
-    root.insert("tests".to_string(), JsonValue::Object(tests));
-
-    let json = miniserde::json::to_string(&JsonValue::Object(root));
-    fs::write(path, json).map_err(|e| format!("failed to write '{path}': {e}"))?;
-    Ok(())
-}
-
-fn json_u64(value: u64) -> JsonValue {
-    JsonValue::Number(miniserde::json::Number::U64(value))
 }
 
 #[cfg(test)]

@@ -34,6 +34,24 @@ fn run_with_big_stack(f: impl FnOnce() + Send + 'static) {
         .unwrap();
 }
 
+fn eval_checked_source(name: &str, source: &str) -> super::EvalOutput {
+    let mut sources = SourceMap::new();
+    let source_id = sources.add_file(name, source);
+    let parsed = Parser::parse_source_arena_only(source_id, source);
+    assert!(
+        parsed.diagnostics.is_empty(),
+        "test source must parse: {:?}",
+        parsed.diagnostics
+    );
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(
+        checked.diagnostics.is_empty(),
+        "test source must check: {:?}",
+        checked.diagnostics
+    );
+    Evaluator::new_with_sources(Vec::new(), sources).eval(&parsed.arena, source_id)
+}
+
 #[test]
 fn ok_question_unwraps_value() {
     let span = Span::new(SourceId::new(0), 0, 1);
@@ -3045,8 +3063,7 @@ lines = lines.push(line)
 
 print ${collect(\"alpha\\nbeta\\ngamma\\n\")}
 ";
-    let prepared = crate::runtime::bench::prepare_source("text-lines-view-escape.xsh", source);
-    let output = crate::runtime::bench::eval_prepared_output(&prepared);
+    let output = eval_checked_source("text-lines-view-escape.xsh", source);
     let stdout = std::str::from_utf8(&output.stdout).expect("stdout is utf-8");
 
     assert_eq!(output.status, 0);
@@ -3146,8 +3163,7 @@ total += 100000
 
 print ${marker_score(\"plain\\n/a\\n//b\\nsnow ☃\\nbody /* mark\\n\")}
 ";
-    let prepared = crate::runtime::bench::prepare_source("string-byte-search-lowered.xsh", source);
-    let output = crate::runtime::bench::eval_prepared_output(&prepared);
+    let output = eval_checked_source("string-byte-search-lowered.xsh", source);
 
     assert_eq!(output.status, 0);
     assert_eq!(output.stdout, b"111313\n");
@@ -3187,8 +3203,7 @@ fn lowered_bytes_scanner_covers_lines_trim_predicates_and_byte_at() {
 
     print ${byte_marker_score(b\"  # h\\n\\nx;\\n/a TODO\\n\")}
     ";
-        let prepared = crate::runtime::bench::prepare_source("bytes-scanner-lowered.xsh", source);
-        let output = crate::runtime::bench::eval_prepared_output(&prepared);
+        let output = eval_checked_source("bytes-scanner-lowered.xsh", source);
 
         assert_eq!(output.status, 0);
         assert_eq!(output.stdout, b"4011111\n");
@@ -3263,8 +3278,7 @@ if line.trim() == \"\" {
 
 print ${blank_score(\"  \\n\\t\\n\\u{2003}\\ncode\\n\")}
 ";
-    let prepared = crate::runtime::bench::prepare_source("trim-empty-lowered.xsh", source);
-    let output = crate::runtime::bench::eval_prepared_output(&prepared);
+    let output = eval_checked_source("trim-empty-lowered.xsh", source);
 
     assert_eq!(output.status, 0);
     assert_eq!(output.stdout, b"3\n");
@@ -3291,8 +3305,7 @@ if line.trim().ends_with(\";\") {
 
 print ${marker_score(\"  # ascii\\n\\u{2003}# unicode\\nlet x;  \\nlet y;\\u{2003}\\n\")}
 ";
-    let prepared = crate::runtime::bench::prepare_source("trim-predicate-lowered.xsh", source);
-    let output = crate::runtime::bench::eval_prepared_output(&prepared);
+    let output = eval_checked_source("trim-predicate-lowered.xsh", source);
 
     assert_eq!(output.status, 0);
     assert_eq!(output.stdout, b"22\n");

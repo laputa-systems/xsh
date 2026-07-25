@@ -39,8 +39,8 @@ owner files, and tests before editing.
 
 Choose the narrowest useful command first, then run the full relevant gate from
 `docs/TEST-MAP.md`. Use debug builds for ordinary development and verification.
-Use release or the profiling profile only when working on profiling,
-benchmarking, or `perf-*` targets. Do not use the `dist` profile for agent work;
+Use release builds only when working on profiling or benchmarking. Do not use
+the `dist` profile for agent work;
 it is reserved for CI release packaging.
 
 Do not run formatters or autofixers — `make lint`, `cargo fmt`, `cargo clippy

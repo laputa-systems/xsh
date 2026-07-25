@@ -1,7 +1,7 @@
 FROM alpine:3.24.1
 ARG TARGETARCH
 ARG LLVM_VERSION=22.1.8
-RUN apk add --no-cache musl-dev libgcc git tzdata zip valgrind valgrind-scripts perf strace fd
+RUN apk add --no-cache musl-dev libgcc git tzdata zip strace
 # Keep Dockerfile.test on the same compiler family as release.yml. The release
 # workflow restores this tarball from the GitHub cache or downloads the same URL,
 # then points CC/target flags at its clang.

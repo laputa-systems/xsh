@@ -99,56 +99,6 @@ use super::{NativeTestRunKind, NativeTestRunRequest, TestMock};
 use cap_directories::{ProjectDirs, UserDirs, ambient_authority as directories_authority};
 use cap_tempfile::{TempDir, TempFile, ambient_authority as tempfile_authority};
 
-#[cfg(feature = "perf-counters")]
-use std::sync::atomic::{AtomicU64, Ordering};
-
-#[cfg(feature = "perf-counters")]
-static FAST_PLAIN_RETURN_HITS: AtomicU64 = AtomicU64::new(0);
-#[cfg(feature = "perf-counters")]
-static FAST_PLAIN_RETURN_MISSES: AtomicU64 = AtomicU64::new(0);
-#[cfg(feature = "perf-counters")]
-static FAST_RETURN_HITS: AtomicU64 = AtomicU64::new(0);
-#[cfg(feature = "perf-counters")]
-static FAST_RETURN_MISSES: AtomicU64 = AtomicU64::new(0);
-#[cfg(feature = "perf-counters")]
-static SLOT_OPT_HITS: AtomicU64 = AtomicU64::new(0);
-#[cfg(feature = "perf-counters")]
-static METHOD_DISPATCH_FALLBACKS: AtomicU64 = AtomicU64::new(0);
-#[cfg(feature = "perf-counters")]
-static CALL_SITE_HITS: AtomicU64 = AtomicU64::new(0);
-#[cfg(feature = "perf-counters")]
-static EVAL_STMT_COUNT: AtomicU64 = AtomicU64::new(0);
-#[cfg(feature = "perf-counters")]
-pub(super) static SCAN_LINES_HITS: AtomicU64 = AtomicU64::new(0);
-
-#[cfg(feature = "perf-counters")]
-pub(super) fn print_perf_counters() {
-    eprintln!(
-        "perf: fast_plain_return hits={} misses={}",
-        FAST_PLAIN_RETURN_HITS.load(Ordering::Relaxed),
-        FAST_PLAIN_RETURN_MISSES.load(Ordering::Relaxed),
-    );
-    eprintln!(
-        "perf: fast_return hits={} misses={}",
-        FAST_RETURN_HITS.load(Ordering::Relaxed),
-        FAST_RETURN_MISSES.load(Ordering::Relaxed),
-    );
-    eprintln!(
-        "perf: slot_opt_hits={} method_fallbacks={}",
-        SLOT_OPT_HITS.load(Ordering::Relaxed),
-        METHOD_DISPATCH_FALLBACKS.load(Ordering::Relaxed),
-    );
-    eprintln!(
-        "perf: call_site_hits={} eval_stmt_count={} scan_lines_hits={}",
-        CALL_SITE_HITS.load(Ordering::Relaxed),
-        EVAL_STMT_COUNT.load(Ordering::Relaxed),
-        SCAN_LINES_HITS.load(Ordering::Relaxed),
-    );
-}
-
-#[cfg(not(feature = "perf-counters"))]
-pub(super) fn print_perf_counters() {}
-
 #[cfg(debug_assertions)]
 const LOWERED_PAR_MAP_WORKER_STACK_SIZE: usize = 64 << 20;
 #[cfg(not(debug_assertions))]
@@ -10782,24 +10732,11 @@ impl Evaluator {
         if let LoweredReturnKind::Plain(LoweredType::Int | LoweredType::Bool) = lowered.return_kind
             && let Some(value) = self.eval_lowered_fast_plain_return(lowered, slots)?
         {
-            #[cfg(feature = "perf-counters")]
-            FAST_PLAIN_RETURN_HITS.fetch_add(1, Ordering::Relaxed);
             return Ok(value);
-        }
-        #[cfg(feature = "perf-counters")]
-        if matches!(
-            lowered.return_kind,
-            LoweredReturnKind::Plain(LoweredType::Int | LoweredType::Bool)
-        ) {
-            FAST_PLAIN_RETURN_MISSES.fetch_add(1, Ordering::Relaxed);
         }
         if let Some(value) = self.eval_lowered_fast_return(lowered, slots, call_span)? {
-            #[cfg(feature = "perf-counters")]
-            FAST_RETURN_HITS.fetch_add(1, Ordering::Relaxed);
             return Ok(value);
         }
-        #[cfg(feature = "perf-counters")]
-        FAST_RETURN_MISSES.fetch_add(1, Ordering::Relaxed);
         let result = self.eval_lowered_stmts(lowered, &lowered.body, slots, call_span);
         // Persist mutations to captured mutable top-level (global) bindings on
         // every exit path, including errors — the side effects happened before
@@ -13784,8 +13721,6 @@ impl Evaluator {
                 checks,
                 span,
             } => {
-                #[cfg(feature = "perf-counters")]
-                SCAN_LINES_HITS.fetch_add(1, Ordering::Relaxed);
                 let text_value = &slots[*text_slot];
                 if let Some((text, start, end)) = lowered_str_parts(text_value) {
                     let bytes = text.as_bytes();

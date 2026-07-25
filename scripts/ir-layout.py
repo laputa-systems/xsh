@@ -1,0 +1,120 @@
+#!/usr/bin/env python3
+
+from __future__ import annotations
+
+import argparse
+import os
+import re
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+
+IR_TYPES = (
+    "syntax::arena::ArenaProgramBuilder<'_>",
+    "syntax::arena::ArenaProgram",
+    "syntax::arena::AstArena",
+    "runtime::eval::LoweredPureFunction",
+    "runtime::eval::LoweredTopLevelStmt",
+    "runtime::eval::LoweredStmt",
+    "runtime::eval::LoweredExpr",
+    "runtime::eval::LoweredPattern",
+    "runtime::eval::LoweredValue",
+    "runtime::eval::LoweredProgram",
+)
+HEADER_RE = re.compile(
+    r"^print-type-size type: `([^`]+)`: ([0-9]+) bytes, alignment: ([0-9]+) bytes$"
+)
+
+
+def type_blocks(output: str) -> dict[str, list[str]]:
+    blocks: dict[str, list[str]] = {}
+    current: list[str] | None = None
+    for line in output.splitlines():
+        match = HEADER_RE.match(line)
+        if match:
+            current = [line]
+            blocks[match.group(1)] = current
+        elif current is not None and line.startswith("print-type-size "):
+            current.append(line)
+        else:
+            current = None
+    return blocks
+
+
+def resolve_type(name: str) -> str:
+    matches = []
+    for ty in IR_TYPES:
+        short = ty.rsplit("::", 1)[-1]
+        if ty == name or short == name or short.split("<", 1)[0] == name:
+            matches.append(ty)
+    if len(matches) == 1:
+        return matches[0]
+    choices = ", ".join(ty.rsplit("::", 1)[-1] for ty in IR_TYPES)
+    raise ValueError(f"unknown or ambiguous type {name!r}; choose one of: {choices}")
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(
+        description="Report compiler layouts for the hot arena and lowered-IR types"
+    )
+    parser.add_argument(
+        "--details",
+        action="append",
+        default=[],
+        metavar="TYPE",
+        help="include rustc's variant and field layout for TYPE; may be repeated",
+    )
+    args = parser.parse_args()
+
+    try:
+        details = {resolve_type(name) for name in args.details}
+    except ValueError as error:
+        parser.error(str(error))
+
+    root = Path(__file__).resolve().parents[1]
+    metadata = f"xsh-ir-layout-{os.getpid()}-{time.time_ns()}"
+    completed = subprocess.run(
+        [
+            "cargo",
+            "rustc",
+            "--lib",
+            "--release",
+            "--",
+            "-Zprint-type-sizes",
+            f"-Cmetadata={metadata}",
+        ],
+        cwd=root,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+    )
+    if completed.returncode:
+        print(completed.stdout, end="", file=sys.stderr)
+        return completed.returncode
+
+    blocks = type_blocks(completed.stdout)
+    missing = [ty for ty in IR_TYPES if ty not in blocks]
+    if missing:
+        print(
+            "rustc did not report expected types: " + ", ".join(missing),
+            file=sys.stderr,
+        )
+        return 1
+
+    print("type\tbytes\talignment")
+    for ty in IR_TYPES:
+        match = HEADER_RE.match(blocks[ty][0])
+        assert match is not None
+        print(f"{ty}\t{match.group(2)}\t{match.group(3)}")
+
+    for ty in IR_TYPES:
+        if ty in details:
+            print()
+            print("\n".join(blocks[ty]))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -5,7 +5,6 @@ use crate::xsht::cli::{
 };
 use crate::xsht::test::{TestOptions, test_scripts};
 use std::process::ExitCode;
-use xsh::perf::{AllocationSnapshot, allocation_metrics_requested, allocation_snapshot};
 use xsh::runtime::process::{
     clear_cancellation_request, install_cancellation_signal_handlers,
     install_immediate_cancellation_signal_handlers,
@@ -114,9 +113,6 @@ Options:
   --keep-temp             Preserve native test temporary directories
   --strict-lower          Report compact-lowering failures instead of falling back while running examples
   --cov-json FILE         Write XSH API coverage JSON to FILE
-  --trace-top-syscalls N  Run each example test under Linux ptrace and print top N syscalls (requires --examples or --all)
-  --trace-json-out FILE   Write per-test syscall summaries to FILE as JSON (use with make test-trace-save)
-  --syscall-budgets FILE  Load per-test syscall budgets from FILE; fail tests that exceed their budget
 ";
 
 const GREP_HELP: &str = "\
@@ -171,26 +167,26 @@ pub fn main() -> ExitCode {
             strict,
             annotation_selection,
             summary,
-        }) => finish_with_perf(|| {
+        }) => finish_command(|| {
             check_paths_with_summary_options(&paths, strict, annotation_selection, summary)
         }),
-        Ok(Command::Fmt { files, check }) => finish_with_perf(|| format_files(&files, check)),
+        Ok(Command::Fmt { files, check }) => finish_command(|| format_files(&files, check)),
         Ok(Command::Lint {
             files,
             fix,
             runless,
-        }) => finish_with_perf(|| lint_files(&files, fix, runless)),
-        Ok(Command::Ast { script }) => finish_with_perf(|| ast_script(&script)),
-        Ok(Command::Trace { options }) => finish_with_perf(|| trace_script(options)),
-        Ok(Command::Docs { command }) => finish_with_perf(|| docs_command(&command)),
-        Ok(Command::Test { options }) => finish_with_perf(|| test_scripts(options)),
-        Ok(Command::Grep { pattern, files }) => finish_with_perf(|| grep_scripts(&pattern, &files)),
+        }) => finish_command(|| lint_files(&files, fix, runless)),
+        Ok(Command::Ast { script }) => finish_command(|| ast_script(&script)),
+        Ok(Command::Trace { options }) => finish_command(|| trace_script(options)),
+        Ok(Command::Docs { command }) => finish_command(|| docs_command(&command)),
+        Ok(Command::Test { options }) => finish_command(|| test_scripts(options)),
+        Ok(Command::Grep { pattern, files }) => finish_command(|| grep_scripts(&pattern, &files)),
         Ok(Command::Refactor {
             pattern,
             replacement,
             files,
             dry_run,
-        }) => finish_with_perf(|| refactor_scripts(&pattern, &replacement, &files, dry_run)),
+        }) => finish_command(|| refactor_scripts(&pattern, &replacement, &files, dry_run)),
         Err(message) => {
             eprintln!("xsht: {message}");
             ExitCode::from(2)
@@ -335,9 +331,6 @@ fn parse_test(args: &[String]) -> Result<Command, String> {
     let mut keep_temp = false;
     let mut strict_lower = false;
     let mut coverage_json_out = None;
-    let mut trace_top_syscalls = None;
-    let mut syscall_json_out = None;
-    let mut syscall_budgets_file: Option<String> = None;
     let mut iter = args.iter();
 
     while let Some(arg) = iter.next() {
@@ -371,32 +364,6 @@ fn parse_test(args: &[String]) -> Result<Command, String> {
                         .clone(),
                 );
             }
-            "--trace-top-syscalls" => {
-                let value = iter
-                    .next()
-                    .ok_or_else(|| "`--trace-top-syscalls` requires N".to_string())?;
-                let n = value
-                    .parse::<usize>()
-                    .map_err(|_| "`--trace-top-syscalls` must be a positive integer".to_string())?;
-                if n == 0 {
-                    return Err("`--trace-top-syscalls` must be a positive integer".to_string());
-                }
-                trace_top_syscalls = Some(n);
-            }
-            "--trace-json-out" => {
-                syscall_json_out = Some(
-                    iter.next()
-                        .ok_or_else(|| "`--trace-json-out` requires FILE".to_string())?
-                        .clone(),
-                );
-            }
-            "--syscall-budgets" => {
-                syscall_budgets_file = Some(
-                    iter.next()
-                        .ok_or_else(|| "`--syscall-budgets` requires FILE".to_string())?
-                        .clone(),
-                );
-            }
             other if other.starts_with('-') => {
                 return Err(format!("unknown `xsht test` option '{other}'"));
             }
@@ -413,16 +380,6 @@ fn parse_test(args: &[String]) -> Result<Command, String> {
         return Err("`xsht test` accepts only one of `--examples` or `--all`".to_string());
     }
 
-    let syscall_budgets = if let Some(ref path) = syscall_budgets_file {
-        let text = std::fs::read_to_string(path)
-            .map_err(|e| format!("`--syscall-budgets`: failed to read '{path}': {e}"))?;
-        let parsed = parse_syscall_budgets(&text)
-            .map_err(|e| format!("`--syscall-budgets`: invalid JSON in '{path}': {e}"))?;
-        Some(parsed)
-    } else {
-        None
-    };
-
     Ok(Command::Test {
         options: TestOptions {
             filter,
@@ -437,53 +394,8 @@ fn parse_test(args: &[String]) -> Result<Command, String> {
             jobs,
             coverage,
             coverage_json_out,
-            trace_top_syscalls,
-            syscall_json_out,
-            syscall_budgets,
         },
     })
-}
-
-fn parse_syscall_budgets(
-    text: &str,
-) -> Result<std::collections::BTreeMap<String, std::collections::BTreeMap<String, u64>>, String> {
-    let value: miniserde::json::Value =
-        miniserde::json::from_str(text).map_err(|_| "invalid JSON".to_string())?;
-    let miniserde::json::Value::Object(tests) = value else {
-        return Err("expected object".to_string());
-    };
-    let mut parsed = std::collections::BTreeMap::new();
-    for (test, value) in tests {
-        let miniserde::json::Value::Object(budgets) = value else {
-            return Err(format!("budget for '{test}' must be an object"));
-        };
-        let mut parsed_budgets = std::collections::BTreeMap::new();
-        for (name, value) in budgets {
-            let Some(limit) = raw_json_as_u64(&value) else {
-                return Err(format!(
-                    "budget '{test}.{name}' must be a non-negative integer"
-                ));
-            };
-            parsed_budgets.insert(name, limit);
-        }
-        parsed.insert(test, parsed_budgets);
-    }
-    Ok(parsed)
-}
-
-fn raw_json_as_u64(value: &miniserde::json::Value) -> Option<u64> {
-    match value {
-        miniserde::json::Value::Number(miniserde::json::Number::U64(value)) => Some(*value),
-        miniserde::json::Value::Number(miniserde::json::Number::I64(value)) => {
-            u64::try_from(*value).ok()
-        }
-        miniserde::json::Value::Number(miniserde::json::Number::F64(value))
-            if *value >= 0.0 && value.fract() == 0.0 =>
-        {
-            Some(*value as u64)
-        }
-        _ => None,
-    }
 }
 
 fn parse_ast(args: &[String]) -> Result<Command, String> {
@@ -698,49 +610,17 @@ fn parse_refactor(args: &[String]) -> Result<Command, String> {
     })
 }
 
-fn finish_with_perf(run: impl FnOnce() -> CliOutput) -> ExitCode {
-    let measure_allocations = allocation_metrics_requested();
-    if measure_allocations {
-        xsh::perf::reset_allocations();
-    }
-    let output = run();
-    let allocations = if measure_allocations {
-        allocation_snapshot()
-    } else {
-        None
-    };
-    finish(output, allocations)
+fn finish_command(run: impl FnOnce() -> CliOutput) -> ExitCode {
+    finish(run())
 }
 
-fn finish(output: CliOutput, allocations: Option<AllocationSnapshot>) -> ExitCode {
+fn finish(output: CliOutput) -> ExitCode {
     use std::io::Write;
 
     let _ = std::io::stdout().lock().write_all(&output.stdout);
     let _ = std::io::stderr().lock().write_all(&output.stderr);
     if !output.trace_text.is_empty() {
         eprint!("{}", output.trace_text);
-    }
-    if let Some(a) = allocations {
-        eprintln!(
-            "xsh perf: allocation_calls={} allocation_bytes={} deallocation_calls={} deallocation_bytes={} reallocation_calls={} reallocation_bytes={} peak_rss={}",
-            a.allocation_calls,
-            a.allocation_bytes,
-            a.deallocation_calls,
-            a.deallocation_bytes,
-            a.reallocation_calls,
-            a.reallocation_bytes,
-            a.peak_rss_bytes,
-        );
-        if a.allocation_calls > 0 {
-            eprintln!(
-                "xsh perf sizes: ≤16b={} ≤64b={} ≤256b={} ≤4096b={} >4096b={}",
-                a.alloc_calls_le16,
-                a.alloc_calls_le64,
-                a.alloc_calls_le256,
-                a.alloc_calls_le4096,
-                a.alloc_calls_gt4096,
-            );
-        }
     }
     ExitCode::from(output.status)
 }

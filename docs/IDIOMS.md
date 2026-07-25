@@ -423,7 +423,7 @@ let names = [pkg.name for pkg in pkgs if ! pkg.optional]
 
 Use `for` instead when the body has side effects, multiple branches, or an early
 `return`. Source: `examples/idiom-list-comprehension.xsh`,
-`showcase/perf-collapse.xsh`.
+`showcase/px.xsh`.
 
 ## flat-map for tokenization
 

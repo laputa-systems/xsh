@@ -4,9 +4,8 @@ This note captures repeated patterns seen in the current `.xsh` corpus that may
 signal language, standard library, or tooling deficiencies. Each section is
 intended to be small enough for a fresh agent to pick up independently.
 
-The corpus reviewed includes `examples/`, `showcase/`, `tools/`, `core/`,
-`perf/`, and the XSH test fixtures. Generated and synthetic performance files
-should be treated as weaker signal than applets, showcase scripts, and tools.
+The corpus reviewed includes `examples/`, `showcase/`, `tools/`, `core/`, and
+the XSH test fixtures.
 
 Self-contained applet boilerplate is intentionally not listed as a problem.
 Core applets are expected to carry their own usage/error definitions rather
@@ -35,7 +34,6 @@ fall back to manual loops over `argv`:
 - `core/tail.xsh`
 - `core/getty.xsh`
 - `showcase/jq.xsh`
-- `showcase/perf-collapse.xsh`
 
 Common shapes:
 

@@ -36,10 +36,6 @@ pub(crate) mod test {
         pub(crate) jobs: Option<usize>,
         pub(crate) coverage: bool,
         pub(crate) coverage_json_out: Option<String>,
-        pub(crate) trace_top_syscalls: Option<usize>,
-        pub(crate) syscall_json_out: Option<String>,
-        pub(crate) syscall_budgets:
-            Option<std::collections::BTreeMap<String, std::collections::BTreeMap<String, u64>>>,
     }
 
     pub(crate) fn test_scripts(_: TestOptions) -> CliOutput {

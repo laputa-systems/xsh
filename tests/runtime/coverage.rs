@@ -50,7 +50,7 @@ fn xsht_check_defaults_to_current_directory_and_respects_excludes() {
 #[test]
 fn ir_coverage_scans_multiline_top_level_regions_once() {
     let root = temp_path("ir-coverage-mini-root");
-    let report = root.join("target/perf/ir-coverage.json");
+    let report = root.join("target/ir-coverage.json");
     let syntax = root.join("src/syntax");
     let runtime = root.join("src/runtime");
     let sema = root.join("src/sema");

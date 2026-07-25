@@ -1,21 +1,30 @@
 [package]
-name = "xshi"
+name = "xsh-multicall"
 version = "0.0.1"
 edition = "2024"
 publish = false
 
-[dependencies]
-libc = "0.2"
-rustc-hash = "2.1.3"
-rustix = { version = "1.1.4", features = ["event", "fs", "stdio", "termios"] }
-sha2 = "0.11"
-xsh = { path = "../..", default-features = false, features = ["net", "tools"] }
-
 [features]
-default = []
+default = ["native-tests", "net", "tools"]
+native-tests = ["xsh/native-tests", "xsht/native-tests"]
+net = ["xsh/net"]
+tools = ["xsh/tools"]
+
+[dependencies]
+xsh = { path = "../..", default-features = false }
+xshi = { path = "../xshi", default-features = false }
+xsht = { path = "../xsht", default-features = false }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+mimalloc = "0.1.52"
 
 [dev-dependencies]
+divan = "0.1.21"
 tempfile = "3"
+
+[[bench]]
+name = "bench"
+harness = false
 
 [lints.clippy]
 nursery = { level = "allow", priority = -2 }
@@ -32,4 +41,6 @@ wildcard_imports = { level = "deny", priority = 0 }
 disallowed_types = { level = "deny", priority = 1 }
 single_call_fn = { level = "allow", priority = 1 }
 multiple_crate_versions = { level = "allow", priority = 1 }
+result_large_err = { level = "allow", priority = 1 }
 too_many_arguments = { level = "allow", priority = 1 }
+type_complexity = { level = "allow", priority = 1 }

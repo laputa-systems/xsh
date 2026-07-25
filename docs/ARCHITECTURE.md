@@ -86,8 +86,9 @@ Use this path when changing interpreter-speed behavior:
 5. Add lowered support in `src/runtime/eval.rs` only when the behavior can be
    represented exactly by `LoweredPureFunction`, `LoweredProgram`,
    `LoweredStmt`, `LoweredExpr`, `LoweredType`, and `LoweredValue`.
-6. Update `tools/xsh-ir-coverage.xsh` and a `perf/interpreter/*.xsh` scenario
-   so the new surface is measured against real corpus shape.
+6. Update `tools/xsh-ir-coverage.xsh` for expansion coverage and add a
+   user-visible workload to `crates/xsh-multicall/benches/bench.rs` only when
+   the change affects an interaction users actually wait for.
 
 The lowered IR is not a new language layer. It is an acceleration cache derived
 from checked arena syntax after definitions are known. Imported user-module pures and

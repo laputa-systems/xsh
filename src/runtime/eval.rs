@@ -102,17 +102,6 @@ pub struct PreparedTestProgram {
     setup_failure: Option<TestEvalOutput>,
 }
 
-#[derive(Clone, Debug, Default)]
-pub(crate) struct CompactInstallTimings {
-    pub declarations: Duration,
-    pub runtime_declarations: Duration,
-    pub bodies: Duration,
-    pub functions: Duration,
-    pub top_level: Duration,
-    pub commit: Duration,
-    pub total: Duration,
-}
-
 pub(crate) struct CompactLoweredRunPlan {
     statements: Vec<CompactLoweredTopLevelPlan>,
     script_span: Span,
@@ -123,14 +112,6 @@ pub(crate) struct CompactLoweredRunPlan {
 struct CompactLoweredTopLevelPlan {
     span: Span,
     skip_auto_main: bool,
-}
-
-#[derive(Clone, Debug, Default)]
-pub(crate) struct EvaluatorInitTimings {
-    pub current_dir: Duration,
-    pub struct_init: Duration,
-    pub args_bindings: Duration,
-    pub total: Duration,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -2786,57 +2767,15 @@ impl Evaluator {
         Self::new_with_shared_sources_and_command(argv, sources, "command".to_string())
     }
 
-    pub(crate) fn new_with_sources_at_cwd(
-        argv: Vec<String>,
-        sources: SourceMap,
-        cwd: PathBuf,
-    ) -> Self {
-        Self::new_with_sources_and_command_inner(
-            false,
-            argv,
-            Arc::new(sources),
-            "command".to_string(),
-            Some(cwd),
-            None,
-        )
-    }
-
-    pub(crate) fn new_with_sources_at_cwd_profiled(
-        argv: Vec<String>,
-        sources: SourceMap,
-        cwd: PathBuf,
-    ) -> (Self, EvaluatorInitTimings) {
-        Self::new_with_sources_profiled_inner(argv, sources, Some(cwd))
-    }
-
-    fn new_with_sources_profiled_inner(
-        argv: Vec<String>,
-        sources: SourceMap,
-        cwd: Option<PathBuf>,
-    ) -> (Self, EvaluatorInitTimings) {
-        let mut timings = EvaluatorInitTimings::default();
-        let evaluator = Self::new_with_sources_and_command_inner(
-            true,
-            argv,
-            Arc::new(sources),
-            "command".to_string(),
-            cwd,
-            Some(&mut timings),
-        );
-        (evaluator, timings)
-    }
-
     pub fn new_with_sources_and_command(
         argv: Vec<String>,
         sources: SourceMap,
         command_name: String,
     ) -> Self {
         Self::new_with_sources_and_command_inner(
-            false,
             argv,
             Arc::new(sources),
             command_name,
-            None,
             None,
         )
     }
@@ -2846,21 +2785,17 @@ impl Evaluator {
         sources: Arc<SourceMap>,
         command_name: String,
     ) -> Self {
-        Self::new_with_sources_and_command_inner(false, argv, sources, command_name, None, None)
+        Self::new_with_sources_and_command_inner(argv, sources, command_name, None)
     }
 
     fn new_with_sources_and_command_inner(
-        profile: bool,
         argv: Vec<String>,
         sources: Arc<SourceMap>,
         command_name: String,
         cwd: Option<PathBuf>,
-        timings: Option<&mut EvaluatorInitTimings>,
     ) -> Self {
-        let start = profile.then(Instant::now);
         let cwd =
             cwd.unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
-        let after_current_dir = profile.then(Instant::now);
         let mut evaluator = Self {
             sources,
             command_name,
@@ -2918,7 +2853,6 @@ impl Evaluator {
             #[cfg(feature = "native-tests")]
             test_temp_counter: 0,
         };
-        let after_struct_init = profile.then(Instant::now);
         let argv = Value::List(argv.into_iter().map(|s| Value::Str(s.into())).collect());
         evaluator.define(
             "args",
@@ -2934,29 +2868,6 @@ impl Evaluator {
                 mutable: false,
             },
         );
-        let after_args_bindings = profile.then(Instant::now);
-        if profile
-            && let (
-                Some(timings),
-                Some(start),
-                Some(after_current_dir),
-                Some(after_struct_init),
-                Some(after_args_bindings),
-            ) = (
-                timings,
-                start,
-                after_current_dir,
-                after_struct_init,
-                after_args_bindings,
-            )
-        {
-            *timings = EvaluatorInitTimings {
-                current_dir: after_current_dir.duration_since(start),
-                struct_init: after_struct_init.duration_since(after_current_dir),
-                args_bindings: after_args_bindings.duration_since(after_struct_init),
-                total: after_args_bindings.duration_since(start),
-            };
-        }
         evaluator
     }
 
@@ -4538,8 +4449,6 @@ impl Evaluator {
             TracePayload::None,
         );
 
-        lowered_run::print_perf_counters();
-
         Ok(EvalOutput {
             stdout: self.stdout,
             stderr: self.stderr,
@@ -4876,7 +4785,7 @@ impl Evaluator {
         program: &ArenaProgram,
         source_id: SourceId,
     ) -> Vec<Diagnostic> {
-        self.install_compact_lowered(false, program, source_id, true, None, true, None)
+        self.install_compact_lowered(program, source_id, true, None, true)
     }
 
     fn install_compact_lowered_program_with_dynamic_mode(
@@ -4886,32 +4795,12 @@ impl Evaluator {
         strict_dynamic_methods: bool,
     ) -> Vec<Diagnostic> {
         self.install_compact_lowered(
-            false,
             program,
             source_id,
             true,
             None,
             strict_dynamic_methods,
-            None,
         )
-    }
-
-    pub(crate) fn install_compact_lowered_program_profiled(
-        &mut self,
-        program: &ArenaProgram,
-        source_id: SourceId,
-    ) -> (Vec<Diagnostic>, CompactInstallTimings) {
-        let mut timings = CompactInstallTimings::default();
-        let diagnostics = self.install_compact_lowered(
-            true,
-            program,
-            source_id,
-            true,
-            None,
-            true,
-            Some(&mut timings),
-        );
-        (diagnostics, timings)
     }
 
     pub fn install_compact_lowered_functions(
@@ -4919,7 +4808,7 @@ impl Evaluator {
         program: &ArenaProgram,
         source_id: SourceId,
     ) -> Vec<Diagnostic> {
-        self.install_compact_lowered(false, program, source_id, false, None, true, None)
+        self.install_compact_lowered(program, source_id, false, None, true)
     }
 
     pub fn install_compact_lowered_functions_with_source(
@@ -4928,29 +4817,23 @@ impl Evaluator {
         source_id: SourceId,
         source: &str,
     ) -> Vec<Diagnostic> {
-        self.install_compact_lowered(false, program, source_id, false, Some(source), true, None)
+        self.install_compact_lowered(program, source_id, false, Some(source), true)
     }
 
     fn install_compact_lowered(
         &mut self,
-        profile: bool,
         program: &ArenaProgram,
         source_id: SourceId,
         install_top_level: bool,
         explicit_source: Option<&str>,
         strict_dynamic_methods: bool,
-        timings: Option<&mut CompactInstallTimings>,
     ) -> Vec<Diagnostic> {
-        let start = profile.then(Instant::now);
         let declarations = Checker::check_compact_declarations(program);
-        let after_declarations = profile.then(Instant::now);
         if !declarations.diagnostics.is_empty() {
             return declarations.diagnostics;
         }
         self.install_compact_runtime_declarations(&declarations);
-        let after_runtime_declarations = profile.then(Instant::now);
         let bodies = Checker::probe_compact_bodies(program, &declarations);
-        let after_bodies = profile.then(Instant::now);
         if !bodies.diagnostics.is_empty() {
             return bodies.diagnostics;
         }
@@ -4970,7 +4853,6 @@ impl Evaluator {
             &self.lowered_qualified_procs,
             strict_dynamic_methods,
         );
-        let after_functions = profile.then(Instant::now);
         let functions = LowerableFunctions::all(
             &lowered_functions.pures,
             &lowered_functions.procs,
@@ -4989,7 +4871,6 @@ impl Evaluator {
                 strict_dynamic_methods,
             )
         });
-        let after_top_level = profile.then(Instant::now);
         Arc::make_mut(&mut self.lowered_pures).extend(lowered_functions.pures);
         Arc::make_mut(&mut self.lowered_procs).extend(lowered_functions.procs);
         Arc::make_mut(&mut self.lowered_qualified_pures).extend(lowered_functions.qualified_pures);
@@ -4997,38 +4878,6 @@ impl Evaluator {
         if let Some((lowered, construct_probe)) = lowered {
             self.lowered_program = Arc::new(lowered);
             self.last_construct_probe = Some(construct_probe);
-        }
-        let after_commit = profile.then(Instant::now);
-        if profile
-            && let (
-                Some(timings),
-                Some(start),
-                Some(after_declarations),
-                Some(after_runtime_declarations),
-                Some(after_bodies),
-                Some(after_functions),
-                Some(after_top_level),
-                Some(after_commit),
-            ) = (
-                timings,
-                start,
-                after_declarations,
-                after_runtime_declarations,
-                after_bodies,
-                after_functions,
-                after_top_level,
-                after_commit,
-            )
-        {
-            *timings = CompactInstallTimings {
-                declarations: after_declarations.duration_since(start),
-                runtime_declarations: after_runtime_declarations.duration_since(after_declarations),
-                bodies: after_bodies.duration_since(after_runtime_declarations),
-                functions: after_functions.duration_since(after_bodies),
-                top_level: after_top_level.duration_since(after_functions),
-                commit: after_commit.duration_since(after_top_level),
-                total: after_commit.duration_since(start),
-            };
         }
         Vec::new()
     }

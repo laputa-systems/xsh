@@ -10,8 +10,6 @@ mod core;
 mod diagnostics;
 #[path = "libc_hygiene.rs"]
 mod libc_hygiene;
-#[path = "perf.rs"]
-mod perf;
 #[path = "runtime.rs"]
 mod runtime;
 #[path = "sema.rs"]

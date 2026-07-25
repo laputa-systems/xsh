@@ -1,6 +1,4 @@
 use std::process::ExitCode;
-#[cfg(feature = "perf-metrics")]
-use xsh::perf::{AllocationSnapshot, allocation_metrics_requested, allocation_snapshot};
 use xsh::runner::{RunOptions, ScriptOutput, run_script, run_startup};
 use xsh::runtime::process::{clear_cancellation_request, install_cancellation_signal_handlers};
 
@@ -22,9 +20,6 @@ dynamic lowered operations.
 ";
 
 pub fn main() -> ExitCode {
-    #[cfg(all(feature = "dhat-heap", not(feature = "perf-metrics")))]
-    let _dhat_profiler = start_dhat_profiler();
-
     let _signal_guard = match install_cancellation_signal_handlers() {
         Ok(guard) => guard,
         Err(error) => {
@@ -35,7 +30,7 @@ pub fn main() -> ExitCode {
     clear_cancellation_request();
 
     if std::env::args().nth(1).as_deref() == Some("--startup") {
-        return finish(run_startup(), None);
+        return finish(run_startup());
     }
 
     match parse_run(std::env::args().skip(1).collect()) {
@@ -44,22 +39,8 @@ pub fn main() -> ExitCode {
             ExitCode::SUCCESS
         }
         Ok(Some(options)) => {
-            #[cfg(feature = "perf-metrics")]
-            let measure_allocations = allocation_metrics_requested();
-            #[cfg(feature = "perf-metrics")]
-            if measure_allocations {
-                xsh::perf::reset_allocations();
-            }
             let output = run_script(options);
-            #[cfg(feature = "perf-metrics")]
-            let allocations = if measure_allocations {
-                allocation_snapshot()
-            } else {
-                None
-            };
-            #[cfg(not(feature = "perf-metrics"))]
-            let allocations = None;
-            finish(output, allocations)
+            finish(output)
         }
         Err(message) => {
             eprintln!("xsh: {message}");
@@ -144,54 +125,14 @@ fn parse_run(args: Vec<String>) -> Result<Option<RunOptions>, String> {
     }))
 }
 
-// Heap profiler guard for `--features dhat-heap`. Honors `XSH_DHAT_OUT` for the
-// output path; defaults to dhat-heap.json in the cwd. Held for the whole run so
-// the profile is written on drop. Inert when `perf-metrics` is also enabled (see
-// the allocator note in src/perf.rs).
-#[cfg(all(feature = "dhat-heap", not(feature = "perf-metrics")))]
-fn start_dhat_profiler() -> dhat::Profiler {
-    let mut builder = dhat::Profiler::builder();
-    if let Ok(path) = std::env::var("XSH_DHAT_OUT") {
-        builder = builder.file_name(path);
-    }
-    builder.build()
-}
-
 fn trace_moved_message() -> String {
     "trace options moved to `xsht trace`; run `xsht trace SCRIPT [ARGS...]`".to_string()
 }
 
-fn finish(
-    output: ScriptOutput,
-    #[cfg(feature = "perf-metrics")] allocations: Option<AllocationSnapshot>,
-    #[cfg(not(feature = "perf-metrics"))] _allocations: Option<()>,
-) -> ExitCode {
+fn finish(output: ScriptOutput) -> ExitCode {
     use std::io::Write;
 
     let _ = std::io::stdout().lock().write_all(&output.stdout);
     let _ = std::io::stderr().lock().write_all(&output.stderr);
-    #[cfg(feature = "perf-metrics")]
-    if let Some(a) = allocations {
-        eprintln!(
-            "xsh perf: allocation_calls={} allocation_bytes={} deallocation_calls={} deallocation_bytes={} reallocation_calls={} reallocation_bytes={} peak_rss={}",
-            a.allocation_calls,
-            a.allocation_bytes,
-            a.deallocation_calls,
-            a.deallocation_bytes,
-            a.reallocation_calls,
-            a.reallocation_bytes,
-            a.peak_rss_bytes,
-        );
-        if a.allocation_calls > 0 {
-            eprintln!(
-                "xsh perf sizes: ≤16b={} ≤64b={} ≤256b={} ≤4096b={} >4096b={}",
-                a.alloc_calls_le16,
-                a.alloc_calls_le64,
-                a.alloc_calls_le256,
-                a.alloc_calls_le4096,
-                a.alloc_calls_gt4096,
-            );
-        }
-    }
     ExitCode::from(output.status)
 }

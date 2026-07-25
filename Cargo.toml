@@ -10,6 +10,7 @@ autotests = false
 [workspace]
 members = [
     "crates/xsh-applets",
+    "crates/xsh-multicall",
     "crates/xsh-net",
     "crates/xsh-registry",
     "crates/xshi",
@@ -61,10 +62,6 @@ doctest = false
 
 [features]
 default = ["native-tests", "net", "tools"]
-# In-process heap profiler (`make prof-dhat`). Installs `dhat::Alloc` as the
-# global allocator and writes a dh_view.html-compatible JSON on exit. Mutually
-# exclusive with `perf-metrics` (both install a #[global_allocator]).
-dhat-heap = ["dep:dhat"]
 docs-html = ["tools", "dep:pulldown-cmark"]
 linux-priv-tests = []
 native-tests = ["xsh-registry/native-tests"]
@@ -72,8 +69,6 @@ net = [
     "dep:rustls",
     "dep:xsh-net",
 ]
-perf-counters = []
-perf-metrics = ["dep:libmimalloc-sys"]
 tools = []
 
 [dependencies]
@@ -85,8 +80,6 @@ cap-fs-ext = "4.0.2"
 cap-std = "4.0.2"
 cap-tempfile = "4.0.2"
 crossbeam-channel = "0.5"
-dhat = { version = "0.3", optional = true }
-libmimalloc-sys = { version = "0.1.49", optional = true, features = ["secure"] }
 libc = "0.2"
 data-encoding = "2"
 bstr = { version = "1", default-features = false, features = ["std", "unicode"] }
@@ -144,12 +137,6 @@ path = "crates/xshi/src/main.rs"
 test = false
 
 [[bin]]
-name = "xsh-multicall"
-path = "src/entrypoints/xsh-multicall.rs"
-required-features = ["tools"]
-test = false
-
-[[bin]]
 name = "xsh-test-show-argv"
 path = "tests/helpers/show_argv.rs"
 test = false
@@ -184,16 +171,6 @@ name = "xsh-test-os-probe"
 path = "tests/helpers/os_probe.rs"
 test = false
 
-[[bin]]
-name = "xsh-layout-report"
-path = "tests/helpers/layout_report.rs"
-test = false
-
-[[bin]]
-name = "xsh-parse-corpus-report"
-path = "tests/helpers/parse_corpus_report.rs"
-test = false
-
 [[test]]
 # The individual files are included as modules by this single test binary.
 name = "integration"
@@ -222,12 +199,3 @@ inherits = "release"
 lto = "fat"
 codegen-units = 1
 strip = true
-
-# Release codegen with symbols, for the Linux profiling/PGO pipeline (`make prof`:
-# dhat allocs, Callgrind/Cachegrind, profile-guided optimization). debug=true keeps
-# DWARF for per-function attribution; a separate target dir keeps the shipped
-# release binary stripped.
-[profile.profiling]
-inherits = "release"
-strip = false
-debug = true

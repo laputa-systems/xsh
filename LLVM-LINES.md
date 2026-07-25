@@ -3,13 +3,13 @@
 ## Goal
 
 Shrink the release-profile LLVM IR line count by avoiding unnecessary
-monomorphization, without regressing XSH language semantics or the performance
-baselines in `tests/perf.rs` and `perf/`.
+monomorphization, without regressing XSH language semantics or the user-facing
+benchmark suite.
 
 The original target was a 10% reduction. The ceiling analysis below shows that
 monomorphization avoidance on project-owned code alone caps well below that, so
-the realistic perf-neutral scope is smaller; the path to ~10% requires hot-path
-sort consolidation, which carries perf risk and is documented here as a
+the realistic low-risk scope is smaller; the path to ~10% requires hot-path
+sort consolidation, which carries runtime risk and is documented here as a
 follow-up rather than undertaken by default.
 
 ## Profile And Measurement
@@ -26,12 +26,18 @@ tool analyzes the same capture:
 
 ```sh
 # Per-offender table (project-owned only by default):
-xsh tools/llvm-lines-repeat-offenders.xsh -- /tmp/xsh-llvm-lines.txt --limit 40 --examples 1
+target/release/xsh tools/llvm-lines-repeat-offenders.xsh -- /tmp/xsh-llvm-lines.txt --limit 40 --examples 1
 
 # Reclaimable-lines total as a share of the grand total:
-xsh tools/llvm-lines-repeat-offenders.xsh -- /tmp/xsh-llvm-lines.txt --sum               # project-owned
-xsh tools/llvm-lines-repeat-offenders.xsh -- /tmp/xsh-llvm-lines.txt --sum --all         # + dependencies
-xsh tools/llvm-lines-repeat-offenders.xsh -- /tmp/xsh-llvm-lines.txt --sum --all --filter slice::sort
+target/release/xsh tools/llvm-lines-repeat-offenders.xsh -- /tmp/xsh-llvm-lines.txt --sum
+target/release/xsh tools/llvm-lines-repeat-offenders.xsh -- /tmp/xsh-llvm-lines.txt --sum --all
+target/release/xsh tools/llvm-lines-repeat-offenders.xsh -- /tmp/xsh-llvm-lines.txt --sum --all --filter slice::sort
+```
+
+The script can also generate and analyze the input directly:
+
+```sh
+target/debug/xsh tools/llvm-lines-repeat-offenders.xsh -- --generate --all --limit 40
 ```
 
 `--sum` reports `duplicated` lines: the lines that would be reclaimed if every
@@ -47,6 +53,9 @@ category.
 | Total LLVM lines | 1,420,026 |
 | Total copies | 27,984 |
 | 10% reduction target | ~142,003 |
+
+Treat this as historical context. Re-measure before choosing a target because
+the runtime, crate layout, and generic call sites continue to change.
 
 ## Ceiling Analysis (reclaimable duplicated lines)
 
@@ -87,8 +96,7 @@ For each candidate change:
    `--sum`. Compute the delta against the recorded baseline. The
    `duplicated-lines` drop should be visible immediately; the grand total drops
    by roughly the same amount minus any new wrapper codegen.
-5. **Run the perf gate** (release): `cargo test --test perf --release` and the
-   `INTERPRETER-PERF.md` small-corpus command. No regression is acceptable.
+5. **Run `make bench`** when the change can affect a user-visible workflow.
 6. **Run the behavior gate** for touched areas (see `docs/TEST-MAP.md`); update
    the nearest tests if behavior changed.
 7. **Commit only the change**, not formatter churn (see `AGENTS.md`: never run
@@ -114,7 +122,7 @@ Techniques, safest first:
 - **Type-erased call sites for dependency generics.** Reduce the number of
   distinct `(element type, comparator)` pairs that `slice::sort` /
   `BTreeMap::from_iter` are monomorphized for. See the follow-up below; this is
-  where the perf risk lives.
+  where the runtime risk lives.
 
 ## Project-Owned Offenders (safe starting Set)
 
@@ -139,8 +147,8 @@ dependency-machinery reduction of roughly the same order.
 
 This is the only lever large enough to approach the original 10% target. It is
 documented as a follow-up because it risks regressing sort-heavy pipelines and
-requires careful perf-guard work. Do not undertake it without re-confirming the
-perf gate.
+requires careful benchmark work. Do not undertake it without re-confirming the
+user-facing benchmark suite.
 
 ### Why sort dominates
 
@@ -153,31 +161,32 @@ refactored.
 
 ### Call-site inventory
 
-Hot (XSH `sort` / `sort-by` runtime — perf-critical, do not regress):
+Hot (XSH `sort` / `sort-by` runtime — latency-sensitive, do not regress):
 
-- `src/runtime/eval.rs:2124`, `src/runtime/eval.rs:5548`
-- `src/runtime/eval/lowered_run.rs:14711`, `:15147`, `:15177`
+- `src/runtime/eval.rs`
+- `src/runtime/eval/lowered_run.rs`
 
 Medium (lowering time, not steady-state):
 
-- `src/runtime/eval/lower.rs:2957`, `src/runtime/eval/lower.rs:10325`
+- `src/runtime/eval/lower.rs`
 
-Cold (trace, diagnostics, archive, loader, linux modules — perf-neutral to
+Cold (trace, diagnostics, archive, loader, linux modules — lower risk to
 restructure):
 
-- `src/trace.rs:484`, `:508`, `:632`, `:2181`, `:2197`, `:2444`
-- `src/loader.rs:458`, `src/loader.rs:492`
-- `src/diagnostic.rs:364`
-- `src/modules/archive/tar.rs:216`, `:241`; `src/modules/archive/cpio.rs:119`, `:148`
-- `src/modules/mod.rs:60`
-- `src/modules/unix.rs:1228`
-- `src/modules/linux/kernel.rs:177`, `linux/real/boot.rs:417`, `linux/real/device.rs:144`,
-  `linux/real/net.rs:416`, `linux/block.rs:58`, `:84`, `linux/process.rs:64`
+- `src/trace.rs`
+- `src/loader.rs`
+- `src/diagnostic.rs`
+- `src/modules/archive/tar.rs`, `src/modules/archive/cpio.rs`
+- `src/modules/mod.rs`
+- `src/modules/unix.rs`
+- `src/modules/linux/kernel.rs`, `src/modules/linux/real/boot.rs`,
+  `src/modules/linux/real/device.rs`, `src/modules/linux/real/net.rs`,
+  `src/modules/linux/block.rs`, `src/modules/linux/process.rs`
 
 Medium-cold (fs/process listing — only runs when those modules are invoked):
 
-- `src/modules/fs.rs:618`, `:1108`, `:1477`
-- `src/modules/process.rs:512`, `:523`, `:585`, `:1143`
+- `src/modules/fs.rs`
+- `src/modules/process.rs`
 
 ### Techniques And Their Limits
 
@@ -206,39 +215,32 @@ Medium-cold (fs/process listing — only runs when those modules are invoked):
   stable-vs-unstable semantics, or tests in `tests/runtime/` will break.
 - **Ordering fidelity.** String/path keys cannot be hashed to `u64` (hashing
   breaks total order). Use the original key type or a canonical ordered proxy.
-- **No hot-path regression.** The `tests/perf.rs` scenarios include
-  `value-churn`, `record-stream`, `stream-heavy`, and `parse-check-heavy`, several
-  of which exercise sort/sort-by. Re-run them (release) before and after; any
-  measurable slowdown blocks the change.
+- **No hot-path regression.** Re-run `make bench` before and after a change to
+  any user-visible sort or `sort-by` path; any meaningful slowdown blocks the
+  change.
 - **No semantic change.** XSH `sort` / `sort-by` behavior, stability, and
   ordering are specified in `docs/SPEC.md` and `docs/STDLIB.md`; update those
   first if any visible behavior changes.
 
 ### Suggested Order Of Attack
 
-1. Cold-path sorts in `src/trace.rs` (largest single cold cluster, 6 sites).
+1. Cold-path sorts in `src/trace.rs` (the largest single cold cluster).
    These render trace output only when tracing is enabled, so restructuring is
-   perf-neutral. Measure the `slice::sort` `--sum` delta after each.
+   lower risk. Measure the `slice::sort` `--sum` delta after each.
 2. `src/loader.rs` and `src/diagnostic.rs` (diagnostic sorting, cold).
 3. Archive and linux-module sorts (cold, module-scoped).
 4. Only if the cold path banks enough headroom: revisit the hot-path sorts in
-   `eval.rs` / `lowered_run.rs`, with a dedicated perf-guard change and explicit
+   `eval.rs` / `lowered_run.rs`, with a dedicated benchmark change and explicit
    sign-off, since those are the XSH language sort operations.
 
-## Perf And Behavior Gates
+## Benchmark And Behavior Gates
 
 ```sh
-# Perf gate (release):
-cargo test --test perf --release
-
-# Small-corpus frontend floor (see INTERPRETER-PERF.md):
-cargo bench -p xshi --bench bench small_corpus -- --sample-size 10 --warm-up-time 0.5 --measurement-time 1
-
-# Behavior gates for touched areas (see docs/TEST-MAP.md for the narrowest command):
+make bench
 cargo test --test runtime
 cargo test --test sema
 ```
 
-Record the `--sum` total and the perf numbers before starting, after each
+Record the `--sum` total and the benchmark numbers before starting, after each
 change, and at the end. The change is done when the `--sum` delta is banked and
 no gate regressed.
