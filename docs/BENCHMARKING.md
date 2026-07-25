@@ -107,16 +107,18 @@ For structural IR memory, run:
 
 ```sh
 scripts/ir-layout.py
-scripts/ir-layout.py --details LoweredExpr --details LoweredStmt
+scripts/ir-layout.py --only LoweredExpr --only LoweredStmt
 ```
 
-This is a thin view over rustc's `-Zprint-type-sizes` output. The summary tracks
-the hot arena, builder, and lowered-IR types; `--details` shows the variants and
-fields that set an enum's size. Compare it before and after representation
-changes, then check Divan's allocated bytes and `max alloc` on the affected real
-workflow. Type size alone is not a memory result: multiply it by realistic node
-volume mentally, and account for heap-owned `Vec`, `Arc`, map, and boxed
-payloads through the allocation measurements.
+This is a thin view over rustc's `-Zprint-type-sizes` output. By default it
+reports the summary plus the variants and fields of every tracked hot arena,
+builder, semantic type, lowered-IR, runtime value, lowering-probe, and evaluator
+type. Use repeatable `--only TYPE` filters when a focused report is easier to
+compare. Compare it before and after representation changes, then check Divan's
+allocated bytes and `max alloc` on the affected real workflow. Type size alone
+is not a memory result: multiply it by realistic node volume mentally, and
+account for heap-owned `Vec`, `Arc`, map, and boxed payloads through the
+allocation measurements.
 
 Use `tools/xsh-ir-coverage.xsh` to find frequent constructs in real XSH code
 that fail to lower. Use `LLVM-LINES.md` and

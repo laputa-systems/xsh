@@ -12,6 +12,12 @@ source-location recovery. The runtime is still language-first rather than VM-
 first: lowered IR is an execution cache for the supported compact subset, not a
 serialized bytecode format or a second language.
 
+[`FRONTEND-CAMPAIGN.md`](../FRONTEND-CAMPAIGN.md) owns the benchmark-gated
+migration from the current lowered runtime representation to a Zig-inspired
+compact indexed executable IR. This document describes current behavior; the
+campaign records proposed structures, dependency-ordered phases, progress,
+gates, and decisions.
+
 ## North Star
 
 - Dense token tables with token tags, byte starts, and compact payloads for data

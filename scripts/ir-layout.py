@@ -15,6 +15,7 @@ IR_TYPES = (
     "syntax::arena::ArenaProgramBuilder<'_>",
     "syntax::arena::ArenaProgram",
     "syntax::arena::AstArena",
+    "sema::types::Type",
     "runtime::eval::LoweredPureFunction",
     "runtime::eval::LoweredTopLevelStmt",
     "runtime::eval::LoweredStmt",
@@ -22,6 +23,10 @@ IR_TYPES = (
     "runtime::eval::LoweredPattern",
     "runtime::eval::LoweredValue",
     "runtime::eval::LoweredProgram",
+    "runtime::value::Value",
+    "runtime::eval::Evaluator",
+    "runtime::eval::lower::CompactLowerConstructProbe<'_, '_>",
+    "runtime::eval::CompactLowerConstructProbeOutput",
 )
 HEADER_RE = re.compile(
     r"^print-type-size type: `([^`]+)`: ([0-9]+) bytes, alignment: ([0-9]+) bytes$"
@@ -57,19 +62,30 @@ def resolve_type(name: str) -> str:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Report compiler layouts for the hot arena and lowered-IR types"
+        description=(
+            "Report compiler layouts for the hot frontend, lowered-IR, "
+            "and evaluator types"
+        )
     )
     parser.add_argument(
         "--details",
+        "--only",
         action="append",
-        default=[],
+        default=None,
         metavar="TYPE",
-        help="include rustc's variant and field layout for TYPE; may be repeated",
+        help=(
+            "limit variant and field layouts to TYPE; may be repeated "
+            "(the default reports every tracked type)"
+        ),
     )
     args = parser.parse_args()
 
     try:
-        details = {resolve_type(name) for name in args.details}
+        details = (
+            set(IR_TYPES)
+            if args.details is None
+            else {resolve_type(name) for name in args.details}
+        )
     except ValueError as error:
         parser.error(str(error))
 

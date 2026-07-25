@@ -14,7 +14,7 @@ area touched. Do not run formatter or autofix commands for agent work.
 | One runtime fixture | `cargo test --test integration runtime::TEST_NAME` | `cargo test --test integration runtime::` |
 | CLI/tooling | targeted `cargo test -p xsht --test cli TEST_NAME` or `cargo test -p xsht --test grep TEST_NAME` | `cargo test -p xsht --test cli --test grep` if both apply |
 | Benchmark workload | `cargo bench -p xsh-multicall --bench bench BENCHMARK -- --sample-count 1 --sample-size 1` | `make bench` |
-| Arena or lowered-IR layout | `scripts/ir-layout.py --details TYPE` | focused Divan workload plus the applicable behavior tests |
+| Arena or lowered-IR layout | `scripts/ir-layout.py` (or `--only TYPE` for a focused report) | focused Divan workload plus the applicable behavior tests |
 | PGO workflow | `make pgo-profile` | `make bench-pgo` |
 | Syscall diagnostics | benchmark smoke test on the host | `make bench-syscalls` on Linux/Docker |
 | LLVM IR size | `tools/llvm-lines-repeat-offenders.xsh` over an existing capture | fresh `cargo llvm-lines` capture plus the applicable behavior/benchmark gate |
