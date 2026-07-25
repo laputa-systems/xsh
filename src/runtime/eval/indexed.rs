@@ -9,12 +9,17 @@ use super::{
 use crate::modules::RuntimeOp;
 use crate::sema::types::Type;
 use crate::source::{SourceId, SourceMap, Span};
+use crate::symbol::Name;
 use crate::syntax::node::{AssignOp, BinaryOp};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write;
 use std::mem::size_of;
 use std::num::NonZeroU32;
 use std::sync::Arc;
+
+mod semantic;
+
+use self::semantic::{SemanticPoolBuilder, SemanticPools, TypeTag};
 
 const IR_NONE: u32 = u32::MAX;
 
@@ -26,9 +31,13 @@ macro_rules! ir_id {
 
         impl $name {
             fn new(index: usize) -> Result<Self, IrBuildError> {
-                let raw = u32::try_from(index + 1).map_err(|_| {
-                    IrBuildError::format("id_overflow", None, 0, 0)
-                })?;
+                let raw = index
+                    .checked_add(1)
+                    .and_then(|raw| u32::try_from(raw).ok())
+                    .ok_or_else(|| IrBuildError::format("id_overflow", None, 0, 0))?;
+                if raw == IR_NONE {
+                    return Err(IrBuildError::format("id_overflow", None, 0, 0));
+                }
                 Ok(Self(NonZeroU32::new(raw).expect("IR ids are one-based")))
             }
 
@@ -41,7 +50,9 @@ macro_rules! ir_id {
             }
 
             fn from_raw(raw: u32) -> Option<Self> {
-                NonZeroU32::new(raw).map(Self)
+                NonZeroU32::new(raw)
+                    .filter(|raw| raw.get() != IR_NONE)
+                    .map(Self)
             }
         }
     };
@@ -54,6 +65,9 @@ ir_id!(IrPatternId);
 ir_id!(IrStringId);
 ir_id!(IrBytesId);
 ir_id!(IrLocationId);
+ir_id!(TypeId);
+ir_id!(SignatureId);
+ir_id!(ShapeId);
 
 trait IrExtraId: Copy {
     fn extra_raw(self) -> u32;
@@ -84,6 +98,9 @@ impl_extra_id!(
     IrStringId,
     IrBytesId,
     IrLocationId,
+    TypeId,
+    SignatureId,
+    ShapeId,
 );
 
 #[derive(Default)]
@@ -358,47 +375,6 @@ impl From<LoweredFunctionKind> for IrFunctionKind {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-#[repr(u8)]
-pub enum IrValueType {
-    Any,
-    Unit,
-    Int,
-    Bool,
-    Str,
-    Bytes,
-    Record,
-    List,
-    Result,
-}
-
-impl IrValueType {
-    fn from_lowered(ty: LoweredType) -> Option<Self> {
-        Some(match ty {
-            LoweredType::Any => Self::Any,
-            LoweredType::Unit => Self::Unit,
-            LoweredType::Int => Self::Int,
-            LoweredType::Bool => Self::Bool,
-            LoweredType::Str => Self::Str,
-            LoweredType::Bytes => Self::Bytes,
-            LoweredType::Record => Self::Record,
-            LoweredType::List => Self::List,
-            LoweredType::Result => Self::Result,
-            _ => return None,
-        })
-    }
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-#[repr(u8)]
-pub enum IrReturnKind {
-    PlainUnit,
-    PlainInt,
-    PlainBool,
-    ResultUnit,
-    ResultInt,
-}
-
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 #[repr(C)]
 pub struct IrBlock {
@@ -410,13 +386,13 @@ pub struct IrBlock {
 #[repr(C)]
 pub struct IrFunction {
     pub name: u32,
+    pub signature: SignatureId,
     pub params: IrRange,
     pub captures: IrRange,
     pub body: IrOptionalId,
     pub slot_count: u32,
     pub kind: IrFunctionKind,
-    pub return_kind: IrReturnKind,
-    pub reserved: [u8; 2],
+    pub reserved: [u8; 3],
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -424,19 +400,48 @@ pub struct IrFunction {
 pub struct IrParam {
     pub name: u32,
     pub slot: u32,
-    pub ty: IrValueType,
+    pub type_id: TypeId,
     pub flags: u8,
-    pub reserved: [u8; 2],
+    pub reserved: [u8; 3],
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(C)]
 pub struct IrCapture {
     pub name: u32,
-    pub slot: u32,
-    pub ty: IrValueType,
-    pub mutable: u8,
-    pub reserved: [u8; 2],
+    pub slot_and_flags: u32,
+    pub type_id: TypeId,
+}
+
+impl IrCapture {
+    // Capture mutability is cold metadata, so reserve the high slot bit rather
+    // than widening every capture row with a separately aligned flag byte.
+    const MUTABLE: u32 = 1 << 31;
+
+    fn new(
+        name: u32,
+        slot: usize,
+        type_id: TypeId,
+        mutable: bool,
+    ) -> Result<Self, IrBuildError> {
+        let slot = IrBuilder::slot(slot)?;
+        if slot & Self::MUTABLE != 0 {
+            return Err(IrBuildError::format("capture_slot_overflow", None, 0, 0));
+        }
+        Ok(Self {
+            name,
+            slot_and_flags: slot | u32::from(mutable) * Self::MUTABLE,
+            type_id,
+        })
+    }
+
+    fn slot(self) -> u32 {
+        self.slot_and_flags & !Self::MUTABLE
+    }
+
+    fn mutable(self) -> bool {
+        self.slot_and_flags & Self::MUTABLE != 0
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -457,6 +462,7 @@ pub struct IrStore {
     bytes: Vec<IrRange>,
     byte_data: Vec<u8>,
     locations: Vec<IrLocation>,
+    semantic: SemanticPools,
 }
 
 impl Default for IrStore {
@@ -478,6 +484,7 @@ impl Default for IrStore {
             bytes: Vec::new(),
             byte_data: Vec::new(),
             locations: Vec::new(),
+            semantic: SemanticPools::default(),
         }
     }
 }
@@ -550,6 +557,7 @@ impl IrStore {
         self.bytes.shrink_to_fit();
         self.byte_data.shrink_to_fit();
         self.locations.shrink_to_fit();
+        self.semantic.shrink_to_fit();
     }
 
     fn retained_bytes(&self) -> usize {
@@ -569,6 +577,10 @@ impl IrStore {
             + self.bytes.capacity() * size_of::<IrRange>()
             + self.byte_data.capacity()
             + self.locations.capacity() * size_of::<IrLocation>()
+            + self
+                .semantic
+                .retained_bytes()
+                .saturating_sub(size_of::<SemanticPools>())
     }
 
     fn extra_bytes_per_instruction(&self) -> f64 {
@@ -628,8 +640,8 @@ impl IrProgram {
             )?;
             writeln!(
                 output,
-                "fn {index} {name} kind={:?} return={:?} slots={} body={:?}",
-                function.kind, function.return_kind, function.slot_count, function.body
+                "fn {index} {name} kind={:?} signature={:?} slots={} body={:?}",
+                function.kind, function.signature, function.slot_count, function.body
             )
             .expect("writing to String cannot fail");
         }
@@ -1247,6 +1259,7 @@ struct IrCheckpoint {
     bytes: usize,
     byte_data: usize,
     locations: usize,
+    semantic: semantic::SemanticCheckpoint,
     committed_instructions: usize,
     committed_functions: usize,
 }
@@ -1254,6 +1267,7 @@ struct IrCheckpoint {
 #[derive(Default)]
 struct IrBuilder {
     store: IrStore,
+    semantic: SemanticPoolBuilder,
     strings: BTreeMap<String, IrStringId>,
     locations: BTreeMap<(u32, u32), IrLocationId>,
     functions: BTreeMap<LoweredFunctionKey, IrFunctionId>,
@@ -1269,6 +1283,7 @@ impl IrBuilder {
                 source_id,
                 ..IrStore::default()
             },
+            semantic: SemanticPoolBuilder::default(),
             strings: BTreeMap::new(),
             locations: BTreeMap::new(),
             functions: BTreeMap::new(),
@@ -1428,28 +1443,39 @@ impl IrBuilder {
             };
             let params_start = self.store.params.len();
             let captures_start = self.store.captures.len();
-            let (slot_count, return_kind) = if let Some(body) = unit.lowered_body() {
-                self.predeclare_params_and_captures(&body)?;
+            let (slot_count, signature) = if let Some(body) = unit.lowered_body() {
+                let signature = self.predeclare_params_and_captures(&body)?;
                 (
                     u32::try_from(body.slot_count)
                         .map_err(|_| IrBuildError::format("slot_overflow", None, 0, 0))?,
-                    Self::return_kind(body.return_kind)?,
+                    signature,
                 )
             } else {
+                let any = self.intern_lowered_type(LoweredType::Any)?;
+                let mut signature_params = Vec::with_capacity(unit.param_count());
                 for slot in 0..unit.param_count() {
-                    let placeholder = self.intern_string(&format!("param{slot}"))?.raw();
+                    let name = Name::UNKNOWN;
+                    let placeholder = self.intern_string(name.as_str())?.raw();
                     self.store.params.push(IrParam {
                         name: placeholder,
                         slot: Self::slot(slot)?,
-                        ty: IrValueType::Any,
+                        type_id: any,
                         flags: 0,
-                        reserved: [0; 2],
+                        reserved: [0; 3],
                     });
+                    signature_params.push((name, any, 0));
                 }
+                let unit_type = self.intern_lowered_type(LoweredType::Unit)?;
+                let signature = self.semantic.intern_signature_parts(
+                    &mut self.store.semantic,
+                    &signature_params,
+                    unit_type,
+                    None,
+                )?;
                 (
                     u32::try_from(unit.param_count())
                         .map_err(|_| IrBuildError::format("slot_overflow", None, 0, 0))?,
-                    IrReturnKind::PlainUnit,
+                    signature,
                 )
             };
             let params = Self::table_range(params_start, self.store.params.len())?;
@@ -1457,13 +1483,13 @@ impl IrBuilder {
             self.functions.insert(unit.key(), function_id);
             self.store.functions.push(IrFunction {
                 name: name.raw(),
+                signature,
                 params,
                 captures,
                 body: IrOptionalId::NONE,
                 slot_count,
                 kind: unit.kind().into(),
-                return_kind,
-                reserved: [0; 2],
+                reserved: [0; 3],
             });
         }
         Ok(())
@@ -1472,7 +1498,8 @@ impl IrBuilder {
     fn predeclare_params_and_captures(
         &mut self,
         function: &LoweredPureFunction,
-    ) -> Result<(), IrBuildError> {
+    ) -> Result<SignatureId, IrBuildError> {
+        let mut signature_params = Vec::with_capacity(function.params.len());
         for (slot, ((name, kind), rest)) in function
             .params
             .iter()
@@ -1483,30 +1510,34 @@ impl IrBuilder {
             if *rest || function.param_defaults.get(slot).is_some_and(Option::is_some) {
                 return Err(IrBuildError::format("parameter_shape", None, 0, 0));
             }
-            let ty = IrValueType::from_lowered(*kind)
-                .ok_or_else(|| IrBuildError::format("parameter_type", None, 0, 0))?;
-            let name = self.intern_string(name.as_str())?.raw();
+            let type_id = self.intern_lowered_type(*kind)?;
+            let name_id = self.intern_string(name.as_str())?.raw();
             self.store.params.push(IrParam {
-                name,
+                name: name_id,
                 slot: Self::slot(slot)?,
-                ty,
+                type_id,
                 flags: 0,
-                reserved: [0; 2],
+                reserved: [0; 3],
             });
+            signature_params.push((*name, type_id, 0));
         }
         for capture in &function.captures {
-            let ty = IrValueType::from_lowered(capture.kind)
-                .ok_or_else(|| IrBuildError::format("capture_type", None, 0, 0))?;
+            let type_id = self.intern_lowered_type(capture.kind)?;
             let name = self.intern_string(capture.name.as_str())?.raw();
-            self.store.captures.push(IrCapture {
+            self.store.captures.push(IrCapture::new(
                 name,
-                slot: Self::slot(capture.slot)?,
-                ty,
-                mutable: u8::from(capture.mutable),
-                reserved: [0; 2],
-            });
+                capture.slot,
+                type_id,
+                capture.mutable,
+            )?);
         }
-        Ok(())
+        let return_type = self.intern_return_type(function.return_kind)?;
+        self.semantic.intern_signature_parts(
+            &mut self.store.semantic,
+            &signature_params,
+            return_type,
+            None,
+        )
     }
 
     fn build_function_transaction(
@@ -1695,15 +1726,57 @@ impl IrBuilder {
         ))
     }
 
-    fn return_kind(kind: LoweredReturnKind) -> Result<IrReturnKind, IrBuildError> {
+    fn intern_return_type(&mut self, kind: LoweredReturnKind) -> Result<TypeId, IrBuildError> {
         match kind {
-            LoweredReturnKind::Plain(LoweredType::Unit) => Ok(IrReturnKind::PlainUnit),
-            LoweredReturnKind::Plain(LoweredType::Int) => Ok(IrReturnKind::PlainInt),
-            LoweredReturnKind::Plain(LoweredType::Bool) => Ok(IrReturnKind::PlainBool),
-            LoweredReturnKind::Result(LoweredType::Unit) => Ok(IrReturnKind::ResultUnit),
-            LoweredReturnKind::Result(LoweredType::Int) => Ok(IrReturnKind::ResultInt),
+            LoweredReturnKind::Plain(
+                ty @ (LoweredType::Unit | LoweredType::Int | LoweredType::Bool),
+            ) => self.intern_lowered_type(ty),
+            LoweredReturnKind::Result(ty @ (LoweredType::Unit | LoweredType::Int)) => {
+                let ty = match ty {
+                    LoweredType::Unit => Type::Unit,
+                    LoweredType::Int => Type::Int,
+                    _ => unreachable!("result return subset is exhaustive"),
+                };
+                self.semantic.intern_type(
+                    &mut self.store.semantic,
+                    &Type::Result(Box::new(ty), Box::new(Type::Error)),
+                )
+            }
             _ => Err(IrBuildError::format("return_type", None, 0, 0)),
         }
+    }
+
+    fn intern_lowered_type(&mut self, ty: LoweredType) -> Result<TypeId, IrBuildError> {
+        let ty = match ty {
+            LoweredType::Any => Type::Any,
+            LoweredType::Unit => Type::Unit,
+            LoweredType::Int => Type::Int,
+            LoweredType::Float => Type::Float,
+            LoweredType::Duration => Type::Duration,
+            LoweredType::Bool => Type::Bool,
+            LoweredType::Str => Type::Str,
+            LoweredType::Bytes => Type::Bytes,
+            LoweredType::Digest => Type::Digest,
+            LoweredType::Regex => Type::Regex,
+            LoweredType::Status => Type::Status,
+            LoweredType::Path => Type::Path,
+            LoweredType::Command => Type::Command,
+            LoweredType::ProcessHandle => Type::ProcessHandle,
+            LoweredType::Stream => Type::Stream(Box::new(Type::Any)),
+            LoweredType::Pure => Type::Pure,
+            LoweredType::Proc => Type::Proc,
+            LoweredType::Error => Type::Error,
+            LoweredType::Record => Type::Record(BTreeMap::new()),
+            LoweredType::Module => Type::Module(BTreeMap::new()),
+            LoweredType::List => Type::List(Box::new(Type::Any)),
+            LoweredType::Map => Type::Map(Box::new(Type::Any)),
+            LoweredType::Result => Type::Result(Box::new(Type::Any), Box::new(Type::Error)),
+            LoweredType::Tag => {
+                return Err(IrBuildError::format("semantic_tag_type", None, 0, 0));
+            }
+        };
+        self.semantic
+            .intern_type(&mut self.store.semantic, &ty)
     }
 
     fn emit_block(&mut self, statements: &[LoweredStmt]) -> Result<IrBlockId, IrBuildError> {
@@ -2167,25 +2240,23 @@ impl IrBuilder {
         let Type::Record(fields) = ty else {
             return Err(IrBuildError::format("require_type", Some(span), 0, 0));
         };
-        let mut words = Vec::with_capacity(2 + fields.len() * 2);
+        for field_type in fields.values() {
+            if !matches!(field_type, Type::Int | Type::Str) {
+                return Err(IrBuildError::format(
+                    "require_field_type",
+                    Some(span),
+                    0,
+                    0,
+                ));
+            }
+        }
+        let type_id = self
+            .semantic
+            .intern_type(&mut self.store.semantic, ty)?;
+        let mut words = Vec::with_capacity(3);
         words.push(self.emit_expression(value)?.raw());
         words.push(self.intern_string(name)?.raw());
-        for (field, ty) in fields {
-            let ty = match ty {
-                Type::Int => IrValueType::Int,
-                Type::Str => IrValueType::Str,
-                _ => {
-                    return Err(IrBuildError::format(
-                        "require_field_type",
-                        Some(span),
-                        0,
-                        0,
-                    ));
-                }
-            };
-            words.push(self.intern_string(field.as_str())?.raw());
-            words.push(ty as u32);
-        }
+        words.push(type_id.raw());
         let payload = self.push_extra(&words)?;
         self.push_instruction(
             IrTag::RequireRecord,
@@ -2293,6 +2364,7 @@ impl IrBuilder {
             bytes: self.store.bytes.len(),
             byte_data: self.store.byte_data.len(),
             locations: self.store.locations.len(),
+            semantic: self.semantic.checkpoint(&self.store.semantic),
             committed_instructions: self.committed_instructions,
             committed_functions: self.committed_functions,
         }
@@ -2315,6 +2387,8 @@ impl IrBuilder {
         self.store.bytes.truncate(checkpoint.bytes);
         self.store.byte_data.truncate(checkpoint.byte_data);
         self.store.locations.truncate(checkpoint.locations);
+        self.semantic
+            .rewind(&mut self.store.semantic, checkpoint.semantic);
         self.strings.retain(|_, id| id.index() < checkpoint.strings);
         self.locations
             .retain(|_, id| id.index() < checkpoint.locations);
@@ -2428,6 +2502,7 @@ impl IrVerifier {
                 "pattern tag and data columns have different lengths",
             ));
         }
+        store.semantic.verify()?;
         let source = sources
             .get(store.source_id)
             .ok_or_else(|| IrVerifyError::new("program source id is missing"))?;
@@ -2473,19 +2548,45 @@ impl IrVerifier {
         }
         for param in &store.params {
             Self::verify_string(store, param.name)?;
+            store.semantic.type_tag(param.type_id)?;
         }
         for capture in &store.captures {
             Self::verify_string(store, capture.name)?;
+            store.semantic.type_tag(capture.type_id)?;
         }
         for function in &store.functions {
             Self::verify_string(store, function.name)?;
-            function
+            let params = function
                 .params
                 .bounds(store.params.len())
                 .ok_or_else(|| IrVerifyError::new("function parameter range is out of bounds"))?;
-            function.captures.bounds(store.captures.len()).ok_or_else(|| {
+            let captures = function.captures.bounds(store.captures.len()).ok_or_else(|| {
                 IrVerifyError::new("function capture range is out of bounds")
             })?;
+            if store
+                .semantic
+                .signature_param_count(function.signature)?
+                != params.len()
+            {
+                return Err(IrVerifyError::new(
+                    "function parameter range does not match signature",
+                ));
+            }
+            for (index, param) in store.params[params.clone()].iter().enumerate() {
+                let (name, type_id, flags) = store
+                    .semantic
+                    .signature_param(function.signature, index)?;
+                if store.string(IrStringId::from_raw(param.name).ok_or_else(|| {
+                    IrVerifyError::new("parameter name id is invalid")
+                })?)? != name.as_str()
+                    || param.type_id != type_id
+                    || u32::from(param.flags) != flags
+                {
+                    return Err(IrVerifyError::new(
+                        "function parameter metadata does not match signature",
+                    ));
+                }
+            }
             let Some(body) = function.body.raw().and_then(IrBlockId::from_raw) else {
                 if allow_absent_bodies {
                     continue;
@@ -2495,13 +2596,13 @@ impl IrVerifier {
             if body.index() >= store.blocks.len() {
                 return Err(IrVerifyError::new("function body is out of bounds"));
             }
-            for param in &store.params[function.params.bounds(store.params.len()).unwrap()] {
+            for param in &store.params[params] {
                 if param.slot >= function.slot_count {
                     return Err(IrVerifyError::new("parameter slot is out of bounds"));
                 }
             }
-            for capture in &store.captures[function.captures.bounds(store.captures.len()).unwrap()] {
-                if capture.slot >= function.slot_count {
+            for capture in &store.captures[captures] {
+                if capture.slot() >= function.slot_count {
                     return Err(IrVerifyError::new("capture slot is out of bounds"));
                 }
             }
@@ -2692,17 +2793,15 @@ impl IrVerifier {
                 }
             }
             IrTag::RequireRecord => {
-                let payload = store.payload(data.range())?;
-                if payload.len() < 2 || (payload.len() - 2) % 2 != 0 {
-                    return Err(IrVerifyError::new("record requirement schema is invalid"));
-                }
+                let payload = Self::payload_len(store, data.range(), 3, "record requirement")?;
                 verify_inst(payload[0], owners, states)?;
                 Self::verify_string(store, payload[1])?;
-                for field in payload[2..].chunks_exact(2) {
-                    Self::verify_string(store, field[0])?;
-                    if field[1] > IrValueType::Result as u32 {
-                        return Err(IrVerifyError::new("record field type is invalid"));
-                    }
+                let type_id = TypeId::from_raw(payload[2])
+                    .ok_or_else(|| IrVerifyError::new("record requirement type id is invalid"))?;
+                if store.semantic.type_tag(type_id)? != TypeTag::Record {
+                    return Err(IrVerifyError::new(
+                        "record requirement type is not a record",
+                    ));
                 }
             }
             IrTag::Match => {
@@ -2837,17 +2936,18 @@ impl IrValue {
         }
     }
 
-    fn matches_type(&self, ty: IrValueType) -> bool {
+    fn matches_type(&self, ty: TypeTag) -> bool {
         match ty {
-            IrValueType::Any => true,
-            IrValueType::Unit => matches!(self, Self::Unit),
-            IrValueType::Int => matches!(self, Self::Int(_)),
-            IrValueType::Bool => matches!(self, Self::Bool(_)),
-            IrValueType::Str => matches!(self, Self::Str(_)),
-            IrValueType::Bytes => matches!(self, Self::Bytes(_)),
-            IrValueType::Record => matches!(self, Self::Record(_)),
-            IrValueType::List => matches!(self, Self::List(_)),
-            IrValueType::Result => matches!(self, Self::ResultOk(_) | Self::ResultErr(_)),
+            TypeTag::Any => true,
+            TypeTag::Unit => matches!(self, Self::Unit),
+            TypeTag::Int => matches!(self, Self::Int(_)),
+            TypeTag::Bool => matches!(self, Self::Bool(_)),
+            TypeTag::Str => matches!(self, Self::Str(_)),
+            TypeTag::Bytes => matches!(self, Self::Bytes(_)),
+            TypeTag::Record => matches!(self, Self::Record(_)),
+            TypeTag::List => matches!(self, Self::List(_)),
+            TypeTag::Result => matches!(self, Self::ResultOk(_) | Self::ResultErr(_)),
+            _ => false,
         }
     }
 }
@@ -3001,7 +3101,19 @@ impl<'a> IrExecutor<'a> {
                 return Err(IrExecError::new("loop control escaped function body"));
             }
         };
-        if matches!(function.return_kind, IrReturnKind::ResultUnit | IrReturnKind::ResultInt)
+        let return_type = self
+            .program
+            .store
+            .semantic
+            .signature_return_type(function.signature)
+            .map_err(|error| IrExecError::new(error.message))?;
+        if self
+            .program
+            .store
+            .semantic
+            .type_tag(return_type)
+            .map_err(|error| IrExecError::new(error.message))?
+            == TypeTag::Result
             && !matches!(value, IrValue::ResultOk(_) | IrValue::ResultErr(_))
         {
             value = IrValue::ResultOk(Box::new(value));
@@ -3465,14 +3577,26 @@ impl<'a> IrExecutor<'a> {
                 let IrValue::Record(fields) = &value else {
                     return Ok(Self::type_error("expected record", location));
                 };
-                for field in payload[2..].chunks_exact(2) {
-                    let name = store
-                        .string(IrStringId::from_raw(field[0]).unwrap())
-                        .map_err(|error| IrEvalSignal::Fault(IrExecError::new(error.message)))?;
-                    let Some(value) = fields.get(name) else {
+                let type_id = TypeId::from_raw(payload[2]).ok_or_else(|| {
+                    IrEvalSignal::Fault(IrExecError::new(
+                        "record requirement type id is invalid",
+                    ))
+                })?;
+                let (names, field_types) = store
+                    .semantic
+                    .record_fields(type_id)
+                    .map_err(|error| IrEvalSignal::Fault(IrExecError::new(error.message)))?;
+                for (name, field_type) in names.iter().zip(field_types) {
+                    let Some(value) = fields.get(name.as_str()) else {
                         return Ok(Self::type_error("missing record field", location));
                     };
-                    let ty = Self::value_type(field[1])?;
+                    let type_id = TypeId::from_raw(*field_type).ok_or_else(|| {
+                        IrEvalSignal::Fault(IrExecError::new("record field type id is invalid"))
+                    })?;
+                    let ty = store
+                        .semantic
+                        .type_tag(type_id)
+                        .map_err(|error| IrEvalSignal::Fault(IrExecError::new(error.message)))?;
                     if !value.matches_type(ty) {
                         return Ok(Self::type_error("record field type mismatch", location));
                     }
@@ -3695,23 +3819,6 @@ impl<'a> IrExecutor<'a> {
                 Ok(IrValue::Bool(left >= right))
             }
             _ => Err(IrExecError::new("binary operands have invalid types")),
-        }
-    }
-
-    fn value_type(raw: u32) -> IrEvalResult<IrValueType> {
-        match raw {
-            value if value == IrValueType::Any as u32 => Ok(IrValueType::Any),
-            value if value == IrValueType::Unit as u32 => Ok(IrValueType::Unit),
-            value if value == IrValueType::Int as u32 => Ok(IrValueType::Int),
-            value if value == IrValueType::Bool as u32 => Ok(IrValueType::Bool),
-            value if value == IrValueType::Str as u32 => Ok(IrValueType::Str),
-            value if value == IrValueType::Bytes as u32 => Ok(IrValueType::Bytes),
-            value if value == IrValueType::Record as u32 => Ok(IrValueType::Record),
-            value if value == IrValueType::List as u32 => Ok(IrValueType::List),
-            value if value == IrValueType::Result as u32 => Ok(IrValueType::Result),
-            _ => Err(IrEvalSignal::Fault(IrExecError::new(
-                "value type tag is invalid",
-            ))),
         }
     }
 
@@ -4118,15 +4225,19 @@ mod tests {
 
         assert_eq!(size_of::<IrInstId>(), 4);
         assert_eq!(size_of::<IrFunctionId>(), 4);
+        assert_eq!(size_of::<TypeId>(), 4);
+        assert_eq!(size_of::<SignatureId>(), 4);
+        assert_eq!(size_of::<ShapeId>(), 4);
         assert_eq!(size_of::<IrOptionalId>(), 4);
         assert_eq!(size_of::<IrTag>(), 1);
         assert_eq!(size_of::<IrPatternTag>(), 1);
+        assert_eq!(size_of::<TypeTag>(), 1);
         assert_eq!(size_of::<IrData>(), 8);
         assert_eq!(size_of::<IrRange>(), 8);
         assert_eq!(size_of::<IrLocation>(), 8);
         assert_eq!(size_of::<IrBlock>(), 12);
-        assert_eq!(size_of::<IrFunction>(), 32);
-        assert_eq!(size_of::<IrParam>(), 12);
+        assert_eq!(size_of::<IrFunction>(), 36);
+        assert_eq!(size_of::<IrParam>(), 16);
         assert_eq!(size_of::<IrCapture>(), 12);
         assert_eq!(IrStore::common_instruction_row_bytes(), 13);
 
@@ -4236,6 +4347,178 @@ mod tests {
                 aggregate.extra_words,
                 IrStore::common_instruction_row_bytes(),
                 aggregate.extra_bytes_per_instruction(),
+            );
+        });
+    }
+
+    #[test]
+    #[ignore = "Phase 3 evidence interns stable semantic facts across the full corpus"]
+    fn corpus_semantic_pool_evidence() {
+        run_with_large_stack(|| {
+            use crate::sema::check::{CompactFunctionSig, CompactTypeDefInfo};
+            use crate::sema::types::CallableType;
+
+            fn intern_signature(
+                builder: &mut SemanticPoolBuilder,
+                pools: &mut SemanticPools,
+                signature: &CompactFunctionSig,
+            ) -> Result<(), IrBuildError> {
+                builder
+                    .intern_signature(
+                        pools,
+                        &CallableType {
+                            params: signature.params.clone(),
+                            return_ty: Box::new(signature.return_ty.clone()),
+                            effects: signature.effects.clone(),
+                        },
+                    )
+                    .map(|_| ())
+            }
+
+            fn intern_stable_type(
+                builder: &mut SemanticPoolBuilder,
+                pools: &mut SemanticPools,
+                ty: &Type,
+            ) -> bool {
+                match builder.intern_type(pools, ty) {
+                    Ok(_) => true,
+                    Err(error) if error.construct == "recovery_type" => false,
+                    Err(error) => panic!("semantic interning failed: {error:?}"),
+                }
+            }
+
+            let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+            let mut paths = Vec::new();
+            for relative in crate::frontend_stats::DEFAULT_ROOTS {
+                collect_xsh_paths(&root.join(relative), &mut paths);
+            }
+            paths.sort();
+            paths.dedup();
+
+            let mut files = 0usize;
+            let mut source_bytes = 0usize;
+            let mut owned_type_bytes = 0usize;
+            let mut pooled_bytes = 0usize;
+            let mut canonical_bytes = 0usize;
+            let mut type_count = 0usize;
+            let mut signature_count = 0usize;
+            let mut shape_count = 0usize;
+            let mut extra_words = 0usize;
+            let mut recovery_facts = 0usize;
+
+            for path in paths {
+                let Ok(source) = std::fs::read_to_string(&path) else {
+                    continue;
+                };
+                let mut sources = SourceMap::new();
+                let source_id = sources.add_file(path.to_string_lossy(), source.clone());
+                let parsed = Parser::parse_source_arena_only(source_id, &source);
+                if !parsed.diagnostics.is_empty() {
+                    continue;
+                }
+                let declarations = Checker::check_compact_declarations(&parsed.arena);
+                if !declarations.diagnostics.is_empty() {
+                    continue;
+                }
+                let bodies = Checker::probe_compact_bodies(&parsed.arena, &declarations);
+                if !bodies.diagnostics.is_empty() {
+                    continue;
+                }
+
+                let mut pools = SemanticPools::default();
+                let mut builder = SemanticPoolBuilder::default();
+                for ty in declarations.types.values() {
+                    let ty = match ty {
+                        CompactTypeDefInfo::Record(fields) => Type::Record(fields.clone()),
+                        CompactTypeDefInfo::Module(exports) => Type::Module(exports.clone()),
+                        CompactTypeDefInfo::Alias(_) | CompactTypeDefInfo::TagUnion => continue,
+                    };
+                    owned_type_bytes += ty.retained_bytes();
+                    recovery_facts +=
+                        usize::from(!intern_stable_type(&mut builder, &mut pools, &ty));
+                }
+                for variant in declarations.tag_variants_by_name.values() {
+                    for ty in &variant.field_types {
+                        owned_type_bytes += ty.retained_bytes();
+                        recovery_facts +=
+                            usize::from(!intern_stable_type(&mut builder, &mut pools, ty));
+                    }
+                }
+                for families in [
+                    declarations.error_families_by_name.values().collect::<Vec<_>>(),
+                    declarations
+                        .qualified_error_families
+                        .values()
+                        .collect::<Vec<_>>(),
+                ] {
+                    for family in families {
+                        for variant in family.variants.values() {
+                            for ty in variant.fields.values() {
+                                owned_type_bytes += ty.retained_bytes();
+                                recovery_facts += usize::from(!intern_stable_type(
+                                    &mut builder,
+                                    &mut pools,
+                                    ty,
+                                ));
+                            }
+                        }
+                    }
+                }
+                for signatures in [
+                    declarations.procs.values().collect::<Vec<_>>(),
+                    declarations.pures.values().collect::<Vec<_>>(),
+                    declarations.streams.values().collect::<Vec<_>>(),
+                    declarations.qualified_procs.values().collect::<Vec<_>>(),
+                    declarations.qualified_pures.values().collect::<Vec<_>>(),
+                    declarations.qualified_streams.values().collect::<Vec<_>>(),
+                ] {
+                    for signature in signatures {
+                        owned_type_bytes += signature.return_ty.retained_bytes()
+                            + signature
+                                .params
+                                .iter()
+                                .map(|param| param.ty.retained_bytes())
+                                .sum::<usize>();
+                        if let Err(error) =
+                            intern_signature(&mut builder, &mut pools, signature)
+                        {
+                            if error.construct == "recovery_type" {
+                                recovery_facts += 1;
+                            } else {
+                                panic!("signature interning failed: {error:?}");
+                            }
+                        }
+                    }
+                }
+                for ty in bodies.expr_types.values() {
+                    owned_type_bytes += ty.retained_bytes();
+                    recovery_facts +=
+                        usize::from(!intern_stable_type(&mut builder, &mut pools, ty));
+                }
+
+                pools.verify().unwrap();
+                canonical_bytes += builder.retained_bytes();
+                drop(builder);
+                pools.shrink_to_fit();
+                files += 1;
+                source_bytes += source.len();
+                pooled_bytes += pools.retained_bytes();
+                type_count += pools.type_count();
+                signature_count += pools.signature_count();
+                shape_count += pools.shape_count();
+                extra_words += pools.extra_words();
+            }
+
+            assert!(files > 0);
+            assert!(owned_type_bytes > 0);
+            assert!(pooled_bytes * 10 < owned_type_bytes * 8);
+            assert!(canonical_bytes > pooled_bytes);
+            println!(
+                "phase3 semantic files={files} source_bytes={source_bytes} owned_type_bytes={owned_type_bytes} pooled_bytes={pooled_bytes} canonical_bytes_dropped={canonical_bytes} retained_with_canonical={} owned_bytes_per_source={:.6} pooled_bytes_per_source={:.6} reduction_percent={:.2} type_count={type_count} signature_count={signature_count} shape_count={shape_count} extra_words={extra_words} recovery_facts={recovery_facts}",
+                pooled_bytes + canonical_bytes,
+                owned_type_bytes as f64 / source_bytes as f64,
+                pooled_bytes as f64 / source_bytes as f64,
+                100.0 * (owned_type_bytes - pooled_bytes) as f64 / owned_type_bytes as f64,
             );
         });
     }

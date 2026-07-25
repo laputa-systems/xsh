@@ -5,7 +5,7 @@
 - [x] Phase 0: establish evidence and freeze the comparison protocol
 - [x] Phase 1: prove the compact indexed IR architecture with a hard vertical slice
 - [x] Phase 2: replace permissive probing with transactional lowering
-- [ ] Phase 3: introduce interned semantic types, signatures, and shapes
+- [x] Phase 3: introduce interned semantic types, signatures, and shapes
 - [ ] Phase 4: migrate expressions, statements, patterns, functions, and slots
 - [ ] Phase 5: decide and implement the durable top-level/effect boundary
 - [ ] Phase 6: cut production execution over and delete the recursive lowered IR
@@ -1048,29 +1048,29 @@ semantic identities rather than owned `Type` trees.
 
 ### Work Checklist
 
-- [ ] Inventory `Type::clone`, callable clone, record/module construction,
+- [x] Inventory `Type::clone`, callable clone, record/module construction,
   equality, hashing, and allocation.
-- [ ] Define `TypeId`, `SignatureId`, and `ShapeId`.
-- [ ] Implement compact type tag/data/extra columns.
-- [ ] Intern primitives and unary/container types.
-- [ ] Intern result/optional types.
-- [ ] Intern callable signatures and parameter metadata.
-- [ ] Intern record/module shapes with deterministic field order.
-- [ ] Decide and document whether semantic and runtime records share `ShapeId`;
+- [x] Define `TypeId`, `SignatureId`, and `ShapeId`.
+- [x] Implement compact type tag/data/extra columns.
+- [x] Intern primitives and unary/container types.
+- [x] Intern result/optional types.
+- [x] Intern callable signatures and parameter metadata.
+- [x] Intern record/module shapes with deterministic field order.
+- [x] Decide and document whether semantic and runtime records share `ShapeId`;
   prefer one canonical pool when their ordered fields are identical.
-- [ ] Keep recovery facts separate and non-executable.
-- [ ] Convert stored signatures and IR checks to IDs.
-- [ ] Measure dropping versus retaining canonical maps after checking.
-- [ ] Delete recursive clones from migrated persistent owners.
+- [x] Keep recovery facts separate and non-executable.
+- [x] Convert stored signatures and IR checks to IDs.
+- [x] Measure dropping versus retaining canonical maps after checking.
+- [x] Delete recursive clones from migrated persistent owners.
 
 ### Exit Gate
 
-- [ ] Equal stable types/shapes have equal IDs.
-- [ ] Diagnostics render identical type names and spans.
-- [ ] Repository checking allocation/peak live does not regress.
-- [ ] Semantic retained bytes/source byte materially decrease.
-- [ ] Executable IR stores no owned `Type`.
-- [ ] Semantic/module contract tests pass.
+- [x] Equal stable types/shapes have equal IDs.
+- [x] Diagnostics render identical type names and spans.
+- [x] Repository checking allocation/peak live does not regress.
+- [x] Semantic retained bytes/source byte materially decrease.
+- [x] Executable IR stores no owned `Type`.
+- [x] Semantic/module contract tests pass.
 
 ## Phase 4: Full Indexed IR Migration
 
@@ -1576,6 +1576,48 @@ Remaining adapter: body opcode emission still reads a successfully committed
 `LoweredFunctionUnit`; dependency discovery, SCC planning, commit safety,
 verification, and blocker coverage no longer depend on construct-probe counters.
 Phase 4 removes this body adapter as syntax coverage migrates to indexed IR.
+
+Date: 2026-07-25
+Phase: 3
+Decision: Freeze the Phase 1 row/store format and Phase 2 dependency/SCC
+transaction design. Approve checked one-based `u32` `TypeId`, `SignatureId`,
+and `ShapeId` identities; compact finalized type tag/data/extra columns;
+signature range/extra columns; one deterministic ordered shape pool; and
+construction-only canonical maps. Semantic record and module types share the
+same `ShapeId` when their ordered fields are identical, and Phase 7 reuses that
+identity for dense runtime records.
+Alternatives: Owned semantic `Type`/`CallableType` trees in executable rows;
+wider instruction rows; separate record and module shape namespaces; retained
+canonical maps beside the executable program; executable recovery identities;
+continuing with the vertical slice's closed `IrValueType`/return-kind enums.
+Evidence: `target/frontend-campaign/phase-3/PROTOCOL.md`,
+`semantic-inventory.txt`, `tests.txt`, `sema-tests.txt`, `module-tests.txt`,
+`corpus-semantic-summary.txt`, `ir-layout.txt`,
+`frontend-stats-vertical-slice.json`, `coverage.json`, and
+`bench-fast-mediated-memory.txt`. Across 287 checked corpus files, 2,908,060
+bytes of recursively owned semantic facts compact to 112,736 finalized pool
+bytes, from 5.333404 to 0.206759 bytes per source byte (96.12% lower).
+Construction canonical maps account for 241,060 additional bytes and are
+dropped. The corpus produces 3,296 type, 396 signature, and 414 shape
+identities; 19,187 recovery-bearing facts are rejected from executable
+interning. `TypeId`, `SignatureId`, and `ShapeId` are each 4 bytes; `TypeTag`
+is 1 byte; `IrFunction`, `IrParam`, and `IrCapture` are 36, 16, and 12 bytes.
+Common instruction storage remains 13 bytes. Production frontend retained
+columns, coverage, and mediated benchmark allocation/peak-live columns match
+the frozen baselines exactly.
+Affected workloads: Compact declaration/body semantic facts over all Phase 0
+corpus roots, the frozen indexed vertical slice and rollback fixture, checker
+and module-contract integration tests, production frontend retained
+diagnostics, coverage, and the curated fast benchmark suite.
+Revisit condition: `TypeId`, `SignatureId`, or `ShapeId` cannot fit naturally
+into the accepted `u32` ID/data/extra model during broad Phase 4 migration
+without owned semantic trees or wider hot instruction rows.
+
+Remaining adapter: Phase 3 constructs semantic identities from the committed
+`LoweredFunctionUnit` metadata and record requirements used by the indexed
+vertical slice. Phase 4 moves direct compact-syntax lowering onto these pools
+and removes the remaining body adapter. Runtime values retain their current
+record maps until Phase 7.
 
 ## Completion Report
 

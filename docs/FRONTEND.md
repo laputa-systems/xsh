@@ -87,6 +87,34 @@ ownership, transactional safety, verification, and blocker reporting already
 belong to the indexed path; Phase 4 removes this body adapter as expressions and
 statements migrate directly from compact syntax and semantic identities.
 
+### Interned Semantic Identities
+
+Phase 3 adds finalized semantic pools to the indexed executable store.
+`TypeId`, `SignatureId`, and `ShapeId` are checked one-based `u32` identities.
+Types use parallel one-byte tag and eight-byte data columns plus shared `u32`
+extra storage. Signatures use eight-byte range rows over shared `u32` payloads.
+Shapes are ranges over ordered `Name` identities. The finalized pools contain no
+owned `Type`, callable, record, or module trees.
+
+Canonical maps exist only in `SemanticPoolBuilder` construction state. A
+transaction checkpoint covers every semantic column and rewinding also removes
+canonical entries whose IDs were discarded. Finalization drops the maps,
+shrinks the columns, and verifies all type children, signature parameters,
+shape ranges, module exports, and recovery boundaries before execution.
+`Unknown` and `Invalid` are rejected rather than assigned executable IDs.
+
+Indexed function rows refer to a `SignatureId`; parameter and capture rows carry
+`TypeId`. Record requirement instructions carry one `TypeId` instead of copied
+field-name/type pairs. Semantic record and module types obtain `ShapeId` from
+one canonical ordered-field pool. Runtime records still use their current map
+representation; Phase 7 reuses the semantic shape identity when dense runtime
+records land.
+
+Semantic pools are cold metadata beside the frozen instruction store. The
+common instruction remains the Phase 1 thirteen-byte
+tag/data/optional-location row, and Phase 2 dependency ordering, SCC commit
+watermarks, rollback, and verification-before-commit are unchanged.
+
 ## North Star
 
 - Dense token tables with token tags, byte starts, and compact payloads for data
