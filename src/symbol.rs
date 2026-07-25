@@ -294,6 +294,15 @@ fn interner() -> &'static RwLock<Interner> {
     INTERNER.get_or_init(|| RwLock::new(Interner::with_preloaded()))
 }
 
+/// Count and leaked backing bytes for symbols interned after the preloaded set.
+pub fn dynamic_symbol_stats() -> (usize, usize) {
+    let interner = interner().read().expect("symbol interner poisoned");
+    let count = interner.dynamic.len();
+    let bytes = interner.dynamic.iter().map(|text| text.len()).sum::<usize>()
+        + count * std::mem::size_of::<&'static str>();
+    (count, bytes)
+}
+
 fn resolve_preloaded(symbol: Symbol) -> Option<&'static str> {
     let (start, len) = *PRELOADED_SYMBOL_RANGES.get(symbol.raw() as usize)?;
     let start = start as usize;

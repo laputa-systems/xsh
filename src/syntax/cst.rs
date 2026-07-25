@@ -144,6 +144,21 @@ impl LazyCst {
     pub fn token_table(&self) -> &TokenTable {
         &self.token_table
     }
+
+    /// Bytes retained by the deferred CST handle. Does not force tree construction.
+    pub fn retained_bytes(&self) -> usize {
+        let mut total = std::mem::size_of::<Self>()
+            + self.source.len()
+            + self.token_table.retained_bytes();
+        if let Some(tree) = self.cell.get() {
+            total = total.saturating_add(tree.retained_bytes_without_token_table());
+        }
+        total
+    }
+
+    pub fn cst_built(&self) -> bool {
+        self.cell.get().is_some()
+    }
 }
 
 impl Default for LazyCst {
@@ -170,6 +185,36 @@ impl Default for SyntaxTree {
 }
 
 impl SyntaxTree {
+    pub fn node_count(&self) -> usize {
+        self.nodes.len()
+    }
+
+    pub fn element_token_count(&self) -> usize {
+        self.tokens.len()
+    }
+
+    pub fn trivia_count(&self) -> usize {
+        self.trivia.len()
+    }
+
+    pub fn retained_bytes(&self) -> usize {
+        self.retained_bytes_without_token_table() + self.token_table.retained_bytes()
+    }
+
+    pub fn retained_bytes_without_token_table(&self) -> usize {
+        use std::mem::size_of;
+        size_of::<Self>()
+            + self.source.len()
+            + self.nodes.capacity() * size_of::<SyntaxNode>()
+            + self.tokens.capacity() * size_of::<SyntaxToken>()
+            + self.trivia.capacity() * size_of::<SyntaxTrivia>()
+            + self
+                .nodes
+                .iter()
+                .map(|node| node.children.capacity() * size_of::<SyntaxElement>())
+                .sum::<usize>()
+    }
+
     pub fn parse(source_id: SourceId, source: &str) -> (Self, Vec<Diagnostic>) {
         let lexed = Lexer::new(source_id, source).lex_compact();
         let tree = Self::from_token_table(source_id, source, lexed.token_table);

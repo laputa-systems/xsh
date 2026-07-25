@@ -56,6 +56,15 @@ pub enum ModuleExportType {
 }
 
 impl ModuleExportType {
+    pub fn retained_bytes(&self) -> usize {
+        use std::mem::size_of;
+        size_of::<Self>()
+            + match self {
+                Self::Value { ty, .. } => ty.retained_bytes(),
+                Self::Proc { sig, .. } | Self::Pure { sig, .. } => sig.retained_bytes(),
+            }
+    }
+
     pub fn optional(&self) -> bool {
         match self {
             Self::Value { optional, .. }
@@ -88,7 +97,60 @@ pub struct CallableParamType {
     pub rest: bool,
 }
 
+impl CallableType {
+    pub fn retained_bytes(&self) -> usize {
+        use std::mem::size_of;
+        let mut total = size_of::<Self>()
+            + self.params.capacity() * size_of::<CallableParamType>()
+            + size_of::<Type>()
+            + self.return_ty.retained_bytes();
+        if let Some(effects) = &self.effects {
+            total = total.saturating_add(effects.capacity() * size_of::<Effect>());
+        }
+        for param in &self.params {
+            total = total.saturating_add(param.ty.retained_bytes());
+        }
+        total
+    }
+}
+
 impl Type {
+    // retained-bytes-phase0
+    /// Conservative owned-heap estimate for one semantic type tree.
+    pub fn retained_bytes(&self) -> usize {
+        use std::mem::size_of;
+        let mut total = size_of::<Self>();
+        match self {
+            Self::List(inner)
+            | Self::Map(inner)
+            | Self::Stream(inner)
+            | Self::Optional(inner) => {
+                total = total.saturating_add(size_of::<Type>() + inner.retained_bytes());
+            }
+            Self::Result(ok, err) => {
+                total = total
+                    .saturating_add(size_of::<Type>() + ok.retained_bytes())
+                    .saturating_add(size_of::<Type>() + err.retained_bytes());
+            }
+            Self::Record(fields) => {
+                total = total.saturating_add(fields.capacity() * size_of::<(Name, Type)>());
+                for ty in fields.values() {
+                    total = total.saturating_add(ty.retained_bytes());
+                }
+            }
+            Self::Module(exports) => {
+                total = total.saturating_add(
+                    exports.capacity() * size_of::<(Name, ModuleExportType)>(),
+                );
+                for export in exports.values() {
+                    total = total.saturating_add(export.retained_bytes());
+                }
+            }
+            _ => {}
+        }
+        total
+    }
+
     pub fn from_arena(arena: &AstArena, id: TypeExprId) -> Self {
         let index = id.index();
         let tag = arena.type_expr_tags[index];

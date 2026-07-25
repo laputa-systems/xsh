@@ -3,6 +3,8 @@ extern crate self as xsh;
 #[path = "entrypoints/xsh.rs"]
 pub mod app;
 pub mod diagnostic;
+pub mod frontend_stats;
+pub mod mem_track;
 #[path = "runtime/eval/modules/host.rs"]
 pub mod host;
 pub mod loader;
