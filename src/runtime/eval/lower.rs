@@ -6703,14 +6703,14 @@ impl CompactLowerConstructProbe<'_, '_> {
             return None;
         };
         let (module, api) = super::standard_module_command_name(name.as_str())?;
+        let op = api_spec().module_op(module, api)?;
         let args = self.program.arena.command_args(args).to_vec();
         let mut lowered = Vec::with_capacity(args.len());
         for arg in &args {
             lowered.push(self.lower_command_arg(arg, slots, current_function, item_slot)?);
         }
         Some(LoweredStmt::Proc {
-            module: Arc::from(module),
-            name: Arc::from(api),
+            op,
             args: lowered,
             propagate_result: stmt.propagate,
             span: self.program.arena.span(stmt.span),
@@ -11026,7 +11026,7 @@ impl CompactLowerConstructProbe<'_, '_> {
             } => self.lower_error_variant_pattern(*family, *variant, *fields, false, slots),
             ArenaPatternKind::Facet(facet) => Some((
                 LoweredPattern::Facet {
-                    facet: Arc::from(facet.as_str()),
+                    facet: *facet,
                     result_wrapped: false,
                 },
                 Vec::new(),
@@ -11053,7 +11053,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                     self.output.constructed_patterns += 1;
                     return Some((
                         LoweredPattern::Facet {
-                            facet: Arc::from(facet.as_str()),
+                            facet,
                             result_wrapped: true,
                         },
                         Vec::new(),
@@ -11113,7 +11113,7 @@ impl CompactLowerConstructProbe<'_, '_> {
         let mut lowered = LoweredErrorPatternFields::new();
         for field in self.program.arena.pattern_fields(fields) {
             let slot = self.lower_error_pattern_field(field.pattern, slots, &mut cleanup)?;
-            lowered.push((Arc::from(field.name.as_str()), slot));
+            lowered.push((field.name, slot));
         }
         Some((
             LoweredPattern::ErrorVariant {
@@ -11261,7 +11261,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                     }
                     let slot = slots.declare(field.name);
                     lowered.push((
-                        Arc::from(field.name.as_str()),
+                        field.name,
                         slot,
                         self.program.arena.span(field.span),
                     ));
@@ -12738,7 +12738,7 @@ pub(super) fn lowered_pattern_matches(
                 };
                 value.as_ref()
             };
-            lowered_error_value_has_facet(error, facet)
+            lowered_error_value_has_facet(error, facet.as_str())
         }
         LoweredPattern::Tag {
             name,
@@ -12798,7 +12798,7 @@ fn lowered_error_pattern_fields_match(
     slots: &mut [LoweredValue],
 ) -> bool {
     for (name, slot) in fields {
-        let Some(value) = payload.get(name) else {
+        let Some(value) = payload.get(name.as_str()) else {
             return false;
         };
         if let Some(slot) = slot {

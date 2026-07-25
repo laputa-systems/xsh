@@ -831,8 +831,8 @@ type LoweredParamRest = SmallVec<[bool; 4]>;
 type LoweredParamDefaults = SmallVec<[Option<LoweredValue>; 4]>;
 type LoweredTopLevelSlots = SmallVec<[LoweredTopLevelSlot; 4]>;
 type LoweredPatternSlots = SmallVec<[Option<usize>; 2]>;
-type LoweredCompFields = SmallVec<[(Arc<str>, usize, Span); 4]>;
-type LoweredErrorPatternFields = SmallVec<[(Arc<str>, Option<usize>); 4]>;
+type LoweredCompFields = SmallVec<[(Name, usize, Span); 4]>;
+type LoweredErrorPatternFields = SmallVec<[(Name, Option<usize>); 4]>;
 
 #[derive(Clone, Debug)]
 enum LoweredCompTarget {
@@ -1064,8 +1064,9 @@ enum LoweredStmt {
         body: Vec<LoweredStmt>,
     },
     Proc {
-        module: Arc<str>,
-        name: Arc<str>,
+        // The registry identity is stable; resolve it once while lowering
+        // instead of retaining two names and looking it up on every execution.
+        op: RuntimeOp,
         args: Vec<LoweredExpr>,
         propagate_result: bool,
         span: Span,
@@ -1612,7 +1613,7 @@ enum LoweredPattern {
     // `result_wrapped` distinguishes `Err(is Facet)` (scrutinee is a Result)
     // from a standalone `is Facet` (scrutinee is the error value itself).
     Facet {
-        facet: Arc<str>,
+        facet: Name,
         result_wrapped: bool,
     },
     Tag {

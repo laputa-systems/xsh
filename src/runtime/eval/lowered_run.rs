@@ -3520,9 +3520,9 @@ fn bind_lowered_comp_target(
         LoweredCompTarget::Record { fields } => {
             for (name, slot, field_span) in fields {
                 let value = match &value {
-                    LoweredValue::Record(record) => record.get(name).cloned(),
+                    LoweredValue::Record(record) => record.get(name.as_str()).cloned(),
                     LoweredValue::RecordVec(record) => {
-                        lowered_record_vec_get(record, name.as_ref()).cloned()
+                        lowered_record_vec_get(record, name.as_str()).cloned()
                     }
                     _ => {
                         return Err(RuntimeError::new(
@@ -13955,17 +13955,12 @@ impl Evaluator {
                 }
             }
             LoweredStmt::Proc {
-                module,
-                name,
+                op,
                 args,
                 propagate_result,
                 span,
             } => {
-                let Some(op) = api_spec().module_op(module, name) else {
-                    return Err(
-                        RuntimeError::new("unknown-method", name.to_string()).with_span(*span)
-                    );
-                };
+                let op = *op;
                 let mut values = Vec::with_capacity(args.len());
                 for arg in args {
                     let value = match self.eval_lowered_expr(lowered, arg, slots, call_span)? {
@@ -14062,9 +14057,10 @@ impl Evaluator {
                         }
                     }
                     _ => {
+                        let name = api_spec().op_trace_name(op).unwrap_or("unknown");
                         return Err(RuntimeError::new(
                             "unsupported-proc-command",
-                            format!("proc command syntax for {module}.{name} is not yet supported in compact lowering"),
+                            format!("proc command syntax for {name} is not yet supported in compact lowering"),
                         ).with_span(*span));
                     }
                 };
