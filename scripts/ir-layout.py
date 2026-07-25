@@ -12,9 +12,20 @@ from pathlib import Path
 
 
 IR_TYPES = (
+    "source::SourceMap",
+    "syntax::token::TokenTable",
+    "syntax::cst::LazyCst",
+    "syntax::cst::SyntaxTree",
     "syntax::arena::ArenaProgramBuilder<'_>",
     "syntax::arena::ArenaProgram",
     "syntax::arena::AstArena",
+    "syntax::arena::ArenaStmtTag",
+    "syntax::arena::ArenaStmtData",
+    "syntax::arena::ArenaExprTag",
+    "syntax::arena::ArenaExprData",
+    "syntax::arena::ArenaTypeExprTag",
+    "syntax::arena::ArenaTypeExprData",
+    "sema::check::CheckOutput",
     "sema::types::Type",
     "runtime::eval::LoweredPureFunction",
     "runtime::eval::LoweredTopLevelStmt",
@@ -27,6 +38,7 @@ IR_TYPES = (
     "runtime::eval::Evaluator",
     "runtime::eval::lower::CompactLowerConstructProbe<'_, '_>",
     "runtime::eval::CompactLowerConstructProbeOutput",
+    "runtime::eval::FrontendLoweredStats",
 )
 HEADER_RE = re.compile(
     r"^print-type-size type: `([^`]+)`: ([0-9]+) bytes, alignment: ([0-9]+) bytes$"

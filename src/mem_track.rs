@@ -1,8 +1,8 @@
 //! Optional allocation traffic tracking for frontend/IR diagnostics.
 //!
 //! Counters only move when the dedicated frontend-stats binary installs
-//! [`CountingAllocator`] as the global allocator. Library unit codesee Boolean
-//! paths still run and report zero peak/traffic when tracking is inactive.
+//! [`CountingAllocator`] as the global allocator. Library callers still run
+//! and report zero peak/traffic when tracking is inactive.
 
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;

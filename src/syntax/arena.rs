@@ -143,6 +143,29 @@ impl TypeExprId {
     }
 }
 
+#[cfg(test)]
+mod layout_tests {
+    use super::{
+        ArenaExprData, ArenaExprTag, ArenaStmtData, ArenaStmtTag, ArenaTypeExprData,
+        ArenaTypeExprTag, ExprId, PatternId, StmtId, TypeExprId,
+    };
+    use std::mem::size_of;
+
+    #[test]
+    fn compact_arena_rows_keep_fixed_layouts() {
+        assert_eq!(size_of::<StmtId>(), 4);
+        assert_eq!(size_of::<ExprId>(), 4);
+        assert_eq!(size_of::<PatternId>(), 4);
+        assert_eq!(size_of::<TypeExprId>(), 4);
+        assert_eq!(size_of::<ArenaStmtTag>(), 1);
+        assert_eq!(size_of::<ArenaExprTag>(), 1);
+        assert_eq!(size_of::<ArenaTypeExprTag>(), 1);
+        assert_eq!(size_of::<ArenaStmtData>(), 8);
+        assert_eq!(size_of::<ArenaExprData>(), 8);
+        assert_eq!(size_of::<ArenaTypeExprData>(), 8);
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct ArenaRange {
     pub start: u32,

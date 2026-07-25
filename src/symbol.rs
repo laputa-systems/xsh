@@ -299,7 +299,7 @@ pub fn dynamic_symbol_stats() -> (usize, usize) {
     let interner = interner().read().expect("symbol interner poisoned");
     let count = interner.dynamic.len();
     let bytes = interner.dynamic.iter().map(|text| text.len()).sum::<usize>()
-        + count * std::mem::size_of::<&'static str>();
+        + interner.dynamic.capacity() * std::mem::size_of::<&'static str>();
     (count, bytes)
 }
 

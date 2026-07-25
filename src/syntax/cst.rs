@@ -148,10 +148,16 @@ impl LazyCst {
     /// Bytes retained by the deferred CST handle. Does not force tree construction.
     pub fn retained_bytes(&self) -> usize {
         let mut total = std::mem::size_of::<Self>()
+            + 2 * std::mem::size_of::<usize>()
             + self.source.len()
-            + self.token_table.retained_bytes();
+            + self.token_table.retained_bytes()
+            + 2 * std::mem::size_of::<usize>()
+            + std::mem::size_of::<OnceLock<SyntaxTree>>();
         if let Some(tree) = self.cell.get() {
-            total = total.saturating_add(tree.retained_bytes_without_token_table());
+            total = total.saturating_add(
+                tree.retained_bytes_without_token_table()
+                    .saturating_sub(std::mem::size_of::<SyntaxTree>()),
+            );
         }
         total
     }
@@ -204,6 +210,7 @@ impl SyntaxTree {
     pub fn retained_bytes_without_token_table(&self) -> usize {
         use std::mem::size_of;
         size_of::<Self>()
+            + 2 * size_of::<usize>()
             + self.source.len()
             + self.nodes.capacity() * size_of::<SyntaxNode>()
             + self.tokens.capacity() * size_of::<SyntaxToken>()

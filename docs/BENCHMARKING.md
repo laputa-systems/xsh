@@ -81,6 +81,12 @@ latency baselines. Override with `--baseline`, `--variant`, `--warmup-runs`,
 Do not mix fast and normal baseline files when judging deltas: single-sample
 runs start colder because XSH has process-global interners and caches.
 
+For the frontend campaign, `scripts/frontend-campaign-phase0` captures two fast
+runs and compares only the allocation and peak columns. Whole-suite wall time
+is retained as iteration telemetry, not as the Phase 0 pass/fail signal. The
+same driver records stage-split frontend stats, layout, coverage, line counts,
+and host metadata under `target/frontend-campaign/phase-0/`.
+
 ## Interpreter And IR Diagnostics
 
 The user-facing suite remains the decision point for interpreter and lowered-IR

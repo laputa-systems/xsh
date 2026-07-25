@@ -1,0 +1,77 @@
+#!/bin/sh
+set -eu
+
+root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+out=${1:-"$root/target/frontend-campaign/phase-0"}
+mkdir -p "$out"
+cd "$root"
+
+cat > "$out/PROTOCOL.md" <<'EOF'
+# Frontend Campaign Phase 0 Protocol
+
+The corpus is measured serially from benchmark scripts, `core/`, `examples/`,
+`showcase/`, syntax/sema/runtime fixtures, and the frozen frontend-campaign
+fixtures.
+
+Stages are `tokens`, `cst`, `ast_check`, `lower`, and `after_drop`. Retained
+token, CST, AST, semantic, source-map, and dynamic-symbol bytes come from owned
+capacity accounting. With the dedicated counting allocator installed, lowered
+retained bytes use the stage live-byte delta; the library-only fallback is
+explicitly marked as an estimate. Stage peak is the maximum tracked live bytes
+seen by the process during that stage. Allocation count and bytes are traffic,
+not retained totals.
+
+`after_drop` drops token, CST, AST, and checker-owned state while keeping the
+installed evaluator and its source map. Process-global interners and lazy
+caches cannot be dropped; dynamic symbol growth is reported separately.
+
+`make bench-fast` is the campaign benchmark gate. Its whole-suite wall time is
+telemetry only. Allocation and peak columns from two runs must be identical.
+EOF
+
+cargo build -p xsh --bin xsh-frontend-stats --bin xsh
+
+target/debug/xsh-frontend-stats --json > "$out/frontend-stats.json"
+target/debug/xsh-frontend-stats --json > "$out/frontend-stats-repeat.json"
+cmp "$out/frontend-stats.json" "$out/frontend-stats-repeat.json"
+target/debug/xsh-frontend-stats --text > "$out/frontend-stats.txt"
+target/debug/xsh-frontend-stats --json \
+  tests/fixtures/frontend-campaign/vertical-slice.xsh \
+  tests/fixtures/frontend-campaign/vertical-slice-unsupported.xsh \
+  > "$out/frontend-stats-vertical-slice.json"
+
+python3 - "$out/frontend-stats.json" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    report = json.load(handle)
+for row in [*report["files"], report["totals"]]:
+    if row["reconcile_delta"] != 0:
+        raise SystemExit(f"non-zero reconcile delta for {row['path']}")
+PY
+
+baseline=$(scripts/bench-baseline.py --fast --print-path)
+make bench-fast > "$out/bench-fast-1.txt" 2>&1
+cp "$baseline" "$out/bench-fast-1.tsv"
+make bench-fast > "$out/bench-fast-2.txt" 2>&1
+cp "$baseline" "$out/bench-fast-2.tsv"
+awk '!/^#/ {print $1, $3, $4, $5, $6}' "$out/bench-fast-1.tsv" \
+  > "$out/bench-fast-1-memory.txt"
+awk '!/^#/ {print $1, $3, $4, $5, $6}' "$out/bench-fast-2.tsv" \
+  > "$out/bench-fast-2-memory.txt"
+cmp "$out/bench-fast-1-memory.txt" "$out/bench-fast-2-memory.txt"
+
+scripts/ir-layout.py > "$out/ir-layout.txt"
+target/debug/xsh tools/xsh-ir-coverage.xsh -- \
+  --root . --json "$out/coverage.json" > "$out/coverage.txt"
+wc -l src/runtime/eval/lower.rs src/runtime/eval/lowered_run.rs src/runtime/eval.rs \
+  > "$out/line-counts.txt"
+
+{
+  date -u '+date_utc=%Y-%m-%dT%H:%M:%SZ'
+  uname -a
+  rustc -vV
+} > "$out/host.txt"
+
+printf 'phase 0 evidence written to %s\n' "$out"

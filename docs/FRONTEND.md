@@ -18,6 +18,22 @@ compact indexed executable IR. This document describes current behavior; the
 campaign records proposed structures, dependency-ordered phases, progress,
 gates, and decisions.
 
+## Measurement
+
+`xsh-frontend-stats` measures the production frontend in five stages: tokens,
+CST, arena parse/check, compact lowering, and the installed state after earlier
+frontend ownership is dropped. It reports deterministic per-file and corpus
+JSON or text over the campaign roots, including retained components, allocator
+traffic and peak live bytes, lowerer blocker counts, dynamic symbols, and a
+reconciliation delta.
+
+The binary alone installs `mem_track::CountingAllocator`; product binaries do
+not. With that allocator, lowered retained bytes are the live-byte delta for the
+lower stage. Library callers still receive all structural counters, with the
+current shallow lowered fallback explicitly marked as estimated. Run the full
+Phase 0 protocol with `scripts/frontend-campaign-phase0`; its machine-specific
+evidence stays under `target/frontend-campaign/phase-0/`.
+
 ## North Star
 
 - Dense token tables with token tags, byte starts, and compact payloads for data

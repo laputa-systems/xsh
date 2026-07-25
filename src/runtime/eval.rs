@@ -223,6 +223,17 @@ pub struct CompactLowerConstructProbeOutput {
     retained: CompactLowerConstructRetained,
 }
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct FrontendLoweredStats {
+    pub function_count: usize,
+    pub constructed_functions: usize,
+    pub statement_count: usize,
+    pub expression_count: usize,
+    pub pattern_count: usize,
+    pub blocker_events: u64,
+    pub retained_estimate_bytes: usize,
+}
+
 impl Default for CompactLowerConstructProbeOutput {
     fn default() -> Self {
         Self {
@@ -2777,6 +2788,50 @@ impl Evaluator {
 
     pub fn new_with_sources(argv: Vec<String>, sources: SourceMap) -> Self {
         Self::new_with_sources_and_command(argv, sources, "command".to_string())
+    }
+
+    pub fn frontend_lowered_stats(&self) -> FrontendLoweredStats {
+        let probe = self.last_construct_probe.as_ref();
+        FrontendLoweredStats {
+            function_count: self.lowered_pures.len()
+                + self.lowered_procs.len()
+                + self.lowered_qualified_pures.len()
+                + self.lowered_qualified_procs.len(),
+            constructed_functions: probe.map_or(0, |probe| probe.constructed_functions),
+            statement_count: probe.map_or(0, |probe| probe.statements),
+            expression_count: probe.map_or(0, |probe| probe.expressions),
+            pattern_count: probe.map_or(0, |probe| probe.patterns),
+            blocker_events: probe.map_or(0, |probe| probe.blocker_events),
+            retained_estimate_bytes: self.frontend_lowered_retained_estimate(),
+        }
+    }
+
+    fn frontend_lowered_retained_estimate(&self) -> usize {
+        let map_bytes = self.lowered_pures.capacity()
+            * std::mem::size_of::<(Name, Arc<LoweredPureFunction>)>()
+            + self.lowered_procs.capacity()
+                * std::mem::size_of::<(Name, Arc<LoweredPureFunction>)>()
+            + self.lowered_qualified_pures.capacity()
+                * std::mem::size_of::<(QualifiedName, Arc<LoweredPureFunction>)>()
+            + self.lowered_qualified_procs.capacity()
+                * std::mem::size_of::<(QualifiedName, Arc<LoweredPureFunction>)>();
+        let function_bytes = self
+            .lowered_pures
+            .values()
+            .chain(self.lowered_procs.values())
+            .chain(self.lowered_qualified_pures.values())
+            .chain(self.lowered_qualified_procs.values())
+            .map(|function| {
+                std::mem::size_of::<LoweredPureFunction>()
+                    + function.body.capacity() * std::mem::size_of::<LoweredStmt>()
+            })
+            .sum::<usize>();
+        let program_bytes = std::mem::size_of::<LoweredProgram>()
+            + self.lowered_program.statements.capacity()
+                * std::mem::size_of::<Option<LoweredTopLevelStmt>>();
+        map_bytes
+            .saturating_add(function_bytes)
+            .saturating_add(program_bytes)
     }
 
     pub fn new_with_shared_sources(argv: Vec<String>, sources: Arc<SourceMap>) -> Self {

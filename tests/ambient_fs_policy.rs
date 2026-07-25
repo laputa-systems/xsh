@@ -69,6 +69,10 @@ const ALLOWED: &[(&str, &str)] = &[
         "documentation generation operates on repository paths",
     ),
     (
+        "src/frontend_stats.rs",
+        "frontend diagnostics read user-supplied corpus paths",
+    ),
+    (
         "crates/xsht/src/main.rs",
         "test entrypoint reads user-supplied test paths",
     ),

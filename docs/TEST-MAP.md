@@ -15,6 +15,7 @@ area touched. Do not run formatter or autofix commands for agent work.
 | CLI/tooling | targeted `cargo test -p xsht --test cli TEST_NAME` or `cargo test -p xsht --test grep TEST_NAME` | `cargo test -p xsht --test cli --test grep` if both apply |
 | Benchmark workload | `cargo bench -p xsh-multicall --bench bench BENCHMARK -- --sample-count 1 --sample-size 1` | `make bench-fast` (campaign/memory) or `make bench` (latency) |
 | Arena or lowered-IR layout | `scripts/ir-layout.py` (or `--only TYPE` for a focused report) | focused Divan workload plus the applicable behavior tests |
+| Frontend retained/peak accounting | `cargo test -p xsh --lib frontend_stats::tests` and `cargo run --bin xsh-frontend-stats -- --json tests/fixtures/frontend-campaign` | `scripts/frontend-campaign-phase0` |
 | PGO workflow | `make pgo-profile` | `make bench-pgo` |
 | Syscall diagnostics | benchmark smoke test on the host | `make bench-syscalls` on Linux/Docker |
 | LLVM IR size | `tools/llvm-lines-repeat-offenders.xsh` over an existing capture | fresh `cargo llvm-lines` capture plus the applicable behavior/benchmark gate |
@@ -42,6 +43,7 @@ generated tutorial output changes.
 |---|---|
 | collection values and methods | `tests/runtime/collections.rs` |
 | coverage, lint, grep-adjacent tooling | `tests/runtime/coverage.rs` |
+| frontend campaign scorecard | `tests/runtime/frontend_campaign.rs` |
 | cataloged examples | `tests/runtime/examples.rs` |
 | interactive behavior | `tests/runtime/interactive.rs` |
 | Linux-specific behavior | `tests/runtime/linux.rs` |
@@ -58,6 +60,7 @@ generated tutorial output changes.
 | `tests/fixtures/syntax` | parser and formatter fixture sources |
 | `tests/fixtures/sema` | checker fixture sources |
 | `tests/fixtures/runtime` | executable runtime fixture scripts |
+| `tests/fixtures/frontend-campaign` | frozen compact-IR scorecard and blocker inputs |
 | `examples` | tutorial examples cataloged in `examples/catalog.json` |
 | `showcase` and `showcase/tests` | larger standalone scripts and native tests |
 

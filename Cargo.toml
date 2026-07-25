@@ -132,6 +132,11 @@ path = "src/entrypoints/xsh.rs"
 test = false
 
 [[bin]]
+name = "xsh-frontend-stats"
+path = "src/entrypoints/frontend_stats.rs"
+test = false
+
+[[bin]]
 name = "xshi"
 path = "crates/xshi/src/main.rs"
 test = false

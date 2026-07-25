@@ -174,6 +174,12 @@ impl SourceFile {
         self.text.is_empty()
     }
 
+    pub fn retained_bytes(&self) -> usize {
+        self.name.capacity()
+            + self.text.capacity()
+            + self.line_starts.capacity() * std::mem::size_of::<usize>()
+    }
+
     pub fn line_count(&self) -> usize {
         self.line_starts.len()
     }
@@ -292,6 +298,17 @@ impl SourceMap {
 
     pub fn files(&self) -> &[SourceFile] {
         self.files.as_slice()
+    }
+
+    pub fn retained_bytes(&self) -> usize {
+        std::mem::size_of::<Vec<SourceFile>>()
+            + 2 * std::mem::size_of::<usize>()
+            + self.files.capacity() * std::mem::size_of::<SourceFile>()
+            + self
+                .files
+                .iter()
+                .map(SourceFile::retained_bytes)
+                .sum::<usize>()
     }
 }
 

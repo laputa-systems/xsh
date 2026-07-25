@@ -2,7 +2,7 @@
 
 ## Campaign Status
 
-- [ ] Phase 0: establish evidence and freeze the comparison protocol
+- [x] Phase 0: establish evidence and freeze the comparison protocol
 - [ ] Phase 1: prove the compact indexed IR architecture with a hard vertical slice
 - [ ] Phase 2: replace permissive probing with transactional lowering
 - [ ] Phase 3: introduce interned semantic types, signatures, and shapes
@@ -917,33 +917,33 @@ This is prerequisite work, not an easy optimization phase.
 
 ### Work Checklist
 
-- [ ] Extend retained-byte accounting to tokens/CST.
-- [ ] Account for semantic types, signatures, shapes, and canonical maps.
-- [ ] Account for current lowered functions, nodes, captures, parameters, maps,
+- [x] Extend retained-byte accounting to tokens/CST.
+- [x] Account for semantic types, signatures, shapes, and canonical maps.
+- [x] Account for current lowered functions, nodes, captures, parameters, maps,
   strings, vectors, and boxes.
-- [ ] Account for dynamic symbols and leaked shape/name storage.
-- [ ] Distinguish peak construction bytes from final retained bytes.
-- [ ] Add a deterministic stats diagnostic over benchmark scripts, `core/`,
+- [x] Account for dynamic symbols and leaked shape/name storage.
+- [x] Distinguish peak construction bytes from final retained bytes.
+- [x] Add a deterministic stats diagnostic over benchmark scripts, `core/`,
   `examples/`, `showcase/`, and syntax/sema/runtime fixtures.
-- [ ] Add every hot type to `scripts/ir-layout.py`.
-- [ ] Add size assertions for existing compact AST IDs/tags/data.
-- [ ] Capture two `make bench-fast` baselines to prove allocation and peak-live
+- [x] Add every hot type to `scripts/ir-layout.py`.
+- [x] Add size assertions for existing compact AST IDs/tags/data.
+- [x] Capture two `make bench-fast` baselines to prove allocation and peak-live
   signals are bit-stable (or exactly repeatable after mediation).
-- [ ] Capture focused repository-check and runtime memory measurements under
+- [x] Capture focused repository-check and runtime memory measurements under
   the same fast protocol.
-- [ ] Capture coverage/blocker distributions.
-- [ ] Record lowerer, lowered runner, and evaluator line counts as descriptive
+- [x] Capture coverage/blocker distributions.
+- [x] Record lowerer, lowered runner, and evaluator line counts as descriptive
   complexity context.
 
 ### Exit Gate
 
-- [ ] Retained totals reconcile with components.
-- [ ] Capacity and backing strings are included.
-- [ ] No-change structural repeats are identical.
-- [ ] Allocation and peak-live signals are stable enough to distinguish
+- [x] Retained totals reconcile with components.
+- [x] Capacity and backing strings are included.
+- [x] No-change structural repeats are identical.
+- [x] Allocation and peak-live signals are stable enough to distinguish
   representation work under `make bench-fast`.
-- [ ] Whole-suite wall time is recorded as iteration telemetry only.
-- [ ] Complete before evidence is archived locally.
+- [x] Whole-suite wall time is recorded as iteration telemetry only.
+- [x] Complete before evidence is archived locally.
 
 ## Phase 1: Hard Architectural Vertical Slice
 
@@ -1503,6 +1503,23 @@ Initial decisions:
 7. Runtime `Value` redesign follows IR cutover so it targets measured remaining
    costs.
 8. Placeholder executable instructions are forbidden in the final lowerer.
+
+Date: 2026-07-25
+Phase: 0
+Decision: Freeze the stage-split allocator and retained-byte protocol, the
+vertical-slice inputs, and `make bench-fast` memory columns as the Phase 1
+comparison baseline. Treat whole-suite wall time as telemetry only.
+Alternatives: Divan maximum allocation alone; timing-heavy multi-sample gates;
+unreconciled per-structure estimates without an installed-state measurement.
+Evidence: `target/frontend-campaign/phase-0/PROTOCOL.md`,
+`frontend-stats.json`, `frontend-stats-vertical-slice.json`,
+`bench-fast-1.tsv`, `bench-fast-2.tsv`, `ir-layout.txt`, `coverage.json`, and
+`line-counts.txt` under the same directory. The two memory-column extracts and
+the two full stats JSON files compare byte-for-byte.
+Affected workloads: Full frontend corpus, frozen vertical slice and blocker,
+repository check/format/lint, and curated runtime benchmark scripts.
+Revisit condition: Phase 1 changes stage ownership or exposes an exact recursive
+lowered retained-byte walker that can replace the labeled library fallback.
 
 ## Completion Report
 

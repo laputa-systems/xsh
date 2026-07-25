@@ -115,7 +115,6 @@ impl CallableType {
 }
 
 impl Type {
-    // retained-bytes-phase0
     /// Conservative owned-heap estimate for one semantic type tree.
     pub fn retained_bytes(&self) -> usize {
         use std::mem::size_of;
@@ -133,14 +132,14 @@ impl Type {
                     .saturating_add(size_of::<Type>() + err.retained_bytes());
             }
             Self::Record(fields) => {
-                total = total.saturating_add(fields.capacity() * size_of::<(Name, Type)>());
+                total = total.saturating_add(fields.len() * size_of::<(Name, Type)>());
                 for ty in fields.values() {
                     total = total.saturating_add(ty.retained_bytes());
                 }
             }
             Self::Module(exports) => {
                 total = total.saturating_add(
-                    exports.capacity() * size_of::<(Name, ModuleExportType)>(),
+                    exports.len() * size_of::<(Name, ModuleExportType)>(),
                 );
                 for export in exports.values() {
                     total = total.saturating_add(export.retained_bytes());
