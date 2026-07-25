@@ -164,6 +164,65 @@ runtime errors and locations, and normalized traces after all frontend and
 adapter scratch is dropped. Run the full protocol with
 `scripts/frontend-campaign-phase4`.
 
+### Top-Level Driver And Effect Boundary
+
+Phase 5 selects coherent top-level regions inside an honestly admitted complete
+program. A file receives an indexed driver only when every executable
+top-level statement and every required function body lowers; otherwise the
+complete driver is rejected. Declarations that require no runtime work become
+explicit `Skip` steps. A committed region can therefore never jump back to the
+arena evaluator or substitute a placeholder instruction.
+
+The finalized driver is compact executable metadata, not an arena-owned
+orchestration shell. `FullDriverStep` rows record one source-ordered operation,
+its exact instruction range, compact location, slot count, slot range, and
+effect bitset. `FullDriverRegion` groups adjacent effect-free steps and isolates
+every import, cwd/env mutation, process boundary, signal/cancellation boundary,
+trace-sensitive operation, dynamic call, defer, propagation, or host operation.
+`FullDriverProgram` owns exact step and region ranges; imported module programs
+are referenced by checked IDs. Admission recurses through every loaded module:
+if any executable module statement lacks a lowered row, the root driver is
+rejected. Compact locations carry their originating `SourceId`, so imported
+module errors and traces continue to identify the module source.
+
+State synchronization is explicit at both levels. A 16-byte
+`FullDriverSlot` maps one runtime binding name and semantic type to a dense
+step-local slot, with separate read, write-back, and mutability flags.
+`FullDriverSync` rows are the deterministic union of those reads and writes for
+one coherent region. Binding definitions and direct assignments are effects of
+their driver step rather than implicit slot write-back. This preserves the
+current distinction between loading captured bindings, writing mutations made
+inside a lowered control statement, and directly defining or assigning a
+top-level binding.
+
+Final verification recomputes every step, region, program, effect, and
+synchronization union. It rejects invalid locations, slot/type bounds, payload
+schemas, effect bits, overlapping or unreachable program/region/sync rows,
+overlapping or unreachable slot rows, step/program cycles or sharing,
+cross-owner instructions and blocks, and gaps in the dense instruction ranges.
+Tests decode the driver into temporary `LoweredTopLevelStmt` values only to
+reuse the current evaluator as the Phase 6 semantic oracle. Values,
+stdout/stderr, status, cwd/env effects, process boundaries, errors, and
+normalized traces compare after the arena and lowering scratch have been
+dropped.
+
+The corpus comparison admits 283 of 287 checked files as complete programs.
+Those programs contain 1,647 driver steps, 705 coherent regions, and 2,919
+region synchronization rows. Driver metadata retains 175,280 bytes. Retaining
+the arena orchestration representation for the same admitted files would keep
+2,935,921 arena bytes in addition to the executable store. The four rejected
+files contain unlowered function bodies; no file is partially committed.
+
+Whole-program single-region lowering has the same honest admission but hides
+effect scheduling inside one broad region. Arena orchestration covers every
+file today but permanently retains a general equal interpreter and the arena.
+Coherent regions were selected because production timing and allocation are
+identical while the Phase 5 store remains test-only, and the representation
+makes each runtime boundary independently verifiable without retaining AST
+nodes. Run the complete comparison with `scripts/frontend-campaign-phase5`.
+Phase 6 installs the verified driver directly and removes the temporary
+recursive decoder and production arena fallback.
+
 ## North Star
 
 - Dense token tables with token tags, byte starts, and compact payloads for data

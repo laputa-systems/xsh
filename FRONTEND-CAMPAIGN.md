@@ -7,7 +7,7 @@
 - [x] Phase 2: replace permissive probing with transactional lowering
 - [x] Phase 3: introduce interned semantic types, signatures, and shapes
 - [x] Phase 4: migrate expressions, statements, patterns, functions, and slots
-- [ ] Phase 5: decide and implement the durable top-level/effect boundary
+- [x] Phase 5: decide and implement the durable top-level/effect boundary
 - [ ] Phase 6: cut production execution over and delete the recursive lowered IR
 - [ ] Phase 7: redesign records and runtime value movement
 - [ ] Phase 8: make dynamic interning reclaimable
@@ -1132,9 +1132,9 @@ This difficult architectural decision occurs before production cutover.
 
 ### Strategies To Compare
 
-- [ ] whole-program lowering with honest whole-program fallback;
-- [ ] coherent top-level regions split at dynamic/effect boundaries;
-- [ ] arena top-level orchestration calling indexed functions.
+- [x] whole-program lowering with honest whole-program fallback;
+- [x] coherent top-level regions split at dynamic/effect boundaries;
+- [x] arena top-level orchestration calling indexed functions.
 
 The third strategy is an experiment and migration fallback, not permission to
 retain a second general production interpreter. It may be selected only if the
@@ -1144,38 +1144,38 @@ evaluation. Otherwise choose whole-program or coherent-region lowering.
 
 ### Required Boundaries
 
-- [ ] imports and module installation;
-- [ ] cwd/environment mutation;
-- [ ] process execution/redirection;
-- [ ] signal hooks and cancellation;
-- [ ] tracing-sensitive operations;
-- [ ] dynamic modules/calls;
-- [ ] top-level bindings captured by functions;
-- [ ] defers and propagated failures.
+- [x] imports and module installation;
+- [x] cwd/environment mutation;
+- [x] process execution/redirection;
+- [x] signal hooks and cancellation;
+- [x] tracing-sensitive operations;
+- [x] dynamic modules/calls;
+- [x] top-level bindings captured by functions;
+- [x] defers and propagated failures.
 
 ### Work Checklist
 
-- [ ] Define explicit effect metadata.
-- [ ] Define exact region state synchronization.
-- [ ] Preserve process/syscall/trace boundaries.
-- [ ] Measure coverage, latency, allocation, retained duplication, and code
+- [x] Define explicit effect metadata.
+- [x] Define exact region state synchronization.
+- [x] Preserve process/syscall/trace boundaries.
+- [x] Measure coverage, latency, allocation, retained duplication, and code
   complexity for all three strategies.
-- [ ] Choose the simplest strategy within measurement noise of the fastest.
-- [ ] Record the decision and rejected alternatives.
-- [ ] Delete machinery belonging only to rejected strategies.
-- [ ] Express any surviving orchestration shell as compact executable metadata,
+- [x] Choose the simplest strategy within measurement noise of the fastest.
+- [x] Record the decision and rejected alternatives.
+- [x] Delete machinery belonging only to rejected strategies.
+- [x] Express any surviving orchestration shell as compact executable metadata,
   not general AST nodes.
 
 ### Exit Gate
 
-- [ ] The boundary has written benchmark/correctness evidence.
-- [ ] Committed regions have no silent internal fallback.
-- [ ] Effects, signals, defers, propagation, imports, and traces have parity.
-- [ ] `xsh_process_pipeline` syscalls do not regress.
-- [ ] Boundary synchronization is compact and documented.
-- [ ] Permanent statement-by-statement dual-representation synchronization is
+- [x] The boundary has written benchmark/correctness evidence.
+- [x] Committed regions have no silent internal fallback.
+- [x] Effects, signals, defers, propagation, imports, and traces have parity.
+- [x] `xsh_process_pipeline` syscalls do not regress.
+- [x] Boundary synchronization is compact and documented.
+- [x] Permanent statement-by-statement dual-representation synchronization is
   absent unless decisive evidence requires it.
-- [ ] The selected final boundary does not require a permanent equal arena
+- [x] The selected final boundary does not require a permanent equal arena
   interpreter.
 
 ## Phase 6: Production Cutover And Recursive IR Deletion
@@ -1669,6 +1669,59 @@ program contains no recursive body. Tests decode into temporary
 oracle. Phase 6 replaces that decoder with direct indexed execution and deletes
 the construction/decode compatibility boundary. Product binaries neither build
 nor install the Phase 4 store.
+
+Date: 2026-07-25
+Phase: 5
+Decision: Select coherent effect regions inside an honestly admitted complete
+driver program. Every executable top-level statement must lower before the
+driver commits; declaration-only source rows become explicit compact skips.
+Each source-ordered driver step owns an instruction range, location, exact
+effect bitset, and typed read/write slot rows. Adjacent effect-free steps share
+a region; imports, cwd/env changes, process work, signals/cancellation,
+trace-sensitive calls, dynamic dispatch, defers, propagation, and host
+operations are isolated boundaries. Region synchronization is a compact
+verified union of step-local binding reads and mutation write-backs.
+Alternatives: One whole-program region has the same honest admission but hides
+effect scheduling and synchronization inside a broad body. Arena top-level
+orchestration covers the remaining four corpus files today but retains
+2,935,921 bytes of general arena state for the admitted corpus and requires a
+permanent equal interpreter. Statement-granular arena/IR fallback was rejected:
+the selected store has no fallback tag and verification rejects every
+executable gap.
+Evidence: `target/frontend-campaign/phase-5/PROTOCOL.md`, `tests.txt`,
+`strategy-summary.txt`, `strategies.txt`, `effects.txt`, `blockers.txt`,
+`ir-layout.txt`, `coverage.json`, `frontend-stats-vertical-slice.json`,
+`bench-fast-1.tsv`, `bench-fast-2.tsv`, `bench-latency-1.tsv`,
+`bench-latency-2.tsv`, and `bench-syscalls.txt`. The 287-file corpus admits 283
+complete programs containing 1,647 steps, 705 coherent regions, and 2,919
+synchronization rows. Driver metadata is 175,280 bytes. All four rejections are
+unlowered function bodies rather than partial top-level commits. Exact decoded
+driver tests preserve values, stdout/stderr, status, cwd/env behavior,
+process execution, signal-hook registration, defers, errors, and normalized
+trace payloads after the arena and construction scratch are dropped. Loaded
+module tests also verify recursive whole-program admission, nested driver
+execution, and cross-source locations. The Phase 5 store remains test-only, so
+the candidate strategies are within production latency/allocation noise;
+serial benchmark runs verify that no production path changed. Process/runtime
+owner files are unchanged, so
+`xsh_process_pipeline` uses the same syscall path; the protocol captures
+`strace` evidence on supported Linux hosts.
+Affected workloads: All Phase 0 corpus roots, the top-level env/cwd/process/
+signal/defer/propagation boundary fixture, `xsh_short_script`,
+`xsh_process_pipeline`, and the complete curated benchmark suite.
+Revisit condition: Phase 6 direct indexed execution requires an effect not
+represented by the driver bitset, or measured direct execution shows that
+region-level synchronization should be made coarser without obscuring a
+runtime boundary.
+
+Temporary execution boundary: `FullDriverStep`, `FullDriverRegion`, and
+`FullDriverProgram` are finalized compact metadata and retain no AST nodes.
+Tests decode them into the recursive `LoweredProgram` solely to use the current
+evaluator as the migration oracle. Phase 6 installs and executes the verified
+rows directly, removes that decoder and the recursive top-level cache, and
+eliminates whole-program arena fallback after the four remaining function
+blockers are represented. No implementation machinery was added for either
+rejected strategy.
 
 ## Completion Report
 

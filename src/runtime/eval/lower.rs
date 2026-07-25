@@ -1550,6 +1550,38 @@ pub(super) fn probe_compact_lower_function_units(
     bodies: &CompactBodyProbeOutput,
     source: &str,
 ) -> Vec<LoweredFunctionUnit> {
+    probe_compact_lower_function_units_inner(
+        program,
+        declarations,
+        bodies,
+        source,
+        None,
+    )
+}
+
+pub(super) fn probe_compact_lower_function_units_with_sources(
+    program: &ArenaProgram,
+    declarations: &CompactDeclOutput,
+    bodies: &CompactBodyProbeOutput,
+    source: &str,
+    sources: &SourceMap,
+) -> Vec<LoweredFunctionUnit> {
+    probe_compact_lower_function_units_inner(
+        program,
+        declarations,
+        bodies,
+        source,
+        Some(sources),
+    )
+}
+
+fn probe_compact_lower_function_units_inner(
+    program: &ArenaProgram,
+    declarations: &CompactDeclOutput,
+    bodies: &CompactBodyProbeOutput,
+    source: &str,
+    sources: Option<&SourceMap>,
+) -> Vec<LoweredFunctionUnit> {
     let root = compact_function_defs(program);
     let candidates = root.iter().map(|function| function.key).collect::<Vec<_>>();
     let mut units = Vec::with_capacity(root.len());
@@ -1570,7 +1602,7 @@ pub(super) fn probe_compact_lower_function_units(
             declarations,
             bodies,
             source,
-            None,
+            sources,
             function.namespace,
             function.id,
             Some(&functions),
@@ -1580,7 +1612,7 @@ pub(super) fn probe_compact_lower_function_units(
             declarations,
             bodies,
             source,
-            sources: None,
+            sources,
             current_namespace: function.namespace,
             functions: Some(&functions),
             top_level_known,

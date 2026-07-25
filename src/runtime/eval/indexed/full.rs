@@ -13,23 +13,72 @@ use crate::runtime::eval::{
     LoweredRunArg, LoweredRunArgKind, LoweredRunCapture, LoweredRunEnv,
     LoweredRunPipelineSegment, LoweredRunRedirection, LoweredSpawnRun, LoweredStmt,
     LoweredStatsValue, LoweredStrPredicate, LoweredTagValue, LoweredType, LoweredTypeCheck,
-    LoweredTopLevelSlot, LoweredValue, ReduceByOp, ScanCheck, ScanCondition,
+    LoweredModuleExport, LoweredModuleExportKind, LoweredProgram, LoweredTopLevelKind,
+    LoweredTopLevelSlot, LoweredTopLevelStmt, LoweredValue, ReduceByOp, ScanCheck, ScanCondition,
 };
 use crate::runtime::value::{DurationValue, FloatValue, FunctionName, PathValue};
 use crate::sema::check::{CompactBodyProbeOutput, CompactDeclOutput};
 use crate::sema::types::{CallableParamType, CallableType, ModuleExportType, Type};
 use crate::source::{SourceId, SourceMap, Span};
 use crate::symbol::{Name, QualifiedName, Symbol};
+use crate::syntax::arena::{ArenaProgram, StmtId};
 use crate::syntax::node::{
     AssignOp, BinaryOp, FormatSpec, FormatSpecKind, RedirectionKind, RunKind,
 };
-use crate::syntax::arena::ArenaProgram;
 use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
 use std::cell::RefCell;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::mem::size_of;
 use std::sync::Arc;
+
+const DRIVER_OWNER_BIT: u32 = 1 << 31;
+const DRIVER_SLOT_READ: u8 = 1;
+const DRIVER_SLOT_WRITE: u8 = 1 << 1;
+const DRIVER_SLOT_MUTABLE: u8 = 1 << 2;
+
+const EFFECT_IMPORT: u32 = 1 << 0;
+const EFFECT_CWD: u32 = 1 << 1;
+const EFFECT_ENV: u32 = 1 << 2;
+const EFFECT_PROCESS: u32 = 1 << 3;
+const EFFECT_SIGNAL: u32 = 1 << 4;
+const EFFECT_CANCELLATION: u32 = 1 << 5;
+const EFFECT_TRACE: u32 = 1 << 6;
+const EFFECT_DYNAMIC_CALL: u32 = 1 << 7;
+const EFFECT_DEFER: u32 = 1 << 8;
+const EFFECT_PROPAGATE: u32 = 1 << 9;
+const EFFECT_HOST: u32 = 1 << 10;
+const EFFECT_BINDING_READ: u32 = 1 << 11;
+const EFFECT_BINDING_WRITE: u32 = 1 << 12;
+
+const EFFECT_BOUNDARY_MASK: u32 = EFFECT_IMPORT
+    | EFFECT_CWD
+    | EFFECT_ENV
+    | EFFECT_PROCESS
+    | EFFECT_SIGNAL
+    | EFFECT_CANCELLATION
+    | EFFECT_TRACE
+    | EFFECT_DYNAMIC_CALL
+    | EFFECT_DEFER
+    | EFFECT_PROPAGATE
+    | EFFECT_HOST;
+const EFFECT_ALL: u32 = EFFECT_BOUNDARY_MASK | EFFECT_BINDING_READ | EFFECT_BINDING_WRITE;
+
+fn driver_owner(index: usize) -> Result<u32, IrBuildError> {
+    let raw = u32::try_from(index)
+        .ok()
+        .and_then(|index| index.checked_add(1))
+        .filter(|index| *index < DRIVER_OWNER_BIT)
+        .ok_or_else(|| IrBuildError::format("driver_step_overflow", None, 0, 0))?;
+    Ok(DRIVER_OWNER_BIT | raw)
+}
+
+fn driver_owner_index(owner: u32) -> Option<usize> {
+    if owner & DRIVER_OWNER_BIT == 0 || owner == IR_NONE {
+        return None;
+    }
+    usize::try_from((owner & !DRIVER_OWNER_BIT).checked_sub(1)?).ok()
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(u8)]
@@ -258,6 +307,69 @@ enum FullValueTag {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u8)]
+enum FullDriverTag {
+    Skip,
+    Use,
+    Let,
+    LetRecord,
+    Assign,
+    Discard,
+    Stmt,
+    Expr,
+    Defer,
+    SignalHook,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(C)]
+struct FullDriverStep {
+    data: IrData,
+    slots: IrRange,
+    instruction_start: u32,
+    slot_count: u32,
+    location: u32,
+    effects: u32,
+    tag: FullDriverTag,
+    reserved: [u8; 3],
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(C)]
+struct FullDriverSlot {
+    name: u32,
+    type_id: TypeId,
+    slot: u32,
+    flags: u8,
+    reserved: [u8; 3],
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(C)]
+struct FullDriverSync {
+    name: u32,
+    type_id: TypeId,
+    flags: u8,
+    reserved: [u8; 3],
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(C)]
+struct FullDriverRegion {
+    steps: IrRange,
+    sync: IrRange,
+    effects: u32,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(C)]
+struct FullDriverProgram {
+    steps: IrRange,
+    regions: IrRange,
+    effects: u32,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(C)]
 struct FullFunction {
     name: u32,
@@ -333,6 +445,12 @@ struct FullStore {
     values: Vec<FullValueTag>,
     value_data: Vec<IrData>,
     blocks: Vec<FullBlock>,
+    driver_steps: Vec<FullDriverStep>,
+    driver_slots: Vec<FullDriverSlot>,
+    driver_sync: Vec<FullDriverSync>,
+    driver_regions: Vec<FullDriverRegion>,
+    driver_programs: Vec<FullDriverProgram>,
+    driver_root: u32,
     functions: Vec<FullFunction>,
     function_instruction_starts: Vec<u32>,
     function_metadata: Vec<FullFunctionMetadata>,
@@ -345,6 +463,7 @@ struct FullStore {
     bytes: Vec<IrRange>,
     byte_data: Vec<u8>,
     locations: Vec<IrLocation>,
+    location_sources: Vec<SourceId>,
     runtime_ops: Vec<RuntimeOp>,
     assign_ops: Vec<AssignOp>,
     binary_ops: Vec<BinaryOp>,
@@ -367,6 +486,12 @@ impl Default for FullStore {
             values: Vec::new(),
             value_data: Vec::new(),
             blocks: Vec::new(),
+            driver_steps: Vec::new(),
+            driver_slots: Vec::new(),
+            driver_sync: Vec::new(),
+            driver_regions: Vec::new(),
+            driver_programs: Vec::new(),
+            driver_root: IR_NONE,
             functions: Vec::new(),
             function_instruction_starts: Vec::new(),
             function_metadata: Vec::new(),
@@ -379,6 +504,7 @@ impl Default for FullStore {
             bytes: Vec::new(),
             byte_data: Vec::new(),
             locations: Vec::new(),
+            location_sources: Vec::new(),
             runtime_ops: Vec::new(),
             assign_ops: Vec::new(),
             binary_ops: Vec::new(),
@@ -441,11 +567,32 @@ impl FullStore {
             .function_instruction_starts
             .get(index + 1)
             .copied()
+            .or_else(|| self.driver_steps.first().map(|step| step.instruction_start))
             .unwrap_or_else(|| self.tags.len() as u32);
         let range = IrRange::new(start, end.saturating_sub(start));
         range
             .bounds(self.tags.len())
             .ok_or_else(|| IrVerifyError::new("function instruction range is invalid"))
+    }
+
+    fn driver_instruction_range(
+        &self,
+        index: usize,
+    ) -> Result<std::ops::Range<usize>, IrVerifyError> {
+        let step = self
+            .driver_steps
+            .get(index)
+            .ok_or_else(|| IrVerifyError::new("driver step is out of bounds"))?;
+        let end = self
+            .driver_steps
+            .get(index + 1)
+            .map_or(self.tags.len() as u32, |next| next.instruction_start);
+        IrRange::new(
+            step.instruction_start,
+            end.saturating_sub(step.instruction_start),
+        )
+        .bounds(self.tags.len())
+        .ok_or_else(|| IrVerifyError::new("driver instruction range is invalid"))
     }
 
     fn retained_bytes(&self) -> usize {
@@ -460,6 +607,11 @@ impl FullStore {
             + self.values.capacity() * size_of::<FullValueTag>()
             + self.value_data.capacity() * size_of::<IrData>()
             + self.blocks.capacity() * size_of::<FullBlock>()
+            + self.driver_steps.capacity() * size_of::<FullDriverStep>()
+            + self.driver_slots.capacity() * size_of::<FullDriverSlot>()
+            + self.driver_sync.capacity() * size_of::<FullDriverSync>()
+            + self.driver_regions.capacity() * size_of::<FullDriverRegion>()
+            + self.driver_programs.capacity() * size_of::<FullDriverProgram>()
             + self.functions.capacity() * size_of::<FullFunction>()
             + self.function_instruction_starts.capacity() * size_of::<u32>()
             + self.function_metadata.capacity() * size_of::<FullFunctionMetadata>()
@@ -472,6 +624,7 @@ impl FullStore {
             + self.bytes.capacity() * size_of::<IrRange>()
             + self.byte_data.capacity()
             + self.locations.capacity() * size_of::<IrLocation>()
+            + self.location_sources.capacity() * size_of::<SourceId>()
             + self.runtime_ops.capacity() * size_of::<RuntimeOp>()
             + self.assign_ops.capacity() * size_of::<AssignOp>()
             + self.binary_ops.capacity() * size_of::<BinaryOp>()
@@ -481,6 +634,14 @@ impl FullStore {
                 .semantic
                 .retained_bytes()
                 .saturating_sub(size_of::<SemanticPools>())
+    }
+
+    fn driver_retained_bytes(&self) -> usize {
+        self.driver_steps.capacity() * size_of::<FullDriverStep>()
+            + self.driver_slots.capacity() * size_of::<FullDriverSlot>()
+            + self.driver_sync.capacity() * size_of::<FullDriverSync>()
+            + self.driver_regions.capacity() * size_of::<FullDriverRegion>()
+            + self.driver_programs.capacity() * size_of::<FullDriverProgram>()
     }
 
     fn shrink_to_fit(&mut self) {
@@ -494,6 +655,11 @@ impl FullStore {
         self.values.shrink_to_fit();
         self.value_data.shrink_to_fit();
         self.blocks.shrink_to_fit();
+        self.driver_steps.shrink_to_fit();
+        self.driver_slots.shrink_to_fit();
+        self.driver_sync.shrink_to_fit();
+        self.driver_regions.shrink_to_fit();
+        self.driver_programs.shrink_to_fit();
         self.functions.shrink_to_fit();
         self.function_instruction_starts.shrink_to_fit();
         self.function_metadata.shrink_to_fit();
@@ -506,6 +672,7 @@ impl FullStore {
         self.bytes.shrink_to_fit();
         self.byte_data.shrink_to_fit();
         self.locations.shrink_to_fit();
+        self.location_sources.shrink_to_fit();
         self.runtime_ops.shrink_to_fit();
         self.assign_ops.shrink_to_fit();
         self.binary_ops.shrink_to_fit();
@@ -549,8 +716,9 @@ impl FullProgram {
             let instruction_len = instructions.len();
             let decoder = FullDecoder {
                 store: &self.store,
-                function: IrFunctionId::new(function_index)
-                    .map_err(|_| IrVerifyError::new("function id is invalid"))?,
+                owner: IrFunctionId::new(function_index)
+                    .map_err(|_| IrVerifyError::new("function id is invalid"))?
+                    .raw(),
                 instruction_range: instructions,
                 instruction_states: RefCell::new(vec![0; instruction_len]),
                 block_states: RefCell::new(vec![0; self.store.blocks.len()]),
@@ -668,6 +836,208 @@ impl FullProgram {
         }
         Ok(decoded)
     }
+
+    fn decode_driver(&self) -> Result<Option<LoweredProgram>, IrVerifyError> {
+        if self.store.driver_root == IR_NONE {
+            return Ok(None);
+        }
+        let mut program_states = vec![0; self.store.driver_programs.len()];
+        let mut step_states = vec![0; self.store.driver_steps.len()];
+        let rows = self.decode_driver_program_rows(
+            self.store.driver_root,
+            &mut program_states,
+            &mut step_states,
+        )?;
+        if program_states.iter().any(|state| *state != 2)
+            || step_states.iter().any(|state| *state != 2)
+        {
+            return Err(IrVerifyError::new(
+                "driver plan contains an unreachable program or step",
+            ));
+        }
+        Ok(Some(LoweredProgram {
+            statements: rows
+                .into_iter()
+                .map(|(_, statement)| statement)
+                .collect(),
+        }))
+    }
+
+    fn decode_driver_program_rows(
+        &self,
+        raw: u32,
+        program_states: &mut [u8],
+        step_states: &mut [u8],
+    ) -> Result<Vec<(Span, Option<LoweredTopLevelStmt>)>, IrVerifyError> {
+        let index = raw
+            .checked_sub(1)
+            .map(|index| index as usize)
+            .filter(|index| *index < self.store.driver_programs.len())
+            .ok_or_else(|| IrVerifyError::new("driver program id is out of bounds"))?;
+        match program_states[index] {
+            0 => program_states[index] = 1,
+            1 => return Err(IrVerifyError::new("driver program graph contains a cycle")),
+            2 => {
+                return Err(IrVerifyError::new(
+                    "driver program is owned by multiple import steps",
+                ));
+            }
+            _ => unreachable!("driver program state is bounded"),
+        }
+        let program = self.store.driver_programs[index];
+        let steps = program
+            .steps
+            .bounds(self.store.driver_steps.len())
+            .ok_or_else(|| IrVerifyError::new("driver program step range is invalid"))?;
+        let mut rows = Vec::with_capacity(steps.len());
+        for step_index in steps {
+            match step_states[step_index] {
+                0 => step_states[step_index] = 1,
+                1 => return Err(IrVerifyError::new("driver step graph contains a cycle")),
+                2 => {
+                    return Err(IrVerifyError::new(
+                        "driver step is owned by multiple programs",
+                    ));
+                }
+                _ => unreachable!("driver step state is bounded"),
+            }
+            rows.push(self.decode_driver_step(
+                step_index,
+                program_states,
+                step_states,
+            )?);
+            step_states[step_index] = 2;
+        }
+        program_states[index] = 2;
+        Ok(rows)
+    }
+
+    fn decode_driver_step(
+        &self,
+        step_index: usize,
+        program_states: &mut [u8],
+        step_states: &mut [u8],
+    ) -> Result<(Span, Option<LoweredTopLevelStmt>), IrVerifyError> {
+        let step = self.store.driver_steps[step_index];
+        let instruction_range = self.store.driver_instruction_range(step_index)?;
+        let decoder = FullDecoder {
+            store: &self.store,
+            owner: driver_owner(step_index)
+                .map_err(|_| IrVerifyError::new("driver owner is invalid"))?,
+            instruction_states: RefCell::new(vec![0; instruction_range.len()]),
+            instruction_range,
+            block_states: RefCell::new(vec![0; self.store.blocks.len()]),
+            slot_count: step.slot_count,
+        };
+        let location_words = [step.location];
+        let mut location = FullCursor::new(&location_words);
+        let source_span = Span::decode(&decoder, &mut location)?;
+        location.finish()?;
+        let slots_range = step
+            .slots
+            .bounds(self.store.driver_slots.len())
+            .ok_or_else(|| IrVerifyError::new("driver slot range is invalid"))?;
+        let mut slots = SmallVec::new();
+        for slot in &self.store.driver_slots[slots_range] {
+            if slot.flags & !(DRIVER_SLOT_READ | DRIVER_SLOT_WRITE | DRIVER_SLOT_MUTABLE) != 0
+                || slot.flags & DRIVER_SLOT_READ == 0
+                || slot.slot >= step.slot_count
+            {
+                return Err(IrVerifyError::new("driver slot metadata is invalid"));
+            }
+            self.store.string(slot.name)?;
+            let kind = lowered_type_from_type(&self.store.semantic.to_type(slot.type_id)?)?;
+            slots.push(LoweredTopLevelSlot {
+                name: Name::intern(self.store.string(slot.name)?),
+                slot: slot.slot as usize,
+                kind,
+                mutable: slot.flags & DRIVER_SLOT_MUTABLE != 0,
+            });
+        }
+        let mut payload = FullCursor::new(self.store.payload(step.data.range())?);
+        let kind = match step.tag {
+            FullDriverTag::Skip => {
+                payload.finish()?;
+                decoder.finish_function()?;
+                return Ok((source_span, None));
+            }
+            FullDriverTag::Use => {
+                let key = Arc::<str>::decode(&decoder, &mut payload)?;
+                let alias = Option::<Name>::decode(&decoder, &mut payload)?;
+                let path = Vec::<Name>::decode(&decoder, &mut payload)?;
+                let namespace = Name::decode(&decoder, &mut payload)?;
+                let exports = Vec::<LoweredModuleExport>::decode(&decoder, &mut payload)?;
+                let child = payload.raw()?;
+                let span = Span::decode(&decoder, &mut payload)?;
+                let module_statements = self
+                    .decode_driver_program_rows(child, program_states, step_states)?
+                    .into_iter()
+                    .filter_map(|(span, statement)| Some((span, statement?)))
+                    .collect();
+                LoweredTopLevelKind::Use {
+                    key,
+                    alias,
+                    path,
+                    namespace,
+                    exports,
+                    module_statements,
+                    span,
+                }
+            }
+            FullDriverTag::Let => LoweredTopLevelKind::Let {
+                target: Name::decode(&decoder, &mut payload)?,
+                ty: Option::<LoweredType>::decode(&decoder, &mut payload)?,
+                validation: Option::<LoweredTypeCheck>::decode(&decoder, &mut payload)?,
+                mutable: bool::decode(&decoder, &mut payload)?,
+                value: LoweredExpr::decode(&decoder, &mut payload)?,
+                value_span: Span::decode(&decoder, &mut payload)?,
+            },
+            FullDriverTag::LetRecord => LoweredTopLevelKind::LetRecord {
+                source: LoweredExpr::decode(&decoder, &mut payload)?,
+                fields: Vec::<Name>::decode(&decoder, &mut payload)?,
+                mutable: bool::decode(&decoder, &mut payload)?,
+                span: Span::decode(&decoder, &mut payload)?,
+            },
+            FullDriverTag::Assign => LoweredTopLevelKind::Assign {
+                target: Name::decode(&decoder, &mut payload)?,
+                op: AssignOp::decode(&decoder, &mut payload)?,
+                value: LoweredExpr::decode(&decoder, &mut payload)?,
+                span: Span::decode(&decoder, &mut payload)?,
+            },
+            FullDriverTag::Discard => LoweredTopLevelKind::Discard {
+                value: LoweredExpr::decode(&decoder, &mut payload)?,
+                span: Span::decode(&decoder, &mut payload)?,
+            },
+            FullDriverTag::Stmt => {
+                LoweredTopLevelKind::Stmt(LoweredStmt::decode(&decoder, &mut payload)?)
+            }
+            FullDriverTag::Expr => {
+                LoweredTopLevelKind::Expr(LoweredExpr::decode(&decoder, &mut payload)?)
+            }
+            FullDriverTag::Defer => LoweredTopLevelKind::Defer {
+                value: LoweredExpr::decode(&decoder, &mut payload)?,
+                span: Span::decode(&decoder, &mut payload)?,
+            },
+            FullDriverTag::SignalHook => LoweredTopLevelKind::SignalHook {
+                signal: Name::decode(&decoder, &mut payload)?,
+                pre_cancel: Option::<String>::decode(&decoder, &mut payload)?,
+                body: Vec::<LoweredStmt>::decode(&decoder, &mut payload)?,
+                slots: Vec::<LoweredTopLevelSlot>::decode(&decoder, &mut payload)?,
+                slot_count: payload.raw()? as usize,
+                span: Span::decode(&decoder, &mut payload)?,
+            },
+        };
+        payload.finish()?;
+        decoder.finish_function()?;
+        Ok((
+            source_span,
+            Some(LoweredTopLevelStmt {
+                kind,
+                slots,
+                slot_count: step.slot_count as usize,
+            }),
+        ))
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -678,6 +1048,12 @@ struct FullCheckpoint {
     stages: usize,
     values: usize,
     blocks: usize,
+    driver_steps: usize,
+    driver_slots: usize,
+    driver_sync: usize,
+    driver_regions: usize,
+    driver_programs: usize,
+    driver_root: u32,
     params: usize,
     captures: usize,
     validations: usize,
@@ -700,9 +1076,10 @@ struct FullBuilder {
     semantic: SemanticPoolBuilder,
     strings: BTreeMap<String, IrStringId>,
     bytes: BTreeMap<Vec<u8>, super::IrBytesId>,
-    locations: BTreeMap<(u32, u32), IrLocationId>,
+    locations: BTreeMap<(SourceId, u32, u32), IrLocationId>,
     function_ids: BTreeMap<LoweredFunctionKey, IrFunctionId>,
-    current_function: Option<IrFunctionId>,
+    current_owner: Option<u32>,
+    current_slot_count: u32,
 }
 
 impl FullBuilder {
@@ -721,6 +1098,15 @@ impl FullBuilder {
         sources: Arc<SourceMap>,
         source_id: SourceId,
     ) -> Result<FullProgram, IrBuildError> {
+        Self::build_with_driver(units, None, sources, source_id)
+    }
+
+    fn build_with_driver(
+        units: &[LoweredFunctionUnit],
+        driver: Option<(&LoweredProgram, &[StmtId], &ArenaProgram)>,
+        sources: Arc<SourceMap>,
+        source_id: SourceId,
+    ) -> Result<FullProgram, IrBuildError> {
         let mut builder = Self::new(source_id);
         let mut units = units.iter().collect::<Vec<_>>();
         units.sort_by_key(|unit| (unit.source_span().start(), unit.key().display_name()));
@@ -736,10 +1122,22 @@ impl FullBuilder {
             })?;
             let checkpoint = builder.checkpoint();
             let function = builder.function_ids[&unit.key()];
-            builder.current_function = Some(function);
+            builder.current_owner = Some(function.raw());
+            builder.current_slot_count = body.slot_count as u32;
             let result = builder.encode_body(function, &body);
-            builder.current_function = None;
+            builder.current_owner = None;
+            builder.current_slot_count = 0;
             if let Err(mut error) = result {
+                error.attempted_instructions =
+                    builder.store.tags.len().saturating_sub(checkpoint.tags);
+                builder.rewind(checkpoint);
+                error.committed_instructions = builder.store.tags.len();
+                return Err(error);
+            }
+        }
+        if let Some((driver, source_statements, arena)) = driver {
+            let checkpoint = builder.checkpoint();
+            if let Err(mut error) = builder.encode_driver_root(driver, source_statements, arena) {
                 error.attempted_instructions =
                     builder.store.tags.len().saturating_sub(checkpoint.tags);
                 builder.rewind(checkpoint);
@@ -765,16 +1163,58 @@ impl FullBuilder {
         sources: Arc<SourceMap>,
         source_id: SourceId,
     ) -> Result<FullProgram, IrBuildError> {
-        // Phase 4 freezes the complete committed body vocabulary. The recursive
-        // units are construction scratch until Phase 6 moves this sink into the
-        // production lowerer and executes the verified store directly.
-        let units = super::super::probe_compact_lower_function_units(
+        let units = super::super::lower::probe_compact_lower_function_units_with_sources(
             program,
             declarations,
             bodies,
             source,
+            &sources,
         );
-        Self::build(&units, sources, source_id)
+        let mut pures = FxHashMap::default();
+        let mut procs = FxHashMap::default();
+        let mut qualified_pures = FxHashMap::default();
+        let mut qualified_procs = FxHashMap::default();
+        for unit in &units {
+            let Some(body) = unit.lowered_body() else {
+                continue;
+            };
+            match (unit.key(), unit.kind()) {
+                (LoweredFunctionKey::Name(name), LoweredFunctionKind::Pure) => {
+                    pures.insert(name, body);
+                }
+                (LoweredFunctionKey::Name(name), LoweredFunctionKind::Proc) => {
+                    procs.insert(name, body);
+                }
+                (LoweredFunctionKey::Qualified(name), LoweredFunctionKind::Pure) => {
+                    qualified_pures.insert(name, body);
+                }
+                (LoweredFunctionKey::Qualified(name), LoweredFunctionKind::Proc) => {
+                    qualified_procs.insert(name, body);
+                }
+            }
+        }
+        let functions = super::super::LowerableFunctions::all(
+            &pures,
+            &procs,
+            &qualified_pures,
+            &qualified_procs,
+        );
+        let (driver, _) = super::super::lower::lower_compact_top_level_program_with_probe(
+            program,
+            declarations,
+            bodies,
+            source,
+            &sources,
+            &functions,
+            true,
+        );
+        let source_statements = program.statement_ids().collect::<Vec<_>>();
+        Self::build_with_driver(
+            &units,
+            Some((&driver, &source_statements, program)),
+            sources,
+            source_id,
+        )
     }
 
     fn predeclare(&mut self, units: &[&LoweredFunctionUnit]) -> Result<(), IrBuildError> {
@@ -788,6 +1228,14 @@ impl FullBuilder {
                 )
             })?;
             let function_id = IrFunctionId::new(self.store.functions.len())?;
+            if function_id.raw() & DRIVER_OWNER_BIT != 0 {
+                return Err(IrBuildError::format(
+                    "function_owner_overflow",
+                    Some(unit.source_span()),
+                    0,
+                    self.store.tags.len(),
+                ));
+            }
             let name = self.intern_function_key(unit.key())?;
             let owner = unit
                 .owner()
@@ -899,14 +1347,432 @@ impl FullBuilder {
         Ok(())
     }
 
+    fn encode_driver_root(
+        &mut self,
+        program: &LoweredProgram,
+        source_statements: &[StmtId],
+        arena: &ArenaProgram,
+    ) -> Result<(), IrBuildError> {
+        if program.statements.len() != source_statements.len() {
+            return Err(IrBuildError::format(
+                "driver_statement_count",
+                None,
+                0,
+                self.store.tags.len(),
+            ));
+        }
+        let mut statements = Vec::with_capacity(source_statements.len());
+        for (source_stmt, lowered) in source_statements.iter().zip(&program.statements) {
+            let span = arena.arena.stmt(*source_stmt).span;
+            if lowered.is_none()
+                && !super::super::compact_top_level_stmt_is_skippable(
+                    arena,
+                    *source_stmt,
+                    false,
+                )
+            {
+                return Err(IrBuildError::format(
+                    "top_level_boundary_blocker",
+                    Some(span),
+                    0,
+                    self.store.tags.len(),
+                ));
+            }
+            statements.push((span, lowered.as_ref()));
+        }
+        for (_, statement) in &statements {
+            if let Some(statement) = statement {
+                Self::validate_driver_imports(arena, statement)?;
+            }
+        }
+        self.store.driver_root = self.encode_driver_program(&statements, arena)?;
+        Ok(())
+    }
+
+    fn validate_driver_imports(
+        arena: &ArenaProgram,
+        statement: &LoweredTopLevelStmt,
+    ) -> Result<(), IrBuildError> {
+        let LoweredTopLevelKind::Use {
+            key,
+            module_statements,
+            span,
+            ..
+        } = &statement.kind
+        else {
+            return Ok(());
+        };
+        let module = arena
+            .modules
+            .iter()
+            .find(|module| module.key.as_str() == key.as_ref())
+            .ok_or_else(|| {
+                IrBuildError::format("driver_import_module", Some(*span), 0, 0)
+            })?;
+        let lowered_spans = module_statements
+            .iter()
+            .map(|(span, _)| (span.source_id, span.start(), span.end()))
+            .collect::<BTreeSet<_>>();
+        let source_spans = arena
+            .module_statements(module)
+            .map(|statement| {
+                let span = arena.arena.stmt(statement).span;
+                (span.source_id, span.start(), span.end())
+            })
+            .collect::<BTreeSet<_>>();
+        if lowered_spans.len() != module_statements.len()
+            || !lowered_spans.is_subset(&source_spans)
+        {
+            return Err(IrBuildError::format(
+                "driver_import_statement",
+                Some(*span),
+                0,
+                0,
+            ));
+        }
+        for source_statement in arena.module_statements(module) {
+            if super::super::compact_top_level_stmt_is_skippable(
+                arena,
+                source_statement,
+                false,
+            ) {
+                continue;
+            }
+            let source_span = arena.arena.stmt(source_statement).span;
+            let key = (source_span.source_id, source_span.start(), source_span.end());
+            if !lowered_spans.contains(&key) {
+                return Err(IrBuildError::format(
+                    "module_top_level_boundary_blocker",
+                    Some(source_span),
+                    0,
+                    0,
+                ));
+            }
+        }
+        for (_, module_statement) in module_statements {
+            Self::validate_driver_imports(arena, module_statement)?;
+        }
+        Ok(())
+    }
+
+    fn encode_driver_program(
+        &mut self,
+        statements: &[(Span, Option<&LoweredTopLevelStmt>)],
+        arena: &ArenaProgram,
+    ) -> Result<u32, IrBuildError> {
+        let mut child_programs = Vec::with_capacity(statements.len());
+        for (_, statement) in statements {
+            let child = match statement.map(|statement| &statement.kind) {
+                Some(LoweredTopLevelKind::Use {
+                    key,
+                    module_statements,
+                    span,
+                    ..
+                }) => {
+                    let module = arena
+                        .modules
+                        .iter()
+                        .find(|module| module.key.as_str() == key.as_ref())
+                        .ok_or_else(|| {
+                            IrBuildError::format(
+                                "driver_import_module",
+                                Some(*span),
+                                0,
+                                self.store.tags.len(),
+                            )
+                        })?;
+                    let lowered = module_statements
+                        .iter()
+                        .map(|(span, statement)| {
+                            (
+                                (span.source_id, span.start(), span.end()),
+                                statement,
+                            )
+                        })
+                        .collect::<BTreeMap<_, _>>();
+                    let child_statements = arena
+                        .module_statements(module)
+                        .map(|source_statement| {
+                            let span = arena.arena.stmt(source_statement).span;
+                            let key = (span.source_id, span.start(), span.end());
+                            (span, lowered.get(&key).copied())
+                        })
+                        .collect::<Vec<_>>();
+                    Some(self.encode_driver_program(&child_statements, arena)?)
+                }
+                _ => None,
+            };
+            child_programs.push(child);
+        }
+
+        let steps_start = self.store.driver_steps.len();
+        for ((span, statement), child_program) in statements.iter().zip(child_programs) {
+            self.encode_driver_step(*span, *statement, child_program)?;
+        }
+        let steps = table_range(steps_start, self.store.driver_steps.len())?;
+        let regions_start = self.store.driver_regions.len();
+        let mut cursor = steps_start;
+        while cursor < self.store.driver_steps.len() {
+            let first_effects = self.store.driver_steps[cursor].effects;
+            let end = if first_effects & EFFECT_BOUNDARY_MASK != 0 {
+                cursor + 1
+            } else {
+                let mut end = cursor + 1;
+                while end < self.store.driver_steps.len()
+                    && self.store.driver_steps[end].effects & EFFECT_BOUNDARY_MASK == 0
+                {
+                    end += 1;
+                }
+                end
+            };
+            self.push_driver_region(cursor, end)?;
+            cursor = end;
+        }
+        let regions = table_range(regions_start, self.store.driver_regions.len())?;
+        let effects = self.store.driver_steps[steps_start..]
+            .iter()
+            .fold(0, |effects, step| effects | step.effects);
+        let program_id = u32::try_from(self.store.driver_programs.len())
+            .ok()
+            .and_then(|index| index.checked_add(1))
+            .filter(|raw| *raw != IR_NONE)
+            .ok_or_else(|| IrBuildError::format("driver_program_overflow", None, 0, 0))?;
+        self.store.driver_programs.push(FullDriverProgram {
+            steps,
+            regions,
+            effects,
+        });
+        Ok(program_id)
+    }
+
+    fn encode_driver_step(
+        &mut self,
+        span: Span,
+        statement: Option<&LoweredTopLevelStmt>,
+        child_program: Option<u32>,
+    ) -> Result<(), IrBuildError> {
+        let step_index = self.store.driver_steps.len();
+        let owner = driver_owner(step_index)?;
+        let instruction_start = u32::try_from(self.store.tags.len())
+            .map_err(|_| IrBuildError::format("instruction_overflow", None, 0, 0))?;
+        let slots_start = self.store.driver_slots.len();
+        let slot_count = statement.map_or(0, |statement| statement.slot_count);
+        let write_slots = statement.is_some_and(|statement| {
+            matches!(statement.kind, LoweredTopLevelKind::Stmt(_))
+        });
+        if let Some(statement) = statement {
+            for slot in &statement.slots {
+                let slot_index = u32::try_from(slot.slot).map_err(|_| {
+                    IrBuildError::format("driver_slot_overflow", None, 0, 0)
+                })?;
+                let type_id = self.intern_lowered_type(slot.kind)?;
+                let name = self.intern_string(slot.name.as_str())?.raw();
+                self.store.driver_slots.push(FullDriverSlot {
+                    name,
+                    type_id,
+                    slot: slot_index,
+                    flags: DRIVER_SLOT_READ
+                        | if write_slots && slot.mutable {
+                            DRIVER_SLOT_WRITE
+                        } else {
+                            0
+                        }
+                        | if slot.mutable {
+                            DRIVER_SLOT_MUTABLE
+                        } else {
+                            0
+                        },
+                    reserved: [0; 3],
+                });
+            }
+        }
+        let slots = table_range(slots_start, self.store.driver_slots.len())?;
+        self.current_owner = Some(owner);
+        self.current_slot_count = u32::try_from(slot_count)
+            .map_err(|_| IrBuildError::format("slot_overflow", None, 0, 0))?;
+        let mut payload = Vec::new();
+        let tag = match statement.map(|statement| &statement.kind) {
+            None => FullDriverTag::Skip,
+            Some(LoweredTopLevelKind::Use {
+                key,
+                alias,
+                path,
+                namespace,
+                exports,
+                span,
+                ..
+            }) => {
+                key.encode(self, &mut payload)?;
+                alias.encode(self, &mut payload)?;
+                path.encode(self, &mut payload)?;
+                namespace.encode(self, &mut payload)?;
+                exports.encode(self, &mut payload)?;
+                payload.push(child_program.ok_or_else(|| {
+                    IrBuildError::format("driver_use_program", Some(*span), 0, 0)
+                })?);
+                span.encode(self, &mut payload)?;
+                FullDriverTag::Use
+            }
+            Some(LoweredTopLevelKind::Let {
+                target,
+                ty,
+                validation,
+                mutable,
+                value,
+                value_span,
+            }) => {
+                target.encode(self, &mut payload)?;
+                ty.encode(self, &mut payload)?;
+                validation.encode(self, &mut payload)?;
+                mutable.encode(self, &mut payload)?;
+                value.encode(self, &mut payload)?;
+                value_span.encode(self, &mut payload)?;
+                FullDriverTag::Let
+            }
+            Some(LoweredTopLevelKind::LetRecord {
+                source,
+                fields,
+                mutable,
+                span,
+            }) => {
+                source.encode(self, &mut payload)?;
+                fields.encode(self, &mut payload)?;
+                mutable.encode(self, &mut payload)?;
+                span.encode(self, &mut payload)?;
+                FullDriverTag::LetRecord
+            }
+            Some(LoweredTopLevelKind::Assign {
+                target,
+                op,
+                value,
+                span,
+            }) => {
+                target.encode(self, &mut payload)?;
+                op.encode(self, &mut payload)?;
+                value.encode(self, &mut payload)?;
+                span.encode(self, &mut payload)?;
+                FullDriverTag::Assign
+            }
+            Some(LoweredTopLevelKind::Discard { value, span }) => {
+                value.encode(self, &mut payload)?;
+                span.encode(self, &mut payload)?;
+                FullDriverTag::Discard
+            }
+            Some(LoweredTopLevelKind::Stmt(statement)) => {
+                statement.encode(self, &mut payload)?;
+                FullDriverTag::Stmt
+            }
+            Some(LoweredTopLevelKind::Expr(value)) => {
+                value.encode(self, &mut payload)?;
+                FullDriverTag::Expr
+            }
+            Some(LoweredTopLevelKind::Defer { value, span }) => {
+                value.encode(self, &mut payload)?;
+                span.encode(self, &mut payload)?;
+                FullDriverTag::Defer
+            }
+            Some(LoweredTopLevelKind::SignalHook {
+                signal,
+                pre_cancel,
+                body,
+                slots,
+                slot_count,
+                span,
+            }) => {
+                signal.encode(self, &mut payload)?;
+                pre_cancel.encode(self, &mut payload)?;
+                body.encode(self, &mut payload)?;
+                slots.encode(self, &mut payload)?;
+                payload.push(u32::try_from(*slot_count).map_err(|_| {
+                    IrBuildError::format("signal_hook_slot_overflow", Some(*span), 0, 0)
+                })?);
+                span.encode(self, &mut payload)?;
+                FullDriverTag::SignalHook
+            }
+        };
+        self.current_owner = None;
+        self.current_slot_count = 0;
+        let data = self.push_extra(&payload)?;
+        let location = self.intern_location(span)?.raw();
+        let mut effects = driver_tag_effects(tag);
+        if slots.len != 0 {
+            effects |= EFFECT_BINDING_READ;
+        }
+        if self.store.driver_slots[slots.bounds(self.store.driver_slots.len()).unwrap()]
+            .iter()
+            .any(|slot| slot.flags & DRIVER_SLOT_WRITE != 0)
+            || driver_tag_writes_binding(tag)
+        {
+            effects |= EFFECT_BINDING_WRITE;
+        }
+        effects |= instruction_effects(
+            &self.store.tags[instruction_start as usize..],
+        );
+        self.store.driver_steps.push(FullDriverStep {
+            data: IrData::new(data.start, data.len),
+            slots,
+            instruction_start,
+            slot_count: u32::try_from(slot_count)
+                .map_err(|_| IrBuildError::format("slot_overflow", None, 0, 0))?,
+            location,
+            effects,
+            tag,
+            reserved: [0; 3],
+        });
+        Ok(())
+    }
+
+    fn push_driver_region(&mut self, start: usize, end: usize) -> Result<(), IrBuildError> {
+        let mut effects = 0;
+        let mut sync = BTreeMap::<u32, (TypeId, u8)>::new();
+        for step in &self.store.driver_steps[start..end] {
+            effects |= step.effects;
+            let slots = step
+                .slots
+                .bounds(self.store.driver_slots.len())
+                .ok_or_else(|| IrBuildError::format("driver_slot_range", None, 0, 0))?;
+            for slot in &self.store.driver_slots[slots] {
+                let flags = slot.flags & (DRIVER_SLOT_READ | DRIVER_SLOT_WRITE);
+                if let Some((type_id, existing)) = sync.get_mut(&slot.name) {
+                    if *type_id != slot.type_id {
+                        return Err(IrBuildError::format(
+                            "driver_sync_type_conflict",
+                            None,
+                            0,
+                            self.store.tags.len(),
+                        ));
+                    }
+                    *existing |= flags;
+                } else {
+                    sync.insert(slot.name, (slot.type_id, flags));
+                }
+            }
+        }
+        let sync_start = self.store.driver_sync.len();
+        for (name, (type_id, flags)) in sync {
+            self.store.driver_sync.push(FullDriverSync {
+                name,
+                type_id,
+                flags,
+                reserved: [0; 3],
+            });
+        }
+        self.store.driver_regions.push(FullDriverRegion {
+            steps: table_range(start, end)?,
+            sync: table_range(sync_start, self.store.driver_sync.len())?,
+            effects,
+        });
+        Ok(())
+    }
+
     fn push_instruction(
         &mut self,
         tag: FullTag,
         payload: &[u32],
     ) -> Result<u32, IrBuildError> {
         let function = self
-            .current_function
-            .ok_or_else(|| IrBuildError::format("missing_function_owner", None, 0, 0))?;
+            .current_owner
+            .ok_or_else(|| IrBuildError::format("missing_instruction_owner", None, 0, 0))?;
         let id = u32::try_from(self.store.tags.len())
             .map_err(|_| IrBuildError::format("instruction_overflow", None, 0, 0))?;
         let range = self.push_extra(payload)?;
@@ -916,7 +1782,7 @@ impl FullBuilder {
             .push(IrData::new(range.start, range.len));
         debug_assert_eq!(
             function,
-            self.current_function.expect("function owner remains set")
+            self.current_owner.expect("instruction owner remains set")
         );
         Ok(id)
     }
@@ -972,7 +1838,7 @@ impl FullBuilder {
         self.store.blocks.push(FullBlock {
             instructions,
             result: IR_NONE,
-            owner: self.current_function.map_or(IR_NONE, IrFunctionId::raw),
+            owner: self.current_owner.unwrap_or(IR_NONE),
             flags,
             reserved: [0; 3],
         });
@@ -1026,21 +1892,14 @@ impl FullBuilder {
     }
 
     fn intern_location(&mut self, span: Span) -> Result<IrLocationId, IrBuildError> {
-        if span.source_id != self.store.source_id {
-            return Err(IrBuildError::format(
-                "cross_source_location",
-                Some(span),
-                0,
-                0,
-            ));
-        }
         let location = IrLocation::from_span(span)?;
-        let key = (location.start, location.len);
+        let key = (span.source_id, location.start, location.len);
         if let Some(id) = self.locations.get(&key) {
             return Ok(*id);
         }
         let id = IrLocationId::new(self.store.locations.len())?;
         self.store.locations.push(location);
+        self.store.location_sources.push(span.source_id);
         self.locations.insert(key, id);
         Ok(id)
     }
@@ -1106,6 +1965,12 @@ impl FullBuilder {
             stages: self.store.stages.len(),
             values: self.store.values.len(),
             blocks: self.store.blocks.len(),
+            driver_steps: self.store.driver_steps.len(),
+            driver_slots: self.store.driver_slots.len(),
+            driver_sync: self.store.driver_sync.len(),
+            driver_regions: self.store.driver_regions.len(),
+            driver_programs: self.store.driver_programs.len(),
+            driver_root: self.store.driver_root,
             params: self.store.params.len(),
             captures: self.store.captures.len(),
             validations: self.store.validations.len(),
@@ -1134,6 +1999,14 @@ impl FullBuilder {
         self.store.values.truncate(checkpoint.values);
         self.store.value_data.truncate(checkpoint.values);
         self.store.blocks.truncate(checkpoint.blocks);
+        self.store.driver_steps.truncate(checkpoint.driver_steps);
+        self.store.driver_slots.truncate(checkpoint.driver_slots);
+        self.store.driver_sync.truncate(checkpoint.driver_sync);
+        self.store.driver_regions.truncate(checkpoint.driver_regions);
+        self.store
+            .driver_programs
+            .truncate(checkpoint.driver_programs);
+        self.store.driver_root = checkpoint.driver_root;
         self.store.params.truncate(checkpoint.params);
         self.store.captures.truncate(checkpoint.captures);
         self.store.validations.truncate(checkpoint.validations);
@@ -1142,6 +2015,7 @@ impl FullBuilder {
         self.store.bytes.truncate(checkpoint.bytes);
         self.store.byte_data.truncate(checkpoint.byte_data);
         self.store.locations.truncate(checkpoint.locations);
+        self.store.location_sources.truncate(checkpoint.locations);
         self.store.runtime_ops.truncate(checkpoint.runtime_ops);
         self.store.assign_ops.truncate(checkpoint.assign_ops);
         self.store.binary_ops.truncate(checkpoint.binary_ops);
@@ -1164,6 +2038,99 @@ fn table_range(start: usize, end: usize) -> Result<IrRange, IrBuildError> {
         u32::try_from(end.saturating_sub(start))
             .map_err(|_| IrBuildError::format("table_overflow", None, 0, 0))?,
     ))
+}
+
+fn driver_tag_effects(tag: FullDriverTag) -> u32 {
+    match tag {
+        FullDriverTag::Use => EFFECT_IMPORT | EFFECT_DYNAMIC_CALL | EFFECT_TRACE,
+        FullDriverTag::Defer => EFFECT_DEFER | EFFECT_PROPAGATE | EFFECT_TRACE,
+        FullDriverTag::SignalHook => {
+            EFFECT_SIGNAL | EFFECT_CANCELLATION | EFFECT_TRACE
+        }
+        FullDriverTag::Skip
+        | FullDriverTag::Let
+        | FullDriverTag::LetRecord
+        | FullDriverTag::Assign
+        | FullDriverTag::Discard
+        | FullDriverTag::Stmt
+        | FullDriverTag::Expr => 0,
+    }
+}
+
+fn driver_tag_writes_binding(tag: FullDriverTag) -> bool {
+    matches!(
+        tag,
+        FullDriverTag::Use
+            | FullDriverTag::Let
+            | FullDriverTag::LetRecord
+            | FullDriverTag::Assign
+    )
+}
+
+fn instruction_effects(tags: &[FullTag]) -> u32 {
+    tags.iter().fold(0, |effects, tag| {
+        effects
+            | match tag {
+                FullTag::StmtCd => EFFECT_CWD | EFFECT_HOST | EFFECT_TRACE,
+                FullTag::StmtEnv => EFFECT_ENV | EFFECT_HOST | EFFECT_TRACE,
+                FullTag::ExprRunCapture
+                | FullTag::ExprRunPipeline
+                | FullTag::ExprSpawnRun
+                | FullTag::ExprSpawnCommand
+                | FullTag::ExprWait
+                | FullTag::ExprProcessCommandArgv
+                | FullTag::ExprProcessCommandBuilder
+                | FullTag::StmtRun => {
+                    EFFECT_PROCESS
+                        | EFFECT_CANCELLATION
+                        | EFFECT_PROPAGATE
+                        | EFFECT_HOST
+                        | EFFECT_TRACE
+                }
+                FullTag::ExprAbort => {
+                    EFFECT_SIGNAL | EFFECT_CANCELLATION | EFFECT_PROPAGATE | EFFECT_TRACE
+                }
+                FullTag::ExprDynamicCall => EFFECT_DYNAMIC_CALL | EFFECT_TRACE,
+                FullTag::ExprCall | FullTag::ExprSelfCall => EFFECT_TRACE,
+                FullTag::ExprModuleCall | FullTag::StmtProc => EFFECT_HOST | EFFECT_TRACE,
+                FullTag::StmtPrint => EFFECT_HOST | EFFECT_TRACE,
+                FullTag::ExprFsFiles
+                | FullTag::ExprFsWalk
+                | FullTag::ExprFsList
+                | FullTag::ExprFsTempDir
+                | FullTag::ExprFsWrite
+                | FullTag::ExprFsMkdir
+                | FullTag::ExprFsRemove
+                | FullTag::ExprFsCloseRoot
+                | FullTag::ExprFsRootPath
+                | FullTag::ExprPathReadText
+                | FullTag::ExprPathReadBytes
+                | FullTag::ExprPathExists
+                | FullTag::ExprPathExecutable
+                | FullTag::ExprPathDu
+                | FullTag::ExprPathMetadata
+                | FullTag::ExprPathReadlink
+                | FullTag::ExprPathResolve
+                | FullTag::ExprPathWrite
+                | FullTag::ExprPathMkdir
+                | FullTag::ExprPathRemove
+                | FullTag::ExprArchiveTarCreate
+                | FullTag::ExprArchiveTarList
+                | FullTag::ExprArchiveTarExtract
+                | FullTag::ExprHashVerifyFile => EFFECT_HOST | EFFECT_TRACE,
+                FullTag::ExprTry | FullTag::StmtGuard => EFFECT_PROPAGATE | EFFECT_TRACE,
+                FullTag::StmtDefer => EFFECT_DEFER | EFFECT_PROPAGATE | EFFECT_TRACE,
+                FullTag::ExprLoop
+                | FullTag::StmtLoop
+                | FullTag::StmtWhile
+                | FullTag::StmtWhileBool
+                | FullTag::StmtFor
+                | FullTag::StmtForRecord
+                | FullTag::StmtForStrLines
+                | FullTag::StmtScanLines => EFFECT_CANCELLATION,
+                _ => 0,
+            }
+    })
 }
 
 fn lowered_type_to_type(ty: LoweredType) -> Result<Type, IrBuildError> {
@@ -1340,7 +2307,7 @@ impl<'a> FullCursor<'a> {
 
 struct FullDecoder<'a> {
     store: &'a FullStore,
-    function: IrFunctionId,
+    owner: u32,
     instruction_range: std::ops::Range<usize>,
     instruction_states: RefCell<Vec<u8>>,
     block_states: RefCell<Vec<u8>>,
@@ -1362,9 +2329,9 @@ impl<'a> FullDecoder<'a> {
             .get(id.index())
             .copied()
             .ok_or_else(|| IrVerifyError::new("full IR block id is out of bounds"))?;
-        if block.owner != IR_NONE && block.owner != self.function.raw() {
+        if block.owner != IR_NONE && block.owner != self.owner {
             return Err(IrVerifyError::new(
-                "full IR block belongs to another function",
+                "full IR block belongs to another executable owner",
             ));
         }
         if block.flags & BLOCK_SEQUENCE_KIND_MASK != expected_flags {
@@ -1459,7 +2426,7 @@ impl<'a> FullDecoder<'a> {
             .blocks
             .iter()
             .zip(self.block_states.borrow().iter())
-            .all(|(block, state)| block.owner != self.function.raw() || *state == 2);
+            .all(|(block, state)| block.owner != self.owner || *state == 2);
         if instructions_complete && blocks_complete {
             Ok(())
         } else {
@@ -1479,17 +2446,22 @@ impl FullVerifier {
             || store.patterns.len() != store.pattern_data.len()
             || store.stages.len() != store.stage_data.len()
             || store.values.len() != store.value_data.len()
+            || store.locations.len() != store.location_sources.len()
             || store.functions.len() != store.function_instruction_starts.len()
             || store.functions.len() != store.function_metadata.len()
         {
             return Err(IrVerifyError::new("full IR tag/data columns differ"));
         }
         store.semantic.verify()?;
-        let source = program
+        program
             .sources
             .get(store.source_id)
             .ok_or_else(|| IrVerifyError::new("full IR source is missing"))?;
-        for location in &store.locations {
+        for (location, source_id) in store.locations.iter().zip(&store.location_sources) {
+            let source = program
+                .sources
+                .get(*source_id)
+                .ok_or_else(|| IrVerifyError::new("full IR location source is missing"))?;
             let end = (location.start as usize)
                 .checked_add(location.len as usize)
                 .ok_or_else(|| IrVerifyError::new("full IR location overflows"))?;
@@ -1513,11 +2485,14 @@ impl FullVerifier {
         }
         for block in &store.blocks {
             store.payload(block.instructions)?;
-            if block.owner != IR_NONE
-                && IrFunctionId::from_raw(block.owner)
-                    .is_none_or(|id| id.index() >= store.functions.len())
-            {
-                return Err(IrVerifyError::new("block owner is out of bounds"));
+            if block.owner != IR_NONE {
+                let function_owner = IrFunctionId::from_raw(block.owner)
+                    .is_some_and(|id| id.index() < store.functions.len());
+                let driver_owner = driver_owner_index(block.owner)
+                    .is_some_and(|index| index < store.driver_steps.len());
+                if !function_owner && !driver_owner {
+                    return Err(IrVerifyError::new("block owner is out of bounds"));
+                }
             }
             if block.flags & !(BLOCK_STATEMENTS | BLOCK_FUNCTION_BODY) != 0 {
                 return Err(IrVerifyError::new("block flags are invalid"));
@@ -1598,8 +2573,9 @@ impl FullVerifier {
             let instruction_len = instructions.len();
             let decoder = FullDecoder {
                 store,
-                function: IrFunctionId::new(index)
-                    .map_err(|_| IrVerifyError::new("function id is invalid"))?,
+                owner: IrFunctionId::new(index)
+                    .map_err(|_| IrVerifyError::new("function id is invalid"))?
+                    .raw(),
                 instruction_range: instructions,
                 instruction_states: RefCell::new(vec![0; instruction_len]),
                 block_states: RefCell::new(vec![0; store.blocks.len()]),
@@ -1654,9 +2630,214 @@ impl FullVerifier {
                 )));
             }
         }
+        if store.driver_root == IR_NONE {
+            if !store.driver_steps.is_empty()
+                || !store.driver_slots.is_empty()
+                || !store.driver_sync.is_empty()
+                || !store.driver_regions.is_empty()
+                || !store.driver_programs.is_empty()
+            {
+                return Err(IrVerifyError::new(
+                    "driver tables exist without a root program",
+                ));
+            }
+        } else {
+            if store.driver_root as usize > store.driver_programs.len() {
+                return Err(IrVerifyError::new("driver root is out of bounds"));
+            }
+            let mut covered_slots = vec![false; store.driver_slots.len()];
+            for (index, step) in store.driver_steps.iter().enumerate() {
+                if step.reserved != [0; 3] || step.effects & !EFFECT_ALL != 0 {
+                    return Err(IrVerifyError::new("driver step metadata is invalid"));
+                }
+                let instructions = store.driver_instruction_range(index)?;
+                if instructions.start != previous_end
+                    || step.instruction_start as usize != instructions.start
+                {
+                    return Err(IrVerifyError::new(
+                        "driver instruction ranges are not dense and source ordered",
+                    ));
+                }
+                previous_end = instructions.end;
+                store.payload(step.data.range())?;
+                let location = IrLocationId::from_raw(step.location)
+                    .ok_or_else(|| IrVerifyError::new("driver location is invalid"))?;
+                if location.index() >= store.locations.len() {
+                    return Err(IrVerifyError::new("driver location is out of bounds"));
+                }
+                let slots = step
+                    .slots
+                    .bounds(store.driver_slots.len())
+                    .ok_or_else(|| IrVerifyError::new("driver slot range is invalid"))?;
+                let mut expected_effects =
+                    driver_tag_effects(step.tag) | instruction_effects(&store.tags[instructions]);
+                let mut names = BTreeSet::new();
+                let mut indices = BTreeSet::new();
+                if !slots.is_empty() {
+                    expected_effects |= EFFECT_BINDING_READ;
+                }
+                for slot_index in slots.clone() {
+                    if covered_slots[slot_index] {
+                        return Err(IrVerifyError::new(
+                            "driver slot is owned by multiple steps",
+                        ));
+                    }
+                    covered_slots[slot_index] = true;
+                    let slot = store.driver_slots[slot_index];
+                    store.string(slot.name)?;
+                    store.semantic.type_tag(slot.type_id)?;
+                    if slot.reserved != [0; 3]
+                        || slot.flags
+                            & !(DRIVER_SLOT_READ | DRIVER_SLOT_WRITE | DRIVER_SLOT_MUTABLE)
+                            != 0
+                        || slot.flags & DRIVER_SLOT_READ == 0
+                        || slot.slot >= step.slot_count
+                    {
+                        return Err(IrVerifyError::new("driver slot is invalid"));
+                    }
+                    if !names.insert(slot.name) || !indices.insert(slot.slot) {
+                        return Err(IrVerifyError::new(
+                            "driver step slots are not unique",
+                        ));
+                    }
+                    if slot.flags & DRIVER_SLOT_WRITE != 0 {
+                        expected_effects |= EFFECT_BINDING_WRITE;
+                    }
+                }
+                if driver_tag_writes_binding(step.tag) {
+                    expected_effects |= EFFECT_BINDING_WRITE;
+                }
+                if step.effects != expected_effects {
+                    return Err(IrVerifyError::new("driver effects are not exact"));
+                }
+            }
+            if covered_slots.iter().any(|covered| !covered) {
+                return Err(IrVerifyError::new(
+                    "driver plan contains an unreachable slot row",
+                ));
+            }
+            let mut covered_regions = vec![false; store.driver_regions.len()];
+            let mut covered_sync = vec![false; store.driver_sync.len()];
+            for driver in &store.driver_programs {
+                let steps = driver
+                    .steps
+                    .bounds(store.driver_steps.len())
+                    .ok_or_else(|| IrVerifyError::new("driver step range is invalid"))?;
+                let regions = driver
+                    .regions
+                    .bounds(store.driver_regions.len())
+                    .ok_or_else(|| IrVerifyError::new("driver region range is invalid"))?;
+                let expected_program_effects = store.driver_steps[steps.clone()]
+                    .iter()
+                    .fold(0, |effects, step| effects | step.effects);
+                if driver.effects != expected_program_effects {
+                    return Err(IrVerifyError::new("driver program effects are not exact"));
+                }
+                let mut region_step = steps.start;
+                for region_index in regions {
+                    if covered_regions[region_index] {
+                        return Err(IrVerifyError::new(
+                            "driver region is owned by multiple programs",
+                        ));
+                    }
+                    covered_regions[region_index] = true;
+                    let region = store.driver_regions[region_index];
+                    let region_steps = region
+                        .steps
+                        .bounds(store.driver_steps.len())
+                        .ok_or_else(|| IrVerifyError::new("driver region steps are invalid"))?;
+                    if region_steps.start != region_step
+                        || region_steps.end > steps.end
+                        || region_steps.is_empty()
+                    {
+                        return Err(IrVerifyError::new(
+                            "driver regions do not partition their program",
+                        ));
+                    }
+                    region_step = region_steps.end;
+                    let expected_region_effects = store.driver_steps[region_steps.clone()]
+                        .iter()
+                        .fold(0, |effects, step| effects | step.effects);
+                    if region.effects != expected_region_effects {
+                        return Err(IrVerifyError::new("driver region effects are not exact"));
+                    }
+                    if region_steps.len() > 1
+                        && store.driver_steps[region_steps.clone()]
+                            .iter()
+                            .any(|step| step.effects & EFFECT_BOUNDARY_MASK != 0)
+                    {
+                        return Err(IrVerifyError::new(
+                            "effect boundary is not isolated in its driver region",
+                        ));
+                    }
+                    let sync = region
+                        .sync
+                        .bounds(store.driver_sync.len())
+                        .ok_or_else(|| IrVerifyError::new("driver sync range is invalid"))?;
+                    for sync_index in sync.clone() {
+                        if covered_sync[sync_index] {
+                            return Err(IrVerifyError::new(
+                                "driver sync row is owned by multiple regions",
+                            ));
+                        }
+                        covered_sync[sync_index] = true;
+                    }
+                    let mut expected_sync = BTreeMap::<u32, (TypeId, u8)>::new();
+                    for step in &store.driver_steps[region_steps] {
+                        let slots = step
+                            .slots
+                            .bounds(store.driver_slots.len())
+                            .ok_or_else(|| IrVerifyError::new("driver slot range is invalid"))?;
+                        for slot in &store.driver_slots[slots] {
+                            let flags = slot.flags & (DRIVER_SLOT_READ | DRIVER_SLOT_WRITE);
+                            if let Some((type_id, existing)) =
+                                expected_sync.get_mut(&slot.name)
+                            {
+                                if *type_id != slot.type_id {
+                                    return Err(IrVerifyError::new(
+                                        "driver sync type identities conflict",
+                                    ));
+                                }
+                                *existing |= flags;
+                            } else {
+                                expected_sync.insert(slot.name, (slot.type_id, flags));
+                            }
+                        }
+                    }
+                    if sync.len() != expected_sync.len() {
+                        return Err(IrVerifyError::new("driver sync rows are incomplete"));
+                    }
+                    for (row, (name, (type_id, flags))) in
+                        store.driver_sync[sync].iter().zip(expected_sync)
+                    {
+                        if row.reserved != [0; 3]
+                            || row.name != name
+                            || row.type_id != type_id
+                            || row.flags != flags
+                        {
+                            return Err(IrVerifyError::new("driver sync rows are not exact"));
+                        }
+                    }
+                }
+                if region_step != steps.end {
+                    return Err(IrVerifyError::new(
+                        "driver regions do not cover their program",
+                    ));
+                }
+            }
+            if covered_regions.iter().any(|covered| !covered) {
+                return Err(IrVerifyError::new("driver plan contains an unreachable region"));
+            }
+            if covered_sync.iter().any(|covered| !covered) {
+                return Err(IrVerifyError::new(
+                    "driver plan contains an unreachable sync row",
+                ));
+            }
+            program.decode_driver()?;
+        }
         if previous_end != store.tags.len() {
             return Err(IrVerifyError::new(
-                "full IR contains instructions outside function ranges",
+                "full IR contains instructions outside executable owner ranges",
             ));
         }
         Ok(())
@@ -1696,10 +2877,10 @@ impl FullCodec for usize {
         builder: &mut FullBuilder,
         output: &mut Vec<u32>,
     ) -> Result<(), IrBuildError> {
-        let function = builder
-            .current_function
-            .ok_or_else(|| IrBuildError::format("slot_without_function", None, 0, 0))?;
-        if *self >= builder.store.functions[function.index()].slot_count as usize {
+        if builder.current_owner.is_none() {
+            return Err(IrBuildError::format("slot_without_owner", None, 0, 0));
+        }
+        if *self >= builder.current_slot_count as usize {
             return Err(IrBuildError::format("slot_out_of_bounds", None, 0, 0));
         }
         output.push(
@@ -1934,8 +3115,14 @@ impl FullCodec for Span {
             .get(id.index())
             .copied()
             .ok_or_else(|| IrVerifyError::new("location id is out of bounds"))?;
+        let source_id = decoder
+            .store
+            .location_sources
+            .get(id.index())
+            .copied()
+            .ok_or_else(|| IrVerifyError::new("location source is out of bounds"))?;
         Ok(Span::new(
-            decoder.store.source_id,
+            source_id,
             location.start as usize,
             location.start as usize + location.len as usize,
         ))
@@ -2358,6 +3545,23 @@ impl FullCodec for Type {
     }
 }
 
+impl FullCodec for LoweredType {
+    fn encode(
+        &self,
+        builder: &mut FullBuilder,
+        output: &mut Vec<u32>,
+    ) -> Result<(), IrBuildError> {
+        lowered_type_to_type(*self)?.encode(builder, output)
+    }
+
+    fn decode(
+        decoder: &FullDecoder<'_>,
+        input: &mut FullCursor<'_>,
+    ) -> Result<Self, IrVerifyError> {
+        lowered_type_from_type(&Type::decode(decoder, input)?)
+    }
+}
+
 impl FullCodec for LoweredTypeCheck {
     fn encode(
         &self,
@@ -2375,6 +3579,65 @@ impl FullCodec for LoweredTypeCheck {
         Ok(Self {
             ty: Type::decode(decoder, input)?,
             name: Arc::<str>::decode(decoder, input)?,
+        })
+    }
+}
+
+impl FullCodec for LoweredTopLevelSlot {
+    fn encode(
+        &self,
+        builder: &mut FullBuilder,
+        output: &mut Vec<u32>,
+    ) -> Result<(), IrBuildError> {
+        self.name.encode(builder, output)?;
+        self.slot.encode(builder, output)?;
+        self.kind.encode(builder, output)?;
+        self.mutable.encode(builder, output)
+    }
+
+    fn decode(
+        decoder: &FullDecoder<'_>,
+        input: &mut FullCursor<'_>,
+    ) -> Result<Self, IrVerifyError> {
+        Ok(Self {
+            name: Name::decode(decoder, input)?,
+            slot: usize::decode(decoder, input)?,
+            kind: LoweredType::decode(decoder, input)?,
+            mutable: bool::decode(decoder, input)?,
+        })
+    }
+}
+
+impl FullCodec for LoweredModuleExport {
+    fn encode(
+        &self,
+        builder: &mut FullBuilder,
+        output: &mut Vec<u32>,
+    ) -> Result<(), IrBuildError> {
+        self.name.encode(builder, output)?;
+        output.push(match self.kind {
+            LoweredModuleExportKind::Value => 0,
+            LoweredModuleExportKind::Pure => 1,
+            LoweredModuleExportKind::Proc => 2,
+        });
+        self.function_namespace.encode(builder, output)
+    }
+
+    fn decode(
+        decoder: &FullDecoder<'_>,
+        input: &mut FullCursor<'_>,
+    ) -> Result<Self, IrVerifyError> {
+        let name = Name::decode(decoder, input)?;
+        let kind = match input.raw()? {
+            0 => LoweredModuleExportKind::Value,
+            1 => LoweredModuleExportKind::Pure,
+            2 => LoweredModuleExportKind::Proc,
+            _ => return Err(IrVerifyError::new("module export kind is invalid")),
+        };
+        Ok(Self {
+            name,
+            kind,
+            function_namespace: Option::<Name>::decode(decoder, input)?,
         })
     }
 }
@@ -2798,6 +4061,8 @@ impl_vec_codec!(LoweredRunRedirection, BLOCK_LIST);
 impl_vec_codec!(LoweredRunPipelineSegment, BLOCK_LIST);
 impl_vec_codec!(LoweredProcessCommandBuilderEntry, BLOCK_LIST);
 impl_vec_codec!(ScanCheck, BLOCK_LIST);
+impl_vec_codec!(LoweredModuleExport, BLOCK_LIST);
+impl_vec_codec!(LoweredTopLevelSlot, BLOCK_LIST);
 impl_vec_codec!(String, BLOCK_LIST);
 impl_vec_codec!(Name, BLOCK_LIST);
 impl_vec_codec!((Name, usize), BLOCK_LIST);
@@ -4740,9 +6005,43 @@ mod tests {
     use crate::runtime::value::Value;
     use crate::sema::check::Checker;
     use crate::syntax::parser::Parser;
+    use std::fs;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     const VERTICAL_SLICE: &str =
         include_str!("../../../../tests/fixtures/frontend-campaign/vertical-slice.xsh");
+    const PHASE5_BOUNDARY: &str = r#"
+let base: Int = 1
+
+pure plus_base(value: Int) -> Int {
+  return value + base
+}
+
+var total: Int = 0
+var index: Int = 0
+
+while index < 3 {
+  total += index
+  index += 1
+}
+
+env {
+  PHASE5_BOUNDARY = "indexed"
+} {
+  print "indexed"
+}
+
+cd . {
+  print ${plus_base(total)}
+}
+
+on USR1 [] {
+  print "signal"
+}
+
+defer run true
+run true
+"#;
 
     fn run_with_large_stack(f: impl FnOnce() + Send + 'static) {
         std::thread::Builder::new()
@@ -4828,6 +6127,17 @@ mod tests {
         events
             .iter()
             .map(|event| {
+                let mut payload = event.payload.clone();
+                match &mut payload {
+                    crate::trace::TracePayload::RunEnd { pid, .. }
+                    | crate::trace::TracePayload::SpawnReady { pid, .. }
+                    | crate::trace::TracePayload::WaitEnd { pid, .. }
+                    | crate::trace::TracePayload::SpawnCancel { pid, .. }
+                    | crate::trace::TracePayload::PipelineSegmentEnd { pid, .. } => {
+                        *pid = None;
+                    }
+                    _ => {}
+                }
                 format!(
                     "{:?}",
                     (
@@ -4838,7 +6148,7 @@ mod tests {
                         event.source_span,
                         &event.name,
                         &event.api_id,
-                        &event.payload,
+                        payload,
                     )
                 )
             })
@@ -4880,6 +6190,46 @@ mod tests {
             evaluator.stdout,
             normalize_traces(&evaluator.trace_events),
         )
+    }
+
+    fn run_driver_direct(
+        program: &LoweredProgram,
+        sources: SourceMap,
+        source_id: SourceId,
+    ) -> (Vec<u8>, Vec<u8>, String, Vec<String>) {
+        let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources).with_tracing();
+        let mut outcomes = Vec::new();
+        for statement in &program.statements {
+            let Some(statement) = statement else {
+                continue;
+            };
+            let result = evaluator.eval_lowered_top_level_stmt(
+                statement,
+                Span::new(source_id, 0, 0),
+            );
+            outcomes.push(normalize_process_ids(format!("{result:?}")));
+        }
+        (
+            evaluator.stdout,
+            evaluator.stderr,
+            normalize_traces(&evaluator.trace_events),
+            outcomes,
+        )
+    }
+
+    fn normalize_process_ids(mut value: String) -> String {
+        let marker = "pid: Some(";
+        let mut search_start = 0;
+        while let Some(relative) = value[search_start..].find(marker) {
+            let start = search_start + relative + marker.len();
+            let Some(relative_end) = value[start..].find(')') else {
+                break;
+            };
+            let end = start + relative_end;
+            value.replace_range(start..end, "<pid>");
+            search_start = start + "<pid>".len() + 1;
+        }
+        value
     }
 
     #[test]
@@ -4939,11 +6289,221 @@ mod tests {
         assert_eq!(size_of::<FullCapture>(), 12);
         assert_eq!(size_of::<FullFunctionMetadata>(), 8);
         assert_eq!(size_of::<FullValidation>(), 8);
+        assert_eq!(size_of::<FullDriverStep>(), 36);
+        assert_eq!(size_of::<FullDriverSlot>(), 16);
+        assert_eq!(size_of::<FullDriverSync>(), 12);
+        assert_eq!(size_of::<FullDriverRegion>(), 20);
+        assert_eq!(size_of::<FullDriverProgram>(), 20);
         assert_eq!(
             size_of::<FullTag>() + size_of::<IrData>(),
             9,
             "full Phase 4 instructions use one-byte tags and eight-byte data"
         );
+    }
+
+    #[test]
+    fn compact_driver_roundtrips_effects_and_executes_after_arena_drop() {
+        run_with_large_stack(|| {
+            let (program, original, plan, mut evaluator) = {
+                let mut sources = SourceMap::new();
+                let source_id = sources.add_file("phase5-boundary.xsh", PHASE5_BOUNDARY);
+                let parsed =
+                    Parser::parse_source_arena_only(source_id, PHASE5_BOUNDARY);
+                assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+                let declarations =
+                    Checker::check_compact_declarations(&parsed.arena);
+                assert!(
+                    declarations.diagnostics.is_empty(),
+                    "{:?}",
+                    declarations.diagnostics
+                );
+                let bodies =
+                    Checker::probe_compact_bodies(&parsed.arena, &declarations);
+                assert!(bodies.diagnostics.is_empty(), "{:?}", bodies.diagnostics);
+                let shared_sources = Arc::new(sources.clone());
+                let program = FullBuilder::build_compact(
+                    &parsed.arena,
+                    &declarations,
+                    &bodies,
+                    PHASE5_BOUNDARY,
+                    shared_sources,
+                    source_id,
+                )
+                .unwrap();
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources);
+                let plan = evaluator
+                    .prepare_compact_lowered_only(&parsed.arena, source_id, true)
+                    .expect("phase 5 boundary fixture is wholly lowerable");
+                let original = (*evaluator.lowered_program).clone();
+                (program, original, plan, evaluator)
+            };
+
+            let decoded = program.decode_driver().unwrap().unwrap();
+            assert_eq!(format!("{decoded:?}"), format!("{original:?}"));
+            assert_eq!(
+                run_driver_direct(
+                    &decoded,
+                    (*program.sources).clone(),
+                    program.store.source_id,
+                ),
+                run_driver_direct(
+                    &original,
+                    (*program.sources).clone(),
+                    program.store.source_id,
+                )
+            );
+            assert!(
+                program.store.driver_steps.iter().any(|step| {
+                    step.effects & (EFFECT_ENV | EFFECT_CWD | EFFECT_PROCESS) != 0
+                })
+            );
+            assert!(
+                program
+                    .store
+                    .driver_steps
+                    .iter()
+                    .any(|step| step.effects & EFFECT_SIGNAL != 0)
+            );
+            assert!(
+                program
+                    .store
+                    .driver_steps
+                    .iter()
+                    .any(|step| step.effects & EFFECT_DEFER != 0)
+            );
+            assert!(
+                program.store.captures.iter().any(|capture| {
+                    program.store.string(capture.name).ok() == Some("base")
+                }),
+                "top-level binding capture is stored by compact identity"
+            );
+            evaluator.lowered_program = Arc::new(decoded);
+            for (key, kind, body) in program.decode_functions().unwrap() {
+                match (key, kind) {
+                    (LoweredFunctionKey::Name(name), LoweredFunctionKind::Pure) => {
+                        Arc::make_mut(&mut evaluator.lowered_pures).insert(name, body);
+                    }
+                    (LoweredFunctionKey::Name(name), LoweredFunctionKind::Proc) => {
+                        Arc::make_mut(&mut evaluator.lowered_procs).insert(name, body);
+                    }
+                    (LoweredFunctionKey::Qualified(name), LoweredFunctionKind::Pure) => {
+                        Arc::make_mut(&mut evaluator.lowered_qualified_pures)
+                            .insert(name, body);
+                    }
+                    (LoweredFunctionKey::Qualified(name), LoweredFunctionKind::Proc) => {
+                        Arc::make_mut(&mut evaluator.lowered_qualified_procs)
+                            .insert(name, body);
+                    }
+                }
+            }
+            let output = match evaluator.eval_installed_compact_lowered_only(plan) {
+                Ok(output) => output,
+                Err(_) => panic!("decoded driver remains executable"),
+            };
+            assert_eq!(output.stdout, b"indexed\n4\n");
+            assert!(output.stderr.is_empty());
+            assert_eq!(output.status, 0);
+            assert!(output.traceback.is_none());
+        });
+    }
+
+    #[test]
+    fn driver_verifier_rejects_effect_sync_and_owner_corruption() {
+        let mut sources = SourceMap::new();
+        let source_id = sources.add_file("phase5-boundary.xsh", PHASE5_BOUNDARY);
+        let parsed = Parser::parse_source_arena_only(source_id, PHASE5_BOUNDARY);
+        let declarations = Checker::check_compact_declarations(&parsed.arena);
+        let bodies = Checker::probe_compact_bodies(&parsed.arena, &declarations);
+        let program = FullBuilder::build_compact(
+            &parsed.arena,
+            &declarations,
+            &bodies,
+            PHASE5_BOUNDARY,
+            Arc::new(sources),
+            source_id,
+        )
+        .unwrap();
+
+        let mut bad_effect = program.clone();
+        bad_effect.store.driver_steps[0].effects ^= EFFECT_HOST;
+        assert!(FullVerifier::verify(&bad_effect).is_err());
+
+        let mut bad_sync = program.clone();
+        bad_sync.store.driver_sync[0].flags ^= DRIVER_SLOT_WRITE;
+        assert!(FullVerifier::verify(&bad_sync).is_err());
+
+        let mut unreachable_slot = program.clone();
+        unreachable_slot
+            .store
+            .driver_slots
+            .push(unreachable_slot.store.driver_slots[0]);
+        assert!(FullVerifier::verify(&unreachable_slot).is_err());
+
+        let mut bad_owner = program;
+        let block_index = bad_owner
+            .store
+            .blocks
+            .iter()
+            .position(|block| driver_owner_index(block.owner).is_some())
+            .expect("boundary fixture owns driver blocks");
+        let step = driver_owner_index(bad_owner.store.blocks[block_index].owner).unwrap();
+        bad_owner.store.blocks[block_index].owner =
+            driver_owner((step + 1) % bad_owner.store.driver_steps.len()).unwrap();
+        assert!(FullVerifier::verify(&bad_owner).is_err());
+    }
+
+    #[test]
+    fn driver_propagated_process_failure_preserves_error_location_and_trace() {
+        let source = "run false ?\n";
+        let mut sources = SourceMap::new();
+        let source_id = sources.add_file("phase5-propagate.xsh", source);
+        let parsed = Parser::parse_source_arena_only(source_id, source);
+        let declarations = Checker::check_compact_declarations(&parsed.arena);
+        let bodies = Checker::probe_compact_bodies(&parsed.arena, &declarations);
+        let program = FullBuilder::build_compact(
+            &parsed.arena,
+            &declarations,
+            &bodies,
+            source,
+            Arc::new(sources.clone()),
+            source_id,
+        )
+        .unwrap();
+        let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
+        evaluator
+            .prepare_compact_lowered_only(&parsed.arena, source_id, true)
+            .expect("propagating process statement lowers");
+        let original = (*evaluator.lowered_program).clone();
+        let decoded = program.decode_driver().unwrap().unwrap();
+        assert_eq!(
+            run_driver_direct(&decoded, sources.clone(), source_id),
+            run_driver_direct(&original, sources, source_id)
+        );
+        let effects = program.store.driver_steps[0].effects;
+        assert_eq!(
+            effects & (EFFECT_PROCESS | EFFECT_PROPAGATE | EFFECT_TRACE),
+            EFFECT_PROCESS | EFFECT_PROPAGATE | EFFECT_TRACE
+        );
+    }
+
+    #[test]
+    fn driver_rejects_non_skippable_unlowered_top_level_statement() {
+        let source = "print \"boundary\"\n";
+        let mut sources = SourceMap::new();
+        let source_id = sources.add_file("phase5-reject.xsh", source);
+        let parsed = Parser::parse_source_arena_only(source_id, source);
+        let statements = parsed.arena.statement_ids().collect::<Vec<_>>();
+        let lowered = LoweredProgram {
+            statements: vec![None],
+        };
+        let error = FullBuilder::build_with_driver(
+            &[],
+            Some((&lowered, &statements, &parsed.arena)),
+            Arc::new(sources),
+            source_id,
+        )
+        .unwrap_err();
+        assert_eq!(error.construct, "top_level_boundary_blocker");
     }
 
     #[test]
@@ -5069,6 +6629,170 @@ mod tests {
     }
 
     #[test]
+    fn locations_preserve_imported_source_identity() {
+        let mut sources = SourceMap::new();
+        let root_id = sources.add_file("root.xsh", "use module\n");
+        let module_id = sources.add_file("module.xsh", "print 1\n");
+        let mut builder = FullBuilder::new(root_id);
+        let root_location = builder
+            .intern_location(Span::new(root_id, 0, 3))
+            .unwrap();
+        let module_location = builder
+            .intern_location(Span::new(module_id, 0, 5))
+            .unwrap();
+        assert_ne!(root_location.raw(), module_location.raw());
+        assert_eq!(
+            builder.store.location_sources,
+            vec![root_id, module_id]
+        );
+
+        let program = FullProgram {
+            store: builder.store,
+            sources: Arc::new(sources),
+        };
+        FullVerifier::verify(&program).unwrap();
+
+        let mut bad_source = program;
+        bad_source.store.location_sources[1] = SourceId::new(2);
+        assert!(FullVerifier::verify(&bad_source).is_err());
+    }
+
+    #[test]
+    fn compact_driver_roundtrips_loaded_module_programs() {
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time should be after epoch")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("xsh-full-driver-use-{stamp}"));
+        fs::create_dir_all(&root).unwrap();
+        fs::write(
+            root.join("compact_import.xsh"),
+            "let suffix = \"!\"\n\
+             export pure label(value: Str) -> Str {\n\
+               return value + suffix\n\
+             }\n",
+        )
+        .unwrap();
+        let script = root.join("main.xsh");
+        fs::write(
+            &script,
+            "use compact_import\n\
+             print \"loaded\"\n",
+        )
+        .unwrap();
+
+        let script_text = script.to_string_lossy().into_owned();
+        let (sources, parsed) = crate::loader::parse_script(&script_text).unwrap();
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let source_id = parsed.arena.arena.span_source_id.unwrap();
+        let source = sources.get(source_id).unwrap().text().to_string();
+        let declarations = Checker::check_compact_declarations(&parsed.arena);
+        assert!(
+            declarations.diagnostics.is_empty(),
+            "{:?}",
+            declarations.diagnostics
+        );
+        let bodies = Checker::probe_compact_bodies(&parsed.arena, &declarations);
+        assert!(bodies.diagnostics.is_empty(), "{:?}", bodies.diagnostics);
+        let mut oracle =
+            Evaluator::new_with_sources(Vec::new(), sources.clone());
+        assert!(
+            oracle
+                .install_compact_lowered_program(&parsed.arena, source_id)
+                .is_empty()
+        );
+        let original = (*oracle.lowered_program).clone();
+        let mut incomplete = original.clone();
+        let Some(LoweredTopLevelStmt {
+            kind: LoweredTopLevelKind::Use {
+                module_statements, ..
+            },
+            ..
+        }) = incomplete.statements[0].as_mut()
+        else {
+            panic!("loaded user module should lower to a use driver step");
+        };
+        module_statements.clear();
+        let source_statements = parsed.arena.statement_ids().collect::<Vec<_>>();
+        let error = FullBuilder::build_with_driver(
+            &[],
+            Some((&incomplete, &source_statements, &parsed.arena)),
+            Arc::new(sources.clone()),
+            source_id,
+        )
+        .unwrap_err();
+        assert_eq!(error.construct, "module_top_level_boundary_blocker");
+
+        let program = FullBuilder::build_compact(
+            &parsed.arena,
+            &declarations,
+            &bodies,
+            &source,
+            Arc::new(sources),
+            source_id,
+        )
+        .unwrap();
+        let decoded = program.decode_driver().unwrap().unwrap();
+        assert_eq!(format!("{decoded:?}"), format!("{original:?}"));
+        let module_source = parsed
+            .arena
+            .module_statements(&parsed.arena.modules[0])
+            .next()
+            .map(|statement| parsed.arena.arena.stmt(statement).span.source_id)
+            .unwrap();
+        assert!(
+            program
+                .store
+                .location_sources
+                .contains(&module_source)
+        );
+        let child_steps = program.store.driver_programs[0]
+            .steps
+            .bounds(program.store.driver_steps.len())
+            .unwrap();
+        assert!(
+            program.store.driver_steps[child_steps].iter().any(|step| {
+                step.tag == FullDriverTag::Skip
+                    && IrLocationId::from_raw(step.location).is_some_and(|location| {
+                        program.store.location_sources[location.index()] == module_source
+                    })
+            }),
+            "declaration-only imported rows remain explicit compact skips"
+        );
+
+        let mut evaluator = Evaluator::new_with_sources(
+            Vec::new(),
+            (*program.sources).clone(),
+        );
+        for (key, kind, body) in program.decode_functions().unwrap() {
+            match (key, kind) {
+                (LoweredFunctionKey::Name(name), LoweredFunctionKind::Pure) => {
+                    Arc::make_mut(&mut evaluator.lowered_pures).insert(name, body);
+                }
+                (LoweredFunctionKey::Name(name), LoweredFunctionKind::Proc) => {
+                    Arc::make_mut(&mut evaluator.lowered_procs).insert(name, body);
+                }
+                (LoweredFunctionKey::Qualified(name), LoweredFunctionKind::Pure) => {
+                    Arc::make_mut(&mut evaluator.lowered_qualified_pures)
+                        .insert(name, body);
+                }
+                (LoweredFunctionKey::Qualified(name), LoweredFunctionKind::Proc) => {
+                    Arc::make_mut(&mut evaluator.lowered_qualified_procs)
+                        .insert(name, body);
+                }
+            }
+        }
+        for statement in decoded.statements.iter().flatten() {
+            evaluator
+                .eval_lowered_top_level_stmt(statement, Span::new(source_id, 0, 0))
+                .unwrap();
+        }
+        assert_eq!(evaluator.stdout, b"loaded\n");
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
     fn failed_full_encoding_rewinds_all_graph_columns() {
         let (sources, source_id, units) = fixture("vertical-slice.xsh", VERTICAL_SLICE);
         let mut ordered = units.iter().collect::<Vec<_>>();
@@ -5082,13 +6806,155 @@ mod tests {
             span: ordered[0].source_span(),
         });
         let checkpoint = builder.checkpoint();
-        builder.current_function = Some(function);
+        builder.current_owner = Some(function.raw());
+        builder.current_slot_count = body.slot_count as u32;
         let result = builder.encode_body(function, &body);
-        builder.current_function = None;
+        builder.current_owner = None;
+        builder.current_slot_count = 0;
         assert!(result.is_err());
         builder.rewind(checkpoint);
         assert_eq!(builder.checkpoint(), checkpoint);
         drop(sources);
+    }
+
+    #[test]
+    #[ignore = "Phase 5 evidence compares complete-program admission and compact driver strategies"]
+    fn corpus_phase5_boundary_strategy_evidence() {
+        run_with_large_stack(|| {
+            let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+            let mut paths = Vec::new();
+            for relative in crate::frontend_stats::DEFAULT_ROOTS {
+                super::super::tests::collect_xsh_paths(&root.join(relative), &mut paths);
+            }
+            paths.sort();
+            paths.dedup();
+
+            let mut files = 0usize;
+            let mut source_bytes = 0usize;
+            let mut top_level_statements = 0usize;
+            let mut lowerable_top_level_statements = 0usize;
+            let mut whole_program_files = 0usize;
+            let mut whole_program_statements = 0usize;
+            let mut driver_steps = 0usize;
+            let mut driver_regions = 0usize;
+            let mut driver_sync_rows = 0usize;
+            let mut driver_metadata_bytes = 0usize;
+            let mut full_retained_bytes = 0usize;
+            let mut arena_duplication_bytes = 0usize;
+            let mut blockers = BTreeMap::<String, usize>::new();
+            let mut effects = BTreeMap::<&'static str, usize>::new();
+
+            for path in paths {
+                let Ok(source) = super::super::tests::read_xsh_source(&path) else {
+                    continue;
+                };
+                let mut sources = SourceMap::new();
+                let source_id = sources.add_file(path.to_string_lossy(), source.clone());
+                let parsed = Parser::parse_source_arena_only(source_id, &source);
+                if !parsed.diagnostics.is_empty() {
+                    continue;
+                }
+                let declarations = Checker::check_compact_declarations(&parsed.arena);
+                if !declarations.diagnostics.is_empty() {
+                    continue;
+                }
+                let bodies = Checker::probe_compact_bodies(&parsed.arena, &declarations);
+                if !bodies.diagnostics.is_empty() {
+                    continue;
+                }
+                let probe = super::super::super::probe_compact_lower_constructed_bodies(
+                    &parsed.arena,
+                    &declarations,
+                    &bodies,
+                    &source,
+                );
+                let units = super::super::super::probe_compact_lower_function_units(
+                    &parsed.arena,
+                    &declarations,
+                    &bodies,
+                    &source,
+                );
+                files += 1;
+                source_bytes += source.len();
+                top_level_statements += probe.top_level_statements;
+                lowerable_top_level_statements += probe.constructed_top_level_statements;
+                if units.iter().any(|unit| !unit.is_lowered()) {
+                    *blockers.entry("function".to_string()).or_default() += 1;
+                    continue;
+                }
+                let root_statement_count = parsed.arena.statement_ids().count();
+                let built = FullBuilder::build_compact(
+                    &parsed.arena,
+                    &declarations,
+                    &bodies,
+                    &source,
+                    Arc::new(sources),
+                    source_id,
+                );
+                let program = match built {
+                    Ok(program) => program,
+                    Err(error) => {
+                        *blockers.entry(error.construct.to_string()).or_default() += 1;
+                        continue;
+                    }
+                };
+                whole_program_files += 1;
+                whole_program_statements += root_statement_count;
+                driver_steps += program.store.driver_steps.len();
+                driver_regions += program.store.driver_regions.len();
+                driver_sync_rows += program.store.driver_sync.len();
+                driver_metadata_bytes += program.store.driver_retained_bytes();
+                full_retained_bytes += program.store.retained_bytes();
+                arena_duplication_bytes += parsed.arena.retained_bytes();
+                for step in &program.store.driver_steps {
+                    for (name, flag) in [
+                        ("import", EFFECT_IMPORT),
+                        ("cwd", EFFECT_CWD),
+                        ("env", EFFECT_ENV),
+                        ("process", EFFECT_PROCESS),
+                        ("signal", EFFECT_SIGNAL),
+                        ("cancellation", EFFECT_CANCELLATION),
+                        ("trace", EFFECT_TRACE),
+                        ("dynamic", EFFECT_DYNAMIC_CALL),
+                        ("defer", EFFECT_DEFER),
+                        ("propagate", EFFECT_PROPAGATE),
+                        ("host", EFFECT_HOST),
+                        ("binding_read", EFFECT_BINDING_READ),
+                        ("binding_write", EFFECT_BINDING_WRITE),
+                    ] {
+                        if step.effects & flag != 0 {
+                            *effects.entry(name).or_default() += 1;
+                        }
+                    }
+                }
+            }
+
+            assert!(files > 0);
+            assert!(whole_program_files > 0);
+            assert!(driver_steps > 0);
+            assert!(driver_regions > 0);
+            assert!(full_retained_bytes > driver_metadata_bytes);
+            println!(
+                "phase5 corpus files={files} source_bytes={source_bytes} top_level_statements={top_level_statements} lowerable_top_level_statements={lowerable_top_level_statements} region_statement_coverage_percent={:.2} whole_program_files={whole_program_files} whole_program_file_coverage_percent={:.2} whole_program_statements={whole_program_statements} driver_steps={driver_steps} coherent_regions={driver_regions} driver_sync_rows={driver_sync_rows} driver_metadata_bytes={driver_metadata_bytes} full_retained_bytes={full_retained_bytes} avoided_arena_duplication_bytes={arena_duplication_bytes}",
+                100.0 * lowerable_top_level_statements as f64 / top_level_statements as f64,
+                100.0 * whole_program_files as f64 / files as f64,
+            );
+            println!(
+                "phase5 strategy=whole_program admitted_files={whole_program_files} regions={whole_program_files} silent_internal_fallback=0"
+            );
+            println!(
+                "phase5 strategy=coherent_regions admitted_files={whole_program_files} regions={driver_regions} sync_rows={driver_sync_rows} metadata_bytes={driver_metadata_bytes} silent_internal_fallback=0 selected=true"
+            );
+            println!(
+                "phase5 strategy=arena_orchestration admitted_files={files} retained_arena_bytes={arena_duplication_bytes} general_ast_required=true selected=false"
+            );
+            for (effect, count) in effects {
+                println!("phase5 effect name={effect} steps={count}");
+            }
+            for (blocker, count) in blockers {
+                println!("phase5 blocker label={blocker} files={count}");
+            }
+        });
     }
 
     #[test]

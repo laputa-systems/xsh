@@ -20,6 +20,7 @@ area touched. Do not run formatter or autofix commands for agent work.
 | Indexed dependency/SCC construction | targeted `cargo test -p xsh --lib runtime::eval::indexed::tests::failed_mutual_recursion_scc_leaves_checkpoint_uncommitted` | `scripts/frontend-campaign-phase2` |
 | Interned semantic identities | targeted `cargo test -p xsh --lib runtime::eval::indexed::semantic::tests::` | `scripts/frontend-campaign-phase3` |
 | Full indexed function bodies | targeted `cargo test -p xsh --lib runtime::eval::indexed::full::tests::` | `scripts/frontend-campaign-phase4` |
+| Top-level/effect driver boundary | targeted `cargo test -p xsh --lib runtime::eval::indexed::full::tests::compact_driver_roundtrips_effects_and_executes_after_arena_drop` | `scripts/frontend-campaign-phase5` |
 | PGO workflow | `make pgo-profile` | `make bench-pgo` |
 | Syscall diagnostics | benchmark smoke test on the host | `make bench-syscalls` on Linux/Docker |
 | LLVM IR size | `tools/llvm-lines-repeat-offenders.xsh` over an existing capture | fresh `cargo llvm-lines` capture plus the applicable behavior/benchmark gate |
