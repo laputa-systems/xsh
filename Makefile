@@ -1,4 +1,4 @@
-.PHONY: build lint docs test cov test-linux test-linux-ci test-macos-ci bench bench-pgo bench-syscalls pgo-profile release-pgo install-darwin install-linux dist dist-ci
+.PHONY: build lint docs test cov test-linux test-linux-ci test-macos-ci bench bench-fast bench-pgo bench-syscalls pgo-profile release-pgo install-darwin install-linux dist dist-ci
 
 DARWIN_CODESIGN_FLAGS ?=
 ifneq ($(DARWIN_CODESIGN_ENTITLEMENTS),)
@@ -221,6 +221,9 @@ PGO_BASELINE := $(shell scripts/bench-baseline.py --variant pgo --print-path)
 
 bench:
 	@scripts/bench-baseline.py
+
+bench-fast:
+	@scripts/bench-baseline.py --fast
 
 bench-syscalls:
 	@scripts/bench-syscalls.py

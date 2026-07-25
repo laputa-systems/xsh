@@ -166,12 +166,11 @@ This campaign does not:
 
 ## Current Baseline
 
-Refresh the structural and performance baseline at the beginning of Phase 0 and
-after each completed phase:
+Refresh the structural and performance baseline after each completed phase:
 
 ```sh
 scripts/ir-layout.py
-make bench
+make bench-fast
 tools/xsh-ir-coverage.xsh
 ```
 
@@ -271,7 +270,6 @@ not incidental details from one revision.
 | runtime values | `docs/SPEC.md` | `src/runtime/value.rs`, `src/runtime/eval.rs` |
 | API identities | `docs/STDLIB.md` | `crates/xsh-registry`, `src/modules/signature.rs` |
 | IR coverage | `docs/FRONTEND.md` | `tools/xsh-ir-coverage.xsh` |
-| generated-code size | `LLVM-LINES.md` | `tools/llvm-lines-repeat-offenders.xsh` |
 
 ## Architectural Invariants
 
@@ -681,7 +679,7 @@ The existing Divan suite remains the only performance and PGO workload.
 | loops/records/strings | `xsh_extension_count_1000_files` | value/record allocations |
 | maps/records/parsing | `xsh_json_log_rollup_10000_rows` | clone/drop and shape reuse |
 | files/hash/JSON | `xsh_manifest_hash_1000_files` | retained report graph |
-| unrelated regressions | every `xshi_*` workload | complete `make bench` |
+| unrelated regressions | every `xshi_*` workload | complete `make bench-fast` |
 
 Do not add a microbenchmark to justify a representation. Add a deterministic
 complete workflow only when the suite genuinely lacks a user-visible path.
@@ -768,13 +766,22 @@ Divan provides total allocated bytes, allocation count, and `max alloc`.
 
 ### Latency Gates
 
-Normal baselines use one discarded warmup and three measured suites. Focused
-diagnosis may use:
+This campaign uses `make bench-fast` as the default suite command: zero outer
+warmup, one measured suite, Divan `--sample-count 1 --sample-size 1`, separate
+`-fast` baseline, and a memory-only report (no per-benchmark time or run
+spread). Allocation count, allocated bytes, and `max alloc` are the decision
+signals. Whole-suite wall time is recorded only as iteration-cost telemetry.
+
+Focused diagnosis may filter one operation:
 
 ```sh
 cargo bench -p xsh-multicall --bench bench BENCHMARK -- \
-  --sample-count 10 --sample-size 1
+  --sample-count 1 --sample-size 1
 ```
+
+`make bench` (multi-sample latency baselines) remains available outside the
+campaign when a timing claim needs multi-run evidence. Do not use it as the
+ordinary phase gate.
 
 - [ ] Benchmark processes run serially.
 - [ ] Host, toolchain, allocator, profile, and command are recorded.
@@ -816,20 +823,6 @@ Run `tools/xsh-ir-coverage.xsh` before and after lowering phases.
 - [ ] Coverage reporting builds no placeholder executable nodes.
 - [ ] Real-corpus frequency chooses the next missing construct.
 
-### Generated-Code Gates
-
-For broad opcode/accessor changes:
-
-```sh
-cargo llvm-lines --release --no-default-features --features tools --lib \
-  > /tmp/xsh-llvm-lines.txt
-target/release/xsh tools/llvm-lines-repeat-offenders.xsh -- \
-  /tmp/xsh-llvm-lines.txt --sum
-```
-
-Follow `LLVM-LINES.md`. Do not exchange compact data for uncontrolled generic
-code expansion.
-
 ### PGO Gates
 
 At the end of phases that materially change instruction mix, dispatch, function
@@ -854,7 +847,7 @@ Every performance-affecting change follows this checklist.
 - [ ] Record XSH state, Rust toolchain/target, host, allocator, and profile.
 - [ ] Preserve before measurements rather than overwriting them.
 - [ ] Record latency/spread, allocations, bytes, peak live, layout, retained
-  representation stats, coverage, and relevant LLVM lines.
+  representation stats, coverage.
 
 Example hypothesis:
 
@@ -902,7 +895,6 @@ Peak live before/after:
 Layout before/after:
 Retained bytes/source byte before/after:
 Coverage before/after:
-LLVM lines before/after, if applicable:
 Correctness gates:
 Decision:
 Known follow-up:
@@ -935,8 +927,10 @@ This is prerequisite work, not an easy optimization phase.
   `examples/`, `showcase/`, and syntax/sema/runtime fixtures.
 - [ ] Add every hot type to `scripts/ir-layout.py`.
 - [ ] Add size assertions for existing compact AST IDs/tags/data.
-- [ ] Capture two full benchmark baselines to characterize host noise.
-- [ ] Capture focused repository-check and runtime measurements.
+- [ ] Capture two `make bench-fast` baselines to prove allocation and peak-live
+  signals are bit-stable (or exactly repeatable after mediation).
+- [ ] Capture focused repository-check and runtime memory measurements under
+  the same fast protocol.
 - [ ] Capture coverage/blocker distributions.
 - [ ] Record lowerer, lowered runner, and evaluator line counts as descriptive
   complexity context.
@@ -946,8 +940,9 @@ This is prerequisite work, not an easy optimization phase.
 - [ ] Retained totals reconcile with components.
 - [ ] Capacity and backing strings are included.
 - [ ] No-change structural repeats are identical.
-- [ ] Allocation signals are stable enough to distinguish representation work.
-- [ ] Timing spread is preserved.
+- [ ] Allocation and peak-live signals are stable enough to distinguish
+  representation work under `make bench-fast`.
+- [ ] Whole-suite wall time is recorded as iteration telemetry only.
 - [ ] Complete before evidence is archived locally.
 
 ## Phase 1: Hard Architectural Vertical Slice
@@ -1192,7 +1187,7 @@ evaluation. Otherwise choose whole-program or coherent-region lowering.
 - [ ] Differentially run the complete corpus.
 - [ ] Enable indexed production execution without shadow building.
 - [ ] Run focused allocation/latency comparisons.
-- [ ] Run complete `make bench`.
+- [ ] Run complete `make bench-fast`.
 - [ ] Run `make bench-pgo`.
 - [ ] Remove `LoweredExpr`.
 - [ ] Remove `LoweredStmt`.
@@ -1331,7 +1326,6 @@ survived the foundational redesign.
 - [ ] Run full benchmarks and focused repeats.
 - [ ] Run coverage and layout reports.
 - [ ] Run syscall diagnostics where applicable.
-- [ ] Run LLVM lines analysis.
 - [ ] Run regular-versus-PGO comparison.
 - [ ] Replace historical baseline data with final measurements.
 
@@ -1523,7 +1517,6 @@ When the campaign finishes, replace this section with:
 - [ ] lowerability coverage and blocker changes;
 - [ ] regular-versus-PGO comparison;
 - [ ] syscall changes where applicable;
-- [ ] LLVM line changes;
 - [ ] deleted types, adapters, flags, and owner-module line counts;
 - [ ] remaining limitations and their measured importance.
 

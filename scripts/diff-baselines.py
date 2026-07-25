@@ -11,14 +11,35 @@ RESET = "\033[0m"
 RED = "\033[31m"
 GREEN = "\033[32m"
 
+Metrics = tuple[float, float, float, float, float]
 
-def read_baseline(path: Path) -> dict[str, tuple[float, float, float]]:
-    values = {}
+
+def read_baseline(path: Path) -> dict[str, Metrics]:
+    values: dict[str, Metrics] = {}
     for line in path.read_text().splitlines():
         if not line or line.startswith("#"):
             continue
-        name, median, counts, allocations = line.split("\t")
-        values[name] = (float(median), float(counts), float(allocations))
+        parts = line.split("\t")
+        if len(parts) == 4:
+            name, median, counts, allocations = parts
+            values[name] = (
+                float(median),
+                float(counts),
+                float(allocations),
+                0.0,
+                0.0,
+            )
+            continue
+        if len(parts) != 6:
+            raise ValueError(f"unsupported baseline row in {path}: {line}")
+        name, median, counts, allocations, max_counts, max_allocations = parts
+        values[name] = (
+            float(median),
+            float(counts),
+            float(allocations),
+            float(max_counts),
+            float(max_allocations),
+        )
     return values
 
 
@@ -72,13 +93,19 @@ def main() -> int:
     candidate = read_baseline(args.candidate)
     colors = os.environ.get("NO_COLOR") is None and os.isatty(1)
     print(f"{args.baseline} → {args.candidate}")
-    print("benchmark\ttime\tmemory\tallocs/op")
+    print("benchmark\ttime\tmemory\tallocs/op\tpeak\tpeak allocs")
     for name in sorted(set(baseline) | set(candidate)):
         old = baseline.get(name)
         new = candidate.get(name)
-        old_time, old_count, old_bytes = old or (None, None, None)
-        new_time, new_count, new_bytes = new or (None, None, None)
-        time = (
+        if old is None:
+            old_time = old_count = old_bytes = old_max_count = old_max_bytes = None
+        else:
+            old_time, old_count, old_bytes, old_max_count, old_max_bytes = old
+        if new is None:
+            new_time = new_count = new_bytes = new_max_count = new_max_bytes = None
+        else:
+            new_time, new_count, new_bytes, new_max_count, new_max_bytes = new
+        time_text = (
             f"{format_time(new_time)} ({delta(new_time, old_time, colors)})"
             if new_time is not None
             else "removed"
@@ -93,7 +120,17 @@ def main() -> int:
             if new_count is not None
             else "removed"
         )
-        print(f"{name}\t{time}\t{memory}\t{count}")
+        peak = (
+            f"{format_bytes(new_max_bytes)} ({delta(new_max_bytes, old_max_bytes, colors)})"
+            if new_max_bytes is not None
+            else "removed"
+        )
+        peak_count = (
+            f"{new_max_count:.0f} ({delta(new_max_count, old_max_count, colors)})"
+            if new_max_count is not None
+            else "removed"
+        )
+        print(f"{name}\t{time_text}\t{memory}\t{count}\t{peak}\t{peak_count}")
     return 0
 
 

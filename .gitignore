@@ -4,3 +4,4 @@ target
 .out
 *.profraw
 crates/xsh-multicall/benches/*-baseline.txt
+scripts/__pycache__

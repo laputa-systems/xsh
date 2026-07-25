@@ -43,20 +43,43 @@ make bench
 
 The baseline helper compares the current run with a host-specific file under
 `crates/xsh-multicall/benches/`, then replaces that local baseline. Baseline
-files are ignored by Git because timing data is machine-specific. It runs one
-discarded warmup suite followed by three measured suites and records the median
-of those three runs. This keeps the default reasonably quick while reducing
-cold page-cache and one-off scheduler effects. The report also shows the timing
-spread across the three measured runs so unstable results are visible. Each row
-records:
+files are ignored by Git because timing data is machine-specific. The normal
+path runs one discarded warmup suite followed by three measured suites and
+records the median of those three runs. This keeps the default reasonably quick
+while reducing cold page-cache and one-off scheduler effects. The report also
+shows the timing spread across the three measured runs so unstable results are
+visible. The helper always prints and records whole-suite wall time
+(`wall_s`, plus measured and warmup totals) so iteration cost is explicit.
+
+Each row records:
 
 ```text
-benchmark_name    median_ns    allocation_count    allocation_bytes
+benchmark_name    median_ns    allocation_count    allocation_bytes    max_alloc_count    max_alloc_bytes
 ```
 
-Latency is the primary signal. Allocation count and bytes are secondary signals
-that can explain latency changes on repeated paths. Added and removed
-benchmarks are reported explicitly.
+Latency is the primary signal for ordinary performance work. Allocation count,
+allocated bytes, and Divan `max alloc` (peak live requested bytes and count on
+the benchmark thread) explain memory and representation changes. Added and
+removed benchmarks are reported explicitly.
+
+### Fast memory iteration
+
+For representation and allocation work, prefer:
+
+```sh
+make bench-fast
+```
+
+which is `scripts/bench-baseline.py --fast`. That mode uses zero warmup suites,
+one measured suite, Divan `--sample-count 1 --sample-size 1`, and a memory-only
+report that omits per-benchmark time and run spread. Allocation
+traffic is deterministic enough for single-sample comparison. The default
+baseline path gets a `-fast` suffix so fast runs do not overwrite normal
+latency baselines. Override with `--baseline`, `--variant`, `--warmup-runs`,
+`--runs`, `--sample-count`, or `--sample-size` when needed.
+
+Do not mix fast and normal baseline files when judging deltas: single-sample
+runs start colder because XSH has process-global interners and caches.
 
 ## Interpreter And IR Diagnostics
 
@@ -67,17 +90,19 @@ a second benchmark corpus or a separate PGO workload.
 Start with the affected operation and keep the exact workload while iterating:
 
 ```sh
-cargo bench -p xsh-multicall --bench bench xsht_check_xsh_repository -- \
-  --sample-count 10 --sample-size 1
+make bench-fast
+# or one operation:
+cargo bench -p xsh-multicall --bench bench xsht_check_xsh_repository --   --sample-count 1 --sample-size 1
 ```
 
-The unabridged Divan output adds `max alloc` to the baseline metrics. `alloc`
+`make bench-fast` already records Divan `max alloc` in the baseline. `alloc`
 measures total allocation traffic; `max alloc` measures the peak live requested
 bytes and allocation count observed on the benchmark thread. The latter is the
 first retained-memory lens for parser arenas and lowered IR. Divan does not
 count allocations performed by threads it does not control, so use process RSS
 only when the workload is substantially multithreaded or allocator retention is
-the question.
+the question. Use multi-sample Divan settings only when stabilizing latency,
+not when iterating on allocation bytes.
 
 Run benchmark processes serially. XSH has process-global interners and caches,
 so the first sample can be visibly colder than the median, and parallel
