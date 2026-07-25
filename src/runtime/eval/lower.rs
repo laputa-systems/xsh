@@ -28,8 +28,9 @@ use super::lowered_ops::{
     lowered_binary_op, lowered_value_from_runtime_any, lowered_value_matches,
 };
 use super::{
-    LoweredProcessCommandBuilderEntry, LoweredRecordEntry, lowered_record_vec_get,
-    lowered_record_vec_get_mut, lowered_record_vec_insert,
+    LoweredProcessCommandArgv, LoweredProcessCommandBuilderEntry, LoweredRecordEntry,
+    LoweredRunCapture, LoweredSpawnRun, lowered_record_vec_get, lowered_record_vec_get_mut,
+    lowered_record_vec_insert,
 };
 
 /// Name -> dense slot-index map used while lowering a function or top-level
@@ -6851,7 +6852,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                     )?)),
                     None => None,
                 };
-                Some(LoweredExpr::SpawnRun {
+                let run = LoweredSpawnRun {
                     target,
                     args: lowered_args,
                     env: lowered_env,
@@ -6859,7 +6860,8 @@ impl CompactLowerConstructProbe<'_, '_> {
                     timeout,
                     cpu_max,
                     span,
-                })
+                };
+                Some(LoweredExpr::SpawnRun(Box::new(run)))
             }
         }
     }
@@ -6996,7 +6998,7 @@ impl CompactLowerConstructProbe<'_, '_> {
             // `propagate` flag instead.
             let capture_kind = lowered_run_capture_type(segment.kind).is_some();
             let propagate_internally = run.propagate && !capture_kind;
-            let capture = LoweredExpr::RunCapture {
+            let capture = LoweredRunCapture {
                 kind: segment.kind,
                 target,
                 args: lowered_args,
@@ -7008,6 +7010,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                 assert_success,
                 span: self.program.arena.span(run.span),
             };
+            let capture = LoweredExpr::RunCapture(Box::new(capture));
             if run.propagate && capture_kind {
                 Some(LoweredExpr::Try(Box::new(capture)))
             } else {
@@ -8372,7 +8375,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                     }
                     if module == "process" && name == "command_argv" {
                         let options = lower_process_command_argv_args(&args_vec)?;
-                        return Some(LoweredExpr::ProcessCommandArgv {
+                        let command = LoweredProcessCommandArgv {
                             target: Box::new(self.lower_expr(
                                 options.target,
                                 slots,
@@ -8494,7 +8497,8 @@ impl CompactLowerConstructProbe<'_, '_> {
                                 None => None,
                             },
                             span,
-                        });
+                        };
+                        return Some(LoweredExpr::ProcessCommandArgv(Box::new(command)));
                     }
                     if let Some(module_call) = lowered_module_call_args(module, name, &args_vec) {
                         return Some(LoweredExpr::ModuleCall {
@@ -10981,7 +10985,7 @@ impl CompactLowerConstructProbe<'_, '_> {
             ArenaPatternKind::Binding(name) if self.compact_tag_variant_arity(*name) == Some(0) => {
                 Some((
                     LoweredPattern::Tag {
-                        name: Arc::from(name.as_str()),
+                        name: *name,
                         slots: Default::default(),
                     },
                     Vec::new(),
@@ -11085,7 +11089,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                     };
                 Some((
                     LoweredPattern::Tag {
-                        name: Arc::from(name.as_str()),
+                        name: *name,
                         slots: field_slots,
                     },
                     cleanup,
@@ -11115,7 +11119,7 @@ impl CompactLowerConstructProbe<'_, '_> {
             LoweredPattern::ErrorVariant {
                 family,
                 variant,
-                fields: lowered,
+                fields: Box::new(lowered),
                 result_wrapped,
             },
             cleanup,
@@ -12743,7 +12747,7 @@ pub(super) fn lowered_pattern_matches(
             let LoweredValue::Tag(tag) = value else {
                 return false;
             };
-            if tag.name.as_ref() != name.as_ref() || tag.fields.len() != field_slots.len() {
+            if tag.name.as_ref() != name.as_str() || tag.fields.len() != field_slots.len() {
                 return false;
             }
             for (slot, field) in field_slots.iter().zip(&tag.fields) {

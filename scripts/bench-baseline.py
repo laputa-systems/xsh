@@ -7,6 +7,7 @@ import os
 import platform
 import re
 import shutil
+import statistics
 import subprocess
 import sys
 import tempfile
@@ -116,7 +117,11 @@ def read_baseline(path: Path) -> dict[str, tuple[float, float, float]]:
 
 
 def write_baseline(
-    path: Path, host: str, values: dict[str, tuple[float, float, float]]
+    path: Path,
+    host: str,
+    values: dict[str, tuple[float, float, float]],
+    warmup_runs: int,
+    measured_runs: int,
 ) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
@@ -124,6 +129,10 @@ def write_baseline(
         with os.fdopen(fd, "w") as file:
             file.write("# benchmark baseline\n")
             file.write(f"# host: {host}\n")
+            file.write(
+                f"# aggregation: median of {measured_runs} measured runs "
+                f"after {warmup_runs} warmup\n"
+            )
             file.write("# columns: benchmark median_ns alloc_count alloc_bytes\n")
             for name in sorted(values):
                 median, counts, allocations = values[name]
@@ -161,6 +170,7 @@ def delta(current: float, previous: float | None, colors: bool) -> str:
 def print_table(
     current: dict[str, tuple[float, float, float]],
     previous: dict[str, tuple[float, float, float]],
+    reports: list[dict[str, tuple[float, float, float]]],
 ) -> None:
     colors = sys.stdout.isatty() and "NO_COLOR" not in os.environ
     rows = []
@@ -168,17 +178,20 @@ def print_table(
         median, counts, allocations = current[name]
         old = previous.get(name)
         old_median, old_counts, old_allocations = old or (None, None, None)
+        run_times = [report[name][0] for report in reports]
+        spread = (max(run_times) - min(run_times)) / median * 100 if median else 0.0
         rows.append(
             (
                 name,
                 f"{format_metric(median, 'ns')} ({delta(median, old_median, colors)})",
+                f"{spread:.2f}%",
                 f"{format_metric(allocations, 'B')} ({delta(allocations, old_allocations, colors)})",
                 f"{counts:.0f} ({delta(counts, old_counts, colors)})",
             )
         )
     for name in sorted(set(previous) - set(current)):
-        rows.append((name, "removed", "removed", "removed"))
-    headers = ("benchmark", "time", "memory", "allocs/op")
+        rows.append((name, "removed", "removed", "removed", "removed"))
+    headers = ("benchmark", "time", "run spread", "memory", "allocs/op")
     widths = [
         max(len(row[index]) for row in rows + [headers])
         for index in range(len(headers))
@@ -190,13 +203,53 @@ def print_table(
         print("  ".join(value.ljust(width) for value, width in zip(row, widths)))
 
 
+def run_suite(root: Path) -> tuple[int, str, dict[str, tuple[float, float, float]]]:
+    completed = subprocess.run(
+        ["cargo", "bench", "-p", "xsh-multicall", "--bench", "bench"],
+        cwd=root,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+    )
+    return completed.returncode, completed.stdout, parse_report(completed.stdout)
+
+
+def aggregate_reports(
+    reports: list[dict[str, tuple[float, float, float]]],
+) -> dict[str, tuple[float, float, float]]:
+    names = set(reports[0])
+    for report in reports[1:]:
+        if set(report) != names:
+            missing = sorted(names - set(report))
+            added = sorted(set(report) - names)
+            details = []
+            if missing:
+                details.append("missing: " + ", ".join(missing))
+            if added:
+                details.append("added: " + ", ".join(added))
+            raise ValueError("benchmark set changed between runs (" + "; ".join(details) + ")")
+    return {
+        name: tuple(
+            statistics.median(report[name][metric] for report in reports)
+            for metric in range(3)
+        )
+        for name in names
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--baseline", type=Path)
     parser.add_argument("--variant")
     parser.add_argument("--quiet", action="store_true")
     parser.add_argument("--print-path", action="store_true")
+    parser.add_argument("--warmup-runs", type=int, default=1)
+    parser.add_argument("--runs", type=int, default=3)
     args = parser.parse_args()
+    if args.warmup_runs < 0:
+        parser.error("--warmup-runs must be nonnegative")
+    if args.runs < 1:
+        parser.error("--runs must be positive")
     root = Path(__file__).resolve().parents[1]
     host, _ = host_info()
     suffix = f"-{args.variant}" if args.variant else ""
@@ -206,25 +259,42 @@ def main() -> int:
     if args.print_path:
         print(baseline)
         return 0
-    completed = subprocess.run(
-        ["cargo", "bench", "-p", "xsh-multicall", "--bench", "bench"],
-        cwd=root,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-    )
-    if completed.returncode:
-        print(completed.stdout, end="")
-        return completed.returncode
-    current = parse_report(completed.stdout)
-    if not current:
-        print("benchmark: could not parse Divan output", file=sys.stderr)
-        print(completed.stdout, end="", file=sys.stderr)
+
+    for run in range(args.warmup_runs):
+        if not args.quiet:
+            print(f"warmup {run + 1}/{args.warmup_runs}", file=sys.stderr)
+        returncode, output, report = run_suite(root)
+        if returncode:
+            print(output, end="")
+            return returncode
+        if not report:
+            print("benchmark: could not parse warmup Divan output", file=sys.stderr)
+            print(output, end="", file=sys.stderr)
+            return 1
+
+    reports = []
+    for run in range(args.runs):
+        if not args.quiet:
+            print(f"measured run {run + 1}/{args.runs}", file=sys.stderr)
+        returncode, output, report = run_suite(root)
+        if returncode:
+            print(output, end="")
+            return returncode
+        if not report:
+            print("benchmark: could not parse Divan output", file=sys.stderr)
+            print(output, end="", file=sys.stderr)
+            return 1
+        reports.append(report)
+    try:
+        current = aggregate_reports(reports)
+    except ValueError as error:
+        print(f"benchmark: {error}", file=sys.stderr)
         return 1
+
     previous = read_baseline(baseline)
     if not args.quiet:
-        print_table(current, previous)
-    write_baseline(baseline, host, current)
+        print_table(current, previous, reports)
+    write_baseline(baseline, host, current, args.warmup_runs, args.runs)
     return 0
 
 

@@ -43,7 +43,11 @@ make bench
 
 The baseline helper compares the current run with a host-specific file under
 `crates/xsh-multicall/benches/`, then replaces that local baseline. Baseline
-files are ignored by Git because timing data is machine-specific. Each row
+files are ignored by Git because timing data is machine-specific. It runs one
+discarded warmup suite followed by three measured suites and records the median
+of those three runs. This keeps the default reasonably quick while reducing
+cold page-cache and one-off scheduler effects. The report also shows the timing
+spread across the three measured runs so unstable results are visible. Each row
 records:
 
 ```text
@@ -74,6 +78,16 @@ first retained-memory lens for parser arenas and lowered IR. Divan does not
 count allocations performed by threads it does not control, so use process RSS
 only when the workload is substantially multithreaded or allocator retention is
 the question.
+
+Run benchmark processes serially. XSH has process-global interners and caches,
+so the first sample can be visibly colder than the median, and parallel
+benchmark processes contaminate latency results. Layout and allocation-byte
+deltas are normally deterministic enough to decide representation changes;
+latency is noisier. For a timing decision, repeat the focused before/after
+measurement with identical sample settings and require the direction to repeat.
+Treat a small single-run delta—especially below roughly 5% for sub-millisecond
+work—as inconclusive. `make bench` is a regression sweep, not statistical proof
+that a marginal timing change is real.
 
 Use the existing complete operations as phase lenses:
 

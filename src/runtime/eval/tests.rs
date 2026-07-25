@@ -3,7 +3,8 @@ use crate::runtime::eval::lowered_ops::lowered_value_matches;
 use crate::runtime::eval::{
     EvalFlow, Evaluator, LOWERED_METHOD_NAMES, LoweredBoolExpr, LoweredBytesView, LoweredCallArg,
     LoweredExpr, LoweredFmtPart, LoweredFunctionBlocker, LoweredFunctionKey, LoweredFunctionKind,
-    LoweredIntExpr, LoweredPipelineStage, LoweredProcessCommandBuilderEntry, LoweredRecordEntry,
+    LoweredIntExpr, LoweredPipelineStage, LoweredProcessCommandArgv,
+    LoweredProcessCommandBuilderEntry, LoweredRecordEntry, LoweredRunCapture, LoweredSpawnRun,
     LoweredStmt, LoweredStrView, LoweredTopLevelKind, LoweredType, LoweredValue, Span, Value,
     apply_question, probe_compact_lower_constructed_bodies, probe_compact_lower_function_units,
     value_to_argv_bytes,
@@ -2414,13 +2415,14 @@ fn lowered_expr_has_str_predicate(expr: &LoweredExpr) -> bool {
         LoweredExpr::RegexCompile { pattern, .. } => lowered_expr_has_str_predicate(pattern),
         LoweredExpr::Require { value, .. } => lowered_expr_has_str_predicate(value),
         LoweredExpr::PathFrom { value, .. } => lowered_expr_has_str_predicate(value),
-        LoweredExpr::RunCapture {
-            target,
-            args,
-            env,
-            redirections,
-            ..
-        } => {
+        LoweredExpr::RunCapture(capture) => {
+            let LoweredRunCapture {
+                target,
+                args,
+                env,
+                redirections,
+                ..
+            } = capture.as_ref();
             lowered_run_arg_has_str_predicate(target)
                 || args.iter().any(lowered_run_arg_has_str_predicate)
                 || env
@@ -2430,9 +2432,10 @@ fn lowered_expr_has_str_predicate(expr: &LoweredExpr) -> bool {
                     .iter()
                     .any(|redirection| lowered_run_arg_has_str_predicate(&redirection.target))
         }
-        LoweredExpr::SpawnRun {
-            target, args, env, ..
-        } => {
+        LoweredExpr::SpawnRun(run) => {
+            let LoweredSpawnRun {
+                target, args, env, ..
+            } = run.as_ref();
             lowered_run_arg_has_str_predicate(target)
                 || args.iter().any(lowered_run_arg_has_str_predicate)
                 || env
@@ -2529,18 +2532,19 @@ fn lowered_expr_has_str_predicate(expr: &LoweredExpr) -> bool {
             lowered_expr_has_str_predicate(path) || lowered_expr_has_str_predicate(expected)
         }
         LoweredExpr::ModuleCall { args, .. } => args.iter().any(lowered_expr_has_str_predicate),
-        LoweredExpr::ProcessCommandArgv {
-            target,
-            argv,
-            cwd,
-            env,
-            timeout,
-            detach,
-            new_session,
-            ignore_hup,
-            cpu_max,
-            ..
-        } => {
+        LoweredExpr::ProcessCommandArgv(command) => {
+            let LoweredProcessCommandArgv {
+                target,
+                argv,
+                cwd,
+                env,
+                timeout,
+                detach,
+                new_session,
+                ignore_hup,
+                cpu_max,
+                ..
+            } = command.as_ref();
             lowered_expr_has_str_predicate(target)
                 || lowered_expr_has_str_predicate(argv)
                 || cwd

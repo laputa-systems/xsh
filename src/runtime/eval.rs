@@ -865,6 +865,55 @@ enum LoweredProcessCommandBuilderEntry {
 }
 
 #[derive(Clone, Debug)]
+struct LoweredProcessCommandArgv {
+    target: Box<LoweredExpr>,
+    argv: Box<LoweredExpr>,
+    cwd: Option<Box<LoweredExpr>>,
+    env: Option<Box<LoweredExpr>>,
+    stdin: Option<Box<LoweredExpr>>,
+    stdout: Option<Box<LoweredExpr>>,
+    stderr: Option<Box<LoweredExpr>>,
+    stdout_append: Option<Box<LoweredExpr>>,
+    stderr_append: Option<Box<LoweredExpr>>,
+    timeout: Option<Box<LoweredExpr>>,
+    detach: Option<Box<LoweredExpr>>,
+    new_session: Option<Box<LoweredExpr>>,
+    ignore_hup: Option<Box<LoweredExpr>>,
+    cpu_max: Option<Box<LoweredExpr>>,
+    span: Span,
+}
+
+#[derive(Clone, Debug)]
+struct LoweredRunCapture {
+    kind: RunKind,
+    target: Box<LoweredRunArg>,
+    args: Vec<LoweredRunArg>,
+    env: Vec<LoweredRunEnv>,
+    redirections: Vec<LoweredRunRedirection>,
+    timeout: Option<Box<LoweredExpr>>,
+    cpu_max: Option<Box<LoweredExpr>>,
+    // For Plain/Status run *values* with `?`, propagation is handled inside
+    // eval_lowered_run_capture (Break on RunError, pass Status through),
+    // because a Plain run yields a bare Status on success — not a Result the
+    // external `Try` wrapper could unwrap. Capture kinds keep the external
+    // Try and leave this false.
+    propagate: bool,
+    assert_success: bool,
+    span: Span,
+}
+
+#[derive(Clone, Debug)]
+struct LoweredSpawnRun {
+    target: Box<LoweredRunArg>,
+    args: Vec<LoweredRunArg>,
+    env: Vec<LoweredRunEnv>,
+    redirections: Vec<LoweredRunRedirection>,
+    timeout: Option<Box<LoweredExpr>>,
+    cpu_max: Option<Box<LoweredExpr>>,
+    span: Span,
+}
+
+#[derive(Clone, Debug)]
 enum LoweredStmt {
     Let {
         slot: usize,
@@ -1287,37 +1336,15 @@ enum LoweredExpr {
         check: LoweredTypeCheck,
         span: Span,
     },
-    RunCapture {
-        kind: RunKind,
-        target: Box<LoweredRunArg>,
-        args: Vec<LoweredRunArg>,
-        env: Vec<LoweredRunEnv>,
-        redirections: Vec<LoweredRunRedirection>,
-        timeout: Option<Box<LoweredExpr>>,
-        cpu_max: Option<Box<LoweredExpr>>,
-        // For Plain/Status run *values* with `?`, propagation is handled inside
-        // eval_lowered_run_capture (Break on RunError, pass Status through),
-        // because a Plain run yields a bare Status on success — not a Result the
-        // external `Try` wrapper could unwrap. Capture kinds keep the external
-        // Try and leave this false.
-        propagate: bool,
-        assert_success: bool,
-        span: Span,
-    },
+    // Boxed because captured and spawned runs are cold, unusually wide
+    // payloads that would otherwise determine the size of every expression.
+    RunCapture(Box<LoweredRunCapture>),
     RunPipeline {
         segments: Vec<LoweredRunPipelineSegment>,
         propagate: bool,
         span: Span,
     },
-    SpawnRun {
-        target: Box<LoweredRunArg>,
-        args: Vec<LoweredRunArg>,
-        env: Vec<LoweredRunEnv>,
-        redirections: Vec<LoweredRunRedirection>,
-        timeout: Option<Box<LoweredExpr>>,
-        cpu_max: Option<Box<LoweredExpr>>,
-        span: Span,
-    },
+    SpawnRun(Box<LoweredSpawnRun>),
     SpawnCommand {
         command: Box<LoweredExpr>,
         span: Span,
@@ -1466,23 +1493,9 @@ enum LoweredExpr {
         args: Vec<LoweredExpr>,
         span: Span,
     },
-    ProcessCommandArgv {
-        target: Box<LoweredExpr>,
-        argv: Box<LoweredExpr>,
-        cwd: Option<Box<LoweredExpr>>,
-        env: Option<Box<LoweredExpr>>,
-        stdin: Option<Box<LoweredExpr>>,
-        stdout: Option<Box<LoweredExpr>>,
-        stderr: Option<Box<LoweredExpr>>,
-        stdout_append: Option<Box<LoweredExpr>>,
-        stderr_append: Option<Box<LoweredExpr>>,
-        timeout: Option<Box<LoweredExpr>>,
-        detach: Option<Box<LoweredExpr>>,
-        new_session: Option<Box<LoweredExpr>>,
-        ignore_hup: Option<Box<LoweredExpr>>,
-        cpu_max: Option<Box<LoweredExpr>>,
-        span: Span,
-    },
+    // Boxed because this cold command-construction payload otherwise makes
+    // every `LoweredExpr` 16 bytes larger, including expression-heavy scripts.
+    ProcessCommandArgv(Box<LoweredProcessCommandArgv>),
     ProcessCommandBuilder {
         entries: Vec<LoweredProcessCommandBuilderEntry>,
         span: Span,
@@ -1590,7 +1603,9 @@ enum LoweredPattern {
     ErrorVariant {
         family: Name,
         variant: Name,
-        fields: LoweredErrorPatternFields,
+        // Structured error patterns are rare; keep their multi-field payload
+        // from setting the size of every pattern in every match arm.
+        fields: Box<LoweredErrorPatternFields>,
         result_wrapped: bool,
     },
     // `is Facet => …`: matches when the error value carries `facet`.
@@ -1601,7 +1616,7 @@ enum LoweredPattern {
         result_wrapped: bool,
     },
     Tag {
-        name: Arc<str>,
+        name: Name,
         slots: LoweredPatternSlots,
     },
 }

@@ -81,12 +81,13 @@ use super::{
     Binding, Evaluator, Flow, FsRootHandle, LowerableFunctions, LoweredBoolExpr, LoweredCallArg,
     LoweredCompTarget, LoweredErrorExpr, LoweredExpr, LoweredFmtPart, LoweredFunctionKey,
     LoweredIntExpr, LoweredModuleExportKind, LoweredPipelineStage,
-    LoweredProcessCommandBuilderEntry, LoweredPureFunction, LoweredRecordEntry, LoweredReturnKind,
-    LoweredRunArg, LoweredRunArgKind, LoweredRunEnv, LoweredRunPipelineSegment,
-    LoweredRunRedirection, LoweredStmt, LoweredStmtFlow, LoweredStrPredicate, LoweredTagValue,
-    LoweredTopLevelKind, LoweredTopLevelStmt, LoweredType, LoweredValue, LoweredWorker, Name,
-    ReduceByOp, ScanCondition, assign_lowered_bytes_view, assign_lowered_str_view, bytes_contains,
-    check_env_name, compound_assignment_value, exit_status, lowered_inline_stats_field_value,
+    LoweredProcessCommandArgv, LoweredProcessCommandBuilderEntry, LoweredPureFunction,
+    LoweredRecordEntry, LoweredReturnKind, LoweredRunArg, LoweredRunArgKind, LoweredRunEnv,
+    LoweredRunCapture, LoweredRunPipelineSegment, LoweredRunRedirection, LoweredSpawnRun,
+    LoweredStmt, LoweredStmtFlow, LoweredStrPredicate, LoweredTagValue, LoweredTopLevelKind,
+    LoweredTopLevelStmt, LoweredType, LoweredValue, LoweredWorker, Name, ReduceByOp, ScanCondition,
+    assign_lowered_bytes_view, assign_lowered_str_view, bytes_contains, check_env_name,
+    compound_assignment_value, exit_status, lowered_inline_stats_field_value,
     lowered_inline_stats_to_record_vec, lowered_record_vec_get, lowered_record_vec_get_mut,
     lowered_record_vec_insert, lowered_record_vec_or_stats, lowered_stats_field_value,
     lowered_str_view_value, lowered_value_matches_static_type, module_error, module_io_error,
@@ -11408,23 +11409,24 @@ impl Evaluator {
             LoweredExpr::DynamicCall { .. } => Ok(None),
             LoweredExpr::Glob { .. } => Ok(None),
             LoweredExpr::LastStatus { .. } => Ok(None),
-            LoweredExpr::ProcessCommandArgv {
-                target,
-                argv,
-                cwd,
-                env,
-                stdin,
-                stdout,
-                stderr,
-                stdout_append,
-                stderr_append,
-                timeout,
-                detach,
-                new_session,
-                ignore_hup,
-                cpu_max,
-                span,
-            } => {
+            LoweredExpr::ProcessCommandArgv(command) => {
+                let LoweredProcessCommandArgv {
+                    target,
+                    argv,
+                    cwd,
+                    env,
+                    stdin,
+                    stdout,
+                    stderr,
+                    stdout_append,
+                    stderr_append,
+                    timeout,
+                    detach,
+                    new_session,
+                    ignore_hup,
+                    cpu_max,
+                    span,
+                } = command.as_ref();
                 let Some(target) = self.eval_lowered_plain_expr(lowered, target, slots)? else {
                     return Ok(None);
                 };
@@ -11626,9 +11628,9 @@ impl Evaluator {
             | LoweredExpr::Method { .. }
             | LoweredExpr::RegexCompile { .. }
             | LoweredExpr::Require { .. }
-            | LoweredExpr::RunCapture { .. }
+            | LoweredExpr::RunCapture(_)
             | LoweredExpr::RunPipeline { .. }
-            | LoweredExpr::SpawnRun { .. }
+            | LoweredExpr::SpawnRun(_)
             | LoweredExpr::SpawnCommand { .. }
             | LoweredExpr::Wait { .. }
             | LoweredExpr::Loop { .. }
@@ -18631,55 +18633,61 @@ impl Evaluator {
                     )))
                 }
             }
-            LoweredExpr::RunCapture {
-                kind,
-                target,
-                args,
-                env,
-                redirections,
-                timeout,
-                cpu_max,
-                propagate,
-                assert_success,
-                span,
-            } => self.eval_lowered_run_capture(
-                lowered,
-                *kind,
-                target,
-                args,
-                env,
-                redirections,
-                timeout.as_deref(),
-                cpu_max.as_deref(),
-                *propagate,
-                *assert_success,
-                *span,
-                slots,
-            ),
+            LoweredExpr::RunCapture(capture) => {
+                let LoweredRunCapture {
+                    kind,
+                    target,
+                    args,
+                    env,
+                    redirections,
+                    timeout,
+                    cpu_max,
+                    propagate,
+                    assert_success,
+                    span,
+                } = capture.as_ref();
+                self.eval_lowered_run_capture(
+                    lowered,
+                    *kind,
+                    target,
+                    args,
+                    env,
+                    redirections,
+                    timeout.as_deref(),
+                    cpu_max.as_deref(),
+                    *propagate,
+                    *assert_success,
+                    *span,
+                    slots,
+                )
+            }
             LoweredExpr::RunPipeline {
                 segments,
                 propagate,
                 span,
             } => self.eval_lowered_run_pipeline(lowered, segments, *propagate, *span, slots),
-            LoweredExpr::SpawnRun {
-                target,
-                args,
-                env,
-                redirections,
-                timeout,
-                cpu_max,
-                span,
-            } => self.eval_lowered_spawn_run(
-                lowered,
-                target,
-                args,
-                env,
-                redirections,
-                timeout.as_deref(),
-                cpu_max.as_deref(),
-                *span,
-                slots,
-            ),
+            LoweredExpr::SpawnRun(run) => {
+                let LoweredSpawnRun {
+                    target,
+                    args,
+                    env,
+                    redirections,
+                    timeout,
+                    cpu_max,
+                    span,
+                } = run.as_ref();
+                self.eval_lowered_spawn_run(
+                    lowered,
+                    target,
+                    args,
+                    env,
+                    redirections,
+                    timeout.as_deref(),
+                    cpu_max.as_deref(),
+                    *span,
+                    slots,
+                )
+            }
             LoweredExpr::SpawnCommand { command, span } => {
                 self.eval_lowered_spawn_command(lowered, command, *span, slots)
             }
@@ -19385,23 +19393,24 @@ impl Evaluator {
                 };
                 Ok(ControlFlow::Continue(value))
             }
-            LoweredExpr::ProcessCommandArgv {
-                target,
-                argv,
-                cwd,
-                env,
-                stdin,
-                stdout,
-                stderr,
-                stdout_append,
-                stderr_append,
-                timeout,
-                detach,
-                new_session,
-                ignore_hup,
-                cpu_max,
-                span,
-            } => {
+            LoweredExpr::ProcessCommandArgv(command) => {
+                let LoweredProcessCommandArgv {
+                    target,
+                    argv,
+                    cwd,
+                    env,
+                    stdin,
+                    stdout,
+                    stderr,
+                    stdout_append,
+                    stderr_append,
+                    timeout,
+                    detach,
+                    new_session,
+                    ignore_hup,
+                    cpu_max,
+                    span,
+                } = command.as_ref();
                 let target = match self.eval_lowered_expr(lowered, target, slots, *span)? {
                     ControlFlow::Continue(value) => value,
                     ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),

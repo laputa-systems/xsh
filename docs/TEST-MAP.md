@@ -8,10 +8,10 @@ area touched. Do not run formatter or autofix commands for agent work.
 | Change | Narrow command | Broader gate |
 |---|---|---|
 | Rust compile only | `cargo build` | `cargo test` |
-| Syntax parser/formatter | targeted `cargo test --test syntax TEST_NAME` | `cargo test --test syntax` |
-| Checker or lint | targeted `cargo test --test sema TEST_NAME` for checker or `cargo test -p xsht --test lint TEST_NAME` for lint | `cargo test --test sema` for checker or `cargo test -p xsht --test lint` for lint |
-| Runtime behavior | targeted `cargo test --test runtime TEST_NAME` | `cargo test --test runtime` |
-| One runtime fixture | `cargo test --test runtime TEST_NAME` | `cargo test --test runtime` |
+| Syntax parser/formatter | targeted `cargo test --test integration syntax::TEST_NAME` | `cargo test --test integration syntax::` |
+| Checker or lint | targeted `cargo test --test integration sema::TEST_NAME` for checker or `cargo test -p xsht --test lint TEST_NAME` for lint | `cargo test --test integration sema::` for checker or `cargo test -p xsht --test lint` for lint |
+| Runtime behavior | targeted `cargo test --test integration runtime::TEST_NAME` | `cargo test --test integration runtime::` |
+| One runtime fixture | `cargo test --test integration runtime::TEST_NAME` | `cargo test --test integration runtime::` |
 | CLI/tooling | targeted `cargo test -p xsht --test cli TEST_NAME` or `cargo test -p xsht --test grep TEST_NAME` | `cargo test -p xsht --test cli --test grep` if both apply |
 | Benchmark workload | `cargo bench -p xsh-multicall --bench bench BENCHMARK -- --sample-count 1 --sample-size 1` | `make bench` |
 | Arena or lowered-IR layout | `scripts/ir-layout.py --details TYPE` | focused Divan workload plus the applicable behavior tests |
@@ -30,7 +30,7 @@ cargo build --bin xsh
 cargo run -p xsht --features docs-html -- docs build
 cargo run -p xsht --features docs-html -- docs check
 cargo test -p xsht --features docs-html docs
-cargo test --test runtime example_
+cargo test --test integration runtime::examples::
 ```
 
 Run the runtime example test when chapter examples, `examples/catalog.json`, or
