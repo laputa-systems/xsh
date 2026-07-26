@@ -65,14 +65,14 @@ impl Checker {
             match kind {
                 ArenaStmtKind::TypeDef(def_id) => {
                     let def = program.arena.type_def(def_id);
-                    if is_builtin_or_standard_record_type_name(&def.name) {
+                    if is_builtin_or_standard_record_type_name(def.name.as_str()) {
                         self.error(
                             span,
                             "type name conflicts with a built-in type",
                             "check.duplicate-name",
                         );
                     }
-                    self.check_standard_module_shadow(&def.name, span);
+                    self.check_standard_module_shadow(&def.name.as_str(), span);
                     if self.type_defs.contains_key(&def.name) {
                         self.error(
                             span,
@@ -105,14 +105,14 @@ impl Checker {
                 }
                 ArenaStmtKind::ErrorDef(def_id) => {
                     let def = program.arena.error_def(def_id);
-                    if is_builtin_or_standard_record_type_name(&def.name) {
+                    if is_builtin_or_standard_record_type_name(def.name.as_str()) {
                         self.error(
                             span,
                             "error family name conflicts with a built-in type",
                             "check.duplicate-name",
                         );
                     }
-                    self.check_standard_module_shadow(&def.name, span);
+                    self.check_standard_module_shadow(&def.name.as_str(), span);
                     if !names.insert(def.name) {
                         self.error(span, "duplicate top-level name", "check.duplicate-name");
                     }
@@ -120,8 +120,8 @@ impl Checker {
                 }
                 ArenaStmtKind::ProcDef(def_id) => {
                     let def = program.arena.function_def(def_id);
-                    self.check_standard_module_shadow(&def.name, span);
-                    if CoreCommand::from_name(&def.name).is_some() {
+                    self.check_standard_module_shadow(&def.name.as_str(), span);
+                    if CoreCommand::from_name(&def.name.as_str()).is_some() {
                         self.error(
                             span,
                             "proc name conflicts with a core command",
@@ -134,14 +134,14 @@ impl Checker {
                 }
                 ArenaStmtKind::PureDef(def_id) => {
                     let def = program.arena.function_def(def_id);
-                    self.check_standard_module_shadow(&def.name, span);
+                    self.check_standard_module_shadow(&def.name.as_str(), span);
                     if !names.insert(def.name) {
                         self.error(span, "duplicate top-level name", "check.duplicate-name");
                     }
                 }
                 ArenaStmtKind::StreamDef(def_id) => {
                     let def = program.arena.function_def(def_id);
-                    self.check_standard_module_shadow(&def.name, span);
+                    self.check_standard_module_shadow(&def.name.as_str(), span);
                     if !names.insert(def.name) {
                         self.error(span, "duplicate top-level name", "check.duplicate-name");
                     }
@@ -205,14 +205,14 @@ impl Checker {
             match kind {
                 ArenaStmtKind::TypeDef(def_id) => {
                     let def = program.arena.type_def(def_id);
-                    if is_builtin_or_standard_record_type_name(&def.name) {
+                    if is_builtin_or_standard_record_type_name(def.name.as_str()) {
                         self.error(
                             span,
                             "type name conflicts with a built-in type",
                             "check.duplicate-name",
                         );
                     }
-                    self.check_standard_module_shadow(&def.name, span);
+                    self.check_standard_module_shadow(&def.name.as_str(), span);
                     if self.type_defs.contains_key(&def.name) || !names.insert(def.name) {
                         self.error(span, "duplicate module type name", "check.duplicate-name");
                     }
@@ -221,7 +221,7 @@ impl Checker {
                 }
                 ArenaStmtKind::ErrorDef(def_id) => {
                     let def = program.arena.error_def(def_id);
-                    self.check_standard_module_shadow(&def.name, span);
+                    self.check_standard_module_shadow(&def.name.as_str(), span);
                     if !names.insert(def.name) {
                         self.error(span, "duplicate module type name", "check.duplicate-name");
                     }
@@ -229,19 +229,19 @@ impl Checker {
                 }
                 ArenaStmtKind::ProcDef(def_id) => {
                     let def = program.arena.function_def(def_id);
-                    self.check_standard_module_shadow(&def.name, span);
+                    self.check_standard_module_shadow(&def.name.as_str(), span);
                     let sig = self.function_sig_arena(program, source, def_id);
                     self.procs.insert(def.name, sig);
                 }
                 ArenaStmtKind::PureDef(def_id) => {
                     let def = program.arena.function_def(def_id);
-                    self.check_standard_module_shadow(&def.name, span);
+                    self.check_standard_module_shadow(&def.name.as_str(), span);
                     let sig = self.function_sig_arena(program, source, def_id);
                     self.pures.insert(def.name, sig);
                 }
                 ArenaStmtKind::StreamDef(def_id) => {
                     let def = program.arena.function_def(def_id);
-                    self.check_standard_module_shadow(&def.name, span);
+                    self.check_standard_module_shadow(&def.name.as_str(), span);
                     let sig = self.function_sig_arena(program, source, def_id);
                     self.streams.insert(def.name, sig);
                 }
@@ -543,7 +543,7 @@ impl Checker {
         };
         if let Some(alias) = alias {
             if diagnose {
-                self.check_standard_module_shadow(alias.as_str(), span);
+                self.check_standard_module_shadow(&alias.as_str(), span);
                 if self.type_namespaces.contains_key(&alias) {
                     self.error(
                         span,
@@ -768,7 +768,7 @@ impl Checker {
             self.import_user_module(key, alias, &path_names, span);
             return;
         }
-        if path_names.len() != 1 || api_spec().module(path_names[0].as_str()).is_none() {
+        if path_names.len() != 1 || api_spec().module(&path_names[0].as_str()).is_none() {
             self.error(
                 span,
                 "only standard modules can be imported",
@@ -936,6 +936,7 @@ impl Checker {
     }
 }
 
-pub(super) fn is_builtin_or_standard_record_type_name(name: &str) -> bool {
+pub(super) fn is_builtin_or_standard_record_type_name(name: impl AsRef<str>) -> bool {
+    let name = name.as_ref();
     Type::from_name(name) != Type::Unknown || standard_record_type(name).is_some()
 }

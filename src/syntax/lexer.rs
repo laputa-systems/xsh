@@ -1,6 +1,6 @@
 use crate::diagnostic::{Diagnostic, Label};
 use crate::source::{SourceId, Span};
-use crate::symbol::Name;
+use crate::symbol::{Name, SymbolOwner};
 use crate::syntax::literal::{self, QuotedLiteralKind, QuotedScan};
 use crate::syntax::token::{Keyword, TokenKind, TokenTable, TokenTableBuilder};
 
@@ -8,6 +8,7 @@ use crate::syntax::token::{Keyword, TokenKind, TokenTable, TokenTableBuilder};
 pub struct CompactLexerOutput {
     pub token_table: TokenTable,
     pub diagnostics: Vec<Diagnostic>,
+    _symbols: SymbolOwner,
 }
 
 pub struct Lexer<'a> {
@@ -16,6 +17,7 @@ pub struct Lexer<'a> {
     offset: usize,
     token_builder: TokenTableBuilder,
     diagnostics: Vec<Diagnostic>,
+    symbols: SymbolOwner,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -28,6 +30,10 @@ enum StringLiteralKind {
 
 impl<'a> Lexer<'a> {
     pub fn new(source_id: SourceId, source: &'a str) -> Self {
+        Self::new_with_symbols(source_id, source, SymbolOwner::new())
+    }
+
+    pub fn new_with_symbols(source_id: SourceId, source: &'a str, symbols: SymbolOwner) -> Self {
         // Shell-like source averages ~4 bytes/token across the checked-in corpus;
         // sizing the token table up front avoids repeated doubling reallocations
         // for every file lexed (`TokenTableBuilder::default()` starts at capacity 0).
@@ -38,14 +44,17 @@ impl<'a> Lexer<'a> {
             offset: 0,
             token_builder: TokenTableBuilder::with_capacity(estimated_tokens),
             diagnostics: Vec::new(),
+            symbols,
         }
     }
 
     pub fn lex_compact(mut self) -> CompactLexerOutput {
-        self.lex_source();
+        let symbols = self.symbols.clone();
+        symbols.with_current(|| self.lex_source());
         CompactLexerOutput {
             token_table: std::mem::take(&mut self.token_builder).finish(),
             diagnostics: self.diagnostics,
+            _symbols: self.symbols,
         }
     }
 
@@ -609,7 +618,6 @@ fn is_ident_continue(byte: u8) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{Keyword, Lexer, SourceId};
-    use crate::symbol::Name;
     use crate::syntax::token::TokenTag;
 
     #[test]
@@ -637,9 +645,9 @@ mod tests {
             ]
         );
         assert_eq!(table.keyword_at(0), Some(Keyword::Let));
-        assert_eq!(table.name_at(1), Some(Name::intern("name")));
+        assert!(table.name_at(1).is_some_and(|name| name == "name"));
         assert_eq!(table.keyword_at(6), Some(Keyword::Run));
-        assert_eq!(table.name_at(7), Some(Name::intern("make")));
+        assert!(table.name_at(7).is_some_and(|name| name == "make"));
         assert_eq!(
             table
                 .string_flags_at(3)

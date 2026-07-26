@@ -145,7 +145,7 @@ impl Checker {
                 self.check_stage_no_args_arena(arena, stage);
                 for option in arena.arena.stream_options(stage.options) {
                     let option_span = arena.arena.span(option.span);
-                    match option.name.as_str() {
+                    match option.name.as_str().as_str() {
                         "desc" => {
                             if let Some(value) = option.value {
                                 let actual =
@@ -416,7 +416,7 @@ impl Checker {
                 self.check_stage_no_args_arena(arena, stage);
                 for option in arena.arena.stream_options(stage.options) {
                     let option_span = arena.arena.span(option.span);
-                    match option.name.as_str() {
+                    match option.name.as_str().as_str() {
                         "sum" | "min" | "max" => {}
                         "jobs" => {
                             if let Some(value) = option.value {
@@ -572,7 +572,7 @@ impl Checker {
         allowed: &[&str],
     ) {
         for option in arena.arena.stream_options(stage.options) {
-            if !allowed.contains(&option.name.as_str()) {
+            if !allowed.contains(&option.name.as_str().as_str()) {
                 self.error(
                     arena.arena.span(option.span),
                     "unsupported stream stage option",
@@ -613,7 +613,7 @@ impl Checker {
         }
         let mut has_limit = false;
         for option in arena.arena.stream_options(stage.options) {
-            match option.name.as_str() {
+            match option.name.as_str().as_str() {
                 "count" | "max-bytes" => {
                     has_limit = true;
                     let Some(value) = self.check_required_option_value_arena(arena, option) else {

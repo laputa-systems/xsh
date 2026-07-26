@@ -100,6 +100,7 @@ pub type NativeTestHost =
 pub struct PreparedTestProgram {
     plan: CompactIndexedRunPlan,
     script_span: Span,
+    symbols: crate::symbol::SymbolOwner,
     shared: Arc<LoweredSharedState>,
     setup_shared: Arc<LoweredSharedState>,
     setup_failure: Option<TestEvalOutput>,
@@ -301,7 +302,9 @@ pub fn probe_compact_lower_constructed_bodies(
     bodies: &CompactBodyProbeOutput,
     source: &str,
 ) -> CompactLowerConstructProbeOutput {
-    lower::probe_compact_lower_constructed_bodies(program, declarations, bodies, source)
+    program.symbol_owner().with_current(|| {
+        lower::probe_compact_lower_constructed_bodies(program, declarations, bodies, source)
+    })
 }
 
 pub fn probe_compact_runtime_declarations(
@@ -1357,11 +1360,10 @@ enum BuildExprRow {
     },
     Field {
         base: BuildExprId,
-        // Field/method names come from interned identifiers (`Name::as_str()`),
-        // which are already `'static` — storing the leaked str view instead of an
-        // owned `String` drops an allocation from every field-access node built
-        // during lowering.
-        name: &'static str,
+        // Scratch rows retain a cheap shared spelling until full IR copies it
+        // into the program-owned string pool. Dynamic names must not borrow the
+        // process interner as `'static` text.
+        name: Arc<str>,
         span: Span,
     },
     Index {
@@ -1377,7 +1379,7 @@ enum BuildExprRow {
     },
     Method {
         receiver: BuildExprId,
-        name: &'static str,
+        name: Arc<str>,
         args: Vec<BuildExprId>,
         span: Span,
     },
@@ -2198,7 +2200,11 @@ fn lowered_record_map_eq_vec(
     map.len() == vec.len()
         && vec
             .iter()
-            .all(|(key, value)| map.get(key.as_str()).is_some_and(|left| left == value))
+            .all(|(key, value)| {
+                let key_text = key.as_str();
+                map.get::<str>(key_text.as_str())
+                    .is_some_and(|left| left == value)
+            })
 }
 
 fn lowered_record_map_eq_stats_value(
@@ -2693,30 +2699,33 @@ impl PreparedTestProgram {
         trace_enabled: bool,
         env_overlay: Vec<(Vec<u8>, Vec<u8>)>,
     ) -> TestEvalOutput {
+        let symbols = self.symbols.clone();
         run_eval_on_large_stack(move || {
-            if !trace_enabled && let Some(failure) = &self.setup_failure {
-                return failure.clone();
-            }
-            let shared = if trace_enabled {
-                &self.shared
-            } else {
-                &self.setup_shared
-            };
-            let mut evaluator = Evaluator::new_lowered_worker(shared);
-            for (name, value) in env_overlay {
-                evaluator = evaluator.with_env_var(name, value);
-            }
-            if trace_enabled {
-                evaluator = evaluator.with_tracing();
-                evaluator.eval_installed_indexed_test_inner(
-                    &self.plan,
-                    self.script_span,
-                    test_name,
-                    ctx,
-                )
-            } else {
-                evaluator.eval_installed_test_call_inner(self.script_span, test_name, ctx)
-            }
+            symbols.with_current(|| {
+                if !trace_enabled && let Some(failure) = &self.setup_failure {
+                    return failure.clone();
+                }
+                let shared = if trace_enabled {
+                    &self.shared
+                } else {
+                    &self.setup_shared
+                };
+                let mut evaluator = Evaluator::new_lowered_worker(shared);
+                for (name, value) in env_overlay {
+                    evaluator = evaluator.with_env_var(name, value);
+                }
+                if trace_enabled {
+                    evaluator = evaluator.with_tracing();
+                    evaluator.eval_installed_indexed_test_inner(
+                        &self.plan,
+                        self.script_span,
+                        test_name,
+                        ctx,
+                    )
+                } else {
+                    evaluator.eval_installed_test_call_inner(self.script_span, test_name, ctx)
+                }
+            })
         })
     }
 }
@@ -3314,27 +3323,31 @@ impl Evaluator {
     /// Build, verify, and execute the indexed program. The arena is used only
     /// during construction and is never consulted by the installed evaluator.
     pub fn eval(mut self, program: &ArenaProgram, source_id: SourceId) -> EvalOutput {
+        let symbols = program.symbol_owner().clone();
         run_eval_on_large_stack(move || {
-            let plan =
-                match self.prepare_compact_indexed_only_or_diagnostic(program, source_id, false) {
-                Ok(plan) => plan,
-                Err(diagnostic) => {
-                    return EvalOutput {
-                        stdout: self.stdout,
-                        stderr: self.stderr,
-                        trace_events: self.trace_events,
-                        diagnostics: vec![diagnostic],
-                        traceback: None,
-                        sources: self.sources,
-                        status: 1,
-                        cwd: self.cwd,
-                        env: self.env.into_snapshot(),
-                        last_status: self.last_status,
-                    };
-                }
-            };
-            self.try_eval_installed_compact_indexed_only_inner(plan)
-                .unwrap_or_else(|_| unreachable!("verified indexed program remains installed"))
+            symbols.with_current(|| {
+                let plan = match self
+                    .prepare_compact_indexed_only_or_diagnostic(program, source_id, false)
+                {
+                    Ok(plan) => plan,
+                    Err(diagnostic) => {
+                        return EvalOutput {
+                            stdout: self.stdout,
+                            stderr: self.stderr,
+                            trace_events: self.trace_events,
+                            diagnostics: vec![diagnostic],
+                            traceback: None,
+                            sources: self.sources,
+                            status: 1,
+                            cwd: self.cwd,
+                            env: self.env.into_snapshot(),
+                            last_status: self.last_status,
+                        };
+                    }
+                };
+                self.try_eval_installed_compact_indexed_only_inner(plan)
+                    .unwrap_or_else(|_| unreachable!("verified indexed program remains installed"))
+            })
         })
     }
 
@@ -3371,8 +3384,10 @@ impl Evaluator {
         program: &ArenaProgram,
         source_id: SourceId,
     ) -> Option<CompactIndexedRunPlan> {
-        self.prepare_compact_indexed_only_or_diagnostic(program, source_id, false)
-            .ok()
+        program.symbol_owner().with_current(|| {
+            self.prepare_compact_indexed_only_or_diagnostic(program, source_id, false)
+                .ok()
+        })
     }
 
     fn prepare_compact_indexed_only_or_diagnostic(
@@ -3520,10 +3535,12 @@ impl Evaluator {
         command_name: String,
     ) -> Vec<Diagnostic> {
         let mut evaluator = Self::new_with_sources_and_command(argv, sources, command_name);
-        match evaluator.prepare_compact_indexed_only_or_diagnostic(program, source_id, false) {
-            Ok(_) => Vec::new(),
-            Err(diagnostic) => vec![diagnostic],
-        }
+        program.symbol_owner().with_current(|| {
+            match evaluator.prepare_compact_indexed_only_or_diagnostic(program, source_id, false) {
+                Ok(_) => Vec::new(),
+                Err(diagnostic) => vec![diagnostic],
+            }
+        })
     }
 
     pub fn compact_lowerability_diagnostics(
@@ -3534,17 +3551,27 @@ impl Evaluator {
         command_name: String,
     ) -> Vec<Diagnostic> {
         let mut evaluator = Self::new_with_sources_and_command(argv, sources, command_name);
-        match evaluator.prepare_compact_indexed_only_or_diagnostic(program, source_id, true) {
-            Ok(_) => Vec::new(),
-            Err(diagnostic) => vec![diagnostic],
-        }
+        program.symbol_owner().with_current(|| {
+            match evaluator.prepare_compact_indexed_only_or_diagnostic(program, source_id, true) {
+                Ok(_) => Vec::new(),
+                Err(diagnostic) => vec![diagnostic],
+            }
+        })
     }
 
     pub(crate) fn eval_installed_compact_indexed_only(
         self,
         plan: CompactIndexedRunPlan,
     ) -> Result<EvalOutput, Self> {
-        run_eval_on_large_stack(move || self.try_eval_installed_compact_indexed_only_inner(plan))
+        let symbols = self
+            .indexed_program
+            .as_ref()
+            .map(|program| program.symbol_owner().clone());
+        run_eval_on_large_stack(move || match symbols {
+            Some(symbols) => symbols
+                .with_current(|| self.try_eval_installed_compact_indexed_only_inner(plan)),
+            None => self.try_eval_installed_compact_indexed_only_inner(plan),
+        })
     }
 
     fn try_eval_installed_compact_indexed_only_inner(
@@ -4025,7 +4052,10 @@ impl Evaluator {
         test_name: &str,
         ctx: Value,
     ) -> TestEvalOutput {
-        run_eval_on_large_stack(move || self.eval_test_inner(program, source_id, test_name, ctx))
+        let symbols = program.symbol_owner().clone();
+        run_eval_on_large_stack(move || {
+            symbols.with_current(|| self.eval_test_inner(program, source_id, test_name, ctx))
+        })
     }
 
     #[cfg(feature = "native-tests")]
@@ -4051,6 +4081,7 @@ impl Evaluator {
         PreparedTestProgram {
             plan,
             script_span,
+            symbols: program.symbol_owner().clone(),
             shared,
             setup_shared,
             setup_failure,
@@ -5030,7 +5061,8 @@ fn runtime_error_from_value(value: Value, span: Span) -> RuntimeError {
         }
         Value::RunError(error) => {
             let variant = error.variant_name().to_string();
-            let variant_name = Name::intern(&variant);
+            let symbols = crate::symbol::SymbolOwner::current().unwrap_or_default();
+            let variant_name = symbols.intern(&variant);
             let facets = error.facets();
             RuntimeError {
                 family: "ProcessError".to_string(),
@@ -5044,6 +5076,7 @@ fn runtime_error_from_value(value: Value, span: Span) -> RuntimeError {
                 abort: None,
                 family_name: Name::PROCESS_ERROR,
                 variant_name,
+                _symbols: symbols,
             }
         }
         value => RuntimeError::new(
@@ -5610,12 +5643,12 @@ pub(super) fn value_matches_static_type(value: &Value, ty: &Type) -> bool {
             Value::Record(_) | Value::FsEntry(_) if fields.is_empty() => true,
             Value::Record(record) => fields.iter().all(|(field, field_ty)| {
                 record
-                    .get(field.as_str())
+                    .get(field.as_str().as_ref())
                     .is_some_and(|value| value_matches_static_type(value, field_ty))
             }),
             Value::FsEntry(entry) => fields.iter().all(|(field, field_ty)| {
                 entry
-                    .field_value(field.as_str())
+                    .field_value(&field.as_str())
                     .and_then(Result::ok)
                     .as_ref()
                     .is_some_and(|value| value_matches_static_type(value, field_ty))
@@ -5702,23 +5735,25 @@ fn lowered_value_matches_static_type(value: &LoweredValue, ty: &Type) -> bool {
             }
             LoweredValue::Stats { .. } | LoweredValue::StatsBlob(_) if fields.is_empty() => true,
             LoweredValue::Record(record) => fields.iter().all(|(field, field_ty)| {
-                record
-                    .get(field.as_str())
-                    .is_some_and(|value| lowered_value_matches_static_type(value, field_ty))
+                {
+                    let field_text = field.as_str();
+                    record.get::<str>(field_text.as_str())
+                }
+                .is_some_and(|value| lowered_value_matches_static_type(value, field_ty))
             }),
             LoweredValue::RecordVec(record) => fields.iter().all(|(field, field_ty)| {
-                lowered_record_vec_get(record, field.as_str())
+                lowered_record_vec_get(record, &field.as_str())
                     .is_some_and(|value| lowered_value_matches_static_type(value, field_ty))
             }),
             value @ (LoweredValue::Stats { .. } | LoweredValue::StatsBlob(_)) => {
                 fields.iter().all(|(field, field_ty)| {
-                    lowered_stats_value_field(value, field.as_str())
+                    lowered_stats_value_field(value, &field.as_str())
                         .is_some_and(|value| lowered_value_matches_static_type(&value, field_ty))
                 })
             }
             LoweredValue::FsEntry(entry) => fields.iter().all(|(field, field_ty)| {
                 entry
-                    .field_value(field.as_str())
+                    .field_value(&field.as_str())
                     .and_then(Result::ok)
                     .as_ref()
                     .is_some_and(|value| value_matches_static_type(value, field_ty))
@@ -5728,7 +5763,8 @@ fn lowered_value_matches_static_type(value: &LoweredValue, ty: &Type) -> bool {
         Type::Module(exports) => match value {
             LoweredValue::Module(_) if exports.is_empty() => true,
             LoweredValue::Module(module) => exports.iter().all(|(field, export)| {
-                module.get(field.as_str()).is_some_and(|value| {
+                let field_text = field.as_str();
+                module.get::<str>(field_text.as_str()).is_some_and(|value| {
                     lowered_value_matches_static_type(value, &export.field_type())
                 })
             }),
@@ -5821,7 +5857,7 @@ fn compact_use_stmt_is_skippable(
     let Some(name) = path.next() else {
         return false;
     };
-    path.next().is_none() && api_spec().is_standard_module(name.as_str())
+    path.next().is_none() && api_spec().is_standard_module(&name.as_str())
 }
 
 fn compact_expr_is_reveal_type_call(program: &ArenaProgram, expr: ExprId) -> bool {

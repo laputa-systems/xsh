@@ -620,6 +620,7 @@ fn push_string_run(output: &mut Vec<Value>, current: &mut Vec<u8>, min_len: usiz
 mod tests {
     use super::*;
     use crate::source::SourceId;
+    use crate::symbol::SymbolOwner;
 
     fn test_span() -> Span {
         Span::new(SourceId::new(0), 0, 0)
@@ -627,20 +628,22 @@ mod tests {
 
     #[test]
     fn byte_slice_helpers_cover_script_methods() {
-        assert_eq!(len(b"abc"), 3);
-        assert_eq!(
-            slice(b"abcdef".to_vec(), 2, Some(3), test_span()).expect("slice bytes"),
-            b"cde"
-        );
-        assert_eq!(
-            slice(b"abcdef".to_vec(), 4, None, test_span()).expect("slice rest"),
-            b"ef"
-        );
-        assert_eq!(
-            slice(b"abc".to_vec(), -1, None, test_span())
-                .expect_err("negative offset")
-                .kind,
-            "bytes-slice"
-        );
+        SymbolOwner::new().with_current(|| {
+            assert_eq!(len(b"abc"), 3);
+            assert_eq!(
+                slice(b"abcdef".to_vec(), 2, Some(3), test_span()).expect("slice bytes"),
+                b"cde"
+            );
+            assert_eq!(
+                slice(b"abcdef".to_vec(), 4, None, test_span()).expect("slice rest"),
+                b"ef"
+            );
+            assert_eq!(
+                slice(b"abc".to_vec(), -1, None, test_span())
+                    .expect_err("negative offset")
+                    .kind,
+                "bytes-slice"
+            );
+        });
     }
 }

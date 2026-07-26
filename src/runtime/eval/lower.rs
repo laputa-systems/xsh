@@ -169,7 +169,7 @@ fn lowered_method_call_args(name: Name, args: &[ArenaCallArg]) -> Option<Vec<Exp
     if let Some(positional) = positional_call_args(args) {
         return Some(positional);
     }
-    match name.as_str() {
+    match name.as_str().as_str() {
         "format" => named_method_call_args(args, &[], &["precision"]),
         "squeeze" => named_method_call_args(args, &[], &["chars"]),
         "fields" => named_method_call_args(args, &[], &["delimiter"]),
@@ -343,7 +343,7 @@ fn lowered_module_call_args(
             });
         }
     }
-    let overloads = api_spec().module_overloads(module.as_str(), name.as_str())?;
+    let overloads = api_spec().module_overloads(&module.as_str(), &name.as_str())?;
     let mut matched = None;
     for sig in overloads {
         if lowered_module_sig_type(sig).is_none() {
@@ -377,7 +377,7 @@ fn lower_hash_verify_file_args(args: &[ArenaCallArg]) -> Option<LoweredHashVerif
     let ArenaCallArgKind::Named { name, value, .. } = checksum.kind else {
         return None;
     };
-    let algorithm = match name.as_str() {
+    let algorithm = match name.as_str().as_str() {
         "md5" => crate::modules::hash::HashAlgorithm::Md5,
         "sha1" => crate::modules::hash::HashAlgorithm::Sha1,
         "sha256" => crate::modules::hash::HashAlgorithm::Sha256,
@@ -393,14 +393,14 @@ fn lower_hash_verify_file_args(args: &[ArenaCallArg]) -> Option<LoweredHashVerif
 
 fn lowered_module_callee_type(module: Name, name: Name) -> Option<LoweredType> {
     api_spec()
-        .module_overloads(module.as_str(), name.as_str())?
+        .module_overloads(&module.as_str(), &name.as_str())?
         .iter()
         .find_map(lowered_module_sig_type)
 }
 
 fn lowered_module_callee_result_ok_type(module: Name, name: Name) -> Option<LoweredType> {
     api_spec()
-        .module_overloads(module.as_str(), name.as_str())?
+        .module_overloads(&module.as_str(), &name.as_str())?
         .iter()
         .filter(|sig| lowered_module_op_supported(sig.op))
         .find_map(|sig| sig.return_ty.result_ok().and_then(lowered_checked_type))
@@ -1071,7 +1071,7 @@ fn lower_command_word_reference(
     for segment in segments {
         value = match segment {
             CommandWordRefSegment::Field(name) => build_expr(scratch, BuildExprRow::Field { base: value,
-            name: name.as_str(),
+            name: Arc::<str>::from(name.as_str().as_str()),
             span, }),
             CommandWordRefSegment::Index(index) => build_expr(scratch, BuildExprRow::Index { base: value,
                 index: build_expr(scratch, BuildExprRow::Int(index)),
@@ -1470,10 +1470,10 @@ fn lowered_arena_type_inner(
     match tag {
         ArenaTypeExprTag::Named => {
             let name = Name::from_symbol(crate::symbol::Symbol::from_raw(data.lhs));
-            if let Some(lowered) = lowered_builtin_type_name(name.as_str()) {
+            if let Some(lowered) = lowered_builtin_type_name(&name.as_str()) {
                 return Some(lowered);
             }
-            if standard_record_type(name.as_str()).is_some() {
+            if standard_record_type(&name.as_str()).is_some() {
                 return Some(LoweredType::Record);
             }
             if declarations.error_families_by_name.contains_key(&name) {
@@ -2789,7 +2789,7 @@ fn lower_const_param_default(
                 match field.kind {
                     ArenaRecordFieldKind::Named { name, value, .. } => {
                         values.insert(
-                            Arc::from(name.as_str()),
+                            Arc::<str>::from(name.as_str().as_str()),
                             lower_const_param_default(arena, value, LoweredType::Any)?,
                         );
                     }
@@ -2799,7 +2799,7 @@ fn lower_const_param_default(
                             LoweredValue::Record(spread) => values.extend(spread),
                             LoweredValue::RecordVec(spread) => {
                                 for (name, value) in spread {
-                                    values.insert(Arc::from(name.as_str()), value);
+                                    values.insert(Arc::<str>::from(name.as_str().as_str()), value);
                                 }
                             }
                             _ => return None,
@@ -4210,7 +4210,7 @@ impl CompactLowerConstructProbe<'_, '_> {
     fn lowered_method_supported_for_type(&self, ty: &Type, name: Name, arg_count: usize) -> bool {
         if !self.strict_dynamic_methods
             && matches!(ty, Type::Any | Type::Unknown)
-            && lowered_method_name(name.as_str())
+            && lowered_method_name(&name.as_str())
         {
             return true;
         }
@@ -4745,7 +4745,7 @@ impl CompactLowerConstructProbe<'_, '_> {
             }
             Type::Record(fields) => fields.get(&name).cloned(),
             Type::Module(exports) => exports.get(&name).map(ModuleExportType::field_type),
-            Type::Path => match name.as_str() {
+            Type::Path => match name.as_str().as_str() {
                 "display" | "name" | "ext" => Some(Type::Str),
                 "normalize" | "parent" => Some(Type::Path),
                 _ => None,
@@ -4774,7 +4774,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                 if inner_name != "env" {
                     return None;
                 }
-                let value = match type_name.as_str() {
+                let value = match type_name.as_str().as_str() {
                     "Path" => Type::Path,
                     "PathList" => Type::EnvPathList,
                     _ => Type::Str,
@@ -5770,13 +5770,13 @@ impl CompactLowerConstructProbe<'_, '_> {
                             && !self.lowered_int_expr_needs_type_context(&value)
                         {
                             Some(push_build_row!(self, stmt, BuildStmtRow::AssignFieldInt { slot,
-                            field: Arc::from(name.as_str()),
+                            field: Arc::<str>::from(name.as_str().as_str()),
                             op,
                             value,
                             span: self.program.arena.stmt(id).span, }))
                         } else {
                             Some(push_build_row!(self, stmt, BuildStmtRow::AssignField { slot,
-                            field: Arc::from(name.as_str()),
+                            field: Arc::<str>::from(name.as_str().as_str()),
                             op,
                             value,
                             span: self.program.arena.stmt(id).span, }))
@@ -6293,7 +6293,8 @@ impl CompactLowerConstructProbe<'_, '_> {
         let ArenaCommand::Proc { name, args } = stmt.command else {
             return None;
         };
-        let (module, api) = super::standard_module_command_name(name.as_str())?;
+        let name_text = name.as_str();
+        let (module, api) = super::standard_module_command_name(name_text.as_str())?;
         let op = api_spec().module_op(module, api)?;
         let args = self.program.arena.command_args(args).to_vec();
         let mut lowered = Vec::with_capacity(args.len());
@@ -7081,14 +7082,14 @@ impl CompactLowerConstructProbe<'_, '_> {
                     return Some(env_expr);
                 }
                 Some(push_build_row!(self, expr, BuildExprRow::Field { base: self.lower_expr(base, slots, current_function, item_slot)?,
-                name: name.as_str(),
+                name: Arc::<str>::from(name.as_str().as_str()),
                 span, }))
             }
             ArenaExprKind::NullSafeField { base, name } => Some(push_build_row!(self, expr, BuildExprRow::Field { base: push_build_row!(self, expr, BuildExprRow::Try(self.lower_expr(base,
             slots,
             current_function,
             item_slot,)?)),
-            name: name.as_str(),
+            name: Arc::<str>::from(name.as_str().as_str()),
             span, })),
             ArenaExprKind::Index { base, index } => Some(push_build_row!(self, expr, BuildExprRow::Index { base: self.lower_expr(base, slots, current_function, item_slot)?,
             index: self.lower_expr(index, slots, current_function, item_slot)?,
@@ -7283,7 +7284,7 @@ impl CompactLowerConstructProbe<'_, '_> {
         for arg in &positional {
             lowered_args.push(self.lower_expr(*arg, slots, current_function, item_slot)?);
         }
-        let op = match (field_name.as_str(), method_name.as_str()) {
+        let op = match (field_name.as_str().as_str(), method_name.as_str().as_str()) {
             ("PATH", "prepend") => RuntimeOp::EnvPathPrepend,
             ("PATH", "append") => RuntimeOp::EnvPathAppend,
             ("PATH", "pop") => RuntimeOp::EnvPathPop,
@@ -7321,7 +7322,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                 if let ArenaExprKind::Ident(inner_name) = inner_kind {
                     if inner_name == "env" {
                         let arg = push_build_row!(self, expr, BuildExprRow::Str(name.to_string().into()));
-                        let op = match type_name.as_str() {
+                        let op = match type_name.as_str().as_str() {
                             "Path" => RuntimeOp::EnvPath,
                             "PathList" => RuntimeOp::EnvPathList,
                             _ => RuntimeOp::EnvGet,
@@ -8175,7 +8176,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                         span, }));
                     }
                 }
-                if !lowered_method_name(name.as_str()) {
+                if !lowered_method_name(&name.as_str()) {
                     if name == "read_text" && args_vec.is_empty() {
                         return Some(push_build_row!(self, expr, BuildExprRow::PathReadText { path: self.lower_expr(base,
                         slots,
@@ -8218,7 +8219,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                 // Recognize `<text>.starts_with(n)` / `.ends_with(n)` and lower to the
                 // direct StrPredicate node (the bool-condition path then specializes it
                 // into StrPredicateSlot/TrimStrPredicateSlot for slot/trim receivers).
-                let str_predicate = match name.as_str() {
+                let str_predicate = match name.as_str().as_str() {
                     "starts_with" if args_vec.len() == 1 => Some(LoweredStrPredicate::StartsWith),
                     "ends_with" if args_vec.len() == 1 => Some(LoweredStrPredicate::EndsWith),
                     _ => None,
@@ -8248,8 +8249,8 @@ impl CompactLowerConstructProbe<'_, '_> {
                 for arg in method_args {
                     lowered_args.push(self.lower_expr(arg, slots, current_function, item_slot)?);
                 }
-                if lowered_str_byte_op(name.as_str(), &lowered_args) {
-                    return Some(match name.as_str() {
+                if lowered_str_byte_op(&name.as_str(), &lowered_args) {
+                    return Some(match name.as_str().as_str() {
                         "byte_len" => push_build_row!(self, expr, BuildExprRow::StrByteLen { receiver: receiver,
                         span, }),
                         "byte_at" => {
@@ -8263,7 +8264,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                     });
                 }
                 Some(push_build_row!(self, expr, BuildExprRow::Method { receiver: receiver,
-                name: name.as_str(),
+                name: Arc::<str>::from(name.as_str().as_str()),
                 args: lowered_args,
                 span, }))
             }
@@ -8369,7 +8370,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                     span, }));
                 }
                 let method_args = lowered_method_call_args(name, &args_vec)?;
-                if !lowered_method_name(name.as_str()) {
+                if !lowered_method_name(&name.as_str()) {
                     if let ArenaExprKind::Ident(module) = self.program.arena.expr(base).kind
                         && let Some(call_args) = lowered_module_call_args(module, name, &args_vec)
                     {
@@ -8407,7 +8408,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                 slots,
                 current_function,
                 item_slot,)?)),
-                name: name.as_str(),
+                name: Arc::<str>::from(name.as_str().as_str()),
                 args: lowered_args,
                 span, }))
             }
@@ -8437,7 +8438,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                     for arg in positional {
                         fields.push(self.lower_expr(*arg, slots, current_function, item_slot)?);
                     }
-                    return Some(push_build_row!(self, expr, BuildExprRow::Tag { name: Arc::from(name.as_str()),
+                    return Some(push_build_row!(self, expr, BuildExprRow::Tag { name: Arc::<str>::from(name.as_str().as_str()),
                     fields, }));
                 }
                 if (name == "Ok" || name == "Err")
@@ -8605,7 +8606,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                 ArenaCallArgKind::Splice { .. } => return None,
             };
             fields.push((
-                Arc::from(field.as_str()),
+                Arc::<str>::from(field.as_str().as_str()),
                 self.lower_expr(value, slots, current_function, item_slot)?,
             ));
         }
@@ -8747,7 +8748,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                 },
                 pure, }));
             }
-            (self.compact_tag_variant_arity(name) == Some(0)).then(|| push_build_row!(self, expr, BuildExprRow::Tag { name: Arc::from(name.as_str()),
+            (self.compact_tag_variant_arity(name) == Some(0)).then(|| push_build_row!(self, expr, BuildExprRow::Tag { name: Arc::<str>::from(name.as_str().as_str()),
             fields: Default::default(), }))
         })
     }
@@ -9207,7 +9208,7 @@ impl CompactLowerConstructProbe<'_, '_> {
             StreamStageKind::ReduceBy => {
                 let mut op = None;
                 for option in self.program.arena.stream_options(stage.options) {
-                    let selected = match option.name.as_str() {
+                    let selected = match option.name.as_str().as_str() {
                         "sum" => ReduceByOp::Sum,
                         "min" => ReduceByOp::Min,
                         "max" => ReduceByOp::Max,
@@ -10039,7 +10040,7 @@ impl CompactLowerConstructProbe<'_, '_> {
             ArenaPatternKind::Constructor { name, arg: None }
                 if self.compact_tag_variant_arity(name) == Some(0) =>
             {
-                Some(Some(Arc::from(name.as_str())))
+                Some(Some(Arc::<str>::from(name.as_str().as_str())))
             }
             _ => None,
         }?;
@@ -10461,7 +10462,7 @@ fn construct_use_stmt_is_skippable(
     let Some(name) = path.next() else {
         return false;
     };
-    path.next().is_none() && api_spec().is_standard_module(name.as_str())
+    path.next().is_none() && api_spec().is_standard_module(&name.as_str())
 }
 
 fn construct_expr_is_reveal_type_call(program: &ArenaProgram, expr: ExprId) -> bool {
@@ -10533,10 +10534,10 @@ fn compact_runtime_type_inner(
     match tag {
         ArenaTypeExprTag::Named => {
             let name = Name::from_symbol(Symbol::from_raw(data.lhs));
-            if let Some(builtin) = BuiltinTypeName::parse(name.as_str()) {
+            if let Some(builtin) = BuiltinTypeName::parse(&name.as_str()) {
                 return Type::from_builtin_name(builtin);
             }
-            if let Some(record) = standard_record_type(name.as_str()) {
+            if let Some(record) = standard_record_type(&name.as_str()) {
                 return record;
             }
             match declarations.types.get(&name) {
@@ -10729,7 +10730,7 @@ fn lowered_checked_type(ty: &Type) -> Option<LoweredType> {
 
 fn lowered_method_supported_for_type(ty: &Type, name: Name, arg_count: usize) -> bool {
     match ty {
-        Type::Any | Type::Unknown => lowered_method_name(name.as_str()),
+        Type::Any | Type::Unknown => lowered_method_name(&name.as_str()),
         Type::Invalid => true,
         Type::Optional(inner) => lowered_method_supported_for_type(inner, name, arg_count),
         Type::Result(ok, _) => {
@@ -10737,7 +10738,7 @@ fn lowered_method_supported_for_type(ty: &Type, name: Name, arg_count: usize) ->
                 || lowered_method_supported_for_type(ok, name, arg_count)
         }
         Type::Int => name == "float" && arg_count == 0,
-        Type::Float => match name.as_str() {
+        Type::Float => match name.as_str().as_str() {
             "floor" | "ceil" | "round" | "sqrt" | "exp" | "ln" | "sin" | "cos" | "tan" | "abs" => {
                 arg_count == 0
             }
@@ -10745,7 +10746,7 @@ fn lowered_method_supported_for_type(ty: &Type, name: Name, arg_count: usize) ->
             "pow" | "log" => arg_count == 1,
             _ => false,
         },
-        Type::Str => match name.as_str() {
+        Type::Str => match name.as_str().as_str() {
             "trim" | "lower" | "upper" | "reverse" | "lines" | "words" | "parse_int"
             | "parse_float" | "base64_decode" | "base32_decode" | "count_lines" | "count_words"
             | "count_chars" | "count_bytes" | "byte_len" => arg_count == 0,
@@ -10757,7 +10758,7 @@ fn lowered_method_supported_for_type(ty: &Type, name: Name, arg_count: usize) ->
             "byte_at" | "byte_slice" | "find" => arg_count == 1 || arg_count == 2,
             _ => false,
         },
-        Type::Bytes => match name.as_str() {
+        Type::Bytes => match name.as_str().as_str() {
             "trim" | "lines" | "count_lines" | "len" | "lower" | "base64" | "base32" | "md5"
             | "sha1" | "sha256" | "sha512" | "utf8" => arg_count == 0,
             "dump" | "strings" => arg_count <= 1,
@@ -10765,18 +10766,18 @@ fn lowered_method_supported_for_type(ty: &Type, name: Name, arg_count: usize) ->
             "byte_at" | "slice" => arg_count == 1 || arg_count == 2,
             _ => false,
         },
-        Type::Digest => matches!(name.as_str(), "hex" | "base64") && arg_count == 0,
-        Type::Regex => match name.as_str() {
+        Type::Digest => matches!(name.as_str().as_str(), "hex" | "base64") && arg_count == 0,
+        Type::Regex => match name.as_str().as_str() {
             "matches" | "find" | "captures" => arg_count == 1,
             "replace" => arg_count == 2,
             _ => false,
         },
-        Type::Status => match name.as_str() {
+        Type::Status => match name.as_str().as_str() {
             "exited" | "signaled" | "exit_code" | "signal_number" => arg_count == 0,
             "exited_with" => arg_count == 1,
             _ => false,
         },
-        Type::Path => match name.as_str() {
+        Type::Path => match name.as_str().as_str() {
             "display" | "name" | "ext" | "normalize" | "parent" | "lines" | "bytes_lines"
             | "read_text" | "read_bytes" | "exists" | "executable" | "du" | "metadata"
             | "readlink" | "resolve" | "remove_dir" | "unlink" => arg_count == 0,
@@ -10787,17 +10788,17 @@ fn lowered_method_supported_for_type(ty: &Type, name: Name, arg_count: usize) ->
             _ => false,
         },
         Type::Record(_) | Type::Module(_) => {
-            matches!(name.as_str(), "has" | "get") && arg_count == 1
-                || matches!(name.as_str(), "keys" | "len") && arg_count == 0
+            matches!(name.as_str().as_str(), "has" | "get") && arg_count == 1
+                || matches!(name.as_str().as_str(), "keys" | "len") && arg_count == 0
         }
-        Type::List(_) => match name.as_str() {
+        Type::List(_) => match name.as_str().as_str() {
             "collect" | "len" => arg_count == 0,
             "contains" | "push" | "extend" => arg_count == 1,
             "get" => arg_count == 1 || arg_count == 2,
             "join" => arg_count <= 1,
             _ => false,
         },
-        Type::Map(_) => match name.as_str() {
+        Type::Map(_) => match name.as_str().as_str() {
             "len" | "keys" | "values" => arg_count == 0,
             "has" | "remove" => arg_count == 1,
             "get" => arg_count == 1 || arg_count == 2,
@@ -10820,7 +10821,7 @@ fn infer_checked_method_return_type(receiver: &Type, name: Name) -> Option<Type>
                 infer_checked_method_return_type(ok, name)
             }
         }
-        Type::Str => match name.as_str() {
+        Type::Str => match name.as_str().as_str() {
             "trim" | "lower" | "upper" | "reverse" | "format" | "replace" | "translate"
             | "delete" | "squeeze" | "byte_slice" | "slice" => Some(Type::Str),
             "lines" | "words" | "fields" | "split" | "wrap" => {
@@ -10836,7 +10837,7 @@ fn infer_checked_method_return_type(receiver: &Type, name: Name) -> Option<Type>
             "starts_with" | "ends_with" | "contains" => Some(Type::Bool),
             _ => None,
         },
-        Type::Bytes => match name.as_str() {
+        Type::Bytes => match name.as_str().as_str() {
             "trim" | "lower" | "slice" => Some(Type::Bytes),
             "base64" | "base32" | "dump" => Some(Type::Str),
             "strings" => Some(Type::List(Box::new(Type::Str))),
@@ -10857,18 +10858,18 @@ fn infer_checked_method_return_type(receiver: &Type, name: Name) -> Option<Type>
             "md5" | "sha1" | "sha256" | "sha512" => Some(Type::Digest),
             _ => None,
         },
-        Type::Digest => match name.as_str() {
+        Type::Digest => match name.as_str().as_str() {
             "hex" | "base64" => Some(Type::Str),
             _ => None,
         },
-        Type::Regex => match name.as_str() {
+        Type::Regex => match name.as_str().as_str() {
             "matches" => Some(Type::Bool),
             "find" => standard_record_type("RegexMatch").map(|ty| Type::List(Box::new(ty))),
             "captures" => Some(Type::List(Box::new(Type::Str))),
             "replace" => Some(Type::Str),
             _ => None,
         },
-        Type::Path => match name.as_str() {
+        Type::Path => match name.as_str().as_str() {
             "display" | "name" | "ext" => Some(Type::Str),
             "normalize" | "parent" | "relative_to" | "with_ext" => Some(Type::Path),
             "strip_prefix" | "readlink" | "resolve" => {
@@ -10888,7 +10889,7 @@ fn infer_checked_method_return_type(receiver: &Type, name: Name) -> Option<Type>
             }
             _ => None,
         },
-        Type::List(item) => match name.as_str() {
+        Type::List(item) => match name.as_str().as_str() {
             "collect" => Some(Type::List(item.clone())),
             "len" => Some(Type::Int),
             "get" => Some(Type::Result(item.clone(), Box::new(Type::Error))),
@@ -10897,7 +10898,7 @@ fn infer_checked_method_return_type(receiver: &Type, name: Name) -> Option<Type>
             "contains" => Some(Type::Bool),
             _ => None,
         },
-        Type::Map(item) => match name.as_str() {
+        Type::Map(item) => match name.as_str().as_str() {
             "keys" => Some(Type::List(Box::new(Type::Str))),
             "values" => Some(Type::List(item.clone())),
             "len" => Some(Type::Int),
@@ -10906,7 +10907,7 @@ fn infer_checked_method_return_type(receiver: &Type, name: Name) -> Option<Type>
             "has" => Some(Type::Bool),
             _ => None,
         },
-        Type::Record(fields) => match name.as_str() {
+        Type::Record(fields) => match name.as_str().as_str() {
             "keys" => Some(Type::List(Box::new(Type::Str))),
             "len" => Some(Type::Int),
             "has" => Some(Type::Bool),
@@ -10916,7 +10917,7 @@ fn infer_checked_method_return_type(receiver: &Type, name: Name) -> Option<Type>
             ))),
             _ => None,
         },
-        Type::Module(_) => match name.as_str() {
+        Type::Module(_) => match name.as_str().as_str() {
             "keys" => Some(Type::List(Box::new(Type::Str))),
             "len" => Some(Type::Int),
             "has" => Some(Type::Bool),
@@ -11327,7 +11328,7 @@ fn lower_int_expr_candidate(&self, expr: &BuildExprId) -> Option<BuildIntId> {
             name,
             args,
             span,
-        } if *name == "count_lines" && args.is_empty() => {
+        } if name.as_ref() == "count_lines" && args.is_empty() => {
             let receiver_row = {
                 let scratch = self.scratch.borrow();
                 scratch.expressions[receiver.index()].clone()
@@ -11559,7 +11560,7 @@ fn lowered_trim_slot(&self, expr: &BuildExprId) -> Option<(usize, Span)> {
     else {
         return None;
     };
-    if *name != "trim" || !args.is_empty() {
+    if name.as_ref() != "trim" || !args.is_empty() {
         return None;
     }
     let receiver = self.scratch.borrow().expressions[receiver.index()].clone();
@@ -11874,7 +11875,7 @@ fn lowered_error_pattern_fields_match(
     slots: &mut [LoweredValue],
 ) -> bool {
     for (name, slot) in fields {
-        let Some(value) = payload.get(name.as_str()) else {
+        let Some(value) = payload.get(&name.as_str()) else {
             return false;
         };
         if let Some(slot) = slot {
@@ -11921,7 +11922,7 @@ pub(super) fn lowered_sum_records(mut acc: LoweredValue, val: LoweredValue) -> L
         }
         (LoweredValue::RecordVec(acc_map), LoweredValue::RecordVec(val_map)) => {
             for (key, value) in val_map {
-                if let Some(acc_value) = lowered_record_vec_get_mut(acc_map, key.as_str()) {
+                if let Some(acc_value) = lowered_record_vec_get_mut(acc_map, &key.as_str()) {
                     *acc_value =
                         lowered_sum_values(std::mem::replace(acc_value, LoweredValue::Unit), value);
                 } else {
@@ -11931,11 +11932,12 @@ pub(super) fn lowered_sum_records(mut acc: LoweredValue, val: LoweredValue) -> L
         }
         (LoweredValue::Record(acc_map), LoweredValue::RecordVec(val_map)) => {
             for (key, value) in val_map {
-                if let Some(acc_value) = acc_map.get_mut(key.as_str()) {
+                let key_text = key.as_str();
+                if let Some(acc_value) = acc_map.get_mut::<str>(key_text.as_str()) {
                     *acc_value =
                         lowered_sum_values(std::mem::replace(acc_value, LoweredValue::Unit), value);
                 } else {
-                    acc_map.insert(Arc::from(key.as_str()), value);
+                    acc_map.insert(Arc::<str>::from(key_text.as_str()), value);
                 }
             }
         }

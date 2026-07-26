@@ -179,7 +179,7 @@ impl Checker {
     }
 
     pub(super) fn type_from_name(&mut self, name: Name, span: Span) -> Type {
-        if BuiltinTypeName::parse(name.as_str()) == Some(BuiltinTypeName::Unknown) {
+        if BuiltinTypeName::parse(&name.as_str()) == Some(BuiltinTypeName::Unknown) {
             self.error(
                 span,
                 "`Unknown` is not a source type; use `Any` for dynamic values",
@@ -187,10 +187,10 @@ impl Checker {
             );
             return Type::Invalid;
         }
-        if let Some(builtin) = Type::builtin_from_name(name.as_str()) {
+        if let Some(builtin) = Type::builtin_from_name(&name.as_str()) {
             return builtin;
         }
-        if let Some(record) = standard_record_type(name.as_str()) {
+        if let Some(record) = standard_record_type(&name.as_str()) {
             return record;
         }
         if self.error_families.contains_key(&name) {

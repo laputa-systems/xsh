@@ -3,14 +3,16 @@
 #[cfg(target_os = "linux")]
 use std::ffi::CStr;
 use std::fs;
-#[cfg(target_os = "linux")]
 use std::hint::black_box;
 use std::path::{Path, PathBuf};
 #[cfg(target_os = "linux")]
 use std::sync::OnceLock;
+use std::sync::{Arc, mpsc};
 
 use divan::{AllocProfiler, Bencher};
 use xsh::runner::{RunOptions, run_script};
+use xsh::runtime::value::{RecordMap, Value};
+use xsh::symbol::Name;
 use xshi::interactive::bench::{
     BenchSession, HistorySearchRenderBench, RenderBench, synthetic_history_45k,
 };
@@ -162,6 +164,79 @@ fn make_package_corpus(root: &Path, files: usize) {
     }
 }
 
+fn record_fields() -> [(Name, Value); 8] {
+    [
+        (Name::ANY, Value::Int(1)),
+        (Name::BOOL, Value::Int(2)),
+        (Name::BYTES, Value::Int(3)),
+        (Name::DURATION, Value::Int(4)),
+        (Name::FLOAT, Value::Int(5)),
+        (Name::INT, Value::Int(6)),
+        (Name::PATH, Value::Int(7)),
+        (Name::STR, Value::Int(8)),
+    ]
+}
+
+fn shaped_record() -> RecordMap {
+    RecordMap::from_name_values(Vec::from(record_fields()))
+}
+
+fn dynamic_record() -> RecordMap {
+    let mut record = RecordMap::new();
+    for (name, value) in record_fields() {
+        record.insert(Arc::from(name.as_str().as_str()), value);
+    }
+    record
+}
+
+#[divan::bench]
+fn runtime_scalar_clone_drop(bencher: Bencher) {
+    let value = Value::Int(42);
+    bench_operation(bencher, || value.clone());
+}
+
+#[divan::bench]
+fn runtime_shaped_record_build_8_fields(bencher: Bencher) {
+    let _warm_shape = shaped_record();
+    bench_operation(bencher, shaped_record);
+}
+
+#[divan::bench]
+fn runtime_dynamic_record_build_8_fields(bencher: Bencher) {
+    bench_operation(bencher, dynamic_record);
+}
+
+#[divan::bench]
+fn runtime_shaped_record_clone_drop_8_fields(bencher: Bencher) {
+    let record = shaped_record();
+    bench_operation(bencher, || record.clone());
+}
+
+#[divan::bench]
+fn runtime_dynamic_record_clone_drop_8_fields(bencher: Bencher) {
+    let record = dynamic_record();
+    bench_operation(bencher, || record.clone());
+}
+
+#[divan::bench]
+fn runtime_shaped_record_thread_transfer_8_fields(bencher: Bencher) {
+    let (sender, receiver) = mpsc::sync_channel(0);
+    let (ack_sender, ack_receiver) = mpsc::sync_channel(0);
+    let worker = std::thread::spawn(move || {
+        while let Ok(value) = receiver.recv() {
+            black_box(value);
+            ack_sender.send(()).expect("acknowledge transferred record");
+        }
+    });
+    let value = Value::Record(shaped_record());
+    bench_operation(bencher, || {
+        sender.send(value.clone()).expect("transfer record to worker");
+        ack_receiver.recv().expect("receive transferred record ack");
+    });
+    drop(sender);
+    worker.join().expect("join record transfer worker");
+}
+
 #[divan::bench]
 fn xsh_short_script(bencher: Bencher) {
     let script = benchmark_script("short-script.xsh");
@@ -253,6 +328,20 @@ fn xshi_cd_list_complete_1000_entries(bencher: Bencher) {
     let mut session = BenchSession::with_history(synthetic_history_45k());
     bench_operation(bencher, || {
         session.workflow_cd_l_completion_len(dir.path())
+    });
+}
+
+#[divan::bench]
+fn xshi_dynamic_name_session(bencher: Bencher) {
+    let mut session = BenchSession::with_history(Vec::new());
+    let commands = (0..8)
+        .map(|index| format!("PHASE8_SESSION_{index}=ok /usr/bin/true"))
+        .collect::<Vec<_>>();
+    let mut index = 0;
+    bench_operation(bencher, || {
+        let output = session.execute_len(&commands[index % commands.len()]);
+        index += 1;
+        output
     });
 }
 

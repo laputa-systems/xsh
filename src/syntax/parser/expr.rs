@@ -334,7 +334,7 @@ impl<'a> Parser<'a> {
                 let name = self.expect_member_name("expected field name after `.`")?;
                 let is_compat_module_call = left
                     .bare_ident
-                    .is_some_and(|module| matches!(module.as_str(), "record" | "module"));
+                    .is_some_and(|module| matches!(module.as_str().as_str(), "record" | "module"));
                 if name == "require"
                     && !is_compat_module_call
                     && self.consume(TokenKindMatch::LParen).is_some()
@@ -1074,7 +1074,7 @@ impl<'a> Parser<'a> {
     ) -> Option<ArenaStreamStage> {
         let start = self.current_start();
         let name = self.expect_stage_name()?;
-        let member = if matches!(name.as_str(), "table" | "text" | "bytes" | "json")
+        let member = if matches!(name.as_str().as_str(), "table" | "text" | "bytes" | "json")
             && self.consume(TokenKindMatch::Dot).is_some()
         {
             Some(self.expect_member_name("expected stream stage method")?)
@@ -1521,7 +1521,7 @@ pub(in crate::syntax::parser) fn stream_stage_kind_from_names(
     member: Option<Name>,
 ) -> Option<StreamStageKind> {
     match member {
-        None => Some(match name.as_str() {
+        None => Some(match name.as_str().as_str() {
             "where" => StreamStageKind::Where,
             "map" => StreamStageKind::Map,
             "par-map" => StreamStageKind::ParMap,
@@ -1554,7 +1554,7 @@ pub(in crate::syntax::parser) fn stream_stage_kind_from_names(
             "reduce-by" => StreamStageKind::ReduceBy,
             _ => return None,
         }),
-        Some(member) => Some(match (name.as_str(), member.as_str()) {
+        Some(member) => Some(match (name.as_str().as_str(), member.as_str().as_str()) {
             ("table", "print") => StreamStageKind::TablePrint,
             ("text", "lines") => StreamStageKind::TextStreamLines,
             ("bytes", "chunks") => StreamStageKind::BytesChunks,
@@ -1574,13 +1574,13 @@ fn arena_expr_accepts_builder_block(arena: &ArenaProgramBuilder<'_>, id: ExprId)
         ArenaExprKind::Call { callee, .. } => match arena.expr_kind(callee) {
             ArenaExprKind::Field { base, name } => matches!(
                 arena.expr_kind(base),
-                ArenaExprKind::Ident(module) if builder_api_accepts_block(module.as_str(), name.as_str())
+                ArenaExprKind::Ident(module) if builder_api_accepts_block(&module.as_str(), &name.as_str())
             ),
             _ => false,
         },
         ArenaExprKind::Field { base, name } => matches!(
             arena.expr_kind(base),
-            ArenaExprKind::Ident(module) if builder_api_accepts_block(module.as_str(), name.as_str())
+            ArenaExprKind::Ident(module) if builder_api_accepts_block(&module.as_str(), &name.as_str())
         ),
         _ => false,
     }

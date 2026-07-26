@@ -442,13 +442,13 @@ fn lowered_reduce_group_insert(
     Ok(())
 }
 
-struct LoweredReduceProjection<'a> {
-    key_field: &'a str,
-    value_fields: Vec<(Name, &'a str)>,
+struct LoweredReduceProjection {
+    key_field: Arc<str>,
+    value_fields: Vec<(Name, Arc<str>)>,
 }
 
-struct LoweredProjectedReduceState<'a> {
-    projection: LoweredReduceProjection<'a>,
+struct LoweredProjectedReduceState {
+    projection: LoweredReduceProjection,
     record_indices: Option<LoweredProjectedRecordIndices>,
     output_fields_unique: bool,
 }
@@ -459,8 +459,8 @@ struct LoweredProjectedRecordIndices {
     values: Vec<usize>,
 }
 
-impl<'a> LoweredProjectedReduceState<'a> {
-    fn new(projection: LoweredReduceProjection<'a>) -> Self {
+impl LoweredProjectedReduceState {
+    fn new(projection: LoweredReduceProjection) -> Self {
         let output_fields_unique = lowered_projected_output_fields_unique(&projection);
         Self {
             projection,
@@ -483,7 +483,7 @@ impl<'a> LoweredProjectedReduceState<'a> {
     }
 }
 
-fn lowered_projected_output_fields_unique(projection: &LoweredReduceProjection<'_>) -> bool {
+fn lowered_projected_output_fields_unique(projection: &LoweredReduceProjection) -> bool {
     for index in 0..projection.value_fields.len() {
         let name = projection.value_fields[index].0;
         if projection.value_fields[..index]
@@ -501,25 +501,25 @@ fn lowered_record_vec_field_index(record: &[(Name, LoweredValue)], field: &str) 
 }
 
 fn lowered_projected_record_indices(
-    projection: &LoweredReduceProjection<'_>,
+    projection: &LoweredReduceProjection,
     record: &[(Name, LoweredValue)],
 ) -> Option<LoweredProjectedRecordIndices> {
-    let key = lowered_record_vec_field_index(record, projection.key_field)?;
+    let key = lowered_record_vec_field_index(record, projection.key_field.as_ref())?;
     let mut values = Vec::with_capacity(projection.value_fields.len());
     for (_, source_field) in &projection.value_fields {
-        values.push(lowered_record_vec_field_index(record, source_field)?);
+        values.push(lowered_record_vec_field_index(record, source_field.as_ref())?);
     }
     Some(LoweredProjectedRecordIndices { key, values })
 }
 
 fn lowered_projected_record_indices_match(
-    projection: &LoweredReduceProjection<'_>,
+    projection: &LoweredReduceProjection,
     record: &[(Name, LoweredValue)],
     indices: &LoweredProjectedRecordIndices,
 ) -> bool {
     record
         .get(indices.key)
-        .is_some_and(|(name, _)| name.as_str() == projection.key_field)
+        .is_some_and(|(name, _)| name.as_str() == projection.key_field.as_ref())
         && indices.values.len() == projection.value_fields.len()
         && indices
             .values
@@ -528,12 +528,12 @@ fn lowered_projected_record_indices_match(
             .all(|(index, (_, source_field))| {
                 record
                     .get(*index)
-                    .is_some_and(|(name, _)| name.as_str() == *source_field)
+                    .is_some_and(|(name, _)| name.as_str() == source_field.as_ref())
             })
 }
 
 fn lowered_projected_key_value(
-    projection: &LoweredReduceProjection<'_>,
+    projection: &LoweredReduceProjection,
     item: &LoweredValue,
     indices: Option<&LoweredProjectedRecordIndices>,
     span: Span,
@@ -541,12 +541,13 @@ fn lowered_projected_key_value(
     if let (LoweredValue::RecordVec(record), Some(indices)) = (item, indices) {
         return Ok(record[indices.key].1.clone());
     }
-    lowered_record_field_value(item, projection.key_field)
-        .ok_or_else(|| RuntimeError::new("missing-field", projection.key_field).with_span(span))
+    lowered_record_field_value(item, projection.key_field.as_ref()).ok_or_else(|| {
+        RuntimeError::new("missing-field", projection.key_field.as_ref()).with_span(span)
+    })
 }
 
 fn lowered_projected_record_value(
-    projection: &LoweredReduceProjection<'_>,
+    projection: &LoweredReduceProjection,
     item: &LoweredValue,
     indices: Option<&LoweredProjectedRecordIndices>,
     span: Span,
@@ -557,8 +558,9 @@ fn lowered_projected_record_value(
         {
             record[indices.values[index]].1.clone()
         } else {
-            lowered_record_field_value(item, source_field)
-                .ok_or_else(|| RuntimeError::new("missing-field", *source_field).with_span(span))?
+            lowered_record_field_value(item, source_field.as_ref()).ok_or_else(|| {
+                RuntimeError::new("missing-field", source_field.as_ref()).with_span(span)
+            })?
         };
         value.push((*name, field_value));
     }
@@ -566,7 +568,7 @@ fn lowered_projected_record_value(
 }
 
 fn lowered_projected_acc_layout_matches(
-    projection: &LoweredReduceProjection<'_>,
+    projection: &LoweredReduceProjection,
     acc: &[(Name, LoweredValue)],
 ) -> bool {
     acc.len() == projection.value_fields.len()
@@ -797,8 +799,13 @@ fn lowered_compact_json_capacity(value: &LoweredValue) -> usize {
             lowered_compact_json_map_capacity(fields)
         }
         LoweredValue::RecordVec(fields) => {
-            let fields = fields.iter().map(|(key, value)| (key.as_str(), value));
-            lowered_compact_json_map_capacity(fields)
+            let fields = fields
+                .iter()
+                .map(|(key, value)| (key.as_str().to_string(), value))
+                .collect::<Vec<_>>();
+            lowered_compact_json_map_capacity(
+                fields.iter().map(|(key, value)| (key.as_str(), *value)),
+            )
         }
         LoweredValue::Stats {
             blanks,
@@ -935,7 +942,12 @@ fn lowered_write_compact_json(
         }
         LoweredValue::RecordVec(fields) => {
             lowered_write_json_map(
-                fields.iter().map(|(key, value)| (key.as_str(), value)),
+                fields
+                    .iter()
+                    .map(|(key, value)| (key.as_str().to_string(), value))
+                    .collect::<Vec<_>>()
+                    .iter()
+                    .map(|(key, value)| (key.as_str(), *value)),
                 output,
                 span,
             )?;
@@ -1277,7 +1289,8 @@ fn lowered_module_matches_contract(
     exports: &BTreeMap<Name, ModuleExportType>,
 ) -> bool {
     exports.iter().all(|(name, export)| {
-        let Some(value) = module.get(name.as_str()) else {
+        let name_text = name.as_str();
+        let Some(value) = module.get::<str>(name_text.as_str()) else {
             return export.optional();
         };
         match export {
@@ -1796,7 +1809,7 @@ fn lowered_optional_str_record(
         LoweredValue::Record(fields) | LoweredValue::Module(fields) => fields,
         LoweredValue::RecordVec(fields) => fields
             .into_iter()
-            .map(|(name, value)| (Arc::from(name.as_str()), value))
+            .map(|(name, value)| (Arc::<str>::from(name.as_str().as_str()), value))
             .collect(),
         other => {
             return Err(RuntimeError::new(
@@ -2570,7 +2583,7 @@ fn lowered_pipeline_record_list(
                 LoweredValue::Record(record) => Ok(record.clone()),
                 LoweredValue::RecordVec(record) => Ok(record
                     .iter()
-                    .map(|(key, value)| (Arc::from(key.as_str()), value.clone()))
+                    .map(|(key, value)| (Arc::<str>::from(key.as_str().as_str()), value.clone()))
                     .collect()),
                 LoweredValue::Map(map) => Ok(map
                     .iter()
@@ -2956,9 +2969,13 @@ fn bind_lowered_comp_target(
         LoweredCompTarget::Record { fields } => {
             for (name, slot, field_span) in fields {
                 let value = match &value {
-                    LoweredValue::Record(record) => record.get(name.as_str()).cloned(),
+                    LoweredValue::Record(record) => {
+                        let name_text = name.as_str();
+                        record.get::<str>(name_text.as_str()).cloned()
+                    }
                     LoweredValue::RecordVec(record) => {
-                        lowered_record_vec_get(record, name.as_str()).cloned()
+                        let name_text = name.as_str();
+                        lowered_record_vec_get(record, name_text.as_str()).cloned()
                     }
                     _ => {
                         return Err(RuntimeError::new(
@@ -9186,7 +9203,7 @@ impl Evaluator {
         for capture in &lowered.captures {
             if capture.mutable {
                 self.assign(
-                    &capture.name,
+                    &capture.name.as_str(),
                     slots[capture.slot].clone().into_value(),
                     call_span,
                 )?;
@@ -9614,6 +9631,7 @@ impl Evaluator {
         // execute as ordinary top-level statements.
         let harvest_text = Self::module_harvest_source(&parsed.arena, &module_text);
         let harvest_entry = crate::loader::entry_source_from_text(&display_path, harvest_text);
+        let exported_let_names = self.module_namespace_export_let_names(&parsed.arena);
         let (harvest_sources, harvest_parsed) = crate::loader::parse_load_entry_source_arena_only(
             &display_path,
             harvest_entry,
@@ -9625,7 +9643,6 @@ impl Evaluator {
                 .first()
                 .map(crate::source::SourceFile::id)
                 .unwrap_or(module_source_id);
-            let exported_let_names = self.module_namespace_export_let_names(&parsed.arena);
             self.active_modules.push(key.clone());
             let mut child = Evaluator::new_with_sources(Vec::new(), harvest_sources);
             child.cwd = self.cwd.clone();
@@ -9664,7 +9681,14 @@ impl Evaluator {
         // plus handles for exported functions under this dynamic module's
         // private namespace so same-named exports from other loaded files do
         // not overwrite them.
-        let mut record = child_exports;
+        let mut record_fields = Vec::with_capacity(
+            exported_let_names.len().saturating_add(exported_functions.len()),
+        );
+        for name in exported_let_names {
+            if let Some(value) = child_exports.get_name(name) {
+                record_fields.push((name, value.clone()));
+            }
+        }
         for (name, pure) in exported_functions {
             let function = crate::runtime::value::FunctionName::qualified(QualifiedName::new(
                 dynamic_namespace,
@@ -9675,8 +9699,9 @@ impl Evaluator {
             } else {
                 Value::Proc(function)
             };
-            record.insert(Arc::from(name.as_str()), value);
+            record_fields.push((name, value));
         }
+        let record = RecordMap::from_name_values(record_fields);
 
         Arc::make_mut(&mut self.module_value_cache).insert(key, record.clone());
         Ok(record)
@@ -9821,10 +9846,10 @@ impl Evaluator {
         // Collect exported `let` values for the export record, and the child
         // top-level bindings so the caller can make the module's functions
         // resolve captured module-scope values and imported namespaces.
-        let mut record = RecordMap::new();
+        let mut record_fields = Vec::with_capacity(exported_let_names.len());
         for name in exported_let_names {
             if let Some(binding) = self.lookup(*name) {
-                record.insert(Arc::from(name.as_str()), binding.value.clone());
+                record_fields.push((*name, binding.value.clone()));
             }
         }
         let bindings = self
@@ -9837,7 +9862,7 @@ impl Evaluator {
                     .collect::<Vec<_>>()
             })
             .unwrap_or_default();
-        Ok((record, bindings))
+        Ok((RecordMap::from_name_values(record_fields), bindings))
     }
 
     fn eval_lowered_spawn_invocation(
@@ -10116,7 +10141,7 @@ impl Evaluator {
 
     fn eval_lowered_projected_reduce_by_item(
         &mut self,
-        state: &mut LoweredProjectedReduceState<'_>,
+        state: &mut LoweredProjectedReduceState,
         item: LoweredValue,
         groups: &mut BTreeMap<String, LoweredValue>,
         span: Span,
@@ -10147,9 +10172,9 @@ impl Evaluator {
                                 {
                                     record[indices.values[index]].1.clone()
                                 } else {
-                                    lowered_record_field_value(&item, source_field).ok_or_else(
+                                    lowered_record_field_value(&item, source_field.as_ref()).ok_or_else(
                                         || {
-                                            RuntimeError::new("missing-field", *source_field)
+                                            RuntimeError::new("missing-field", source_field.as_ref())
                                                 .with_span(span)
                                         },
                                     )?
@@ -10162,12 +10187,12 @@ impl Evaluator {
                         }
                     } else {
                         for (name, source_field) in &state.projection.value_fields {
-                            let field_value = lowered_record_field_value(&item, source_field)
+                            let field_value = lowered_record_field_value(&item, source_field.as_ref())
                                 .ok_or_else(|| {
-                                    RuntimeError::new("missing-field", *source_field)
+                                    RuntimeError::new("missing-field", source_field.as_ref())
                                         .with_span(span)
                                 })?;
-                            if let Some(acc_value) = lowered_record_vec_get_mut(acc, name.as_str())
+                            if let Some(acc_value) = lowered_record_vec_get_mut(acc, &name.as_str())
                             {
                                 *acc_value = lowered_sum_values(
                                     std::mem::replace(acc_value, LoweredValue::Unit),

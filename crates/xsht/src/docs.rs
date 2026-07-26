@@ -513,7 +513,7 @@ pub fn stdlib_markdown() -> Result<String, String> {
         };
         for (field, ty) in fields {
             output.push_str("- `");
-            output.push_str(&field);
+            output.push_str(field.as_str().as_str());
             output.push_str(": ");
             output.push_str(&render_type(&ty));
             output.push_str("`\n");
@@ -2640,7 +2640,7 @@ fn validate_record_docs(errors: &mut Vec<String>) {
             errors.push(format!("record schema '{name}' has no fields"));
         }
         for field in fields.keys() {
-            if field.trim().is_empty() {
+            if field.as_str().as_str().trim().is_empty() {
                 errors.push(format!("record schema '{name}' has an empty field name"));
             }
         }

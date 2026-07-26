@@ -47,9 +47,9 @@ fn match_expr(
     let pattern = p.expr(p_id);
     let target = t.expr(t_id);
     if let ArenaExprKind::Ident(name) = &pattern.kind
-        && is_metavar(name.as_str())
+        && is_metavar(name.as_str().as_str())
     {
-        return if let Some(&prev) = bindings.get(name.as_str()) {
+        return if let Some(&prev) = bindings.get(name.as_str().as_str()) {
             // Consistency check: same source text.
             source.get(prev.start()..prev.end())
                 == source.get(target.span.start()..target.span.end())
@@ -266,8 +266,8 @@ fn build_replacement_text(
 ) -> Option<String> {
     let expr = arena.expr(id);
     match &expr.kind {
-        ArenaExprKind::Ident(name) if is_metavar(name.as_str()) => {
-            let span = m.bindings.get(name.as_str())?;
+        ArenaExprKind::Ident(name) if is_metavar(name.as_str().as_str()) => {
+            let span = m.bindings.get(name.as_str().as_str())?;
             Some(target_source.get(span.start()..span.end())?.to_string())
         }
         ArenaExprKind::Field { base, name } => {

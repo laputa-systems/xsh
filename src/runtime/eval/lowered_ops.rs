@@ -2112,7 +2112,7 @@ fn lowered_record_vec_method_ref(
         "keys" if args.is_empty() => Ok(Some(LoweredValue::List(
             record
                 .iter()
-                .map(|(key, _)| LoweredValue::Str(Arc::from(key.as_str())))
+                .map(|(key, _)| LoweredValue::Str(Arc::<str>::from(key.as_str().as_str())))
                 .collect(),
         ))),
         _ => Ok(None),

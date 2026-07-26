@@ -87,37 +87,41 @@ pub struct CompactBodyProbeOutput {
 
 impl Checker {
     pub fn check_compact_declarations(program: &ArenaProgram) -> CompactDeclOutput {
-        let mut collector = CompactDeclCollector {
-            diagnostics: Vec::new(),
-            names: FxHashSet::default(),
-            output: CompactDeclOutput::default(),
-        };
-        collector.collect_program(program);
-        let mut output = collector.output;
-        output.diagnostics = collector.diagnostics;
-        output
+        program.symbol_owner().with_current(|| {
+            let mut collector = CompactDeclCollector {
+                diagnostics: Vec::new(),
+                names: FxHashSet::default(),
+                output: CompactDeclOutput::default(),
+            };
+            collector.collect_program(program);
+            let mut output = collector.output;
+            output.diagnostics = collector.diagnostics;
+            output
+        })
     }
 
     pub fn probe_compact_bodies(
         program: &ArenaProgram,
         declarations: &CompactDeclOutput,
     ) -> CompactBodyProbeOutput {
-        let mut output = CompactBodyProbeOutput::default();
-        // Almost every non-trivial script has typed expressions, and the arena
-        // already knows the exact expression count, so this is a precise upper
-        // bound (not every expression ends up typed) that avoids repeated growth
-        // reallocations of the type-fact map without guessing.
-        output.expr_types.reserve(program.stats().expressions);
-        let mut probe = CompactBodyProbe {
-            program,
-            declarations,
-            output,
-            scopes: vec![FxHashMap::default()],
-            stream_items: Vec::new(),
-        };
-        probe.seed_declarations();
-        probe.check_program();
-        probe.output
+        program.symbol_owner().with_current(|| {
+            let mut output = CompactBodyProbeOutput::default();
+            // Almost every non-trivial script has typed expressions, and the arena
+            // already knows the exact expression count, so this is a precise upper
+            // bound (not every expression ends up typed) that avoids repeated growth
+            // reallocations of the type-fact map without guessing.
+            output.expr_types.reserve(program.stats().expressions);
+            let mut probe = CompactBodyProbe {
+                program,
+                declarations,
+                output,
+                scopes: vec![FxHashMap::default()],
+                stream_items: Vec::new(),
+            };
+            probe.seed_declarations();
+            probe.check_program();
+            probe.output
+        })
     }
 }
 
@@ -357,8 +361,8 @@ impl CompactDeclCollector {
     ) {
         let def = program.arena.function_def(id);
         self.output.function_defs += 1;
-        self.check_standard_module_shadow(def.name.as_str(), span);
-        if kind == CompactFunctionKind::Proc && CoreCommand::from_name(&def.name).is_some() {
+        self.check_standard_module_shadow(&def.name.as_str(), span);
+        if kind == CompactFunctionKind::Proc && CoreCommand::from_name(&def.name.as_str()).is_some() {
             self.error(
                 span,
                 "proc name conflicts with a core command",
@@ -448,10 +452,10 @@ impl CompactDeclCollector {
         span: crate::source::Span,
         builtin_message: &str,
     ) {
-        if is_builtin_or_standard_record_type_name(name.as_str()) {
+        if is_builtin_or_standard_record_type_name(&name.as_str()) {
             self.error(span, builtin_message, "check.duplicate-name");
         }
-        self.check_standard_module_shadow(name.as_str(), span);
+        self.check_standard_module_shadow(&name.as_str(), span);
         if !self.names.insert(name) {
             self.error(span, "duplicate top-level name", "check.duplicate-name");
         }
@@ -1059,7 +1063,7 @@ impl CompactBodyProbe<'_> {
             return None;
         };
         let args = self.program.arena.call_args(args);
-        for sig in api_spec().module_overloads(module.as_str(), name.as_str())? {
+        for sig in api_spec().module_overloads(&module.as_str(), &name.as_str())? {
             let mut bindings = vec![false; sig.params.len()];
             let mut next_positional = 0usize;
             let mut matched = true;
@@ -1429,7 +1433,7 @@ fn compact_probe_type_from_arena(
     match tag {
         ArenaTypeExprTag::Named => {
             let name = Name::from_symbol(Symbol::from_raw(data.lhs));
-            match Type::from_name(name.as_str()) {
+            match Type::from_name(&name.as_str()) {
                 Type::Unknown => match declarations.types.get(&name) {
                     Some(CompactTypeDefInfo::Alias(alias)) => {
                         compact_probe_type_from_arena(arena, *alias, declarations, depth + 1)

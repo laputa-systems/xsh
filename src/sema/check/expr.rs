@@ -61,7 +61,7 @@ impl Checker {
         if self.pures.contains_key(&name) {
             return Type::Pure;
         }
-        if api_spec().module(name.as_str()).is_some() {
+        if api_spec().module(&name.as_str()).is_some() {
             return Type::Record(BTreeMap::new());
         }
         self.error(span, "unresolved name", "check.unresolved-name");
@@ -1036,34 +1036,34 @@ impl Checker {
                     Type::Any
                 }
             },
-            Type::Status => match name.as_str() {
+            Type::Status => match name.as_str().as_str() {
                 "ok" | "success" => Type::Bool,
                 "kind" => Type::Str,
                 "segments" => Type::List(Box::new(Type::Record(BTreeMap::new()))),
                 _ => Type::Unknown,
             },
-            Type::ProcessHandle => match name.as_str() {
+            Type::ProcessHandle => match name.as_str().as_str() {
                 "pid" => Type::Int,
                 "command" => Type::Str,
                 "argv" => Type::List(Box::new(Type::Str)),
                 "detached" => Type::Bool,
                 _ => Type::Unknown,
             },
-            Type::Path => match name.as_str() {
+            Type::Path => match name.as_str().as_str() {
                 "parent" => Type::Path,
                 "name" | "ext" => Type::Str,
                 _ => Type::Unknown,
             },
-            Type::Digest => match name.as_str() {
+            Type::Digest => match name.as_str().as_str() {
                 "algorithm" => Type::Str,
                 "bytes" => Type::Bytes,
                 _ => Type::Unknown,
             },
-            Type::Regex => match name.as_str() {
+            Type::Regex => match name.as_str().as_str() {
                 "pattern" => Type::Str,
                 _ => Type::Unknown,
             },
-            Type::Error | Type::ErrorFamily(_) | Type::ErrorVariant { .. } => match name.as_str() {
+            Type::Error | Type::ErrorFamily(_) | Type::ErrorVariant { .. } => match name.as_str().as_str() {
                 "message" => Type::Str,
                 "kind" => {
                     self.error(
@@ -1075,7 +1075,7 @@ impl Checker {
                 }
                 _ => Type::Unknown,
             },
-            Type::ProcessError => match name.as_str() {
+            Type::ProcessError => match name.as_str().as_str() {
                 "message" => Type::Str,
                 "kind" => Type::Str,
                 _ => Type::Unknown,
@@ -1131,7 +1131,7 @@ impl Checker {
                     Type::Any
                 }
             },
-            Type::Error | Type::ErrorFamily(_) | Type::ErrorVariant { .. } => match name.as_str() {
+            Type::Error | Type::ErrorFamily(_) | Type::ErrorVariant { .. } => match name.as_str().as_str() {
                 "message" => Type::Str,
                 "kind" => {
                     self.error(
@@ -1143,12 +1143,12 @@ impl Checker {
                 }
                 _ => Type::Unknown,
             },
-            Type::ProcessError => match name.as_str() {
+            Type::ProcessError => match name.as_str().as_str() {
                 "message" => Type::Str,
                 "kind" => Type::Str,
                 _ => Type::Unknown,
             },
-            Type::ProcessHandle => match name.as_str() {
+            Type::ProcessHandle => match name.as_str().as_str() {
                 "pid" => Type::Int,
                 "command" => Type::Str,
                 "argv" => Type::List(Box::new(Type::Str)),
@@ -1192,7 +1192,7 @@ impl Checker {
                 "check.pure-effect",
             );
         }
-        Some(match name.as_str() {
+        Some(match name.as_str().as_str() {
             "Str" => Type::Result(Box::new(Type::Str), Box::new(Type::Error)),
             "Path" => Type::Result(Box::new(Type::Path), Box::new(Type::Error)),
             "PathList" => Type::Result(
@@ -1313,8 +1313,10 @@ mod arena_tests {
         let program = parse(source);
         let id = first_binding_initializer(&program);
 
-        let mut native = Checker::new(CheckOptions::default());
-        let _ = native.check_expr_arena(&program, source, id, None);
+        program.symbol_owner().with_current(|| {
+            let mut native = Checker::new(CheckOptions::default());
+            let _ = native.check_expr_arena(&program, source, id, None);
+        });
     }
 
     /// Smoke-check statement sequences through `check_stmt_arena`.
@@ -1328,10 +1330,12 @@ mod arena_tests {
             "no top-level statements in: {source:?}"
         );
 
-        let mut native = Checker::new(CheckOptions::default());
-        for &id in &stmt_ids {
-            native.check_stmt_arena(&program, source, id);
-        }
+        program.symbol_owner().with_current(|| {
+            let mut native = Checker::new(CheckOptions::default());
+            for &id in &stmt_ids {
+                native.check_stmt_arena(&program, source, id);
+            }
+        });
     }
 
     #[test]

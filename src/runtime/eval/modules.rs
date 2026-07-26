@@ -257,7 +257,7 @@ pub(super) fn test_value_matches_type(value: &Value, ty: &Type) -> bool {
             Value::Record(_) if fields.is_empty() => true,
             Value::Record(values) => fields.iter().all(|(field, field_ty)| {
                 values
-                    .get(field.as_str())
+                    .get(&field.as_str())
                     .is_some_and(|value| test_value_matches_type(value, field_ty))
             }),
             _ => false,

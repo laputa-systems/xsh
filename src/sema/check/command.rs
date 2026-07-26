@@ -62,7 +62,7 @@ impl Checker {
         let mut ty = self.lookup(Name::intern(root))?.ty.clone();
         for segment in segments {
             ty = match segment {
-                CommandWordRefSegment::Field(name) => self.field_type_for_value(ty, &name, span),
+                CommandWordRefSegment::Field(name) => self.field_type_for_value(ty, &name.as_str(), span),
                 CommandWordRefSegment::Index(_) => self.index_type_for_value(ty, span),
             };
         }
@@ -189,7 +189,7 @@ impl Checker {
     ) -> Type {
         match command {
             ArenaCommand::Proc { name, args } => {
-                self.check_proc_command_arena(arena, source, name.as_str(), *args, span)
+                self.check_proc_command_arena(arena, source, &name.as_str(), *args, span)
             }
             ArenaCommand::Core {
                 name,
@@ -231,7 +231,7 @@ impl Checker {
             return self.check_proc_command_arena(
                 arena,
                 source,
-                name.as_str(),
+                &name.as_str(),
                 ArenaRange::default(),
                 span,
             );
@@ -239,7 +239,7 @@ impl Checker {
         if let Some(binding) = self.lookup(name) {
             return binding.ty.clone();
         }
-        self.check_proc_command_arena(arena, source, name.as_str(), ArenaRange::default(), span)
+        self.check_proc_command_arena(arena, source, &name.as_str(), ArenaRange::default(), span)
     }
 
     pub(super) fn check_proc_command_arena(
@@ -682,7 +682,7 @@ impl Checker {
         assignment: &ArenaEnvAssignment,
     ) {
         let assignment_span = arena.arena.span(assignment.span);
-        if !valid_env_name(assignment.name.as_str()) {
+        if !valid_env_name(&assignment.name.as_str()) {
             self.error(
                 assignment_span,
                 "environment names must be identifiers",

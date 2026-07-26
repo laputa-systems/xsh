@@ -693,6 +693,7 @@ impl FullStore {
 pub(in crate::runtime::eval) struct FullProgram {
     store: FullStore,
     sources: Arc<SourceMap>,
+    symbols: crate::symbol::SymbolOwner,
 }
 
 #[derive(Clone, Copy)]
@@ -708,6 +709,10 @@ pub(in crate::runtime::eval) struct FullDriverStepView<'a> {
 }
 
 impl FullProgram {
+    pub(in crate::runtime::eval) fn symbol_owner(&self) -> &crate::symbol::SymbolOwner {
+        &self.symbols
+    }
+
     pub(in crate::runtime::eval) fn function_count(&self) -> usize {
         self.store.functions.len()
     }
@@ -738,6 +743,7 @@ impl FullProgram {
         key: LoweredFunctionKey,
         kind: LoweredFunctionKind,
     ) -> bool {
+        let _symbols = self.symbol_owner().enter();
         (0..self.store.functions.len()).any(|function_index| {
             self.function_identity(function_index)
                 .is_ok_and(|identity| identity == (key, kind))
@@ -771,6 +777,7 @@ impl FullProgram {
         key: LoweredFunctionKey,
         kind: LoweredFunctionKind,
     ) -> Result<Option<FullFunctionView<'_>>, IrVerifyError> {
+        let _symbols = self.symbol_owner().enter();
         for index in 0..self.store.functions.len() {
             if self.function_identity(index)? == (key, kind) {
                 return Ok(Some(FullFunctionView {
@@ -1478,14 +1485,19 @@ impl FullBuilder {
                 return Err(error);
             }
         }
-        builder.finish(sources)
+        builder.finish(sources, crate::symbol::SymbolOwner::new())
     }
 
-    fn finish(mut self, sources: Arc<SourceMap>) -> Result<FullProgram, IrBuildError> {
+    fn finish(
+        mut self,
+        sources: Arc<SourceMap>,
+        symbols: crate::symbol::SymbolOwner,
+    ) -> Result<FullProgram, IrBuildError> {
         self.store.shrink_to_fit();
         let program = FullProgram {
             store: self.store,
             sources,
+            symbols,
         };
         FullVerifier::verify(&program)
             .map_err(|_| IrBuildError::format("full_ir_verification", None, 0, 0))?;
@@ -1519,6 +1531,31 @@ impl FullBuilder {
         sources: Arc<SourceMap>,
         source_id: SourceId,
         allow_checker_only: bool,
+    ) -> Result<FullProgram, IrBuildError> {
+        let symbols = program.symbol_owner().clone();
+        symbols.clone().with_current(|| {
+            Self::build_compact_with_options_inner(
+                program,
+                declarations,
+                bodies,
+                source,
+                sources,
+                source_id,
+                allow_checker_only,
+                symbols,
+            )
+        })
+    }
+
+    fn build_compact_with_options_inner(
+        program: &ArenaProgram,
+        declarations: &CompactDeclOutput,
+        bodies: &CompactBodyProbeOutput,
+        source: &str,
+        sources: Arc<SourceMap>,
+        source_id: SourceId,
+        allow_checker_only: bool,
+        symbols: crate::symbol::SymbolOwner,
     ) -> Result<FullProgram, IrBuildError> {
         let mut builder = Self::new(source_id);
         builder.reserve_function_keys(
@@ -1611,7 +1648,7 @@ impl FullBuilder {
             error.committed_instructions = builder.store.tags.len();
             return Err(error);
         }
-        builder.finish(sources)
+        builder.finish(sources, symbols)
     }
 
     fn predeclare(&mut self, units: &[&LoweredFunctionUnit]) -> Result<(), IrBuildError> {
@@ -1648,7 +1685,7 @@ impl FullBuilder {
             let name = self.intern_function_key(unit.key())?;
             let owner = unit
                 .owner()
-                .map(|name| self.intern_string(name.as_str()))
+                .map(|name| self.intern_string(&name.as_str()))
                 .transpose()?
                 .map_or(IR_NONE, IrStringId::raw);
             let params_start = self.store.params.len();
@@ -1668,7 +1705,7 @@ impl FullBuilder {
                     .unwrap_or(IR_NONE);
                 let flags = u8::from(body.param_rest[index])
                     | u8::from(body.param_defaults[index].is_some()) << 1;
-                let name_id = self.intern_string(name.as_str())?.raw();
+                let name_id = self.intern_string(&name.as_str())?.raw();
                 let param = u32::try_from(self.store.params.len())
                     .map_err(|_| IrBuildError::format("parameter_overflow", None, 0, 0))?;
                 self.store.params.push(FullParam {
@@ -1689,7 +1726,7 @@ impl FullBuilder {
             for capture in &body.captures {
                 let slot = u32::try_from(capture.slot)
                     .map_err(|_| IrBuildError::format("slot_overflow", None, 0, 0))?;
-                let name = self.intern_string(capture.name.as_str())?.raw();
+                let name = self.intern_string(&capture.name.as_str())?.raw();
                 let type_id = self.intern_lowered_type(capture.kind)?;
                 self.store.captures.push(FullCapture {
                     name,
@@ -2018,7 +2055,7 @@ impl FullBuilder {
                     IrBuildError::format("driver_slot_overflow", None, 0, 0)
                 })?;
                 let type_id = self.intern_lowered_type(slot.kind)?;
-                let name = self.intern_string(slot.name.as_str())?.raw();
+                let name = self.intern_string(&slot.name.as_str())?.raw();
                 self.store.driver_slots.push(FullDriverSlot {
                     name,
                     type_id,
@@ -2310,8 +2347,8 @@ impl FullBuilder {
 
     fn intern_function_key(&mut self, key: LoweredFunctionKey) -> Result<u32, IrBuildError> {
         match key {
-            LoweredFunctionKey::Name(name) => Ok(self.intern_string(name.as_str())?.raw()),
-            LoweredFunctionKey::Qualified(name) => Ok(self.intern_string(name.member.as_str())?.raw()),
+            LoweredFunctionKey::Name(name) => Ok(self.intern_string(&name.as_str())?.raw()),
+            LoweredFunctionKey::Qualified(name) => Ok(self.intern_string(&name.member.as_str())?.raw()),
         }
     }
 
@@ -3337,6 +3374,7 @@ fn indexed_stmt_can_return(
 
 impl FullVerifier {
     fn verify(program: &FullProgram) -> Result<(), IrVerifyError> {
+        let _symbols = program.symbol_owner().enter();
         let store = &program.store;
         if store.tags.len() != store.data.len()
             || store.patterns.len() != store.pattern_data.len()
@@ -4066,31 +4104,6 @@ impl FullCodec for String {
         input: &mut FullCursor<'_>,
     ) -> Result<Self, IrVerifyError> {
         Ok(decoder.store.string(input.raw()?)?.to_string())
-    }
-
-    fn verify(
-        decoder: &FullDecoder<'_>,
-        input: &mut FullCursor<'_>,
-    ) -> Result<(), IrVerifyError> {
-        decoder.store.string(input.raw()?).map(drop)
-    }
-}
-
-impl FullCodec for &'static str {
-    fn encode(
-        &self,
-        builder: &mut FullBuilder,
-        output: &mut Vec<u32>,
-    ) -> Result<(), IrBuildError> {
-        output.push(builder.intern_string(self)?.raw());
-        Ok(())
-    }
-
-    fn decode(
-        decoder: &FullDecoder<'_>,
-        input: &mut FullCursor<'_>,
-    ) -> Result<Self, IrVerifyError> {
-        Ok(Name::intern(decoder.store.string(input.raw()?)?).as_str())
     }
 
     fn verify(
@@ -6393,7 +6406,7 @@ impl_node_codec! {
         },
         BuildExprRow::Field { base, name, span } => ExprField {
             base: BuildExprId,
-            name: &'static str,
+            name: Arc<str>,
             span: Span,
         } => BuildExprRow::Field { base, name, span },
         BuildExprRow::Index { base, index, span } => ExprIndex {
@@ -6424,7 +6437,7 @@ impl_node_codec! {
             span,
         } => ExprMethod {
             receiver: BuildExprId,
-            name: &'static str,
+            name: Arc<str>,
             args: Vec<BuildExprId>,
             span: Span,
         } => BuildExprRow::Method {
@@ -7249,6 +7262,12 @@ run true
         .unwrap()
     }
 
+    fn program_name(program: &FullProgram, text: &str) -> Name {
+        program
+            .symbol_owner()
+            .with_current(|| Name::intern(text))
+    }
+
     #[test]
     fn full_indexed_program_represents_every_vertical_function() {
         let program = fixture("vertical-slice.xsh", VERTICAL_SLICE);
@@ -7256,7 +7275,7 @@ run true
         assert!(program.function_count() > 0);
         assert!(program
             .function_view(
-                LoweredFunctionKey::Name(Name::intern("main")),
+                LoweredFunctionKey::Name(program_name(&program, "main")),
                 LoweredFunctionKind::Proc,
             )
             .unwrap()
@@ -7330,15 +7349,15 @@ run true
         run_with_large_stack(|| {
             let program = Arc::new(fixture("vertical-slice.xsh", VERTICAL_SLICE));
 
-            let (result, stdout, traces) =
-                run_full(Arc::clone(&program), Name::intern("main"));
+            let main = program_name(&program, "main");
+            let (result, stdout, traces) = run_full(Arc::clone(&program), main);
             assert_eq!(result.unwrap(), Value::ok(Value::Unit));
             assert_eq!(stdout, b"slice 13 120 true true\n");
             assert!(traces.contains("ProcEnter"));
             assert!(traces.contains("ProcExit"));
 
-            let (result, stdout, traces) =
-                run_full(program, Name::intern("exact_error_site"));
+            let exact_error_site = program_name(&program, "exact_error_site");
+            let (result, stdout, traces) = run_full(program, exact_error_site);
             let Value::Result(crate::runtime::value::ResultValue::Err(error)) =
                 result.unwrap()
             else {
@@ -7375,8 +7394,8 @@ run true
                 .unwrap()
             };
 
-            let (result, stdout, _) =
-                run_full(Arc::new(program), Name::intern("main"));
+            let main = program_name(&program, "main");
+            let (result, stdout, _) = run_full(Arc::new(program), main);
             assert_eq!(result.unwrap(), Value::ok(Value::Unit));
             assert_eq!(stdout, b"slice 13 120 true true\n");
         });
@@ -7714,6 +7733,7 @@ run true
         let program = FullProgram {
             store: builder.store,
             sources: Arc::new(sources),
+            symbols: crate::symbol::SymbolOwner::new(),
         };
         FullVerifier::verify(&program).unwrap();
 

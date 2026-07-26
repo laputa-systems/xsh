@@ -2021,17 +2021,19 @@ mod tests {
 
     #[test]
     fn argv_words_rejects_shell_syntax() {
-        for text in [
-            "echo hi | wc",
-            "echo $HOME",
-            "echo *",
-            "echo $(date)",
-            "echo `date`",
-            "echo > file",
-            "unterminated 'quote",
-        ] {
-            let error = argv_words(text, span()).unwrap_err();
-            assert_eq!(error.kind, "argv-words");
-        }
+        crate::symbol::SymbolOwner::new().with_current(|| {
+            for text in [
+                "echo hi | wc",
+                "echo $HOME",
+                "echo *",
+                "echo $(date)",
+                "echo `date`",
+                "echo > file",
+                "unterminated 'quote",
+            ] {
+                let error = argv_words(text, span()).unwrap_err();
+                assert_eq!(error.kind, "argv-words");
+            }
+        });
     }
 }

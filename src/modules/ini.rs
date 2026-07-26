@@ -298,42 +298,50 @@ message = hello
 
     #[test]
     fn decode_rejects_duplicates_case_insensitively() {
-        let error = decode("[s]\nHost = a\nhost = b\n", span()).unwrap_err();
-        assert_eq!(error.kind, "ini-decode");
+        crate::symbol::SymbolOwner::new().with_current(|| {
+            let error = decode("[s]\nHost = a\nhost = b\n", span()).unwrap_err();
+            assert_eq!(error.kind, "ini-decode");
+        });
     }
 
     #[test]
     fn decode_rejects_global_section_collisions() {
-        let error = decode("server = root\n[server]\nhost = x\n", span()).unwrap_err();
-        assert_eq!(error.kind, "ini-decode");
+        crate::symbol::SymbolOwner::new().with_current(|| {
+            let error = decode("server = root\n[server]\nhost = x\n", span()).unwrap_err();
+            assert_eq!(error.kind, "ini-decode");
+        });
     }
 
     #[test]
     fn encode_is_deterministic_and_multiline() {
-        let value = RecordMap::from([
-            (
-                Arc::from("server"),
-                Value::Record(RecordMap::from([
-                    (Arc::from("host"), Value::Str("example.test".into())),
-                    (Arc::from("message"), Value::Str("hello\nworld".into())),
-                ])),
-            ),
-            (Arc::from("global"), Value::Str("root".into())),
-        ]);
-        assert_eq!(
-            encode(&value, span()).unwrap(),
-            "global = root\n\n[server]\nhost = example.test\nmessage = hello\n  world\n"
-        );
+        crate::symbol::SymbolOwner::new().with_current(|| {
+            let value = RecordMap::from([
+                (
+                    Arc::from("server"),
+                    Value::Record(RecordMap::from([
+                        (Arc::from("host"), Value::Str("example.test".into())),
+                        (Arc::from("message"), Value::Str("hello\nworld".into())),
+                    ])),
+                ),
+                (Arc::from("global"), Value::Str("root".into())),
+            ]);
+            assert_eq!(
+                encode(&value, span()).unwrap(),
+                "global = root\n\n[server]\nhost = example.test\nmessage = hello\n  world\n"
+            );
+        });
     }
 
     #[test]
     fn encode_rejects_non_string_section_values() {
-        let value = RecordMap::from([(
-            Arc::from("s"),
-            Value::Record(RecordMap::from([(Arc::from("answer"), Value::Int(42))])),
-        )]);
-        let error = encode(&value, span()).unwrap_err();
-        assert_eq!(error.kind, "ini-encode");
+        crate::symbol::SymbolOwner::new().with_current(|| {
+            let value = RecordMap::from([(
+                Arc::from("s"),
+                Value::Record(RecordMap::from([(Arc::from("answer"), Value::Int(42))])),
+            )]);
+            let error = encode(&value, span()).unwrap_err();
+            assert_eq!(error.kind, "ini-encode");
+        });
     }
 
     fn field_str<'a>(fields: &'a RecordMap, key: &str) -> Option<&'a str> {

@@ -400,7 +400,7 @@ impl<'a> Writer<'a> {
                 output.push_str(&self.join_name_range(use_stmt.path, "."));
                 if let Some(alias) = &use_stmt.alias {
                     output.push_str(" as ");
-                    output.push_str(alias.as_str());
+                    output.push_str(alias.as_str().as_str());
                 }
             }
             ArenaStmtKind::Export(inner) => {
@@ -490,7 +490,7 @@ impl<'a> Writer<'a> {
                 let len = bindings.len();
                 for (index, binding) in bindings.iter().enumerate() {
                     self.write_indent(indent + 1, output);
-                    output.push_str(binding.name.as_str());
+                    output.push_str(binding.name.as_str().as_str());
                     output.push_str(" = ");
                     self.write_expr(binding.initializer, 0, output);
                     if index + 1 < len {
@@ -503,7 +503,7 @@ impl<'a> Writer<'a> {
                 output.push_str(" else ");
                 if let Some(param) = else_param {
                     output.push('|');
-                    output.push_str(param.as_str());
+                    output.push_str(param.as_str().as_str());
                     output.push_str("| ");
                 }
                 self.write_block(*else_block, indent, output);
@@ -527,7 +527,7 @@ impl<'a> Writer<'a> {
                 output.push_str(" else ");
                 if let Some(param) = else_param {
                     output.push('|');
-                    output.push_str(param.as_str());
+                    output.push_str(param.as_str().as_str());
                     output.push_str("| ");
                 }
                 self.write_block(*else_block, indent, output);
@@ -555,7 +555,7 @@ impl<'a> Writer<'a> {
             ArenaStmtKind::Continue => output.push_str("continue"),
             ArenaStmtKind::Match { value, arms } => self.write_match(*value, *arms, indent, output),
             ArenaStmtKind::Command(command) => self.write_command_stmt(*command, indent, output),
-            ArenaStmtKind::TailBareIdent(name) => output.push_str(name.as_str()),
+            ArenaStmtKind::TailBareIdent(name) => output.push_str(name.as_str().as_str()),
             ArenaStmtKind::Expr(expr) => self.write_expr(*expr, 0, output),
         }
         self.write_trailing_comment(stmt.span.end(), output);
@@ -573,7 +573,7 @@ impl<'a> Writer<'a> {
         let effects: Vec<Effect> = self.arena.effects(hook.effects).collect();
         let body = hook.body;
         output.push_str("on ");
-        output.push_str(signal.as_str());
+        output.push_str(signal.as_str().as_str());
         if let Some(pre_cancel) = &pre_cancel {
             output.push_str(" --pre-cancel=");
             output.push_str(pre_cancel);
@@ -598,7 +598,7 @@ impl<'a> Writer<'a> {
         use xsh::syntax::arena::ArenaTypeDefBody;
         let def = self.arena.type_def(def_id).clone();
         output.push_str("type ");
-        output.push_str(def.name.as_str());
+        output.push_str(def.name.as_str().as_str());
         match &def.body {
             ArenaTypeDefBody::Alias(ty) => {
                 output.push_str(" = ");
@@ -659,14 +659,14 @@ impl<'a> Writer<'a> {
     fn write_error_def(&mut self, def_id: xsh::syntax::arena::ErrorDefId, output: &mut String) {
         let def = self.arena.error_def(def_id).clone();
         output.push_str("error ");
-        output.push_str(def.name.as_str());
+        output.push_str(def.name.as_str().as_str());
         output.push_str(" = ");
         let variants = self.arena.error_variants(def.variants).to_vec();
         for (index, variant) in variants.iter().enumerate() {
             if index > 0 {
                 output.push_str(" | ");
             }
-            output.push_str(variant.name.as_str());
+            output.push_str(variant.name.as_str().as_str());
             if !variant.fields.is_empty() {
                 output.push('(');
                 let fields = self.arena.error_fields(variant.fields).to_vec();
@@ -674,7 +674,7 @@ impl<'a> Writer<'a> {
                     if field_index > 0 {
                         output.push_str(", ");
                     }
-                    output.push_str(field.name.as_str());
+                    output.push_str(field.name.as_str().as_str());
                     output.push_str(": ");
                     self.write_type(field.ty, output);
                 }
@@ -717,7 +717,7 @@ impl<'a> Writer<'a> {
         let def = self.arena.function_def(def_id).clone();
         output.push_str(keyword);
         output.push(' ');
-        output.push_str(def.name.as_str());
+        output.push_str(def.name.as_str().as_str());
         output.push('(');
         let params = self.arena.params(def.params).to_vec();
         for (index, param) in params.iter().enumerate() {
@@ -754,7 +754,7 @@ impl<'a> Writer<'a> {
         let def = self.arena.function_def(def_id).clone();
         output.push_str(keyword);
         output.push(' ');
-        output.push_str(def.name.as_str());
+        output.push_str(def.name.as_str().as_str());
         output.push_str("(\n");
         let params = self.arena.params(def.params).to_vec();
         for param in &params {
@@ -785,7 +785,7 @@ impl<'a> Writer<'a> {
         if param.rest {
             output.push_str("...");
         }
-        output.push_str(param.name.as_str());
+        output.push_str(param.name.as_str().as_str());
         if !param.ty_defaulted {
             output.push_str(": ");
             self.write_type(param.ty, output);
@@ -908,7 +908,7 @@ impl<'a> Writer<'a> {
                 output.push_str(&self.join_name_range(use_stmt.path, "."));
                 if let Some(alias) = &use_stmt.alias {
                     output.push_str(" as ");
-                    output.push_str(alias.as_str());
+                    output.push_str(alias.as_str().as_str());
                 }
             }
             ArenaStmtKind::Export(inner) => {
@@ -969,7 +969,7 @@ impl<'a> Writer<'a> {
             }
             ArenaStmtKind::Continue => output.push_str("continue"),
             ArenaStmtKind::Command(command) => self.write_command_stmt(*command, indent, output),
-            ArenaStmtKind::TailBareIdent(name) => output.push_str(name.as_str()),
+            ArenaStmtKind::TailBareIdent(name) => output.push_str(name.as_str().as_str()),
             ArenaStmtKind::Expr(expr) => self.write_expr(*expr, 0, output),
             _ => self.write_stmt(stmt_id, indent, output),
         }
@@ -979,9 +979,13 @@ impl<'a> Writer<'a> {
         let kind = self.arena.pattern(pattern_id).kind.clone();
         match &kind {
             ArenaPatternKind::Wildcard => output.push('_'),
-            ArenaPatternKind::Binding(name) => output.push_str(name.as_str()),
+            ArenaPatternKind::Binding(name) => output.push_str(name.as_str().as_str()),
             ArenaPatternKind::Type { binding, ty } => {
-                output.push_str(binding.map_or("_", |b| b.as_str()));
+                if let Some(binding) = binding {
+                    output.push_str(binding.as_str().as_str());
+                } else {
+                    output.push('_');
+                }
                 output.push_str(" is ");
                 self.write_type(*ty, output);
             }
@@ -994,7 +998,7 @@ impl<'a> Writer<'a> {
                     if index > 0 {
                         output.push_str(", ");
                     }
-                    output.push_str(field.name.as_str());
+                    output.push_str(field.name.as_str().as_str());
                     output.push_str(": ");
                     self.write_pattern(field.pattern, output);
                 }
@@ -1016,7 +1020,7 @@ impl<'a> Writer<'a> {
                 }
             }
             ArenaPatternKind::Constructor { name, arg } => {
-                output.push_str(name.as_str());
+                output.push_str(name.as_str().as_str());
                 output.push('(');
                 if let Some(arg) = arg {
                     self.write_pattern(*arg, output);
@@ -1028,16 +1032,16 @@ impl<'a> Writer<'a> {
                 variant,
                 fields,
             } => {
-                output.push_str(family.as_str());
+                output.push_str(family.as_str().as_str());
                 output.push('.');
-                output.push_str(variant.as_str());
+                output.push_str(variant.as_str().as_str());
                 output.push_str(" {");
                 let fields = self.arena.pattern_fields(*fields).to_vec();
                 for (index, field) in fields.iter().enumerate() {
                     if index > 0 {
                         output.push_str(", ");
                     }
-                    output.push_str(field.name.as_str());
+                    output.push_str(field.name.as_str().as_str());
                     output.push_str(": ");
                     self.write_pattern(field.pattern, output);
                 }
@@ -1045,7 +1049,7 @@ impl<'a> Writer<'a> {
             }
             ArenaPatternKind::Facet(name) => {
                 output.push_str("is ");
-                output.push_str(name.as_str());
+                output.push_str(name.as_str().as_str());
             }
             ArenaPatternKind::Tuple(patterns) => {
                 let patterns: Vec<PatternId> = self.arena.pattern_ids(*patterns).collect();
@@ -1062,7 +1066,7 @@ impl<'a> Writer<'a> {
     fn write_binding_target(&mut self, target_id: BindingTargetId, output: &mut String) {
         let kind = self.arena.binding_target(target_id).kind.clone();
         match &kind {
-            ArenaBindingTargetKind::Name(name) => output.push_str(name.as_str()),
+            ArenaBindingTargetKind::Name(name) => output.push_str(name.as_str().as_str()),
             ArenaBindingTargetKind::Record { fields, rest } => {
                 output.push('{');
                 let fields = self.arena.destructure_fields(*fields).to_vec();
@@ -1071,7 +1075,7 @@ impl<'a> Writer<'a> {
                     if index > 0 {
                         output.push_str(", ");
                     }
-                    output.push_str(field.name.as_str());
+                    output.push_str(field.name.as_str().as_str());
                 }
                 if *rest {
                     if len != 0 {
@@ -1092,11 +1096,11 @@ impl<'a> Writer<'a> {
         use xsh::syntax::arena::ArenaAssignTargetKind;
         let kind = self.arena.assign_target(target_id).kind.clone();
         match &kind {
-            ArenaAssignTargetKind::Name(name) => output.push_str(name.as_str()),
+            ArenaAssignTargetKind::Name(name) => output.push_str(name.as_str().as_str()),
             ArenaAssignTargetKind::Field { base, name } => {
                 self.write_assign_target(*base, output);
                 output.push('.');
-                output.push_str(name.as_str());
+                output.push_str(name.as_str().as_str());
             }
             ArenaAssignTargetKind::Index { base, index } => {
                 self.write_assign_target(*base, output);
@@ -1119,7 +1123,7 @@ impl<'a> Writer<'a> {
                 if index > 0 {
                     output.push_str(", ");
                 }
-                output.push_str(param.name.as_str());
+                    output.push_str(param.name.as_str().as_str());
             }
             output.push('|');
         }
@@ -1162,7 +1166,7 @@ impl<'a> Writer<'a> {
         let stmt = self.arena.command_stmt(stmt_id).clone();
         match &stmt.command {
             ArenaCommand::Proc { name, args } => {
-                output.push_str(name.as_str());
+                output.push_str(name.as_str().as_str());
                 self.write_command_args(*args, output);
             }
             ArenaCommand::Core {
@@ -1294,7 +1298,7 @@ impl<'a> Writer<'a> {
     }
 
     fn write_env_assignment(&mut self, assignment: &ArenaEnvAssignment, output: &mut String) {
-        output.push_str(assignment.name.as_str());
+        output.push_str(assignment.name.as_str().as_str());
         output.push('=');
         match &assignment.value {
             ArenaEnvAssignmentValue::CommandArg(arg) => self.write_command_arg(arg, output),
@@ -1315,7 +1319,7 @@ impl<'a> Writer<'a> {
         output.push_str("{\n");
         for assignment in assignments {
             self.write_indent(indent + 1, output);
-            output.push_str(assignment.name.as_str());
+            output.push_str(assignment.name.as_str().as_str());
             output.push_str(" = ");
             match &assignment.value {
                 ArenaEnvAssignmentValue::CommandArg(arg) => self.write_command_arg(arg, output),
@@ -1384,7 +1388,7 @@ impl<'a> Writer<'a> {
             }
             ArenaCommandArgKind::SpliceName(name) => {
                 output.push('@');
-                output.push_str(name.as_str());
+                output.push_str(name.as_str().as_str());
             }
             ArenaCommandArgKind::SpliceExpr(expr)
                 if matches!(self.arena.expr(*expr).kind, ArenaExprKind::GlobStr(_)) =>
@@ -1472,7 +1476,7 @@ impl<'a> Writer<'a> {
                 }
             }
             ArenaExprKind::Bytes(value) => write_bytes(self.arena.bytes_literal(*value), output),
-            ArenaExprKind::Ident(name) => output.push_str(name.as_str()),
+            ArenaExprKind::Ident(name) => output.push_str(name.as_str().as_str()),
             ArenaExprKind::Item => output.push('.'),
             ArenaExprKind::LastStatus => output.push_str("$?"),
             ArenaExprKind::List(items) => self.write_list(expr_id, *items, output),
@@ -1555,12 +1559,12 @@ impl<'a> Writer<'a> {
                     self.write_field_base_expr(*base, precedence, output);
                     output.push('.');
                 }
-                output.push_str(name.as_str());
+                output.push_str(name.as_str().as_str());
             }
             ArenaExprKind::NullSafeField { base, name } => {
                 self.write_field_base_expr(*base, precedence, output);
                 output.push_str("?.");
-                output.push_str(name.as_str());
+                output.push_str(name.as_str().as_str());
             }
             ArenaExprKind::Index { base, index } => {
                 self.write_expr(*base, precedence, output);
@@ -1588,7 +1592,7 @@ impl<'a> Writer<'a> {
                     EnvGetKind::PathList => "PathList",
                 });
                 output.push('.');
-                output.push_str(name.as_str());
+                output.push_str(name.as_str().as_str());
             }
             ArenaExprKind::EnvPathList => output.push_str("env.PATH"),
             ArenaExprKind::Pipeline { input, stages } => {
@@ -1810,11 +1814,11 @@ impl<'a> Writer<'a> {
     fn write_record_field(&mut self, field: &ArenaRecordFieldKind, output: &mut String) {
         match field {
             ArenaRecordFieldKind::Named { name, value, .. } => {
-                output.push_str(name.as_str());
+                output.push_str(name.as_str().as_str());
                 output.push_str(": ");
                 self.write_expr_safe(*value, output);
             }
-            ArenaRecordFieldKind::Shorthand { name, .. } => output.push_str(name.as_str()),
+            ArenaRecordFieldKind::Shorthand { name, .. } => output.push_str(name.as_str().as_str()),
             ArenaRecordFieldKind::Spread { expr, .. } => {
                 output.push_str("...");
                 self.write_expr_safe(*expr, output);
@@ -1950,7 +1954,7 @@ impl<'a> Writer<'a> {
         let options = self.arena.stream_options(stage.options).to_vec();
         for option in &options {
             output.push_str(" --");
-            output.push_str(option.name.as_str());
+            output.push_str(option.name.as_str().as_str());
             if let Some(value) = option.value {
                 output.push('=');
                 self.write_expr(value, 0, output);
@@ -2093,12 +2097,12 @@ impl<'a> Writer<'a> {
         self.write_indent(indent, output);
         match &entry.kind {
             ArenaBuilderEntryKind::Field { name, value } => {
-                output.push_str(name.as_str());
+                output.push_str(name.as_str().as_str());
                 output.push_str(" = ");
                 self.write_expr(*value, 0, output);
             }
             ArenaBuilderEntryKind::Entry { name, args, block } => {
-                output.push_str(name.as_str());
+                output.push_str(name.as_str().as_str());
                 self.write_command_args(*args, output);
                 if let Some(block) = block {
                     output.push(' ');
@@ -2107,7 +2111,7 @@ impl<'a> Writer<'a> {
             }
             ArenaBuilderEntryKind::Task { name, block } => {
                 output.push_str("task ");
-                output.push_str(name.as_str());
+                output.push_str(name.as_str().as_str());
                 output.push_str("() ");
                 self.write_block(*block, indent, output);
             }
@@ -2124,11 +2128,11 @@ impl<'a> Writer<'a> {
 
     fn write_type(&mut self, ty: TypeExprId, output: &mut String) {
         match type_expr_kind(self.arena, ty) {
-            ArenaTypeExprKind::Named(name) => output.push_str(name.as_str()),
+            ArenaTypeExprKind::Named(name) => output.push_str(name.as_str().as_str()),
             ArenaTypeExprKind::Qualified { namespace, name } => {
-                output.push_str(namespace.as_str());
+                output.push_str(namespace.as_str().as_str());
                 output.push('.');
-                output.push_str(name.as_str());
+                output.push_str(name.as_str().as_str());
             }
             ArenaTypeExprKind::List(inner) => {
                 output.push_str("List[");
@@ -2223,7 +2227,7 @@ impl<'a> Writer<'a> {
     }
 
     fn write_schema_field(&mut self, field: &(Name, TypeExprId), output: &mut String) {
-        output.push_str(field.0.as_str());
+        output.push_str(field.0.as_str().as_str());
         output.push_str(": ");
         self.write_type(field.1, output);
     }
@@ -2257,7 +2261,7 @@ impl<'a> Writer<'a> {
         match &entry.kind {
             ArenaModuleContractEntryKind::Value(ty) => {
                 output.push_str("let ");
-                output.push_str(entry.name.as_str());
+                output.push_str(entry.name.as_str().as_str());
                 output.push_str(": ");
                 self.write_type(*ty, output);
             }
@@ -2267,7 +2271,7 @@ impl<'a> Writer<'a> {
                 return_ty,
             } => {
                 output.push_str("proc ");
-                output.push_str(entry.name.as_str());
+                output.push_str(entry.name.as_str().as_str());
                 self.write_params(*params, output);
                 if let Some(effects) = effects {
                     let effects: Vec<Effect> = self.arena.effects(*effects).collect();
@@ -2279,7 +2283,7 @@ impl<'a> Writer<'a> {
             }
             ArenaModuleContractEntryKind::Pure { params, return_ty } => {
                 output.push_str("pure ");
-                output.push_str(entry.name.as_str());
+                output.push_str(entry.name.as_str().as_str());
                 self.write_params(*params, output);
                 output.push_str(" -> ");
                 self.write_type(*return_ty, output);
@@ -2412,7 +2416,7 @@ impl<'a> Writer<'a> {
             writer.write_expr(base, 0, inline);
             for segment in &segments {
                 inline.push('.');
-                inline.push_str(segment.name.as_str());
+                inline.push_str(segment.name.as_str().as_str());
                 writer.write_call_args_inline(segment.args, inline);
             }
         });
@@ -2428,7 +2432,7 @@ impl<'a> Writer<'a> {
                 self.write_indent(indent, output);
             }
             output.push('.');
-            output.push_str(segment.name.as_str());
+            output.push_str(segment.name.as_str().as_str());
             self.write_call_args(segment.args, false, output);
         }
         true
@@ -2476,7 +2480,7 @@ impl<'a> Writer<'a> {
                 }
             }
             ArenaCallArgKind::Named { name, value, .. } => {
-                output.push_str(name.as_str());
+                output.push_str(name.as_str().as_str());
                 output.push_str(": ");
                 self.write_expr_safe(*value, output);
             }
@@ -2504,7 +2508,7 @@ impl<'a> Writer<'a> {
                 }
             }
             ArenaCallArgKind::Named { name, value, .. } => {
-                output.push_str(name.as_str());
+                output.push_str(name.as_str().as_str());
                 output.push_str(": ");
                 self.write_expr_safe_multiline_preferred(*value, output);
             }

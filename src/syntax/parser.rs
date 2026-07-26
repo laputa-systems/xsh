@@ -84,10 +84,30 @@ fn binary_op_for_token(
 
 impl<'a> Parser<'a> {
     pub fn parse_source_arena_only(source_id: SourceId, source: &'a str) -> ArenaParseOutput {
-        let lexed = Lexer::new(source_id, source).lex_compact();
-        let mut parser = Self::new_with_token_table(source_id, source, lexed.token_table);
-        parser.diagnostics.extend(lexed.diagnostics);
-        parser.parse_arena_only()
+        let symbols = crate::symbol::SymbolOwner::new();
+        symbols.clone().with_current(|| {
+            let lexed = Lexer::new_with_symbols(source_id, source, symbols.clone()).lex_compact();
+            let mut parser = Self::new_with_token_table(source_id, source, lexed.token_table);
+            parser.diagnostics.extend(lexed.diagnostics);
+            let cst = LazyCst::new(parser.source_id, parser.source, parser.token_table.clone());
+            let mut arena = ArenaProgramBuilder::with_source_and_token_capacity_and_symbols(
+                parser.source,
+                parser.token_table.len(),
+                symbols,
+            );
+            parser.skip_separators();
+            while !parser.at(TokenKindMatch::Eof) {
+                if parser.parse_statement_arena_only(&mut arena).is_none() {
+                    parser.recover_statement();
+                }
+                parser.skip_separators();
+            }
+            ArenaParseOutput {
+                arena: arena.finish(),
+                cst,
+                diagnostics: parser.diagnostics,
+            }
+        })
     }
 
     pub fn parse_source_into_arena_builder(
@@ -95,10 +115,13 @@ impl<'a> Parser<'a> {
         source: &'a str,
         arena: &mut ArenaProgramBuilder<'_>,
     ) -> ArenaParseFragment {
-        let lexed = Lexer::new(source_id, source).lex_compact();
-        let mut parser = Self::new_with_token_table(source_id, source, lexed.token_table);
-        parser.diagnostics.extend(lexed.diagnostics);
-        parser.parse_into_arena_builder(arena)
+        let symbols = arena.symbol_owner().clone();
+        symbols.with_current(|| {
+            let lexed = Lexer::new_with_symbols(source_id, source, symbols.clone()).lex_compact();
+            let mut parser = Self::new_with_token_table(source_id, source, lexed.token_table);
+            parser.diagnostics.extend(lexed.diagnostics);
+            parser.parse_into_arena_builder(arena)
+        })
     }
 
     pub fn new_with_token_table(

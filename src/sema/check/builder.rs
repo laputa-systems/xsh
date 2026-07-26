@@ -24,7 +24,7 @@ impl Checker {
             );
             return Type::Unknown;
         };
-        match (module.as_str(), name.as_str()) {
+        match (module.as_str().as_str(), name.as_str().as_str()) {
             ("process", "command") => {
                 if !args.is_empty() {
                     self.error(
@@ -81,8 +81,8 @@ impl Checker {
                     if !seen_fields.insert(*name) {
                         self.error(entry_span, "duplicate builder field", "check.builder-field");
                     }
-                    let expected = builder_field_type(kind, name);
-                    if expected.is_none() && !builder_allows_field(kind, name) {
+                    let expected = builder_field_type(kind, &name.as_str());
+                    if expected.is_none() && !builder_allows_field(kind, &name.as_str()) {
                         self.error(entry_span, "unknown builder field", "check.builder-field");
                     }
                     let actual = self.check_expr_arena(arena, source, *value, expected.as_ref());
@@ -100,7 +100,7 @@ impl Checker {
                 }
                 ArenaBuilderEntryKind::Entry { name, args, block } => {
                     seen_entries.insert(*name);
-                    if !builder_allows_entry(kind, name) {
+                    if !builder_allows_entry(kind, &name.as_str()) {
                         self.error(entry_span, "unknown builder entry", "check.builder-entry");
                     }
                     for arg in arena.arena.command_args(*args) {

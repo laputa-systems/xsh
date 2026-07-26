@@ -197,7 +197,7 @@ impl CompactModuleGraph {
                     .unwrap_or_else(|| {
                         edge.path
                             .iter()
-                            .map(|name| name.as_str())
+                            .map(|name| name.as_str().to_string())
                             .collect::<Vec<_>>()
                             .join(".")
                     });
@@ -699,7 +699,7 @@ impl<'a, 'b> ArenaModuleLoader<'a, 'b> {
             let Some((use_id, path, span)) = self.arena.use_stmt_for_statement(stmt) else {
                 continue;
             };
-            if path.len() == 1 && api_spec().is_standard_module(path[0].as_str()) {
+            if path.len() == 1 && api_spec().is_standard_module(&path[0].as_str()) {
                 continue;
             }
             if let Some(key) = self.load_module(importer, &path, span) {
@@ -1032,29 +1032,31 @@ proc main() [io] {
             declarations.diagnostics
         );
         let graph = CompactModuleGraph::from_file_unit(&unit, &declarations);
-        let helper = Name::intern("helper");
-        let value = Name::intern("value");
-        let helper_error = Name::intern("HelperError");
-        let answer = Name::intern("answer");
-        let alias = Name::intern("h");
+        unit.program().symbol_owner().with_current(|| {
+            let helper = Name::intern("helper");
+            let value = Name::intern("value");
+            let helper_error = Name::intern("HelperError");
+            let answer = Name::intern("answer");
+            let alias = Name::intern("h");
 
-        assert_eq!(graph.import_edges().len(), 1);
-        assert_eq!(graph.import_edges()[0].alias, Some(alias));
-        assert!(graph.import_edges()[0].resolved.is_some());
-        assert!(graph.module_aliases().contains_key(&alias));
-        assert!(
-            graph
-                .qualified_pures()
-                .contains_key(&QualifiedName::new(helper, value))
-        );
-        assert!(
-            graph
-                .qualified_error_families()
-                .contains_key(&QualifiedName::new(helper, helper_error))
-        );
-        assert!(graph.exported_top_level_bindings().contains(&answer));
-        assert_eq!(graph.qualified_declaration_count(), 2);
-        assert_eq!(graph.source_order().len(), 2);
-        assert!(graph.diagnostics().is_empty());
+            assert_eq!(graph.import_edges().len(), 1);
+            assert_eq!(graph.import_edges()[0].alias, Some(alias));
+            assert!(graph.import_edges()[0].resolved.is_some());
+            assert!(graph.module_aliases().contains_key(&alias));
+            assert!(
+                graph
+                    .qualified_pures()
+                    .contains_key(&QualifiedName::new(helper, value))
+            );
+            assert!(
+                graph
+                    .qualified_error_families()
+                    .contains_key(&QualifiedName::new(helper, helper_error))
+            );
+            assert!(graph.exported_top_level_bindings().contains(&answer));
+            assert_eq!(graph.qualified_declaration_count(), 2);
+            assert_eq!(graph.source_order().len(), 2);
+            assert!(graph.diagnostics().is_empty());
+        });
     }
 }

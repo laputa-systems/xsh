@@ -125,6 +125,11 @@ impl BenchSession {
         self.set_cwd(path);
         self.list_len(&[]) + self.complete_len("d", 1, 80)
     }
+
+    pub fn execute_len(&mut self, source: &str) -> usize {
+        let output = super::app::execute_line(&mut self.session, source);
+        output.output_len()
+    }
 }
 
 pub struct BenchLine {

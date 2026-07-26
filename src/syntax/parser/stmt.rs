@@ -884,7 +884,7 @@ impl<'a> Parser<'a> {
                     break;
                 }
             };
-            match name.as_str() {
+            match name.as_str().as_str() {
                 "pre-cancel" => {
                     self.expect(TokenKindMatch::Equals, "expected `=` after `--pre-cancel`");
                     match self.current_tag() {
@@ -936,7 +936,7 @@ impl<'a> Parser<'a> {
         while !self.at(TokenKindMatch::RBracket) && !self.at(TokenKindMatch::Eof) {
             let span = self.current_span();
             if let Some(name) = self.expect_ident("expected effect name") {
-                match Effect::from_str(name.as_str()) {
+                match Effect::from_str(&name.as_str()) {
                     Ok(effect) => effects.push(effect),
                     Err(()) => self.diagnostic_at(
                         span,

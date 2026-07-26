@@ -81,12 +81,18 @@ impl Default for OneCommandOptions {
     }
 }
 
-struct CommandOutput {
+pub(super) struct CommandOutput {
     status: i32,
     stdout: Vec<u8>,
     stderr: Vec<u8>,
     process_status: Option<ProcessStatus>,
     history_source: Option<String>,
+}
+
+impl CommandOutput {
+    pub(super) fn output_len(&self) -> usize {
+        self.status.unsigned_abs() as usize + self.stdout.len() + self.stderr.len()
+    }
 }
 
 struct InteractiveNoCancellation;
@@ -272,7 +278,7 @@ fn exit_code(source: &str, last_status: i32) -> Option<i32> {
         .map(|code| code.trim().parse::<i32>().unwrap_or(2).clamp(0, 255))
 }
 
-fn execute_line(session: &mut Session, source: &str) -> CommandOutput {
+pub(super) fn execute_line(session: &mut Session, source: &str) -> CommandOutput {
     if is_xsh_source(source) {
         session.invalidate_cwd_snapshot();
         return run_xsh_source(session, "<interactive>", source);
@@ -2213,6 +2219,19 @@ mod tests {
         assert_eq!(session.env.get(b"RESULT".as_slice()), Some(&b"11".to_vec()));
         assert_eq!(String::from_utf8(output.stdout).unwrap(), "");
         assert_eq!(String::from_utf8(output.stderr).unwrap(), "");
+    }
+
+    #[test]
+    fn repeated_shell_runs_accept_dynamic_environment_names() {
+        let mut session = Session::new();
+
+        for index in 0..8 {
+            let output = execute_line(
+                &mut session,
+                &format!("PHASE8_SESSION_{index}=ok /usr/bin/true"),
+            );
+            assert_eq!(output.status, 0);
+        }
     }
 
     #[test]

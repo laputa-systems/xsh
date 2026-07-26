@@ -13,7 +13,6 @@ use crate::sema::check::{
 };
 use crate::sema::types::{ModuleExportType, Type};
 use crate::source::{SourceId, Span};
-use crate::symbol;
 use crate::syntax::cst::SyntaxTree;
 use crate::syntax::lexer::Lexer;
 use std::collections::BTreeMap;
@@ -377,6 +376,8 @@ pub fn measure_source(path: &str, source: &str) -> FileFrontendStats {
     let ast_extra_items = ast.extra_items;
 
     mem_track::begin_stage();
+    let (dynamic_symbol_count, dynamic_symbol_bytes) =
+        checked.parsed.arena.symbol_owner().dynamic_stats();
     drop(construct_probe);
     drop(bodies);
     drop(declarations);
@@ -396,7 +397,6 @@ pub fn measure_source(path: &str, source: &str) -> FileFrontendStats {
         after_drop_traffic,
     ));
 
-    let (dynamic_symbol_count, dynamic_symbol_bytes) = symbol::dynamic_symbol_stats();
     mem_track::begin_stage();
     drop(evaluator);
     let _ = mem_track::end_stage();

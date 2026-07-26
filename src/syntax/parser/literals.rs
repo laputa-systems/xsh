@@ -204,15 +204,18 @@ pub(in crate::syntax::parser) fn parse_interpolation_expr_arena_only_for(
     offset: usize,
     arena: &mut ArenaProgramBuilder<'_>,
 ) -> (Option<ExprId>, Vec<Diagnostic>) {
-    let lexed = Lexer::new(source_id, source).lex_compact();
-    let mut parser = Parser::new_with_token_table(source_id, source, lexed.token_table);
-    parser.diagnostics.extend(lexed.diagnostics);
-    let marks = arena.span_marks();
-    let expr_id = parser.parse_expr_id_arena_only(arena);
-    if expr_id.is_some() {
-        arena.shift_spans_since(marks, offset);
-    }
-    (expr_id, parser.diagnostics)
+    let symbols = arena.symbol_owner().clone();
+    symbols.with_current(|| {
+        let lexed = Lexer::new_with_symbols(source_id, source, symbols.clone()).lex_compact();
+        let mut parser = Parser::new_with_token_table(source_id, source, lexed.token_table);
+        parser.diagnostics.extend(lexed.diagnostics);
+        let marks = arena.span_marks();
+        let expr_id = parser.parse_expr_id_arena_only(arena);
+        if expr_id.is_some() {
+            arena.shift_spans_since(marks, offset);
+        }
+        (expr_id, parser.diagnostics)
+    })
 }
 
 pub(in crate::syntax::parser) fn dollar_shorthand_end(source: &str, start: usize) -> usize {

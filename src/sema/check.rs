@@ -279,16 +279,18 @@ impl Checker {
         source: &str,
         options: CheckOptions,
     ) -> CheckOutput {
-        let mut checker = Self::new(options);
-        checker.check_program_arena(program, source);
-        let callable_effects = checker.callable_effects();
-        CheckOutput {
-            diagnostics: checker.diagnostics,
-            annotation_facts: checker.annotation_facts,
-            reveal_types: checker.reveal_types,
-            expr_types: checker.expr_types,
-            callable_effects,
-        }
+        program.symbol_owner().with_current(|| {
+            let mut checker = Self::new(options);
+            checker.check_program_arena(program, source);
+            let callable_effects = checker.callable_effects();
+            CheckOutput {
+                diagnostics: checker.diagnostics,
+                annotation_facts: checker.annotation_facts,
+                reveal_types: checker.reveal_types,
+                expr_types: checker.expr_types,
+                callable_effects,
+            }
+        })
     }
 
     pub fn check_arena_interactive(
@@ -325,45 +327,47 @@ impl Checker {
         main: (&crate::syntax::arena::ArenaProgram, &str),
         modules: &[(&str, &str, &crate::syntax::arena::ArenaProgram, &str)],
     ) -> CheckOutput {
-        let mut checker = Self::new(CheckOptions::default());
-        for (key, name, arena, source) in modules {
-            let module_program = Arc::new((*arena).clone());
-            let module = crate::syntax::arena::ArenaUserModule {
-                key: (*key).to_string(),
-                name: Name::intern(name),
-                statements: arena.statements,
-            };
-            let sig = checker.check_user_module_arena(arena, module_program, source, &module);
-            checker.user_modules.insert((*key).to_string(), sig);
-        }
-
-        let mut main_program = main.0.clone();
-        if let Some((key, ..)) = modules.first() {
-            let resolved = std::sync::Arc::<str>::from(*key);
-            let use_ids = main_program
-                .statement_ids()
-                .filter_map(|stmt_id| {
-                    let stmt = main_program.arena.stmt(stmt_id);
-                    match stmt.kind {
-                        crate::syntax::arena::ArenaStmtKind::Use(use_id) => Some(use_id),
-                        _ => None,
-                    }
-                })
-                .collect::<Vec<_>>();
-            for use_id in use_ids {
-                main_program.arena.use_stmts[use_id.index()].resolved = Some(resolved.clone());
+        main.0.symbol_owner().with_current(|| {
+            let mut checker = Self::new(CheckOptions::default());
+            for (key, name, arena, source) in modules {
+                let module_program = Arc::new((*arena).clone());
+                let module = crate::syntax::arena::ArenaUserModule {
+                    key: (*key).to_string(),
+                    name: Name::intern(name),
+                    statements: arena.statements,
+                };
+                let sig = checker.check_user_module_arena(arena, module_program, source, &module);
+                checker.user_modules.insert((*key).to_string(), sig);
             }
-        }
 
-        checker.check_program_arena(&main_program, main.1);
-        let callable_effects = checker.callable_effects();
-        CheckOutput {
-            diagnostics: checker.diagnostics,
-            annotation_facts: checker.annotation_facts,
-            reveal_types: checker.reveal_types,
-            expr_types: checker.expr_types,
-            callable_effects,
-        }
+            let mut main_program = main.0.clone();
+            if let Some((key, ..)) = modules.first() {
+                let resolved = std::sync::Arc::<str>::from(*key);
+                let use_ids = main_program
+                    .statement_ids()
+                    .filter_map(|stmt_id| {
+                        let stmt = main_program.arena.stmt(stmt_id);
+                        match stmt.kind {
+                            crate::syntax::arena::ArenaStmtKind::Use(use_id) => Some(use_id),
+                            _ => None,
+                        }
+                    })
+                    .collect::<Vec<_>>();
+                for use_id in use_ids {
+                    main_program.arena.use_stmts[use_id.index()].resolved = Some(resolved.clone());
+                }
+            }
+
+            checker.check_program_arena(&main_program, main.1);
+            let callable_effects = checker.callable_effects();
+            CheckOutput {
+                diagnostics: checker.diagnostics,
+                annotation_facts: checker.annotation_facts,
+                reveal_types: checker.reveal_types,
+                expr_types: checker.expr_types,
+                callable_effects,
+            }
+        })
     }
 
     pub(crate) fn new(options: CheckOptions) -> Self {
@@ -526,7 +530,7 @@ impl Checker {
     }
 
     fn define(&mut self, name: Name, binding: Binding, span: Span) {
-        self.check_standard_module_shadow(name.as_str(), span);
+        self.check_standard_module_shadow(&name.as_str(), span);
         self.current_scope_mut().insert(name, binding);
     }
 

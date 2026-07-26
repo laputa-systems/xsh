@@ -382,6 +382,7 @@ pub struct ArenaProgram {
     pub arena: AstArena,
     pub statements: ArenaRange,
     pub modules: Vec<ArenaUserModule>,
+    symbols: crate::symbol::SymbolOwner,
 }
 
 impl ArenaProgram {
@@ -452,6 +453,10 @@ impl ArenaProgram {
         self.arena.span_source_id
     }
 
+    pub fn symbol_owner(&self) -> &crate::symbol::SymbolOwner {
+        &self.symbols
+    }
+
     pub fn module_statements(&self, module: &ArenaUserModule) -> impl Iterator<Item = StmtId> + '_ {
         self.arena.stmt_ids(module.statements)
     }
@@ -460,6 +465,7 @@ impl ArenaProgram {
 #[derive(Default)]
 pub struct ArenaProgramBuilder<'a> {
     lowerer: ArenaLowerer<'a>,
+    symbols: crate::symbol::SymbolOwner,
     statements: Vec<StmtId>,
     block_statements: Vec<StmtId>,
     block_statement_starts: Vec<usize>,
@@ -498,10 +504,18 @@ pub struct ArenaProgramBuilder<'a> {
 
 impl<'a> ArenaProgramBuilder<'a> {
     pub fn with_token_capacity(tokens: usize) -> Self {
+        Self::with_token_capacity_and_symbols(tokens, crate::symbol::SymbolOwner::new())
+    }
+
+    pub fn with_token_capacity_and_symbols(
+        tokens: usize,
+        symbols: crate::symbol::SymbolOwner,
+    ) -> Self {
         let mut lowerer = ArenaLowerer::default();
         lowerer.reserve_frontend_capacity(tokens);
         Self {
             lowerer,
+            symbols,
             statements: Vec::with_capacity(tokens / 16 + 1),
             block_statements: Vec::with_capacity(tokens / 12 + 1),
             block_statement_starts: Vec::new(),
@@ -540,6 +554,18 @@ impl<'a> ArenaProgramBuilder<'a> {
     }
 
     pub fn with_source_and_token_capacity(source: &'a str, tokens: usize) -> Self {
+        Self::with_source_and_token_capacity_and_symbols(
+            source,
+            tokens,
+            crate::symbol::SymbolOwner::new(),
+        )
+    }
+
+    pub fn with_source_and_token_capacity_and_symbols(
+        source: &'a str,
+        tokens: usize,
+        symbols: crate::symbol::SymbolOwner,
+    ) -> Self {
         let mut lowerer = ArenaLowerer {
             arena: AstArena::with_source_len(source.len()),
             source: Some(source),
@@ -547,6 +573,7 @@ impl<'a> ArenaProgramBuilder<'a> {
         lowerer.reserve_frontend_capacity(tokens);
         Self {
             lowerer,
+            symbols,
             statements: Vec::with_capacity(tokens / 16 + 1),
             block_statements: Vec::with_capacity(tokens / 12 + 1),
             block_statement_starts: Vec::new(),
@@ -582,6 +609,10 @@ impl<'a> ArenaProgramBuilder<'a> {
             builder_entry_input_starts: Vec::new(),
             modules: Vec::new(),
         }
+    }
+
+    pub fn symbol_owner(&self) -> &crate::symbol::SymbolOwner {
+        &self.symbols
     }
 
     fn push_current_statement(&mut self, id: StmtId) {
@@ -1882,7 +1913,7 @@ impl<'a> ArenaProgramBuilder<'a> {
                 let ArenaExprKind::Ident(callee_name) = self.lowerer.arena.expr(callee).kind else {
                     return None;
                 };
-                match callee_name.as_str() {
+                match callee_name.as_str().as_str() {
                     "Path" if args.len() == 1 => "Path",
                     "Error" => "Error",
                     "RunError" => "RunError",
@@ -2583,6 +2614,7 @@ impl<'a> ArenaProgramBuilder<'a> {
             arena: self.lowerer.arena,
             statements,
             modules: self.modules,
+            symbols: self.symbols,
         }
     }
 
@@ -2591,6 +2623,7 @@ impl<'a> ArenaProgramBuilder<'a> {
             arena: self.lowerer.arena,
             statements,
             modules: self.modules,
+            symbols: self.symbols,
         }
     }
 }

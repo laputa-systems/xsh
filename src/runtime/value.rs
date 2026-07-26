@@ -2,7 +2,7 @@
 
 use crate::runtime::process::ProcessStatus;
 use crate::source::Span;
-use crate::symbol::{Name, QualifiedName};
+use crate::symbol::{Name, QualifiedName, SymbolOwner, SymbolOwnerWeak};
 use rustc_hash::FxHashMap;
 use std::any::Any;
 use std::collections::BTreeMap;
@@ -13,15 +13,25 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, RwLock};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct RecordShape(Arc<RecordShapeData>);
+pub struct RecordShape {
+    data: Arc<RecordShapeData>,
+    symbols: Option<SymbolOwner>,
+}
 
 #[derive(Debug, Eq, PartialEq)]
 pub struct RecordShapeData {
     names: Box<[Name]>,
+    texts: Box<[Arc<str>]>,
 }
 
 #[derive(Default)]
 struct RuntimeRecordShapes {
+    preloaded: FxHashMap<Box<[Name]>, Arc<RecordShapeData>>,
+    dynamic_by_owner: FxHashMap<usize, OwnerRecordShapes>,
+}
+
+struct OwnerRecordShapes {
+    owner: SymbolOwnerWeak,
     by_fields: FxHashMap<Box<[Name]>, Arc<RecordShapeData>>,
 }
 
@@ -29,6 +39,7 @@ struct RuntimeRecordShapes {
 pub struct RuntimeShapeStats {
     pub hits: usize,
     pub misses: usize,
+    pub live_shapes: usize,
 }
 
 static RUNTIME_SHAPE_HITS: AtomicUsize = AtomicUsize::new(0);
@@ -41,11 +52,15 @@ impl RecordShape {
             .map(|field| Name::intern(field.as_ref()))
             .collect::<Vec<_>>()
             .into_boxed_slice();
-        Self(intern_record_shape(names))
+        let symbols = shape_symbol_owner(&names);
+        Self {
+            data: intern_record_shape(names, symbols.as_ref()),
+            symbols,
+        }
     }
 
     fn index_of(&self, key: &str) -> Option<usize> {
-        self.0.names.iter().position(|field| field.as_str() == key)
+        self.data.texts.iter().position(|field| field.as_ref() == key)
     }
 }
 
@@ -54,37 +69,105 @@ fn runtime_record_shapes() -> &'static RwLock<RuntimeRecordShapes> {
     SHAPES.get_or_init(|| RwLock::new(RuntimeRecordShapes::default()))
 }
 
-fn intern_record_shape(fields: Box<[Name]>) -> Arc<RecordShapeData> {
+fn shape_symbol_owner(fields: &[Name]) -> Option<SymbolOwner> {
+    fields.iter().any(|name| !name.is_preloaded()).then(|| {
+        SymbolOwner::current().expect("dynamic record shape requires an active symbol owner")
+    })
+}
+
+fn make_record_shape(fields: Box<[Name]>) -> Arc<RecordShapeData> {
+    let texts = fields
+        .iter()
+        .map(|name| Arc::<str>::from(name.as_str().as_str()))
+        .collect();
+    Arc::new(RecordShapeData { names: fields, texts })
+}
+
+fn intern_record_shape(
+    fields: Box<[Name]>,
+    owner: Option<&SymbolOwner>,
+) -> Arc<RecordShapeData> {
     let shapes = runtime_record_shapes();
-    if let Some(shape) = shapes
-        .read()
-        .expect("runtime record shape interner poisoned")
-        .by_fields
-        .get(fields.as_ref())
-    {
-        RUNTIME_SHAPE_HITS.fetch_add(1, Ordering::Relaxed);
-        return Arc::clone(shape);
-    }
+    let Some(owner) = owner else {
+        if let Some(shape) = shapes
+            .read()
+            .expect("runtime record shape interner poisoned")
+            .preloaded
+            .get(fields.as_ref())
+        {
+            RUNTIME_SHAPE_HITS.fetch_add(1, Ordering::Relaxed);
+            return Arc::clone(shape);
+        }
+
+        let mut shapes = shapes
+            .write()
+            .expect("runtime record shape interner poisoned");
+        if let Some(shape) = shapes.preloaded.get(fields.as_ref()) {
+            RUNTIME_SHAPE_HITS.fetch_add(1, Ordering::Relaxed);
+            return Arc::clone(shape);
+        }
+        RUNTIME_SHAPE_MISSES.fetch_add(1, Ordering::Relaxed);
+        let shape = make_record_shape(fields.clone());
+        shapes.preloaded.insert(fields, Arc::clone(&shape));
+        return shape;
+    };
 
     let mut shapes = shapes
         .write()
         .expect("runtime record shape interner poisoned");
-    if let Some(shape) = shapes.by_fields.get(fields.as_ref()) {
+    shapes
+        .dynamic_by_owner
+        .retain(|_, cache| cache.owner.is_alive());
+    let owner_key = owner.cache_key();
+    if !shapes.dynamic_by_owner.contains_key(&owner_key) {
+        owner.on_drop(move || {
+            runtime_record_shapes()
+                .write()
+                .expect("runtime record shape interner poisoned")
+                .dynamic_by_owner
+                .remove(&owner_key);
+        });
+        shapes.dynamic_by_owner.insert(
+            owner_key,
+            OwnerRecordShapes {
+                owner: owner.downgrade(),
+                by_fields: FxHashMap::default(),
+            },
+        );
+    }
+    let cache = shapes
+        .dynamic_by_owner
+        .get_mut(&owner_key)
+        .expect("dynamic owner record-shape cache was inserted");
+    if let Some(shape) = cache.by_fields.get(fields.as_ref()) {
         RUNTIME_SHAPE_HITS.fetch_add(1, Ordering::Relaxed);
         return Arc::clone(shape);
     }
     RUNTIME_SHAPE_MISSES.fetch_add(1, Ordering::Relaxed);
-    let shape = Arc::new(RecordShapeData {
-        names: fields.clone(),
-    });
-    shapes.by_fields.insert(fields, Arc::clone(&shape));
+    let shape = make_record_shape(fields.clone());
+    cache.by_fields.insert(fields, Arc::clone(&shape));
     shape
 }
 
 pub fn runtime_shape_stats() -> RuntimeShapeStats {
+    let live_shapes = {
+        let mut shapes = runtime_record_shapes()
+            .write()
+            .expect("runtime record shape interner poisoned");
+        shapes
+            .dynamic_by_owner
+            .retain(|_, cache| cache.owner.is_alive());
+        shapes.preloaded.len()
+            + shapes
+                .dynamic_by_owner
+                .values()
+                .map(|cache| cache.by_fields.len())
+                .sum::<usize>()
+    };
     RuntimeShapeStats {
         hits: RUNTIME_SHAPE_HITS.load(Ordering::Relaxed),
         misses: RUNTIME_SHAPE_MISSES.load(Ordering::Relaxed),
+        live_shapes,
     }
 }
 
@@ -93,6 +176,7 @@ pub enum RecordMap {
     Dynamic(BTreeMap<Arc<str>, Value>),
     Shaped {
         shape: Arc<RecordShapeData>,
+        _symbols: Option<SymbolOwner>,
         // `Arc` so cloning a shaped record (e.g. binding a stream item to a
         // block param and to `.`) is a refcount bump rather than copying the
         // whole value vector. `get_mut`/`insert` copy-on-write via `Arc::make_mut`.
@@ -115,6 +199,7 @@ impl Eq for RecordMap {}
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SparseRecordMap {
     shape: Arc<RecordShapeData>,
+    _symbols: Option<SymbolOwner>,
     defaults: &'static [Value],
     overrides: Arc<[(usize, Value)]>,
 }
@@ -230,10 +315,11 @@ impl RecordMap {
         Self::Dynamic(BTreeMap::new())
     }
 
-    pub fn shaped(shape: &'static RecordShape, values: Vec<Value>) -> Self {
-        assert_eq!(shape.0.names.len(), values.len());
+    pub fn shaped(shape: &RecordShape, values: Vec<Value>) -> Self {
+        assert_eq!(shape.data.names.len(), values.len());
         Self::Shaped {
-            shape: Arc::clone(&shape.0),
+            shape: Arc::clone(&shape.data),
+            _symbols: shape.symbols.clone(),
             values: Arc::from(values),
         }
     }
@@ -250,14 +336,16 @@ impl RecordMap {
                 values.push(value);
             }
         }
+        let symbols = shape_symbol_owner(&names);
         Self::Shaped {
-            shape: intern_record_shape(names.into_boxed_slice()),
+            shape: intern_record_shape(names.into_boxed_slice(), symbols.as_ref()),
+            _symbols: symbols,
             values: Arc::from(values),
         }
     }
 
     pub fn sparse_shaped(
-        shape: &'static RecordShape,
+        shape: &RecordShape,
         defaults: &'static [Value],
         overrides: Vec<(&str, Value)>,
     ) -> Self {
@@ -274,7 +362,7 @@ impl RecordMap {
     }
 
     pub fn sparse_shaped_indices(
-        shape: &'static RecordShape,
+        shape: &RecordShape,
         defaults: &'static [Value],
         overrides: Vec<(usize, Value)>,
     ) -> Self {
@@ -283,7 +371,7 @@ impl RecordMap {
     }
 
     pub fn sparse_shaped_array<const N: usize>(
-        shape: &'static RecordShape,
+        shape: &RecordShape,
         defaults: &'static [Value],
         overrides: [(usize, Value); N],
     ) -> Self {
@@ -292,14 +380,15 @@ impl RecordMap {
     }
 
     fn sparse_shaped_arc(
-        shape: &'static RecordShape,
+        shape: &RecordShape,
         defaults: &'static [Value],
         overrides: Arc<[(usize, Value)]>,
     ) -> Self {
-        assert_eq!(shape.0.names.len(), defaults.len());
+        assert_eq!(shape.data.names.len(), defaults.len());
         debug_assert!(overrides.iter().all(|(index, _)| *index < defaults.len()));
         Self::SparseShaped(Arc::new(SparseRecordMap {
-            shape: Arc::clone(&shape.0),
+            shape: Arc::clone(&shape.data),
+            _symbols: shape.symbols.clone(),
             defaults,
             overrides,
         }))
@@ -308,16 +397,16 @@ impl RecordMap {
     pub fn get(&self, key: &str) -> Option<&Value> {
         match self {
             Self::Dynamic(fields) => fields.get(key),
-            Self::Shaped { shape, values } => shape
-                .names
+            Self::Shaped { shape, values, .. } => shape
+                .texts
                 .iter()
-                .position(|field| field.as_str() == key)
+                .position(|field| field.as_ref() == key)
                 .map(|index| &values[index]),
             Self::SparseShaped(sparse) => sparse
                 .shape
-                .names
+                .texts
                 .iter()
-                .position(|field| field.as_str() == key)
+                .position(|field| field.as_ref() == key)
                 .map(|index| {
                     sparse_shaped_value(sparse.defaults, sparse.overrides.as_ref(), index)
                 }),
@@ -326,8 +415,11 @@ impl RecordMap {
 
     pub fn get_name(&self, key: Name) -> Option<&Value> {
         match self {
-            Self::Dynamic(fields) => fields.get(key.as_str()),
-            Self::Shaped { shape, values } => shape
+            Self::Dynamic(fields) => {
+                let key_text = key.as_str();
+                fields.get::<str>(key_text.as_str())
+            }
+            Self::Shaped { shape, values, .. } => shape
                 .names
                 .iter()
                 .position(|field| *field == key)
@@ -346,21 +438,21 @@ impl RecordMap {
     pub fn get_mut(&mut self, key: &str) -> Option<&mut Value> {
         match self {
             Self::Dynamic(fields) => fields.get_mut(key),
-            Self::Shaped { shape, values } => shape
-                .names
+            Self::Shaped { shape, values, .. } => shape
+                .texts
                 .iter()
-                .position(|field| field.as_str() == key)
+                .position(|field| field.as_ref() == key)
                 .map(|index| &mut Arc::make_mut(values)[index]),
             Self::SparseShaped(_) => self.ensure_dynamic().get_mut(key),
         }
     }
 
     pub fn insert(&mut self, key: Arc<str>, value: Value) -> Option<Value> {
-        if let Self::Shaped { shape, values } = self
+        if let Self::Shaped { shape, values, .. } = self
             && let Some(index) = shape
-                .names
+                .texts
                 .iter()
-                .position(|field| field.as_str() == key.as_ref())
+                .position(|field| field.as_ref() == key.as_ref())
         {
             return Some(std::mem::replace(&mut Arc::make_mut(values)[index], value));
         }
@@ -386,8 +478,8 @@ impl RecordMap {
     pub fn keys(&self) -> RecordKeys<'_> {
         match self {
             Self::Dynamic(fields) => RecordKeys::Dynamic(fields.keys()),
-            Self::Shaped { shape, .. } => RecordKeys::Shaped(shape.names.iter()),
-            Self::SparseShaped(sparse) => RecordKeys::Shaped(sparse.shape.names.iter()),
+            Self::Shaped { shape, .. } => RecordKeys::Shaped(shape.texts.iter()),
+            Self::SparseShaped(sparse) => RecordKeys::Shaped(sparse.shape.texts.iter()),
         }
     }
 
@@ -407,12 +499,12 @@ impl RecordMap {
     pub fn iter(&self) -> RecordIter<'_> {
         match self {
             Self::Dynamic(fields) => RecordIter::Dynamic(fields.iter()),
-            Self::Shaped { shape, values } => RecordIter::Shaped {
-                keys: shape.names.iter(),
+            Self::Shaped { shape, values, .. } => RecordIter::Shaped {
+                keys: shape.texts.iter(),
                 values: values.iter(),
             },
             Self::SparseShaped(sparse) => RecordIter::SparseShaped {
-                keys: sparse.shape.names.iter(),
+                keys: sparse.shape.texts.iter(),
                 defaults: sparse.defaults,
                 overrides: sparse.overrides.as_ref(),
                 index: 0,
@@ -474,23 +566,23 @@ impl IntoIterator for RecordMap {
     fn into_iter(self) -> Self::IntoIter {
         match self {
             Self::Dynamic(fields) => fields.into_iter().collect::<Vec<_>>().into_iter(),
-            Self::Shaped { shape, values } => {
+            Self::Shaped { shape, values, .. } => {
                 shape
-                    .names
+                    .texts
                     .iter()
-                    .map(|name| Arc::from(name.as_str()))
+                    .cloned()
                     .zip(values.iter().cloned())
                     .collect::<Vec<_>>()
                     .into_iter()
             }
             Self::SparseShaped(sparse) => sparse
                 .shape
-                .names
+                .texts
                 .iter()
                 .enumerate()
                 .map(|(index, key)| {
                     (
-                        Arc::from(key.as_str()),
+                        Arc::clone(key),
                         sparse_shaped_value(sparse.defaults, sparse.overrides.as_ref(), index)
                             .clone(),
                     )
@@ -513,11 +605,11 @@ impl<'a> IntoIterator for &'a RecordMap {
 pub enum RecordIter<'a> {
     Dynamic(std::collections::btree_map::Iter<'a, Arc<str>, Value>),
     Shaped {
-        keys: std::slice::Iter<'a, Name>,
+        keys: std::slice::Iter<'a, Arc<str>>,
         values: std::slice::Iter<'a, Value>,
     },
     SparseShaped {
-        keys: std::slice::Iter<'a, Name>,
+        keys: std::slice::Iter<'a, Arc<str>>,
         defaults: &'static [Value],
         overrides: &'a [(usize, Value)],
         index: usize,
@@ -533,7 +625,7 @@ impl<'a> Iterator for RecordIter<'a> {
             Self::Shaped { keys, values } => keys
                 .next()
                 .zip(values.next())
-                .map(|(key, value)| (key.as_str(), value)),
+                .map(|(key, value)| (key.as_ref(), value)),
             Self::SparseShaped {
                 keys,
                 defaults,
@@ -543,7 +635,7 @@ impl<'a> Iterator for RecordIter<'a> {
                 let key = keys.next()?;
                 let value = sparse_shaped_value(defaults, overrides, *index);
                 *index += 1;
-                Some((key.as_str(), value))
+                Some((key.as_ref(), value))
             }
         }
     }
@@ -551,7 +643,7 @@ impl<'a> Iterator for RecordIter<'a> {
 
 pub enum RecordKeys<'a> {
     Dynamic(std::collections::btree_map::Keys<'a, Arc<str>, Value>),
-    Shaped(std::slice::Iter<'a, Name>),
+    Shaped(std::slice::Iter<'a, Arc<str>>),
 }
 
 impl<'a> Iterator for RecordKeys<'a> {
@@ -560,7 +652,7 @@ impl<'a> Iterator for RecordKeys<'a> {
     fn next(&mut self) -> Option<Self::Item> {
         match self {
             Self::Dynamic(iter) => iter.next().map(AsRef::as_ref),
-            Self::Shaped(iter) => iter.next().map(|name| name.as_str()),
+            Self::Shaped(iter) => iter.next().map(AsRef::as_ref),
         }
     }
 }
@@ -1101,12 +1193,14 @@ pub struct RuntimeError {
     pub abort: Option<AbortSignal>,
     pub(crate) family_name: Name,
     pub(crate) variant_name: Name,
+    pub(crate) _symbols: SymbolOwner,
 }
 
 impl RuntimeError {
     pub fn new(kind: impl Into<String>, message: impl Into<String>) -> Self {
         let kind = kind.into();
-        let variant_name = Name::intern(&kind);
+        let symbols = SymbolOwner::current().unwrap_or_default();
+        let variant_name = symbols.intern(&kind);
         Self {
             family: "Error".to_string(),
             variant: kind.clone(),
@@ -1119,6 +1213,7 @@ impl RuntimeError {
             abort: None,
             family_name: Name::ERROR,
             variant_name,
+            _symbols: symbols,
         }
     }
 
@@ -1131,8 +1226,9 @@ impl RuntimeError {
     ) -> Self {
         let family = family.into();
         let variant = variant.into();
-        let family_name = Name::intern(&family);
-        let variant_name = Name::intern(&variant);
+        let symbols = SymbolOwner::current().unwrap_or_default();
+        let family_name = symbols.intern(&family);
+        let variant_name = symbols.intern(&variant);
         let kind = payload
             .get("kind")
             .and_then(|value| match value {
@@ -1152,10 +1248,12 @@ impl RuntimeError {
             abort: None,
             family_name,
             variant_name,
+            _symbols: symbols,
         }
     }
 
     pub fn abort(status: u8, force: bool) -> Self {
+        let symbols = SymbolOwner::current().unwrap_or_default();
         Self {
             family: "Error".to_string(),
             variant: "Abort".to_string(),
@@ -1167,7 +1265,8 @@ impl RuntimeError {
             contexts: Vec::new(),
             abort: Some(AbortSignal { status, force }),
             family_name: Name::ERROR,
-            variant_name: Name::intern("Abort"),
+            variant_name: symbols.intern("Abort"),
+            _symbols: symbols,
         }
     }
 
@@ -1387,79 +1486,127 @@ fn run_error_status_summary(status: &ProcessStatus) -> (String, String) {
 #[cfg(test)]
 mod tests {
     use super::{RecordMap, RecordShape, RuntimeError, Value};
+    use crate::symbol::{Name, SymbolOwner};
     use std::mem::size_of;
     use std::sync::Arc;
 
     #[test]
     fn shaped_records_support_name_lookup() {
-        let shape = Box::leak(Box::new(RecordShape::new(
-            (0..8)
-                .map(|index| Arc::<str>::from(format!("field{index}")))
-                .collect(),
-        )));
-        let record = RecordMap::shaped(shape, (0..8).map(Value::Int).collect());
+        let owner = SymbolOwner::new();
+        let (shape, name) = owner.with_current(|| {
+            let shape = RecordShape::new(
+                (0..8)
+                    .map(|index| Arc::<str>::from(format!("field{index}")))
+                    .collect(),
+            );
+            let name = crate::symbol::Name::intern("field7");
+            (shape, name)
+        });
+        let record = RecordMap::shaped(&shape, (0..8).map(Value::Int).collect());
 
-        assert_eq!(
-            record.get_name(crate::symbol::Name::intern("field7")),
-            Some(&Value::Int(7))
-        );
+        assert_eq!(record.get_name(name), Some(&Value::Int(7)));
+    }
+
+    #[test]
+    fn dynamic_record_shapes_are_reclaimed_after_each_owner_drops() {
+        for iteration in 0..8 {
+            let owner = SymbolOwner::new();
+            let shape = owner.with_current(|| {
+                let shape = RecordShape::new(vec![Arc::from(format!("field_{iteration}"))]);
+                let _record = RecordMap::shaped(&shape, vec![Value::Int(iteration)]);
+                shape
+            });
+            let weak = Arc::downgrade(&shape.data);
+            drop(shape);
+            drop(owner);
+            assert!(weak.upgrade().is_none());
+        }
+    }
+
+    #[test]
+    fn preloaded_record_shapes_remain_interned_after_records_drop() {
+        let first = RecordMap::from_name_values(vec![(Name::BOOL, Value::Bool(true))]);
+        let RecordMap::Shaped {
+            shape: first_shape, ..
+        } = &first
+        else {
+            panic!("preloaded fixed record must use a dense shape");
+        };
+        let weak = Arc::downgrade(first_shape);
+        drop(first);
+
+        let second = RecordMap::from_name_values(vec![(Name::BOOL, Value::Bool(false))]);
+        let RecordMap::Shaped {
+            shape: second_shape, ..
+        } = &second
+        else {
+            panic!("preloaded fixed record must use a dense shape");
+        };
+        let retained = weak
+            .upgrade()
+            .expect("preloaded record shapes stay cached for steady-state reuse");
+        assert!(Arc::ptr_eq(&retained, second_shape));
     }
 
     #[test]
     fn record_maps_intern_sorted_shapes_and_keep_dense_fields_on_mutation() {
-        let first = RecordMap::from([
-            (Arc::from("z"), Value::Int(3)),
-            (Arc::from("a"), Value::Int(1)),
-        ]);
-        let mut second = RecordMap::from([
-            (Arc::from("a"), Value::Int(1)),
-            (Arc::from("z"), Value::Int(3)),
-        ]);
+        SymbolOwner::new().with_current(|| {
+            let first = RecordMap::from([
+                (Arc::from("z"), Value::Int(3)),
+                (Arc::from("a"), Value::Int(1)),
+            ]);
+            let mut second = RecordMap::from([
+                (Arc::from("a"), Value::Int(1)),
+                (Arc::from("z"), Value::Int(3)),
+            ]);
 
-        let (
-            RecordMap::Shaped {
-                shape: first_shape, ..
-            },
-            RecordMap::Shaped {
-                shape: second_shape, ..
-            },
-        ) = (&first, &second)
-        else {
-            panic!("fixed records must use dense shapes");
-        };
-        assert!(Arc::ptr_eq(first_shape, second_shape));
-        assert_eq!(
-            first.keys().collect::<Vec<_>>(),
-            vec!["a", "z"],
-            "record rendering order remains deterministic",
-        );
+            let (
+                RecordMap::Shaped {
+                    shape: first_shape, ..
+                },
+                RecordMap::Shaped {
+                    shape: second_shape, ..
+                },
+            ) = (&first, &second)
+            else {
+                panic!("fixed records must use dense shapes");
+            };
+            assert!(Arc::ptr_eq(first_shape, second_shape));
+            assert_eq!(
+                first.keys().collect::<Vec<_>>(),
+                vec!["a", "z"],
+                "record rendering order remains deterministic",
+            );
 
-        *second.get_mut("a").expect("field exists") = Value::Int(2);
-        assert_eq!(first.get("a"), Some(&Value::Int(1)));
-        assert_eq!(second.get("a"), Some(&Value::Int(2)));
-        assert!(matches!(second, RecordMap::Shaped { .. }));
+            *second.get_mut("a").expect("field exists") = Value::Int(2);
+            assert_eq!(first.get("a"), Some(&Value::Int(1)));
+            assert_eq!(second.get("a"), Some(&Value::Int(2)));
+            assert!(matches!(second, RecordMap::Shaped { .. }));
+        });
     }
 
     #[test]
     fn extending_a_record_uses_the_dynamic_path() {
-        let mut record = RecordMap::from([(Arc::from("a"), Value::Int(1))]);
-        assert_eq!(
-            record.insert(Arc::from("a"), Value::Int(2)),
-            Some(Value::Int(1))
-        );
-        assert!(matches!(record, RecordMap::Shaped { .. }));
-        record.insert(Arc::from("b"), Value::Int(2));
+        SymbolOwner::new().with_current(|| {
+            let mut record = RecordMap::from([(Arc::from("a"), Value::Int(1))]);
+            assert_eq!(
+                record.insert(Arc::from("a"), Value::Int(2)),
+                Some(Value::Int(1))
+            );
+            assert!(matches!(record, RecordMap::Shaped { .. }));
+            record.insert(Arc::from("b"), Value::Int(2));
 
-        assert!(matches!(record, RecordMap::Dynamic(_)));
-        assert_eq!(record.keys().collect::<Vec<_>>(), vec!["a", "b"]);
-        assert_eq!(
-            record,
-            RecordMap::from([
-                (Arc::from("a"), Value::Int(2)),
-                (Arc::from("b"), Value::Int(2)),
-            ]),
-            "record equality ignores the internal storage choice",
-        );
+            assert!(matches!(record, RecordMap::Dynamic(_)));
+            assert_eq!(record.keys().collect::<Vec<_>>(), vec!["a", "b"]);
+            assert_eq!(
+                record,
+                RecordMap::from([
+                    (Arc::from("a"), Value::Int(2)),
+                    (Arc::from("b"), Value::Int(2)),
+                ]),
+                "record equality ignores the internal storage choice",
+            );
+        });
     }
 
     #[test]
@@ -1469,18 +1616,30 @@ mod tests {
 
     #[test]
     fn runtime_errors_cache_compact_family_and_variant_names() {
-        let error = RuntimeError::structured(
-            "FsError",
-            "NotFound",
-            RecordMap::new(),
-            Vec::new(),
-            "missing",
+        SymbolOwner::new().with_current(|| {
+            let error = RuntimeError::structured(
+                "FsError",
+                "NotFound",
+                RecordMap::new(),
+                Vec::new(),
+                "missing",
+            );
+
+            assert_eq!(error.family_name(), crate::symbol::Name::intern("FsError"));
+            assert_eq!(
+                error.variant_name(),
+                crate::symbol::Name::intern("NotFound")
+            );
+        });
+    }
+
+    #[test]
+    fn runtime_errors_own_dynamic_names_without_an_active_symbol_owner() {
+        let error = RuntimeError::new(
+            "phase-eight-session-error",
+            "session helper failed",
         );
 
-        assert_eq!(error.family_name(), crate::symbol::Name::intern("FsError"));
-        assert_eq!(
-            error.variant_name(),
-            crate::symbol::Name::intern("NotFound")
-        );
+        assert_eq!(error.variant_name().as_str(), "phase-eight-session-error");
     }
 }

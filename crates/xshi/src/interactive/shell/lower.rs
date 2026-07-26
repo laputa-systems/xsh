@@ -27,18 +27,21 @@ pub(crate) fn lower_run_program(
     span: Span,
 ) -> Result<ArenaProgram, ExpansionError> {
     let mut builder = ArenaProgramBuilder::with_token_capacity(0);
-    builder.begin_run_segments();
-    for (index, command) in commands.iter().enumerate() {
-        let kind = if index == 0 {
-            first_kind
-        } else {
-            RunKind::Plain
-        };
-        lower_run_segment(session, command, kind, span, &mut builder)?;
-    }
-    let run = builder.finish_run_form(false, span);
-    builder.push_run_command_statement(run, false, span);
-    Ok(builder.finish())
+    let symbols = builder.symbol_owner().clone();
+    symbols.with_current(|| {
+        builder.begin_run_segments();
+        for (index, command) in commands.iter().enumerate() {
+            let kind = if index == 0 {
+                first_kind
+            } else {
+                RunKind::Plain
+            };
+            lower_run_segment(session, command, kind, span, &mut builder)?;
+        }
+        let run = builder.finish_run_form(false, span);
+        builder.push_run_command_statement(run, false, span);
+        Ok(builder.finish())
+    })
 }
 
 fn lower_run_segment(

@@ -1105,22 +1105,24 @@ mod tests {
 
     #[test]
     fn compact_types_render_like_owned_semantic_types() {
-        let mut pools = SemanticPools::default();
-        let mut builder = SemanticPoolBuilder::default();
-        let types = [
-            Type::List(Box::new(Type::Optional(Box::new(Type::Path)))),
-            Type::Result(Box::new(Type::Int), Box::new(Type::ProcessError)),
-            Type::ErrorVariant {
-                family: Name::intern("BuildError"),
-                variant: Name::intern("Failed"),
-            },
-            Type::Record(BTreeMap::from([(Name::intern("value"), Type::Str)])),
-        ];
-        for ty in types {
-            let id = builder.intern_type(&mut pools, &ty).unwrap();
-            assert_eq!(pools.display_type(id).unwrap(), ty.to_string());
-        }
-        pools.verify().unwrap();
+        crate::symbol::SymbolOwner::new().with_current(|| {
+            let mut pools = SemanticPools::default();
+            let mut builder = SemanticPoolBuilder::default();
+            let types = [
+                Type::List(Box::new(Type::Optional(Box::new(Type::Path)))),
+                Type::Result(Box::new(Type::Int), Box::new(Type::ProcessError)),
+                Type::ErrorVariant {
+                    family: Name::intern("BuildError"),
+                    variant: Name::intern("Failed"),
+                },
+                Type::Record(BTreeMap::from([(Name::intern("value"), Type::Str)])),
+            ];
+            for ty in types {
+                let id = builder.intern_type(&mut pools, &ty).unwrap();
+                assert_eq!(pools.display_type(id).unwrap(), ty.to_string());
+            }
+            pools.verify().unwrap();
+        });
     }
 
     #[test]

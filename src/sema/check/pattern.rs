@@ -180,7 +180,7 @@ impl Checker {
                     }
                     return;
                 };
-                let target = match name.as_str() {
+                let target = match name.as_str().as_str() {
                     "Ok" => ok_ty,
                     "Err" => err_ty,
                     _ => {
@@ -311,10 +311,10 @@ impl Checker {
         for (pattern_id, _) in &arm_patterns {
             collect_covered_constructors_arena(arena, *pattern_id, &mut covered);
         }
-        let missing: Vec<&str> = variants
+        let missing: Vec<String> = variants
             .iter()
             .filter(|v| !covered.contains(&v.name))
-            .map(|v| v.name.as_str())
+            .map(|v| v.name.as_str().to_string())
             .collect();
         if missing.is_empty() {
             return;

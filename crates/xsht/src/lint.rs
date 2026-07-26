@@ -171,13 +171,17 @@ impl<'a> Linter<'a> {
             match &inner {
                 ArenaStmtKind::TypeDef(def_id) => {
                     let def = self.arena.type_def(*def_id).clone();
-                    self.define(def.name.as_str(), stmt.span, false);
+                    self.define(def.name.as_str().as_str(), stmt.span, false);
                     if !def.name.as_str().starts_with('_') && !is_exported {
                         self.type_declarations
                             .insert(def.name.to_string(), stmt.span);
                     }
                     if let ArenaTypeDefBody::TagUnion(variants) = &def.body {
-                        self.lint_single_line_tag_union(stmt.span, def.name.as_str(), *variants);
+                        self.lint_single_line_tag_union(
+                            stmt.span,
+                            def.name.as_str().as_str(),
+                            *variants,
+                        );
                         for variant in self.arena.tag_variants(*variants) {
                             if variant.fields.is_empty() {
                                 self.tag_variants.insert(variant.name.to_string());
@@ -190,7 +194,7 @@ impl<'a> Linter<'a> {
                 | ArenaStmtKind::StreamDef(def_id)
                 | ArenaStmtKind::PureDef(def_id) => {
                     let name = self.arena.function_def(*def_id).name;
-                    self.define(name.as_str(), stmt.span, false);
+                    self.define(name.as_str().as_str(), stmt.span, false);
                 }
                 _ => {}
             }
@@ -667,7 +671,7 @@ impl<'a> Linter<'a> {
                 }
             }
             ArenaStmtKind::Command(command) => self.lint_command_stmt(command),
-            ArenaStmtKind::TailBareIdent(name) => self.mark_used(name.as_str()),
+            ArenaStmtKind::TailBareIdent(name) => self.mark_used(name.as_str().as_str()),
             ArenaStmtKind::Expr(expr) => self.lint_expr(expr),
             ArenaStmtKind::With {
                 bindings,
@@ -823,7 +827,7 @@ impl<'a> Linter<'a> {
             if let Some(default) = param.default {
                 self.lint_expr(default);
             }
-            self.define(param.name.as_str(), self.arena.span(param.span), true);
+            self.define(param.name.as_str().as_str(), self.arena.span(param.span), true);
         }
         self.lint_block_statements(def.body);
         self.lint_unreachable_trailing_return(def.body);
@@ -1148,7 +1152,9 @@ impl<'a> Linter<'a> {
 
     fn type_expr_refs_user_type(&self, ty: TypeExprId) -> bool {
         match type_expr_kind(self.arena, ty) {
-            ArenaTypeExprKind::Named(name) => self.type_declarations.contains_key(name.as_str()),
+            ArenaTypeExprKind::Named(name) => self
+                .type_declarations
+                .contains_key(name.as_str().as_str()),
             ArenaTypeExprKind::List(inner)
             | ArenaTypeExprKind::Map(inner)
             | ArenaTypeExprKind::Stream(inner)
@@ -1424,7 +1430,7 @@ impl<'a> Linter<'a> {
         else {
             return None;
         };
-        let (expected_input, expected_output) = match parse_name.as_str() {
+        let (expected_input, expected_output) = match parse_name.as_str().as_str() {
             "parse_int" => (Type::Int, Type::Int),
             "parse_float" => (Type::Float, Type::Float),
             _ => return None,
@@ -1904,14 +1910,14 @@ impl<'a> Linter<'a> {
         let span = self.arena.span(arena_pattern.span);
         match arena_pattern.kind {
             ArenaPatternKind::Binding(name) => {
-                if !self.tag_variants.contains(name.as_str()) {
-                    self.define(name.as_str(), span, true);
+                if !self.tag_variants.contains(name.as_str().as_str()) {
+                    self.define(name.as_str().as_str(), span, true);
                 }
             }
             ArenaPatternKind::Type { binding, ty } => {
                 self.collect_type_expr_refs(ty);
                 if let Some(name) = binding {
-                    self.define(name.as_str(), span, true);
+                    self.define(name.as_str().as_str(), span, true);
                 }
             }
             ArenaPatternKind::Constructor { arg, .. } => {
@@ -1938,11 +1944,13 @@ impl<'a> Linter<'a> {
 
     fn define_binding_target(&mut self, target: BindingTargetId, span: Span, report_unused: bool) {
         match self.arena.binding_target(target).kind.clone() {
-            ArenaBindingTargetKind::Name(name) => self.define(name.as_str(), span, report_unused),
+            ArenaBindingTargetKind::Name(name) => {
+                self.define(name.as_str().as_str(), span, report_unused)
+            }
             ArenaBindingTargetKind::Record { fields, .. } => {
                 for field in self.arena.destructure_fields(fields).to_vec() {
                     self.define(
-                        field.name.as_str(),
+                        field.name.as_str().as_str(),
                         self.arena.span(field.span),
                         report_unused,
                     );
@@ -2246,7 +2254,7 @@ impl<'a> Linter<'a> {
         let span = self.arena.span(stmt.span);
         match stmt.command {
             ArenaCommand::Proc { name, args } => {
-                self.lint_interactive_command(name.as_str(), span);
+                self.lint_interactive_command(name.as_str().as_str(), span);
                 self.lint_proc_command_args(args);
             }
             ArenaCommand::Core {
@@ -2430,7 +2438,7 @@ impl<'a> Linter<'a> {
 
     fn lint_assign_target(&mut self, target: AssignTargetId) {
         match self.arena.assign_target(target).kind.clone() {
-            ArenaAssignTargetKind::Name(name) => self.mark_used(name.as_str()),
+            ArenaAssignTargetKind::Name(name) => self.mark_used(name.as_str().as_str()),
             ArenaAssignTargetKind::Field { base, .. } => self.lint_assign_target(base),
             ArenaAssignTargetKind::Index { base, index } => {
                 self.lint_assign_target(base);
@@ -2501,7 +2509,7 @@ impl<'a> Linter<'a> {
             .block_params(self.arena.block(block).params)
             .to_vec()
         {
-            self.define(param.name.as_str(), self.arena.span(param.span), true);
+            self.define(param.name.as_str().as_str(), self.arena.span(param.span), true);
         }
         self.lint_block_statements(block);
         self.pop_scope();
@@ -2719,7 +2727,7 @@ impl<'a> Linter<'a> {
         };
         // Check module.func is a known module-function with a method equivalent.
         // The first positional arg becomes the receiver; the rest become method args.
-        let min_args = module_func_min_args(module.as_str(), func.as_str());
+        let min_args = module_func_min_args(module.as_str().as_str(), func.as_str().as_str());
         let Some(min_args) = min_args else {
             return;
         };
@@ -4504,7 +4512,7 @@ impl LintExprVisitor<'_, '_> {
         }
         let arena_expr = self.linter.arena.expr(expr);
         match arena_expr.kind {
-            ArenaExprKind::Ident(name) => self.linter.mark_used(name.as_str()),
+            ArenaExprKind::Ident(name) => self.linter.mark_used(name.as_str().as_str()),
             ArenaExprKind::Call { callee, args } => {
                 self.linter.lint_call_style(callee, args, arena_expr.span);
                 self.walk_expr(expr);
@@ -4661,7 +4669,9 @@ impl LintExprVisitor<'_, '_> {
 
     fn visit_record_field(&mut self, field: &ArenaRecordField) {
         match field.kind {
-            ArenaRecordFieldKind::Shorthand { name, .. } => self.linter.mark_used(name.as_str()),
+            ArenaRecordFieldKind::Shorthand { name, .. } => {
+                self.linter.mark_used(name.as_str().as_str())
+            }
             ArenaRecordFieldKind::Named { value, .. } => self.visit_expr(value),
             ArenaRecordFieldKind::Spread { expr, .. } => self.visit_expr(expr),
         }
@@ -4696,7 +4706,7 @@ impl LintExprVisitor<'_, '_> {
     fn visit_command_arg(&mut self, arg: &ArenaCommandArg, allow_bare_refs: bool) {
         let arg_span = self.linter.arena.span(arg.span);
         match arg.kind {
-            ArenaCommandArgKind::SpliceName(name) => self.linter.mark_used(name.as_str()),
+            ArenaCommandArgKind::SpliceName(name) => self.linter.mark_used(name.as_str().as_str()),
             ArenaCommandArgKind::Word(parts) => {
                 self.linter.lint_redundant_command_arg_interpolation(arg);
                 let part_list: Vec<ArenaWordPart> = self.linter.arena.word_parts(parts).collect();
@@ -5402,7 +5412,7 @@ fn pure_method_call_for_prefer_in(arena: &AstArena, callee: ExprId) -> bool {
         return false;
     };
     matches!(
-        name.as_str(),
+        name.as_str().as_str(),
         "display"
             | "name"
             | "stem"
@@ -5613,7 +5623,7 @@ fn collect_expr_effects(
         ArenaExprKind::Call { callee, args } => {
             if let ArenaExprKind::Ident(name) = arena.expr(callee).kind
                 && let Some(Some(callee_effects)) =
-                    proc_effects.and_then(|known| known.get(name.as_str()))
+                    proc_effects.and_then(|known| known.get(name.as_str().as_str()))
             {
                 for effect in callee_effects {
                     effects.insert(effect.clone());
@@ -5630,7 +5640,10 @@ fn collect_expr_effects(
             }
             if let ArenaExprKind::Field { base, name: func } = arena.expr(callee).kind
                 && let ArenaExprKind::Ident(module) = arena.expr(base).kind
-                && let Some(eff) = Effect::from_module_call(module.as_str(), func.as_str())
+                && let Some(eff) = Effect::from_module_call(
+                    module.as_str().as_str(),
+                    func.as_str().as_str(),
+                )
             {
                 effects.insert(eff);
             }
@@ -5961,7 +5974,7 @@ fn format_binding_target(arena: &AstArena, target: BindingTargetId) -> String {
                 if i > 0 {
                     s.push_str(", ");
                 }
-                s.push_str(f.name.as_str());
+                s.push_str(f.name.as_str().as_str());
             }
             if rest {
                 if !fields.is_empty() {

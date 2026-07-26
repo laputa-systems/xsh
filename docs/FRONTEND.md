@@ -27,7 +27,8 @@ CST, arena parse/check, compact lowering, and the installed state after earlier
 frontend ownership is dropped. It reports deterministic per-file and corpus
 JSON or text over the campaign roots, including retained components, allocator
 traffic and peak live bytes, lowerer blocker counts, dynamic symbols, and a
-reconciliation delta.
+reconciliation delta. Dynamic-symbol counters come from the parsed program's
+owner, so concurrent files do not affect each other's measurements.
 
 The binary alone installs `mem_track::CountingAllocator`; product binaries do
 not. With that allocator, lowered retained bytes are the live-byte delta for the
@@ -109,8 +110,23 @@ field-name/type pairs. Semantic record and module types obtain `ShapeId` from
 one canonical ordered-field pool. Runtime records and modules use a separate
 process-local shape identity keyed by the same ordered interned names:
 executable `ShapeId` is program-owned, while host and public values may exist
-without that program. Fixed runtime shapes store fields densely; Phase 8 owns
-reclaiming the runtime shape cache.
+without that program. Fixed runtime shapes store fields densely; the runtime
+shape cache retains only all-preloaded shapes for steady-state reuse and does
+not retain dropped dynamic-name shapes.
+
+### Dynamic Name Ownership
+
+Preloaded names continue to use generated static spellings. Dynamic names are
+interned only while a `SymbolOwner` is active; the owner holds their `Arc<str>`
+spellings and releases them when its last clone is dropped. `Name::as_str()`
+returns a `NameText` value that borrows static storage or owns a dynamic spelling
+as appropriate, rather than promising `&'static str` for session data.
+
+`ArenaProgram` owns the symbols created by parsing, and a completed
+`FullProgram` retains that owner for indexed execution. Lexer output, generated
+interactive shell programs, evaluation workers, native-test workers, runtime
+errors, and dynamic record shapes carry or re-enter the applicable owner. This
+keeps borrowed spelling lookup valid without a process-lifetime name leak.
 
 Semantic pools are cold metadata beside the frozen instruction store. The
 common instruction remains the Phase 1 thirteen-byte
@@ -660,9 +676,12 @@ and user-visible result boundaries. Fixed public records and modules use a
 process-local `RecordShape` cache keyed by ordered `Name` identities plus a
 dense `Arc<[Value]>` field slice. The runtime shape is deliberately distinct
 from program-local semantic `ShapeId`: host values can outlive or arrive without
-an executable program, while Phase 8 owns making the process-local cache
-reclaimable. Open records retain a dynamic map only after adding a field outside
-their shape. Phase 9 owns replacing native-stack execution depth.
+an executable program. All-preloaded shapes remain strongly cached for
+steady-state reuse; dynamic-name entries are weak, and each live shape owns its
+field spellings and relevant symbol owner. Dropping the last dynamic record or
+shape releases its field names. Open records retain a dynamic map only after
+adding a field outside their shape. Phase 9 owns replacing native-stack execution
+depth.
 
 ### Performance Methodology
 

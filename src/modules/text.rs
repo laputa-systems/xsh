@@ -206,16 +206,18 @@ mod tests {
 
     #[test]
     fn text_helpers_cover_script_methods() {
-        assert_eq!(strings(split_text("ab", "")), ["a", "b"]);
-        assert_eq!(strings(split_text("a,b", ",")), ["a", "b"]);
-        assert_eq!(lower_text("HeLLo"), "hello");
-        assert_eq!(upper_text("HeLLo"), "HELLO");
-        assert_eq!(parse_int_text("0x2a", test_span()).expect("parse int"), 42);
-        assert_eq!(
-            parse_int_text("nope", test_span())
-                .expect_err("invalid int")
-                .kind,
-            "parse-int"
-        );
+        crate::symbol::SymbolOwner::new().with_current(|| {
+            assert_eq!(strings(split_text("ab", "")), ["a", "b"]);
+            assert_eq!(strings(split_text("a,b", ",")), ["a", "b"]);
+            assert_eq!(lower_text("HeLLo"), "hello");
+            assert_eq!(upper_text("HeLLo"), "HELLO");
+            assert_eq!(parse_int_text("0x2a", test_span()).expect("parse int"), 42);
+            assert_eq!(
+                parse_int_text("nope", test_span())
+                    .expect_err("invalid int")
+                    .kind,
+                "parse-int"
+            );
+        });
     }
 }

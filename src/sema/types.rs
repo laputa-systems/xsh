@@ -156,7 +156,7 @@ impl Type {
         let data = arena.type_expr_data[index];
         match tag {
             ArenaTypeExprTag::Named => {
-                Self::from_name(Name::from_symbol(Symbol::from_raw(data.lhs)).as_str())
+                Self::from_name(&Name::from_symbol(Symbol::from_raw(data.lhs)).as_str())
             }
             ArenaTypeExprTag::Qualified => Self::Unknown,
             ArenaTypeExprTag::List => Self::List(Box::new(Self::from_arena(

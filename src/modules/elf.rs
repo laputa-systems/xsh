@@ -741,9 +741,11 @@ mod tests {
 
     #[test]
     fn rejects_truncated_elf() {
-        let error = inspect_bytes(b"\x7fELF\x02\x01", span()).expect_err("malformed");
+        crate::symbol::SymbolOwner::new().with_current(|| {
+            let error = inspect_bytes(b"\x7fELF\x02\x01", span()).expect_err("malformed");
 
-        assert_eq!(error.kind, "elf-malformed");
+            assert_eq!(error.kind, "elf-malformed");
+        });
     }
 
     fn fixture_elf64(endian: Endian, section_only: bool, android_tag: bool) -> Vec<u8> {

@@ -63,7 +63,7 @@ impl<'a> Parser<'a> {
                 let name = self
                     .current_name()
                     .expect("command name token has name payload");
-                if let Some(command) = CoreCommand::from_name(name.as_str())
+                if let Some(command) = CoreCommand::from_name(&name.as_str())
                     && !self.current_name_has_contiguous_dot()
                     && (command != CoreCommand::Env || self.command_line_has_block())
                 {
@@ -88,13 +88,13 @@ impl<'a> Parser<'a> {
         }
         let field = self.expect_proc_ident("expected command name after `.`")?;
         let mut name = String::with_capacity(first.as_str().len() + field.as_str().len() + 1);
-        name.push_str(first.as_str());
+        name.push_str(&first.as_str());
         name.push('.');
-        name.push_str(field.as_str());
+        name.push_str(&field.as_str());
         while self.consume(TokenKindMatch::Dot).is_some() {
             let field = self.expect_proc_ident("expected command name after `.`")?;
             name.push('.');
-            name.push_str(field.as_str());
+            name.push_str(&field.as_str());
         }
         Some(Name::intern(name))
     }
@@ -227,10 +227,10 @@ impl<'a> Parser<'a> {
                 if self.consume(TokenKindMatch::Dot).is_some() {
                     let name =
                         self.expect_member_name("expected run builtin form after `run.builtin.`")?;
-                    kind = self.parse_run_kind_after_dot(&name)?;
+                    kind = self.parse_run_kind_after_dot(&name.as_str())?;
                 }
             } else {
-                kind = self.parse_run_kind_after_dot(&name)?;
+                kind = self.parse_run_kind_after_dot(&name.as_str())?;
             }
         }
         let (timeout_id, cpu_max_id) = self.parse_run_options_arena_only(arena);
@@ -353,7 +353,7 @@ impl<'a> Parser<'a> {
                 self.index = save;
                 break;
             };
-            match name.as_str() {
+            match name.as_str().as_str() {
                 "timeout" => {
                     self.expect(TokenKindMatch::Equals, "expected `=` after `--timeout`");
                     if timeout_id.is_some() {

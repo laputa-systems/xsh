@@ -200,7 +200,7 @@ impl Checker {
                         "check.pure-effect",
                     );
                 } else if let Some(caller_effs) = self.current_effects.clone() {
-                    self.check_callee_effects(&caller_effs, &sig.effects, name.as_str(), span);
+                    self.check_callee_effects(&caller_effs, &sig.effects, &name.as_str(), span);
                 }
                 self.check_function_arg_list_arena(arena, source, args, &sig.params, span);
                 return sig.return_ty;
@@ -217,12 +217,12 @@ impl Checker {
                         "check.pure-effect",
                     );
                 } else if let Some(caller_effs) = self.current_effects.clone() {
-                    self.check_callee_effects(&caller_effs, &sig.effects, name.as_str(), span);
+                    self.check_callee_effects(&caller_effs, &sig.effects, &name.as_str(), span);
                 }
                 self.check_function_arg_list_arena(arena, source, args, &sig.params, span);
                 return sig.return_ty;
             }
-            return self.check_constructor_call_arena(arena, source, name.as_str(), args, span);
+            return self.check_constructor_call_arena(arena, source, &name.as_str(), args, span);
         }
 
         if let ArenaExprKind::Field { base, name } = callee_kind {
@@ -279,17 +279,17 @@ impl Checker {
                         arena,
                         source,
                         MethodReceiver::PathConstructor,
-                        name.as_str(),
+                        &name.as_str(),
                         args,
                         span,
                         &Type::Path,
                         "check.unknown-module-api",
                     );
                 }
-                if api_spec().module(module.as_str()).is_some() {
+                if api_spec().module(&module.as_str()).is_some() {
                     if let Some(caller_effs) = self.current_effects.clone()
                         && let Some(required) =
-                            Effect::from_module_call(module.as_str(), name.as_str())
+                            Effect::from_module_call(&module.as_str(), &name.as_str())
                         && !Self::effects_covers(&caller_effs, &required)
                     {
                         self.error(
@@ -304,8 +304,8 @@ impl Checker {
                     return self.check_module_call_arena(
                         arena,
                         source,
-                        module.as_str(),
-                        name.as_str(),
+                        &module.as_str(),
+                        &name.as_str(),
                         args,
                         span,
                     );
@@ -327,7 +327,7 @@ impl Checker {
                             self.check_module_callable_effects(
                                 &caller_effs,
                                 &sig.effects,
-                                name.as_str(),
+                                &name.as_str(),
                                 span,
                             );
                         }
@@ -357,7 +357,7 @@ impl Checker {
                 arena,
                 source,
                 base_ty,
-                name.as_str(),
+                &name.as_str(),
                 args,
                 span,
             );
@@ -382,7 +382,7 @@ impl Checker {
                 arena,
                 source,
                 inner_ty,
-                name.as_str(),
+                &name.as_str(),
                 args,
                 span,
             );
@@ -848,7 +848,7 @@ impl Checker {
                         return None;
                     };
                     let value_expr = arena.arena.expr(*value);
-                    match name.as_str() {
+                    match name.as_str().as_str() {
                         "kind" | "type" => {
                             let ArenaExprKind::Str(value_id) = value_expr.kind else {
                                 return None;
@@ -904,7 +904,7 @@ impl Checker {
         for (index, arg) in args.iter().enumerate() {
             let is_contract_position = match &arg.kind {
                 ArenaCallArgKind::Named { name, .. } => {
-                    matches!(name.as_str(), "required" | "optional")
+                    matches!(name.as_str().as_str(), "required" | "optional")
                 }
                 ArenaCallArgKind::Positional(_) => index == 1 || index == 2,
                 ArenaCallArgKind::Splice { .. } => false,
@@ -1175,7 +1175,7 @@ impl Checker {
             self.check_call_arg_arena(arena, source, &args[1].kind, Some(&Type::Str));
             return;
         };
-        if !matches!(name.as_str(), "md5" | "sha1" | "sha256" | "sha512") {
+        if !matches!(name.as_str().as_str(), "md5" | "sha1" | "sha256" | "sha512") {
             self.error(
                 call_arg_span_arena(arena, &args[1].kind),
                 "unsupported checksum algorithm",

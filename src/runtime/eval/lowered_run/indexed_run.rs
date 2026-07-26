@@ -1,7 +1,7 @@
 use super::*;
 use crate::runtime::eval::indexed::full::{
     BLOCK_LIST, BLOCK_STATEMENTS, FullDriverTag, FullExecution, FullFunctionView, FullPatternTag,
-    FullPayload, FullStageTag, FullTag,
+    FullPayload, FullProgram, FullStageTag, FullTag,
 };
 use crate::runtime::eval::indexed::IrVerifyError;
 use crate::runtime::eval::lower::{
@@ -576,7 +576,7 @@ impl Evaluator {
                     };
                     error.as_ref()
                 };
-                lowered_error_value_has_facet(error, facet.as_str())
+                lowered_error_value_has_facet(error, &facet.as_str())
             }
             FullPatternTag::Tag => {
                 let name = indexed_decode::<Name>(&mut payload, execution, span)?;
@@ -629,6 +629,7 @@ impl Evaluator {
         call_span: Span,
     ) -> Option<Result<Option<Flow>, RuntimeError>> {
         let program = Arc::clone(self.indexed_program.as_ref()?);
+        let _symbols = program.symbol_owner().enter();
         let view = match program.driver_step_view(index) {
             Ok(view) => view,
             Err(error) => return Some(Err(indexed_error(error, call_span))),
@@ -766,7 +767,7 @@ impl Evaluator {
                         }
                     }
                 }
-                let mut record = RecordMap::new();
+                let mut record_fields = Vec::with_capacity(exports.len());
                 for export in exports {
                     let value = match export.kind {
                         LoweredModuleExportKind::Value => self
@@ -791,7 +792,7 @@ impl Evaluator {
                             Value::Proc(QualifiedName::new(owner, export.name).into())
                         }
                     };
-                    record.insert(Arc::from(export.name.as_str()), value.clone());
+                    record_fields.push((export.name, value.clone()));
                     if alias.is_none() {
                         self.define(
                             export.name,
@@ -818,7 +819,7 @@ impl Evaluator {
                 self.define(
                     import_name,
                     Binding {
-                        value: Value::Module(record),
+                        value: Value::Module(RecordMap::from_name_values(record_fields)),
                         mutable: false,
                     },
                 );
@@ -908,7 +909,7 @@ impl Evaluator {
                         })?;
                     compound_assignment_value(op, current, value, span)?
                 };
-                self.assign(&target, value, span)?;
+                self.assign(&target.as_str(), value, span)?;
                 Flow::Continue(Value::Unit)
             }
             FullDriverTag::LetRecord => {
@@ -926,7 +927,7 @@ impl Evaluator {
                         }
                     };
                 for name in fields {
-                    let Some(value) = lowered_record_field_value(&source, name.as_str()) else {
+                    let Some(value) = lowered_record_field_value(&source, &name.as_str()) else {
                         return Err(RuntimeError::new(
                             "field-access",
                             format!("record has no field `{}`", name.as_str()),
@@ -967,7 +968,7 @@ impl Evaluator {
                 for slot in &top_level_slots {
                     if slot.mutable {
                         self.assign(
-                            &slot.name,
+                            &slot.name.as_str(),
                             slots[slot.slot].clone().into_value(),
                             call_span,
                         )?;
@@ -1030,7 +1031,7 @@ impl Evaluator {
                         .expect("indexed driver retains its program"),
                 );
                 self.register_indexed_signal_hook(
-                    signal.as_str(),
+                    &signal.as_str(),
                     pre_cancel.as_deref(),
                     program,
                     view.index(),
@@ -1053,6 +1054,18 @@ impl Evaluator {
         call_span: Span,
     ) -> Option<Result<Value, RuntimeError>> {
         let program = Arc::clone(self.indexed_program.as_ref()?);
+        let _symbols = program.symbol_owner().enter();
+        self.call_indexed_direct_in_program(program, function, kind, args, call_span)
+    }
+
+    fn call_indexed_direct_in_program(
+        &mut self,
+        program: Arc<FullProgram>,
+        function: LoweredFunctionKey,
+        kind: LoweredFunctionKind,
+        args: &[Value],
+        call_span: Span,
+    ) -> Option<Result<Value, RuntimeError>> {
         let view = match program.function_view(function, kind) {
             Ok(Some(view)) => view,
             Ok(None) => {
@@ -1348,14 +1361,14 @@ impl Evaluator {
         instruction: u32,
         item_slot: usize,
         span: Span,
-    ) -> Result<Option<&'static str>, RuntimeError> {
+    ) -> Result<Option<Arc<str>>, RuntimeError> {
         let (tag, mut payload) =
             indexed_value(execution.instruction_id(instruction), span)?;
         if tag != FullTag::ExprField {
             return Ok(None);
         }
         let base = indexed_raw(&mut payload, span)?;
-        let name = indexed_decode::<&'static str>(&mut payload, execution, span)?;
+        let name = indexed_decode::<Arc<str>>(&mut payload, execution, span)?;
         indexed_decode::<Span>(&mut payload, execution, span)?;
         indexed_finish(payload, span)?;
         let (base_tag, mut base_payload) =
@@ -1404,7 +1417,7 @@ impl Evaluator {
         value: u32,
         op: ReduceByOp,
         span: Span,
-    ) -> Result<Option<LoweredReduceProjection<'static>>, RuntimeError> {
+    ) -> Result<Option<LoweredReduceProjection>, RuntimeError> {
         if op != ReduceByOp::Sum {
             return Ok(None);
         }
@@ -1421,7 +1434,7 @@ impl Evaluator {
         let mut key_field = None;
         let mut value_fields = None;
         for (name, expr) in entries {
-            match name.as_str() {
+            match name.as_str().as_str() {
                 "key" => {
                     key_field =
                         Self::indexed_field_projection(execution, expr, item_slot, span)?;
@@ -3391,15 +3404,14 @@ impl Evaluator {
             }
             FullTag::ExprField => {
                 let base = indexed_raw(&mut payload, call_span)?;
-                let name =
-                    indexed_decode::<&'static str>(&mut payload, execution, call_span)?;
+                let name = indexed_decode::<Arc<str>>(&mut payload, execution, call_span)?;
                 let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
                 indexed_finish(payload, call_span)?;
                 let base = match self.eval_indexed_expr(execution, base, slots, span)? {
                     ControlFlow::Continue(value) => value,
                     ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
                 };
-                ControlFlow::Continue(self.indexed_field_value(base, name, span)?)
+                ControlFlow::Continue(self.indexed_field_value(base, name.as_ref(), span)?)
             }
             FullTag::ExprIndex => {
                 let base = indexed_raw(&mut payload, call_span)?;
@@ -3444,8 +3456,7 @@ impl Evaluator {
             }
             FullTag::ExprMethod => {
                 let receiver = indexed_raw(&mut payload, call_span)?;
-                let name =
-                    indexed_decode::<&'static str>(&mut payload, execution, call_span)?;
+                let name = indexed_decode::<Arc<str>>(&mut payload, execution, call_span)?;
                 let (_, mut args) = execution
                     .block(&mut payload, BLOCK_LIST)
                     .map_err(|error| indexed_error(error, call_span))?;
@@ -3469,7 +3480,7 @@ impl Evaluator {
                 if !self.trace_enabled {
                     return self.eval_lowered_method_dispatch(
                         receiver,
-                        name,
+                        name.as_ref(),
                         values,
                         &span,
                     );
@@ -3481,8 +3492,7 @@ impl Evaluator {
                     Some(&trace_name),
                     TracePayload::None,
                 );
-                let result =
-                    self.eval_lowered_method_dispatch(receiver, name, values, &span);
+                let result = self.eval_lowered_method_dispatch(receiver, name.as_ref(), values, &span);
                 self.trace_exit(
                     TraceKind::MethodResult,
                     Some(span),
@@ -4438,7 +4448,7 @@ impl Evaluator {
                                     return Ok(ControlFlow::Break(value));
                                 }
                             };
-                            match name.as_str() {
+                            match name.as_str().as_str() {
                                 "cwd" => {
                                     cwd = Some(lowered_path_like_arg(
                                         value,
@@ -5513,7 +5523,7 @@ impl Evaluator {
                 for _ in 0..field_count {
                     let name = indexed_decode::<Name>(&mut fields, execution, span)?;
                     let slot = indexed_decode::<usize>(&mut fields, execution, span)?;
-                    let Some(value) = lowered_record_field_value(&source, name.as_str()) else {
+                    let Some(value) = lowered_record_field_value(&source, &name.as_str()) else {
                         return Err(RuntimeError::new(
                             "field-access",
                             format!("record has no field `{}`", name.as_str()),
@@ -5946,7 +5956,7 @@ impl Evaluator {
                         return Ok(IndexedStmtFlow::None);
                     }
                     for (name, slot) in &bindings {
-                        let Some(value) = lowered_record_field_value(&item, name.as_str()) else {
+                        let Some(value) = lowered_record_field_value(&item, &name.as_str()) else {
                             return Err(RuntimeError::new(
                                 "field-access",
                                 format!("record has no field `{}`", name.as_str()),
@@ -6212,7 +6222,7 @@ impl Evaluator {
                 indexed_finish(payload, call_span)?;
                 for assignment in &env {
                     check_env_name(
-                        assignment.name.as_str(),
+                        &assignment.name.as_str(),
                         assignment.value.span,
                     )?;
                 }
@@ -6923,6 +6933,12 @@ mod tests {
 
     #[test]
     fn direct_indexed_function_executes_without_decoding_its_body() {
+        crate::runtime::eval::run_eval_on_large_stack(
+            direct_indexed_function_executes_without_decoding_its_body_inner,
+        );
+    }
+
+    fn direct_indexed_function_executes_without_decoding_its_body_inner() {
         let source = r#"
 pure double(value: Int) -> Int {
   return value * 2
@@ -6960,10 +6976,17 @@ pure pipeline(values: List[Int]) -> List[Int] {
                 .prepare_compact_indexed_only(&parsed.arena, source_id)
                 .is_some()
         );
+        let (direct_limit, countdown, pipeline) = parsed.arena.symbol_owner().with_current(|| {
+            (
+                Name::intern("direct_limit"),
+                Name::intern("countdown"),
+                Name::intern("pipeline"),
+            )
+        });
 
         let result = evaluator
             .call_indexed_direct(
-                LoweredFunctionKey::Name(Name::intern("direct_limit")),
+                LoweredFunctionKey::Name(direct_limit),
                 LoweredFunctionKind::Pure,
                 &[Value::Int(4)],
                 Span::new(source_id, 0, 0),
@@ -6974,7 +6997,7 @@ pure pipeline(values: List[Int]) -> List[Int] {
         assert_eq!(result, Value::Int(8));
         let recursive = evaluator
             .call_indexed_direct(
-                LoweredFunctionKey::Name(Name::intern("countdown")),
+                LoweredFunctionKey::Name(countdown),
                 LoweredFunctionKind::Pure,
                 &[Value::Int(4)],
                 Span::new(source_id, 0, 0),
@@ -6984,7 +7007,7 @@ pure pipeline(values: List[Int]) -> List[Int] {
         assert_eq!(recursive, Value::Int(4));
         let piped = evaluator
             .call_indexed_direct(
-                LoweredFunctionKey::Name(Name::intern("pipeline")),
+                LoweredFunctionKey::Name(pipeline),
                 LoweredFunctionKind::Pure,
                 &[Value::List(vec![Value::Int(3), Value::Int(1), Value::Int(2)])],
                 Span::new(source_id, 0, 0),

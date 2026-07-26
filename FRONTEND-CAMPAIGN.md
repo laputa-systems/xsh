@@ -9,7 +9,7 @@
 - [x] Phase 4: migrate expressions, statements, patterns, functions, and slots
 - [x] Phase 5: decide and implement the durable top-level/effect boundary
 - [x] Phase 6: cut production execution over and delete the recursive lowered IR
-- [ ] Phase 7: redesign records and runtime value movement
+- [x] Phase 7: redesign records and runtime value movement
 - [ ] Phase 8: make dynamic interning reclaimable
 - [ ] Phase 9: replace native-stack recursion with explicit execution frames
 - [ ] Phase 10: compact remaining arena, span, CST, and builder storage
@@ -1264,49 +1264,49 @@ against the final execution model.
 
 ### Work Checklist
 
-- [ ] Attribute record/module/map/list allocation, clone, and drop traffic on
+- [x] Attribute record/module/map/list allocation, clone, and drop traffic on
   JSON rollup, extension counting, and manifest hashing.
-- [ ] Introduce interned record/module shapes.
-- [ ] Reuse semantic `ShapeId` for identical ordered structures, or use a
+- [x] Introduce interned record/module shapes.
+- [x] Reuse semantic `ShapeId` for identical ordered structures, or use a
   distinctly named runtime identity when ownership genuinely differs.
-- [ ] Store fixed-shape fields densely.
-- [ ] Replace owned field strings with `Name`/shape identities.
-- [ ] Add borrowed lookup and unique-owner mutation paths.
-- [ ] Preserve deterministic rendering and field order.
-- [ ] Re-measure public `Value` layout after shape migration.
-- [ ] Prototype smaller `Value` representations only if remaining evidence
+- [x] Store fixed-shape fields densely.
+- [x] Replace owned field strings with `Name`/shape identities.
+- [x] Add borrowed lookup and unique-owner mutation paths.
+- [x] Preserve deterministic rendering and field order.
+- [x] Re-measure public `Value` layout after shape migration.
+- [x] Prototype smaller `Value` representations only if remaining evidence
   justifies it.
-- [ ] Measure scalar, record-heavy, clone/drop, and thread-transfer behavior.
-- [ ] Remove obsolete fixed-record `BTreeMap<String, Value>` paths.
+- [x] Measure scalar, record-heavy, clone/drop, and thread-transfer behavior.
+- [x] Remove obsolete fixed-record `BTreeMap<String, Value>` paths.
 
 ### Exit Gate
 
-- [ ] Fixed records/modules do not use general tree maps.
-- [ ] Ordering, mutation, equality, and rendering semantics pass.
-- [ ] Record-heavy allocation or latency improves decisively.
-- [ ] Common scalar behavior does not regress.
-- [ ] `Value` size does not increase.
+- [x] Fixed records/modules do not use general tree maps.
+- [x] Ordering, mutation, equality, and rendering semantics pass.
+- [x] Record-heavy allocation or latency improves decisively.
+- [x] Common scalar behavior does not regress.
+- [x] `Value` size does not increase.
 
 ## Phase 8: Reclaimable Interning
 
 ### Work Checklist
 
-- [ ] Inventory `Name::as_str() -> &'static str` assumptions.
-- [ ] Separate preloaded static names from dynamic session/program names.
-- [ ] Define owned dynamic symbol storage with stable IDs.
-- [ ] Pass an owner where borrowed spelling is required.
-- [ ] Remove dynamic `Box::leak` usage for names and record shapes.
-- [ ] Add repeated load/check/drop plateau tests.
-- [ ] Measure CLI and long-lived `xshi` behavior.
-- [ ] Ensure caches do not retain dropped programs.
+- [x] Inventory `Name::as_str() -> &'static str` assumptions.
+- [x] Separate preloaded static names from dynamic session/program names.
+- [x] Define owned dynamic symbol storage with stable IDs.
+- [x] Pass an owner where borrowed spelling is required.
+- [x] Remove dynamic `Box::leak` usage for names and record shapes.
+- [x] Add repeated load/check/drop plateau tests.
+- [x] Measure CLI and long-lived `xshi` behavior.
+- [x] Ensure caches do not retain dropped programs.
 
 ### Exit Gate
 
-- [ ] Dynamic names are reclaimable.
-- [ ] Preloaded names remain cheap/deterministic.
-- [ ] Repeated sessions reach a stable memory plateau.
+- [x] Dynamic names are reclaimable.
+- [x] Preloaded names remain cheap/deterministic.
+- [x] Repeated sessions reach a stable memory plateau.
 - [ ] CLI latency/allocation does not materially regress.
-- [ ] No replacement global mutable leak exists.
+- [x] No replacement global mutable leak exists.
 
 ## Phase 9: Explicit Execution Frames
 
@@ -1811,6 +1811,78 @@ benchmark suite.
 Revisit condition: A later phase demonstrates that transactional lowering can
 write the final store directly with simpler ownership and a measured reduction
 in allocation or peak live memory.
+
+Date: 2026-07-25
+Phase: 7
+Decision: Fixed runtime records and known module export sets use a distinct
+runtime `RecordShape`, keyed by sorted `Name` fields, with dense
+`Arc<[Value]>` storage. The identity deliberately remains separate from
+program-owned semantic `ShapeId`, because host and public values can outlive an
+executable program. All-preloaded shapes are cached strongly for bounded
+steady-state reuse; dynamic-name shapes are weak and carry their symbol owner.
+Only open records with an added unknown field and input-derived schemas use the
+ordered dynamic map.
+Alternatives: Reuse program-local `ShapeId` directly; keep all runtime shapes
+in a permanent strong cache; retain tree maps for module exports; or shrink
+`Value` by boxing broadly. Program-local shapes have the wrong lifetime,
+permanent dynamic entries retain session names, tree maps make fixed structures
+pay for openness, and the measured 48-byte `Value` does not justify another
+indirection.
+Evidence: `target/frontend-campaign/phase-7/p6-fast-*.tsv`,
+`p7-fast-*.tsv`, `p6-normal.tsv`, `p7-normal.tsv`,
+`p6-to-p7-*.diff`, `runtime-record-fast.txt`, and `value-tests.txt`.
+The controlled `p6`/`p7` public-workload captures keep allocation and peak-live
+columns flat for JSON rollup, extension counting, and manifest hashing; their
+normal latency medians are within 1.1% of the parent. Both layout captures show
+that `Value` remains 48 bytes. The focused steady-state record suite provides
+the decision signal: an eight-field dense record builds in 1.254 us with
+1.264 KB, versus 223.9 us and 26.52 KB for the dynamic-map control; clone/drop
+is 82.48 ns versus 328.3 ns with no shaped-record allocation. Scalar clone/drop
+is 82.48 ns and shaped record thread transfer is 53.1 us with three 208-byte
+channel allocations. Runtime-value tests cover shape reuse, deterministic
+ordering, copy-on-write mutation, equality, dynamic extension, dynamic-shape
+reclamation, and the 48-byte `Value` layout; dynamic-module and static-import
+integration tests pass.
+Affected workloads: Fixed record literals, fixed module exports, stream items,
+host records, JSON rollup, extension counting, manifest hashing, and cross-thread
+value movement.
+Revisit condition: A user-facing workload becomes record-shape dominated yet
+does not inherit the direct dense-record allocation win, or a fixed module path
+falls back to the dynamic map without an input-derived schema.
+
+Date: 2026-07-25
+Phase: 8 (implementation evidence; top-level completion remains blocked on
+controlled CLI/session performance comparison)
+Decision: Preserve cheap generated storage for preloaded names and make every
+dynamic spelling owner-scoped. `SymbolOwner` retains dynamic `Arc<str>`
+spellings while an arena, indexed program, live record shape, runtime error, or
+interactive generated program needs them. `Name::as_str()` returns an owned-or-
+static spelling value rather than `&'static str`; dynamic symbol slots are
+released for reuse when the last owner drops. Runtime record-shape entries with
+dynamic names are weak, while all-preloaded shapes remain strongly cached for
+bounded steady-state reuse.
+Alternatives: Continue leaking dynamic `Box<str>` values; keep all dynamic
+spellings in one permanent mutable global interner; make callers allocate a
+`String` at every spelling use; or retain strong global record-shape entries.
+Those approaches either leak session data, make ownership implicit, add hot-path
+allocation, or prevent dropped programs from reclaiming their names.
+Evidence: `cargo check -p xsh -p xsht -p xshi`; `cargo test -p xsh --lib
+--no-fail-fast`; `cargo test -p xshi`; and `cargo test --test integration
+runtime::` pass. The symbol and runtime-value unit tests repeatedly create and
+drop owners and shapes; the `xshi` unit test runs eight distinct dynamic
+environment assignments through one `Session`. `make bench-fast` completed two
+one-sample release memory captures (138.949 s and 69.289 s wall time, including
+release rebuild effects); allocation and peak-live columns are recorded in the
+ignored local fast baseline. This checkout had no retained pre-change baseline,
+so the CLI latency/allocation A/B exit gate remains unchecked.
+Affected workloads: Source parsing/checking/lowering, direct indexed execution,
+native-test worker threads, runtime errors outside a script evaluation,
+interactive shell lowering and session commands, tooling format/lint/docs/grep,
+and fixed-shape public records.
+Revisit condition: Complete Phase 7's runtime-value measurements, then compare
+the retained Phase 8 implementation against a controlled pre-change CLI and
+long-lived-session baseline before checking the final latency/allocation gate
+and the top-level Phase 8 checkbox.
 
 ## Completion Report
 

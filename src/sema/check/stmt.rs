@@ -192,7 +192,7 @@ impl Checker {
                 if self.current_scope().contains_key(name) {
                     self.error(span, "duplicate name in scope", "check.duplicate-name");
                 }
-                self.check_builtin_args_shadow(name, span);
+                self.check_builtin_args_shadow(&name.as_str(), span);
                 self.define(
                     *name,
                     if self.in_pure && mutable {
@@ -1169,7 +1169,7 @@ impl Checker {
             );
         }
 
-        match normalize_hook_signal(hook.signal.as_str(), span) {
+        match normalize_hook_signal(&hook.signal.as_str(), span) {
             Ok(info) => {
                 if self.module_depth == 0
                     && let Some(previous) = self
@@ -1192,7 +1192,7 @@ impl Checker {
             }
             Err(rejection) => self.error(
                 span,
-                &signal_rejection_message(hook.signal.as_str(), rejection),
+                &signal_rejection_message(&hook.signal.as_str(), rejection),
                 "check.signal-hook",
             ),
         }

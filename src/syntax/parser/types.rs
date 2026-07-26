@@ -9,7 +9,7 @@ impl<'a> Parser<'a> {
     ) -> Option<TypeExprId> {
         let start = self.current_start();
         let name = self.expect_ident("expected type name")?;
-        let mut ty = match name.as_str() {
+        let mut ty = match name.as_str().as_str() {
             "List" => {
                 self.expect(TokenKindMatch::LBracket, "expected `[` after `List`");
                 let inner = self.parse_type_expr(arena)?;
