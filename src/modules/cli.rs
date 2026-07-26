@@ -1518,7 +1518,7 @@ fn parse_command_record(
     if !spec.options.is_empty() {
         let options = parse_values(&option_argv, &spec.options, &RecordMap::new(), span)?;
         for (key, value) in options.values.iter() {
-            output.insert(key.clone(), value.clone());
+            output.insert(Arc::from(key), value.clone());
         }
     }
     let mut index = 0;

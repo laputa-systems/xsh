@@ -106,9 +106,11 @@ shape ranges, module exports, and recovery boundaries before execution.
 Indexed function rows refer to a `SignatureId`; parameter and capture rows carry
 `TypeId`. Record requirement instructions carry one `TypeId` instead of copied
 field-name/type pairs. Semantic record and module types obtain `ShapeId` from
-one canonical ordered-field pool. Runtime records still use their current map
-representation; Phase 7 reuses the semantic shape identity when dense runtime
-records land.
+one canonical ordered-field pool. Runtime records and modules use a separate
+process-local shape identity keyed by the same ordered interned names:
+executable `ShapeId` is program-owned, while host and public values may exist
+without that program. Fixed runtime shapes store fields densely; Phase 8 owns
+reclaiming the runtime shape cache.
 
 Semantic pools are cold metadata beside the frozen instruction store. The
 common instruction remains the Phase 1 thirteen-byte
@@ -654,8 +656,13 @@ Prefer changes that reduce parser/token churn, compact install cost, body/functi
 
 `LoweredValue` remains the compact runtime value set used inside indexed
 execution. Public `Value` conversion stays centralized at call, host-operation,
-and user-visible result boundaries. Phase 7 owns further record and value
-movement changes; Phase 9 owns replacing native-stack execution depth.
+and user-visible result boundaries. Fixed public records and modules use a
+process-local `RecordShape` cache keyed by ordered `Name` identities plus a
+dense `Arc<[Value]>` field slice. The runtime shape is deliberately distinct
+from program-local semantic `ShapeId`: host values can outlive or arrive without
+an executable program, while Phase 8 owns making the process-local cache
+reclaimable. Open records retain a dynamic map only after adding a field outside
+their shape. Phase 9 owns replacing native-stack execution depth.
 
 ### Performance Methodology
 

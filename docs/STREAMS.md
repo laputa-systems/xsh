@@ -174,10 +174,14 @@ The pipeline is a **single-threaded tree-walking interpreter over boxed heap
 interpreter dispatch + heap traffic, **not** memory bandwidth or cache layout —
 there is no contiguous columnar buffer to vectorize. Levers applied (all landed):
 
-- **`Value` is 56 bytes** (was 216). `Error`/`RunError`/`Command` payloads are
+- **`Value` is 48 bytes** on the supported 64-bit targets (was 216).
+  `Error`/`RunError`/`Command` payloads are
   boxed; every value move/clone was `memmove`ing the largest variant.
-- **Shaped records share their value vector** via `Arc<Vec<Value>>` — clone = a
-  refcount bump, not a copy (records flow through `where`/`map`/fold).
+- **Shaped records share a dense field slice** via `Arc<[Value]>` — clone = a
+  refcount bump, not a copy. Their field labels are interned `Name` identities
+  in a process-local shape cache; borrowed lookup and updates to existing fields
+  retain the dense representation, while adding a new field deliberately moves
+  the record to the dynamic map path.
 - **Function defs are `Arc<FunctionDef>`** — a call no longer deep-clones the body
   AST; also makes evaluator forks cheap.
 - **String literals are `Arc<str>` in the AST** — evaluating a literal is a bump,

@@ -28,6 +28,8 @@ IR_TYPES = (
     "sema::check::CheckOutput",
     "sema::types::Type",
     "runtime::eval::LoweredValue",
+    "runtime::value::RecordMap",
+    "runtime::value::RecordShapeData",
     "runtime::value::Value",
     "runtime::eval::Evaluator",
     "runtime::eval::lower::CompactLowerConstructProbe<'_, '_>",

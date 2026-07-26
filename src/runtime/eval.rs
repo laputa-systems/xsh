@@ -2350,33 +2350,30 @@ impl LoweredValue {
             Self::Pure(value) => Value::Pure(value),
             Self::Proc(value) => Value::Proc(value),
             Self::Error(value) => *value,
-            Self::Record(value) => {
-                let mut record = RecordMap::new();
-                for (key, value) in value {
-                    record.insert(key, value.into_value());
-                }
-                Value::Record(record)
-            }
-            Self::RecordVec(value) => {
-                let mut record = RecordMap::new();
-                for (key, value) in value {
-                    record.insert(Arc::from(key.as_str()), value.into_value());
-                }
-                Value::Record(record)
-            }
+            Self::Record(value) => Value::Record(RecordMap::from_name_values(
+                value
+                    .into_iter()
+                    .map(|(key, value)| (Name::intern(key.as_ref()), value.into_value()))
+                    .collect(),
+            )),
+            Self::RecordVec(value) => Value::Record(RecordMap::from_name_values(
+                value
+                    .into_iter()
+                    .map(|(key, value)| (key, value.into_value()))
+                    .collect(),
+            )),
             Self::Stats {
                 blanks,
                 code,
                 comments,
             } => Value::Record(lowered_inline_stats_to_record_map(blanks, code, comments)),
             Self::StatsBlob(value) => Value::Record(value.to_record_map()),
-            Self::Module(value) => {
-                let mut module = RecordMap::new();
-                for (key, value) in value {
-                    module.insert(key, value.into_value());
-                }
-                Value::Module(module)
-            }
+            Self::Module(value) => Value::Module(RecordMap::from_name_values(
+                value
+                    .into_iter()
+                    .map(|(key, value)| (Name::intern(key.as_ref()), value.into_value()))
+                    .collect(),
+            )),
             Self::List(value) => {
                 Value::List(value.into_iter().map(LoweredValue::into_value).collect())
             }

@@ -1751,19 +1751,19 @@ fn lowered_record_arg(
             entry.to_record_map().map_err(|error| error.with_span(span))
         }
         Some(LoweredValue::Record(fields) | LoweredValue::Module(fields)) => {
-            let mut record = RecordMap::new();
-            for (key, value) in fields {
-                record.insert(key, value.into_value());
-            }
-            Ok(record)
+            Ok(RecordMap::from_name_values(
+                fields
+                    .into_iter()
+                    .map(|(key, value)| (Name::intern(key.as_ref()), value.into_value()))
+                    .collect(),
+            ))
         }
-        Some(LoweredValue::RecordVec(fields)) => {
-            let mut record = RecordMap::new();
-            for (key, value) in fields {
-                record.insert(Arc::from(key.as_str()), value.into_value());
-            }
-            Ok(record)
-        }
+        Some(LoweredValue::RecordVec(fields)) => Ok(RecordMap::from_name_values(
+            fields
+                .into_iter()
+                .map(|(key, value)| (key, value.into_value()))
+                .collect(),
+        )),
         Some(LoweredValue::Stats {
             blanks,
             code,
