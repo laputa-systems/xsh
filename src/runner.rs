@@ -17,8 +17,6 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub const XSH_COVERAGE_TRACE_DIR: &str = "XSH_COVERAGE_TRACE_DIR";
-#[cfg(feature = "native-tests")]
-pub const XSH_TEST_EXECUTION_MODE: &str = "XSH_TEST_EXECUTION_MODE";
 // XSH_ALLOW_LEGACY_FALLBACK is removed; compact is the only runtime path.
 
 #[cfg(test)]
@@ -27,21 +25,6 @@ static COMPACT_RUNNER_SUCCESSES: AtomicUsize = AtomicUsize::new(0);
 enum CompactRunAttempt {
     Output(ScriptOutput),
     Fallback { entry_source: EntrySource },
-}
-
-#[derive(Clone, Copy)]
-enum CompactExecutionMode {
-    Indexed,
-    #[cfg(feature = "native-tests")]
-    Arena,
-}
-
-fn compact_execution_mode() -> CompactExecutionMode {
-    #[cfg(feature = "native-tests")]
-    if std::env::var_os(XSH_TEST_EXECUTION_MODE).as_deref() == Some("arena".as_ref()) {
-        return CompactExecutionMode::Arena;
-    }
-    CompactExecutionMode::Indexed
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -92,7 +75,7 @@ pub fn run_startup() -> ScriptOutput {
 }
 
 pub fn run_script(options: RunOptions) -> ScriptOutput {
-    match try_run_compact_lowered_script_with_fallback(&options) {
+    match try_run_compact_indexed_script_with_fallback(&options) {
         Ok(CompactRunAttempt::Output(output)) => {
             #[cfg(test)]
             COMPACT_RUNNER_SUCCESSES.fetch_add(1, Ordering::Relaxed);
@@ -114,23 +97,10 @@ pub fn run_script(options: RunOptions) -> ScriptOutput {
 }
 
 #[cfg(test)]
-pub(crate) fn try_run_compact_lowered_script(
+pub(crate) fn try_run_compact_indexed_script(
     options: &RunOptions,
 ) -> Result<Option<ScriptOutput>, std::io::Error> {
-    match try_run_compact_lowered_script_with_fallback(options)? {
-        CompactRunAttempt::Output(output) => Ok(Some(output)),
-        CompactRunAttempt::Fallback { .. } => Ok(None),
-    }
-}
-
-#[cfg(all(test, feature = "native-tests"))]
-fn try_run_compact_script_in_mode(
-    options: &RunOptions,
-    mode: CompactExecutionMode,
-) -> Result<Option<ScriptOutput>, std::io::Error> {
-    let bytes = fs::read(&options.script)?;
-    let entry_source = entry_source_from_bytes(&options.script, bytes);
-    match try_run_compact_lowered_entry_source(options, entry_source, mode) {
+    match try_run_compact_indexed_script_with_fallback(options)? {
         CompactRunAttempt::Output(output) => Ok(Some(output)),
         CompactRunAttempt::Fallback { .. } => Ok(None),
     }
@@ -190,16 +160,12 @@ fn run_checked_fallback(
     }
 }
 
-fn try_run_compact_lowered_script_with_fallback(
+fn try_run_compact_indexed_script_with_fallback(
     options: &RunOptions,
 ) -> Result<CompactRunAttempt, std::io::Error> {
     let bytes = fs::read(&options.script)?;
     let entry_source = entry_source_from_bytes(&options.script, bytes);
-    Ok(try_run_compact_lowered_entry_source(
-        options,
-        entry_source,
-        compact_execution_mode(),
-    ))
+    Ok(try_run_compact_indexed_entry_source(options, entry_source))
 }
 
 fn compact_fallback(sources: SourceMap, source_id: crate::source::SourceId) -> CompactRunAttempt {
@@ -212,10 +178,9 @@ fn compact_fallback(sources: SourceMap, source_id: crate::source::SourceId) -> C
     }
 }
 
-fn try_run_compact_lowered_entry_source(
+fn try_run_compact_indexed_entry_source(
     options: &RunOptions,
     entry_source: EntrySource,
-    mode: CompactExecutionMode,
 ) -> CompactRunAttempt {
     let source_id = entry_source.source_id;
     if !entry_source.diagnostics.is_empty() {
@@ -240,37 +205,6 @@ fn try_run_compact_lowered_entry_source(
     } = parsed;
     drop(cst);
 
-    #[cfg(feature = "native-tests")]
-    if matches!(mode, CompactExecutionMode::Arena) {
-        let mut admission = Evaluator::new_with_sources_and_command(
-            options.args.clone(),
-            sources.clone(),
-            script_command_name(&options.script),
-        );
-        if admission
-            .prepare_compact_indexed_only(&arena, source_id)
-            .is_some()
-        {
-            drop(admission);
-        } else {
-            let check_source_id = arena.source_text_source_id().unwrap_or(source_id);
-            let check_source = sources
-                .get(check_source_id)
-                .map(|source| source.text())
-                .unwrap_or_default();
-            let checked = Checker::check_arena(&arena, check_source);
-            if !checked.diagnostics.is_empty() {
-                return CompactRunAttempt::Output(ScriptOutput {
-                    status: 2,
-                    stdout: Vec::new(),
-                    stderr: text_bytes(
-                        DiagnosticRenderer::new().render(&checked.diagnostics, &sources),
-                    ),
-                });
-            }
-        }
-    }
-
     let mut evaluator = Evaluator::new_with_sources_and_command(
         options.args.clone(),
         sources,
@@ -284,11 +218,6 @@ fn try_run_compact_lowered_entry_source(
         evaluator = evaluator.with_tracing();
         evaluator =
             evaluator.with_env_var(XSH_COVERAGE_TRACE_DIR.as_bytes().to_vec(), path_bytes(dir));
-    }
-    #[cfg(feature = "native-tests")]
-    if matches!(mode, CompactExecutionMode::Arena) {
-        let output = evaluator.eval(&arena, source_id);
-        return CompactRunAttempt::Output(script_output_from_eval(output, coverage_trace_dir));
     }
     let plan = evaluator.prepare_compact_indexed_only(&arena, source_id);
     let Some(plan) = plan else {
@@ -511,7 +440,7 @@ mod tests {
     }
 
     #[test]
-    fn compact_lowered_runner_attempt_executes_covered_script() {
+    fn compact_indexed_runner_attempt_executes_covered_script() {
         let path = temp_script(
             "compact-runner",
             "pure double(n: Int) -> Int {
@@ -525,7 +454,7 @@ pure add_one(n: Int) -> Int {
 add_one(4)
 ",
         );
-        let output = try_run_compact_lowered_script(&RunOptions {
+        let output = try_run_compact_indexed_script(&RunOptions {
             script: path.to_string_lossy().into_owned(),
             args: Vec::new(),
             coverage_trace_dir: None,
@@ -543,52 +472,14 @@ add_one(4)
     }
 
     #[test]
-    #[cfg(feature = "native-tests")]
-    fn indexed_and_arena_execution_modes_match() {
-        let cases = [
-            (
-                "mode-value",
-                "pure double(n: Int) -> Int {\n  return n * 2\n}\n\nprint ${double(4)}\n",
-            ),
-            (
-                "mode-error",
-                "proc fail() [process] {\n  run false\n}\n\nfail()\n",
-            ),
-        ];
-        for (name, source) in cases {
-            let path = temp_script(name, source);
-            let options = RunOptions {
-                script: path.to_string_lossy().into_owned(),
-                args: Vec::new(),
-                coverage_trace_dir: None,
-                strict_lower: true,
-            };
-            let indexed =
-                try_run_compact_script_in_mode(&options, CompactExecutionMode::Indexed)
-                    .expect("indexed execution")
-                    .unwrap_or_else(|| panic!("{name} should encode as indexed IR"));
-            let arena = try_run_compact_script_in_mode(&options, CompactExecutionMode::Arena)
-                .expect("arena execution")
-                .expect("script should lower for the arena oracle");
-            assert_eq!(indexed.status, arena.status, "{name} status");
-            assert_eq!(indexed.stdout, arena.stdout, "{name} stdout");
-            assert_eq!(indexed.stderr, arena.stderr, "{name} stderr and source spans");
-            let _ = fs::remove_file(&path);
-            if let Some(parent) = path.parent() {
-                let _ = fs::remove_dir(parent);
-            }
-        }
-    }
-
-    #[test]
-    fn compact_lowered_runner_attempt_covers_path_parse_and_print() {
+    fn compact_indexed_runner_attempt_covers_path_parse_and_print() {
         let path = temp_script(
             "compact-path-print",
             r#"let root = fp"${args[0]}"
 print $root
 "#,
         );
-        let output = try_run_compact_lowered_script(&RunOptions {
+        let output = try_run_compact_indexed_script(&RunOptions {
             script: path.to_string_lossy().into_owned(),
             args: vec!["/tmp/xsh-compact".to_string()],
             coverage_trace_dir: None,
@@ -607,7 +498,7 @@ print $root
     }
 
     #[test]
-    fn compact_lowered_runner_attempt_covers_path_constructor_binding_inference() {
+    fn compact_indexed_runner_attempt_covers_path_constructor_binding_inference() {
         let path = temp_script(
             "compact-path-constructor",
             r#"let root = Path(args[0])
@@ -615,7 +506,7 @@ let child = fp"${root}/child"
 print $child
 "#,
         );
-        let output = try_run_compact_lowered_script(&RunOptions {
+        let output = try_run_compact_indexed_script(&RunOptions {
             script: path.to_string_lossy().into_owned(),
             args: vec!["/tmp/xsh-compact".to_string()],
             coverage_trace_dir: None,
@@ -634,7 +525,7 @@ print $child
     }
 
     #[test]
-    fn compact_lowered_runner_attempt_covers_path_constructor_param_default() {
+    fn compact_indexed_runner_attempt_covers_path_constructor_param_default() {
         let path = temp_script(
             "compact-path-default",
             r#"proc main(root: Path = Path("/tmp/xsh-compact")) -> Result[Unit] {
@@ -642,7 +533,7 @@ print $child
 }
 "#,
         );
-        let output = try_run_compact_lowered_script(&RunOptions {
+        let output = try_run_compact_indexed_script(&RunOptions {
             script: path.to_string_lossy().into_owned(),
             args: Vec::new(),
             coverage_trace_dir: None,
@@ -661,7 +552,7 @@ print $child
     }
 
     #[test]
-    fn compact_lowered_runner_attempt_covers_result_unit_fallthrough() {
+    fn compact_indexed_runner_attempt_covers_result_unit_fallthrough() {
         let path = temp_script(
             "compact-result-unit-fallthrough",
             r#"proc main() [error] {
@@ -669,7 +560,7 @@ print $child
 }
 "#,
         );
-        let output = try_run_compact_lowered_script(&RunOptions {
+        let output = try_run_compact_indexed_script(&RunOptions {
             script: path.to_string_lossy().into_owned(),
             args: Vec::new(),
             coverage_trace_dir: None,
@@ -688,7 +579,7 @@ print $child
     }
 
     #[test]
-    fn compact_lowered_runner_attempt_covers_named_helper_call() {
+    fn compact_indexed_runner_attempt_covers_named_helper_call() {
         let path = temp_script(
             "compact-named-helper-call",
             r#"pure label(value: Str, suffix: Str = "!") -> Str {
@@ -700,7 +591,7 @@ proc main() [error] {
 }
 "#,
         );
-        let output = try_run_compact_lowered_script(&RunOptions {
+        let output = try_run_compact_indexed_script(&RunOptions {
             script: path.to_string_lossy().into_owned(),
             args: Vec::new(),
             coverage_trace_dir: None,
@@ -719,7 +610,7 @@ proc main() [error] {
     }
 
     #[test]
-    fn compact_lowered_runner_attempt_propagates_top_level_result_err() {
+    fn compact_indexed_runner_attempt_propagates_top_level_result_err() {
         let path = temp_script(
             "compact-top-level-result-err",
             r#"proc fail() [process] {
@@ -729,7 +620,7 @@ proc main() [error] {
 fail()
 "#,
         );
-        let output = try_run_compact_lowered_script(&RunOptions {
+        let output = try_run_compact_indexed_script(&RunOptions {
             script: path.to_string_lossy().into_owned(),
             args: Vec::new(),
             coverage_trace_dir: None,
@@ -748,7 +639,7 @@ fail()
     }
 
     #[test]
-    fn compact_lowered_runner_attempt_skips_standard_use() {
+    fn compact_indexed_runner_attempt_skips_standard_use() {
         let path = temp_script(
             "compact-standard-use",
             r#"use fs
@@ -756,7 +647,7 @@ let root = fp"${args[0]}"
 print $root
 "#,
         );
-        let output = try_run_compact_lowered_script(&RunOptions {
+        let output = try_run_compact_indexed_script(&RunOptions {
             script: path.to_string_lossy().into_owned(),
             args: vec!["/tmp/xsh-compact-use".to_string()],
             coverage_trace_dir: None,
@@ -775,7 +666,7 @@ print $root
     }
 
     #[test]
-    fn compact_lowered_runner_attempt_loads_user_module_without_compat_program() {
+    fn compact_indexed_runner_attempt_loads_user_module_without_compat_program() {
         let path = temp_script(
             "compact-user-use",
             r#"use compact_user_helper
@@ -796,7 +687,7 @@ print ${value}
 "#,
         )
         .expect("write helper module");
-        let output = try_run_compact_lowered_script(&RunOptions {
+        let output = try_run_compact_indexed_script(&RunOptions {
             script: path.to_string_lossy().into_owned(),
             args: Vec::new(),
             coverage_trace_dir: None,
@@ -816,7 +707,7 @@ print ${value}
     }
 
     #[test]
-    fn compact_lowered_runner_attempt_covers_implicit_rest_main() {
+    fn compact_indexed_runner_attempt_covers_implicit_rest_main() {
         let path = temp_script(
             "compact-auto-main",
             "proc main(...argv: List[Str]) [error] -> Int {
@@ -824,7 +715,7 @@ print ${value}
 }
 ",
         );
-        let output = try_run_compact_lowered_script(&RunOptions {
+        let output = try_run_compact_indexed_script(&RunOptions {
             script: path.to_string_lossy().into_owned(),
             args: vec!["one".to_string(), "two".to_string()],
             coverage_trace_dir: None,
@@ -887,7 +778,7 @@ print $root
 ",
         );
         let script = path.to_string_lossy().into_owned();
-        let attempt = try_run_compact_lowered_script_with_fallback(&RunOptions {
+        let attempt = try_run_compact_indexed_script_with_fallback(&RunOptions {
             script: script.clone(),
             args: Vec::new(),
             coverage_trace_dir: None,
@@ -915,7 +806,7 @@ print $root
     }
 
     #[test]
-    fn compact_lowered_runner_attempt_covers_extension_count_shape() {
+    fn compact_indexed_runner_attempt_covers_extension_count_shape() {
         let path = temp_script(
             "compact-extension-count",
             r#"let root = fp"${args[0]}"
@@ -944,7 +835,7 @@ for row in counts {
         fs::write(corpus.join("readme.md"), b"").expect("write corpus file");
         fs::write(corpus.join("no_ext"), b"").expect("write corpus file");
 
-        let output = try_run_compact_lowered_script(&RunOptions {
+        let output = try_run_compact_indexed_script(&RunOptions {
             script: path.to_string_lossy().into_owned(),
             args: vec![corpus.to_string_lossy().into_owned()],
             coverage_trace_dir: None,
@@ -962,7 +853,7 @@ for row in counts {
     }
 
     #[test]
-    fn compact_lowered_runner_attempt_covers_range_flat_map_sum_collect() {
+    fn compact_indexed_runner_attempt_covers_range_flat_map_sum_collect() {
         let path = temp_script(
             "compact-range-stream",
             "pure expand(seed: Int) -> List[Int] {
@@ -980,7 +871,7 @@ print $total
 ",
         );
 
-        let output = try_run_compact_lowered_script(&RunOptions {
+        let output = try_run_compact_indexed_script(&RunOptions {
             script: path.to_string_lossy().into_owned(),
             args: Vec::new(),
             coverage_trace_dir: None,
@@ -998,7 +889,7 @@ print $total
     }
 
     #[test]
-    fn compact_lowered_runner_attempt_covers_json_log_rollup_shape() {
+    fn compact_indexed_runner_attempt_covers_json_log_rollup_shape() {
         let path = temp_script(
             "compact-json-rollup",
             r#"let root = fp"${args[0]}"
@@ -1046,7 +937,7 @@ for row in rows {
         .expect("write log");
         fs::write(logs.join("ignore.txt"), b"not json").expect("write ignored file");
 
-        let output = try_run_compact_lowered_script(&RunOptions {
+        let output = try_run_compact_indexed_script(&RunOptions {
             script: path.to_string_lossy().into_owned(),
             args: vec![corpus.to_string_lossy().into_owned()],
             coverage_trace_dir: None,
@@ -1067,7 +958,7 @@ for row in rows {
     }
 
     #[test]
-    fn compact_lowered_runner_attempt_covers_manifest_hash_shape() {
+    fn compact_indexed_runner_attempt_covers_manifest_hash_shape() {
         let path = temp_script(
             "compact-manifest-hash",
             r#"let root = fp"${args[0]}"
@@ -1122,7 +1013,7 @@ print ${manifest |> count()} $total_size manifest[0].path manifest[0].sha256 man
             crate::modules::hash::digest_hex(&digest),
         );
 
-        let output = try_run_compact_lowered_script(&RunOptions {
+        let output = try_run_compact_indexed_script(&RunOptions {
             script: path.to_string_lossy().into_owned(),
             args: vec![corpus.to_string_lossy().into_owned()],
             coverage_trace_dir: None,
@@ -1140,7 +1031,7 @@ print ${manifest |> count()} $total_size manifest[0].path manifest[0].sha256 man
     }
 
     #[test]
-    fn compact_lowered_runner_attempt_covers_archive_package_shape() {
+    fn compact_indexed_runner_attempt_covers_archive_package_shape() {
         let path = temp_script(
             "compact-archive-package",
             r#"let root = fp"${args[0]}"
@@ -1183,7 +1074,7 @@ print ${entries |> count()} config.count_lines() payload.sha256().hex()
         );
         let expected = format!("7 1 {}\n", crate::modules::hash::digest_hex(&digest));
 
-        let output = try_run_compact_lowered_script(&RunOptions {
+        let output = try_run_compact_indexed_script(&RunOptions {
             script: path.to_string_lossy().into_owned(),
             args: vec![corpus.to_string_lossy().into_owned()],
             coverage_trace_dir: None,

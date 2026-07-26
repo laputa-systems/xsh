@@ -96,34 +96,25 @@ pub type NativeTestHost =
 
 #[cfg(feature = "native-tests")]
 pub struct PreparedTestProgram {
-    program: Arc<ArenaProgram>,
-    root: Vec<StmtId>,
+    plan: CompactIndexedRunPlan,
     script_span: Span,
     shared: Arc<LoweredSharedState>,
     setup_shared: Arc<LoweredSharedState>,
     setup_failure: Option<TestEvalOutput>,
 }
 
-pub(crate) struct CompactLoweredRunPlan {
-    statements: Vec<CompactLoweredTopLevelPlan>,
+#[derive(Clone)]
+pub(crate) struct CompactIndexedRunPlan {
+    statements: Vec<CompactIndexedDriverStepPlan>,
     script_span: Span,
     auto_main_required: bool,
     compact_auto_main_args: Vec<Value>,
 }
 
-struct CompactLoweredTopLevelPlan {
+#[derive(Clone)]
+struct CompactIndexedDriverStepPlan {
     span: Span,
     skip_auto_main: bool,
-}
-
-#[derive(Clone, Debug, Default)]
-pub struct CompactLowerProbeOutput {
-    pub type_defs: usize,
-    pub lowered_aliases: usize,
-    pub lowered_records: usize,
-    pub lowered_tag_unions: usize,
-    pub tag_variants: usize,
-    pub tag_arities: usize,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -222,7 +213,6 @@ pub struct CompactLowerConstructProbeOutput {
     /// and must not be committed (see `lower_function_with_blocker`), so the
     /// fixpoint can retry it once its dependencies lower, or fall back honestly.
     pub blocker_events: u64,
-    retained: CompactLowerConstructRetained,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -278,14 +268,7 @@ impl Default for CompactLowerConstructProbeOutput {
             constructed_patterns: 0,
             expr_type_facts: 0,
             blocker_events: 0,
-            retained: CompactLowerConstructRetained::default(),
         }
-    }
-}
-
-impl CompactLowerConstructProbeOutput {
-    pub fn function_units(&self) -> &[LoweredFunctionUnit] {
-        &self.retained.functions
     }
 }
 
@@ -296,20 +279,6 @@ pub const COMPACT_STMT_KIND_COUNT: usize = 27;
 pub const COMPACT_EXPR_KIND_COUNT: usize = 39;
 pub const COMPACT_CALL_BLOCKER_KIND_COUNT: usize = 6;
 pub const COMPACT_COMMAND_BLOCKER_KIND_COUNT: usize = 6;
-
-#[derive(Clone, Debug, Default)]
-struct CompactLowerConstructRetained {
-    functions: Vec<LoweredFunctionUnit>,
-    programs: Vec<LoweredProgram>,
-}
-
-#[derive(Clone, Debug, Default)]
-struct CompactLoweredFunctions {
-    pures: FxHashMap<Name, Arc<LoweredPureFunction>>,
-    procs: FxHashMap<Name, Arc<LoweredPureFunction>>,
-    qualified_pures: FxHashMap<QualifiedName, Arc<LoweredPureFunction>>,
-    qualified_procs: FxHashMap<QualifiedName, Arc<LoweredPureFunction>>,
-}
 
 #[derive(Clone, Debug, Default)]
 pub struct CompactRuntimeDeclProbeOutput {
@@ -324,13 +293,6 @@ pub struct CompactRuntimeDeclProbeOutput {
     pub streams: usize,
 }
 
-pub fn probe_compact_lower_declarations(
-    program: &ArenaProgram,
-    declarations: &CompactDeclOutput,
-) -> CompactLowerProbeOutput {
-    lower::probe_compact_lower_declarations(program, declarations)
-}
-
 pub fn probe_compact_lower_constructed_bodies(
     program: &ArenaProgram,
     declarations: &CompactDeclOutput,
@@ -338,15 +300,6 @@ pub fn probe_compact_lower_constructed_bodies(
     source: &str,
 ) -> CompactLowerConstructProbeOutput {
     lower::probe_compact_lower_constructed_bodies(program, declarations, bodies, source)
-}
-
-pub fn probe_compact_lower_function_units(
-    program: &ArenaProgram,
-    declarations: &CompactDeclOutput,
-    bodies: &CompactBodyProbeOutput,
-    source: &str,
-) -> Vec<LoweredFunctionUnit> {
-    lower::probe_compact_lower_function_units(program, declarations, bodies, source)
 }
 
 pub fn probe_compact_runtime_declarations(
@@ -423,8 +376,7 @@ pub(super) struct RuntimeErrorFamily {}
 struct RegisteredSignalHook {
     signal: HookSignal,
     pre_cancel: DurationValue,
-    lowered_body: Option<Arc<LoweredPureFunction>>,
-    indexed_body: Option<RegisteredIndexedSignalBody>,
+    indexed_body: RegisteredIndexedSignalBody,
     lowered_slots: Vec<LoweredTopLevelSlot>,
     scope: FxHashMap<Name, Binding>,
     span: Span,
@@ -437,6 +389,13 @@ struct RegisteredIndexedSignalBody {
     driver_step: usize,
     body: u32,
     slot_count: usize,
+}
+
+#[derive(Clone)]
+struct IndexedDynamicFunction {
+    program: Arc<FullProgram>,
+    function: LoweredFunctionKey,
+    kind: LoweredFunctionKind,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -484,7 +443,7 @@ pub(super) struct TestCall {
 /// shouldn't let the pool grow without bound).
 
 #[derive(Clone, Debug)]
-struct LoweredPureFunction {
+struct IrBuildFunction {
     params: LoweredParamNames,
     param_kinds: LoweredParamKinds,
     param_checks: LoweredParamChecks,
@@ -493,13 +452,25 @@ struct LoweredPureFunction {
     captures: LoweredTopLevelSlots,
     return_kind: LoweredReturnKind,
     slot_count: usize,
-    body: Vec<LoweredStmt>,
+    body: Vec<IrBuildStmt>,
     has_defers: bool,
 }
 
+#[derive(Clone, Debug)]
+struct IndexedFunctionHeader {
+    params: LoweredParamNames,
+    param_kinds: LoweredParamKinds,
+    param_checks: LoweredParamChecks,
+    param_rest: LoweredParamRest,
+    param_defaults: LoweredParamDefaults,
+    captures: LoweredTopLevelSlots,
+    return_kind: LoweredReturnKind,
+    slot_count: usize,
+}
+
 #[derive(Clone, Debug, Default)]
-struct LoweredProgram {
-    statements: Vec<Option<LoweredTopLevelStmt>>,
+struct IrBuildProgram {
+    statements: Vec<Option<IrBuildTopLevelStmt>>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -571,7 +542,7 @@ pub struct LoweredFunctionUnit {
     capture_count: usize,
     slot_count: usize,
     dependency_edges: Vec<LoweredFunctionKey>,
-    body: Option<Arc<LoweredPureFunction>>,
+    body: Option<Arc<IrBuildFunction>>,
     blocker: Option<LoweredFunctionBlocker>,
     blocker_detail: Option<(Span, String)>,
     scc_member_count: usize,
@@ -635,20 +606,20 @@ impl LoweredFunctionUnit {
         self.scc_member_count > 1
     }
 
-    fn lowered_body(&self) -> Option<Arc<LoweredPureFunction>> {
+    fn lowered_body(&self) -> Option<Arc<IrBuildFunction>> {
         self.body.clone()
     }
 
-    fn take_lowered_body(&mut self) -> Option<Arc<LoweredPureFunction>> {
+    fn take_lowered_body(&mut self) -> Option<Arc<IrBuildFunction>> {
         self.body.take()
     }
 }
 
 struct LowerableFunctions<'a> {
-    pures: Option<&'a FxHashMap<Name, Arc<LoweredPureFunction>>>,
-    procs: Option<&'a FxHashMap<Name, Arc<LoweredPureFunction>>>,
-    qualified_pures: Option<&'a FxHashMap<QualifiedName, Arc<LoweredPureFunction>>>,
-    qualified_procs: Option<&'a FxHashMap<QualifiedName, Arc<LoweredPureFunction>>>,
+    pures: Option<&'a FxHashMap<Name, Arc<IrBuildFunction>>>,
+    procs: Option<&'a FxHashMap<Name, Arc<IrBuildFunction>>>,
+    qualified_pures: Option<&'a FxHashMap<QualifiedName, Arc<IrBuildFunction>>>,
+    qualified_procs: Option<&'a FxHashMap<QualifiedName, Arc<IrBuildFunction>>>,
     // In-flight candidates not yet committed to the lowered maps. A single key
     // for self-recursion, or a whole strongly-connected component for
     // mutually-recursive co-lowering. Membership only — function-body call
@@ -659,10 +630,10 @@ struct LowerableFunctions<'a> {
 
 impl<'a> LowerableFunctions<'a> {
     fn all_with_candidates(
-        pures: &'a FxHashMap<Name, Arc<LoweredPureFunction>>,
-        procs: &'a FxHashMap<Name, Arc<LoweredPureFunction>>,
-        qualified_pures: &'a FxHashMap<QualifiedName, Arc<LoweredPureFunction>>,
-        qualified_procs: &'a FxHashMap<QualifiedName, Arc<LoweredPureFunction>>,
+        pures: &'a FxHashMap<Name, Arc<IrBuildFunction>>,
+        procs: &'a FxHashMap<Name, Arc<IrBuildFunction>>,
+        qualified_pures: &'a FxHashMap<QualifiedName, Arc<IrBuildFunction>>,
+        qualified_procs: &'a FxHashMap<QualifiedName, Arc<IrBuildFunction>>,
         candidates: &'a [LoweredFunctionKey],
     ) -> Self {
         Self {
@@ -675,10 +646,10 @@ impl<'a> LowerableFunctions<'a> {
     }
 
     fn all(
-        pures: &'a FxHashMap<Name, Arc<LoweredPureFunction>>,
-        procs: &'a FxHashMap<Name, Arc<LoweredPureFunction>>,
-        qualified_pures: &'a FxHashMap<QualifiedName, Arc<LoweredPureFunction>>,
-        qualified_procs: &'a FxHashMap<QualifiedName, Arc<LoweredPureFunction>>,
+        pures: &'a FxHashMap<Name, Arc<IrBuildFunction>>,
+        procs: &'a FxHashMap<Name, Arc<IrBuildFunction>>,
+        qualified_pures: &'a FxHashMap<QualifiedName, Arc<IrBuildFunction>>,
+        qualified_procs: &'a FxHashMap<QualifiedName, Arc<IrBuildFunction>>,
     ) -> Self {
         Self {
             pures: Some(pures),
@@ -720,21 +691,21 @@ impl<'a> LowerableFunctions<'a> {
 }
 
 #[derive(Clone, Debug)]
-struct LoweredTopLevelStmt {
-    kind: LoweredTopLevelKind,
+struct IrBuildTopLevelStmt {
+    kind: IrBuildTopLevelKind,
     slots: LoweredTopLevelSlots,
     slot_count: usize,
 }
 
 #[derive(Clone, Debug)]
-enum LoweredTopLevelKind {
+enum IrBuildTopLevelKind {
     Use {
         key: Arc<str>,
         alias: Option<Name>,
         path: Vec<Name>,
         namespace: Name,
         exports: Vec<LoweredModuleExport>,
-        module_statements: Vec<(Span, LoweredTopLevelStmt)>,
+        module_statements: Vec<(Span, IrBuildTopLevelStmt)>,
         span: Span,
     },
     Let {
@@ -742,13 +713,13 @@ enum LoweredTopLevelKind {
         ty: Option<LoweredType>,
         validation: Option<LoweredTypeCheck>,
         mutable: bool,
-        value: LoweredExpr,
+        value: IrBuildExpr,
         value_span: Span,
     },
     // `let {a, b, ..} = source` / `var {…}` at top level: define one named
     // binding per field (field name == binding name) from the source record.
     LetRecord {
-        source: LoweredExpr,
+        source: IrBuildExpr,
         fields: Vec<Name>,
         mutable: bool,
         span: Span,
@@ -756,23 +727,23 @@ enum LoweredTopLevelKind {
     Assign {
         target: Name,
         op: AssignOp,
-        value: LoweredExpr,
+        value: IrBuildExpr,
         span: Span,
     },
     Discard {
-        value: LoweredExpr,
+        value: IrBuildExpr,
         span: Span,
     },
-    Stmt(LoweredStmt),
-    Expr(LoweredExpr),
+    Stmt(IrBuildStmt),
+    Expr(IrBuildExpr),
     Defer {
-        value: LoweredExpr,
+        value: IrBuildExpr,
         span: Span,
     },
     SignalHook {
         signal: Name,
         pre_cancel: Option<String>,
-        body: Vec<LoweredStmt>,
+        body: Vec<IrBuildStmt>,
         slots: Vec<LoweredTopLevelSlot>,
         slot_count: usize,
         span: Span,
@@ -856,7 +827,7 @@ type LoweredParamChecks = SmallVec<[Option<LoweredTypeCheck>; 4]>;
 type LoweredParamRest = SmallVec<[bool; 4]>;
 type LoweredParamDefaults = SmallVec<[Option<LoweredValue>; 4]>;
 type LoweredTopLevelSlots = SmallVec<[LoweredTopLevelSlot; 4]>;
-type LoweredPatternSlots = SmallVec<[Option<usize>; 2]>;
+type IrBuildPatternSlots = SmallVec<[Option<usize>; 2]>;
 type LoweredCompFields = SmallVec<[(Name, usize, Span); 4]>;
 type LoweredErrorPatternFields = SmallVec<[(Name, Option<usize>); 4]>;
 
@@ -868,8 +839,8 @@ enum LoweredCompTarget {
 
 #[derive(Clone, Debug)]
 enum LoweredRecordEntry {
-    Field(Name, LoweredExpr),
-    Spread(LoweredExpr),
+    Field(Name, IrBuildExpr),
+    Spread(IrBuildExpr),
 }
 
 #[allow(clippy::large_enum_variant)]
@@ -877,35 +848,35 @@ enum LoweredRecordEntry {
 enum LoweredProcessCommandBuilderEntry {
     Field {
         name: Name,
-        value: LoweredExpr,
+        value: IrBuildExpr,
         span: Span,
     },
     Run {
         target: LoweredRunArg,
         args: Vec<LoweredRunArg>,
         env: Vec<LoweredRunEnv>,
-        timeout: Option<LoweredExpr>,
-        cpu_max: Option<LoweredExpr>,
+        timeout: Option<IrBuildExpr>,
+        cpu_max: Option<IrBuildExpr>,
         span: Span,
     },
 }
 
 #[derive(Clone, Debug)]
 struct LoweredProcessCommandArgv {
-    target: Box<LoweredExpr>,
-    argv: Box<LoweredExpr>,
-    cwd: Option<Box<LoweredExpr>>,
-    env: Option<Box<LoweredExpr>>,
-    stdin: Option<Box<LoweredExpr>>,
-    stdout: Option<Box<LoweredExpr>>,
-    stderr: Option<Box<LoweredExpr>>,
-    stdout_append: Option<Box<LoweredExpr>>,
-    stderr_append: Option<Box<LoweredExpr>>,
-    timeout: Option<Box<LoweredExpr>>,
-    detach: Option<Box<LoweredExpr>>,
-    new_session: Option<Box<LoweredExpr>>,
-    ignore_hup: Option<Box<LoweredExpr>>,
-    cpu_max: Option<Box<LoweredExpr>>,
+    target: Box<IrBuildExpr>,
+    argv: Box<IrBuildExpr>,
+    cwd: Option<Box<IrBuildExpr>>,
+    env: Option<Box<IrBuildExpr>>,
+    stdin: Option<Box<IrBuildExpr>>,
+    stdout: Option<Box<IrBuildExpr>>,
+    stderr: Option<Box<IrBuildExpr>>,
+    stdout_append: Option<Box<IrBuildExpr>>,
+    stderr_append: Option<Box<IrBuildExpr>>,
+    timeout: Option<Box<IrBuildExpr>>,
+    detach: Option<Box<IrBuildExpr>>,
+    new_session: Option<Box<IrBuildExpr>>,
+    ignore_hup: Option<Box<IrBuildExpr>>,
+    cpu_max: Option<Box<IrBuildExpr>>,
     span: Span,
 }
 
@@ -916,8 +887,8 @@ struct LoweredRunCapture {
     args: Vec<LoweredRunArg>,
     env: Vec<LoweredRunEnv>,
     redirections: Vec<LoweredRunRedirection>,
-    timeout: Option<Box<LoweredExpr>>,
-    cpu_max: Option<Box<LoweredExpr>>,
+    timeout: Option<Box<IrBuildExpr>>,
+    cpu_max: Option<Box<IrBuildExpr>>,
     // For Plain/Status run *values* with `?`, propagation is handled inside
     // eval_lowered_run_capture (Break on RunError, pass Status through),
     // because a Plain run yields a bare Status on success — not a Result the
@@ -934,16 +905,16 @@ struct LoweredSpawnRun {
     args: Vec<LoweredRunArg>,
     env: Vec<LoweredRunEnv>,
     redirections: Vec<LoweredRunRedirection>,
-    timeout: Option<Box<LoweredExpr>>,
-    cpu_max: Option<Box<LoweredExpr>>,
+    timeout: Option<Box<IrBuildExpr>>,
+    cpu_max: Option<Box<IrBuildExpr>>,
     span: Span,
 }
 
 #[derive(Clone, Debug)]
-enum LoweredStmt {
+enum IrBuildStmt {
     Let {
         slot: usize,
-        value: LoweredExpr,
+        value: IrBuildExpr,
     },
     /// `guard let slot = value else |else_param| { else_body }`: evaluate
     /// `value` (a `Result`); on `Ok`, bind its inner value to `slot` and
@@ -951,9 +922,9 @@ enum LoweredStmt {
     /// run `else_body`, which must diverge.
     Guard {
         slot: usize,
-        value: LoweredExpr,
+        value: IrBuildExpr,
         else_param_slot: Option<usize>,
-        else_body: Vec<LoweredStmt>,
+        else_body: Vec<IrBuildStmt>,
         span: Span,
     },
     LetInt {
@@ -967,14 +938,14 @@ enum LoweredStmt {
     Assign {
         slot: usize,
         op: AssignOp,
-        value: LoweredExpr,
+        value: IrBuildExpr,
         span: Span,
     },
     AssignField {
         slot: usize,
         field: Arc<str>,
         op: AssignOp,
-        value: LoweredExpr,
+        value: IrBuildExpr,
         span: Span,
     },
     AssignFieldInt {
@@ -986,12 +957,12 @@ enum LoweredStmt {
     },
     AssignIndex {
         slot: usize,
-        // Boxed: this is the only `LoweredStmt` variant with two inline
-        // `LoweredExpr`s, which made it (at ~2x the enum's other variants) the
+        // Boxed: this is the only `IrBuildStmt` variant with two inline
+        // `IrBuildExpr`s, which made it (at ~2x the enum's other variants) the
         // size driver for every statement in the lowered IR.
-        index: Box<LoweredExpr>,
+        index: Box<IrBuildExpr>,
         op: AssignOp,
-        value: Box<LoweredExpr>,
+        value: Box<IrBuildExpr>,
         span: Span,
     },
     AssignInt {
@@ -1005,66 +976,66 @@ enum LoweredStmt {
         value: LoweredBoolExpr,
     },
     Expr {
-        value: LoweredExpr,
+        value: IrBuildExpr,
         span: Span,
     },
     If {
-        branches: Vec<(LoweredExpr, Vec<LoweredStmt>)>,
-        else_body: Option<Vec<LoweredStmt>>,
+        branches: Vec<(IrBuildExpr, Vec<IrBuildStmt>)>,
+        else_body: Option<Vec<IrBuildStmt>>,
     },
     IfBool {
-        branches: Vec<(LoweredBoolExpr, Vec<LoweredStmt>)>,
-        else_body: Option<Vec<LoweredStmt>>,
+        branches: Vec<(LoweredBoolExpr, Vec<IrBuildStmt>)>,
+        else_body: Option<Vec<IrBuildStmt>>,
     },
     While {
-        condition: LoweredExpr,
-        body: Vec<LoweredStmt>,
+        condition: IrBuildExpr,
+        body: Vec<IrBuildStmt>,
     },
     WhileBool {
         condition: LoweredBoolExpr,
-        body: Vec<LoweredStmt>,
+        body: Vec<IrBuildStmt>,
     },
     Match {
-        value: LoweredExpr,
-        arms: Vec<(LoweredPattern, Option<LoweredExpr>, Vec<LoweredStmt>)>,
+        value: IrBuildExpr,
+        arms: Vec<(IrBuildPattern, Option<IrBuildExpr>, Vec<IrBuildStmt>)>,
         span: Span,
     },
     StrMatch {
-        value: LoweredExpr,
-        arms: FxHashMap<Arc<str>, Vec<LoweredStmt>>,
-        fallback: Option<Vec<LoweredStmt>>,
+        value: IrBuildExpr,
+        arms: FxHashMap<Arc<str>, Vec<IrBuildStmt>>,
+        fallback: Option<Vec<IrBuildStmt>>,
         span: Span,
     },
     TagMatch {
-        value: LoweredExpr,
-        arms: FxHashMap<Arc<str>, Vec<LoweredStmt>>,
-        fallback: Option<Vec<LoweredStmt>>,
+        value: IrBuildExpr,
+        arms: FxHashMap<Arc<str>, Vec<IrBuildStmt>>,
+        fallback: Option<Vec<IrBuildStmt>>,
         span: Span,
     },
     For {
         slot: usize,
-        iter: LoweredExpr,
-        body: Vec<LoweredStmt>,
+        iter: IrBuildExpr,
+        body: Vec<IrBuildStmt>,
         span: Span,
     },
     // `let {a, b, ..} = source` / `var {…} = source`: destructure a record into
     // one slot per field (field name == binding name).
     LetRecord {
-        source: LoweredExpr,
+        source: IrBuildExpr,
         fields: Vec<(Name, usize)>,
         span: Span,
     },
     // `for {a, b, ..} in iter { … }`: per item (a record), bind each field slot.
     ForRecord {
         fields: Vec<(Name, usize)>,
-        iter: LoweredExpr,
-        body: Vec<LoweredStmt>,
+        iter: IrBuildExpr,
+        body: Vec<IrBuildStmt>,
         span: Span,
     },
     ForStrLines {
         slot: usize,
-        text: LoweredExpr,
-        body: Vec<LoweredStmt>,
+        text: IrBuildExpr,
+        body: Vec<IrBuildStmt>,
         span: Span,
     },
     ScanLines {
@@ -1074,49 +1045,49 @@ enum LoweredStmt {
         span: Span,
     },
     Print {
-        args: Vec<LoweredExpr>,
+        args: Vec<IrBuildExpr>,
         stderr: bool,
         flush: bool,
         propagate_result: bool,
         span: Span,
     },
     Cd {
-        target: LoweredExpr,
-        body: Vec<LoweredStmt>,
+        target: IrBuildExpr,
+        body: Vec<IrBuildStmt>,
         span: Span,
     },
     Env {
         env: Vec<LoweredRunEnv>,
-        body: Vec<LoweredStmt>,
+        body: Vec<IrBuildStmt>,
     },
     Proc {
         // The registry identity is stable; resolve it once while lowering
         // instead of retaining two names and looking it up on every execution.
         op: RuntimeOp,
-        args: Vec<LoweredExpr>,
+        args: Vec<IrBuildExpr>,
         propagate_result: bool,
         span: Span,
     },
     Run {
-        value: LoweredExpr,
+        value: IrBuildExpr,
         propagate_result: bool,
     },
     Loop {
-        body: Vec<LoweredStmt>,
+        body: Vec<IrBuildStmt>,
     },
     Return {
-        value: LoweredExpr,
+        value: IrBuildExpr,
     },
     Yield {
-        value: LoweredExpr,
+        value: IrBuildExpr,
     },
     Break,
     BreakValue {
-        value: LoweredExpr,
+        value: IrBuildExpr,
     },
     Continue,
     Defer {
-        value: LoweredExpr,
+        value: IrBuildExpr,
     },
 }
 
@@ -1190,7 +1161,7 @@ enum LoweredBoolExpr {
     },
 }
 
-enum LoweredStmtFlow {
+enum IndexedStmtFlow {
     None,
     Return(LoweredValue),
     Propagate(LoweredValue),
@@ -1199,7 +1170,7 @@ enum LoweredStmtFlow {
 }
 
 #[derive(Clone, Debug)]
-enum LoweredExpr {
+enum IrBuildExpr {
     Null,
     Unit,
     Int(i64),
@@ -1214,41 +1185,41 @@ enum LoweredExpr {
         pure: bool,
     },
     PathFrom {
-        value: Box<LoweredExpr>,
+        value: Box<IrBuildExpr>,
         span: Span,
     },
     Param(usize),
     Binary {
         op: BinaryOp,
-        left: Box<LoweredExpr>,
-        right: Box<LoweredExpr>,
+        left: Box<IrBuildExpr>,
+        right: Box<IrBuildExpr>,
         span: Span,
     },
     IfExpr {
-        branches: Vec<(LoweredExpr, LoweredExpr)>,
-        else_value: Box<LoweredExpr>,
+        branches: Vec<(IrBuildExpr, IrBuildExpr)>,
+        else_value: Box<IrBuildExpr>,
         span: Span,
     },
     MatchExpr {
-        value: Box<LoweredExpr>,
-        arms: Vec<(LoweredPattern, Option<LoweredExpr>, LoweredExpr)>,
+        value: Box<IrBuildExpr>,
+        arms: Vec<(IrBuildPattern, Option<IrBuildExpr>, IrBuildExpr)>,
         span: Span,
     },
     StrMatchExpr {
-        value: Box<LoweredExpr>,
-        arms: FxHashMap<Arc<str>, LoweredExpr>,
-        fallback: Option<Box<LoweredExpr>>,
+        value: Box<IrBuildExpr>,
+        arms: FxHashMap<Arc<str>, IrBuildExpr>,
+        fallback: Option<Box<IrBuildExpr>>,
         span: Span,
     },
     TagMatchExpr {
-        value: Box<LoweredExpr>,
-        arms: FxHashMap<Arc<str>, LoweredExpr>,
-        fallback: Option<Box<LoweredExpr>>,
+        value: Box<IrBuildExpr>,
+        arms: FxHashMap<Arc<str>, IrBuildExpr>,
+        fallback: Option<Box<IrBuildExpr>>,
         span: Span,
     },
     ResultFallback {
-        left: Box<LoweredExpr>,
-        right: Box<LoweredExpr>,
+        left: Box<IrBuildExpr>,
+        right: Box<IrBuildExpr>,
     },
     FmtString(Vec<LoweredFmtPart>),
     PathFmtString {
@@ -1267,48 +1238,48 @@ enum LoweredExpr {
         span: Span,
     },
     Record(Vec<LoweredRecordEntry>),
-    List(Vec<LoweredExpr>),
+    List(Vec<IrBuildExpr>),
     // The `map.empty()` builtin constructor (empty list literals already lower via `List`).
     EmptyMap,
     // The `bytes.concat(<List[Bytes]>)` builtin constructor.
     BytesConcat {
-        arg: Box<LoweredExpr>,
+        arg: Box<IrBuildExpr>,
         span: Span,
     },
     Range {
-        start: Box<LoweredExpr>,
-        end: Box<LoweredExpr>,
+        start: Box<IrBuildExpr>,
+        end: Box<IrBuildExpr>,
         span: Span,
     },
     Tag {
         name: Arc<str>,
-        fields: Vec<LoweredExpr>,
+        fields: Vec<IrBuildExpr>,
     },
     ListComp {
-        value: Box<LoweredExpr>,
+        value: Box<IrBuildExpr>,
         // Boxed because `LoweredCompTarget::Record` inlines a 4-element
-        // `SmallVec` (~176 bytes) that would otherwise size every `LoweredExpr`
+        // `SmallVec` (~176 bytes) that would otherwise size every `IrBuildExpr`
         // variant, not just the rare destructuring-comprehension case.
         target: Box<LoweredCompTarget>,
-        iter: Box<LoweredExpr>,
-        condition: Option<Box<LoweredExpr>>,
+        iter: Box<IrBuildExpr>,
+        condition: Option<Box<IrBuildExpr>>,
         span: Span,
     },
     MapComp {
-        key: Box<LoweredExpr>,
-        value: Box<LoweredExpr>,
+        key: Box<IrBuildExpr>,
+        value: Box<IrBuildExpr>,
         target: Box<LoweredCompTarget>,
-        iter: Box<LoweredExpr>,
-        condition: Option<Box<LoweredExpr>>,
+        iter: Box<IrBuildExpr>,
+        condition: Option<Box<IrBuildExpr>>,
         span: Span,
     },
     ListPipeline {
-        input: Box<LoweredExpr>,
+        input: Box<IrBuildExpr>,
         stages: Vec<LoweredPipelineStage>,
         span: Span,
     },
     Field {
-        base: Box<LoweredExpr>,
+        base: Box<IrBuildExpr>,
         // Field/method names come from interned identifiers (`Name::as_str()`),
         // which are already `'static` — storing the leaked str view instead of an
         // owned `String` drops an allocation from every field-access node built
@@ -1317,49 +1288,49 @@ enum LoweredExpr {
         span: Span,
     },
     Index {
-        base: Box<LoweredExpr>,
-        index: Box<LoweredExpr>,
+        base: Box<IrBuildExpr>,
+        index: Box<IrBuildExpr>,
         span: Span,
     },
     Slice {
-        base: Box<LoweredExpr>,
-        start: Option<Box<LoweredExpr>>,
-        end: Option<Box<LoweredExpr>>,
+        base: Box<IrBuildExpr>,
+        start: Option<Box<IrBuildExpr>>,
+        end: Option<Box<IrBuildExpr>>,
         span: Span,
     },
     Method {
-        receiver: Box<LoweredExpr>,
+        receiver: Box<IrBuildExpr>,
         name: &'static str,
-        args: Vec<LoweredExpr>,
+        args: Vec<IrBuildExpr>,
         span: Span,
     },
     StrByteLen {
-        receiver: Box<LoweredExpr>,
+        receiver: Box<IrBuildExpr>,
         span: Span,
     },
     StrByteAt {
-        receiver: Box<LoweredExpr>,
-        index: Box<LoweredExpr>,
-        default: Option<Box<LoweredExpr>>,
+        receiver: Box<IrBuildExpr>,
+        index: Box<IrBuildExpr>,
+        default: Option<Box<IrBuildExpr>>,
         span: Span,
     },
     StrPredicate {
-        receiver: Box<LoweredExpr>,
+        receiver: Box<IrBuildExpr>,
         predicate: LoweredStrPredicate,
-        needle: Box<LoweredExpr>,
+        needle: Box<IrBuildExpr>,
         span: Span,
     },
     Contains {
-        receiver: Box<LoweredExpr>,
-        needle: Box<LoweredExpr>,
+        receiver: Box<IrBuildExpr>,
+        needle: Box<IrBuildExpr>,
         span: Span,
     },
     RegexCompile {
-        pattern: Box<LoweredExpr>,
+        pattern: Box<IrBuildExpr>,
         span: Span,
     },
     Require {
-        value: Box<LoweredExpr>,
+        value: Box<IrBuildExpr>,
         check: LoweredTypeCheck,
         span: Span,
     },
@@ -1373,179 +1344,179 @@ enum LoweredExpr {
     },
     SpawnRun(Box<LoweredSpawnRun>),
     SpawnCommand {
-        command: Box<LoweredExpr>,
+        command: Box<IrBuildExpr>,
         span: Span,
     },
     Wait {
-        target: Box<LoweredExpr>,
+        target: Box<IrBuildExpr>,
         span: Span,
     },
     Loop {
-        body: Vec<LoweredStmt>,
+        body: Vec<IrBuildStmt>,
         span: Span,
     },
     Retry {
-        delays: Vec<LoweredExpr>,
-        body: Vec<LoweredStmt>,
+        delays: Vec<IrBuildExpr>,
+        body: Vec<IrBuildStmt>,
         span: Span,
     },
     FsFiles {
-        root: Box<LoweredExpr>,
+        root: Box<IrBuildExpr>,
         gitignore: bool,
         stat: bool,
         hidden: bool,
-        exts: Option<Box<LoweredExpr>>,
+        exts: Option<Box<IrBuildExpr>>,
         result_wrapped: bool,
         span: Span,
     },
     FsWalk {
-        root: Box<LoweredExpr>,
+        root: Box<IrBuildExpr>,
         gitignore: bool,
         stat: bool,
         hidden: bool,
-        exts: Option<Box<LoweredExpr>>,
+        exts: Option<Box<IrBuildExpr>>,
         result_wrapped: bool,
         span: Span,
     },
     FsList {
         op: RuntimeOp,
-        path: Box<LoweredExpr>,
-        stat: Option<Box<LoweredExpr>>,
-        ordered: Option<Box<LoweredExpr>>,
+        path: Box<IrBuildExpr>,
+        stat: Option<Box<IrBuildExpr>>,
+        ordered: Option<Box<IrBuildExpr>>,
         span: Span,
     },
     FsTempDir {
         span: Span,
     },
     FsWrite {
-        path: Box<LoweredExpr>,
-        data: Box<LoweredExpr>,
+        path: Box<IrBuildExpr>,
+        data: Box<IrBuildExpr>,
         span: Span,
     },
     FsMkdir {
-        path: Box<LoweredExpr>,
-        parents: Option<Box<LoweredExpr>>,
+        path: Box<IrBuildExpr>,
+        parents: Option<Box<IrBuildExpr>>,
         span: Span,
     },
     FsRemove {
-        path: Box<LoweredExpr>,
-        missing_ok: Option<Box<LoweredExpr>>,
+        path: Box<IrBuildExpr>,
+        missing_ok: Option<Box<IrBuildExpr>>,
         span: Span,
     },
     FsCloseRoot {
-        root: Box<LoweredExpr>,
+        root: Box<IrBuildExpr>,
         span: Span,
     },
     FsRootPath {
-        root: Box<LoweredExpr>,
+        root: Box<IrBuildExpr>,
         span: Span,
     },
     PathReadText {
-        path: Box<LoweredExpr>,
+        path: Box<IrBuildExpr>,
         span: Span,
     },
     PathReadBytes {
-        path: Box<LoweredExpr>,
+        path: Box<IrBuildExpr>,
         span: Span,
     },
     PathExists {
-        path: Box<LoweredExpr>,
+        path: Box<IrBuildExpr>,
         span: Span,
     },
     PathExecutable {
-        path: Box<LoweredExpr>,
+        path: Box<IrBuildExpr>,
         span: Span,
     },
     PathDu {
-        path: Box<LoweredExpr>,
+        path: Box<IrBuildExpr>,
         span: Span,
     },
     PathMetadata {
-        path: Box<LoweredExpr>,
+        path: Box<IrBuildExpr>,
         span: Span,
     },
     PathReadlink {
-        path: Box<LoweredExpr>,
+        path: Box<IrBuildExpr>,
         span: Span,
     },
     PathResolve {
-        path: Box<LoweredExpr>,
+        path: Box<IrBuildExpr>,
         span: Span,
     },
     PathWrite {
-        path: Box<LoweredExpr>,
-        data: Box<LoweredExpr>,
+        path: Box<IrBuildExpr>,
+        data: Box<IrBuildExpr>,
         atomic: bool,
         span: Span,
     },
     PathMkdir {
-        path: Box<LoweredExpr>,
-        parents: Option<Box<LoweredExpr>>,
+        path: Box<IrBuildExpr>,
+        parents: Option<Box<IrBuildExpr>>,
         span: Span,
     },
     PathRemove {
-        path: Box<LoweredExpr>,
-        missing_ok: Option<Box<LoweredExpr>>,
+        path: Box<IrBuildExpr>,
+        missing_ok: Option<Box<IrBuildExpr>>,
         span: Span,
     },
     JsonEncode {
-        value: Box<LoweredExpr>,
+        value: Box<IrBuildExpr>,
         span: Span,
     },
     ArchiveTarCreate {
-        path: Box<LoweredExpr>,
-        root: Box<LoweredExpr>,
-        entries: Box<LoweredExpr>,
-        compression: Option<Box<LoweredExpr>>,
-        overwrite: Option<Box<LoweredExpr>>,
+        path: Box<IrBuildExpr>,
+        root: Box<IrBuildExpr>,
+        entries: Box<IrBuildExpr>,
+        compression: Option<Box<IrBuildExpr>>,
+        overwrite: Option<Box<IrBuildExpr>>,
         span: Span,
     },
     ArchiveTarList {
-        path: Box<LoweredExpr>,
+        path: Box<IrBuildExpr>,
         span: Span,
     },
     ArchiveTarExtract {
-        path: Box<LoweredExpr>,
-        dest: Box<LoweredExpr>,
+        path: Box<IrBuildExpr>,
+        dest: Box<IrBuildExpr>,
         span: Span,
     },
     HashVerifyFile {
-        path: Box<LoweredExpr>,
+        path: Box<IrBuildExpr>,
         algorithm: crate::modules::hash::HashAlgorithm,
-        expected: Box<LoweredExpr>,
+        expected: Box<IrBuildExpr>,
         span: Span,
     },
     ModuleCall {
         op: RuntimeOp,
-        args: Vec<LoweredExpr>,
+        args: Vec<IrBuildExpr>,
         span: Span,
     },
     // Boxed because this cold command-construction payload otherwise makes
-    // every `LoweredExpr` 16 bytes larger, including expression-heavy scripts.
+    // every `IrBuildExpr` 16 bytes larger, including expression-heavy scripts.
     ProcessCommandArgv(Box<LoweredProcessCommandArgv>),
     ProcessCommandBuilder {
         entries: Vec<LoweredProcessCommandBuilderEntry>,
         span: Span,
     },
     Abort {
-        status: Box<LoweredExpr>,
-        force: Option<Box<LoweredExpr>>,
+        status: Box<IrBuildExpr>,
+        force: Option<Box<IrBuildExpr>>,
         span: Span,
     },
-    Ok(Box<LoweredExpr>),
-    Err(Box<LoweredExpr>),
+    Ok(Box<IrBuildExpr>),
+    Err(Box<IrBuildExpr>),
     // Boxed: `LoweredErrorExpr::Structured` inlines two `String`s plus two
-    // `Vec`s (~96 bytes) that would otherwise size every `LoweredExpr` variant
+    // `Vec`s (~96 bytes) that would otherwise size every `IrBuildExpr` variant
     // for the sake of the comparatively rare structured-error-literal case.
     Error(Box<LoweredErrorExpr>),
-    Try(Box<LoweredExpr>),
+    Try(Box<IrBuildExpr>),
     Call {
         function: LoweredFunctionKey,
         args: Vec<LoweredCallArg>,
         span: Span,
     },
     DynamicCall {
-        callee: Box<LoweredExpr>,
+        callee: Box<IrBuildExpr>,
         args: Vec<LoweredCallArg>,
         span: Span,
     },
@@ -1557,8 +1528,8 @@ enum LoweredExpr {
 
 #[derive(Clone, Debug)]
 enum LoweredCallArg {
-    Single(LoweredExpr),
-    Splice(LoweredExpr),
+    Single(IrBuildExpr),
+    Splice(IrBuildExpr),
 }
 
 #[derive(Clone, Debug)]
@@ -1569,9 +1540,9 @@ struct LoweredRunArg {
 
 #[derive(Clone, Debug)]
 enum LoweredRunArgKind {
-    Single(LoweredExpr),
-    SingleOrSplice(LoweredExpr),
-    Splice(LoweredExpr),
+    Single(IrBuildExpr),
+    SingleOrSplice(IrBuildExpr),
+    Splice(IrBuildExpr),
 }
 
 #[derive(Clone, Debug)]
@@ -1582,8 +1553,8 @@ struct LoweredRunPipelineSegment {
     args: Vec<LoweredRunArg>,
     env: Vec<LoweredRunEnv>,
     redirections: Vec<LoweredRunRedirection>,
-    timeout: Option<Box<LoweredExpr>>,
-    cpu_max: Option<Box<LoweredExpr>>,
+    timeout: Option<Box<IrBuildExpr>>,
+    cpu_max: Option<Box<IrBuildExpr>>,
 }
 
 #[derive(Clone, Debug)]
@@ -1602,11 +1573,11 @@ struct LoweredRunRedirection {
 #[derive(Clone, Debug)]
 enum LoweredFmtPart {
     Text(Arc<str>),
-    Expr(LoweredExpr, Span, Option<FormatSpec>),
+    Expr(IrBuildExpr, Span, Option<FormatSpec>),
 }
 
 #[derive(Clone, Debug)]
-enum LoweredPattern {
+enum IrBuildPattern {
     Wildcard,
     // `name => …`: always matches, binds the scrutinee to `slot`.
     Bind {
@@ -1644,7 +1615,7 @@ enum LoweredPattern {
     },
     Tag {
         name: Name,
-        slots: LoweredPatternSlots,
+        slots: IrBuildPatternSlots,
     },
 }
 
@@ -1663,70 +1634,70 @@ enum LoweredPipelineStage {
     JsonLines,
     Where {
         slot: usize,
-        predicate: LoweredExpr,
+        predicate: IrBuildExpr,
     },
     Map {
         slot: usize,
-        value: LoweredExpr,
+        value: IrBuildExpr,
     },
     MapBlock {
         slot: usize,
-        body: Vec<LoweredStmt>,
-        value: LoweredExpr,
+        body: Vec<IrBuildStmt>,
+        value: IrBuildExpr,
     },
     FlatMap {
         slot: usize,
-        value: LoweredExpr,
+        value: IrBuildExpr,
     },
     FlatMapBlock {
         slot: usize,
-        body: Vec<LoweredStmt>,
-        value: LoweredExpr,
+        body: Vec<IrBuildStmt>,
+        value: IrBuildExpr,
     },
     BytesChunks {
-        size: LoweredExpr,
+        size: IrBuildExpr,
     },
     BatchCount {
-        count: LoweredExpr,
+        count: IrBuildExpr,
     },
     BatchMaxArgv {
-        max_argv: Option<LoweredExpr>,
+        max_argv: Option<IrBuildExpr>,
     },
     BatchMaxBytes {
-        max_bytes: LoweredExpr,
+        max_bytes: IrBuildExpr,
     },
     Shuffle {
-        seed: Option<LoweredExpr>,
+        seed: Option<IrBuildExpr>,
     },
     Fold {
         acc_slot: usize,
         item_slot: usize,
-        initial: LoweredExpr,
-        body: Vec<LoweredStmt>,
-        value: LoweredExpr,
+        initial: IrBuildExpr,
+        body: Vec<IrBuildStmt>,
+        value: IrBuildExpr,
     },
     ReduceBy {
         item_slot: usize,
-        body: Vec<LoweredStmt>,
-        value: LoweredExpr,
+        body: Vec<IrBuildStmt>,
+        value: IrBuildExpr,
         op: ReduceByOp,
     },
     ParMap {
         slot: usize,
-        value: LoweredExpr,
+        value: IrBuildExpr,
     },
     ParMapBlock {
         slot: usize,
-        body: Vec<LoweredStmt>,
-        value: LoweredExpr,
+        body: Vec<IrBuildStmt>,
+        value: IrBuildExpr,
     },
     Tee {
         slot: usize,
-        body: Vec<LoweredStmt>,
+        body: Vec<IrBuildStmt>,
     },
     Each {
         slot: usize,
-        body: Vec<LoweredStmt>,
+        body: Vec<IrBuildStmt>,
         parallel: bool,
     },
     TablePrint {
@@ -1734,35 +1705,35 @@ enum LoweredPipelineStage {
     },
     Enumerate,
     Zip {
-        other: LoweredExpr,
+        other: IrBuildExpr,
     },
     Sort {
-        descending: Option<LoweredExpr>,
+        descending: Option<IrBuildExpr>,
     },
     SortBy {
         slot: usize,
-        key: LoweredExpr,
-        descending: Option<LoweredExpr>,
+        key: IrBuildExpr,
+        descending: Option<IrBuildExpr>,
     },
     GroupBy {
         slot: usize,
-        key: LoweredExpr,
+        key: IrBuildExpr,
     },
     CountBy {
         slot: usize,
-        key: LoweredExpr,
+        key: IrBuildExpr,
     },
     Any {
         slot: usize,
-        predicate: LoweredExpr,
+        predicate: IrBuildExpr,
     },
     All {
         slot: usize,
-        predicate: LoweredExpr,
+        predicate: IrBuildExpr,
     },
     UniqueBy {
         slot: usize,
-        key: LoweredExpr,
+        key: IrBuildExpr,
     },
     Count,
     Sum,
@@ -1771,59 +1742,15 @@ enum LoweredPipelineStage {
     Last,
     Min,
     Max,
-    Take(LoweredExpr),
-    Drop(LoweredExpr),
+    Take(IrBuildExpr),
+    Drop(IrBuildExpr),
     Repeat {
-        count: LoweredExpr,
+        count: IrBuildExpr,
     },
     Range {
-        start: LoweredExpr,
-        end: LoweredExpr,
+        start: IrBuildExpr,
+        end: IrBuildExpr,
     },
-}
-
-impl LoweredPipelineStage {
-    /// The source stage spelling, used as the `stream.stage` trace name/payload
-    /// (mirrors `StreamStageKind::as_str`).
-    fn trace_name(&self) -> &'static str {
-        match self {
-            Self::TextLines => "text.lines",
-            Self::JsonLines => "json.lines",
-            Self::Where { .. } => "where",
-            Self::Map { .. } | Self::MapBlock { .. } => "map",
-            Self::FlatMap { .. } | Self::FlatMapBlock { .. } => "flat-map",
-            Self::BytesChunks { .. } => "bytes.chunks",
-            Self::BatchCount { .. } | Self::BatchMaxArgv { .. } | Self::BatchMaxBytes { .. } => {
-                "batch"
-            }
-            Self::Shuffle { .. } => "shuffle",
-            Self::Fold { .. } => "fold",
-            Self::ReduceBy { .. } => "reduce-by",
-            Self::ParMap { .. } | Self::ParMapBlock { .. } => "par-map",
-            Self::Tee { .. } => "tee",
-            Self::Each { .. } => "each",
-            Self::TablePrint { .. } => "table.print",
-            Self::Enumerate => "enumerate",
-            Self::Zip { .. } => "zip",
-            Self::Sort { .. } => "sort",
-            Self::SortBy { .. } => "sort-by",
-            Self::GroupBy { .. } => "group-by",
-            Self::CountBy { .. } | Self::Count => "count",
-            Self::Any { .. } => "any",
-            Self::All { .. } => "all",
-            Self::UniqueBy { .. } => "unique-by",
-            Self::Sum => "sum",
-            Self::Collect => "collect",
-            Self::First => "first",
-            Self::Last => "last",
-            Self::Min => "min",
-            Self::Max => "max",
-            Self::Take(_) => "take",
-            Self::Drop(_) => "drop",
-            Self::Repeat { .. } => "repeat",
-            Self::Range { .. } => "range",
-        }
-    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -1854,7 +1781,7 @@ enum LoweredErrorExpr {
     Structured {
         family: String,
         variant: String,
-        fields: Vec<(Arc<str>, LoweredExpr)>,
+        fields: Vec<(Arc<str>, IrBuildExpr)>,
         facets: Vec<Name>,
     },
 }
@@ -1867,11 +1794,6 @@ struct LoweredStrView {
 }
 
 impl LoweredStrView {
-    #[cfg(test)]
-    fn new(text: Arc<str>, start: usize, end: usize) -> Self {
-        Self::try_new(text, start, end).expect("lowered string view offsets fit in u32")
-    }
-
     fn try_new(text: Arc<str>, start: usize, end: usize) -> Option<Self> {
         debug_assert!(start <= end);
         debug_assert!(text.is_char_boundary(start));
@@ -1931,11 +1853,6 @@ struct LoweredBytesView {
 }
 
 impl LoweredBytesView {
-    #[cfg(test)]
-    fn new(bytes: Arc<[u8]>, start: usize, end: usize) -> Self {
-        Self::try_new(bytes, start, end).expect("lowered bytes view offsets fit in u32")
-    }
-
     fn try_new(bytes: Arc<[u8]>, start: usize, end: usize) -> Option<Self> {
         debug_assert!(start <= end);
         debug_assert!(end <= bytes.len());
@@ -2446,7 +2363,7 @@ impl LoweredValue {
     }
 }
 
-/// Method names the lowering pass will emit (as `LoweredExpr::Method` or a
+/// Method names the lowering pass will emit (as `IrBuildExpr::Method` or a
 /// dedicated node). Kept as data — not a `matches!` — so it is the single source
 /// of truth shared by `lowered_method_name`, the consistency test, and
 /// `tools/xsh-ir-coverage.xsh`, which parses this declaration directly.
@@ -2627,13 +2544,8 @@ pub struct Evaluator {
     // `export proc`/`export pure` contract fields without the old recursive AST.
     module_export_signatures:
         Arc<FxHashMap<crate::runtime::value::FunctionName, ModuleExportSignature>>,
-    lowered_pures: Arc<FxHashMap<Name, Arc<LoweredPureFunction>>>,
-    lowered_procs: Arc<FxHashMap<Name, Arc<LoweredPureFunction>>>,
-    lowered_qualified_pures: Arc<FxHashMap<QualifiedName, Arc<LoweredPureFunction>>>,
-    lowered_qualified_procs: Arc<FxHashMap<QualifiedName, Arc<LoweredPureFunction>>>,
-    lowered_program: Arc<LoweredProgram>,
     indexed_program: Option<Arc<FullProgram>>,
-    last_construct_probe: Option<CompactLowerConstructProbeOutput>,
+    indexed_dynamic_functions: Arc<FxHashMap<QualifiedName, IndexedDynamicFunction>>,
     lowered_slot_pool: Vec<Vec<LoweredValue>>,
     tag_variants: FxHashMap<Name, usize>,
     error_families: FxHashMap<Name, RuntimeErrorFamily>,
@@ -2684,12 +2596,8 @@ struct LoweredSharedState {
     scopes: Vec<FxHashMap<Name, Binding>>,
     module_export_signatures:
         Arc<FxHashMap<crate::runtime::value::FunctionName, ModuleExportSignature>>,
-    lowered_pures: Arc<FxHashMap<Name, Arc<LoweredPureFunction>>>,
-    lowered_procs: Arc<FxHashMap<Name, Arc<LoweredPureFunction>>>,
-    lowered_qualified_pures: Arc<FxHashMap<QualifiedName, Arc<LoweredPureFunction>>>,
-    lowered_qualified_procs: Arc<FxHashMap<QualifiedName, Arc<LoweredPureFunction>>>,
-    lowered_program: Arc<LoweredProgram>,
     indexed_program: Option<Arc<FullProgram>>,
+    indexed_dynamic_functions: Arc<FxHashMap<QualifiedName, IndexedDynamicFunction>>,
     tag_variants: FxHashMap<Name, usize>,
     error_families: FxHashMap<Name, RuntimeErrorFamily>,
     module_value_cache: Arc<FxHashMap<String, RecordMap>>,
@@ -2700,40 +2608,6 @@ struct LoweredSharedState {
     env: RuntimeEnv,
     #[cfg(feature = "native-tests")]
     native_test_host: Option<NativeTestHost>,
-}
-
-struct LoweredWorker {
-    evaluator: Evaluator,
-}
-
-impl LoweredWorker {
-    fn new(shared: Arc<LoweredSharedState>) -> Self {
-        Self {
-            evaluator: Evaluator::new_lowered_worker(&shared),
-        }
-    }
-
-    fn eval_lowered_expr(
-        &mut self,
-        lowered: &LoweredPureFunction,
-        expr: &LoweredExpr,
-        slots: &mut [LoweredValue],
-        call_span: Span,
-    ) -> Result<std::ops::ControlFlow<LoweredValue, LoweredValue>, RuntimeError> {
-        self.evaluator
-            .eval_lowered_expr(lowered, expr, slots, call_span)
-    }
-
-    fn eval_lowered_stmts(
-        &mut self,
-        lowered: &LoweredPureFunction,
-        stmts: &[LoweredStmt],
-        slots: &mut [LoweredValue],
-        call_span: Span,
-    ) -> Result<LoweredStmtFlow, RuntimeError> {
-        self.evaluator
-            .eval_lowered_stmts(lowered, stmts, slots, call_span)
-    }
 }
 
 #[cfg(feature = "native-tests")]
@@ -2754,15 +2628,14 @@ impl PreparedTestProgram {
             } else {
                 &self.setup_shared
             };
-            let mut evaluator = LoweredWorker::new(Arc::clone(shared)).evaluator;
+            let mut evaluator = Evaluator::new_lowered_worker(shared);
             for (name, value) in env_overlay {
                 evaluator = evaluator.with_env_var(name, value);
             }
             if trace_enabled {
                 evaluator = evaluator.with_tracing();
-                evaluator.eval_installed_test_inner(
-                    &self.program,
-                    &self.root,
+                evaluator.eval_installed_indexed_test_inner(
+                    &self.plan,
                     self.script_span,
                     test_name,
                     ctx,
@@ -2808,7 +2681,6 @@ impl Evaluator {
     }
 
     pub fn frontend_lowered_stats(&self) -> FrontendLoweredStats {
-        let probe = self.last_construct_probe.as_ref();
         if let Some(indexed) = &self.indexed_program {
             return FrontendLoweredStats {
                 function_count: indexed.function_count(),
@@ -2820,46 +2692,7 @@ impl Evaluator {
                 retained_estimate_bytes: indexed.store_retained_bytes(),
             };
         }
-        FrontendLoweredStats {
-            function_count: self.lowered_pures.len()
-                + self.lowered_procs.len()
-                + self.lowered_qualified_pures.len()
-                + self.lowered_qualified_procs.len(),
-            constructed_functions: probe.map_or(0, |probe| probe.constructed_functions),
-            statement_count: probe.map_or(0, |probe| probe.statements),
-            expression_count: probe.map_or(0, |probe| probe.expressions),
-            pattern_count: probe.map_or(0, |probe| probe.patterns),
-            blocker_events: probe.map_or(0, |probe| probe.blocker_events),
-            retained_estimate_bytes: self.frontend_lowered_retained_estimate(),
-        }
-    }
-
-    fn frontend_lowered_retained_estimate(&self) -> usize {
-        let map_bytes = self.lowered_pures.capacity()
-            * std::mem::size_of::<(Name, Arc<LoweredPureFunction>)>()
-            + self.lowered_procs.capacity()
-                * std::mem::size_of::<(Name, Arc<LoweredPureFunction>)>()
-            + self.lowered_qualified_pures.capacity()
-                * std::mem::size_of::<(QualifiedName, Arc<LoweredPureFunction>)>()
-            + self.lowered_qualified_procs.capacity()
-                * std::mem::size_of::<(QualifiedName, Arc<LoweredPureFunction>)>();
-        let function_bytes = self
-            .lowered_pures
-            .values()
-            .chain(self.lowered_procs.values())
-            .chain(self.lowered_qualified_pures.values())
-            .chain(self.lowered_qualified_procs.values())
-            .map(|function| {
-                std::mem::size_of::<LoweredPureFunction>()
-                    + function.body.capacity() * std::mem::size_of::<LoweredStmt>()
-            })
-            .sum::<usize>();
-        let program_bytes = std::mem::size_of::<LoweredProgram>()
-            + self.lowered_program.statements.capacity()
-                * std::mem::size_of::<Option<LoweredTopLevelStmt>>();
-        map_bytes
-            .saturating_add(function_bytes)
-            .saturating_add(program_bytes)
+        FrontendLoweredStats::default()
     }
 
     pub fn new_with_shared_sources(argv: Vec<String>, sources: Arc<SourceMap>) -> Self {
@@ -2904,13 +2737,8 @@ impl Evaluator {
                 .unwrap_or_default(),
             scopes: vec![FxHashMap::default()],
             module_export_signatures: Arc::new(FxHashMap::default()),
-            lowered_pures: Arc::new(FxHashMap::default()),
-            lowered_procs: Arc::new(FxHashMap::default()),
-            lowered_qualified_pures: Arc::new(FxHashMap::default()),
-            lowered_qualified_procs: Arc::new(FxHashMap::default()),
-            lowered_program: Arc::new(LoweredProgram::default()),
             indexed_program: None,
-            last_construct_probe: None,
+            indexed_dynamic_functions: Arc::new(FxHashMap::default()),
             lowered_slot_pool: Vec::new(),
             tag_variants: FxHashMap::default(),
             error_families: FxHashMap::default(),
@@ -2986,59 +2814,6 @@ impl Evaluator {
         self
     }
 
-    fn register_compact_signal_hook(
-        &mut self,
-        signal: &str,
-        pre_cancel: Option<&str>,
-        body: Vec<LoweredStmt>,
-        hook_slots: Vec<LoweredTopLevelSlot>,
-        slot_count: usize,
-        span: Span,
-    ) -> Result<(), RuntimeError> {
-        let signal = normalize_hook_signal(signal, span).map_err(|rejection| {
-            RuntimeError::new("signal-hook", signal_rejection_message(signal, rejection))
-                .with_span(span)
-        })?;
-        let pre_cancel = match pre_cancel {
-            Some(literal) => DurationValue::from_literal(literal).ok_or_else(|| {
-                RuntimeError::new("signal-hook", "`--pre-cancel` expects a duration literal")
-                    .with_span(span)
-            })?,
-            None => DurationValue { millis: 150 },
-        };
-        let guard = install_hook_signal_handler(signal.number)
-            .map_err(|error| RuntimeError::new("signal-hook", error.to_string()).with_span(span))?;
-        self.signal_handler_guards.push(guard);
-        let ignore_pending_primary = signal_snapshot().primary == Some(signal.number);
-        let has_defers = lower::lowered_body_has_defers(&body);
-        let lowered_function = LoweredPureFunction {
-            params: Default::default(),
-            param_kinds: Default::default(),
-            param_checks: Default::default(),
-            param_rest: Default::default(),
-            param_defaults: Default::default(),
-            captures: Default::default(),
-            return_kind: LoweredReturnKind::Plain(LoweredType::Unit),
-            slot_count,
-            body,
-            has_defers,
-        };
-        self.signal_hooks.insert(
-            signal.name.clone(),
-            RegisteredSignalHook {
-                signal,
-                pre_cancel,
-                lowered_body: Some(Arc::new(lowered_function)),
-                indexed_body: None,
-                lowered_slots: hook_slots,
-                scope: self.scopes.first().cloned().unwrap_or_default(),
-                span,
-                ignore_pending_primary,
-            },
-        );
-        Ok(())
-    }
-
     fn register_indexed_signal_hook(
         &mut self,
         signal: &str,
@@ -3070,13 +2845,12 @@ impl Evaluator {
             RegisteredSignalHook {
                 signal,
                 pre_cancel,
-                lowered_body: None,
-                indexed_body: Some(RegisteredIndexedSignalBody {
+                indexed_body: RegisteredIndexedSignalBody {
                     program,
                     driver_step,
                     body,
                     slot_count,
-                }),
+                },
                 lowered_slots: hook_slots,
                 scope: self.scopes.first().cloned().unwrap_or_default(),
                 span,
@@ -3093,12 +2867,8 @@ impl Evaluator {
             exe_path: self.exe_path.clone(),
             scopes: self.scopes.clone(),
             module_export_signatures: self.module_export_signatures.clone(),
-            lowered_pures: self.lowered_pures.clone(),
-            lowered_procs: self.lowered_procs.clone(),
-            lowered_qualified_pures: self.lowered_qualified_pures.clone(),
-            lowered_qualified_procs: self.lowered_qualified_procs.clone(),
-            lowered_program: self.lowered_program.clone(),
             indexed_program: self.indexed_program.clone(),
+            indexed_dynamic_functions: self.indexed_dynamic_functions.clone(),
             tag_variants: self.tag_variants.clone(),
             error_families: self.error_families.clone(),
             module_value_cache: self.module_value_cache.clone(),
@@ -3119,13 +2889,8 @@ impl Evaluator {
             exe_path: shared.exe_path.clone(),
             scopes: shared.scopes.clone(),
             module_export_signatures: shared.module_export_signatures.clone(),
-            lowered_pures: shared.lowered_pures.clone(),
-            lowered_procs: shared.lowered_procs.clone(),
-            lowered_qualified_pures: shared.lowered_qualified_pures.clone(),
-            lowered_qualified_procs: shared.lowered_qualified_procs.clone(),
-            lowered_program: shared.lowered_program.clone(),
             indexed_program: shared.indexed_program.clone(),
-            last_construct_probe: None,
+            indexed_dynamic_functions: shared.indexed_dynamic_functions.clone(),
             lowered_slot_pool: Vec::new(),
             tag_variants: shared.tag_variants.clone(),
             error_families: shared.error_families.clone(),
@@ -3290,12 +3055,7 @@ impl Evaluator {
     fn execute_signal_hook(&mut self, hook: &RegisteredSignalHook) -> Result<Flow, RuntimeError> {
         let saved_scopes = std::mem::replace(&mut self.scopes, vec![hook.scope.clone()]);
         let call_span = hook.span;
-        let slot_count = hook
-            .indexed_body
-            .as_ref()
-            .map(|body| body.slot_count)
-            .or_else(|| hook.lowered_body.as_ref().map(|body| body.slot_count))
-            .expect("registered signal hook has an executable body");
+        let slot_count = hook.indexed_body.slot_count;
         let mut slots = vec![LoweredValue::Unit; slot_count];
         for slot_info in &hook.lowered_slots {
             if let Some(binding) = self.lookup(slot_info.name)
@@ -3304,72 +3064,17 @@ impl Evaluator {
                 slots[slot_info.slot] = value;
             }
         }
-        let result = if let Some(indexed_body) = &hook.indexed_body {
-            let program = Arc::clone(&indexed_body.program);
-            let view = program
-                .driver_step_view_absolute(indexed_body.driver_step)
-                .map_err(|error| {
-                    RuntimeError::new("indexed-ir", error.message).with_span(call_span)
-                })?;
-            self.eval_indexed_body_as_signal_hook(
-                view,
-                indexed_body.body,
-                &mut slots,
-                call_span,
-            )
-        } else {
-            self.eval_lowered_body_as_signal_hook(
-                hook.lowered_body
-                    .as_ref()
-                    .expect("lowered signal hook has a body"),
-                &mut slots,
-                call_span,
-            )
-        };
+        let indexed_body = &hook.indexed_body;
+        let program = Arc::clone(&indexed_body.program);
+        let view = program
+            .driver_step_view_absolute(indexed_body.driver_step)
+            .map_err(|error| {
+                RuntimeError::new("indexed-ir", error.message).with_span(call_span)
+            })?;
+        let result =
+            self.eval_indexed_body_as_signal_hook(view, indexed_body.body, &mut slots, call_span);
         self.scopes = saved_scopes;
         result
-    }
-
-    fn eval_lowered_body_as_signal_hook(
-        &mut self,
-        lowered: &LoweredPureFunction,
-        slots: &mut [LoweredValue],
-        call_span: Span,
-    ) -> Result<Flow, RuntimeError> {
-        let flow = self.eval_lowered_stmts(lowered, &lowered.body, slots, call_span)?;
-        match flow {
-            LoweredStmtFlow::None => Ok(Flow::Continue(Value::Unit)),
-            LoweredStmtFlow::Return(value) => Ok(Flow::Continue(value.into_value())),
-            LoweredStmtFlow::Propagate(value) => {
-                let error = match value {
-                    LoweredValue::Error(error) => *error,
-                    LoweredValue::ResultErr(error) => *error,
-                    other => Value::Error(Box::new(
-                        RuntimeError::new(
-                            "signal-hook",
-                            format!("propagated {}", other.type_name()),
-                        )
-                        .with_span(call_span),
-                    )),
-                };
-                let kind = error.error_kind().unwrap_or("error").to_string();
-                let message = error
-                    .error_message()
-                    .unwrap_or("signal hook error")
-                    .to_string();
-                let traceback = self.pending_traceback.take().unwrap_or_else(|| Traceback {
-                    failing_span: Some(call_span),
-                    exe_path: self.exe_path_for_traceback(),
-                    operation_kind: "signal.hook".to_string(),
-                    error: TraceError { kind, message },
-                    frames: self.call_stack.clone(),
-                });
-                Ok(Flow::Propagate(Propagation { error, traceback }))
-            }
-            LoweredStmtFlow::Break(_) | LoweredStmtFlow::Continue => {
-                Ok(Flow::Continue(Value::Unit))
-            }
-        }
     }
 
     fn track_process_group(&mut self, group: ProcessGroup) {
@@ -3532,15 +3237,31 @@ impl Evaluator {
         self
     }
 
-    /// Run a program through the compact arena + lowered IR. This is the only
-    /// runtime path: the program is installed via the compact lowering pipeline
-    /// and every top-level statement runs through `eval_lowered_top_level_stmt`.
-    /// Unlike `try_eval_compact_lowered_only`, this runs even when tracing /
-    /// coverage is enabled, and an un-lowerable statement surfaces a runtime
-    /// diagnostic instead of falling back to a recursive evaluator (there is no
-    /// recursive evaluator any more — the compact corpus is exhaustive).
-    pub fn eval(self, program: &ArenaProgram, source_id: SourceId) -> EvalOutput {
-        run_eval_on_large_stack(move || self.eval_inner(program, source_id))
+    /// Build, verify, and execute the indexed program. The arena is used only
+    /// during construction and is never consulted by the installed evaluator.
+    pub fn eval(mut self, program: &ArenaProgram, source_id: SourceId) -> EvalOutput {
+        run_eval_on_large_stack(move || {
+            let plan =
+                match self.prepare_compact_indexed_only_or_diagnostic(program, source_id, false) {
+                Ok(plan) => plan,
+                Err(diagnostic) => {
+                    return EvalOutput {
+                        stdout: self.stdout,
+                        stderr: self.stderr,
+                        trace_events: self.trace_events,
+                        diagnostics: vec![diagnostic],
+                        traceback: None,
+                        sources: self.sources,
+                        status: 1,
+                        cwd: self.cwd,
+                        env: self.env.into_snapshot(),
+                        last_status: self.last_status,
+                    };
+                }
+            };
+            self.try_eval_installed_compact_indexed_only_inner(plan)
+                .unwrap_or_else(|_| unreachable!("verified indexed program remains installed"))
+        })
     }
 
     pub(super) fn write_stdout_line(&mut self, line: &str) {
@@ -3571,475 +3292,12 @@ impl Evaluator {
         let _ = stderr.flush();
     }
 
-    fn eval_inner(mut self, program: &ArenaProgram, source_id: SourceId) -> EvalOutput {
-        let install_diagnostics = self.install_compact_lowered_program(program, source_id);
-        let root = program.statement_ids().collect::<Vec<_>>();
-        let lowered_statements = self.lowered_program.statements.clone();
-        let auto_main_required =
-            compact_root_proc_main_requires_auto_call(program, &root, &lowered_statements);
-        let compact_auto_main_args = if auto_main_required {
-            self.compact_auto_main_args().unwrap_or_default()
-        } else {
-            Vec::new()
-        };
-
-        crate::runtime::process::clear_cancellation_request();
-        let script_span = root
-            .first()
-            .map(|stmt| program.arena.stmt(*stmt).span)
-            .unwrap_or_else(zero_span);
-        self.trace_enter(
-            TraceKind::ScriptEnter,
-            Some(script_span),
-            Some("script"),
-            TracePayload::None,
-        );
-
-        let mut traceback = None;
-        let mut status = 0;
-        let mut abort = None;
-        let mut stopped = false;
-        let mut last_value = Value::Unit;
-        let mut diagnostics = Vec::new();
-        let mut compact_defers = Vec::new();
-        if let Some(diagnostic) = install_diagnostics.first() {
-            let span = diagnostic_primary_span(diagnostic).unwrap_or(script_span);
-            let kind = diagnostic.code.as_deref().unwrap_or("compact-install");
-            diagnostics.push(runtime_diagnostic(
-                span,
-                &diagnostic.message,
-                "runtime.error",
-            ));
-            traceback = Some(self.traceback_for_value(
-                span,
-                "runtime.error",
-                &Value::Error(Box::new(
-                    RuntimeError::new(kind, diagnostic.message.clone()).with_span(span),
-                )),
-            ));
-            self.trace_exit(
-                TraceKind::ScriptExit,
-                Some(script_span),
-                Some("script"),
-                TracePayload::None,
-            );
-            return EvalOutput {
-                stdout: self.stdout,
-                stderr: self.stderr,
-                trace_events: self.trace_events,
-                diagnostics,
-                traceback,
-                sources: self.sources,
-                status,
-                cwd: self.cwd,
-                env: self.env.into_snapshot(),
-                last_status: self.last_status,
-            };
-        }
-        for (index, stmt) in root.iter().copied().enumerate() {
-            let span = program.arena.stmt(stmt).span;
-            if let Err(error) = self.service_pending_signal(span) {
-                let pending_traceback = self.pending_traceback.take();
-                diagnostics.push(runtime_diagnostic(
-                    error.span.unwrap_or(span),
-                    &error.message,
-                    "runtime.error",
-                ));
-                traceback = Some(pending_traceback.unwrap_or_else(|| {
-                    self.traceback_for_value(
-                        error.span.unwrap_or(span),
-                        "signal.hook",
-                        &Value::Error(Box::new(error)),
-                    )
-                }));
-                break;
-            }
-            if self.signal_state.shutdown_complete {
-                break;
-            }
-            let Some(lowered) = lowered_statements.get(index).cloned().flatten() else {
-                if compact_should_skip_auto_main_stmt(program, &root, index, auto_main_required)
-                    || compact_top_level_stmt_is_skippable(program, stmt, false)
-                {
-                    continue;
-                }
-                diagnostics.push(runtime_diagnostic(
-                    span,
-                    "statement could not be lowered to the compact runtime",
-                    "runtime.unlowered-statement",
-                ));
-                traceback = Some(self.traceback_for_value(
-                    span,
-                    "runtime.error",
-                    &Value::Error(Box::new(RuntimeError::new(
-                        "unlowered-statement",
-                        "statement could not be lowered to the compact runtime",
-                    ))),
-                ));
-                break;
-            };
-            if compact_should_skip_auto_main_stmt(program, &root, index, auto_main_required) {
-                continue;
-            }
-            if matches!(lowered.kind, LoweredTopLevelKind::Defer { .. }) {
-                compact_defers.push(lowered);
-                continue;
-            }
-            match self.eval_lowered_top_level_stmt(&lowered, span) {
-                Ok(Some(Flow::Continue(value))) => last_value = value,
-                Ok(Some(Flow::Return(value))) => {
-                    diagnostics.push(runtime_diagnostic(
-                        span,
-                        "return outside function",
-                        "runtime.return-outside-function",
-                    ));
-                    traceback = Some(self.traceback_for_value(
-                        span,
-                        "return",
-                        &Value::Error(Box::new(RuntimeError::new(
-                            "return-outside-function",
-                            format!("unexpected {}", value.type_name()),
-                        ))),
-                    ));
-                    break;
-                }
-                Ok(Some(Flow::Break(_) | Flow::ContinueLoop)) => {
-                    diagnostics.push(runtime_diagnostic(
-                        span,
-                        "loop control outside loop",
-                        "runtime.loop-control",
-                    ));
-                    traceback = Some(self.traceback_for_value(
-                        span,
-                        "loop-control",
-                        &Value::Error(Box::new(RuntimeError::new(
-                            "loop-control",
-                            "loop control outside loop",
-                        ))),
-                    ));
-                    break;
-                }
-                Ok(Some(Flow::Propagate(propagation))) => {
-                    if let Some(stop_status) = self.handle_cli_parse_stop(&propagation.error) {
-                        status = stop_status;
-                        stopped = true;
-                    } else {
-                        traceback = Some(propagation.traceback);
-                    }
-                    break;
-                }
-                Ok(None) => {
-                    diagnostics.push(runtime_diagnostic(
-                        span,
-                        "statement could not be lowered to the compact runtime",
-                        "runtime.unlowered-statement",
-                    ));
-                    traceback = Some(self.traceback_for_value(
-                        span,
-                        "runtime.error",
-                        &Value::Error(Box::new(RuntimeError::new(
-                            "unlowered-statement",
-                            "statement could not be lowered to the compact runtime",
-                        ))),
-                    ));
-                    break;
-                }
-                Err(error) => {
-                    if let Some(signal) = error.abort {
-                        abort = Some(signal);
-                        status = signal.status;
-                        break;
-                    }
-                    let pending_traceback = self.pending_traceback.take();
-                    self.trace_leaf(
-                        TraceKind::RuntimeError,
-                        Some(error.span.unwrap_or(span)),
-                        None,
-                        TracePayload::RuntimeError {
-                            error: TraceError::new(&error.kind, &error.message),
-                        },
-                    );
-                    diagnostics.push(runtime_diagnostic(
-                        error.span.unwrap_or(span),
-                        &error.message,
-                        "runtime.error",
-                    ));
-                    traceback = Some(pending_traceback.unwrap_or_else(|| {
-                        self.traceback_for_value(
-                            error.span.unwrap_or(span),
-                            "runtime.error",
-                            &Value::Error(Box::new(error)),
-                        )
-                    }));
-                    break;
-                }
-            }
-            if let Err(error) = self.service_pending_signal(span) {
-                let pending_traceback = self.pending_traceback.take();
-                diagnostics.push(runtime_diagnostic(
-                    error.span.unwrap_or(span),
-                    &error.message,
-                    "runtime.error",
-                ));
-                traceback = Some(pending_traceback.unwrap_or_else(|| {
-                    self.traceback_for_value(
-                        error.span.unwrap_or(span),
-                        "signal.hook",
-                        &Value::Error(Box::new(error)),
-                    )
-                }));
-                break;
-            }
-            if self.signal_state.shutdown_complete {
-                break;
-            }
-        }
-
-        // Final signal check after the statement loop.  A child process (e.g.
-        // `sh -c "kill -USR1 \$PPID"`) may send a signal and exit on CPU A
-        // while this process's `waitpid(NOHANG)` returns on CPU B.  The
-        // child's `exit` changes its zombie state atomically, so `waitpid`
-        // sees it immediately.  But the child's `kill` sets TIF_SIGPENDING on
-        // our task_struct — the cross-CPU IPI may not arrive until after
-        // `waitpid` returns to userspace.  Signal delivery only happens at
-        // the next kernel re-entry.  If the script has no more syscalls
-        // (e.g. the last statement was a fast `run`), TIF_SIGPENDING stays
-        // unobserved, the handler never writes PRIMARY_SIGNAL, and
-        // service_pending_signal never sees the hook signal.
-        // yield_now() forces sched_yield, a real syscall, so the kernel
-        // checks pending signals before returning and delivers any that
-        // raced in after the last poll.  Handle the result inline to
-        // propagate shutdown status from the hook's abort(0).
-        std::thread::yield_now();
-        if let Err(error) = self.service_pending_signal(script_span) {
-            diagnostics.push(runtime_diagnostic(
-                error.span.unwrap_or(script_span),
-                &error.message,
-                "runtime.error",
-            ));
-            traceback = Some(self.pending_traceback.take().unwrap_or_else(|| {
-                self.traceback_for_value(
-                    error.span.unwrap_or(script_span),
-                    "signal.hook",
-                    &Value::Error(Box::new(error)),
-                )
-            }));
-        }
-        if self.signal_state.shutdown_complete
-            && traceback.is_none()
-            && abort.is_none()
-            && !stopped
-            && let Some(shutdown_status) = self.signal_state.shutdown_status
-        {
-            status = shutdown_status;
-        }
-
-        if auto_main_required && traceback.is_none() && abort.is_none() && !stopped {
-            let zero = zero_span();
-            let call_result =
-                self.call_lowered_proc(Name::intern("main"), &compact_auto_main_args, zero);
-            match call_result {
-                Some(Ok(Value::Result(ResultValue::Err(error)))) => {
-                    if let Some(stop_status) = self.handle_cli_parse_stop(error.as_ref()) {
-                        status = stop_status;
-                        stopped = true;
-                        self.pending_traceback = None;
-                    } else {
-                        traceback = Some(self.pending_traceback.take().unwrap_or_else(|| {
-                            self.traceback_for_value(zero, "main", error.as_ref())
-                        }));
-                    }
-                }
-                Some(Ok(value)) => last_value = value,
-                Some(Err(error)) => {
-                    if let Some(signal) = error.abort {
-                        abort = Some(signal);
-                        status = signal.status;
-                    } else {
-                        let pending_traceback = self.pending_traceback.take();
-                        diagnostics.push(runtime_diagnostic(
-                            error.span.unwrap_or(zero),
-                            &error.message,
-                            "runtime.error",
-                        ));
-                        traceback = Some(pending_traceback.unwrap_or_else(|| {
-                            self.traceback_for_value(
-                                error.span.unwrap_or(zero),
-                                "runtime.error",
-                                &Value::Error(Box::new(error)),
-                            )
-                        }));
-                    }
-                }
-                None => {
-                    diagnostics.push(runtime_diagnostic(
-                        zero,
-                        "main could not be lowered to the compact runtime",
-                        "runtime.unlowered-statement",
-                    ));
-                    traceback = Some(self.traceback_for_value(
-                        zero,
-                        "runtime.error",
-                        &Value::Error(Box::new(RuntimeError::new(
-                            "unlowered-statement",
-                            "main could not be lowered to the compact runtime",
-                        ))),
-                    ));
-                }
-            }
-        }
-
-        let cleanup_result = if abort.is_some_and(|signal: AbortSignal| signal.force)
-            || self.signal_state.shutdown_force
-        {
-            Ok(Flow::Continue(Value::Unit))
-        } else {
-            let mut cleanup = self.cleanup_scope_process_handles(
-                self.current_scope_id(),
-                Ok(Flow::Continue(Value::Unit)),
-            );
-            for lowered in compact_defers.into_iter().rev() {
-                if cleanup.is_err() || matches!(cleanup, Ok(Flow::Propagate(_))) {
-                    break;
-                }
-                cleanup = self
-                    .eval_lowered_top_level_stmt(&lowered, script_span)
-                    .map(|flow| flow.unwrap_or(Flow::Continue(Value::Unit)));
-            }
-            cleanup
-        };
-        if traceback.is_none() && abort.is_none() {
-            match cleanup_result {
-                Ok(Flow::Continue(_)) => {}
-                Ok(Flow::Propagate(propagation)) => traceback = Some(propagation.traceback),
-                Ok(Flow::Return(_) | Flow::Break(_) | Flow::ContinueLoop) => {
-                    diagnostics.push(runtime_diagnostic(
-                        script_span,
-                        "deferred cleanup produced invalid control flow",
-                        "runtime.defer-control-flow",
-                    ));
-                    traceback = Some(self.traceback_for_value(
-                        script_span,
-                        "defer",
-                        &Value::Error(Box::new(RuntimeError::new(
-                            "defer-control-flow",
-                            "deferred cleanup produced invalid control flow",
-                        ))),
-                    ));
-                }
-                Err(error) => {
-                    if let Some(signal) = error.abort {
-                        status = signal.status;
-                        abort = Some(signal);
-                    } else {
-                        diagnostics.push(runtime_diagnostic(
-                            error.span.unwrap_or(script_span),
-                            &error.message,
-                            "runtime.error",
-                        ));
-                        traceback = Some(self.traceback_for_value(
-                            error.span.unwrap_or(script_span),
-                            "defer",
-                            &Value::Error(Box::new(error)),
-                        ));
-                    }
-                }
-            }
-        }
-        if traceback.is_none()
-            && abort.is_none()
-            && !stopped
-            && let Some(shutdown_status) = self.signal_state.shutdown_status
-        {
-            status = shutdown_status;
-        } else if traceback.is_none() && abort.is_none() && !stopped {
-            match script_status_from_value(&last_value, script_span) {
-                Ok(script_status) => status = script_status,
-                Err(error) => {
-                    diagnostics.push(runtime_diagnostic(
-                        error.span.unwrap_or(script_span),
-                        &error.message,
-                        "runtime.exit-status",
-                    ));
-                    traceback = Some(self.traceback_for_value(
-                        error.span.unwrap_or(script_span),
-                        "script.exit",
-                        &Value::Error(Box::new(error)),
-                    ));
-                }
-            }
-        }
-        self.trace_exit(
-            TraceKind::ScriptExit,
-            Some(script_span),
-            Some("script"),
-            TracePayload::None,
-        );
-
-        EvalOutput {
-            stdout: self.stdout,
-            stderr: self.stderr,
-            trace_events: self.trace_events,
-            diagnostics,
-            traceback,
-            sources: self.sources,
-            status,
-            cwd: self.cwd,
-            env: self.env.into_snapshot(),
-            last_status: self.last_status,
-        }
-    }
-
-    pub fn eval_compact_lowered_only(
-        self,
-        program: &ArenaProgram,
-        source_id: SourceId,
-    ) -> Option<EvalOutput> {
-        self.try_eval_compact_lowered_only(program, source_id).ok()
-    }
-
-    pub fn try_eval_compact_lowered_only(
-        self,
-        program: &ArenaProgram,
-        source_id: SourceId,
-    ) -> Result<EvalOutput, Self> {
-        run_eval_on_large_stack(move || {
-            self.try_eval_compact_lowered_only_inner(program, source_id)
-        })
-    }
-
-    fn try_eval_compact_lowered_only_inner(
-        mut self,
-        program: &ArenaProgram,
-        source_id: SourceId,
-    ) -> Result<EvalOutput, Self> {
-        let Some(plan) = self.prepare_compact_lowered_only(program, source_id, true) else {
-            return Err(self);
-        };
-        self.try_eval_installed_compact_lowered_only_inner(plan)
-    }
-
-    pub(crate) fn prepare_compact_lowered_only(
-        &mut self,
-        program: &ArenaProgram,
-        source_id: SourceId,
-        strict_dynamic_methods: bool,
-    ) -> Option<CompactLoweredRunPlan> {
-        self.prepare_compact_lowered_only_or_diagnostic(
-            program,
-            source_id,
-            false,
-            strict_dynamic_methods,
-        )
-        .ok()
-    }
-
     pub(crate) fn prepare_compact_indexed_only(
         &mut self,
         program: &ArenaProgram,
         source_id: SourceId,
-    ) -> Option<CompactLoweredRunPlan> {
-        self.prepare_compact_indexed_only_or_diagnostic(program, source_id)
+    ) -> Option<CompactIndexedRunPlan> {
+        self.prepare_compact_indexed_only_or_diagnostic(program, source_id, false)
             .ok()
     }
 
@@ -4047,7 +3305,8 @@ impl Evaluator {
         &mut self,
         program: &ArenaProgram,
         source_id: SourceId,
-    ) -> Result<CompactLoweredRunPlan, Diagnostic> {
+        allow_checker_only: bool,
+    ) -> Result<CompactIndexedRunPlan, Diagnostic> {
         let mut declarations = Checker::check_compact_declarations(program);
         if !declarations.diagnostics.is_empty() {
             return Err(declarations.diagnostics.remove(0));
@@ -4065,13 +3324,14 @@ impl Evaluator {
                 "compact.indexed-source",
             ));
         };
-        let indexed = FullBuilder::build_compact(
+        let indexed = FullBuilder::build_compact_with_options(
             program,
             &declarations,
             &bodies,
             source,
             Arc::clone(&self.sources),
             source_id,
+            allow_checker_only,
         )
         .map_err(|error| {
             let span = error
@@ -4154,7 +3414,7 @@ impl Evaluator {
             })?;
             if !encoded
                 && !skip_auto_main
-                && !compact_top_level_stmt_is_skippable(program, stmt, false)
+                && !compact_top_level_stmt_is_skippable(program, stmt, allow_checker_only)
             {
                 return Err(compact_lowerability_diagnostic(
                     program.arena.stmt(stmt).span,
@@ -4162,12 +3422,12 @@ impl Evaluator {
                     "compact.unlowered-statement",
                 ));
             }
-            statements.push(CompactLoweredTopLevelPlan {
+            statements.push(CompactIndexedDriverStepPlan {
                 span: program.arena.stmt(stmt).span,
                 skip_auto_main,
             });
         }
-        Ok(CompactLoweredRunPlan {
+        Ok(CompactIndexedRunPlan {
             script_span: statements
                 .first()
                 .map(|statement| statement.span)
@@ -4186,7 +3446,7 @@ impl Evaluator {
         command_name: String,
     ) -> Vec<Diagnostic> {
         let mut evaluator = Self::new_with_sources_and_command(argv, sources, command_name);
-        match evaluator.prepare_compact_indexed_only_or_diagnostic(program, source_id) {
+        match evaluator.prepare_compact_indexed_only_or_diagnostic(program, source_id, false) {
             Ok(_) => Vec::new(),
             Err(diagnostic) => vec![diagnostic],
         }
@@ -4200,228 +3460,28 @@ impl Evaluator {
         command_name: String,
     ) -> Vec<Diagnostic> {
         let mut evaluator = Self::new_with_sources_and_command(argv, sources, command_name);
-        match evaluator.prepare_compact_lowered_only_or_diagnostic(program, source_id, true, true) {
+        match evaluator.prepare_compact_indexed_only_or_diagnostic(program, source_id, true) {
             Ok(_) => Vec::new(),
             Err(diagnostic) => vec![diagnostic],
         }
     }
 
-    fn prepare_compact_lowered_only_or_diagnostic(
-        &mut self,
-        program: &ArenaProgram,
-        source_id: SourceId,
-        allow_checker_only: bool,
-        strict_dynamic_methods: bool,
-    ) -> Result<CompactLoweredRunPlan, Diagnostic> {
-        if self.trace_enabled {
-            return Err(compact_lowerability_diagnostic(
-                zero_span(),
-                "compact lowerability cannot be checked while tracing is enabled",
-                "compact.trace-enabled",
-            ));
-        }
-        let install_diagnostics = self.install_compact_lowered_program_with_dynamic_mode(
-            program,
-            source_id,
-            strict_dynamic_methods,
-        );
-        if let Some(diagnostic) = install_diagnostics.into_iter().next() {
-            return Err(diagnostic);
-        }
-        if allow_checker_only
-            && let Some(source) = self
-                .sources
-                .get(program.source_text_source_id().unwrap_or(source_id))
-                .map(|s| s.text())
-        {
-            let capture_diagnostics = lower::validate_compact_lowered_capture_types(
-                program,
-                source,
-                &self.lowered_pures,
-                &self.lowered_procs,
-                &self.lowered_qualified_pures,
-                &self.lowered_qualified_procs,
-            );
-            if let Some(diagnostic) = capture_diagnostics.into_iter().next() {
-                return Err(diagnostic);
-            }
-        }
-        let root = program.statement_ids().collect::<Vec<_>>();
-        let auto_main_required = compact_root_proc_main_requires_auto_call(
-            program,
-            &root,
-            &self.lowered_program.statements,
-        );
-        if auto_main_required && !self.lowered_procs.contains_key(&Name::intern("main")) {
-            if let Some(diagnostic) =
-                self.compact_unlowered_main_diagnostic(program, &root, source_id)
-            {
-                return Err(diagnostic);
-            }
-            let span = root
-                .iter()
-                .copied()
-                .find_map(|stmt| compact_root_proc_main_span(program, stmt))
-                .unwrap_or_else(zero_span);
-            return Err(compact_lowerability_diagnostic(
-                span,
-                "proc main could not be lowered to the compact runtime",
-                "compact.unlowered-main",
-            ));
-        }
-        let compact_auto_main_args = if auto_main_required {
-            let Some(args) = self.compact_auto_main_args() else {
-                return Err(compact_lowerability_diagnostic(
-                    zero_span(),
-                    "script arguments could not be converted for compact main dispatch",
-                    "compact.main-args",
-                ));
-            };
-            args
-        } else {
-            Vec::new()
-        };
-        if self.lowered_program.statements.len() != root.len() {
-            return Err(compact_lowerability_diagnostic(
-                root.first()
-                    .map(|stmt| program.arena.stmt(*stmt).span)
-                    .unwrap_or_else(zero_span),
-                "compact lowered statement count did not match the source program",
-                "compact.statement-count",
-            ));
-        }
-        let mut statements = Vec::with_capacity(root.len());
-        for (index, stmt) in root.iter().copied().enumerate() {
-            let skip_auto_main =
-                compact_should_skip_auto_main_stmt(program, &root, index, auto_main_required);
-            if self.lowered_program.statements[index].is_none()
-                && !skip_auto_main
-                && !compact_top_level_stmt_is_skippable(program, stmt, allow_checker_only)
-            {
-                return Err(self.compact_unlowered_top_level_diagnostic(program, stmt));
-            }
-            statements.push(CompactLoweredTopLevelPlan {
-                span: program.arena.stmt(stmt).span,
-                skip_auto_main,
-            });
-        }
-        Ok(CompactLoweredRunPlan {
-            script_span: statements
-                .first()
-                .map(|statement| statement.span)
-                .unwrap_or_else(zero_span),
-            statements,
-            auto_main_required,
-            compact_auto_main_args,
-        })
-    }
-
-    fn compact_unlowered_top_level_diagnostic(
-        &self,
-        program: &ArenaProgram,
-        stmt: StmtId,
-    ) -> Diagnostic {
-        let span = program.arena.stmt(stmt).span;
-        let base_message = "top-level statement could not be lowered to the compact runtime";
-        let Some((blocker_span, blocker_label)) = self.first_compact_construct_blocker() else {
-            return compact_lowerability_diagnostic(
-                span,
-                base_message,
-                "compact.unlowered-statement",
-            );
-        };
-        let message = format!("{base_message}; first blocker: {blocker_label}");
-        crate::diagnostic::Diagnostic::error(message.clone())
-            .with_code("compact.unlowered-statement")
-            .with_label(crate::diagnostic::Label::primary(span, base_message))
-            .with_label(crate::diagnostic::Label::secondary(
-                blocker_span,
-                format!("first unsupported lowered construct: {blocker_label}"),
-            ))
-    }
-
-    fn first_compact_construct_blocker(&self) -> Option<(Span, String)> {
-        let probe = self.last_construct_probe.as_ref()?;
-        first_blocker_sample(&probe.call_blocker_sample_spans)
-            .map(|(span, label)| (span, format!("call `{label}`")))
-            .or_else(|| {
-                first_blocker_sample(&probe.statement_blocker_sample_spans)
-                    .map(|(span, label)| (span, format!("statement `{label}`")))
-            })
-            .or_else(|| {
-                first_blocker_sample(&probe.top_level_blocker_sample_spans)
-                    .map(|(span, label)| (span, format!("top-level `{label}`")))
-            })
-    }
-
-    // When `proc main` fails to lower, walk main's static dependency chain to
-    // find the closest function whose own signature or body has a concrete
-    // unsupported construct. The in-isolation probe (`probe_compact_lower_function_units`)
-    // treats every user function as a call candidate, so a unit that fails to
-    // lower in isolation has a real blocker in its own signature/body rather
-    // than an unresolved callee. Reporting that leaf is far more actionable
-    // than the generic "proc main could not be lowered" message.
-    fn compact_unlowered_main_diagnostic(
-        &self,
-        program: &ArenaProgram,
-        root: &[StmtId],
-        source_id: SourceId,
-    ) -> Option<Diagnostic> {
-        let declarations = Checker::check_compact_declarations(program);
-        if !declarations.diagnostics.is_empty() {
-            return None;
-        }
-        let bodies = Checker::probe_compact_bodies(program, &declarations);
-        if !bodies.diagnostics.is_empty() {
-            return None;
-        }
-        let source_id = program.source_text_source_id().unwrap_or(source_id);
-        let source = self.sources.get(source_id).map(|source| source.text())?;
-        let first_blocker = self.first_compact_construct_blocker();
-        let units =
-            lower::probe_compact_lower_function_units(program, &declarations, &bodies, source);
-        if let Some(diagnostic) =
-            compact_blocker_diagnostic_for_main(program, root, &units, first_blocker.as_ref())
-        {
-            return Some(diagnostic);
-        }
-        let units = lower::probe_compact_lower_function_units_with_available(
-            program,
-            &declarations,
-            &bodies,
-            source,
-            &self.lowered_pures,
-            &self.lowered_procs,
-            &self.lowered_qualified_pures,
-            &self.lowered_qualified_procs,
-        );
-        compact_install_blocker_diagnostic_for_main(program, root, &units, first_blocker.as_ref())
-    }
-
-    #[cfg(test)]
-    pub(crate) fn eval_installed_compact_lowered_only(
-        self,
-        plan: CompactLoweredRunPlan,
-    ) -> Result<EvalOutput, Self> {
-        run_eval_on_large_stack(move || self.try_eval_installed_compact_lowered_only_inner(plan))
-    }
-
     pub(crate) fn eval_installed_compact_indexed_only(
         self,
-        plan: CompactLoweredRunPlan,
+        plan: CompactIndexedRunPlan,
     ) -> Result<EvalOutput, Self> {
-        run_eval_on_large_stack(move || self.try_eval_installed_compact_lowered_only_inner(plan))
+        run_eval_on_large_stack(move || self.try_eval_installed_compact_indexed_only_inner(plan))
     }
 
-    fn try_eval_installed_compact_lowered_only_inner(
+    fn try_eval_installed_compact_indexed_only_inner(
         mut self,
-        plan: CompactLoweredRunPlan,
+        plan: CompactIndexedRunPlan,
     ) -> Result<EvalOutput, Self> {
-        let statement_count = if let Some(indexed) = &self.indexed_program {
-            indexed.driver_step_count().unwrap_or(usize::MAX)
-        } else {
-            self.lowered_program.statements.len()
-        };
+        let statement_count = self
+            .indexed_program
+            .as_ref()
+            .and_then(|indexed| indexed.driver_step_count().ok())
+            .unwrap_or(usize::MAX);
         if statement_count != plan.statements.len() {
             let span = plan.script_span;
             let message = "compact lowered statement count did not match the source program";
@@ -4451,11 +3511,6 @@ impl Evaluator {
                 last_status: self.last_status,
             });
         }
-        let lowered_statements = self
-            .indexed_program
-            .is_none()
-            .then(|| self.lowered_program.statements.clone());
-
         crate::runtime::process::clear_cancellation_request();
         let script_span = plan.script_span;
         self.trace_enter(
@@ -4472,7 +3527,6 @@ impl Evaluator {
         let mut last_value = Value::Unit;
         let mut diagnostics = Vec::new();
         let mut compact_indexed_defers = Vec::new();
-        let mut compact_lowered_defers = Vec::new();
         for (index, stmt) in plan.statements.iter().enumerate() {
             let span = stmt.span;
             if let Err(error) = self.service_pending_signal(span) {
@@ -4497,55 +3551,42 @@ impl Evaluator {
             if stmt.skip_auto_main {
                 continue;
             }
-            let evaluated = if let Some(indexed) = &self.indexed_program {
-                match indexed.driver_step_is_defer(index) {
-                    Ok(true) => {
-                        compact_indexed_defers.push(index);
-                        continue;
-                    }
-                    Ok(false) => {}
-                    Err(error) => {
-                        let error = RuntimeError::new(
-                            "indexed-driver",
-                            format!(
-                                "indexed driver verification failed: {}",
-                                error.message
-                            ),
-                        )
-                        .with_span(span);
-                        diagnostics.push(runtime_diagnostic(
-                            span,
-                            &error.message,
-                            "runtime.indexed-driver",
-                        ));
-                        traceback = Some(self.traceback_for_value(
-                            span,
-                            "runtime.error",
-                            &Value::Error(Box::new(error)),
-                        ));
-                        break;
-                    }
+            let indexed = self
+                .indexed_program
+                .as_ref()
+                .expect("verified indexed program remains installed");
+            match indexed.driver_step_is_defer(index) {
+                Ok(true) => {
+                    compact_indexed_defers.push(index);
+                    continue;
                 }
-                self.eval_indexed_driver_step(index, span).unwrap_or_else(|| {
-                    Err(RuntimeError::new(
+                Ok(false) => {}
+                Err(error) => {
+                    let error = RuntimeError::new(
                         "indexed-driver",
-                        "verified indexed driver step has no direct executor",
+                        format!("indexed driver verification failed: {}", error.message),
                     )
-                    .with_span(span))
-                })
-            } else {
-                let Some(lowered) = lowered_statements
-                    .as_ref()
-                    .and_then(|statements| statements[index].clone())
-                else {
-                    continue;
-                };
-                if matches!(lowered.kind, LoweredTopLevelKind::Defer { .. }) {
-                    compact_lowered_defers.push(lowered);
-                    continue;
+                    .with_span(span);
+                    diagnostics.push(runtime_diagnostic(
+                        span,
+                        &error.message,
+                        "runtime.indexed-driver",
+                    ));
+                    traceback = Some(self.traceback_for_value(
+                        span,
+                        "runtime.error",
+                        &Value::Error(Box::new(error)),
+                    ));
+                    break;
                 }
-                self.eval_lowered_top_level_stmt(&lowered, span)
-            };
+            }
+            let evaluated = self.eval_indexed_driver_step(index, span).unwrap_or_else(|| {
+                Err(RuntimeError::new(
+                    "indexed-driver",
+                    "verified indexed driver step has no direct executor",
+                )
+                .with_span(span))
+            });
             match evaluated {
                 Ok(Some(Flow::Continue(value))) => last_value = value,
                 Ok(Some(Flow::Return(value))) => {
@@ -4698,8 +3739,12 @@ impl Evaluator {
 
         if plan.auto_main_required && traceback.is_none() && abort.is_none() && !stopped {
             let zero = zero_span();
-            let call_result =
-                self.call_lowered_proc(Name::intern("main"), &plan.compact_auto_main_args, zero);
+            let call_result = self.call_indexed_direct(
+                LoweredFunctionKey::Name(Name::intern("main")),
+                LoweredFunctionKind::Proc,
+                &plan.compact_auto_main_args,
+                zero,
+            );
             if let Some(call_result) = call_result {
                 match call_result {
                     Ok(Value::Result(ResultValue::Err(error))) => {
@@ -4777,14 +3822,6 @@ impl Evaluator {
                         )
                         .with_span(script_span))
                     })
-                    .map(|flow| flow.unwrap_or(Flow::Continue(Value::Unit)));
-            }
-            for lowered in compact_lowered_defers.into_iter().rev() {
-                if cleanup.is_err() || matches!(cleanup, Ok(Flow::Propagate(_))) {
-                    break;
-                }
-                cleanup = self
-                    .eval_lowered_top_level_stmt(&lowered, script_span)
                     .map(|flow| flow.unwrap_or(Flow::Continue(Value::Unit)));
             }
             cleanup
@@ -4893,16 +3930,7 @@ impl Evaluator {
                 .ok()
                 .flatten()
         });
-        if let Some(main) = self.lowered_procs.get(&main_name) {
-            for (index, arg) in args.iter_mut().enumerate() {
-                if main.param_kinds.get(index).copied() == Some(LoweredType::Path)
-                    && let Value::Str(text) = arg
-                    && let Ok(path) = PathValue::from_text(&text)
-                {
-                    *arg = Value::Path(path);
-                }
-            }
-        } else if let Some(param_kinds) = indexed_param_kinds {
+        if let Some(param_kinds) = indexed_param_kinds {
             for (index, arg) in args.iter_mut().enumerate() {
                 if param_kinds.get(index).copied() == Some(LoweredType::Path)
                     && let Value::Str(text) = arg
@@ -4932,14 +3960,12 @@ impl Evaluator {
         program: Arc<ArenaProgram>,
         source_id: SourceId,
     ) -> PreparedTestProgram {
-        self.install_compact_lowered_program(&program, source_id);
-        let root = program.statement_ids().collect::<Vec<_>>();
-        let script_span = root
-            .first()
-            .map(|stmt| program.arena.stmt(*stmt).span)
-            .unwrap_or_else(zero_span);
+        let plan = self
+            .prepare_compact_indexed_only(&program, source_id)
+            .expect("checked native-test programs must encode as indexed IR");
+        let script_span = plan.script_span;
         let shared = self.lowered_shared_state();
-        let (diagnostics, traceback) = self.eval_installed_test_setup(&program, &root);
+        let (diagnostics, traceback) = self.eval_installed_indexed_test_setup(&plan);
         let (setup_shared, setup_failure) = if traceback.is_some() {
             (
                 Arc::clone(&shared),
@@ -4949,8 +3975,7 @@ impl Evaluator {
             (self.lowered_shared_state(), None)
         };
         PreparedTestProgram {
-            program,
-            root,
+            plan,
             script_span,
             shared,
             setup_shared,
@@ -4966,20 +3991,29 @@ impl Evaluator {
         test_name: &str,
         ctx: Value,
     ) -> TestEvalOutput {
-        self.install_compact_lowered_program(program, source_id);
-        let root = program.statement_ids().collect::<Vec<_>>();
-        let script_span = root
-            .first()
-            .map(|stmt| program.arena.stmt(*stmt).span)
-            .unwrap_or_else(zero_span);
-        self.eval_installed_test_inner(program, &root, script_span, test_name, ctx)
+        let Some(plan) = self.prepare_compact_indexed_only(program, source_id) else {
+            let span = program
+                .statement_ids()
+                .next()
+                .map(|stmt| program.arena.stmt(stmt).span)
+                .unwrap_or_else(zero_span);
+            return self.finish_test_output(
+                vec![runtime_diagnostic(
+                    span,
+                    "native-test program could not be encoded in indexed IR",
+                    "runtime.test-setup",
+                )],
+                None,
+                None,
+            );
+        };
+        self.eval_installed_indexed_test_inner(&plan, plan.script_span, test_name, ctx)
     }
 
     #[cfg(feature = "native-tests")]
-    fn eval_installed_test_inner(
+    fn eval_installed_indexed_test_inner(
         mut self,
-        program: &ArenaProgram,
-        root: &[StmtId],
+        plan: &CompactIndexedRunPlan,
         script_span: Span,
         test_name: &str,
         ctx: Value,
@@ -4992,7 +4026,7 @@ impl Evaluator {
         );
 
         let mut result = None;
-        let (mut diagnostics, mut traceback) = self.eval_installed_test_setup(program, root);
+        let (mut diagnostics, mut traceback) = self.eval_installed_indexed_test_setup(plan);
 
         if traceback.is_none() {
             match self.call_installed_test_proc(script_span, test_name, ctx) {
@@ -5015,45 +4049,36 @@ impl Evaluator {
     }
 
     #[cfg(feature = "native-tests")]
-    fn eval_installed_test_setup(
+    fn eval_installed_indexed_test_setup(
         &mut self,
-        program: &ArenaProgram,
-        root: &[StmtId],
+        plan: &CompactIndexedRunPlan,
     ) -> (Vec<Diagnostic>, Option<Traceback>) {
-        let lowered_statements = self.lowered_program.statements.clone();
         let mut diagnostics = Vec::new();
         let mut traceback = None;
-        for (index, stmt) in root.iter().copied().enumerate() {
-            let span = program.arena.stmt(stmt).span;
-            let Some(lowered) = lowered_statements.get(index).cloned().flatten() else {
-                if compact_top_level_stmt_is_skippable(program, stmt, false) {
-                    continue;
-                }
+        for (index, statement) in plan.statements.iter().enumerate() {
+            let span = statement.span;
+            let Some(program) = self.indexed_program.as_ref() else {
                 diagnostics.push(runtime_diagnostic(
                     span,
-                    "statement could not be lowered to the compact runtime",
-                    "runtime.unlowered-statement",
-                ));
-                traceback = Some(self.traceback_for_value(
-                    span,
-                    "test.setup",
-                    &Value::Error(Box::new(RuntimeError::new(
-                        "unlowered-statement",
-                        "statement could not be lowered to the compact runtime",
-                    ))),
+                    "indexed native-test program is not installed",
+                    "runtime.test-setup",
                 ));
                 break;
             };
-            if matches!(lowered.kind, LoweredTopLevelKind::Defer { .. }) {
+            if program.driver_step_is_skip(index).unwrap_or(false)
+                || program.driver_step_is_defer(index).unwrap_or(false)
+            {
                 continue;
             }
-            match self.eval_lowered_top_level_stmt(&lowered, span) {
-                Ok(Some(Flow::Continue(_)) | None) => {}
-                Ok(Some(Flow::Propagate(propagation))) => {
+            match self.eval_indexed_driver_step(index, span) {
+                Some(Ok(Some(Flow::Continue(_)) | None)) => {}
+                Some(Ok(Some(Flow::Propagate(propagation)))) => {
                     traceback = Some(propagation.traceback);
                     break;
                 }
-                Ok(Some(Flow::Return(_) | Flow::Break(_) | Flow::ContinueLoop)) => {
+                Some(Ok(Some(
+                    Flow::Return(_) | Flow::Break(_) | Flow::ContinueLoop,
+                ))) => {
                     diagnostics.push(runtime_diagnostic(
                         span,
                         "invalid top-level control flow in test setup",
@@ -5069,7 +4094,7 @@ impl Evaluator {
                     ));
                     break;
                 }
-                Err(error) => {
+                Some(Err(error)) => {
                     let pending_traceback = self.pending_traceback.take();
                     self.trace_leaf(
                         TraceKind::RuntimeError,
@@ -5091,6 +4116,14 @@ impl Evaluator {
                             &Value::Error(Box::new(error)),
                         )
                     }));
+                    break;
+                }
+                None => {
+                    diagnostics.push(runtime_diagnostic(
+                        span,
+                        "indexed native-test driver step is not available",
+                        "runtime.test-setup",
+                    ));
                     break;
                 }
             }
@@ -5138,12 +4171,28 @@ impl Evaluator {
         ctx: Value,
     ) -> Result<Option<Value>, (Diagnostic, Traceback, Option<Value>)> {
         let name = Name::intern(test_name);
-        let args = match self.lowered_procs.get(&name) {
-            Some(def) if def.params.is_empty() => Vec::new(),
+        let key = LoweredFunctionKey::Name(name);
+        let args = match self
+            .indexed_program
+            .as_ref()
+            .and_then(|program| {
+                program
+                    .function_view(key, LoweredFunctionKind::Proc)
+                    .ok()
+                    .flatten()
+            })
+            .and_then(|view| view.header().ok())
+        {
+            Some(header) if header.params.is_empty() => Vec::new(),
             Some(_) => vec![ctx],
             None => Vec::new(),
         };
-        match self.call_lowered_proc(name, &args, script_span) {
+        match self.call_indexed_direct(
+            key,
+            LoweredFunctionKind::Proc,
+            &args,
+            script_span,
+        ) {
             Some(Ok(value)) => Ok(Some(value)),
             Some(Err(error)) => {
                 let span = error.span.unwrap_or(script_span);
@@ -5207,129 +4256,11 @@ impl Evaluator {
         }
     }
 
-    pub fn install_compact_lowered_program(
-        &mut self,
-        program: &ArenaProgram,
-        source_id: SourceId,
-    ) -> Vec<Diagnostic> {
-        self.install_compact_lowered(program, source_id, true, None, true)
-    }
-
-    fn install_compact_lowered_program_with_dynamic_mode(
-        &mut self,
-        program: &ArenaProgram,
-        source_id: SourceId,
-        strict_dynamic_methods: bool,
-    ) -> Vec<Diagnostic> {
-        self.install_compact_lowered(
-            program,
-            source_id,
-            true,
-            None,
-            strict_dynamic_methods,
-        )
-    }
-
-    pub fn install_compact_lowered_functions(
-        &mut self,
-        program: &ArenaProgram,
-        source_id: SourceId,
-    ) -> Vec<Diagnostic> {
-        self.install_compact_lowered(program, source_id, false, None, true)
-    }
-
-    pub fn install_compact_lowered_functions_with_source(
-        &mut self,
-        program: &ArenaProgram,
-        source_id: SourceId,
-        source: &str,
-    ) -> Vec<Diagnostic> {
-        self.install_compact_lowered(program, source_id, false, Some(source), true)
-    }
-
-    fn install_compact_lowered(
-        &mut self,
-        program: &ArenaProgram,
-        source_id: SourceId,
-        install_top_level: bool,
-        explicit_source: Option<&str>,
-        strict_dynamic_methods: bool,
-    ) -> Vec<Diagnostic> {
-        let declarations = Checker::check_compact_declarations(program);
-        if !declarations.diagnostics.is_empty() {
-            return declarations.diagnostics;
-        }
-        self.install_compact_runtime_declarations(&declarations);
-        let bodies = Checker::probe_compact_bodies(program, &declarations);
-        if !bodies.diagnostics.is_empty() {
-            return bodies.diagnostics;
-        }
-        let source_id = program.source_text_source_id().unwrap_or(source_id);
-        let Some(source) =
-            explicit_source.or_else(|| self.sources.get(source_id).map(|source| source.text()))
-        else {
-            return Vec::new();
-        };
-        let lowered_functions = lower::lower_compact_root_functions(
-            program,
-            &declarations,
-            &bodies,
-            source,
-            &self.sources,
-            &self.lowered_qualified_pures,
-            &self.lowered_qualified_procs,
-            strict_dynamic_methods,
-        );
-        let functions = LowerableFunctions::all(
-            &lowered_functions.pures,
-            &lowered_functions.procs,
-            &lowered_functions.qualified_pures,
-            &lowered_functions.qualified_procs,
-        );
-        self.last_construct_probe = None;
-        let lowered = install_top_level.then(|| {
-            lower::lower_compact_top_level_program_with_probe(
-                program,
-                &declarations,
-                &bodies,
-                source,
-                &self.sources,
-                &functions,
-                strict_dynamic_methods,
-            )
-        });
-        Arc::make_mut(&mut self.lowered_pures).extend(lowered_functions.pures);
-        Arc::make_mut(&mut self.lowered_procs).extend(lowered_functions.procs);
-        Arc::make_mut(&mut self.lowered_qualified_pures).extend(lowered_functions.qualified_pures);
-        Arc::make_mut(&mut self.lowered_qualified_procs).extend(lowered_functions.qualified_procs);
-        if let Some((lowered, construct_probe)) = lowered {
-            self.lowered_program = Arc::new(lowered);
-            self.last_construct_probe = Some(construct_probe);
-        }
-        Vec::new()
-    }
-
     fn install_compact_runtime_declarations(&mut self, declarations: &CompactDeclOutput) {
         self.tag_variants
             .extend(compact_runtime_tag_arities(declarations));
         let (error_families, _, _, _) = compact_runtime_error_families(declarations);
         self.error_families.extend(error_families);
-    }
-
-    fn lowered_function(&self, function: LoweredFunctionKey) -> Option<Arc<LoweredPureFunction>> {
-        let lowered = match function {
-            LoweredFunctionKey::Name(function) => self
-                .lowered_pures
-                .get(&function)
-                .or_else(|| self.lowered_procs.get(&function))
-                .cloned(),
-            LoweredFunctionKey::Qualified(function) => self
-                .lowered_qualified_pures
-                .get(&function)
-                .or_else(|| self.lowered_qualified_procs.get(&function))
-                .cloned(),
-        };
-        lowered
     }
 
     fn contains_indexed_function(
@@ -6771,175 +5702,6 @@ fn compact_lowerability_diagnostic(span: Span, message: &str, code: &str) -> Dia
         .with_label(crate::diagnostic::Label::primary(span, message))
 }
 
-fn first_blocker_sample(samples: &BTreeMap<String, Vec<Span>>) -> Option<(Span, &str)> {
-    samples
-        .iter()
-        .find_map(|(label, spans)| spans.first().copied().map(|span| (span, label.as_str())))
-}
-
-fn compact_blocker_diagnostic_for_main(
-    program: &ArenaProgram,
-    root: &[StmtId],
-    units: &[LoweredFunctionUnit],
-    first_blocker: Option<&(Span, String)>,
-) -> Option<Diagnostic> {
-    let mut index_by_key: FxHashMap<LoweredFunctionKey, usize> = FxHashMap::default();
-    for (index, unit) in units.iter().enumerate() {
-        index_by_key.insert(unit.key(), index);
-    }
-    let main_key = LoweredFunctionKey::Name(Name::intern("main"));
-    let main_index = *index_by_key.get(&main_key)?;
-    let main_span = root
-        .iter()
-        .copied()
-        .find_map(|stmt| compact_root_proc_main_span(program, stmt))
-        .unwrap_or_else(zero_span);
-    let mut visited = vec![false; units.len()];
-    let mut queue = std::collections::VecDeque::new();
-    queue.push_back(main_index);
-    while let Some(index) = queue.pop_front() {
-        if visited[index] {
-            continue;
-        }
-        visited[index] = true;
-        let unit = &units[index];
-        if !unit.is_lowered() {
-            return Some(compact_blocker_diagnostic(main_span, unit, first_blocker));
-        }
-        for edge in unit.dependency_edges() {
-            if let Some(&next) = index_by_key.get(edge) {
-                queue.push_back(next);
-            }
-        }
-    }
-    None
-}
-
-fn compact_install_blocker_diagnostic_for_main(
-    program: &ArenaProgram,
-    root: &[StmtId],
-    units: &[LoweredFunctionUnit],
-    first_blocker: Option<&(Span, String)>,
-) -> Option<Diagnostic> {
-    let index_by_key = units
-        .iter()
-        .enumerate()
-        .map(|(index, unit)| (unit.key(), index))
-        .collect::<FxHashMap<_, _>>();
-    let main_index = units.iter().position(
-        |unit| matches!(unit.key(), LoweredFunctionKey::Name(name) if name == Name::intern("main")),
-    )?;
-    let main_span = root
-        .iter()
-        .copied()
-        .find_map(|stmt| compact_root_proc_main_span(program, stmt))
-        .unwrap_or_else(zero_span);
-    let mut visited = vec![false; units.len()];
-    let mut queue = std::collections::VecDeque::new();
-    queue.push_back(main_index);
-    while let Some(index) = queue.pop_front() {
-        if visited[index] {
-            continue;
-        }
-        visited[index] = true;
-        let unit = &units[index];
-        let mut pushed_dependency = false;
-        for edge in unit.dependency_edges() {
-            let Some(&next) = index_by_key.get(edge) else {
-                continue;
-            };
-            if !visited[next] && !units[next].is_lowered() {
-                queue.push_back(next);
-                pushed_dependency = true;
-            }
-        }
-        if !pushed_dependency && !unit.is_lowered() {
-            return Some(compact_blocker_diagnostic(main_span, unit, first_blocker));
-        }
-    }
-    None
-}
-
-fn compact_blocker_diagnostic(
-    main_span: Span,
-    unit: &LoweredFunctionUnit,
-    first_blocker: Option<&(Span, String)>,
-) -> Diagnostic {
-    let first_blocker = unit.blocker_detail().or(first_blocker);
-    let tail = unit
-        .blocker()
-        .map(compact_function_blocker_reason_tail)
-        .unwrap_or("construct");
-    let label_text = format!("unsupported {tail}");
-    let main_name = Name::intern("main");
-    if matches!(unit.key(), LoweredFunctionKey::Name(name) if name == main_name) {
-        let message = match first_blocker {
-            Some((_, blocker_label)) => {
-                format!(
-                    "proc main could not be lowered: {label_text}; first blocker: {blocker_label}"
-                )
-            }
-            None => format!("proc main could not be lowered: {label_text}"),
-        };
-        let mut diagnostic = Diagnostic::error(message)
-            .with_code("compact.unlowered-main")
-            .with_label(crate::diagnostic::Label::primary(
-                unit.source_span(),
-                label_text,
-            ));
-        if let Some((span, blocker_label)) = first_blocker {
-            diagnostic = diagnostic.with_label(crate::diagnostic::Label::secondary(
-                *span,
-                format!("first unsupported lowered construct: {blocker_label}"),
-            ));
-        }
-        return diagnostic;
-    }
-    let display = unit.key().display_name();
-    let message = match first_blocker {
-        Some((_, blocker_label)) => {
-            format!(
-                "proc main could not be lowered because {display} has an {label_text}; first blocker: {blocker_label}"
-            )
-        }
-        None => format!("proc main could not be lowered because {display} has an {label_text}"),
-    };
-    let mut diagnostic = Diagnostic::error(message)
-        .with_code("compact.unlowered-main")
-        .with_label(crate::diagnostic::Label::primary(
-            main_span,
-            "proc main requires compact lowering",
-        ))
-        .with_label(crate::diagnostic::Label::secondary(
-            unit.source_span(),
-            label_text,
-        ));
-    if let Some((span, blocker_label)) = first_blocker {
-        diagnostic = diagnostic.with_label(crate::diagnostic::Label::secondary(
-            *span,
-            format!("first unsupported lowered construct: {blocker_label}"),
-        ));
-    }
-    diagnostic
-}
-
-fn compact_function_blocker_reason_tail(blocker: LoweredFunctionBlocker) -> &'static str {
-    match blocker {
-        LoweredFunctionBlocker::ReturnType => "return type",
-        LoweredFunctionBlocker::ParamDefault => "parameter default",
-        LoweredFunctionBlocker::ParamType => "parameter type",
-        LoweredFunctionBlocker::BlockParams => "block parameter",
-        LoweredFunctionBlocker::Body => "statement in body",
-        LoweredFunctionBlocker::NoReturn => "tail expression",
-    }
-}
-
-fn diagnostic_primary_span(diagnostic: &Diagnostic) -> Option<Span> {
-    diagnostic
-        .span
-        .or_else(|| diagnostic.labels.first().map(|label| label.span))
-}
-
 fn compact_top_level_stmt_is_skippable(
     program: &ArenaProgram,
     id: StmtId,
@@ -6993,34 +5755,6 @@ fn compact_expr_is_reveal_type_call(program: &ArenaProgram, expr: ExprId) -> boo
         return false;
     };
     matches!(program.arena.expr(callee).kind, ArenaExprKind::Ident(name) if name == "reveal_type")
-}
-
-fn compact_root_proc_main_requires_auto_call(
-    program: &ArenaProgram,
-    root: &[StmtId],
-    lowered_statements: &[Option<LoweredTopLevelStmt>],
-) -> bool {
-    if !root
-        .iter()
-        .copied()
-        .any(|stmt| compact_root_proc_main_exists(program, stmt))
-    {
-        return false;
-    }
-    let Some((last_index, last_stmt)) = root.iter().copied().enumerate().next_back() else {
-        return false;
-    };
-    if !compact_is_main_at_args_call(program, last_stmt) {
-        return true;
-    }
-    if compact_is_main_spliced_args_call(program, last_stmt)
-        && !compact_root_binds_name_before(program, root, last_index, Name::intern("args"))
-    {
-        return true;
-    }
-    lowered_statements
-        .get(last_index)
-        .is_none_or(|lowered| lowered.is_none())
 }
 
 fn compact_root_proc_main_requires_auto_call_indexed(
@@ -7224,6 +5958,3 @@ pub(in crate::runtime) fn debug_test_eval_stack_size(default: usize) -> usize {
 fn next_event_id(events: &[TraceEvent]) -> u64 {
     events.last().map_or(1, |event| event.event_id + 1)
 }
-
-#[cfg(test)]
-mod tests;

@@ -7,15 +7,16 @@ use crate::modules::RuntimeOp;
 use crate::modules::hash::HashAlgorithm;
 use crate::runtime::eval::{
     LoweredBoolExpr, LoweredCallArg, LoweredCompTarget, LoweredErrorExpr,
-    LoweredErrorPatternFields, LoweredExpr, LoweredFmtPart, LoweredFunctionKey,
-    LoweredFunctionKind, LoweredFunctionUnit, LoweredIntExpr, LoweredPattern,
-    LoweredPatternSlots, LoweredPipelineStage, LoweredProcessCommandArgv,
-    LoweredProcessCommandBuilderEntry, LoweredPureFunction, LoweredRecordEntry, LoweredReturnKind,
+    LoweredErrorPatternFields, IrBuildExpr, LoweredFmtPart, LoweredFunctionKey,
+    LoweredFunctionKind, LoweredFunctionUnit, LoweredIntExpr, IrBuildPattern,
+    IrBuildPatternSlots, LoweredPipelineStage, LoweredProcessCommandArgv,
+    IndexedFunctionHeader, LoweredProcessCommandBuilderEntry, IrBuildFunction, LoweredRecordEntry,
+    LoweredReturnKind,
     LoweredRunArg, LoweredRunArgKind, LoweredRunCapture, LoweredRunEnv,
-    LoweredRunPipelineSegment, LoweredRunRedirection, LoweredSpawnRun, LoweredStmt,
+    LoweredRunPipelineSegment, LoweredRunRedirection, LoweredSpawnRun, IrBuildStmt,
     LoweredStatsValue, LoweredStrPredicate, LoweredTagValue, LoweredType, LoweredTypeCheck,
-    LoweredModuleExport, LoweredModuleExportKind, LoweredProgram, LoweredTopLevelKind,
-    LoweredTopLevelSlot, LoweredTopLevelSlots, LoweredTopLevelStmt, LoweredValue, ReduceByOp,
+    LoweredModuleExport, LoweredModuleExportKind, IrBuildProgram, IrBuildTopLevelKind,
+    LoweredTopLevelSlot, LoweredTopLevelSlots, IrBuildTopLevelStmt, LoweredValue, ReduceByOp,
     ScanCheck, ScanCondition,
 };
 use crate::runtime::value::{DurationValue, FloatValue, FunctionName, PathValue};
@@ -1063,11 +1064,11 @@ impl FullProgram {
                 Option::<LoweredType>::verify(&decoder, &mut payload)?;
                 Option::<LoweredTypeCheck>::verify(&decoder, &mut payload)?;
                 bool::verify(&decoder, &mut payload)?;
-                LoweredExpr::verify(&decoder, &mut payload)?;
+                IrBuildExpr::verify(&decoder, &mut payload)?;
                 Span::verify(&decoder, &mut payload)?;
             }
             FullDriverTag::LetRecord => {
-                LoweredExpr::verify(&decoder, &mut payload)?;
+                IrBuildExpr::verify(&decoder, &mut payload)?;
                 Vec::<Name>::verify(&decoder, &mut payload)?;
                 bool::verify(&decoder, &mut payload)?;
                 Span::verify(&decoder, &mut payload)?;
@@ -1075,23 +1076,23 @@ impl FullProgram {
             FullDriverTag::Assign => {
                 Name::verify(&decoder, &mut payload)?;
                 AssignOp::verify(&decoder, &mut payload)?;
-                LoweredExpr::verify(&decoder, &mut payload)?;
+                IrBuildExpr::verify(&decoder, &mut payload)?;
                 Span::verify(&decoder, &mut payload)?;
             }
             FullDriverTag::Discard => {
-                LoweredExpr::verify(&decoder, &mut payload)?;
+                IrBuildExpr::verify(&decoder, &mut payload)?;
                 Span::verify(&decoder, &mut payload)?;
             }
-            FullDriverTag::Stmt => LoweredStmt::verify(&decoder, &mut payload)?,
-            FullDriverTag::Expr => LoweredExpr::verify(&decoder, &mut payload)?,
+            FullDriverTag::Stmt => IrBuildStmt::verify(&decoder, &mut payload)?,
+            FullDriverTag::Expr => IrBuildExpr::verify(&decoder, &mut payload)?,
             FullDriverTag::Defer => {
-                LoweredExpr::verify(&decoder, &mut payload)?;
+                IrBuildExpr::verify(&decoder, &mut payload)?;
                 Span::verify(&decoder, &mut payload)?;
             }
             FullDriverTag::SignalHook => {
                 Name::verify(&decoder, &mut payload)?;
                 Option::<String>::verify(&decoder, &mut payload)?;
-                Vec::<LoweredStmt>::verify(&decoder, &mut payload)?;
+                Vec::<IrBuildStmt>::verify(&decoder, &mut payload)?;
                 Vec::<LoweredTopLevelSlot>::verify(&decoder, &mut payload)?;
                 let slot_count = payload.raw()?;
                 if slot_count != step.slot_count {
@@ -1130,7 +1131,7 @@ impl<'a> FullFunctionView<'a> {
 
     pub(in crate::runtime::eval) fn header(
         &self,
-    ) -> Result<LoweredPureFunction, IrVerifyError> {
+    ) -> Result<IndexedFunctionHeader, IrVerifyError> {
         let function = self.program.store.functions[self.index];
         let decoder = self.execution()?.decoder;
         let params = function
@@ -1206,7 +1207,7 @@ impl<'a> FullFunctionView<'a> {
             Type::Result(ok, _) => LoweredReturnKind::Result(lowered_type_from_type(&ok)?),
             ty => LoweredReturnKind::Plain(lowered_type_from_type(&ty)?),
         };
-        Ok(LoweredPureFunction {
+        Ok(IndexedFunctionHeader {
             params: param_names,
             param_kinds,
             param_checks,
@@ -1215,8 +1216,6 @@ impl<'a> FullFunctionView<'a> {
             captures: decoded_captures,
             return_kind,
             slot_count: function.slot_count as usize,
-            body: Vec::new(),
-            has_defers: self.has_defers(),
         })
     }
 
@@ -1431,7 +1430,7 @@ impl FullBuilder {
     #[cfg(test)]
     fn build_with_driver(
         units: &[LoweredFunctionUnit],
-        driver: Option<(&LoweredProgram, &[StmtId], &ArenaProgram)>,
+        driver: Option<(&IrBuildProgram, &[StmtId], &ArenaProgram)>,
         sources: Arc<SourceMap>,
         source_id: SourceId,
     ) -> Result<FullProgram, IrBuildError> {
@@ -1465,7 +1464,9 @@ impl FullBuilder {
         }
         if let Some((driver, source_statements, arena)) = driver {
             let checkpoint = builder.checkpoint();
-            if let Err(mut error) = builder.encode_driver_root(driver, source_statements, arena) {
+            if let Err(mut error) =
+                builder.encode_driver_root(driver, source_statements, arena, false)
+            {
                 error.attempted_instructions =
                     builder.store.tags.len().saturating_sub(checkpoint.tags);
                 builder.rewind(checkpoint);
@@ -1494,6 +1495,26 @@ impl FullBuilder {
         source: &str,
         sources: Arc<SourceMap>,
         source_id: SourceId,
+    ) -> Result<FullProgram, IrBuildError> {
+        Self::build_compact_with_options(
+            program,
+            declarations,
+            bodies,
+            source,
+            sources,
+            source_id,
+            false,
+        )
+    }
+
+    pub(in crate::runtime::eval) fn build_compact_with_options(
+        program: &ArenaProgram,
+        declarations: &CompactDeclOutput,
+        bodies: &CompactBodyProbeOutput,
+        source: &str,
+        sources: Arc<SourceMap>,
+        source_id: SourceId,
+        allow_checker_only: bool,
     ) -> Result<FullProgram, IrBuildError> {
         let mut builder = Self::new(source_id);
         builder.reserve_function_keys(
@@ -1533,7 +1554,7 @@ impl FullBuilder {
                     error.committed_instructions = builder.store.tags.len();
                     return Err(error);
                 }
-                let header = Arc::new(LoweredPureFunction {
+                let header = Arc::new(IrBuildFunction {
                     params: body.params.clone(),
                     param_kinds: body.param_kinds.clone(),
                     param_checks: body.param_checks.clone(),
@@ -1585,8 +1606,12 @@ impl FullBuilder {
         drop(qualified_procs);
 
         let checkpoint = builder.checkpoint();
-        if let Err(mut error) =
-            builder.encode_driver_root(&driver, &source_statements, program)
+        if let Err(mut error) = builder.encode_driver_root(
+            &driver,
+            &source_statements,
+            program,
+            allow_checker_only,
+        )
         {
             error.attempted_instructions =
                 builder.store.tags.len().saturating_sub(checkpoint.tags);
@@ -1715,7 +1740,7 @@ impl FullBuilder {
     fn encode_body(
         &mut self,
         function: IrFunctionId,
-        body: &LoweredPureFunction,
+        body: &IrBuildFunction,
     ) -> Result<(), IrBuildError> {
         let instruction_start = self.store.tags.len();
         let mut words = self.take_payload();
@@ -1748,9 +1773,10 @@ impl FullBuilder {
 
     fn encode_driver_root(
         &mut self,
-        program: &LoweredProgram,
+        program: &IrBuildProgram,
         source_statements: &[StmtId],
         arena: &ArenaProgram,
+        allow_checker_only: bool,
     ) -> Result<(), IrBuildError> {
         if program.statements.len() != source_statements.len() {
             return Err(IrBuildError::format(
@@ -1767,7 +1793,7 @@ impl FullBuilder {
                 && !super::super::compact_top_level_stmt_is_skippable(
                     arena,
                     *source_stmt,
-                    false,
+                    allow_checker_only,
                 )
             {
                 return Err(IrBuildError::format(
@@ -1781,7 +1807,7 @@ impl FullBuilder {
         }
         for (_, statement) in &statements {
             if let Some(statement) = statement {
-                Self::validate_driver_imports(arena, statement)?;
+                Self::validate_driver_imports(arena, statement, allow_checker_only)?;
             }
         }
         self.store.driver_root = self.encode_driver_program(&statements, arena)?;
@@ -1790,9 +1816,10 @@ impl FullBuilder {
 
     fn validate_driver_imports(
         arena: &ArenaProgram,
-        statement: &LoweredTopLevelStmt,
+        statement: &IrBuildTopLevelStmt,
+        allow_checker_only: bool,
     ) -> Result<(), IrBuildError> {
-        let LoweredTopLevelKind::Use {
+        let IrBuildTopLevelKind::Use {
             key,
             module_statements,
             span,
@@ -1833,7 +1860,7 @@ impl FullBuilder {
             if super::super::compact_top_level_stmt_is_skippable(
                 arena,
                 source_statement,
-                false,
+                allow_checker_only,
             ) {
                 continue;
             }
@@ -1849,20 +1876,20 @@ impl FullBuilder {
             }
         }
         for (_, module_statement) in module_statements {
-            Self::validate_driver_imports(arena, module_statement)?;
+            Self::validate_driver_imports(arena, module_statement, allow_checker_only)?;
         }
         Ok(())
     }
 
     fn encode_driver_program(
         &mut self,
-        statements: &[(Span, Option<&LoweredTopLevelStmt>)],
+        statements: &[(Span, Option<&IrBuildTopLevelStmt>)],
         arena: &ArenaProgram,
     ) -> Result<u32, IrBuildError> {
         let mut child_programs = Vec::with_capacity(statements.len());
         for (_, statement) in statements {
             let child = match statement.map(|statement| &statement.kind) {
-                Some(LoweredTopLevelKind::Use {
+                Some(IrBuildTopLevelKind::Use {
                     key,
                     module_statements,
                     span,
@@ -1947,7 +1974,7 @@ impl FullBuilder {
     fn encode_driver_step(
         &mut self,
         span: Span,
-        statement: Option<&LoweredTopLevelStmt>,
+        statement: Option<&IrBuildTopLevelStmt>,
         child_program: Option<u32>,
     ) -> Result<(), IrBuildError> {
         let step_index = self.store.driver_steps.len();
@@ -1957,7 +1984,7 @@ impl FullBuilder {
         let slots_start = self.store.driver_slots.len();
         let slot_count = statement.map_or(0, |statement| statement.slot_count);
         let write_slots = statement.is_some_and(|statement| {
-            matches!(statement.kind, LoweredTopLevelKind::Stmt(_))
+            matches!(statement.kind, IrBuildTopLevelKind::Stmt(_))
         });
         if let Some(statement) = statement {
             for slot in &statement.slots {
@@ -1992,7 +2019,7 @@ impl FullBuilder {
         let mut payload = self.take_payload();
         let tag = match statement.map(|statement| &statement.kind) {
             None => FullDriverTag::Skip,
-            Some(LoweredTopLevelKind::Use {
+            Some(IrBuildTopLevelKind::Use {
                 key,
                 alias,
                 path,
@@ -2012,7 +2039,7 @@ impl FullBuilder {
                 span.encode(self, &mut payload)?;
                 FullDriverTag::Use
             }
-            Some(LoweredTopLevelKind::Let {
+            Some(IrBuildTopLevelKind::Let {
                 target,
                 ty,
                 validation,
@@ -2028,7 +2055,7 @@ impl FullBuilder {
                 value_span.encode(self, &mut payload)?;
                 FullDriverTag::Let
             }
-            Some(LoweredTopLevelKind::LetRecord {
+            Some(IrBuildTopLevelKind::LetRecord {
                 source,
                 fields,
                 mutable,
@@ -2040,7 +2067,7 @@ impl FullBuilder {
                 span.encode(self, &mut payload)?;
                 FullDriverTag::LetRecord
             }
-            Some(LoweredTopLevelKind::Assign {
+            Some(IrBuildTopLevelKind::Assign {
                 target,
                 op,
                 value,
@@ -2052,25 +2079,25 @@ impl FullBuilder {
                 span.encode(self, &mut payload)?;
                 FullDriverTag::Assign
             }
-            Some(LoweredTopLevelKind::Discard { value, span }) => {
+            Some(IrBuildTopLevelKind::Discard { value, span }) => {
                 value.encode(self, &mut payload)?;
                 span.encode(self, &mut payload)?;
                 FullDriverTag::Discard
             }
-            Some(LoweredTopLevelKind::Stmt(statement)) => {
+            Some(IrBuildTopLevelKind::Stmt(statement)) => {
                 statement.encode(self, &mut payload)?;
                 FullDriverTag::Stmt
             }
-            Some(LoweredTopLevelKind::Expr(value)) => {
+            Some(IrBuildTopLevelKind::Expr(value)) => {
                 value.encode(self, &mut payload)?;
                 FullDriverTag::Expr
             }
-            Some(LoweredTopLevelKind::Defer { value, span }) => {
+            Some(IrBuildTopLevelKind::Defer { value, span }) => {
                 value.encode(self, &mut payload)?;
                 span.encode(self, &mut payload)?;
                 FullDriverTag::Defer
             }
-            Some(LoweredTopLevelKind::SignalHook {
+            Some(IrBuildTopLevelKind::SignalHook {
                 signal,
                 pre_cancel,
                 body,
@@ -3259,7 +3286,7 @@ impl FullVerifier {
             }
             let body = [function.body];
             let mut cursor = FullCursor::new(&body);
-            Vec::<LoweredStmt>::verify(&decoder, &mut cursor)?;
+            Vec::<IrBuildStmt>::verify(&decoder, &mut cursor)?;
             cursor.finish()?;
             for (param_index, _) in store.params[params.clone()].iter().enumerate() {
                 let param_index = params.start + param_index;
@@ -3296,7 +3323,7 @@ impl FullVerifier {
                 slot_count: function.slot_count,
             };
             let mut cursor = FullCursor::new(&body);
-            let statements = Vec::<LoweredStmt>::decode(&trusted_decoder, &mut cursor)?;
+            let statements = Vec::<IrBuildStmt>::decode(&trusted_decoder, &mut cursor)?;
             cursor.finish()?;
             let return_type = store
                 .semantic
@@ -4889,9 +4916,9 @@ pub(in crate::runtime::eval) const BLOCK_STATEMENTS: u8 = 1;
 const BLOCK_FUNCTION_BODY: u8 = 1 << 1;
 const BLOCK_SEQUENCE_KIND_MASK: u8 = 1;
 
-impl_vec_codec!(LoweredStmt, BLOCK_STATEMENTS);
-impl_vec_codec!(LoweredExpr, BLOCK_LIST);
-impl_vec_codec!(LoweredPattern, BLOCK_LIST);
+impl_vec_codec!(IrBuildStmt, BLOCK_STATEMENTS);
+impl_vec_codec!(IrBuildExpr, BLOCK_LIST);
+impl_vec_codec!(IrBuildPattern, BLOCK_LIST);
 impl_vec_codec!(LoweredPipelineStage, BLOCK_LIST);
 impl_vec_codec!(LoweredValue, BLOCK_LIST);
 impl_vec_codec!(LoweredFmtPart, BLOCK_LIST);
@@ -4909,14 +4936,14 @@ impl_vec_codec!(String, BLOCK_LIST);
 impl_vec_codec!(Name, BLOCK_LIST);
 impl_vec_codec!((Name, usize), BLOCK_LIST);
 impl_vec_codec!((Name, LoweredValue), BLOCK_LIST);
-impl_vec_codec!((Arc<str>, LoweredExpr), BLOCK_LIST);
-impl_vec_codec!((Arc<str>, Vec<LoweredStmt>), BLOCK_LIST);
-impl_vec_codec!((LoweredExpr, LoweredExpr), BLOCK_LIST);
-impl_vec_codec!((LoweredExpr, Vec<LoweredStmt>), BLOCK_LIST);
-impl_vec_codec!((LoweredBoolExpr, Vec<LoweredStmt>), BLOCK_LIST);
-impl_vec_codec!((LoweredPattern, Option<LoweredExpr>, LoweredExpr), BLOCK_LIST);
+impl_vec_codec!((Arc<str>, IrBuildExpr), BLOCK_LIST);
+impl_vec_codec!((Arc<str>, Vec<IrBuildStmt>), BLOCK_LIST);
+impl_vec_codec!((IrBuildExpr, IrBuildExpr), BLOCK_LIST);
+impl_vec_codec!((IrBuildExpr, Vec<IrBuildStmt>), BLOCK_LIST);
+impl_vec_codec!((LoweredBoolExpr, Vec<IrBuildStmt>), BLOCK_LIST);
+impl_vec_codec!((IrBuildPattern, Option<IrBuildExpr>, IrBuildExpr), BLOCK_LIST);
 impl_vec_codec!(
-    (LoweredPattern, Option<LoweredExpr>, Vec<LoweredStmt>),
+    (IrBuildPattern, Option<IrBuildExpr>, Vec<IrBuildStmt>),
     BLOCK_LIST
 );
 
@@ -5004,8 +5031,8 @@ macro_rules! impl_fx_map_codec {
     };
 }
 
-impl_fx_map_codec!(LoweredExpr);
-impl_fx_map_codec!(Vec<LoweredStmt>);
+impl_fx_map_codec!(IrBuildExpr);
+impl_fx_map_codec!(Vec<IrBuildStmt>);
 
 impl FullCodec for LoweredCompTarget {
     fn encode(
@@ -5065,9 +5092,9 @@ impl FullCodec for LoweredRecordEntry {
         match input.raw()? {
             0 => Ok(Self::Field(
                 Name::decode(decoder, input)?,
-                LoweredExpr::decode(decoder, input)?,
+                IrBuildExpr::decode(decoder, input)?,
             )),
-            1 => Ok(Self::Spread(LoweredExpr::decode(decoder, input)?)),
+            1 => Ok(Self::Spread(IrBuildExpr::decode(decoder, input)?)),
             _ => Err(IrVerifyError::new("record entry tag is invalid")),
         }
     }
@@ -5096,8 +5123,8 @@ impl FullCodec for LoweredCallArg {
         input: &mut FullCursor<'_>,
     ) -> Result<Self, IrVerifyError> {
         match input.raw()? {
-            0 => Ok(Self::Single(LoweredExpr::decode(decoder, input)?)),
-            1 => Ok(Self::Splice(LoweredExpr::decode(decoder, input)?)),
+            0 => Ok(Self::Single(IrBuildExpr::decode(decoder, input)?)),
+            1 => Ok(Self::Splice(IrBuildExpr::decode(decoder, input)?)),
             _ => Err(IrVerifyError::new("call argument tag is invalid")),
         }
     }
@@ -5130,7 +5157,7 @@ impl FullCodec for LoweredFmtPart {
         match input.raw()? {
             0 => Ok(Self::Text(Arc::<str>::decode(decoder, input)?)),
             1 => Ok(Self::Expr(
-                LoweredExpr::decode(decoder, input)?,
+                IrBuildExpr::decode(decoder, input)?,
                 Span::decode(decoder, input)?,
                 Option::<FormatSpec>::decode(decoder, input)?,
             )),
@@ -5159,7 +5186,7 @@ impl FullCodec for LoweredRunArgKind {
         input: &mut FullCursor<'_>,
     ) -> Result<Self, IrVerifyError> {
         let tag = input.raw()?;
-        let value = LoweredExpr::decode(decoder, input)?;
+        let value = IrBuildExpr::decode(decoder, input)?;
         match tag {
             0 => Ok(Self::Single(value)),
             1 => Ok(Self::SingleOrSplice(value)),
@@ -5475,7 +5502,7 @@ impl FullCodec for LoweredProcessCommandBuilderEntry {
         match input.raw()? {
             0 => Ok(Self::Field {
                 name: Name::decode(decoder, input)?,
-                value: LoweredExpr::decode(decoder, input)?,
+                value: IrBuildExpr::decode(decoder, input)?,
                 span: Span::decode(decoder, input)?,
             }),
             1 => Ok(Self::Run {
@@ -5540,7 +5567,7 @@ impl FullCodec for LoweredErrorExpr {
     }
 }
 
-impl FullCodec for LoweredPattern {
+impl FullCodec for IrBuildPattern {
     fn encode(
         &self,
         builder: &mut FullBuilder,
@@ -5693,7 +5720,7 @@ impl FullCodec for LoweredPattern {
             }
             FullPatternTag::Tag => {
                 Name::verify(decoder, &mut payload)?;
-                LoweredPatternSlots::verify(decoder, &mut payload)?;
+                IrBuildPatternSlots::verify(decoder, &mut payload)?;
             }
         }
         payload.finish()
@@ -5792,40 +5819,40 @@ impl_stage_codec! {
     LoweredPipelineStage::JsonLines => JsonLines {} => LoweredPipelineStage::JsonLines,
     LoweredPipelineStage::Where { slot, predicate } => Where {
         slot: usize,
-        predicate: LoweredExpr,
+        predicate: IrBuildExpr,
     } => LoweredPipelineStage::Where { slot, predicate },
     LoweredPipelineStage::Map { slot, value } => Map {
         slot: usize,
-        value: LoweredExpr,
+        value: IrBuildExpr,
     } => LoweredPipelineStage::Map { slot, value },
     LoweredPipelineStage::MapBlock { slot, body, value } => MapBlock {
         slot: usize,
-        body: Vec<LoweredStmt>,
-        value: LoweredExpr,
+        body: Vec<IrBuildStmt>,
+        value: IrBuildExpr,
     } => LoweredPipelineStage::MapBlock { slot, body, value },
     LoweredPipelineStage::FlatMap { slot, value } => FlatMap {
         slot: usize,
-        value: LoweredExpr,
+        value: IrBuildExpr,
     } => LoweredPipelineStage::FlatMap { slot, value },
     LoweredPipelineStage::FlatMapBlock { slot, body, value } => FlatMapBlock {
         slot: usize,
-        body: Vec<LoweredStmt>,
-        value: LoweredExpr,
+        body: Vec<IrBuildStmt>,
+        value: IrBuildExpr,
     } => LoweredPipelineStage::FlatMapBlock { slot, body, value },
     LoweredPipelineStage::BytesChunks { size } => BytesChunks {
-        size: LoweredExpr,
+        size: IrBuildExpr,
     } => LoweredPipelineStage::BytesChunks { size },
     LoweredPipelineStage::BatchCount { count } => BatchCount {
-        count: LoweredExpr,
+        count: IrBuildExpr,
     } => LoweredPipelineStage::BatchCount { count },
     LoweredPipelineStage::BatchMaxArgv { max_argv } => BatchMaxArgv {
-        max_argv: Option<LoweredExpr>,
+        max_argv: Option<IrBuildExpr>,
     } => LoweredPipelineStage::BatchMaxArgv { max_argv },
     LoweredPipelineStage::BatchMaxBytes { max_bytes } => BatchMaxBytes {
-        max_bytes: LoweredExpr,
+        max_bytes: IrBuildExpr,
     } => LoweredPipelineStage::BatchMaxBytes { max_bytes },
     LoweredPipelineStage::Shuffle { seed } => Shuffle {
-        seed: Option<LoweredExpr>,
+        seed: Option<IrBuildExpr>,
     } => LoweredPipelineStage::Shuffle { seed },
     LoweredPipelineStage::Fold {
         acc_slot,
@@ -5836,9 +5863,9 @@ impl_stage_codec! {
     } => Fold {
         acc_slot: usize,
         item_slot: usize,
-        initial: LoweredExpr,
-        body: Vec<LoweredStmt>,
-        value: LoweredExpr,
+        initial: IrBuildExpr,
+        body: Vec<IrBuildStmt>,
+        value: IrBuildExpr,
     } => LoweredPipelineStage::Fold {
         acc_slot,
         item_slot,
@@ -5853,8 +5880,8 @@ impl_stage_codec! {
         op,
     } => ReduceBy {
         item_slot: usize,
-        body: Vec<LoweredStmt>,
-        value: LoweredExpr,
+        body: Vec<IrBuildStmt>,
+        value: IrBuildExpr,
         op: ReduceByOp,
     } => LoweredPipelineStage::ReduceBy {
         item_slot,
@@ -5864,16 +5891,16 @@ impl_stage_codec! {
     },
     LoweredPipelineStage::ParMap { slot, value } => ParMap {
         slot: usize,
-        value: LoweredExpr,
+        value: IrBuildExpr,
     } => LoweredPipelineStage::ParMap { slot, value },
     LoweredPipelineStage::ParMapBlock { slot, body, value } => ParMapBlock {
         slot: usize,
-        body: Vec<LoweredStmt>,
-        value: LoweredExpr,
+        body: Vec<IrBuildStmt>,
+        value: IrBuildExpr,
     } => LoweredPipelineStage::ParMapBlock { slot, body, value },
     LoweredPipelineStage::Tee { slot, body } => Tee {
         slot: usize,
-        body: Vec<LoweredStmt>,
+        body: Vec<IrBuildStmt>,
     } => LoweredPipelineStage::Tee { slot, body },
     LoweredPipelineStage::Each {
         slot,
@@ -5881,7 +5908,7 @@ impl_stage_codec! {
         parallel,
     } => Each {
         slot: usize,
-        body: Vec<LoweredStmt>,
+        body: Vec<IrBuildStmt>,
         parallel: bool,
     } => LoweredPipelineStage::Each {
         slot,
@@ -5893,10 +5920,10 @@ impl_stage_codec! {
     } => LoweredPipelineStage::TablePrint { columns },
     LoweredPipelineStage::Enumerate => Enumerate {} => LoweredPipelineStage::Enumerate,
     LoweredPipelineStage::Zip { other } => Zip {
-        other: LoweredExpr,
+        other: IrBuildExpr,
     } => LoweredPipelineStage::Zip { other },
     LoweredPipelineStage::Sort { descending } => Sort {
-        descending: Option<LoweredExpr>,
+        descending: Option<IrBuildExpr>,
     } => LoweredPipelineStage::Sort { descending },
     LoweredPipelineStage::SortBy {
         slot,
@@ -5904,8 +5931,8 @@ impl_stage_codec! {
         descending,
     } => SortBy {
         slot: usize,
-        key: LoweredExpr,
-        descending: Option<LoweredExpr>,
+        key: IrBuildExpr,
+        descending: Option<IrBuildExpr>,
     } => LoweredPipelineStage::SortBy {
         slot,
         key,
@@ -5913,23 +5940,23 @@ impl_stage_codec! {
     },
     LoweredPipelineStage::GroupBy { slot, key } => GroupBy {
         slot: usize,
-        key: LoweredExpr,
+        key: IrBuildExpr,
     } => LoweredPipelineStage::GroupBy { slot, key },
     LoweredPipelineStage::CountBy { slot, key } => CountBy {
         slot: usize,
-        key: LoweredExpr,
+        key: IrBuildExpr,
     } => LoweredPipelineStage::CountBy { slot, key },
     LoweredPipelineStage::Any { slot, predicate } => Any {
         slot: usize,
-        predicate: LoweredExpr,
+        predicate: IrBuildExpr,
     } => LoweredPipelineStage::Any { slot, predicate },
     LoweredPipelineStage::All { slot, predicate } => All {
         slot: usize,
-        predicate: LoweredExpr,
+        predicate: IrBuildExpr,
     } => LoweredPipelineStage::All { slot, predicate },
     LoweredPipelineStage::UniqueBy { slot, key } => UniqueBy {
         slot: usize,
-        key: LoweredExpr,
+        key: IrBuildExpr,
     } => LoweredPipelineStage::UniqueBy { slot, key },
     LoweredPipelineStage::Count => Count {} => LoweredPipelineStage::Count,
     LoweredPipelineStage::Sum => Sum {} => LoweredPipelineStage::Sum,
@@ -5939,176 +5966,176 @@ impl_stage_codec! {
     LoweredPipelineStage::Min => Min {} => LoweredPipelineStage::Min,
     LoweredPipelineStage::Max => Max {} => LoweredPipelineStage::Max,
     LoweredPipelineStage::Take(value) => Take {
-        value: LoweredExpr,
+        value: IrBuildExpr,
     } => LoweredPipelineStage::Take(value),
     LoweredPipelineStage::Drop(value) => Drop {
-        value: LoweredExpr,
+        value: IrBuildExpr,
     } => LoweredPipelineStage::Drop(value),
     LoweredPipelineStage::Repeat { count } => Repeat {
-        count: LoweredExpr,
+        count: IrBuildExpr,
     } => LoweredPipelineStage::Repeat { count },
     LoweredPipelineStage::Range { start, end } => Range {
-        start: LoweredExpr,
-        end: LoweredExpr,
+        start: IrBuildExpr,
+        end: IrBuildExpr,
     } => LoweredPipelineStage::Range { start, end },
 }
 
 impl_node_codec! {
-    LoweredExpr {
-        LoweredExpr::Null => ExprNull {} => LoweredExpr::Null,
-        LoweredExpr::Unit => ExprUnit {} => LoweredExpr::Unit,
-        LoweredExpr::Int(value) => ExprInt { value: i64 } => LoweredExpr::Int(value),
-        LoweredExpr::Float(value) => ExprFloat {
+    IrBuildExpr {
+        IrBuildExpr::Null => ExprNull {} => IrBuildExpr::Null,
+        IrBuildExpr::Unit => ExprUnit {} => IrBuildExpr::Unit,
+        IrBuildExpr::Int(value) => ExprInt { value: i64 } => IrBuildExpr::Int(value),
+        IrBuildExpr::Float(value) => ExprFloat {
             value: FloatValue,
-        } => LoweredExpr::Float(value),
-        LoweredExpr::Duration(value) => ExprDuration {
+        } => IrBuildExpr::Float(value),
+        IrBuildExpr::Duration(value) => ExprDuration {
             value: DurationValue,
-        } => LoweredExpr::Duration(value),
-        LoweredExpr::Bool(value) => ExprBool { value: bool } => LoweredExpr::Bool(value),
-        LoweredExpr::Str(value) => ExprStr {
+        } => IrBuildExpr::Duration(value),
+        IrBuildExpr::Bool(value) => ExprBool { value: bool } => IrBuildExpr::Bool(value),
+        IrBuildExpr::Str(value) => ExprStr {
             value: Arc<str>,
-        } => LoweredExpr::Str(value),
-        LoweredExpr::Bytes(value) => ExprBytes {
+        } => IrBuildExpr::Str(value),
+        IrBuildExpr::Bytes(value) => ExprBytes {
             value: Arc<[u8]>,
-        } => LoweredExpr::Bytes(value),
-        LoweredExpr::Path(value) => ExprPath {
+        } => IrBuildExpr::Bytes(value),
+        IrBuildExpr::Path(value) => ExprPath {
             value: PathValue,
-        } => LoweredExpr::Path(value),
-        LoweredExpr::FunctionRef { function, pure } => ExprFunctionRef {
+        } => IrBuildExpr::Path(value),
+        IrBuildExpr::FunctionRef { function, pure } => ExprFunctionRef {
             function: FunctionName,
             pure: bool,
-        } => LoweredExpr::FunctionRef { function, pure },
-        LoweredExpr::PathFrom { value, span } => ExprPathFrom {
-            value: Box<LoweredExpr>,
+        } => IrBuildExpr::FunctionRef { function, pure },
+        IrBuildExpr::PathFrom { value, span } => ExprPathFrom {
+            value: Box<IrBuildExpr>,
             span: Span,
-        } => LoweredExpr::PathFrom { value, span },
-        LoweredExpr::Param(slot) => ExprParam {
+        } => IrBuildExpr::PathFrom { value, span },
+        IrBuildExpr::Param(slot) => ExprParam {
             slot: usize,
-        } => LoweredExpr::Param(slot),
-        LoweredExpr::Binary {
+        } => IrBuildExpr::Param(slot),
+        IrBuildExpr::Binary {
             op,
             left,
             right,
             span,
         } => ExprBinary {
             op: BinaryOp,
-            left: Box<LoweredExpr>,
-            right: Box<LoweredExpr>,
+            left: Box<IrBuildExpr>,
+            right: Box<IrBuildExpr>,
             span: Span,
-        } => LoweredExpr::Binary {
+        } => IrBuildExpr::Binary {
             op,
             left,
             right,
             span,
         },
-        LoweredExpr::IfExpr {
+        IrBuildExpr::IfExpr {
             branches,
             else_value,
             span,
         } => ExprIf {
-            branches: Vec<(LoweredExpr, LoweredExpr)>,
-            else_value: Box<LoweredExpr>,
+            branches: Vec<(IrBuildExpr, IrBuildExpr)>,
+            else_value: Box<IrBuildExpr>,
             span: Span,
-        } => LoweredExpr::IfExpr {
+        } => IrBuildExpr::IfExpr {
             branches,
             else_value,
             span,
         },
-        LoweredExpr::MatchExpr { value, arms, span } => ExprMatch {
-            value: Box<LoweredExpr>,
-            arms: Vec<(LoweredPattern, Option<LoweredExpr>, LoweredExpr)>,
+        IrBuildExpr::MatchExpr { value, arms, span } => ExprMatch {
+            value: Box<IrBuildExpr>,
+            arms: Vec<(IrBuildPattern, Option<IrBuildExpr>, IrBuildExpr)>,
             span: Span,
-        } => LoweredExpr::MatchExpr { value, arms, span },
-        LoweredExpr::StrMatchExpr {
+        } => IrBuildExpr::MatchExpr { value, arms, span },
+        IrBuildExpr::StrMatchExpr {
             value,
             arms,
             fallback,
             span,
         } => ExprStrMatch {
-            value: Box<LoweredExpr>,
-            arms: FxHashMap<Arc<str>, LoweredExpr>,
-            fallback: Option<Box<LoweredExpr>>,
+            value: Box<IrBuildExpr>,
+            arms: FxHashMap<Arc<str>, IrBuildExpr>,
+            fallback: Option<Box<IrBuildExpr>>,
             span: Span,
-        } => LoweredExpr::StrMatchExpr {
+        } => IrBuildExpr::StrMatchExpr {
             value,
             arms,
             fallback,
             span,
         },
-        LoweredExpr::TagMatchExpr {
+        IrBuildExpr::TagMatchExpr {
             value,
             arms,
             fallback,
             span,
         } => ExprTagMatch {
-            value: Box<LoweredExpr>,
-            arms: FxHashMap<Arc<str>, LoweredExpr>,
-            fallback: Option<Box<LoweredExpr>>,
+            value: Box<IrBuildExpr>,
+            arms: FxHashMap<Arc<str>, IrBuildExpr>,
+            fallback: Option<Box<IrBuildExpr>>,
             span: Span,
-        } => LoweredExpr::TagMatchExpr {
+        } => IrBuildExpr::TagMatchExpr {
             value,
             arms,
             fallback,
             span,
         },
-        LoweredExpr::ResultFallback { left, right } => ExprResultFallback {
-            left: Box<LoweredExpr>,
-            right: Box<LoweredExpr>,
-        } => LoweredExpr::ResultFallback { left, right },
-        LoweredExpr::FmtString(parts) => ExprFmtString {
+        IrBuildExpr::ResultFallback { left, right } => ExprResultFallback {
+            left: Box<IrBuildExpr>,
+            right: Box<IrBuildExpr>,
+        } => IrBuildExpr::ResultFallback { left, right },
+        IrBuildExpr::FmtString(parts) => ExprFmtString {
             parts: Vec<LoweredFmtPart>,
-        } => LoweredExpr::FmtString(parts),
-        LoweredExpr::PathFmtString { parts, span } => ExprPathFmtString {
+        } => IrBuildExpr::FmtString(parts),
+        IrBuildExpr::PathFmtString { parts, span } => ExprPathFmtString {
             parts: Vec<LoweredFmtPart>,
             span: Span,
-        } => LoweredExpr::PathFmtString { parts, span },
-        LoweredExpr::Glob { pattern, span } => ExprGlob {
+        } => IrBuildExpr::PathFmtString { parts, span },
+        IrBuildExpr::Glob { pattern, span } => ExprGlob {
             pattern: Arc<str>,
             span: Span,
-        } => LoweredExpr::Glob { pattern, span },
-        LoweredExpr::LastStatus { span } => ExprLastStatus {
+        } => IrBuildExpr::Glob { pattern, span },
+        IrBuildExpr::LastStatus { span } => ExprLastStatus {
             span: Span,
-        } => LoweredExpr::LastStatus { span },
-        LoweredExpr::Record(entries) => ExprRecord {
+        } => IrBuildExpr::LastStatus { span },
+        IrBuildExpr::Record(entries) => ExprRecord {
             entries: Vec<LoweredRecordEntry>,
-        } => LoweredExpr::Record(entries),
-        LoweredExpr::List(values) => ExprList {
-            values: Vec<LoweredExpr>,
-        } => LoweredExpr::List(values),
-        LoweredExpr::EmptyMap => ExprEmptyMap {} => LoweredExpr::EmptyMap,
-        LoweredExpr::BytesConcat { arg, span } => ExprBytesConcat {
-            arg: Box<LoweredExpr>,
+        } => IrBuildExpr::Record(entries),
+        IrBuildExpr::List(values) => ExprList {
+            values: Vec<IrBuildExpr>,
+        } => IrBuildExpr::List(values),
+        IrBuildExpr::EmptyMap => ExprEmptyMap {} => IrBuildExpr::EmptyMap,
+        IrBuildExpr::BytesConcat { arg, span } => ExprBytesConcat {
+            arg: Box<IrBuildExpr>,
             span: Span,
-        } => LoweredExpr::BytesConcat { arg, span },
-        LoweredExpr::Range { start, end, span } => ExprRange {
-            start: Box<LoweredExpr>,
-            end: Box<LoweredExpr>,
+        } => IrBuildExpr::BytesConcat { arg, span },
+        IrBuildExpr::Range { start, end, span } => ExprRange {
+            start: Box<IrBuildExpr>,
+            end: Box<IrBuildExpr>,
             span: Span,
-        } => LoweredExpr::Range { start, end, span },
-        LoweredExpr::Tag { name, fields } => ExprTag {
+        } => IrBuildExpr::Range { start, end, span },
+        IrBuildExpr::Tag { name, fields } => ExprTag {
             name: Arc<str>,
-            fields: Vec<LoweredExpr>,
-        } => LoweredExpr::Tag { name, fields },
-        LoweredExpr::ListComp {
+            fields: Vec<IrBuildExpr>,
+        } => IrBuildExpr::Tag { name, fields },
+        IrBuildExpr::ListComp {
             value,
             target,
             iter,
             condition,
             span,
         } => ExprListComp {
-            value: Box<LoweredExpr>,
+            value: Box<IrBuildExpr>,
             target: Box<LoweredCompTarget>,
-            iter: Box<LoweredExpr>,
-            condition: Option<Box<LoweredExpr>>,
+            iter: Box<IrBuildExpr>,
+            condition: Option<Box<IrBuildExpr>>,
             span: Span,
-        } => LoweredExpr::ListComp {
+        } => IrBuildExpr::ListComp {
             value,
             target,
             iter,
             condition,
             span,
         },
-        LoweredExpr::MapComp {
+        IrBuildExpr::MapComp {
             key,
             value,
             target,
@@ -6116,13 +6143,13 @@ impl_node_codec! {
             condition,
             span,
         } => ExprMapComp {
-            key: Box<LoweredExpr>,
-            value: Box<LoweredExpr>,
+            key: Box<IrBuildExpr>,
+            value: Box<IrBuildExpr>,
             target: Box<LoweredCompTarget>,
-            iter: Box<LoweredExpr>,
-            condition: Option<Box<LoweredExpr>>,
+            iter: Box<IrBuildExpr>,
+            condition: Option<Box<IrBuildExpr>>,
             span: Span,
-        } => LoweredExpr::MapComp {
+        } => IrBuildExpr::MapComp {
             key,
             value,
             target,
@@ -6130,123 +6157,123 @@ impl_node_codec! {
             condition,
             span,
         },
-        LoweredExpr::ListPipeline {
+        IrBuildExpr::ListPipeline {
             input,
             stages,
             span,
         } => ExprPipeline {
-            input: Box<LoweredExpr>,
+            input: Box<IrBuildExpr>,
             stages: Vec<LoweredPipelineStage>,
             span: Span,
-        } => LoweredExpr::ListPipeline {
+        } => IrBuildExpr::ListPipeline {
             input,
             stages,
             span,
         },
-        LoweredExpr::Field { base, name, span } => ExprField {
-            base: Box<LoweredExpr>,
+        IrBuildExpr::Field { base, name, span } => ExprField {
+            base: Box<IrBuildExpr>,
             name: &'static str,
             span: Span,
-        } => LoweredExpr::Field { base, name, span },
-        LoweredExpr::Index { base, index, span } => ExprIndex {
-            base: Box<LoweredExpr>,
-            index: Box<LoweredExpr>,
+        } => IrBuildExpr::Field { base, name, span },
+        IrBuildExpr::Index { base, index, span } => ExprIndex {
+            base: Box<IrBuildExpr>,
+            index: Box<IrBuildExpr>,
             span: Span,
-        } => LoweredExpr::Index { base, index, span },
-        LoweredExpr::Slice {
+        } => IrBuildExpr::Index { base, index, span },
+        IrBuildExpr::Slice {
             base,
             start,
             end,
             span,
         } => ExprSlice {
-            base: Box<LoweredExpr>,
-            start: Option<Box<LoweredExpr>>,
-            end: Option<Box<LoweredExpr>>,
+            base: Box<IrBuildExpr>,
+            start: Option<Box<IrBuildExpr>>,
+            end: Option<Box<IrBuildExpr>>,
             span: Span,
-        } => LoweredExpr::Slice {
+        } => IrBuildExpr::Slice {
             base,
             start,
             end,
             span,
         },
-        LoweredExpr::Method {
+        IrBuildExpr::Method {
             receiver,
             name,
             args,
             span,
         } => ExprMethod {
-            receiver: Box<LoweredExpr>,
+            receiver: Box<IrBuildExpr>,
             name: &'static str,
-            args: Vec<LoweredExpr>,
+            args: Vec<IrBuildExpr>,
             span: Span,
-        } => LoweredExpr::Method {
+        } => IrBuildExpr::Method {
             receiver,
             name,
             args,
             span,
         },
-        LoweredExpr::StrByteLen { receiver, span } => ExprStrByteLen {
-            receiver: Box<LoweredExpr>,
+        IrBuildExpr::StrByteLen { receiver, span } => ExprStrByteLen {
+            receiver: Box<IrBuildExpr>,
             span: Span,
-        } => LoweredExpr::StrByteLen { receiver, span },
-        LoweredExpr::StrByteAt {
+        } => IrBuildExpr::StrByteLen { receiver, span },
+        IrBuildExpr::StrByteAt {
             receiver,
             index,
             default,
             span,
         } => ExprStrByteAt {
-            receiver: Box<LoweredExpr>,
-            index: Box<LoweredExpr>,
-            default: Option<Box<LoweredExpr>>,
+            receiver: Box<IrBuildExpr>,
+            index: Box<IrBuildExpr>,
+            default: Option<Box<IrBuildExpr>>,
             span: Span,
-        } => LoweredExpr::StrByteAt {
+        } => IrBuildExpr::StrByteAt {
             receiver,
             index,
             default,
             span,
         },
-        LoweredExpr::StrPredicate {
+        IrBuildExpr::StrPredicate {
             receiver,
             predicate,
             needle,
             span,
         } => ExprStrPredicate {
-            receiver: Box<LoweredExpr>,
+            receiver: Box<IrBuildExpr>,
             predicate: LoweredStrPredicate,
-            needle: Box<LoweredExpr>,
+            needle: Box<IrBuildExpr>,
             span: Span,
-        } => LoweredExpr::StrPredicate {
+        } => IrBuildExpr::StrPredicate {
             receiver,
             predicate,
             needle,
             span,
         },
-        LoweredExpr::Contains {
+        IrBuildExpr::Contains {
             receiver,
             needle,
             span,
         } => ExprContains {
-            receiver: Box<LoweredExpr>,
-            needle: Box<LoweredExpr>,
+            receiver: Box<IrBuildExpr>,
+            needle: Box<IrBuildExpr>,
             span: Span,
-        } => LoweredExpr::Contains {
+        } => IrBuildExpr::Contains {
             receiver,
             needle,
             span,
         },
-        LoweredExpr::RegexCompile { pattern, span } => ExprRegexCompile {
-            pattern: Box<LoweredExpr>,
+        IrBuildExpr::RegexCompile { pattern, span } => ExprRegexCompile {
+            pattern: Box<IrBuildExpr>,
             span: Span,
-        } => LoweredExpr::RegexCompile { pattern, span },
-        LoweredExpr::Require { value, check, span } => ExprRequire {
-            value: Box<LoweredExpr>,
+        } => IrBuildExpr::RegexCompile { pattern, span },
+        IrBuildExpr::Require { value, check, span } => ExprRequire {
+            value: Box<IrBuildExpr>,
             check: LoweredTypeCheck,
             span: Span,
-        } => LoweredExpr::Require { value, check, span },
-        LoweredExpr::RunCapture(value) => ExprRunCapture {
+        } => IrBuildExpr::Require { value, check, span },
+        IrBuildExpr::RunCapture(value) => ExprRunCapture {
             value: Box<LoweredRunCapture>,
-        } => LoweredExpr::RunCapture(value),
-        LoweredExpr::RunPipeline {
+        } => IrBuildExpr::RunCapture(value),
+        IrBuildExpr::RunPipeline {
             segments,
             propagate,
             span,
@@ -6254,32 +6281,32 @@ impl_node_codec! {
             segments: Vec<LoweredRunPipelineSegment>,
             propagate: bool,
             span: Span,
-        } => LoweredExpr::RunPipeline {
+        } => IrBuildExpr::RunPipeline {
             segments,
             propagate,
             span,
         },
-        LoweredExpr::SpawnRun(value) => ExprSpawnRun {
+        IrBuildExpr::SpawnRun(value) => ExprSpawnRun {
             value: Box<LoweredSpawnRun>,
-        } => LoweredExpr::SpawnRun(value),
-        LoweredExpr::SpawnCommand { command, span } => ExprSpawnCommand {
-            command: Box<LoweredExpr>,
+        } => IrBuildExpr::SpawnRun(value),
+        IrBuildExpr::SpawnCommand { command, span } => ExprSpawnCommand {
+            command: Box<IrBuildExpr>,
             span: Span,
-        } => LoweredExpr::SpawnCommand { command, span },
-        LoweredExpr::Wait { target, span } => ExprWait {
-            target: Box<LoweredExpr>,
+        } => IrBuildExpr::SpawnCommand { command, span },
+        IrBuildExpr::Wait { target, span } => ExprWait {
+            target: Box<IrBuildExpr>,
             span: Span,
-        } => LoweredExpr::Wait { target, span },
-        LoweredExpr::Loop { body, span } => ExprLoop {
-            body: Vec<LoweredStmt>,
+        } => IrBuildExpr::Wait { target, span },
+        IrBuildExpr::Loop { body, span } => ExprLoop {
+            body: Vec<IrBuildStmt>,
             span: Span,
-        } => LoweredExpr::Loop { body, span },
-        LoweredExpr::Retry { delays, body, span } => ExprRetry {
-            delays: Vec<LoweredExpr>,
-            body: Vec<LoweredStmt>,
+        } => IrBuildExpr::Loop { body, span },
+        IrBuildExpr::Retry { delays, body, span } => ExprRetry {
+            delays: Vec<IrBuildExpr>,
+            body: Vec<IrBuildStmt>,
             span: Span,
-        } => LoweredExpr::Retry { delays, body, span },
-        LoweredExpr::FsFiles {
+        } => IrBuildExpr::Retry { delays, body, span },
+        IrBuildExpr::FsFiles {
             root,
             gitignore,
             stat,
@@ -6288,14 +6315,14 @@ impl_node_codec! {
             result_wrapped,
             span,
         } => ExprFsFiles {
-            root: Box<LoweredExpr>,
+            root: Box<IrBuildExpr>,
             gitignore: bool,
             stat: bool,
             hidden: bool,
-            exts: Option<Box<LoweredExpr>>,
+            exts: Option<Box<IrBuildExpr>>,
             result_wrapped: bool,
             span: Span,
-        } => LoweredExpr::FsFiles {
+        } => IrBuildExpr::FsFiles {
             root,
             gitignore,
             stat,
@@ -6304,7 +6331,7 @@ impl_node_codec! {
             result_wrapped,
             span,
         },
-        LoweredExpr::FsWalk {
+        IrBuildExpr::FsWalk {
             root,
             gitignore,
             stat,
@@ -6313,14 +6340,14 @@ impl_node_codec! {
             result_wrapped,
             span,
         } => ExprFsWalk {
-            root: Box<LoweredExpr>,
+            root: Box<IrBuildExpr>,
             gitignore: bool,
             stat: bool,
             hidden: bool,
-            exts: Option<Box<LoweredExpr>>,
+            exts: Option<Box<IrBuildExpr>>,
             result_wrapped: bool,
             span: Span,
-        } => LoweredExpr::FsWalk {
+        } => IrBuildExpr::FsWalk {
             root,
             gitignore,
             stat,
@@ -6329,7 +6356,7 @@ impl_node_codec! {
             result_wrapped,
             span,
         },
-        LoweredExpr::FsList {
+        IrBuildExpr::FsList {
             op,
             path,
             stat,
@@ -6337,138 +6364,138 @@ impl_node_codec! {
             span,
         } => ExprFsList {
             op: RuntimeOp,
-            path: Box<LoweredExpr>,
-            stat: Option<Box<LoweredExpr>>,
-            ordered: Option<Box<LoweredExpr>>,
+            path: Box<IrBuildExpr>,
+            stat: Option<Box<IrBuildExpr>>,
+            ordered: Option<Box<IrBuildExpr>>,
             span: Span,
-        } => LoweredExpr::FsList {
+        } => IrBuildExpr::FsList {
             op,
             path,
             stat,
             ordered,
             span,
         },
-        LoweredExpr::FsTempDir { span } => ExprFsTempDir {
+        IrBuildExpr::FsTempDir { span } => ExprFsTempDir {
             span: Span,
-        } => LoweredExpr::FsTempDir { span },
-        LoweredExpr::FsWrite { path, data, span } => ExprFsWrite {
-            path: Box<LoweredExpr>,
-            data: Box<LoweredExpr>,
+        } => IrBuildExpr::FsTempDir { span },
+        IrBuildExpr::FsWrite { path, data, span } => ExprFsWrite {
+            path: Box<IrBuildExpr>,
+            data: Box<IrBuildExpr>,
             span: Span,
-        } => LoweredExpr::FsWrite { path, data, span },
-        LoweredExpr::FsMkdir {
+        } => IrBuildExpr::FsWrite { path, data, span },
+        IrBuildExpr::FsMkdir {
             path,
             parents,
             span,
         } => ExprFsMkdir {
-            path: Box<LoweredExpr>,
-            parents: Option<Box<LoweredExpr>>,
+            path: Box<IrBuildExpr>,
+            parents: Option<Box<IrBuildExpr>>,
             span: Span,
-        } => LoweredExpr::FsMkdir {
+        } => IrBuildExpr::FsMkdir {
             path,
             parents,
             span,
         },
-        LoweredExpr::FsRemove {
+        IrBuildExpr::FsRemove {
             path,
             missing_ok,
             span,
         } => ExprFsRemove {
-            path: Box<LoweredExpr>,
-            missing_ok: Option<Box<LoweredExpr>>,
+            path: Box<IrBuildExpr>,
+            missing_ok: Option<Box<IrBuildExpr>>,
             span: Span,
-        } => LoweredExpr::FsRemove {
+        } => IrBuildExpr::FsRemove {
             path,
             missing_ok,
             span,
         },
-        LoweredExpr::FsCloseRoot { root, span } => ExprFsCloseRoot {
-            root: Box<LoweredExpr>,
+        IrBuildExpr::FsCloseRoot { root, span } => ExprFsCloseRoot {
+            root: Box<IrBuildExpr>,
             span: Span,
-        } => LoweredExpr::FsCloseRoot { root, span },
-        LoweredExpr::FsRootPath { root, span } => ExprFsRootPath {
-            root: Box<LoweredExpr>,
+        } => IrBuildExpr::FsCloseRoot { root, span },
+        IrBuildExpr::FsRootPath { root, span } => ExprFsRootPath {
+            root: Box<IrBuildExpr>,
             span: Span,
-        } => LoweredExpr::FsRootPath { root, span },
-        LoweredExpr::PathReadText { path, span } => ExprPathReadText {
-            path: Box<LoweredExpr>,
+        } => IrBuildExpr::FsRootPath { root, span },
+        IrBuildExpr::PathReadText { path, span } => ExprPathReadText {
+            path: Box<IrBuildExpr>,
             span: Span,
-        } => LoweredExpr::PathReadText { path, span },
-        LoweredExpr::PathReadBytes { path, span } => ExprPathReadBytes {
-            path: Box<LoweredExpr>,
+        } => IrBuildExpr::PathReadText { path, span },
+        IrBuildExpr::PathReadBytes { path, span } => ExprPathReadBytes {
+            path: Box<IrBuildExpr>,
             span: Span,
-        } => LoweredExpr::PathReadBytes { path, span },
-        LoweredExpr::PathExists { path, span } => ExprPathExists {
-            path: Box<LoweredExpr>,
+        } => IrBuildExpr::PathReadBytes { path, span },
+        IrBuildExpr::PathExists { path, span } => ExprPathExists {
+            path: Box<IrBuildExpr>,
             span: Span,
-        } => LoweredExpr::PathExists { path, span },
-        LoweredExpr::PathExecutable { path, span } => ExprPathExecutable {
-            path: Box<LoweredExpr>,
+        } => IrBuildExpr::PathExists { path, span },
+        IrBuildExpr::PathExecutable { path, span } => ExprPathExecutable {
+            path: Box<IrBuildExpr>,
             span: Span,
-        } => LoweredExpr::PathExecutable { path, span },
-        LoweredExpr::PathDu { path, span } => ExprPathDu {
-            path: Box<LoweredExpr>,
+        } => IrBuildExpr::PathExecutable { path, span },
+        IrBuildExpr::PathDu { path, span } => ExprPathDu {
+            path: Box<IrBuildExpr>,
             span: Span,
-        } => LoweredExpr::PathDu { path, span },
-        LoweredExpr::PathMetadata { path, span } => ExprPathMetadata {
-            path: Box<LoweredExpr>,
+        } => IrBuildExpr::PathDu { path, span },
+        IrBuildExpr::PathMetadata { path, span } => ExprPathMetadata {
+            path: Box<IrBuildExpr>,
             span: Span,
-        } => LoweredExpr::PathMetadata { path, span },
-        LoweredExpr::PathReadlink { path, span } => ExprPathReadlink {
-            path: Box<LoweredExpr>,
+        } => IrBuildExpr::PathMetadata { path, span },
+        IrBuildExpr::PathReadlink { path, span } => ExprPathReadlink {
+            path: Box<IrBuildExpr>,
             span: Span,
-        } => LoweredExpr::PathReadlink { path, span },
-        LoweredExpr::PathResolve { path, span } => ExprPathResolve {
-            path: Box<LoweredExpr>,
+        } => IrBuildExpr::PathReadlink { path, span },
+        IrBuildExpr::PathResolve { path, span } => ExprPathResolve {
+            path: Box<IrBuildExpr>,
             span: Span,
-        } => LoweredExpr::PathResolve { path, span },
-        LoweredExpr::PathWrite {
+        } => IrBuildExpr::PathResolve { path, span },
+        IrBuildExpr::PathWrite {
             path,
             data,
             atomic,
             span,
         } => ExprPathWrite {
-            path: Box<LoweredExpr>,
-            data: Box<LoweredExpr>,
+            path: Box<IrBuildExpr>,
+            data: Box<IrBuildExpr>,
             atomic: bool,
             span: Span,
-        } => LoweredExpr::PathWrite {
+        } => IrBuildExpr::PathWrite {
             path,
             data,
             atomic,
             span,
         },
-        LoweredExpr::PathMkdir {
+        IrBuildExpr::PathMkdir {
             path,
             parents,
             span,
         } => ExprPathMkdir {
-            path: Box<LoweredExpr>,
-            parents: Option<Box<LoweredExpr>>,
+            path: Box<IrBuildExpr>,
+            parents: Option<Box<IrBuildExpr>>,
             span: Span,
-        } => LoweredExpr::PathMkdir {
+        } => IrBuildExpr::PathMkdir {
             path,
             parents,
             span,
         },
-        LoweredExpr::PathRemove {
+        IrBuildExpr::PathRemove {
             path,
             missing_ok,
             span,
         } => ExprPathRemove {
-            path: Box<LoweredExpr>,
-            missing_ok: Option<Box<LoweredExpr>>,
+            path: Box<IrBuildExpr>,
+            missing_ok: Option<Box<IrBuildExpr>>,
             span: Span,
-        } => LoweredExpr::PathRemove {
+        } => IrBuildExpr::PathRemove {
             path,
             missing_ok,
             span,
         },
-        LoweredExpr::JsonEncode { value, span } => ExprJsonEncode {
-            value: Box<LoweredExpr>,
+        IrBuildExpr::JsonEncode { value, span } => ExprJsonEncode {
+            value: Box<IrBuildExpr>,
             span: Span,
-        } => LoweredExpr::JsonEncode { value, span },
-        LoweredExpr::ArchiveTarCreate {
+        } => IrBuildExpr::JsonEncode { value, span },
+        IrBuildExpr::ArchiveTarCreate {
             path,
             root,
             entries,
@@ -6476,13 +6503,13 @@ impl_node_codec! {
             overwrite,
             span,
         } => ExprArchiveTarCreate {
-            path: Box<LoweredExpr>,
-            root: Box<LoweredExpr>,
-            entries: Box<LoweredExpr>,
-            compression: Option<Box<LoweredExpr>>,
-            overwrite: Option<Box<LoweredExpr>>,
+            path: Box<IrBuildExpr>,
+            root: Box<IrBuildExpr>,
+            entries: Box<IrBuildExpr>,
+            compression: Option<Box<IrBuildExpr>>,
+            overwrite: Option<Box<IrBuildExpr>>,
             span: Span,
-        } => LoweredExpr::ArchiveTarCreate {
+        } => IrBuildExpr::ArchiveTarCreate {
             path,
             root,
             entries,
@@ -6490,69 +6517,69 @@ impl_node_codec! {
             overwrite,
             span,
         },
-        LoweredExpr::ArchiveTarList { path, span } => ExprArchiveTarList {
-            path: Box<LoweredExpr>,
+        IrBuildExpr::ArchiveTarList { path, span } => ExprArchiveTarList {
+            path: Box<IrBuildExpr>,
             span: Span,
-        } => LoweredExpr::ArchiveTarList { path, span },
-        LoweredExpr::ArchiveTarExtract { path, dest, span } => ExprArchiveTarExtract {
-            path: Box<LoweredExpr>,
-            dest: Box<LoweredExpr>,
+        } => IrBuildExpr::ArchiveTarList { path, span },
+        IrBuildExpr::ArchiveTarExtract { path, dest, span } => ExprArchiveTarExtract {
+            path: Box<IrBuildExpr>,
+            dest: Box<IrBuildExpr>,
             span: Span,
-        } => LoweredExpr::ArchiveTarExtract { path, dest, span },
-        LoweredExpr::HashVerifyFile {
+        } => IrBuildExpr::ArchiveTarExtract { path, dest, span },
+        IrBuildExpr::HashVerifyFile {
             path,
             algorithm,
             expected,
             span,
         } => ExprHashVerifyFile {
-            path: Box<LoweredExpr>,
+            path: Box<IrBuildExpr>,
             algorithm: HashAlgorithm,
-            expected: Box<LoweredExpr>,
+            expected: Box<IrBuildExpr>,
             span: Span,
-        } => LoweredExpr::HashVerifyFile {
+        } => IrBuildExpr::HashVerifyFile {
             path,
             algorithm,
             expected,
             span,
         },
-        LoweredExpr::ModuleCall { op, args, span } => ExprModuleCall {
+        IrBuildExpr::ModuleCall { op, args, span } => ExprModuleCall {
             op: RuntimeOp,
-            args: Vec<LoweredExpr>,
+            args: Vec<IrBuildExpr>,
             span: Span,
-        } => LoweredExpr::ModuleCall { op, args, span },
-        LoweredExpr::ProcessCommandArgv(value) => ExprProcessCommandArgv {
+        } => IrBuildExpr::ModuleCall { op, args, span },
+        IrBuildExpr::ProcessCommandArgv(value) => ExprProcessCommandArgv {
             value: Box<LoweredProcessCommandArgv>,
-        } => LoweredExpr::ProcessCommandArgv(value),
-        LoweredExpr::ProcessCommandBuilder { entries, span } => ExprProcessCommandBuilder {
+        } => IrBuildExpr::ProcessCommandArgv(value),
+        IrBuildExpr::ProcessCommandBuilder { entries, span } => ExprProcessCommandBuilder {
             entries: Vec<LoweredProcessCommandBuilderEntry>,
             span: Span,
-        } => LoweredExpr::ProcessCommandBuilder { entries, span },
-        LoweredExpr::Abort {
+        } => IrBuildExpr::ProcessCommandBuilder { entries, span },
+        IrBuildExpr::Abort {
             status,
             force,
             span,
         } => ExprAbort {
-            status: Box<LoweredExpr>,
-            force: Option<Box<LoweredExpr>>,
+            status: Box<IrBuildExpr>,
+            force: Option<Box<IrBuildExpr>>,
             span: Span,
-        } => LoweredExpr::Abort {
+        } => IrBuildExpr::Abort {
             status,
             force,
             span,
         },
-        LoweredExpr::Ok(value) => ExprOk {
-            value: Box<LoweredExpr>,
-        } => LoweredExpr::Ok(value),
-        LoweredExpr::Err(value) => ExprErr {
-            value: Box<LoweredExpr>,
-        } => LoweredExpr::Err(value),
-        LoweredExpr::Error(value) => ExprError {
+        IrBuildExpr::Ok(value) => ExprOk {
+            value: Box<IrBuildExpr>,
+        } => IrBuildExpr::Ok(value),
+        IrBuildExpr::Err(value) => ExprErr {
+            value: Box<IrBuildExpr>,
+        } => IrBuildExpr::Err(value),
+        IrBuildExpr::Error(value) => ExprError {
             value: Box<LoweredErrorExpr>,
-        } => LoweredExpr::Error(value),
-        LoweredExpr::Try(value) => ExprTry {
-            value: Box<LoweredExpr>,
-        } => LoweredExpr::Try(value),
-        LoweredExpr::Call {
+        } => IrBuildExpr::Error(value),
+        IrBuildExpr::Try(value) => ExprTry {
+            value: Box<IrBuildExpr>,
+        } => IrBuildExpr::Try(value),
+        IrBuildExpr::Call {
             function,
             args,
             span,
@@ -6560,30 +6587,30 @@ impl_node_codec! {
             function: LoweredFunctionKey,
             args: Vec<LoweredCallArg>,
             span: Span,
-        } => LoweredExpr::Call {
+        } => IrBuildExpr::Call {
             function,
             args,
             span,
         },
-        LoweredExpr::DynamicCall { callee, args, span } => ExprDynamicCall {
-            callee: Box<LoweredExpr>,
+        IrBuildExpr::DynamicCall { callee, args, span } => ExprDynamicCall {
+            callee: Box<IrBuildExpr>,
             args: Vec<LoweredCallArg>,
             span: Span,
-        } => LoweredExpr::DynamicCall { callee, args, span },
-        LoweredExpr::SelfCall { args, span } => ExprSelfCall {
+        } => IrBuildExpr::DynamicCall { callee, args, span },
+        IrBuildExpr::SelfCall { args, span } => ExprSelfCall {
             args: Vec<LoweredCallArg>,
             span: Span,
-        } => LoweredExpr::SelfCall { args, span },
+        } => IrBuildExpr::SelfCall { args, span },
     }
 }
 
 impl_node_codec! {
-    LoweredStmt {
-        LoweredStmt::Let { slot, value } => StmtLet {
+    IrBuildStmt {
+        IrBuildStmt::Let { slot, value } => StmtLet {
             slot: usize,
-            value: LoweredExpr,
-        } => LoweredStmt::Let { slot, value },
-        LoweredStmt::Guard {
+            value: IrBuildExpr,
+        } => IrBuildStmt::Let { slot, value },
+        IrBuildStmt::Guard {
             slot,
             value,
             else_param_slot,
@@ -6591,26 +6618,26 @@ impl_node_codec! {
             span,
         } => StmtGuard {
             slot: usize,
-            value: LoweredExpr,
+            value: IrBuildExpr,
             else_param_slot: Option<usize>,
-            else_body: Vec<LoweredStmt>,
+            else_body: Vec<IrBuildStmt>,
             span: Span,
-        } => LoweredStmt::Guard {
+        } => IrBuildStmt::Guard {
             slot,
             value,
             else_param_slot,
             else_body,
             span,
         },
-        LoweredStmt::LetInt { slot, value } => StmtLetInt {
+        IrBuildStmt::LetInt { slot, value } => StmtLetInt {
             slot: usize,
             value: LoweredIntExpr,
-        } => LoweredStmt::LetInt { slot, value },
-        LoweredStmt::LetBool { slot, value } => StmtLetBool {
+        } => IrBuildStmt::LetInt { slot, value },
+        IrBuildStmt::LetBool { slot, value } => StmtLetBool {
             slot: usize,
             value: LoweredBoolExpr,
-        } => LoweredStmt::LetBool { slot, value },
-        LoweredStmt::Assign {
+        } => IrBuildStmt::LetBool { slot, value },
+        IrBuildStmt::Assign {
             slot,
             op,
             value,
@@ -6618,15 +6645,15 @@ impl_node_codec! {
         } => StmtAssign {
             slot: usize,
             op: AssignOp,
-            value: LoweredExpr,
+            value: IrBuildExpr,
             span: Span,
-        } => LoweredStmt::Assign {
+        } => IrBuildStmt::Assign {
             slot,
             op,
             value,
             span,
         },
-        LoweredStmt::AssignField {
+        IrBuildStmt::AssignField {
             slot,
             field,
             op,
@@ -6636,16 +6663,16 @@ impl_node_codec! {
             slot: usize,
             field: Arc<str>,
             op: AssignOp,
-            value: LoweredExpr,
+            value: IrBuildExpr,
             span: Span,
-        } => LoweredStmt::AssignField {
+        } => IrBuildStmt::AssignField {
             slot,
             field,
             op,
             value,
             span,
         },
-        LoweredStmt::AssignFieldInt {
+        IrBuildStmt::AssignFieldInt {
             slot,
             field,
             op,
@@ -6657,14 +6684,14 @@ impl_node_codec! {
             op: AssignOp,
             value: LoweredIntExpr,
             span: Span,
-        } => LoweredStmt::AssignFieldInt {
+        } => IrBuildStmt::AssignFieldInt {
             slot,
             field,
             op,
             value,
             span,
         },
-        LoweredStmt::AssignIndex {
+        IrBuildStmt::AssignIndex {
             slot,
             index,
             op,
@@ -6672,18 +6699,18 @@ impl_node_codec! {
             span,
         } => StmtAssignIndex {
             slot: usize,
-            index: Box<LoweredExpr>,
+            index: Box<IrBuildExpr>,
             op: AssignOp,
-            value: Box<LoweredExpr>,
+            value: Box<IrBuildExpr>,
             span: Span,
-        } => LoweredStmt::AssignIndex {
+        } => IrBuildStmt::AssignIndex {
             slot,
             index,
             op,
             value,
             span,
         },
-        LoweredStmt::AssignInt {
+        IrBuildStmt::AssignInt {
             slot,
             op,
             value,
@@ -6693,147 +6720,147 @@ impl_node_codec! {
             op: AssignOp,
             value: LoweredIntExpr,
             span: Span,
-        } => LoweredStmt::AssignInt {
+        } => IrBuildStmt::AssignInt {
             slot,
             op,
             value,
             span,
         },
-        LoweredStmt::AssignBool { slot, value } => StmtAssignBool {
+        IrBuildStmt::AssignBool { slot, value } => StmtAssignBool {
             slot: usize,
             value: LoweredBoolExpr,
-        } => LoweredStmt::AssignBool { slot, value },
-        LoweredStmt::Expr { value, span } => StmtExpr {
-            value: LoweredExpr,
+        } => IrBuildStmt::AssignBool { slot, value },
+        IrBuildStmt::Expr { value, span } => StmtExpr {
+            value: IrBuildExpr,
             span: Span,
-        } => LoweredStmt::Expr { value, span },
-        LoweredStmt::If {
+        } => IrBuildStmt::Expr { value, span },
+        IrBuildStmt::If {
             branches,
             else_body,
         } => StmtIf {
-            branches: Vec<(LoweredExpr, Vec<LoweredStmt>)>,
-            else_body: Option<Vec<LoweredStmt>>,
-        } => LoweredStmt::If {
+            branches: Vec<(IrBuildExpr, Vec<IrBuildStmt>)>,
+            else_body: Option<Vec<IrBuildStmt>>,
+        } => IrBuildStmt::If {
             branches,
             else_body,
         },
-        LoweredStmt::IfBool {
+        IrBuildStmt::IfBool {
             branches,
             else_body,
         } => StmtIfBool {
-            branches: Vec<(LoweredBoolExpr, Vec<LoweredStmt>)>,
-            else_body: Option<Vec<LoweredStmt>>,
-        } => LoweredStmt::IfBool {
+            branches: Vec<(LoweredBoolExpr, Vec<IrBuildStmt>)>,
+            else_body: Option<Vec<IrBuildStmt>>,
+        } => IrBuildStmt::IfBool {
             branches,
             else_body,
         },
-        LoweredStmt::While { condition, body } => StmtWhile {
-            condition: LoweredExpr,
-            body: Vec<LoweredStmt>,
-        } => LoweredStmt::While { condition, body },
-        LoweredStmt::WhileBool { condition, body } => StmtWhileBool {
+        IrBuildStmt::While { condition, body } => StmtWhile {
+            condition: IrBuildExpr,
+            body: Vec<IrBuildStmt>,
+        } => IrBuildStmt::While { condition, body },
+        IrBuildStmt::WhileBool { condition, body } => StmtWhileBool {
             condition: LoweredBoolExpr,
-            body: Vec<LoweredStmt>,
-        } => LoweredStmt::WhileBool { condition, body },
-        LoweredStmt::Match { value, arms, span } => StmtMatch {
-            value: LoweredExpr,
-            arms: Vec<(LoweredPattern, Option<LoweredExpr>, Vec<LoweredStmt>)>,
+            body: Vec<IrBuildStmt>,
+        } => IrBuildStmt::WhileBool { condition, body },
+        IrBuildStmt::Match { value, arms, span } => StmtMatch {
+            value: IrBuildExpr,
+            arms: Vec<(IrBuildPattern, Option<IrBuildExpr>, Vec<IrBuildStmt>)>,
             span: Span,
-        } => LoweredStmt::Match { value, arms, span },
-        LoweredStmt::StrMatch {
+        } => IrBuildStmt::Match { value, arms, span },
+        IrBuildStmt::StrMatch {
             value,
             arms,
             fallback,
             span,
         } => StmtStrMatch {
-            value: LoweredExpr,
-            arms: FxHashMap<Arc<str>, Vec<LoweredStmt>>,
-            fallback: Option<Vec<LoweredStmt>>,
+            value: IrBuildExpr,
+            arms: FxHashMap<Arc<str>, Vec<IrBuildStmt>>,
+            fallback: Option<Vec<IrBuildStmt>>,
             span: Span,
-        } => LoweredStmt::StrMatch {
+        } => IrBuildStmt::StrMatch {
             value,
             arms,
             fallback,
             span,
         },
-        LoweredStmt::TagMatch {
+        IrBuildStmt::TagMatch {
             value,
             arms,
             fallback,
             span,
         } => StmtTagMatch {
-            value: LoweredExpr,
-            arms: FxHashMap<Arc<str>, Vec<LoweredStmt>>,
-            fallback: Option<Vec<LoweredStmt>>,
+            value: IrBuildExpr,
+            arms: FxHashMap<Arc<str>, Vec<IrBuildStmt>>,
+            fallback: Option<Vec<IrBuildStmt>>,
             span: Span,
-        } => LoweredStmt::TagMatch {
+        } => IrBuildStmt::TagMatch {
             value,
             arms,
             fallback,
             span,
         },
-        LoweredStmt::For {
+        IrBuildStmt::For {
             slot,
             iter,
             body,
             span,
         } => StmtFor {
             slot: usize,
-            iter: LoweredExpr,
-            body: Vec<LoweredStmt>,
+            iter: IrBuildExpr,
+            body: Vec<IrBuildStmt>,
             span: Span,
-        } => LoweredStmt::For {
+        } => IrBuildStmt::For {
             slot,
             iter,
             body,
             span,
         },
-        LoweredStmt::LetRecord {
+        IrBuildStmt::LetRecord {
             source,
             fields,
             span,
         } => StmtLetRecord {
-            source: LoweredExpr,
+            source: IrBuildExpr,
             fields: Vec<(Name, usize)>,
             span: Span,
-        } => LoweredStmt::LetRecord {
+        } => IrBuildStmt::LetRecord {
             source,
             fields,
             span,
         },
-        LoweredStmt::ForRecord {
+        IrBuildStmt::ForRecord {
             fields,
             iter,
             body,
             span,
         } => StmtForRecord {
             fields: Vec<(Name, usize)>,
-            iter: LoweredExpr,
-            body: Vec<LoweredStmt>,
+            iter: IrBuildExpr,
+            body: Vec<IrBuildStmt>,
             span: Span,
-        } => LoweredStmt::ForRecord {
+        } => IrBuildStmt::ForRecord {
             fields,
             iter,
             body,
             span,
         },
-        LoweredStmt::ForStrLines {
+        IrBuildStmt::ForStrLines {
             slot,
             text,
             body,
             span,
         } => StmtForStrLines {
             slot: usize,
-            text: LoweredExpr,
-            body: Vec<LoweredStmt>,
+            text: IrBuildExpr,
+            body: Vec<IrBuildStmt>,
             span: Span,
-        } => LoweredStmt::ForStrLines {
+        } => IrBuildStmt::ForStrLines {
             slot,
             text,
             body,
             span,
         },
-        LoweredStmt::ScanLines {
+        IrBuildStmt::ScanLines {
             text_slot,
             line_slot,
             checks,
@@ -6843,83 +6870,83 @@ impl_node_codec! {
             line_slot: usize,
             checks: Vec<ScanCheck>,
             span: Span,
-        } => LoweredStmt::ScanLines {
+        } => IrBuildStmt::ScanLines {
             text_slot,
             line_slot,
             checks,
             span,
         },
-        LoweredStmt::Print {
+        IrBuildStmt::Print {
             args,
             stderr,
             flush,
             propagate_result,
             span,
         } => StmtPrint {
-            args: Vec<LoweredExpr>,
+            args: Vec<IrBuildExpr>,
             stderr: bool,
             flush: bool,
             propagate_result: bool,
             span: Span,
-        } => LoweredStmt::Print {
+        } => IrBuildStmt::Print {
             args,
             stderr,
             flush,
             propagate_result,
             span,
         },
-        LoweredStmt::Cd { target, body, span } => StmtCd {
-            target: LoweredExpr,
-            body: Vec<LoweredStmt>,
+        IrBuildStmt::Cd { target, body, span } => StmtCd {
+            target: IrBuildExpr,
+            body: Vec<IrBuildStmt>,
             span: Span,
-        } => LoweredStmt::Cd { target, body, span },
-        LoweredStmt::Env { env, body } => StmtEnv {
+        } => IrBuildStmt::Cd { target, body, span },
+        IrBuildStmt::Env { env, body } => StmtEnv {
             env: Vec<LoweredRunEnv>,
-            body: Vec<LoweredStmt>,
-        } => LoweredStmt::Env { env, body },
-        LoweredStmt::Proc {
+            body: Vec<IrBuildStmt>,
+        } => IrBuildStmt::Env { env, body },
+        IrBuildStmt::Proc {
             op,
             args,
             propagate_result,
             span,
         } => StmtProc {
             op: RuntimeOp,
-            args: Vec<LoweredExpr>,
+            args: Vec<IrBuildExpr>,
             propagate_result: bool,
             span: Span,
-        } => LoweredStmt::Proc {
+        } => IrBuildStmt::Proc {
             op,
             args,
             propagate_result,
             span,
         },
-        LoweredStmt::Run {
+        IrBuildStmt::Run {
             value,
             propagate_result,
         } => StmtRun {
-            value: LoweredExpr,
+            value: IrBuildExpr,
             propagate_result: bool,
-        } => LoweredStmt::Run {
+        } => IrBuildStmt::Run {
             value,
             propagate_result,
         },
-        LoweredStmt::Loop { body } => StmtLoop {
-            body: Vec<LoweredStmt>,
-        } => LoweredStmt::Loop { body },
-        LoweredStmt::Return { value } => StmtReturn {
-            value: LoweredExpr,
-        } => LoweredStmt::Return { value },
-        LoweredStmt::Yield { value } => StmtYield {
-            value: LoweredExpr,
-        } => LoweredStmt::Yield { value },
-        LoweredStmt::Break => StmtBreak {} => LoweredStmt::Break,
-        LoweredStmt::BreakValue { value } => StmtBreakValue {
-            value: LoweredExpr,
-        } => LoweredStmt::BreakValue { value },
-        LoweredStmt::Continue => StmtContinue {} => LoweredStmt::Continue,
-        LoweredStmt::Defer { value } => StmtDefer {
-            value: LoweredExpr,
-        } => LoweredStmt::Defer { value },
+        IrBuildStmt::Loop { body } => StmtLoop {
+            body: Vec<IrBuildStmt>,
+        } => IrBuildStmt::Loop { body },
+        IrBuildStmt::Return { value } => StmtReturn {
+            value: IrBuildExpr,
+        } => IrBuildStmt::Return { value },
+        IrBuildStmt::Yield { value } => StmtYield {
+            value: IrBuildExpr,
+        } => IrBuildStmt::Yield { value },
+        IrBuildStmt::Break => StmtBreak {} => IrBuildStmt::Break,
+        IrBuildStmt::BreakValue { value } => StmtBreakValue {
+            value: IrBuildExpr,
+        } => IrBuildStmt::BreakValue { value },
+        IrBuildStmt::Continue => StmtContinue {} => IrBuildStmt::Continue,
+        IrBuildStmt::Defer { value } => StmtDefer {
+            value: IrBuildExpr,
+        } => IrBuildStmt::Defer { value },
     }
 }
 
@@ -6977,10 +7004,7 @@ run true
             .unwrap_or_else(|payload| std::panic::resume_unwind(payload));
     }
 
-    fn fixture(
-        name: &str,
-        source: &str,
-    ) -> (Arc<SourceMap>, SourceId, Vec<LoweredFunctionUnit>) {
+    fn fixture(name: &str, source: &str) -> FullProgram {
         let mut sources = SourceMap::new();
         let source_id = sources.add_file(name, source);
         let parsed = Parser::parse_source_arena_only(source_id, source);
@@ -6993,60 +7017,32 @@ run true
         );
         let bodies = Checker::probe_compact_bodies(&parsed.arena, &declarations);
         assert!(bodies.diagnostics.is_empty(), "{:?}", bodies.diagnostics);
-        let units = super::super::super::probe_compact_lower_function_units(
+        FullBuilder::build_compact(
             &parsed.arena,
             &declarations,
             &bodies,
             source,
-        );
-        (Arc::new(sources), source_id, units)
+            Arc::new(sources),
+            source_id,
+        )
+        .unwrap()
     }
 
     #[test]
     fn full_indexed_program_represents_every_vertical_function() {
-        let (sources, source_id, units) = fixture("vertical-slice.xsh", VERTICAL_SLICE);
-        let program = FullBuilder::build(&units, sources, source_id).unwrap();
+        let program = fixture("vertical-slice.xsh", VERTICAL_SLICE);
 
-        assert_eq!(program.function_count(), units.len());
-        for (index, unit) in units.iter().enumerate() {
-            assert_eq!(
-                program.function_identity(index).unwrap(),
-                (unit.key(), unit.kind())
-            );
-            assert_eq!(
-                program.store.functions[index].slot_count as usize,
-                unit.slot_count()
-            );
-        }
+        assert!(program.function_count() > 0);
+        assert!(program
+            .function_view(
+                LoweredFunctionKey::Name(Name::intern("main")),
+                LoweredFunctionKind::Proc,
+            )
+            .unwrap()
+            .is_some());
         assert!(program.instruction_count() > 0);
         assert!(program.extra_words() > 0);
         assert!(program.retained_bytes() > size_of::<FullProgram>());
-    }
-
-    fn run_original(
-        name: Name,
-    ) -> (
-        Result<Value, crate::runtime::value::RuntimeError>,
-        Vec<u8>,
-        String,
-    ) {
-        let mut sources = SourceMap::new();
-        let source_id = sources.add_file("vertical-slice.xsh", VERTICAL_SLICE);
-        let parsed = Parser::parse_source_arena_only(source_id, VERTICAL_SLICE);
-        let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources).with_tracing();
-        assert!(
-            evaluator
-                .install_compact_lowered_program(&parsed.arena, source_id)
-                .is_empty()
-        );
-        let result = evaluator
-            .call_lowered_proc(name, &[], Span::new(source_id, 0, 0))
-            .expect("oracle proc is lowered");
-        (
-            result,
-            evaluator.stdout,
-            normalize_traces(&evaluator.trace_events),
-        )
     }
 
     fn normalize_traces(events: &[crate::trace::TraceEvent]) -> String {
@@ -7094,7 +7090,12 @@ run true
             Evaluator::new_with_sources(Vec::new(), (*program.sources).clone()).with_tracing();
         evaluator.indexed_program = Some(Arc::clone(&program));
         let result = evaluator
-            .call_lowered_proc(name, &[], Span::new(program.store.source_id, 0, 0))
+            .call_indexed_direct(
+                LoweredFunctionKey::Name(name),
+                LoweredFunctionKind::Proc,
+                &[],
+                Span::new(program.store.source_id, 0, 0),
+            )
             .expect("full indexed proc is installed");
         (
             result,
@@ -7104,15 +7105,28 @@ run true
     }
 
     #[test]
-    fn direct_full_program_matches_values_output_errors_and_traces() {
+    fn direct_full_program_preserves_values_output_errors_and_traces() {
         run_with_large_stack(|| {
-            let (sources, source_id, units) =
-                fixture("vertical-slice.xsh", VERTICAL_SLICE);
-            let program = Arc::new(FullBuilder::build(&units, sources, source_id).unwrap());
+            let program = Arc::new(fixture("vertical-slice.xsh", VERTICAL_SLICE));
 
-            for name in [Name::intern("main"), Name::intern("exact_error_site")] {
-                assert_eq!(run_full(Arc::clone(&program), name), run_original(name));
-            }
+            let (result, stdout, traces) =
+                run_full(Arc::clone(&program), Name::intern("main"));
+            assert_eq!(result.unwrap(), Value::ok(Value::Unit));
+            assert_eq!(stdout, b"slice 13 120 true true\n");
+            assert!(traces.contains("ProcEnter"));
+            assert!(traces.contains("ProcExit"));
+
+            let (result, stdout, traces) =
+                run_full(program, Name::intern("exact_error_site"));
+            let Value::Result(crate::runtime::value::ResultValue::Err(error)) =
+                result.unwrap()
+            else {
+                panic!("exact error site must return Err");
+            };
+            assert_eq!(error.error_kind(), Some("bytes-unpack"));
+            assert!(stdout.is_empty());
+            assert!(traces.contains("ProcEnter"));
+            assert!(traces.contains("ProcExit"));
         });
     }
 
@@ -7140,10 +7154,10 @@ run true
                 .unwrap()
             };
 
-            assert_eq!(
-                run_full(Arc::new(program), Name::intern("main")),
-                run_original(Name::intern("main"))
-            );
+            let (result, stdout, _) =
+                run_full(Arc::new(program), Name::intern("main"));
+            assert_eq!(result.unwrap(), Value::ok(Value::Unit));
+            assert_eq!(stdout, b"slice 13 120 true true\n");
         });
     }
 
@@ -7203,7 +7217,7 @@ run true
                 .unwrap();
                 let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources);
                 let plan = evaluator
-                    .prepare_compact_lowered_only(&parsed.arena, source_id, true)
+                    .prepare_compact_indexed_only(&parsed.arena, source_id)
                     .expect("phase 5 boundary fixture is wholly lowerable");
                 (Arc::new(program), plan, evaluator)
             };
@@ -7234,7 +7248,7 @@ run true
                 "top-level binding capture is stored by compact identity"
             );
             evaluator.indexed_program = Some(Arc::clone(&program));
-            let output = match evaluator.eval_installed_compact_lowered_only(plan) {
+            let output = match evaluator.eval_installed_compact_indexed_only(plan) {
                 Ok(output) => output,
                 Err(_) => panic!("indexed driver remains executable"),
             };
@@ -7321,7 +7335,7 @@ run true
         let source_id = sources.add_file("phase5-reject.xsh", source);
         let parsed = Parser::parse_source_arena_only(source_id, source);
         let statements = parsed.arena.statement_ids().collect::<Vec<_>>();
-        let lowered = LoweredProgram {
+        let lowered = IrBuildProgram {
             statements: vec![None],
         };
         let error = FullBuilder::build_with_driver(
@@ -7336,8 +7350,7 @@ run true
 
     #[test]
     fn verifier_rejects_cross_function_instruction_ownership() {
-        let (sources, source_id, units) = fixture("vertical-slice.xsh", VERTICAL_SLICE);
-        let mut program = FullBuilder::build(&units, sources, source_id).unwrap();
+        let mut program = fixture("vertical-slice.xsh", VERTICAL_SLICE);
         let target = program.store.function_instruction_starts[0];
         let body = IrBlockId::from_raw(program.store.functions[1].body).unwrap();
         let body_words = program.store.blocks[body.index()]
@@ -7357,8 +7370,7 @@ run true
 
     #[test]
     fn verifier_rejects_block_ownership_and_missing_function_terminators() {
-        let (sources, source_id, units) = fixture("vertical-slice.xsh", VERTICAL_SLICE);
-        let program = FullBuilder::build(&units, sources, source_id).unwrap();
+        let program = fixture("vertical-slice.xsh", VERTICAL_SLICE);
 
         let mut bad_owner = program.clone();
         let body = IrBlockId::from_raw(bad_owner.store.functions[0].body).unwrap();
@@ -7394,8 +7406,7 @@ run true
 
     #[test]
     fn verifier_rejects_slot_pattern_function_stage_and_location_bounds() {
-        let (sources, source_id, units) = fixture("vertical-slice.xsh", VERTICAL_SLICE);
-        let program = FullBuilder::build(&units, sources, source_id).unwrap();
+        let program = fixture("vertical-slice.xsh", VERTICAL_SLICE);
 
         let mut bad_slot = program.clone();
         let slot = bad_slot
@@ -7522,35 +7533,6 @@ run true
         );
         let bodies = Checker::probe_compact_bodies(&parsed.arena, &declarations);
         assert!(bodies.diagnostics.is_empty(), "{:?}", bodies.diagnostics);
-        let mut oracle =
-            Evaluator::new_with_sources(Vec::new(), sources.clone());
-        assert!(
-            oracle
-                .install_compact_lowered_program(&parsed.arena, source_id)
-                .is_empty()
-        );
-        let original = (*oracle.lowered_program).clone();
-        let mut incomplete = original.clone();
-        let Some(LoweredTopLevelStmt {
-            kind: LoweredTopLevelKind::Use {
-                module_statements, ..
-            },
-            ..
-        }) = incomplete.statements[0].as_mut()
-        else {
-            panic!("loaded user module should lower to a use driver step");
-        };
-        module_statements.clear();
-        let source_statements = parsed.arena.statement_ids().collect::<Vec<_>>();
-        let error = FullBuilder::build_with_driver(
-            &[],
-            Some((&incomplete, &source_statements, &parsed.arena)),
-            Arc::new(sources.clone()),
-            source_id,
-        )
-        .unwrap_err();
-        assert_eq!(error.construct, "module_top_level_boundary_blocker");
-
         let program = FullBuilder::build_compact(
             &parsed.arena,
             &declarations,
@@ -7602,338 +7584,5 @@ run true
         assert_eq!(evaluator.stdout, b"loaded\n");
 
         let _ = fs::remove_dir_all(root);
-    }
-
-    #[test]
-    fn failed_full_encoding_rewinds_all_graph_columns() {
-        let (sources, source_id, units) = fixture("vertical-slice.xsh", VERTICAL_SLICE);
-        let mut ordered = units.iter().collect::<Vec<_>>();
-        ordered.sort_by_key(|unit| (unit.source_span().start(), unit.key().display_name()));
-        let mut builder = FullBuilder::new(source_id);
-        builder.predeclare(&ordered).unwrap();
-        let function = builder.function_ids[&ordered[0].key()];
-        let mut body = (*ordered[0].lowered_body().unwrap()).clone();
-        body.body.push(LoweredStmt::Expr {
-            value: LoweredExpr::Param(usize::MAX),
-            span: ordered[0].source_span(),
-        });
-        let checkpoint = builder.checkpoint();
-        builder.current_owner = Some(function.raw());
-        builder.current_slot_count = body.slot_count as u32;
-        let result = builder.encode_body(function, &body);
-        builder.current_owner = None;
-        builder.current_slot_count = 0;
-        assert!(result.is_err());
-        builder.rewind(checkpoint);
-        assert_eq!(builder.checkpoint(), checkpoint);
-        drop(sources);
-    }
-
-    #[test]
-    #[ignore = "Phase 5 evidence compares complete-program admission and compact driver strategies"]
-    fn corpus_phase5_boundary_strategy_evidence() {
-        run_with_large_stack(|| {
-            let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-            let mut paths = Vec::new();
-            for relative in crate::frontend_stats::DEFAULT_ROOTS {
-                super::super::tests::collect_xsh_paths(&root.join(relative), &mut paths);
-            }
-            paths.sort();
-            paths.dedup();
-
-            let mut files = 0usize;
-            let mut source_bytes = 0usize;
-            let mut top_level_statements = 0usize;
-            let mut lowerable_top_level_statements = 0usize;
-            let mut whole_program_files = 0usize;
-            let mut whole_program_statements = 0usize;
-            let mut driver_steps = 0usize;
-            let mut driver_regions = 0usize;
-            let mut driver_sync_rows = 0usize;
-            let mut driver_metadata_bytes = 0usize;
-            let mut full_retained_bytes = 0usize;
-            let mut arena_duplication_bytes = 0usize;
-            let mut blockers = BTreeMap::<String, usize>::new();
-            let mut effects = BTreeMap::<&'static str, usize>::new();
-
-            for path in paths {
-                let Ok(source) = super::super::tests::read_xsh_source(&path) else {
-                    continue;
-                };
-                let Ok((sources, parsed)) =
-                    crate::loader::parse_script(path.to_string_lossy().as_ref())
-                else {
-                    continue;
-                };
-                if !parsed.diagnostics.is_empty() {
-                    continue;
-                }
-                let Some(source_id) = parsed.arena.arena.span_source_id else {
-                    continue;
-                };
-                let declarations = Checker::check_compact_declarations(&parsed.arena);
-                if !declarations.diagnostics.is_empty() {
-                    continue;
-                }
-                let bodies = Checker::probe_compact_bodies(&parsed.arena, &declarations);
-                if !bodies.diagnostics.is_empty() {
-                    continue;
-                }
-                let probe = super::super::super::probe_compact_lower_constructed_bodies(
-                    &parsed.arena,
-                    &declarations,
-                    &bodies,
-                    &source,
-                );
-                let units =
-                    super::super::super::lower::probe_compact_lower_function_units_with_sources(
-                    &parsed.arena,
-                    &declarations,
-                    &bodies,
-                    &source,
-                    &sources,
-                );
-                files += 1;
-                source_bytes += source.len();
-                top_level_statements += probe.top_level_statements;
-                lowerable_top_level_statements += probe.constructed_top_level_statements;
-                if units.iter().any(|unit| !unit.is_lowered()) {
-                    for unit in units.iter().filter(|unit| !unit.is_lowered()) {
-                        let blocker_source = unit
-                            .blocker_detail()
-                            .and_then(|(span, _)| source.get(span.start()..span.end()))
-                            .unwrap_or("");
-                        println!(
-                            "phase5 blocker file={} function={} blocker={} detail={} source={blocker_source:?}",
-                            path.display(),
-                            unit.key().display_name(),
-                            unit.blocker().map_or("unknown", |blocker| blocker.label()),
-                            unit.blocker_detail()
-                                .map_or("", |(_, detail)| detail.as_str()),
-                        );
-                    }
-                    *blockers.entry("function".to_string()).or_default() += 1;
-                    continue;
-                }
-                let root_statement_count = parsed.arena.statement_ids().count();
-                let built = FullBuilder::build_compact(
-                    &parsed.arena,
-                    &declarations,
-                    &bodies,
-                    &source,
-                    Arc::new(sources),
-                    source_id,
-                );
-                let program = match built {
-                    Ok(program) => program,
-                    Err(error) => {
-                        *blockers.entry(error.construct.to_string()).or_default() += 1;
-                        continue;
-                    }
-                };
-                whole_program_files += 1;
-                whole_program_statements += root_statement_count;
-                driver_steps += program.store.driver_steps.len();
-                driver_regions += program.store.driver_regions.len();
-                driver_sync_rows += program.store.driver_sync.len();
-                driver_metadata_bytes += program.store.driver_retained_bytes();
-                full_retained_bytes += program.store.retained_bytes();
-                arena_duplication_bytes += parsed.arena.retained_bytes();
-                for step in &program.store.driver_steps {
-                    for (name, flag) in [
-                        ("import", EFFECT_IMPORT),
-                        ("cwd", EFFECT_CWD),
-                        ("env", EFFECT_ENV),
-                        ("process", EFFECT_PROCESS),
-                        ("signal", EFFECT_SIGNAL),
-                        ("cancellation", EFFECT_CANCELLATION),
-                        ("trace", EFFECT_TRACE),
-                        ("dynamic", EFFECT_DYNAMIC_CALL),
-                        ("defer", EFFECT_DEFER),
-                        ("propagate", EFFECT_PROPAGATE),
-                        ("host", EFFECT_HOST),
-                        ("binding_read", EFFECT_BINDING_READ),
-                        ("binding_write", EFFECT_BINDING_WRITE),
-                    ] {
-                        if step.effects & flag != 0 {
-                            *effects.entry(name).or_default() += 1;
-                        }
-                    }
-                }
-            }
-
-            assert!(files > 0);
-            assert!(whole_program_files > 0);
-            assert!(driver_steps > 0);
-            assert!(driver_regions > 0);
-            assert!(full_retained_bytes > driver_metadata_bytes);
-            println!(
-                "phase5 corpus files={files} source_bytes={source_bytes} top_level_statements={top_level_statements} lowerable_top_level_statements={lowerable_top_level_statements} region_statement_coverage_percent={:.2} whole_program_files={whole_program_files} whole_program_file_coverage_percent={:.2} whole_program_statements={whole_program_statements} driver_steps={driver_steps} coherent_regions={driver_regions} driver_sync_rows={driver_sync_rows} driver_metadata_bytes={driver_metadata_bytes} full_retained_bytes={full_retained_bytes} avoided_arena_duplication_bytes={arena_duplication_bytes}",
-                100.0 * lowerable_top_level_statements as f64 / top_level_statements as f64,
-                100.0 * whole_program_files as f64 / files as f64,
-            );
-            println!(
-                "phase5 strategy=whole_program admitted_files={whole_program_files} regions={whole_program_files} silent_internal_fallback=0"
-            );
-            println!(
-                "phase5 strategy=coherent_regions admitted_files={whole_program_files} regions={driver_regions} sync_rows={driver_sync_rows} metadata_bytes={driver_metadata_bytes} silent_internal_fallback=0 selected=true"
-            );
-            println!(
-                "phase5 strategy=arena_orchestration admitted_files={files} retained_arena_bytes={arena_duplication_bytes} general_ast_required=true selected=false"
-            );
-            for (effect, count) in effects {
-                println!("phase5 effect name={effect} steps={count}");
-            }
-            for (blocker, count) in blockers {
-                println!("phase5 blocker label={blocker} files={count}");
-            }
-        });
-    }
-
-    #[test]
-    #[ignore = "Phase 4 evidence scans every fully lowerable function corpus file"]
-    fn corpus_full_indexed_store_evidence() {
-        run_with_large_stack(|| {
-            let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-            let mut paths = Vec::new();
-            for relative in crate::frontend_stats::DEFAULT_ROOTS {
-                super::super::tests::collect_xsh_paths(
-                    &root.join(relative),
-                    &mut paths,
-                );
-            }
-            paths.sort();
-            paths.dedup();
-
-            let mut files = 0usize;
-            let mut executable_files = 0usize;
-            let mut source_bytes = 0usize;
-            let mut functions_seen = 0usize;
-            let mut functions_built = 0usize;
-            let mut instructions = 0usize;
-            let mut blocks = 0usize;
-            let mut patterns = 0usize;
-            let mut stages = 0usize;
-            let mut extra_words = 0usize;
-            let mut retained_bytes = 0usize;
-            let mut recursive_row_lower_bound = 0usize;
-            let mut blockers = BTreeMap::<String, usize>::new();
-            let mut frequencies = BTreeMap::<String, usize>::new();
-
-            for path in paths {
-                let Ok(source) = super::super::tests::read_xsh_source(&path) else {
-                    continue;
-                };
-                let mut sources = SourceMap::new();
-                let source_id = sources.add_file(path.to_string_lossy(), source.clone());
-                let parsed = Parser::parse_source_arena_only(source_id, &source);
-                if !parsed.diagnostics.is_empty() {
-                    continue;
-                }
-                let declarations = Checker::check_compact_declarations(&parsed.arena);
-                if !declarations.diagnostics.is_empty() {
-                    continue;
-                }
-                let bodies = Checker::probe_compact_bodies(&parsed.arena, &declarations);
-                if !bodies.diagnostics.is_empty() {
-                    continue;
-                }
-                let units = super::super::super::probe_compact_lower_function_units(
-                    &parsed.arena,
-                    &declarations,
-                    &bodies,
-                    &source,
-                );
-                files += 1;
-                source_bytes += source.len();
-                functions_seen += units.len();
-                for unit in &units {
-                    if let Some(blocker) = unit.blocker() {
-                        *blockers.entry(blocker.label().to_string()).or_default() += 1;
-                    }
-                }
-                if units.is_empty() || units.iter().any(|unit| !unit.is_lowered()) {
-                    continue;
-                }
-
-                let program =
-                    FullBuilder::build(&units, Arc::new(sources), source_id).unwrap_or_else(
-                        |error| {
-                            let recovery_functions = units
-                                .iter()
-                                .filter(|unit| {
-                                    unit.lowered_body()
-                                        .is_some_and(|body| format!("{body:?}").contains("Unknown"))
-                                })
-                                .map(|unit| unit.key().display_name())
-                                .collect::<Vec<_>>();
-                            panic!(
-                                "{}: full indexed construction failed: {error:?}; recovery functions: {recovery_functions:?}",
-                                path.display()
-                            )
-                        },
-                    );
-                assert_eq!(program.function_count(), units.len());
-                for (index, function) in program.store.functions.iter().enumerate() {
-                    let (key, kind) = program.function_identity(index).unwrap();
-                    let unit = units.iter().find(|unit| unit.key() == key).unwrap();
-                    assert_eq!(kind, unit.kind());
-                    assert_eq!(
-                        function.slot_count as usize,
-                        unit.lowered_body().unwrap().slot_count
-                    );
-                    assert_eq!(
-                        function.params.len as usize,
-                        unit.lowered_body().unwrap().params.len()
-                    );
-                }
-                executable_files += 1;
-                functions_built += units.len();
-                instructions += program.store.tags.len();
-                blocks += program.store.blocks.len();
-                patterns += program.store.patterns.len();
-                stages += program.store.stages.len();
-                extra_words += program.store.extra.len();
-                retained_bytes += program.store.retained_bytes();
-                for tag in &program.store.tags {
-                    recursive_row_lower_bound += if (*tag as u8)
-                        <= FullTag::IntStrByteAtSlot as u8
-                    {
-                        size_of::<LoweredIntExpr>()
-                    } else if (*tag as u8) <= FullTag::BoolLiteralCompareSlot as u8 {
-                        size_of::<LoweredBoolExpr>()
-                    } else if (*tag as u8) <= FullTag::ExprSelfCall as u8 {
-                        size_of::<LoweredExpr>()
-                    } else {
-                        size_of::<LoweredStmt>()
-                    };
-                    *frequencies.entry(format!("{tag:?}")).or_default() += 1;
-                }
-                recursive_row_lower_bound +=
-                    program.store.patterns.len() * size_of::<LoweredPattern>()
-                        + program.store.stages.len() * size_of::<LoweredPipelineStage>()
-                        + program.store.values.len() * size_of::<LoweredValue>()
-                        + program.store.functions.len() * size_of::<LoweredPureFunction>();
-            }
-
-            assert!(files > 0);
-            assert!(executable_files > 0);
-            assert!(functions_built > 0);
-            assert!(instructions > 0);
-            assert!(retained_bytes * 10 < recursive_row_lower_bound * 8);
-            println!(
-                "phase4 corpus files={files} executable_files={executable_files} source_bytes={source_bytes} functions_seen={functions_seen} functions_built={functions_built} instructions={instructions} blocks={blocks} patterns={patterns} stages={stages} extra_words={extra_words} retained_bytes={retained_bytes} recursive_row_lower_bound={recursive_row_lower_bound} reduction_percent={:.2} retained_bytes_per_instruction={:.3} extra_bytes_per_instruction={:.3}",
-                100.0 * (recursive_row_lower_bound - retained_bytes) as f64
-                    / recursive_row_lower_bound as f64,
-                retained_bytes as f64 / instructions as f64,
-                extra_words as f64 * size_of::<u32>() as f64 / instructions as f64,
-            );
-            for (tag, count) in frequencies {
-                println!("phase4 opcode tag={tag} count={count}");
-            }
-            for (blocker, count) in blockers {
-                println!("phase4 blocker label={blocker} count={count}");
-            }
-        });
     }
 }

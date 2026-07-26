@@ -1,12 +1,12 @@
 # Architecture
 
-XSH is implemented as a small compiler-style pipeline around a tree-walking
-runtime:
+XSH is implemented as a small compiler-style pipeline around a verified
+indexed runtime:
 
 1. `src/syntax` turns source text into the AST and lossless CST.
 2. `src/sema` checks names, types, standard-module signatures, and lint rules.
-3. `src/runtime` evaluates checked ASTs, runs host processes, manages cwd/env,
-   and records the runtime graph as trace events.
+3. `src/runtime` executes verified indexed programs, runs host processes,
+   manages cwd/env, and records the runtime graph as trace events.
 4. `src/source.rs`, `src/diagnostic.rs`, and `src/trace.rs` provide shared
    source maps, spans, diagnostics, trace events, runtime graph payloads, and
    tracebacks across those stages.
@@ -31,10 +31,10 @@ execution. `src/runtime/eval.rs` and its focused runtime modules execute borrowe
 instruction and driver payloads while coordinating host processes, streams,
 cwd/env state, defers, signals, and trace events. Process forms and other
 OS-facing operations remain explicit indexed host-operation boundaries. The
-normal script runner never mixes arena and indexed execution inside a committed
-program; the runner exposes arena execution only through the `native-tests`
-differential oracle. Runtime changes should preserve source-visible order, explicit
-boundaries, and traceable failure paths before pursuing cleverness.
+normal script runner and native-test harness execute the same verified indexed
+representation. There is no arena execution mode or compatibility interpreter.
+Runtime changes should preserve source-visible order, explicit boundaries, and
+traceable failure paths before pursuing cleverness.
 
 `docs/SPEC.md` is the language contract. `docs/SPEC-TYPING.md` covers
 typechecking, `docs/SPEC-INTERACTIVE.md` covers `xshi`, and
@@ -195,10 +195,9 @@ code.
 `src/runtime/eval/indexed/full.rs` owns the finalized function store and
 source-ordered effect driver. A `FullProgram` is installed only after whole-store
 verification; the script runner then drops parser and lowering ownership before
-execution. The arena evaluator remains available only through the
-`native-tests` force mode as a differential oracle. See `docs/FRONTEND.md`
-before adding instructions, runtime operations, value kinds, or execution
-shortcuts.
+execution. Native tests prepare and call the same indexed program. See
+`docs/FRONTEND.md` before adding instructions, runtime operations, value kinds,
+or execution shortcuts.
 
 ## Interactive
 

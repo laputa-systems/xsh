@@ -138,14 +138,15 @@ For structural IR memory, run:
 
 ```sh
 scripts/ir-layout.py
-scripts/ir-layout.py --only LoweredExpr --only LoweredStmt
+scripts/ir-layout.py --only FullTag --only FullBlock --only FullFunction
 ```
 
 This is a thin view over rustc's `-Zprint-type-sizes` output. By default it
 reports the summary plus the variants and fields of every tracked hot arena,
-builder, semantic type, lowered-IR, runtime value, lowering-probe, and evaluator
-type. Use repeatable `--only TYPE` filters when a focused report is easier to
-compare. Compare it before and after representation changes, then check Divan's
+builder, semantic type, indexed IR, runtime value, lowering-probe, and evaluator
+type. Deleted recursive executable types are intentionally absent. Use
+repeatable `--only TYPE` filters when a focused report is easier to compare.
+Compare it before and after representation changes, then check Divan's
 allocated bytes and `max alloc` on the affected real workflow. Type size alone
 is not a memory result: multiply it by realistic node volume mentally, and
 account for heap-owned `Vec`, `Arc`, map, and boxed payloads through the

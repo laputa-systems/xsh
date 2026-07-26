@@ -1,7 +1,7 @@
 use super::common::xsh;
 
 #[test]
-fn vertical_slice_arena_oracle_is_frozen() {
+fn vertical_slice_indexed_execution_is_frozen() {
     let output = xsh(["tests/fixtures/frontend-campaign/vertical-slice.xsh"]);
 
     assert!(

@@ -198,16 +198,6 @@ pub(super) fn lowered_binary_value(
     }
 }
 
-pub(super) fn lowered_bool_value(value: LoweredValue, span: Span) -> Result<bool, RuntimeError> {
-    match value {
-        LoweredValue::Bool(value) => Ok(value),
-        LoweredValue::Status(status) => Ok(status.success),
-        _ => {
-            Err(RuntimeError::new("type-error", "lowered expression expected Bool").with_span(span))
-        }
-    }
-}
-
 pub(super) fn lowered_str_value(value: &LoweredValue) -> Option<&str> {
     match value {
         LoweredValue::Str(text) => Some(text),
@@ -1767,67 +1757,6 @@ pub(super) fn lowered_index_value(
     }
 }
 
-pub(super) fn lowered_index_ref(
-    base: &LoweredValue,
-    index: LoweredValue,
-    span: Span,
-) -> Result<LoweredValue, RuntimeError> {
-    match (base, index) {
-        (LoweredValue::List(values), LoweredValue::Int(index)) => values
-            .get(index as usize)
-            .cloned()
-            .ok_or_else(|| RuntimeError::new("index-out-of-range", "list index").with_span(span)),
-        (LoweredValue::SharedList(values), LoweredValue::Int(index)) => values
-            .get(index as usize)
-            .cloned()
-            .ok_or_else(|| RuntimeError::new("index-out-of-range", "list index").with_span(span)),
-        (LoweredValue::Record(fields) | LoweredValue::Module(fields), index)
-            if lowered_str_value(&index).is_some() =>
-        {
-            let index = lowered_str_value(&index).expect("checked string index");
-            fields.get(index).cloned().ok_or_else(|| {
-                RuntimeError::new("missing-field", index.to_string()).with_span(span)
-            })
-        }
-        (LoweredValue::RecordVec(fields), index) if lowered_str_value(&index).is_some() => {
-            let index = lowered_str_value(&index).expect("checked string index");
-            lowered_record_vec_get(fields.as_slice(), index)
-                .cloned()
-                .ok_or_else(|| {
-                    RuntimeError::new("missing-field", index.to_string()).with_span(span)
-                })
-        }
-        (
-            LoweredValue::Stats {
-                blanks,
-                code,
-                comments,
-            },
-            index,
-        ) if lowered_str_value(&index).is_some() => {
-            let index = lowered_str_value(&index).expect("checked string index");
-            lowered_inline_stats_field_value(*blanks, *code, *comments, index).ok_or_else(|| {
-                RuntimeError::new("missing-field", index.to_string()).with_span(span)
-            })
-        }
-        (LoweredValue::StatsBlob(stats), index) if lowered_str_value(&index).is_some() => {
-            let index = lowered_str_value(&index).expect("checked string index");
-            lowered_stats_field_value(stats, index).ok_or_else(|| {
-                RuntimeError::new("missing-field", index.to_string()).with_span(span)
-            })
-        }
-        (base, index) => Err(RuntimeError::new(
-            "type-error",
-            format!(
-                "cannot index {} with {}",
-                base.type_name(),
-                index.type_name()
-            ),
-        )
-        .with_span(span)),
-    }
-}
-
 pub(super) fn lowered_slice_value(
     base: LoweredValue,
     start: Option<LoweredValue>,
@@ -2126,82 +2055,6 @@ pub(super) fn lowered_map_method_value(
     }
 }
 
-pub(super) fn lowered_map_method_ref(
-    map: &BTreeMap<String, LoweredValue>,
-    name: &str,
-    args: Vec<LoweredValue>,
-    span: Span,
-) -> Result<Option<LoweredValue>, RuntimeError> {
-    match name {
-        "len" if args.is_empty() => Ok(Some(LoweredValue::Int(map.len() as i64))),
-        "has" if args.len() == 1 => {
-            let key = lowered_str_arg(&args[0], "has", span)?;
-            Ok(Some(LoweredValue::Bool(map.contains_key(key))))
-        }
-        "get" if args.len() == 1 || args.len() == 2 => {
-            let key = lowered_str_arg(&args[0], "get", span)?;
-            if let Some(value) = map.get(key).cloned() {
-                return if args.len() == 2 {
-                    Ok(Some(value))
-                } else {
-                    Ok(Some(LoweredValue::ResultOk(Box::new(value))))
-                };
-            }
-            if args.len() == 2 {
-                Ok(Some(args[1].clone()))
-            } else {
-                Ok(Some(LoweredValue::ResultErr(Box::new(Value::Error(
-                    Box::new(RuntimeError::new(
-                        "map-missing",
-                        format!("map has no key `{key}`"),
-                    )),
-                )))))
-            }
-        }
-        "keys" if args.is_empty() => Ok(Some(LoweredValue::List(
-            map.keys()
-                .map(|key| LoweredValue::Str(key.as_str().into()))
-                .collect(),
-        ))),
-        "values" if args.is_empty() => {
-            Ok(Some(LoweredValue::List(map.values().cloned().collect())))
-        }
-        "remove" if args.len() == 1 => {
-            let key = lowered_str_arg(&args[0], "remove", span)?;
-            let mut map = map.clone();
-            map.remove(key);
-            Ok(Some(LoweredValue::Map(map)))
-        }
-        "push" if args.len() == 2 => {
-            let key = lowered_str_arg(&args[0], "push", span)?;
-            let mut map = map.clone();
-            match map.remove(key) {
-                Some(LoweredValue::List(mut items)) => {
-                    items.push(args[1].clone());
-                    map.insert(key.to_string(), LoweredValue::List(items));
-                }
-                Some(LoweredValue::SharedList(items)) => {
-                    let mut items = items.as_ref().clone();
-                    items.push(args[1].clone());
-                    map.insert(key.to_string(), LoweredValue::List(items));
-                }
-                Some(other) => {
-                    return Err(RuntimeError::new(
-                        "type-error",
-                        format!("push expected List value, found {}", other.type_name()),
-                    )
-                    .with_span(span));
-                }
-                None => {
-                    map.insert(key.to_string(), LoweredValue::List(vec![args[1].clone()]));
-                }
-            }
-            Ok(Some(LoweredValue::Map(map)))
-        }
-        _ => Ok(None),
-    }
-}
-
 pub(super) fn lowered_result_method_value(
     result: LoweredValue,
     name: &str,
@@ -2232,35 +2085,6 @@ pub(super) fn lowered_result_method_value(
             RuntimeError::new("unsupported-call", "unsupported lowered Result method")
                 .with_span(span),
         ),
-    }
-}
-
-pub(super) fn lowered_record_method_ref(
-    record: &BTreeMap<Arc<str>, LoweredValue>,
-    name: &str,
-    args: Vec<LoweredValue>,
-    span: Span,
-) -> Result<Option<LoweredValue>, RuntimeError> {
-    match name {
-        "len" if args.is_empty() => Ok(Some(LoweredValue::Int(record.len() as i64))),
-        "has" if args.len() == 1 => {
-            let field = lowered_str_arg(&args[0], "has", span)?;
-            Ok(Some(LoweredValue::Bool(record.contains_key(field))))
-        }
-        "get" if args.len() == 1 => {
-            let field = lowered_str_arg(&args[0], "get", span)?;
-            Ok(Some(match record.get(field).cloned() {
-                Some(value) => LoweredValue::ResultOk(Box::new(value)),
-                None => lowered_result_err("missing-field", format!("missing field `{field}`")),
-            }))
-        }
-        "keys" if args.is_empty() => Ok(Some(LoweredValue::List(
-            record
-                .keys()
-                .map(|key| LoweredValue::Str(key.clone()))
-                .collect(),
-        ))),
-        _ => Ok(None),
     }
 }
 
@@ -2355,35 +2179,6 @@ fn lowered_inline_stats_method_ref(
             LoweredValue::Str(Arc::from("code")),
             LoweredValue::Str(Arc::from("comments")),
         ]))),
-        _ => Ok(None),
-    }
-}
-
-pub(super) fn lowered_method_ref(
-    receiver: &LoweredValue,
-    name: &str,
-    args: Vec<LoweredValue>,
-    span: Span,
-) -> Result<Option<LoweredValue>, RuntimeError> {
-    match receiver {
-        LoweredValue::Str(_) | LoweredValue::StrView(_) => {
-            lowered_str_method_value(receiver, name, args, span).map(Some)
-        }
-        LoweredValue::List(items) => lowered_list_method_ref(items, name, args, span),
-        LoweredValue::SharedList(items) => lowered_list_method_ref(items, name, args, span),
-        LoweredValue::Map(map) => lowered_map_method_ref(map, name, args, span),
-        LoweredValue::Record(record) | LoweredValue::Module(record) => {
-            lowered_record_method_ref(record, name, args, span)
-        }
-        LoweredValue::RecordVec(record) => {
-            lowered_record_vec_method_ref(record.as_slice(), name, args, span)
-        }
-        LoweredValue::Stats {
-            blanks,
-            code,
-            comments,
-        } => lowered_inline_stats_method_ref(*blanks, *code, *comments, name, args, span),
-        LoweredValue::StatsBlob(stats) => lowered_stats_method_ref(stats, name, args, span),
         _ => Ok(None),
     }
 }

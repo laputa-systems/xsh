@@ -104,8 +104,8 @@ fn indexed_optional_raw(
 }
 
 impl Evaluator {
-    fn indexed_block_header(slot_count: usize) -> LoweredPureFunction {
-        LoweredPureFunction {
+    fn indexed_block_header(slot_count: usize) -> IndexedFunctionHeader {
+        IndexedFunctionHeader {
             params: Default::default(),
             param_kinds: Default::default(),
             param_checks: Default::default(),
@@ -114,8 +114,6 @@ impl Evaluator {
             captures: Default::default(),
             return_kind: LoweredReturnKind::Plain(LoweredType::Unit),
             slot_count,
-            body: Vec::new(),
-            has_defers: false,
         }
     }
 
@@ -976,7 +974,7 @@ impl Evaluator {
                     }
                 }
                 match flow {
-                    LoweredStmtFlow::Propagate(value) => {
+                    IndexedStmtFlow::Propagate(value) => {
                         self.question_flow(value.into_value(), call_span)
                     }
                     flow => lowered_stmt_flow_to_flow(flow),
@@ -1047,7 +1045,7 @@ impl Evaluator {
         Ok(Some(flow))
     }
 
-    pub(super) fn call_indexed_direct(
+    pub(in crate::runtime::eval) fn call_indexed_direct(
         &mut self,
         function: LoweredFunctionKey,
         kind: LoweredFunctionKind,
@@ -1057,7 +1055,20 @@ impl Evaluator {
         let program = Arc::clone(self.indexed_program.as_ref()?);
         let view = match program.function_view(function, kind) {
             Ok(Some(view)) => view,
-            Ok(None) => return None,
+            Ok(None) => {
+                let LoweredFunctionKey::Qualified(qualified) = function else {
+                    return None;
+                };
+                let dynamic = self.indexed_dynamic_functions.get(&qualified)?.clone();
+                if dynamic.kind != kind {
+                    return None;
+                }
+                let previous = self.indexed_program.replace(Arc::clone(&dynamic.program));
+                let result =
+                    self.call_indexed_direct(dynamic.function, dynamic.kind, args, call_span);
+                self.indexed_program = previous;
+                return result;
+            }
             Err(error) => return Some(Err(indexed_error(error, call_span))),
         };
         let header = match view.header() {
@@ -1078,7 +1089,7 @@ impl Evaluator {
         function: LoweredFunctionKey,
         kind: LoweredFunctionKind,
         view: FullFunctionView<'_>,
-        header: &LoweredPureFunction,
+        header: &IndexedFunctionHeader,
         slots: &mut [LoweredValue],
         call_span: Span,
     ) -> Result<LoweredValue, RuntimeError> {
@@ -1102,7 +1113,7 @@ impl Evaluator {
             definition_span: None,
             call_span: Some(call_span),
         });
-        let result = with_lowered_eval_depth(call_span, || {
+        let result = with_indexed_eval_depth(call_span, || {
             self.eval_indexed_function(view, header, slots, call_span)
         });
         self.call_stack.pop();
@@ -1190,7 +1201,7 @@ impl Evaluator {
             .header()
             .map_err(|error| indexed_error(error, call_span))?;
         let mut next_slots = self.bind_lowered_values(&header, values, call_span)?;
-        let result = with_lowered_eval_depth(call_span, || {
+        let result = with_indexed_eval_depth(call_span, || {
             self.eval_indexed_function(view, &header, &mut next_slots, call_span)
         })
         .and_then(|value| lowered_return_value(header.return_kind, value, call_span));
@@ -1201,7 +1212,7 @@ impl Evaluator {
     fn eval_indexed_function(
         &mut self,
         view: FullFunctionView<'_>,
-        header: &LoweredPureFunction,
+        header: &IndexedFunctionHeader,
         slots: &mut [LoweredValue],
         call_span: Span,
     ) -> Result<LoweredValue, RuntimeError> {
@@ -1224,26 +1235,26 @@ impl Evaluator {
             let flow = result?;
             write_back?;
             return match flow {
-                LoweredStmtFlow::None => Ok(LoweredValue::Stream(Box::new(
+                IndexedStmtFlow::None => Ok(LoweredValue::Stream(Box::new(
                     StreamValue::from_values(items),
                 ))),
-                LoweredStmtFlow::Return(value) if matches!(value, LoweredValue::Stream(_)) => {
+                IndexedStmtFlow::Return(value) if matches!(value, LoweredValue::Stream(_)) => {
                     Ok(value)
                 }
-                LoweredStmtFlow::Return(LoweredValue::Unit) => Ok(LoweredValue::Stream(Box::new(
+                IndexedStmtFlow::Return(LoweredValue::Unit) => Ok(LoweredValue::Stream(Box::new(
                     StreamValue::from_values(items),
                 ))),
-                LoweredStmtFlow::Return(value) => Err(RuntimeError::new(
+                IndexedStmtFlow::Return(value) => Err(RuntimeError::new(
                     "type-error",
                     format!("stream producer returned {}", value.type_name()),
                 )
                 .with_span(call_span)),
-                LoweredStmtFlow::Propagate(value) => Ok(value),
-                LoweredStmtFlow::Break(_) => {
+                IndexedStmtFlow::Propagate(value) => Ok(value),
+                IndexedStmtFlow::Break(_) => {
                     Err(RuntimeError::new("control-flow", "break outside loop")
                         .with_span(call_span))
                 }
-                LoweredStmtFlow::Continue => {
+                IndexedStmtFlow::Continue => {
                     Err(RuntimeError::new("control-flow", "continue outside loop")
                         .with_span(call_span))
                 }
@@ -1254,16 +1265,16 @@ impl Evaluator {
         let flow = result?;
         write_back?;
         match flow {
-            LoweredStmtFlow::Return(value) | LoweredStmtFlow::Propagate(value) => Ok(value),
-            LoweredStmtFlow::None => {
+            IndexedStmtFlow::Return(value) | IndexedStmtFlow::Propagate(value) => Ok(value),
+            IndexedStmtFlow::None => {
                 Err(RuntimeError::new("return", "lowered function did not return")
                     .with_span(call_span))
             }
-            LoweredStmtFlow::Continue => {
+            IndexedStmtFlow::Continue => {
                 Err(RuntimeError::new("control-flow", "continue outside loop")
                     .with_span(call_span))
             }
-            LoweredStmtFlow::Break(_) => Err(
+            IndexedStmtFlow::Break(_) => Err(
                 RuntimeError::new("control-flow", "break outside loop").with_span(call_span),
             ),
         }
@@ -2477,19 +2488,19 @@ impl Evaluator {
                                     slots,
                                     call_span,
                                 )? {
-                                    LoweredStmtFlow::None => {}
-                                    LoweredStmtFlow::Return(value)
-                                    | LoweredStmtFlow::Propagate(value) => {
+                                    IndexedStmtFlow::None => {}
+                                    IndexedStmtFlow::Return(value)
+                                    | IndexedStmtFlow::Propagate(value) => {
                                         return Ok(ControlFlow::Break(value));
                                     }
-                                    LoweredStmtFlow::Break(_) => {
+                                    IndexedStmtFlow::Break(_) => {
                                         return Err(RuntimeError::new(
                                             "break-outside-loop",
                                             "break used outside loop",
                                         )
                                         .with_span(span));
                                     }
-                                    LoweredStmtFlow::Continue => {
+                                    IndexedStmtFlow::Continue => {
                                         return Err(RuntimeError::new(
                                             "continue-outside-loop",
                                             "continue used outside loop",
@@ -2794,12 +2805,12 @@ impl Evaluator {
                                     slots,
                                     span,
                                 )? {
-                                    LoweredStmtFlow::None | LoweredStmtFlow::Continue => {}
-                                    LoweredStmtFlow::Propagate(value)
-                                    | LoweredStmtFlow::Return(value) => {
+                                    IndexedStmtFlow::None | IndexedStmtFlow::Continue => {}
+                                    IndexedStmtFlow::Propagate(value)
+                                    | IndexedStmtFlow::Return(value) => {
                                         return Ok(ControlFlow::Break(value));
                                     }
-                                    LoweredStmtFlow::Break(value) => {
+                                    IndexedStmtFlow::Break(value) => {
                                         return Ok(ControlFlow::Break(
                                             value.unwrap_or(LoweredValue::Unit),
                                         ));
@@ -2861,12 +2872,12 @@ impl Evaluator {
                                     slots,
                                     span,
                                 )? {
-                                    LoweredStmtFlow::None | LoweredStmtFlow::Continue => {}
-                                    LoweredStmtFlow::Propagate(value)
-                                    | LoweredStmtFlow::Return(value) => {
+                                    IndexedStmtFlow::None | IndexedStmtFlow::Continue => {}
+                                    IndexedStmtFlow::Propagate(value)
+                                    | IndexedStmtFlow::Return(value) => {
                                         return Ok(ControlFlow::Break(value));
                                     }
-                                    LoweredStmtFlow::Break(value) => {
+                                    IndexedStmtFlow::Break(value) => {
                                         return Ok(ControlFlow::Break(
                                             value.unwrap_or(LoweredValue::Unit),
                                         ));
@@ -2936,8 +2947,8 @@ impl Evaluator {
                                         slots,
                                         span,
                                     ) {
-                                        Ok(LoweredStmtFlow::None)
-                                        | Ok(LoweredStmtFlow::Continue) => {
+                                        Ok(IndexedStmtFlow::None)
+                                        | Ok(IndexedStmtFlow::Continue) => {
                                             self.eval_indexed_expr(
                                                 execution,
                                                 value,
@@ -2945,11 +2956,11 @@ impl Evaluator {
                                                 span,
                                             )
                                         }
-                                        Ok(LoweredStmtFlow::Return(value))
-                                        | Ok(LoweredStmtFlow::Propagate(value)) => {
+                                        Ok(IndexedStmtFlow::Return(value))
+                                        | Ok(IndexedStmtFlow::Propagate(value)) => {
                                             Ok(ControlFlow::Break(value))
                                         }
-                                        Ok(LoweredStmtFlow::Break(value)) => {
+                                        Ok(IndexedStmtFlow::Break(value)) => {
                                             Ok(ControlFlow::Break(
                                                 value.unwrap_or(LoweredValue::Unit),
                                             ))
@@ -3042,19 +3053,62 @@ impl Evaluator {
                                     );
                                 }
                                 slots[slot] = item;
-                                match self.eval_indexed_statement_block(
+                                let flow = match self.eval_indexed_statement_block(
                                     execution,
                                     body,
                                     &block_header,
                                     slots,
                                     span,
-                                )? {
-                                    LoweredStmtFlow::None | LoweredStmtFlow::Continue => {}
-                                    LoweredStmtFlow::Return(value)
-                                    | LoweredStmtFlow::Propagate(value) => {
+                                ) {
+                                    Ok(flow) => flow,
+                                    Err(error) => {
+                                        if parallel {
+                                            let trace_error =
+                                                TraceError::new(&error.kind, &error.message);
+                                            self.trace_lowered_parallel_job(
+                                                TraceKind::ParallelCancel,
+                                                "each",
+                                                item_index,
+                                                Some(trace_error.clone()),
+                                                span,
+                                            );
+                                            self.trace_lowered_parallel_job(
+                                                TraceKind::ParallelJobEnd,
+                                                "each",
+                                                item_index,
+                                                Some(trace_error),
+                                                span,
+                                            );
+                                        }
+                                        return Err(error);
+                                    }
+                                };
+                                match flow {
+                                    IndexedStmtFlow::None | IndexedStmtFlow::Continue => {}
+                                    IndexedStmtFlow::Return(value)
+                                    | IndexedStmtFlow::Propagate(value) => {
+                                        if parallel {
+                                            let runtime_value = value.clone().into_value();
+                                            let trace_error =
+                                                lowered_trace_error_from_value(&runtime_value);
+                                            self.trace_lowered_parallel_job(
+                                                TraceKind::ParallelCancel,
+                                                "each",
+                                                item_index,
+                                                Some(trace_error.clone()),
+                                                span,
+                                            );
+                                            self.trace_lowered_parallel_job(
+                                                TraceKind::ParallelJobEnd,
+                                                "each",
+                                                item_index,
+                                                Some(trace_error),
+                                                span,
+                                            );
+                                        }
                                         return Ok(ControlFlow::Break(value));
                                     }
-                                    LoweredStmtFlow::Break(value) => {
+                                    IndexedStmtFlow::Break(value) => {
                                         return Ok(ControlFlow::Break(
                                             value.unwrap_or(LoweredValue::Unit),
                                         ));
@@ -3587,14 +3641,14 @@ impl Evaluator {
                     match self.eval_indexed_statement_block(
                         execution, body, &header, slots, span,
                     )? {
-                        LoweredStmtFlow::None | LoweredStmtFlow::Continue => {}
-                        LoweredStmtFlow::Break(value) => {
+                        IndexedStmtFlow::None | IndexedStmtFlow::Continue => {}
+                        IndexedStmtFlow::Break(value) => {
                             break ControlFlow::Continue(value.unwrap_or(LoweredValue::Unit));
                         }
-                        LoweredStmtFlow::Return(value) => {
+                        IndexedStmtFlow::Return(value) => {
                             break ControlFlow::Continue(value);
                         }
-                        LoweredStmtFlow::Propagate(value) => {
+                        IndexedStmtFlow::Propagate(value) => {
                             break ControlFlow::Break(value);
                         }
                     }
@@ -5109,7 +5163,20 @@ impl Evaluator {
                 indexed_finish(args, span)?;
                 let result = match callee {
                     LoweredValue::Pure(function) => self
-                        .call_lowered_function_value_with_values(function, true, &values, span)
+                        .call_indexed_direct(
+                            function
+                                .as_name()
+                                .map(LoweredFunctionKey::Name)
+                                .or_else(|| {
+                                    function
+                                        .as_qualified()
+                                        .map(LoweredFunctionKey::Qualified)
+                                })
+                                .expect("function identity is interned"),
+                            LoweredFunctionKind::Pure,
+                            &values,
+                            span,
+                        )
                         .ok_or_else(|| {
                             RuntimeError::new(
                                 "unresolved-call",
@@ -5121,7 +5188,20 @@ impl Evaluator {
                             .with_span(span)
                         })??,
                     LoweredValue::Proc(function) => self
-                        .call_lowered_function_value_with_values(function, false, &values, span)
+                        .call_indexed_direct(
+                            function
+                                .as_name()
+                                .map(LoweredFunctionKey::Name)
+                                .or_else(|| {
+                                    function
+                                        .as_qualified()
+                                        .map(LoweredFunctionKey::Qualified)
+                                })
+                                .expect("function identity is interned"),
+                            LoweredFunctionKind::Proc,
+                            &values,
+                            span,
+                        )
                         .ok_or_else(|| {
                             RuntimeError::new(
                                 "unresolved-call",
@@ -5203,10 +5283,10 @@ impl Evaluator {
         &mut self,
         execution: &FullExecution<'_>,
         mut statements: FullPayload<'_>,
-        header: &LoweredPureFunction,
+        header: &IndexedFunctionHeader,
         slots: &mut [LoweredValue],
         call_span: Span,
-    ) -> Result<LoweredStmtFlow, RuntimeError> {
+    ) -> Result<IndexedStmtFlow, RuntimeError> {
         let len = indexed_raw(&mut statements, call_span)? as usize;
         let mut defers = Vec::new();
         for _ in 0..len {
@@ -5236,11 +5316,11 @@ impl Evaluator {
                 }
             };
             match flow {
-                LoweredStmtFlow::None => {}
-                flow @ (LoweredStmtFlow::Return(_)
-                | LoweredStmtFlow::Propagate(_)
-                | LoweredStmtFlow::Break(_)
-                | LoweredStmtFlow::Continue) => {
+                IndexedStmtFlow::None => {}
+                flow @ (IndexedStmtFlow::Return(_)
+                | IndexedStmtFlow::Propagate(_)
+                | IndexedStmtFlow::Break(_)
+                | IndexedStmtFlow::Continue) => {
                     self.run_indexed_defers(execution, &defers, slots, call_span)?;
                     return Ok(flow);
                 }
@@ -5248,7 +5328,7 @@ impl Evaluator {
         }
         indexed_finish(statements, call_span)?;
         self.run_indexed_defers(execution, &defers, slots, call_span)?;
-        Ok(LoweredStmtFlow::None)
+        Ok(IndexedStmtFlow::None)
     }
 
     pub(in crate::runtime::eval) fn eval_indexed_body_as_signal_hook(
@@ -5270,9 +5350,9 @@ impl Evaluator {
             call_span,
         )?;
         match flow {
-            LoweredStmtFlow::None => Ok(Flow::Continue(Value::Unit)),
-            LoweredStmtFlow::Return(value) => Ok(Flow::Continue(value.into_value())),
-            LoweredStmtFlow::Propagate(value) => {
+            IndexedStmtFlow::None => Ok(Flow::Continue(Value::Unit)),
+            IndexedStmtFlow::Return(value) => Ok(Flow::Continue(value.into_value())),
+            IndexedStmtFlow::Propagate(value) => {
                 let error = match value {
                     LoweredValue::Error(error) => *error,
                     LoweredValue::ResultErr(error) => *error,
@@ -5298,7 +5378,7 @@ impl Evaluator {
                 });
                 Ok(Flow::Propagate(Propagation { error, traceback }))
             }
-            LoweredStmtFlow::Break(_) | LoweredStmtFlow::Continue => {
+            IndexedStmtFlow::Break(_) | IndexedStmtFlow::Continue => {
                 Ok(Flow::Continue(Value::Unit))
             }
         }
@@ -5330,10 +5410,10 @@ impl Evaluator {
         &mut self,
         execution: &FullExecution<'_>,
         block: u32,
-        header: &LoweredPureFunction,
+        header: &IndexedFunctionHeader,
         slots: &mut [LoweredValue],
         call_span: Span,
-    ) -> Result<LoweredStmtFlow, RuntimeError> {
+    ) -> Result<IndexedStmtFlow, RuntimeError> {
         let (_, statements) = execution
             .block_id(block, BLOCK_STATEMENTS)
             .map_err(|error| indexed_error(error, call_span))?;
@@ -5344,10 +5424,10 @@ impl Evaluator {
         &mut self,
         execution: &FullExecution<'_>,
         payload: &mut FullPayload<'_>,
-        header: &LoweredPureFunction,
+        header: &IndexedFunctionHeader,
         slots: &mut [LoweredValue],
         call_span: Span,
-    ) -> Result<Option<LoweredStmtFlow>, RuntimeError> {
+    ) -> Result<Option<IndexedStmtFlow>, RuntimeError> {
         let Some(block) = indexed_optional_raw(payload, call_span)? else {
             return Ok(None);
         };
@@ -5359,10 +5439,10 @@ impl Evaluator {
         &mut self,
         execution: &FullExecution<'_>,
         instruction: u32,
-        header: &LoweredPureFunction,
+        header: &IndexedFunctionHeader,
         slots: &mut [LoweredValue],
         call_span: Span,
-    ) -> Result<LoweredStmtFlow, RuntimeError> {
+    ) -> Result<IndexedStmtFlow, RuntimeError> {
         let (tag, mut payload) =
             indexed_value(execution.instruction_id(instruction), call_span)?;
         match tag {
@@ -5372,9 +5452,9 @@ impl Evaluator {
                 indexed_finish(payload, call_span)?;
                 match self.eval_indexed_expr(execution, value, slots, call_span)? {
                     ControlFlow::Continue(value) => slots[slot] = value,
-                    ControlFlow::Break(value) => return Ok(LoweredStmtFlow::Return(value)),
+                    ControlFlow::Break(value) => return Ok(IndexedStmtFlow::Return(value)),
                 }
-                Ok(LoweredStmtFlow::None)
+                Ok(IndexedStmtFlow::None)
             }
             FullTag::StmtGuard => {
                 let slot = indexed_decode::<usize>(&mut payload, execution, call_span)?;
@@ -5386,12 +5466,12 @@ impl Evaluator {
                 indexed_finish(payload, call_span)?;
                 let value = match self.eval_indexed_expr(execution, value, slots, call_span)? {
                     ControlFlow::Continue(value) => value,
-                    ControlFlow::Break(value) => return Ok(LoweredStmtFlow::Return(value)),
+                    ControlFlow::Break(value) => return Ok(IndexedStmtFlow::Return(value)),
                 };
                 match value {
                     LoweredValue::ResultOk(value) => {
                         slots[slot] = *value;
-                        Ok(LoweredStmtFlow::None)
+                        Ok(IndexedStmtFlow::None)
                     }
                     LoweredValue::ResultErr(error) => {
                         if let Some(slot) = else_param_slot {
@@ -5400,7 +5480,7 @@ impl Evaluator {
                         match self.eval_indexed_statement_block(
                             execution, else_body, header, slots, span,
                         )? {
-                            LoweredStmtFlow::None => Err(RuntimeError::new(
+                            IndexedStmtFlow::None => Err(RuntimeError::new(
                                 "guard",
                                 "guard else block must diverge",
                             )
@@ -5427,7 +5507,7 @@ impl Evaluator {
                     match self.eval_indexed_expr(execution, source, slots, call_span)? {
                         ControlFlow::Continue(value) => value,
                         ControlFlow::Break(value) => {
-                            return Ok(LoweredStmtFlow::Return(value));
+                            return Ok(IndexedStmtFlow::Return(value));
                         }
                     };
                 for _ in 0..field_count {
@@ -5443,7 +5523,7 @@ impl Evaluator {
                     slots[slot] = value;
                 }
                 indexed_finish(fields, span)?;
-                Ok(LoweredStmtFlow::None)
+                Ok(IndexedStmtFlow::None)
             }
             FullTag::StmtLetInt => {
                 let slot = indexed_decode::<usize>(&mut payload, execution, call_span)?;
@@ -5451,9 +5531,9 @@ impl Evaluator {
                 indexed_finish(payload, call_span)?;
                 match self.eval_indexed_typed_int(execution, value, slots, call_span)? {
                     ControlFlow::Continue(value) => slots[slot] = LoweredValue::Int(value),
-                    ControlFlow::Break(value) => return Ok(LoweredStmtFlow::Return(value)),
+                    ControlFlow::Break(value) => return Ok(IndexedStmtFlow::Return(value)),
                 }
-                Ok(LoweredStmtFlow::None)
+                Ok(IndexedStmtFlow::None)
             }
             FullTag::StmtLetBool => {
                 let slot = indexed_decode::<usize>(&mut payload, execution, call_span)?;
@@ -5461,9 +5541,9 @@ impl Evaluator {
                 indexed_finish(payload, call_span)?;
                 match self.eval_indexed_typed_bool(execution, value, slots, call_span)? {
                     ControlFlow::Continue(value) => slots[slot] = LoweredValue::Bool(value),
-                    ControlFlow::Break(value) => return Ok(LoweredStmtFlow::Return(value)),
+                    ControlFlow::Break(value) => return Ok(IndexedStmtFlow::Return(value)),
                 }
-                Ok(LoweredStmtFlow::None)
+                Ok(IndexedStmtFlow::None)
             }
             FullTag::StmtAssign => {
                 let slot = indexed_decode::<usize>(&mut payload, execution, call_span)?;
@@ -5473,10 +5553,10 @@ impl Evaluator {
                 indexed_finish(payload, call_span)?;
                 let value = match self.eval_indexed_expr(execution, value, slots, call_span)? {
                     ControlFlow::Continue(value) => value,
-                    ControlFlow::Break(value) => return Ok(LoweredStmtFlow::Return(value)),
+                    ControlFlow::Break(value) => return Ok(IndexedStmtFlow::Return(value)),
                 };
                 slots[slot] = lowered_assign_value(op, slots[slot].clone(), value, span)?;
-                Ok(LoweredStmtFlow::None)
+                Ok(IndexedStmtFlow::None)
             }
             FullTag::StmtAssignField | FullTag::StmtAssignFieldInt => {
                 let typed = tag == FullTag::StmtAssignFieldInt;
@@ -5490,14 +5570,14 @@ impl Evaluator {
                     match self.eval_indexed_typed_int(execution, value, slots, call_span)? {
                         ControlFlow::Continue(value) => LoweredValue::Int(value),
                         ControlFlow::Break(value) => {
-                            return Ok(LoweredStmtFlow::Return(value));
+                            return Ok(IndexedStmtFlow::Return(value));
                         }
                     }
                 } else {
                     match self.eval_indexed_expr(execution, value, slots, call_span)? {
                         ControlFlow::Continue(value) => value,
                         ControlFlow::Break(value) => {
-                            return Ok(LoweredStmtFlow::Return(value));
+                            return Ok(IndexedStmtFlow::Return(value));
                         }
                     }
                 };
@@ -5542,7 +5622,7 @@ impl Evaluator {
                     }
                     _ => unreachable!("checked indexed record assignment target"),
                 }
-                Ok(LoweredStmtFlow::None)
+                Ok(IndexedStmtFlow::None)
             }
             FullTag::StmtAssignIndex => {
                 let slot = indexed_decode::<usize>(&mut payload, execution, call_span)?;
@@ -5556,12 +5636,12 @@ impl Evaluator {
                         lowered_str_arg(&value, "indexed assignment", span)?.to_string()
                     }
                     ControlFlow::Break(value) => {
-                        return Ok(LoweredStmtFlow::Return(value));
+                        return Ok(IndexedStmtFlow::Return(value));
                     }
                 };
                 let value = match self.eval_indexed_expr(execution, value, slots, call_span)? {
                     ControlFlow::Continue(value) => value,
-                    ControlFlow::Break(value) => return Ok(LoweredStmtFlow::Return(value)),
+                    ControlFlow::Break(value) => return Ok(IndexedStmtFlow::Return(value)),
                 };
                 let LoweredValue::Map(map) = &mut slots[slot] else {
                     return Err(RuntimeError::new(
@@ -5572,13 +5652,13 @@ impl Evaluator {
                 };
                 if op == AssignOp::Set {
                     map.insert(key, value);
-                    return Ok(LoweredStmtFlow::None);
+                    return Ok(IndexedStmtFlow::None);
                 }
                 let current = map.get(key.as_str()).cloned().ok_or_else(|| {
                     RuntimeError::new("missing-field", key.clone()).with_span(span)
                 })?;
                 map.insert(key, lowered_assign_value(op, current, value, span)?);
-                Ok(LoweredStmtFlow::None)
+                Ok(IndexedStmtFlow::None)
             }
             FullTag::StmtAssignInt => {
                 let slot = indexed_decode::<usize>(&mut payload, execution, call_span)?;
@@ -5589,11 +5669,11 @@ impl Evaluator {
                 let value =
                     match self.eval_indexed_typed_int(execution, value, slots, call_span)? {
                         ControlFlow::Continue(value) => value,
-                        ControlFlow::Break(value) => return Ok(LoweredStmtFlow::Return(value)),
+                        ControlFlow::Break(value) => return Ok(IndexedStmtFlow::Return(value)),
                     };
                 if op == AssignOp::Set {
                     slots[slot] = LoweredValue::Int(value);
-                    return Ok(LoweredStmtFlow::None);
+                    return Ok(IndexedStmtFlow::None);
                 }
                 let LoweredValue::Int(current) = slots[slot] else {
                     return Err(
@@ -5609,7 +5689,7 @@ impl Evaluator {
                     AssignOp::Rem => current % value,
                     AssignOp::Set => unreachable!(),
                 });
-                Ok(LoweredStmtFlow::None)
+                Ok(IndexedStmtFlow::None)
             }
             FullTag::StmtAssignBool => {
                 let slot = indexed_decode::<usize>(&mut payload, execution, call_span)?;
@@ -5617,9 +5697,9 @@ impl Evaluator {
                 indexed_finish(payload, call_span)?;
                 match self.eval_indexed_typed_bool(execution, value, slots, call_span)? {
                     ControlFlow::Continue(value) => slots[slot] = LoweredValue::Bool(value),
-                    ControlFlow::Break(value) => return Ok(LoweredStmtFlow::Return(value)),
+                    ControlFlow::Break(value) => return Ok(IndexedStmtFlow::Return(value)),
                 }
-                Ok(LoweredStmtFlow::None)
+                Ok(IndexedStmtFlow::None)
             }
             FullTag::StmtExpr => {
                 let value = indexed_raw(&mut payload, call_span)?;
@@ -5628,10 +5708,10 @@ impl Evaluator {
                 match self.eval_indexed_expr(execution, value, slots, span)? {
                     ControlFlow::Continue(value @ LoweredValue::ResultErr(_)) => {
                         let value = self.lowered_question_propagation_value(value, span)?;
-                        Ok(LoweredStmtFlow::Propagate(value))
+                        Ok(IndexedStmtFlow::Propagate(value))
                     }
-                    ControlFlow::Continue(_) => Ok(LoweredStmtFlow::None),
-                    ControlFlow::Break(value) => Ok(LoweredStmtFlow::Propagate(value)),
+                    ControlFlow::Continue(_) => Ok(IndexedStmtFlow::None),
+                    ControlFlow::Break(value) => Ok(IndexedStmtFlow::Propagate(value)),
                 }
             }
             FullTag::StmtIf | FullTag::StmtIfBool => {
@@ -5649,14 +5729,14 @@ impl Evaluator {
                         )? {
                             ControlFlow::Continue(value) => value,
                             ControlFlow::Break(value) => {
-                                return Ok(LoweredStmtFlow::Return(value));
+                                return Ok(IndexedStmtFlow::Return(value));
                             }
                         }
                     } else {
                         match self.eval_indexed_bool(execution, condition, slots, call_span)? {
                             ControlFlow::Continue(value) => value,
                             ControlFlow::Break(value) => {
-                                return Ok(LoweredStmtFlow::Return(value));
+                                return Ok(IndexedStmtFlow::Return(value));
                             }
                         }
                     };
@@ -5677,7 +5757,7 @@ impl Evaluator {
                     call_span,
                 )?;
                 indexed_finish(payload, call_span)?;
-                Ok(flow.unwrap_or(LoweredStmtFlow::None))
+                Ok(flow.unwrap_or(IndexedStmtFlow::None))
             }
             FullTag::StmtWhile | FullTag::StmtWhileBool => {
                 let typed = tag == FullTag::StmtWhileBool;
@@ -5687,7 +5767,7 @@ impl Evaluator {
                 loop {
                     self.service_pending_signal(call_span)?;
                     if self.signal_state.shutdown_complete {
-                        return Ok(LoweredStmtFlow::None);
+                        return Ok(IndexedStmtFlow::None);
                     }
                     let condition = if typed {
                         match self.eval_indexed_typed_bool(
@@ -5695,14 +5775,14 @@ impl Evaluator {
                         )? {
                             ControlFlow::Continue(value) => value,
                             ControlFlow::Break(value) => {
-                                return Ok(LoweredStmtFlow::Return(value));
+                                return Ok(IndexedStmtFlow::Return(value));
                             }
                         }
                     } else {
                         match self.eval_indexed_bool(execution, condition, slots, call_span)? {
                             ControlFlow::Continue(value) => value,
                             ControlFlow::Break(value) => {
-                                return Ok(LoweredStmtFlow::Return(value));
+                                return Ok(IndexedStmtFlow::Return(value));
                             }
                         }
                     };
@@ -5712,17 +5792,17 @@ impl Evaluator {
                     match self.eval_indexed_statement_block(
                         execution, body, header, slots, call_span,
                     )? {
-                        LoweredStmtFlow::None | LoweredStmtFlow::Continue => {}
-                        LoweredStmtFlow::Break(_) => break,
-                        LoweredStmtFlow::Return(value) => {
-                            return Ok(LoweredStmtFlow::Return(value));
+                        IndexedStmtFlow::None | IndexedStmtFlow::Continue => {}
+                        IndexedStmtFlow::Break(_) => break,
+                        IndexedStmtFlow::Return(value) => {
+                            return Ok(IndexedStmtFlow::Return(value));
                         }
-                        LoweredStmtFlow::Propagate(value) => {
-                            return Ok(LoweredStmtFlow::Propagate(value));
+                        IndexedStmtFlow::Propagate(value) => {
+                            return Ok(IndexedStmtFlow::Propagate(value));
                         }
                     }
                 }
-                Ok(LoweredStmtFlow::None)
+                Ok(IndexedStmtFlow::None)
             }
             FullTag::StmtMatch => {
                 let value = indexed_raw(&mut payload, call_span)?;
@@ -5743,7 +5823,7 @@ impl Evaluator {
                 indexed_finish(arms, span)?;
                 let value = match self.eval_indexed_expr(execution, value, slots, call_span)? {
                     ControlFlow::Continue(value) => value,
-                    ControlFlow::Break(value) => return Ok(LoweredStmtFlow::Return(value)),
+                    ControlFlow::Break(value) => return Ok(IndexedStmtFlow::Return(value)),
                 };
                 for (pattern, guard, body) in decoded_arms {
                     if Self::indexed_pattern_matches(execution, pattern, &value, slots, span)? {
@@ -5754,7 +5834,7 @@ impl Evaluator {
                                 ControlFlow::Continue(true) => {}
                                 ControlFlow::Continue(false) => continue,
                                 ControlFlow::Break(value) => {
-                                    return Ok(LoweredStmtFlow::Return(value));
+                                    return Ok(IndexedStmtFlow::Return(value));
                                 }
                             }
                         }
@@ -5784,7 +5864,7 @@ impl Evaluator {
                 indexed_finish(payload, call_span)?;
                 let value = match self.eval_indexed_expr(execution, value, slots, call_span)? {
                     ControlFlow::Continue(value) => value,
-                    ControlFlow::Break(value) => return Ok(LoweredStmtFlow::Return(value)),
+                    ControlFlow::Break(value) => return Ok(IndexedStmtFlow::Return(value)),
                 };
                 let key = if tag == FullTag::StmtStrMatch {
                     lowered_str_key(&value)
@@ -5814,29 +5894,29 @@ impl Evaluator {
                 indexed_finish(payload, call_span)?;
                 let iter = match self.eval_indexed_expr(execution, iter, slots, call_span)? {
                     ControlFlow::Continue(value) => value,
-                    ControlFlow::Break(value) => return Ok(LoweredStmtFlow::Return(value)),
+                    ControlFlow::Break(value) => return Ok(IndexedStmtFlow::Return(value)),
                 };
                 let items = self.lowered_list_items(iter, span, "lowered for expected List")?;
                 for item in items {
                     self.service_pending_signal(span)?;
                     if self.signal_state.shutdown_complete {
-                        return Ok(LoweredStmtFlow::None);
+                        return Ok(IndexedStmtFlow::None);
                     }
                     slots[slot] = item;
                     match self.eval_indexed_statement_block(
                         execution, body, header, slots, call_span,
                     )? {
-                        LoweredStmtFlow::None | LoweredStmtFlow::Continue => {}
-                        LoweredStmtFlow::Break(_) => break,
-                        LoweredStmtFlow::Return(value) => {
-                            return Ok(LoweredStmtFlow::Return(value));
+                        IndexedStmtFlow::None | IndexedStmtFlow::Continue => {}
+                        IndexedStmtFlow::Break(_) => break,
+                        IndexedStmtFlow::Return(value) => {
+                            return Ok(IndexedStmtFlow::Return(value));
                         }
-                        LoweredStmtFlow::Propagate(value) => {
-                            return Ok(LoweredStmtFlow::Propagate(value));
+                        IndexedStmtFlow::Propagate(value) => {
+                            return Ok(IndexedStmtFlow::Propagate(value));
                         }
                     }
                 }
-                Ok(LoweredStmtFlow::None)
+                Ok(IndexedStmtFlow::None)
             }
             FullTag::StmtForRecord => {
                 let (_, mut fields) = execution
@@ -5857,13 +5937,13 @@ impl Evaluator {
                 indexed_finish(payload, call_span)?;
                 let iter = match self.eval_indexed_expr(execution, iter, slots, call_span)? {
                     ControlFlow::Continue(value) => value,
-                    ControlFlow::Break(value) => return Ok(LoweredStmtFlow::Return(value)),
+                    ControlFlow::Break(value) => return Ok(IndexedStmtFlow::Return(value)),
                 };
                 let items = self.lowered_list_items(iter, span, "lowered for expected List")?;
                 for item in items {
                     self.service_pending_signal(span)?;
                     if self.signal_state.shutdown_complete {
-                        return Ok(LoweredStmtFlow::None);
+                        return Ok(IndexedStmtFlow::None);
                     }
                     for (name, slot) in &bindings {
                         let Some(value) = lowered_record_field_value(&item, name.as_str()) else {
@@ -5878,13 +5958,13 @@ impl Evaluator {
                     match self.eval_indexed_statement_block(
                         execution, body, header, slots, call_span,
                     )? {
-                        LoweredStmtFlow::None | LoweredStmtFlow::Continue => {}
-                        LoweredStmtFlow::Break(_) => break,
-                        flow @ (LoweredStmtFlow::Return(_)
-                        | LoweredStmtFlow::Propagate(_)) => return Ok(flow),
+                        IndexedStmtFlow::None | IndexedStmtFlow::Continue => {}
+                        IndexedStmtFlow::Break(_) => break,
+                        flow @ (IndexedStmtFlow::Return(_)
+                        | IndexedStmtFlow::Propagate(_)) => return Ok(flow),
                     }
                 }
-                Ok(LoweredStmtFlow::None)
+                Ok(IndexedStmtFlow::None)
             }
             FullTag::StmtForStrLines => {
                 let slot = indexed_decode::<usize>(&mut payload, execution, call_span)?;
@@ -5894,7 +5974,7 @@ impl Evaluator {
                 indexed_finish(payload, call_span)?;
                 let text = match self.eval_indexed_expr(execution, text, slots, call_span)? {
                     ControlFlow::Continue(value) => value,
-                    ControlFlow::Break(value) => return Ok(LoweredStmtFlow::Return(value)),
+                    ControlFlow::Break(value) => return Ok(IndexedStmtFlow::Return(value)),
                 };
                 if let Some((bytes, start, end)) = lowered_bytes_parts(&text) {
                     let mut cursor = start;
@@ -5913,7 +5993,7 @@ impl Evaluator {
                         if line_count & 63 == 0 {
                             self.service_pending_signal(span)?;
                             if self.signal_state.shutdown_complete {
-                                return Ok(LoweredStmtFlow::None);
+                                return Ok(IndexedStmtFlow::None);
                             }
                         }
                         assign_lowered_bytes_view(
@@ -5925,17 +6005,17 @@ impl Evaluator {
                         match self.eval_indexed_statement_block(
                             execution, body, header, slots, call_span,
                         )? {
-                            LoweredStmtFlow::None | LoweredStmtFlow::Continue => {}
-                            LoweredStmtFlow::Break(_) => break,
-                            flow @ (LoweredStmtFlow::Return(_)
-                            | LoweredStmtFlow::Propagate(_)) => return Ok(flow),
+                            IndexedStmtFlow::None | IndexedStmtFlow::Continue => {}
+                            IndexedStmtFlow::Break(_) => break,
+                            flow @ (IndexedStmtFlow::Return(_)
+                            | IndexedStmtFlow::Propagate(_)) => return Ok(flow),
                         }
                         let Some(newline) = newline else {
                             break;
                         };
                         cursor = newline + 1;
                     }
-                    return Ok(LoweredStmtFlow::None);
+                    return Ok(IndexedStmtFlow::None);
                 }
                 let Some((text, start, end)) = lowered_str_parts(&text) else {
                     return Err(RuntimeError::new(
@@ -5960,24 +6040,24 @@ impl Evaluator {
                     if line_count & 63 == 0 {
                         self.service_pending_signal(span)?;
                         if self.signal_state.shutdown_complete {
-                            return Ok(LoweredStmtFlow::None);
+                            return Ok(IndexedStmtFlow::None);
                         }
                     }
                     assign_lowered_str_view(&mut slots[slot], &text, cursor, view_end);
                     match self.eval_indexed_statement_block(
                         execution, body, header, slots, call_span,
                     )? {
-                        LoweredStmtFlow::None | LoweredStmtFlow::Continue => {}
-                        LoweredStmtFlow::Break(_) => break,
-                        flow @ (LoweredStmtFlow::Return(_)
-                        | LoweredStmtFlow::Propagate(_)) => return Ok(flow),
+                        IndexedStmtFlow::None | IndexedStmtFlow::Continue => {}
+                        IndexedStmtFlow::Break(_) => break,
+                        flow @ (IndexedStmtFlow::Return(_)
+                        | IndexedStmtFlow::Propagate(_)) => return Ok(flow),
                     }
                     let Some(newline) = newline else {
                         break;
                     };
                     cursor = newline + 1;
                 }
-                Ok(LoweredStmtFlow::None)
+                Ok(IndexedStmtFlow::None)
             }
             FullTag::StmtScanLines => {
                 let text_slot = indexed_decode::<usize>(&mut payload, execution, call_span)?;
@@ -6015,7 +6095,7 @@ impl Evaluator {
                     if line_count & 63 == 0 {
                         self.service_pending_signal(span)?;
                         if self.signal_state.shutdown_complete {
-                            return Ok(LoweredStmtFlow::None);
+                            return Ok(IndexedStmtFlow::None);
                         }
                     }
                     if bytes_mode {
@@ -6065,7 +6145,7 @@ impl Evaluator {
                     cursor = newline + 1;
                 }
                 slots[line_slot] = LoweredValue::Unit;
-                Ok(LoweredStmtFlow::None)
+                Ok(IndexedStmtFlow::None)
             }
             FullTag::StmtCd => {
                 let target = indexed_raw(&mut payload, call_span)?;
@@ -6075,7 +6155,7 @@ impl Evaluator {
                 let target = match self.eval_indexed_expr(execution, target, slots, call_span)? {
                     ControlFlow::Continue(value) => lowered_path_like_arg(value, "cd", span)?,
                     ControlFlow::Break(value) => {
-                        return Ok(LoweredStmtFlow::Propagate(value));
+                        return Ok(IndexedStmtFlow::Propagate(value));
                     }
                 };
                 let previous = self.cwd.clone();
@@ -6083,7 +6163,7 @@ impl Evaluator {
                 match cap_std::fs::Dir::open_ambient_dir(&next, cap_std::ambient_authority()) {
                     Ok(_) => {}
                     Err(error) if error.kind() == std::io::ErrorKind::NotADirectory => {
-                        return Ok(LoweredStmtFlow::Propagate(LoweredValue::ResultErr(
+                        return Ok(IndexedStmtFlow::Propagate(LoweredValue::ResultErr(
                             Box::new(Value::Error(Box::new(
                                 RuntimeError::new(
                                     "cwd-not-directory",
@@ -6094,7 +6174,7 @@ impl Evaluator {
                         )));
                     }
                     Err(error) => {
-                        return Ok(LoweredStmtFlow::Propagate(LoweredValue::ResultErr(
+                        return Ok(IndexedStmtFlow::Propagate(LoweredValue::ResultErr(
                             Box::new(Value::Error(Box::new(
                                 RuntimeError::new("cwd", error.to_string()).with_span(span),
                             ))),
@@ -6140,7 +6220,7 @@ impl Evaluator {
                     match self.eval_indexed_run_env(execution, &env, slots, call_span)? {
                         ControlFlow::Continue(overlay) => overlay,
                         ControlFlow::Break(value) => {
-                            return Ok(LoweredStmtFlow::Propagate(value));
+                            return Ok(IndexedStmtFlow::Propagate(value));
                         }
                     };
                 let previous = self.env.clone();
@@ -6167,7 +6247,7 @@ impl Evaluator {
                         match self.eval_indexed_expr(execution, arg, slots, call_span)? {
                             ControlFlow::Continue(value) => value,
                             ControlFlow::Break(value) => {
-                                return Ok(LoweredStmtFlow::Return(value));
+                                return Ok(IndexedStmtFlow::Return(value));
                             }
                         };
                     values.push(value);
@@ -6273,7 +6353,7 @@ impl Evaluator {
                 };
                 if propagate_result {
                     match result {
-                        LoweredValue::ResultOk(_) => Ok(LoweredStmtFlow::None),
+                        LoweredValue::ResultOk(_) => Ok(IndexedStmtFlow::None),
                         LoweredValue::ResultErr(error) => {
                             let kind = error.error_kind().unwrap_or("error").to_string();
                             let message = error
@@ -6296,7 +6376,7 @@ impl Evaluator {
                                     error: TraceError { kind, message },
                                     frames: self.call_stack.clone(),
                                 });
-                            Ok(LoweredStmtFlow::Propagate(LoweredValue::ResultErr(error)))
+                            Ok(IndexedStmtFlow::Propagate(LoweredValue::ResultErr(error)))
                         }
                         other => Err(RuntimeError::new(
                             "type-error",
@@ -6305,7 +6385,7 @@ impl Evaluator {
                         .with_span(span)),
                     }
                 } else {
-                    Ok(LoweredStmtFlow::None)
+                    Ok(IndexedStmtFlow::None)
                 }
             }
             FullTag::StmtPrint => {
@@ -6328,7 +6408,7 @@ impl Evaluator {
                     )? {
                         ControlFlow::Continue(value) => value,
                         ControlFlow::Break(value) => {
-                            return Ok(LoweredStmtFlow::Return(value));
+                            return Ok(IndexedStmtFlow::Return(value));
                         }
                     };
                     if index > 0 {
@@ -6365,13 +6445,13 @@ impl Evaluator {
                 );
                 if propagate_result {
                     match self.last_status.as_ref().and_then(|status| status.code) {
-                        Some(0) | None => Ok(LoweredStmtFlow::None),
-                        Some(code) => Ok(LoweredStmtFlow::Propagate(LoweredValue::Int(
+                        Some(0) | None => Ok(IndexedStmtFlow::None),
+                        Some(code) => Ok(IndexedStmtFlow::Propagate(LoweredValue::Int(
                             i64::from(code),
                         ))),
                     }
                 } else {
-                    Ok(LoweredStmtFlow::None)
+                    Ok(IndexedStmtFlow::None)
                 }
             }
             FullTag::StmtRun => {
@@ -6383,11 +6463,11 @@ impl Evaluator {
                     ControlFlow::Continue(value) => {
                         if propagate_result {
                             match value {
-                                LoweredValue::ResultOk(_) => Ok(LoweredStmtFlow::None),
+                                LoweredValue::ResultOk(_) => Ok(IndexedStmtFlow::None),
                                 value @ LoweredValue::ResultErr(_) => {
                                     let value = self
                                         .lowered_question_propagation_value(value, call_span)?;
-                                    Ok(LoweredStmtFlow::Propagate(value))
+                                    Ok(IndexedStmtFlow::Propagate(value))
                                 }
                                 other => Err(RuntimeError::new(
                                     "type-error",
@@ -6399,10 +6479,10 @@ impl Evaluator {
                                 .with_span(call_span)),
                             }
                         } else {
-                            Ok(LoweredStmtFlow::None)
+                            Ok(IndexedStmtFlow::None)
                         }
                     }
-                    ControlFlow::Break(value) => Ok(LoweredStmtFlow::Propagate(value)),
+                    ControlFlow::Break(value) => Ok(IndexedStmtFlow::Propagate(value)),
                 }
             }
             FullTag::StmtLoop => {
@@ -6412,17 +6492,17 @@ impl Evaluator {
                     match self.eval_indexed_statement_block(
                         execution, body, header, slots, call_span,
                     )? {
-                        LoweredStmtFlow::None | LoweredStmtFlow::Continue => {}
-                        LoweredStmtFlow::Break(_) => break,
-                        LoweredStmtFlow::Return(value) => {
-                            return Ok(LoweredStmtFlow::Return(value));
+                        IndexedStmtFlow::None | IndexedStmtFlow::Continue => {}
+                        IndexedStmtFlow::Break(_) => break,
+                        IndexedStmtFlow::Return(value) => {
+                            return Ok(IndexedStmtFlow::Return(value));
                         }
-                        LoweredStmtFlow::Propagate(value) => {
-                            return Ok(LoweredStmtFlow::Propagate(value));
+                        IndexedStmtFlow::Propagate(value) => {
+                            return Ok(IndexedStmtFlow::Propagate(value));
                         }
                     }
                 }
-                Ok(LoweredStmtFlow::None)
+                Ok(IndexedStmtFlow::None)
             }
             FullTag::StmtReturn => {
                 let value = indexed_raw(&mut payload, call_span)?;
@@ -6430,7 +6510,7 @@ impl Evaluator {
                 let value = match self.eval_indexed_expr(execution, value, slots, call_span)? {
                     ControlFlow::Continue(value) | ControlFlow::Break(value) => value,
                 };
-                Ok(LoweredStmtFlow::Return(value))
+                Ok(IndexedStmtFlow::Return(value))
             }
             FullTag::StmtYield => {
                 let value = indexed_raw(&mut payload, call_span)?;
@@ -6448,23 +6528,23 @@ impl Evaluator {
                     ControlFlow::Continue(value) | ControlFlow::Break(value) => value,
                 };
                 self.stream_items.push(value.into_value());
-                Ok(LoweredStmtFlow::None)
+                Ok(IndexedStmtFlow::None)
             }
             FullTag::StmtBreak => {
                 indexed_finish(payload, call_span)?;
-                Ok(LoweredStmtFlow::Break(None))
+                Ok(IndexedStmtFlow::Break(None))
             }
             FullTag::StmtBreakValue => {
                 let value = indexed_raw(&mut payload, call_span)?;
                 indexed_finish(payload, call_span)?;
                 match self.eval_indexed_expr(execution, value, slots, call_span)? {
-                    ControlFlow::Continue(value) => Ok(LoweredStmtFlow::Break(Some(value))),
-                    ControlFlow::Break(value) => Ok(LoweredStmtFlow::Propagate(value)),
+                    ControlFlow::Continue(value) => Ok(IndexedStmtFlow::Break(Some(value))),
+                    ControlFlow::Break(value) => Ok(IndexedStmtFlow::Propagate(value)),
                 }
             }
             FullTag::StmtContinue => {
                 indexed_finish(payload, call_span)?;
-                Ok(LoweredStmtFlow::Continue)
+                Ok(IndexedStmtFlow::Continue)
             }
             _ => Err(RuntimeError::new(
                 "indexed-ir",

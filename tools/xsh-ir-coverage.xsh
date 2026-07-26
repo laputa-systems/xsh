@@ -1705,16 +1705,28 @@ let root = opts.root.resolve()?
 let arena_path = fp"${root}/src/syntax/arena.rs"
 let node_path = fp"${root}/src/syntax/node.rs"
 let eval_path = fp"${root}/src/runtime/eval.rs"
+let indexed_path = fp"${root}/src/runtime/eval/indexed/full.rs"
 let arena_source = fs.read_text(arena_path)?
 let node_source = fs.read_text(node_path)?
 let eval_source = fs.read_text(eval_path)?
+let indexed_source = fs.read_text(indexed_path)?
 let stmt_variants = enum_variants(arena_source, "ArenaStmtKind")
 let expr_variants = enum_variants(arena_source, "ArenaExprKind")
 let type_variants = enum_variants(arena_source, "ArenaTypeExprTag")
 let binary_variants = enum_variants(node_source, "BinaryOp")
 let assign_variants = enum_variants(node_source, "AssignOp")
-let lowered_stmt_variants = enum_variants(eval_source, "LoweredStmt")
-let lowered_expr_variants = enum_variants(eval_source, "LoweredExpr")
+let indexed_variants = enum_variants(indexed_source, "FullTag")
+var indexed_stmt_variants: List[Str] = []
+var indexed_expr_variants: List[Str] = []
+
+for variant in indexed_variants {
+  if variant.starts_with("Stmt") {
+    indexed_stmt_variants = indexed_stmt_variants.push(variant)
+  } else if variant.starts_with("Expr") {
+    indexed_expr_variants = indexed_expr_variants.push(variant)
+  }
+}
+
 let lowered_pipeline_stage_variants = enum_variants(eval_source, "LoweredPipelineStage")
 let lowered_type_variants = enum_variants(eval_source, "LoweredType")
 let lowered_methods = lowered_method_names(eval_source)
@@ -1788,8 +1800,8 @@ let rows = [
 let report: CoverageReport = {
   rows: rows,
   lowered_nodes: {
-    statements: lowered_stmt_variants.len(),
-    expressions: lowered_expr_variants.len(),
+    statements: indexed_stmt_variants.len(),
+    expressions: indexed_expr_variants.len(),
     pipeline_stages: lowered_pipeline_stage_variants.len(),
     types: lowered_type_variants.len(),
   },

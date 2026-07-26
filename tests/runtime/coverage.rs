@@ -142,14 +142,6 @@ pub enum AssignOp {
     std::fs::write(
         runtime.join("eval.rs"),
         r#"
-enum LoweredStmt {
-    Let,
-}
-
-enum LoweredExpr {
-    Str,
-}
-
 enum LoweredPipelineStage {
     Map,
 }
@@ -164,6 +156,17 @@ fn lowered_method_name(name: &str) -> bool {
 "#,
     )
     .expect("write eval source");
+    std::fs::create_dir_all(runtime.join("eval/indexed")).expect("create indexed runtime");
+    std::fs::write(
+        runtime.join("eval/indexed/full.rs"),
+        r#"
+enum FullTag {
+    ExprStr,
+    StmtLet,
+}
+"#,
+    )
+    .expect("write indexed source");
     std::fs::write(sema.join("records.rs"), "").expect("write records source");
     std::fs::write(
         root.join("script.xsh"),

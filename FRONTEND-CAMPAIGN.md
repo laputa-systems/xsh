@@ -1188,7 +1188,8 @@ evaluation. Otherwise choose whole-program or coherent-region lowering.
 ### Work Checklist
 
 - [x] Install only verified indexed programs/functions/regions.
-- [x] Add test-only force-arena and force-IR modes.
+- [x] Add test-only force-arena and force-IR modes for migration, then remove
+  them at cutover.
 - [x] Differentially run the complete corpus.
 - [x] Enable indexed production execution without shadow building.
 - [x] Run focused allocation/latency comparisons.
@@ -1199,7 +1200,8 @@ evaluation. Otherwise choose whole-program or coherent-region lowering.
 - [ ] Remove `LoweredStmt`.
 - [ ] Remove `LoweredPattern`.
 - [ ] Remove wide `LoweredPureFunction`/top-level objects.
-- [ ] Remove obsolete runners, probes, maps, and adapters.
+- [x] Remove the arena-oracle runner, recursive evaluator, body-retaining probe
+  caches, execution registries/maps, and compatibility adapters.
 - [x] Ensure every executable language construct is represented by indexed IR
   or an explicit host/runtime operation referenced by that IR.
 - [x] Drop the compact AST, token table, CST, and lowering scratch before
@@ -1207,25 +1209,54 @@ evaluation. Otherwise choose whole-program or coherent-region lowering.
 
 ### Exit Gate
 
-- [ ] One lowered executable representation remains.
-- [ ] Migrated functions/regions retain no recursive lowered body.
-- [ ] Production execution does not walk `AstArena`.
+- [x] One lowered executable representation remains.
+- [x] Migrated functions/regions retain no recursive lowered body.
+- [x] Production execution does not walk `AstArena`.
 - [ ] User-visible latency improves or remains flat while memory materially
   improves.
 - [ ] Full behavior, benchmark, and coverage gates pass.
 - [ ] Old IR code is deleted rather than left dormant.
 
-Current implementation note (2026-07-25): production retains only the verified
-`FullProgram`, and every function, driver, process, parallel/block pipeline,
-match, defer, import, signal, recursive-call, and cold host-operation opcode
-executes directly from borrowed indexed payloads. Opcode preflight and runtime
-decode fallback have been removed. Direct self-recursion preserves the previous
-trace-frame behavior, and whole-function/whole-driver compatibility decoders
-have been deleted. Compact construction now lowers, encodes, and drops one
-function at a time instead of retaining all recursive function units at once.
-The recursive construction types themselves and the remaining arena-oracle
-runner are still present, so the recursive deletion and final performance exit
-boxes remain open.
+Current implementation note (2026-07-25): production, `Evaluator::eval`,
+native-test setup, tooling trace execution, dynamic modules, auto-main, and
+signal hooks retain and execute only verified `FullProgram` values. The
+arena-oracle mode and environment switch are deleted. The recursive expression,
+statement, pattern, typed-expression, and function evaluator is deleted rather
+than left dormant, as are its recursive registries and 4,631-line compatibility
+test module. Runtime calls use a body-free `IndexedFunctionHeader`; dynamic
+functions retain their owning indexed program; signal hooks require an indexed
+body. The indexed `each --jobs` path also preserves cancellation/job-end trace
+events.
+
+The remaining Phase 6 boundary is construction, not execution. The old named
+types are gone, but equivalent recursive builder scratch currently survives as
+`IrBuildExpr`, `IrBuildStmt`, `IrBuildPattern`, `IrBuildFunction`,
+`IrBuildProgram`, and top-level construction objects shared by `lower.rs` and
+the `FullBuilder` codecs. They are encoded one function at a time and dropped,
+and measurement probes no longer retain bodies, but renaming/build-only
+lifetime is not the deletion required by the open representation boxes. Finish
+Phase 6 by lowering directly into indexed builder IDs/rows (or a genuinely
+non-recursive indexed scratch arena), deleting those recursive construction
+objects and their codec-only maps, then rerunning the performance evidence.
+
+Verification completed in this checkout:
+
+- direct indexed suite: 13 passed;
+- indexed runner suite: 17 passed;
+- frontend campaign integration fixtures: 2 passed;
+- serial runtime integration gate: 244 passed, 32 ignored;
+- exact native XSH corpus gate: 1 passed.
+
+One parallel runtime run exposed the missing indexed `parallel.cancel` trace,
+which was fixed and passed its exact regression. A separate timed-example
+failure was cross-test signal interference and passed alone; the Phase 6
+protocol therefore runs the signal-heavy runtime gate serially. The reproducible
+script is `scripts/frontend-campaign-phase6`. Its test artifacts exist under
+`target/frontend-campaign/phase-6`; the first evidence run stopped at an
+unsupported layout-report type, and the script has been corrected. Layout,
+coverage/frontend-stats, the two `bench-fast` passes, Phase 5 comparison, and
+final diff review still need to run, so the performance, complete-evidence, and
+old-construction-IR exit boxes remain open.
 
 ## Phase 7: Record Shapes And Runtime Value Movement
 
