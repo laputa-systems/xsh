@@ -12,6 +12,15 @@ allocation-heavy workloads. The benchmark wraps the same mimalloc allocator
 with `AllocProfiler`, so allocation accounting does not change the allocator
 being measured. Other hosts use the system allocator.
 
+The executable frontend has no separate campaign benchmark runner or shadow
+execution mode. Use the normal suite for all final evidence: `make bench-fast`
+for deterministic allocation and peak-live comparisons, then `make bench` for
+latency repeats. The focused `xsht_check_xsh_repository` and
+`xsht_format_check_xsh_repository` operations cover the parse/check/lower and
+tooling paths; `xsh_short_script` covers installed execution. Keep the before
+and after command, profile, host, allocator, sample count, and sample size the
+same. Do not infer a timing regression from an unpaired thermally unstable run.
+
 ## Workloads
 
 The suite covers complete operations rather than isolated helpers:
@@ -81,11 +90,11 @@ latency baselines. Override with `--baseline`, `--variant`, `--warmup-runs`,
 Do not mix fast and normal baseline files when judging deltas: single-sample
 runs start colder because XSH has process-global interners and caches.
 
-For the frontend campaign, `scripts/frontend-campaign-phase0` captures two fast
-runs and compares only the allocation and peak columns. Whole-suite wall time
-is retained as iteration telemetry, not as the Phase 0 pass/fail signal. The
-same driver records stage-split frontend stats, layout, coverage, line counts,
-and host metadata under `target/frontend-campaign/phase-0/`.
+For frontend representation work, run the focused frontend-stat command in
+`docs/TEST-MAP.md`, then compare a serial `make bench-fast` baseline. Whole-suite
+wall time is iteration telemetry for that gate; allocation and peak-live columns
+are the decision signals. `scripts/ir-layout.py` supplies the complementary
+type-layout view.
 
 ## Interpreter And IR Diagnostics
 

@@ -16,11 +16,8 @@ fn vertical_slice_indexed_execution_is_frozen() {
 }
 
 #[test]
-fn formerly_unsupported_slice_runs_in_strict_indexed_mode() {
-    let output = xsh([
-        "--strict-lower",
-        "tests/fixtures/frontend-campaign/vertical-slice-unsupported.xsh",
-    ]);
+fn formerly_unsupported_slice_runs_on_the_standard_execution_path() {
+    let output = xsh(["tests/fixtures/frontend-campaign/vertical-slice-unsupported.xsh"]);
 
     assert!(
         output.status.success(),

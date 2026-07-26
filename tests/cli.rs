@@ -51,20 +51,18 @@ fn xsh_runs_dynamic_record_methods_by_default() {
 }
 
 #[test]
-fn xsh_strict_lower_runs_dynamic_record_methods() {
-    let path = temp_script("xsh-dynamic-lower-strict", dynamic_lowerability_script());
+fn xsh_rejects_removed_strict_lower_option() {
     let output = Command::new(env!("CARGO_BIN_EXE_xsh"))
-        .args(["--strict-lower", path.to_str().unwrap()])
+        .arg("--strict-lower")
         .output()
-        .expect("run xsh script");
+        .expect("run xsh");
 
+    assert!(!output.status.success());
     assert!(
-        output.status.success(),
+        String::from_utf8_lossy(&output.stderr).contains("unknown xsh option '--strict-lower'"),
         "stderr: {}",
         String::from_utf8_lossy(&output.stderr)
     );
-    assert_eq!(String::from_utf8(output.stdout).unwrap(), "non-empty\n");
-    assert!(output.stderr.is_empty());
 }
 
 fn dynamic_lowerability_script() -> &'static str {

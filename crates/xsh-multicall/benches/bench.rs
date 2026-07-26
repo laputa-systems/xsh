@@ -109,7 +109,6 @@ fn run_benchmark_script(path: &Path, args: Vec<String>) -> usize {
         script: path.to_string_lossy().into_owned(),
         args,
         coverage_trace_dir: None,
-        strict_lower: false,
     });
     assert_eq!(output.status, 0, "{}", String::from_utf8_lossy(&output.stderr));
     output.stdout.len()

@@ -1223,12 +1223,12 @@ signal hooks retain and execute only verified `FullProgram` values. The
 arena-oracle mode and environment switch are deleted. The recursive expression,
 statement, pattern, typed-expression, and function evaluator is deleted rather
 than left dormant, as are its recursive registries and 4,631-line compatibility
-test module. Runtime calls use a body-free `IndexedFunctionHeader`; dynamic
+test module. Runtime calls use a body-free `FunctionHeader`; dynamic
 functions retain their owning indexed program; signal hooks require an indexed
 body. The indexed `each --jobs` path also preserves cancellation/job-end trace
 events.
 
-Construction now uses one `IndexedBuildScratch` with separate expression,
+Construction now uses one `BuildScratch` with separate expression,
 statement, pattern, typed-expression, and top-level row vectors. Every child
 edge is a checked 4-byte typed ID; no construction row recursively owns another
 row. Function and program construction objects contain IDs and share the
@@ -1247,10 +1247,10 @@ Verification completed in this checkout:
 
 One parallel runtime run exposed the missing indexed `parallel.cancel` trace,
 which was fixed and passed its exact regression. A separate timed-example
-failure was cross-test signal interference and passed alone; the Phase 6
-protocol therefore runs the signal-heavy runtime gate serially. The reproducible
-script is `scripts/frontend-campaign-phase6`. Its test artifacts exist under
-`target/frontend-campaign/phase-6`. The final run includes the layout report,
+failure was cross-test signal interference and passed alone; the signal-heavy
+runtime gate therefore runs serially. The historical phase script was removed
+after the final direct gates were recorded in `docs/TEST-MAP.md`. The final run
+includes the layout report,
 coverage/frontend statistics, two serial `bench-fast` captures, the Phase 5
 memory comparison, and line-count/host evidence. The two benchmark passes have
 identical allocation and peak-live columns. Frozen-slice construction retained
@@ -1797,7 +1797,7 @@ Evidence: `target/frontend-campaign/phase-6/PROTOCOL.md`,
 The direct indexed and runner suites pass 13 and 17 tests. The serial runtime
 gate passes 244 tests with 32 ignored, and the exact native XSH corpus gate
 passes. The deleted-boundary scan is empty. All six construction identities are
-4 bytes; `IndexedBuildScratch` is a 144-byte vector owner, while final
+4 bytes; `BuildScratch` is a 144-byte vector owner, while final
 `FullBlock` and `FullFunction` remain 20 and 32 bytes. Frozen-slice construction
 retained bytes fall 76.6%, from 41,394 to 9,682, and post-frontend-drop retained
 bytes fall from 543,628 to 531,670. Both serial fast captures report identical

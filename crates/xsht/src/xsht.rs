@@ -32,7 +32,6 @@ pub(crate) mod test {
         pub(crate) nocapture: bool,
         pub(crate) fail_fast: bool,
         pub(crate) keep_temp: bool,
-        pub(crate) strict_lower: bool,
         pub(crate) jobs: Option<usize>,
         pub(crate) coverage: bool,
         pub(crate) coverage_json_out: Option<String>,

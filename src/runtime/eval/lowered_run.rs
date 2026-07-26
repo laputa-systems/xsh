@@ -79,9 +79,9 @@ use super::modules::{
     test_temp_path, test_value_matches_type,
 };
 use super::{
-    Binding, Evaluator, Flow, FsRootHandle, IndexedDynamicFunction, LoweredCompTarget,
-    LoweredFunctionKey, LoweredFunctionKind, LoweredModuleExportKind, IndexedFunctionHeader,
-    LoweredReturnKind, IndexedStmtFlow, LoweredStrPredicate, LoweredTagValue, LoweredType,
+    Binding, Evaluator, Flow, FsRootHandle, DynamicFunction, LoweredCompTarget,
+    LoweredFunctionKey, LoweredFunctionKind, LoweredModuleExportKind, FunctionHeader,
+    LoweredReturnKind, StmtFlow, LoweredStrPredicate, LoweredTagValue, LoweredType,
     LoweredValue, Name, ReduceByOp, ScanCondition,
     assign_lowered_bytes_view, assign_lowered_str_view, bytes_contains, check_env_name,
     compound_assignment_value, exit_status, lowered_inline_stats_field_value,
@@ -223,12 +223,12 @@ thread_local! {
     static INDEXED_EVAL_DEPTH: Cell<usize> = const { Cell::new(0) };
 }
 
-struct IndexedEvalDepthReset<'a> {
+struct EvalDepthReset<'a> {
     depth: &'a Cell<usize>,
     previous: usize,
 }
 
-impl Drop for IndexedEvalDepthReset<'_> {
+impl Drop for EvalDepthReset<'_> {
     fn drop(&mut self) {
         self.depth.set(self.previous);
     }
@@ -248,7 +248,7 @@ fn with_indexed_eval_depth<R>(
             .with_span(span));
         }
         depth.set(current + 1);
-        let _reset = IndexedEvalDepthReset {
+        let _reset = EvalDepthReset {
             depth,
             previous: current,
         };
@@ -2908,11 +2908,11 @@ fn lowered_count_key(value: &LoweredValue, span: Span) -> Result<String, Runtime
     }
 }
 
-fn lowered_rest_index(lowered: &IndexedFunctionHeader) -> Option<usize> {
+fn lowered_rest_index(lowered: &FunctionHeader) -> Option<usize> {
     lowered.param_rest.iter().position(|rest| *rest)
 }
 
-fn lowered_required_arg_count(lowered: &IndexedFunctionHeader) -> usize {
+fn lowered_required_arg_count(lowered: &FunctionHeader) -> usize {
     let limit = lowered_rest_index(lowered).unwrap_or(lowered.params.len());
     lowered
         .param_defaults
@@ -2922,7 +2922,7 @@ fn lowered_required_arg_count(lowered: &IndexedFunctionHeader) -> usize {
         .count()
 }
 
-fn lowered_call_arity_message(lowered: &IndexedFunctionHeader, actual: usize) -> String {
+fn lowered_call_arity_message(lowered: &FunctionHeader, actual: usize) -> String {
     let required = lowered_required_arg_count(lowered);
     if let Some(rest_index) = lowered_rest_index(lowered) {
         format!(
@@ -3000,14 +3000,14 @@ fn bind_lowered_comp_target(
 }
 
 fn lowered_param_check(
-    lowered: &IndexedFunctionHeader,
+    lowered: &FunctionHeader,
     index: usize,
 ) -> Option<&super::LoweredTypeCheck> {
     lowered.param_checks.get(index).and_then(Option::as_ref)
 }
 
 fn lowered_runtime_arg_matches_param(
-    lowered: &IndexedFunctionHeader,
+    lowered: &FunctionHeader,
     index: usize,
     value: &Value,
 ) -> bool {
@@ -3016,7 +3016,7 @@ fn lowered_runtime_arg_matches_param(
 }
 
 fn lowered_value_matches_param(
-    lowered: &IndexedFunctionHeader,
+    lowered: &FunctionHeader,
     index: usize,
     kind: LoweredType,
     value: &LoweredValue,
@@ -3026,7 +3026,7 @@ fn lowered_value_matches_param(
             .is_none_or(|check| lowered_value_matches_static_type(value, &check.ty))
 }
 
-fn lowered_param_type_name(lowered: &IndexedFunctionHeader, index: usize, kind: LoweredType) -> &str {
+fn lowered_param_type_name(lowered: &FunctionHeader, index: usize, kind: LoweredType) -> &str {
     lowered_param_check(lowered, index).map_or_else(|| lowered_type_name(kind), |check| &check.name)
 }
 
@@ -8947,7 +8947,7 @@ impl Evaluator {
 
     fn try_bind_lowered_runtime_args(
         &mut self,
-        lowered: &IndexedFunctionHeader,
+        lowered: &FunctionHeader,
         args: &[Value],
     ) -> Option<Vec<LoweredValue>> {
         let values = if let Some(rest_index) = lowered_rest_index(lowered) {
@@ -9007,7 +9007,7 @@ impl Evaluator {
 
     fn bind_lowered_values(
         &mut self,
-        lowered: &IndexedFunctionHeader,
+        lowered: &FunctionHeader,
         args: &[LoweredValue],
         span: Span,
     ) -> Result<Vec<LoweredValue>, RuntimeError> {
@@ -9111,7 +9111,7 @@ impl Evaluator {
 
     fn lowered_call_slots(
         &mut self,
-        lowered: &IndexedFunctionHeader,
+        lowered: &FunctionHeader,
         values: Vec<LoweredValue>,
     ) -> Vec<LoweredValue> {
         let mut slots = self.take_lowered_slots(lowered.slot_count);
@@ -9143,7 +9143,7 @@ impl Evaluator {
 
     fn hydrate_lowered_captures(
         &mut self,
-        lowered: &IndexedFunctionHeader,
+        lowered: &FunctionHeader,
         slots: &mut [LoweredValue],
         call_span: Span,
     ) -> Result<(), RuntimeError> {
@@ -9196,7 +9196,7 @@ impl Evaluator {
 
     fn write_back_lowered_captures(
         &mut self,
-        lowered: &IndexedFunctionHeader,
+        lowered: &FunctionHeader,
         slots: &[LoweredValue],
         call_span: Span,
     ) -> Result<(), RuntimeError> {
@@ -9250,21 +9250,21 @@ impl Evaluator {
         }
     }
 
-    fn lowered_retry_attempt_value(&mut self, flow: IndexedStmtFlow) -> LoweredRetryAttemptValue {
+    fn lowered_retry_attempt_value(&mut self, flow: StmtFlow) -> LoweredRetryAttemptValue {
         match flow {
-            IndexedStmtFlow::None | IndexedStmtFlow::Continue => {
+            StmtFlow::None | StmtFlow::Continue => {
                 LoweredRetryAttemptValue::Success(LoweredValue::Unit)
             }
             // The retry body's trailing expression is lowered as `BreakValue`, so
             // a successful attempt's value arrives as `Break(Some(..))`.
-            IndexedStmtFlow::Break(Some(value)) => LoweredRetryAttemptValue::Success(value),
-            IndexedStmtFlow::Break(None) => LoweredRetryAttemptValue::ControlBreak,
+            StmtFlow::Break(Some(value)) => LoweredRetryAttemptValue::Success(value),
+            StmtFlow::Break(None) => LoweredRetryAttemptValue::ControlBreak,
             // `?` failures inside the body propagate; the retry catches them and
             // retries (or surfaces the final error once attempts are exhausted).
             // The propagation value is a `ResultErr` wrapping the real error;
             // unwrap it so the attempt trace and final error carry the actual
             // error value rather than a `Result` wrapper.
-            IndexedStmtFlow::Propagate(value) => {
+            StmtFlow::Propagate(value) => {
                 let error = match value {
                     LoweredValue::ResultErr(error) => *error,
                     other => other.into_value(),
@@ -9275,7 +9275,7 @@ impl Evaluator {
                 }
             }
             // An explicit `return` escapes the retry and returns from the proc.
-            IndexedStmtFlow::Return(value) => LoweredRetryAttemptValue::Escape(value),
+            StmtFlow::Return(value) => LoweredRetryAttemptValue::Escape(value),
         }
     }
 
@@ -9598,7 +9598,7 @@ impl Evaluator {
             let qualified = QualifiedName::new(dynamic_namespace, *name);
             Arc::make_mut(&mut self.indexed_dynamic_functions).insert(
                 qualified,
-                IndexedDynamicFunction {
+                DynamicFunction {
                     program: Arc::clone(&module_program),
                     function: LoweredFunctionKey::Name(*name),
                     kind: if *pure {

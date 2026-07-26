@@ -8,16 +8,16 @@ use crate::modules::hash::HashAlgorithm;
 use crate::runtime::eval::{
     BuildBoolId, BuildBoolRow, BuildExprId, BuildExprRow, BuildIntId, BuildIntRow,
     BuildPatternId, BuildPatternRow, BuildStmtId, BuildStmtRow, BuildTopStmtId,
-    IndexedBuildScratch,
+    BuildScratch,
     LoweredCallArg, LoweredCompTarget, LoweredErrorExpr,
     LoweredErrorPatternFields, LoweredFmtPart, LoweredFunctionKey,
     LoweredFunctionKind, LoweredFunctionUnit, BuildPatternIdSlots, LoweredPipelineStage, LoweredProcessCommandArgv,
-    IndexedFunctionHeader, LoweredProcessCommandBuilderEntry, IndexedFunctionBuild, LoweredRecordEntry,
+    FunctionHeader, LoweredProcessCommandBuilderEntry, FunctionBuild, LoweredRecordEntry,
     LoweredReturnKind,
     LoweredRunArg, LoweredRunArgKind, LoweredRunCapture, LoweredRunEnv,
     LoweredRunPipelineSegment, LoweredRunRedirection, LoweredSpawnRun,
     LoweredStatsValue, LoweredStrPredicate, LoweredTagValue, LoweredType, LoweredTypeCheck,
-    LoweredModuleExport, LoweredModuleExportKind, IndexedProgramBuild, BuildTopKind,
+    LoweredModuleExport, LoweredModuleExportKind, ProgramBuild, BuildTopKind,
     LoweredTopLevelSlot, LoweredTopLevelSlots, BuildTopStmtRow, LoweredValue, ReduceByOp,
     ScanCheck, ScanCondition,
 };
@@ -1141,7 +1141,7 @@ impl<'a> FullFunctionView<'a> {
 
     pub(in crate::runtime::eval) fn header(
         &self,
-    ) -> Result<IndexedFunctionHeader, IrVerifyError> {
+    ) -> Result<FunctionHeader, IrVerifyError> {
         let function = self.program.store.functions[self.index];
         let decoder = self.execution()?.decoder;
         let params = function
@@ -1217,7 +1217,7 @@ impl<'a> FullFunctionView<'a> {
             Type::Result(ok, _) => LoweredReturnKind::Result(lowered_type_from_type(&ok)?),
             ty => LoweredReturnKind::Plain(lowered_type_from_type(&ty)?),
         };
-        Ok(IndexedFunctionHeader {
+        Ok(FunctionHeader {
             params: param_names,
             param_kinds,
             param_checks,
@@ -1396,7 +1396,7 @@ pub(in crate::runtime::eval) struct FullBuilder {
     payload_pool: Vec<Vec<u32>>,
     current_owner: Option<u32>,
     current_slot_count: u32,
-    active_scratch: Option<Rc<RefCell<IndexedBuildScratch>>>,
+    active_scratch: Option<Rc<RefCell<BuildScratch>>>,
 }
 
 impl FullBuilder {
@@ -1441,7 +1441,7 @@ impl FullBuilder {
     #[cfg(test)]
     fn build_with_driver(
         units: &[LoweredFunctionUnit],
-        driver: Option<(&IndexedProgramBuild, &[StmtId], &ArenaProgram)>,
+        driver: Option<(&ProgramBuild, &[StmtId], &ArenaProgram)>,
         sources: Arc<SourceMap>,
         source_id: SourceId,
     ) -> Result<FullProgram, IrBuildError> {
@@ -1769,7 +1769,7 @@ impl FullBuilder {
     fn encode_body(
         &mut self,
         function: IrFunctionId,
-        body: &IndexedFunctionBuild,
+        body: &FunctionBuild,
     ) -> Result<(), IrBuildError> {
         let instruction_start = self.store.tags.len();
         self.active_scratch = Some(body.scratch.clone());
@@ -1804,7 +1804,7 @@ impl FullBuilder {
 
     fn encode_driver_root(
         &mut self,
-        program: &IndexedProgramBuild,
+        program: &ProgramBuild,
         source_statements: &[StmtId],
         arena: &ArenaProgram,
         allow_checker_only: bool,
@@ -1818,7 +1818,7 @@ impl FullBuilder {
 
     fn encode_driver_root_with_scratch(
         &mut self,
-        program: &IndexedProgramBuild,
+        program: &ProgramBuild,
         source_statements: &[StmtId],
         arena: &ArenaProgram,
         allow_checker_only: bool,
@@ -7610,9 +7610,9 @@ run true
         let source_id = sources.add_file("phase5-reject.xsh", source);
         let parsed = Parser::parse_source_arena_only(source_id, source);
         let statements = parsed.arena.statement_ids().collect::<Vec<_>>();
-        let lowered = IndexedProgramBuild {
+        let lowered = ProgramBuild {
             statements: vec![None],
-            scratch: Rc::new(RefCell::new(IndexedBuildScratch::default())),
+            scratch: Rc::new(RefCell::new(BuildScratch::default())),
         };
         let error = FullBuilder::build_with_driver(
             &[],

@@ -1025,7 +1025,7 @@ fn lower_path_write_args(args: &[ArenaCallArg]) -> Option<LoweredPathWriteArgs> 
 }
 
 fn build_expr(
-    scratch: &Rc<RefCell<IndexedBuildScratch>>,
+    scratch: &Rc<RefCell<BuildScratch>>,
     row: BuildExprRow,
 ) -> BuildExprId {
     scratch.borrow_mut().expr(row)
@@ -1058,7 +1058,7 @@ fn lower_command_word_reference(
     text: &str,
     slots: &SlotScope,
     span: Span,
-    scratch: &Rc<RefCell<IndexedBuildScratch>>,
+    scratch: &Rc<RefCell<BuildScratch>>,
 ) -> Option<BuildExprId> {
     let (root, segments) = parse_command_word_reference(text)?;
     let mut value = if let Some(slot) = slots.resolve(Name::intern(root)) {
@@ -1084,7 +1084,7 @@ fn lower_command_word_reference(
 fn lower_env_command_word_reference(
     segments: &[CommandWordRefSegment],
     span: Span,
-    scratch: &Rc<RefCell<IndexedBuildScratch>>,
+    scratch: &Rc<RefCell<BuildScratch>>,
 ) -> Option<BuildExprId> {
     match segments {
         [CommandWordRefSegment::Field(name)] => {
@@ -1420,13 +1420,13 @@ use super::{
     Flow, LowerableFunctions, BuildBoolId,
     LoweredCallArg, LoweredCompFields, LoweredCompTarget, LoweredErrorExpr,
     BuildBoolRow, BuildExprRow, BuildIntRow, BuildPatternRow, BuildStmtRow, BuildTopStmtId,
-    IndexedBuildScratch, LoweredErrorPatternFields, BuildExprId, LoweredFmtPart, LoweredFunctionBlocker,
+    BuildScratch, LoweredErrorPatternFields, BuildExprId, LoweredFmtPart, LoweredFunctionBlocker,
     LoweredFunctionKey, LoweredFunctionKind, LoweredFunctionUnit, BuildIntId,
     LoweredModuleExport, LoweredModuleExportKind, LoweredParamChecks, LoweredParamDefaults,
     LoweredParamKinds, LoweredParamNames, LoweredParamRest, BuildPatternId, BuildPatternIdSlots,
-    LoweredPipelineStage, IndexedProgramBuild, IndexedFunctionBuild, LoweredReturnKind, LoweredRunArg,
+    LoweredPipelineStage, ProgramBuild, FunctionBuild, LoweredReturnKind, LoweredRunArg,
     LoweredRunArgKind, LoweredRunEnv, LoweredRunPipelineSegment, LoweredRunRedirection,
-    BuildStmtId, IndexedStmtFlow, LoweredStrPredicate, LoweredTopLevelBinding, BuildTopKind,
+    BuildStmtId, StmtFlow, LoweredStrPredicate, LoweredTopLevelBinding, BuildTopKind,
     LoweredTopLevelSlot, LoweredTopLevelSlots, BuildTopStmtRow, LoweredType, LoweredTypeCheck,
     LoweredValue, ReduceByOp, ScanCheck, ScanCondition, lowered_method_name,
 };
@@ -1531,7 +1531,7 @@ pub(super) fn probe_compact_lower_constructed_bodies(
         },
         last_blocker_detail: None,
         strict_dynamic_methods: true,
-        scratch: Rc::new(RefCell::new(IndexedBuildScratch::default())),
+        scratch: Rc::new(RefCell::new(BuildScratch::default())),
     };
     probe.probe_program();
     probe.output
@@ -1581,7 +1581,7 @@ pub(super) fn lower_compact_function_units_into(
             output: CompactLowerConstructProbeOutput::default(),
             last_blocker_detail: None,
             strict_dynamic_methods: true,
-            scratch: Rc::new(RefCell::new(IndexedBuildScratch::default())),
+            scratch: Rc::new(RefCell::new(BuildScratch::default())),
         };
         let (scc_member_count, scc_group) =
             compact_function_scc_metadata(program, function);
@@ -1604,7 +1604,7 @@ pub(super) fn lower_compact_top_level_program_with_probe(
     sources: &SourceMap,
     functions: &LowerableFunctions<'_>,
     strict_dynamic_methods: bool,
-) -> (IndexedProgramBuild, CompactLowerConstructProbeOutput) {
+) -> (ProgramBuild, CompactLowerConstructProbeOutput) {
     let mut probe = CompactLowerConstructProbe {
         program,
         declarations,
@@ -1625,7 +1625,7 @@ pub(super) fn lower_compact_top_level_program_with_probe(
         output: CompactLowerConstructProbeOutput::default(),
         last_blocker_detail: None,
         strict_dynamic_methods,
-        scratch: Rc::new(RefCell::new(IndexedBuildScratch::default())),
+        scratch: Rc::new(RefCell::new(BuildScratch::default())),
     };
     let root = program.statement_ids().collect::<Vec<_>>();
     let lowered = probe.lower_program_statements(&root);
@@ -1662,7 +1662,7 @@ fn compact_top_level_known(
         output: CompactLowerConstructProbeOutput::default(),
         last_blocker_detail: None,
         strict_dynamic_methods: true,
-        scratch: Rc::new(RefCell::new(IndexedBuildScratch::default())),
+        scratch: Rc::new(RefCell::new(BuildScratch::default())),
     };
     probe.collect_top_level_known(&statements)
 }
@@ -1698,7 +1698,7 @@ fn compact_function_top_level_known(
         output: CompactLowerConstructProbeOutput::default(),
         last_blocker_detail: None,
         strict_dynamic_methods: true,
-        scratch: Rc::new(RefCell::new(IndexedBuildScratch::default())),
+        scratch: Rc::new(RefCell::new(BuildScratch::default())),
     };
     let mut known = top_level_known_with_runtime_bindings();
     for stmt in statements {
@@ -2207,7 +2207,7 @@ struct CompactLowerConstructProbe<'a, 'defs> {
     output: CompactLowerConstructProbeOutput,
     last_blocker_detail: Option<(Span, String)>,
     strict_dynamic_methods: bool,
-    scratch: Rc<RefCell<IndexedBuildScratch>>,
+    scratch: Rc<RefCell<BuildScratch>>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -2981,9 +2981,9 @@ impl CompactLowerConstructProbe<'_, '_> {
         self.lower_program_statements(statements);
     }
 
-    fn lower_program_statements(&mut self, statements: &[StmtId]) -> IndexedProgramBuild {
+    fn lower_program_statements(&mut self, statements: &[StmtId]) -> ProgramBuild {
         let mut known = top_level_known_with_runtime_bindings();
-        let mut lowered = IndexedProgramBuild {
+        let mut lowered = ProgramBuild {
             statements: Vec::with_capacity(statements.len()),
             scratch: self.scratch.clone(),
         };
@@ -3206,7 +3206,7 @@ impl CompactLowerConstructProbe<'_, '_> {
         &mut self,
         id: crate::syntax::arena::FunctionDefId,
         _pure: bool,
-    ) -> Result<IndexedFunctionBuild, CompactFunctionBlocker> {
+    ) -> Result<FunctionBuild, CompactFunctionBlocker> {
         let def = self.program.arena.function_def(id);
         let return_kind = match self.lowered_return_kind(def.return_ty) {
             Some(kind) => kind,
@@ -3271,7 +3271,7 @@ impl CompactLowerConstructProbe<'_, '_> {
             return Err(CompactFunctionBlocker::BlockParams);
         }
         // NOTE: nested loops are supported by the lowered runtime (break/continue
-        // use IndexedStmtFlow which correctly scopes to the innermost loop).
+        // use StmtFlow which correctly scopes to the innermost loop).
         // The check is removed — it was a Phase 1 safety measure that is no longer needed.
         let mut slots = SlotScope::from_names(params.iter().copied());
         let captures = self.append_immutable_top_level_captures(&mut slots);
@@ -3329,7 +3329,7 @@ impl CompactLowerConstructProbe<'_, '_> {
             let scratch = self.scratch.borrow();
             lowered_body_has_defers(&scratch, &body)
         };
-        Ok(IndexedFunctionBuild {
+        Ok(FunctionBuild {
             params,
             param_kinds,
             param_checks,
@@ -11044,7 +11044,7 @@ fn type_for_lowered_type(kind: LoweredType) -> Option<Type> {
 }
 
 pub(super) fn lowered_top_level(
-    scratch: &Rc<RefCell<IndexedBuildScratch>>,
+    scratch: &Rc<RefCell<BuildScratch>>,
     kind: BuildTopKind,
     known: &FxHashMap<Name, LoweredTopLevelBinding>,
     slot_indexes: SlotScope,
@@ -11592,7 +11592,7 @@ fn lowered_bool_expr_needs_type_context(&self, expr: &BuildBoolId) -> bool {
 /// compact lowerer must append an implicit `Return ok unit` for unit/Result[Unit]
 /// procs (and whether value-returning procs are well-formed). It must be
 /// CONSERVATIVE: the runtime never treats a bare tail `Expr` statement as a
-/// return (it yields `IndexedStmtFlow::None` for a non-error value), and an `if`
+/// return (it yields `StmtFlow::None` for a non-error value), and an `if`
 /// Try to lower a ForStrLines body into a `ScanLines` node for faster
 /// execution. Returns `Some(ScanLines)` if the body matches the simple scanner
 /// pattern: a single `IfBool` where every branch is a counter increment.
@@ -11671,10 +11671,10 @@ fn try_lower_scan_lines(
 /// Recursively check whether a lowered statement body contains any `Defer`
 /// statements (including those nested inside `If` branches, `Retry` bodies, etc.).
 pub(super) fn lowered_body_has_defers(
-    scratch: &IndexedBuildScratch,
+    scratch: &BuildScratch,
     statements: &[BuildStmtId],
 ) -> bool {
-    fn stmt_has_defers(scratch: &IndexedBuildScratch, stmt: &BuildStmtId) -> bool {
+    fn stmt_has_defers(scratch: &BuildScratch, stmt: &BuildStmtId) -> bool {
         match &scratch.statements[stmt.index()] {
             BuildStmtRow::Defer { .. } => true,
             BuildStmtRow::If {
@@ -11733,7 +11733,7 @@ pub(super) fn lowered_body_has_defers(
 /// without an `else` (or a non-exhaustive `match`) can fall through. So a body
 /// "can return" only when every reachable path provably ends in a `Return`.
 pub(super) fn lowered_body_can_return(
-    scratch: &IndexedBuildScratch,
+    scratch: &BuildScratch,
     statements: &[BuildStmtId],
 ) -> bool {
     statements
@@ -11822,7 +11822,7 @@ fn lowered_return_kind_accepts_unit_fallthrough(kind: LoweredReturnKind) -> bool
 }
 
 pub(super) fn lowered_match_body_can_return(
-    scratch: &IndexedBuildScratch,
+    scratch: &BuildScratch,
     arms: &[(BuildPatternId, Option<BuildExprId>, Vec<BuildStmtId>)],
 ) -> bool {
     !arms.is_empty()
@@ -11993,15 +11993,15 @@ pub(super) fn lowered_match_no_arm(span: Span) -> RuntimeError {
     RuntimeError::new("match-no-arm", "match did not match any arm").with_span(span)
 }
 
-pub(super) fn lowered_stmt_flow_to_flow(flow: IndexedStmtFlow) -> Flow {
+pub(super) fn lowered_stmt_flow_to_flow(flow: StmtFlow) -> Flow {
     match flow {
-        IndexedStmtFlow::None => Flow::Continue(Value::Unit),
-        IndexedStmtFlow::Return(value) => Flow::Return(value.into_value()),
-        IndexedStmtFlow::Propagate(_) => {
+        StmtFlow::None => Flow::Continue(Value::Unit),
+        StmtFlow::Return(value) => Flow::Return(value.into_value()),
+        StmtFlow::Propagate(_) => {
             unreachable!("lowered propagation must be handled with evaluator context")
         }
-        IndexedStmtFlow::Break(value) => Flow::Break(value.map(LoweredValue::into_value)),
-        IndexedStmtFlow::Continue => Flow::ContinueLoop,
+        StmtFlow::Break(value) => Flow::Break(value.map(LoweredValue::into_value)),
+        StmtFlow::Continue => Flow::ContinueLoop,
     }
 }
 

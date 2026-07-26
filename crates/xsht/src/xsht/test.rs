@@ -35,7 +35,6 @@ pub(crate) struct TestOptions {
     pub(crate) nocapture: bool,
     pub(crate) fail_fast: bool,
     pub(crate) keep_temp: bool,
-    pub(crate) strict_lower: bool,
     pub(crate) jobs: Option<usize>,
     pub(crate) coverage: bool,
     pub(crate) coverage_json_out: Option<String>,
@@ -1034,7 +1033,6 @@ fn run_example_test(
         script: case.path.clone(),
         args: case.args,
         coverage_trace_dir: coverage_trace_dir.clone(),
-        strict_lower: options.strict_lower,
     })
     .into();
     let mut failures = Vec::new();

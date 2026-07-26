@@ -25,14 +25,12 @@ pub(crate) fn pty_test_guard() -> std::sync::MutexGuard<'static, ()> {
 pub(crate) fn xsh<const N: usize>(args: [&str; N]) -> std::process::Output {
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_xsh"));
     cmd.args(args);
-    // XSH_ALLOW_LEGACY_FALLBACK is removed; compact is the only runtime path.
     cmd.output().expect("run xsh")
 }
 
 pub(crate) fn xsht<const N: usize>(args: [&str; N]) -> std::process::Output {
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_xsht"));
     cmd.args(args);
-    // XSH_ALLOW_LEGACY_FALLBACK is removed; compact is the only runtime path.
     cmd.output().expect("run xsht")
 }
 
@@ -227,7 +225,7 @@ pub(crate) fn run_temp_script_with_env<const N: usize>(
 
 fn command_for_script_with_leading_args(path: &Path, leading_args: &[&str]) -> Command {
     let trace_args = translated_trace_args(leading_args);
-    let mut command = if let Some(args) = trace_args {
+    let command = if let Some(args) = trace_args {
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_xsht"));
         cmd.arg("trace").args(args).arg(path);
         cmd
@@ -236,7 +234,6 @@ fn command_for_script_with_leading_args(path: &Path, leading_args: &[&str]) -> C
         cmd.args(leading_args).arg(path);
         cmd
     };
-    command.env("XSH_ALLOW_LEGACY_FALLBACK", "1");
     command
 }
 

@@ -15,13 +15,10 @@ area touched. Do not run formatter or autofix commands for agent work.
 | CLI/tooling | targeted `cargo test -p xsht --test cli TEST_NAME` or `cargo test -p xsht --test grep TEST_NAME` | `cargo test -p xsht --test cli --test grep` if both apply |
 | Benchmark workload | `cargo bench -p xsh-multicall --bench bench BENCHMARK -- --sample-count 1 --sample-size 1` | `make bench-fast` (campaign/memory) or `make bench` (latency) |
 | Arena or indexed-IR layout | `scripts/ir-layout.py` (or `--only TYPE` for a focused report) | focused Divan workload plus the applicable behavior tests |
-| Frontend retained/peak accounting | `cargo test -p xsh --lib frontend_stats::tests` and `cargo run --bin xsh-frontend-stats -- --json tests/fixtures/frontend-campaign` | `scripts/frontend-campaign-phase0` |
-| Indexed IR vertical slice | `cargo test -p xsh --lib runtime::eval::indexed::tests::` | `scripts/frontend-campaign-phase1` |
-| Indexed dependency/SCC construction | targeted `cargo test -p xsh --lib runtime::eval::indexed::tests::failed_mutual_recursion_scc_leaves_checkpoint_uncommitted` | `scripts/frontend-campaign-phase2` |
-| Interned semantic identities | targeted `cargo test -p xsh --lib runtime::eval::indexed::semantic::tests::` | `scripts/frontend-campaign-phase3` |
-| Full indexed function bodies | targeted `cargo test -p xsh --lib runtime::eval::indexed::full::tests::` | `scripts/frontend-campaign-phase4` |
-| Top-level/effect driver boundary | targeted `cargo test -p xsh --lib runtime::eval::indexed::full::tests::compact_driver_executes_effects_after_arena_drop` | `scripts/frontend-campaign-phase5` |
-| Indexed production cutover and recursive-executor deletion | `cargo test -p xsh runtime::eval::indexed::full::tests --lib --features native-tests` plus `cargo test -p xsh runner::tests --lib --features native-tests` | `cargo test -p xsh --test integration runtime:: --features native-tests` plus `cargo test -p xsh --test integration runtime::coverage::xsh_native_tests --features native-tests -- --exact` and `make bench-fast` |
+| Frontend retained/peak accounting | `cargo test -p xsh --lib frontend_stats::tests` and `cargo run --bin xsh-frontend-stats -- --json tests/fixtures/frontend-campaign` | `make bench-fast` after the applicable syntax/checker gate |
+| Executable IR construction and verifier | targeted `cargo test -p xsh --lib runtime::eval::indexed::full::tests::` | `cargo test -p xsh runtime::eval::indexed::full::tests --lib --features native-tests` |
+| Explicit execution frames | targeted `cargo test --test integration runtime::stack_depth -- --test-threads=1` | `cargo test -p xsh runner::tests --lib --features native-tests` plus the runtime gate |
+| Production executable runtime | targeted `cargo test --test integration runtime::TEST_NAME` | `cargo test -p xsh --test integration runtime:: --features native-tests -- --test-threads=1` plus `cargo test -p xsh --test integration runtime::coverage::xsh_native_tests --features native-tests -- --exact` and `make bench-fast` |
 | Explicit PGO/release investigation after ordinary gates pass | `make pgo-profile` | `make bench-pgo` |
 | Syscall diagnostics | benchmark smoke test on the host | `make bench-syscalls` on Linux/Docker |
 | LLVM IR size | `tools/llvm-lines-repeat-offenders.xsh` over an existing capture | fresh `cargo llvm-lines` capture plus the applicable behavior/benchmark gate |

@@ -41,9 +41,9 @@ IR_TYPES = (
     "runtime::eval::BuildIntId",
     "runtime::eval::BuildBoolId",
     "runtime::eval::BuildTopStmtId",
-    "runtime::eval::IndexedBuildScratch",
-    "runtime::eval::IndexedFunctionBuild",
-    "runtime::eval::IndexedProgramBuild",
+    "runtime::eval::BuildScratch",
+    "runtime::eval::FunctionBuild",
+    "runtime::eval::ProgramBuild",
     "runtime::eval::indexed::IrData",
     "runtime::eval::indexed::IrRange",
     "runtime::eval::indexed::IrLocation",
@@ -71,6 +71,9 @@ IR_TYPES = (
     "runtime::eval::indexed::full::FullValidation",
     "runtime::eval::indexed::full::FullStore",
     "runtime::eval::indexed::full::FullProgram",
+    "runtime::eval::lowered_run::indexed_run::explicit_run::CallFrame<'_>",
+    "runtime::eval::lowered_run::indexed_run::explicit_run::FrameWork",
+    "runtime::eval::lowered_run::indexed_run::explicit_run::FrameContinuation",
 )
 HEADER_RE = re.compile(
     r"^print-type-size type: `([^`]+)`: ([0-9]+) bytes, alignment: ([0-9]+) bytes$"

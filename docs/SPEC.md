@@ -2976,7 +2976,7 @@ propagated `Err` values. A traceback includes:
 
 CLI commands:
 
-- `xsh [--strict-lower] SCRIPT -- ARGS...`.
+- `xsh SCRIPT -- ARGS...`.
 - `xsh -- SCRIPT ARGS...` for shebang-compatible script execution.
 - `xshi`.
 - `xsht --help`.

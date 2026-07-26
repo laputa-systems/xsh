@@ -128,7 +128,7 @@ enum FrameWork {
         typed: bool,
         span: Span,
     },
-    Finish(IndexedStmtFlow),
+    Finish(StmtFlow),
     FinishError,
 }
 
@@ -318,7 +318,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         function: LoweredFunctionKey,
         kind: LoweredFunctionKind,
         view: FullFunctionView<'p>,
-        header: IndexedFunctionHeader,
+        header: FunctionHeader,
         mut slots: Vec<LoweredValue>,
         call_span: Span,
         return_to: Option<FrameContinuation>,
@@ -370,7 +370,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             } => {
                 let Some(statement) = statements.pop() else {
                     return if complete_call {
-                        self.complete_call(index, IndexedStmtFlow::None)
+                        self.complete_call(index, StmtFlow::None)
                     } else {
                         Ok(())
                     };
@@ -444,7 +444,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 };
                 match flow {
                     ControlFlow::Continue(value) => self.calls[index].slots[slot] = LoweredValue::Int(value),
-                    ControlFlow::Break(value) => return self.complete_call(index, IndexedStmtFlow::Return(value)),
+                    ControlFlow::Break(value) => return self.complete_call(index, StmtFlow::Return(value)),
                 }
                 Ok(())
             }
@@ -463,7 +463,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 };
                 match flow {
                     ControlFlow::Continue(value) => self.calls[index].slots[slot] = LoweredValue::Bool(value),
-                    ControlFlow::Break(value) => return self.complete_call(index, IndexedStmtFlow::Return(value)),
+                    ControlFlow::Break(value) => return self.complete_call(index, StmtFlow::Return(value)),
                 }
                 Ok(())
             }
@@ -544,7 +544,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                         }
                         ControlFlow::Continue(false) => {}
                         ControlFlow::Break(value) => {
-                            return self.complete_call(index, IndexedStmtFlow::Return(value));
+                            return self.complete_call(index, StmtFlow::Return(value));
                         }
                     }
                 }
@@ -669,19 +669,19 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     )?
                 };
                 match flow {
-                    IndexedStmtFlow::None => Ok(()),
-                    IndexedStmtFlow::Return(value) => {
-                        self.complete_call(index, IndexedStmtFlow::Return(value))
+                    StmtFlow::None => Ok(()),
+                    StmtFlow::Return(value) => {
+                        self.complete_call(index, StmtFlow::Return(value))
                     }
-                    IndexedStmtFlow::Propagate(value) => {
-                        self.complete_call(index, IndexedStmtFlow::Propagate(value))
+                    StmtFlow::Propagate(value) => {
+                        self.complete_call(index, StmtFlow::Propagate(value))
                     }
-                    IndexedStmtFlow::Break(_) => Err(RuntimeError::new(
+                    StmtFlow::Break(_) => Err(RuntimeError::new(
                         "control-flow",
                         "break outside loop",
                     )
                     .with_span(span)),
-                    IndexedStmtFlow::Continue => Err(RuntimeError::new(
+                    StmtFlow::Continue => Err(RuntimeError::new(
                         "control-flow",
                         "continue outside loop",
                     )
@@ -881,28 +881,28 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         match next {
             FrameContinuation::Store(slot) => match value {
                 FrameValue::Value(value) => self.calls[index].slots[slot] = value,
-                FrameValue::Break(value) => return self.complete_call(index, IndexedStmtFlow::Return(value)),
+                FrameValue::Break(value) => return self.complete_call(index, StmtFlow::Return(value)),
             },
             FrameContinuation::Assign { slot, op, span } => match value {
                 FrameValue::Value(value) => {
                     let current = self.calls[index].slots[slot].clone();
                     self.calls[index].slots[slot] = lowered_assign_value(op, current, value, span)?;
                 }
-                FrameValue::Break(value) => return self.complete_call(index, IndexedStmtFlow::Return(value)),
+                FrameValue::Break(value) => return self.complete_call(index, StmtFlow::Return(value)),
             },
             FrameContinuation::Return => {
                 let value = match value {
                     FrameValue::Value(value) | FrameValue::Break(value) => value,
                 };
-                return self.complete_call(index, IndexedStmtFlow::Return(value));
+                return self.complete_call(index, StmtFlow::Return(value));
             }
             FrameContinuation::Discard(span) => match value {
                 FrameValue::Value(value @ LoweredValue::ResultErr(_)) => {
                     let value = self.evaluator.lowered_question_propagation_value(value, span)?;
-                    return self.complete_call(index, IndexedStmtFlow::Propagate(value));
+                    return self.complete_call(index, StmtFlow::Propagate(value));
                 }
                 FrameValue::Value(_) => {}
-                FrameValue::Break(value) => return self.complete_call(index, IndexedStmtFlow::Propagate(value)),
+                FrameValue::Break(value) => return self.complete_call(index, StmtFlow::Propagate(value)),
             },
             FrameContinuation::BinaryLeft { op, right, span, next } => match value {
                 FrameValue::Value(left) if op == BinaryOp::And || op == BinaryOp::Or => {
@@ -924,7 +924,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     span,
                     FrameContinuation::BinaryRight { op, left, span, next },
                 ),
-                FrameValue::Break(value) => return self.complete_call(index, IndexedStmtFlow::Return(value)),
+                FrameValue::Break(value) => return self.complete_call(index, StmtFlow::Return(value)),
             },
             FrameContinuation::BinaryRight { op, left, span, next } => match value {
                 FrameValue::Value(right) => self.push_value(
@@ -932,7 +932,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     FrameValue::Value(lowered_binary_value(op, left, right, span)?),
                     *next,
                 ),
-                FrameValue::Break(value) => return self.complete_call(index, IndexedStmtFlow::Return(value)),
+                FrameValue::Break(value) => return self.complete_call(index, StmtFlow::Return(value)),
             },
             FrameContinuation::BoolBinaryRight { next, span } => match value {
                 FrameValue::Value(value) => self.push_value(
@@ -940,7 +940,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     FrameValue::Value(LoweredValue::Bool(frame_condition_bool(value, span)?)),
                     *next,
                 ),
-                FrameValue::Break(value) => return self.complete_call(index, IndexedStmtFlow::Return(value)),
+                FrameValue::Break(value) => return self.complete_call(index, StmtFlow::Return(value)),
             },
             FrameContinuation::If { branches, index: branch, else_value, span, next } => match value {
                 FrameValue::Value(value) => {
@@ -966,7 +966,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                         }
                     }
                 }
-                FrameValue::Break(value) => return self.complete_call(index, IndexedStmtFlow::Return(value)),
+                FrameValue::Break(value) => return self.complete_call(index, StmtFlow::Return(value)),
             },
             FrameContinuation::StatementIf { branches, index: branch, else_body, span } => match value {
                 FrameValue::Value(value) => {
@@ -991,7 +991,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                         }
                     }
                 }
-                FrameValue::Break(value) => return self.complete_call(index, IndexedStmtFlow::Return(value)),
+                FrameValue::Break(value) => return self.complete_call(index, StmtFlow::Return(value)),
             },
             FrameContinuation::ForItems { slot, body, span } => match value {
                 FrameValue::Value(value) => {
@@ -1006,7 +1006,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                         span,
                     });
                 }
-                FrameValue::Break(value) => return self.complete_call(index, IndexedStmtFlow::Return(value)),
+                FrameValue::Break(value) => return self.complete_call(index, StmtFlow::Return(value)),
             },
             FrameContinuation::ForStrLines { slot, body, span } => match value {
                 FrameValue::Value(value) => {
@@ -1030,7 +1030,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                         span,
                     });
                 }
-                FrameValue::Break(value) => return self.complete_call(index, IndexedStmtFlow::Return(value)),
+                FrameValue::Break(value) => return self.complete_call(index, StmtFlow::Return(value)),
             },
             FrameContinuation::While {
                 condition,
@@ -1048,11 +1048,11 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                         self.push_statement_block(index, body, span)?;
                     }
                 }
-                FrameValue::Break(value) => return self.complete_call(index, IndexedStmtFlow::Return(value)),
+                FrameValue::Break(value) => return self.complete_call(index, StmtFlow::Return(value)),
             },
             FrameContinuation::MatchValue { arms, span } => match value {
                 FrameValue::Value(value) => self.select_match_arm(index, arms, 0, value, span)?,
-                FrameValue::Break(value) => return self.complete_call(index, IndexedStmtFlow::Return(value)),
+                FrameValue::Break(value) => return self.complete_call(index, StmtFlow::Return(value)),
             },
             FrameContinuation::MatchGuard { arms, index: arm_index, value: match_value, span } => match value {
                 FrameValue::Value(value) => {
@@ -1062,11 +1062,11 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                         self.select_match_arm(index, arms, arm_index + 1, match_value, span)?;
                     }
                 }
-                FrameValue::Break(value) => return self.complete_call(index, IndexedStmtFlow::Return(value)),
+                FrameValue::Break(value) => return self.complete_call(index, StmtFlow::Return(value)),
             },
             FrameContinuation::BreakLoop => match value {
                 FrameValue::Value(_) => return self.break_loop(index),
-                FrameValue::Break(value) => return self.complete_call(index, IndexedStmtFlow::Return(value)),
+                FrameValue::Break(value) => return self.complete_call(index, StmtFlow::Return(value)),
             },
             FrameContinuation::Defer => match value {
                 FrameValue::Value(_) => {}
@@ -1113,15 +1113,15 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                         self.push_call(function, kind, values, span, Some(*next))?;
                     }
                 }
-                FrameValue::Break(value) => return self.complete_call(index, IndexedStmtFlow::Return(value)),
+                FrameValue::Break(value) => return self.complete_call(index, StmtFlow::Return(value)),
             },
             FrameContinuation::WrapOk(next) => match value {
                 FrameValue::Value(value) => self.push_value(index, FrameValue::Value(LoweredValue::ResultOk(Box::new(value))), *next),
-                FrameValue::Break(value) => return self.complete_call(index, IndexedStmtFlow::Return(value)),
+                FrameValue::Break(value) => return self.complete_call(index, StmtFlow::Return(value)),
             },
             FrameContinuation::WrapErr(next) => match value {
                 FrameValue::Value(value) => self.push_value(index, FrameValue::Value(LoweredValue::ResultErr(Box::new(value.into_value()))), *next),
-                FrameValue::Break(value) => return self.complete_call(index, IndexedStmtFlow::Return(value)),
+                FrameValue::Break(value) => return self.complete_call(index, StmtFlow::Return(value)),
             },
             FrameContinuation::Try { span, next } => match value {
                 FrameValue::Value(LoweredValue::ResultOk(value)) => self.push_value(index, FrameValue::Value(*value), *next),
@@ -1142,7 +1142,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         Ok(())
     }
 
-    fn complete_call(&mut self, index: usize, flow: IndexedStmtFlow) -> Result<(), RuntimeError> {
+    fn complete_call(&mut self, index: usize, flow: StmtFlow) -> Result<(), RuntimeError> {
         self.calls[index].work.clear();
         if self.calls[index].defers.is_empty() {
             self.finish_call(index, flow)
@@ -1155,7 +1155,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
     fn finish_deferred_call(
         &mut self,
         index: usize,
-        flow: IndexedStmtFlow,
+        flow: StmtFlow,
     ) -> Result<(), RuntimeError> {
         let Some(value) = self.calls[index].defers.pop() else {
             return self.finish_call(index, flow);
@@ -1222,7 +1222,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         Ok(())
     }
 
-    fn finish_call(&mut self, index: usize, flow: IndexedStmtFlow) -> Result<(), RuntimeError> {
+    fn finish_call(&mut self, index: usize, flow: StmtFlow) -> Result<(), RuntimeError> {
         debug_assert_eq!(index, self.calls.len() - 1);
         let mut call = self.calls.pop().expect("active indexed frame");
         let view = self
@@ -1234,12 +1234,12 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             .header()
             .map_err(|error| indexed_error(error, call.call_span))?;
         let value = match flow {
-            IndexedStmtFlow::Return(value) | IndexedStmtFlow::Propagate(value) => {
+            StmtFlow::Return(value) | StmtFlow::Propagate(value) => {
                 lowered_return_value(header.return_kind.clone(), value, call.call_span)
             }
-            IndexedStmtFlow::None => Err(RuntimeError::new("return", "lowered function did not return").with_span(call.call_span)),
-            IndexedStmtFlow::Break(_) => Err(RuntimeError::new("control-flow", "break outside loop").with_span(call.call_span)),
-            IndexedStmtFlow::Continue => Err(RuntimeError::new("control-flow", "continue outside loop").with_span(call.call_span)),
+            StmtFlow::None => Err(RuntimeError::new("return", "lowered function did not return").with_span(call.call_span)),
+            StmtFlow::Break(_) => Err(RuntimeError::new("control-flow", "break outside loop").with_span(call.call_span)),
+            StmtFlow::Continue => Err(RuntimeError::new("control-flow", "continue outside loop").with_span(call.call_span)),
         };
         let write_back = self.evaluator.write_back_lowered_captures(
             &header,
@@ -1273,7 +1273,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         Ok(())
     }
 
-    fn call_header(&self, index: usize) -> Result<IndexedFunctionHeader, RuntimeError> {
+    fn call_header(&self, index: usize) -> Result<FunctionHeader, RuntimeError> {
         let call = &self.calls[index];
         self.program
             .function_view(call.function, call.kind)
@@ -1460,7 +1460,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 }
                 ControlFlow::Continue(false) => Ok(()),
                 ControlFlow::Break(value) => {
-                    self.complete_call(index, IndexedStmtFlow::Return(value))
+                    self.complete_call(index, StmtFlow::Return(value))
                 }
             }
         } else {

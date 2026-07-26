@@ -397,7 +397,7 @@ struct RegisteredIndexedSignalBody {
 }
 
 #[derive(Clone)]
-struct IndexedDynamicFunction {
+struct DynamicFunction {
     program: Arc<FullProgram>,
     function: LoweredFunctionKey,
     kind: LoweredFunctionKind,
@@ -473,7 +473,7 @@ build_id!(BuildBoolId);
 build_id!(BuildTopStmtId);
 
 #[derive(Clone, Debug, Default)]
-struct IndexedBuildScratch {
+struct BuildScratch {
     expressions: Vec<BuildExprRow>,
     statements: Vec<BuildStmtRow>,
     patterns: Vec<BuildPatternRow>,
@@ -482,7 +482,7 @@ struct IndexedBuildScratch {
     top_statements: Vec<BuildTopStmtRow>,
 }
 
-impl IndexedBuildScratch {
+impl BuildScratch {
     fn expr(&mut self, row: BuildExprRow) -> BuildExprId {
         let id = BuildExprId::new(self.expressions.len());
         self.expressions.push(row);
@@ -521,7 +521,7 @@ impl IndexedBuildScratch {
 }
 
 #[derive(Clone, Debug)]
-struct IndexedFunctionBuild {
+struct FunctionBuild {
     params: LoweredParamNames,
     param_kinds: LoweredParamKinds,
     param_checks: LoweredParamChecks,
@@ -532,11 +532,11 @@ struct IndexedFunctionBuild {
     slot_count: usize,
     body: Vec<BuildStmtId>,
     has_defers: bool,
-    scratch: Rc<RefCell<IndexedBuildScratch>>,
+    scratch: Rc<RefCell<BuildScratch>>,
 }
 
 #[derive(Clone, Debug)]
-struct IndexedFunctionHeader {
+struct FunctionHeader {
     params: LoweredParamNames,
     param_kinds: LoweredParamKinds,
     param_checks: LoweredParamChecks,
@@ -548,9 +548,9 @@ struct IndexedFunctionHeader {
 }
 
 #[derive(Clone, Debug, Default)]
-struct IndexedProgramBuild {
+struct ProgramBuild {
     statements: Vec<Option<BuildTopStmtId>>,
-    scratch: Rc<RefCell<IndexedBuildScratch>>,
+    scratch: Rc<RefCell<BuildScratch>>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -622,7 +622,7 @@ pub struct LoweredFunctionUnit {
     capture_count: usize,
     slot_count: usize,
     dependency_edges: Vec<LoweredFunctionKey>,
-    body: Option<IndexedFunctionBuild>,
+    body: Option<FunctionBuild>,
     blocker: Option<LoweredFunctionBlocker>,
     blocker_detail: Option<(Span, String)>,
     scc_member_count: usize,
@@ -686,11 +686,11 @@ impl LoweredFunctionUnit {
         self.scc_member_count > 1
     }
 
-    fn lowered_body(&self) -> Option<IndexedFunctionBuild> {
+    fn lowered_body(&self) -> Option<FunctionBuild> {
         self.body.clone()
     }
 
-    fn take_lowered_body(&mut self) -> Option<IndexedFunctionBuild> {
+    fn take_lowered_body(&mut self) -> Option<FunctionBuild> {
         self.body.take()
     }
 }
@@ -1241,7 +1241,7 @@ enum BuildBoolRow {
     },
 }
 
-enum IndexedStmtFlow {
+enum StmtFlow {
     None,
     Return(LoweredValue),
     Propagate(LoweredValue),
@@ -2624,7 +2624,7 @@ pub struct Evaluator {
     module_export_signatures:
         Arc<FxHashMap<crate::runtime::value::FunctionName, ModuleExportSignature>>,
     indexed_program: Option<Arc<FullProgram>>,
-    indexed_dynamic_functions: Arc<FxHashMap<QualifiedName, IndexedDynamicFunction>>,
+    indexed_dynamic_functions: Arc<FxHashMap<QualifiedName, DynamicFunction>>,
     lowered_slot_pool: Vec<Vec<LoweredValue>>,
     tag_variants: FxHashMap<Name, usize>,
     error_families: FxHashMap<Name, RuntimeErrorFamily>,
@@ -2676,7 +2676,7 @@ struct LoweredSharedState {
     module_export_signatures:
         Arc<FxHashMap<crate::runtime::value::FunctionName, ModuleExportSignature>>,
     indexed_program: Option<Arc<FullProgram>>,
-    indexed_dynamic_functions: Arc<FxHashMap<QualifiedName, IndexedDynamicFunction>>,
+    indexed_dynamic_functions: Arc<FxHashMap<QualifiedName, DynamicFunction>>,
     tag_variants: FxHashMap<Name, usize>,
     error_families: FxHashMap<Name, RuntimeErrorFamily>,
     module_value_cache: Arc<FxHashMap<String, RecordMap>>,

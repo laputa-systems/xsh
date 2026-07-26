@@ -36,6 +36,29 @@ representation. There is no arena execution mode or compatibility interpreter.
 Runtime changes should preserve source-visible order, explicit boundaries, and
 traceable failure paths before pursuing cleverness.
 
+## Executable IR Ownership
+
+The executable frontend has stable owners rather than a migration path:
+
+- `src/runtime/eval/indexed.rs` owns compact IR identities, ranges, and build
+  errors; `indexed/full.rs` owns the immutable store, builder checkpoints, and
+  store verifier because the verifier validates that exact layout.
+- `src/runtime/eval/lower.rs` owns checked-arena-to-build-scratch construction.
+  `BuildScratch`, `ProgramBuild`, and `FunctionBuild` are construction-only and
+  are dropped after `FullProgram` commits.
+- `src/runtime/eval/indexed/semantic.rs` owns semantic pool construction and
+  finalized canonical identities.
+- `src/runtime/eval/lowered_run/indexed_run.rs` owns instruction decoding and
+  execution. Its `explicit_run.rs` child owns the heap-backed call, work, and
+  continuation frames; it is the only recursive-language-call executor.
+- `src/runtime/eval.rs` owns installation, dynamic-function registration, slot
+  pooling, and evaluator/session lifetime. It never owns a second executable
+  representation.
+
+`FunctionHeader`, `StmtFlow`, `BuildScratch`, and the other final runtime types
+describe their role without migration-version names. A clean construction gap
+is rendered as a diagnostic; it cannot select another evaluator.
+
 `docs/SPEC.md` is the language contract. `docs/SPEC-TYPING.md` covers
 typechecking, `docs/SPEC-INTERACTIVE.md` covers `xshi`, and
 `docs/SPEC-OS.md` covers OS-facing runtime behavior such as process groups,
@@ -59,7 +82,7 @@ This table is the owner-module summary:
 | process, cwd, env, signals, cancellation | `docs/SPEC-OS.md` | `src/runtime/run.rs`, `src/runtime/process.rs`, `src/runtime/cwd.rs` |
 | standard modules and methods | `docs/STDLIB.md`, `src/modules/README.md` | `crates/xsh-registry/src/signature/*`, `src/modules/*`, `src/runtime/eval/modules.rs`, `src/runtime/eval/methods.rs` |
 | structured streams | `docs/STREAMS.md` | `src/sema/check/stream.rs`, `src/runtime/eval/stream.rs` |
-| indexed executable IR | `docs/FRONTEND.md` | `src/runtime/eval/indexed.rs`, `src/runtime/eval/indexed/full.rs`, `src/runtime/eval/lower.rs`, `src/runtime/eval/lowered_run.rs` |
+| executable IR, verifier, and frames | `docs/FRONTEND.md` | `src/runtime/eval/indexed.rs`, `src/runtime/eval/indexed/full.rs`, `src/runtime/eval/lower.rs`, `src/runtime/eval/lowered_run/indexed_run.rs`, `src/runtime/eval/lowered_run/indexed_run/explicit_run.rs` |
 | docs and examples | `docs/GENERATED-DOCS.md`, `docs-src/README.md` | `src/docs.rs`, `docs-src/*`, `examples/*` |
 
 ## Agent Map For IR Work

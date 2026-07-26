@@ -111,7 +111,6 @@ Options:
   --nocapture             Print test stdout and stderr while tests run
   --fail-fast             Stop after the first failure
   --keep-temp             Preserve native test temporary directories
-  --strict-lower          Report compact-lowering failures instead of falling back while running examples
   --cov-json FILE         Write XSH API coverage JSON to FILE
 ";
 
@@ -329,7 +328,6 @@ fn parse_test(args: &[String]) -> Result<Command, String> {
     let mut nocapture = false;
     let mut fail_fast = false;
     let mut keep_temp = false;
-    let mut strict_lower = false;
     let mut coverage_json_out = None;
     let mut iter = args.iter();
 
@@ -356,7 +354,6 @@ fn parse_test(args: &[String]) -> Result<Command, String> {
             "--nocapture" => nocapture = true,
             "--fail-fast" => fail_fast = true,
             "--keep-temp" => keep_temp = true,
-            "--strict-lower" => strict_lower = true,
             "--cov-json" => {
                 coverage_json_out = Some(
                     iter.next()
@@ -390,7 +387,6 @@ fn parse_test(args: &[String]) -> Result<Command, String> {
             nocapture,
             fail_fast,
             keep_temp,
-            strict_lower,
             jobs,
             coverage,
             coverage_json_out,

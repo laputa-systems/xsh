@@ -33,9 +33,10 @@ owner, so concurrent files do not affect each other's measurements.
 The binary alone installs `mem_track::CountingAllocator`; product binaries do
 not. With that allocator, lowered retained bytes are the live-byte delta for the
 lower stage. Library callers still receive all structural counters, with the
-current shallow lowered fallback explicitly marked as estimated. Run the full
-Phase 0 protocol with `scripts/frontend-campaign-phase0`; its machine-specific
-evidence stays under `target/frontend-campaign/phase-0/`.
+current shallow lowered fallback explicitly marked as estimated. For current
+evidence, run the focused frontend-stat tests and command in
+`docs/TEST-MAP.md`, followed by `make bench-fast`; historical campaign capture
+scripts are not part of the production verification path.
 
 ## Indexed IR History
 
@@ -359,7 +360,7 @@ payloads. `src/runtime/eval/lowered_run.rs` contains shared host operations,
 runtime value helpers, process/stream plumbing, and call-frame support used by
 that interpreter; it contains no recursive expression, statement, or pattern
 interpreter. Runtime function metadata uses a body-free
-`IndexedFunctionHeader`.
+`FunctionHeader`.
 
 There is no arena execution mode, shadow execution, whole-body decoder, or
 per-opcode fallback. Parse/check diagnostics can prevent installation, but once
@@ -367,9 +368,9 @@ a `FullProgram` is committed the entire function and driver remain indexed.
 Dynamic modules are independently lowered and verified, then registered by
 qualified name with their owning indexed program.
 
-`--strict-lower` makes a clean construction gap a diagnostic. Without it, the
-checker diagnostic path still distinguishes invalid source from a missing
-indexed representation; it does not run an arena evaluator.
+A clean construction gap is always a diagnostic. The checker diagnostic path
+distinguishes invalid source from a missing indexed representation; it does not
+run an arena evaluator.
 
 ## Compact Node and Tag Design
 
