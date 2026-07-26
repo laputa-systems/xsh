@@ -13,6 +13,7 @@ use crate::sema::check::{
 };
 use crate::sema::types::{ModuleExportType, Type};
 use crate::source::{SourceId, Span};
+use crate::syntax::arena::ArenaTableStats;
 use crate::syntax::cst::SyntaxTree;
 use crate::syntax::lexer::Lexer;
 use std::collections::BTreeMap;
@@ -58,6 +59,7 @@ pub struct FileFrontendStats {
     pub ast_type_count: usize,
     pub ast_extra_items: usize,
     pub ast_retained_bytes: usize,
+    pub ast_tables: Vec<ArenaTableStats>,
     pub semantic_type_count: usize,
     pub semantic_retained_bytes: usize,
     pub source_map_retained_bytes: usize,
@@ -374,6 +376,7 @@ pub fn measure_source(path: &str, source: &str) -> FileFrontendStats {
     let ast_pattern_count = ast.patterns;
     let ast_type_count = ast.type_exprs;
     let ast_extra_items = ast.extra_items;
+    let ast_tables = ast.tables;
 
     mem_track::begin_stage();
     let (dynamic_symbol_count, dynamic_symbol_bytes) =
@@ -423,6 +426,7 @@ pub fn measure_source(path: &str, source: &str) -> FileFrontendStats {
         ast_type_count,
         ast_extra_items,
         ast_retained_bytes,
+        ast_tables,
         semantic_type_count,
         semantic_retained_bytes,
         source_map_retained_bytes,
@@ -572,6 +576,42 @@ fn aggregate_stages(files: &[FileFrontendStats], maxima: bool) -> Vec<StageMetri
     stages
 }
 
+fn merge_arena_tables(
+    tables: &mut Vec<ArenaTableStats>,
+    source: &[ArenaTableStats],
+    maxima: bool,
+) {
+    for table in source {
+        let target = if let Some(target) = tables
+            .iter_mut()
+            .find(|item| item.name == table.name)
+        {
+            target
+        } else {
+            tables.push(ArenaTableStats {
+                name: table.name,
+                ..ArenaTableStats::default()
+            });
+            tables.last_mut().expect("arena table was just pushed")
+        };
+        if maxima {
+            target.items = target.items.max(table.items);
+            target.files = target.files.max(table.files);
+            target.retained_bytes = target.retained_bytes.max(table.retained_bytes);
+        } else {
+            target.items += table.items;
+            target.files += table.files;
+            target.retained_bytes += table.retained_bytes;
+        }
+    }
+    tables.sort_by(|left, right| {
+        right
+            .retained_bytes
+            .cmp(&left.retained_bytes)
+            .then_with(|| left.name.cmp(right.name))
+    });
+}
+
 macro_rules! numeric_fields {
     ($macro:ident) => {
         $macro!(source_bytes);
@@ -605,6 +645,7 @@ fn add_file_stats(total: &mut FileFrontendStats, file: &FileFrontendStats) {
         };
     }
     numeric_fields!(add);
+    merge_arena_tables(&mut total.ast_tables, &file.ast_tables, false);
     total.retained_after_drop_bytes = total
         .retained_after_drop_bytes
         .max(file.retained_after_drop_bytes);
@@ -622,6 +663,7 @@ fn max_file_stats(maximum: &mut FileFrontendStats, file: &FileFrontendStats) {
         };
     }
     numeric_fields!(maximum_field);
+    merge_arena_tables(&mut maximum.ast_tables, &file.ast_tables, true);
     maximum.retained_after_drop_bytes = maximum
         .retained_after_drop_bytes
         .max(file.retained_after_drop_bytes);
@@ -671,6 +713,13 @@ impl CorpusFrontendStats {
                 stage.alloc_bytes,
             ));
         }
+        output.push_str("\narena_table\titems\tfiles\tretained_bytes\n");
+        for table in &self.totals.ast_tables {
+            output.push_str(&format!(
+                "{}\t{}\t{}\t{}\n",
+                table.name, table.items, table.files, table.retained_bytes,
+            ));
+        }
         output
     }
 
@@ -716,13 +765,27 @@ fn file_json(file: &FileFrontendStats) -> String {
         })
         .collect::<Vec<_>>()
         .join(",");
+    let ast_tables = file
+        .ast_tables
+        .iter()
+        .map(|table| {
+            format!(
+                "{{\"name\":{},\"items\":{},\"files\":{},\"retained_bytes\":{}}}",
+                json_string(table.name),
+                table.items,
+                table.files,
+                table.retained_bytes,
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(",");
     format!(
         concat!(
             "{{\"path\":{},\"source_bytes\":{},\"stages\":[{}],",
             "\"token_count\":{},\"token_retained_bytes\":{},",
             "\"cst_node_count\":{},\"cst_retained_bytes\":{},",
             "\"ast_stmt_count\":{},\"ast_expr_count\":{},\"ast_pattern_count\":{},",
-            "\"ast_type_count\":{},\"ast_extra_items\":{},\"ast_retained_bytes\":{},",
+            "\"ast_type_count\":{},\"ast_extra_items\":{},\"ast_retained_bytes\":{},\"ast_tables\":[{}],",
             "\"semantic_type_count\":{},\"semantic_retained_bytes\":{},",
             "\"source_map_retained_bytes\":{},\"lowered_function_count\":{},",
             "\"lowered_constructed_functions\":{},\"lowered_statement_count\":{},",
@@ -746,6 +809,7 @@ fn file_json(file: &FileFrontendStats) -> String {
         file.ast_type_count,
         file.ast_extra_items,
         file.ast_retained_bytes,
+        ast_tables,
         file.semantic_type_count,
         file.semantic_retained_bytes,
         file.source_map_retained_bytes,
@@ -834,6 +898,28 @@ mod tests {
         assert_eq!(first.ast_retained_bytes, second.ast_retained_bytes);
         assert_eq!(first.semantic_retained_bytes, second.semantic_retained_bytes);
         assert_eq!(first.lowered_retained_bytes, second.lowered_retained_bytes);
+        assert_eq!(first.ast_tables, second.ast_tables);
         assert_eq!(first.reconcile_delta, 0);
+    }
+
+    #[test]
+    fn arena_table_stats_report_hot_and_cold_table_usage() {
+        let stats = measure_source("fixture.xsh", SOURCE);
+        let expr_data = stats
+            .ast_tables
+            .iter()
+            .find(|table| table.name == "expr_data")
+            .expect("expr_data table");
+        let builder_blocks = stats
+            .ast_tables
+            .iter()
+            .find(|table| table.name == "builder_blocks")
+            .expect("builder_blocks table");
+
+        assert!(expr_data.items > 0);
+        assert_eq!(expr_data.files, 1);
+        assert_eq!(builder_blocks.items, 0);
+        assert_eq!(builder_blocks.files, 0);
+        assert_eq!(builder_blocks.retained_bytes, 0);
     }
 }

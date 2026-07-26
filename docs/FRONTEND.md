@@ -521,6 +521,17 @@ Per-kind side tables complement the shared extra buffer for data that needs
 typed struct storage rather than `u32` encoding (e.g., `Vec<ArenaBlock>`,
 `Vec<ArenaCallArg>`, `Vec<ArenaPattern>`).
 
+The frontend statistics report ranks every arena table by retained capacity,
+item count, and number of source files that use it. Only four completed-table
+rows were cold in the 287-file corpus: `with_bindings`,
+`destructure_fields`, `builder_blocks`, and `builder_entries` occurred in at
+most two files. They use `ArenaColdVec`, an 8-byte optional vector owner that
+allocates only on its first insertion. Its reported retained bytes include both
+the deferred vector header and its capacity. Other uncommon-looking tables,
+including match arms, schemas, errors, and stream stages, remain ordinary
+vectors because their corpus frequency makes an extra indirection a worse
+trade-off.
+
 ## Arena Builder Staging
 
 For nested parser constructs, `ArenaProgramBuilder` must stage child inputs in a
@@ -538,6 +549,11 @@ Before adding or changing any `begin_X`/`push_X`/`finish_X`/`discard_X` group,
 ask whether an expression can be parsed while the group is open, and whether that
 expression can contain another instance of the same construct. If yes, stage in a
 side buffer and drain at finish.
+
+This applies to the parser staging buffers, not just the permanent arena rows.
+`builder_blocks` and `builder_entries` can be cold after a completed construct,
+but their nested input stacks must remain separate until the corresponding
+`finish_*` call.
 
 ## Compact-Only Guardrails
 

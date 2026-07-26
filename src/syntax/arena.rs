@@ -7,6 +7,7 @@ use crate::syntax::node::{
 };
 use std::mem::size_of;
 use std::num::NonZeroU32;
+use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
 
 macro_rules! id_type {
@@ -146,8 +147,9 @@ impl TypeExprId {
 #[cfg(test)]
 mod layout_tests {
     use super::{
-        ArenaExprData, ArenaExprTag, ArenaStmtData, ArenaStmtTag, ArenaTypeExprData,
-        ArenaTypeExprTag, ExprId, PatternId, StmtId, TypeExprId,
+        vec_capacity_bytes, ArenaColdVec, ArenaExprData, ArenaExprTag, ArenaStmtData,
+        ArenaStmtTag, ArenaTypeExprData, ArenaTypeExprTag, ExprId, PatternId, StmtId,
+        TypeExprId,
     };
     use std::mem::size_of;
 
@@ -163,6 +165,19 @@ mod layout_tests {
         assert_eq!(size_of::<ArenaStmtData>(), 8);
         assert_eq!(size_of::<ArenaExprData>(), 8);
         assert_eq!(size_of::<ArenaTypeExprData>(), 8);
+    }
+
+    #[test]
+    fn cold_tables_allocate_only_after_their_first_item() {
+        let mut values = ArenaColdVec::<u32>::default();
+        assert_eq!(size_of::<ArenaColdVec<u32>>(), 8);
+        assert_eq!(vec_capacity_bytes(&values), 0);
+
+        values.push(1);
+        assert_eq!(
+            vec_capacity_bytes(&values),
+            size_of::<Vec<u32>>() + values.capacity() * size_of::<u32>()
+        );
     }
 }
 
@@ -186,6 +201,71 @@ impl ArenaRange {
 
     pub fn is_empty(self) -> bool {
         self.len == 0
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ArenaColdVec<T>(Option<Box<Vec<T>>>);
+
+impl<T> Default for ArenaColdVec<T> {
+    fn default() -> Self {
+        Self(None)
+    }
+}
+
+impl<T> ArenaColdVec<T> {
+    fn as_vec(&self) -> Option<&Vec<T>> {
+        self.0.as_deref()
+    }
+
+    fn as_mut_vec(&mut self) -> &mut Vec<T> {
+        self.0.get_or_insert_with(|| Box::new(Vec::new()))
+    }
+
+    pub fn capacity(&self) -> usize {
+        self.as_vec().map_or(0, Vec::capacity)
+    }
+
+    pub fn push(&mut self, value: T) {
+        self.as_mut_vec().push(value);
+    }
+
+    pub fn reserve(&mut self, additional: usize) {
+        self.as_mut_vec().reserve(additional);
+    }
+
+    pub fn extend<I>(&mut self, values: I)
+    where
+        I: IntoIterator<Item = T>,
+    {
+        self.as_mut_vec().extend(values);
+    }
+
+    pub fn extend_from_slice(&mut self, values: &[T])
+    where
+        T: Clone,
+    {
+        self.as_mut_vec().extend_from_slice(values);
+    }
+
+    pub fn truncate(&mut self, len: usize) {
+        if let Some(values) = self.0.as_deref_mut() {
+            values.truncate(len);
+        }
+    }
+}
+
+impl<T> Deref for ArenaColdVec<T> {
+    type Target = [T];
+
+    fn deref(&self) -> &Self::Target {
+        self.as_vec().map_or(&[], Vec::as_slice)
+    }
+}
+
+impl<T> DerefMut for ArenaColdVec<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.as_mut_vec().as_mut_slice()
     }
 }
 
@@ -435,6 +515,7 @@ impl ArenaProgram {
             builder_storage_bytes: self.arena.builder_storage_bytes(),
             command_storage_bytes: self.arena.command_storage_bytes(),
             side_table_storage_bytes: self.arena.side_table_storage_bytes(),
+            tables: self.arena.table_stats(),
             retained_bytes: self.retained_bytes(),
         }
     }
@@ -2628,7 +2709,7 @@ impl<'a> ArenaProgramBuilder<'a> {
     }
 }
 
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct ArenaStats {
     pub modules: usize,
     pub statements: usize,
@@ -2677,6 +2758,15 @@ pub struct ArenaStats {
     pub builder_storage_bytes: usize,
     pub command_storage_bytes: usize,
     pub side_table_storage_bytes: usize,
+    pub tables: Vec<ArenaTableStats>,
+    pub retained_bytes: usize,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct ArenaTableStats {
+    pub name: &'static str,
+    pub items: usize,
+    pub files: usize,
     pub retained_bytes: usize,
 }
 
@@ -2716,7 +2806,7 @@ pub struct AstArena {
     pub text_data: Vec<ArenaTextData>,
     pub cooked_texts: Vec<Arc<str>>,
     pub run_forms: Vec<ArenaRunForm>,
-    pub builder_blocks: Vec<ArenaBuilderBlock>,
+    pub builder_blocks: ArenaColdVec<ArenaBuilderBlock>,
     pub extra: Vec<u32>,
     pub block_params: Vec<ArenaBlockParam>,
     pub params: Vec<ArenaParam>,
@@ -2726,9 +2816,9 @@ pub struct AstArena {
     pub error_variants: Vec<ArenaErrorVariant>,
     pub error_fields: Vec<ArenaErrorField>,
     pub if_branches: Vec<ArenaIfBranch>,
-    pub with_bindings: Vec<ArenaWithBinding>,
+    pub with_bindings: ArenaColdVec<ArenaWithBinding>,
     pub match_arms: Vec<ArenaMatchArm>,
-    pub destructure_fields: Vec<ArenaDestructureField>,
+    pub destructure_fields: ArenaColdVec<ArenaDestructureField>,
     pub pattern_fields: Vec<ArenaRecordPatternField>,
     pub fmt_part_tags: Vec<ArenaFmtPartTag>,
     pub fmt_part_data: Vec<ArenaFmtPartData>,
@@ -2739,7 +2829,7 @@ pub struct AstArena {
     pub pipe_stages: Vec<ArenaPipeStage>,
     pub stream_stages: Vec<ArenaStreamStage>,
     pub stream_options: Vec<ArenaStreamStageOption>,
-    pub builder_entries: Vec<ArenaBuilderEntry>,
+    pub builder_entries: ArenaColdVec<ArenaBuilderEntry>,
     pub command_args: Vec<ArenaCommandArg>,
     pub env_assignments: Vec<ArenaEnvAssignment>,
     pub run_segments: Vec<ArenaRunSegment>,
@@ -2900,6 +2990,104 @@ impl AstArena {
             + self.call_record_storage_bytes()
             + self.builder_storage_bytes()
             + self.command_storage_bytes()
+    }
+
+    pub fn table_stats(&self) -> Vec<ArenaTableStats> {
+        macro_rules! table {
+            ($field:ident) => {
+                ArenaTableStats {
+                    name: stringify!($field),
+                    items: self.$field.len(),
+                    files: usize::from(!self.$field.is_empty()),
+                    retained_bytes: vec_capacity_bytes(&self.$field),
+                }
+            };
+        }
+        vec![
+            ArenaTableStats {
+                name: "spans",
+                items: self.spans.len(),
+                files: usize::from(self.spans.len() != 0),
+                retained_bytes: self.spans.retained_bytes(),
+            },
+            table!(span_source_overrides),
+            table!(stmt_tags),
+            table!(stmt_data),
+            ArenaTableStats {
+                name: "stmt_spans",
+                items: self.stmt_spans.len(),
+                files: usize::from(self.stmt_spans.len() != 0),
+                retained_bytes: self.stmt_spans.retained_bytes(),
+            },
+            table!(stmt_span_source_overrides),
+            table!(blocks),
+            table!(expr_tags),
+            table!(expr_data),
+            ArenaTableStats {
+                name: "expr_spans",
+                items: self.expr_spans.len(),
+                files: usize::from(self.expr_spans.len() != 0),
+                retained_bytes: self.expr_spans.retained_bytes(),
+            },
+            table!(expr_span_source_overrides),
+            table!(patterns),
+            table!(binding_targets),
+            table!(assign_targets),
+            table!(type_expr_tags),
+            table!(type_expr_data),
+            ArenaTableStats {
+                name: "type_expr_spans",
+                items: self.type_expr_spans.len(),
+                files: usize::from(self.type_expr_spans.len() != 0),
+                retained_bytes: self.type_expr_spans.retained_bytes(),
+            },
+            table!(type_expr_span_source_overrides),
+            table!(use_stmts),
+            table!(type_defs),
+            table!(error_defs),
+            table!(function_defs),
+            table!(signal_hooks),
+            table!(command_stmts),
+            table!(int_literals),
+            table!(float_literals),
+            table!(duration_literals),
+            table!(string_literals),
+            table!(bytes_literals),
+            table!(text_tags),
+            table!(text_data),
+            table!(cooked_texts),
+            table!(run_forms),
+            table!(builder_blocks),
+            table!(extra),
+            table!(block_params),
+            table!(params),
+            table!(schema_fields),
+            table!(module_contract_entries),
+            table!(tag_variants),
+            table!(error_variants),
+            table!(error_fields),
+            table!(if_branches),
+            table!(with_bindings),
+            table!(match_arms),
+            table!(destructure_fields),
+            table!(pattern_fields),
+            table!(fmt_part_tags),
+            table!(fmt_part_data),
+            table!(if_expr_branches),
+            table!(match_expr_arms),
+            table!(record_fields),
+            table!(call_args),
+            table!(pipe_stages),
+            table!(stream_stages),
+            table!(stream_options),
+            table!(builder_entries),
+            table!(command_args),
+            table!(env_assignments),
+            table!(run_segments),
+            table!(redirections),
+            table!(word_part_tags),
+            table!(word_part_data),
+        ]
     }
 
     pub fn capacity_bytes(&self) -> usize {
@@ -3637,8 +3825,25 @@ impl AstArena {
     }
 }
 
-fn vec_capacity_bytes<T>(items: &Vec<T>) -> usize {
-    items.capacity() * size_of::<T>()
+trait ArenaTableCapacity {
+    fn retained_capacity_bytes(&self) -> usize;
+}
+
+impl<T> ArenaTableCapacity for Vec<T> {
+    fn retained_capacity_bytes(&self) -> usize {
+        self.capacity() * size_of::<T>()
+    }
+}
+
+impl<T> ArenaTableCapacity for ArenaColdVec<T> {
+    fn retained_capacity_bytes(&self) -> usize {
+        self.as_vec()
+            .map_or(0, |values| size_of::<Vec<T>>() + values.capacity() * size_of::<T>())
+    }
+}
+
+fn vec_capacity_bytes<T: ArenaTableCapacity>(items: &T) -> usize {
+    items.retained_capacity_bytes()
 }
 
 fn range_slice<T>(items: &[T], range: ArenaRange) -> &[T] {

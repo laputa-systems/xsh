@@ -12,7 +12,7 @@
 - [x] Phase 7: redesign records and runtime value movement
 - [x] Phase 8: make dynamic interning reclaimable
 - [x] Phase 9: replace native-stack recursion with explicit execution frames
-- [ ] Phase 10: compact remaining arena, span, CST, and builder storage
+- [x] Phase 10: compact remaining arena, span, CST, and builder storage
 - [ ] Phase 11: remove migration machinery and publish the final evidence
 
 Coding agents must update these checkboxes and the phase-local checkboxes as
@@ -1337,24 +1337,24 @@ survived the foundational redesign.
 
 ### Work Checklist
 
-- [ ] Rank every `AstArena` table by retained capacity/frequency.
-- [ ] Move truly rare tables behind lazy cold storage or shared extra data.
-- [ ] Consolidate builder staging only where nesting remains correct.
-- [ ] Preserve isolated staging for recursively nestable constructs.
-- [ ] Compare inline spans with main-token IDs, token-relative ranges, and
+- [x] Rank every `AstArena` table by retained capacity/frequency.
+- [x] Move truly rare tables behind lazy cold storage or shared extra data.
+- [x] Consolidate builder staging only where nesting remains correct.
+- [x] Preserve isolated staging for recursively nestable constructs.
+- [x] Compare inline spans with main-token IDs, token-relative ranges, and
   sparse overrides.
-- [ ] Keep CST only on tooling paths.
-- [ ] Drop token/CST data before runtime where lifetimes allow.
-- [ ] Pursue an at-most-512-byte empty arena header only if corpus evidence says
+- [x] Keep CST only on tooling paths.
+- [x] Drop token/CST data before runtime where lifetimes allow.
+- [x] Pursue an at-most-512-byte empty arena header only if corpus evidence says
   per-file header cost is material.
 
 ### Exit Gate
 
-- [ ] Arena bytes/source byte decrease.
-- [ ] Parse/check/format latency does not regress.
-- [ ] Nested construction tests pass.
-- [ ] Diagnostics and formatter fidelity remain exact.
-- [ ] Cold-table allocations do not erase header savings.
+- [x] Arena bytes/source byte decrease.
+- [x] Parse/check/format latency does not regress.
+- [x] Nested construction tests pass.
+- [x] Diagnostics and formatter fidelity remain exact.
+- [x] Cold-table allocations do not erase header savings.
 
 ## Phase 11: Cleanup And Final Evidence
 
@@ -1927,6 +1927,51 @@ Revisit condition: A user-visible indexed workload shows a repeatable material
 latency regression, a recursive path escapes the explicit frames, or a
 non-indexed host/legacy path demonstrably needs more than the bounded 12 MiB
 worker.
+
+Date: 2026-07-26
+Phase: 10
+Decision: Keep the hot arena columns inline and make only permanent side tables
+that occur in at most two of the 287 corpus files lazy. `ArenaColdVec` is an
+8-byte optional owner for `with_bindings`, `destructure_fields`,
+`builder_blocks`, and `builder_entries`; it allocates its boxed vector on the
+first insertion and retained-byte accounting includes that vector header and
+capacity. The ranked frontend report now emits every arena table's item count,
+file count, and retained capacity. The builder's recursively nestable input
+stacks remain isolated and drain only at their matching `finish_*` calls; only
+their rare, completed arena rows are cold. No broad staging consolidation is
+safe.
+Alternatives: Cold-store every uncommon table; put all cold tables in one shared
+boxed structure; replace inline spans with main-token IDs or token-relative
+ranges; or reduce the empty arena to 512 bytes by moving common columns out of
+line. The table ranking rejects the first two: match arms, schemas, errors, and
+stream tables occur in 8--83 files and would add an allocation/indirection to
+normal syntax. The shared structure would allocate headers for unrelated tables
+as soon as one is used. Main-token IDs retain the token table past the existing
+runtime boundary; token-relative ranges do not represent synthetic/desugared
+nodes. The current promoted `u16`/`u32` byte columns plus three-file sparse
+source overrides are the smaller complete representation. Reaching 512 bytes
+would require moving hot tables and is not justified by the measured header
+cost. CST stays lazy on formatting/tooling paths, and the indexed runner still
+drops CST, tokens, checked arena, and construction scratch before execution.
+Evidence: Release layout changes `AstArena` from 1,552 to 1,488 bytes. The
+frozen two-file fixture drops from 32,072 to 31,944 AST bytes. Across the
+287-file corpus, retained AST bytes drop from 3,243,963 to 3,225,715
+(-18,248 bytes, 0.56%); the `ast_check` stage drops from 14,415,301 to
+14,397,053 retained bytes and from 37,541,964 to 37,525,551 allocated bytes,
+with the same 223,636 allocations and a 3-byte peak difference. `cargo test
+--test integration syntax::`, `cargo test --test integration sema::`, focused
+arena/frontend-stat tests, and exact formatter fixtures pass. Serial format
+timing samples moved with host thermal state while their allocation columns
+were identical, including a no-cold control, so no repeatable timing direction
+was attributable to the cold tables; the normal `make bench-fast` allocation
+gate remains the phase decision signal.
+Affected workloads: Parsing, checking, formatting, nested builder and
+destructuring syntax, source spans, tooling CST output, and indexed runtime
+installation.
+Revisit condition: A table used in more than two corpus files becomes cold, a
+new recursive builder group is merged without an isolated staging test, or a
+serial allocation/latency repeat attributes a material regression to the lazy
+table owner.
 
 ## Completion Report
 
