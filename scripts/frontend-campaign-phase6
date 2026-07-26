@@ -23,17 +23,17 @@ The complete runtime integration gate and native XSH test corpus then exercise
 the production entry, tooling trace entry, dynamic modules, host operations,
 process work, streams, and native-test preparation through indexed execution.
 
-The layout report records only finalized indexed rows and the runtime evaluator.
-Two serial fast benchmark suites verify stable allocation and peak-live results;
-the Phase 5 captures remain the pre-deletion comparison when available. PGO
-remains deferred until all non-PGO campaign phases produce a stable release
-candidate.
+The layout report records finalized indexed rows, compact construction handles,
+and the runtime evaluator. Two serial fast benchmark suites verify stable
+allocation and peak-live results; the Phase 5 captures remain the pre-deletion
+comparison when available. PGO remains deferred until all non-PGO campaign
+phases produce a stable release candidate.
 EOF
 
 cp FRONTEND-CAMPAIGN.md "$out/FRONTEND-CAMPAIGN.md"
 
 if rg -n \
-  '\b(LoweredExpr|LoweredStmt|LoweredPattern|LoweredPureFunction|LoweredProgram|LoweredTopLevelStmt)\b|XSH_TEST_EXECUTION_MODE|CompactExecutionMode|eval_lowered_(function|stmt|stmts|expr|typed_int|typed_bool)' \
+  '\b(LoweredExpr|LoweredStmt|LoweredPattern|LoweredPureFunction|LoweredProgram|LoweredTopLevelStmt|IrBuildExpr|IrBuildStmt|IrBuildPattern|IrBuildFunction|IrBuildProgram|IrBuildTopLevelStmt|IrBuildTopLevelKind)\b|XSH_TEST_EXECUTION_MODE|CompactExecutionMode|eval_lowered_(function|stmt|stmts|expr|typed_int|typed_bool)' \
   --glob '*.rs' --glob '*.xsh' --glob '*.py' --glob '*.sh' \
   --glob '!frontend-campaign-phase6' \
   src crates tests tools scripts > "$out/deleted-boundary.txt"; then
@@ -96,8 +96,13 @@ fi
   printf 'after  '
   wc -l < src/runtime/eval/lowered_run.rs
   printf 'before '
-  git show HEAD:src/runtime/eval/tests.rs | wc -l
-  printf 'after  0\n'
+  git show HEAD:src/runtime/eval/lower.rs | wc -l
+  printf 'after  '
+  wc -l < src/runtime/eval/lower.rs
+  printf 'before '
+  git show HEAD:src/runtime/eval/indexed/full.rs | wc -l
+  printf 'after  '
+  wc -l < src/runtime/eval/indexed/full.rs
 } > "$out/line-counts.txt"
 
 {

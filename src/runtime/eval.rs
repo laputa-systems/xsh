@@ -29,13 +29,15 @@ use crate::trace::{
     TraceArg, TraceEnv, TraceError, TraceEvent, TraceKind, TracePayload, TraceStatus,
     TraceStatusKind, TraceTiming, Traceback, TracebackFrame,
 };
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 use smallvec::SmallVec;
 use std::collections::BTreeMap;
 use std::ffi::{OsStr, OsString};
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
 use std::path::PathBuf;
 
+use std::cell::RefCell;
+use std::rc::Rc;
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -442,8 +444,81 @@ pub(super) struct TestCall {
 /// Upper bound on recycled scope maps held in `scope_pool` (deep recursion
 /// shouldn't let the pool grow without bound).
 
+macro_rules! build_id {
+    ($name:ident) => {
+        #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+        #[repr(transparent)]
+        struct $name(u32);
+
+        impl $name {
+            fn new(index: usize) -> Self {
+                Self(u32::try_from(index).expect("construction scratch exceeds u32"))
+            }
+
+            fn index(self) -> usize {
+                self.0 as usize
+            }
+        }
+    };
+}
+
+build_id!(BuildExprId);
+build_id!(BuildStmtId);
+build_id!(BuildPatternId);
+build_id!(BuildIntId);
+build_id!(BuildBoolId);
+build_id!(BuildTopStmtId);
+
+#[derive(Clone, Debug, Default)]
+struct IndexedBuildScratch {
+    expressions: Vec<BuildExprRow>,
+    statements: Vec<BuildStmtRow>,
+    patterns: Vec<BuildPatternRow>,
+    ints: Vec<BuildIntRow>,
+    bools: Vec<BuildBoolRow>,
+    top_statements: Vec<BuildTopStmtRow>,
+}
+
+impl IndexedBuildScratch {
+    fn expr(&mut self, row: BuildExprRow) -> BuildExprId {
+        let id = BuildExprId::new(self.expressions.len());
+        self.expressions.push(row);
+        id
+    }
+
+    fn stmt(&mut self, row: BuildStmtRow) -> BuildStmtId {
+        let id = BuildStmtId::new(self.statements.len());
+        self.statements.push(row);
+        id
+    }
+
+    fn pattern(&mut self, row: BuildPatternRow) -> BuildPatternId {
+        let id = BuildPatternId::new(self.patterns.len());
+        self.patterns.push(row);
+        id
+    }
+
+    fn int(&mut self, row: BuildIntRow) -> BuildIntId {
+        let id = BuildIntId::new(self.ints.len());
+        self.ints.push(row);
+        id
+    }
+
+    fn bool(&mut self, row: BuildBoolRow) -> BuildBoolId {
+        let id = BuildBoolId::new(self.bools.len());
+        self.bools.push(row);
+        id
+    }
+
+    fn top_stmt(&mut self, row: BuildTopStmtRow) -> BuildTopStmtId {
+        let id = BuildTopStmtId::new(self.top_statements.len());
+        self.top_statements.push(row);
+        id
+    }
+}
+
 #[derive(Clone, Debug)]
-struct IrBuildFunction {
+struct IndexedFunctionBuild {
     params: LoweredParamNames,
     param_kinds: LoweredParamKinds,
     param_checks: LoweredParamChecks,
@@ -452,8 +527,9 @@ struct IrBuildFunction {
     captures: LoweredTopLevelSlots,
     return_kind: LoweredReturnKind,
     slot_count: usize,
-    body: Vec<IrBuildStmt>,
+    body: Vec<BuildStmtId>,
     has_defers: bool,
+    scratch: Rc<RefCell<IndexedBuildScratch>>,
 }
 
 #[derive(Clone, Debug)]
@@ -469,8 +545,9 @@ struct IndexedFunctionHeader {
 }
 
 #[derive(Clone, Debug, Default)]
-struct IrBuildProgram {
-    statements: Vec<Option<IrBuildTopLevelStmt>>,
+struct IndexedProgramBuild {
+    statements: Vec<Option<BuildTopStmtId>>,
+    scratch: Rc<RefCell<IndexedBuildScratch>>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -542,7 +619,7 @@ pub struct LoweredFunctionUnit {
     capture_count: usize,
     slot_count: usize,
     dependency_edges: Vec<LoweredFunctionKey>,
-    body: Option<Arc<IrBuildFunction>>,
+    body: Option<IndexedFunctionBuild>,
     blocker: Option<LoweredFunctionBlocker>,
     blocker_detail: Option<(Span, String)>,
     scc_member_count: usize,
@@ -606,34 +683,34 @@ impl LoweredFunctionUnit {
         self.scc_member_count > 1
     }
 
-    fn lowered_body(&self) -> Option<Arc<IrBuildFunction>> {
+    fn lowered_body(&self) -> Option<IndexedFunctionBuild> {
         self.body.clone()
     }
 
-    fn take_lowered_body(&mut self) -> Option<Arc<IrBuildFunction>> {
+    fn take_lowered_body(&mut self) -> Option<IndexedFunctionBuild> {
         self.body.take()
     }
 }
 
 struct LowerableFunctions<'a> {
-    pures: Option<&'a FxHashMap<Name, Arc<IrBuildFunction>>>,
-    procs: Option<&'a FxHashMap<Name, Arc<IrBuildFunction>>>,
-    qualified_pures: Option<&'a FxHashMap<QualifiedName, Arc<IrBuildFunction>>>,
-    qualified_procs: Option<&'a FxHashMap<QualifiedName, Arc<IrBuildFunction>>>,
-    // In-flight candidates not yet committed to the lowered maps. A single key
+    pures: Option<&'a FxHashSet<Name>>,
+    procs: Option<&'a FxHashSet<Name>>,
+    qualified_pures: Option<&'a FxHashSet<QualifiedName>>,
+    qualified_procs: Option<&'a FxHashSet<QualifiedName>>,
+    // In-flight candidates not yet committed to the lowered sets. A single key
     // for self-recursion, or a whole strongly-connected component for
     // mutually-recursive co-lowering. Membership only — function-body call
     // lowering needs `contains`, not the callee's return kind (which is resolved
-    // from the lowered maps).
+    // from the indexed function headers).
     candidates: &'a [LoweredFunctionKey],
 }
 
 impl<'a> LowerableFunctions<'a> {
     fn all_with_candidates(
-        pures: &'a FxHashMap<Name, Arc<IrBuildFunction>>,
-        procs: &'a FxHashMap<Name, Arc<IrBuildFunction>>,
-        qualified_pures: &'a FxHashMap<QualifiedName, Arc<IrBuildFunction>>,
-        qualified_procs: &'a FxHashMap<QualifiedName, Arc<IrBuildFunction>>,
+        pures: &'a FxHashSet<Name>,
+        procs: &'a FxHashSet<Name>,
+        qualified_pures: &'a FxHashSet<QualifiedName>,
+        qualified_procs: &'a FxHashSet<QualifiedName>,
         candidates: &'a [LoweredFunctionKey],
     ) -> Self {
         Self {
@@ -646,10 +723,10 @@ impl<'a> LowerableFunctions<'a> {
     }
 
     fn all(
-        pures: &'a FxHashMap<Name, Arc<IrBuildFunction>>,
-        procs: &'a FxHashMap<Name, Arc<IrBuildFunction>>,
-        qualified_pures: &'a FxHashMap<QualifiedName, Arc<IrBuildFunction>>,
-        qualified_procs: &'a FxHashMap<QualifiedName, Arc<IrBuildFunction>>,
+        pures: &'a FxHashSet<Name>,
+        procs: &'a FxHashSet<Name>,
+        qualified_pures: &'a FxHashSet<QualifiedName>,
+        qualified_procs: &'a FxHashSet<QualifiedName>,
     ) -> Self {
         Self {
             pures: Some(pures),
@@ -664,15 +741,15 @@ impl<'a> LowerableFunctions<'a> {
         self.candidates.contains(&key)
             || match key {
                 LoweredFunctionKey::Name(name) => {
-                    self.pures.is_some_and(|pures| pures.contains_key(&name))
-                        || self.procs.is_some_and(|procs| procs.contains_key(&name))
+                    self.pures.is_some_and(|pures| pures.contains(&name))
+                        || self.procs.is_some_and(|procs| procs.contains(&name))
                 }
                 LoweredFunctionKey::Qualified(name) => {
                     self.qualified_pures
-                        .is_some_and(|pures| pures.contains_key(&name))
+                        .is_some_and(|pures| pures.contains(&name))
                         || self
                             .qualified_procs
-                            .is_some_and(|procs| procs.contains_key(&name))
+                            .is_some_and(|procs| procs.contains(&name))
                 }
             }
     }
@@ -681,31 +758,31 @@ impl<'a> LowerableFunctions<'a> {
         self.candidates.contains(&key)
             || match key {
                 LoweredFunctionKey::Name(name) => {
-                    self.pures.is_some_and(|pures| pures.contains_key(&name))
+                    self.pures.is_some_and(|pures| pures.contains(&name))
                 }
                 LoweredFunctionKey::Qualified(name) => self
                     .qualified_pures
-                    .is_some_and(|pures| pures.contains_key(&name)),
+                    .is_some_and(|pures| pures.contains(&name)),
             }
     }
 }
 
 #[derive(Clone, Debug)]
-struct IrBuildTopLevelStmt {
-    kind: IrBuildTopLevelKind,
+struct BuildTopStmtRow {
+    kind: BuildTopKind,
     slots: LoweredTopLevelSlots,
     slot_count: usize,
 }
 
 #[derive(Clone, Debug)]
-enum IrBuildTopLevelKind {
+enum BuildTopKind {
     Use {
         key: Arc<str>,
         alias: Option<Name>,
         path: Vec<Name>,
         namespace: Name,
         exports: Vec<LoweredModuleExport>,
-        module_statements: Vec<(Span, IrBuildTopLevelStmt)>,
+        module_statements: Vec<(Span, BuildTopStmtId)>,
         span: Span,
     },
     Let {
@@ -713,13 +790,13 @@ enum IrBuildTopLevelKind {
         ty: Option<LoweredType>,
         validation: Option<LoweredTypeCheck>,
         mutable: bool,
-        value: IrBuildExpr,
+        value: BuildExprId,
         value_span: Span,
     },
     // `let {a, b, ..} = source` / `var {…}` at top level: define one named
     // binding per field (field name == binding name) from the source record.
     LetRecord {
-        source: IrBuildExpr,
+        source: BuildExprId,
         fields: Vec<Name>,
         mutable: bool,
         span: Span,
@@ -727,23 +804,23 @@ enum IrBuildTopLevelKind {
     Assign {
         target: Name,
         op: AssignOp,
-        value: IrBuildExpr,
+        value: BuildExprId,
         span: Span,
     },
     Discard {
-        value: IrBuildExpr,
+        value: BuildExprId,
         span: Span,
     },
-    Stmt(IrBuildStmt),
-    Expr(IrBuildExpr),
+    Stmt(BuildStmtId),
+    Expr(BuildExprId),
     Defer {
-        value: IrBuildExpr,
+        value: BuildExprId,
         span: Span,
     },
     SignalHook {
         signal: Name,
         pre_cancel: Option<String>,
-        body: Vec<IrBuildStmt>,
+        body: Vec<BuildStmtId>,
         slots: Vec<LoweredTopLevelSlot>,
         slot_count: usize,
         span: Span,
@@ -827,7 +904,7 @@ type LoweredParamChecks = SmallVec<[Option<LoweredTypeCheck>; 4]>;
 type LoweredParamRest = SmallVec<[bool; 4]>;
 type LoweredParamDefaults = SmallVec<[Option<LoweredValue>; 4]>;
 type LoweredTopLevelSlots = SmallVec<[LoweredTopLevelSlot; 4]>;
-type IrBuildPatternSlots = SmallVec<[Option<usize>; 2]>;
+type BuildPatternIdSlots = SmallVec<[Option<usize>; 2]>;
 type LoweredCompFields = SmallVec<[(Name, usize, Span); 4]>;
 type LoweredErrorPatternFields = SmallVec<[(Name, Option<usize>); 4]>;
 
@@ -839,8 +916,8 @@ enum LoweredCompTarget {
 
 #[derive(Clone, Debug)]
 enum LoweredRecordEntry {
-    Field(Name, IrBuildExpr),
-    Spread(IrBuildExpr),
+    Field(Name, BuildExprId),
+    Spread(BuildExprId),
 }
 
 #[allow(clippy::large_enum_variant)]
@@ -848,35 +925,35 @@ enum LoweredRecordEntry {
 enum LoweredProcessCommandBuilderEntry {
     Field {
         name: Name,
-        value: IrBuildExpr,
+        value: BuildExprId,
         span: Span,
     },
     Run {
         target: LoweredRunArg,
         args: Vec<LoweredRunArg>,
         env: Vec<LoweredRunEnv>,
-        timeout: Option<IrBuildExpr>,
-        cpu_max: Option<IrBuildExpr>,
+        timeout: Option<BuildExprId>,
+        cpu_max: Option<BuildExprId>,
         span: Span,
     },
 }
 
 #[derive(Clone, Debug)]
 struct LoweredProcessCommandArgv {
-    target: Box<IrBuildExpr>,
-    argv: Box<IrBuildExpr>,
-    cwd: Option<Box<IrBuildExpr>>,
-    env: Option<Box<IrBuildExpr>>,
-    stdin: Option<Box<IrBuildExpr>>,
-    stdout: Option<Box<IrBuildExpr>>,
-    stderr: Option<Box<IrBuildExpr>>,
-    stdout_append: Option<Box<IrBuildExpr>>,
-    stderr_append: Option<Box<IrBuildExpr>>,
-    timeout: Option<Box<IrBuildExpr>>,
-    detach: Option<Box<IrBuildExpr>>,
-    new_session: Option<Box<IrBuildExpr>>,
-    ignore_hup: Option<Box<IrBuildExpr>>,
-    cpu_max: Option<Box<IrBuildExpr>>,
+    target: BuildExprId,
+    argv: BuildExprId,
+    cwd: Option<BuildExprId>,
+    env: Option<BuildExprId>,
+    stdin: Option<BuildExprId>,
+    stdout: Option<BuildExprId>,
+    stderr: Option<BuildExprId>,
+    stdout_append: Option<BuildExprId>,
+    stderr_append: Option<BuildExprId>,
+    timeout: Option<BuildExprId>,
+    detach: Option<BuildExprId>,
+    new_session: Option<BuildExprId>,
+    ignore_hup: Option<BuildExprId>,
+    cpu_max: Option<BuildExprId>,
     span: Span,
 }
 
@@ -887,8 +964,8 @@ struct LoweredRunCapture {
     args: Vec<LoweredRunArg>,
     env: Vec<LoweredRunEnv>,
     redirections: Vec<LoweredRunRedirection>,
-    timeout: Option<Box<IrBuildExpr>>,
-    cpu_max: Option<Box<IrBuildExpr>>,
+    timeout: Option<BuildExprId>,
+    cpu_max: Option<BuildExprId>,
     // For Plain/Status run *values* with `?`, propagation is handled inside
     // eval_lowered_run_capture (Break on RunError, pass Status through),
     // because a Plain run yields a bare Status on success — not a Result the
@@ -905,16 +982,16 @@ struct LoweredSpawnRun {
     args: Vec<LoweredRunArg>,
     env: Vec<LoweredRunEnv>,
     redirections: Vec<LoweredRunRedirection>,
-    timeout: Option<Box<IrBuildExpr>>,
-    cpu_max: Option<Box<IrBuildExpr>>,
+    timeout: Option<BuildExprId>,
+    cpu_max: Option<BuildExprId>,
     span: Span,
 }
 
 #[derive(Clone, Debug)]
-enum IrBuildStmt {
+enum BuildStmtRow {
     Let {
         slot: usize,
-        value: IrBuildExpr,
+        value: BuildExprId,
     },
     /// `guard let slot = value else |else_param| { else_body }`: evaluate
     /// `value` (a `Result`); on `Ok`, bind its inner value to `slot` and
@@ -922,120 +999,120 @@ enum IrBuildStmt {
     /// run `else_body`, which must diverge.
     Guard {
         slot: usize,
-        value: IrBuildExpr,
+        value: BuildExprId,
         else_param_slot: Option<usize>,
-        else_body: Vec<IrBuildStmt>,
+        else_body: Vec<BuildStmtId>,
         span: Span,
     },
     LetInt {
         slot: usize,
-        value: LoweredIntExpr,
+        value: BuildIntId,
     },
     LetBool {
         slot: usize,
-        value: LoweredBoolExpr,
+        value: BuildBoolId,
     },
     Assign {
         slot: usize,
         op: AssignOp,
-        value: IrBuildExpr,
+        value: BuildExprId,
         span: Span,
     },
     AssignField {
         slot: usize,
         field: Arc<str>,
         op: AssignOp,
-        value: IrBuildExpr,
+        value: BuildExprId,
         span: Span,
     },
     AssignFieldInt {
         slot: usize,
         field: Arc<str>,
         op: AssignOp,
-        value: LoweredIntExpr,
+        value: BuildIntId,
         span: Span,
     },
     AssignIndex {
         slot: usize,
-        // Boxed: this is the only `IrBuildStmt` variant with two inline
-        // `IrBuildExpr`s, which made it (at ~2x the enum's other variants) the
+        // Boxed: this is the only `BuildStmtId` variant with two inline
+        // `BuildExprId`s, which made it (at ~2x the enum's other variants) the
         // size driver for every statement in the lowered IR.
-        index: Box<IrBuildExpr>,
+        index: BuildExprId,
         op: AssignOp,
-        value: Box<IrBuildExpr>,
+        value: BuildExprId,
         span: Span,
     },
     AssignInt {
         slot: usize,
         op: AssignOp,
-        value: LoweredIntExpr,
+        value: BuildIntId,
         span: Span,
     },
     AssignBool {
         slot: usize,
-        value: LoweredBoolExpr,
+        value: BuildBoolId,
     },
     Expr {
-        value: IrBuildExpr,
+        value: BuildExprId,
         span: Span,
     },
     If {
-        branches: Vec<(IrBuildExpr, Vec<IrBuildStmt>)>,
-        else_body: Option<Vec<IrBuildStmt>>,
+        branches: Vec<(BuildExprId, Vec<BuildStmtId>)>,
+        else_body: Option<Vec<BuildStmtId>>,
     },
     IfBool {
-        branches: Vec<(LoweredBoolExpr, Vec<IrBuildStmt>)>,
-        else_body: Option<Vec<IrBuildStmt>>,
+        branches: Vec<(BuildBoolId, Vec<BuildStmtId>)>,
+        else_body: Option<Vec<BuildStmtId>>,
     },
     While {
-        condition: IrBuildExpr,
-        body: Vec<IrBuildStmt>,
+        condition: BuildExprId,
+        body: Vec<BuildStmtId>,
     },
     WhileBool {
-        condition: LoweredBoolExpr,
-        body: Vec<IrBuildStmt>,
+        condition: BuildBoolId,
+        body: Vec<BuildStmtId>,
     },
     Match {
-        value: IrBuildExpr,
-        arms: Vec<(IrBuildPattern, Option<IrBuildExpr>, Vec<IrBuildStmt>)>,
+        value: BuildExprId,
+        arms: Vec<(BuildPatternId, Option<BuildExprId>, Vec<BuildStmtId>)>,
         span: Span,
     },
     StrMatch {
-        value: IrBuildExpr,
-        arms: FxHashMap<Arc<str>, Vec<IrBuildStmt>>,
-        fallback: Option<Vec<IrBuildStmt>>,
+        value: BuildExprId,
+        arms: FxHashMap<Arc<str>, Vec<BuildStmtId>>,
+        fallback: Option<Vec<BuildStmtId>>,
         span: Span,
     },
     TagMatch {
-        value: IrBuildExpr,
-        arms: FxHashMap<Arc<str>, Vec<IrBuildStmt>>,
-        fallback: Option<Vec<IrBuildStmt>>,
+        value: BuildExprId,
+        arms: FxHashMap<Arc<str>, Vec<BuildStmtId>>,
+        fallback: Option<Vec<BuildStmtId>>,
         span: Span,
     },
     For {
         slot: usize,
-        iter: IrBuildExpr,
-        body: Vec<IrBuildStmt>,
+        iter: BuildExprId,
+        body: Vec<BuildStmtId>,
         span: Span,
     },
     // `let {a, b, ..} = source` / `var {…} = source`: destructure a record into
     // one slot per field (field name == binding name).
     LetRecord {
-        source: IrBuildExpr,
+        source: BuildExprId,
         fields: Vec<(Name, usize)>,
         span: Span,
     },
     // `for {a, b, ..} in iter { … }`: per item (a record), bind each field slot.
     ForRecord {
         fields: Vec<(Name, usize)>,
-        iter: IrBuildExpr,
-        body: Vec<IrBuildStmt>,
+        iter: BuildExprId,
+        body: Vec<BuildStmtId>,
         span: Span,
     },
     ForStrLines {
         slot: usize,
-        text: IrBuildExpr,
-        body: Vec<IrBuildStmt>,
+        text: BuildExprId,
+        body: Vec<BuildStmtId>,
         span: Span,
     },
     ScanLines {
@@ -1045,60 +1122,60 @@ enum IrBuildStmt {
         span: Span,
     },
     Print {
-        args: Vec<IrBuildExpr>,
+        args: Vec<BuildExprId>,
         stderr: bool,
         flush: bool,
         propagate_result: bool,
         span: Span,
     },
     Cd {
-        target: IrBuildExpr,
-        body: Vec<IrBuildStmt>,
+        target: BuildExprId,
+        body: Vec<BuildStmtId>,
         span: Span,
     },
     Env {
         env: Vec<LoweredRunEnv>,
-        body: Vec<IrBuildStmt>,
+        body: Vec<BuildStmtId>,
     },
     Proc {
         // The registry identity is stable; resolve it once while lowering
         // instead of retaining two names and looking it up on every execution.
         op: RuntimeOp,
-        args: Vec<IrBuildExpr>,
+        args: Vec<BuildExprId>,
         propagate_result: bool,
         span: Span,
     },
     Run {
-        value: IrBuildExpr,
+        value: BuildExprId,
         propagate_result: bool,
     },
     Loop {
-        body: Vec<IrBuildStmt>,
+        body: Vec<BuildStmtId>,
     },
     Return {
-        value: IrBuildExpr,
+        value: BuildExprId,
     },
     Yield {
-        value: IrBuildExpr,
+        value: BuildExprId,
     },
     Break,
     BreakValue {
-        value: IrBuildExpr,
+        value: BuildExprId,
     },
     Continue,
     Defer {
-        value: IrBuildExpr,
+        value: BuildExprId,
     },
 }
 
 #[derive(Clone, Debug)]
-enum LoweredIntExpr {
+enum BuildIntRow {
     Int(i64),
     Slot(usize),
     Binary {
         op: BinaryOp,
-        left: Box<LoweredIntExpr>,
-        right: Box<LoweredIntExpr>,
+        left: BuildIntId,
+        right: BuildIntId,
     },
     StrByteLenSlot {
         slot: usize,
@@ -1110,23 +1187,23 @@ enum LoweredIntExpr {
     },
     StrByteAtSlot {
         slot: usize,
-        index: Box<LoweredIntExpr>,
-        default: Option<Box<LoweredIntExpr>>,
+        index: BuildIntId,
+        default: Option<BuildIntId>,
         span: Span,
     },
 }
 
 #[derive(Clone, Debug)]
-enum LoweredBoolExpr {
+enum BuildBoolRow {
     Bool(bool),
     Slot(usize),
-    Not(Box<LoweredBoolExpr>),
-    And(Box<LoweredBoolExpr>, Box<LoweredBoolExpr>),
-    Or(Box<LoweredBoolExpr>, Box<LoweredBoolExpr>),
+    Not(BuildBoolId),
+    And(BuildBoolId, BuildBoolId),
+    Or(BuildBoolId, BuildBoolId),
     IntCompare {
         op: BinaryOp,
-        left: Box<LoweredIntExpr>,
-        right: Box<LoweredIntExpr>,
+        left: BuildIntId,
+        right: BuildIntId,
     },
     StrPredicateSlot {
         slot: usize,
@@ -1170,7 +1247,7 @@ enum IndexedStmtFlow {
 }
 
 #[derive(Clone, Debug)]
-enum IrBuildExpr {
+enum BuildExprRow {
     Null,
     Unit,
     Int(i64),
@@ -1185,41 +1262,41 @@ enum IrBuildExpr {
         pure: bool,
     },
     PathFrom {
-        value: Box<IrBuildExpr>,
+        value: BuildExprId,
         span: Span,
     },
     Param(usize),
     Binary {
         op: BinaryOp,
-        left: Box<IrBuildExpr>,
-        right: Box<IrBuildExpr>,
+        left: BuildExprId,
+        right: BuildExprId,
         span: Span,
     },
     IfExpr {
-        branches: Vec<(IrBuildExpr, IrBuildExpr)>,
-        else_value: Box<IrBuildExpr>,
+        branches: Vec<(BuildExprId, BuildExprId)>,
+        else_value: BuildExprId,
         span: Span,
     },
     MatchExpr {
-        value: Box<IrBuildExpr>,
-        arms: Vec<(IrBuildPattern, Option<IrBuildExpr>, IrBuildExpr)>,
+        value: BuildExprId,
+        arms: Vec<(BuildPatternId, Option<BuildExprId>, BuildExprId)>,
         span: Span,
     },
     StrMatchExpr {
-        value: Box<IrBuildExpr>,
-        arms: FxHashMap<Arc<str>, IrBuildExpr>,
-        fallback: Option<Box<IrBuildExpr>>,
+        value: BuildExprId,
+        arms: FxHashMap<Arc<str>, BuildExprId>,
+        fallback: Option<BuildExprId>,
         span: Span,
     },
     TagMatchExpr {
-        value: Box<IrBuildExpr>,
-        arms: FxHashMap<Arc<str>, IrBuildExpr>,
-        fallback: Option<Box<IrBuildExpr>>,
+        value: BuildExprId,
+        arms: FxHashMap<Arc<str>, BuildExprId>,
+        fallback: Option<BuildExprId>,
         span: Span,
     },
     ResultFallback {
-        left: Box<IrBuildExpr>,
-        right: Box<IrBuildExpr>,
+        left: BuildExprId,
+        right: BuildExprId,
     },
     FmtString(Vec<LoweredFmtPart>),
     PathFmtString {
@@ -1238,48 +1315,48 @@ enum IrBuildExpr {
         span: Span,
     },
     Record(Vec<LoweredRecordEntry>),
-    List(Vec<IrBuildExpr>),
+    List(Vec<BuildExprId>),
     // The `map.empty()` builtin constructor (empty list literals already lower via `List`).
     EmptyMap,
     // The `bytes.concat(<List[Bytes]>)` builtin constructor.
     BytesConcat {
-        arg: Box<IrBuildExpr>,
+        arg: BuildExprId,
         span: Span,
     },
     Range {
-        start: Box<IrBuildExpr>,
-        end: Box<IrBuildExpr>,
+        start: BuildExprId,
+        end: BuildExprId,
         span: Span,
     },
     Tag {
         name: Arc<str>,
-        fields: Vec<IrBuildExpr>,
+        fields: Vec<BuildExprId>,
     },
     ListComp {
-        value: Box<IrBuildExpr>,
+        value: BuildExprId,
         // Boxed because `LoweredCompTarget::Record` inlines a 4-element
-        // `SmallVec` (~176 bytes) that would otherwise size every `IrBuildExpr`
+        // `SmallVec` (~176 bytes) that would otherwise size every `BuildExprId`
         // variant, not just the rare destructuring-comprehension case.
         target: Box<LoweredCompTarget>,
-        iter: Box<IrBuildExpr>,
-        condition: Option<Box<IrBuildExpr>>,
+        iter: BuildExprId,
+        condition: Option<BuildExprId>,
         span: Span,
     },
     MapComp {
-        key: Box<IrBuildExpr>,
-        value: Box<IrBuildExpr>,
+        key: BuildExprId,
+        value: BuildExprId,
         target: Box<LoweredCompTarget>,
-        iter: Box<IrBuildExpr>,
-        condition: Option<Box<IrBuildExpr>>,
+        iter: BuildExprId,
+        condition: Option<BuildExprId>,
         span: Span,
     },
     ListPipeline {
-        input: Box<IrBuildExpr>,
+        input: BuildExprId,
         stages: Vec<LoweredPipelineStage>,
         span: Span,
     },
     Field {
-        base: Box<IrBuildExpr>,
+        base: BuildExprId,
         // Field/method names come from interned identifiers (`Name::as_str()`),
         // which are already `'static` — storing the leaked str view instead of an
         // owned `String` drops an allocation from every field-access node built
@@ -1288,49 +1365,49 @@ enum IrBuildExpr {
         span: Span,
     },
     Index {
-        base: Box<IrBuildExpr>,
-        index: Box<IrBuildExpr>,
+        base: BuildExprId,
+        index: BuildExprId,
         span: Span,
     },
     Slice {
-        base: Box<IrBuildExpr>,
-        start: Option<Box<IrBuildExpr>>,
-        end: Option<Box<IrBuildExpr>>,
+        base: BuildExprId,
+        start: Option<BuildExprId>,
+        end: Option<BuildExprId>,
         span: Span,
     },
     Method {
-        receiver: Box<IrBuildExpr>,
+        receiver: BuildExprId,
         name: &'static str,
-        args: Vec<IrBuildExpr>,
+        args: Vec<BuildExprId>,
         span: Span,
     },
     StrByteLen {
-        receiver: Box<IrBuildExpr>,
+        receiver: BuildExprId,
         span: Span,
     },
     StrByteAt {
-        receiver: Box<IrBuildExpr>,
-        index: Box<IrBuildExpr>,
-        default: Option<Box<IrBuildExpr>>,
+        receiver: BuildExprId,
+        index: BuildExprId,
+        default: Option<BuildExprId>,
         span: Span,
     },
     StrPredicate {
-        receiver: Box<IrBuildExpr>,
+        receiver: BuildExprId,
         predicate: LoweredStrPredicate,
-        needle: Box<IrBuildExpr>,
+        needle: BuildExprId,
         span: Span,
     },
     Contains {
-        receiver: Box<IrBuildExpr>,
-        needle: Box<IrBuildExpr>,
+        receiver: BuildExprId,
+        needle: BuildExprId,
         span: Span,
     },
     RegexCompile {
-        pattern: Box<IrBuildExpr>,
+        pattern: BuildExprId,
         span: Span,
     },
     Require {
-        value: Box<IrBuildExpr>,
+        value: BuildExprId,
         check: LoweredTypeCheck,
         span: Span,
     },
@@ -1344,179 +1421,179 @@ enum IrBuildExpr {
     },
     SpawnRun(Box<LoweredSpawnRun>),
     SpawnCommand {
-        command: Box<IrBuildExpr>,
+        command: BuildExprId,
         span: Span,
     },
     Wait {
-        target: Box<IrBuildExpr>,
+        target: BuildExprId,
         span: Span,
     },
     Loop {
-        body: Vec<IrBuildStmt>,
+        body: Vec<BuildStmtId>,
         span: Span,
     },
     Retry {
-        delays: Vec<IrBuildExpr>,
-        body: Vec<IrBuildStmt>,
+        delays: Vec<BuildExprId>,
+        body: Vec<BuildStmtId>,
         span: Span,
     },
     FsFiles {
-        root: Box<IrBuildExpr>,
+        root: BuildExprId,
         gitignore: bool,
         stat: bool,
         hidden: bool,
-        exts: Option<Box<IrBuildExpr>>,
+        exts: Option<BuildExprId>,
         result_wrapped: bool,
         span: Span,
     },
     FsWalk {
-        root: Box<IrBuildExpr>,
+        root: BuildExprId,
         gitignore: bool,
         stat: bool,
         hidden: bool,
-        exts: Option<Box<IrBuildExpr>>,
+        exts: Option<BuildExprId>,
         result_wrapped: bool,
         span: Span,
     },
     FsList {
         op: RuntimeOp,
-        path: Box<IrBuildExpr>,
-        stat: Option<Box<IrBuildExpr>>,
-        ordered: Option<Box<IrBuildExpr>>,
+        path: BuildExprId,
+        stat: Option<BuildExprId>,
+        ordered: Option<BuildExprId>,
         span: Span,
     },
     FsTempDir {
         span: Span,
     },
     FsWrite {
-        path: Box<IrBuildExpr>,
-        data: Box<IrBuildExpr>,
+        path: BuildExprId,
+        data: BuildExprId,
         span: Span,
     },
     FsMkdir {
-        path: Box<IrBuildExpr>,
-        parents: Option<Box<IrBuildExpr>>,
+        path: BuildExprId,
+        parents: Option<BuildExprId>,
         span: Span,
     },
     FsRemove {
-        path: Box<IrBuildExpr>,
-        missing_ok: Option<Box<IrBuildExpr>>,
+        path: BuildExprId,
+        missing_ok: Option<BuildExprId>,
         span: Span,
     },
     FsCloseRoot {
-        root: Box<IrBuildExpr>,
+        root: BuildExprId,
         span: Span,
     },
     FsRootPath {
-        root: Box<IrBuildExpr>,
+        root: BuildExprId,
         span: Span,
     },
     PathReadText {
-        path: Box<IrBuildExpr>,
+        path: BuildExprId,
         span: Span,
     },
     PathReadBytes {
-        path: Box<IrBuildExpr>,
+        path: BuildExprId,
         span: Span,
     },
     PathExists {
-        path: Box<IrBuildExpr>,
+        path: BuildExprId,
         span: Span,
     },
     PathExecutable {
-        path: Box<IrBuildExpr>,
+        path: BuildExprId,
         span: Span,
     },
     PathDu {
-        path: Box<IrBuildExpr>,
+        path: BuildExprId,
         span: Span,
     },
     PathMetadata {
-        path: Box<IrBuildExpr>,
+        path: BuildExprId,
         span: Span,
     },
     PathReadlink {
-        path: Box<IrBuildExpr>,
+        path: BuildExprId,
         span: Span,
     },
     PathResolve {
-        path: Box<IrBuildExpr>,
+        path: BuildExprId,
         span: Span,
     },
     PathWrite {
-        path: Box<IrBuildExpr>,
-        data: Box<IrBuildExpr>,
+        path: BuildExprId,
+        data: BuildExprId,
         atomic: bool,
         span: Span,
     },
     PathMkdir {
-        path: Box<IrBuildExpr>,
-        parents: Option<Box<IrBuildExpr>>,
+        path: BuildExprId,
+        parents: Option<BuildExprId>,
         span: Span,
     },
     PathRemove {
-        path: Box<IrBuildExpr>,
-        missing_ok: Option<Box<IrBuildExpr>>,
+        path: BuildExprId,
+        missing_ok: Option<BuildExprId>,
         span: Span,
     },
     JsonEncode {
-        value: Box<IrBuildExpr>,
+        value: BuildExprId,
         span: Span,
     },
     ArchiveTarCreate {
-        path: Box<IrBuildExpr>,
-        root: Box<IrBuildExpr>,
-        entries: Box<IrBuildExpr>,
-        compression: Option<Box<IrBuildExpr>>,
-        overwrite: Option<Box<IrBuildExpr>>,
+        path: BuildExprId,
+        root: BuildExprId,
+        entries: BuildExprId,
+        compression: Option<BuildExprId>,
+        overwrite: Option<BuildExprId>,
         span: Span,
     },
     ArchiveTarList {
-        path: Box<IrBuildExpr>,
+        path: BuildExprId,
         span: Span,
     },
     ArchiveTarExtract {
-        path: Box<IrBuildExpr>,
-        dest: Box<IrBuildExpr>,
+        path: BuildExprId,
+        dest: BuildExprId,
         span: Span,
     },
     HashVerifyFile {
-        path: Box<IrBuildExpr>,
+        path: BuildExprId,
         algorithm: crate::modules::hash::HashAlgorithm,
-        expected: Box<IrBuildExpr>,
+        expected: BuildExprId,
         span: Span,
     },
     ModuleCall {
         op: RuntimeOp,
-        args: Vec<IrBuildExpr>,
+        args: Vec<BuildExprId>,
         span: Span,
     },
     // Boxed because this cold command-construction payload otherwise makes
-    // every `IrBuildExpr` 16 bytes larger, including expression-heavy scripts.
+    // every `BuildExprId` 16 bytes larger, including expression-heavy scripts.
     ProcessCommandArgv(Box<LoweredProcessCommandArgv>),
     ProcessCommandBuilder {
         entries: Vec<LoweredProcessCommandBuilderEntry>,
         span: Span,
     },
     Abort {
-        status: Box<IrBuildExpr>,
-        force: Option<Box<IrBuildExpr>>,
+        status: BuildExprId,
+        force: Option<BuildExprId>,
         span: Span,
     },
-    Ok(Box<IrBuildExpr>),
-    Err(Box<IrBuildExpr>),
+    Ok(BuildExprId),
+    Err(BuildExprId),
     // Boxed: `LoweredErrorExpr::Structured` inlines two `String`s plus two
-    // `Vec`s (~96 bytes) that would otherwise size every `IrBuildExpr` variant
+    // `Vec`s (~96 bytes) that would otherwise size every `BuildExprId` variant
     // for the sake of the comparatively rare structured-error-literal case.
     Error(Box<LoweredErrorExpr>),
-    Try(Box<IrBuildExpr>),
+    Try(BuildExprId),
     Call {
         function: LoweredFunctionKey,
         args: Vec<LoweredCallArg>,
         span: Span,
     },
     DynamicCall {
-        callee: Box<IrBuildExpr>,
+        callee: BuildExprId,
         args: Vec<LoweredCallArg>,
         span: Span,
     },
@@ -1528,8 +1605,8 @@ enum IrBuildExpr {
 
 #[derive(Clone, Debug)]
 enum LoweredCallArg {
-    Single(IrBuildExpr),
-    Splice(IrBuildExpr),
+    Single(BuildExprId),
+    Splice(BuildExprId),
 }
 
 #[derive(Clone, Debug)]
@@ -1540,9 +1617,9 @@ struct LoweredRunArg {
 
 #[derive(Clone, Debug)]
 enum LoweredRunArgKind {
-    Single(IrBuildExpr),
-    SingleOrSplice(IrBuildExpr),
-    Splice(IrBuildExpr),
+    Single(BuildExprId),
+    SingleOrSplice(BuildExprId),
+    Splice(BuildExprId),
 }
 
 #[derive(Clone, Debug)]
@@ -1553,8 +1630,8 @@ struct LoweredRunPipelineSegment {
     args: Vec<LoweredRunArg>,
     env: Vec<LoweredRunEnv>,
     redirections: Vec<LoweredRunRedirection>,
-    timeout: Option<Box<IrBuildExpr>>,
-    cpu_max: Option<Box<IrBuildExpr>>,
+    timeout: Option<BuildExprId>,
+    cpu_max: Option<BuildExprId>,
 }
 
 #[derive(Clone, Debug)]
@@ -1573,11 +1650,11 @@ struct LoweredRunRedirection {
 #[derive(Clone, Debug)]
 enum LoweredFmtPart {
     Text(Arc<str>),
-    Expr(IrBuildExpr, Span, Option<FormatSpec>),
+    Expr(BuildExprId, Span, Option<FormatSpec>),
 }
 
 #[derive(Clone, Debug)]
-enum IrBuildPattern {
+enum BuildPatternRow {
     Wildcard,
     // `name => …`: always matches, binds the scrutinee to `slot`.
     Bind {
@@ -1615,7 +1692,7 @@ enum IrBuildPattern {
     },
     Tag {
         name: Name,
-        slots: IrBuildPatternSlots,
+        slots: BuildPatternIdSlots,
     },
 }
 
@@ -1634,70 +1711,70 @@ enum LoweredPipelineStage {
     JsonLines,
     Where {
         slot: usize,
-        predicate: IrBuildExpr,
+        predicate: BuildExprId,
     },
     Map {
         slot: usize,
-        value: IrBuildExpr,
+        value: BuildExprId,
     },
     MapBlock {
         slot: usize,
-        body: Vec<IrBuildStmt>,
-        value: IrBuildExpr,
+        body: Vec<BuildStmtId>,
+        value: BuildExprId,
     },
     FlatMap {
         slot: usize,
-        value: IrBuildExpr,
+        value: BuildExprId,
     },
     FlatMapBlock {
         slot: usize,
-        body: Vec<IrBuildStmt>,
-        value: IrBuildExpr,
+        body: Vec<BuildStmtId>,
+        value: BuildExprId,
     },
     BytesChunks {
-        size: IrBuildExpr,
+        size: BuildExprId,
     },
     BatchCount {
-        count: IrBuildExpr,
+        count: BuildExprId,
     },
     BatchMaxArgv {
-        max_argv: Option<IrBuildExpr>,
+        max_argv: Option<BuildExprId>,
     },
     BatchMaxBytes {
-        max_bytes: IrBuildExpr,
+        max_bytes: BuildExprId,
     },
     Shuffle {
-        seed: Option<IrBuildExpr>,
+        seed: Option<BuildExprId>,
     },
     Fold {
         acc_slot: usize,
         item_slot: usize,
-        initial: IrBuildExpr,
-        body: Vec<IrBuildStmt>,
-        value: IrBuildExpr,
+        initial: BuildExprId,
+        body: Vec<BuildStmtId>,
+        value: BuildExprId,
     },
     ReduceBy {
         item_slot: usize,
-        body: Vec<IrBuildStmt>,
-        value: IrBuildExpr,
+        body: Vec<BuildStmtId>,
+        value: BuildExprId,
         op: ReduceByOp,
     },
     ParMap {
         slot: usize,
-        value: IrBuildExpr,
+        value: BuildExprId,
     },
     ParMapBlock {
         slot: usize,
-        body: Vec<IrBuildStmt>,
-        value: IrBuildExpr,
+        body: Vec<BuildStmtId>,
+        value: BuildExprId,
     },
     Tee {
         slot: usize,
-        body: Vec<IrBuildStmt>,
+        body: Vec<BuildStmtId>,
     },
     Each {
         slot: usize,
-        body: Vec<IrBuildStmt>,
+        body: Vec<BuildStmtId>,
         parallel: bool,
     },
     TablePrint {
@@ -1705,35 +1782,35 @@ enum LoweredPipelineStage {
     },
     Enumerate,
     Zip {
-        other: IrBuildExpr,
+        other: BuildExprId,
     },
     Sort {
-        descending: Option<IrBuildExpr>,
+        descending: Option<BuildExprId>,
     },
     SortBy {
         slot: usize,
-        key: IrBuildExpr,
-        descending: Option<IrBuildExpr>,
+        key: BuildExprId,
+        descending: Option<BuildExprId>,
     },
     GroupBy {
         slot: usize,
-        key: IrBuildExpr,
+        key: BuildExprId,
     },
     CountBy {
         slot: usize,
-        key: IrBuildExpr,
+        key: BuildExprId,
     },
     Any {
         slot: usize,
-        predicate: IrBuildExpr,
+        predicate: BuildExprId,
     },
     All {
         slot: usize,
-        predicate: IrBuildExpr,
+        predicate: BuildExprId,
     },
     UniqueBy {
         slot: usize,
-        key: IrBuildExpr,
+        key: BuildExprId,
     },
     Count,
     Sum,
@@ -1742,14 +1819,14 @@ enum LoweredPipelineStage {
     Last,
     Min,
     Max,
-    Take(IrBuildExpr),
-    Drop(IrBuildExpr),
+    Take(BuildExprId),
+    Drop(BuildExprId),
     Repeat {
-        count: IrBuildExpr,
+        count: BuildExprId,
     },
     Range {
-        start: IrBuildExpr,
-        end: IrBuildExpr,
+        start: BuildExprId,
+        end: BuildExprId,
     },
 }
 
@@ -1781,7 +1858,7 @@ enum LoweredErrorExpr {
     Structured {
         family: String,
         variant: String,
-        fields: Vec<(Arc<str>, IrBuildExpr)>,
+        fields: Vec<(Arc<str>, BuildExprId)>,
         facets: Vec<Name>,
     },
 }
@@ -2363,7 +2440,7 @@ impl LoweredValue {
     }
 }
 
-/// Method names the lowering pass will emit (as `IrBuildExpr::Method` or a
+/// Method names the lowering pass will emit (as `BuildExprRow::Method` or a
 /// dedicated node). Kept as data — not a `matches!` — so it is the single source
 /// of truth shared by `lowered_method_name`, the consistency test, and
 /// `tools/xsh-ir-coverage.xsh`, which parses this declaration directly.

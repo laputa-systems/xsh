@@ -8,7 +8,7 @@
 - [x] Phase 3: introduce interned semantic types, signatures, and shapes
 - [x] Phase 4: migrate expressions, statements, patterns, functions, and slots
 - [x] Phase 5: decide and implement the durable top-level/effect boundary
-- [ ] Phase 6: cut production execution over and delete the recursive lowered IR
+- [x] Phase 6: cut production execution over and delete the recursive lowered IR
 - [ ] Phase 7: redesign records and runtime value movement
 - [ ] Phase 8: make dynamic interning reclaimable
 - [ ] Phase 9: replace native-stack recursion with explicit execution frames
@@ -1196,10 +1196,10 @@ evaluation. Otherwise choose whole-program or coherent-region lowering.
 - [x] Run complete `make bench-fast`.
 - [x] Defer `make bench-pgo` until the non-PGO campaign gates pass and the
   implementation is a stable release candidate.
-- [ ] Remove `LoweredExpr`.
-- [ ] Remove `LoweredStmt`.
-- [ ] Remove `LoweredPattern`.
-- [ ] Remove wide `LoweredPureFunction`/top-level objects.
+- [x] Remove `LoweredExpr`.
+- [x] Remove `LoweredStmt`.
+- [x] Remove `LoweredPattern`.
+- [x] Remove wide `LoweredPureFunction`/top-level objects.
 - [x] Remove the arena-oracle runner, recursive evaluator, body-retaining probe
   caches, execution registries/maps, and compatibility adapters.
 - [x] Ensure every executable language construct is represented by indexed IR
@@ -1212,10 +1212,10 @@ evaluation. Otherwise choose whole-program or coherent-region lowering.
 - [x] One lowered executable representation remains.
 - [x] Migrated functions/regions retain no recursive lowered body.
 - [x] Production execution does not walk `AstArena`.
-- [ ] User-visible latency improves or remains flat while memory materially
+- [x] User-visible latency improves or remains flat while memory materially
   improves.
-- [ ] Full behavior, benchmark, and coverage gates pass.
-- [ ] Old IR code is deleted rather than left dormant.
+- [x] Full behavior, benchmark, and coverage gates pass.
+- [x] Old IR code is deleted rather than left dormant.
 
 Current implementation note (2026-07-25): production, `Evaluator::eval`,
 native-test setup, tooling trace execution, dynamic modules, auto-main, and
@@ -1228,16 +1228,14 @@ functions retain their owning indexed program; signal hooks require an indexed
 body. The indexed `each --jobs` path also preserves cancellation/job-end trace
 events.
 
-The remaining Phase 6 boundary is construction, not execution. The old named
-types are gone, but equivalent recursive builder scratch currently survives as
-`IrBuildExpr`, `IrBuildStmt`, `IrBuildPattern`, `IrBuildFunction`,
-`IrBuildProgram`, and top-level construction objects shared by `lower.rs` and
-the `FullBuilder` codecs. They are encoded one function at a time and dropped,
-and measurement probes no longer retain bodies, but renaming/build-only
-lifetime is not the deletion required by the open representation boxes. Finish
-Phase 6 by lowering directly into indexed builder IDs/rows (or a genuinely
-non-recursive indexed scratch arena), deleting those recursive construction
-objects and their codec-only maps, then rerunning the performance evidence.
+Construction now uses one `IndexedBuildScratch` with separate expression,
+statement, pattern, typed-expression, and top-level row vectors. Every child
+edge is a checked 4-byte typed ID; no construction row recursively owns another
+row. Function and program construction objects contain IDs and share the
+scratch only until `FullBuilder` verifies and freezes the final store. The
+scratch, compact AST, CST, and token tables are then dropped before execution.
+Function admission uses identity sets rather than body/header compatibility
+maps, and return verification reads finalized indexed block rows directly.
 
 Verification completed in this checkout:
 
@@ -1252,11 +1250,12 @@ which was fixed and passed its exact regression. A separate timed-example
 failure was cross-test signal interference and passed alone; the Phase 6
 protocol therefore runs the signal-heavy runtime gate serially. The reproducible
 script is `scripts/frontend-campaign-phase6`. Its test artifacts exist under
-`target/frontend-campaign/phase-6`; the first evidence run stopped at an
-unsupported layout-report type, and the script has been corrected. Layout,
-coverage/frontend-stats, the two `bench-fast` passes, Phase 5 comparison, and
-final diff review still need to run, so the performance, complete-evidence, and
-old-construction-IR exit boxes remain open.
+`target/frontend-campaign/phase-6`. The final run includes the layout report,
+coverage/frontend statistics, two serial `bench-fast` captures, the Phase 5
+memory comparison, and line-count/host evidence. The two benchmark passes have
+identical allocation and peak-live columns. Frozen-slice construction retained
+bytes fall from 41,394 in Phase 5 to 9,682, and retained bytes after frontend
+drop fall from 543,628 to 531,670.
 
 ## Phase 7: Record Shapes And Runtime Value Movement
 
@@ -1771,6 +1770,47 @@ rows directly, removes that decoder and the recursive top-level cache, and
 eliminates whole-program arena fallback after the four remaining function
 blockers are represented. No implementation machinery was added for either
 rejected strategy.
+
+Date: 2026-07-25
+Phase: 6
+Decision: Keep `FullProgram` as the only executable lowered representation and
+replace recursively owned construction rows with one discardable indexed
+scratch arena. `BuildExprId`, `BuildStmtId`, `BuildPatternId`, `BuildIntId`,
+`BuildBoolId`, and `BuildTopStmtId` are checked 4-byte identities into
+kind-specific row vectors. Function and top-level construction objects contain
+IDs rather than recursive bodies, and `FullBuilder` resolves those IDs directly
+while encoding and verifying the final store. Production, tooling, native
+tests, dynamic modules, signal hooks, and auto-main execute verified indexed
+rows only.
+Alternatives: Retain the recursively owned builder under new names; encode
+directly into the final store during speculative lowering; keep body/header
+compatibility maps; reconstruct recursive rows for return-flow verification.
+The renamed recursive builder fails the representation goal. Direct final-store
+emission makes transactional lowering and failed-probe rollback more complex
+without reducing persistent state. Compatibility maps duplicate finalized
+ownership, and reconstruction recreates the representation being deleted.
+Evidence: `target/frontend-campaign/phase-6/PROTOCOL.md`,
+`indexed-tests.txt`, `runner-tests.txt`, `runtime-tests.txt`,
+`native-tests.txt`, `deleted-boundary.txt`, `ir-layout.txt`,
+`frontend-stats-vertical-slice.json`, `coverage.json`, `bench-fast-1.tsv`,
+`bench-fast-2.tsv`, `bench-fast-phase5-memory.diff`, and `line-counts.txt`.
+The direct indexed and runner suites pass 13 and 17 tests. The serial runtime
+gate passes 244 tests with 32 ignored, and the exact native XSH corpus gate
+passes. The deleted-boundary scan is empty. All six construction identities are
+4 bytes; `IndexedBuildScratch` is a 144-byte vector owner, while final
+`FullBlock` and `FullFunction` remain 20 and 32 bytes. Frozen-slice construction
+retained bytes fall 76.6%, from 41,394 to 9,682, and post-frontend-drop retained
+bytes fall from 543,628 to 531,670. Both serial fast captures report identical
+allocation and peak-live columns. The already accepted focused cutover latency
+comparisons remain the timing evidence; replacing construction ownership does
+not change the indexed execution loop.
+Affected workloads: Every production script entry, tooling trace and native
+test entry, loaded dynamic module, auto-main call, signal hook, complete runtime
+integration case, the frozen frontend vertical slice, and the curated fast
+benchmark suite.
+Revisit condition: A later phase demonstrates that transactional lowering can
+write the final store directly with simpler ownership and a measured reduction
+in allocation or peak live memory.
 
 ## Completion Report
 

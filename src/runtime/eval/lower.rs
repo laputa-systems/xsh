@@ -19,7 +19,9 @@ use crate::syntax::node::{
     UnaryOp, parse_command_word_reference,
 };
 use rustc_hash::{FxHashMap, FxHashSet};
+use std::cell::RefCell;
 use std::collections::BTreeMap;
+use std::rc::Rc;
 use std::sync::Arc;
 use xsh_registry::types::BuiltinTypeName;
 
@@ -155,7 +157,7 @@ fn single_positional_arena_call_arg(args: &[ArenaCallArg]) -> Option<ExprId> {
     Some(value)
 }
 
-fn lowered_str_byte_op(name: &str, args: &[IrBuildExpr]) -> bool {
+fn lowered_str_byte_op(name: &str, args: &[BuildExprId]) -> bool {
     match name {
         "byte_len" => args.is_empty(),
         "byte_at" => args.len() == 1 || args.len() == 2,
@@ -1022,27 +1024,58 @@ fn lower_path_write_args(args: &[ArenaCallArg]) -> Option<LoweredPathWriteArgs> 
     Some(LoweredPathWriteArgs { data: *data })
 }
 
-fn lower_command_word_reference(text: &str, slots: &SlotScope, span: Span) -> Option<IrBuildExpr> {
+fn build_expr(
+    scratch: &Rc<RefCell<IndexedBuildScratch>>,
+    row: BuildExprRow,
+) -> BuildExprId {
+    scratch.borrow_mut().expr(row)
+}
+
+macro_rules! push_build_row {
+    ($self:expr, expr, $row:expr) => {{
+        let row = $row;
+        $self.scratch.borrow_mut().expr(row)
+    }};
+    ($self:expr, stmt, $row:expr) => {{
+        let row = $row;
+        $self.scratch.borrow_mut().stmt(row)
+    }};
+    ($self:expr, pattern, $row:expr) => {{
+        let row = $row;
+        $self.scratch.borrow_mut().pattern(row)
+    }};
+    ($self:expr, int, $row:expr) => {{
+        let row = $row;
+        $self.scratch.borrow_mut().int(row)
+    }};
+    ($self:expr, bool, $row:expr) => {{
+        let row = $row;
+        $self.scratch.borrow_mut().bool(row)
+    }};
+}
+
+fn lower_command_word_reference(
+    text: &str,
+    slots: &SlotScope,
+    span: Span,
+    scratch: &Rc<RefCell<IndexedBuildScratch>>,
+) -> Option<BuildExprId> {
     let (root, segments) = parse_command_word_reference(text)?;
     let mut value = if let Some(slot) = slots.resolve(Name::intern(root)) {
-        IrBuildExpr::Param(slot)
+        build_expr(scratch, BuildExprRow::Param(slot))
     } else if root == "env" && !segments.is_empty() {
-        return lower_env_command_word_reference(&segments, span);
+        return lower_env_command_word_reference(&segments, span, scratch);
     } else {
         return None;
     };
     for segment in segments {
         value = match segment {
-            CommandWordRefSegment::Field(name) => IrBuildExpr::Field {
-                base: Box::new(value),
-                name: name.as_str(),
-                span,
-            },
-            CommandWordRefSegment::Index(index) => IrBuildExpr::Index {
-                base: Box::new(value),
-                index: Box::new(IrBuildExpr::Int(index)),
-                span,
-            },
+            CommandWordRefSegment::Field(name) => build_expr(scratch, BuildExprRow::Field { base: value,
+            name: name.as_str(),
+            span, }),
+            CommandWordRefSegment::Index(index) => build_expr(scratch, BuildExprRow::Index { base: value,
+                index: build_expr(scratch, BuildExprRow::Int(index)),
+            span, }),
         };
     }
     Some(value)
@@ -1051,21 +1084,20 @@ fn lower_command_word_reference(text: &str, slots: &SlotScope, span: Span) -> Op
 fn lower_env_command_word_reference(
     segments: &[CommandWordRefSegment],
     span: Span,
-) -> Option<IrBuildExpr> {
+    scratch: &Rc<RefCell<IndexedBuildScratch>>,
+) -> Option<BuildExprId> {
     match segments {
         [CommandWordRefSegment::Field(name)] => {
             if *name == "PATH" {
-                Some(IrBuildExpr::ModuleCall {
-                    op: RuntimeOp::EnvPathList,
-                    args: vec![IrBuildExpr::Str(name.to_string().into())],
-                    span,
-                })
+                let name = build_expr(scratch, BuildExprRow::Str(name.to_string().into()));
+                Some(build_expr(scratch, BuildExprRow::ModuleCall { op: RuntimeOp::EnvPathList,
+                args: vec![name],
+                span, }))
             } else {
-                Some(IrBuildExpr::ModuleCall {
-                    op: RuntimeOp::EnvGet,
-                    args: vec![IrBuildExpr::Str(name.to_string().into())],
-                    span,
-                })
+                let name = build_expr(scratch, BuildExprRow::Str(name.to_string().into()));
+                Some(build_expr(scratch, BuildExprRow::ModuleCall { op: RuntimeOp::EnvGet,
+                args: vec![name],
+                span, }))
             }
         }
         [
@@ -1077,11 +1109,10 @@ fn lower_env_command_word_reference(
             } else {
                 RuntimeOp::EnvGet
             };
-            Some(IrBuildExpr::ModuleCall {
-                op,
-                args: vec![IrBuildExpr::Str(var_name.to_string().into())],
-                span,
-            })
+            let name = build_expr(scratch, BuildExprRow::Str(var_name.to_string().into()));
+            Some(build_expr(scratch, BuildExprRow::ModuleCall { op,
+            args: vec![name],
+            span, }))
         }
         _ => None,
     }
@@ -1386,16 +1417,17 @@ impl SlotScope {
 use super::{
     COMPACT_CALL_BLOCKER_KIND_COUNT, COMPACT_COMMAND_BLOCKER_KIND_COUNT, COMPACT_EXPR_KIND_COUNT,
     COMPACT_STMT_KIND_COUNT, COMPACT_TYPE_EXPR_TAG_COUNT, CompactLowerConstructProbeOutput,
-    Flow, LowerableFunctions, LoweredBoolExpr,
+    Flow, LowerableFunctions, BuildBoolId,
     LoweredCallArg, LoweredCompFields, LoweredCompTarget, LoweredErrorExpr,
-    LoweredErrorPatternFields, IrBuildExpr, LoweredFmtPart, LoweredFunctionBlocker,
-    LoweredFunctionKey, LoweredFunctionKind, LoweredFunctionUnit, LoweredIntExpr,
+    BuildBoolRow, BuildExprRow, BuildIntRow, BuildPatternRow, BuildStmtRow, BuildTopStmtId,
+    IndexedBuildScratch, LoweredErrorPatternFields, BuildExprId, LoweredFmtPart, LoweredFunctionBlocker,
+    LoweredFunctionKey, LoweredFunctionKind, LoweredFunctionUnit, BuildIntId,
     LoweredModuleExport, LoweredModuleExportKind, LoweredParamChecks, LoweredParamDefaults,
-    LoweredParamKinds, LoweredParamNames, LoweredParamRest, IrBuildPattern, IrBuildPatternSlots,
-    LoweredPipelineStage, IrBuildProgram, IrBuildFunction, LoweredReturnKind, LoweredRunArg,
+    LoweredParamKinds, LoweredParamNames, LoweredParamRest, BuildPatternId, BuildPatternIdSlots,
+    LoweredPipelineStage, IndexedProgramBuild, IndexedFunctionBuild, LoweredReturnKind, LoweredRunArg,
     LoweredRunArgKind, LoweredRunEnv, LoweredRunPipelineSegment, LoweredRunRedirection,
-    IrBuildStmt, IndexedStmtFlow, LoweredStrPredicate, LoweredTopLevelBinding, IrBuildTopLevelKind,
-    LoweredTopLevelSlot, LoweredTopLevelSlots, IrBuildTopLevelStmt, LoweredType, LoweredTypeCheck,
+    BuildStmtId, IndexedStmtFlow, LoweredStrPredicate, LoweredTopLevelBinding, BuildTopKind,
+    LoweredTopLevelSlot, LoweredTopLevelSlots, BuildTopStmtRow, LoweredType, LoweredTypeCheck,
     LoweredValue, ReduceByOp, ScanCheck, ScanCondition, lowered_method_name,
 };
 
@@ -1499,6 +1531,7 @@ pub(super) fn probe_compact_lower_constructed_bodies(
         },
         last_blocker_detail: None,
         strict_dynamic_methods: true,
+        scratch: Rc::new(RefCell::new(IndexedBuildScratch::default())),
     };
     probe.probe_program();
     probe.output
@@ -1515,10 +1548,10 @@ pub(super) fn lower_compact_function_units_into(
     let root = compact_function_defs(program);
     let candidates = root.iter().map(|function| function.key).collect::<Vec<_>>();
     for function in root {
-        let empty_pures = FxHashMap::default();
-        let empty_procs = FxHashMap::default();
-        let empty_qualified_pures = FxHashMap::default();
-        let empty_qualified_procs = FxHashMap::default();
+        let empty_pures = FxHashSet::default();
+        let empty_procs = FxHashSet::default();
+        let empty_qualified_pures = FxHashSet::default();
+        let empty_qualified_procs = FxHashSet::default();
         let functions = LowerableFunctions::all_with_candidates(
             &empty_pures,
             &empty_procs,
@@ -1548,6 +1581,7 @@ pub(super) fn lower_compact_function_units_into(
             output: CompactLowerConstructProbeOutput::default(),
             last_blocker_detail: None,
             strict_dynamic_methods: true,
+            scratch: Rc::new(RefCell::new(IndexedBuildScratch::default())),
         };
         let (scc_member_count, scc_group) =
             compact_function_scc_metadata(program, function);
@@ -1570,7 +1604,7 @@ pub(super) fn lower_compact_top_level_program_with_probe(
     sources: &SourceMap,
     functions: &LowerableFunctions<'_>,
     strict_dynamic_methods: bool,
-) -> (IrBuildProgram, CompactLowerConstructProbeOutput) {
+) -> (IndexedProgramBuild, CompactLowerConstructProbeOutput) {
     let mut probe = CompactLowerConstructProbe {
         program,
         declarations,
@@ -1591,6 +1625,7 @@ pub(super) fn lower_compact_top_level_program_with_probe(
         output: CompactLowerConstructProbeOutput::default(),
         last_blocker_detail: None,
         strict_dynamic_methods,
+        scratch: Rc::new(RefCell::new(IndexedBuildScratch::default())),
     };
     let root = program.statement_ids().collect::<Vec<_>>();
     let lowered = probe.lower_program_statements(&root);
@@ -1627,6 +1662,7 @@ fn compact_top_level_known(
         output: CompactLowerConstructProbeOutput::default(),
         last_blocker_detail: None,
         strict_dynamic_methods: true,
+        scratch: Rc::new(RefCell::new(IndexedBuildScratch::default())),
     };
     probe.collect_top_level_known(&statements)
 }
@@ -1662,6 +1698,7 @@ fn compact_function_top_level_known(
         output: CompactLowerConstructProbeOutput::default(),
         last_blocker_detail: None,
         strict_dynamic_methods: true,
+        scratch: Rc::new(RefCell::new(IndexedBuildScratch::default())),
     };
     let mut known = top_level_known_with_runtime_bindings();
     for stmt in statements {
@@ -2170,6 +2207,7 @@ struct CompactLowerConstructProbe<'a, 'defs> {
     output: CompactLowerConstructProbeOutput,
     last_blocker_detail: Option<(Span, String)>,
     strict_dynamic_methods: bool,
+    scratch: Rc<RefCell<IndexedBuildScratch>>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -2943,10 +2981,11 @@ impl CompactLowerConstructProbe<'_, '_> {
         self.lower_program_statements(statements);
     }
 
-    fn lower_program_statements(&mut self, statements: &[StmtId]) -> IrBuildProgram {
+    fn lower_program_statements(&mut self, statements: &[StmtId]) -> IndexedProgramBuild {
         let mut known = top_level_known_with_runtime_bindings();
-        let mut lowered = IrBuildProgram {
+        let mut lowered = IndexedProgramBuild {
             statements: Vec::with_capacity(statements.len()),
+            scratch: self.scratch.clone(),
         };
         for stmt in statements {
             self.output.top_level_statements += 1;
@@ -3088,7 +3127,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                     capture_count,
                     slot_count,
                     dependency_edges,
-                    body: Some(Arc::new(body)),
+                    body: Some(body),
                     blocker: None,
                     blocker_detail: None,
                     scc_member_count,
@@ -3167,7 +3206,7 @@ impl CompactLowerConstructProbe<'_, '_> {
         &mut self,
         id: crate::syntax::arena::FunctionDefId,
         _pure: bool,
-    ) -> Result<IrBuildFunction, CompactFunctionBlocker> {
+    ) -> Result<IndexedFunctionBuild, CompactFunctionBlocker> {
         let def = self.program.arena.function_def(id);
         let return_kind = match self.lowered_return_kind(def.return_ty) {
             Some(kind) => kind,
@@ -3268,12 +3307,14 @@ impl CompactLowerConstructProbe<'_, '_> {
             }
             return Err(CompactFunctionBlocker::Body);
         }
-        if !lowered_body_can_return(&body) {
+        let can_return = {
+            let scratch = self.scratch.borrow();
+            lowered_body_can_return(&scratch, &body)
+        };
+        if !can_return {
             if matches!(return_kind, LoweredReturnKind::Plain(LoweredType::Stream)) {
             } else if lowered_return_kind_accepts_unit_fallthrough(return_kind) {
-                body.push(IrBuildStmt::Return {
-                    value: IrBuildExpr::Unit,
-                });
+                body.push(push_build_row!(self, stmt, BuildStmtRow::Return { value: push_build_row!(self, expr, BuildExprRow::Unit), }));
             } else {
                 self.last_blocker_detail = Some((
                     self.program
@@ -3284,8 +3325,11 @@ impl CompactLowerConstructProbe<'_, '_> {
                 return Err(CompactFunctionBlocker::NoReturn);
             }
         }
-        let has_defers = lowered_body_has_defers(&body);
-        Ok(IrBuildFunction {
+        let has_defers = {
+            let scratch = self.scratch.borrow();
+            lowered_body_has_defers(&scratch, &body)
+        };
+        Ok(IndexedFunctionBuild {
             params,
             param_kinds,
             param_checks,
@@ -3296,6 +3340,7 @@ impl CompactLowerConstructProbe<'_, '_> {
             slot_count: slots.count(),
             body,
             has_defers,
+            scratch: self.scratch.clone(),
         })
     }
 
@@ -3460,7 +3505,7 @@ impl CompactLowerConstructProbe<'_, '_> {
         &mut self,
         id: StmtId,
         known: &FxHashMap<Name, LoweredTopLevelBinding>,
-    ) -> Option<IrBuildTopLevelStmt> {
+    ) -> Option<BuildTopStmtId> {
         match self.program.arena.stmt(id).kind {
             ArenaStmtKind::Export(inner) => self.lower_top_level_stmt(inner, known),
             ArenaStmtKind::Use(use_id) => {
@@ -3502,6 +3547,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                         output: CompactLowerConstructProbeOutput::default(),
                         last_blocker_detail: None,
                         strict_dynamic_methods: true,
+                        scratch: self.scratch.clone(),
                     };
                     probe.lower_program_statements(&module_statement_ids)
                 };
@@ -3512,8 +3558,8 @@ impl CompactLowerConstructProbe<'_, '_> {
                         Some((self.program.arena.stmt(stmt).span, lowered?))
                     })
                     .collect();
-                Some(lowered_top_level(
-                    IrBuildTopLevelKind::Use {
+                Some(lowered_top_level(&self.scratch,
+                    BuildTopKind::Use {
                         key,
                         alias: use_stmt.alias,
                         path,
@@ -3548,8 +3594,8 @@ impl CompactLowerConstructProbe<'_, '_> {
                         .iter()
                         .map(|field| field.name)
                         .collect::<Vec<_>>();
-                    return Some(lowered_top_level(
-                        IrBuildTopLevelKind::LetRecord {
+                    return Some(lowered_top_level(&self.scratch,
+                        BuildTopKind::LetRecord {
                             source,
                             fields: field_names,
                             mutable: matches!(
@@ -3566,8 +3612,8 @@ impl CompactLowerConstructProbe<'_, '_> {
                 if is_discard_name(target) {
                     let mut slots = top_level_slots(known);
                     let value = self.lower_expr(value, &mut slots, None, None)?;
-                    return Some(lowered_top_level(
-                        IrBuildTopLevelKind::Discard {
+                    return Some(lowered_top_level(&self.scratch,
+                        BuildTopKind::Discard {
                             value,
                             span: match initializer {
                                 ArenaExprOrRun::Expr(value) => self.program.arena.expr(value).span,
@@ -3596,12 +3642,12 @@ impl CompactLowerConstructProbe<'_, '_> {
                 };
                 let mut slots = top_level_slots(known);
                 let value = if self.is_empty_record_in_map_context(value, annotation) {
-                    IrBuildExpr::EmptyMap
+                    push_build_row!(self, expr, BuildExprRow::EmptyMap)
                 } else {
                     self.lower_expr(value, &mut slots, None, None)?
                 };
-                Some(lowered_top_level(
-                    IrBuildTopLevelKind::Let {
+                Some(lowered_top_level(&self.scratch,
+                    BuildTopKind::Let {
                         target,
                         ty,
                         validation,
@@ -3633,8 +3679,8 @@ impl CompactLowerConstructProbe<'_, '_> {
                 if is_discard_name(target) {
                     let mut slots = top_level_slots(known);
                     let value = self.lower_run_binding_value(run, &mut slots, None, None)?;
-                    return Some(lowered_top_level(
-                        IrBuildTopLevelKind::Discard {
+                    return Some(lowered_top_level(&self.scratch,
+                        BuildTopKind::Discard {
                             value,
                             span: self
                                 .program
@@ -3662,8 +3708,8 @@ impl CompactLowerConstructProbe<'_, '_> {
                 };
                 let mut slots = top_level_slots(known);
                 let value = self.lower_run_binding_value(run, &mut slots, None, None)?;
-                Some(lowered_top_level(
-                    IrBuildTopLevelKind::Let {
+                Some(lowered_top_level(&self.scratch,
+                    BuildTopKind::Let {
                         target,
                         ty,
                         validation,
@@ -3691,8 +3737,8 @@ impl CompactLowerConstructProbe<'_, '_> {
                     }
                     let mut slots = top_level_slots(known);
                     let lowered = self.lower_stmt_with_blocker_guard(id, &mut slots, None, None)?;
-                    return Some(lowered_top_level(
-                        IrBuildTopLevelKind::Stmt(lowered),
+                    return Some(lowered_top_level(&self.scratch,
+                        BuildTopKind::Stmt(lowered),
                         known,
                         slots,
                     ));
@@ -3704,8 +3750,8 @@ impl CompactLowerConstructProbe<'_, '_> {
                         self.lower_run_binding_value(run, &mut slots, None, None)?
                     }
                 };
-                Some(lowered_top_level(
-                    IrBuildTopLevelKind::Assign {
+                Some(lowered_top_level(&self.scratch,
+                    BuildTopKind::Assign {
                         target,
                         op,
                         value,
@@ -3722,8 +3768,8 @@ impl CompactLowerConstructProbe<'_, '_> {
             | ArenaStmtKind::Loop { .. } => {
                 let mut slots = top_level_slots(known);
                 let lowered = self.lower_stmt_with_blocker_guard(id, &mut slots, None, None)?;
-                Some(lowered_top_level(
-                    IrBuildTopLevelKind::Stmt(lowered),
+                Some(lowered_top_level(&self.scratch,
+                    BuildTopKind::Stmt(lowered),
                     known,
                     slots,
                 ))
@@ -3736,8 +3782,8 @@ impl CompactLowerConstructProbe<'_, '_> {
                     .or_else(|| self.lower_env_stmt(command, &mut slots, None, None))
                     .or_else(|| self.lower_run_stmt(command, &mut slots, None, None))
                     .or_else(|| self.lower_proc_stmt(command, &mut slots, None, None))?;
-                Some(lowered_top_level(
-                    IrBuildTopLevelKind::Stmt(lowered),
+                Some(lowered_top_level(&self.scratch,
+                    BuildTopKind::Stmt(lowered),
                     known,
                     slots,
                 ))
@@ -3745,8 +3791,8 @@ impl CompactLowerConstructProbe<'_, '_> {
             ArenaStmtKind::Expr(value) => {
                 let mut slots = top_level_slots(known);
                 let value = self.lower_expr(value, &mut slots, None, None)?;
-                Some(lowered_top_level(
-                    IrBuildTopLevelKind::Expr(value),
+                Some(lowered_top_level(&self.scratch,
+                    BuildTopKind::Expr(value),
                     known,
                     slots,
                 ))
@@ -3754,8 +3800,8 @@ impl CompactLowerConstructProbe<'_, '_> {
             ArenaStmtKind::Defer(ArenaExprOrRun::Expr(value)) => {
                 let mut slots = top_level_slots(known);
                 let value = self.lower_expr(value, &mut slots, None, None)?;
-                Some(lowered_top_level(
-                    IrBuildTopLevelKind::Defer {
+                Some(lowered_top_level(&self.scratch,
+                    BuildTopKind::Defer {
                         value,
                         span: self.program.arena.stmt(id).span,
                     },
@@ -3766,8 +3812,8 @@ impl CompactLowerConstructProbe<'_, '_> {
             ArenaStmtKind::Defer(ArenaExprOrRun::Run(run)) => {
                 let mut slots = top_level_slots(known);
                 let value = self.lower_run_binding_value(run, &mut slots, None, None)?;
-                Some(lowered_top_level(
-                    IrBuildTopLevelKind::Defer {
+                Some(lowered_top_level(&self.scratch,
+                    BuildTopKind::Defer {
                         value,
                         span: self.program.arena.stmt(id).span,
                     },
@@ -3791,8 +3837,8 @@ impl CompactLowerConstructProbe<'_, '_> {
                         })
                     })
                     .collect();
-                Some(lowered_top_level(
-                    IrBuildTopLevelKind::SignalHook {
+                Some(lowered_top_level(&self.scratch,
+                    BuildTopKind::SignalHook {
                         signal: hook.signal,
                         pre_cancel: hook.options.pre_cancel.clone(),
                         body,
@@ -4117,7 +4163,7 @@ impl CompactLowerConstructProbe<'_, '_> {
         slots: &mut SlotScope,
         current_function: Option<Name>,
         item_slot: Option<usize>,
-    ) -> Option<IrBuildExpr> {
+    ) -> Option<BuildExprId> {
         let lowered = self.lower_expr(value, slots, current_function, item_slot)?;
         let Some(ty) = ty else {
             return Some(lowered);
@@ -4132,11 +4178,9 @@ impl CompactLowerConstructProbe<'_, '_> {
                 }),
                 name: compact_type_expr_name(&self.program.arena, ty),
             };
-            Some(IrBuildExpr::Try(Box::new(IrBuildExpr::Require {
-                value: Box::new(lowered),
-                check,
-                span,
-            })))
+            Some(push_build_row!(self, expr, BuildExprRow::Try(push_build_row!(self, expr, BuildExprRow::Require { value: lowered,
+            check,
+            span, }))))
         } else {
             Some(lowered)
         }
@@ -5358,7 +5402,7 @@ impl CompactLowerConstructProbe<'_, '_> {
         slots: &mut SlotScope,
         current_function: Option<Name>,
         item_slot: Option<usize>,
-    ) -> Option<Vec<IrBuildStmt>> {
+    ) -> Option<Vec<BuildStmtId>> {
         let statements = self.program.arena.block(block).statements;
         let ids = self.program.arena.stmt_ids(statements).collect::<Vec<_>>();
         let Some((&tail, prefix)) = ids.split_last() else {
@@ -5374,14 +5418,10 @@ impl CompactLowerConstructProbe<'_, '_> {
             )?);
         }
         let tail = match self.program.arena.stmt(tail).kind {
-            ArenaStmtKind::Expr(expr) => IrBuildStmt::Return {
-                value: self.lower_expr(expr, slots, current_function, item_slot)?,
-            },
-            ArenaStmtKind::TailBareIdent(name) => IrBuildStmt::Return {
-                value: self
-                    .lower_bare_ident(name, slots)
-                    .unwrap_or(IrBuildExpr::Unit),
-            },
+            ArenaStmtKind::Expr(expr) => push_build_row!(self, stmt, BuildStmtRow::Return { value: self.lower_expr(expr, slots, current_function, item_slot)?, }),
+            ArenaStmtKind::TailBareIdent(name) => push_build_row!(self, stmt, BuildStmtRow::Return { value: self
+                .lower_bare_ident(name, slots)
+                .unwrap_or(push_build_row!(self, expr, BuildExprRow::Unit)), }),
             ArenaStmtKind::If {
                 branches,
                 else_block,
@@ -5402,40 +5442,38 @@ impl CompactLowerConstructProbe<'_, '_> {
                         });
                 }
             },
-            ArenaStmtKind::Match { value, arms } => IrBuildStmt::Return {
-                value: match self.lower_match_stmt_as_expr(
-                    value,
-                    arms,
-                    self.program.arena.stmt(tail).span,
-                    slots,
-                    current_function,
-                    item_slot,
-                ) {
-                    Some(value) => value,
-                    None => {
-                        // Arms have multi-statement block bodies that produce a
-                        // value; this can't be a `MatchExpr`. Lower it as a
-                        // statement-match whose arm bodies return their tail.
-                        if let Some(stmt) = self.lower_tail_match_stmt(
-                            value,
-                            arms,
-                            self.program.arena.stmt(tail).span,
-                            slots,
-                            current_function,
-                            item_slot,
-                        ) {
-                            lowered.push(stmt);
-                            return Some(lowered);
-                        }
-                        return self
-                            .lower_stmt_with_blocker_guard(tail, slots, current_function, item_slot)
-                            .map(|stmt| {
-                                lowered.push(stmt);
-                                lowered
-                            });
+            ArenaStmtKind::Match { value, arms } => push_build_row!(self, stmt, BuildStmtRow::Return { value: match self.lower_match_stmt_as_expr(
+                value,
+                arms,
+                self.program.arena.stmt(tail).span,
+                slots,
+                current_function,
+                item_slot,
+            ) {
+                Some(value) => value,
+                None => {
+                    // Arms have multi-statement block bodies that produce a
+                    // value; this can't be a `MatchExpr`. Lower it as a
+                    // statement-match whose arm bodies return their tail.
+                    if let Some(stmt) = self.lower_tail_match_stmt(
+                        value,
+                        arms,
+                        self.program.arena.stmt(tail).span,
+                        slots,
+                        current_function,
+                        item_slot,
+                    ) {
+                        lowered.push(stmt);
+                        return Some(lowered);
                     }
-                },
-            },
+                    return self
+                        .lower_stmt_with_blocker_guard(tail, slots, current_function, item_slot)
+                        .map(|stmt| {
+                            lowered.push(stmt);
+                            lowered
+                        });
+                }
+            }, }),
             _ => self.lower_stmt_with_blocker_guard(tail, slots, current_function, item_slot)?,
         };
         lowered.push(tail);
@@ -5448,7 +5486,7 @@ impl CompactLowerConstructProbe<'_, '_> {
         slots: &mut SlotScope,
         current_function: Option<Name>,
         item_slot: Option<usize>,
-    ) -> Option<Vec<IrBuildStmt>> {
+    ) -> Option<Vec<BuildStmtId>> {
         if !self.program.arena.block(block).params.is_empty() {
             return Some(Vec::new());
         }
@@ -5470,7 +5508,7 @@ impl CompactLowerConstructProbe<'_, '_> {
         slots: &mut SlotScope,
         current_function: Option<Name>,
         item_slot: Option<usize>,
-    ) -> Option<Vec<IrBuildStmt>> {
+    ) -> Option<Vec<BuildStmtId>> {
         if !self.program.arena.block(block).params.is_empty() {
             return Some(Vec::new());
         }
@@ -5491,14 +5529,10 @@ impl CompactLowerConstructProbe<'_, '_> {
                 )?);
             }
             let tail_stmt = match self.program.arena.stmt(tail).kind {
-                ArenaStmtKind::Expr(expr) => IrBuildStmt::BreakValue {
-                    value: self.lower_expr(expr, slots, current_function, item_slot)?,
-                },
-                ArenaStmtKind::TailBareIdent(name) => IrBuildStmt::BreakValue {
-                    value: self
-                        .lower_bare_ident(name, slots)
-                        .unwrap_or(IrBuildExpr::Unit),
-                },
+                ArenaStmtKind::Expr(expr) => push_build_row!(self, stmt, BuildStmtRow::BreakValue { value: self.lower_expr(expr, slots, current_function, item_slot)?, }),
+                ArenaStmtKind::TailBareIdent(name) => push_build_row!(self, stmt, BuildStmtRow::BreakValue { value: self
+                    .lower_bare_ident(name, slots)
+                    .unwrap_or(push_build_row!(self, expr, BuildExprRow::Unit)), }),
                 _ => {
                     self.lower_stmt_with_blocker_guard(tail, slots, current_function, item_slot)?
                 }
@@ -5516,7 +5550,7 @@ impl CompactLowerConstructProbe<'_, '_> {
         slots: &mut SlotScope,
         current_function: Option<Name>,
         item_slot: Option<usize>,
-    ) -> Option<Vec<IrBuildStmt>> {
+    ) -> Option<Vec<BuildStmtId>> {
         let statements = self.program.arena.block(block).statements;
         let ids = self.program.arena.stmt_ids(statements).collect::<Vec<_>>();
         let mut lowered = Vec::with_capacity(ids.len());
@@ -5537,7 +5571,7 @@ impl CompactLowerConstructProbe<'_, '_> {
         slots: &mut SlotScope,
         current_function: Option<Name>,
         item_slot: Option<usize>,
-    ) -> Option<IrBuildStmt> {
+    ) -> Option<BuildStmtId> {
         let blockers_before = self.output.blocker_events;
         match self.lower_stmt(id, slots, current_function, item_slot) {
             Some(stmt) => Some(stmt),
@@ -5558,7 +5592,7 @@ impl CompactLowerConstructProbe<'_, '_> {
         slots: &mut SlotScope,
         current_function: Option<Name>,
         item_slot: Option<usize>,
-    ) -> Option<IrBuildStmt> {
+    ) -> Option<BuildStmtId> {
         self.output.statements += 1;
         let lowered = match self.program.arena.stmt(id).kind {
             ArenaStmtKind::Let {
@@ -5583,27 +5617,21 @@ impl CompactLowerConstructProbe<'_, '_> {
                         }
                         lowered_fields.push((field.name, slots.declare(field.name)));
                     }
-                    return Some(IrBuildStmt::LetRecord {
-                        source,
-                        fields: lowered_fields,
-                        span: self.program.arena.stmt(id).span,
-                    });
+                    return Some(push_build_row!(self, stmt, BuildStmtRow::LetRecord { source,
+                    fields: lowered_fields,
+                    span: self.program.arena.stmt(id).span, }));
                 }
                 let name = simple_binding_target(self.program, target)?;
                 if is_discard_name(name) {
-                    return Some(IrBuildStmt::Expr {
-                        value: self.lower_expr(value, slots, current_function, item_slot)?,
-                        span: self.program.arena.stmt(id).span,
-                    });
+                    return Some(push_build_row!(self, stmt, BuildStmtRow::Expr { value: self.lower_expr(value, slots, current_function, item_slot)?,
+                    span: self.program.arena.stmt(id).span, }));
                 }
                 if slots.is_bound_non_capture(name) {
                     {
                         self.record_lower_stmt_blocker(id);
                         self.output.constructed_statements += 1;
-                        return Some(IrBuildStmt::Expr {
-                            value: IrBuildExpr::Unit,
-                            span: self.program.arena.stmt(id).span,
-                        });
+                        return Some(push_build_row!(self, stmt, BuildStmtRow::Expr { value: push_build_row!(self, expr, BuildExprRow::Unit),
+                        span: self.program.arena.stmt(id).span, }));
                     }
                 }
                 let binding_ty = self.lower_binding_checked_type(ty, value, slots);
@@ -5614,7 +5642,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                     return None;
                 }
                 let value = if self.is_empty_record_in_map_context(value, ty) {
-                    IrBuildExpr::EmptyMap
+                    push_build_row!(self, expr, BuildExprRow::EmptyMap)
                 } else {
                     self.lower_binding_expr_value(
                         ty,
@@ -5627,16 +5655,16 @@ impl CompactLowerConstructProbe<'_, '_> {
                     )?
                 };
                 let slot = slots.declare_with_type(name, binding_ty);
-                if let Some(value) = lower_int_expr_candidate(&value)
-                    && !lowered_int_expr_needs_type_context(&value)
+                if let Some(value) = self.lower_int_expr_candidate(&value)
+                    && !self.lowered_int_expr_needs_type_context(&value)
                 {
-                    Some(IrBuildStmt::LetInt { slot, value })
-                } else if let Some(value) = lower_bool_expr_candidate(&value)
-                    && !lowered_bool_expr_needs_type_context(&value)
+                    Some(push_build_row!(self, stmt, BuildStmtRow::LetInt { slot, value }))
+                } else if let Some(value) = self.lower_bool_expr_candidate(&value)
+                    && !self.lowered_bool_expr_needs_type_context(&value)
                 {
-                    Some(IrBuildStmt::LetBool { slot, value })
+                    Some(push_build_row!(self, stmt, BuildStmtRow::LetBool { slot, value }))
                 } else {
-                    Some(IrBuildStmt::Let { slot, value })
+                    Some(push_build_row!(self, stmt, BuildStmtRow::Let { slot, value }))
                 }
             }
             ArenaStmtKind::Let {
@@ -5651,24 +5679,20 @@ impl CompactLowerConstructProbe<'_, '_> {
             } => {
                 let name = simple_binding_target(self.program, target)?;
                 if is_discard_name(name) {
-                    return Some(IrBuildStmt::Expr {
-                        value: self.lower_run_binding_value(
-                            run,
-                            slots,
-                            current_function,
-                            item_slot,
-                        )?,
-                        span: self.program.arena.stmt(id).span,
-                    });
+                    return Some(push_build_row!(self, stmt, BuildStmtRow::Expr { value: self.lower_run_binding_value(
+                        run,
+                        slots,
+                        current_function,
+                        item_slot,
+                    )?,
+                    span: self.program.arena.stmt(id).span, }));
                 }
                 if slots.is_bound_non_capture(name) {
                     {
                         self.record_lower_stmt_blocker(id);
                         self.output.constructed_statements += 1;
-                        return Some(IrBuildStmt::Expr {
-                            value: IrBuildExpr::Unit,
-                            span: self.program.arena.stmt(id).span,
-                        });
+                        return Some(push_build_row!(self, stmt, BuildStmtRow::Expr { value: push_build_row!(self, expr, BuildExprRow::Unit),
+                        span: self.program.arena.stmt(id).span, }));
                     }
                 }
                 if let Some(ty) = ty {
@@ -5683,7 +5707,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                             .and_then(type_for_lowered_type)
                     });
                 let slot = slots.declare_with_type(name, binding_ty);
-                Some(IrBuildStmt::Let { slot, value })
+                Some(push_build_row!(self, stmt, BuildStmtRow::Let { slot, value }))
             }
             ArenaStmtKind::Assign { target, op, value } => {
                 let root_name = self.assign_target_root_name(target)?;
@@ -5700,10 +5724,8 @@ impl CompactLowerConstructProbe<'_, '_> {
                     {
                         self.record_lower_stmt_blocker(id);
                         self.output.constructed_statements += 1;
-                        return Some(IrBuildStmt::Expr {
-                            value: IrBuildExpr::Unit,
-                            span: self.program.arena.stmt(id).span,
-                        });
+                        return Some(push_build_row!(self, stmt, BuildStmtRow::Expr { value: push_build_row!(self, expr, BuildExprRow::Unit),
+                        span: self.program.arena.stmt(id).span, }));
                     }
                 };
                 let value = match value {
@@ -5716,58 +5738,48 @@ impl CompactLowerConstructProbe<'_, '_> {
                 };
                 match self.program.arena.assign_target(target).kind {
                     ArenaAssignTargetKind::Name(_) if op == AssignOp::Set => {
-                        if let Some(value) = lower_bool_expr_candidate(&value)
-                            && !lowered_bool_expr_needs_type_context(&value)
+                        if let Some(value) = self.lower_bool_expr_candidate(&value)
+                            && !self.lowered_bool_expr_needs_type_context(&value)
                         {
-                            Some(IrBuildStmt::AssignBool { slot, value })
-                        } else if let Some(value) = lower_int_expr_candidate(&value)
-                            && !lowered_int_expr_needs_type_context(&value)
+                            Some(push_build_row!(self, stmt, BuildStmtRow::AssignBool { slot, value }))
+                        } else if let Some(value) = self.lower_int_expr_candidate(&value)
+                            && !self.lowered_int_expr_needs_type_context(&value)
                         {
-                            Some(IrBuildStmt::AssignInt {
-                                slot,
-                                op,
-                                value,
-                                span: self.program.arena.stmt(id).span,
-                            })
+                            Some(push_build_row!(self, stmt, BuildStmtRow::AssignInt { slot,
+                            op,
+                            value,
+                            span: self.program.arena.stmt(id).span, }))
                         } else {
-                            Some(IrBuildStmt::Assign {
-                                slot,
-                                op,
-                                value,
-                                span: self.program.arena.stmt(id).span,
-                            })
+                            Some(push_build_row!(self, stmt, BuildStmtRow::Assign { slot,
+                            op,
+                            value,
+                            span: self.program.arena.stmt(id).span, }))
                         }
                     }
-                    ArenaAssignTargetKind::Name(_) => Some(IrBuildStmt::Assign {
-                        slot,
-                        op,
-                        value,
-                        span: self.program.arena.stmt(id).span,
-                    }),
+                    ArenaAssignTargetKind::Name(_) => Some(push_build_row!(self, stmt, BuildStmtRow::Assign { slot,
+                    op,
+                    value,
+                    span: self.program.arena.stmt(id).span, })),
                     ArenaAssignTargetKind::Field { base, name }
                         if matches!(
                             self.program.arena.assign_target(base).kind,
                             ArenaAssignTargetKind::Name(_)
                         ) =>
                     {
-                        if let Some(value) = lower_int_expr_candidate(&value)
-                            && !lowered_int_expr_needs_type_context(&value)
+                        if let Some(value) = self.lower_int_expr_candidate(&value)
+                            && !self.lowered_int_expr_needs_type_context(&value)
                         {
-                            Some(IrBuildStmt::AssignFieldInt {
-                                slot,
-                                field: Arc::from(name.as_str()),
-                                op,
-                                value,
-                                span: self.program.arena.stmt(id).span,
-                            })
+                            Some(push_build_row!(self, stmt, BuildStmtRow::AssignFieldInt { slot,
+                            field: Arc::from(name.as_str()),
+                            op,
+                            value,
+                            span: self.program.arena.stmt(id).span, }))
                         } else {
-                            Some(IrBuildStmt::AssignField {
-                                slot,
-                                field: Arc::from(name.as_str()),
-                                op,
-                                value,
-                                span: self.program.arena.stmt(id).span,
-                            })
+                            Some(push_build_row!(self, stmt, BuildStmtRow::AssignField { slot,
+                            field: Arc::from(name.as_str()),
+                            op,
+                            value,
+                            span: self.program.arena.stmt(id).span, }))
                         }
                     }
                     ArenaAssignTargetKind::Index { base, index }
@@ -5776,18 +5788,14 @@ impl CompactLowerConstructProbe<'_, '_> {
                             ArenaAssignTargetKind::Name(_)
                         ) =>
                     {
-                        Some(IrBuildStmt::AssignIndex {
-                            slot,
-                            index: Box::new(self.lower_expr(
-                                index,
-                                slots,
-                                current_function,
-                                item_slot,
-                            )?),
-                            op,
-                            value: Box::new(value),
-                            span: self.program.arena.stmt(id).span,
-                        })
+                        Some(push_build_row!(self, stmt, BuildStmtRow::AssignIndex { slot,
+                        index: self.lower_expr(index,
+                        slots,
+                        current_function,
+                        item_slot,)?,
+                        op,
+                        value: value,
+                        span: self.program.arena.stmt(id).span, }))
                     }
                     _ => None,
                 }
@@ -5812,26 +5820,22 @@ impl CompactLowerConstructProbe<'_, '_> {
                 };
                 let mut bool_branches = Vec::with_capacity(lowered.len());
                 for (condition, body) in &lowered {
-                    let Some(condition) = lower_bool_expr_candidate(condition) else {
-                        return Some(IrBuildStmt::If {
-                            branches: lowered,
-                            else_body,
-                        });
+                    let Some(condition) = self.lower_bool_expr_candidate(condition) else {
+                        return Some(push_build_row!(self, stmt, BuildStmtRow::If { branches: lowered,
+                        else_body, }));
                     };
                     bool_branches.push((condition, body.clone()));
                 }
-                Some(IrBuildStmt::IfBool {
-                    branches: bool_branches,
-                    else_body,
-                })
+                Some(push_build_row!(self, stmt, BuildStmtRow::IfBool { branches: bool_branches,
+                else_body, }))
             }
             ArenaStmtKind::While { condition, block } => {
                 let condition = self.lower_expr(condition, slots, current_function, item_slot)?;
                 let body = self.lower_block(block, slots, current_function, item_slot)?;
-                if let Some(condition) = lower_bool_expr_candidate(&condition) {
-                    Some(IrBuildStmt::WhileBool { condition, body })
+                if let Some(condition) = self.lower_bool_expr_candidate(&condition) {
+                    Some(push_build_row!(self, stmt, BuildStmtRow::WhileBool { condition, body }))
                 } else {
-                    Some(IrBuildStmt::While { condition, body })
+                    Some(push_build_row!(self, stmt, BuildStmtRow::While { condition, body }))
                 }
             }
             ArenaStmtKind::For {
@@ -5862,22 +5866,18 @@ impl CompactLowerConstructProbe<'_, '_> {
                     let body =
                         self.lower_block_in_current_scope(block, slots, current_function, None)?;
                     slots.exit(saved);
-                    return Some(IrBuildStmt::ForRecord {
-                        fields: lowered_fields,
-                        iter,
-                        body,
-                        span: self.program.arena.stmt(id).span,
-                    });
+                    return Some(push_build_row!(self, stmt, BuildStmtRow::ForRecord { fields: lowered_fields,
+                    iter,
+                    body,
+                    span: self.program.arena.stmt(id).span, }));
                 }
                 let name = simple_binding_target(self.program, target)?;
                 if !self.program.arena.block(block).params.is_empty() {
                     {
                         self.record_lower_stmt_blocker(id);
                         self.output.constructed_statements += 1;
-                        return Some(IrBuildStmt::Expr {
-                            value: IrBuildExpr::Unit,
-                            span: self.program.arena.stmt(id).span,
-                        });
+                        return Some(push_build_row!(self, stmt, BuildStmtRow::Expr { value: push_build_row!(self, expr, BuildExprRow::Unit),
+                        span: self.program.arena.stmt(id).span, }));
                     }
                 }
                 // Recognize `for line in <text>.lines()` and lower it to the
@@ -5927,23 +5927,19 @@ impl CompactLowerConstructProbe<'_, '_> {
                 slots.exit(saved);
                 let span = self.program.arena.stmt(id).span;
                 if str_lines_base.is_some() {
-                    if let Some(scan) = try_lower_scan_lines(&text_or_iter, slot, &body, span) {
+                    if let Some(scan) = self.try_lower_scan_lines(&text_or_iter, slot, &body, span) {
                         Some(scan)
                     } else {
-                        Some(IrBuildStmt::ForStrLines {
-                            slot,
-                            text: text_or_iter,
-                            body,
-                            span,
-                        })
+                        Some(push_build_row!(self, stmt, BuildStmtRow::ForStrLines { slot,
+                        text: text_or_iter,
+                        body,
+                        span, }))
                     }
                 } else {
-                    Some(IrBuildStmt::For {
-                        slot,
-                        iter: text_or_iter,
-                        body,
-                        span,
-                    })
+                    Some(push_build_row!(self, stmt, BuildStmtRow::For { slot,
+                    iter: text_or_iter,
+                    body,
+                    span, }))
                 }
             }
             ArenaStmtKind::Match { value, arms } => {
@@ -5977,10 +5973,8 @@ impl CompactLowerConstructProbe<'_, '_> {
                         {
                             self.record_lower_stmt_blocker(id);
                             self.output.constructed_statements += 1;
-                            return Some(IrBuildStmt::Expr {
-                                value: IrBuildExpr::Unit,
-                                span: self.program.arena.stmt(id).span,
-                            });
+                            return Some(push_build_row!(self, stmt, BuildStmtRow::Expr { value: push_build_row!(self, expr, BuildExprRow::Unit),
+                            span: self.program.arena.stmt(id).span, }));
                         }
                     }
                     let (pattern, cleanup) = self.lower_pattern(
@@ -5997,10 +5991,8 @@ impl CompactLowerConstructProbe<'_, '_> {
                             {
                                 self.record_lower_stmt_blocker(id);
                                 self.output.constructed_statements += 1;
-                                return Some(IrBuildStmt::Expr {
-                                    value: IrBuildExpr::Unit,
-                                    span: self.program.arena.stmt(id).span,
-                                });
+                                return Some(push_build_row!(self, stmt, BuildStmtRow::Expr { value: push_build_row!(self, expr, BuildExprRow::Unit),
+                                span: self.program.arena.stmt(id).span, }));
                             }
                         }
                     };
@@ -6013,11 +6005,9 @@ impl CompactLowerConstructProbe<'_, '_> {
                     cleanup_lowered_pattern_slots(slots, cleanup);
                     lowered_arms.push((pattern, guard, body));
                 }
-                Some(IrBuildStmt::Match {
-                    value,
-                    arms: lowered_arms,
-                    span: self.program.arena.stmt(id).span,
-                })
+                Some(push_build_row!(self, stmt, BuildStmtRow::Match { value,
+                arms: lowered_arms,
+                span: self.program.arena.stmt(id).span, }))
             }
             ArenaStmtKind::Guard {
                 target,
@@ -6031,10 +6021,8 @@ impl CompactLowerConstructProbe<'_, '_> {
                     {
                         self.record_lower_stmt_blocker(id);
                         self.output.constructed_statements += 1;
-                        return Some(IrBuildStmt::Expr {
-                            value: IrBuildExpr::Unit,
-                            span: self.program.arena.stmt(id).span,
-                        });
+                        return Some(push_build_row!(self, stmt, BuildStmtRow::Expr { value: push_build_row!(self, expr, BuildExprRow::Unit),
+                        span: self.program.arena.stmt(id).span, }));
                     }
                 }
                 let value = match initializer {
@@ -6058,13 +6046,11 @@ impl CompactLowerConstructProbe<'_, '_> {
                 slots.exit(saved);
                 let else_body = else_body?;
                 let slot = slots.declare(name);
-                Some(IrBuildStmt::Guard {
-                    slot,
-                    value,
-                    else_param_slot,
-                    else_body,
-                    span: self.program.arena.stmt(id).span,
-                })
+                Some(push_build_row!(self, stmt, BuildStmtRow::Guard { slot,
+                value,
+                else_param_slot,
+                else_body,
+                span: self.program.arena.stmt(id).span, }))
             }
             ArenaStmtKind::GuardedStmt {
                 stmt,
@@ -6074,11 +6060,10 @@ impl CompactLowerConstructProbe<'_, '_> {
                 let mut condition =
                     self.lower_expr(condition, slots, current_function, item_slot)?;
                 if negate {
-                    condition = IrBuildExpr::IfExpr {
-                        branches: vec![(condition, IrBuildExpr::Bool(false))],
-                        else_value: Box::new(IrBuildExpr::Bool(true)),
-                        span: self.program.arena.stmt(id).span,
-                    };
+                    let false_value = push_build_row!(self, expr, BuildExprRow::Bool(false));
+                    condition = push_build_row!(self, expr, BuildExprRow::IfExpr { branches: vec![(condition, false_value)],
+                    else_value: push_build_row!(self, expr, BuildExprRow::Bool(true)),
+                    span: self.program.arena.stmt(id).span, });
                 }
                 let body = vec![self.lower_stmt_with_blocker_guard(
                     stmt,
@@ -6086,64 +6071,46 @@ impl CompactLowerConstructProbe<'_, '_> {
                     current_function,
                     item_slot,
                 )?];
-                if let Some(condition) = lower_bool_expr_candidate(&condition) {
-                    Some(IrBuildStmt::IfBool {
-                        branches: vec![(condition, body)],
-                        else_body: None,
-                    })
+                if let Some(condition) = self.lower_bool_expr_candidate(&condition) {
+                    Some(push_build_row!(self, stmt, BuildStmtRow::IfBool { branches: vec![(condition, body)],
+                    else_body: None, }))
                 } else {
-                    Some(IrBuildStmt::If {
-                        branches: vec![(condition, body)],
-                        else_body: None,
-                    })
+                    Some(push_build_row!(self, stmt, BuildStmtRow::If { branches: vec![(condition, body)],
+                    else_body: None, }))
                 }
             }
-            ArenaStmtKind::Return(Some(ArenaExprOrRun::Expr(value))) => Some(IrBuildStmt::Return {
-                value: self.lower_expr(value, slots, current_function, item_slot)?,
-            }),
-            ArenaStmtKind::Return(Some(ArenaExprOrRun::Run(run))) => Some(IrBuildStmt::Return {
-                value: self.lower_run_binding_value(run, slots, current_function, item_slot)?,
-            }),
-            ArenaStmtKind::Return(None) => Some(IrBuildStmt::Return {
-                value: IrBuildExpr::Unit,
-            }),
-            ArenaStmtKind::Yield(ArenaExprOrRun::Expr(value)) => Some(IrBuildStmt::Yield {
-                value: self.lower_expr(value, slots, current_function, item_slot)?,
-            }),
-            ArenaStmtKind::Yield(ArenaExprOrRun::Run(run)) => Some(IrBuildStmt::Yield {
-                value: self.lower_run_binding_value(run, slots, current_function, item_slot)?,
-            }),
+            ArenaStmtKind::Return(Some(ArenaExprOrRun::Expr(value))) => Some(push_build_row!(self, stmt, BuildStmtRow::Return { value: self.lower_expr(value, slots, current_function, item_slot)?, })),
+            ArenaStmtKind::Return(Some(ArenaExprOrRun::Run(run))) => Some(push_build_row!(self, stmt, BuildStmtRow::Return { value: self.lower_run_binding_value(run, slots, current_function, item_slot)?, })),
+            ArenaStmtKind::Return(None) => Some(push_build_row!(self, stmt, BuildStmtRow::Return { value: push_build_row!(self, expr, BuildExprRow::Unit), })),
+            ArenaStmtKind::Yield(ArenaExprOrRun::Expr(value)) => Some(push_build_row!(self, stmt, BuildStmtRow::Yield { value: self.lower_expr(value, slots, current_function, item_slot)?, })),
+            ArenaStmtKind::Yield(ArenaExprOrRun::Run(run)) => Some(push_build_row!(self, stmt, BuildStmtRow::Yield { value: self.lower_run_binding_value(run, slots, current_function, item_slot)?, })),
             ArenaStmtKind::Loop { block } => {
                 let body = self.lower_block(block, slots, current_function, item_slot)?;
-                Some(IrBuildStmt::Loop { body })
+                Some(push_build_row!(self, stmt, BuildStmtRow::Loop { body }))
             }
-            ArenaStmtKind::Break { value: None } => Some(IrBuildStmt::Break),
-            ArenaStmtKind::Break { value: Some(value) } => Some(IrBuildStmt::BreakValue {
-                value: self.lower_expr(value, slots, current_function, item_slot)?,
-            }),
-            ArenaStmtKind::Continue => Some(IrBuildStmt::Continue),
+            ArenaStmtKind::Break { value: None } => Some(push_build_row!(self, stmt, BuildStmtRow::Break)),
+            ArenaStmtKind::Break { value: Some(value) } => Some(push_build_row!(self, stmt, BuildStmtRow::BreakValue { value: self.lower_expr(value, slots, current_function, item_slot)?, })),
+            ArenaStmtKind::Continue => Some(push_build_row!(self, stmt, BuildStmtRow::Continue)),
             ArenaStmtKind::Command(command) => self
                 .lower_print_stmt(command, slots, current_function, item_slot)
                 .or_else(|| self.lower_cd_stmt(command, slots, current_function, item_slot))
                 .or_else(|| self.lower_env_stmt(command, slots, current_function, item_slot))
                 .or_else(|| self.lower_run_stmt(command, slots, current_function, item_slot))
                 .or_else(|| self.lower_proc_stmt(command, slots, current_function, item_slot)),
-            ArenaStmtKind::Expr(value) => Some(IrBuildStmt::Expr {
-                value: self.lower_expr(value, slots, current_function, item_slot)?,
-                span: self.program.arena.stmt(id).span,
-            }),
+            ArenaStmtKind::Expr(value) => Some(push_build_row!(self, stmt, BuildStmtRow::Expr { value: self.lower_expr(value, slots, current_function, item_slot)?,
+            span: self.program.arena.stmt(id).span, })),
             ArenaStmtKind::Defer(ArenaExprOrRun::Expr(value)) => {
                 let value = self.lower_expr(value, slots, current_function, item_slot)?;
-                Some(IrBuildStmt::Defer { value })
+                Some(push_build_row!(self, stmt, BuildStmtRow::Defer { value }))
             }
             ArenaStmtKind::Defer(ArenaExprOrRun::Run(run)) => {
                 let value =
                     self.lower_run_binding_value(run, slots, current_function, item_slot)?;
-                Some(IrBuildStmt::Defer { value })
+                Some(push_build_row!(self, stmt, BuildStmtRow::Defer { value }))
             }
             ArenaStmtKind::TailBareIdent(name) => {
                 let value = self.lower_bare_ident(name, slots)?;
-                Some(IrBuildStmt::Return { value })
+                Some(push_build_row!(self, stmt, BuildStmtRow::Return { value }))
             }
             _ => None,
         };
@@ -6156,15 +6123,13 @@ impl CompactLowerConstructProbe<'_, '_> {
                 self.record_lower_stmt_blocker(id);
                 self.output.constructed_statements += 1;
                 self.output.blocker_events += 1;
-                Some(IrBuildStmt::Expr {
-                    value: IrBuildExpr::Unit,
-                    span: self.program.arena.stmt(id).span,
-                })
+                Some(push_build_row!(self, stmt, BuildStmtRow::Expr { value: push_build_row!(self, expr, BuildExprRow::Unit),
+                span: self.program.arena.stmt(id).span, }))
             }
         }
     }
 
-    fn record_lower_stmt_blocker(&mut self, id: StmtId) -> Option<IrBuildStmt> {
+    fn record_lower_stmt_blocker(&mut self, id: StmtId) -> Option<BuildStmtId> {
         let kind = self.program.arena.stmt(id).kind;
         let stmt_span = self.program.arena.stmt(id).span;
         self.output.statement_blockers[compact_stmt_kind_index(kind)] += 1;
@@ -6191,7 +6156,7 @@ impl CompactLowerConstructProbe<'_, '_> {
         slots: &mut SlotScope,
         current_function: Option<Name>,
         item_slot: Option<usize>,
-    ) -> Option<IrBuildStmt> {
+    ) -> Option<BuildStmtId> {
         let stmt = self.program.arena.command_stmt(id);
         let ArenaCommand::Core {
             name,
@@ -6217,13 +6182,11 @@ impl CompactLowerConstructProbe<'_, '_> {
         for arg in print_args {
             lowered.push(self.lower_command_arg(arg, slots, current_function, item_slot)?);
         }
-        Some(IrBuildStmt::Print {
-            args: lowered,
-            stderr: name == CoreCommand::Eprint,
-            flush,
-            propagate_result: stmt.propagate,
-            span: self.program.arena.span(stmt.span),
-        })
+        Some(push_build_row!(self, stmt, BuildStmtRow::Print { args: lowered,
+        stderr: name == CoreCommand::Eprint,
+        flush,
+        propagate_result: stmt.propagate,
+        span: self.program.arena.span(stmt.span), }))
     }
 
     fn lower_run_stmt(
@@ -6232,28 +6195,24 @@ impl CompactLowerConstructProbe<'_, '_> {
         slots: &mut SlotScope,
         current_function: Option<Name>,
         item_slot: Option<usize>,
-    ) -> Option<IrBuildStmt> {
+    ) -> Option<BuildStmtId> {
         let stmt = self.program.arena.command_stmt(id);
         let ArenaCommand::Run(run) = stmt.command else {
             return None;
         };
         if lowered_arena_run_status_type(&self.program.arena, run).is_some() {
             let assert_success = compact_run_command_asserts_success(&self.program.arena, run);
-            return Some(IrBuildStmt::Run {
-                value: self.lower_run_status_value(
-                    run,
-                    assert_success,
-                    slots,
-                    current_function,
-                    item_slot,
-                )?,
-                propagate_result: assert_success,
-            });
+            return Some(push_build_row!(self, stmt, BuildStmtRow::Run { value: self.lower_run_status_value(
+                run,
+                assert_success,
+                slots,
+                current_function,
+                item_slot,
+            )?,
+            propagate_result: assert_success, }));
         }
-        Some(IrBuildStmt::Run {
-            value: self.lower_run_binding_value(run, slots, current_function, item_slot)?,
-            propagate_result: false,
-        })
+        Some(push_build_row!(self, stmt, BuildStmtRow::Run { value: self.lower_run_binding_value(run, slots, current_function, item_slot)?,
+        propagate_result: false, }))
     }
 
     fn lower_cd_stmt(
@@ -6262,7 +6221,7 @@ impl CompactLowerConstructProbe<'_, '_> {
         slots: &mut SlotScope,
         current_function: Option<Name>,
         item_slot: Option<usize>,
-    ) -> Option<IrBuildStmt> {
+    ) -> Option<BuildStmtId> {
         let stmt = self.program.arena.command_stmt(id);
         let ArenaCommand::Core {
             name: CoreCommand::Cd,
@@ -6285,11 +6244,9 @@ impl CompactLowerConstructProbe<'_, '_> {
             Some(block) => self.lower_block(block, slots, current_function, item_slot)?,
             None => Vec::new(),
         };
-        Some(IrBuildStmt::Cd {
-            target,
-            body,
-            span: self.program.arena.span(stmt.span),
-        })
+        Some(push_build_row!(self, stmt, BuildStmtRow::Cd { target,
+        body,
+        span: self.program.arena.span(stmt.span), }))
     }
 
     fn lower_env_stmt(
@@ -6298,7 +6255,7 @@ impl CompactLowerConstructProbe<'_, '_> {
         slots: &mut SlotScope,
         current_function: Option<Name>,
         item_slot: Option<usize>,
-    ) -> Option<IrBuildStmt> {
+    ) -> Option<BuildStmtId> {
         let stmt = self.program.arena.command_stmt(id);
         let ArenaCommand::Core {
             name: CoreCommand::Env,
@@ -6321,10 +6278,8 @@ impl CompactLowerConstructProbe<'_, '_> {
             Some(block) => self.lower_block(block, slots, current_function, item_slot)?,
             None => Vec::new(),
         };
-        Some(IrBuildStmt::Env {
-            env: lowered_env,
-            body,
-        })
+        Some(push_build_row!(self, stmt, BuildStmtRow::Env { env: lowered_env,
+        body, }))
     }
 
     fn lower_proc_stmt(
@@ -6333,7 +6288,7 @@ impl CompactLowerConstructProbe<'_, '_> {
         slots: &mut SlotScope,
         current_function: Option<Name>,
         item_slot: Option<usize>,
-    ) -> Option<IrBuildStmt> {
+    ) -> Option<BuildStmtId> {
         let stmt = self.program.arena.command_stmt(id);
         let ArenaCommand::Proc { name, args } = stmt.command else {
             return None;
@@ -6345,12 +6300,10 @@ impl CompactLowerConstructProbe<'_, '_> {
         for arg in &args {
             lowered.push(self.lower_command_arg(arg, slots, current_function, item_slot)?);
         }
-        Some(IrBuildStmt::Proc {
-            op,
-            args: lowered,
-            propagate_result: stmt.propagate,
-            span: self.program.arena.span(stmt.span),
-        })
+        Some(push_build_row!(self, stmt, BuildStmtRow::Proc { op,
+        args: lowered,
+        propagate_result: stmt.propagate,
+        span: self.program.arena.span(stmt.span), }))
     }
 
     fn lower_command_arg(
@@ -6359,7 +6312,7 @@ impl CompactLowerConstructProbe<'_, '_> {
         slots: &mut SlotScope,
         current_function: Option<Name>,
         item_slot: Option<usize>,
-    ) -> Option<IrBuildExpr> {
+    ) -> Option<BuildExprId> {
         match &arg.kind {
             ArenaCommandArgKind::Typed(expr) => {
                 self.lower_expr(*expr, slots, current_function, item_slot)
@@ -6369,7 +6322,9 @@ impl CompactLowerConstructProbe<'_, '_> {
                 let parts = self.program.arena.word_parts(*parts).collect::<Vec<_>>();
                 if let [ArenaWordPart::Bare(text)] = parts.as_slice() {
                     let text = self.bare_text_value_in_span(text, span)?;
-                    if let Some(value) = lower_command_word_reference(text, slots, span) {
+                    if let Some(value) =
+                        lower_command_word_reference(text, slots, span, &self.scratch)
+                    {
                         return Some(value);
                     }
                 }
@@ -6401,7 +6356,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                         }
                     }
                 }
-                Some(IrBuildExpr::FmtString(lowered))
+                Some(push_build_row!(self, expr, BuildExprRow::FmtString(lowered)))
             }
             ArenaCommandArgKind::SpliceName(name) => self.lower_bare_ident(*name, slots),
             ArenaCommandArgKind::SpliceExpr(expr) => {
@@ -6417,12 +6372,10 @@ impl CompactLowerConstructProbe<'_, '_> {
         slots: &mut SlotScope,
         current_function: Option<Name>,
         item_slot: Option<usize>,
-    ) -> Option<IrBuildExpr> {
+    ) -> Option<BuildExprId> {
         match target {
-            ArenaSpawnTarget::Command(command) => Some(IrBuildExpr::SpawnCommand {
-                command: Box::new(self.lower_expr(command, slots, current_function, item_slot)?),
-                span,
-            }),
+            ArenaSpawnTarget::Command(command) => Some(push_build_row!(self, expr, BuildExprRow::SpawnCommand { command: self.lower_expr(command, slots, current_function, item_slot)?,
+            span, })),
             ArenaSpawnTarget::Run(run) => {
                 let form = self.program.arena.run_form(run);
                 if form.propagate {
@@ -6471,21 +6424,17 @@ impl CompactLowerConstructProbe<'_, '_> {
                     })
                     .collect::<Option<Vec<_>>>()?;
                 let timeout = match segment.timeout {
-                    Some(expr) => Some(Box::new(self.lower_expr(
-                        expr,
-                        slots,
-                        current_function,
-                        item_slot,
-                    )?)),
+                    Some(expr) => Some(self.lower_expr(expr,
+                    slots,
+                    current_function,
+                    item_slot,)?),
                     None => None,
                 };
                 let cpu_max = match segment.cpu_max {
-                    Some(expr) => Some(Box::new(self.lower_expr(
-                        expr,
-                        slots,
-                        current_function,
-                        item_slot,
-                    )?)),
+                    Some(expr) => Some(self.lower_expr(expr,
+                    slots,
+                    current_function,
+                    item_slot,)?),
                     None => None,
                 };
                 let run = LoweredSpawnRun {
@@ -6497,7 +6446,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                     cpu_max,
                     span,
                 };
-                Some(IrBuildExpr::SpawnRun(Box::new(run)))
+                Some(push_build_row!(self, expr, BuildExprRow::SpawnRun(Box::new(run))))
             }
         }
     }
@@ -6508,7 +6457,7 @@ impl CompactLowerConstructProbe<'_, '_> {
         slots: &mut SlotScope,
         current_function: Option<Name>,
         item_slot: Option<usize>,
-    ) -> Option<IrBuildExpr> {
+    ) -> Option<BuildExprId> {
         self.lower_run_value_with_propagate(
             id,
             slots,
@@ -6526,7 +6475,7 @@ impl CompactLowerConstructProbe<'_, '_> {
         slots: &mut SlotScope,
         current_function: Option<Name>,
         item_slot: Option<usize>,
-    ) -> Option<IrBuildExpr> {
+    ) -> Option<BuildExprId> {
         self.lower_run_value_with_propagate_and_assert(
             id,
             slots,
@@ -6546,7 +6495,7 @@ impl CompactLowerConstructProbe<'_, '_> {
         item_slot: Option<usize>,
         allow_propagate: bool,
         allowed_type: fn(RunKind) -> Option<LoweredType>,
-    ) -> Option<IrBuildExpr> {
+    ) -> Option<BuildExprId> {
         self.lower_run_value_with_propagate_and_assert(
             id,
             slots,
@@ -6567,7 +6516,7 @@ impl CompactLowerConstructProbe<'_, '_> {
         allow_propagate: bool,
         assert_success: bool,
         allowed_type: fn(RunKind) -> Option<LoweredType>,
-    ) -> Option<IrBuildExpr> {
+    ) -> Option<BuildExprId> {
         let run = self.program.arena.run_form(id);
         if run.propagate && !allow_propagate {
             return None;
@@ -6611,21 +6560,17 @@ impl CompactLowerConstructProbe<'_, '_> {
                 })
                 .collect::<Option<Vec<_>>>()?;
             let timeout = match segment.timeout {
-                Some(expr) => Some(Box::new(self.lower_expr(
-                    expr,
-                    slots,
-                    current_function,
-                    item_slot,
-                )?)),
+                Some(expr) => Some(self.lower_expr(expr,
+                slots,
+                current_function,
+                item_slot,)?),
                 None => None,
             };
             let cpu_max = match segment.cpu_max {
-                Some(expr) => Some(Box::new(self.lower_expr(
-                    expr,
-                    slots,
-                    current_function,
-                    item_slot,
-                )?)),
+                Some(expr) => Some(self.lower_expr(expr,
+                slots,
+                current_function,
+                item_slot,)?),
                 None => None,
             };
             // Capture/stream kinds return a Result and are unwrapped by an
@@ -6646,9 +6591,9 @@ impl CompactLowerConstructProbe<'_, '_> {
                 assert_success,
                 span: self.program.arena.span(run.span),
             };
-            let capture = IrBuildExpr::RunCapture(Box::new(capture));
+            let capture = push_build_row!(self, expr, BuildExprRow::RunCapture(Box::new(capture)));
             if run.propagate && capture_kind {
-                Some(IrBuildExpr::Try(Box::new(capture)))
+                Some(push_build_row!(self, expr, BuildExprRow::Try(capture)))
             } else {
                 Some(capture)
             }
@@ -6689,21 +6634,17 @@ impl CompactLowerConstructProbe<'_, '_> {
                     })
                     .collect::<Option<Vec<_>>>()?;
                 let timeout = match segment.timeout {
-                    Some(expr) => Some(Box::new(self.lower_expr(
-                        expr,
-                        slots,
-                        current_function,
-                        item_slot,
-                    )?)),
+                    Some(expr) => Some(self.lower_expr(expr,
+                    slots,
+                    current_function,
+                    item_slot,)?),
                     None => None,
                 };
                 let cpu_max = match segment.cpu_max {
-                    Some(expr) => Some(Box::new(self.lower_expr(
-                        expr,
-                        slots,
-                        current_function,
-                        item_slot,
-                    )?)),
+                    Some(expr) => Some(self.lower_expr(expr,
+                    slots,
+                    current_function,
+                    item_slot,)?),
                     None => None,
                 };
                 lowered_segments.push(LoweredRunPipelineSegment {
@@ -6716,13 +6657,11 @@ impl CompactLowerConstructProbe<'_, '_> {
                     cpu_max,
                 });
             }
-            let pipeline = IrBuildExpr::RunPipeline {
-                segments: lowered_segments,
-                propagate: run.propagate,
-                span: self.program.arena.span(run.span),
-            };
+            let pipeline = push_build_row!(self, expr, BuildExprRow::RunPipeline { segments: lowered_segments,
+            propagate: run.propagate,
+            span: self.program.arena.span(run.span), });
             if run.propagate {
-                Some(IrBuildExpr::Try(Box::new(pipeline)))
+                Some(push_build_row!(self, expr, BuildExprRow::Try(pipeline)))
             } else {
                 Some(pipeline)
             }
@@ -6765,7 +6704,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                 let text = self.bare_text_value_in_span(text, span)?;
                 if let Some(slot) = slots.resolve(Name::intern(text)) {
                     return Some(LoweredRunArg {
-                        kind: LoweredRunArgKind::Single(IrBuildExpr::Param(slot)),
+                        kind: LoweredRunArgKind::Single(push_build_row!(self, expr, BuildExprRow::Param(slot))),
                         span,
                     });
                 }
@@ -6858,7 +6797,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                                 }
                             }
                         }
-                        LoweredRunArgKind::Single(IrBuildExpr::FmtString(lowered))
+                        LoweredRunArgKind::Single(push_build_row!(self, expr, BuildExprRow::FmtString(lowered)))
                     }
                 }
                 ArenaCommandArgKind::SpliceName(name) => {
@@ -6877,72 +6816,60 @@ impl CompactLowerConstructProbe<'_, '_> {
         slots: &mut SlotScope,
         current_function: Option<Name>,
         item_slot: Option<usize>,
-    ) -> Option<IrBuildExpr> {
+    ) -> Option<BuildExprId> {
         self.output.expressions += 1;
         let span = self.program.arena.expr(id).span;
         let lowered = match self.program.arena.expr(id).kind {
-            ArenaExprKind::Null => Some(IrBuildExpr::Null),
+            ArenaExprKind::Null => Some(push_build_row!(self, expr, BuildExprRow::Null)),
             ArenaExprKind::Int(value) => self
                 .program
                 .arena
                 .int_literal(value)
                 .value()
-                .map(IrBuildExpr::Int),
+                .map(|value| push_build_row!(self, expr, BuildExprRow::Int(value))),
             ArenaExprKind::Float(value) => self
                 .program
                 .arena
                 .float_literal(value)
                 .value()
                 .map(crate::runtime::value::FloatValue::new)
-                .map(IrBuildExpr::Float),
+                .map(|value| push_build_row!(self, expr, BuildExprRow::Float(value))),
             ArenaExprKind::Duration(value) => self
                 .program
                 .arena
                 .duration_literal(value)
                 .millis()
-                .map(|millis| IrBuildExpr::Duration(DurationValue { millis })),
-            ArenaExprKind::Bool(value) => Some(IrBuildExpr::Bool(value)),
-            ArenaExprKind::Str(value) => Some(IrBuildExpr::Str(
-                self.program.arena.string_literal(value).clone(),
-            )),
+                .map(|millis| push_build_row!(self, expr, BuildExprRow::Duration(DurationValue { millis }))),
+            ArenaExprKind::Bool(value) => Some(push_build_row!(self, expr, BuildExprRow::Bool(value))),
+            ArenaExprKind::Str(value) => Some(push_build_row!(self, expr, BuildExprRow::Str(self.program.arena.string_literal(value).clone(),))),
             ArenaExprKind::PathStr(value) => {
                 let path = self.program.arena.string_literal(value);
                 PathValue::from_text(path.as_ref())
                     .ok()
-                    .map(IrBuildExpr::Path)
+                    .map(|value| push_build_row!(self, expr, BuildExprRow::Path(value)))
             }
-            ArenaExprKind::Bytes(value) => Some(IrBuildExpr::Bytes(
-                self.program.arena.bytes_literal(value).clone(),
-            )),
+            ArenaExprKind::Bytes(value) => Some(push_build_row!(self, expr, BuildExprRow::Bytes(self.program.arena.bytes_literal(value).clone(),))),
             ArenaExprKind::Ident(name) => self.lower_bare_ident(name, slots),
-            ArenaExprKind::Item => item_slot.map(IrBuildExpr::Param),
+            ArenaExprKind::Item => item_slot.map(|slot| push_build_row!(self, expr, BuildExprRow::Param(slot))),
             ArenaExprKind::FmtString(parts) => {
                 self.lower_fmt_string(parts, slots, current_function, item_slot)
             }
-            ArenaExprKind::PathFmtString(parts) => Some(IrBuildExpr::PathFmtString {
-                parts: self.lower_fmt_parts(parts, slots, current_function, item_slot)?,
-                span,
-            }),
-            ArenaExprKind::GlobStr(value) => Some(IrBuildExpr::Glob {
-                pattern: self.program.arena.string_literal(value).clone(),
-                span,
-            }),
-            ArenaExprKind::LastStatus => Some(IrBuildExpr::LastStatus { span }),
+            ArenaExprKind::PathFmtString(parts) => Some(push_build_row!(self, expr, BuildExprRow::PathFmtString { parts: self.lower_fmt_parts(parts, slots, current_function, item_slot)?,
+            span, })),
+            ArenaExprKind::GlobStr(value) => Some(push_build_row!(self, expr, BuildExprRow::Glob { pattern: self.program.arena.string_literal(value).clone(),
+            span, })),
+            ArenaExprKind::LastStatus => Some(push_build_row!(self, expr, BuildExprRow::LastStatus { span })),
             ArenaExprKind::Run(run) => {
                 self.lower_run_binding_value(run, slots, current_function, item_slot)
             }
             ArenaExprKind::Spawn(form) => {
                 self.lower_spawn_expr(form.target, span, slots, current_function, item_slot)
             }
-            ArenaExprKind::Wait(wait) => Some(IrBuildExpr::Wait {
-                target: Box::new(self.lower_expr(
-                    wait.target,
-                    slots,
-                    current_function,
-                    item_slot,
-                )?),
-                span,
-            }),
+            ArenaExprKind::Wait(wait) => Some(push_build_row!(self, expr, BuildExprRow::Wait { target: self.lower_expr(wait.target,
+            slots,
+            current_function,
+            item_slot,)?,
+            span, })),
             ArenaExprKind::Record(fields) => {
                 self.lower_record(fields, slots, current_function, item_slot)
             }
@@ -6952,7 +6879,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                 for item in items {
                     lowered.push(self.lower_expr(item, slots, current_function, item_slot)?);
                 }
-                Some(IrBuildExpr::List(lowered))
+                Some(push_build_row!(self, expr, BuildExprRow::List(lowered)))
             }
             ArenaExprKind::ListComp {
                 expr,
@@ -6964,23 +6891,19 @@ impl CompactLowerConstructProbe<'_, '_> {
                 let saved = slots.enter();
                 let target = self.lower_comp_target(target, slots)?;
                 let condition = match condition {
-                    Some(condition) => Some(Box::new(self.lower_expr(
-                        condition,
-                        slots,
-                        current_function,
-                        item_slot,
-                    )?)),
+                    Some(condition) => Some(self.lower_expr(condition,
+                    slots,
+                    current_function,
+                    item_slot,)?),
                     None => None,
                 };
-                let value = Box::new(self.lower_expr(expr, slots, current_function, item_slot)?);
+                let value = self.lower_expr(expr, slots, current_function, item_slot)?;
                 slots.exit(saved);
-                Some(IrBuildExpr::ListComp {
-                    value,
-                    target: Box::new(target),
-                    iter: Box::new(iter),
-                    condition,
-                    span,
-                })
+                Some(push_build_row!(self, expr, BuildExprRow::ListComp { value,
+                target: Box::new(target),
+                iter: iter,
+                condition,
+                span, }))
             }
             ArenaExprKind::MapComp {
                 key,
@@ -6993,25 +6916,21 @@ impl CompactLowerConstructProbe<'_, '_> {
                 let saved = slots.enter();
                 let target = self.lower_comp_target(target, slots)?;
                 let condition = match condition {
-                    Some(condition) => Some(Box::new(self.lower_expr(
-                        condition,
-                        slots,
-                        current_function,
-                        item_slot,
-                    )?)),
+                    Some(condition) => Some(self.lower_expr(condition,
+                    slots,
+                    current_function,
+                    item_slot,)?),
                     None => None,
                 };
-                let key = Box::new(self.lower_expr(key, slots, current_function, item_slot)?);
-                let value = Box::new(self.lower_expr(value, slots, current_function, item_slot)?);
+                let key = self.lower_expr(key, slots, current_function, item_slot)?;
+                let value = self.lower_expr(value, slots, current_function, item_slot)?;
                 slots.exit(saved);
-                Some(IrBuildExpr::MapComp {
-                    key,
-                    value,
-                    target: Box::new(target),
-                    iter: Box::new(iter),
-                    condition,
-                    span,
-                })
+                Some(push_build_row!(self, expr, BuildExprRow::MapComp { key,
+                value,
+                target: Box::new(target),
+                iter: iter,
+                condition,
+                span, }))
             }
             ArenaExprKind::Pipeline { input, stages } => {
                 let pipe_stages = self.program.arena.pipe_stages(stages).to_vec();
@@ -7036,11 +6955,9 @@ impl CompactLowerConstructProbe<'_, '_> {
                         self.infer_checked_stream_stage_type_with_slots(&ty, stream_stage, slots)
                     });
                 }
-                Some(IrBuildExpr::ListPipeline {
-                    input: Box::new(self.lower_expr(input, slots, current_function, item_slot)?),
-                    stages: lowered_stages,
-                    span,
-                })
+                Some(push_build_row!(self, expr, BuildExprRow::ListPipeline { input: self.lower_expr(input, slots, current_function, item_slot)?,
+                stages: lowered_stages,
+                span, }))
             }
             ArenaExprKind::StructuredPipeline { input, stages } => {
                 let stages = self.program.arena.stream_stages(stages).to_vec();
@@ -7061,59 +6978,47 @@ impl CompactLowerConstructProbe<'_, '_> {
                         self.infer_checked_stream_stage_type_with_slots(&ty, stage, slots)
                     });
                 }
-                Some(IrBuildExpr::ListPipeline {
-                    input: Box::new(self.lower_expr(input, slots, current_function, item_slot)?),
-                    stages: lowered_stages,
-                    span,
-                })
+                Some(push_build_row!(self, expr, BuildExprRow::ListPipeline { input: self.lower_expr(input, slots, current_function, item_slot)?,
+                stages: lowered_stages,
+                span, }))
             }
             ArenaExprKind::Require { value, schema } => {
                 lowered_arena_type(&self.program.arena, schema, self.declarations)?;
-                Some(IrBuildExpr::Require {
-                    value: Box::new(self.lower_expr(value, slots, current_function, item_slot)?),
-                    check: LoweredTypeCheck {
-                        ty: compact_runtime_type(&self.program.arena, schema, self.declarations),
-                        name: compact_type_expr_name(&self.program.arena, schema),
-                    },
-                    span,
-                })
+                Some(push_build_row!(self, expr, BuildExprRow::Require { value: self.lower_expr(value, slots, current_function, item_slot)?,
+                check: LoweredTypeCheck {
+                    ty: compact_runtime_type(&self.program.arena, schema, self.declarations),
+                    name: compact_type_expr_name(&self.program.arena, schema),
+                },
+                span, }))
             }
             ArenaExprKind::Unary {
                 op: UnaryOp::Neg,
                 expr,
-            } => Some(IrBuildExpr::Binary {
-                op: BinaryOp::Sub,
-                left: Box::new(IrBuildExpr::Int(0)),
-                right: Box::new(self.lower_expr(expr, slots, current_function, item_slot)?),
-                span,
-            }),
+            } => Some(push_build_row!(self, expr, BuildExprRow::Binary { op: BinaryOp::Sub,
+            left: push_build_row!(self, expr, BuildExprRow::Int(0)),
+            right: self.lower_expr(expr, slots, current_function, item_slot)?,
+            span, })),
             ArenaExprKind::Unary {
                 op: UnaryOp::Not,
                 expr,
-            } => Some(IrBuildExpr::IfExpr {
-                branches: vec![(
-                    self.lower_expr(expr, slots, current_function, item_slot)?,
-                    IrBuildExpr::Bool(false),
-                )],
-                else_value: Box::new(IrBuildExpr::Bool(true)),
-                span,
-            }),
+            } => Some(push_build_row!(self, expr, BuildExprRow::IfExpr { branches: vec![(
+                self.lower_expr(expr, slots, current_function, item_slot)?,
+                push_build_row!(self, expr, BuildExprRow::Bool(false)),
+            )],
+            else_value: push_build_row!(self, expr, BuildExprRow::Bool(true)),
+            span, })),
             ArenaExprKind::Binary { op, left, right } if lowered_binary_op(op) => {
-                Some(IrBuildExpr::Binary {
-                    op,
-                    left: Box::new(self.lower_expr(left, slots, current_function, item_slot)?),
-                    right: Box::new(self.lower_expr(right, slots, current_function, item_slot)?),
-                    span,
-                })
+                Some(push_build_row!(self, expr, BuildExprRow::Binary { op,
+                left: self.lower_expr(left, slots, current_function, item_slot)?,
+                right: self.lower_expr(right, slots, current_function, item_slot)?,
+                span, }))
             }
             ArenaExprKind::Binary {
                 op: BinaryOp::ResultFallback,
                 left,
                 right,
-            } => Some(IrBuildExpr::ResultFallback {
-                left: Box::new(self.lower_expr(left, slots, current_function, item_slot)?),
-                right: Box::new(self.lower_expr(right, slots, current_function, item_slot)?),
-            }),
+            } => Some(push_build_row!(self, expr, BuildExprRow::ResultFallback { left: self.lower_expr(left, slots, current_function, item_slot)?,
+            right: self.lower_expr(right, slots, current_function, item_slot)?, })),
             ArenaExprKind::If {
                 branches,
                 else_value,
@@ -7126,16 +7031,12 @@ impl CompactLowerConstructProbe<'_, '_> {
                         self.lower_expr(branch.value, slots, current_function, item_slot)?,
                     ));
                 }
-                Some(IrBuildExpr::IfExpr {
-                    branches: lowered,
-                    else_value: Box::new(self.lower_expr(
-                        else_value,
-                        slots,
-                        current_function,
-                        item_slot,
-                    )?),
-                    span,
-                })
+                Some(push_build_row!(self, expr, BuildExprRow::IfExpr { branches: lowered,
+                else_value: self.lower_expr(else_value,
+                slots,
+                current_function,
+                item_slot,)?,
+                span, }))
             }
             ArenaExprKind::Match { value, arms } => {
                 if let Some(expr) =
@@ -7161,7 +7062,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                     )?;
                     let value = self
                         .lower_expr(arm.value, slots, current_function, item_slot)
-                        .unwrap_or(IrBuildExpr::Unit);
+                        .unwrap_or(push_build_row!(self, expr, BuildExprRow::Unit));
                     let guard = match arm.guard {
                         Some(guard_expr) => {
                             Some(self.lower_expr(guard_expr, slots, current_function, item_slot)?)
@@ -7171,59 +7072,43 @@ impl CompactLowerConstructProbe<'_, '_> {
                     cleanup_lowered_pattern_slots(slots, cleanup);
                     lowered_arms.push((pattern, guard, value));
                 }
-                Some(IrBuildExpr::MatchExpr {
-                    value: Box::new(self.lower_expr(value, slots, current_function, item_slot)?),
-                    arms: lowered_arms,
-                    span,
-                })
+                Some(push_build_row!(self, expr, BuildExprRow::MatchExpr { value: self.lower_expr(value, slots, current_function, item_slot)?,
+                arms: lowered_arms,
+                span, }))
             }
             ArenaExprKind::Field { base, name } => {
                 if let Some(env_expr) = self.lower_env_field(base, name, span) {
                     return Some(env_expr);
                 }
-                Some(IrBuildExpr::Field {
-                    base: Box::new(self.lower_expr(base, slots, current_function, item_slot)?),
-                    name: name.as_str(),
-                    span,
-                })
-            }
-            ArenaExprKind::NullSafeField { base, name } => Some(IrBuildExpr::Field {
-                base: Box::new(IrBuildExpr::Try(Box::new(self.lower_expr(
-                    base,
-                    slots,
-                    current_function,
-                    item_slot,
-                )?))),
+                Some(push_build_row!(self, expr, BuildExprRow::Field { base: self.lower_expr(base, slots, current_function, item_slot)?,
                 name: name.as_str(),
-                span,
-            }),
-            ArenaExprKind::Index { base, index } => Some(IrBuildExpr::Index {
-                base: Box::new(self.lower_expr(base, slots, current_function, item_slot)?),
-                index: Box::new(self.lower_expr(index, slots, current_function, item_slot)?),
-                span,
-            }),
-            ArenaExprKind::Slice { base, start, end } => Some(IrBuildExpr::Slice {
-                base: Box::new(self.lower_expr(base, slots, current_function, item_slot)?),
-                start: match start {
-                    Some(start) => Some(Box::new(self.lower_expr(
-                        start,
-                        slots,
-                        current_function,
-                        item_slot,
-                    )?)),
-                    None => None,
-                },
-                end: match end {
-                    Some(end) => Some(Box::new(self.lower_expr(
-                        end,
-                        slots,
-                        current_function,
-                        item_slot,
-                    )?)),
-                    None => None,
-                },
-                span,
-            }),
+                span, }))
+            }
+            ArenaExprKind::NullSafeField { base, name } => Some(push_build_row!(self, expr, BuildExprRow::Field { base: push_build_row!(self, expr, BuildExprRow::Try(self.lower_expr(base,
+            slots,
+            current_function,
+            item_slot,)?)),
+            name: name.as_str(),
+            span, })),
+            ArenaExprKind::Index { base, index } => Some(push_build_row!(self, expr, BuildExprRow::Index { base: self.lower_expr(base, slots, current_function, item_slot)?,
+            index: self.lower_expr(index, slots, current_function, item_slot)?,
+            span, })),
+            ArenaExprKind::Slice { base, start, end } => Some(push_build_row!(self, expr, BuildExprRow::Slice { base: self.lower_expr(base, slots, current_function, item_slot)?,
+            start: match start {
+                Some(start) => Some(self.lower_expr(start,
+                slots,
+                current_function,
+                item_slot,)?),
+                None => None,
+            },
+            end: match end {
+                Some(end) => Some(self.lower_expr(end,
+                slots,
+                current_function,
+                item_slot,)?),
+                None => None,
+            },
+            span, })),
             ArenaExprKind::Try(expr) => {
                 let expr_span = self.program.arena.expr(expr).span;
                 if let ArenaExprKind::Call { callee, args } = self.program.arena.expr(expr).kind {
@@ -7234,62 +7119,48 @@ impl CompactLowerConstructProbe<'_, '_> {
                     {
                         if module == "fs" && name == "files" {
                             let options = lower_fs_files_args(&self.program.arena, &args_vec)?;
-                            return Some(IrBuildExpr::Try(Box::new(IrBuildExpr::FsFiles {
-                                root: Box::new(self.lower_expr(
-                                    options.root,
-                                    slots,
-                                    current_function,
-                                    item_slot,
-                                )?),
-                                gitignore: options.gitignore,
-                                stat: options.stat,
-                                hidden: options.hidden,
-                                exts: match options.exts {
-                                    Some(exts) => Some(Box::new(self.lower_expr(
-                                        exts,
-                                        slots,
-                                        current_function,
-                                        item_slot,
-                                    )?)),
-                                    None => None,
-                                },
-                                result_wrapped: true,
-                                span: expr_span,
-                            })));
+                            return Some(push_build_row!(self, expr, BuildExprRow::Try(push_build_row!(self, expr, BuildExprRow::FsFiles { root: self.lower_expr(options.root,
+                            slots,
+                            current_function,
+                            item_slot,)?,
+                            gitignore: options.gitignore,
+                            stat: options.stat,
+                            hidden: options.hidden,
+                            exts: match options.exts {
+                                Some(exts) => Some(self.lower_expr(exts,
+                                slots,
+                                current_function,
+                                item_slot,)?),
+                                None => None,
+                            },
+                            result_wrapped: true,
+                            span: expr_span, }))));
                         }
                         if module == "fs" && name == "walk" {
                             let options = lower_fs_files_args(&self.program.arena, &args_vec)?;
-                            return Some(IrBuildExpr::Try(Box::new(IrBuildExpr::FsWalk {
-                                root: Box::new(self.lower_expr(
-                                    options.root,
-                                    slots,
-                                    current_function,
-                                    item_slot,
-                                )?),
-                                gitignore: options.gitignore,
-                                stat: options.stat,
-                                hidden: options.hidden,
-                                exts: match options.exts {
-                                    Some(exts) => Some(Box::new(self.lower_expr(
-                                        exts,
-                                        slots,
-                                        current_function,
-                                        item_slot,
-                                    )?)),
-                                    None => None,
-                                },
-                                result_wrapped: true,
-                                span: expr_span,
-                            })));
+                            return Some(push_build_row!(self, expr, BuildExprRow::Try(push_build_row!(self, expr, BuildExprRow::FsWalk { root: self.lower_expr(options.root,
+                            slots,
+                            current_function,
+                            item_slot,)?,
+                            gitignore: options.gitignore,
+                            stat: options.stat,
+                            hidden: options.hidden,
+                            exts: match options.exts {
+                                Some(exts) => Some(self.lower_expr(exts,
+                                slots,
+                                current_function,
+                                item_slot,)?),
+                                None => None,
+                            },
+                            result_wrapped: true,
+                            span: expr_span, }))));
                         }
                     }
                 }
-                Some(IrBuildExpr::Try(Box::new(self.lower_expr(
-                    expr,
-                    slots,
-                    current_function,
-                    item_slot,
-                )?)))
+                Some(push_build_row!(self, expr, BuildExprRow::Try(self.lower_expr(expr,
+                slots,
+                current_function,
+                item_slot,)?)))
             }
             ArenaExprKind::Call { callee, args } => {
                 self.lower_call(id, callee, args, slots, current_function, item_slot)
@@ -7302,10 +7173,8 @@ impl CompactLowerConstructProbe<'_, '_> {
                 item_slot,
                 span,
             ),
-            ArenaExprKind::Loop { block } => Some(IrBuildExpr::Loop {
-                body: self.lower_block(block, slots, current_function, item_slot)?,
-                span,
-            }),
+            ArenaExprKind::Loop { block } => Some(push_build_row!(self, expr, BuildExprRow::Loop { body: self.lower_block(block, slots, current_function, item_slot)?,
+            span, })),
             ArenaExprKind::Retry { delays, block } => {
                 let delays = self.program.arena.expr_ids(delays).collect::<Vec<_>>();
                 let mut lowered_delays = Vec::with_capacity(delays.len());
@@ -7317,28 +7186,23 @@ impl CompactLowerConstructProbe<'_, '_> {
                         item_slot,
                     )?);
                 }
-                Some(IrBuildExpr::Retry {
-                    delays: lowered_delays,
-                    body: self.lower_retry_block(block, slots, current_function, item_slot)?,
-                    span,
-                })
+                Some(push_build_row!(self, expr, BuildExprRow::Retry { delays: lowered_delays,
+                body: self.lower_retry_block(block, slots, current_function, item_slot)?,
+                span, }))
             }
             ArenaExprKind::EnvGet { kind, name } => {
                 let op = match kind {
                     EnvGetKind::Path => RuntimeOp::EnvPath,
                     _ => RuntimeOp::EnvGet,
                 };
-                Some(IrBuildExpr::ModuleCall {
-                    op,
-                    args: vec![IrBuildExpr::Str(name.to_string().into())],
-                    span,
-                })
+                let name = push_build_row!(self, expr, BuildExprRow::Str(name.to_string().into()));
+                Some(push_build_row!(self, expr, BuildExprRow::ModuleCall { op,
+                args: vec![name],
+                span, }))
             }
-            ArenaExprKind::EnvPathList => Some(IrBuildExpr::ModuleCall {
-                op: RuntimeOp::EnvPathList,
-                args: Vec::new(),
-                span,
-            }),
+            ArenaExprKind::EnvPathList => Some(push_build_row!(self, expr, BuildExprRow::ModuleCall { op: RuntimeOp::EnvPathList,
+            args: Vec::new(),
+            span, })),
             _ => None,
         };
         match lowered {
@@ -7380,7 +7244,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                 self.output.expression_blockers[blocker_index] += 1;
                 self.output.constructed_expressions += 1;
                 self.output.blocker_events += 1;
-                Some(IrBuildExpr::Unit)
+                Some(push_build_row!(self, expr, BuildExprRow::Unit))
             }
         }
     }
@@ -7394,7 +7258,7 @@ impl CompactLowerConstructProbe<'_, '_> {
         slots: &mut SlotScope,
         current_function: Option<Name>,
         item_slot: Option<usize>,
-    ) -> Option<IrBuildExpr> {
+    ) -> Option<BuildExprId> {
         let base_kind = self.program.arena.expr(base).kind;
         let (field_name, method_name) = match base_kind {
             ArenaExprKind::Ident(module) if module == "env" => return None,
@@ -7425,11 +7289,9 @@ impl CompactLowerConstructProbe<'_, '_> {
             ("PATH", "pop") => RuntimeOp::EnvPathPop,
             _ => return None,
         };
-        Some(IrBuildExpr::ModuleCall {
-            op,
-            args: lowered_args,
-            span,
-        })
+        Some(push_build_row!(self, expr, BuildExprRow::ModuleCall { op,
+        args: lowered_args,
+        span, }))
     }
 
     fn lower_env_field(
@@ -7437,22 +7299,19 @@ impl CompactLowerConstructProbe<'_, '_> {
         base: crate::syntax::arena::ExprId,
         name: crate::symbol::Name,
         span: crate::source::Span,
-    ) -> Option<IrBuildExpr> {
+    ) -> Option<BuildExprId> {
         let base_kind = self.program.arena.expr(base).kind;
         match base_kind {
             ArenaExprKind::Ident(base_name) if base_name == "env" => {
                 if name == "PATH" {
-                    return Some(IrBuildExpr::ModuleCall {
-                        op: RuntimeOp::EnvPathList,
-                        args: Vec::new(),
-                        span,
-                    });
+                    return Some(push_build_row!(self, expr, BuildExprRow::ModuleCall { op: RuntimeOp::EnvPathList,
+                    args: Vec::new(),
+                    span, }));
                 }
-                Some(IrBuildExpr::ModuleCall {
-                    op: RuntimeOp::EnvGet,
-                    args: vec![IrBuildExpr::Str(name.to_string().into())],
-                    span,
-                })
+                let name = push_build_row!(self, expr, BuildExprRow::Str(name.to_string().into()));
+                Some(push_build_row!(self, expr, BuildExprRow::ModuleCall { op: RuntimeOp::EnvGet,
+                args: vec![name],
+                span, }))
             }
             ArenaExprKind::Field {
                 base: inner_base,
@@ -7461,17 +7320,15 @@ impl CompactLowerConstructProbe<'_, '_> {
                 let inner_kind = self.program.arena.expr(inner_base).kind;
                 if let ArenaExprKind::Ident(inner_name) = inner_kind {
                     if inner_name == "env" {
-                        let arg = IrBuildExpr::Str(name.to_string().into());
+                        let arg = push_build_row!(self, expr, BuildExprRow::Str(name.to_string().into()));
                         let op = match type_name.as_str() {
                             "Path" => RuntimeOp::EnvPath,
                             "PathList" => RuntimeOp::EnvPathList,
                             _ => RuntimeOp::EnvGet,
                         };
-                        Some(IrBuildExpr::ModuleCall {
-                            op,
-                            args: vec![arg],
-                            span,
-                        })
+                        Some(push_build_row!(self, expr, BuildExprRow::ModuleCall { op,
+                        args: vec![arg],
+                        span, }))
                     } else {
                         None
                     }
@@ -7489,13 +7346,13 @@ impl CompactLowerConstructProbe<'_, '_> {
         slots: &mut SlotScope,
         current_function: Option<Name>,
         item_slot: Option<usize>,
-    ) -> Option<IrBuildExpr> {
-        Some(IrBuildExpr::FmtString(self.lower_fmt_parts(
+    ) -> Option<BuildExprId> {
+        Some(push_build_row!(self, expr, BuildExprRow::FmtString(self.lower_fmt_parts(
             parts,
             slots,
             current_function,
             item_slot,
-        )?))
+        )?)))
     }
 
     fn lower_fmt_parts(
@@ -7531,7 +7388,7 @@ impl CompactLowerConstructProbe<'_, '_> {
         slots: &mut SlotScope,
         current_function: Option<Name>,
         item_slot: Option<usize>,
-    ) -> Option<IrBuildExpr> {
+    ) -> Option<BuildExprId> {
         let fields = self.program.arena.record_fields(fields).to_vec();
         let mut lowered = Vec::with_capacity(fields.len());
         for field in fields {
@@ -7545,7 +7402,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                 ArenaRecordFieldKind::Shorthand { name, .. } => {
                     lowered.push(LoweredRecordEntry::Field(
                         name,
-                        IrBuildExpr::Param(slots.resolve(name)?),
+                        push_build_row!(self, expr, BuildExprRow::Param(slots.resolve(name)?)),
                     ));
                 }
                 ArenaRecordFieldKind::Spread { expr, .. } => {
@@ -7558,7 +7415,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                 }
             }
         }
-        Some(IrBuildExpr::Record(lowered))
+        Some(push_build_row!(self, expr, BuildExprRow::Record(lowered)))
     }
 
     fn lower_process_command_builder(
@@ -7569,7 +7426,7 @@ impl CompactLowerConstructProbe<'_, '_> {
         current_function: Option<Name>,
         item_slot: Option<usize>,
         span: Span,
-    ) -> Option<IrBuildExpr> {
+    ) -> Option<BuildExprId> {
         let (module, name, args) = match self.program.arena.expr(call).kind {
             ArenaExprKind::Field { base, name } => {
                 let ArenaExprKind::Ident(module) = self.program.arena.expr(base).kind else {
@@ -7686,10 +7543,8 @@ impl CompactLowerConstructProbe<'_, '_> {
                 }
             }
         }
-        Some(IrBuildExpr::ProcessCommandBuilder {
-            entries: lowered,
-            span,
-        })
+        Some(push_build_row!(self, expr, BuildExprRow::ProcessCommandBuilder { entries: lowered,
+        span, }))
     }
 
     fn lower_expr_ids(
@@ -7698,7 +7553,7 @@ impl CompactLowerConstructProbe<'_, '_> {
         slots: &mut SlotScope,
         current_function: Option<Name>,
         item_slot: Option<usize>,
-    ) -> Option<Vec<IrBuildExpr>> {
+    ) -> Option<Vec<BuildExprId>> {
         let mut lowered = Vec::with_capacity(ids.len());
         for id in ids {
             lowered.push(self.lower_expr(*id, slots, current_function, item_slot)?);
@@ -7768,13 +7623,13 @@ impl CompactLowerConstructProbe<'_, '_> {
         slots: &mut SlotScope,
         current_function: Option<Name>,
         item_slot: Option<usize>,
-    ) -> Option<IrBuildExpr> {
+    ) -> Option<BuildExprId> {
         let span = self.program.arena.expr(id).span;
         let args_vec = self.program.arena.call_args(args).to_vec();
         if let Some(error) =
             self.lower_compact_error_expr(callee, &args_vec, slots, current_function, item_slot)
         {
-            return Some(IrBuildExpr::Error(Box::new(error)));
+            return Some(push_build_row!(self, expr, BuildExprRow::Error(Box::new(error))));
         }
         match self.program.arena.expr(callee).kind {
             ArenaExprKind::Field { base, name } => {
@@ -7792,703 +7647,513 @@ impl CompactLowerConstructProbe<'_, '_> {
                 if name == "call" {
                     let args =
                         self.lower_call_args(&args_vec, slots, current_function, item_slot)?;
-                    return Some(IrBuildExpr::DynamicCall {
-                        callee: Box::new(self.lower_expr(
-                            base,
-                            slots,
-                            current_function,
-                            item_slot,
-                        )?),
-                        args,
-                        span,
-                    });
+                    return Some(push_build_row!(self, expr, BuildExprRow::DynamicCall { callee: self.lower_expr(base,
+                    slots,
+                    current_function,
+                    item_slot,)?,
+                    args,
+                    span, }));
                 }
                 if let ArenaExprKind::Ident(module) = self.program.arena.expr(base).kind {
                     if module == "Path" && name == "parse_bytes" {
                         let positional = positional_call_args(&args_vec)?;
                         if positional.len() == 1 {
-                            return Some(IrBuildExpr::ModuleCall {
-                                op: RuntimeOp::PathParseBytes,
-                                args: self.lower_expr_ids(
-                                    &positional,
-                                    slots,
-                                    current_function,
-                                    item_slot,
-                                )?,
-                                span,
-                            });
-                        }
-                    }
-                    if module == "fs" && (name == "ls" || name == "children") {
-                        let options = lower_fs_list_args(&args_vec)?;
-                        return Some(IrBuildExpr::FsList {
-                            op: if name == "ls" {
-                                RuntimeOp::FsLs
-                            } else {
-                                RuntimeOp::FsChildren
-                            },
-                            path: Box::new(self.lower_expr(
-                                options.path,
-                                slots,
-                                current_function,
-                                item_slot,
-                            )?),
-                            stat: match options.stat {
-                                Some(stat) => Some(Box::new(self.lower_expr(
-                                    stat,
-                                    slots,
-                                    current_function,
-                                    item_slot,
-                                )?)),
-                                None => None,
-                            },
-                            ordered: match options.ordered {
-                                Some(ordered) => Some(Box::new(self.lower_expr(
-                                    ordered,
-                                    slots,
-                                    current_function,
-                                    item_slot,
-                                )?)),
-                                None => None,
-                            },
-                            span,
-                        });
-                    }
-                    if module == "fs" && name == "files" {
-                        let options = lower_fs_files_args(&self.program.arena, &args_vec)?;
-                        return Some(IrBuildExpr::FsFiles {
-                            root: Box::new(self.lower_expr(
-                                options.root,
-                                slots,
-                                current_function,
-                                item_slot,
-                            )?),
-                            gitignore: options.gitignore,
-                            stat: options.stat,
-                            hidden: options.hidden,
-                            exts: match options.exts {
-                                Some(exts) => Some(Box::new(self.lower_expr(
-                                    exts,
-                                    slots,
-                                    current_function,
-                                    item_slot,
-                                )?)),
-                                None => None,
-                            },
-                            result_wrapped: false,
-                            span,
-                        });
-                    }
-                    if module == "fs" && name == "walk" {
-                        let options = lower_fs_files_args(&self.program.arena, &args_vec)?;
-                        return Some(IrBuildExpr::FsWalk {
-                            root: Box::new(self.lower_expr(
-                                options.root,
-                                slots,
-                                current_function,
-                                item_slot,
-                            )?),
-                            gitignore: options.gitignore,
-                            stat: options.stat,
-                            hidden: options.hidden,
-                            exts: match options.exts {
-                                Some(exts) => Some(Box::new(self.lower_expr(
-                                    exts,
-                                    slots,
-                                    current_function,
-                                    item_slot,
-                                )?)),
-                                None => None,
-                            },
-                            result_wrapped: false,
-                            span,
-                        });
-                    }
-                    if module == "fs" && name == "tempdir" && args_vec.is_empty() {
-                        return Some(IrBuildExpr::FsTempDir { span });
-                    }
-                    if module == "fs" && name == "write" {
-                        let options = lower_fs_write_args(&args_vec)?;
-                        return Some(IrBuildExpr::FsWrite {
-                            path: Box::new(self.lower_expr(
-                                options.path,
-                                slots,
-                                current_function,
-                                item_slot,
-                            )?),
-                            data: Box::new(self.lower_expr(
-                                options.data,
-                                slots,
-                                current_function,
-                                item_slot,
-                            )?),
-                            span,
-                        });
-                    }
-                    if module == "fs" && name == "mkdir" {
-                        let options = lower_fs_mkdir_args(&args_vec)?;
-                        return Some(IrBuildExpr::FsMkdir {
-                            path: Box::new(self.lower_expr(
-                                options.path,
-                                slots,
-                                current_function,
-                                item_slot,
-                            )?),
-                            parents: match options.parents {
-                                Some(expr) => Some(Box::new(self.lower_expr(
-                                    expr,
-                                    slots,
-                                    current_function,
-                                    item_slot,
-                                )?)),
-                                None => None,
-                            },
-                            span,
-                        });
-                    }
-                    if module == "fs" && name == "remove" {
-                        let options = lower_fs_remove_args(&args_vec)?;
-                        return Some(IrBuildExpr::FsRemove {
-                            path: Box::new(self.lower_expr(
-                                options.path,
-                                slots,
-                                current_function,
-                                item_slot,
-                            )?),
-                            missing_ok: match options.missing_ok {
-                                Some(expr) => Some(Box::new(self.lower_expr(
-                                    expr,
-                                    slots,
-                                    current_function,
-                                    item_slot,
-                                )?)),
-                                None => None,
-                            },
-                            span,
-                        });
-                    }
-                    if module == "archive" && name == "tar_create" {
-                        let options = lower_archive_tar_create_args(&args_vec)?;
-                        return Some(IrBuildExpr::ArchiveTarCreate {
-                            path: Box::new(self.lower_expr(
-                                options.path,
-                                slots,
-                                current_function,
-                                item_slot,
-                            )?),
-                            root: Box::new(self.lower_expr(
-                                options.root,
-                                slots,
-                                current_function,
-                                item_slot,
-                            )?),
-                            entries: Box::new(self.lower_expr(
-                                options.entries,
-                                slots,
-                                current_function,
-                                item_slot,
-                            )?),
-                            compression: match options.compression {
-                                Some(expr) => Some(Box::new(self.lower_expr(
-                                    expr,
-                                    slots,
-                                    current_function,
-                                    item_slot,
-                                )?)),
-                                None => None,
-                            },
-                            overwrite: match options.overwrite {
-                                Some(expr) => Some(Box::new(self.lower_expr(
-                                    expr,
-                                    slots,
-                                    current_function,
-                                    item_slot,
-                                )?)),
-                                None => None,
-                            },
-                            span,
-                        });
-                    }
-                    if module == "process" && name == "command_argv" {
-                        let options = lower_process_command_argv_args(&args_vec)?;
-                        let command = LoweredProcessCommandArgv {
-                            target: Box::new(self.lower_expr(
-                                options.target,
-                                slots,
-                                current_function,
-                                item_slot,
-                            )?),
-                            argv: Box::new(self.lower_expr(
-                                options.argv,
-                                slots,
-                                current_function,
-                                item_slot,
-                            )?),
-                            cwd: match options.cwd {
-                                Some(expr) => Some(Box::new(self.lower_expr(
-                                    expr,
-                                    slots,
-                                    current_function,
-                                    item_slot,
-                                )?)),
-                                None => None,
-                            },
-                            env: match options.env {
-                                Some(expr) => Some(Box::new(self.lower_expr(
-                                    expr,
-                                    slots,
-                                    current_function,
-                                    item_slot,
-                                )?)),
-                                None => None,
-                            },
-                            stdin: match options.stdin {
-                                Some(expr) => Some(Box::new(self.lower_expr(
-                                    expr,
-                                    slots,
-                                    current_function,
-                                    item_slot,
-                                )?)),
-                                None => None,
-                            },
-                            stdout: match options.stdout {
-                                Some(expr) => Some(Box::new(self.lower_expr(
-                                    expr,
-                                    slots,
-                                    current_function,
-                                    item_slot,
-                                )?)),
-                                None => None,
-                            },
-                            stderr: match options.stderr {
-                                Some(expr) => Some(Box::new(self.lower_expr(
-                                    expr,
-                                    slots,
-                                    current_function,
-                                    item_slot,
-                                )?)),
-                                None => None,
-                            },
-                            stdout_append: match options.stdout_append {
-                                Some(expr) => Some(Box::new(self.lower_expr(
-                                    expr,
-                                    slots,
-                                    current_function,
-                                    item_slot,
-                                )?)),
-                                None => None,
-                            },
-                            stderr_append: match options.stderr_append {
-                                Some(expr) => Some(Box::new(self.lower_expr(
-                                    expr,
-                                    slots,
-                                    current_function,
-                                    item_slot,
-                                )?)),
-                                None => None,
-                            },
-                            timeout: match options.timeout {
-                                Some(expr) => Some(Box::new(self.lower_expr(
-                                    expr,
-                                    slots,
-                                    current_function,
-                                    item_slot,
-                                )?)),
-                                None => None,
-                            },
-                            detach: match options.detach {
-                                Some(expr) => Some(Box::new(self.lower_expr(
-                                    expr,
-                                    slots,
-                                    current_function,
-                                    item_slot,
-                                )?)),
-                                None => None,
-                            },
-                            new_session: match options.new_session {
-                                Some(expr) => Some(Box::new(self.lower_expr(
-                                    expr,
-                                    slots,
-                                    current_function,
-                                    item_slot,
-                                )?)),
-                                None => None,
-                            },
-                            ignore_hup: match options.ignore_hup {
-                                Some(expr) => Some(Box::new(self.lower_expr(
-                                    expr,
-                                    slots,
-                                    current_function,
-                                    item_slot,
-                                )?)),
-                                None => None,
-                            },
-                            cpu_max: match options.cpu_max {
-                                Some(expr) => Some(Box::new(self.lower_expr(
-                                    expr,
-                                    slots,
-                                    current_function,
-                                    item_slot,
-                                )?)),
-                                None => None,
-                            },
-                            span,
-                        };
-                        return Some(IrBuildExpr::ProcessCommandArgv(Box::new(command)));
-                    }
-                    if let Some(module_call) = lowered_module_call_args(module, name, &args_vec) {
-                        return Some(IrBuildExpr::ModuleCall {
-                            op: module_call.op,
+                            return Some(push_build_row!(self, expr, BuildExprRow::ModuleCall { op: RuntimeOp::PathParseBytes,
                             args: self.lower_expr_ids(
-                                &module_call.args,
+                                &positional,
                                 slots,
                                 current_function,
                                 item_slot,
                             )?,
-                            span,
-                        });
+                            span, }));
+                        }
                     }
-                }
-                if name == "read_text" && args_vec.is_empty() {
-                    return Some(IrBuildExpr::PathReadText {
-                        path: Box::new(self.lower_expr(
-                            base,
+                    if module == "fs" && (name == "ls" || name == "children") {
+                        let options = lower_fs_list_args(&args_vec)?;
+                        return Some(push_build_row!(self, expr, BuildExprRow::FsList { op: if name == "ls" {
+                            RuntimeOp::FsLs
+                        } else {
+                            RuntimeOp::FsChildren
+                        },
+                        path: self.lower_expr(options.path,
+                        slots,
+                        current_function,
+                        item_slot,)?,
+                        stat: match options.stat {
+                            Some(stat) => Some(self.lower_expr(stat,
                             slots,
                             current_function,
-                            item_slot,
-                        )?),
-                        span,
-                    });
-                }
-                if name == "read_bytes" && args_vec.is_empty() {
-                    return Some(IrBuildExpr::PathReadBytes {
-                        path: Box::new(self.lower_expr(
-                            base,
+                            item_slot,)?),
+                            None => None,
+                        },
+                        ordered: match options.ordered {
+                            Some(ordered) => Some(self.lower_expr(ordered,
                             slots,
                             current_function,
-                            item_slot,
-                        )?),
-                        span,
-                    });
-                }
-                if name == "exists" && args_vec.is_empty() {
-                    return Some(IrBuildExpr::PathExists {
-                        path: Box::new(self.lower_expr(
-                            base,
+                            item_slot,)?),
+                            None => None,
+                        },
+                        span, }));
+                    }
+                    if module == "fs" && name == "files" {
+                        let options = lower_fs_files_args(&self.program.arena, &args_vec)?;
+                        return Some(push_build_row!(self, expr, BuildExprRow::FsFiles { root: self.lower_expr(options.root,
+                        slots,
+                        current_function,
+                        item_slot,)?,
+                        gitignore: options.gitignore,
+                        stat: options.stat,
+                        hidden: options.hidden,
+                        exts: match options.exts {
+                            Some(exts) => Some(self.lower_expr(exts,
                             slots,
                             current_function,
-                            item_slot,
-                        )?),
-                        span,
-                    });
-                }
-                if name == "executable" && args_vec.is_empty() {
-                    return Some(IrBuildExpr::PathExecutable {
-                        path: Box::new(self.lower_expr(
-                            base,
+                            item_slot,)?),
+                            None => None,
+                        },
+                        result_wrapped: false,
+                        span, }));
+                    }
+                    if module == "fs" && name == "walk" {
+                        let options = lower_fs_files_args(&self.program.arena, &args_vec)?;
+                        return Some(push_build_row!(self, expr, BuildExprRow::FsWalk { root: self.lower_expr(options.root,
+                        slots,
+                        current_function,
+                        item_slot,)?,
+                        gitignore: options.gitignore,
+                        stat: options.stat,
+                        hidden: options.hidden,
+                        exts: match options.exts {
+                            Some(exts) => Some(self.lower_expr(exts,
                             slots,
                             current_function,
-                            item_slot,
-                        )?),
-                        span,
-                    });
-                }
-                if name == "du" && args_vec.is_empty() {
-                    return Some(IrBuildExpr::PathDu {
-                        path: Box::new(self.lower_expr(
-                            base,
-                            slots,
-                            current_function,
-                            item_slot,
-                        )?),
-                        span,
-                    });
-                }
-                if name == "metadata" && args_vec.is_empty() {
-                    return Some(IrBuildExpr::PathMetadata {
-                        path: Box::new(self.lower_expr(
-                            base,
-                            slots,
-                            current_function,
-                            item_slot,
-                        )?),
-                        span,
-                    });
-                }
-                if name == "readlink" && args_vec.is_empty() {
-                    return Some(IrBuildExpr::PathReadlink {
-                        path: Box::new(self.lower_expr(
-                            base,
-                            slots,
-                            current_function,
-                            item_slot,
-                        )?),
-                        span,
-                    });
-                }
-                if name == "resolve" && args_vec.is_empty() {
-                    return Some(IrBuildExpr::PathResolve {
-                        path: Box::new(self.lower_expr(
-                            base,
-                            slots,
-                            current_function,
-                            item_slot,
-                        )?),
-                        span,
-                    });
-                }
-                if name == "write" || name == "write_atomic" {
-                    let options = lower_path_write_args(&args_vec)?;
-                    return Some(IrBuildExpr::PathWrite {
-                        path: Box::new(self.lower_expr(
-                            base,
-                            slots,
-                            current_function,
-                            item_slot,
-                        )?),
-                        data: Box::new(self.lower_expr(
-                            options.data,
-                            slots,
-                            current_function,
-                            item_slot,
-                        )?),
-                        atomic: name == "write_atomic",
-                        span,
-                    });
-                }
-                if name == "contains" && args_vec.len() == 1 {
-                    let ArenaCallArgKind::Positional(needle) = args_vec[0].kind else {
-                        return None;
-                    };
-                    return Some(IrBuildExpr::Contains {
-                        receiver: Box::new(self.lower_expr(
-                            base,
-                            slots,
-                            current_function,
-                            item_slot,
-                        )?),
-                        needle: Box::new(self.lower_expr(
-                            needle,
-                            slots,
-                            current_function,
-                            item_slot,
-                        )?),
-                        span,
-                    });
-                }
-                if name == "mkdir" {
-                    let options = lower_path_mkdir_args(&args_vec)?;
-                    return Some(IrBuildExpr::PathMkdir {
-                        path: Box::new(self.lower_expr(
-                            base,
-                            slots,
-                            current_function,
-                            item_slot,
-                        )?),
+                            item_slot,)?),
+                            None => None,
+                        },
+                        result_wrapped: false,
+                        span, }));
+                    }
+                    if module == "fs" && name == "tempdir" && args_vec.is_empty() {
+                        return Some(push_build_row!(self, expr, BuildExprRow::FsTempDir { span }));
+                    }
+                    if module == "fs" && name == "write" {
+                        let options = lower_fs_write_args(&args_vec)?;
+                        return Some(push_build_row!(self, expr, BuildExprRow::FsWrite { path: self.lower_expr(options.path,
+                        slots,
+                        current_function,
+                        item_slot,)?,
+                        data: self.lower_expr(options.data,
+                        slots,
+                        current_function,
+                        item_slot,)?,
+                        span, }));
+                    }
+                    if module == "fs" && name == "mkdir" {
+                        let options = lower_fs_mkdir_args(&args_vec)?;
+                        return Some(push_build_row!(self, expr, BuildExprRow::FsMkdir { path: self.lower_expr(options.path,
+                        slots,
+                        current_function,
+                        item_slot,)?,
                         parents: match options.parents {
-                            Some(expr) => Some(Box::new(self.lower_expr(
-                                expr,
-                                slots,
-                                current_function,
-                                item_slot,
-                            )?)),
-                            None => None,
-                        },
-                        span,
-                    });
-                }
-                if name == "remove"
-                    && let Some(options) = lower_path_remove_args(&args_vec)
-                {
-                    return Some(IrBuildExpr::PathRemove {
-                        path: Box::new(self.lower_expr(
-                            base,
+                            Some(expr) => Some(self.lower_expr(expr,
                             slots,
                             current_function,
-                            item_slot,
-                        )?),
+                            item_slot,)?),
+                            None => None,
+                        },
+                        span, }));
+                    }
+                    if module == "fs" && name == "remove" {
+                        let options = lower_fs_remove_args(&args_vec)?;
+                        return Some(push_build_row!(self, expr, BuildExprRow::FsRemove { path: self.lower_expr(options.path,
+                        slots,
+                        current_function,
+                        item_slot,)?,
                         missing_ok: match options.missing_ok {
-                            Some(expr) => Some(Box::new(self.lower_expr(
-                                expr,
-                                slots,
-                                current_function,
-                                item_slot,
-                            )?)),
+                            Some(expr) => Some(self.lower_expr(expr,
+                            slots,
+                            current_function,
+                            item_slot,)?),
                             None => None,
                         },
-                        span,
-                    });
-                }
-                if let ArenaExprKind::Ident(module) = self.program.arena.expr(base).kind
-                    && module == "hash"
-                    && name == "verify_file"
-                    && let Some(options) = lower_hash_verify_file_args(&args_vec)
-                {
-                    return Some(IrBuildExpr::HashVerifyFile {
-                        path: Box::new(self.lower_expr(
-                            options.path,
+                        span, }));
+                    }
+                    if module == "archive" && name == "tar_create" {
+                        let options = lower_archive_tar_create_args(&args_vec)?;
+                        return Some(push_build_row!(self, expr, BuildExprRow::ArchiveTarCreate { path: self.lower_expr(options.path,
+                        slots,
+                        current_function,
+                        item_slot,)?,
+                        root: self.lower_expr(options.root,
+                        slots,
+                        current_function,
+                        item_slot,)?,
+                        entries: self.lower_expr(options.entries,
+                        slots,
+                        current_function,
+                        item_slot,)?,
+                        compression: match options.compression {
+                            Some(expr) => Some(self.lower_expr(expr,
                             slots,
                             current_function,
-                            item_slot,
-                        )?),
-                        algorithm: options.algorithm,
-                        expected: Box::new(self.lower_expr(
-                            options.expected,
+                            item_slot,)?),
+                            None => None,
+                        },
+                        overwrite: match options.overwrite {
+                            Some(expr) => Some(self.lower_expr(expr,
                             slots,
                             current_function,
-                            item_slot,
-                        )?),
-                        span,
-                    });
-                }
-                if let ArenaExprKind::Ident(module) = self.program.arena.expr(base).kind
-                    && let Some(module_call) = lowered_module_call_args(module, name, &args_vec)
-                {
-                    return Some(IrBuildExpr::ModuleCall {
-                        op: module_call.op,
+                            item_slot,)?),
+                            None => None,
+                        },
+                        span, }));
+                    }
+                    if module == "process" && name == "command_argv" {
+                        let options = lower_process_command_argv_args(&args_vec)?;
+                        let command = LoweredProcessCommandArgv {
+                            target: self.lower_expr(options.target,
+                            slots,
+                            current_function,
+                            item_slot,)?,
+                            argv: self.lower_expr(options.argv,
+                            slots,
+                            current_function,
+                            item_slot,)?,
+                            cwd: match options.cwd {
+                                Some(expr) => Some(self.lower_expr(expr,
+                                slots,
+                                current_function,
+                                item_slot,)?),
+                                None => None,
+                            },
+                            env: match options.env {
+                                Some(expr) => Some(self.lower_expr(expr,
+                                slots,
+                                current_function,
+                                item_slot,)?),
+                                None => None,
+                            },
+                            stdin: match options.stdin {
+                                Some(expr) => Some(self.lower_expr(expr,
+                                slots,
+                                current_function,
+                                item_slot,)?),
+                                None => None,
+                            },
+                            stdout: match options.stdout {
+                                Some(expr) => Some(self.lower_expr(expr,
+                                slots,
+                                current_function,
+                                item_slot,)?),
+                                None => None,
+                            },
+                            stderr: match options.stderr {
+                                Some(expr) => Some(self.lower_expr(expr,
+                                slots,
+                                current_function,
+                                item_slot,)?),
+                                None => None,
+                            },
+                            stdout_append: match options.stdout_append {
+                                Some(expr) => Some(self.lower_expr(expr,
+                                slots,
+                                current_function,
+                                item_slot,)?),
+                                None => None,
+                            },
+                            stderr_append: match options.stderr_append {
+                                Some(expr) => Some(self.lower_expr(expr,
+                                slots,
+                                current_function,
+                                item_slot,)?),
+                                None => None,
+                            },
+                            timeout: match options.timeout {
+                                Some(expr) => Some(self.lower_expr(expr,
+                                slots,
+                                current_function,
+                                item_slot,)?),
+                                None => None,
+                            },
+                            detach: match options.detach {
+                                Some(expr) => Some(self.lower_expr(expr,
+                                slots,
+                                current_function,
+                                item_slot,)?),
+                                None => None,
+                            },
+                            new_session: match options.new_session {
+                                Some(expr) => Some(self.lower_expr(expr,
+                                slots,
+                                current_function,
+                                item_slot,)?),
+                                None => None,
+                            },
+                            ignore_hup: match options.ignore_hup {
+                                Some(expr) => Some(self.lower_expr(expr,
+                                slots,
+                                current_function,
+                                item_slot,)?),
+                                None => None,
+                            },
+                            cpu_max: match options.cpu_max {
+                                Some(expr) => Some(self.lower_expr(expr,
+                                slots,
+                                current_function,
+                                item_slot,)?),
+                                None => None,
+                            },
+                            span,
+                        };
+                        return Some(push_build_row!(self, expr, BuildExprRow::ProcessCommandArgv(Box::new(command))));
+                    }
+                    if let Some(module_call) = lowered_module_call_args(module, name, &args_vec) {
+                        return Some(push_build_row!(self, expr, BuildExprRow::ModuleCall { op: module_call.op,
                         args: self.lower_expr_ids(
                             &module_call.args,
                             slots,
                             current_function,
                             item_slot,
                         )?,
-                        span,
-                    });
+                        span, }));
+                    }
+                }
+                if name == "read_text" && args_vec.is_empty() {
+                    return Some(push_build_row!(self, expr, BuildExprRow::PathReadText { path: self.lower_expr(base,
+                    slots,
+                    current_function,
+                    item_slot,)?,
+                    span, }));
+                }
+                if name == "read_bytes" && args_vec.is_empty() {
+                    return Some(push_build_row!(self, expr, BuildExprRow::PathReadBytes { path: self.lower_expr(base,
+                    slots,
+                    current_function,
+                    item_slot,)?,
+                    span, }));
+                }
+                if name == "exists" && args_vec.is_empty() {
+                    return Some(push_build_row!(self, expr, BuildExprRow::PathExists { path: self.lower_expr(base,
+                    slots,
+                    current_function,
+                    item_slot,)?,
+                    span, }));
+                }
+                if name == "executable" && args_vec.is_empty() {
+                    return Some(push_build_row!(self, expr, BuildExprRow::PathExecutable { path: self.lower_expr(base,
+                    slots,
+                    current_function,
+                    item_slot,)?,
+                    span, }));
+                }
+                if name == "du" && args_vec.is_empty() {
+                    return Some(push_build_row!(self, expr, BuildExprRow::PathDu { path: self.lower_expr(base,
+                    slots,
+                    current_function,
+                    item_slot,)?,
+                    span, }));
+                }
+                if name == "metadata" && args_vec.is_empty() {
+                    return Some(push_build_row!(self, expr, BuildExprRow::PathMetadata { path: self.lower_expr(base,
+                    slots,
+                    current_function,
+                    item_slot,)?,
+                    span, }));
+                }
+                if name == "readlink" && args_vec.is_empty() {
+                    return Some(push_build_row!(self, expr, BuildExprRow::PathReadlink { path: self.lower_expr(base,
+                    slots,
+                    current_function,
+                    item_slot,)?,
+                    span, }));
+                }
+                if name == "resolve" && args_vec.is_empty() {
+                    return Some(push_build_row!(self, expr, BuildExprRow::PathResolve { path: self.lower_expr(base,
+                    slots,
+                    current_function,
+                    item_slot,)?,
+                    span, }));
+                }
+                if name == "write" || name == "write_atomic" {
+                    let options = lower_path_write_args(&args_vec)?;
+                    return Some(push_build_row!(self, expr, BuildExprRow::PathWrite { path: self.lower_expr(base,
+                    slots,
+                    current_function,
+                    item_slot,)?,
+                    data: self.lower_expr(options.data,
+                    slots,
+                    current_function,
+                    item_slot,)?,
+                    atomic: name == "write_atomic",
+                    span, }));
+                }
+                if name == "contains" && args_vec.len() == 1 {
+                    let ArenaCallArgKind::Positional(needle) = args_vec[0].kind else {
+                        return None;
+                    };
+                    return Some(push_build_row!(self, expr, BuildExprRow::Contains { receiver: self.lower_expr(base,
+                    slots,
+                    current_function,
+                    item_slot,)?,
+                    needle: self.lower_expr(needle,
+                    slots,
+                    current_function,
+                    item_slot,)?,
+                    span, }));
+                }
+                if name == "mkdir" {
+                    let options = lower_path_mkdir_args(&args_vec)?;
+                    return Some(push_build_row!(self, expr, BuildExprRow::PathMkdir { path: self.lower_expr(base,
+                    slots,
+                    current_function,
+                    item_slot,)?,
+                    parents: match options.parents {
+                        Some(expr) => Some(self.lower_expr(expr,
+                        slots,
+                        current_function,
+                        item_slot,)?),
+                        None => None,
+                    },
+                    span, }));
+                }
+                if name == "remove"
+                    && let Some(options) = lower_path_remove_args(&args_vec)
+                {
+                    return Some(push_build_row!(self, expr, BuildExprRow::PathRemove { path: self.lower_expr(base,
+                    slots,
+                    current_function,
+                    item_slot,)?,
+                    missing_ok: match options.missing_ok {
+                        Some(expr) => Some(self.lower_expr(expr,
+                        slots,
+                        current_function,
+                        item_slot,)?),
+                        None => None,
+                    },
+                    span, }));
+                }
+                if let ArenaExprKind::Ident(module) = self.program.arena.expr(base).kind
+                    && module == "hash"
+                    && name == "verify_file"
+                    && let Some(options) = lower_hash_verify_file_args(&args_vec)
+                {
+                    return Some(push_build_row!(self, expr, BuildExprRow::HashVerifyFile { path: self.lower_expr(options.path,
+                    slots,
+                    current_function,
+                    item_slot,)?,
+                    algorithm: options.algorithm,
+                    expected: self.lower_expr(options.expected,
+                    slots,
+                    current_function,
+                    item_slot,)?,
+                    span, }));
+                }
+                if let ArenaExprKind::Ident(module) = self.program.arena.expr(base).kind
+                    && let Some(module_call) = lowered_module_call_args(module, name, &args_vec)
+                {
+                    return Some(push_build_row!(self, expr, BuildExprRow::ModuleCall { op: module_call.op,
+                    args: self.lower_expr_ids(
+                        &module_call.args,
+                        slots,
+                        current_function,
+                        item_slot,
+                    )?,
+                    span, }));
                 }
                 let positional = positional_call_args(&args_vec);
                 if let ArenaExprKind::Ident(module) = self.program.arena.expr(base).kind
                     && let Some(positional) = positional.as_ref()
                 {
                     if module == "Path" && name == "parse_bytes" && positional.len() == 1 {
-                        return Some(IrBuildExpr::ModuleCall {
-                            op: RuntimeOp::PathParseBytes,
-                            args: self.lower_expr_ids(
-                                positional,
-                                slots,
-                                current_function,
-                                item_slot,
-                            )?,
-                            span,
-                        });
+                        return Some(push_build_row!(self, expr, BuildExprRow::ModuleCall { op: RuntimeOp::PathParseBytes,
+                        args: self.lower_expr_ids(
+                            positional,
+                            slots,
+                            current_function,
+                            item_slot,
+                        )?,
+                        span, }));
                     }
                     if module == "fs" && name == "close_root" && positional.len() == 1 {
-                        return Some(IrBuildExpr::FsCloseRoot {
-                            root: Box::new(self.lower_expr(
-                                positional[0],
-                                slots,
-                                current_function,
-                                item_slot,
-                            )?),
-                            span,
-                        });
+                        return Some(push_build_row!(self, expr, BuildExprRow::FsCloseRoot { root: self.lower_expr(positional[0],
+                        slots,
+                        current_function,
+                        item_slot,)?,
+                        span, }));
                     }
                     if module == "fs" && name == "root_path" && positional.len() == 1 {
-                        return Some(IrBuildExpr::FsRootPath {
-                            root: Box::new(self.lower_expr(
-                                positional[0],
-                                slots,
-                                current_function,
-                                item_slot,
-                            )?),
-                            span,
-                        });
+                        return Some(push_build_row!(self, expr, BuildExprRow::FsRootPath { root: self.lower_expr(positional[0],
+                        slots,
+                        current_function,
+                        item_slot,)?,
+                        span, }));
                     }
                     if module == "regex" && name == "compile" && positional.len() == 1 {
-                        return Some(IrBuildExpr::RegexCompile {
-                            pattern: Box::new(self.lower_expr(
-                                positional[0],
-                                slots,
-                                current_function,
-                                item_slot,
-                            )?),
-                            span,
-                        });
+                        return Some(push_build_row!(self, expr, BuildExprRow::RegexCompile { pattern: self.lower_expr(positional[0],
+                        slots,
+                        current_function,
+                        item_slot,)?,
+                        span, }));
                     }
                     if module == "map" && name == "empty" && positional.is_empty() {
-                        return Some(IrBuildExpr::EmptyMap);
+                        return Some(push_build_row!(self, expr, BuildExprRow::EmptyMap));
                     }
                     if module == "bytes" && name == "concat" && positional.len() == 1 {
-                        return Some(IrBuildExpr::BytesConcat {
-                            arg: Box::new(self.lower_expr(
-                                positional[0],
-                                slots,
-                                current_function,
-                                item_slot,
-                            )?),
-                            span,
-                        });
+                        return Some(push_build_row!(self, expr, BuildExprRow::BytesConcat { arg: self.lower_expr(positional[0],
+                        slots,
+                        current_function,
+                        item_slot,)?,
+                        span, }));
                     }
                     if module == "json" && name == "encode" && positional.len() == 1 {
-                        return Some(IrBuildExpr::JsonEncode {
-                            value: Box::new(self.lower_expr(
-                                positional[0],
-                                slots,
-                                current_function,
-                                item_slot,
-                            )?),
-                            span,
-                        });
+                        return Some(push_build_row!(self, expr, BuildExprRow::JsonEncode { value: self.lower_expr(positional[0],
+                        slots,
+                        current_function,
+                        item_slot,)?,
+                        span, }));
                     }
                     if module == "archive" && name == "tar_list" && positional.len() == 1 {
-                        return Some(IrBuildExpr::ArchiveTarList {
-                            path: Box::new(self.lower_expr(
-                                positional[0],
-                                slots,
-                                current_function,
-                                item_slot,
-                            )?),
-                            span,
-                        });
+                        return Some(push_build_row!(self, expr, BuildExprRow::ArchiveTarList { path: self.lower_expr(positional[0],
+                        slots,
+                        current_function,
+                        item_slot,)?,
+                        span, }));
                     }
                     if module == "archive" && name == "tar_extract" && positional.len() == 2 {
-                        return Some(IrBuildExpr::ArchiveTarExtract {
-                            path: Box::new(self.lower_expr(
-                                positional[0],
-                                slots,
-                                current_function,
-                                item_slot,
-                            )?),
-                            dest: Box::new(self.lower_expr(
-                                positional[1],
-                                slots,
-                                current_function,
-                                item_slot,
-                            )?),
-                            span,
-                        });
+                        return Some(push_build_row!(self, expr, BuildExprRow::ArchiveTarExtract { path: self.lower_expr(positional[0],
+                        slots,
+                        current_function,
+                        item_slot,)?,
+                        dest: self.lower_expr(positional[1],
+                        slots,
+                        current_function,
+                        item_slot,)?,
+                        span, }));
                     }
                     if module == "hash"
                         && name == "verify_file"
                         && let Some(options) = lower_hash_verify_file_args(&args_vec)
                     {
-                        return Some(IrBuildExpr::HashVerifyFile {
-                            path: Box::new(self.lower_expr(
-                                options.path,
-                                slots,
-                                current_function,
-                                item_slot,
-                            )?),
-                            algorithm: options.algorithm,
-                            expected: Box::new(self.lower_expr(
-                                options.expected,
-                                slots,
-                                current_function,
-                                item_slot,
-                            )?),
-                            span,
-                        });
+                        return Some(push_build_row!(self, expr, BuildExprRow::HashVerifyFile { path: self.lower_expr(options.path,
+                        slots,
+                        current_function,
+                        item_slot,)?,
+                        algorithm: options.algorithm,
+                        expected: self.lower_expr(options.expected,
+                        slots,
+                        current_function,
+                        item_slot,)?,
+                        span, }));
                     }
                     if let Some(module_call) = lowered_module_call_args(module, name, &args_vec) {
-                        return Some(IrBuildExpr::ModuleCall {
-                            op: module_call.op,
-                            args: self.lower_expr_ids(
-                                &module_call.args,
-                                slots,
-                                current_function,
-                                item_slot,
-                            )?,
-                            span,
-                        });
+                        return Some(push_build_row!(self, expr, BuildExprRow::ModuleCall { op: module_call.op,
+                        args: self.lower_expr_ids(
+                            &module_call.args,
+                            slots,
+                            current_function,
+                            item_slot,
+                        )?,
+                        span, }));
                     }
                     let qualified = QualifiedName::new(module, name);
                     if self.compact_qualified_function_available(qualified) {
@@ -8505,35 +8170,25 @@ impl CompactLowerConstructProbe<'_, '_> {
                             )?
                             .into_iter()
                             .collect();
-                        return Some(IrBuildExpr::Call {
-                            function: LoweredFunctionKey::Qualified(qualified),
-                            args,
-                            span,
-                        });
+                        return Some(push_build_row!(self, expr, BuildExprRow::Call { function: LoweredFunctionKey::Qualified(qualified),
+                        args,
+                        span, }));
                     }
                 }
                 if !lowered_method_name(name.as_str()) {
                     if name == "read_text" && args_vec.is_empty() {
-                        return Some(IrBuildExpr::PathReadText {
-                            path: Box::new(self.lower_expr(
-                                base,
-                                slots,
-                                current_function,
-                                item_slot,
-                            )?),
-                            span,
-                        });
+                        return Some(push_build_row!(self, expr, BuildExprRow::PathReadText { path: self.lower_expr(base,
+                        slots,
+                        current_function,
+                        item_slot,)?,
+                        span, }));
                     }
                     if name == "read_bytes" && args_vec.is_empty() {
-                        return Some(IrBuildExpr::PathReadBytes {
-                            path: Box::new(self.lower_expr(
-                                base,
-                                slots,
-                                current_function,
-                                item_slot,
-                            )?),
-                            span,
-                        });
+                        return Some(push_build_row!(self, expr, BuildExprRow::PathReadBytes { path: self.lower_expr(base,
+                        slots,
+                        current_function,
+                        item_slot,)?,
+                        span, }));
                     }
                     if let ArenaExprKind::Ident(module) = self.program.arena.expr(base).kind
                         && let Some(call_args) = lowered_module_call_args(module, name, &args_vec)
@@ -8547,24 +8202,18 @@ impl CompactLowerConstructProbe<'_, '_> {
                                 item_slot,
                             )?);
                         }
-                        return Some(IrBuildExpr::ModuleCall {
-                            op: call_args.op,
-                            args: lowered,
-                            span,
-                        });
+                        return Some(push_build_row!(self, expr, BuildExprRow::ModuleCall { op: call_args.op,
+                        args: lowered,
+                        span, }));
                     }
                     let args =
                         self.lower_call_args(&args_vec, slots, current_function, item_slot)?;
-                    return Some(IrBuildExpr::DynamicCall {
-                        callee: Box::new(self.lower_expr(
-                            callee,
-                            slots,
-                            current_function,
-                            item_slot,
-                        )?),
-                        args,
-                        span,
-                    });
+                    return Some(push_build_row!(self, expr, BuildExprRow::DynamicCall { callee: self.lower_expr(callee,
+                    slots,
+                    current_function,
+                    item_slot,)?,
+                    args,
+                    span, }));
                 }
                 // Recognize `<text>.starts_with(n)` / `.ends_with(n)` and lower to the
                 // direct StrPredicate node (the bool-condition path then specializes it
@@ -8578,22 +8227,16 @@ impl CompactLowerConstructProbe<'_, '_> {
                     && let Some(positional) = positional_call_args(&args_vec)
                     && positional.len() == 1
                 {
-                    return Some(IrBuildExpr::StrPredicate {
-                        receiver: Box::new(self.lower_expr(
-                            base,
-                            slots,
-                            current_function,
-                            item_slot,
-                        )?),
-                        predicate,
-                        needle: Box::new(self.lower_expr(
-                            positional[0],
-                            slots,
-                            current_function,
-                            item_slot,
-                        )?),
-                        span,
-                    });
+                    return Some(push_build_row!(self, expr, BuildExprRow::StrPredicate { receiver: self.lower_expr(base,
+                    slots,
+                    current_function,
+                    item_slot,)?,
+                    predicate,
+                    needle: self.lower_expr(positional[0],
+                    slots,
+                    current_function,
+                    item_slot,)?,
+                    span, }));
                 }
                 let method_args = lowered_method_call_args(name, &args_vec)?;
                 if !self.lowered_method_supported_for_receiver(base, name, method_args.len(), slots)
@@ -8607,179 +8250,123 @@ impl CompactLowerConstructProbe<'_, '_> {
                 }
                 if lowered_str_byte_op(name.as_str(), &lowered_args) {
                     return Some(match name.as_str() {
-                        "byte_len" => IrBuildExpr::StrByteLen {
-                            receiver: Box::new(receiver),
-                            span,
-                        },
+                        "byte_len" => push_build_row!(self, expr, BuildExprRow::StrByteLen { receiver: receiver,
+                        span, }),
                         "byte_at" => {
                             let mut args = lowered_args.into_iter();
-                            IrBuildExpr::StrByteAt {
-                                receiver: Box::new(receiver),
-                                index: Box::new(args.next().unwrap()),
-                                default: args.next().map(Box::new),
-                                span,
-                            }
+                            push_build_row!(self, expr, BuildExprRow::StrByteAt { receiver: receiver,
+                            index: args.next().unwrap(),
+                            default: args.next(),
+                            span, })
                         }
                         _ => unreachable!(),
                     });
                 }
-                Some(IrBuildExpr::Method {
-                    receiver: Box::new(receiver),
-                    name: name.as_str(),
-                    args: lowered_args,
-                    span,
-                })
+                Some(push_build_row!(self, expr, BuildExprRow::Method { receiver: receiver,
+                name: name.as_str(),
+                args: lowered_args,
+                span, }))
             }
             ArenaExprKind::NullSafeField { base, name } => {
                 if name == "read_text" && args_vec.is_empty() {
-                    return Some(IrBuildExpr::PathReadText {
-                        path: Box::new(IrBuildExpr::Try(Box::new(self.lower_expr(
-                            base,
-                            slots,
-                            current_function,
-                            item_slot,
-                        )?))),
-                        span,
-                    });
+                    return Some(push_build_row!(self, expr, BuildExprRow::PathReadText { path: push_build_row!(self, expr, BuildExprRow::Try(self.lower_expr(base,
+                    slots,
+                    current_function,
+                    item_slot,)?)),
+                    span, }));
                 }
                 if name == "read_bytes" && args_vec.is_empty() {
-                    return Some(IrBuildExpr::PathReadBytes {
-                        path: Box::new(IrBuildExpr::Try(Box::new(self.lower_expr(
-                            base,
-                            slots,
-                            current_function,
-                            item_slot,
-                        )?))),
-                        span,
-                    });
+                    return Some(push_build_row!(self, expr, BuildExprRow::PathReadBytes { path: push_build_row!(self, expr, BuildExprRow::Try(self.lower_expr(base,
+                    slots,
+                    current_function,
+                    item_slot,)?)),
+                    span, }));
                 }
                 if name == "exists" && args_vec.is_empty() {
-                    return Some(IrBuildExpr::PathExists {
-                        path: Box::new(IrBuildExpr::Try(Box::new(self.lower_expr(
-                            base,
-                            slots,
-                            current_function,
-                            item_slot,
-                        )?))),
-                        span,
-                    });
+                    return Some(push_build_row!(self, expr, BuildExprRow::PathExists { path: push_build_row!(self, expr, BuildExprRow::Try(self.lower_expr(base,
+                    slots,
+                    current_function,
+                    item_slot,)?)),
+                    span, }));
                 }
                 if name == "executable" && args_vec.is_empty() {
-                    return Some(IrBuildExpr::PathExecutable {
-                        path: Box::new(IrBuildExpr::Try(Box::new(self.lower_expr(
-                            base,
-                            slots,
-                            current_function,
-                            item_slot,
-                        )?))),
-                        span,
-                    });
+                    return Some(push_build_row!(self, expr, BuildExprRow::PathExecutable { path: push_build_row!(self, expr, BuildExprRow::Try(self.lower_expr(base,
+                    slots,
+                    current_function,
+                    item_slot,)?)),
+                    span, }));
                 }
                 if name == "du" && args_vec.is_empty() {
-                    return Some(IrBuildExpr::PathDu {
-                        path: Box::new(IrBuildExpr::Try(Box::new(self.lower_expr(
-                            base,
-                            slots,
-                            current_function,
-                            item_slot,
-                        )?))),
-                        span,
-                    });
+                    return Some(push_build_row!(self, expr, BuildExprRow::PathDu { path: push_build_row!(self, expr, BuildExprRow::Try(self.lower_expr(base,
+                    slots,
+                    current_function,
+                    item_slot,)?)),
+                    span, }));
                 }
                 if name == "metadata" && args_vec.is_empty() {
-                    return Some(IrBuildExpr::PathMetadata {
-                        path: Box::new(IrBuildExpr::Try(Box::new(self.lower_expr(
-                            base,
-                            slots,
-                            current_function,
-                            item_slot,
-                        )?))),
-                        span,
-                    });
+                    return Some(push_build_row!(self, expr, BuildExprRow::PathMetadata { path: push_build_row!(self, expr, BuildExprRow::Try(self.lower_expr(base,
+                    slots,
+                    current_function,
+                    item_slot,)?)),
+                    span, }));
                 }
                 if name == "readlink" && args_vec.is_empty() {
-                    return Some(IrBuildExpr::PathReadlink {
-                        path: Box::new(IrBuildExpr::Try(Box::new(self.lower_expr(
-                            base,
-                            slots,
-                            current_function,
-                            item_slot,
-                        )?))),
-                        span,
-                    });
+                    return Some(push_build_row!(self, expr, BuildExprRow::PathReadlink { path: push_build_row!(self, expr, BuildExprRow::Try(self.lower_expr(base,
+                    slots,
+                    current_function,
+                    item_slot,)?)),
+                    span, }));
                 }
                 if name == "resolve" && args_vec.is_empty() {
-                    return Some(IrBuildExpr::PathResolve {
-                        path: Box::new(IrBuildExpr::Try(Box::new(self.lower_expr(
-                            base,
-                            slots,
-                            current_function,
-                            item_slot,
-                        )?))),
-                        span,
-                    });
+                    return Some(push_build_row!(self, expr, BuildExprRow::PathResolve { path: push_build_row!(self, expr, BuildExprRow::Try(self.lower_expr(base,
+                    slots,
+                    current_function,
+                    item_slot,)?)),
+                    span, }));
                 }
                 if name == "write" || name == "write_atomic" {
                     let options = lower_path_write_args(&args_vec)?;
-                    return Some(IrBuildExpr::PathWrite {
-                        path: Box::new(IrBuildExpr::Try(Box::new(self.lower_expr(
-                            base,
-                            slots,
-                            current_function,
-                            item_slot,
-                        )?))),
-                        data: Box::new(self.lower_expr(
-                            options.data,
-                            slots,
-                            current_function,
-                            item_slot,
-                        )?),
-                        atomic: name == "write_atomic",
-                        span,
-                    });
+                    return Some(push_build_row!(self, expr, BuildExprRow::PathWrite { path: push_build_row!(self, expr, BuildExprRow::Try(self.lower_expr(base,
+                    slots,
+                    current_function,
+                    item_slot,)?)),
+                    data: self.lower_expr(options.data,
+                    slots,
+                    current_function,
+                    item_slot,)?,
+                    atomic: name == "write_atomic",
+                    span, }));
                 }
                 if name == "mkdir" {
                     let options = lower_path_mkdir_args(&args_vec)?;
-                    return Some(IrBuildExpr::PathMkdir {
-                        path: Box::new(IrBuildExpr::Try(Box::new(self.lower_expr(
-                            base,
-                            slots,
-                            current_function,
-                            item_slot,
-                        )?))),
-                        parents: match options.parents {
-                            Some(expr) => Some(Box::new(self.lower_expr(
-                                expr,
-                                slots,
-                                current_function,
-                                item_slot,
-                            )?)),
-                            None => None,
-                        },
-                        span,
-                    });
+                    return Some(push_build_row!(self, expr, BuildExprRow::PathMkdir { path: push_build_row!(self, expr, BuildExprRow::Try(self.lower_expr(base,
+                    slots,
+                    current_function,
+                    item_slot,)?)),
+                    parents: match options.parents {
+                        Some(expr) => Some(self.lower_expr(expr,
+                        slots,
+                        current_function,
+                        item_slot,)?),
+                        None => None,
+                    },
+                    span, }));
                 }
                 if name == "remove"
                     && let Some(options) = lower_path_remove_args(&args_vec)
                 {
-                    return Some(IrBuildExpr::PathRemove {
-                        path: Box::new(IrBuildExpr::Try(Box::new(self.lower_expr(
-                            base,
-                            slots,
-                            current_function,
-                            item_slot,
-                        )?))),
-                        missing_ok: match options.missing_ok {
-                            Some(expr) => Some(Box::new(self.lower_expr(
-                                expr,
-                                slots,
-                                current_function,
-                                item_slot,
-                            )?)),
-                            None => None,
-                        },
-                        span,
-                    });
+                    return Some(push_build_row!(self, expr, BuildExprRow::PathRemove { path: push_build_row!(self, expr, BuildExprRow::Try(self.lower_expr(base,
+                    slots,
+                    current_function,
+                    item_slot,)?)),
+                    missing_ok: match options.missing_ok {
+                        Some(expr) => Some(self.lower_expr(expr,
+                        slots,
+                        current_function,
+                        item_slot,)?),
+                        None => None,
+                    },
+                    span, }));
                 }
                 let method_args = lowered_method_call_args(name, &args_vec)?;
                 if !lowered_method_name(name.as_str()) {
@@ -8795,24 +8382,18 @@ impl CompactLowerConstructProbe<'_, '_> {
                                 item_slot,
                             )?);
                         }
-                        return Some(IrBuildExpr::ModuleCall {
-                            op: call_args.op,
-                            args: lowered,
-                            span,
-                        });
+                        return Some(push_build_row!(self, expr, BuildExprRow::ModuleCall { op: call_args.op,
+                        args: lowered,
+                        span, }));
                     }
                     let args =
                         self.lower_call_args(&args_vec, slots, current_function, item_slot)?;
-                    return Some(IrBuildExpr::DynamicCall {
-                        callee: Box::new(self.lower_expr(
-                            callee,
-                            slots,
-                            current_function,
-                            item_slot,
-                        )?),
-                        args,
-                        span,
-                    });
+                    return Some(push_build_row!(self, expr, BuildExprRow::DynamicCall { callee: self.lower_expr(callee,
+                    slots,
+                    current_function,
+                    item_slot,)?,
+                    args,
+                    span, }));
                 }
                 if !self.lowered_method_supported_for_receiver(base, name, method_args.len(), slots)
                 {
@@ -8822,39 +8403,29 @@ impl CompactLowerConstructProbe<'_, '_> {
                 for arg in method_args {
                     lowered_args.push(self.lower_expr(arg, slots, current_function, item_slot)?);
                 }
-                Some(IrBuildExpr::Method {
-                    receiver: Box::new(IrBuildExpr::Try(Box::new(self.lower_expr(
-                        base,
-                        slots,
-                        current_function,
-                        item_slot,
-                    )?))),
-                    name: name.as_str(),
-                    args: lowered_args,
-                    span,
-                })
+                Some(push_build_row!(self, expr, BuildExprRow::Method { receiver: push_build_row!(self, expr, BuildExprRow::Try(self.lower_expr(base,
+                slots,
+                current_function,
+                item_slot,)?)),
+                name: name.as_str(),
+                args: lowered_args,
+                span, }))
             }
             ArenaExprKind::Ident(name) => {
                 if name == "abort" {
                     let options = lower_abort_args(&args_vec)?;
-                    return Some(IrBuildExpr::Abort {
-                        status: Box::new(self.lower_expr(
-                            options.status,
-                            slots,
-                            current_function,
-                            item_slot,
-                        )?),
-                        force: match options.force {
-                            Some(expr) => Some(Box::new(self.lower_expr(
-                                expr,
-                                slots,
-                                current_function,
-                                item_slot,
-                            )?)),
-                            None => None,
-                        },
-                        span,
-                    });
+                    return Some(push_build_row!(self, expr, BuildExprRow::Abort { status: self.lower_expr(options.status,
+                    slots,
+                    current_function,
+                    item_slot,)?,
+                    force: match options.force {
+                        Some(expr) => Some(self.lower_expr(expr,
+                        slots,
+                        current_function,
+                        item_slot,)?),
+                        None => None,
+                    },
+                    span, }));
                 }
                 let positional = positional_call_args(&args_vec);
                 if let Some(arity) = self.compact_tag_variant_arity(name) {
@@ -8866,25 +8437,23 @@ impl CompactLowerConstructProbe<'_, '_> {
                     for arg in positional {
                         fields.push(self.lower_expr(*arg, slots, current_function, item_slot)?);
                     }
-                    return Some(IrBuildExpr::Tag {
-                        name: Arc::from(name.as_str()),
-                        fields,
-                    });
+                    return Some(push_build_row!(self, expr, BuildExprRow::Tag { name: Arc::from(name.as_str()),
+                    fields, }));
                 }
                 if (name == "Ok" || name == "Err")
                     && let Some(positional) = positional.as_ref()
                 {
                     let value = match positional.as_slice() {
-                        [] if name == "Ok" => Box::new(IrBuildExpr::Unit),
+                        [] if name == "Ok" => push_build_row!(self, expr, BuildExprRow::Unit),
                         [value] => {
-                            Box::new(self.lower_expr(*value, slots, current_function, item_slot)?)
+                            self.lower_expr(*value, slots, current_function, item_slot)?
                         }
                         _ => return None,
                     };
                     return if name == "Ok" {
-                        Some(IrBuildExpr::Ok(value))
+                        Some(push_build_row!(self, expr, BuildExprRow::Ok(value)))
                     } else {
-                        Some(IrBuildExpr::Err(value))
+                        Some(push_build_row!(self, expr, BuildExprRow::Err(value)))
                     };
                 }
                 if name == "range"
@@ -8895,16 +8464,14 @@ impl CompactLowerConstructProbe<'_, '_> {
                         [start, end] => (Some(*start), *end),
                         _ => return None,
                     };
-                    return Some(IrBuildExpr::Range {
-                        start: Box::new(match start {
-                            Some(start) => {
-                                self.lower_expr(start, slots, current_function, item_slot)?
-                            }
-                            None => IrBuildExpr::Int(0),
-                        }),
-                        end: Box::new(self.lower_expr(end, slots, current_function, item_slot)?),
-                        span,
-                    });
+                    return Some(push_build_row!(self, expr, BuildExprRow::Range { start: match start {
+                        Some(start) => {
+                            self.lower_expr(start, slots, current_function, item_slot)?
+                        }
+                        None => push_build_row!(self, expr, BuildExprRow::Int(0)),
+                    },
+                    end: self.lower_expr(end, slots, current_function, item_slot)?,
+                    span, }));
                 }
                 if name == "Path"
                     && let Some(positional) = positional.as_ref()
@@ -8912,15 +8479,11 @@ impl CompactLowerConstructProbe<'_, '_> {
                     let [value] = positional.as_slice() else {
                         return None;
                     };
-                    return Some(IrBuildExpr::PathFrom {
-                        value: Box::new(self.lower_expr(
-                            *value,
-                            slots,
-                            current_function,
-                            item_slot,
-                        )?),
-                        span,
-                    });
+                    return Some(push_build_row!(self, expr, BuildExprRow::PathFrom { value: self.lower_expr(*value,
+                    slots,
+                    current_function,
+                    item_slot,)?,
+                    span, }));
                 }
                 if name == "env"
                     && let Some(positional) = positional.as_ref()
@@ -8928,20 +8491,16 @@ impl CompactLowerConstructProbe<'_, '_> {
                     let [value] = positional.as_slice() else {
                         return None;
                     };
-                    return Some(IrBuildExpr::ModuleCall {
-                        op: RuntimeOp::EnvGet,
-                        args: vec![self.lower_expr(*value, slots, current_function, item_slot)?],
-                        span,
-                    });
+                    return Some(push_build_row!(self, expr, BuildExprRow::ModuleCall { op: RuntimeOp::EnvGet,
+                    args: vec![self.lower_expr(*value, slots, current_function, item_slot)?],
+                    span, }));
                 }
                 if slots.resolve(name).is_some() && current_function != Some(name) {
                     let args =
                         self.lower_call_args(&args_vec, slots, current_function, item_slot)?;
-                    return Some(IrBuildExpr::DynamicCall {
-                        callee: Box::new(self.lower_bare_ident(name, slots)?),
-                        args,
-                        span,
-                    });
+                    return Some(push_build_row!(self, expr, BuildExprRow::DynamicCall { callee: self.lower_bare_ident(name, slots)?,
+                    args,
+                    span, }));
                 }
                 let self_call = current_function == Some(name);
                 let function_key = if self_call {
@@ -8963,16 +8522,12 @@ impl CompactLowerConstructProbe<'_, '_> {
                     item_slot,
                 )?;
                 if self_call {
-                    Some(IrBuildExpr::SelfCall {
-                        args: lowered_args,
-                        span,
-                    })
+                    Some(push_build_row!(self, expr, BuildExprRow::SelfCall { args: lowered_args,
+                    span, }))
                 } else {
-                    Some(IrBuildExpr::Call {
-                        function: function_key.expect("checked unqualified function key"),
-                        args: lowered_args,
-                        span,
-                    })
+                    Some(push_build_row!(self, expr, BuildExprRow::Call { function: function_key.expect("checked unqualified function key"),
+                    args: lowered_args,
+                    span, }))
                 }
             }
             _ => None,
@@ -9180,24 +8735,20 @@ impl CompactLowerConstructProbe<'_, '_> {
             .or_else(|| self.declarations.qualified_streams.get(&qualified))
     }
 
-    fn lower_bare_ident(&self, name: Name, slots: &SlotScope) -> Option<IrBuildExpr> {
-        slots.resolve(name).map(IrBuildExpr::Param).or_else(|| {
+    fn lower_bare_ident(&self, name: Name, slots: &SlotScope) -> Option<BuildExprId> {
+        slots.resolve(name).map(|slot| push_build_row!(self, expr, BuildExprRow::Param(slot))).or_else(|| {
             if let Some(key) = self.compact_unqualified_function_key(name) {
                 let pure = self
                     .functions
                     .is_none_or(|functions| functions.pure_contains(key));
-                return Some(IrBuildExpr::FunctionRef {
-                    function: match key {
-                        LoweredFunctionKey::Name(name) => name.into(),
-                        LoweredFunctionKey::Qualified(name) => name.into(),
-                    },
-                    pure,
-                });
+                return Some(push_build_row!(self, expr, BuildExprRow::FunctionRef { function: match key {
+                    LoweredFunctionKey::Name(name) => name.into(),
+                    LoweredFunctionKey::Qualified(name) => name.into(),
+                },
+                pure, }));
             }
-            (self.compact_tag_variant_arity(name) == Some(0)).then(|| IrBuildExpr::Tag {
-                name: Arc::from(name.as_str()),
-                fields: Default::default(),
-            })
+            (self.compact_tag_variant_arity(name) == Some(0)).then(|| push_build_row!(self, expr, BuildExprRow::Tag { name: Arc::from(name.as_str()),
+            fields: Default::default(), }))
         })
     }
 
@@ -9700,7 +9251,7 @@ impl CompactLowerConstructProbe<'_, '_> {
         stage: &ArenaStreamStage,
         slots: &mut SlotScope,
         current_function: Option<Name>,
-    ) -> Option<Option<IrBuildExpr>> {
+    ) -> Option<Option<BuildExprId>> {
         let options = self.program.arena.stream_options(stage.options);
         match options {
             [] => Some(None),
@@ -9711,7 +9262,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                     current_function,
                     None,
                 )?)),
-                None => Some(Some(IrBuildExpr::Bool(true))),
+                None => Some(Some(push_build_row!(self, expr, BuildExprRow::Bool(true)))),
             },
             _ => None,
         }
@@ -9723,7 +9274,7 @@ impl CompactLowerConstructProbe<'_, '_> {
         slots: &mut SlotScope,
         current_function: Option<Name>,
         _item_ty: Option<&Type>,
-    ) -> Option<(usize, IrBuildExpr)> {
+    ) -> Option<(usize, BuildExprId)> {
         if stage.block.is_some() || stage.args.is_empty() {
             return None;
         }
@@ -9828,15 +9379,16 @@ impl CompactLowerConstructProbe<'_, '_> {
                 slots.exit(saved);
                 return None;
             };
+            let lowered_row = self.scratch.borrow().statements[lowered.index()].clone();
             if !matches!(
-                lowered,
-                IrBuildStmt::Let { .. }
-                    | IrBuildStmt::LetInt { .. }
-                    | IrBuildStmt::LetBool { .. }
-                    | IrBuildStmt::Assign { .. }
-                    | IrBuildStmt::AssignInt { .. }
-                    | IrBuildStmt::AssignIndex { .. }
-                    | IrBuildStmt::AssignBool { .. }
+                lowered_row,
+                BuildStmtRow::Let { .. }
+                    | BuildStmtRow::LetInt { .. }
+                    | BuildStmtRow::LetBool { .. }
+                    | BuildStmtRow::Assign { .. }
+                    | BuildStmtRow::AssignInt { .. }
+                    | BuildStmtRow::AssignIndex { .. }
+                    | BuildStmtRow::AssignBool { .. }
             ) {
                 slots.exit(saved);
                 return None;
@@ -9908,15 +9460,16 @@ impl CompactLowerConstructProbe<'_, '_> {
                 slots.exit(saved);
                 return None;
             };
+            let lowered_row = self.scratch.borrow().statements[lowered.index()].clone();
             if !matches!(
-                lowered,
-                IrBuildStmt::Let { .. }
-                    | IrBuildStmt::LetInt { .. }
-                    | IrBuildStmt::LetBool { .. }
-                    | IrBuildStmt::Assign { .. }
-                    | IrBuildStmt::AssignInt { .. }
-                    | IrBuildStmt::AssignIndex { .. }
-                    | IrBuildStmt::AssignBool { .. }
+                lowered_row,
+                BuildStmtRow::Let { .. }
+                    | BuildStmtRow::LetInt { .. }
+                    | BuildStmtRow::LetBool { .. }
+                    | BuildStmtRow::Assign { .. }
+                    | BuildStmtRow::AssignInt { .. }
+                    | BuildStmtRow::AssignIndex { .. }
+                    | BuildStmtRow::AssignBool { .. }
             ) {
                 slots.exit(saved);
                 return None;
@@ -9945,7 +9498,7 @@ impl CompactLowerConstructProbe<'_, '_> {
         slots: &mut SlotScope,
         current_function: Option<Name>,
         item_ty: Option<&Type>,
-    ) -> Option<(usize, IrBuildExpr)> {
+    ) -> Option<(usize, BuildExprId)> {
         let block = stage.block?;
         let statements = self.program.arena.block(block).statements;
         let statements = self.program.arena.stmt_ids(statements).collect::<Vec<_>>();
@@ -9970,7 +9523,7 @@ impl CompactLowerConstructProbe<'_, '_> {
         slots: &mut SlotScope,
         current_function: Option<Name>,
         item_ty: Option<&Type>,
-    ) -> Option<(usize, Vec<IrBuildStmt>, IrBuildExpr)> {
+    ) -> Option<(usize, Vec<BuildStmtId>, BuildExprId)> {
         let block = stage.block?;
         let statements = self.program.arena.block(block).statements;
         let ids = self.program.arena.stmt_ids(statements).collect::<Vec<_>>();
@@ -10030,7 +9583,7 @@ impl CompactLowerConstructProbe<'_, '_> {
         }
     }
 
-    /// Lower an `if` in tail (return) position into a `IrBuildStmt::If`/`IfBool`
+    /// Lower an `if` in tail (return) position into a `BuildStmtRow::If`/`IfBool`
     /// whose branch bodies (and else body) are lowered as tail-blocks — each
     /// branch's trailing expression becomes a `Return`. This handles a tail
     /// `if cond { a } else { b }` whose branches produce a value, which a plain
@@ -10042,7 +9595,7 @@ impl CompactLowerConstructProbe<'_, '_> {
         slots: &mut SlotScope,
         current_function: Option<Name>,
         item_slot: Option<usize>,
-    ) -> Option<IrBuildStmt> {
+    ) -> Option<BuildStmtId> {
         let branches = self.program.arena.if_branches(branches).to_vec();
         let mut lowered = Vec::with_capacity(branches.len());
         for branch in branches {
@@ -10059,21 +9612,17 @@ impl CompactLowerConstructProbe<'_, '_> {
         };
         let mut bool_branches = Vec::with_capacity(lowered.len());
         for (condition, body) in &lowered {
-            let Some(condition) = lower_bool_expr_candidate(condition) else {
-                return Some(IrBuildStmt::If {
-                    branches: lowered,
-                    else_body,
-                });
+            let Some(condition) = self.lower_bool_expr_candidate(condition) else {
+                return Some(push_build_row!(self, stmt, BuildStmtRow::If { branches: lowered,
+                else_body, }));
             };
             bool_branches.push((condition, body.clone()));
         }
-        Some(IrBuildStmt::IfBool {
-            branches: bool_branches,
-            else_body,
-        })
+        Some(push_build_row!(self, stmt, BuildStmtRow::IfBool { branches: bool_branches,
+        else_body, }))
     }
 
-    /// Lower a `match` in tail (return) position into a `IrBuildStmt::Match`
+    /// Lower a `match` in tail (return) position into a `BuildStmtRow::Match`
     /// whose arm bodies are lowered as tail-blocks — each arm's trailing
     /// expression becomes a `Return`. This handles arms whose body is a
     /// multi-statement block producing a value (e.g. `P => { let a = ..; a }`),
@@ -10087,7 +9636,7 @@ impl CompactLowerConstructProbe<'_, '_> {
         slots: &mut SlotScope,
         current_function: Option<Name>,
         item_slot: Option<usize>,
-    ) -> Option<IrBuildStmt> {
+    ) -> Option<BuildStmtId> {
         let (ok_binding_ty, err_binding_ty) =
             self.compact_match_scrutinee_result_types(value, slots);
         let value = self.lower_expr(value, slots, current_function, item_slot)?;
@@ -10132,11 +9681,9 @@ impl CompactLowerConstructProbe<'_, '_> {
             cleanup_lowered_pattern_slots(slots, cleanup);
             lowered_arms.push((pattern, guard, body));
         }
-        Some(IrBuildStmt::Match {
-            value,
-            arms: lowered_arms,
-            span,
-        })
+        Some(push_build_row!(self, stmt, BuildStmtRow::Match { value,
+        arms: lowered_arms,
+        span, }))
     }
 
     fn lower_match_stmt_as_expr(
@@ -10147,7 +9694,7 @@ impl CompactLowerConstructProbe<'_, '_> {
         slots: &mut SlotScope,
         current_function: Option<Name>,
         item_slot: Option<usize>,
-    ) -> Option<IrBuildExpr> {
+    ) -> Option<BuildExprId> {
         if let Some(expr) =
             self.lower_str_match_stmt_as_expr(value, arms, span, slots, current_function, item_slot)
         {
@@ -10193,11 +9740,9 @@ impl CompactLowerConstructProbe<'_, '_> {
             cleanup_lowered_pattern_slots(slots, cleanup);
             lowered_arms.push((pattern, guard, value));
         }
-        Some(IrBuildExpr::MatchExpr {
-            value: Box::new(self.lower_expr(value, slots, current_function, item_slot)?),
-            arms: lowered_arms,
-            span,
-        })
+        Some(push_build_row!(self, expr, BuildExprRow::MatchExpr { value: self.lower_expr(value, slots, current_function, item_slot)?,
+        arms: lowered_arms,
+        span, }))
     }
 
     fn lower_str_match_stmt_as_expr(
@@ -10208,7 +9753,7 @@ impl CompactLowerConstructProbe<'_, '_> {
         slots: &mut SlotScope,
         current_function: Option<Name>,
         item_slot: Option<usize>,
-    ) -> Option<IrBuildExpr> {
+    ) -> Option<BuildExprId> {
         let arms = self.program.arena.match_arms(arms).to_vec();
         let mut lowered_arms = FxHashMap::default();
         let mut fallback = None;
@@ -10233,21 +9778,17 @@ impl CompactLowerConstructProbe<'_, '_> {
                     if index + 1 != arms.len() {
                         return None;
                     }
-                    fallback = Some(Box::new(self.lower_arm_value_expr(
-                        *stmt,
-                        slots,
-                        current_function,
-                        item_slot,
-                    )?));
+                    fallback = Some(self.lower_arm_value_expr(*stmt,
+                    slots,
+                    current_function,
+                    item_slot,)?);
                 }
             }
         }
-        Some(IrBuildExpr::StrMatchExpr {
-            value: Box::new(self.lower_expr(value, slots, current_function, item_slot)?),
-            arms: lowered_arms,
-            fallback,
-            span,
-        })
+        Some(push_build_row!(self, expr, BuildExprRow::StrMatchExpr { value: self.lower_expr(value, slots, current_function, item_slot)?,
+        arms: lowered_arms,
+        fallback,
+        span, }))
     }
 
     fn lower_str_match_stmt(
@@ -10258,7 +9799,7 @@ impl CompactLowerConstructProbe<'_, '_> {
         slots: &mut SlotScope,
         current_function: Option<Name>,
         item_slot: Option<usize>,
-    ) -> Option<IrBuildStmt> {
+    ) -> Option<BuildStmtId> {
         let arms = self.program.arena.match_arms(arms).to_vec();
         let mut lowered_arms = FxHashMap::default();
         let mut fallback = None;
@@ -10282,12 +9823,10 @@ impl CompactLowerConstructProbe<'_, '_> {
                 }
             }
         }
-        Some(IrBuildStmt::StrMatch {
-            value: self.lower_expr(value, slots, current_function, item_slot)?,
-            arms: lowered_arms,
-            fallback,
-            span,
-        })
+        Some(push_build_row!(self, stmt, BuildStmtRow::StrMatch { value: self.lower_expr(value, slots, current_function, item_slot)?,
+        arms: lowered_arms,
+        fallback,
+        span, }))
     }
 
     fn lower_str_match_expr(
@@ -10298,7 +9837,7 @@ impl CompactLowerConstructProbe<'_, '_> {
         slots: &mut SlotScope,
         current_function: Option<Name>,
         item_slot: Option<usize>,
-    ) -> Option<IrBuildExpr> {
+    ) -> Option<BuildExprId> {
         let arms = self.program.arena.match_expr_arms(arms).to_vec();
         let mut lowered_arms = FxHashMap::default();
         let mut fallback = None;
@@ -10317,21 +9856,17 @@ impl CompactLowerConstructProbe<'_, '_> {
                     if index + 1 != arms.len() {
                         return None;
                     }
-                    fallback = Some(Box::new(self.lower_expr(
-                        arm.value,
-                        slots,
-                        current_function,
-                        item_slot,
-                    )?));
+                    fallback = Some(self.lower_expr(arm.value,
+                    slots,
+                    current_function,
+                    item_slot,)?);
                 }
             }
         }
-        Some(IrBuildExpr::StrMatchExpr {
-            value: Box::new(self.lower_expr(value, slots, current_function, item_slot)?),
-            arms: lowered_arms,
-            fallback,
-            span,
-        })
+        Some(push_build_row!(self, expr, BuildExprRow::StrMatchExpr { value: self.lower_expr(value, slots, current_function, item_slot)?,
+        arms: lowered_arms,
+        fallback,
+        span, }))
     }
 
     fn lower_tag_match_stmt_as_expr(
@@ -10342,7 +9877,7 @@ impl CompactLowerConstructProbe<'_, '_> {
         slots: &mut SlotScope,
         current_function: Option<Name>,
         item_slot: Option<usize>,
-    ) -> Option<IrBuildExpr> {
+    ) -> Option<BuildExprId> {
         let arms = self.program.arena.match_arms(arms).to_vec();
         let mut lowered_arms = FxHashMap::default();
         let mut fallback = None;
@@ -10365,21 +9900,17 @@ impl CompactLowerConstructProbe<'_, '_> {
                     if index + 1 != arms.len() {
                         return None;
                     }
-                    fallback = Some(Box::new(self.lower_arm_value_expr(
-                        *stmt,
-                        slots,
-                        current_function,
-                        item_slot,
-                    )?));
+                    fallback = Some(self.lower_arm_value_expr(*stmt,
+                    slots,
+                    current_function,
+                    item_slot,)?);
                 }
             }
         }
-        Some(IrBuildExpr::TagMatchExpr {
-            value: Box::new(self.lower_expr(value, slots, current_function, item_slot)?),
-            arms: lowered_arms,
-            fallback,
-            span,
-        })
+        Some(push_build_row!(self, expr, BuildExprRow::TagMatchExpr { value: self.lower_expr(value, slots, current_function, item_slot)?,
+        arms: lowered_arms,
+        fallback,
+        span, }))
     }
 
     fn lower_tag_match_stmt(
@@ -10390,7 +9921,7 @@ impl CompactLowerConstructProbe<'_, '_> {
         slots: &mut SlotScope,
         current_function: Option<Name>,
         item_slot: Option<usize>,
-    ) -> Option<IrBuildStmt> {
+    ) -> Option<BuildStmtId> {
         let arms = self.program.arena.match_arms(arms).to_vec();
         let mut lowered_arms = FxHashMap::default();
         let mut fallback = None;
@@ -10412,12 +9943,10 @@ impl CompactLowerConstructProbe<'_, '_> {
                 }
             }
         }
-        Some(IrBuildStmt::TagMatch {
-            value: self.lower_expr(value, slots, current_function, item_slot)?,
-            arms: lowered_arms,
-            fallback,
-            span,
-        })
+        Some(push_build_row!(self, stmt, BuildStmtRow::TagMatch { value: self.lower_expr(value, slots, current_function, item_slot)?,
+        arms: lowered_arms,
+        fallback,
+        span, }))
     }
 
     fn lower_tag_match_expr(
@@ -10428,7 +9957,7 @@ impl CompactLowerConstructProbe<'_, '_> {
         slots: &mut SlotScope,
         current_function: Option<Name>,
         item_slot: Option<usize>,
-    ) -> Option<IrBuildExpr> {
+    ) -> Option<BuildExprId> {
         let arms = self.program.arena.match_expr_arms(arms).to_vec();
         let mut lowered_arms = FxHashMap::default();
         let mut fallback = None;
@@ -10445,21 +9974,17 @@ impl CompactLowerConstructProbe<'_, '_> {
                     if index + 1 != arms.len() {
                         return None;
                     }
-                    fallback = Some(Box::new(self.lower_expr(
-                        arm.value,
-                        slots,
-                        current_function,
-                        item_slot,
-                    )?));
+                    fallback = Some(self.lower_expr(arm.value,
+                    slots,
+                    current_function,
+                    item_slot,)?);
                 }
             }
         }
-        Some(IrBuildExpr::TagMatchExpr {
-            value: Box::new(self.lower_expr(value, slots, current_function, item_slot)?),
-            arms: lowered_arms,
-            fallback,
-            span,
-        })
+        Some(push_build_row!(self, expr, BuildExprRow::TagMatchExpr { value: self.lower_expr(value, slots, current_function, item_slot)?,
+        arms: lowered_arms,
+        fallback,
+        span, }))
     }
 
     fn pattern_str_literal(&mut self, pattern: PatternId) -> Option<Option<Arc<str>>> {
@@ -10529,7 +10054,7 @@ impl CompactLowerConstructProbe<'_, '_> {
         slots: &mut SlotScope,
         current_function: Option<Name>,
         item_slot: Option<usize>,
-    ) -> Option<IrBuildExpr> {
+    ) -> Option<BuildExprId> {
         match self.program.arena.stmt(stmt).kind {
             ArenaStmtKind::Expr(expr) => self.lower_expr(expr, slots, current_function, item_slot),
             ArenaStmtKind::TailBareIdent(name) => self.lower_bare_ident(name, slots),
@@ -10538,7 +10063,7 @@ impl CompactLowerConstructProbe<'_, '_> {
     }
 
     /// Lower a block whose sole statement produces a value (a bare expression or
-    /// a value-producing tail `if`/`match`) to a single `IrBuildExpr`. Used by
+    /// a value-producing tail `if`/`match`) to a single `BuildExprId`. Used by
     /// pipeline stages whose block yields a key/value (`count {…}`,
     /// `sort-by {…}`, etc.) where the block body is written as a bare tail
     /// `if`/`match` statement rather than a parenthesized expression.
@@ -10548,7 +10073,7 @@ impl CompactLowerConstructProbe<'_, '_> {
         slots: &mut SlotScope,
         current_function: Option<Name>,
         item_slot: Option<usize>,
-    ) -> Option<IrBuildExpr> {
+    ) -> Option<BuildExprId> {
         let statements = self.program.arena.block(block).statements;
         let statements = self.program.arena.stmt_ids(statements).collect::<Vec<_>>();
         let [stmt] = statements.as_slice() else {
@@ -10566,7 +10091,7 @@ impl CompactLowerConstructProbe<'_, '_> {
         slots: &mut SlotScope,
         current_function: Option<Name>,
         item_slot: Option<usize>,
-    ) -> Option<IrBuildExpr> {
+    ) -> Option<BuildExprId> {
         let span = self.program.arena.stmt(stmt).span;
         match self.program.arena.stmt(stmt).kind {
             ArenaStmtKind::Expr(expr) => self.lower_expr(expr, slots, current_function, item_slot),
@@ -10592,11 +10117,9 @@ impl CompactLowerConstructProbe<'_, '_> {
                 }
                 let else_value =
                     self.lower_block_value_expr(else_block, slots, current_function, item_slot)?;
-                Some(IrBuildExpr::IfExpr {
-                    branches: lowered,
-                    else_value: Box::new(else_value),
-                    span,
-                })
+                Some(push_build_row!(self, expr, BuildExprRow::IfExpr { branches: lowered,
+                else_value: else_value,
+                span, }))
             }
             ArenaStmtKind::Match { value, arms } => {
                 self.lower_match_stmt_as_expr(value, arms, span, slots, current_function, item_slot)
@@ -10611,25 +10134,23 @@ impl CompactLowerConstructProbe<'_, '_> {
         slots: &mut SlotScope,
         ok_binding_ty: Option<&Type>,
         err_binding_ty: Option<&Type>,
-    ) -> Option<(IrBuildPattern, Vec<(Name, usize)>)> {
+    ) -> Option<(BuildPatternId, Vec<(Name, usize)>)> {
         self.output.patterns += 1;
         let lowered = match &self.program.arena.pattern(id).kind {
-            ArenaPatternKind::Wildcard => Some((IrBuildPattern::Wildcard, Vec::new())),
+            ArenaPatternKind::Wildcard => Some((push_build_row!(self, pattern, BuildPatternRow::Wildcard), Vec::new())),
             ArenaPatternKind::Literal(expr) => self
                 .lower_pattern_literal(*expr)
                 .map(|pattern| (pattern, Vec::new())),
             ArenaPatternKind::Binding(name) if self.compact_tag_variant_arity(*name) == Some(0) => {
                 Some((
-                    IrBuildPattern::Tag {
-                        name: *name,
-                        slots: Default::default(),
-                    },
+                    push_build_row!(self, pattern, BuildPatternRow::Tag { name: *name,
+                    slots: Default::default(), }),
                     Vec::new(),
                 ))
             }
             ArenaPatternKind::Binding(name) if !slots.is_bound_non_capture(*name) => {
                 let slot = slots.declare(*name);
-                Some((IrBuildPattern::Bind { slot }, vec![(*name, slot)]))
+                Some((push_build_row!(self, pattern, BuildPatternRow::Bind { slot }), vec![(*name, slot)]))
             }
             ArenaPatternKind::Type {
                 binding: Some(name),
@@ -10638,20 +10159,16 @@ impl CompactLowerConstructProbe<'_, '_> {
                 let lowered_ty = compact_runtime_type(&self.program.arena, *ty, self.declarations);
                 let slot = slots.declare(*name);
                 Some((
-                    IrBuildPattern::Type {
-                        ty: lowered_ty,
-                        slot: Some(slot),
-                    },
+                    push_build_row!(self, pattern, BuildPatternRow::Type { ty: lowered_ty,
+                    slot: Some(slot), }),
                     vec![(*name, slot)],
                 ))
             }
             ArenaPatternKind::Type { binding: None, ty } => {
                 let lowered_ty = compact_runtime_type(&self.program.arena, *ty, self.declarations);
                 Some((
-                    IrBuildPattern::Type {
-                        ty: lowered_ty,
-                        slot: None,
-                    },
+                    push_build_row!(self, pattern, BuildPatternRow::Type { ty: lowered_ty,
+                    slot: None, }),
                     Vec::new(),
                 ))
             }
@@ -10661,10 +10178,8 @@ impl CompactLowerConstructProbe<'_, '_> {
                 fields,
             } => self.lower_error_variant_pattern(*family, *variant, *fields, false, slots),
             ArenaPatternKind::Facet(facet) => Some((
-                IrBuildPattern::Facet {
-                    facet: *facet,
-                    result_wrapped: false,
-                },
+                push_build_row!(self, pattern, BuildPatternRow::Facet { facet: *facet,
+                result_wrapped: false, }),
                 Vec::new(),
             )),
             ArenaPatternKind::Constructor { name, arg } => {
@@ -10688,10 +10203,8 @@ impl CompactLowerConstructProbe<'_, '_> {
                 {
                     self.output.constructed_patterns += 1;
                     return Some((
-                        IrBuildPattern::Facet {
-                            facet,
-                            result_wrapped: true,
-                        },
+                        push_build_row!(self, pattern, BuildPatternRow::Facet { facet,
+                        result_wrapped: true, }),
                         Vec::new(),
                     ));
                 }
@@ -10706,9 +10219,9 @@ impl CompactLowerConstructProbe<'_, '_> {
                         self.lower_result_pattern_slot(*arg, slots, &mut cleanup, binding_ty)?;
                     return Some((
                         if name == "Ok" {
-                            IrBuildPattern::ResultOk { slot, unit_only }
+                            push_build_row!(self, pattern, BuildPatternRow::ResultOk { slot, unit_only })
                         } else {
-                            IrBuildPattern::ResultErr { slot, unit_only }
+                            push_build_row!(self, pattern, BuildPatternRow::ResultErr { slot, unit_only })
                         },
                         cleanup,
                     ));
@@ -10724,10 +10237,8 @@ impl CompactLowerConstructProbe<'_, '_> {
                         }
                     };
                 Some((
-                    IrBuildPattern::Tag {
-                        name: *name,
-                        slots: field_slots,
-                    },
+                    push_build_row!(self, pattern, BuildPatternRow::Tag { name: *name,
+                    slots: field_slots, }),
                     cleanup,
                 ))
             }
@@ -10744,7 +10255,7 @@ impl CompactLowerConstructProbe<'_, '_> {
         fields: crate::syntax::arena::ArenaRange,
         result_wrapped: bool,
         slots: &mut SlotScope,
-    ) -> Option<(IrBuildPattern, Vec<(Name, usize)>)> {
+    ) -> Option<(BuildPatternId, Vec<(Name, usize)>)> {
         let mut cleanup = Vec::new();
         let mut lowered = LoweredErrorPatternFields::new();
         for field in self.program.arena.pattern_fields(fields) {
@@ -10752,12 +10263,10 @@ impl CompactLowerConstructProbe<'_, '_> {
             lowered.push((field.name, slot));
         }
         Some((
-            IrBuildPattern::ErrorVariant {
-                family,
-                variant,
-                fields: Box::new(lowered),
-                result_wrapped,
-            },
+            push_build_row!(self, pattern, BuildPatternRow::ErrorVariant { family,
+            variant,
+            fields: Box::new(lowered),
+            result_wrapped, }),
             cleanup,
         ))
     }
@@ -10779,26 +10288,26 @@ impl CompactLowerConstructProbe<'_, '_> {
         }
     }
 
-    fn lower_pattern_literal(&self, id: ExprId) -> Option<IrBuildPattern> {
+    fn lower_pattern_literal(&self, id: ExprId) -> Option<BuildPatternId> {
         match self.program.arena.expr(id).kind {
             ArenaExprKind::Int(value) => self
                 .program
                 .arena
                 .int_literal(value)
                 .value()
-                .map(|value| IrBuildPattern::Literal(LoweredValue::Int(value))),
-            ArenaExprKind::Bool(value) => Some(IrBuildPattern::Literal(LoweredValue::Bool(value))),
+                .map(|value| push_build_row!(self, pattern, BuildPatternRow::Literal(LoweredValue::Int(value)))),
+            ArenaExprKind::Bool(value) => Some(push_build_row!(self, pattern, BuildPatternRow::Literal(LoweredValue::Bool(value)))),
             ArenaExprKind::Duration(value) => self
                 .program
                 .arena
                 .duration_literal(value)
                 .millis()
                 .map(|millis| {
-                    IrBuildPattern::Literal(LoweredValue::Duration(DurationValue { millis }))
+                    push_build_row!(self, pattern, BuildPatternRow::Literal(LoweredValue::Duration(DurationValue { millis })))
                 }),
-            ArenaExprKind::Str(value) => Some(IrBuildPattern::Literal(LoweredValue::Str(
+            ArenaExprKind::Str(value) => Some(push_build_row!(self, pattern, BuildPatternRow::Literal(LoweredValue::Str(
                 self.program.arena.string_literal(value).clone(),
-            ))),
+            )))),
             _ => None,
         }
     }
@@ -10830,11 +10339,11 @@ impl CompactLowerConstructProbe<'_, '_> {
         arity: usize,
         slots: &mut SlotScope,
         cleanup: &mut Vec<(Name, usize)>,
-    ) -> Option<IrBuildPatternSlots> {
+    ) -> Option<BuildPatternIdSlots> {
         match (arity, arg) {
             (0, None) => Some(Default::default()),
             (1, Some(pattern)) => {
-                let mut field_slots = IrBuildPatternSlots::new();
+                let mut field_slots = BuildPatternIdSlots::new();
                 field_slots.push(self.lower_tag_pattern_field(pattern, slots, cleanup)?);
                 Some(field_slots)
             }
@@ -10847,7 +10356,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                 if fields.len() != arity {
                     return None;
                 }
-                let mut field_slots = IrBuildPatternSlots::with_capacity(fields.len());
+                let mut field_slots = BuildPatternIdSlots::with_capacity(fields.len());
                 for field in fields {
                     field_slots.push(self.lower_tag_pattern_field(field, slots, cleanup)?);
                 }
@@ -11534,10 +11043,11 @@ fn type_for_lowered_type(kind: LoweredType) -> Option<Type> {
 }
 
 pub(super) fn lowered_top_level(
-    kind: IrBuildTopLevelKind,
+    scratch: &Rc<RefCell<IndexedBuildScratch>>,
+    kind: BuildTopKind,
     known: &FxHashMap<Name, LoweredTopLevelBinding>,
     slot_indexes: SlotScope,
-) -> IrBuildTopLevelStmt {
+) -> BuildTopStmtId {
     let slot_count = slot_indexes.count();
     let mut slots: LoweredTopLevelSlots = slot_indexes
         .into_entries()
@@ -11555,11 +11065,11 @@ pub(super) fn lowered_top_level(
         })
         .collect();
     slots.sort_unstable_by_key(|slot| slot.slot);
-    IrBuildTopLevelStmt {
+    scratch.borrow_mut().top_stmt(BuildTopStmtRow {
         kind,
         slots,
         slot_count,
-    }
+    })
 }
 
 fn lowerable_top_level_annotation(ty: LoweredType) -> bool {
@@ -11781,78 +11291,93 @@ fn lowered_plain_method_type(name: Name) -> Option<LoweredType> {
     None
 }
 
-pub(super) fn lower_int_expr_candidate(expr: &IrBuildExpr) -> Option<LoweredIntExpr> {
-    match expr {
-        IrBuildExpr::Int(value) => Some(LoweredIntExpr::Int(*value)),
-        IrBuildExpr::Param(slot) => Some(LoweredIntExpr::Slot(*slot)),
-        IrBuildExpr::Binary {
+impl CompactLowerConstructProbe<'_, '_> {
+fn lower_int_expr_candidate(&self, expr: &BuildExprId) -> Option<BuildIntId> {
+    let row = {
+        let scratch = self.scratch.borrow();
+        scratch.expressions[expr.index()].clone()
+    };
+    match &row {
+        BuildExprRow::Int(value) => Some(push_build_row!(self, int, BuildIntRow::Int(*value))),
+        BuildExprRow::Param(slot) => Some(push_build_row!(self, int, BuildIntRow::Slot(*slot))),
+        BuildExprRow::Binary {
             op, left, right, ..
         } if matches!(
             op,
             BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div | BinaryOp::Rem
         ) =>
         {
-            Some(LoweredIntExpr::Binary {
-                op: *op,
-                left: Box::new(lower_int_expr_candidate(left)?),
-                right: Box::new(lower_int_expr_candidate(right)?),
-            })
+            Some(push_build_row!(self, int, BuildIntRow::Binary { op: *op,
+            left: self.lower_int_expr_candidate(left)?,
+            right: self.lower_int_expr_candidate(right)?, }))
         }
-        IrBuildExpr::StrByteLen { receiver, span } => match receiver.as_ref() {
-            IrBuildExpr::Param(slot) => Some(LoweredIntExpr::StrByteLenSlot {
-                slot: *slot,
-                span: *span,
-            }),
+        BuildExprRow::StrByteLen { receiver, span } => {
+            let receiver_row = {
+                let scratch = self.scratch.borrow();
+                scratch.expressions[receiver.index()].clone()
+            };
+            match receiver_row {
+            BuildExprRow::Param(slot) => Some(push_build_row!(self, int, BuildIntRow::StrByteLenSlot { slot,
+            span: *span, })),
             _ => None,
-        },
-        IrBuildExpr::Method {
+            }
+        }
+        BuildExprRow::Method {
             receiver,
             name,
             args,
             span,
-        } if *name == "count_lines" && args.is_empty() => match receiver.as_ref() {
-            IrBuildExpr::Param(slot) => Some(LoweredIntExpr::StrCountLinesSlot {
-                slot: *slot,
-                span: *span,
-            }),
+        } if *name == "count_lines" && args.is_empty() => {
+            let receiver_row = {
+                let scratch = self.scratch.borrow();
+                scratch.expressions[receiver.index()].clone()
+            };
+            match receiver_row {
+            BuildExprRow::Param(slot) => Some(push_build_row!(self, int, BuildIntRow::StrCountLinesSlot { slot,
+            span: *span, })),
             _ => None,
-        },
-        IrBuildExpr::StrByteAt {
+            }
+        }
+        BuildExprRow::StrByteAt {
             receiver,
             index,
             default,
             span,
-        } => match receiver.as_ref() {
-            IrBuildExpr::Param(slot) => Some(LoweredIntExpr::StrByteAtSlot {
-                slot: *slot,
-                index: Box::new(lower_int_expr_candidate(index)?),
-                default: match default {
-                    Some(value) => Some(Box::new(lower_int_expr_candidate(value)?)),
-                    None => None,
-                },
-                span: *span,
-            }),
+        } => {
+            let receiver_row = {
+                let scratch = self.scratch.borrow();
+                scratch.expressions[receiver.index()].clone()
+            };
+            match receiver_row {
+            BuildExprRow::Param(slot) => Some(push_build_row!(self, int, BuildIntRow::StrByteAtSlot { slot,
+            index: self.lower_int_expr_candidate(index)?,
+            default: match default {
+                Some(value) => Some(self.lower_int_expr_candidate(value)?),
+                None => None,
+            },
+            span: *span, })),
             _ => None,
-        },
+            }
+        }
         _ => None,
     }
 }
 
-pub(super) fn lower_bool_expr_candidate(expr: &IrBuildExpr) -> Option<LoweredBoolExpr> {
-    match expr {
-        IrBuildExpr::Bool(value) => Some(LoweredBoolExpr::Bool(*value)),
-        IrBuildExpr::Param(slot) => Some(LoweredBoolExpr::Slot(*slot)),
-        IrBuildExpr::Binary {
+fn lower_bool_expr_candidate(&self, expr: &BuildExprId) -> Option<BuildBoolId> {
+    let row = {
+        let scratch = self.scratch.borrow();
+        scratch.expressions[expr.index()].clone()
+    };
+    match &row {
+        BuildExprRow::Bool(value) => Some(push_build_row!(self, bool, BuildBoolRow::Bool(*value))),
+        BuildExprRow::Param(slot) => Some(push_build_row!(self, bool, BuildBoolRow::Slot(*slot))),
+        BuildExprRow::Binary {
             op, left, right, ..
         } => match op {
-            BinaryOp::And => Some(LoweredBoolExpr::And(
-                Box::new(lower_bool_expr_candidate(left)?),
-                Box::new(lower_bool_expr_candidate(right)?),
-            )),
-            BinaryOp::Or => Some(LoweredBoolExpr::Or(
-                Box::new(lower_bool_expr_candidate(left)?),
-                Box::new(lower_bool_expr_candidate(right)?),
-            )),
+            BinaryOp::And => Some(push_build_row!(self, bool, BuildBoolRow::And(self.lower_bool_expr_candidate(left)?,
+            self.lower_bool_expr_candidate(right)?,))),
+            BinaryOp::Or => Some(push_build_row!(self, bool, BuildBoolRow::Or(self.lower_bool_expr_candidate(left)?,
+            self.lower_bool_expr_candidate(right)?,))),
             BinaryOp::Eq
             | BinaryOp::Ne
             | BinaryOp::Lt
@@ -11860,204 +11385,203 @@ pub(super) fn lower_bool_expr_candidate(expr: &IrBuildExpr) -> Option<LoweredBoo
             | BinaryOp::Gt
             | BinaryOp::Ge => {
                 if matches!(op, BinaryOp::Eq | BinaryOp::Ne) {
-                    if lowered_empty_string_literal(right)
-                        && let Some((slot, span)) = lowered_trim_slot(left)
+                    if self.lowered_empty_string_literal(right)
+                        && let Some((slot, span)) = self.lowered_trim_slot(left)
                     {
-                        let candidate = LoweredBoolExpr::TrimEmptySlot { slot, span };
+                        let candidate = push_build_row!(self, bool, BuildBoolRow::TrimEmptySlot { slot, span });
                         return Some(if *op == BinaryOp::Eq {
                             candidate
                         } else {
-                            LoweredBoolExpr::Not(Box::new(candidate))
+                            push_build_row!(self, bool, BuildBoolRow::Not(candidate))
                         });
                     }
-                    if lowered_empty_string_literal(left)
-                        && let Some((slot, span)) = lowered_trim_slot(right)
+                    if self.lowered_empty_string_literal(left)
+                        && let Some((slot, span)) = self.lowered_trim_slot(right)
                     {
-                        let candidate = LoweredBoolExpr::TrimEmptySlot { slot, span };
+                        let candidate = push_build_row!(self, bool, BuildBoolRow::TrimEmptySlot { slot, span });
                         return Some(if *op == BinaryOp::Eq {
                             candidate
                         } else {
-                            LoweredBoolExpr::Not(Box::new(candidate))
+                            push_build_row!(self, bool, BuildBoolRow::Not(candidate))
                         });
                     }
-                    if let Some(value) = lowered_bool_literal(right) {
-                        let candidate = lower_bool_expr_candidate(left)?;
+                    if let Some(value) = self.lowered_bool_literal(right) {
+                        let candidate = self.lower_bool_expr_candidate(left)?;
                         return Some(
                             if (*op == BinaryOp::Eq && value) || (*op == BinaryOp::Ne && !value) {
                                 candidate
                             } else {
-                                LoweredBoolExpr::Not(Box::new(candidate))
+                                push_build_row!(self, bool, BuildBoolRow::Not(candidate))
                             },
                         );
                     }
-                    if let Some(value) = lowered_bool_literal(left) {
-                        let candidate = lower_bool_expr_candidate(right)?;
+                    if let Some(value) = self.lowered_bool_literal(left) {
+                        let candidate = self.lower_bool_expr_candidate(right)?;
                         return Some(
                             if (*op == BinaryOp::Eq && value) || (*op == BinaryOp::Ne && !value) {
                                 candidate
                             } else {
-                                LoweredBoolExpr::Not(Box::new(candidate))
+                                push_build_row!(self, bool, BuildBoolRow::Not(candidate))
                             },
                         );
                     }
                 }
                 if matches!(op, BinaryOp::Eq | BinaryOp::Ne) {
-                    if let IrBuildExpr::Param(slot) = left.as_ref()
-                        && let Some(value) = lowered_literal_value(right)
+                    let left_row = self.scratch.borrow().expressions[left.index()].clone();
+                    if let BuildExprRow::Param(slot) = left_row
+                        && let Some(value) = self.lowered_literal_value(right)
                     {
-                        return Some(LoweredBoolExpr::LiteralCompareSlot {
-                            op: *op,
-                            slot: *slot,
-                            value,
-                        });
+                        return Some(push_build_row!(self, bool, BuildBoolRow::LiteralCompareSlot { op: *op,
+                        slot,
+                        value, }));
                     }
-                    if let IrBuildExpr::Param(slot) = right.as_ref()
-                        && let Some(value) = lowered_literal_value(left)
+                    let right_row = self.scratch.borrow().expressions[right.index()].clone();
+                    if let BuildExprRow::Param(slot) = right_row
+                        && let Some(value) = self.lowered_literal_value(left)
                     {
-                        return Some(LoweredBoolExpr::LiteralCompareSlot {
-                            op: *op,
-                            slot: *slot,
-                            value,
-                        });
+                        return Some(push_build_row!(self, bool, BuildBoolRow::LiteralCompareSlot { op: *op,
+                        slot,
+                        value, }));
                     }
                 }
-                let left = lower_int_expr_candidate(left)?;
-                let right = lower_int_expr_candidate(right)?;
-                if lowered_int_expr_needs_type_context(&left)
-                    || lowered_int_expr_needs_type_context(&right)
+                let left = self.lower_int_expr_candidate(left)?;
+                let right = self.lower_int_expr_candidate(right)?;
+                if self.lowered_int_expr_needs_type_context(&left)
+                    || self.lowered_int_expr_needs_type_context(&right)
                 {
                     return None;
                 }
-                Some(LoweredBoolExpr::IntCompare {
-                    op: *op,
-                    left: Box::new(left),
-                    right: Box::new(right),
-                })
+                Some(push_build_row!(self, bool, BuildBoolRow::IntCompare { op: *op,
+                left: left,
+                right: right, }))
             }
             _ => None,
         },
-        IrBuildExpr::StrPredicate {
+        BuildExprRow::StrPredicate {
             receiver,
             predicate,
             needle,
             span,
         } => {
-            let needle = lowered_needle_bytes(needle)?;
-            if let IrBuildExpr::Param(slot) = receiver.as_ref() {
-                return Some(LoweredBoolExpr::StrPredicateSlot {
-                    slot: *slot,
-                    predicate: *predicate,
-                    needle,
-                    span: *span,
-                });
+            let needle = self.lowered_needle_bytes(needle)?;
+            let receiver_row = self.scratch.borrow().expressions[receiver.index()].clone();
+            if let BuildExprRow::Param(slot) = receiver_row {
+                return Some(push_build_row!(self, bool, BuildBoolRow::StrPredicateSlot { slot,
+                predicate: *predicate,
+                needle,
+                span: *span, }));
             }
-            if let Some((slot, trim_span)) = lowered_trim_slot(receiver) {
-                return Some(LoweredBoolExpr::TrimStrPredicateSlot {
-                    slot,
-                    predicate: *predicate,
-                    needle,
-                    span: trim_span,
-                });
+            if let Some((slot, trim_span)) = self.lowered_trim_slot(receiver) {
+                return Some(push_build_row!(self, bool, BuildBoolRow::TrimStrPredicateSlot { slot,
+                predicate: *predicate,
+                needle,
+                span: trim_span, }));
             }
             None
         }
-        IrBuildExpr::Contains {
+        BuildExprRow::Contains {
             receiver,
             needle,
             span,
         } => {
-            let IrBuildExpr::Param(slot) = receiver.as_ref() else {
+            let receiver_row = self.scratch.borrow().expressions[receiver.index()].clone();
+            let BuildExprRow::Param(slot) = receiver_row else {
                 return None;
             };
-            if let IrBuildExpr::Str(needle) = needle.as_ref() {
-                return Some(LoweredBoolExpr::StrContainsSlot {
-                    slot: *slot,
-                    needle: needle.clone(),
-                    span: *span,
-                });
-            }
-            let needle = lowered_literal_value(needle)?;
-            Some(LoweredBoolExpr::ContainsSlot {
-                slot: *slot,
+            let needle_row = self.scratch.borrow().expressions[needle.index()].clone();
+            if let BuildExprRow::Str(needle) = needle_row {
+                return Some(push_build_row!(self, bool, BuildBoolRow::StrContainsSlot { slot,
                 needle,
-                span: *span,
-            })
+                span: *span, }));
+            }
+            let needle = self.lowered_literal_value(needle)?;
+            Some(push_build_row!(self, bool, BuildBoolRow::ContainsSlot { slot,
+            needle,
+            span: *span, }))
         }
         _ => None,
     }
 }
 
-pub(super) fn lowered_literal_value(expr: &IrBuildExpr) -> Option<LoweredValue> {
-    match expr {
-        IrBuildExpr::Null => Some(LoweredValue::Null),
-        IrBuildExpr::Unit => Some(LoweredValue::Unit),
-        IrBuildExpr::Int(value) => Some(LoweredValue::Int(*value)),
-        IrBuildExpr::Float(value) => Some(LoweredValue::Float(*value)),
-        IrBuildExpr::Duration(value) => Some(LoweredValue::Duration(value.clone())),
-        IrBuildExpr::Bool(value) => Some(LoweredValue::Bool(*value)),
-        IrBuildExpr::Str(value) => Some(LoweredValue::Str(value.clone())),
-        IrBuildExpr::Bytes(value) => Some(LoweredValue::Bytes(value.clone())),
+fn lowered_literal_value(&self, expr: &BuildExprId) -> Option<LoweredValue> {
+    let row = self.scratch.borrow().expressions[expr.index()].clone();
+    match &row {
+        BuildExprRow::Null => Some(LoweredValue::Null),
+        BuildExprRow::Unit => Some(LoweredValue::Unit),
+        BuildExprRow::Int(value) => Some(LoweredValue::Int(*value)),
+        BuildExprRow::Float(value) => Some(LoweredValue::Float(*value)),
+        BuildExprRow::Duration(value) => Some(LoweredValue::Duration(value.clone())),
+        BuildExprRow::Bool(value) => Some(LoweredValue::Bool(*value)),
+        BuildExprRow::Str(value) => Some(LoweredValue::Str(value.clone())),
+        BuildExprRow::Bytes(value) => Some(LoweredValue::Bytes(value.clone())),
         _ => None,
     }
 }
 
-pub(super) fn lowered_int_expr_needs_type_context(expr: &LoweredIntExpr) -> bool {
-    match expr {
-        LoweredIntExpr::Slot(_) => true,
-        LoweredIntExpr::Int(_)
-        | LoweredIntExpr::Binary { .. }
-        | LoweredIntExpr::StrByteLenSlot { .. }
-        | LoweredIntExpr::StrCountLinesSlot { .. }
-        | LoweredIntExpr::StrByteAtSlot { .. } => false,
+fn lowered_int_expr_needs_type_context(&self, expr: &BuildIntId) -> bool {
+    let row = self.scratch.borrow().ints[expr.index()].clone();
+    match &row {
+        BuildIntRow::Slot(_) => true,
+        BuildIntRow::Int(_)
+        | BuildIntRow::Binary { .. }
+        | BuildIntRow::StrByteLenSlot { .. }
+        | BuildIntRow::StrCountLinesSlot { .. }
+        | BuildIntRow::StrByteAtSlot { .. } => false,
     }
 }
 
-pub(super) fn lowered_empty_string_literal(expr: &IrBuildExpr) -> bool {
-    matches!(expr, IrBuildExpr::Str(value) if value.is_empty())
-        || matches!(expr, IrBuildExpr::Bytes(value) if value.is_empty())
+fn lowered_empty_string_literal(&self, expr: &BuildExprId) -> bool {
+    let row = self.scratch.borrow().expressions[expr.index()].clone();
+    matches!(&row, BuildExprRow::Str(value) if value.is_empty())
+        || matches!(&row, BuildExprRow::Bytes(value) if value.is_empty())
 }
 
 /// Extract a literal `Str` or `Bytes` needle as bytes, for the byte-level
 /// predicate fast paths. `Str` needles use their UTF-8 bytes, which makes
 /// byte `starts_with`/`ends_with`/`contains` equivalent to the `Str` ops.
-pub(super) fn lowered_needle_bytes(expr: &IrBuildExpr) -> Option<Arc<[u8]>> {
-    match expr {
-        IrBuildExpr::Str(value) => Some(value.as_bytes().into()),
-        IrBuildExpr::Bytes(value) => Some(value.clone()),
+fn lowered_needle_bytes(&self, expr: &BuildExprId) -> Option<Arc<[u8]>> {
+    let row = self.scratch.borrow().expressions[expr.index()].clone();
+    match &row {
+        BuildExprRow::Str(value) => Some(value.as_bytes().into()),
+        BuildExprRow::Bytes(value) => Some(value.clone()),
         _ => None,
     }
 }
 
-pub(super) fn lowered_trim_slot(expr: &IrBuildExpr) -> Option<(usize, Span)> {
-    let IrBuildExpr::Method {
+fn lowered_trim_slot(&self, expr: &BuildExprId) -> Option<(usize, Span)> {
+    let row = self.scratch.borrow().expressions[expr.index()].clone();
+    let BuildExprRow::Method {
         receiver,
         name,
         args,
         span,
-    } = expr
+    } = &row
     else {
         return None;
     };
     if *name != "trim" || !args.is_empty() {
         return None;
     }
-    let IrBuildExpr::Param(slot) = receiver.as_ref() else {
+    let receiver = self.scratch.borrow().expressions[receiver.index()].clone();
+    let BuildExprRow::Param(slot) = receiver else {
         return None;
     };
-    Some((*slot, *span))
+    Some((slot, *span))
 }
 
-pub(super) fn lowered_bool_literal(expr: &IrBuildExpr) -> Option<bool> {
-    match expr {
-        IrBuildExpr::Bool(value) => Some(*value),
+fn lowered_bool_literal(&self, expr: &BuildExprId) -> Option<bool> {
+    let row = self.scratch.borrow().expressions[expr.index()].clone();
+    match &row {
+        BuildExprRow::Bool(value) => Some(*value),
         _ => None,
     }
 }
 
-pub(super) fn lowered_bool_expr_needs_type_context(expr: &LoweredBoolExpr) -> bool {
-    match expr {
-        LoweredBoolExpr::Slot(_) => true,
-        LoweredBoolExpr::Not(inner) => lowered_bool_expr_needs_type_context(inner),
+fn lowered_bool_expr_needs_type_context(&self, expr: &BuildBoolId) -> bool {
+    let row = self.scratch.borrow().bools[expr.index()].clone();
+    match &row {
+        BuildBoolRow::Slot(_) => true,
+        BuildBoolRow::Not(inner) => self.lowered_bool_expr_needs_type_context(inner),
         _ => false,
     }
 }
@@ -12072,21 +11596,23 @@ pub(super) fn lowered_bool_expr_needs_type_context(expr: &LoweredBoolExpr) -> bo
 /// execution. Returns `Some(ScanLines)` if the body matches the simple scanner
 /// pattern: a single `IfBool` where every branch is a counter increment.
 fn try_lower_scan_lines(
-    text: &IrBuildExpr,
+    &self,
+    text: &BuildExprId,
     line_slot: usize,
-    body: &[IrBuildStmt],
+    body: &[BuildStmtId],
     span: Span,
-) -> Option<IrBuildStmt> {
-    let text_slot = match text {
-        IrBuildExpr::Param(slot) => *slot,
+) -> Option<BuildStmtId> {
+    let text_row = self.scratch.borrow().expressions[text.index()].clone();
+    let text_slot = match text_row {
+        BuildExprRow::Param(slot) => slot,
         _ => return None,
     };
     if body.len() != 1 {
         return None;
     }
-    let if_stmt = &body[0];
+    let if_stmt = self.scratch.borrow().statements[body[0].index()].clone();
     match if_stmt {
-        IrBuildStmt::IfBool {
+        BuildStmtRow::IfBool {
             branches,
             else_body,
         } => {
@@ -12094,27 +11620,32 @@ fn try_lower_scan_lines(
                 return None;
             }
             let mut checks = Vec::with_capacity(branches.len());
-            for (condition, branch_body) in branches {
+            for (condition, branch_body) in &branches {
                 if branch_body.len() != 1 {
                     return None;
                 }
-                let counter_slot = match &branch_body[0] {
-                    IrBuildStmt::Assign {
+                let assignment = self.scratch.borrow().statements[branch_body[0].index()].clone();
+                let counter_slot = match assignment {
+                    BuildStmtRow::Assign {
                         slot,
                         op: AssignOp::Add,
-                        value: IrBuildExpr::Int(1),
+                        value,
                         ..
-                    } => *slot,
+                    } if matches!(
+                        self.scratch.borrow().expressions[value.index()],
+                        BuildExprRow::Int(1)
+                    ) => slot,
                     _ => return None,
                 };
+                let condition = self.scratch.borrow().bools[condition.index()].clone();
                 let scan_condition = match condition {
-                    LoweredBoolExpr::TrimEmptySlot { .. } => ScanCondition::TrimEmpty,
-                    LoweredBoolExpr::TrimStrPredicateSlot {
+                    BuildBoolRow::TrimEmptySlot { .. } => ScanCondition::TrimEmpty,
+                    BuildBoolRow::TrimStrPredicateSlot {
                         predicate: LoweredStrPredicate::StartsWith,
                         needle,
                         ..
                     } => ScanCondition::TrimStartsWith(needle.to_vec()),
-                    LoweredBoolExpr::StrPredicateSlot {
+                    BuildBoolRow::StrPredicateSlot {
                         predicate: LoweredStrPredicate::StartsWith,
                         needle,
                         ..
@@ -12126,153 +11657,160 @@ fn try_lower_scan_lines(
                     counter_slot,
                 });
             }
-            Some(IrBuildStmt::ScanLines {
-                text_slot,
-                line_slot,
-                checks,
-                span,
-            })
+            Some(push_build_row!(self, stmt, BuildStmtRow::ScanLines { text_slot,
+            line_slot,
+            checks,
+            span, }))
         }
         _ => None,
     }
 }
+}
 
 /// Recursively check whether a lowered statement body contains any `Defer`
 /// statements (including those nested inside `If` branches, `Retry` bodies, etc.).
-pub(super) fn lowered_body_has_defers(statements: &[IrBuildStmt]) -> bool {
-    fn stmt_has_defers(stmt: &IrBuildStmt) -> bool {
-        match stmt {
-            IrBuildStmt::Defer { .. } => true,
-            IrBuildStmt::If {
+pub(super) fn lowered_body_has_defers(
+    scratch: &IndexedBuildScratch,
+    statements: &[BuildStmtId],
+) -> bool {
+    fn stmt_has_defers(scratch: &IndexedBuildScratch, stmt: &BuildStmtId) -> bool {
+        match &scratch.statements[stmt.index()] {
+            BuildStmtRow::Defer { .. } => true,
+            BuildStmtRow::If {
                 branches,
                 else_body,
             } => {
                 branches
                     .iter()
-                    .any(|(_, body)| lowered_body_has_defers(body))
+                    .any(|(_, body)| lowered_body_has_defers(scratch, body))
                     || else_body
                         .as_ref()
-                        .is_some_and(|b| lowered_body_has_defers(b))
+                        .is_some_and(|b| lowered_body_has_defers(scratch, b))
             }
-            IrBuildStmt::IfBool {
+            BuildStmtRow::IfBool {
                 branches,
                 else_body,
             } => {
                 branches
                     .iter()
-                    .any(|(_, body)| lowered_body_has_defers(body))
+                    .any(|(_, body)| lowered_body_has_defers(scratch, body))
                     || else_body
                         .as_ref()
-                        .is_some_and(|b| lowered_body_has_defers(b))
+                        .is_some_and(|b| lowered_body_has_defers(scratch, b))
             }
-            IrBuildStmt::While { body, .. } | IrBuildStmt::WhileBool { body, .. } => {
-                lowered_body_has_defers(body)
+            BuildStmtRow::While { body, .. } | BuildStmtRow::WhileBool { body, .. } => {
+                lowered_body_has_defers(scratch, body)
             }
-            IrBuildStmt::For { body, .. }
-            | IrBuildStmt::ForRecord { body, .. }
-            | IrBuildStmt::ForStrLines { body, .. } => lowered_body_has_defers(body),
-            IrBuildStmt::Match { arms, .. } => arms
+            BuildStmtRow::For { body, .. }
+            | BuildStmtRow::ForRecord { body, .. }
+            | BuildStmtRow::ForStrLines { body, .. } => lowered_body_has_defers(scratch, body),
+            BuildStmtRow::Match { arms, .. } => arms
                 .iter()
-                .any(|(_, _, body)| lowered_body_has_defers(body)),
-            IrBuildStmt::StrMatch { arms, fallback, .. } => {
-                arms.values().any(|body| lowered_body_has_defers(body))
+                .any(|(_, _, body)| lowered_body_has_defers(scratch, body)),
+            BuildStmtRow::StrMatch { arms, fallback, .. } => {
+                arms.values().any(|body| lowered_body_has_defers(scratch, body))
                     || fallback
                         .as_ref()
-                        .is_some_and(|b| lowered_body_has_defers(b))
+                        .is_some_and(|b| lowered_body_has_defers(scratch, b))
             }
-            IrBuildStmt::TagMatch { arms, fallback, .. } => {
-                arms.values().any(|body| lowered_body_has_defers(body))
+            BuildStmtRow::TagMatch { arms, fallback, .. } => {
+                arms.values().any(|body| lowered_body_has_defers(scratch, body))
                     || fallback
                         .as_ref()
-                        .is_some_and(|b| lowered_body_has_defers(b))
+                        .is_some_and(|b| lowered_body_has_defers(scratch, b))
             }
-            IrBuildStmt::Guard { else_body, .. } => lowered_body_has_defers(else_body),
-            IrBuildStmt::Cd { body, .. } | IrBuildStmt::Env { body, .. } => {
-                lowered_body_has_defers(body)
+            BuildStmtRow::Guard { else_body, .. } => lowered_body_has_defers(scratch, else_body),
+            BuildStmtRow::Cd { body, .. } | BuildStmtRow::Env { body, .. } => {
+                lowered_body_has_defers(scratch, body)
             }
             _ => false,
         }
     }
-    statements.iter().any(stmt_has_defers)
+    statements.iter().any(|stmt| stmt_has_defers(scratch, stmt))
 }
 
 /// without an `else` (or a non-exhaustive `match`) can fall through. So a body
 /// "can return" only when every reachable path provably ends in a `Return`.
-pub(super) fn lowered_body_can_return(statements: &[IrBuildStmt]) -> bool {
-    statements.iter().any(|stmt| match stmt {
-        IrBuildStmt::Return { .. } => true,
-        IrBuildStmt::Defer { .. } => false,
-        IrBuildStmt::Yield { .. } => false,
-        IrBuildStmt::ScanLines { .. } => false,
-        IrBuildStmt::Break | IrBuildStmt::BreakValue { .. } => false,
-        IrBuildStmt::Continue => false,
-        IrBuildStmt::If {
+pub(super) fn lowered_body_can_return(
+    scratch: &IndexedBuildScratch,
+    statements: &[BuildStmtId],
+) -> bool {
+    statements
+        .iter()
+        .any(|stmt| match &scratch.statements[stmt.index()] {
+        BuildStmtRow::Return { .. } => true,
+        BuildStmtRow::Defer { .. } => false,
+        BuildStmtRow::Yield { .. } => false,
+        BuildStmtRow::ScanLines { .. } => false,
+        BuildStmtRow::Break | BuildStmtRow::BreakValue { .. } => false,
+        BuildStmtRow::Continue => false,
+        BuildStmtRow::If {
             branches,
             else_body,
         } => {
             branches
                 .iter()
-                .all(|(_, body)| lowered_body_can_return(body))
+                .all(|(_, body)| lowered_body_can_return(scratch, body))
                 && else_body
                     .as_ref()
-                    .is_some_and(|body| lowered_body_can_return(body))
+                    .is_some_and(|body| lowered_body_can_return(scratch, body))
         }
-        IrBuildStmt::IfBool {
+        BuildStmtRow::IfBool {
             branches,
             else_body,
         } => {
             branches
                 .iter()
-                .all(|(_, body)| lowered_body_can_return(body))
+                .all(|(_, body)| lowered_body_can_return(scratch, body))
                 && else_body
                     .as_ref()
-                    .is_some_and(|body| lowered_body_can_return(body))
+                    .is_some_and(|body| lowered_body_can_return(scratch, body))
         }
-        IrBuildStmt::While { body, .. }
-        | IrBuildStmt::WhileBool { body, .. }
-        | IrBuildStmt::For { body, .. }
-        | IrBuildStmt::ForRecord { body, .. }
-        | IrBuildStmt::ForStrLines { body, .. } => {
+        BuildStmtRow::While { body, .. }
+        | BuildStmtRow::WhileBool { body, .. }
+        | BuildStmtRow::For { body, .. }
+        | BuildStmtRow::ForRecord { body, .. }
+        | BuildStmtRow::ForStrLines { body, .. } => {
             let _ = body;
             false
         }
-        IrBuildStmt::Cd { body, .. } | IrBuildStmt::Env { body, .. } => {
-            lowered_body_can_return(body)
+        BuildStmtRow::Cd { body, .. } | BuildStmtRow::Env { body, .. } => {
+            lowered_body_can_return(scratch, body)
         }
-        IrBuildStmt::Match { arms, .. } => lowered_match_body_can_return(arms),
-        IrBuildStmt::StrMatch { arms, fallback, .. } => {
+        BuildStmtRow::Match { arms, .. } => lowered_match_body_can_return(scratch, arms),
+        BuildStmtRow::StrMatch { arms, fallback, .. } => {
             !arms.is_empty()
-                && arms.values().all(|body| lowered_body_can_return(body))
+                && arms.values().all(|body| lowered_body_can_return(scratch, body))
                 && fallback
                     .as_ref()
-                    .is_some_and(|body| lowered_body_can_return(body))
+                    .is_some_and(|body| lowered_body_can_return(scratch, body))
         }
-        IrBuildStmt::TagMatch { arms, fallback, .. } => {
+        BuildStmtRow::TagMatch { arms, fallback, .. } => {
             !arms.is_empty()
-                && arms.values().all(|body| lowered_body_can_return(body))
+                && arms.values().all(|body| lowered_body_can_return(scratch, body))
                 && fallback
                     .as_ref()
-                    .is_some_and(|body| lowered_body_can_return(body))
+                    .is_some_and(|body| lowered_body_can_return(scratch, body))
         }
         // A guard's success path falls through to later statements, so the
         // guard alone never guarantees a return.
-        IrBuildStmt::Guard { .. } => false,
-        IrBuildStmt::Let { .. }
-        | IrBuildStmt::LetRecord { .. }
-        | IrBuildStmt::LetInt { .. }
-        | IrBuildStmt::LetBool { .. }
-        | IrBuildStmt::Assign { .. }
-        | IrBuildStmt::AssignInt { .. }
-        | IrBuildStmt::AssignField { .. }
-        | IrBuildStmt::AssignFieldInt { .. }
-        | IrBuildStmt::AssignIndex { .. }
-        | IrBuildStmt::AssignBool { .. }
-        | IrBuildStmt::Expr { .. }
-        | IrBuildStmt::Run { .. }
-        | IrBuildStmt::Print { .. }
-        | IrBuildStmt::Proc { .. }
-        | IrBuildStmt::Loop { .. } => false,
-    })
+        BuildStmtRow::Guard { .. } => false,
+        BuildStmtRow::Let { .. }
+        | BuildStmtRow::LetRecord { .. }
+        | BuildStmtRow::LetInt { .. }
+        | BuildStmtRow::LetBool { .. }
+        | BuildStmtRow::Assign { .. }
+        | BuildStmtRow::AssignInt { .. }
+        | BuildStmtRow::AssignField { .. }
+        | BuildStmtRow::AssignFieldInt { .. }
+        | BuildStmtRow::AssignIndex { .. }
+        | BuildStmtRow::AssignBool { .. }
+        | BuildStmtRow::Expr { .. }
+        | BuildStmtRow::Run { .. }
+        | BuildStmtRow::Print { .. }
+        | BuildStmtRow::Proc { .. }
+        | BuildStmtRow::Loop { .. } => false,
+        })
 }
 
 fn lowered_return_kind_accepts_unit_fallthrough(kind: LoweredReturnKind) -> bool {
@@ -12283,12 +11821,13 @@ fn lowered_return_kind_accepts_unit_fallthrough(kind: LoweredReturnKind) -> bool
 }
 
 pub(super) fn lowered_match_body_can_return(
-    arms: &[(IrBuildPattern, Option<IrBuildExpr>, Vec<IrBuildStmt>)],
+    scratch: &IndexedBuildScratch,
+    arms: &[(BuildPatternId, Option<BuildExprId>, Vec<BuildStmtId>)],
 ) -> bool {
     !arms.is_empty()
         && arms
             .iter()
-            .all(|(_, _, body)| lowered_body_can_return(body))
+            .all(|(_, _, body)| lowered_body_can_return(scratch, body))
 }
 
 pub(super) fn cleanup_lowered_pattern_slots(slots: &mut SlotScope, cleanup: Vec<(Name, usize)>) {

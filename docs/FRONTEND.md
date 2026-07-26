@@ -322,10 +322,12 @@ an explicit host operation referenced by an instruction or driver step.
 Finalization verifies every range, owner, payload schema, location, terminator,
 slot bound, and semantic identity before the program can be installed.
 
-The lowerer still uses short-lived Rust construction values inside `lower.rs`
-and the encoder. They are builder scratch, are never installed, and cannot be
-executed by the runtime. Measurement probes count blockers but retain neither
-construction programs nor function bodies.
+The lowerer writes short-lived expression, statement, pattern, typed-fast-path,
+and top-level rows into one indexed construction arena. Child relationships use
+typed four-byte IDs; no construction row recursively owns another row. The
+encoder resolves those IDs while committing one function or the complete
+driver, then drops the arena. Measurement probes count blockers but retain
+neither construction programs nor function bodies.
 
 ### Execution
 

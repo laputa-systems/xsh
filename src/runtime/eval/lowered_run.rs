@@ -97,7 +97,6 @@ use super::{NativeTestRunKind, NativeTestRunRequest, TestMock};
 use cap_directories::{ProjectDirs, UserDirs, ambient_authority as directories_authority};
 use cap_tempfile::{TempDir, TempFile, ambient_authority as tempfile_authority};
 
-#[cfg(debug_assertions)]
 const LOWERED_SHARED_LIST_THRESHOLD: usize = 16;
 const INDEXED_EVAL_DEPTH_LIMIT: usize = 2048;
 const INDEXED_SMALL_STACK_EVAL_DEPTH_LIMIT: usize = 128;

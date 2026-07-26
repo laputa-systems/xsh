@@ -6,17 +6,19 @@ use super::{
 use crate::modules::RuntimeOp;
 use crate::modules::hash::HashAlgorithm;
 use crate::runtime::eval::{
-    LoweredBoolExpr, LoweredCallArg, LoweredCompTarget, LoweredErrorExpr,
-    LoweredErrorPatternFields, IrBuildExpr, LoweredFmtPart, LoweredFunctionKey,
-    LoweredFunctionKind, LoweredFunctionUnit, LoweredIntExpr, IrBuildPattern,
-    IrBuildPatternSlots, LoweredPipelineStage, LoweredProcessCommandArgv,
-    IndexedFunctionHeader, LoweredProcessCommandBuilderEntry, IrBuildFunction, LoweredRecordEntry,
+    BuildBoolId, BuildBoolRow, BuildExprId, BuildExprRow, BuildIntId, BuildIntRow,
+    BuildPatternId, BuildPatternRow, BuildStmtId, BuildStmtRow, BuildTopStmtId,
+    IndexedBuildScratch,
+    LoweredCallArg, LoweredCompTarget, LoweredErrorExpr,
+    LoweredErrorPatternFields, LoweredFmtPart, LoweredFunctionKey,
+    LoweredFunctionKind, LoweredFunctionUnit, BuildPatternIdSlots, LoweredPipelineStage, LoweredProcessCommandArgv,
+    IndexedFunctionHeader, LoweredProcessCommandBuilderEntry, IndexedFunctionBuild, LoweredRecordEntry,
     LoweredReturnKind,
     LoweredRunArg, LoweredRunArgKind, LoweredRunCapture, LoweredRunEnv,
-    LoweredRunPipelineSegment, LoweredRunRedirection, LoweredSpawnRun, IrBuildStmt,
+    LoweredRunPipelineSegment, LoweredRunRedirection, LoweredSpawnRun,
     LoweredStatsValue, LoweredStrPredicate, LoweredTagValue, LoweredType, LoweredTypeCheck,
-    LoweredModuleExport, LoweredModuleExportKind, IrBuildProgram, IrBuildTopLevelKind,
-    LoweredTopLevelSlot, LoweredTopLevelSlots, IrBuildTopLevelStmt, LoweredValue, ReduceByOp,
+    LoweredModuleExport, LoweredModuleExportKind, IndexedProgramBuild, BuildTopKind,
+    LoweredTopLevelSlot, LoweredTopLevelSlots, BuildTopStmtRow, LoweredValue, ReduceByOp,
     ScanCheck, ScanCondition,
 };
 use crate::runtime::value::{DurationValue, FloatValue, FunctionName, PathValue};
@@ -33,6 +35,7 @@ use smallvec::SmallVec;
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::mem::size_of;
+use std::rc::Rc;
 use std::sync::Arc;
 
 const DRIVER_OWNER_BIT: u32 = 1 << 31;
@@ -1064,11 +1067,11 @@ impl FullProgram {
                 Option::<LoweredType>::verify(&decoder, &mut payload)?;
                 Option::<LoweredTypeCheck>::verify(&decoder, &mut payload)?;
                 bool::verify(&decoder, &mut payload)?;
-                IrBuildExpr::verify(&decoder, &mut payload)?;
+                BuildExprRow::verify(&decoder, &mut payload)?;
                 Span::verify(&decoder, &mut payload)?;
             }
             FullDriverTag::LetRecord => {
-                IrBuildExpr::verify(&decoder, &mut payload)?;
+                BuildExprRow::verify(&decoder, &mut payload)?;
                 Vec::<Name>::verify(&decoder, &mut payload)?;
                 bool::verify(&decoder, &mut payload)?;
                 Span::verify(&decoder, &mut payload)?;
@@ -1076,23 +1079,23 @@ impl FullProgram {
             FullDriverTag::Assign => {
                 Name::verify(&decoder, &mut payload)?;
                 AssignOp::verify(&decoder, &mut payload)?;
-                IrBuildExpr::verify(&decoder, &mut payload)?;
+                BuildExprRow::verify(&decoder, &mut payload)?;
                 Span::verify(&decoder, &mut payload)?;
             }
             FullDriverTag::Discard => {
-                IrBuildExpr::verify(&decoder, &mut payload)?;
+                BuildExprRow::verify(&decoder, &mut payload)?;
                 Span::verify(&decoder, &mut payload)?;
             }
-            FullDriverTag::Stmt => IrBuildStmt::verify(&decoder, &mut payload)?,
-            FullDriverTag::Expr => IrBuildExpr::verify(&decoder, &mut payload)?,
+            FullDriverTag::Stmt => BuildStmtRow::verify(&decoder, &mut payload)?,
+            FullDriverTag::Expr => BuildExprRow::verify(&decoder, &mut payload)?,
             FullDriverTag::Defer => {
-                IrBuildExpr::verify(&decoder, &mut payload)?;
+                BuildExprRow::verify(&decoder, &mut payload)?;
                 Span::verify(&decoder, &mut payload)?;
             }
             FullDriverTag::SignalHook => {
                 Name::verify(&decoder, &mut payload)?;
                 Option::<String>::verify(&decoder, &mut payload)?;
-                Vec::<IrBuildStmt>::verify(&decoder, &mut payload)?;
+                Vec::<BuildStmtId>::verify(&decoder, &mut payload)?;
                 Vec::<LoweredTopLevelSlot>::verify(&decoder, &mut payload)?;
                 let slot_count = payload.raw()?;
                 if slot_count != step.slot_count {
@@ -1386,6 +1389,7 @@ pub(in crate::runtime::eval) struct FullBuilder {
     payload_pool: Vec<Vec<u32>>,
     current_owner: Option<u32>,
     current_slot_count: u32,
+    active_scratch: Option<Rc<RefCell<IndexedBuildScratch>>>,
 }
 
 impl FullBuilder {
@@ -1430,7 +1434,7 @@ impl FullBuilder {
     #[cfg(test)]
     fn build_with_driver(
         units: &[LoweredFunctionUnit],
-        driver: Option<(&IrBuildProgram, &[StmtId], &ArenaProgram)>,
+        driver: Option<(&IndexedProgramBuild, &[StmtId], &ArenaProgram)>,
         sources: Arc<SourceMap>,
         source_id: SourceId,
     ) -> Result<FullProgram, IrBuildError> {
@@ -1520,10 +1524,10 @@ impl FullBuilder {
         builder.reserve_function_keys(
             super::super::lower::compact_function_keys(program),
         )?;
-        let mut pures = FxHashMap::default();
-        let mut procs = FxHashMap::default();
-        let mut qualified_pures = FxHashMap::default();
-        let mut qualified_procs = FxHashMap::default();
+        let mut pures = rustc_hash::FxHashSet::default();
+        let mut procs = rustc_hash::FxHashSet::default();
+        let mut qualified_pures = rustc_hash::FxHashSet::default();
+        let mut qualified_procs = rustc_hash::FxHashSet::default();
         super::super::lower::lower_compact_function_units_into(
             program,
             declarations,
@@ -1554,30 +1558,18 @@ impl FullBuilder {
                     error.committed_instructions = builder.store.tags.len();
                     return Err(error);
                 }
-                let header = Arc::new(IrBuildFunction {
-                    params: body.params.clone(),
-                    param_kinds: body.param_kinds.clone(),
-                    param_checks: body.param_checks.clone(),
-                    param_rest: body.param_rest.clone(),
-                    param_defaults: body.param_defaults.clone(),
-                    captures: body.captures.clone(),
-                    return_kind: body.return_kind,
-                    slot_count: body.slot_count,
-                    body: Vec::new(),
-                    has_defers: body.has_defers,
-                });
                 match (unit.key(), unit.kind()) {
                     (LoweredFunctionKey::Name(name), LoweredFunctionKind::Pure) => {
-                        pures.insert(name, header);
+                        pures.insert(name);
                     }
                     (LoweredFunctionKey::Name(name), LoweredFunctionKind::Proc) => {
-                        procs.insert(name, header);
+                        procs.insert(name);
                     }
                     (LoweredFunctionKey::Qualified(name), LoweredFunctionKind::Pure) => {
-                        qualified_pures.insert(name, header);
+                        qualified_pures.insert(name);
                     }
                     (LoweredFunctionKey::Qualified(name), LoweredFunctionKind::Proc) => {
-                        qualified_procs.insert(name, header);
+                        qualified_procs.insert(name);
                     }
                 }
                 Ok(())
@@ -1740,11 +1732,13 @@ impl FullBuilder {
     fn encode_body(
         &mut self,
         function: IrFunctionId,
-        body: &IrBuildFunction,
+        body: &IndexedFunctionBuild,
     ) -> Result<(), IrBuildError> {
         let instruction_start = self.store.tags.len();
+        self.active_scratch = Some(body.scratch.clone());
         let mut words = self.take_payload();
         let encoded = body.body.encode(self, &mut words);
+        self.active_scratch = None;
         if let Err(error) = encoded {
             self.recycle_payload(words);
             return Err(error);
@@ -1773,7 +1767,21 @@ impl FullBuilder {
 
     fn encode_driver_root(
         &mut self,
-        program: &IrBuildProgram,
+        program: &IndexedProgramBuild,
+        source_statements: &[StmtId],
+        arena: &ArenaProgram,
+        allow_checker_only: bool,
+    ) -> Result<(), IrBuildError> {
+        self.active_scratch = Some(program.scratch.clone());
+        let result =
+            self.encode_driver_root_with_scratch(program, source_statements, arena, allow_checker_only);
+        self.active_scratch = None;
+        result
+    }
+
+    fn encode_driver_root_with_scratch(
+        &mut self,
+        program: &IndexedProgramBuild,
         source_statements: &[StmtId],
         arena: &ArenaProgram,
         allow_checker_only: bool,
@@ -1803,23 +1811,37 @@ impl FullBuilder {
                     self.store.tags.len(),
                 ));
             }
-            statements.push((span, lowered.as_ref()));
+            statements.push((span, *lowered));
         }
         for (_, statement) in &statements {
             if let Some(statement) = statement {
-                Self::validate_driver_imports(arena, statement, allow_checker_only)?;
+                self.validate_driver_imports(arena, *statement, allow_checker_only)?;
             }
         }
         self.store.driver_root = self.encode_driver_program(&statements, arena)?;
         Ok(())
     }
 
+    fn build_top_stmt(&self, id: BuildTopStmtId) -> Result<BuildTopStmtRow, IrBuildError> {
+        let scratch = self.active_scratch.as_ref().ok_or_else(|| {
+            IrBuildError::format("missing_indexed_build_scratch", None, 0, 0)
+        })?;
+        let scratch = scratch.borrow();
+        scratch
+            .top_statements
+            .get(id.index())
+            .cloned()
+            .ok_or_else(|| IrBuildError::format("indexed_top_stmt_id", None, 0, 0))
+    }
+
     fn validate_driver_imports(
+        &self,
         arena: &ArenaProgram,
-        statement: &IrBuildTopLevelStmt,
+        statement: BuildTopStmtId,
         allow_checker_only: bool,
     ) -> Result<(), IrBuildError> {
-        let IrBuildTopLevelKind::Use {
+        let statement = self.build_top_stmt(statement)?;
+        let BuildTopKind::Use {
             key,
             module_statements,
             span,
@@ -1876,20 +1898,21 @@ impl FullBuilder {
             }
         }
         for (_, module_statement) in module_statements {
-            Self::validate_driver_imports(arena, module_statement, allow_checker_only)?;
+            self.validate_driver_imports(arena, *module_statement, allow_checker_only)?;
         }
         Ok(())
     }
 
     fn encode_driver_program(
         &mut self,
-        statements: &[(Span, Option<&IrBuildTopLevelStmt>)],
+        statements: &[(Span, Option<BuildTopStmtId>)],
         arena: &ArenaProgram,
     ) -> Result<u32, IrBuildError> {
         let mut child_programs = Vec::with_capacity(statements.len());
         for (_, statement) in statements {
-            let child = match statement.map(|statement| &statement.kind) {
-                Some(IrBuildTopLevelKind::Use {
+            let statement_row = statement.map(|statement| self.build_top_stmt(statement)).transpose()?;
+            let child = match statement_row.as_ref().map(|statement| &statement.kind) {
+                Some(BuildTopKind::Use {
                     key,
                     module_statements,
                     span,
@@ -1912,7 +1935,7 @@ impl FullBuilder {
                         .map(|(span, statement)| {
                             (
                                 (span.source_id, span.start(), span.end()),
-                                statement,
+                                *statement,
                             )
                         })
                         .collect::<BTreeMap<_, _>>();
@@ -1974,19 +1997,22 @@ impl FullBuilder {
     fn encode_driver_step(
         &mut self,
         span: Span,
-        statement: Option<&IrBuildTopLevelStmt>,
+        statement: Option<BuildTopStmtId>,
         child_program: Option<u32>,
     ) -> Result<(), IrBuildError> {
+        let statement = statement
+            .map(|statement| self.build_top_stmt(statement))
+            .transpose()?;
         let step_index = self.store.driver_steps.len();
         let owner = driver_owner(step_index)?;
         let instruction_start = u32::try_from(self.store.tags.len())
             .map_err(|_| IrBuildError::format("instruction_overflow", None, 0, 0))?;
         let slots_start = self.store.driver_slots.len();
-        let slot_count = statement.map_or(0, |statement| statement.slot_count);
-        let write_slots = statement.is_some_and(|statement| {
-            matches!(statement.kind, IrBuildTopLevelKind::Stmt(_))
+        let slot_count = statement.as_ref().map_or(0, |statement| statement.slot_count);
+        let write_slots = statement.as_ref().is_some_and(|statement| {
+            matches!(statement.kind, BuildTopKind::Stmt(_))
         });
-        if let Some(statement) = statement {
+        if let Some(statement) = statement.as_ref() {
             for slot in &statement.slots {
                 let slot_index = u32::try_from(slot.slot).map_err(|_| {
                     IrBuildError::format("driver_slot_overflow", None, 0, 0)
@@ -2017,9 +2043,9 @@ impl FullBuilder {
         self.current_slot_count = u32::try_from(slot_count)
             .map_err(|_| IrBuildError::format("slot_overflow", None, 0, 0))?;
         let mut payload = self.take_payload();
-        let tag = match statement.map(|statement| &statement.kind) {
+        let tag = match statement.as_ref().map(|statement| &statement.kind) {
             None => FullDriverTag::Skip,
-            Some(IrBuildTopLevelKind::Use {
+            Some(BuildTopKind::Use {
                 key,
                 alias,
                 path,
@@ -2039,7 +2065,7 @@ impl FullBuilder {
                 span.encode(self, &mut payload)?;
                 FullDriverTag::Use
             }
-            Some(IrBuildTopLevelKind::Let {
+            Some(BuildTopKind::Let {
                 target,
                 ty,
                 validation,
@@ -2055,7 +2081,7 @@ impl FullBuilder {
                 value_span.encode(self, &mut payload)?;
                 FullDriverTag::Let
             }
-            Some(IrBuildTopLevelKind::LetRecord {
+            Some(BuildTopKind::LetRecord {
                 source,
                 fields,
                 mutable,
@@ -2067,7 +2093,7 @@ impl FullBuilder {
                 span.encode(self, &mut payload)?;
                 FullDriverTag::LetRecord
             }
-            Some(IrBuildTopLevelKind::Assign {
+            Some(BuildTopKind::Assign {
                 target,
                 op,
                 value,
@@ -2079,25 +2105,25 @@ impl FullBuilder {
                 span.encode(self, &mut payload)?;
                 FullDriverTag::Assign
             }
-            Some(IrBuildTopLevelKind::Discard { value, span }) => {
+            Some(BuildTopKind::Discard { value, span }) => {
                 value.encode(self, &mut payload)?;
                 span.encode(self, &mut payload)?;
                 FullDriverTag::Discard
             }
-            Some(IrBuildTopLevelKind::Stmt(statement)) => {
+            Some(BuildTopKind::Stmt(statement)) => {
                 statement.encode(self, &mut payload)?;
                 FullDriverTag::Stmt
             }
-            Some(IrBuildTopLevelKind::Expr(value)) => {
+            Some(BuildTopKind::Expr(value)) => {
                 value.encode(self, &mut payload)?;
                 FullDriverTag::Expr
             }
-            Some(IrBuildTopLevelKind::Defer { value, span }) => {
+            Some(BuildTopKind::Defer { value, span }) => {
                 value.encode(self, &mut payload)?;
                 span.encode(self, &mut payload)?;
                 FullDriverTag::Defer
             }
-            Some(IrBuildTopLevelKind::SignalHook {
+            Some(BuildTopKind::SignalHook {
                 signal,
                 pre_cancel,
                 body,
@@ -3131,6 +3157,184 @@ impl<'a> FullDecoder<'a> {
 
 struct FullVerifier;
 
+fn indexed_block_can_return(store: &FullStore, block: IrBlockId) -> Result<bool, IrVerifyError> {
+    let block = store
+        .blocks
+        .get(block.index())
+        .ok_or_else(|| IrVerifyError::new("return-analysis block is out of bounds"))?;
+    let words = store.payload(block.instructions)?;
+    let Some((&len, instructions)) = words.split_first() else {
+        return Err(IrVerifyError::new("return-analysis block is empty"));
+    };
+    if instructions.len() != len as usize {
+        return Err(IrVerifyError::new(
+            "return-analysis block length is invalid",
+        ));
+    }
+    for instruction in instructions {
+        if indexed_stmt_can_return(store, *instruction as usize)? {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+fn indexed_stmt_can_return(
+    store: &FullStore,
+    instruction: usize,
+) -> Result<bool, IrVerifyError> {
+    let tag = store
+        .tags
+        .get(instruction)
+        .copied()
+        .ok_or_else(|| IrVerifyError::new("return-analysis instruction is out of bounds"))?;
+    let data = *store
+        .data
+        .get(instruction)
+        .ok_or_else(|| IrVerifyError::new("return-analysis data is out of bounds"))?;
+    let payload = store.payload(data.range())?;
+    let block = |raw| {
+        IrBlockId::from_raw(raw)
+            .ok_or_else(|| IrVerifyError::new("return-analysis block id is invalid"))
+    };
+    Ok(match tag {
+        FullTag::StmtReturn => true,
+        FullTag::StmtCd => {
+            indexed_block_can_return(store, block(*payload.get(1).ok_or_else(|| {
+                IrVerifyError::new("return-analysis cd payload is invalid")
+            })?)?)?
+        }
+        FullTag::StmtEnv => {
+            indexed_block_can_return(store, block(*payload.get(1).ok_or_else(|| {
+                IrVerifyError::new("return-analysis env payload is invalid")
+            })?)?)?
+        }
+        FullTag::StmtIf | FullTag::StmtIfBool => {
+            let branches = block(*payload.first().ok_or_else(|| {
+                IrVerifyError::new("return-analysis if payload is invalid")
+            })?)?;
+            let branch_words = store.payload(store.blocks[branches.index()].instructions)?;
+            let Some((&len, mut branch_words)) = branch_words.split_first() else {
+                return Err(IrVerifyError::new(
+                    "return-analysis if branches are invalid",
+                ));
+            };
+            let mut all_return = len != 0;
+            for _ in 0..len {
+                let Some((_, rest)) = branch_words.split_first() else {
+                    return Err(IrVerifyError::new(
+                        "return-analysis if condition is missing",
+                    ));
+                };
+                let Some((&body, rest)) = rest.split_first() else {
+                    return Err(IrVerifyError::new(
+                        "return-analysis if body is missing",
+                    ));
+                };
+                all_return &= indexed_block_can_return(store, block(body)?)?;
+                branch_words = rest;
+            }
+            if !branch_words.is_empty() {
+                return Err(IrVerifyError::new(
+                    "return-analysis if branches have trailing data",
+                ));
+            }
+            let else_returns = match payload.get(1..).unwrap_or_default() {
+                [1, body] => indexed_block_can_return(store, block(*body)?)?,
+                [0] => false,
+                _ => {
+                    return Err(IrVerifyError::new(
+                        "return-analysis else payload is invalid",
+                    ));
+                }
+            };
+            all_return && else_returns
+        }
+        FullTag::StmtMatch => {
+            let arms = block(*payload.get(1).ok_or_else(|| {
+                IrVerifyError::new("return-analysis match payload is invalid")
+            })?)?;
+            let arm_words = store.payload(store.blocks[arms.index()].instructions)?;
+            let Some((&len, mut arm_words)) = arm_words.split_first() else {
+                return Err(IrVerifyError::new(
+                    "return-analysis match arms are invalid",
+                ));
+            };
+            let mut all_return = len != 0;
+            for _ in 0..len {
+                let Some((_, rest)) = arm_words.split_first() else {
+                    return Err(IrVerifyError::new(
+                        "return-analysis match pattern is missing",
+                    ));
+                };
+                let Some((&guard, rest)) = rest.split_first() else {
+                    return Err(IrVerifyError::new(
+                        "return-analysis match guard is missing",
+                    ));
+                };
+                let rest = match guard {
+                    0 => rest,
+                    1 => rest.get(1..).ok_or_else(|| {
+                        IrVerifyError::new("return-analysis match guard is invalid")
+                    })?,
+                    _ => {
+                        return Err(IrVerifyError::new(
+                            "return-analysis match guard tag is invalid",
+                        ));
+                    }
+                };
+                let Some((&body, rest)) = rest.split_first() else {
+                    return Err(IrVerifyError::new(
+                        "return-analysis match body is missing",
+                    ));
+                };
+                all_return &= indexed_block_can_return(store, block(body)?)?;
+                arm_words = rest;
+            }
+            if !arm_words.is_empty() {
+                return Err(IrVerifyError::new(
+                    "return-analysis match arms have trailing data",
+                ));
+            }
+            all_return
+        }
+        FullTag::StmtStrMatch | FullTag::StmtTagMatch => {
+            let Some((&len, mut words)) = payload.get(1..).and_then(|words| words.split_first())
+            else {
+                return Err(IrVerifyError::new(
+                    "return-analysis exact match payload is invalid",
+                ));
+            };
+            let mut all_return = len != 0;
+            for _ in 0..len {
+                let Some((_, rest)) = words.split_first() else {
+                    return Err(IrVerifyError::new(
+                        "return-analysis exact match key is missing",
+                    ));
+                };
+                let Some((&body, rest)) = rest.split_first() else {
+                    return Err(IrVerifyError::new(
+                        "return-analysis exact match body is missing",
+                    ));
+                };
+                all_return &= indexed_block_can_return(store, block(body)?)?;
+                words = rest;
+            }
+            let fallback_returns = match words {
+                [1, body, _span] => indexed_block_can_return(store, block(*body)?)?,
+                [0, _span] => false,
+                _ => {
+                    return Err(IrVerifyError::new(
+                        "return-analysis exact match fallback is invalid",
+                    ));
+                }
+            };
+            all_return && fallback_returns
+        }
+        _ => false,
+    })
+}
+
 impl FullVerifier {
     fn verify(program: &FullProgram) -> Result<(), IrVerifyError> {
         let store = &program.store;
@@ -3286,7 +3490,7 @@ impl FullVerifier {
             }
             let body = [function.body];
             let mut cursor = FullCursor::new(&body);
-            Vec::<IrBuildStmt>::verify(&decoder, &mut cursor)?;
+            Vec::<BuildStmtId>::verify(&decoder, &mut cursor)?;
             cursor.finish()?;
             for (param_index, _) in store.params[params.clone()].iter().enumerate() {
                 let param_index = params.start + param_index;
@@ -3312,24 +3516,11 @@ impl FullVerifier {
                     "function {index} has an empty body"
                 )));
             }
-            let trusted_decoder = FullDecoder {
-                store,
-                owner: IrFunctionId::new(index)
-                    .map_err(|_| IrVerifyError::new("function id is invalid"))?
-                    .raw(),
-                instruction_range: store.function_instruction_range(index)?,
-                instruction_states: None,
-                block_states: None,
-                slot_count: function.slot_count,
-            };
-            let mut cursor = FullCursor::new(&body);
-            let statements = Vec::<IrBuildStmt>::decode(&trusted_decoder, &mut cursor)?;
-            cursor.finish()?;
             let return_type = store
                 .semantic
                 .to_type(store.semantic.signature_return_type(function.signature)?)?;
             if !matches!(return_type, Type::Stream(_))
-                && !super::super::lower::lowered_body_can_return(&statements)
+                && !indexed_block_can_return(store, body_id)?
             {
                 return Err(IrVerifyError::new(format!(
                     "function {index} body does not terminate with a return"
@@ -4758,24 +4949,12 @@ macro_rules! impl_node_codec {
             }
 
             fn decode(
-                decoder: &FullDecoder<'_>,
-                input: &mut FullCursor<'_>,
+                _decoder: &FullDecoder<'_>,
+                _input: &mut FullCursor<'_>,
             ) -> Result<Self, IrVerifyError> {
-                let (instruction, tag, mut payload) = decoder.instruction(input)?;
-                let value = match tag {
-                    $(
-                        FullTag::$tag => {
-                            $(
-                                let $field = <$field_ty>::decode(decoder, &mut payload)?;
-                            )*
-                            $construct
-                        }
-                    ),*
-                    _ => return Err(IrVerifyError::new("full IR instruction tag has the wrong category")),
-                };
-                payload.finish()?;
-                decoder.finish_instruction(instruction);
-                Ok(value)
+                Err(IrVerifyError::new(
+                    "indexed construction rows cannot be decoded from executable IR",
+                ))
             }
 
             fn verify(
@@ -4801,34 +4980,76 @@ macro_rules! impl_node_codec {
     };
 }
 
+macro_rules! impl_build_id_codec {
+    ($id:ty, $rows:ident, $row:ty) => {
+        impl FullCodec for $id {
+            fn encode(
+                &self,
+                builder: &mut FullBuilder,
+                output: &mut Vec<u32>,
+            ) -> Result<(), IrBuildError> {
+                let scratch = builder.active_scratch.clone().ok_or_else(|| {
+                    IrBuildError::format("missing_indexed_build_scratch", None, 0, 0)
+                })?;
+                let scratch = scratch.borrow();
+                let row = scratch.$rows.get(self.index()).ok_or_else(|| {
+                    IrBuildError::format("indexed_build_id", None, 0, 0)
+                })?;
+                row.encode(builder, output)
+            }
+
+            fn decode(
+                decoder: &FullDecoder<'_>,
+                input: &mut FullCursor<'_>,
+            ) -> Result<Self, IrVerifyError> {
+                <$row>::verify(decoder, input)?;
+                Ok(Self(0))
+            }
+
+            fn verify(
+                decoder: &FullDecoder<'_>,
+                input: &mut FullCursor<'_>,
+            ) -> Result<(), IrVerifyError> {
+                <$row>::verify(decoder, input)
+            }
+        }
+    };
+}
+
+impl_build_id_codec!(BuildExprId, expressions, BuildExprRow);
+impl_build_id_codec!(BuildStmtId, statements, BuildStmtRow);
+impl_build_id_codec!(BuildPatternId, patterns, BuildPatternRow);
+impl_build_id_codec!(BuildIntId, ints, BuildIntRow);
+impl_build_id_codec!(BuildBoolId, bools, BuildBoolRow);
+
 impl_node_codec! {
-    LoweredIntExpr {
-        LoweredIntExpr::Int(value) => IntInt { value: i64 } => LoweredIntExpr::Int(value),
-        LoweredIntExpr::Slot(slot) => IntSlot { slot: usize } => LoweredIntExpr::Slot(slot),
-        LoweredIntExpr::Binary { op, left, right } => IntBinary {
+    BuildIntRow {
+        BuildIntRow::Int(value) => IntInt { value: i64 } => BuildIntRow::Int(value),
+        BuildIntRow::Slot(slot) => IntSlot { slot: usize } => BuildIntRow::Slot(slot),
+        BuildIntRow::Binary { op, left, right } => IntBinary {
             op: BinaryOp,
-            left: Box<LoweredIntExpr>,
-            right: Box<LoweredIntExpr>,
-        } => LoweredIntExpr::Binary { op, left, right },
-        LoweredIntExpr::StrByteLenSlot { slot, span } => IntStrByteLenSlot {
+            left: BuildIntId,
+            right: BuildIntId,
+        } => BuildIntRow::Binary { op, left, right },
+        BuildIntRow::StrByteLenSlot { slot, span } => IntStrByteLenSlot {
             slot: usize,
             span: Span,
-        } => LoweredIntExpr::StrByteLenSlot { slot, span },
-        LoweredIntExpr::StrCountLinesSlot { slot, span } => IntStrCountLinesSlot {
+        } => BuildIntRow::StrByteLenSlot { slot, span },
+        BuildIntRow::StrCountLinesSlot { slot, span } => IntStrCountLinesSlot {
             slot: usize,
             span: Span,
-        } => LoweredIntExpr::StrCountLinesSlot { slot, span },
-        LoweredIntExpr::StrByteAtSlot {
+        } => BuildIntRow::StrCountLinesSlot { slot, span },
+        BuildIntRow::StrByteAtSlot {
             slot,
             index,
             default,
             span,
         } => IntStrByteAtSlot {
             slot: usize,
-            index: Box<LoweredIntExpr>,
-            default: Option<Box<LoweredIntExpr>>,
+            index: BuildIntId,
+            default: Option<BuildIntId>,
             span: Span,
-        } => LoweredIntExpr::StrByteAtSlot {
+        } => BuildIntRow::StrByteAtSlot {
             slot,
             index,
             default,
@@ -4838,26 +5059,26 @@ impl_node_codec! {
 }
 
 impl_node_codec! {
-    LoweredBoolExpr {
-        LoweredBoolExpr::Bool(value) => BoolBool { value: bool } => LoweredBoolExpr::Bool(value),
-        LoweredBoolExpr::Slot(slot) => BoolSlot { slot: usize } => LoweredBoolExpr::Slot(slot),
-        LoweredBoolExpr::Not(value) => BoolNot {
-            value: Box<LoweredBoolExpr>,
-        } => LoweredBoolExpr::Not(value),
-        LoweredBoolExpr::And(left, right) => BoolAnd {
-            left: Box<LoweredBoolExpr>,
-            right: Box<LoweredBoolExpr>,
-        } => LoweredBoolExpr::And(left, right),
-        LoweredBoolExpr::Or(left, right) => BoolOr {
-            left: Box<LoweredBoolExpr>,
-            right: Box<LoweredBoolExpr>,
-        } => LoweredBoolExpr::Or(left, right),
-        LoweredBoolExpr::IntCompare { op, left, right } => BoolIntCompare {
+    BuildBoolRow {
+        BuildBoolRow::Bool(value) => BoolBool { value: bool } => BuildBoolRow::Bool(value),
+        BuildBoolRow::Slot(slot) => BoolSlot { slot: usize } => BuildBoolRow::Slot(slot),
+        BuildBoolRow::Not(value) => BoolNot {
+            value: BuildBoolId,
+        } => BuildBoolRow::Not(value),
+        BuildBoolRow::And(left, right) => BoolAnd {
+            left: BuildBoolId,
+            right: BuildBoolId,
+        } => BuildBoolRow::And(left, right),
+        BuildBoolRow::Or(left, right) => BoolOr {
+            left: BuildBoolId,
+            right: BuildBoolId,
+        } => BuildBoolRow::Or(left, right),
+        BuildBoolRow::IntCompare { op, left, right } => BoolIntCompare {
             op: BinaryOp,
-            left: Box<LoweredIntExpr>,
-            right: Box<LoweredIntExpr>,
-        } => LoweredBoolExpr::IntCompare { op, left, right },
-        LoweredBoolExpr::StrPredicateSlot {
+            left: BuildIntId,
+            right: BuildIntId,
+        } => BuildBoolRow::IntCompare { op, left, right },
+        BuildBoolRow::StrPredicateSlot {
             slot,
             predicate,
             needle,
@@ -4867,27 +5088,27 @@ impl_node_codec! {
             predicate: LoweredStrPredicate,
             needle: Arc<[u8]>,
             span: Span,
-        } => LoweredBoolExpr::StrPredicateSlot {
+        } => BuildBoolRow::StrPredicateSlot {
             slot,
             predicate,
             needle,
             span,
         },
-        LoweredBoolExpr::ContainsSlot { slot, needle, span } => BoolContainsSlot {
+        BuildBoolRow::ContainsSlot { slot, needle, span } => BoolContainsSlot {
             slot: usize,
             needle: LoweredValue,
             span: Span,
-        } => LoweredBoolExpr::ContainsSlot { slot, needle, span },
-        LoweredBoolExpr::StrContainsSlot { slot, needle, span } => BoolStrContainsSlot {
+        } => BuildBoolRow::ContainsSlot { slot, needle, span },
+        BuildBoolRow::StrContainsSlot { slot, needle, span } => BoolStrContainsSlot {
             slot: usize,
             needle: Arc<str>,
             span: Span,
-        } => LoweredBoolExpr::StrContainsSlot { slot, needle, span },
-        LoweredBoolExpr::TrimEmptySlot { slot, span } => BoolTrimEmptySlot {
+        } => BuildBoolRow::StrContainsSlot { slot, needle, span },
+        BuildBoolRow::TrimEmptySlot { slot, span } => BoolTrimEmptySlot {
             slot: usize,
             span: Span,
-        } => LoweredBoolExpr::TrimEmptySlot { slot, span },
-        LoweredBoolExpr::TrimStrPredicateSlot {
+        } => BuildBoolRow::TrimEmptySlot { slot, span },
+        BuildBoolRow::TrimStrPredicateSlot {
             slot,
             predicate,
             needle,
@@ -4897,17 +5118,17 @@ impl_node_codec! {
             predicate: LoweredStrPredicate,
             needle: Arc<[u8]>,
             span: Span,
-        } => LoweredBoolExpr::TrimStrPredicateSlot {
+        } => BuildBoolRow::TrimStrPredicateSlot {
             slot,
             predicate,
             needle,
             span,
         },
-        LoweredBoolExpr::LiteralCompareSlot { op, slot, value } => BoolLiteralCompareSlot {
+        BuildBoolRow::LiteralCompareSlot { op, slot, value } => BoolLiteralCompareSlot {
             op: BinaryOp,
             slot: usize,
             value: LoweredValue,
-        } => LoweredBoolExpr::LiteralCompareSlot { op, slot, value },
+        } => BuildBoolRow::LiteralCompareSlot { op, slot, value },
     }
 }
 
@@ -4916,9 +5137,9 @@ pub(in crate::runtime::eval) const BLOCK_STATEMENTS: u8 = 1;
 const BLOCK_FUNCTION_BODY: u8 = 1 << 1;
 const BLOCK_SEQUENCE_KIND_MASK: u8 = 1;
 
-impl_vec_codec!(IrBuildStmt, BLOCK_STATEMENTS);
-impl_vec_codec!(IrBuildExpr, BLOCK_LIST);
-impl_vec_codec!(IrBuildPattern, BLOCK_LIST);
+impl_vec_codec!(BuildStmtId, BLOCK_STATEMENTS);
+impl_vec_codec!(BuildExprId, BLOCK_LIST);
+impl_vec_codec!(BuildPatternId, BLOCK_LIST);
 impl_vec_codec!(LoweredPipelineStage, BLOCK_LIST);
 impl_vec_codec!(LoweredValue, BLOCK_LIST);
 impl_vec_codec!(LoweredFmtPart, BLOCK_LIST);
@@ -4936,14 +5157,14 @@ impl_vec_codec!(String, BLOCK_LIST);
 impl_vec_codec!(Name, BLOCK_LIST);
 impl_vec_codec!((Name, usize), BLOCK_LIST);
 impl_vec_codec!((Name, LoweredValue), BLOCK_LIST);
-impl_vec_codec!((Arc<str>, IrBuildExpr), BLOCK_LIST);
-impl_vec_codec!((Arc<str>, Vec<IrBuildStmt>), BLOCK_LIST);
-impl_vec_codec!((IrBuildExpr, IrBuildExpr), BLOCK_LIST);
-impl_vec_codec!((IrBuildExpr, Vec<IrBuildStmt>), BLOCK_LIST);
-impl_vec_codec!((LoweredBoolExpr, Vec<IrBuildStmt>), BLOCK_LIST);
-impl_vec_codec!((IrBuildPattern, Option<IrBuildExpr>, IrBuildExpr), BLOCK_LIST);
+impl_vec_codec!((Arc<str>, BuildExprId), BLOCK_LIST);
+impl_vec_codec!((Arc<str>, Vec<BuildStmtId>), BLOCK_LIST);
+impl_vec_codec!((BuildExprId, BuildExprId), BLOCK_LIST);
+impl_vec_codec!((BuildExprId, Vec<BuildStmtId>), BLOCK_LIST);
+impl_vec_codec!((BuildBoolId, Vec<BuildStmtId>), BLOCK_LIST);
+impl_vec_codec!((BuildPatternId, Option<BuildExprId>, BuildExprId), BLOCK_LIST);
 impl_vec_codec!(
-    (IrBuildPattern, Option<IrBuildExpr>, Vec<IrBuildStmt>),
+    (BuildPatternId, Option<BuildExprId>, Vec<BuildStmtId>),
     BLOCK_LIST
 );
 
@@ -5031,8 +5252,8 @@ macro_rules! impl_fx_map_codec {
     };
 }
 
-impl_fx_map_codec!(IrBuildExpr);
-impl_fx_map_codec!(Vec<IrBuildStmt>);
+impl_fx_map_codec!(BuildExprId);
+impl_fx_map_codec!(Vec<BuildStmtId>);
 
 impl FullCodec for LoweredCompTarget {
     fn encode(
@@ -5092,9 +5313,9 @@ impl FullCodec for LoweredRecordEntry {
         match input.raw()? {
             0 => Ok(Self::Field(
                 Name::decode(decoder, input)?,
-                IrBuildExpr::decode(decoder, input)?,
+                BuildExprId::decode(decoder, input)?,
             )),
-            1 => Ok(Self::Spread(IrBuildExpr::decode(decoder, input)?)),
+            1 => Ok(Self::Spread(BuildExprId::decode(decoder, input)?)),
             _ => Err(IrVerifyError::new("record entry tag is invalid")),
         }
     }
@@ -5123,8 +5344,8 @@ impl FullCodec for LoweredCallArg {
         input: &mut FullCursor<'_>,
     ) -> Result<Self, IrVerifyError> {
         match input.raw()? {
-            0 => Ok(Self::Single(IrBuildExpr::decode(decoder, input)?)),
-            1 => Ok(Self::Splice(IrBuildExpr::decode(decoder, input)?)),
+            0 => Ok(Self::Single(BuildExprId::decode(decoder, input)?)),
+            1 => Ok(Self::Splice(BuildExprId::decode(decoder, input)?)),
             _ => Err(IrVerifyError::new("call argument tag is invalid")),
         }
     }
@@ -5157,7 +5378,7 @@ impl FullCodec for LoweredFmtPart {
         match input.raw()? {
             0 => Ok(Self::Text(Arc::<str>::decode(decoder, input)?)),
             1 => Ok(Self::Expr(
-                IrBuildExpr::decode(decoder, input)?,
+                BuildExprId::decode(decoder, input)?,
                 Span::decode(decoder, input)?,
                 Option::<FormatSpec>::decode(decoder, input)?,
             )),
@@ -5186,7 +5407,7 @@ impl FullCodec for LoweredRunArgKind {
         input: &mut FullCursor<'_>,
     ) -> Result<Self, IrVerifyError> {
         let tag = input.raw()?;
-        let value = IrBuildExpr::decode(decoder, input)?;
+        let value = BuildExprId::decode(decoder, input)?;
         match tag {
             0 => Ok(Self::Single(value)),
             1 => Ok(Self::SingleOrSplice(value)),
@@ -5376,8 +5597,8 @@ impl FullCodec for LoweredProcessCommandArgv {
         input: &mut FullCursor<'_>,
     ) -> Result<Self, IrVerifyError> {
         Ok(Self {
-            target: Box::decode(decoder, input)?,
-            argv: Box::decode(decoder, input)?,
+            target: BuildExprId::decode(decoder, input)?,
+            argv: BuildExprId::decode(decoder, input)?,
             cwd: Option::decode(decoder, input)?,
             env: Option::decode(decoder, input)?,
             stdin: Option::decode(decoder, input)?,
@@ -5502,7 +5723,7 @@ impl FullCodec for LoweredProcessCommandBuilderEntry {
         match input.raw()? {
             0 => Ok(Self::Field {
                 name: Name::decode(decoder, input)?,
-                value: IrBuildExpr::decode(decoder, input)?,
+                value: BuildExprId::decode(decoder, input)?,
                 span: Span::decode(decoder, input)?,
             }),
             1 => Ok(Self::Run {
@@ -5567,7 +5788,7 @@ impl FullCodec for LoweredErrorExpr {
     }
 }
 
-impl FullCodec for IrBuildPattern {
+impl FullCodec for BuildPatternRow {
     fn encode(
         &self,
         builder: &mut FullBuilder,
@@ -5720,7 +5941,7 @@ impl FullCodec for IrBuildPattern {
             }
             FullPatternTag::Tag => {
                 Name::verify(decoder, &mut payload)?;
-                IrBuildPatternSlots::verify(decoder, &mut payload)?;
+                BuildPatternIdSlots::verify(decoder, &mut payload)?;
             }
         }
         payload.finish()
@@ -5819,40 +6040,40 @@ impl_stage_codec! {
     LoweredPipelineStage::JsonLines => JsonLines {} => LoweredPipelineStage::JsonLines,
     LoweredPipelineStage::Where { slot, predicate } => Where {
         slot: usize,
-        predicate: IrBuildExpr,
+        predicate: BuildExprId,
     } => LoweredPipelineStage::Where { slot, predicate },
     LoweredPipelineStage::Map { slot, value } => Map {
         slot: usize,
-        value: IrBuildExpr,
+        value: BuildExprId,
     } => LoweredPipelineStage::Map { slot, value },
     LoweredPipelineStage::MapBlock { slot, body, value } => MapBlock {
         slot: usize,
-        body: Vec<IrBuildStmt>,
-        value: IrBuildExpr,
+        body: Vec<BuildStmtId>,
+        value: BuildExprId,
     } => LoweredPipelineStage::MapBlock { slot, body, value },
     LoweredPipelineStage::FlatMap { slot, value } => FlatMap {
         slot: usize,
-        value: IrBuildExpr,
+        value: BuildExprId,
     } => LoweredPipelineStage::FlatMap { slot, value },
     LoweredPipelineStage::FlatMapBlock { slot, body, value } => FlatMapBlock {
         slot: usize,
-        body: Vec<IrBuildStmt>,
-        value: IrBuildExpr,
+        body: Vec<BuildStmtId>,
+        value: BuildExprId,
     } => LoweredPipelineStage::FlatMapBlock { slot, body, value },
     LoweredPipelineStage::BytesChunks { size } => BytesChunks {
-        size: IrBuildExpr,
+        size: BuildExprId,
     } => LoweredPipelineStage::BytesChunks { size },
     LoweredPipelineStage::BatchCount { count } => BatchCount {
-        count: IrBuildExpr,
+        count: BuildExprId,
     } => LoweredPipelineStage::BatchCount { count },
     LoweredPipelineStage::BatchMaxArgv { max_argv } => BatchMaxArgv {
-        max_argv: Option<IrBuildExpr>,
+        max_argv: Option<BuildExprId>,
     } => LoweredPipelineStage::BatchMaxArgv { max_argv },
     LoweredPipelineStage::BatchMaxBytes { max_bytes } => BatchMaxBytes {
-        max_bytes: IrBuildExpr,
+        max_bytes: BuildExprId,
     } => LoweredPipelineStage::BatchMaxBytes { max_bytes },
     LoweredPipelineStage::Shuffle { seed } => Shuffle {
-        seed: Option<IrBuildExpr>,
+        seed: Option<BuildExprId>,
     } => LoweredPipelineStage::Shuffle { seed },
     LoweredPipelineStage::Fold {
         acc_slot,
@@ -5863,9 +6084,9 @@ impl_stage_codec! {
     } => Fold {
         acc_slot: usize,
         item_slot: usize,
-        initial: IrBuildExpr,
-        body: Vec<IrBuildStmt>,
-        value: IrBuildExpr,
+        initial: BuildExprId,
+        body: Vec<BuildStmtId>,
+        value: BuildExprId,
     } => LoweredPipelineStage::Fold {
         acc_slot,
         item_slot,
@@ -5880,8 +6101,8 @@ impl_stage_codec! {
         op,
     } => ReduceBy {
         item_slot: usize,
-        body: Vec<IrBuildStmt>,
-        value: IrBuildExpr,
+        body: Vec<BuildStmtId>,
+        value: BuildExprId,
         op: ReduceByOp,
     } => LoweredPipelineStage::ReduceBy {
         item_slot,
@@ -5891,16 +6112,16 @@ impl_stage_codec! {
     },
     LoweredPipelineStage::ParMap { slot, value } => ParMap {
         slot: usize,
-        value: IrBuildExpr,
+        value: BuildExprId,
     } => LoweredPipelineStage::ParMap { slot, value },
     LoweredPipelineStage::ParMapBlock { slot, body, value } => ParMapBlock {
         slot: usize,
-        body: Vec<IrBuildStmt>,
-        value: IrBuildExpr,
+        body: Vec<BuildStmtId>,
+        value: BuildExprId,
     } => LoweredPipelineStage::ParMapBlock { slot, body, value },
     LoweredPipelineStage::Tee { slot, body } => Tee {
         slot: usize,
-        body: Vec<IrBuildStmt>,
+        body: Vec<BuildStmtId>,
     } => LoweredPipelineStage::Tee { slot, body },
     LoweredPipelineStage::Each {
         slot,
@@ -5908,7 +6129,7 @@ impl_stage_codec! {
         parallel,
     } => Each {
         slot: usize,
-        body: Vec<IrBuildStmt>,
+        body: Vec<BuildStmtId>,
         parallel: bool,
     } => LoweredPipelineStage::Each {
         slot,
@@ -5920,10 +6141,10 @@ impl_stage_codec! {
     } => LoweredPipelineStage::TablePrint { columns },
     LoweredPipelineStage::Enumerate => Enumerate {} => LoweredPipelineStage::Enumerate,
     LoweredPipelineStage::Zip { other } => Zip {
-        other: IrBuildExpr,
+        other: BuildExprId,
     } => LoweredPipelineStage::Zip { other },
     LoweredPipelineStage::Sort { descending } => Sort {
-        descending: Option<IrBuildExpr>,
+        descending: Option<BuildExprId>,
     } => LoweredPipelineStage::Sort { descending },
     LoweredPipelineStage::SortBy {
         slot,
@@ -5931,8 +6152,8 @@ impl_stage_codec! {
         descending,
     } => SortBy {
         slot: usize,
-        key: IrBuildExpr,
-        descending: Option<IrBuildExpr>,
+        key: BuildExprId,
+        descending: Option<BuildExprId>,
     } => LoweredPipelineStage::SortBy {
         slot,
         key,
@@ -5940,23 +6161,23 @@ impl_stage_codec! {
     },
     LoweredPipelineStage::GroupBy { slot, key } => GroupBy {
         slot: usize,
-        key: IrBuildExpr,
+        key: BuildExprId,
     } => LoweredPipelineStage::GroupBy { slot, key },
     LoweredPipelineStage::CountBy { slot, key } => CountBy {
         slot: usize,
-        key: IrBuildExpr,
+        key: BuildExprId,
     } => LoweredPipelineStage::CountBy { slot, key },
     LoweredPipelineStage::Any { slot, predicate } => Any {
         slot: usize,
-        predicate: IrBuildExpr,
+        predicate: BuildExprId,
     } => LoweredPipelineStage::Any { slot, predicate },
     LoweredPipelineStage::All { slot, predicate } => All {
         slot: usize,
-        predicate: IrBuildExpr,
+        predicate: BuildExprId,
     } => LoweredPipelineStage::All { slot, predicate },
     LoweredPipelineStage::UniqueBy { slot, key } => UniqueBy {
         slot: usize,
-        key: IrBuildExpr,
+        key: BuildExprId,
     } => LoweredPipelineStage::UniqueBy { slot, key },
     LoweredPipelineStage::Count => Count {} => LoweredPipelineStage::Count,
     LoweredPipelineStage::Sum => Sum {} => LoweredPipelineStage::Sum,
@@ -5966,176 +6187,176 @@ impl_stage_codec! {
     LoweredPipelineStage::Min => Min {} => LoweredPipelineStage::Min,
     LoweredPipelineStage::Max => Max {} => LoweredPipelineStage::Max,
     LoweredPipelineStage::Take(value) => Take {
-        value: IrBuildExpr,
+        value: BuildExprId,
     } => LoweredPipelineStage::Take(value),
     LoweredPipelineStage::Drop(value) => Drop {
-        value: IrBuildExpr,
+        value: BuildExprId,
     } => LoweredPipelineStage::Drop(value),
     LoweredPipelineStage::Repeat { count } => Repeat {
-        count: IrBuildExpr,
+        count: BuildExprId,
     } => LoweredPipelineStage::Repeat { count },
     LoweredPipelineStage::Range { start, end } => Range {
-        start: IrBuildExpr,
-        end: IrBuildExpr,
+        start: BuildExprId,
+        end: BuildExprId,
     } => LoweredPipelineStage::Range { start, end },
 }
 
 impl_node_codec! {
-    IrBuildExpr {
-        IrBuildExpr::Null => ExprNull {} => IrBuildExpr::Null,
-        IrBuildExpr::Unit => ExprUnit {} => IrBuildExpr::Unit,
-        IrBuildExpr::Int(value) => ExprInt { value: i64 } => IrBuildExpr::Int(value),
-        IrBuildExpr::Float(value) => ExprFloat {
+    BuildExprRow {
+        BuildExprRow::Null => ExprNull {} => BuildExprRow::Null,
+        BuildExprRow::Unit => ExprUnit {} => BuildExprRow::Unit,
+        BuildExprRow::Int(value) => ExprInt { value: i64 } => BuildExprRow::Int(value),
+        BuildExprRow::Float(value) => ExprFloat {
             value: FloatValue,
-        } => IrBuildExpr::Float(value),
-        IrBuildExpr::Duration(value) => ExprDuration {
+        } => BuildExprRow::Float(value),
+        BuildExprRow::Duration(value) => ExprDuration {
             value: DurationValue,
-        } => IrBuildExpr::Duration(value),
-        IrBuildExpr::Bool(value) => ExprBool { value: bool } => IrBuildExpr::Bool(value),
-        IrBuildExpr::Str(value) => ExprStr {
+        } => BuildExprRow::Duration(value),
+        BuildExprRow::Bool(value) => ExprBool { value: bool } => BuildExprRow::Bool(value),
+        BuildExprRow::Str(value) => ExprStr {
             value: Arc<str>,
-        } => IrBuildExpr::Str(value),
-        IrBuildExpr::Bytes(value) => ExprBytes {
+        } => BuildExprRow::Str(value),
+        BuildExprRow::Bytes(value) => ExprBytes {
             value: Arc<[u8]>,
-        } => IrBuildExpr::Bytes(value),
-        IrBuildExpr::Path(value) => ExprPath {
+        } => BuildExprRow::Bytes(value),
+        BuildExprRow::Path(value) => ExprPath {
             value: PathValue,
-        } => IrBuildExpr::Path(value),
-        IrBuildExpr::FunctionRef { function, pure } => ExprFunctionRef {
+        } => BuildExprRow::Path(value),
+        BuildExprRow::FunctionRef { function, pure } => ExprFunctionRef {
             function: FunctionName,
             pure: bool,
-        } => IrBuildExpr::FunctionRef { function, pure },
-        IrBuildExpr::PathFrom { value, span } => ExprPathFrom {
-            value: Box<IrBuildExpr>,
+        } => BuildExprRow::FunctionRef { function, pure },
+        BuildExprRow::PathFrom { value, span } => ExprPathFrom {
+            value: BuildExprId,
             span: Span,
-        } => IrBuildExpr::PathFrom { value, span },
-        IrBuildExpr::Param(slot) => ExprParam {
+        } => BuildExprRow::PathFrom { value, span },
+        BuildExprRow::Param(slot) => ExprParam {
             slot: usize,
-        } => IrBuildExpr::Param(slot),
-        IrBuildExpr::Binary {
+        } => BuildExprRow::Param(slot),
+        BuildExprRow::Binary {
             op,
             left,
             right,
             span,
         } => ExprBinary {
             op: BinaryOp,
-            left: Box<IrBuildExpr>,
-            right: Box<IrBuildExpr>,
+            left: BuildExprId,
+            right: BuildExprId,
             span: Span,
-        } => IrBuildExpr::Binary {
+        } => BuildExprRow::Binary {
             op,
             left,
             right,
             span,
         },
-        IrBuildExpr::IfExpr {
+        BuildExprRow::IfExpr {
             branches,
             else_value,
             span,
         } => ExprIf {
-            branches: Vec<(IrBuildExpr, IrBuildExpr)>,
-            else_value: Box<IrBuildExpr>,
+            branches: Vec<(BuildExprId, BuildExprId)>,
+            else_value: BuildExprId,
             span: Span,
-        } => IrBuildExpr::IfExpr {
+        } => BuildExprRow::IfExpr {
             branches,
             else_value,
             span,
         },
-        IrBuildExpr::MatchExpr { value, arms, span } => ExprMatch {
-            value: Box<IrBuildExpr>,
-            arms: Vec<(IrBuildPattern, Option<IrBuildExpr>, IrBuildExpr)>,
+        BuildExprRow::MatchExpr { value, arms, span } => ExprMatch {
+            value: BuildExprId,
+            arms: Vec<(BuildPatternId, Option<BuildExprId>, BuildExprId)>,
             span: Span,
-        } => IrBuildExpr::MatchExpr { value, arms, span },
-        IrBuildExpr::StrMatchExpr {
+        } => BuildExprRow::MatchExpr { value, arms, span },
+        BuildExprRow::StrMatchExpr {
             value,
             arms,
             fallback,
             span,
         } => ExprStrMatch {
-            value: Box<IrBuildExpr>,
-            arms: FxHashMap<Arc<str>, IrBuildExpr>,
-            fallback: Option<Box<IrBuildExpr>>,
+            value: BuildExprId,
+            arms: FxHashMap<Arc<str>, BuildExprId>,
+            fallback: Option<BuildExprId>,
             span: Span,
-        } => IrBuildExpr::StrMatchExpr {
+        } => BuildExprRow::StrMatchExpr {
             value,
             arms,
             fallback,
             span,
         },
-        IrBuildExpr::TagMatchExpr {
+        BuildExprRow::TagMatchExpr {
             value,
             arms,
             fallback,
             span,
         } => ExprTagMatch {
-            value: Box<IrBuildExpr>,
-            arms: FxHashMap<Arc<str>, IrBuildExpr>,
-            fallback: Option<Box<IrBuildExpr>>,
+            value: BuildExprId,
+            arms: FxHashMap<Arc<str>, BuildExprId>,
+            fallback: Option<BuildExprId>,
             span: Span,
-        } => IrBuildExpr::TagMatchExpr {
+        } => BuildExprRow::TagMatchExpr {
             value,
             arms,
             fallback,
             span,
         },
-        IrBuildExpr::ResultFallback { left, right } => ExprResultFallback {
-            left: Box<IrBuildExpr>,
-            right: Box<IrBuildExpr>,
-        } => IrBuildExpr::ResultFallback { left, right },
-        IrBuildExpr::FmtString(parts) => ExprFmtString {
+        BuildExprRow::ResultFallback { left, right } => ExprResultFallback {
+            left: BuildExprId,
+            right: BuildExprId,
+        } => BuildExprRow::ResultFallback { left, right },
+        BuildExprRow::FmtString(parts) => ExprFmtString {
             parts: Vec<LoweredFmtPart>,
-        } => IrBuildExpr::FmtString(parts),
-        IrBuildExpr::PathFmtString { parts, span } => ExprPathFmtString {
+        } => BuildExprRow::FmtString(parts),
+        BuildExprRow::PathFmtString { parts, span } => ExprPathFmtString {
             parts: Vec<LoweredFmtPart>,
             span: Span,
-        } => IrBuildExpr::PathFmtString { parts, span },
-        IrBuildExpr::Glob { pattern, span } => ExprGlob {
+        } => BuildExprRow::PathFmtString { parts, span },
+        BuildExprRow::Glob { pattern, span } => ExprGlob {
             pattern: Arc<str>,
             span: Span,
-        } => IrBuildExpr::Glob { pattern, span },
-        IrBuildExpr::LastStatus { span } => ExprLastStatus {
+        } => BuildExprRow::Glob { pattern, span },
+        BuildExprRow::LastStatus { span } => ExprLastStatus {
             span: Span,
-        } => IrBuildExpr::LastStatus { span },
-        IrBuildExpr::Record(entries) => ExprRecord {
+        } => BuildExprRow::LastStatus { span },
+        BuildExprRow::Record(entries) => ExprRecord {
             entries: Vec<LoweredRecordEntry>,
-        } => IrBuildExpr::Record(entries),
-        IrBuildExpr::List(values) => ExprList {
-            values: Vec<IrBuildExpr>,
-        } => IrBuildExpr::List(values),
-        IrBuildExpr::EmptyMap => ExprEmptyMap {} => IrBuildExpr::EmptyMap,
-        IrBuildExpr::BytesConcat { arg, span } => ExprBytesConcat {
-            arg: Box<IrBuildExpr>,
+        } => BuildExprRow::Record(entries),
+        BuildExprRow::List(values) => ExprList {
+            values: Vec<BuildExprId>,
+        } => BuildExprRow::List(values),
+        BuildExprRow::EmptyMap => ExprEmptyMap {} => BuildExprRow::EmptyMap,
+        BuildExprRow::BytesConcat { arg, span } => ExprBytesConcat {
+            arg: BuildExprId,
             span: Span,
-        } => IrBuildExpr::BytesConcat { arg, span },
-        IrBuildExpr::Range { start, end, span } => ExprRange {
-            start: Box<IrBuildExpr>,
-            end: Box<IrBuildExpr>,
+        } => BuildExprRow::BytesConcat { arg, span },
+        BuildExprRow::Range { start, end, span } => ExprRange {
+            start: BuildExprId,
+            end: BuildExprId,
             span: Span,
-        } => IrBuildExpr::Range { start, end, span },
-        IrBuildExpr::Tag { name, fields } => ExprTag {
+        } => BuildExprRow::Range { start, end, span },
+        BuildExprRow::Tag { name, fields } => ExprTag {
             name: Arc<str>,
-            fields: Vec<IrBuildExpr>,
-        } => IrBuildExpr::Tag { name, fields },
-        IrBuildExpr::ListComp {
+            fields: Vec<BuildExprId>,
+        } => BuildExprRow::Tag { name, fields },
+        BuildExprRow::ListComp {
             value,
             target,
             iter,
             condition,
             span,
         } => ExprListComp {
-            value: Box<IrBuildExpr>,
+            value: BuildExprId,
             target: Box<LoweredCompTarget>,
-            iter: Box<IrBuildExpr>,
-            condition: Option<Box<IrBuildExpr>>,
+            iter: BuildExprId,
+            condition: Option<BuildExprId>,
             span: Span,
-        } => IrBuildExpr::ListComp {
+        } => BuildExprRow::ListComp {
             value,
             target,
             iter,
             condition,
             span,
         },
-        IrBuildExpr::MapComp {
+        BuildExprRow::MapComp {
             key,
             value,
             target,
@@ -6143,13 +6364,13 @@ impl_node_codec! {
             condition,
             span,
         } => ExprMapComp {
-            key: Box<IrBuildExpr>,
-            value: Box<IrBuildExpr>,
+            key: BuildExprId,
+            value: BuildExprId,
             target: Box<LoweredCompTarget>,
-            iter: Box<IrBuildExpr>,
-            condition: Option<Box<IrBuildExpr>>,
+            iter: BuildExprId,
+            condition: Option<BuildExprId>,
             span: Span,
-        } => IrBuildExpr::MapComp {
+        } => BuildExprRow::MapComp {
             key,
             value,
             target,
@@ -6157,123 +6378,123 @@ impl_node_codec! {
             condition,
             span,
         },
-        IrBuildExpr::ListPipeline {
+        BuildExprRow::ListPipeline {
             input,
             stages,
             span,
         } => ExprPipeline {
-            input: Box<IrBuildExpr>,
+            input: BuildExprId,
             stages: Vec<LoweredPipelineStage>,
             span: Span,
-        } => IrBuildExpr::ListPipeline {
+        } => BuildExprRow::ListPipeline {
             input,
             stages,
             span,
         },
-        IrBuildExpr::Field { base, name, span } => ExprField {
-            base: Box<IrBuildExpr>,
+        BuildExprRow::Field { base, name, span } => ExprField {
+            base: BuildExprId,
             name: &'static str,
             span: Span,
-        } => IrBuildExpr::Field { base, name, span },
-        IrBuildExpr::Index { base, index, span } => ExprIndex {
-            base: Box<IrBuildExpr>,
-            index: Box<IrBuildExpr>,
+        } => BuildExprRow::Field { base, name, span },
+        BuildExprRow::Index { base, index, span } => ExprIndex {
+            base: BuildExprId,
+            index: BuildExprId,
             span: Span,
-        } => IrBuildExpr::Index { base, index, span },
-        IrBuildExpr::Slice {
+        } => BuildExprRow::Index { base, index, span },
+        BuildExprRow::Slice {
             base,
             start,
             end,
             span,
         } => ExprSlice {
-            base: Box<IrBuildExpr>,
-            start: Option<Box<IrBuildExpr>>,
-            end: Option<Box<IrBuildExpr>>,
+            base: BuildExprId,
+            start: Option<BuildExprId>,
+            end: Option<BuildExprId>,
             span: Span,
-        } => IrBuildExpr::Slice {
+        } => BuildExprRow::Slice {
             base,
             start,
             end,
             span,
         },
-        IrBuildExpr::Method {
+        BuildExprRow::Method {
             receiver,
             name,
             args,
             span,
         } => ExprMethod {
-            receiver: Box<IrBuildExpr>,
+            receiver: BuildExprId,
             name: &'static str,
-            args: Vec<IrBuildExpr>,
+            args: Vec<BuildExprId>,
             span: Span,
-        } => IrBuildExpr::Method {
+        } => BuildExprRow::Method {
             receiver,
             name,
             args,
             span,
         },
-        IrBuildExpr::StrByteLen { receiver, span } => ExprStrByteLen {
-            receiver: Box<IrBuildExpr>,
+        BuildExprRow::StrByteLen { receiver, span } => ExprStrByteLen {
+            receiver: BuildExprId,
             span: Span,
-        } => IrBuildExpr::StrByteLen { receiver, span },
-        IrBuildExpr::StrByteAt {
+        } => BuildExprRow::StrByteLen { receiver, span },
+        BuildExprRow::StrByteAt {
             receiver,
             index,
             default,
             span,
         } => ExprStrByteAt {
-            receiver: Box<IrBuildExpr>,
-            index: Box<IrBuildExpr>,
-            default: Option<Box<IrBuildExpr>>,
+            receiver: BuildExprId,
+            index: BuildExprId,
+            default: Option<BuildExprId>,
             span: Span,
-        } => IrBuildExpr::StrByteAt {
+        } => BuildExprRow::StrByteAt {
             receiver,
             index,
             default,
             span,
         },
-        IrBuildExpr::StrPredicate {
+        BuildExprRow::StrPredicate {
             receiver,
             predicate,
             needle,
             span,
         } => ExprStrPredicate {
-            receiver: Box<IrBuildExpr>,
+            receiver: BuildExprId,
             predicate: LoweredStrPredicate,
-            needle: Box<IrBuildExpr>,
+            needle: BuildExprId,
             span: Span,
-        } => IrBuildExpr::StrPredicate {
+        } => BuildExprRow::StrPredicate {
             receiver,
             predicate,
             needle,
             span,
         },
-        IrBuildExpr::Contains {
+        BuildExprRow::Contains {
             receiver,
             needle,
             span,
         } => ExprContains {
-            receiver: Box<IrBuildExpr>,
-            needle: Box<IrBuildExpr>,
+            receiver: BuildExprId,
+            needle: BuildExprId,
             span: Span,
-        } => IrBuildExpr::Contains {
+        } => BuildExprRow::Contains {
             receiver,
             needle,
             span,
         },
-        IrBuildExpr::RegexCompile { pattern, span } => ExprRegexCompile {
-            pattern: Box<IrBuildExpr>,
+        BuildExprRow::RegexCompile { pattern, span } => ExprRegexCompile {
+            pattern: BuildExprId,
             span: Span,
-        } => IrBuildExpr::RegexCompile { pattern, span },
-        IrBuildExpr::Require { value, check, span } => ExprRequire {
-            value: Box<IrBuildExpr>,
+        } => BuildExprRow::RegexCompile { pattern, span },
+        BuildExprRow::Require { value, check, span } => ExprRequire {
+            value: BuildExprId,
             check: LoweredTypeCheck,
             span: Span,
-        } => IrBuildExpr::Require { value, check, span },
-        IrBuildExpr::RunCapture(value) => ExprRunCapture {
+        } => BuildExprRow::Require { value, check, span },
+        BuildExprRow::RunCapture(value) => ExprRunCapture {
             value: Box<LoweredRunCapture>,
-        } => IrBuildExpr::RunCapture(value),
-        IrBuildExpr::RunPipeline {
+        } => BuildExprRow::RunCapture(value),
+        BuildExprRow::RunPipeline {
             segments,
             propagate,
             span,
@@ -6281,32 +6502,32 @@ impl_node_codec! {
             segments: Vec<LoweredRunPipelineSegment>,
             propagate: bool,
             span: Span,
-        } => IrBuildExpr::RunPipeline {
+        } => BuildExprRow::RunPipeline {
             segments,
             propagate,
             span,
         },
-        IrBuildExpr::SpawnRun(value) => ExprSpawnRun {
+        BuildExprRow::SpawnRun(value) => ExprSpawnRun {
             value: Box<LoweredSpawnRun>,
-        } => IrBuildExpr::SpawnRun(value),
-        IrBuildExpr::SpawnCommand { command, span } => ExprSpawnCommand {
-            command: Box<IrBuildExpr>,
+        } => BuildExprRow::SpawnRun(value),
+        BuildExprRow::SpawnCommand { command, span } => ExprSpawnCommand {
+            command: BuildExprId,
             span: Span,
-        } => IrBuildExpr::SpawnCommand { command, span },
-        IrBuildExpr::Wait { target, span } => ExprWait {
-            target: Box<IrBuildExpr>,
+        } => BuildExprRow::SpawnCommand { command, span },
+        BuildExprRow::Wait { target, span } => ExprWait {
+            target: BuildExprId,
             span: Span,
-        } => IrBuildExpr::Wait { target, span },
-        IrBuildExpr::Loop { body, span } => ExprLoop {
-            body: Vec<IrBuildStmt>,
+        } => BuildExprRow::Wait { target, span },
+        BuildExprRow::Loop { body, span } => ExprLoop {
+            body: Vec<BuildStmtId>,
             span: Span,
-        } => IrBuildExpr::Loop { body, span },
-        IrBuildExpr::Retry { delays, body, span } => ExprRetry {
-            delays: Vec<IrBuildExpr>,
-            body: Vec<IrBuildStmt>,
+        } => BuildExprRow::Loop { body, span },
+        BuildExprRow::Retry { delays, body, span } => ExprRetry {
+            delays: Vec<BuildExprId>,
+            body: Vec<BuildStmtId>,
             span: Span,
-        } => IrBuildExpr::Retry { delays, body, span },
-        IrBuildExpr::FsFiles {
+        } => BuildExprRow::Retry { delays, body, span },
+        BuildExprRow::FsFiles {
             root,
             gitignore,
             stat,
@@ -6315,14 +6536,14 @@ impl_node_codec! {
             result_wrapped,
             span,
         } => ExprFsFiles {
-            root: Box<IrBuildExpr>,
+            root: BuildExprId,
             gitignore: bool,
             stat: bool,
             hidden: bool,
-            exts: Option<Box<IrBuildExpr>>,
+            exts: Option<BuildExprId>,
             result_wrapped: bool,
             span: Span,
-        } => IrBuildExpr::FsFiles {
+        } => BuildExprRow::FsFiles {
             root,
             gitignore,
             stat,
@@ -6331,7 +6552,7 @@ impl_node_codec! {
             result_wrapped,
             span,
         },
-        IrBuildExpr::FsWalk {
+        BuildExprRow::FsWalk {
             root,
             gitignore,
             stat,
@@ -6340,14 +6561,14 @@ impl_node_codec! {
             result_wrapped,
             span,
         } => ExprFsWalk {
-            root: Box<IrBuildExpr>,
+            root: BuildExprId,
             gitignore: bool,
             stat: bool,
             hidden: bool,
-            exts: Option<Box<IrBuildExpr>>,
+            exts: Option<BuildExprId>,
             result_wrapped: bool,
             span: Span,
-        } => IrBuildExpr::FsWalk {
+        } => BuildExprRow::FsWalk {
             root,
             gitignore,
             stat,
@@ -6356,7 +6577,7 @@ impl_node_codec! {
             result_wrapped,
             span,
         },
-        IrBuildExpr::FsList {
+        BuildExprRow::FsList {
             op,
             path,
             stat,
@@ -6364,138 +6585,138 @@ impl_node_codec! {
             span,
         } => ExprFsList {
             op: RuntimeOp,
-            path: Box<IrBuildExpr>,
-            stat: Option<Box<IrBuildExpr>>,
-            ordered: Option<Box<IrBuildExpr>>,
+            path: BuildExprId,
+            stat: Option<BuildExprId>,
+            ordered: Option<BuildExprId>,
             span: Span,
-        } => IrBuildExpr::FsList {
+        } => BuildExprRow::FsList {
             op,
             path,
             stat,
             ordered,
             span,
         },
-        IrBuildExpr::FsTempDir { span } => ExprFsTempDir {
+        BuildExprRow::FsTempDir { span } => ExprFsTempDir {
             span: Span,
-        } => IrBuildExpr::FsTempDir { span },
-        IrBuildExpr::FsWrite { path, data, span } => ExprFsWrite {
-            path: Box<IrBuildExpr>,
-            data: Box<IrBuildExpr>,
+        } => BuildExprRow::FsTempDir { span },
+        BuildExprRow::FsWrite { path, data, span } => ExprFsWrite {
+            path: BuildExprId,
+            data: BuildExprId,
             span: Span,
-        } => IrBuildExpr::FsWrite { path, data, span },
-        IrBuildExpr::FsMkdir {
+        } => BuildExprRow::FsWrite { path, data, span },
+        BuildExprRow::FsMkdir {
             path,
             parents,
             span,
         } => ExprFsMkdir {
-            path: Box<IrBuildExpr>,
-            parents: Option<Box<IrBuildExpr>>,
+            path: BuildExprId,
+            parents: Option<BuildExprId>,
             span: Span,
-        } => IrBuildExpr::FsMkdir {
+        } => BuildExprRow::FsMkdir {
             path,
             parents,
             span,
         },
-        IrBuildExpr::FsRemove {
+        BuildExprRow::FsRemove {
             path,
             missing_ok,
             span,
         } => ExprFsRemove {
-            path: Box<IrBuildExpr>,
-            missing_ok: Option<Box<IrBuildExpr>>,
+            path: BuildExprId,
+            missing_ok: Option<BuildExprId>,
             span: Span,
-        } => IrBuildExpr::FsRemove {
+        } => BuildExprRow::FsRemove {
             path,
             missing_ok,
             span,
         },
-        IrBuildExpr::FsCloseRoot { root, span } => ExprFsCloseRoot {
-            root: Box<IrBuildExpr>,
+        BuildExprRow::FsCloseRoot { root, span } => ExprFsCloseRoot {
+            root: BuildExprId,
             span: Span,
-        } => IrBuildExpr::FsCloseRoot { root, span },
-        IrBuildExpr::FsRootPath { root, span } => ExprFsRootPath {
-            root: Box<IrBuildExpr>,
+        } => BuildExprRow::FsCloseRoot { root, span },
+        BuildExprRow::FsRootPath { root, span } => ExprFsRootPath {
+            root: BuildExprId,
             span: Span,
-        } => IrBuildExpr::FsRootPath { root, span },
-        IrBuildExpr::PathReadText { path, span } => ExprPathReadText {
-            path: Box<IrBuildExpr>,
+        } => BuildExprRow::FsRootPath { root, span },
+        BuildExprRow::PathReadText { path, span } => ExprPathReadText {
+            path: BuildExprId,
             span: Span,
-        } => IrBuildExpr::PathReadText { path, span },
-        IrBuildExpr::PathReadBytes { path, span } => ExprPathReadBytes {
-            path: Box<IrBuildExpr>,
+        } => BuildExprRow::PathReadText { path, span },
+        BuildExprRow::PathReadBytes { path, span } => ExprPathReadBytes {
+            path: BuildExprId,
             span: Span,
-        } => IrBuildExpr::PathReadBytes { path, span },
-        IrBuildExpr::PathExists { path, span } => ExprPathExists {
-            path: Box<IrBuildExpr>,
+        } => BuildExprRow::PathReadBytes { path, span },
+        BuildExprRow::PathExists { path, span } => ExprPathExists {
+            path: BuildExprId,
             span: Span,
-        } => IrBuildExpr::PathExists { path, span },
-        IrBuildExpr::PathExecutable { path, span } => ExprPathExecutable {
-            path: Box<IrBuildExpr>,
+        } => BuildExprRow::PathExists { path, span },
+        BuildExprRow::PathExecutable { path, span } => ExprPathExecutable {
+            path: BuildExprId,
             span: Span,
-        } => IrBuildExpr::PathExecutable { path, span },
-        IrBuildExpr::PathDu { path, span } => ExprPathDu {
-            path: Box<IrBuildExpr>,
+        } => BuildExprRow::PathExecutable { path, span },
+        BuildExprRow::PathDu { path, span } => ExprPathDu {
+            path: BuildExprId,
             span: Span,
-        } => IrBuildExpr::PathDu { path, span },
-        IrBuildExpr::PathMetadata { path, span } => ExprPathMetadata {
-            path: Box<IrBuildExpr>,
+        } => BuildExprRow::PathDu { path, span },
+        BuildExprRow::PathMetadata { path, span } => ExprPathMetadata {
+            path: BuildExprId,
             span: Span,
-        } => IrBuildExpr::PathMetadata { path, span },
-        IrBuildExpr::PathReadlink { path, span } => ExprPathReadlink {
-            path: Box<IrBuildExpr>,
+        } => BuildExprRow::PathMetadata { path, span },
+        BuildExprRow::PathReadlink { path, span } => ExprPathReadlink {
+            path: BuildExprId,
             span: Span,
-        } => IrBuildExpr::PathReadlink { path, span },
-        IrBuildExpr::PathResolve { path, span } => ExprPathResolve {
-            path: Box<IrBuildExpr>,
+        } => BuildExprRow::PathReadlink { path, span },
+        BuildExprRow::PathResolve { path, span } => ExprPathResolve {
+            path: BuildExprId,
             span: Span,
-        } => IrBuildExpr::PathResolve { path, span },
-        IrBuildExpr::PathWrite {
+        } => BuildExprRow::PathResolve { path, span },
+        BuildExprRow::PathWrite {
             path,
             data,
             atomic,
             span,
         } => ExprPathWrite {
-            path: Box<IrBuildExpr>,
-            data: Box<IrBuildExpr>,
+            path: BuildExprId,
+            data: BuildExprId,
             atomic: bool,
             span: Span,
-        } => IrBuildExpr::PathWrite {
+        } => BuildExprRow::PathWrite {
             path,
             data,
             atomic,
             span,
         },
-        IrBuildExpr::PathMkdir {
+        BuildExprRow::PathMkdir {
             path,
             parents,
             span,
         } => ExprPathMkdir {
-            path: Box<IrBuildExpr>,
-            parents: Option<Box<IrBuildExpr>>,
+            path: BuildExprId,
+            parents: Option<BuildExprId>,
             span: Span,
-        } => IrBuildExpr::PathMkdir {
+        } => BuildExprRow::PathMkdir {
             path,
             parents,
             span,
         },
-        IrBuildExpr::PathRemove {
+        BuildExprRow::PathRemove {
             path,
             missing_ok,
             span,
         } => ExprPathRemove {
-            path: Box<IrBuildExpr>,
-            missing_ok: Option<Box<IrBuildExpr>>,
+            path: BuildExprId,
+            missing_ok: Option<BuildExprId>,
             span: Span,
-        } => IrBuildExpr::PathRemove {
+        } => BuildExprRow::PathRemove {
             path,
             missing_ok,
             span,
         },
-        IrBuildExpr::JsonEncode { value, span } => ExprJsonEncode {
-            value: Box<IrBuildExpr>,
+        BuildExprRow::JsonEncode { value, span } => ExprJsonEncode {
+            value: BuildExprId,
             span: Span,
-        } => IrBuildExpr::JsonEncode { value, span },
-        IrBuildExpr::ArchiveTarCreate {
+        } => BuildExprRow::JsonEncode { value, span },
+        BuildExprRow::ArchiveTarCreate {
             path,
             root,
             entries,
@@ -6503,13 +6724,13 @@ impl_node_codec! {
             overwrite,
             span,
         } => ExprArchiveTarCreate {
-            path: Box<IrBuildExpr>,
-            root: Box<IrBuildExpr>,
-            entries: Box<IrBuildExpr>,
-            compression: Option<Box<IrBuildExpr>>,
-            overwrite: Option<Box<IrBuildExpr>>,
+            path: BuildExprId,
+            root: BuildExprId,
+            entries: BuildExprId,
+            compression: Option<BuildExprId>,
+            overwrite: Option<BuildExprId>,
             span: Span,
-        } => IrBuildExpr::ArchiveTarCreate {
+        } => BuildExprRow::ArchiveTarCreate {
             path,
             root,
             entries,
@@ -6517,69 +6738,69 @@ impl_node_codec! {
             overwrite,
             span,
         },
-        IrBuildExpr::ArchiveTarList { path, span } => ExprArchiveTarList {
-            path: Box<IrBuildExpr>,
+        BuildExprRow::ArchiveTarList { path, span } => ExprArchiveTarList {
+            path: BuildExprId,
             span: Span,
-        } => IrBuildExpr::ArchiveTarList { path, span },
-        IrBuildExpr::ArchiveTarExtract { path, dest, span } => ExprArchiveTarExtract {
-            path: Box<IrBuildExpr>,
-            dest: Box<IrBuildExpr>,
+        } => BuildExprRow::ArchiveTarList { path, span },
+        BuildExprRow::ArchiveTarExtract { path, dest, span } => ExprArchiveTarExtract {
+            path: BuildExprId,
+            dest: BuildExprId,
             span: Span,
-        } => IrBuildExpr::ArchiveTarExtract { path, dest, span },
-        IrBuildExpr::HashVerifyFile {
+        } => BuildExprRow::ArchiveTarExtract { path, dest, span },
+        BuildExprRow::HashVerifyFile {
             path,
             algorithm,
             expected,
             span,
         } => ExprHashVerifyFile {
-            path: Box<IrBuildExpr>,
+            path: BuildExprId,
             algorithm: HashAlgorithm,
-            expected: Box<IrBuildExpr>,
+            expected: BuildExprId,
             span: Span,
-        } => IrBuildExpr::HashVerifyFile {
+        } => BuildExprRow::HashVerifyFile {
             path,
             algorithm,
             expected,
             span,
         },
-        IrBuildExpr::ModuleCall { op, args, span } => ExprModuleCall {
+        BuildExprRow::ModuleCall { op, args, span } => ExprModuleCall {
             op: RuntimeOp,
-            args: Vec<IrBuildExpr>,
+            args: Vec<BuildExprId>,
             span: Span,
-        } => IrBuildExpr::ModuleCall { op, args, span },
-        IrBuildExpr::ProcessCommandArgv(value) => ExprProcessCommandArgv {
+        } => BuildExprRow::ModuleCall { op, args, span },
+        BuildExprRow::ProcessCommandArgv(value) => ExprProcessCommandArgv {
             value: Box<LoweredProcessCommandArgv>,
-        } => IrBuildExpr::ProcessCommandArgv(value),
-        IrBuildExpr::ProcessCommandBuilder { entries, span } => ExprProcessCommandBuilder {
+        } => BuildExprRow::ProcessCommandArgv(value),
+        BuildExprRow::ProcessCommandBuilder { entries, span } => ExprProcessCommandBuilder {
             entries: Vec<LoweredProcessCommandBuilderEntry>,
             span: Span,
-        } => IrBuildExpr::ProcessCommandBuilder { entries, span },
-        IrBuildExpr::Abort {
+        } => BuildExprRow::ProcessCommandBuilder { entries, span },
+        BuildExprRow::Abort {
             status,
             force,
             span,
         } => ExprAbort {
-            status: Box<IrBuildExpr>,
-            force: Option<Box<IrBuildExpr>>,
+            status: BuildExprId,
+            force: Option<BuildExprId>,
             span: Span,
-        } => IrBuildExpr::Abort {
+        } => BuildExprRow::Abort {
             status,
             force,
             span,
         },
-        IrBuildExpr::Ok(value) => ExprOk {
-            value: Box<IrBuildExpr>,
-        } => IrBuildExpr::Ok(value),
-        IrBuildExpr::Err(value) => ExprErr {
-            value: Box<IrBuildExpr>,
-        } => IrBuildExpr::Err(value),
-        IrBuildExpr::Error(value) => ExprError {
+        BuildExprRow::Ok(value) => ExprOk {
+            value: BuildExprId,
+        } => BuildExprRow::Ok(value),
+        BuildExprRow::Err(value) => ExprErr {
+            value: BuildExprId,
+        } => BuildExprRow::Err(value),
+        BuildExprRow::Error(value) => ExprError {
             value: Box<LoweredErrorExpr>,
-        } => IrBuildExpr::Error(value),
-        IrBuildExpr::Try(value) => ExprTry {
-            value: Box<IrBuildExpr>,
-        } => IrBuildExpr::Try(value),
-        IrBuildExpr::Call {
+        } => BuildExprRow::Error(value),
+        BuildExprRow::Try(value) => ExprTry {
+            value: BuildExprId,
+        } => BuildExprRow::Try(value),
+        BuildExprRow::Call {
             function,
             args,
             span,
@@ -6587,30 +6808,30 @@ impl_node_codec! {
             function: LoweredFunctionKey,
             args: Vec<LoweredCallArg>,
             span: Span,
-        } => IrBuildExpr::Call {
+        } => BuildExprRow::Call {
             function,
             args,
             span,
         },
-        IrBuildExpr::DynamicCall { callee, args, span } => ExprDynamicCall {
-            callee: Box<IrBuildExpr>,
+        BuildExprRow::DynamicCall { callee, args, span } => ExprDynamicCall {
+            callee: BuildExprId,
             args: Vec<LoweredCallArg>,
             span: Span,
-        } => IrBuildExpr::DynamicCall { callee, args, span },
-        IrBuildExpr::SelfCall { args, span } => ExprSelfCall {
+        } => BuildExprRow::DynamicCall { callee, args, span },
+        BuildExprRow::SelfCall { args, span } => ExprSelfCall {
             args: Vec<LoweredCallArg>,
             span: Span,
-        } => IrBuildExpr::SelfCall { args, span },
+        } => BuildExprRow::SelfCall { args, span },
     }
 }
 
 impl_node_codec! {
-    IrBuildStmt {
-        IrBuildStmt::Let { slot, value } => StmtLet {
+    BuildStmtRow {
+        BuildStmtRow::Let { slot, value } => StmtLet {
             slot: usize,
-            value: IrBuildExpr,
-        } => IrBuildStmt::Let { slot, value },
-        IrBuildStmt::Guard {
+            value: BuildExprId,
+        } => BuildStmtRow::Let { slot, value },
+        BuildStmtRow::Guard {
             slot,
             value,
             else_param_slot,
@@ -6618,26 +6839,26 @@ impl_node_codec! {
             span,
         } => StmtGuard {
             slot: usize,
-            value: IrBuildExpr,
+            value: BuildExprId,
             else_param_slot: Option<usize>,
-            else_body: Vec<IrBuildStmt>,
+            else_body: Vec<BuildStmtId>,
             span: Span,
-        } => IrBuildStmt::Guard {
+        } => BuildStmtRow::Guard {
             slot,
             value,
             else_param_slot,
             else_body,
             span,
         },
-        IrBuildStmt::LetInt { slot, value } => StmtLetInt {
+        BuildStmtRow::LetInt { slot, value } => StmtLetInt {
             slot: usize,
-            value: LoweredIntExpr,
-        } => IrBuildStmt::LetInt { slot, value },
-        IrBuildStmt::LetBool { slot, value } => StmtLetBool {
+            value: BuildIntId,
+        } => BuildStmtRow::LetInt { slot, value },
+        BuildStmtRow::LetBool { slot, value } => StmtLetBool {
             slot: usize,
-            value: LoweredBoolExpr,
-        } => IrBuildStmt::LetBool { slot, value },
-        IrBuildStmt::Assign {
+            value: BuildBoolId,
+        } => BuildStmtRow::LetBool { slot, value },
+        BuildStmtRow::Assign {
             slot,
             op,
             value,
@@ -6645,15 +6866,15 @@ impl_node_codec! {
         } => StmtAssign {
             slot: usize,
             op: AssignOp,
-            value: IrBuildExpr,
+            value: BuildExprId,
             span: Span,
-        } => IrBuildStmt::Assign {
+        } => BuildStmtRow::Assign {
             slot,
             op,
             value,
             span,
         },
-        IrBuildStmt::AssignField {
+        BuildStmtRow::AssignField {
             slot,
             field,
             op,
@@ -6663,16 +6884,16 @@ impl_node_codec! {
             slot: usize,
             field: Arc<str>,
             op: AssignOp,
-            value: IrBuildExpr,
+            value: BuildExprId,
             span: Span,
-        } => IrBuildStmt::AssignField {
+        } => BuildStmtRow::AssignField {
             slot,
             field,
             op,
             value,
             span,
         },
-        IrBuildStmt::AssignFieldInt {
+        BuildStmtRow::AssignFieldInt {
             slot,
             field,
             op,
@@ -6682,16 +6903,16 @@ impl_node_codec! {
             slot: usize,
             field: Arc<str>,
             op: AssignOp,
-            value: LoweredIntExpr,
+            value: BuildIntId,
             span: Span,
-        } => IrBuildStmt::AssignFieldInt {
+        } => BuildStmtRow::AssignFieldInt {
             slot,
             field,
             op,
             value,
             span,
         },
-        IrBuildStmt::AssignIndex {
+        BuildStmtRow::AssignIndex {
             slot,
             index,
             op,
@@ -6699,18 +6920,18 @@ impl_node_codec! {
             span,
         } => StmtAssignIndex {
             slot: usize,
-            index: Box<IrBuildExpr>,
+            index: BuildExprId,
             op: AssignOp,
-            value: Box<IrBuildExpr>,
+            value: BuildExprId,
             span: Span,
-        } => IrBuildStmt::AssignIndex {
+        } => BuildStmtRow::AssignIndex {
             slot,
             index,
             op,
             value,
             span,
         },
-        IrBuildStmt::AssignInt {
+        BuildStmtRow::AssignInt {
             slot,
             op,
             value,
@@ -6718,149 +6939,149 @@ impl_node_codec! {
         } => StmtAssignInt {
             slot: usize,
             op: AssignOp,
-            value: LoweredIntExpr,
+            value: BuildIntId,
             span: Span,
-        } => IrBuildStmt::AssignInt {
+        } => BuildStmtRow::AssignInt {
             slot,
             op,
             value,
             span,
         },
-        IrBuildStmt::AssignBool { slot, value } => StmtAssignBool {
+        BuildStmtRow::AssignBool { slot, value } => StmtAssignBool {
             slot: usize,
-            value: LoweredBoolExpr,
-        } => IrBuildStmt::AssignBool { slot, value },
-        IrBuildStmt::Expr { value, span } => StmtExpr {
-            value: IrBuildExpr,
+            value: BuildBoolId,
+        } => BuildStmtRow::AssignBool { slot, value },
+        BuildStmtRow::Expr { value, span } => StmtExpr {
+            value: BuildExprId,
             span: Span,
-        } => IrBuildStmt::Expr { value, span },
-        IrBuildStmt::If {
+        } => BuildStmtRow::Expr { value, span },
+        BuildStmtRow::If {
             branches,
             else_body,
         } => StmtIf {
-            branches: Vec<(IrBuildExpr, Vec<IrBuildStmt>)>,
-            else_body: Option<Vec<IrBuildStmt>>,
-        } => IrBuildStmt::If {
+            branches: Vec<(BuildExprId, Vec<BuildStmtId>)>,
+            else_body: Option<Vec<BuildStmtId>>,
+        } => BuildStmtRow::If {
             branches,
             else_body,
         },
-        IrBuildStmt::IfBool {
+        BuildStmtRow::IfBool {
             branches,
             else_body,
         } => StmtIfBool {
-            branches: Vec<(LoweredBoolExpr, Vec<IrBuildStmt>)>,
-            else_body: Option<Vec<IrBuildStmt>>,
-        } => IrBuildStmt::IfBool {
+            branches: Vec<(BuildBoolId, Vec<BuildStmtId>)>,
+            else_body: Option<Vec<BuildStmtId>>,
+        } => BuildStmtRow::IfBool {
             branches,
             else_body,
         },
-        IrBuildStmt::While { condition, body } => StmtWhile {
-            condition: IrBuildExpr,
-            body: Vec<IrBuildStmt>,
-        } => IrBuildStmt::While { condition, body },
-        IrBuildStmt::WhileBool { condition, body } => StmtWhileBool {
-            condition: LoweredBoolExpr,
-            body: Vec<IrBuildStmt>,
-        } => IrBuildStmt::WhileBool { condition, body },
-        IrBuildStmt::Match { value, arms, span } => StmtMatch {
-            value: IrBuildExpr,
-            arms: Vec<(IrBuildPattern, Option<IrBuildExpr>, Vec<IrBuildStmt>)>,
+        BuildStmtRow::While { condition, body } => StmtWhile {
+            condition: BuildExprId,
+            body: Vec<BuildStmtId>,
+        } => BuildStmtRow::While { condition, body },
+        BuildStmtRow::WhileBool { condition, body } => StmtWhileBool {
+            condition: BuildBoolId,
+            body: Vec<BuildStmtId>,
+        } => BuildStmtRow::WhileBool { condition, body },
+        BuildStmtRow::Match { value, arms, span } => StmtMatch {
+            value: BuildExprId,
+            arms: Vec<(BuildPatternId, Option<BuildExprId>, Vec<BuildStmtId>)>,
             span: Span,
-        } => IrBuildStmt::Match { value, arms, span },
-        IrBuildStmt::StrMatch {
+        } => BuildStmtRow::Match { value, arms, span },
+        BuildStmtRow::StrMatch {
             value,
             arms,
             fallback,
             span,
         } => StmtStrMatch {
-            value: IrBuildExpr,
-            arms: FxHashMap<Arc<str>, Vec<IrBuildStmt>>,
-            fallback: Option<Vec<IrBuildStmt>>,
+            value: BuildExprId,
+            arms: FxHashMap<Arc<str>, Vec<BuildStmtId>>,
+            fallback: Option<Vec<BuildStmtId>>,
             span: Span,
-        } => IrBuildStmt::StrMatch {
+        } => BuildStmtRow::StrMatch {
             value,
             arms,
             fallback,
             span,
         },
-        IrBuildStmt::TagMatch {
+        BuildStmtRow::TagMatch {
             value,
             arms,
             fallback,
             span,
         } => StmtTagMatch {
-            value: IrBuildExpr,
-            arms: FxHashMap<Arc<str>, Vec<IrBuildStmt>>,
-            fallback: Option<Vec<IrBuildStmt>>,
+            value: BuildExprId,
+            arms: FxHashMap<Arc<str>, Vec<BuildStmtId>>,
+            fallback: Option<Vec<BuildStmtId>>,
             span: Span,
-        } => IrBuildStmt::TagMatch {
+        } => BuildStmtRow::TagMatch {
             value,
             arms,
             fallback,
             span,
         },
-        IrBuildStmt::For {
+        BuildStmtRow::For {
             slot,
             iter,
             body,
             span,
         } => StmtFor {
             slot: usize,
-            iter: IrBuildExpr,
-            body: Vec<IrBuildStmt>,
+            iter: BuildExprId,
+            body: Vec<BuildStmtId>,
             span: Span,
-        } => IrBuildStmt::For {
+        } => BuildStmtRow::For {
             slot,
             iter,
             body,
             span,
         },
-        IrBuildStmt::LetRecord {
+        BuildStmtRow::LetRecord {
             source,
             fields,
             span,
         } => StmtLetRecord {
-            source: IrBuildExpr,
+            source: BuildExprId,
             fields: Vec<(Name, usize)>,
             span: Span,
-        } => IrBuildStmt::LetRecord {
+        } => BuildStmtRow::LetRecord {
             source,
             fields,
             span,
         },
-        IrBuildStmt::ForRecord {
+        BuildStmtRow::ForRecord {
             fields,
             iter,
             body,
             span,
         } => StmtForRecord {
             fields: Vec<(Name, usize)>,
-            iter: IrBuildExpr,
-            body: Vec<IrBuildStmt>,
+            iter: BuildExprId,
+            body: Vec<BuildStmtId>,
             span: Span,
-        } => IrBuildStmt::ForRecord {
+        } => BuildStmtRow::ForRecord {
             fields,
             iter,
             body,
             span,
         },
-        IrBuildStmt::ForStrLines {
+        BuildStmtRow::ForStrLines {
             slot,
             text,
             body,
             span,
         } => StmtForStrLines {
             slot: usize,
-            text: IrBuildExpr,
-            body: Vec<IrBuildStmt>,
+            text: BuildExprId,
+            body: Vec<BuildStmtId>,
             span: Span,
-        } => IrBuildStmt::ForStrLines {
+        } => BuildStmtRow::ForStrLines {
             slot,
             text,
             body,
             span,
         },
-        IrBuildStmt::ScanLines {
+        BuildStmtRow::ScanLines {
             text_slot,
             line_slot,
             checks,
@@ -6870,83 +7091,83 @@ impl_node_codec! {
             line_slot: usize,
             checks: Vec<ScanCheck>,
             span: Span,
-        } => IrBuildStmt::ScanLines {
+        } => BuildStmtRow::ScanLines {
             text_slot,
             line_slot,
             checks,
             span,
         },
-        IrBuildStmt::Print {
+        BuildStmtRow::Print {
             args,
             stderr,
             flush,
             propagate_result,
             span,
         } => StmtPrint {
-            args: Vec<IrBuildExpr>,
+            args: Vec<BuildExprId>,
             stderr: bool,
             flush: bool,
             propagate_result: bool,
             span: Span,
-        } => IrBuildStmt::Print {
+        } => BuildStmtRow::Print {
             args,
             stderr,
             flush,
             propagate_result,
             span,
         },
-        IrBuildStmt::Cd { target, body, span } => StmtCd {
-            target: IrBuildExpr,
-            body: Vec<IrBuildStmt>,
+        BuildStmtRow::Cd { target, body, span } => StmtCd {
+            target: BuildExprId,
+            body: Vec<BuildStmtId>,
             span: Span,
-        } => IrBuildStmt::Cd { target, body, span },
-        IrBuildStmt::Env { env, body } => StmtEnv {
+        } => BuildStmtRow::Cd { target, body, span },
+        BuildStmtRow::Env { env, body } => StmtEnv {
             env: Vec<LoweredRunEnv>,
-            body: Vec<IrBuildStmt>,
-        } => IrBuildStmt::Env { env, body },
-        IrBuildStmt::Proc {
+            body: Vec<BuildStmtId>,
+        } => BuildStmtRow::Env { env, body },
+        BuildStmtRow::Proc {
             op,
             args,
             propagate_result,
             span,
         } => StmtProc {
             op: RuntimeOp,
-            args: Vec<IrBuildExpr>,
+            args: Vec<BuildExprId>,
             propagate_result: bool,
             span: Span,
-        } => IrBuildStmt::Proc {
+        } => BuildStmtRow::Proc {
             op,
             args,
             propagate_result,
             span,
         },
-        IrBuildStmt::Run {
+        BuildStmtRow::Run {
             value,
             propagate_result,
         } => StmtRun {
-            value: IrBuildExpr,
+            value: BuildExprId,
             propagate_result: bool,
-        } => IrBuildStmt::Run {
+        } => BuildStmtRow::Run {
             value,
             propagate_result,
         },
-        IrBuildStmt::Loop { body } => StmtLoop {
-            body: Vec<IrBuildStmt>,
-        } => IrBuildStmt::Loop { body },
-        IrBuildStmt::Return { value } => StmtReturn {
-            value: IrBuildExpr,
-        } => IrBuildStmt::Return { value },
-        IrBuildStmt::Yield { value } => StmtYield {
-            value: IrBuildExpr,
-        } => IrBuildStmt::Yield { value },
-        IrBuildStmt::Break => StmtBreak {} => IrBuildStmt::Break,
-        IrBuildStmt::BreakValue { value } => StmtBreakValue {
-            value: IrBuildExpr,
-        } => IrBuildStmt::BreakValue { value },
-        IrBuildStmt::Continue => StmtContinue {} => IrBuildStmt::Continue,
-        IrBuildStmt::Defer { value } => StmtDefer {
-            value: IrBuildExpr,
-        } => IrBuildStmt::Defer { value },
+        BuildStmtRow::Loop { body } => StmtLoop {
+            body: Vec<BuildStmtId>,
+        } => BuildStmtRow::Loop { body },
+        BuildStmtRow::Return { value } => StmtReturn {
+            value: BuildExprId,
+        } => BuildStmtRow::Return { value },
+        BuildStmtRow::Yield { value } => StmtYield {
+            value: BuildExprId,
+        } => BuildStmtRow::Yield { value },
+        BuildStmtRow::Break => StmtBreak {} => BuildStmtRow::Break,
+        BuildStmtRow::BreakValue { value } => StmtBreakValue {
+            value: BuildExprId,
+        } => BuildStmtRow::BreakValue { value },
+        BuildStmtRow::Continue => StmtContinue {} => BuildStmtRow::Continue,
+        BuildStmtRow::Defer { value } => StmtDefer {
+            value: BuildExprId,
+        } => BuildStmtRow::Defer { value },
     }
 }
 
@@ -7179,6 +7400,10 @@ run true
         assert_eq!(size_of::<FullDriverSync>(), 12);
         assert_eq!(size_of::<FullDriverRegion>(), 20);
         assert_eq!(size_of::<FullDriverProgram>(), 20);
+        assert_eq!(size_of::<BuildExprId>(), 4);
+        assert_eq!(size_of::<BuildStmtId>(), 4);
+        assert_eq!(size_of::<BuildPatternId>(), 4);
+        assert_eq!(size_of::<BuildTopStmtId>(), 4);
         assert_eq!(
             size_of::<FullTag>() + size_of::<IrData>(),
             9,
@@ -7335,8 +7560,9 @@ run true
         let source_id = sources.add_file("phase5-reject.xsh", source);
         let parsed = Parser::parse_source_arena_only(source_id, source);
         let statements = parsed.arena.statement_ids().collect::<Vec<_>>();
-        let lowered = IrBuildProgram {
+        let lowered = IndexedProgramBuild {
             statements: vec![None],
+            scratch: Rc::new(RefCell::new(IndexedBuildScratch::default())),
         };
         let error = FullBuilder::build_with_driver(
             &[],
