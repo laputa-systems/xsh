@@ -2699,7 +2699,7 @@ impl PreparedTestProgram {
         env_overlay: Vec<(Vec<u8>, Vec<u8>)>,
     ) -> TestEvalOutput {
         let symbols = self.symbols.clone();
-        run_eval_on_large_stack(move || {
+        run_eval(move || {
             symbols.with_current(|| {
                 if !trace_enabled && let Some(failure) = &self.setup_failure {
                     return failure.clone();
@@ -3323,7 +3323,7 @@ impl Evaluator {
     /// during construction and is never consulted by the installed evaluator.
     pub fn eval(mut self, program: &ArenaProgram, source_id: SourceId) -> EvalOutput {
         let symbols = program.symbol_owner().clone();
-        run_eval_on_large_stack(move || {
+        run_eval(move || {
             symbols.with_current(|| {
                 let plan = match self
                     .prepare_compact_indexed_only_or_diagnostic(program, source_id, false)
@@ -3566,7 +3566,7 @@ impl Evaluator {
             .indexed_program
             .as_ref()
             .map(|program| program.symbol_owner().clone());
-        run_eval_on_large_stack(move || match symbols {
+        run_eval(move || match symbols {
             Some(symbols) => symbols
                 .with_current(|| self.try_eval_installed_compact_indexed_only_inner(plan)),
             None => self.try_eval_installed_compact_indexed_only_inner(plan),
@@ -4052,7 +4052,7 @@ impl Evaluator {
         ctx: Value,
     ) -> TestEvalOutput {
         let symbols = program.symbol_owner().clone();
-        run_eval_on_large_stack(move || {
+        run_eval(move || {
             symbols.with_current(|| self.eval_test_inner(program, source_id, test_name, ctx))
         })
     }
@@ -6033,19 +6033,8 @@ fn zero_span() -> Span {
     Span::new(crate::source::SourceId::new(0), 0, 0)
 }
 
-/// Run evaluation on a worker thread with an explicit stack budget.
-///
-/// The lowered evaluator recurses in Rust once per XSH call frame, and each
-/// frame still carries evaluator state. The default 8 MB main-thread stack can
-/// overflow on recursive XSH programs, so evaluation runs on a worker thread
-/// with a bounded stack. `RUST_MIN_STACK` does not help here because it governs
-/// spawned threads, not the main thread. A scoped thread lets the closure borrow
-/// the arena without a `'static` bound.
-fn run_eval_on_large_stack<R: Send>(f: impl FnOnce() -> R + Send) -> R {
-    #[cfg(debug_assertions)]
-    const EVAL_STACK_SIZE: usize = 256 * 1024 * 1024;
-    #[cfg(not(debug_assertions))]
-    const EVAL_STACK_SIZE: usize = 64 * 1024 * 1024;
+fn run_eval<R: Send>(f: impl FnOnce() -> R + Send) -> R {
+    const EVAL_STACK_SIZE: usize = 12 * 1024 * 1024;
     std::thread::scope(|scope| {
         std::thread::Builder::new()
             .stack_size(debug_test_eval_stack_size(EVAL_STACK_SIZE))
@@ -6056,9 +6045,9 @@ fn run_eval_on_large_stack<R: Send>(f: impl FnOnce() -> R + Send) -> R {
     })
 }
 
-pub(in crate::runtime) fn debug_test_eval_stack_size(default: usize) -> usize {
+fn debug_test_eval_stack_size(default: usize) -> usize {
     if cfg!(debug_assertions) && std::env::var_os("XSH_TEST_SMALL_EVAL_STACK").is_some() {
-        16 * 1024 * 1024
+        8 * 1024 * 1024
     } else {
         default
     }

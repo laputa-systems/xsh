@@ -60,7 +60,6 @@ fn small_stack_mode_runs_simple_script() {
 }
 
 #[test]
-#[ignore = "stress gate for stack-depth runtime safety work"]
 fn small_stack_main_self_recursion_does_not_abort() {
     run_small_stack_stress(
         "stack-depth-main-self-recursion",
@@ -69,7 +68,6 @@ fn small_stack_main_self_recursion_does_not_abort() {
 }
 
 #[test]
-#[ignore = "stress gate for stack-depth runtime safety work"]
 fn small_stack_main_mutual_recursion_does_not_abort() {
     run_small_stack_stress(
         "stack-depth-main-mutual-recursion",
@@ -78,14 +76,12 @@ fn small_stack_main_mutual_recursion_does_not_abort() {
 }
 
 #[test]
-#[ignore = "stress gate for stack-depth runtime safety work"]
 fn small_stack_deep_expression_nesting_does_not_abort() {
     let source = nested_expression_source(40);
     run_small_stack_stress("stack-depth-deep-expression-nesting", &source);
 }
 
 #[test]
-#[ignore = "stress gate for stack-depth runtime safety work"]
 fn small_stack_main_nested_blocks_do_not_abort() {
     run_small_stack_stress(
         "stack-depth-main-nested-blocks",
@@ -94,7 +90,6 @@ fn small_stack_main_nested_blocks_do_not_abort() {
 }
 
 #[test]
-#[ignore = "stress gate for stack-depth runtime safety work"]
 fn small_stack_par_map_worker_recursion_does_not_abort() {
     run_small_stack_stress(
         "stack-depth-par-map-worker-recursion",
@@ -103,7 +98,39 @@ fn small_stack_par_map_worker_recursion_does_not_abort() {
 }
 
 #[test]
-#[ignore = "stress gate for stack-depth runtime safety work"]
+fn small_stack_indexed_frames_run_defers_on_abort() {
+    let output = run_temp_script_with_env(
+        "stack-depth-indexed-frame-defer",
+        r#"
+defer run printf "%s\\n" top ?
+
+proc main() -> Result[Unit] {
+  defer run printf "%s\\n" proc ?
+  fail()?
+  return Ok()
+}
+
+proc fail() -> Result[Unit] {
+  defer run printf "%s\\n" nested ?
+  abort(9)
+  return Ok()
+}
+
+main()?
+"#,
+        [],
+        SMALL_STACK_ENV,
+    );
+
+    assert_eq!(output.status.code(), Some(9));
+    assert_eq!(
+        String::from_utf8(output.stdout).unwrap(),
+        "nested\nproc\ntop\n"
+    );
+    assert_eq!(String::from_utf8(output.stderr).unwrap(), "");
+}
+
+#[test]
 fn small_stack_xsht_native_test_body_does_not_abort() {
     let root = temp_path("stack-depth-xsht-native-test");
     let _ = std::fs::remove_dir_all(&root);

@@ -1450,7 +1450,7 @@ fn stdlib_record_html(name: &str, fields: BTreeMap<Name, Type>) -> String {
         .map(|(field, ty)| {
             format!(
                 "<tr><td><code>{}</code></td><td><code>{}</code></td></tr>",
-                escaped_html_string(&field),
+                escaped_html_string(field.as_str().as_str()),
                 escaped_html_string(&render_type(&ty))
             )
         })
@@ -1919,7 +1919,7 @@ fn token_css_class(
         }
         TokenTag::Keyword => Some("tok-keyword"),
         TokenTag::Ident
-            if name.is_some_and(|name| name.starts_with(|c: char| c.is_uppercase())) =>
+            if name.is_some_and(|name| name.as_str().starts_with(|c: char| c.is_uppercase())) =>
         {
             Some("tok-type")
         }

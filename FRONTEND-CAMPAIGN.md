@@ -11,7 +11,7 @@
 - [x] Phase 6: cut production execution over and delete the recursive lowered IR
 - [x] Phase 7: redesign records and runtime value movement
 - [x] Phase 8: make dynamic interning reclaimable
-- [ ] Phase 9: replace native-stack recursion with explicit execution frames
+- [x] Phase 9: replace native-stack recursion with explicit execution frames
 - [ ] Phase 10: compact remaining arena, span, CST, and builder storage
 - [ ] Phase 11: remove migration machinery and publish the final evidence
 
@@ -133,7 +133,7 @@ The campaign is complete when:
   `LoweredPureFunction` representations are deleted;
 - [ ] runtime records use interned shapes and dense field storage;
 - [ ] dynamic symbols have an explicit reclaimable owner;
-- [ ] XSH call/control flow no longer relies on a 64 MiB native thread stack;
+- [x] XSH call/control flow no longer relies on a 64 MiB native thread stack;
 - [ ] every retained representation reports bytes, item counts, capacity, and
   bytes per source byte;
 - [ ] the curated user-facing benchmark suite and PGO workload exercise the
@@ -1312,23 +1312,23 @@ against the final execution model.
 
 ### Work Checklist
 
-- [ ] Measure current native recursion and frame stack use.
-- [ ] Define compact call frames with function, cursor, slots, return
+- [x] Measure current native recursion and frame stack use.
+- [x] Define compact call frames with function, cursor, slots, return
   destination, defer/control, and trace identity.
-- [ ] Define explicit block/loop/match/propagation/defer control frames.
-- [ ] Reuse slot/frame storage where safe.
-- [ ] Migrate indexed execution.
-- [ ] Preserve recursion limits, tracebacks, cancellation, and panic isolation.
-- [ ] Reduce worker stack after stress tests.
-- [ ] Delete the large-stack worker when ordinary stacks suffice.
+- [x] Define explicit block/loop/match/propagation/defer control frames.
+- [x] Reuse slot/frame storage where safe.
+- [x] Migrate indexed execution.
+- [x] Preserve recursion limits, tracebacks, cancellation, and panic isolation.
+- [x] Reduce worker stack after stress tests.
+- [x] Delete the large-stack worker when ordinary stacks suffice.
 
 ### Exit Gate
 
-- [ ] Deep language recursion cannot exhaust native stack before language limits.
-- [ ] Traceback and defer order is exact.
-- [ ] Frame bytes/allocations are reported.
-- [ ] The 64 MiB stack reservation is deleted.
-- [ ] Recursive and ordinary runtime benchmarks do not regress.
+- [x] Deep language recursion cannot exhaust native stack before language limits.
+- [x] Traceback and defer order is exact.
+- [x] Frame bytes/allocations are reported.
+- [x] The 64 MiB stack reservation is deleted.
+- [x] Recursive and ordinary runtime benchmarks do not regress.
 
 ## Phase 10: Arena, Span, CST, And Builder Compaction
 
@@ -1888,6 +1888,45 @@ interactive shell lowering and session commands, tooling format/lint/docs/grep,
 and fixed-shape public records.
 Revisit condition: A new dynamic-name workload shows a reproducible latency
 regression of 2% or more, or an owner-bound cache retains a dropped program.
+
+Date: 2026-07-26
+Phase: 9
+Decision: Execute indexed calls on explicit heap-backed call, work, and
+continuation stacks. A call frame owns its function identity, execution view,
+slots, defer stack, return continuation, and trace identity; it does not copy a
+function header. Calls, nested blocks, branches, matches, loops, propagation,
+returns, and defers advance that stack rather than recursively entering Rust.
+Lowered slots are recycled at every completed or failed call. The old 64 MiB
+evaluation worker is replaced by a 12 MiB bounded worker, with 8 MiB used by
+the stack-stress suite; the remaining worker keeps non-indexed host and legacy
+operations isolated while the recursive language path no longer needs a large
+native stack.
+Alternatives: Retain the 64 MiB worker; use a general continuation-passing
+runtime; preserve recursive indexed calls and only raise the worker limit; or
+copy full function headers into every frame. The old worker hides recursion
+instead of owning it, general CPS would duplicate the evaluator's state model,
+and recursive calls fail the stress gate. Re-reading the immutable header at
+completion keeps ordinary frames compact without another persistent owner.
+Evidence: The previous 16 MiB stress baseline overflowed on self-recursion;
+the now-active 8 MiB integration suite covers 20,000-level self and mutual
+recursion, nested blocks, expression nesting, par-map workers, native test
+bodies, and nested deferred abort cleanup. Focused traceback and defer runtime
+tests pass, along with `cargo check -p xsh`, `cargo test -p xsh --lib
+--no-fail-fast`, `cargo test -p xshi`, and the serial runtime integration gate.
+Release `-Zprint-type-sizes` reports 336-byte `CallFrame`, 136-byte
+`FrameWork`, and 96-byte `FrameContinuation` on the 64-bit campaign target.
+Serial release JSON-rollup medians were 18.69 ms before and 18.99/18.96 ms
+after, with the same 408 allocations and 51.25 KiB allocation total; the short
+script median was 135.7 us before and 120.6 us after. The small JSON difference
+is below the 2% material-regression review threshold used by the preceding
+phase and had no allocation change.
+Affected workloads: Recursive pure/proc calls, nested control flow, result
+propagation, defer cleanup, tracebacks, signal checkpoints, par-map workers,
+native XSH tests, and ordinary indexed scripts.
+Revisit condition: A user-visible indexed workload shows a repeatable material
+latency regression, a recursive path escapes the explicit frames, or a
+non-indexed host/legacy path demonstrably needs more than the bounded 12 MiB
+worker.
 
 ## Completion Report
 

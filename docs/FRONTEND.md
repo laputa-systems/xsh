@@ -578,10 +578,10 @@ Prefer changes that reduce parser/token churn, compact install cost, body/functi
    `xsht_check_xsh_repository` operation, including its allocation signals.
 
 2. **Keep shrinking hot lowered frames only when it buys measurable runtime
-   wins.** The 64 MiB outer eval-stack work is complete, so future work should
-   not chase frame splitting as a standalone
-   milestone. Continue splitting cold match arms, boxing unusually large locals,
-   or moving deeply recursive paths to an explicit work stack only when release
+   wins.** Indexed calls and structured control use heap-backed execution
+   frames, replacing the former 64 MiB evaluation-stack reservation with a
+   12 MiB bounded worker stack (8 MiB for stack-stress tests). Continue
+   splitting cold match arms or boxing unusually large locals only when release
    measurements show lower RSS, fewer instructions, or simpler broad evaluator
    behavior. Measure stack size, release RSS, and instruction deltas; do not
    rely on debug timing.
@@ -680,8 +680,11 @@ an executable program. All-preloaded shapes remain strongly cached for
 steady-state reuse; dynamic-name entries are weak, and each live shape owns its
 field spellings and relevant symbol owner. Dropping the last dynamic record or
 shape releases its field names. Open records retain a dynamic map only after
-adding a field outside their shape. Phase 9 owns replacing native-stack execution
-depth.
+adding a field outside their shape. Indexed calls keep function, slot, work,
+defer, return, and trace state in explicit heap-backed frames. On the campaign's
+64-bit release target, an ordinary call frame is 336 bytes, a work frame is 136
+bytes, and a continuation is 96 bytes; the same layout capture accompanies the
+runtime benchmark allocation columns.
 
 ### Performance Methodology
 

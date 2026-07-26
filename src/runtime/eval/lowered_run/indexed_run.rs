@@ -14,6 +14,8 @@ use crate::runtime::eval::{
 use crate::modules::hash::HashAlgorithm;
 use smallvec::SmallVec;
 
+mod explicit_run;
+
 #[derive(Clone)]
 struct IndexedRunArg {
     mode: u32,
@@ -41,6 +43,14 @@ struct IndexedRunSegment {
     redirections: Vec<IndexedRunRedirection>,
     timeout: Option<u32>,
     cpu_max: Option<u32>,
+}
+
+enum IndexedBinaryWork {
+    Expr(u32),
+    Apply {
+        op: BinaryOp,
+        span: Span,
+    },
 }
 
 enum IndexedProcessCommandEntry {
@@ -1098,7 +1108,18 @@ impl Evaluator {
             Ok(header) => header,
             Err(error) => return Some(Err(indexed_error(error, call_span))),
         };
-        let mut slots = self.try_bind_lowered_runtime_args(&header, args)?;
+        let slots = self.try_bind_lowered_runtime_args(&header, args)?;
+        let frame_support = match self.indexed_frames_supported(view, call_span) {
+            Ok(supported) => supported,
+            Err(error) => return Some(Err(error)),
+        };
+        if frame_support {
+            return Some(
+                self.eval_indexed_with_frame_slots(program.as_ref(), function, kind, slots, call_span)
+                    .map(LoweredValue::into_value),
+            );
+        }
+        let mut slots = slots;
         let result = self
             .eval_indexed_call_frame(function, kind, view, &header, &mut slots, call_span)
             .and_then(|value| lowered_return_value(header.return_kind, value, call_span))
@@ -1173,6 +1194,15 @@ impl Evaluator {
                 RuntimeError::new("unresolved-lowered-call", function.display_name())
                     .with_span(call_span)
             })?;
+        if self.indexed_frames_supported(view, call_span)? {
+            return self.eval_indexed_with_frames(
+                program.as_ref(),
+                function,
+                kind,
+                values,
+                call_span,
+            );
+        }
         let header = view
             .header()
             .map_err(|error| indexed_error(error, call_span))?;
@@ -1597,15 +1627,15 @@ impl Evaluator {
                         .eval_indexed_bool(execution, right, slots, span)
                         .map(|flow| flow.map_continue(LoweredValue::Bool));
                 }
-                let left = match self.eval_indexed_expr(execution, left, slots, call_span)? {
-                    ControlFlow::Continue(value) => value,
-                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
-                };
-                let right = match self.eval_indexed_expr(execution, right, slots, call_span)? {
-                    ControlFlow::Continue(value) => value,
-                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
-                };
-                ControlFlow::Continue(lowered_binary_value(op, left, right, span)?)
+                return self.eval_indexed_binary_stack(
+                    execution,
+                    slots,
+                    call_span,
+                    op,
+                    left,
+                    right,
+                    span,
+                );
             }
             FullTag::ExprIf => {
                 let (_, mut branches) = execution
@@ -5299,6 +5329,76 @@ impl Evaluator {
         Ok(result)
     }
 
+    fn eval_indexed_binary_stack(
+        &mut self,
+        execution: &FullExecution<'_>,
+        slots: &mut [LoweredValue],
+        call_span: Span,
+        op: BinaryOp,
+        left: u32,
+        right: u32,
+        span: Span,
+    ) -> Result<ControlFlow<LoweredValue, LoweredValue>, RuntimeError> {
+        let mut work = vec![
+            IndexedBinaryWork::Apply { op, span },
+            IndexedBinaryWork::Expr(right),
+            IndexedBinaryWork::Expr(left),
+        ];
+        let mut values = Vec::new();
+        while let Some(item) = work.pop() {
+            match item {
+                IndexedBinaryWork::Apply { op, span } => {
+                    let right = values.pop().ok_or_else(|| {
+                        RuntimeError::new("indexed-ir", "binary expression is missing a right value")
+                            .with_span(span)
+                    })?;
+                    let left = values.pop().ok_or_else(|| {
+                        RuntimeError::new("indexed-ir", "binary expression is missing a left value")
+                            .with_span(span)
+                    })?;
+                    values.push(lowered_binary_value(op, left, right, span)?);
+                }
+                IndexedBinaryWork::Expr(instruction) => {
+                    let (tag, mut payload) =
+                        indexed_value(execution.instruction_id(instruction), call_span)?;
+                    if tag != FullTag::ExprBinary {
+                        match self.eval_indexed_expr(execution, instruction, slots, call_span)? {
+                            ControlFlow::Continue(value) => values.push(value),
+                            ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+                        }
+                        continue;
+                    }
+                    let op = indexed_decode::<BinaryOp>(&mut payload, execution, call_span)?;
+                    let left = indexed_raw(&mut payload, call_span)?;
+                    let right = indexed_raw(&mut payload, call_span)?;
+                    let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
+                    indexed_finish(payload, call_span)?;
+                    if op == BinaryOp::And || op == BinaryOp::Or {
+                        match self.eval_indexed_expr(execution, instruction, slots, call_span)? {
+                            ControlFlow::Continue(value) => values.push(value),
+                            ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+                        }
+                    } else {
+                        work.push(IndexedBinaryWork::Apply { op, span });
+                        work.push(IndexedBinaryWork::Expr(right));
+                        work.push(IndexedBinaryWork::Expr(left));
+                    }
+                }
+            }
+        }
+        let value = values.pop().ok_or_else(|| {
+            RuntimeError::new("indexed-ir", "binary expression produced no value").with_span(span)
+        })?;
+        if !values.is_empty() {
+            return Err(RuntimeError::new(
+                "indexed-ir",
+                "binary expression left extra values on its work stack",
+            )
+            .with_span(span));
+        }
+        Ok(ControlFlow::Continue(value))
+    }
+
     fn eval_indexed_stmts(
         &mut self,
         execution: &FullExecution<'_>,
@@ -6943,7 +7043,7 @@ mod tests {
 
     #[test]
     fn direct_indexed_function_executes_without_decoding_its_body() {
-        crate::runtime::eval::run_eval_on_large_stack(
+        crate::runtime::eval::run_eval(
             direct_indexed_function_executes_without_decoding_its_body_inner,
         );
     }
