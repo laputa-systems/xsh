@@ -2,14 +2,16 @@
 
 The active XSH pipeline is compact-first: source is parsed into dense token,
 CST, and arena tables; checked directly from arena IDs; lowered from those same
-IDs where the behavior is supported; and executed by the compact lowered runtime.
+IDs into a verified indexed executable store; and executed after the CST and
+arena are dropped.
 There is no `src/syntax/ast.rs`, recursive syntax tree, or compatibility
-frontend in the normal execution path.
+frontend in the normal execution path. Valid scripts do not fall back to arena
+evaluation when indexed construction fails.
 
 The front-end data layout is deliberately Zig-aligned in spirit: compact token
 columns, typed node indexes, side-table ranges for variable payloads, and lazy
-source-location recovery. The runtime is still language-first rather than VM-
-first: lowered IR is an execution cache for the supported compact subset, not a
+source-location recovery. The runtime is still language-first rather than
+VM-first: indexed IR is an in-process executable representation, not a
 serialized bytecode format or a second language.
 
 [`FRONTEND-CAMPAIGN.md`](../FRONTEND-CAMPAIGN.md) owns the benchmark-gated
@@ -34,9 +36,9 @@ current shallow lowered fallback explicitly marked as estimated. Run the full
 Phase 0 protocol with `scripts/frontend-campaign-phase0`; its machine-specific
 evidence stays under `target/frontend-campaign/phase-0/`.
 
-## Indexed IR Prototype
+## Indexed IR History
 
-Phase 1 adds a test-only indexed executable store in
+Phase 1 added a test-only indexed executable store in
 `src/runtime/eval/indexed.rs`. It is not installed or constructed by product
 binaries. The prototype flattens the frozen vertical slice from the current
 lowered semantic oracle into parallel `IrTag`, eight-byte `IrData`, and compact
@@ -147,12 +149,25 @@ column to one checkpoint. The verifier must succeed before a `FullProgram` is
 returned.
 
 The current compact entry constructs committed function units as temporary
-lowering scratch and freezes them immediately into the indexed store. Tests
-drop the arena, checker outputs, units, and canonical maps before execution.
-The temporary decode back to `LoweredPureFunction` exists only so the current
-runtime can remain the semantic oracle until the Phase 5 boundary choice and
-Phase 6 indexed executor cutover. It is never installed or shadow-built by
-product binaries.
+lowering scratch and freezes them immediately into the indexed store. The
+runner drops the arena, checker outputs, units, and canonical maps before
+execution; product execution retains only `FullProgram`.
+
+Phase 6 execution reads verified instruction, block, function, driver,
+pattern, stage, and literal payloads through borrowed views. Scalar, list,
+record, formatting, field/method, result, direct user-call, typed
+integer/boolean, binding, assignment, branch, loop, iteration, print, return,
+yield, common collection-pipeline stages, and ordinary top-level driver forms
+execute without reconstructing a recursive function or driver body. Direct
+pipeline stages include text/JSON adapters, map/filter, sorting/grouping,
+predicates, aggregates, collection, and range/count transforms. A preflight
+requires every instruction and pipeline stage in a function or driver step to
+have direct execution support before selecting that path, so execution cannot
+perform part of a side-effecting region and then fall back. Process,
+parallel/block pipeline stages, match, defer, import, and other not-yet-migrated
+opcode families still use the temporary decoder as the semantic compatibility
+boundary. Recursive calls deliberately use that boundary until the direct
+executor has an explicit recursion strategy.
 
 The Phase 4 corpus evidence covers 837 committed functions and 43,589
 instructions across 204 wholly executable files. Finalized storage is
@@ -200,11 +215,11 @@ synchronization union. It rejects invalid locations, slot/type bounds, payload
 schemas, effect bits, overlapping or unreachable program/region/sync rows,
 overlapping or unreachable slot rows, step/program cycles or sharing,
 cross-owner instructions and blocks, and gaps in the dense instruction ranges.
-Tests decode the driver into temporary `LoweredTopLevelStmt` values only to
-reuse the current evaluator as the Phase 6 semantic oracle. Values,
-stdout/stderr, status, cwd/env effects, process boundaries, errors, and
-normalized traces compare after the arena and lowering scratch have been
-dropped.
+Tests can decode the driver into temporary `LoweredTopLevelStmt` values to
+reuse the previous evaluator as the Phase 6 semantic oracle. Directly supported
+steps instead read borrowed indexed payloads. Values, stdout/stderr, status,
+cwd/env effects, process boundaries, errors, and normalized traces compare
+after the arena and lowering scratch have been dropped.
 
 The corpus comparison admits 283 of 287 checked files as complete programs.
 Those programs contain 1,647 driver steps, 705 coherent regions, and 2,919
@@ -220,8 +235,22 @@ Coherent regions were selected because production timing and allocation are
 identical while the Phase 5 store remains test-only, and the representation
 makes each runtime boundary independently verifiable without retaining AST
 nodes. Run the complete comparison with `scripts/frontend-campaign-phase5`.
-Phase 6 installs the verified driver directly and removes the temporary
-recursive decoder and production arena fallback.
+Phase 6 installs the verified `FullProgram` and driver as the only retained
+executable program in the script runner. The runner verifies the complete
+program before installation, drops the CST and arena, and reads source-ordered
+driver steps from indexed storage. Function lookup resolves against indexed
+function identity and kind. Coverage tracing uses the same indexed entry rather
+than a separate arena execution path.
+
+The test-only `XSH_TEST_EXECUTION_MODE` switch selects `arena` as the migration
+oracle or `ir` for the production path. It is compiled only with the
+`native-tests` feature. The normal binary always selects indexed execution.
+
+Dynamic method calls whose checked receiver remains `Any` or `Unknown` are
+explicit indexed method operations. Runtime method dispatch validates the
+actual value and arity; it is not a lowering fallback. This admits the former
+`sources.len()` campaign blocker, and complete-program admission reaches every
+loaded file in the checked campaign corpus.
 
 ## North Star
 

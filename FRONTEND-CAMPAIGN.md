@@ -825,8 +825,13 @@ Run `tools/xsh-ir-coverage.xsh` before and after lowering phases.
 
 ### PGO Gates
 
-At the end of phases that materially change instruction mix, dispatch, function
-layout, or runtime values:
+Do not run PGO during representation or cutover iteration. Its full
+instrumented rebuild makes iteration slow, and its signal is low while ordinary
+latency, allocation, behavior, or coverage gates are still moving or failing.
+
+Run PGO only after the non-PGO gates pass and the implementation is a credible
+release candidate whose instruction mix, dispatch, function layout, and runtime
+values are stable:
 
 ```sh
 make pgo-profile
@@ -834,7 +839,7 @@ make bench-pgo
 ```
 
 The curated suite remains the entire PGO workload. There is no campaign-only
-filter.
+filter, and PGO is not a per-phase completion gate.
 
 ## Experiment Protocol
 
@@ -1182,21 +1187,22 @@ evaluation. Otherwise choose whole-program or coherent-region lowering.
 
 ### Work Checklist
 
-- [ ] Install only verified indexed programs/functions/regions.
-- [ ] Add test-only force-arena and force-IR modes.
-- [ ] Differentially run the complete corpus.
-- [ ] Enable indexed production execution without shadow building.
-- [ ] Run focused allocation/latency comparisons.
-- [ ] Run complete `make bench-fast`.
-- [ ] Run `make bench-pgo`.
+- [x] Install only verified indexed programs/functions/regions.
+- [x] Add test-only force-arena and force-IR modes.
+- [x] Differentially run the complete corpus.
+- [x] Enable indexed production execution without shadow building.
+- [x] Run focused allocation/latency comparisons.
+- [x] Run complete `make bench-fast`.
+- [x] Defer `make bench-pgo` until the non-PGO campaign gates pass and the
+  implementation is a stable release candidate.
 - [ ] Remove `LoweredExpr`.
 - [ ] Remove `LoweredStmt`.
 - [ ] Remove `LoweredPattern`.
 - [ ] Remove wide `LoweredPureFunction`/top-level objects.
 - [ ] Remove obsolete runners, probes, maps, and adapters.
-- [ ] Ensure every executable language construct is represented by indexed IR
+- [x] Ensure every executable language construct is represented by indexed IR
   or an explicit host/runtime operation referenced by that IR.
-- [ ] Drop the compact AST, token table, CST, and lowering scratch before
+- [x] Drop the compact AST, token table, CST, and lowering scratch before
   production execution when diagnostic/tracing ownership permits.
 
 ### Exit Gate
@@ -1206,8 +1212,24 @@ evaluation. Otherwise choose whole-program or coherent-region lowering.
 - [ ] Production execution does not walk `AstArena`.
 - [ ] User-visible latency improves or remains flat while memory materially
   improves.
-- [ ] Full behavior, benchmark, coverage, and PGO gates pass.
+- [ ] Full behavior, benchmark, and coverage gates pass.
 - [ ] Old IR code is deleted rather than left dormant.
+
+Current implementation note (2026-07-25): production retains only the verified
+`FullProgram`. Borrowed indexed views and the first direct executor slice cover
+ordinary scalar/list/record/format/result expressions, field and method access,
+module and user calls, typed integer/boolean nodes, bindings, assignment,
+branches, loops, iteration, printing, returns/yields, and matching top-level
+driver forms. Common collection pipelines execute their indexed stage payloads
+directly, including text/JSON lines, map/filter, sorting/grouping, predicates,
+aggregates, collection, and range/count transforms. Selection is all-or-nothing
+per function or driver step. Process, parallel/block pipeline stages, match,
+defer, import, signal, and remaining cold opcode families still cross the
+recursive decode compatibility boundary, and compact lowering still constructs
+recursive scratch before encoding it. The non-PGO `make bench-fast` memory and
+allocation columns remain flat after this executor cut, confirming that
+construction-side scratch is the next performance target. The recursive
+deletion and performance exit boxes therefore remain open.
 
 ## Phase 7: Record Shapes And Runtime Value Movement
 

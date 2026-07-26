@@ -162,9 +162,15 @@ short evidence chain:
    memory, type layout, lowerability, syscalls, or generated code;
 3. the nearest runtime and lowering parity tests protect behavior;
 4. the focused workload improves, followed by `make bench`;
-5. `make bench-pgo` is required only when evaluating PGO results.
+5. stop when the ordinary gate fails; PGO does not make a regressed
+   implementation acceptable.
 
 ## PGO
+
+Do not run PGO during ordinary runtime, IR, or representation iteration. The
+instrumented rebuild is intentionally expensive and provides low-signal
+feedback while non-PGO latency, allocation, behavior, or coverage results are
+still changing. First make `make bench` and the relevant correctness gates pass.
 
 Run:
 
@@ -186,7 +192,8 @@ make bench-pgo
 ```
 
 to benchmark regular and PGO builds into separate host baselines and compare
-them. PGO should improve the same user-facing workflows used to justify it.
+them only for a stable release candidate or an explicit PGO investigation. PGO
+should improve the same user-facing workflows used to justify it.
 
 ## Syscall Diagnostics
 

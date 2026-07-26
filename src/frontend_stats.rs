@@ -1,10 +1,9 @@
 //! Stage-split frontend retained-byte and allocation-peak measurements.
 //!
 //! Retained totals come from owned structures where the representation exposes
-//! them. The current lowered runtime does not yet expose a complete recursive
-//! byte walker, so the dedicated stats binary uses allocator live-byte deltas
-//! for that stage and the library API reports a labeled shallow estimate when
-//! the counting allocator is not installed.
+//! them. The indexed executable store reports its finalized retained columns;
+//! the dedicated stats binary also records allocator live-byte deltas so
+//! construction traffic and the finalized representation remain distinguishable.
 
 use crate::loader::parse_load_check_text;
 use crate::mem_track::{self, AllocTraffic};
@@ -343,9 +342,11 @@ pub fn measure_source(path: &str, source: &str) -> FileFrontendStats {
         source,
     );
     let mut evaluator = Evaluator::new_with_sources(Vec::new(), checked.sources.clone());
-    let lower_diagnostics = evaluator
-        .install_compact_lowered_program(&checked.parsed.arena, checked.entry_source_id)
-        .len();
+    let lower_diagnostics = usize::from(
+        evaluator
+            .prepare_compact_indexed_only(&checked.parsed.arena, checked.entry_source_id)
+            .is_none(),
+    );
     let lowered = evaluator.frontend_lowered_stats();
     let lower_traffic = mem_track::end_stage();
     let lowered_function_count = construct_probe.functions;

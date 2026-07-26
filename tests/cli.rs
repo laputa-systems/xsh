@@ -34,7 +34,7 @@ fn xsh_keeps_separator_compatibility_for_script_args() {
 }
 
 #[test]
-fn xsh_falls_back_for_dynamic_lowerability_by_default() {
+fn xsh_runs_dynamic_record_methods_by_default() {
     let path = temp_script("xsh-dynamic-lower-default", dynamic_lowerability_script());
     let output = Command::new(env!("CARGO_BIN_EXE_xsh"))
         .arg(path.to_str().unwrap())
@@ -51,21 +51,20 @@ fn xsh_falls_back_for_dynamic_lowerability_by_default() {
 }
 
 #[test]
-fn xsh_strict_lower_reports_dynamic_lowerability() {
+fn xsh_strict_lower_runs_dynamic_record_methods() {
     let path = temp_script("xsh-dynamic-lower-strict", dynamic_lowerability_script());
     let output = Command::new(env!("CARGO_BIN_EXE_xsh"))
         .args(["--strict-lower", path.to_str().unwrap()])
         .output()
         .expect("run xsh script");
 
-    assert_eq!(output.status.code(), Some(2));
-    let stderr = String::from_utf8(output.stderr).unwrap();
     assert!(
-        stderr.contains("compact.unlowered-main"),
-        "stderr: {stderr}"
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
     );
-    assert!(stderr.contains("sources.len"), "stderr: {stderr}");
-    assert!(output.stdout.is_empty());
+    assert_eq!(String::from_utf8(output.stdout).unwrap(), "non-empty\n");
+    assert!(output.stderr.is_empty());
 }
 
 fn dynamic_lowerability_script() -> &'static str {

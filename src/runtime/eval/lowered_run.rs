@@ -50,6 +50,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+mod indexed_run;
+
 #[cfg(feature = "native-tests")]
 use super::display_value;
 use super::lower::{
@@ -80,7 +82,7 @@ use super::modules::{
 use super::{
     Binding, Evaluator, Flow, FsRootHandle, LowerableFunctions, LoweredBoolExpr, LoweredCallArg,
     LoweredCompTarget, LoweredErrorExpr, LoweredExpr, LoweredFmtPart, LoweredFunctionKey,
-    LoweredIntExpr, LoweredModuleExportKind, LoweredPipelineStage,
+    LoweredFunctionKind, LoweredIntExpr, LoweredModuleExportKind, LoweredPipelineStage,
     LoweredProcessCommandArgv, LoweredProcessCommandBuilderEntry, LoweredPureFunction,
     LoweredRecordEntry, LoweredReturnKind, LoweredRunArg, LoweredRunArgKind, LoweredRunEnv,
     LoweredRunCapture, LoweredRunPipelineSegment, LoweredRunRedirection, LoweredSpawnRun,
@@ -4557,6 +4559,15 @@ impl Evaluator {
                 ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
             });
         }
+        self.eval_lowered_module_call_values(op, values, span)
+    }
+
+    fn eval_lowered_module_call_values(
+        &mut self,
+        op: RuntimeOp,
+        mut values: Vec<LoweredValue>,
+        span: Span,
+    ) -> Result<ControlFlow<LoweredValue, LoweredValue>, RuntimeError> {
         let value = match op {
             RuntimeOp::CpuCount if values.is_empty() => {
                 LoweredValue::Int(crate::modules::cpu::count())
@@ -10510,7 +10521,23 @@ impl Evaluator {
         if self.function_modules.contains_key(&function) {
             return None;
         }
-        let lowered = self.lowered_pures.get(&function)?.clone();
+        let lowered = match self.lowered_pures.get(&function).cloned() {
+            Some(lowered) => lowered,
+            None => {
+                if let Some(result) = self.call_indexed_direct(
+                    LoweredFunctionKey::Name(function),
+                    LoweredFunctionKind::Pure,
+                    args,
+                    call_span,
+                ) {
+                    return Some(result);
+                }
+                self.indexed_function(
+                    LoweredFunctionKey::Name(function),
+                    LoweredFunctionKind::Pure,
+                )?
+            }
+        };
         let mut slots = self.try_bind_lowered_runtime_args(&lowered, args)?;
         let result = self
             .eval_lowered_call_frame(
@@ -10535,7 +10562,23 @@ impl Evaluator {
         if self.qualified_function_modules.contains_key(&function) {
             return None;
         }
-        let lowered = self.lowered_qualified_pures.get(&function)?.clone();
+        let lowered = match self.lowered_qualified_pures.get(&function).cloned() {
+            Some(lowered) => lowered,
+            None => {
+                if let Some(result) = self.call_indexed_direct(
+                    LoweredFunctionKey::Qualified(function),
+                    LoweredFunctionKind::Pure,
+                    args,
+                    call_span,
+                ) {
+                    return Some(result);
+                }
+                self.indexed_function(
+                    LoweredFunctionKey::Qualified(function),
+                    LoweredFunctionKind::Pure,
+                )?
+            }
+        };
         let mut slots = self.try_bind_lowered_runtime_args(&lowered, args)?;
         let result = self
             .eval_lowered_call_frame(
@@ -10560,7 +10603,23 @@ impl Evaluator {
         if self.function_modules.contains_key(&function) {
             return None;
         }
-        let lowered = self.lowered_procs.get(&function)?.clone();
+        let lowered = match self.lowered_procs.get(&function).cloned() {
+            Some(lowered) => lowered,
+            None => {
+                if let Some(result) = self.call_indexed_direct(
+                    LoweredFunctionKey::Name(function),
+                    LoweredFunctionKind::Proc,
+                    args,
+                    call_span,
+                ) {
+                    return Some(result);
+                }
+                self.indexed_function(
+                    LoweredFunctionKey::Name(function),
+                    LoweredFunctionKind::Proc,
+                )?
+            }
+        };
         let mut slots = self.try_bind_lowered_runtime_args(&lowered, args)?;
         let result = self
             .eval_lowered_call_frame(
@@ -10594,7 +10653,23 @@ impl Evaluator {
         if pure {
             return self.call_lowered_qualified_pure(function, args, call_span);
         }
-        let lowered = self.lowered_qualified_procs.get(&function)?.clone();
+        let lowered = match self.lowered_qualified_procs.get(&function).cloned() {
+            Some(lowered) => lowered,
+            None => {
+                if let Some(result) = self.call_indexed_direct(
+                    LoweredFunctionKey::Qualified(function),
+                    LoweredFunctionKind::Proc,
+                    args,
+                    call_span,
+                ) {
+                    return Some(result);
+                }
+                self.indexed_function(
+                    LoweredFunctionKey::Qualified(function),
+                    LoweredFunctionKind::Proc,
+                )?
+            }
+        };
         let mut slots = self.try_bind_lowered_runtime_args(&lowered, args)?;
         let result = self
             .eval_lowered_call_frame(
@@ -10849,7 +10924,22 @@ impl Evaluator {
 
     fn lowered_traceback_frame_kind(&self, function: LoweredFunctionKey) -> TracebackFrameKind {
         match function {
-            LoweredFunctionKey::Name(name) if self.lowered_procs.contains_key(&name) => {
+            LoweredFunctionKey::Name(name)
+                if self.lowered_procs.contains_key(&name)
+                    || self.contains_indexed_function(
+                        LoweredFunctionKey::Name(name),
+                        LoweredFunctionKind::Proc,
+                    ) =>
+            {
+                TracebackFrameKind::Proc
+            }
+            LoweredFunctionKey::Qualified(name)
+                if self.lowered_qualified_procs.contains_key(&name)
+                    || self.contains_indexed_function(
+                        LoweredFunctionKey::Qualified(name),
+                        LoweredFunctionKind::Proc,
+                    ) =>
+            {
                 TracebackFrameKind::Proc
             }
             _ => TracebackFrameKind::Pure,

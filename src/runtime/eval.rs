@@ -41,6 +41,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 mod lower;
 mod indexed;
+use indexed::full::{FullBuilder, FullProgram};
 mod lowered_ops;
 use lowered_ops::{lowered_value_from_runtime, lowered_value_from_runtime_any};
 mod lowered_run;
@@ -627,6 +628,10 @@ impl LoweredFunctionUnit {
 
     fn lowered_body(&self) -> Option<Arc<LoweredPureFunction>> {
         self.body.clone()
+    }
+
+    fn take_lowered_body(&mut self) -> Option<Arc<LoweredPureFunction>> {
+        self.body.take()
     }
 }
 
@@ -2618,6 +2623,7 @@ pub struct Evaluator {
     lowered_qualified_pures: Arc<FxHashMap<QualifiedName, Arc<LoweredPureFunction>>>,
     lowered_qualified_procs: Arc<FxHashMap<QualifiedName, Arc<LoweredPureFunction>>>,
     lowered_program: Arc<LoweredProgram>,
+    indexed_program: Option<Arc<FullProgram>>,
     last_construct_probe: Option<CompactLowerConstructProbeOutput>,
     lowered_slot_pool: Vec<Vec<LoweredValue>>,
     tag_variants: FxHashMap<Name, usize>,
@@ -2674,6 +2680,7 @@ struct LoweredSharedState {
     lowered_qualified_pures: Arc<FxHashMap<QualifiedName, Arc<LoweredPureFunction>>>,
     lowered_qualified_procs: Arc<FxHashMap<QualifiedName, Arc<LoweredPureFunction>>>,
     lowered_program: Arc<LoweredProgram>,
+    indexed_program: Option<Arc<FullProgram>>,
     tag_variants: FxHashMap<Name, usize>,
     error_families: FxHashMap<Name, RuntimeErrorFamily>,
     module_value_cache: Arc<FxHashMap<String, RecordMap>>,
@@ -2793,6 +2800,17 @@ impl Evaluator {
 
     pub fn frontend_lowered_stats(&self) -> FrontendLoweredStats {
         let probe = self.last_construct_probe.as_ref();
+        if let Some(indexed) = &self.indexed_program {
+            return FrontendLoweredStats {
+                function_count: indexed.function_count(),
+                constructed_functions: indexed.function_count(),
+                statement_count: 0,
+                expression_count: indexed.instruction_count(),
+                pattern_count: 0,
+                blocker_events: 0,
+                retained_estimate_bytes: indexed.store_retained_bytes(),
+            };
+        }
         FrontendLoweredStats {
             function_count: self.lowered_pures.len()
                 + self.lowered_procs.len()
@@ -2882,6 +2900,7 @@ impl Evaluator {
             lowered_qualified_pures: Arc::new(FxHashMap::default()),
             lowered_qualified_procs: Arc::new(FxHashMap::default()),
             lowered_program: Arc::new(LoweredProgram::default()),
+            indexed_program: None,
             last_construct_probe: None,
             lowered_slot_pool: Vec::new(),
             tag_variants: FxHashMap::default(),
@@ -3022,6 +3041,7 @@ impl Evaluator {
             lowered_qualified_pures: self.lowered_qualified_pures.clone(),
             lowered_qualified_procs: self.lowered_qualified_procs.clone(),
             lowered_program: self.lowered_program.clone(),
+            indexed_program: self.indexed_program.clone(),
             tag_variants: self.tag_variants.clone(),
             error_families: self.error_families.clone(),
             module_value_cache: self.module_value_cache.clone(),
@@ -3047,6 +3067,7 @@ impl Evaluator {
             lowered_qualified_pures: shared.lowered_qualified_pures.clone(),
             lowered_qualified_procs: shared.lowered_qualified_procs.clone(),
             lowered_program: shared.lowered_program.clone(),
+            indexed_program: shared.indexed_program.clone(),
             last_construct_probe: None,
             lowered_slot_pool: Vec::new(),
             tag_variants: shared.tag_variants.clone(),
@@ -3930,6 +3951,164 @@ impl Evaluator {
         .ok()
     }
 
+    pub(crate) fn prepare_compact_indexed_only(
+        &mut self,
+        program: &ArenaProgram,
+        source_id: SourceId,
+    ) -> Option<CompactLoweredRunPlan> {
+        self.prepare_compact_indexed_only_or_diagnostic(program, source_id)
+            .ok()
+    }
+
+    fn prepare_compact_indexed_only_or_diagnostic(
+        &mut self,
+        program: &ArenaProgram,
+        source_id: SourceId,
+    ) -> Result<CompactLoweredRunPlan, Diagnostic> {
+        let mut declarations = Checker::check_compact_declarations(program);
+        if !declarations.diagnostics.is_empty() {
+            return Err(declarations.diagnostics.remove(0));
+        }
+        self.install_compact_runtime_declarations(&declarations);
+        let mut bodies = Checker::probe_compact_bodies(program, &declarations);
+        if !bodies.diagnostics.is_empty() {
+            return Err(bodies.diagnostics.remove(0));
+        }
+        let source_id = program.source_text_source_id().unwrap_or(source_id);
+        let Some(source) = self.sources.get(source_id).map(|source| source.text()) else {
+            return Err(compact_lowerability_diagnostic(
+                zero_span(),
+                "source text was unavailable while building indexed IR",
+                "compact.indexed-source",
+            ));
+        };
+        let indexed = FullBuilder::build_compact(
+            program,
+            &declarations,
+            &bodies,
+            source,
+            Arc::clone(&self.sources),
+            source_id,
+        )
+        .map_err(|error| {
+            let span = error
+                .location
+                .map(|location| {
+                    Span::new(
+                        source_id,
+                        location.start as usize,
+                        location.start.saturating_add(location.len) as usize,
+                    )
+                })
+                .unwrap_or_else(zero_span);
+            compact_lowerability_diagnostic(
+                span,
+                &format!("indexed IR could not encode `{}`", error.construct),
+                "compact.indexed-build",
+            )
+        })?;
+        let root = program.statement_ids().collect::<Vec<_>>();
+        let driver_steps = indexed.driver_step_count().map_err(|error| {
+            compact_lowerability_diagnostic(
+                root.first()
+                    .map(|stmt| program.arena.stmt(*stmt).span)
+                    .unwrap_or_else(zero_span),
+                &format!("indexed driver verification failed: {}", error.message),
+                "compact.indexed-driver",
+            )
+        })?;
+        if driver_steps != root.len() {
+            return Err(compact_lowerability_diagnostic(
+                root.first()
+                    .map(|stmt| program.arena.stmt(*stmt).span)
+                    .unwrap_or_else(zero_span),
+                "indexed driver statement count did not match the source program",
+                "compact.statement-count",
+            ));
+        }
+        let auto_main_required =
+            compact_root_proc_main_requires_auto_call_indexed(program, &root, &indexed)?;
+        if auto_main_required
+            && !indexed.contains_function(
+                LoweredFunctionKey::Name(Name::intern("main")),
+                LoweredFunctionKind::Proc,
+            )
+        {
+            let span = root
+                .iter()
+                .copied()
+                .find_map(|stmt| compact_root_proc_main_span(program, stmt))
+                .unwrap_or_else(zero_span);
+            return Err(compact_lowerability_diagnostic(
+                span,
+                "proc main could not be encoded in indexed IR",
+                "compact.unlowered-main",
+            ));
+        }
+        let indexed = Arc::new(indexed);
+        self.indexed_program = Some(Arc::clone(&indexed));
+        let compact_auto_main_args = if auto_main_required {
+            self.compact_auto_main_args().ok_or_else(|| {
+                compact_lowerability_diagnostic(
+                    zero_span(),
+                    "script arguments could not be converted for compact main dispatch",
+                    "compact.main-args",
+                )
+            })?
+        } else {
+            Vec::new()
+        };
+        let mut statements = Vec::with_capacity(root.len());
+        for (index, stmt) in root.iter().copied().enumerate() {
+            let skip_auto_main =
+                compact_should_skip_auto_main_stmt(program, &root, index, auto_main_required);
+            let encoded = !indexed.driver_step_is_skip(index).map_err(|error| {
+                compact_lowerability_diagnostic(
+                    program.arena.stmt(stmt).span,
+                    &format!("indexed driver verification failed: {}", error.message),
+                    "compact.indexed-driver",
+                )
+            })?;
+            if !encoded
+                && !skip_auto_main
+                && !compact_top_level_stmt_is_skippable(program, stmt, false)
+            {
+                return Err(compact_lowerability_diagnostic(
+                    program.arena.stmt(stmt).span,
+                    "top-level statement could not be encoded in indexed IR",
+                    "compact.unlowered-statement",
+                ));
+            }
+            statements.push(CompactLoweredTopLevelPlan {
+                span: program.arena.stmt(stmt).span,
+                skip_auto_main,
+            });
+        }
+        Ok(CompactLoweredRunPlan {
+            script_span: statements
+                .first()
+                .map(|statement| statement.span)
+                .unwrap_or_else(zero_span),
+            statements,
+            auto_main_required,
+            compact_auto_main_args,
+        })
+    }
+
+    pub fn compact_indexed_diagnostics(
+        program: &ArenaProgram,
+        source_id: SourceId,
+        sources: SourceMap,
+        argv: Vec<String>,
+        command_name: String,
+    ) -> Vec<Diagnostic> {
+        let mut evaluator = Self::new_with_sources_and_command(argv, sources, command_name);
+        match evaluator.prepare_compact_indexed_only_or_diagnostic(program, source_id) {
+            Ok(_) => Vec::new(),
+            Err(diagnostic) => vec![diagnostic],
+        }
+    }
+
     pub fn compact_lowerability_diagnostics(
         program: &ArenaProgram,
         source_id: SourceId,
@@ -4136,7 +4315,15 @@ impl Evaluator {
         compact_install_blocker_diagnostic_for_main(program, root, &units, first_blocker.as_ref())
     }
 
+    #[cfg(test)]
     pub(crate) fn eval_installed_compact_lowered_only(
+        self,
+        plan: CompactLoweredRunPlan,
+    ) -> Result<EvalOutput, Self> {
+        run_eval_on_large_stack(move || self.try_eval_installed_compact_lowered_only_inner(plan))
+    }
+
+    pub(crate) fn eval_installed_compact_indexed_only(
         self,
         plan: CompactLoweredRunPlan,
     ) -> Result<EvalOutput, Self> {
@@ -4147,7 +4334,12 @@ impl Evaluator {
         mut self,
         plan: CompactLoweredRunPlan,
     ) -> Result<EvalOutput, Self> {
-        if self.lowered_program.statements.len() != plan.statements.len() {
+        let statement_count = if let Some(indexed) = &self.indexed_program {
+            indexed.driver_step_count().unwrap_or(usize::MAX)
+        } else {
+            self.lowered_program.statements.len()
+        };
+        if statement_count != plan.statements.len() {
             let span = plan.script_span;
             let message = "compact lowered statement count did not match the source program";
             let diagnostics = vec![runtime_diagnostic(
@@ -4176,7 +4368,10 @@ impl Evaluator {
                 last_status: self.last_status,
             });
         }
-        let lowered_statements = self.lowered_program.statements.clone();
+        let lowered_statements = self
+            .indexed_program
+            .is_none()
+            .then(|| self.lowered_program.statements.clone());
 
         crate::runtime::process::clear_cancellation_request();
         let script_span = plan.script_span;
@@ -4215,17 +4410,56 @@ impl Evaluator {
             if self.signal_state.shutdown_complete {
                 break;
             }
-            let Some(lowered) = lowered_statements[index].clone() else {
-                continue;
-            };
             if stmt.skip_auto_main {
                 continue;
             }
-            if matches!(lowered.kind, LoweredTopLevelKind::Defer { .. }) {
-                compact_defers.push(lowered);
-                continue;
-            }
-            match self.eval_lowered_top_level_stmt(&lowered, span) {
+            let evaluated = if let Some(result) = self.eval_indexed_driver_step(index, span) {
+                result
+            } else {
+                let decoded = if let Some(indexed) = &self.indexed_program {
+                    indexed
+                        .decode_driver_step_at(index)
+                        .map(|(_, statement)| statement)
+                        .map_err(|error| {
+                            RuntimeError::new(
+                                "indexed-driver",
+                                format!(
+                                    "indexed driver verification failed: {}",
+                                    error.message
+                                ),
+                            )
+                            .with_span(span)
+                        })
+                } else {
+                    Ok(lowered_statements
+                        .as_ref()
+                        .and_then(|statements| statements[index].clone()))
+                };
+                let Some(lowered) = (match decoded {
+                    Ok(lowered) => lowered,
+                    Err(error) => {
+                        diagnostics.push(runtime_diagnostic(
+                            span,
+                            &error.message,
+                            "runtime.indexed-driver",
+                        ));
+                        traceback = Some(self.traceback_for_value(
+                            span,
+                            "runtime.error",
+                            &Value::Error(Box::new(error)),
+                        ));
+                        break;
+                    }
+                }) else {
+                    continue;
+                };
+                if matches!(lowered.kind, LoweredTopLevelKind::Defer { .. }) {
+                    compact_defers.push(lowered);
+                    continue;
+                }
+                self.eval_lowered_top_level_stmt(&lowered, span)
+            };
+            match evaluated {
                 Ok(Some(Flow::Continue(value))) => last_value = value,
                 Ok(Some(Flow::Return(value))) => {
                     diagnostics.push(runtime_diagnostic(
@@ -4547,7 +4781,14 @@ impl Evaluator {
         // CLI strings are the documented way to pass paths into `main`. A rest
         // param's kind is `List`, so it (and any variadic extras past the fixed
         // params) is left as `Str`.
-        if let Some(main) = self.lowered_procs.get(&Name::intern("main")) {
+        let main_name = Name::intern("main");
+        let main = self.lowered_procs.get(&main_name).cloned().or_else(|| {
+            self.indexed_function(
+                LoweredFunctionKey::Name(main_name),
+                LoweredFunctionKind::Proc,
+            )
+        });
+        if let Some(main) = main {
             for (index, arg) in args.iter_mut().enumerate() {
                 if main.param_kinds.get(index).copied() == Some(LoweredType::Path)
                     && let Value::Str(text) = arg
@@ -4962,7 +5203,7 @@ impl Evaluator {
     }
 
     fn lowered_function(&self, function: LoweredFunctionKey) -> Option<Arc<LoweredPureFunction>> {
-        match function {
+        let lowered = match function {
             LoweredFunctionKey::Name(function) => self
                 .lowered_pures
                 .get(&function)
@@ -4973,7 +5214,42 @@ impl Evaluator {
                 .get(&function)
                 .or_else(|| self.lowered_qualified_procs.get(&function))
                 .cloned(),
-        }
+        };
+        lowered.or_else(|| {
+            let indexed = self.indexed_program.as_ref()?;
+            indexed
+                .decode_function(function, LoweredFunctionKind::Pure)
+                .ok()
+                .flatten()
+                .or_else(|| {
+                    indexed
+                        .decode_function(function, LoweredFunctionKind::Proc)
+                        .ok()
+                        .flatten()
+                })
+        })
+    }
+
+    fn indexed_function(
+        &self,
+        function: LoweredFunctionKey,
+        kind: LoweredFunctionKind,
+    ) -> Option<Arc<LoweredPureFunction>> {
+        self.indexed_program
+            .as_ref()?
+            .decode_function(function, kind)
+            .ok()
+            .flatten()
+    }
+
+    fn contains_indexed_function(
+        &self,
+        function: LoweredFunctionKey,
+        kind: LoweredFunctionKind,
+    ) -> bool {
+        self.indexed_program
+            .as_ref()
+            .is_some_and(|program| program.contains_function(function, kind))
     }
 }
 
@@ -6655,6 +6931,40 @@ fn compact_root_proc_main_requires_auto_call(
     lowered_statements
         .get(last_index)
         .is_none_or(|lowered| lowered.is_none())
+}
+
+fn compact_root_proc_main_requires_auto_call_indexed(
+    program: &ArenaProgram,
+    root: &[StmtId],
+    indexed: &FullProgram,
+) -> Result<bool, Diagnostic> {
+    if !root
+        .iter()
+        .copied()
+        .any(|stmt| compact_root_proc_main_exists(program, stmt))
+    {
+        return Ok(false);
+    }
+    let Some((last_index, last_stmt)) = root.iter().copied().enumerate().next_back() else {
+        return Ok(false);
+    };
+    if !compact_is_main_at_args_call(program, last_stmt) {
+        return Ok(true);
+    }
+    if compact_is_main_spliced_args_call(program, last_stmt)
+        && !compact_root_binds_name_before(program, root, last_index, Name::intern("args"))
+    {
+        return Ok(true);
+    }
+    indexed
+        .driver_step_is_skip(last_index)
+        .map_err(|error| {
+            compact_lowerability_diagnostic(
+                program.arena.stmt(last_stmt).span,
+                &format!("indexed driver verification failed: {}", error.message),
+                "compact.indexed-driver",
+            )
+        })
 }
 
 fn compact_should_skip_auto_main_stmt(

@@ -12,6 +12,7 @@ recursive calls, mutual recursion, control flow, propagation, a guarded match,
 a record field read, a registered bytes operation, and an unused operation with
 a stable error location.
 
-`vertical-slice-unsupported.xsh` is valid XSH whose dynamically typed
-`sources.len()` call is an intentional strict compact-lowering blocker. It must
-never be converted into a valid placeholder instruction by the Phase 1 builder.
+`vertical-slice-unsupported.xsh` was the strict compact-lowering blocker through
+Phase 5. Phase 6 admits its dynamically typed `sources.len()` call as an
+explicit indexed method operation. The narrow Phase 1 prototype still rejects
+the wider expression instead of producing a placeholder instruction.

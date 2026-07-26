@@ -11616,7 +11616,7 @@ fn lowered_checked_type(ty: &Type) -> Option<LoweredType> {
 
 fn lowered_method_supported_for_type(ty: &Type, name: Name, arg_count: usize) -> bool {
     match ty {
-        Type::Any | Type::Unknown => matches!(name.as_str(), "has" | "get") && arg_count == 1,
+        Type::Any | Type::Unknown => lowered_method_name(name.as_str()),
         Type::Invalid => true,
         Type::Optional(inner) => lowered_method_supported_for_type(inner, name, arg_count),
         Type::Result(ok, _) => {
@@ -11675,7 +11675,7 @@ fn lowered_method_supported_for_type(ty: &Type, name: Name, arg_count: usize) ->
         },
         Type::Record(_) | Type::Module(_) => {
             matches!(name.as_str(), "has" | "get") && arg_count == 1
-                || name == "keys" && arg_count == 0
+                || matches!(name.as_str(), "keys" | "len") && arg_count == 0
         }
         Type::List(_) => match name.as_str() {
             "collect" | "len" => arg_count == 0,
@@ -11787,6 +11787,7 @@ fn infer_checked_method_return_type(receiver: &Type, name: Name) -> Option<Type>
         Type::Map(item) => match name.as_str() {
             "keys" => Some(Type::List(Box::new(Type::Str))),
             "values" => Some(Type::List(item.clone())),
+            "len" => Some(Type::Int),
             "get" => Some(Type::Result(item.clone(), Box::new(Type::Error))),
             "set" | "remove" => Some(Type::Map(item.clone())),
             "has" => Some(Type::Bool),
@@ -11794,6 +11795,7 @@ fn infer_checked_method_return_type(receiver: &Type, name: Name) -> Option<Type>
         },
         Type::Record(fields) => match name.as_str() {
             "keys" => Some(Type::List(Box::new(Type::Str))),
+            "len" => Some(Type::Int),
             "has" => Some(Type::Bool),
             "get" => Some(Type::Result(Box::new(Type::Any), Box::new(Type::Error))),
             "values" => Some(Type::List(Box::new(
@@ -11803,6 +11805,7 @@ fn infer_checked_method_return_type(receiver: &Type, name: Name) -> Option<Type>
         },
         Type::Module(_) => match name.as_str() {
             "keys" => Some(Type::List(Box::new(Type::Str))),
+            "len" => Some(Type::Int),
             "has" => Some(Type::Bool),
             "get" => Some(Type::Result(Box::new(Type::Any), Box::new(Type::Error))),
             _ => None,

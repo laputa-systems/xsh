@@ -17,7 +17,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub const XSH_COVERAGE_TRACE_DIR: &str = "XSH_COVERAGE_TRACE_DIR";
-pub const XSH_DISABLE_COMPACT_RUNNER: &str = "XSH_DISABLE_COMPACT_RUNNER";
+#[cfg(feature = "native-tests")]
+pub const XSH_TEST_EXECUTION_MODE: &str = "XSH_TEST_EXECUTION_MODE";
 // XSH_ALLOW_LEGACY_FALLBACK is removed; compact is the only runtime path.
 
 #[cfg(test)]
@@ -26,6 +27,21 @@ static COMPACT_RUNNER_SUCCESSES: AtomicUsize = AtomicUsize::new(0);
 enum CompactRunAttempt {
     Output(ScriptOutput),
     Fallback { entry_source: EntrySource },
+}
+
+#[derive(Clone, Copy)]
+enum CompactExecutionMode {
+    Indexed,
+    #[cfg(feature = "native-tests")]
+    Arena,
+}
+
+fn compact_execution_mode() -> CompactExecutionMode {
+    #[cfg(feature = "native-tests")]
+    if std::env::var_os(XSH_TEST_EXECUTION_MODE).as_deref() == Some("arena".as_ref()) {
+        return CompactExecutionMode::Arena;
+    }
+    CompactExecutionMode::Indexed
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -60,8 +76,14 @@ pub fn run_startup() -> ScriptOutput {
     let source_id = sources.add_file("<startup>", "");
     let parsed = Parser::parse_source_arena_only(source_id, "");
     let _ = Checker::check_compact_declarations(&parsed.arena);
-    let output = Evaluator::new_with_sources_and_command(Vec::new(), sources, "xsh".into())
-        .eval(&parsed.arena, source_id);
+    let mut evaluator =
+        Evaluator::new_with_sources_and_command(Vec::new(), sources, "xsh".into());
+    let plan = evaluator
+        .prepare_compact_indexed_only(&parsed.arena, source_id)
+        .expect("empty startup program must encode as indexed IR");
+    let output = evaluator
+        .eval_installed_compact_indexed_only(plan)
+        .unwrap_or_else(|_| panic!("verified startup IR must execute"));
     ScriptOutput {
         status: output.status,
         stdout: output.stdout,
@@ -70,88 +92,25 @@ pub fn run_startup() -> ScriptOutput {
 }
 
 pub fn run_script(options: RunOptions) -> ScriptOutput {
-    let compact_disabled = std::env::var_os(XSH_DISABLE_COMPACT_RUNNER).is_some()
-        || options.coverage_trace_dir.is_some()
-        || std::env::var_os(XSH_COVERAGE_TRACE_DIR).is_some();
-
-    if !compact_disabled {
-        match try_run_compact_lowered_script_with_fallback(&options) {
-            Ok(CompactRunAttempt::Output(output)) => {
-                #[cfg(test)]
-                COMPACT_RUNNER_SUCCESSES.fetch_add(1, Ordering::Relaxed);
-                return output;
-            }
-            Ok(CompactRunAttempt::Fallback { entry_source }) => {
-                return run_checked_fallback(
-                    &options.script,
-                    entry_source,
-                    options.args.clone(),
-                    options.strict_lower,
-                    None,
-                );
-            }
-            Err(err) => {
-                return ScriptOutput {
-                    status: 2,
-                    stdout: Vec::new(),
-                    stderr: text_bytes(format!(
-                        "xsh: failed to read '{}': {err}\n",
-                        options.script
-                    )),
-                };
-            }
+    match try_run_compact_lowered_script_with_fallback(&options) {
+        Ok(CompactRunAttempt::Output(output)) => {
+            #[cfg(test)]
+            COMPACT_RUNNER_SUCCESSES.fetch_add(1, Ordering::Relaxed);
+            output
         }
-    }
-
-    // Coverage / explicitly-disabled compact: still run the compact path, but
-    // with tracing enabled so coverage traces are emitted. We parse into the
-    // arena and check declarations only (the full check happens via the arena
-    // checker during lowering installation).
-    let bytes = match fs::read(&options.script) {
-        Ok(bytes) => bytes,
-        Err(err) => {
-            return ScriptOutput {
-                status: 2,
-                stdout: Vec::new(),
-                stderr: text_bytes(format!("xsh: failed to read '{}': {err}\n", options.script)),
-            };
-        }
-    };
-    let entry_source = entry_source_from_bytes(&options.script, bytes);
-    if !entry_source.diagnostics.is_empty() {
-        let sources = entry_source.sources;
-        return ScriptOutput {
+        Ok(CompactRunAttempt::Fallback { entry_source }) => run_checked_fallback(
+            &options.script,
+            entry_source,
+            options.args,
+            options.strict_lower,
+            options.coverage_trace_dir,
+        ),
+        Err(err) => ScriptOutput {
             status: 2,
             stdout: Vec::new(),
-            stderr: text_bytes(
-                DiagnosticRenderer::new().render(&entry_source.diagnostics, &sources),
-            ),
-        };
+            stderr: text_bytes(format!("xsh: failed to read '{}': {err}\n", options.script)),
+        },
     }
-    let entry_source_id = entry_source.source_id;
-    let (sources, parsed) =
-        parse_load_entry_source_arena_only(&options.script, entry_source, Vec::new());
-    if !parsed.diagnostics.is_empty() {
-        return ScriptOutput {
-            status: 2,
-            stdout: Vec::new(),
-            stderr: text_bytes(DiagnosticRenderer::new().render(&parsed.diagnostics, &sources)),
-        };
-    }
-
-    let command_name = script_command_name(&options.script);
-    let mut evaluator =
-        Evaluator::new_with_sources_and_command(options.args, sources, command_name);
-    let coverage_trace_dir = options
-        .coverage_trace_dir
-        .or_else(|| std::env::var_os(XSH_COVERAGE_TRACE_DIR).map(PathBuf::from));
-    if let Some(dir) = &coverage_trace_dir {
-        evaluator = evaluator.with_tracing();
-        evaluator =
-            evaluator.with_env_var(XSH_COVERAGE_TRACE_DIR.as_bytes().to_vec(), path_bytes(dir));
-    }
-    let output = evaluator.eval(&parsed.arena, entry_source_id);
-    script_output_from_eval(output, coverage_trace_dir)
 }
 
 #[cfg(test)]
@@ -164,6 +123,19 @@ pub(crate) fn try_run_compact_lowered_script(
     }
 }
 
+#[cfg(all(test, feature = "native-tests"))]
+fn try_run_compact_script_in_mode(
+    options: &RunOptions,
+    mode: CompactExecutionMode,
+) -> Result<Option<ScriptOutput>, std::io::Error> {
+    let bytes = fs::read(&options.script)?;
+    let entry_source = entry_source_from_bytes(&options.script, bytes);
+    match try_run_compact_lowered_entry_source(options, entry_source, mode) {
+        CompactRunAttempt::Output(output) => Ok(Some(output)),
+        CompactRunAttempt::Fallback { .. } => Ok(None),
+    }
+}
+
 /// A program that parsed cleanly but did not lower to the compact runtime.
 /// Run the checker to surface diagnostics (the common case: the program is
 /// invalid). If the checker is clean, this is a real lowering gap — report it.
@@ -171,8 +143,8 @@ fn run_checked_fallback(
     script: &str,
     entry_source: EntrySource,
     args: Vec<String>,
-    strict_lower: bool,
-    coverage_trace_dir: Option<PathBuf>,
+    _strict_lower: bool,
+    _coverage_trace_dir: Option<PathBuf>,
 ) -> ScriptOutput {
     let checked_program = parse_load_check_entry_source_with_token_table(
         script,
@@ -195,40 +167,27 @@ fn run_checked_fallback(
             stderr: text_bytes(checked_program.render_check_diagnostics()),
         };
     }
-    if strict_lower {
-        let diagnostics = Evaluator::compact_lowerability_diagnostics(
-            &checked_program.parsed.arena,
-            checked_program.entry_source_id,
-            checked_program.sources.clone(),
-            args,
-            script_command_name(script),
-        );
-        if !diagnostics.is_empty() {
-            return ScriptOutput {
-                status: 2,
-                stdout: Vec::new(),
-                stderr: text_bytes(
-                    DiagnosticRenderer::new().render(&diagnostics, &checked_program.sources),
-                ),
-            };
-        }
-        return ScriptOutput {
-            status: 1,
-            stdout: Vec::new(),
-            stderr: text_bytes(format!(
-                "xsh: compact lowering not available for '{script}'\n"
-            )),
-        };
-    }
-
-    let command_name = script_command_name(script);
-    let evaluator =
-        Evaluator::new_with_sources_and_command(args, checked_program.sources, command_name);
-    let output = evaluator.eval(
+    let diagnostics = Evaluator::compact_indexed_diagnostics(
         &checked_program.parsed.arena,
         checked_program.entry_source_id,
+        checked_program.sources.clone(),
+        args,
+        script_command_name(script),
     );
-    script_output_from_eval(output, coverage_trace_dir)
+    if !diagnostics.is_empty() {
+        return ScriptOutput {
+            status: 2,
+            stdout: Vec::new(),
+            stderr: text_bytes(
+                DiagnosticRenderer::new().render(&diagnostics, &checked_program.sources),
+            ),
+        };
+    }
+    ScriptOutput {
+        status: 1,
+        stdout: Vec::new(),
+        stderr: text_bytes(format!("xsh: indexed execution not available for '{script}'\n")),
+    }
 }
 
 fn try_run_compact_lowered_script_with_fallback(
@@ -236,7 +195,11 @@ fn try_run_compact_lowered_script_with_fallback(
 ) -> Result<CompactRunAttempt, std::io::Error> {
     let bytes = fs::read(&options.script)?;
     let entry_source = entry_source_from_bytes(&options.script, bytes);
-    Ok(try_run_compact_lowered_entry_source(options, entry_source))
+    Ok(try_run_compact_lowered_entry_source(
+        options,
+        entry_source,
+        compact_execution_mode(),
+    ))
 }
 
 fn compact_fallback(sources: SourceMap, source_id: crate::source::SourceId) -> CompactRunAttempt {
@@ -252,6 +215,7 @@ fn compact_fallback(sources: SourceMap, source_id: crate::source::SourceId) -> C
 fn try_run_compact_lowered_entry_source(
     options: &RunOptions,
     entry_source: EntrySource,
+    mode: CompactExecutionMode,
 ) -> CompactRunAttempt {
     let source_id = entry_source.source_id;
     if !entry_source.diagnostics.is_empty() {
@@ -276,24 +240,69 @@ fn try_run_compact_lowered_entry_source(
     } = parsed;
     drop(cst);
 
+    #[cfg(feature = "native-tests")]
+    if matches!(mode, CompactExecutionMode::Arena) {
+        let mut admission = Evaluator::new_with_sources_and_command(
+            options.args.clone(),
+            sources.clone(),
+            script_command_name(&options.script),
+        );
+        if admission
+            .prepare_compact_indexed_only(&arena, source_id)
+            .is_some()
+        {
+            drop(admission);
+        } else {
+            let check_source_id = arena.source_text_source_id().unwrap_or(source_id);
+            let check_source = sources
+                .get(check_source_id)
+                .map(|source| source.text())
+                .unwrap_or_default();
+            let checked = Checker::check_arena(&arena, check_source);
+            if !checked.diagnostics.is_empty() {
+                return CompactRunAttempt::Output(ScriptOutput {
+                    status: 2,
+                    stdout: Vec::new(),
+                    stderr: text_bytes(
+                        DiagnosticRenderer::new().render(&checked.diagnostics, &sources),
+                    ),
+                });
+            }
+        }
+    }
+
     let mut evaluator = Evaluator::new_with_sources_and_command(
         options.args.clone(),
         sources,
         script_command_name(&options.script),
     );
-    let Some(plan) =
-        evaluator.prepare_compact_lowered_only(&arena, source_id, options.strict_lower)
-    else {
+    let coverage_trace_dir = options
+        .coverage_trace_dir
+        .clone()
+        .or_else(|| std::env::var_os(XSH_COVERAGE_TRACE_DIR).map(PathBuf::from));
+    if let Some(dir) = &coverage_trace_dir {
+        evaluator = evaluator.with_tracing();
+        evaluator =
+            evaluator.with_env_var(XSH_COVERAGE_TRACE_DIR.as_bytes().to_vec(), path_bytes(dir));
+    }
+    #[cfg(feature = "native-tests")]
+    if matches!(mode, CompactExecutionMode::Arena) {
+        let output = evaluator.eval(&arena, source_id);
+        return CompactRunAttempt::Output(script_output_from_eval(output, coverage_trace_dir));
+    }
+    let plan = evaluator.prepare_compact_indexed_only(&arena, source_id);
+    let Some(plan) = plan else {
         return compact_fallback(evaluator.into_sources(), source_id);
     };
     drop(arena);
-    let output = match evaluator.eval_installed_compact_lowered_only(plan) {
+    let output = evaluator.eval_installed_compact_indexed_only(plan);
+    let output = match output {
         Ok(output) => output,
         Err(evaluator) => {
             return compact_fallback(evaluator.into_sources(), source_id);
         }
     };
-    CompactRunAttempt::Output(script_output_from_eval(output, None))
+    CompactRunAttempt::Output(script_output_from_eval(output, coverage_trace_dir))
 }
 
 fn script_output_from_eval(
@@ -530,6 +539,44 @@ add_one(4)
         let _ = fs::remove_file(&path);
         if let Some(parent) = path.parent() {
             let _ = fs::remove_dir(parent);
+        }
+    }
+
+    #[test]
+    #[cfg(feature = "native-tests")]
+    fn indexed_and_arena_execution_modes_match() {
+        let cases = [
+            (
+                "mode-value",
+                "pure double(n: Int) -> Int {\n  return n * 2\n}\n\nprint ${double(4)}\n",
+            ),
+            (
+                "mode-error",
+                "proc fail() [process] {\n  run false\n}\n\nfail()\n",
+            ),
+        ];
+        for (name, source) in cases {
+            let path = temp_script(name, source);
+            let options = RunOptions {
+                script: path.to_string_lossy().into_owned(),
+                args: Vec::new(),
+                coverage_trace_dir: None,
+                strict_lower: true,
+            };
+            let indexed =
+                try_run_compact_script_in_mode(&options, CompactExecutionMode::Indexed)
+                    .expect("indexed execution")
+                    .unwrap_or_else(|| panic!("{name} should encode as indexed IR"));
+            let arena = try_run_compact_script_in_mode(&options, CompactExecutionMode::Arena)
+                .expect("arena execution")
+                .expect("script should lower for the arena oracle");
+            assert_eq!(indexed.status, arena.status, "{name} status");
+            assert_eq!(indexed.stdout, arena.stdout, "{name} stdout");
+            assert_eq!(indexed.stderr, arena.stderr, "{name} stderr and source spans");
+            let _ = fs::remove_file(&path);
+            if let Some(parent) = path.parent() {
+                let _ = fs::remove_dir(parent);
+            }
         }
     }
 

@@ -66,7 +66,7 @@ This table is the owner-module summary:
 | process, cwd, env, signals, cancellation | `docs/SPEC-OS.md` | `src/runtime/run.rs`, `src/runtime/process.rs`, `src/runtime/cwd.rs` |
 | standard modules and methods | `docs/STDLIB.md`, `src/modules/README.md` | `crates/xsh-registry/src/signature/*`, `src/modules/*`, `src/runtime/eval/modules.rs`, `src/runtime/eval/methods.rs` |
 | structured streams | `docs/STREAMS.md` | `src/sema/check/stream.rs`, `src/runtime/eval/stream.rs` |
-| lowered IR | `docs/FRONTEND.md` | `src/runtime/eval/lower.rs`, `lowered_ops.rs`, `lowered_run.rs` |
+| indexed executable IR | `docs/FRONTEND.md` | `src/runtime/eval/indexed.rs`, `src/runtime/eval/indexed/full.rs`, `src/runtime/eval/lower.rs`, `src/runtime/eval/lowered_run.rs` |
 | docs and examples | `docs/GENERATED-DOCS.md`, `docs-src/README.md` | `src/docs.rs`, `docs-src/*`, `examples/*` |
 
 ## Agent Map For IR Work
@@ -83,18 +83,19 @@ Use this path when changing interpreter-speed behavior:
 4. Inspect the normal runtime behavior in `src/runtime/eval.rs`,
    `src/runtime/eval/methods.rs`, `src/runtime/eval/modules.rs`, or
    `src/runtime/eval/stmt.rs`.
-5. Add lowered support in `src/runtime/eval.rs` only when the behavior can be
-   represented exactly by `LoweredPureFunction`, `LoweredProgram`,
-   `LoweredStmt`, `LoweredExpr`, `LoweredType`, and `LoweredValue`.
+5. Add executable support only when it has an exhaustive indexed encoding,
+   verifier coverage, and exact runtime behavior. Stateful or OS-facing work is
+   represented by an explicit host/runtime operation referenced by indexed IR.
 6. Update `tools/xsh-ir-coverage.xsh` for expansion coverage and add a
    user-visible workload to `crates/xsh-multicall/benches/bench.rs` only when
    the change affects an interaction users actually wait for.
 
-The lowered IR is not a new language layer. It is an acceleration cache derived
-from checked arena syntax after definitions are known. Imported user-module pures and
-eligible restricted procs can unblock more lowering during `use` evaluation, but
-normal process forms, stateful module calls, tracing-sensitive execution, and OS
-effects remain on the general evaluator.
+The indexed IR is not a new language layer. It is the verified executable
+representation derived from checked arena syntax after definitions are known.
+Imported user modules are part of complete-program admission. Process forms,
+stateful module calls, tracing-sensitive execution, and OS effects remain
+explicit runtime boundaries in the indexed driver rather than reasons to retain
+the source arena.
 
 ## Syntax
 
@@ -174,9 +175,9 @@ not leak into generated docs or user-facing signatures.
 
 ## Runtime
 
-`src/runtime/eval.rs` owns the evaluator state: scopes, proc/pure registries,
+`src/runtime/eval.rs` owns the evaluator state: scopes, indexed program,
 stdout/stderr capture, cwd, env, last process status, trace events, call stack,
-pending traceback, stream item context, and the lowered function registries.
+pending traceback, and stream item context.
 
 Focused runtime behavior lives beside it:
 
@@ -198,13 +199,13 @@ parsing, source spans, test-host interception, effect behavior, and evaluator
 state in the main crate adapters. Do not widen evaluator fields just to share
 code.
 
-The lowered IR is deliberately limited to pure/effect-free regions.
-`LoweredPureFunction`, `LoweredStmt`, `LoweredExpr`, `LoweredValue`, and the
-`lower_*`/`eval_lowered_*` helpers live in `src/runtime/eval.rs`;
-`src/runtime/eval/call.rs` gates pure calls through `call_lowered_pure` before
-falling back to the AST evaluator. Restricted proc bodies can be reused by
-script-level IR, while ordinary proc dispatch remains AST-first. See
-`docs/FRONTEND.md` before adding new IR nodes, value kinds, or fast paths.
+`src/runtime/eval/indexed/full.rs` owns the finalized function store and
+source-ordered effect driver. A `FullProgram` is installed only after whole-store
+verification; the script runner then drops parser and lowering ownership before
+execution. The arena evaluator remains available only through the
+`native-tests` force mode as a differential oracle. See `docs/FRONTEND.md`
+before adding instructions, runtime operations, value kinds, or execution
+shortcuts.
 
 ## Interactive
 

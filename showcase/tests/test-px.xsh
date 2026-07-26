@@ -1,11 +1,11 @@
 proc sleeper_bin() [env, error] -> Result[Path] {
-  return p"${env.get(\"CARGO_BIN_EXE_xsh-test-sleeper\")?}"
+  return fp"${env.get("CARGO_BIN_EXE_xsh-test-sleeper")?}"
 }
 
 proc marker_executable(ctx: TestContext, marker: Str) [env, fs, error] -> Result[Path] {
   let root = test.temp_dir(ctx, name: marker)?
   let executable = fp"${root}/${marker}"
-  fs.copy(sleeper_bin().resolve()?, executable)?
+  fs.copy(sleeper_bin()?.resolve()?, executable)?
   fs.chmod(executable, 0o755)?
   return executable
 }

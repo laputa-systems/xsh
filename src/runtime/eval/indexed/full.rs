@@ -6,15 +6,17 @@ use super::{
 use crate::modules::RuntimeOp;
 use crate::modules::hash::HashAlgorithm;
 use crate::runtime::eval::{
-    LoweredBoolExpr, LoweredCallArg, LoweredCompTarget, LoweredErrorExpr, LoweredExpr,
-    LoweredFmtPart, LoweredFunctionKey, LoweredFunctionKind, LoweredFunctionUnit, LoweredIntExpr,
-    LoweredPattern, LoweredPipelineStage, LoweredProcessCommandArgv,
+    LoweredBoolExpr, LoweredCallArg, LoweredCompTarget, LoweredErrorExpr,
+    LoweredErrorPatternFields, LoweredExpr, LoweredFmtPart, LoweredFunctionKey,
+    LoweredFunctionKind, LoweredFunctionUnit, LoweredIntExpr, LoweredPattern,
+    LoweredPatternSlots, LoweredPipelineStage, LoweredProcessCommandArgv,
     LoweredProcessCommandBuilderEntry, LoweredPureFunction, LoweredRecordEntry, LoweredReturnKind,
     LoweredRunArg, LoweredRunArgKind, LoweredRunCapture, LoweredRunEnv,
     LoweredRunPipelineSegment, LoweredRunRedirection, LoweredSpawnRun, LoweredStmt,
     LoweredStatsValue, LoweredStrPredicate, LoweredTagValue, LoweredType, LoweredTypeCheck,
     LoweredModuleExport, LoweredModuleExportKind, LoweredProgram, LoweredTopLevelKind,
-    LoweredTopLevelSlot, LoweredTopLevelStmt, LoweredValue, ReduceByOp, ScanCheck, ScanCondition,
+    LoweredTopLevelSlot, LoweredTopLevelSlots, LoweredTopLevelStmt, LoweredValue, ReduceByOp,
+    ScanCheck, ScanCondition,
 };
 use crate::runtime::value::{DurationValue, FloatValue, FunctionName, PathValue};
 use crate::sema::check::{CompactBodyProbeOutput, CompactDeclOutput};
@@ -82,7 +84,7 @@ fn driver_owner_index(owner: u32) -> Option<usize> {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(u8)]
-enum FullTag {
+pub(in crate::runtime::eval) enum FullTag {
     // The exhaustive FullCodec implementations below are the payload schemas:
     // each arm writes and reads fields in one order and preserves the runtime
     // operation, error, location, and trace contract owned by Lowered*.
@@ -227,7 +229,7 @@ enum FullTag {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(u8)]
-enum FullPatternTag {
+pub(in crate::runtime::eval) enum FullPatternTag {
     Wildcard,
     Bind,
     Type,
@@ -241,7 +243,7 @@ enum FullPatternTag {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(u8)]
-enum FullStageTag {
+pub(in crate::runtime::eval) enum FullStageTag {
     TextLines,
     JsonLines,
     Where,
@@ -285,7 +287,7 @@ enum FullStageTag {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(u8)]
-enum FullValueTag {
+pub(in crate::runtime::eval) enum FullValueTag {
     Null,
     Unit,
     Int,
@@ -308,7 +310,7 @@ enum FullValueTag {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(u8)]
-enum FullDriverTag {
+pub(in crate::runtime::eval) enum FullDriverTag {
     Skip,
     Use,
     Let,
@@ -636,6 +638,7 @@ impl FullStore {
                 .saturating_sub(size_of::<SemanticPools>())
     }
 
+    #[cfg(test)]
     fn driver_retained_bytes(&self) -> usize {
         self.driver_steps.capacity() * size_of::<FullDriverStep>()
             + self.driver_slots.capacity() * size_of::<FullDriverSlot>()
@@ -688,7 +691,27 @@ pub(in crate::runtime::eval) struct FullProgram {
     sources: Arc<SourceMap>,
 }
 
+#[derive(Clone, Copy)]
+pub(in crate::runtime::eval) struct FullFunctionView<'a> {
+    program: &'a FullProgram,
+    index: usize,
+}
+
+#[derive(Clone, Copy)]
+pub(in crate::runtime::eval) struct FullDriverStepView<'a> {
+    program: &'a FullProgram,
+    index: usize,
+}
+
 impl FullProgram {
+    pub(in crate::runtime::eval) fn function_count(&self) -> usize {
+        self.store.functions.len()
+    }
+
+    pub(in crate::runtime::eval) fn store_retained_bytes(&self) -> usize {
+        self.store.retained_bytes()
+    }
+
     pub(in crate::runtime::eval) fn retained_bytes(&self) -> usize {
         size_of::<Self>()
             + self
@@ -706,22 +729,151 @@ impl FullProgram {
         self.store.extra.len()
     }
 
+    #[cfg(test)]
     fn decode_functions(
         &self,
     ) -> Result<Vec<(LoweredFunctionKey, LoweredFunctionKind, Arc<LoweredPureFunction>)>, IrVerifyError>
     {
         let mut decoded = Vec::with_capacity(self.store.functions.len());
-        for (function_index, function) in self.store.functions.iter().enumerate() {
+        for function_index in 0..self.store.functions.len() {
+            decoded.push(self.decode_function_index(function_index)?);
+        }
+        Ok(decoded)
+    }
+
+    pub(in crate::runtime::eval) fn decode_function(
+        &self,
+        key: LoweredFunctionKey,
+        kind: LoweredFunctionKind,
+    ) -> Result<Option<Arc<LoweredPureFunction>>, IrVerifyError> {
+        for function_index in 0..self.store.functions.len() {
+            if self.function_identity(function_index)? == (key, kind) {
+                let (_, _, body) = self.decode_function_index(function_index)?;
+                return Ok(Some(body));
+            }
+        }
+        Ok(None)
+    }
+
+    pub(in crate::runtime::eval) fn contains_function(
+        &self,
+        key: LoweredFunctionKey,
+        kind: LoweredFunctionKind,
+    ) -> bool {
+        (0..self.store.functions.len()).any(|function_index| {
+            self.function_identity(function_index)
+                .is_ok_and(|identity| identity == (key, kind))
+        })
+    }
+
+    pub(in crate::runtime::eval) fn function_view(
+        &self,
+        key: LoweredFunctionKey,
+        kind: LoweredFunctionKind,
+    ) -> Result<Option<FullFunctionView<'_>>, IrVerifyError> {
+        for index in 0..self.store.functions.len() {
+            if self.function_identity(index)? == (key, kind) {
+                return Ok(Some(FullFunctionView {
+                    program: self,
+                    index,
+                }));
+            }
+        }
+        Ok(None)
+    }
+
+    fn function_identity(
+        &self,
+        function_index: usize,
+    ) -> Result<(LoweredFunctionKey, LoweredFunctionKind), IrVerifyError> {
+        let function = self
+            .store
+            .functions
+            .get(function_index)
+            .ok_or_else(|| IrVerifyError::new("function identity is out of bounds"))?;
+        let metadata = self
+            .store
+            .function_metadata
+            .get(function_index)
+            .copied()
+            .ok_or_else(|| IrVerifyError::new("function metadata is missing"))?;
+        let name = Name::intern(self.store.string(function.name)?);
+        let key = if metadata.owner == IR_NONE {
+            LoweredFunctionKey::Name(name)
+        } else {
+            LoweredFunctionKey::Qualified(QualifiedName::new(
+                Name::intern(self.store.string(metadata.owner)?),
+                name,
+            ))
+        };
+        let kind = if metadata.flags & 1 == 0 {
+            LoweredFunctionKind::Pure
+        } else {
+            LoweredFunctionKind::Proc
+        };
+        Ok((key, kind))
+    }
+
+    fn pipeline_stage_tags(
+        &self,
+        instruction_range: std::ops::Range<usize>,
+    ) -> Result<Vec<FullStageTag>, IrVerifyError> {
+        let mut tags = Vec::new();
+        for instruction in instruction_range {
+            if self.store.tags[instruction] != FullTag::ExprPipeline {
+                continue;
+            }
+            let data = self.store.data[instruction];
+            let mut payload = FullCursor::new(self.store.payload(data.range())?);
+            payload.raw()?;
+            let block = IrBlockId::from_raw(payload.raw()?)
+                .ok_or_else(|| IrVerifyError::new("pipeline stage block id is invalid"))?;
+            let block = self
+                .store
+                .blocks
+                .get(block.index())
+                .copied()
+                .ok_or_else(|| IrVerifyError::new("pipeline stage block id is out of bounds"))?;
+            if block.flags & BLOCK_SEQUENCE_KIND_MASK != BLOCK_LIST {
+                return Err(IrVerifyError::new("pipeline stage block kind is invalid"));
+            }
+            let mut stages = FullCursor::new(self.store.payload(block.instructions)?);
+            let len = stages.raw()? as usize;
+            tags.reserve(len);
+            for _ in 0..len {
+                let index = stages.raw()? as usize;
+                tags.push(
+                    self.store
+                        .stages
+                        .get(index)
+                        .copied()
+                        .ok_or_else(|| IrVerifyError::new("pipeline stage id is out of bounds"))?,
+                );
+            }
+            stages.finish()?;
+        }
+        Ok(tags)
+    }
+
+    fn decode_function_index(
+        &self,
+        function_index: usize,
+    ) -> Result<(LoweredFunctionKey, LoweredFunctionKind, Arc<LoweredPureFunction>), IrVerifyError>
+    {
+            let function = self
+                .store
+                .functions
+                .get(function_index)
+                .ok_or_else(|| IrVerifyError::new("function id is out of bounds"))?;
             let instructions = self.store.function_instruction_range(function_index)?;
-            let instruction_len = instructions.len();
             let decoder = FullDecoder {
                 store: &self.store,
                 owner: IrFunctionId::new(function_index)
                     .map_err(|_| IrVerifyError::new("function id is invalid"))?
                     .raw(),
                 instruction_range: instructions,
-                instruction_states: RefCell::new(vec![0; instruction_len]),
-                block_states: RefCell::new(vec![0; self.store.blocks.len()]),
+                instruction_states: None,
+                block_states: None,
                 slot_count: function.slot_count,
             };
             let body_words = [function.body];
@@ -798,28 +950,11 @@ impl FullProgram {
                 }
                 ty => LoweredReturnKind::Plain(lowered_type_from_type(&ty)?),
             };
-            let metadata = self
-                .store
-                .function_metadata
-                .get(function_index)
-                .copied()
-                .ok_or_else(|| IrVerifyError::new("function metadata is missing"))?;
-            let name = Name::intern(self.store.string(function.name)?);
-            let key = if metadata.owner == IR_NONE {
-                LoweredFunctionKey::Name(name)
-            } else {
-                LoweredFunctionKey::Qualified(QualifiedName::new(
-                    Name::intern(self.store.string(metadata.owner)?),
-                    name,
-                ))
-            };
-            decoded.push((
+            let metadata = self.store.function_metadata[function_index];
+            let (key, kind) = self.function_identity(function_index)?;
+            Ok((
                 key,
-                if metadata.flags & 1 == 0 {
-                    LoweredFunctionKind::Pure
-                } else {
-                    LoweredFunctionKind::Proc
-                },
+                kind,
                 Arc::new(LoweredPureFunction {
                     params: param_names,
                     param_kinds,
@@ -832,12 +967,13 @@ impl FullProgram {
                     body,
                     has_defers: metadata.flags & 2 != 0,
                 }),
-            ));
-        }
-        Ok(decoded)
+            ))
     }
 
-    fn decode_driver(&self) -> Result<Option<LoweredProgram>, IrVerifyError> {
+    #[cfg(test)]
+    pub(in crate::runtime::eval) fn decode_driver(
+        &self,
+    ) -> Result<Option<LoweredProgram>, IrVerifyError> {
         if self.store.driver_root == IR_NONE {
             return Ok(None);
         }
@@ -861,6 +997,94 @@ impl FullProgram {
                 .map(|(_, statement)| statement)
                 .collect(),
         }))
+    }
+
+    pub(in crate::runtime::eval) fn driver_step_count(
+        &self,
+    ) -> Result<usize, IrVerifyError> {
+        Ok(self.driver_root_steps()?.len())
+    }
+
+    pub(in crate::runtime::eval) fn driver_step_view(
+        &self,
+        index: usize,
+    ) -> Result<FullDriverStepView<'_>, IrVerifyError> {
+        let steps = self.driver_root_steps()?;
+        let index = steps
+            .start
+            .checked_add(index)
+            .filter(|index| *index < steps.end)
+            .ok_or_else(|| IrVerifyError::new("driver root step is out of bounds"))?;
+        Ok(FullDriverStepView {
+            program: self,
+            index,
+        })
+    }
+
+    pub(in crate::runtime::eval) fn driver_step_is_skip(
+        &self,
+        index: usize,
+    ) -> Result<bool, IrVerifyError> {
+        let steps = self.driver_root_steps()?;
+        let step = steps
+            .start
+            .checked_add(index)
+            .filter(|step| *step < steps.end)
+            .ok_or_else(|| IrVerifyError::new("driver root step is out of bounds"))?;
+        Ok(self.store.driver_steps[step].tag == FullDriverTag::Skip)
+    }
+
+    pub(in crate::runtime::eval) fn driver_step_is_defer(
+        &self,
+        index: usize,
+    ) -> Result<bool, IrVerifyError> {
+        let steps = self.driver_root_steps()?;
+        let step = steps
+            .start
+            .checked_add(index)
+            .filter(|step| *step < steps.end)
+            .ok_or_else(|| IrVerifyError::new("driver root step is out of bounds"))?;
+        Ok(self.store.driver_steps[step].tag == FullDriverTag::Defer)
+    }
+
+    pub(in crate::runtime::eval) fn decode_driver_step_at(
+        &self,
+        index: usize,
+    ) -> Result<(Span, Option<LoweredTopLevelStmt>), IrVerifyError> {
+        let root_index = self
+            .store
+            .driver_root
+            .checked_sub(1)
+            .map(|index| index as usize)
+            .filter(|index| *index < self.store.driver_programs.len())
+            .ok_or_else(|| IrVerifyError::new("driver root is out of bounds"))?;
+        let steps = self.driver_root_steps()?;
+        let step_index = steps
+            .start
+            .checked_add(index)
+            .filter(|step| *step < steps.end)
+            .ok_or_else(|| IrVerifyError::new("driver root step is out of bounds"))?;
+        let mut program_states = vec![0; self.store.driver_programs.len()];
+        let mut step_states = vec![0; self.store.driver_steps.len()];
+        program_states[root_index] = 1;
+        let row =
+            self.decode_driver_step(step_index, &mut program_states, &mut step_states)?;
+        step_states[step_index] = 2;
+        program_states[root_index] = 2;
+        Ok(row)
+    }
+
+    fn driver_root_steps(&self) -> Result<std::ops::Range<usize>, IrVerifyError> {
+        let root = self
+            .store
+            .driver_root
+            .checked_sub(1)
+            .map(|index| index as usize)
+            .and_then(|index| self.store.driver_programs.get(index))
+            .ok_or_else(|| IrVerifyError::new("driver root is out of bounds"))?;
+        root.steps
+            .bounds(self.store.driver_steps.len())
+            .ok_or_else(|| IrVerifyError::new("driver root step range is invalid"))
     }
 
     fn decode_driver_program_rows(
@@ -924,9 +1148,9 @@ impl FullProgram {
             store: &self.store,
             owner: driver_owner(step_index)
                 .map_err(|_| IrVerifyError::new("driver owner is invalid"))?,
-            instruction_states: RefCell::new(vec![0; instruction_range.len()]),
+            instruction_states: Some(RefCell::new(vec![0; instruction_range.len()])),
             instruction_range,
-            block_states: RefCell::new(vec![0; self.store.blocks.len()]),
+            block_states: Some(RefCell::new(vec![0; self.store.blocks.len()])),
             slot_count: step.slot_count,
         };
         let location_words = [step.location];
@@ -1038,6 +1262,401 @@ impl FullProgram {
             }),
         ))
     }
+
+    fn verify_driver(&self) -> Result<(), IrVerifyError> {
+        if self.store.driver_root == IR_NONE {
+            return Ok(());
+        }
+        let mut program_states = vec![0; self.store.driver_programs.len()];
+        let mut step_states = vec![0; self.store.driver_steps.len()];
+        self.verify_driver_program(
+            self.store.driver_root,
+            &mut program_states,
+            &mut step_states,
+        )?;
+        if program_states.iter().any(|state| *state != 2)
+            || step_states.iter().any(|state| *state != 2)
+        {
+            return Err(IrVerifyError::new(
+                "driver plan contains an unreachable program or step",
+            ));
+        }
+        Ok(())
+    }
+
+    fn verify_driver_program(
+        &self,
+        raw: u32,
+        program_states: &mut [u8],
+        step_states: &mut [u8],
+    ) -> Result<(), IrVerifyError> {
+        let index = raw
+            .checked_sub(1)
+            .map(|index| index as usize)
+            .filter(|index| *index < self.store.driver_programs.len())
+            .ok_or_else(|| IrVerifyError::new("driver program id is out of bounds"))?;
+        match program_states[index] {
+            0 => program_states[index] = 1,
+            1 => return Err(IrVerifyError::new("driver program graph contains a cycle")),
+            2 => {
+                return Err(IrVerifyError::new(
+                    "driver program is owned by multiple import steps",
+                ));
+            }
+            _ => unreachable!("driver program state is bounded"),
+        }
+        let steps = self.store.driver_programs[index]
+            .steps
+            .bounds(self.store.driver_steps.len())
+            .ok_or_else(|| IrVerifyError::new("driver program step range is invalid"))?;
+        for step_index in steps {
+            match step_states[step_index] {
+                0 => step_states[step_index] = 1,
+                1 => return Err(IrVerifyError::new("driver step graph contains a cycle")),
+                2 => {
+                    return Err(IrVerifyError::new(
+                        "driver step is owned by multiple programs",
+                    ));
+                }
+                _ => unreachable!("driver step state is bounded"),
+            }
+            self.verify_driver_step(step_index, program_states, step_states)?;
+            step_states[step_index] = 2;
+        }
+        program_states[index] = 2;
+        Ok(())
+    }
+
+    fn verify_driver_step(
+        &self,
+        step_index: usize,
+        program_states: &mut [u8],
+        step_states: &mut [u8],
+    ) -> Result<(), IrVerifyError> {
+        let step = self.store.driver_steps[step_index];
+        let instruction_range = self.store.driver_instruction_range(step_index)?;
+        let decoder = FullDecoder {
+            store: &self.store,
+            owner: driver_owner(step_index)
+                .map_err(|_| IrVerifyError::new("driver owner is invalid"))?,
+            instruction_states: Some(RefCell::new(vec![0; instruction_range.len()])),
+            instruction_range,
+            block_states: Some(RefCell::new(vec![0; self.store.blocks.len()])),
+            slot_count: step.slot_count,
+        };
+        let location_words = [step.location];
+        let mut location = FullCursor::new(&location_words);
+        Span::verify(&decoder, &mut location)?;
+        location.finish()?;
+        let slots = step
+            .slots
+            .bounds(self.store.driver_slots.len())
+            .ok_or_else(|| IrVerifyError::new("driver slot range is invalid"))?;
+        for slot in &self.store.driver_slots[slots] {
+            if slot.flags & !(DRIVER_SLOT_READ | DRIVER_SLOT_WRITE | DRIVER_SLOT_MUTABLE) != 0
+                || slot.flags & DRIVER_SLOT_READ == 0
+                || slot.slot >= step.slot_count
+            {
+                return Err(IrVerifyError::new("driver slot metadata is invalid"));
+            }
+            self.store.string(slot.name)?;
+            lowered_type_from_type(&self.store.semantic.to_type(slot.type_id)?)?;
+        }
+        let mut payload = FullCursor::new(self.store.payload(step.data.range())?);
+        match step.tag {
+            FullDriverTag::Skip => {}
+            FullDriverTag::Use => {
+                Arc::<str>::verify(&decoder, &mut payload)?;
+                Option::<Name>::verify(&decoder, &mut payload)?;
+                Vec::<Name>::verify(&decoder, &mut payload)?;
+                Name::verify(&decoder, &mut payload)?;
+                Vec::<LoweredModuleExport>::verify(&decoder, &mut payload)?;
+                let child = payload.raw()?;
+                Span::verify(&decoder, &mut payload)?;
+                self.verify_driver_program(child, program_states, step_states)?;
+            }
+            FullDriverTag::Let => {
+                Name::verify(&decoder, &mut payload)?;
+                Option::<LoweredType>::verify(&decoder, &mut payload)?;
+                Option::<LoweredTypeCheck>::verify(&decoder, &mut payload)?;
+                bool::verify(&decoder, &mut payload)?;
+                LoweredExpr::verify(&decoder, &mut payload)?;
+                Span::verify(&decoder, &mut payload)?;
+            }
+            FullDriverTag::LetRecord => {
+                LoweredExpr::verify(&decoder, &mut payload)?;
+                Vec::<Name>::verify(&decoder, &mut payload)?;
+                bool::verify(&decoder, &mut payload)?;
+                Span::verify(&decoder, &mut payload)?;
+            }
+            FullDriverTag::Assign => {
+                Name::verify(&decoder, &mut payload)?;
+                AssignOp::verify(&decoder, &mut payload)?;
+                LoweredExpr::verify(&decoder, &mut payload)?;
+                Span::verify(&decoder, &mut payload)?;
+            }
+            FullDriverTag::Discard => {
+                LoweredExpr::verify(&decoder, &mut payload)?;
+                Span::verify(&decoder, &mut payload)?;
+            }
+            FullDriverTag::Stmt => LoweredStmt::verify(&decoder, &mut payload)?,
+            FullDriverTag::Expr => LoweredExpr::verify(&decoder, &mut payload)?,
+            FullDriverTag::Defer => {
+                LoweredExpr::verify(&decoder, &mut payload)?;
+                Span::verify(&decoder, &mut payload)?;
+            }
+            FullDriverTag::SignalHook => {
+                Name::verify(&decoder, &mut payload)?;
+                Option::<String>::verify(&decoder, &mut payload)?;
+                Vec::<LoweredStmt>::verify(&decoder, &mut payload)?;
+                Vec::<LoweredTopLevelSlot>::verify(&decoder, &mut payload)?;
+                let slot_count = payload.raw()?;
+                if slot_count != step.slot_count {
+                    return Err(IrVerifyError::new(
+                        "signal hook slot count does not match its driver step",
+                    ));
+                }
+                Span::verify(&decoder, &mut payload)?;
+            }
+        }
+        payload.finish()?;
+        decoder.finish_function()
+    }
+}
+
+impl<'a> FullFunctionView<'a> {
+    pub(in crate::runtime::eval) fn instruction_tags(
+        &self,
+    ) -> Result<&'a [FullTag], IrVerifyError> {
+        let range = self
+            .program
+            .store
+            .function_instruction_range(self.index)?;
+        Ok(&self.program.store.tags[range])
+    }
+
+    pub(in crate::runtime::eval) fn pipeline_stage_tags(
+        &self,
+    ) -> Result<Vec<FullStageTag>, IrVerifyError> {
+        self.program.pipeline_stage_tags(
+            self.program
+                .store
+                .function_instruction_range(self.index)?,
+        )
+    }
+
+    pub(in crate::runtime::eval) fn header(
+        &self,
+    ) -> Result<LoweredPureFunction, IrVerifyError> {
+        let function = self.program.store.functions[self.index];
+        let decoder = self.execution()?.decoder;
+        let params = function
+            .params
+            .bounds(self.program.store.params.len())
+            .ok_or_else(|| IrVerifyError::new("function parameter range is invalid"))?;
+        let captures = function
+            .captures
+            .bounds(self.program.store.captures.len())
+            .ok_or_else(|| IrVerifyError::new("function capture range is invalid"))?;
+        let mut param_names = SmallVec::new();
+        let mut param_kinds = SmallVec::new();
+        let mut param_checks = SmallVec::new();
+        let mut param_rest = SmallVec::new();
+        let mut param_defaults = SmallVec::new();
+        for (offset, param) in self.program.store.params[params.clone()]
+            .iter()
+            .enumerate()
+        {
+            let param_index = params.start + offset;
+            let cold = self
+                .program
+                .store
+                .param_cold
+                .binary_search_by_key(&(param_index as u32), |cold| cold.param)
+                .ok()
+                .map(|index| self.program.store.param_cold[index]);
+            param_names.push(Name::intern(self.program.store.string(param.name)?));
+            param_kinds.push(lowered_type_from_type(
+                &self.program.store.semantic.to_type(param.type_id)?,
+            )?);
+            param_checks.push(if cold.is_none_or(|cold| cold.validation == IR_NONE) {
+                None
+            } else {
+                let validation_id = cold.expect("checked above").validation;
+                let validation = self
+                    .program
+                    .store
+                    .validations
+                    .get(validation_id as usize)
+                    .ok_or_else(|| IrVerifyError::new("validation id is out of bounds"))?;
+                Some(LoweredTypeCheck {
+                    ty: self.program.store.semantic.to_type(validation.type_id)?,
+                    name: Arc::from(self.program.store.string(validation.name)?),
+                })
+            });
+            param_rest.push(param.flags & 1 != 0);
+            param_defaults.push(if cold.is_none_or(|cold| cold.default == IR_NONE) {
+                None
+            } else {
+                let raw = [cold.expect("checked above").default];
+                let mut value = FullCursor::new(&raw);
+                Some(LoweredValue::decode(&decoder, &mut value)?)
+            });
+        }
+        let mut decoded_captures = SmallVec::new();
+        for capture in &self.program.store.captures[captures] {
+            decoded_captures.push(LoweredTopLevelSlot {
+                name: Name::intern(self.program.store.string(capture.name)?),
+                slot: (capture.slot_and_flags & !(1 << 31)) as usize,
+                kind: lowered_type_from_type(
+                    &self.program.store.semantic.to_type(capture.type_id)?,
+                )?,
+                mutable: capture.slot_and_flags & (1 << 31) != 0,
+            });
+        }
+        let return_type = self
+            .program
+            .store
+            .semantic
+            .to_type(self.program.store.semantic.signature_return_type(function.signature)?)?;
+        let return_kind = match return_type {
+            Type::Result(ok, _) => LoweredReturnKind::Result(lowered_type_from_type(&ok)?),
+            ty => LoweredReturnKind::Plain(lowered_type_from_type(&ty)?),
+        };
+        Ok(LoweredPureFunction {
+            params: param_names,
+            param_kinds,
+            param_checks,
+            param_rest,
+            param_defaults,
+            captures: decoded_captures,
+            return_kind,
+            slot_count: function.slot_count as usize,
+            body: Vec::new(),
+            has_defers: self.has_defers(),
+        })
+    }
+
+    pub(in crate::runtime::eval) fn execution(&self) -> Result<FullExecution<'a>, IrVerifyError> {
+        let function = self.program.store.functions[self.index];
+        Ok(FullExecution {
+            decoder: FullDecoder {
+                store: &self.program.store,
+                owner: IrFunctionId::new(self.index)
+                    .map_err(|_| IrVerifyError::new("function id is invalid"))?
+                    .raw(),
+                instruction_range: self
+                    .program
+                    .store
+                    .function_instruction_range(self.index)?,
+                instruction_states: None,
+                block_states: None,
+                slot_count: function.slot_count,
+            },
+        })
+    }
+
+    pub(in crate::runtime::eval) fn body(
+        &self,
+        execution: &FullExecution<'a>,
+    ) -> Result<(IrBlockId, FullPayload<'a>), IrVerifyError> {
+        execution.block_id(
+            self.program.store.functions[self.index].body,
+            BLOCK_STATEMENTS,
+        )
+    }
+
+    pub(in crate::runtime::eval) fn slot_count(&self) -> usize {
+        self.program.store.functions[self.index].slot_count as usize
+    }
+
+    pub(in crate::runtime::eval) fn has_defers(&self) -> bool {
+        self.program.store.function_metadata[self.index].flags & 2 != 0
+    }
+}
+
+impl<'a> FullDriverStepView<'a> {
+    pub(in crate::runtime::eval) fn tag(&self) -> FullDriverTag {
+        self.program.store.driver_steps[self.index].tag
+    }
+
+    pub(in crate::runtime::eval) fn source_span(&self) -> Result<Span, IrVerifyError> {
+        let step = self.program.store.driver_steps[self.index];
+        let execution = self.execution()?;
+        let words = [step.location];
+        let mut cursor = FullCursor::new(&words);
+        let span = Span::decode(&execution.decoder, &mut cursor)?;
+        cursor.finish()?;
+        Ok(span)
+    }
+
+    pub(in crate::runtime::eval) fn execution(&self) -> Result<FullExecution<'a>, IrVerifyError> {
+        let step = self.program.store.driver_steps[self.index];
+        Ok(FullExecution {
+            decoder: FullDecoder {
+                store: &self.program.store,
+                owner: driver_owner(self.index)
+                    .map_err(|_| IrVerifyError::new("driver owner is invalid"))?,
+                instruction_range: self
+                    .program
+                    .store
+                    .driver_instruction_range(self.index)?,
+                instruction_states: None,
+                block_states: None,
+                slot_count: step.slot_count,
+            },
+        })
+    }
+
+    pub(in crate::runtime::eval) fn instruction_tags(
+        &self,
+    ) -> Result<&'a [FullTag], IrVerifyError> {
+        let range = self.program.store.driver_instruction_range(self.index)?;
+        Ok(&self.program.store.tags[range])
+    }
+
+    pub(in crate::runtime::eval) fn pipeline_stage_tags(
+        &self,
+    ) -> Result<Vec<FullStageTag>, IrVerifyError> {
+        self.program.pipeline_stage_tags(
+            self.program
+                .store
+                .driver_instruction_range(self.index)?,
+        )
+    }
+
+    pub(in crate::runtime::eval) fn payload(&self) -> Result<FullPayload<'a>, IrVerifyError> {
+        let step = self.program.store.driver_steps[self.index];
+        Ok(FullPayload {
+            cursor: FullCursor::new(self.program.store.payload(step.data.range())?),
+        })
+    }
+
+    pub(in crate::runtime::eval) fn slot_count(&self) -> usize {
+        self.program.store.driver_steps[self.index].slot_count as usize
+    }
+
+    pub(in crate::runtime::eval) fn slots(
+        &self,
+    ) -> Result<LoweredTopLevelSlots, IrVerifyError> {
+        let step = self.program.store.driver_steps[self.index];
+        let range = step
+            .slots
+            .bounds(self.program.store.driver_slots.len())
+            .ok_or_else(|| IrVerifyError::new("driver slot range is invalid"))?;
+        let mut slots = SmallVec::new();
+        for slot in &self.program.store.driver_slots[range] {
+            slots.push(LoweredTopLevelSlot {
+                name: Name::intern(self.program.store.string(slot.name)?),
+                slot: slot.slot as usize,
+                kind: lowered_type_from_type(
+                    &self.program.store.semantic.to_type(slot.type_id)?,
+                )?,
+                mutable: slot.flags & DRIVER_SLOT_MUTABLE != 0,
+            });
+        }
+        Ok(slots)
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -1071,13 +1690,14 @@ struct FullCheckpoint {
 }
 
 #[derive(Default)]
-struct FullBuilder {
+pub(in crate::runtime::eval) struct FullBuilder {
     store: FullStore,
     semantic: SemanticPoolBuilder,
     strings: BTreeMap<String, IrStringId>,
     bytes: BTreeMap<Vec<u8>, super::IrBytesId>,
     locations: BTreeMap<(SourceId, u32, u32), IrLocationId>,
     function_ids: BTreeMap<LoweredFunctionKey, IrFunctionId>,
+    payload_pool: Vec<Vec<u32>>,
     current_owner: Option<u32>,
     current_slot_count: u32,
 }
@@ -1093,6 +1713,7 @@ impl FullBuilder {
         }
     }
 
+    #[cfg(test)]
     pub(in crate::runtime::eval) fn build(
         units: &[LoweredFunctionUnit],
         sources: Arc<SourceMap>,
@@ -1101,6 +1722,7 @@ impl FullBuilder {
         Self::build_with_driver(units, None, sources, source_id)
     }
 
+    #[cfg(test)]
     fn build_with_driver(
         units: &[LoweredFunctionUnit],
         driver: Option<(&LoweredProgram, &[StmtId], &ArenaProgram)>,
@@ -1145,9 +1767,13 @@ impl FullBuilder {
                 return Err(error);
             }
         }
-        builder.store.shrink_to_fit();
+        builder.finish(sources)
+    }
+
+    fn finish(mut self, sources: Arc<SourceMap>) -> Result<FullProgram, IrBuildError> {
+        self.store.shrink_to_fit();
         let program = FullProgram {
-            store: builder.store,
+            store: self.store,
             sources,
         };
         FullVerifier::verify(&program)
@@ -1163,7 +1789,7 @@ impl FullBuilder {
         sources: Arc<SourceMap>,
         source_id: SourceId,
     ) -> Result<FullProgram, IrBuildError> {
-        let units = super::super::lower::probe_compact_lower_function_units_with_sources(
+        let mut units = super::super::lower::probe_compact_lower_function_units_with_sources(
             program,
             declarations,
             bodies,
@@ -1209,12 +1835,52 @@ impl FullBuilder {
             true,
         );
         let source_statements = program.statement_ids().collect::<Vec<_>>();
-        Self::build_with_driver(
-            &units,
-            Some((&driver, &source_statements, program)),
-            sources,
-            source_id,
-        )
+        drop(functions);
+        drop(pures);
+        drop(procs);
+        drop(qualified_pures);
+        drop(qualified_procs);
+
+        units.sort_by_key(|unit| (unit.source_span().start(), unit.key().display_name()));
+        let mut builder = Self::new(source_id);
+        let ordered = units.iter().collect::<Vec<_>>();
+        builder.predeclare(&ordered)?;
+        drop(ordered);
+        for mut unit in units {
+            let body = unit.take_lowered_body().ok_or_else(|| {
+                IrBuildError::format(
+                    "full_ir_function_blocker",
+                    Some(unit.source_span()),
+                    0,
+                    builder.store.tags.len(),
+                )
+            })?;
+            let checkpoint = builder.checkpoint();
+            let function = builder.function_ids[&unit.key()];
+            builder.current_owner = Some(function.raw());
+            builder.current_slot_count = body.slot_count as u32;
+            let result = builder.encode_body(function, &body);
+            builder.current_owner = None;
+            builder.current_slot_count = 0;
+            if let Err(mut error) = result {
+                error.attempted_instructions =
+                    builder.store.tags.len().saturating_sub(checkpoint.tags);
+                builder.rewind(checkpoint);
+                error.committed_instructions = builder.store.tags.len();
+                return Err(error);
+            }
+        }
+        let checkpoint = builder.checkpoint();
+        if let Err(mut error) =
+            builder.encode_driver_root(&driver, &source_statements, program)
+        {
+            error.attempted_instructions =
+                builder.store.tags.len().saturating_sub(checkpoint.tags);
+            builder.rewind(checkpoint);
+            error.committed_instructions = builder.store.tags.len();
+            return Err(error);
+        }
+        builder.finish(sources)
     }
 
     fn predeclare(&mut self, units: &[&LoweredFunctionUnit]) -> Result<(), IrBuildError> {
@@ -1326,9 +1992,14 @@ impl FullBuilder {
         body: &LoweredPureFunction,
     ) -> Result<(), IrBuildError> {
         let instruction_start = self.store.tags.len();
-        let mut words = Vec::new();
-        body.body.encode(self, &mut words)?;
+        let mut words = self.take_payload();
+        let encoded = body.body.encode(self, &mut words);
+        if let Err(error) = encoded {
+            self.recycle_payload(words);
+            return Err(error);
+        }
         let [body_id] = words.as_slice() else {
+            self.recycle_payload(words);
             return Err(IrBuildError::format(
                 "function_body_block",
                 None,
@@ -1336,11 +2007,13 @@ impl FullBuilder {
                 self.store.tags.len(),
             ));
         };
-        let block = IrBlockId::from_raw(*body_id).ok_or_else(|| {
+        let body_id = *body_id;
+        self.recycle_payload(words);
+        let block = IrBlockId::from_raw(body_id).ok_or_else(|| {
             IrBuildError::format("function_body_block", None, 0, self.store.tags.len())
         })?;
         self.store.blocks[block.index()].flags |= BLOCK_FUNCTION_BODY;
-        self.store.functions[function.index()].body = *body_id;
+        self.store.functions[function.index()].body = body_id;
         self.store.function_instruction_starts[function.index()] =
             u32::try_from(instruction_start)
                 .map_err(|_| IrBuildError::format("instruction_overflow", None, 0, 0))?;
@@ -1590,7 +2263,7 @@ impl FullBuilder {
         self.current_owner = Some(owner);
         self.current_slot_count = u32::try_from(slot_count)
             .map_err(|_| IrBuildError::format("slot_overflow", None, 0, 0))?;
-        let mut payload = Vec::new();
+        let mut payload = self.take_payload();
         let tag = match statement.map(|statement| &statement.kind) {
             None => FullDriverTag::Skip,
             Some(LoweredTopLevelKind::Use {
@@ -1692,7 +2365,9 @@ impl FullBuilder {
         };
         self.current_owner = None;
         self.current_slot_count = 0;
-        let data = self.push_extra(&payload)?;
+        let data = self.push_extra(&payload);
+        self.recycle_payload(payload);
+        let data = data?;
         let location = self.intern_location(span)?.raw();
         let mut effects = driver_tag_effects(tag);
         if slots.len != 0 {
@@ -1950,11 +2625,26 @@ impl FullBuilder {
         }
     }
 
+    fn take_payload(&mut self) -> Vec<u32> {
+        self.payload_pool.pop().unwrap_or_default()
+    }
+
+    fn recycle_payload(&mut self, mut payload: Vec<u32>) {
+        payload.clear();
+        self.payload_pool.push(payload);
+    }
+
     fn encode_value_id(&mut self, value: &LoweredValue) -> Result<u32, IrBuildError> {
-        let mut words = Vec::new();
-        value.encode(self, &mut words)?;
+        let mut words = self.take_payload();
+        let encoded = value.encode(self, &mut words);
+        if let Err(error) = encoded {
+            self.recycle_payload(words);
+            return Err(error);
+        }
         debug_assert_eq!(words.len(), 1);
-        Ok(words[0])
+        let value = words[0];
+        self.recycle_payload(words);
+        Ok(value)
     }
 
     fn checkpoint(&self) -> FullCheckpoint {
@@ -2263,7 +2953,7 @@ fn lowered_type_from_type(ty: &Type) -> Result<LoweredType, IrVerifyError> {
     })
 }
 
-trait FullCodec: Sized {
+pub(in crate::runtime::eval) trait FullCodec: Sized {
     fn encode(
         &self,
         builder: &mut FullBuilder,
@@ -2274,11 +2964,234 @@ trait FullCodec: Sized {
         decoder: &FullDecoder<'_>,
         input: &mut FullCursor<'_>,
     ) -> Result<Self, IrVerifyError>;
+
+    fn verify(
+        decoder: &FullDecoder<'_>,
+        input: &mut FullCursor<'_>,
+    ) -> Result<(), IrVerifyError> {
+        Self::decode(decoder, input).map(drop)
+    }
 }
 
-struct FullCursor<'a> {
+pub(in crate::runtime::eval) struct FullCursor<'a> {
     words: &'a [u32],
     index: usize,
+}
+
+pub(in crate::runtime::eval) struct FullPayload<'a> {
+    cursor: FullCursor<'a>,
+}
+
+impl<'a> FullPayload<'a> {
+    pub(in crate::runtime::eval) fn raw(&mut self) -> Result<u32, IrVerifyError> {
+        self.cursor.raw()
+    }
+
+    pub(in crate::runtime::eval) fn decode<T: FullCodec>(
+        &mut self,
+        execution: &FullExecution<'a>,
+    ) -> Result<T, IrVerifyError> {
+        T::decode(&execution.decoder, &mut self.cursor)
+    }
+
+    pub(in crate::runtime::eval) fn finish(self) -> Result<(), IrVerifyError> {
+        self.cursor.finish()
+    }
+}
+
+pub(in crate::runtime::eval) struct FullExecution<'a> {
+    decoder: FullDecoder<'a>,
+}
+
+impl<'a> FullExecution<'a> {
+    pub(in crate::runtime::eval) fn function_identity(
+        &self,
+    ) -> Result<(LoweredFunctionKey, LoweredFunctionKind), IrVerifyError> {
+        let id = IrFunctionId::from_raw(self.decoder.owner)
+            .ok_or_else(|| IrVerifyError::new("indexed execution owner is not a function"))?;
+        let function = self
+            .decoder
+            .store
+            .functions
+            .get(id.index())
+            .ok_or_else(|| IrVerifyError::new("function id is out of bounds"))?;
+        let metadata = self
+            .decoder
+            .store
+            .function_metadata
+            .get(id.index())
+            .copied()
+            .ok_or_else(|| IrVerifyError::new("function metadata is missing"))?;
+        let name = Name::intern(self.decoder.store.string(function.name)?);
+        let key = if metadata.owner == IR_NONE {
+            LoweredFunctionKey::Name(name)
+        } else {
+            LoweredFunctionKey::Qualified(QualifiedName::new(
+                Name::intern(self.decoder.store.string(metadata.owner)?),
+                name,
+            ))
+        };
+        let kind = if metadata.flags & 1 == 0 {
+            LoweredFunctionKind::Pure
+        } else {
+            LoweredFunctionKind::Proc
+        };
+        Ok((key, kind))
+    }
+
+    pub(in crate::runtime::eval) fn instruction_id(
+        &self,
+        raw: u32,
+    ) -> Result<(FullTag, FullPayload<'a>), IrVerifyError> {
+        let index = raw as usize;
+        if !self.decoder.instruction_range.contains(&index) {
+            return Err(IrVerifyError::new(
+                "full IR instruction belongs to another function",
+            ));
+        }
+        let tag = self
+            .decoder
+            .store
+            .tags
+            .get(index)
+            .copied()
+            .ok_or_else(|| IrVerifyError::new("full IR instruction is out of bounds"))?;
+        let data = self.decoder.store.data[index];
+        Ok((
+            tag,
+            FullPayload {
+                cursor: FullCursor::new(self.decoder.store.payload(data.range())?),
+            },
+        ))
+    }
+
+    pub(in crate::runtime::eval) fn instruction(
+        &self,
+        input: &mut FullPayload<'a>,
+    ) -> Result<(u32, FullTag, FullPayload<'a>), IrVerifyError> {
+        let (index, tag, payload) = self.decoder.instruction(&mut input.cursor)?;
+        Ok((
+            u32::try_from(index)
+                .map_err(|_| IrVerifyError::new("full IR instruction id overflows"))?,
+            tag,
+            FullPayload { cursor: payload },
+        ))
+    }
+
+    pub(in crate::runtime::eval) fn block(
+        &self,
+        input: &mut FullPayload<'a>,
+        expected_flags: u8,
+    ) -> Result<(IrBlockId, FullPayload<'a>), IrVerifyError> {
+        let (id, block) = self.decoder.block(&mut input.cursor, expected_flags)?;
+        Ok((id, FullPayload { cursor: block }))
+    }
+
+    pub(in crate::runtime::eval) fn block_id(
+        &self,
+        raw: u32,
+        expected_flags: u8,
+    ) -> Result<(IrBlockId, FullPayload<'a>), IrVerifyError> {
+        let id = IrBlockId::from_raw(raw)
+            .ok_or_else(|| IrVerifyError::new("full IR block id is invalid"))?;
+        let block = self
+            .decoder
+            .store
+            .blocks
+            .get(id.index())
+            .copied()
+            .ok_or_else(|| IrVerifyError::new("full IR block id is out of bounds"))?;
+        if block.owner != IR_NONE && block.owner != self.decoder.owner {
+            return Err(IrVerifyError::new(
+                "full IR block belongs to another executable owner",
+            ));
+        }
+        if block.flags & BLOCK_SEQUENCE_KIND_MASK != expected_flags {
+            return Err(IrVerifyError::new("full IR block kind is invalid"));
+        }
+        if block.result != IR_NONE {
+            return Err(IrVerifyError::new(
+                "full IR statement/list block has an unexpected result",
+            ));
+        }
+        Ok((
+            id,
+            FullPayload {
+                cursor: FullCursor::new(self.decoder.store.payload(block.instructions)?),
+            },
+        ))
+    }
+
+    pub(in crate::runtime::eval) fn pattern_id(
+        &self,
+        raw: u32,
+    ) -> Result<(FullPatternTag, FullPayload<'a>), IrVerifyError> {
+        let index = raw as usize;
+        let tag = self
+            .decoder
+            .store
+            .patterns
+            .get(index)
+            .copied()
+            .ok_or_else(|| IrVerifyError::new("pattern id is out of bounds"))?;
+        let data = self.decoder.store.pattern_data[index];
+        Ok((
+            tag,
+            FullPayload {
+                cursor: FullCursor::new(self.decoder.store.payload(data.range())?),
+            },
+        ))
+    }
+
+    pub(in crate::runtime::eval) fn stage_id(
+        &self,
+        raw: u32,
+    ) -> Result<(FullStageTag, FullPayload<'a>), IrVerifyError> {
+        let index = raw as usize;
+        let tag = self
+            .decoder
+            .store
+            .stages
+            .get(index)
+            .copied()
+            .ok_or_else(|| IrVerifyError::new("pipeline stage id is out of bounds"))?;
+        let data = self.decoder.store.stage_data[index];
+        Ok((
+            tag,
+            FullPayload {
+                cursor: FullCursor::new(self.decoder.store.payload(data.range())?),
+            },
+        ))
+    }
+
+    pub(in crate::runtime::eval) fn value_id(
+        &self,
+        raw: u32,
+    ) -> Result<(FullValueTag, FullPayload<'a>), IrVerifyError> {
+        let index = raw as usize;
+        let tag = self
+            .decoder
+            .store
+            .values
+            .get(index)
+            .copied()
+            .ok_or_else(|| IrVerifyError::new("literal value id is out of bounds"))?;
+        let data = self.decoder.store.value_data[index];
+        Ok((
+            tag,
+            FullPayload {
+                cursor: FullCursor::new(self.decoder.store.payload(data.range())?),
+            },
+        ))
+    }
+
+    pub(in crate::runtime::eval) fn finish_instruction(&self, instruction: u32) {
+        self.decoder.finish_instruction(instruction as usize);
+    }
+
+    pub(in crate::runtime::eval) fn finish_block(&self, block: IrBlockId) {
+        self.decoder.finish_block(block);
+    }
 }
 
 impl<'a> FullCursor<'a> {
@@ -2305,12 +3218,12 @@ impl<'a> FullCursor<'a> {
     }
 }
 
-struct FullDecoder<'a> {
+pub(in crate::runtime::eval) struct FullDecoder<'a> {
     store: &'a FullStore,
     owner: u32,
     instruction_range: std::ops::Range<usize>,
-    instruction_states: RefCell<Vec<u8>>,
-    block_states: RefCell<Vec<u8>>,
+    instruction_states: Option<RefCell<Vec<u8>>>,
+    block_states: Option<RefCell<Vec<u8>>>,
     slot_count: u32,
 }
 
@@ -2342,10 +3255,10 @@ impl<'a> FullDecoder<'a> {
                 "full IR statement/list block has an unexpected result",
             ));
         }
-        if block.owner != IR_NONE {
-            let state = self.block_states.borrow()[id.index()];
+        if block.owner != IR_NONE && let Some(states) = &self.block_states {
+            let state = states.borrow()[id.index()];
             match state {
-                0 => self.block_states.borrow_mut()[id.index()] = 1,
+                0 => states.borrow_mut()[id.index()] = 1,
                 1 => {
                     return Err(IrVerifyError::new(
                         "full IR block graph contains a cycle",
@@ -2366,8 +3279,10 @@ impl<'a> FullDecoder<'a> {
     }
 
     fn finish_block(&self, id: IrBlockId) {
-        if self.store.blocks[id.index()].owner != IR_NONE {
-            self.block_states.borrow_mut()[id.index()] = 2;
+        if self.store.blocks[id.index()].owner != IR_NONE
+            && let Some(states) = &self.block_states
+        {
+            states.borrow_mut()[id.index()] = 2;
         }
     }
 
@@ -2382,20 +3297,22 @@ impl<'a> FullDecoder<'a> {
             ));
         }
         let local = index - self.instruction_range.start;
-        let state = self.instruction_states.borrow()[local];
-        match state {
-            0 => self.instruction_states.borrow_mut()[local] = 1,
-            1 => {
-                return Err(IrVerifyError::new(
-                    "full IR instruction graph contains a cycle",
-                ));
+        if let Some(states) = &self.instruction_states {
+            let state = states.borrow()[local];
+            match state {
+                0 => states.borrow_mut()[local] = 1,
+                1 => {
+                    return Err(IrVerifyError::new(
+                        "full IR instruction graph contains a cycle",
+                    ));
+                }
+                2 => {
+                    return Err(IrVerifyError::new(
+                        "full IR instruction is owned by multiple parents",
+                    ));
+                }
+                _ => unreachable!("instruction verifier state is bounded"),
             }
-            2 => {
-                return Err(IrVerifyError::new(
-                    "full IR instruction is owned by multiple parents",
-                ));
-            }
-            _ => unreachable!("instruction verifier state is bounded"),
         }
         let tag = self
             .store
@@ -2412,21 +3329,22 @@ impl<'a> FullDecoder<'a> {
     }
 
     fn finish_instruction(&self, index: usize) {
-        self.instruction_states.borrow_mut()[index - self.instruction_range.start] = 2;
+        if let Some(states) = &self.instruction_states {
+            states.borrow_mut()[index - self.instruction_range.start] = 2;
+        }
     }
 
     fn finish_function(&self) -> Result<(), IrVerifyError> {
-        let instructions_complete = self
-            .instruction_states
-            .borrow()
-            .iter()
-            .all(|state| *state == 2);
-        let blocks_complete = self
-            .store
-            .blocks
-            .iter()
-            .zip(self.block_states.borrow().iter())
-            .all(|(block, state)| block.owner != self.owner || *state == 2);
+        let instructions_complete = self.instruction_states.as_ref().is_none_or(|states| {
+            states.borrow().iter().all(|state| *state == 2)
+        });
+        let blocks_complete = self.block_states.as_ref().is_none_or(|states| {
+            self.store
+                .blocks
+                .iter()
+                .zip(states.borrow().iter())
+                .all(|(block, state)| block.owner != self.owner || *state == 2)
+        });
         if instructions_complete && blocks_complete {
             Ok(())
         } else {
@@ -2577,8 +3495,8 @@ impl FullVerifier {
                     .map_err(|_| IrVerifyError::new("function id is invalid"))?
                     .raw(),
                 instruction_range: instructions,
-                instruction_states: RefCell::new(vec![0; instruction_len]),
-                block_states: RefCell::new(vec![0; store.blocks.len()]),
+                instruction_states: Some(RefCell::new(vec![0; instruction_len])),
+                block_states: Some(RefCell::new(vec![0; store.blocks.len()])),
                 slot_count: function.slot_count,
             };
             let body_id = IrBlockId::from_raw(function.body)
@@ -2594,7 +3512,7 @@ impl FullVerifier {
             }
             let body = [function.body];
             let mut cursor = FullCursor::new(&body);
-            let statements = Vec::<LoweredStmt>::decode(&decoder, &mut cursor)?;
+            Vec::<LoweredStmt>::verify(&decoder, &mut cursor)?;
             cursor.finish()?;
             for (param_index, _) in store.params[params.clone()].iter().enumerate() {
                 let param_index = params.start + param_index;
@@ -2609,16 +3527,30 @@ impl FullVerifier {
                 if cold.default != IR_NONE {
                     let default = [cold.default];
                     let mut cursor = FullCursor::new(&default);
-                    LoweredValue::decode(&decoder, &mut cursor)?;
+                    LoweredValue::verify(&decoder, &mut cursor)?;
                     cursor.finish()?;
                 }
             }
             decoder.finish_function()?;
-            if statements.is_empty() {
+            let body_payload = store.payload(body_block.instructions)?;
+            if body_payload.first().copied() == Some(0) {
                 return Err(IrVerifyError::new(format!(
                     "function {index} has an empty body"
                 )));
             }
+            let trusted_decoder = FullDecoder {
+                store,
+                owner: IrFunctionId::new(index)
+                    .map_err(|_| IrVerifyError::new("function id is invalid"))?
+                    .raw(),
+                instruction_range: store.function_instruction_range(index)?,
+                instruction_states: None,
+                block_states: None,
+                slot_count: function.slot_count,
+            };
+            let mut cursor = FullCursor::new(&body);
+            let statements = Vec::<LoweredStmt>::decode(&trusted_decoder, &mut cursor)?;
+            cursor.finish()?;
             let return_type = store
                 .semantic
                 .to_type(store.semantic.signature_return_type(function.signature)?)?;
@@ -2833,7 +3765,7 @@ impl FullVerifier {
                     "driver plan contains an unreachable sync row",
                 ));
             }
-            program.decode_driver()?;
+            program.verify_driver()?;
         }
         if previous_end != store.tags.len() {
             return Err(IrVerifyError::new(
@@ -3145,6 +4077,13 @@ impl FullCodec for Arc<str> {
     ) -> Result<Self, IrVerifyError> {
         Ok(Arc::from(decoder.store.string(input.raw()?)?))
     }
+
+    fn verify(
+        decoder: &FullDecoder<'_>,
+        input: &mut FullCursor<'_>,
+    ) -> Result<(), IrVerifyError> {
+        decoder.store.string(input.raw()?).map(drop)
+    }
 }
 
 impl FullCodec for String {
@@ -3162,6 +4101,13 @@ impl FullCodec for String {
         input: &mut FullCursor<'_>,
     ) -> Result<Self, IrVerifyError> {
         Ok(decoder.store.string(input.raw()?)?.to_string())
+    }
+
+    fn verify(
+        decoder: &FullDecoder<'_>,
+        input: &mut FullCursor<'_>,
+    ) -> Result<(), IrVerifyError> {
+        decoder.store.string(input.raw()?).map(drop)
     }
 }
 
@@ -3181,6 +4127,13 @@ impl FullCodec for &'static str {
     ) -> Result<Self, IrVerifyError> {
         Ok(Name::intern(decoder.store.string(input.raw()?)?).as_str())
     }
+
+    fn verify(
+        decoder: &FullDecoder<'_>,
+        input: &mut FullCursor<'_>,
+    ) -> Result<(), IrVerifyError> {
+        decoder.store.string(input.raw()?).map(drop)
+    }
 }
 
 impl FullCodec for Arc<[u8]> {
@@ -3199,6 +4152,13 @@ impl FullCodec for Arc<[u8]> {
     ) -> Result<Self, IrVerifyError> {
         Ok(Arc::from(decoder.store.bytes(input.raw()?)?))
     }
+
+    fn verify(
+        decoder: &FullDecoder<'_>,
+        input: &mut FullCursor<'_>,
+    ) -> Result<(), IrVerifyError> {
+        decoder.store.bytes(input.raw()?).map(drop)
+    }
 }
 
 impl FullCodec for Vec<u8> {
@@ -3216,6 +4176,13 @@ impl FullCodec for Vec<u8> {
         input: &mut FullCursor<'_>,
     ) -> Result<Self, IrVerifyError> {
         Ok(decoder.store.bytes(input.raw()?)?.to_vec())
+    }
+
+    fn verify(
+        decoder: &FullDecoder<'_>,
+        input: &mut FullCursor<'_>,
+    ) -> Result<(), IrVerifyError> {
+        decoder.store.bytes(input.raw()?).map(drop)
     }
 }
 
@@ -3265,6 +4232,17 @@ impl<T: FullCodec> FullCodec for Option<T> {
             _ => Err(IrVerifyError::new("optional payload tag is invalid")),
         }
     }
+
+    fn verify(
+        decoder: &FullDecoder<'_>,
+        input: &mut FullCursor<'_>,
+    ) -> Result<(), IrVerifyError> {
+        match input.raw()? {
+            0 => Ok(()),
+            1 => T::verify(decoder, input),
+            _ => Err(IrVerifyError::new("optional payload tag is invalid")),
+        }
+    }
 }
 
 impl<T: FullCodec> FullCodec for Box<T> {
@@ -3281,6 +4259,13 @@ impl<T: FullCodec> FullCodec for Box<T> {
         input: &mut FullCursor<'_>,
     ) -> Result<Self, IrVerifyError> {
         Ok(Box::new(T::decode(decoder, input)?))
+    }
+
+    fn verify(
+        decoder: &FullDecoder<'_>,
+        input: &mut FullCursor<'_>,
+    ) -> Result<(), IrVerifyError> {
+        T::verify(decoder, input)
     }
 }
 
@@ -3299,6 +4284,14 @@ impl<A: FullCodec, B: FullCodec> FullCodec for (A, B) {
         input: &mut FullCursor<'_>,
     ) -> Result<Self, IrVerifyError> {
         Ok((A::decode(decoder, input)?, B::decode(decoder, input)?))
+    }
+
+    fn verify(
+        decoder: &FullDecoder<'_>,
+        input: &mut FullCursor<'_>,
+    ) -> Result<(), IrVerifyError> {
+        A::verify(decoder, input)?;
+        B::verify(decoder, input)
     }
 }
 
@@ -3322,6 +4315,15 @@ impl<A: FullCodec, B: FullCodec, C: FullCodec> FullCodec for (A, B, C) {
             B::decode(decoder, input)?,
             C::decode(decoder, input)?,
         ))
+    }
+
+    fn verify(
+        decoder: &FullDecoder<'_>,
+        input: &mut FullCursor<'_>,
+    ) -> Result<(), IrVerifyError> {
+        A::verify(decoder, input)?;
+        B::verify(decoder, input)?;
+        C::verify(decoder, input)
     }
 }
 
@@ -3358,6 +4360,20 @@ macro_rules! impl_vec_codec {
                 block.finish()?;
                 decoder.finish_block(block_id);
                 Ok(values)
+            }
+
+            fn verify(
+                decoder: &FullDecoder<'_>,
+                input: &mut FullCursor<'_>,
+            ) -> Result<(), IrVerifyError> {
+                let (block_id, mut block) = decoder.block(input, $flags)?;
+                let len = block.raw()? as usize;
+                for _ in 0..len {
+                    <$ty>::verify(decoder, &mut block)?;
+                }
+                block.finish()?;
+                decoder.finish_block(block_id);
+                Ok(())
             }
         }
     };
@@ -3689,7 +4705,7 @@ impl FullCodec for LoweredValue {
         builder: &mut FullBuilder,
         output: &mut Vec<u32>,
     ) -> Result<(), IrBuildError> {
-        let mut payload = Vec::new();
+        let mut payload = builder.take_payload();
         let tag = match self {
             Self::Null => FullValueTag::Null,
             Self::Unit => FullValueTag::Unit,
@@ -3798,7 +4814,9 @@ impl FullCodec for LoweredValue {
                 ));
             }
         };
-        output.push(builder.push_value(tag, &payload)?);
+        let value = builder.push_value(tag, &payload);
+        builder.recycle_payload(payload);
+        output.push(value?);
         Ok(())
     }
 
@@ -3874,6 +4892,61 @@ impl FullCodec for LoweredValue {
         payload.finish()?;
         Ok(value)
     }
+
+    fn verify(
+        decoder: &FullDecoder<'_>,
+        input: &mut FullCursor<'_>,
+    ) -> Result<(), IrVerifyError> {
+        let index = input.raw()? as usize;
+        let tag = decoder
+            .store
+            .values
+            .get(index)
+            .copied()
+            .ok_or_else(|| IrVerifyError::new("literal value id is out of bounds"))?;
+        let data = decoder.store.value_data[index];
+        let mut payload = FullCursor::new(decoder.store.payload(data.range())?);
+        match tag {
+            FullValueTag::Null | FullValueTag::Unit => {}
+            FullValueTag::Int => i64::verify(decoder, &mut payload)?,
+            FullValueTag::Float => FloatValue::verify(decoder, &mut payload)?,
+            FullValueTag::Duration => DurationValue::verify(decoder, &mut payload)?,
+            FullValueTag::Bool => bool::verify(decoder, &mut payload)?,
+            FullValueTag::Str => Arc::<str>::verify(decoder, &mut payload)?,
+            FullValueTag::Bytes => Arc::<[u8]>::verify(decoder, &mut payload)?,
+            FullValueTag::Path => PathValue::verify(decoder, &mut payload)?,
+            FullValueTag::Record => {
+                BTreeMap::<Arc<str>, LoweredValue>::verify(decoder, &mut payload)?;
+            }
+            FullValueTag::RecordVec => {
+                Vec::<(Name, LoweredValue)>::verify(decoder, &mut payload)?;
+            }
+            FullValueTag::Stats => {
+                i64::verify(decoder, &mut payload)?;
+                i64::verify(decoder, &mut payload)?;
+                i64::verify(decoder, &mut payload)?;
+            }
+            FullValueTag::StatsBlob => {
+                i64::verify(decoder, &mut payload)?;
+                BTreeMap::<String, LoweredValue>::verify(decoder, &mut payload)?;
+                i64::verify(decoder, &mut payload)?;
+                i64::verify(decoder, &mut payload)?;
+            }
+            FullValueTag::Module => {
+                BTreeMap::<Arc<str>, LoweredValue>::verify(decoder, &mut payload)?;
+            }
+            FullValueTag::List => Vec::<LoweredValue>::verify(decoder, &mut payload)?,
+            FullValueTag::Map => {
+                BTreeMap::<String, LoweredValue>::verify(decoder, &mut payload)?;
+            }
+            FullValueTag::Tag => {
+                Arc::<str>::verify(decoder, &mut payload)?;
+                Vec::<LoweredValue>::verify(decoder, &mut payload)?;
+            }
+            FullValueTag::ResultOk => LoweredValue::verify(decoder, &mut payload)?,
+        }
+        payload.finish()
+    }
 }
 
 macro_rules! impl_node_codec {
@@ -3896,7 +4969,7 @@ macro_rules! impl_node_codec {
                     $(
                         $pattern => {
                             #[allow(unused_mut)]
-                            let mut payload = Vec::new();
+                            let mut payload = builder.take_payload();
                             $(
                                 $field.encode(builder, &mut payload)?;
                             )*
@@ -3904,7 +4977,9 @@ macro_rules! impl_node_codec {
                         }
                     ),*
                 };
-                output.push(builder.push_instruction(tag, &payload)?);
+                let instruction = builder.push_instruction(tag, &payload);
+                builder.recycle_payload(payload);
+                output.push(instruction?);
                 Ok(())
             }
 
@@ -3927,6 +5002,26 @@ macro_rules! impl_node_codec {
                 payload.finish()?;
                 decoder.finish_instruction(instruction);
                 Ok(value)
+            }
+
+            fn verify(
+                decoder: &FullDecoder<'_>,
+                input: &mut FullCursor<'_>,
+            ) -> Result<(), IrVerifyError> {
+                let (instruction, tag, mut payload) = decoder.instruction(input)?;
+                match tag {
+                    $(
+                        FullTag::$tag => {
+                            $(
+                                <$field_ty>::verify(decoder, &mut payload)?;
+                            )*
+                        }
+                    ),*
+                    _ => return Err(IrVerifyError::new("full IR instruction tag has the wrong category")),
+                }
+                payload.finish()?;
+                decoder.finish_instruction(instruction);
+                Ok(())
             }
         }
     };
@@ -4042,8 +5137,8 @@ impl_node_codec! {
     }
 }
 
-const BLOCK_LIST: u8 = 0;
-const BLOCK_STATEMENTS: u8 = 1;
+pub(in crate::runtime::eval) const BLOCK_LIST: u8 = 0;
+pub(in crate::runtime::eval) const BLOCK_STATEMENTS: u8 = 1;
 const BLOCK_FUNCTION_BODY: u8 = 1 << 1;
 const BLOCK_SEQUENCE_KIND_MASK: u8 = 1;
 
@@ -4108,6 +5203,17 @@ where
             values.push(A::Item::decode(decoder, input)?);
         }
         Ok(values)
+    }
+
+    fn verify(
+        decoder: &FullDecoder<'_>,
+        input: &mut FullCursor<'_>,
+    ) -> Result<(), IrVerifyError> {
+        let len = input.raw()? as usize;
+        for _ in 0..len {
+            A::Item::verify(decoder, input)?;
+        }
+        Ok(())
     }
 }
 
@@ -4693,7 +5799,7 @@ impl FullCodec for LoweredPattern {
         builder: &mut FullBuilder,
         output: &mut Vec<u32>,
     ) -> Result<(), IrBuildError> {
-        let mut payload = Vec::new();
+        let mut payload = builder.take_payload();
         let tag = match self {
             Self::Wildcard => FullPatternTag::Wildcard,
             Self::Bind { slot } => {
@@ -4745,7 +5851,9 @@ impl FullCodec for LoweredPattern {
                 FullPatternTag::Tag
             }
         };
-        output.push(builder.push_pattern(tag, &payload)?);
+        let pattern = builder.push_pattern(tag, &payload);
+        builder.recycle_payload(payload);
+        output.push(pattern?);
         Ok(())
     }
 
@@ -4800,6 +5908,49 @@ impl FullCodec for LoweredPattern {
         payload.finish()?;
         Ok(pattern)
     }
+
+    fn verify(
+        decoder: &FullDecoder<'_>,
+        input: &mut FullCursor<'_>,
+    ) -> Result<(), IrVerifyError> {
+        let index = input.raw()? as usize;
+        let tag = decoder
+            .store
+            .patterns
+            .get(index)
+            .copied()
+            .ok_or_else(|| IrVerifyError::new("pattern id is out of bounds"))?;
+        let data = decoder.store.pattern_data[index];
+        let mut payload = FullCursor::new(decoder.store.payload(data.range())?);
+        match tag {
+            FullPatternTag::Wildcard => {}
+            FullPatternTag::Bind => usize::verify(decoder, &mut payload)?,
+            FullPatternTag::Type => {
+                Type::verify(decoder, &mut payload)?;
+                Option::<usize>::verify(decoder, &mut payload)?;
+            }
+            FullPatternTag::Literal => LoweredValue::verify(decoder, &mut payload)?,
+            FullPatternTag::ResultOk | FullPatternTag::ResultErr => {
+                Option::<usize>::verify(decoder, &mut payload)?;
+                bool::verify(decoder, &mut payload)?;
+            }
+            FullPatternTag::ErrorVariant => {
+                Name::verify(decoder, &mut payload)?;
+                Name::verify(decoder, &mut payload)?;
+                Box::<LoweredErrorPatternFields>::verify(decoder, &mut payload)?;
+                bool::verify(decoder, &mut payload)?;
+            }
+            FullPatternTag::Facet => {
+                Name::verify(decoder, &mut payload)?;
+                bool::verify(decoder, &mut payload)?;
+            }
+            FullPatternTag::Tag => {
+                Name::verify(decoder, &mut payload)?;
+                LoweredPatternSlots::verify(decoder, &mut payload)?;
+            }
+        }
+        payload.finish()
+    }
 }
 
 macro_rules! impl_stage_codec {
@@ -4820,7 +5971,7 @@ macro_rules! impl_stage_codec {
                     $(
                         $pattern => {
                             #[allow(unused_mut)]
-                            let mut payload = Vec::new();
+                            let mut payload = builder.take_payload();
                             $(
                                 $field.encode(builder, &mut payload)?;
                             )*
@@ -4828,7 +5979,9 @@ macro_rules! impl_stage_codec {
                         }
                     ),*
                 };
-                output.push(builder.push_stage(tag, &payload)?);
+                let stage = builder.push_stage(tag, &payload);
+                builder.recycle_payload(payload);
+                output.push(stage?);
                 Ok(())
             }
 
@@ -4857,6 +6010,31 @@ macro_rules! impl_stage_codec {
                 };
                 payload.finish()?;
                 Ok(stage)
+            }
+
+            fn verify(
+                decoder: &FullDecoder<'_>,
+                input: &mut FullCursor<'_>,
+            ) -> Result<(), IrVerifyError> {
+                let index = input.raw()? as usize;
+                let tag = decoder
+                    .store
+                    .stages
+                    .get(index)
+                    .copied()
+                    .ok_or_else(|| IrVerifyError::new("pipeline stage id is out of bounds"))?;
+                let data = decoder.store.stage_data[index];
+                let mut payload = FullCursor::new(decoder.store.payload(data.range())?);
+                match tag {
+                    $(
+                        FullStageTag::$tag => {
+                            $(
+                                <$field_ty>::verify(decoder, &mut payload)?;
+                            )*
+                        }
+                    ),*
+                }
+                payload.finish()
             }
         }
     };
@@ -6848,12 +8026,17 @@ run true
                 let Ok(source) = super::super::tests::read_xsh_source(&path) else {
                     continue;
                 };
-                let mut sources = SourceMap::new();
-                let source_id = sources.add_file(path.to_string_lossy(), source.clone());
-                let parsed = Parser::parse_source_arena_only(source_id, &source);
+                let Ok((sources, parsed)) =
+                    crate::loader::parse_script(path.to_string_lossy().as_ref())
+                else {
+                    continue;
+                };
                 if !parsed.diagnostics.is_empty() {
                     continue;
                 }
+                let Some(source_id) = parsed.arena.arena.span_source_id else {
+                    continue;
+                };
                 let declarations = Checker::check_compact_declarations(&parsed.arena);
                 if !declarations.diagnostics.is_empty() {
                     continue;
@@ -6868,17 +8051,33 @@ run true
                     &bodies,
                     &source,
                 );
-                let units = super::super::super::probe_compact_lower_function_units(
+                let units =
+                    super::super::super::lower::probe_compact_lower_function_units_with_sources(
                     &parsed.arena,
                     &declarations,
                     &bodies,
                     &source,
+                    &sources,
                 );
                 files += 1;
                 source_bytes += source.len();
                 top_level_statements += probe.top_level_statements;
                 lowerable_top_level_statements += probe.constructed_top_level_statements;
                 if units.iter().any(|unit| !unit.is_lowered()) {
+                    for unit in units.iter().filter(|unit| !unit.is_lowered()) {
+                        let blocker_source = unit
+                            .blocker_detail()
+                            .and_then(|(span, _)| source.get(span.start()..span.end()))
+                            .unwrap_or("");
+                        println!(
+                            "phase5 blocker file={} function={} blocker={} detail={} source={blocker_source:?}",
+                            path.display(),
+                            unit.key().display_name(),
+                            unit.blocker().map_or("unknown", |blocker| blocker.label()),
+                            unit.blocker_detail()
+                                .map_or("", |(_, detail)| detail.as_str()),
+                        );
+                    }
                     *blockers.entry("function".to_string()).or_default() += 1;
                     continue;
                 }
