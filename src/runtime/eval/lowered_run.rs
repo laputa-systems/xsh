@@ -442,13 +442,13 @@ fn lowered_reduce_group_insert(
     Ok(())
 }
 
-struct LoweredReduceProjection {
-    key_field: Arc<str>,
-    value_fields: Vec<(Name, Arc<str>)>,
+struct LoweredReduceProjection<'a> {
+    key_field: &'a str,
+    value_fields: Vec<(Name, &'a str)>,
 }
 
-struct LoweredProjectedReduceState {
-    projection: LoweredReduceProjection,
+struct LoweredProjectedReduceState<'a> {
+    projection: LoweredReduceProjection<'a>,
     record_indices: Option<LoweredProjectedRecordIndices>,
     output_fields_unique: bool,
 }
@@ -459,8 +459,8 @@ struct LoweredProjectedRecordIndices {
     values: Vec<usize>,
 }
 
-impl LoweredProjectedReduceState {
-    fn new(projection: LoweredReduceProjection) -> Self {
+impl<'a> LoweredProjectedReduceState<'a> {
+    fn new(projection: LoweredReduceProjection<'a>) -> Self {
         let output_fields_unique = lowered_projected_output_fields_unique(&projection);
         Self {
             projection,
@@ -483,7 +483,7 @@ impl LoweredProjectedReduceState {
     }
 }
 
-fn lowered_projected_output_fields_unique(projection: &LoweredReduceProjection) -> bool {
+fn lowered_projected_output_fields_unique(projection: &LoweredReduceProjection<'_>) -> bool {
     for index in 0..projection.value_fields.len() {
         let name = projection.value_fields[index].0;
         if projection.value_fields[..index]
@@ -501,25 +501,25 @@ fn lowered_record_vec_field_index(record: &[(Name, LoweredValue)], field: &str) 
 }
 
 fn lowered_projected_record_indices(
-    projection: &LoweredReduceProjection,
+    projection: &LoweredReduceProjection<'_>,
     record: &[(Name, LoweredValue)],
 ) -> Option<LoweredProjectedRecordIndices> {
-    let key = lowered_record_vec_field_index(record, projection.key_field.as_ref())?;
+    let key = lowered_record_vec_field_index(record, projection.key_field)?;
     let mut values = Vec::with_capacity(projection.value_fields.len());
     for (_, source_field) in &projection.value_fields {
-        values.push(lowered_record_vec_field_index(record, source_field.as_ref())?);
+        values.push(lowered_record_vec_field_index(record, source_field)?);
     }
     Some(LoweredProjectedRecordIndices { key, values })
 }
 
 fn lowered_projected_record_indices_match(
-    projection: &LoweredReduceProjection,
+    projection: &LoweredReduceProjection<'_>,
     record: &[(Name, LoweredValue)],
     indices: &LoweredProjectedRecordIndices,
 ) -> bool {
     record
         .get(indices.key)
-        .is_some_and(|(name, _)| name.as_str() == projection.key_field.as_ref())
+        .is_some_and(|(name, _)| name.as_str() == projection.key_field)
         && indices.values.len() == projection.value_fields.len()
         && indices
             .values
@@ -528,12 +528,12 @@ fn lowered_projected_record_indices_match(
             .all(|(index, (_, source_field))| {
                 record
                     .get(*index)
-                    .is_some_and(|(name, _)| name.as_str() == source_field.as_ref())
+                    .is_some_and(|(name, _)| name.as_str() == *source_field)
             })
 }
 
 fn lowered_projected_key_value(
-    projection: &LoweredReduceProjection,
+    projection: &LoweredReduceProjection<'_>,
     item: &LoweredValue,
     indices: Option<&LoweredProjectedRecordIndices>,
     span: Span,
@@ -541,13 +541,13 @@ fn lowered_projected_key_value(
     if let (LoweredValue::RecordVec(record), Some(indices)) = (item, indices) {
         return Ok(record[indices.key].1.clone());
     }
-    lowered_record_field_value(item, projection.key_field.as_ref()).ok_or_else(|| {
-        RuntimeError::new("missing-field", projection.key_field.as_ref()).with_span(span)
+    lowered_record_field_value(item, projection.key_field).ok_or_else(|| {
+        RuntimeError::new("missing-field", projection.key_field).with_span(span)
     })
 }
 
 fn lowered_projected_record_value(
-    projection: &LoweredReduceProjection,
+    projection: &LoweredReduceProjection<'_>,
     item: &LoweredValue,
     indices: Option<&LoweredProjectedRecordIndices>,
     span: Span,
@@ -558,8 +558,8 @@ fn lowered_projected_record_value(
         {
             record[indices.values[index]].1.clone()
         } else {
-            lowered_record_field_value(item, source_field.as_ref()).ok_or_else(|| {
-                RuntimeError::new("missing-field", source_field.as_ref()).with_span(span)
+            lowered_record_field_value(item, source_field).ok_or_else(|| {
+                RuntimeError::new("missing-field", *source_field).with_span(span)
             })?
         };
         value.push((*name, field_value));
@@ -568,7 +568,7 @@ fn lowered_projected_record_value(
 }
 
 fn lowered_projected_acc_layout_matches(
-    projection: &LoweredReduceProjection,
+    projection: &LoweredReduceProjection<'_>,
     acc: &[(Name, LoweredValue)],
 ) -> bool {
     acc.len() == projection.value_fields.len()
@@ -10141,7 +10141,7 @@ impl Evaluator {
 
     fn eval_lowered_projected_reduce_by_item(
         &mut self,
-        state: &mut LoweredProjectedReduceState,
+        state: &mut LoweredProjectedReduceState<'_>,
         item: LoweredValue,
         groups: &mut BTreeMap<String, LoweredValue>,
         span: Span,
@@ -10172,9 +10172,9 @@ impl Evaluator {
                                 {
                                     record[indices.values[index]].1.clone()
                                 } else {
-                                    lowered_record_field_value(&item, source_field.as_ref()).ok_or_else(
+                                    lowered_record_field_value(&item, source_field).ok_or_else(
                                         || {
-                                            RuntimeError::new("missing-field", source_field.as_ref())
+                                            RuntimeError::new("missing-field", *source_field)
                                                 .with_span(span)
                                         },
                                     )?
@@ -10187,9 +10187,9 @@ impl Evaluator {
                         }
                     } else {
                         for (name, source_field) in &state.projection.value_fields {
-                            let field_value = lowered_record_field_value(&item, source_field.as_ref())
+                            let field_value = lowered_record_field_value(&item, source_field)
                                 .ok_or_else(|| {
-                                    RuntimeError::new("missing-field", source_field.as_ref())
+                                    RuntimeError::new("missing-field", *source_field)
                                         .with_span(span)
                                 })?;
                             if let Some(acc_value) = lowered_record_vec_get_mut(acc, &name.as_str())

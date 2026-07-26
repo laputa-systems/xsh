@@ -88,6 +88,16 @@ fn indexed_raw(payload: &mut FullPayload<'_>, span: Span) -> Result<u32, Runtime
     payload.raw().map_err(|error| indexed_error(error, span))
 }
 
+fn indexed_string<'payload, 'program>(
+    payload: &mut FullPayload<'payload>,
+    execution: &'program FullExecution<'program>,
+    span: Span,
+) -> Result<&'program str, RuntimeError> {
+    execution
+        .string(indexed_raw(payload, span)?)
+        .map_err(|error| indexed_error(error, span))
+}
+
 fn indexed_finish(payload: FullPayload<'_>, span: Span) -> Result<(), RuntimeError> {
     payload.finish().map_err(|error| indexed_error(error, span))
 }
@@ -1356,19 +1366,19 @@ impl Evaluator {
         }
     }
 
-    fn indexed_field_projection(
-        execution: &FullExecution<'_>,
+    fn indexed_field_projection<'program>(
+        execution: &'program FullExecution<'program>,
         instruction: u32,
         item_slot: usize,
         span: Span,
-    ) -> Result<Option<Arc<str>>, RuntimeError> {
+    ) -> Result<Option<&'program str>, RuntimeError> {
         let (tag, mut payload) =
             indexed_value(execution.instruction_id(instruction), span)?;
         if tag != FullTag::ExprField {
             return Ok(None);
         }
         let base = indexed_raw(&mut payload, span)?;
-        let name = indexed_decode::<Arc<str>>(&mut payload, execution, span)?;
+        let name = indexed_string(&mut payload, execution, span)?;
         indexed_decode::<Span>(&mut payload, execution, span)?;
         indexed_finish(payload, span)?;
         let (base_tag, mut base_payload) =
@@ -1410,14 +1420,14 @@ impl Evaluator {
         Ok(Some(fields))
     }
 
-    fn indexed_reduce_projection(
-        execution: &FullExecution<'_>,
+    fn indexed_reduce_projection<'program>(
+        execution: &'program FullExecution<'program>,
         item_slot: usize,
         body: u32,
         value: u32,
         op: ReduceByOp,
         span: Span,
-    ) -> Result<Option<LoweredReduceProjection>, RuntimeError> {
+    ) -> Result<Option<LoweredReduceProjection<'program>>, RuntimeError> {
         if op != ReduceByOp::Sum {
             return Ok(None);
         }
@@ -3404,14 +3414,14 @@ impl Evaluator {
             }
             FullTag::ExprField => {
                 let base = indexed_raw(&mut payload, call_span)?;
-                let name = indexed_decode::<Arc<str>>(&mut payload, execution, call_span)?;
+                let name = indexed_string(&mut payload, execution, call_span)?;
                 let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
                 indexed_finish(payload, call_span)?;
                 let base = match self.eval_indexed_expr(execution, base, slots, span)? {
                     ControlFlow::Continue(value) => value,
                     ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
                 };
-                ControlFlow::Continue(self.indexed_field_value(base, name.as_ref(), span)?)
+                ControlFlow::Continue(self.indexed_field_value(base, name, span)?)
             }
             FullTag::ExprIndex => {
                 let base = indexed_raw(&mut payload, call_span)?;
@@ -3456,7 +3466,7 @@ impl Evaluator {
             }
             FullTag::ExprMethod => {
                 let receiver = indexed_raw(&mut payload, call_span)?;
-                let name = indexed_decode::<Arc<str>>(&mut payload, execution, call_span)?;
+                let name = indexed_string(&mut payload, execution, call_span)?;
                 let (_, mut args) = execution
                     .block(&mut payload, BLOCK_LIST)
                     .map_err(|error| indexed_error(error, call_span))?;
@@ -3480,7 +3490,7 @@ impl Evaluator {
                 if !self.trace_enabled {
                     return self.eval_lowered_method_dispatch(
                         receiver,
-                        name.as_ref(),
+                        name,
                         values,
                         &span,
                     );
@@ -3492,7 +3502,7 @@ impl Evaluator {
                     Some(&trace_name),
                     TracePayload::None,
                 );
-                let result = self.eval_lowered_method_dispatch(receiver, name.as_ref(), values, &span);
+                let result = self.eval_lowered_method_dispatch(receiver, name, values, &span);
                 self.trace_exit(
                     TraceKind::MethodResult,
                     Some(span),

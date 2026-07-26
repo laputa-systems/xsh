@@ -1,5 +1,5 @@
 use rustc_hash::FxHashMap;
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::cmp::Ordering;
 use std::borrow::Borrow;
 use std::fmt;
@@ -31,7 +31,7 @@ pub struct Name(Symbol);
 /// Preloaded spellings borrow generated static storage. Dynamic spellings keep
 /// their session-owned allocation alive for the duration of the returned value,
 /// rather than exposing an unsound `&'static str` from the process interner.
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug)]
 pub enum NameText {
     Preloaded(&'static str),
     Dynamic(std::sync::Arc<str>),
@@ -43,6 +43,20 @@ impl NameText {
             Self::Preloaded(text) => text,
             Self::Dynamic(text) => text,
         }
+    }
+}
+
+impl PartialEq for NameText {
+    fn eq(&self, other: &Self) -> bool {
+        self.as_str() == other.as_str()
+    }
+}
+
+impl Eq for NameText {}
+
+impl Hash for NameText {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.as_str().hash(state);
     }
 }
 
@@ -122,22 +136,12 @@ pub struct SymbolOwner(std::sync::Arc<SymbolOwnerData>);
 
 #[derive(Default)]
 struct SymbolOwnerData {
-    symbols: std::sync::Mutex<FxHashMap<Symbol, ()>>,
-    drop_notifiers: std::sync::Mutex<Vec<Box<dyn FnOnce() + Send>>>,
+    symbols: RwLock<FxHashMap<Symbol, ()>>,
 }
 
 impl fmt::Debug for SymbolOwnerData {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("SymbolOwnerData").finish_non_exhaustive()
-    }
-}
-
-#[derive(Clone, Debug)]
-pub(crate) struct SymbolOwnerWeak(std::sync::Weak<SymbolOwnerData>);
-
-impl SymbolOwnerWeak {
-    pub(crate) fn is_alive(&self) -> bool {
-        self.0.strong_count() != 0
     }
 }
 
@@ -147,21 +151,30 @@ impl SymbolOwner {
     }
 
     pub fn intern(&self, text: &str) -> Name {
-        let mut symbols = self.0.symbols.lock().expect("symbol owner poisoned");
+        let mut symbols = self.0.symbols.write().expect("symbol owner poisoned");
         let mut interner = interner().write().expect("symbol interner poisoned");
         let symbol = interner.intern(text);
         if !symbol_is_preloaded(symbol) && symbols.insert(symbol, ()).is_none() {
-            interner.retain(symbol);
+            interner.retain(symbol, self.identity());
         }
         Name(symbol)
     }
 
-    fn owns(&self, symbol: Symbol) -> bool {
-        self.0
+    fn identity(&self) -> usize {
+        std::sync::Arc::as_ptr(&self.0) as usize
+    }
+
+    fn intern_existing(&self, text: &str, symbol: Symbol) -> Name {
+        if self
+            .0
             .symbols
-            .lock()
+            .read()
             .expect("symbol owner poisoned")
             .contains_key(&symbol)
+        {
+            return Name(symbol);
+        }
+        self.intern(text)
     }
 
     pub fn with_current<R>(&self, work: impl FnOnce() -> R) -> R {
@@ -170,8 +183,12 @@ impl SymbolOwner {
     }
 
     pub fn enter(&self) -> SymbolOwnerGuard {
-        ACTIVE_SYMBOL_OWNERS.with(|owners| owners.borrow_mut().push(self.clone()));
-        SymbolOwnerGuard
+        let previous = ACTIVE_SYMBOL_OWNER.with(|owner| owner.borrow_mut().replace(self.clone()));
+        let previous_identity = ACTIVE_SYMBOL_OWNER_ID.with(|owner| owner.replace(self.identity()));
+        SymbolOwnerGuard {
+            previous,
+            previous_identity,
+        }
     }
 
     pub fn current() -> Option<Self> {
@@ -179,7 +196,7 @@ impl SymbolOwner {
     }
 
     pub fn dynamic_stats(&self) -> (usize, usize) {
-        let symbols = self.0.symbols.lock().expect("symbol owner poisoned");
+        let symbols = self.0.symbols.read().expect("symbol owner poisoned");
         let interner = interner().read().expect("symbol interner poisoned");
         let bytes = symbols
             .keys()
@@ -188,21 +205,6 @@ impl SymbolOwner {
         (symbols.len(), bytes)
     }
 
-    pub(crate) fn cache_key(&self) -> usize {
-        std::sync::Arc::as_ptr(&self.0) as usize
-    }
-
-    pub(crate) fn downgrade(&self) -> SymbolOwnerWeak {
-        SymbolOwnerWeak(std::sync::Arc::downgrade(&self.0))
-    }
-
-    pub(crate) fn on_drop(&self, work: impl FnOnce() + Send + 'static) {
-        self.0
-            .drop_notifiers
-            .lock()
-            .expect("symbol owner notifier poisoned")
-            .push(Box::new(work));
-    }
 }
 
 impl Default for SymbolOwner {
@@ -222,14 +224,6 @@ impl Eq for SymbolOwner {}
 
 impl Drop for SymbolOwnerData {
     fn drop(&mut self) {
-        for notify in self
-            .drop_notifiers
-            .get_mut()
-            .expect("symbol owner notifier poisoned")
-            .drain(..)
-        {
-            notify();
-        }
         let symbols = self.symbols.get_mut().expect("symbol owner poisoned");
         let mut interner = interner().write().expect("symbol interner poisoned");
         for symbol in symbols.keys().copied() {
@@ -239,24 +233,37 @@ impl Drop for SymbolOwnerData {
 }
 
 thread_local! {
-    static ACTIVE_SYMBOL_OWNERS: RefCell<Vec<SymbolOwner>> = const { RefCell::new(Vec::new()) };
+    static ACTIVE_SYMBOL_OWNER: RefCell<Option<SymbolOwner>> = const { RefCell::new(None) };
+    static ACTIVE_SYMBOL_OWNER_ID: Cell<usize> = const { Cell::new(0) };
 }
 
-pub struct SymbolOwnerGuard;
+pub struct SymbolOwnerGuard {
+    previous: Option<SymbolOwner>,
+    previous_identity: usize,
+}
 
 impl Drop for SymbolOwnerGuard {
     fn drop(&mut self) {
-        ACTIVE_SYMBOL_OWNERS.with(|owners| {
-            owners
-                .borrow_mut()
-                .pop()
-                .expect("active symbol owner stack underflow");
+        ACTIVE_SYMBOL_OWNER.with(|owner| {
+            *owner.borrow_mut() = self.previous.take();
         });
+        ACTIVE_SYMBOL_OWNER_ID.with(|owner| owner.set(self.previous_identity));
     }
 }
 
 fn current_symbol_owner() -> Option<SymbolOwner> {
-    ACTIVE_SYMBOL_OWNERS.with(|owners| owners.borrow().last().cloned())
+    ACTIVE_SYMBOL_OWNER.with(|owner| owner.borrow().clone())
+}
+
+fn with_current_symbol_owner<R>(work: impl FnOnce(Option<&SymbolOwner>) -> R) -> R {
+    ACTIVE_SYMBOL_OWNER.with(|owner| {
+        let owner = owner.borrow();
+        work(owner.as_ref())
+    })
+}
+
+fn current_symbol_owner_identity() -> usize {
+    ACTIVE_SYMBOL_OWNER_ID.with(Cell::get)
 }
 
 impl Name {
@@ -290,26 +297,36 @@ impl Name {
     pub fn intern(text: impl AsRef<str>) -> Self {
         let text = text.as_ref();
         let existing = {
-            interner()
-                .read()
-                .expect("symbol interner poisoned")
+            let interner = interner().read().expect("symbol interner poisoned");
+            interner
                 .get(text)
+                .map(|symbol| (symbol, interner.sole_owner(symbol)))
         };
-        if let Some(symbol) = existing {
+        if let Some((symbol, sole_owner)) = existing {
             if !symbol_is_preloaded(symbol) {
-                let owner = current_symbol_owner().unwrap_or_else(|| {
-                    panic!("dynamic symbol `{text}` was interned without a symbol owner")
-                });
-                if owner.owns(symbol) {
+                let current_owner = current_symbol_owner_identity();
+                if current_owner == 0 {
+                    panic!("dynamic symbol `{text}` was interned without a symbol owner");
+                }
+                if sole_owner == Some(current_owner) {
                     return Self(symbol);
                 }
-                return owner.intern(text);
+                return with_current_symbol_owner(|owner| {
+                    let owner = owner.unwrap_or_else(|| {
+                        panic!("dynamic symbol `{text}` was interned without a symbol owner")
+                    });
+                    owner.intern_existing(text, symbol)
+                });
             }
             return Self(symbol);
         }
-        let owner = current_symbol_owner()
-            .unwrap_or_else(|| panic!("dynamic symbol `{text}` was interned without a symbol owner"));
-        owner.intern(text)
+        with_current_symbol_owner(|owner| {
+            owner
+                .unwrap_or_else(|| {
+                    panic!("dynamic symbol `{text}` was interned without a symbol owner")
+                })
+                .intern(text)
+        })
     }
 
     pub const fn from_symbol(symbol: Symbol) -> Self {
@@ -473,8 +490,8 @@ impl fmt::Display for QualifiedName {
 }
 
 struct Interner {
-    by_text: FxHashMap<&'static str, Symbol>,
-    dynamic_by_text: FxHashMap<std::sync::Arc<str>, Symbol>,
+    by_text: FxHashMap<NameText, Symbol>,
+    preloaded_by_text_capacity: usize,
     dynamic: Vec<Option<DynamicSymbol>>,
     free_dynamic: Vec<u32>,
 }
@@ -482,6 +499,7 @@ struct Interner {
 struct DynamicSymbol {
     text: std::sync::Arc<str>,
     owners: usize,
+    sole_owner: Option<usize>,
 }
 
 impl Interner {
@@ -491,23 +509,21 @@ impl Interner {
                 PRELOADED_SYMBOL_COUNT as usize,
                 Default::default(),
             ),
-            dynamic_by_text: FxHashMap::default(),
+            preloaded_by_text_capacity: 0,
             dynamic: Vec::new(),
             free_dynamic: Vec::new(),
         };
         for index in 0..PRELOADED_SYMBOL_COUNT {
             let symbol = Symbol::from_raw(index);
             let name = resolve_preloaded(symbol).expect("preloaded symbol exists");
-            interner.by_text.insert(name, symbol);
+            interner.by_text.insert(NameText::Preloaded(name), symbol);
         }
+        interner.preloaded_by_text_capacity = interner.by_text.capacity();
         interner
     }
 
     fn get(&self, text: &str) -> Option<Symbol> {
-        self.by_text
-            .get(text)
-            .copied()
-            .or_else(|| self.dynamic_by_text.get(text).copied())
+        self.by_text.get(text).copied()
     }
 
     fn intern(&mut self, text: &str) -> Symbol {
@@ -526,6 +542,7 @@ impl Interner {
         let entry = DynamicSymbol {
             text: text.clone(),
             owners: 0,
+            sole_owner: None,
         };
         if let Some(slot) = self.dynamic.get_mut(index as usize) {
             debug_assert!(slot.is_none(), "reused dynamic symbol slot was still live");
@@ -534,14 +551,19 @@ impl Interner {
             debug_assert_eq!(index as usize, self.dynamic.len());
             self.dynamic.push(Some(entry));
         }
-        self.dynamic_by_text.insert(text, symbol);
+        self.by_text.insert(NameText::Dynamic(text), symbol);
         symbol
     }
 
-    fn retain(&mut self, symbol: Symbol) {
+    fn retain(&mut self, symbol: Symbol, owner: usize) {
         let Some(entry) = self.dynamic_entry_mut(symbol) else {
             return;
         };
+        if entry.owners == 0 {
+            entry.sole_owner = Some(owner);
+        } else if entry.sole_owner != Some(owner) {
+            entry.sole_owner = None;
+        }
         entry.owners = entry
             .owners
             .checked_add(1)
@@ -567,7 +589,7 @@ impl Interner {
         }
         let text = entry.text.clone();
         self.dynamic[index] = None;
-        self.dynamic_by_text.remove(text.as_ref());
+        self.by_text.remove(text.as_ref());
         self.free_dynamic
             .push(u32::try_from(index).expect("dynamic symbol index exceeded u32"));
     }
@@ -583,6 +605,13 @@ impl Interner {
             .get(dynamic_index(symbol)?)?
             .as_ref()
             .map(|entry| entry.text.len())
+    }
+
+    fn sole_owner(&self, symbol: Symbol) -> Option<usize> {
+        self.dynamic
+            .get(dynamic_index(symbol)?)?
+            .as_ref()?
+            .sole_owner
     }
 
     fn resolve(&self, symbol: Symbol) -> NameText {
@@ -637,8 +666,11 @@ pub fn dynamic_symbol_stats() -> (usize, usize) {
         .map(|entry| entry.text.len())
         .sum::<usize>()
         + interner.dynamic.capacity() * std::mem::size_of::<Option<DynamicSymbol>>()
-        + interner.dynamic_by_text.capacity()
-            * std::mem::size_of::<(std::sync::Arc<str>, Symbol)>()
+        + interner
+            .by_text
+            .capacity()
+            .saturating_sub(interner.preloaded_by_text_capacity)
+            * std::mem::size_of::<(NameText, Symbol)>()
         + interner.free_dynamic.capacity() * std::mem::size_of::<u32>();
     (count, bytes)
 }
@@ -702,13 +734,29 @@ mod tests {
     }
 
     #[test]
+    fn nested_symbol_owner_scope_restores_parent() {
+        let outer = SymbolOwner::new();
+        let inner = SymbolOwner::new();
+        outer.with_current(|| {
+            Name::intern("symbol_owner_outer_before");
+            inner.with_current(|| {
+                Name::intern("symbol_owner_inner");
+            });
+            Name::intern("symbol_owner_outer_after");
+        });
+        assert_eq!(outer.dynamic_stats().0, 2);
+        assert_eq!(inner.dynamic_stats().0, 1);
+    }
+
+    #[test]
     fn dynamic_symbols_return_to_a_stable_plateau_after_owner_drop() {
         let mut local = Interner::with_preloaded();
         for index in 0..8 {
-            let symbol = local.intern(&format!("session_symbol_{index}"));
-            local.retain(symbol);
+            let text = format!("session_symbol_{index}");
+            let symbol = local.intern(&text);
+            local.retain(symbol, 0);
             local.release(symbol);
-            assert!(local.dynamic_by_text.is_empty());
+            assert!(local.get(&text).is_none());
             assert_eq!(local.dynamic.len(), 1);
             assert_eq!(local.free_dynamic, vec![0]);
         }

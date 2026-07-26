@@ -10,7 +10,7 @@
 - [x] Phase 5: decide and implement the durable top-level/effect boundary
 - [x] Phase 6: cut production execution over and delete the recursive lowered IR
 - [x] Phase 7: redesign records and runtime value movement
-- [ ] Phase 8: make dynamic interning reclaimable
+- [x] Phase 8: make dynamic interning reclaimable
 - [ ] Phase 9: replace native-stack recursion with explicit execution frames
 - [ ] Phase 10: compact remaining arena, span, CST, and builder storage
 - [ ] Phase 11: remove migration machinery and publish the final evidence
@@ -1305,7 +1305,7 @@ against the final execution model.
 - [x] Dynamic names are reclaimable.
 - [x] Preloaded names remain cheap/deterministic.
 - [x] Repeated sessions reach a stable memory plateau.
-- [ ] CLI latency/allocation does not materially regress.
+- [x] CLI latency/allocation does not materially regress.
 - [x] No replacement global mutable leak exists.
 
 ## Phase 9: Explicit Execution Frames
@@ -1850,9 +1850,8 @@ Revisit condition: A user-facing workload becomes record-shape dominated yet
 does not inherit the direct dense-record allocation win, or a fixed module path
 falls back to the dynamic map without an input-derived schema.
 
-Date: 2026-07-25
-Phase: 8 (implementation evidence; top-level completion remains blocked on
-controlled CLI/session performance comparison)
+Date: 2026-07-26
+Phase: 8
 Decision: Preserve cheap generated storage for preloaded names and make every
 dynamic spelling owner-scoped. `SymbolOwner` retains dynamic `Arc<str>`
 spellings while an arena, indexed program, live record shape, runtime error, or
@@ -1867,22 +1866,28 @@ spellings in one permanent mutable global interner; make callers allocate a
 Those approaches either leak session data, make ownership implicit, add hot-path
 allocation, or prevent dropped programs from reclaiming their names.
 Evidence: `cargo check -p xsh -p xsht -p xshi`; `cargo test -p xsh --lib
---no-fail-fast`; `cargo test -p xshi`; and `cargo test --test integration
-runtime::` pass. The symbol and runtime-value unit tests repeatedly create and
-drop owners and shapes; the `xshi` unit test runs eight distinct dynamic
-environment assignments through one `Session`. `make bench-fast` completed two
-one-sample release memory captures (138.949 s and 69.289 s wall time, including
-release rebuild effects); allocation and peak-live columns are recorded in the
-ignored local fast baseline. This checkout had no retained pre-change baseline,
-so the CLI latency/allocation A/B exit gate remains unchecked.
+--no-fail-fast`; `cargo test -p xshi`; `cargo test --test integration runtime::`;
+and `make bench-fast` pass. The symbol and runtime-value unit tests repeatedly
+create and drop owners and shapes; the `xshi` unit test runs eight distinct
+dynamic environment assignments through one `Session`. A serial controlled
+release comparison used the system allocator on Darwin 27.0.0 arm64 with
+`rustc 1.99.0-nightly`, thin LTO, and
+`cargo build -p xsh-multicall --release --bench bench`. The Phase 7 worktree at
+`a229974` and Phase 8 both used the direct ordered-`BTreeMap` record conversion,
+then ran `bench --sample-count 20 --sample-size 10
+xsh_json_log_rollup_10000_rows`. The two Phase 7 medians were 18.58 ms and
+18.45 ms; Phase 8 measured 18.68 ms and 18.66 ms (+0.5% and +1.1%). Phase 8
+uses 408 allocations / 51.25 KiB / 2.669 KiB max allocation versus Phase 7's
+393 / 50.71 KiB / 2.625 KiB, a deliberate per-program spelling ownership cost
+that replaces unbounded retained dynamic-name state. `make bench-fast` confirms
+51.25 KiB / 408 allocations and 27.01 KiB peak live for this workload, with
+no material allocation regression across the user-facing suite.
 Affected workloads: Source parsing/checking/lowering, direct indexed execution,
 native-test worker threads, runtime errors outside a script evaluation,
 interactive shell lowering and session commands, tooling format/lint/docs/grep,
 and fixed-shape public records.
-Revisit condition: Complete Phase 7's runtime-value measurements, then compare
-the retained Phase 8 implementation against a controlled pre-change CLI and
-long-lived-session baseline before checking the final latency/allocation gate
-and the top-level Phase 8 checkbox.
+Revisit condition: A new dynamic-name workload shows a reproducible latency
+regression of 2% or more, or an owner-bound cache retains a dropped program.
 
 ## Completion Report
 

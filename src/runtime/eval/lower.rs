@@ -1071,7 +1071,7 @@ fn lower_command_word_reference(
     for segment in segments {
         value = match segment {
             CommandWordRefSegment::Field(name) => build_expr(scratch, BuildExprRow::Field { base: value,
-            name: Arc::<str>::from(name.as_str().as_str()),
+            name: name.as_str(),
             span, }),
             CommandWordRefSegment::Index(index) => build_expr(scratch, BuildExprRow::Index { base: value,
                 index: build_expr(scratch, BuildExprRow::Int(index)),
@@ -7082,14 +7082,14 @@ impl CompactLowerConstructProbe<'_, '_> {
                     return Some(env_expr);
                 }
                 Some(push_build_row!(self, expr, BuildExprRow::Field { base: self.lower_expr(base, slots, current_function, item_slot)?,
-                name: Arc::<str>::from(name.as_str().as_str()),
+                name: name.as_str(),
                 span, }))
             }
             ArenaExprKind::NullSafeField { base, name } => Some(push_build_row!(self, expr, BuildExprRow::Field { base: push_build_row!(self, expr, BuildExprRow::Try(self.lower_expr(base,
             slots,
             current_function,
             item_slot,)?)),
-            name: Arc::<str>::from(name.as_str().as_str()),
+            name: name.as_str(),
             span, })),
             ArenaExprKind::Index { base, index } => Some(push_build_row!(self, expr, BuildExprRow::Index { base: self.lower_expr(base, slots, current_function, item_slot)?,
             index: self.lower_expr(index, slots, current_function, item_slot)?,
@@ -8264,7 +8264,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                     });
                 }
                 Some(push_build_row!(self, expr, BuildExprRow::Method { receiver: receiver,
-                name: Arc::<str>::from(name.as_str().as_str()),
+                name: name.as_str(),
                 args: lowered_args,
                 span, }))
             }
@@ -8408,7 +8408,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                 slots,
                 current_function,
                 item_slot,)?)),
-                name: Arc::<str>::from(name.as_str().as_str()),
+                name: name.as_str(),
                 args: lowered_args,
                 span, }))
             }
@@ -11328,7 +11328,7 @@ fn lower_int_expr_candidate(&self, expr: &BuildExprId) -> Option<BuildIntId> {
             name,
             args,
             span,
-        } if name.as_ref() == "count_lines" && args.is_empty() => {
+        } if name.as_str() == "count_lines" && args.is_empty() => {
             let receiver_row = {
                 let scratch = self.scratch.borrow();
                 scratch.expressions[receiver.index()].clone()
@@ -11560,7 +11560,7 @@ fn lowered_trim_slot(&self, expr: &BuildExprId) -> Option<(usize, Span)> {
     else {
         return None;
     };
-    if name.as_ref() != "trim" || !args.is_empty() {
+    if name.as_str() != "trim" || !args.is_empty() {
         return None;
     }
     let receiver = self.scratch.borrow().expressions[receiver.index()].clone();

@@ -20,7 +20,7 @@ use crate::runtime::value::{
 use crate::sema::check::{Checker, CompactBodyProbeOutput, CompactDeclOutput};
 use crate::sema::types::{CallableType, Type};
 use crate::source::{SourceId, SourceMap, Span};
-use crate::symbol::{Name, QualifiedName};
+use crate::symbol::{Name, NameText, QualifiedName};
 use crate::syntax::arena::{
     ArenaCallArg, ArenaCallArgKind, ArenaExprKind, ArenaProgram, ArenaStmtKind, ExprId, StmtId,
 };
@@ -1360,10 +1360,9 @@ enum BuildExprRow {
     },
     Field {
         base: BuildExprId,
-        // Scratch rows retain a cheap shared spelling until full IR copies it
-        // into the program-owned string pool. Dynamic names must not borrow the
-        // process interner as `'static` text.
-        name: Arc<str>,
+        // Scratch rows preserve generated static text without allocation while
+        // retaining an owned spelling for dynamic names.
+        name: NameText,
         span: Span,
     },
     Index {
@@ -1379,7 +1378,7 @@ enum BuildExprRow {
     },
     Method {
         receiver: BuildExprId,
-        name: Arc<str>,
+        name: NameText,
         args: Vec<BuildExprId>,
         span: Span,
     },

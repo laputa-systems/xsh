@@ -25,7 +25,7 @@ use crate::runtime::value::{DurationValue, FloatValue, FunctionName, PathValue};
 use crate::sema::check::{CompactBodyProbeOutput, CompactDeclOutput};
 use crate::sema::types::{CallableParamType, CallableType, ModuleExportType, Type};
 use crate::source::{SourceId, SourceMap, Span};
-use crate::symbol::{Name, QualifiedName, Symbol};
+use crate::symbol::{Name, NameText, QualifiedName, Symbol};
 use crate::syntax::arena::{ArenaProgram, StmtId};
 use crate::syntax::node::{
     AssignOp, BinaryOp, FormatSpec, FormatSpecKind, RedirectionKind, RunKind,
@@ -2820,6 +2820,10 @@ pub(in crate::runtime::eval) struct FullExecution<'a> {
 }
 
 impl<'a> FullExecution<'a> {
+    pub(in crate::runtime::eval) fn string(&self, raw: u32) -> Result<&str, IrVerifyError> {
+        self.decoder.store.string(raw)
+    }
+
     pub(in crate::runtime::eval) fn function_identity(
         &self,
     ) -> Result<(LoweredFunctionKey, LoweredFunctionKind), IrVerifyError> {
@@ -4079,6 +4083,33 @@ impl FullCodec for Arc<str> {
         input: &mut FullCursor<'_>,
     ) -> Result<Self, IrVerifyError> {
         Ok(Arc::from(decoder.store.string(input.raw()?)?))
+    }
+
+    fn verify(
+        decoder: &FullDecoder<'_>,
+        input: &mut FullCursor<'_>,
+    ) -> Result<(), IrVerifyError> {
+        decoder.store.string(input.raw()?).map(drop)
+    }
+}
+
+impl FullCodec for NameText {
+    fn encode(
+        &self,
+        builder: &mut FullBuilder,
+        output: &mut Vec<u32>,
+    ) -> Result<(), IrBuildError> {
+        output.push(builder.intern_string(self.as_str())?.raw());
+        Ok(())
+    }
+
+    fn decode(
+        decoder: &FullDecoder<'_>,
+        input: &mut FullCursor<'_>,
+    ) -> Result<Self, IrVerifyError> {
+        Ok(NameText::Dynamic(Arc::from(
+            decoder.store.string(input.raw()?)?,
+        )))
     }
 
     fn verify(
@@ -6406,7 +6437,7 @@ impl_node_codec! {
         },
         BuildExprRow::Field { base, name, span } => ExprField {
             base: BuildExprId,
-            name: Arc<str>,
+            name: NameText,
             span: Span,
         } => BuildExprRow::Field { base, name, span },
         BuildExprRow::Index { base, index, span } => ExprIndex {
@@ -6437,7 +6468,7 @@ impl_node_codec! {
             span,
         } => ExprMethod {
             receiver: BuildExprId,
-            name: Arc<str>,
+            name: NameText,
             args: Vec<BuildExprId>,
             span: Span,
         } => BuildExprRow::Method {
