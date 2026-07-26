@@ -25,23 +25,16 @@ translate records and paths into plain Rust request structs, convert crate
 results back into `Value`/`RuntimeError`, preserve source spans, honor test
 mocks, and manage evaluator-owned pool state.
 
-There is no bytecode format, instruction VM, JIT, green-thread scheduler, or
-async task runtime in the execution path. The normalized AST remains the
-executable representation for the full language: syntax desugaring rewrites
-surface conveniences into simpler AST forms, the checker validates that tree,
-and `src/runtime/eval.rs` walks it directly while coordinating host processes,
-streams, cwd/env state, defers, signals, and trace events. A small lowered IR
-exists only as an optional fast path for checked pure/effect-free regions that
-stay inside a conservative value and control-flow subset. Unsupported functions
-fall back to AST evaluation. This is intentional. XSH's performance boundary is the
-Unix orchestration boundary, where most expensive work belongs in external
-processes or focused host helpers, not in a hidden application runtime inside
-the language. Runtime changes should preserve source-visible order, explicit
-boundaries, and traceable failure paths before pursuing cleverness. The lowered
-IR now also includes eligible restricted proc bodies and a statement-granular
-top-level script cache for effect-free glue regions, but the AST remains the
-semantic source of truth and unsupported statements still fall back
-independently.
+There is no JIT, green-thread scheduler, or async task runtime in the execution
+path. The checked arena is lowered into a compact verified indexed store before
+execution. `src/runtime/eval.rs` and its focused runtime modules execute borrowed
+instruction and driver payloads while coordinating host processes, streams,
+cwd/env state, defers, signals, and trace events. Process forms and other
+OS-facing operations remain explicit indexed host-operation boundaries. The
+normal script runner never mixes arena and indexed execution inside a committed
+program; the runner exposes arena execution only through the `native-tests`
+differential oracle. Runtime changes should preserve source-visible order, explicit
+boundaries, and traceable failure paths before pursuing cleverness.
 
 `docs/SPEC.md` is the language contract. `docs/SPEC-TYPING.md` covers
 typechecking, `docs/SPEC-INTERACTIVE.md` covers `xshi`, and

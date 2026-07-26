@@ -729,32 +729,6 @@ impl FullProgram {
         self.store.extra.len()
     }
 
-    #[cfg(test)]
-    fn decode_functions(
-        &self,
-    ) -> Result<Vec<(LoweredFunctionKey, LoweredFunctionKind, Arc<LoweredPureFunction>)>, IrVerifyError>
-    {
-        let mut decoded = Vec::with_capacity(self.store.functions.len());
-        for function_index in 0..self.store.functions.len() {
-            decoded.push(self.decode_function_index(function_index)?);
-        }
-        Ok(decoded)
-    }
-
-    pub(in crate::runtime::eval) fn decode_function(
-        &self,
-        key: LoweredFunctionKey,
-        kind: LoweredFunctionKind,
-    ) -> Result<Option<Arc<LoweredPureFunction>>, IrVerifyError> {
-        for function_index in 0..self.store.functions.len() {
-            if self.function_identity(function_index)? == (key, kind) {
-                let (_, _, body) = self.decode_function_index(function_index)?;
-                return Ok(Some(body));
-            }
-        }
-        Ok(None)
-    }
-
     pub(in crate::runtime::eval) fn contains_function(
         &self,
         key: LoweredFunctionKey,
@@ -764,6 +738,28 @@ impl FullProgram {
             self.function_identity(function_index)
                 .is_ok_and(|identity| identity == (key, kind))
         })
+    }
+
+    pub(in crate::runtime::eval) fn function_param_kinds(
+        &self,
+        key: LoweredFunctionKey,
+        kind: LoweredFunctionKind,
+    ) -> Result<Option<Vec<LoweredType>>, IrVerifyError> {
+        let Some(view) = self.function_view(key, kind)? else {
+            return Ok(None);
+        };
+        let function = self.store.functions[view.index];
+        let params = function
+            .params
+            .bounds(self.store.params.len())
+            .ok_or_else(|| IrVerifyError::new("function parameter range is invalid"))?;
+        self.store.params[params]
+            .iter()
+            .map(|param| {
+                lowered_type_from_type(&self.store.semantic.to_type(param.type_id)?)
+            })
+            .collect::<Result<Vec<_>, _>>()
+            .map(Some)
     }
 
     pub(in crate::runtime::eval) fn function_view(
@@ -855,150 +851,6 @@ impl FullProgram {
         Ok(tags)
     }
 
-    fn decode_function_index(
-        &self,
-        function_index: usize,
-    ) -> Result<(LoweredFunctionKey, LoweredFunctionKind, Arc<LoweredPureFunction>), IrVerifyError>
-    {
-            let function = self
-                .store
-                .functions
-                .get(function_index)
-                .ok_or_else(|| IrVerifyError::new("function id is out of bounds"))?;
-            let instructions = self.store.function_instruction_range(function_index)?;
-            let decoder = FullDecoder {
-                store: &self.store,
-                owner: IrFunctionId::new(function_index)
-                    .map_err(|_| IrVerifyError::new("function id is invalid"))?
-                    .raw(),
-                instruction_range: instructions,
-                instruction_states: None,
-                block_states: None,
-                slot_count: function.slot_count,
-            };
-            let body_words = [function.body];
-            let mut body_words = FullCursor::new(&body_words);
-            let body = Vec::<LoweredStmt>::decode(&decoder, &mut body_words)?;
-            body_words.finish()?;
-            decoder.finish_function()?;
-            let params = function
-                .params
-                .bounds(self.store.params.len())
-                .ok_or_else(|| IrVerifyError::new("function parameter range is invalid"))?;
-            let captures = function
-                .captures
-                .bounds(self.store.captures.len())
-                .ok_or_else(|| IrVerifyError::new("function capture range is invalid"))?;
-            let mut param_names = SmallVec::new();
-            let mut param_kinds = SmallVec::new();
-            let mut param_checks = SmallVec::new();
-            let mut param_rest = SmallVec::new();
-            let mut param_defaults = SmallVec::new();
-            for (offset, param) in self.store.params[params.clone()].iter().enumerate() {
-                let param_index = params.start + offset;
-                let cold = self
-                    .store
-                    .param_cold
-                    .binary_search_by_key(&(param_index as u32), |cold| cold.param)
-                    .ok()
-                    .map(|index| self.store.param_cold[index]);
-                param_names.push(Name::intern(self.store.string(param.name)?));
-                param_kinds.push(lowered_type_from_type(
-                    &self.store.semantic.to_type(param.type_id)?,
-                )?);
-                param_checks.push(if cold.is_none_or(|cold| cold.validation == IR_NONE) {
-                    None
-                } else {
-                    let validation_id = cold.expect("checked above").validation;
-                    let validation = self
-                        .store
-                        .validations
-                        .get(validation_id as usize)
-                        .ok_or_else(|| IrVerifyError::new("validation id is out of bounds"))?;
-                    Some(LoweredTypeCheck {
-                        ty: self.store.semantic.to_type(validation.type_id)?,
-                        name: Arc::from(self.store.string(validation.name)?),
-                    })
-                });
-                param_rest.push(param.flags & 1 != 0);
-                param_defaults.push(if cold.is_none_or(|cold| cold.default == IR_NONE) {
-                    None
-                } else {
-                    let raw = [cold.expect("checked above").default];
-                    let mut value = FullCursor::new(&raw);
-                    Some(LoweredValue::decode(&decoder, &mut value)?)
-                });
-            }
-            let mut decoded_captures = SmallVec::new();
-            for capture in &self.store.captures[captures] {
-                decoded_captures.push(LoweredTopLevelSlot {
-                    name: Name::intern(self.store.string(capture.name)?),
-                    slot: (capture.slot_and_flags & !(1 << 31)) as usize,
-                    kind: lowered_type_from_type(
-                        &self.store.semantic.to_type(capture.type_id)?,
-                    )?,
-                    mutable: capture.slot_and_flags & (1 << 31) != 0,
-                });
-            }
-            let return_type = self
-                .store
-                .semantic
-                .to_type(self.store.semantic.signature_return_type(function.signature)?)?;
-            let return_kind = match return_type {
-                Type::Result(ok, _) => {
-                    LoweredReturnKind::Result(lowered_type_from_type(&ok)?)
-                }
-                ty => LoweredReturnKind::Plain(lowered_type_from_type(&ty)?),
-            };
-            let metadata = self.store.function_metadata[function_index];
-            let (key, kind) = self.function_identity(function_index)?;
-            Ok((
-                key,
-                kind,
-                Arc::new(LoweredPureFunction {
-                    params: param_names,
-                    param_kinds,
-                    param_checks,
-                    param_rest,
-                    param_defaults,
-                    captures: decoded_captures,
-                    return_kind,
-                    slot_count: function.slot_count as usize,
-                    body,
-                    has_defers: metadata.flags & 2 != 0,
-                }),
-            ))
-    }
-
-    #[cfg(test)]
-    pub(in crate::runtime::eval) fn decode_driver(
-        &self,
-    ) -> Result<Option<LoweredProgram>, IrVerifyError> {
-        if self.store.driver_root == IR_NONE {
-            return Ok(None);
-        }
-        let mut program_states = vec![0; self.store.driver_programs.len()];
-        let mut step_states = vec![0; self.store.driver_steps.len()];
-        let rows = self.decode_driver_program_rows(
-            self.store.driver_root,
-            &mut program_states,
-            &mut step_states,
-        )?;
-        if program_states.iter().any(|state| *state != 2)
-            || step_states.iter().any(|state| *state != 2)
-        {
-            return Err(IrVerifyError::new(
-                "driver plan contains an unreachable program or step",
-            ));
-        }
-        Ok(Some(LoweredProgram {
-            statements: rows
-                .into_iter()
-                .map(|(_, statement)| statement)
-                .collect(),
-        }))
-    }
-
     pub(in crate::runtime::eval) fn driver_step_count(
         &self,
     ) -> Result<usize, IrVerifyError> {
@@ -1015,6 +867,40 @@ impl FullProgram {
             .checked_add(index)
             .filter(|index| *index < steps.end)
             .ok_or_else(|| IrVerifyError::new("driver root step is out of bounds"))?;
+        Ok(FullDriverStepView {
+            program: self,
+            index,
+        })
+    }
+
+    pub(in crate::runtime::eval) fn driver_program_step_views(
+        &self,
+        raw: u32,
+    ) -> Result<Vec<FullDriverStepView<'_>>, IrVerifyError> {
+        let index = raw
+            .checked_sub(1)
+            .map(|index| index as usize)
+            .filter(|index| *index < self.store.driver_programs.len())
+            .ok_or_else(|| IrVerifyError::new("driver program id is out of bounds"))?;
+        let steps = self.store.driver_programs[index]
+            .steps
+            .bounds(self.store.driver_steps.len())
+            .ok_or_else(|| IrVerifyError::new("driver program step range is invalid"))?;
+        Ok(steps
+            .map(|index| FullDriverStepView {
+                program: self,
+                index,
+            })
+            .collect())
+    }
+
+    pub(in crate::runtime::eval) fn driver_step_view_absolute(
+        &self,
+        index: usize,
+    ) -> Result<FullDriverStepView<'_>, IrVerifyError> {
+        if index >= self.store.driver_steps.len() {
+            return Err(IrVerifyError::new("driver step is out of bounds"));
+        }
         Ok(FullDriverStepView {
             program: self,
             index,
@@ -1047,33 +933,6 @@ impl FullProgram {
         Ok(self.store.driver_steps[step].tag == FullDriverTag::Defer)
     }
 
-    pub(in crate::runtime::eval) fn decode_driver_step_at(
-        &self,
-        index: usize,
-    ) -> Result<(Span, Option<LoweredTopLevelStmt>), IrVerifyError> {
-        let root_index = self
-            .store
-            .driver_root
-            .checked_sub(1)
-            .map(|index| index as usize)
-            .filter(|index| *index < self.store.driver_programs.len())
-            .ok_or_else(|| IrVerifyError::new("driver root is out of bounds"))?;
-        let steps = self.driver_root_steps()?;
-        let step_index = steps
-            .start
-            .checked_add(index)
-            .filter(|step| *step < steps.end)
-            .ok_or_else(|| IrVerifyError::new("driver root step is out of bounds"))?;
-        let mut program_states = vec![0; self.store.driver_programs.len()];
-        let mut step_states = vec![0; self.store.driver_steps.len()];
-        program_states[root_index] = 1;
-        let row =
-            self.decode_driver_step(step_index, &mut program_states, &mut step_states)?;
-        step_states[step_index] = 2;
-        program_states[root_index] = 2;
-        Ok(row)
-    }
-
     fn driver_root_steps(&self) -> Result<std::ops::Range<usize>, IrVerifyError> {
         let root = self
             .store
@@ -1085,182 +944,6 @@ impl FullProgram {
         root.steps
             .bounds(self.store.driver_steps.len())
             .ok_or_else(|| IrVerifyError::new("driver root step range is invalid"))
-    }
-
-    fn decode_driver_program_rows(
-        &self,
-        raw: u32,
-        program_states: &mut [u8],
-        step_states: &mut [u8],
-    ) -> Result<Vec<(Span, Option<LoweredTopLevelStmt>)>, IrVerifyError> {
-        let index = raw
-            .checked_sub(1)
-            .map(|index| index as usize)
-            .filter(|index| *index < self.store.driver_programs.len())
-            .ok_or_else(|| IrVerifyError::new("driver program id is out of bounds"))?;
-        match program_states[index] {
-            0 => program_states[index] = 1,
-            1 => return Err(IrVerifyError::new("driver program graph contains a cycle")),
-            2 => {
-                return Err(IrVerifyError::new(
-                    "driver program is owned by multiple import steps",
-                ));
-            }
-            _ => unreachable!("driver program state is bounded"),
-        }
-        let program = self.store.driver_programs[index];
-        let steps = program
-            .steps
-            .bounds(self.store.driver_steps.len())
-            .ok_or_else(|| IrVerifyError::new("driver program step range is invalid"))?;
-        let mut rows = Vec::with_capacity(steps.len());
-        for step_index in steps {
-            match step_states[step_index] {
-                0 => step_states[step_index] = 1,
-                1 => return Err(IrVerifyError::new("driver step graph contains a cycle")),
-                2 => {
-                    return Err(IrVerifyError::new(
-                        "driver step is owned by multiple programs",
-                    ));
-                }
-                _ => unreachable!("driver step state is bounded"),
-            }
-            rows.push(self.decode_driver_step(
-                step_index,
-                program_states,
-                step_states,
-            )?);
-            step_states[step_index] = 2;
-        }
-        program_states[index] = 2;
-        Ok(rows)
-    }
-
-    fn decode_driver_step(
-        &self,
-        step_index: usize,
-        program_states: &mut [u8],
-        step_states: &mut [u8],
-    ) -> Result<(Span, Option<LoweredTopLevelStmt>), IrVerifyError> {
-        let step = self.store.driver_steps[step_index];
-        let instruction_range = self.store.driver_instruction_range(step_index)?;
-        let decoder = FullDecoder {
-            store: &self.store,
-            owner: driver_owner(step_index)
-                .map_err(|_| IrVerifyError::new("driver owner is invalid"))?,
-            instruction_states: Some(RefCell::new(vec![0; instruction_range.len()])),
-            instruction_range,
-            block_states: Some(RefCell::new(vec![0; self.store.blocks.len()])),
-            slot_count: step.slot_count,
-        };
-        let location_words = [step.location];
-        let mut location = FullCursor::new(&location_words);
-        let source_span = Span::decode(&decoder, &mut location)?;
-        location.finish()?;
-        let slots_range = step
-            .slots
-            .bounds(self.store.driver_slots.len())
-            .ok_or_else(|| IrVerifyError::new("driver slot range is invalid"))?;
-        let mut slots = SmallVec::new();
-        for slot in &self.store.driver_slots[slots_range] {
-            if slot.flags & !(DRIVER_SLOT_READ | DRIVER_SLOT_WRITE | DRIVER_SLOT_MUTABLE) != 0
-                || slot.flags & DRIVER_SLOT_READ == 0
-                || slot.slot >= step.slot_count
-            {
-                return Err(IrVerifyError::new("driver slot metadata is invalid"));
-            }
-            self.store.string(slot.name)?;
-            let kind = lowered_type_from_type(&self.store.semantic.to_type(slot.type_id)?)?;
-            slots.push(LoweredTopLevelSlot {
-                name: Name::intern(self.store.string(slot.name)?),
-                slot: slot.slot as usize,
-                kind,
-                mutable: slot.flags & DRIVER_SLOT_MUTABLE != 0,
-            });
-        }
-        let mut payload = FullCursor::new(self.store.payload(step.data.range())?);
-        let kind = match step.tag {
-            FullDriverTag::Skip => {
-                payload.finish()?;
-                decoder.finish_function()?;
-                return Ok((source_span, None));
-            }
-            FullDriverTag::Use => {
-                let key = Arc::<str>::decode(&decoder, &mut payload)?;
-                let alias = Option::<Name>::decode(&decoder, &mut payload)?;
-                let path = Vec::<Name>::decode(&decoder, &mut payload)?;
-                let namespace = Name::decode(&decoder, &mut payload)?;
-                let exports = Vec::<LoweredModuleExport>::decode(&decoder, &mut payload)?;
-                let child = payload.raw()?;
-                let span = Span::decode(&decoder, &mut payload)?;
-                let module_statements = self
-                    .decode_driver_program_rows(child, program_states, step_states)?
-                    .into_iter()
-                    .filter_map(|(span, statement)| Some((span, statement?)))
-                    .collect();
-                LoweredTopLevelKind::Use {
-                    key,
-                    alias,
-                    path,
-                    namespace,
-                    exports,
-                    module_statements,
-                    span,
-                }
-            }
-            FullDriverTag::Let => LoweredTopLevelKind::Let {
-                target: Name::decode(&decoder, &mut payload)?,
-                ty: Option::<LoweredType>::decode(&decoder, &mut payload)?,
-                validation: Option::<LoweredTypeCheck>::decode(&decoder, &mut payload)?,
-                mutable: bool::decode(&decoder, &mut payload)?,
-                value: LoweredExpr::decode(&decoder, &mut payload)?,
-                value_span: Span::decode(&decoder, &mut payload)?,
-            },
-            FullDriverTag::LetRecord => LoweredTopLevelKind::LetRecord {
-                source: LoweredExpr::decode(&decoder, &mut payload)?,
-                fields: Vec::<Name>::decode(&decoder, &mut payload)?,
-                mutable: bool::decode(&decoder, &mut payload)?,
-                span: Span::decode(&decoder, &mut payload)?,
-            },
-            FullDriverTag::Assign => LoweredTopLevelKind::Assign {
-                target: Name::decode(&decoder, &mut payload)?,
-                op: AssignOp::decode(&decoder, &mut payload)?,
-                value: LoweredExpr::decode(&decoder, &mut payload)?,
-                span: Span::decode(&decoder, &mut payload)?,
-            },
-            FullDriverTag::Discard => LoweredTopLevelKind::Discard {
-                value: LoweredExpr::decode(&decoder, &mut payload)?,
-                span: Span::decode(&decoder, &mut payload)?,
-            },
-            FullDriverTag::Stmt => {
-                LoweredTopLevelKind::Stmt(LoweredStmt::decode(&decoder, &mut payload)?)
-            }
-            FullDriverTag::Expr => {
-                LoweredTopLevelKind::Expr(LoweredExpr::decode(&decoder, &mut payload)?)
-            }
-            FullDriverTag::Defer => LoweredTopLevelKind::Defer {
-                value: LoweredExpr::decode(&decoder, &mut payload)?,
-                span: Span::decode(&decoder, &mut payload)?,
-            },
-            FullDriverTag::SignalHook => LoweredTopLevelKind::SignalHook {
-                signal: Name::decode(&decoder, &mut payload)?,
-                pre_cancel: Option::<String>::decode(&decoder, &mut payload)?,
-                body: Vec::<LoweredStmt>::decode(&decoder, &mut payload)?,
-                slots: Vec::<LoweredTopLevelSlot>::decode(&decoder, &mut payload)?,
-                slot_count: payload.raw()? as usize,
-                span: Span::decode(&decoder, &mut payload)?,
-            },
-        };
-        payload.finish()?;
-        decoder.finish_function()?;
-        Ok((
-            source_span,
-            Some(LoweredTopLevelStmt {
-                kind,
-                slots,
-                slot_count: step.slot_count as usize,
-            }),
-        ))
     }
 
     fn verify_driver(&self) -> Result<(), IrVerifyError> {
@@ -1576,6 +1259,10 @@ impl<'a> FullFunctionView<'a> {
 }
 
 impl<'a> FullDriverStepView<'a> {
+    pub(in crate::runtime::eval) fn index(&self) -> usize {
+        self.index
+    }
+
     pub(in crate::runtime::eval) fn tag(&self) -> FullDriverTag {
         self.program.store.driver_steps[self.index].tag
     }
@@ -1713,6 +1400,25 @@ impl FullBuilder {
         }
     }
 
+    fn reserve_function_keys(
+        &mut self,
+        keys: impl IntoIterator<Item = LoweredFunctionKey>,
+    ) -> Result<(), IrBuildError> {
+        for key in keys {
+            let function_id = IrFunctionId::new(self.function_ids.len())?;
+            if function_id.raw() & DRIVER_OWNER_BIT != 0 {
+                return Err(IrBuildError::format(
+                    "function_owner_overflow",
+                    None,
+                    0,
+                    self.store.tags.len(),
+                ));
+            }
+            self.function_ids.insert(key, function_id);
+        }
+        Ok(())
+    }
+
     #[cfg(test)]
     pub(in crate::runtime::eval) fn build(
         units: &[LoweredFunctionUnit],
@@ -1789,36 +1495,73 @@ impl FullBuilder {
         sources: Arc<SourceMap>,
         source_id: SourceId,
     ) -> Result<FullProgram, IrBuildError> {
-        let mut units = super::super::lower::probe_compact_lower_function_units_with_sources(
+        let mut builder = Self::new(source_id);
+        builder.reserve_function_keys(
+            super::super::lower::compact_function_keys(program),
+        )?;
+        let mut pures = FxHashMap::default();
+        let mut procs = FxHashMap::default();
+        let mut qualified_pures = FxHashMap::default();
+        let mut qualified_procs = FxHashMap::default();
+        super::super::lower::lower_compact_function_units_into(
             program,
             declarations,
             bodies,
             source,
             &sources,
-        );
-        let mut pures = FxHashMap::default();
-        let mut procs = FxHashMap::default();
-        let mut qualified_pures = FxHashMap::default();
-        let mut qualified_procs = FxHashMap::default();
-        for unit in &units {
-            let Some(body) = unit.lowered_body() else {
-                continue;
-            };
-            match (unit.key(), unit.kind()) {
-                (LoweredFunctionKey::Name(name), LoweredFunctionKind::Pure) => {
-                    pures.insert(name, body);
+            |mut unit| {
+                builder.predeclare(&[&unit])?;
+                let body = unit.take_lowered_body().ok_or_else(|| {
+                    IrBuildError::format(
+                        "full_ir_function_blocker",
+                        Some(unit.source_span()),
+                        0,
+                        builder.store.tags.len(),
+                    )
+                })?;
+                let checkpoint = builder.checkpoint();
+                let function = builder.function_ids[&unit.key()];
+                builder.current_owner = Some(function.raw());
+                builder.current_slot_count = body.slot_count as u32;
+                let result = builder.encode_body(function, &body);
+                builder.current_owner = None;
+                builder.current_slot_count = 0;
+                if let Err(mut error) = result {
+                    error.attempted_instructions =
+                        builder.store.tags.len().saturating_sub(checkpoint.tags);
+                    builder.rewind(checkpoint);
+                    error.committed_instructions = builder.store.tags.len();
+                    return Err(error);
                 }
-                (LoweredFunctionKey::Name(name), LoweredFunctionKind::Proc) => {
-                    procs.insert(name, body);
+                let header = Arc::new(LoweredPureFunction {
+                    params: body.params.clone(),
+                    param_kinds: body.param_kinds.clone(),
+                    param_checks: body.param_checks.clone(),
+                    param_rest: body.param_rest.clone(),
+                    param_defaults: body.param_defaults.clone(),
+                    captures: body.captures.clone(),
+                    return_kind: body.return_kind,
+                    slot_count: body.slot_count,
+                    body: Vec::new(),
+                    has_defers: body.has_defers,
+                });
+                match (unit.key(), unit.kind()) {
+                    (LoweredFunctionKey::Name(name), LoweredFunctionKind::Pure) => {
+                        pures.insert(name, header);
+                    }
+                    (LoweredFunctionKey::Name(name), LoweredFunctionKind::Proc) => {
+                        procs.insert(name, header);
+                    }
+                    (LoweredFunctionKey::Qualified(name), LoweredFunctionKind::Pure) => {
+                        qualified_pures.insert(name, header);
+                    }
+                    (LoweredFunctionKey::Qualified(name), LoweredFunctionKind::Proc) => {
+                        qualified_procs.insert(name, header);
+                    }
                 }
-                (LoweredFunctionKey::Qualified(name), LoweredFunctionKind::Pure) => {
-                    qualified_pures.insert(name, body);
-                }
-                (LoweredFunctionKey::Qualified(name), LoweredFunctionKind::Proc) => {
-                    qualified_procs.insert(name, body);
-                }
-            }
-        }
+                Ok(())
+            },
+        )?;
         let functions = super::super::LowerableFunctions::all(
             &pures,
             &procs,
@@ -1841,35 +1584,6 @@ impl FullBuilder {
         drop(qualified_pures);
         drop(qualified_procs);
 
-        units.sort_by_key(|unit| (unit.source_span().start(), unit.key().display_name()));
-        let mut builder = Self::new(source_id);
-        let ordered = units.iter().collect::<Vec<_>>();
-        builder.predeclare(&ordered)?;
-        drop(ordered);
-        for mut unit in units {
-            let body = unit.take_lowered_body().ok_or_else(|| {
-                IrBuildError::format(
-                    "full_ir_function_blocker",
-                    Some(unit.source_span()),
-                    0,
-                    builder.store.tags.len(),
-                )
-            })?;
-            let checkpoint = builder.checkpoint();
-            let function = builder.function_ids[&unit.key()];
-            builder.current_owner = Some(function.raw());
-            builder.current_slot_count = body.slot_count as u32;
-            let result = builder.encode_body(function, &body);
-            builder.current_owner = None;
-            builder.current_slot_count = 0;
-            if let Err(mut error) = result {
-                error.attempted_instructions =
-                    builder.store.tags.len().saturating_sub(checkpoint.tags);
-                builder.rewind(checkpoint);
-                error.committed_instructions = builder.store.tags.len();
-                return Err(error);
-            }
-        }
         let checkpoint = builder.checkpoint();
         if let Err(mut error) =
             builder.encode_driver_root(&driver, &source_statements, program)
@@ -1893,7 +1607,19 @@ impl FullBuilder {
                     self.store.tags.len(),
                 )
             })?;
-            let function_id = IrFunctionId::new(self.store.functions.len())?;
+            let function_id = self
+                .function_ids
+                .get(&unit.key())
+                .copied()
+                .unwrap_or(IrFunctionId::new(self.store.functions.len())?);
+            if function_id.index() != self.store.functions.len() {
+                return Err(IrBuildError::format(
+                    "function_declaration_order",
+                    Some(unit.source_span()),
+                    0,
+                    self.store.tags.len(),
+                ));
+            }
             if function_id.raw() & DRIVER_OWNER_BIT != 0 {
                 return Err(IrBuildError::format(
                     "function_owner_overflow",
@@ -3057,6 +2783,27 @@ impl<'a> FullExecution<'a> {
             .copied()
             .ok_or_else(|| IrVerifyError::new("full IR instruction is out of bounds"))?;
         let data = self.decoder.store.data[index];
+        Ok((
+            tag,
+            FullPayload {
+                cursor: FullCursor::new(self.decoder.store.payload(data.range())?),
+            },
+        ))
+    }
+
+    pub(in crate::runtime::eval) fn pattern(
+        &self,
+        raw: u32,
+    ) -> Result<(FullPatternTag, FullPayload<'a>), IrVerifyError> {
+        let index = raw as usize;
+        let tag = self
+            .decoder
+            .store
+            .patterns
+            .get(index)
+            .copied()
+            .ok_or_else(|| IrVerifyError::new("pattern id is out of bounds"))?;
+        let data = self.decoder.store.pattern_data[index];
         Ok((
             tag,
             FullPayload {
@@ -7256,18 +7003,19 @@ run true
     }
 
     #[test]
-    fn full_indexed_program_roundtrips_every_vertical_function() {
+    fn full_indexed_program_represents_every_vertical_function() {
         let (sources, source_id, units) = fixture("vertical-slice.xsh", VERTICAL_SLICE);
         let program = FullBuilder::build(&units, sources, source_id).unwrap();
-        let decoded = program.decode_functions().unwrap();
 
-        assert_eq!(decoded.len(), units.len());
-        for (key, kind, body) in decoded {
-            let unit = units.iter().find(|unit| unit.key() == key).unwrap();
-            assert_eq!(kind, unit.kind());
+        assert_eq!(program.function_count(), units.len());
+        for (index, unit) in units.iter().enumerate() {
             assert_eq!(
-                format!("{body:?}"),
-                format!("{:?}", unit.lowered_body().unwrap())
+                program.function_identity(index).unwrap(),
+                (unit.key(), unit.kind())
+            );
+            assert_eq!(
+                program.store.functions[index].slot_count as usize,
+                unit.slot_count()
             );
         }
         assert!(program.instruction_count() > 0);
@@ -7335,7 +7083,7 @@ run true
     }
 
     fn run_full(
-        program: &FullProgram,
+        program: Arc<FullProgram>,
         name: Name,
     ) -> (
         Result<Value, crate::runtime::value::RuntimeError>,
@@ -7344,22 +7092,7 @@ run true
     ) {
         let mut evaluator =
             Evaluator::new_with_sources(Vec::new(), (*program.sources).clone()).with_tracing();
-        for (key, kind, body) in program.decode_functions().unwrap() {
-            match (key, kind) {
-                (LoweredFunctionKey::Name(name), LoweredFunctionKind::Pure) => {
-                    Arc::make_mut(&mut evaluator.lowered_pures).insert(name, body);
-                }
-                (LoweredFunctionKey::Name(name), LoweredFunctionKind::Proc) => {
-                    Arc::make_mut(&mut evaluator.lowered_procs).insert(name, body);
-                }
-                (LoweredFunctionKey::Qualified(name), LoweredFunctionKind::Pure) => {
-                    Arc::make_mut(&mut evaluator.lowered_qualified_pures).insert(name, body);
-                }
-                (LoweredFunctionKey::Qualified(name), LoweredFunctionKind::Proc) => {
-                    Arc::make_mut(&mut evaluator.lowered_qualified_procs).insert(name, body);
-                }
-            }
-        }
+        evaluator.indexed_program = Some(Arc::clone(&program));
         let result = evaluator
             .call_lowered_proc(name, &[], Span::new(program.store.source_id, 0, 0))
             .expect("full indexed proc is installed");
@@ -7370,55 +7103,15 @@ run true
         )
     }
 
-    fn run_driver_direct(
-        program: &LoweredProgram,
-        sources: SourceMap,
-        source_id: SourceId,
-    ) -> (Vec<u8>, Vec<u8>, String, Vec<String>) {
-        let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources).with_tracing();
-        let mut outcomes = Vec::new();
-        for statement in &program.statements {
-            let Some(statement) = statement else {
-                continue;
-            };
-            let result = evaluator.eval_lowered_top_level_stmt(
-                statement,
-                Span::new(source_id, 0, 0),
-            );
-            outcomes.push(normalize_process_ids(format!("{result:?}")));
-        }
-        (
-            evaluator.stdout,
-            evaluator.stderr,
-            normalize_traces(&evaluator.trace_events),
-            outcomes,
-        )
-    }
-
-    fn normalize_process_ids(mut value: String) -> String {
-        let marker = "pid: Some(";
-        let mut search_start = 0;
-        while let Some(relative) = value[search_start..].find(marker) {
-            let start = search_start + relative + marker.len();
-            let Some(relative_end) = value[start..].find(')') else {
-                break;
-            };
-            let end = start + relative_end;
-            value.replace_range(start..end, "<pid>");
-            search_start = start + "<pid>".len() + 1;
-        }
-        value
-    }
-
     #[test]
-    fn decoded_full_program_matches_values_output_errors_and_traces() {
+    fn direct_full_program_matches_values_output_errors_and_traces() {
         run_with_large_stack(|| {
             let (sources, source_id, units) =
                 fixture("vertical-slice.xsh", VERTICAL_SLICE);
-            let program = FullBuilder::build(&units, sources, source_id).unwrap();
+            let program = Arc::new(FullBuilder::build(&units, sources, source_id).unwrap());
 
             for name in [Name::intern("main"), Name::intern("exact_error_site")] {
-                assert_eq!(run_full(&program, name), run_original(name));
+                assert_eq!(run_full(Arc::clone(&program), name), run_original(name));
             }
         });
     }
@@ -7448,7 +7141,7 @@ run true
             };
 
             assert_eq!(
-                run_full(&program, Name::intern("main")),
+                run_full(Arc::new(program), Name::intern("main")),
                 run_original(Name::intern("main"))
             );
         });
@@ -7480,9 +7173,9 @@ run true
     }
 
     #[test]
-    fn compact_driver_roundtrips_effects_and_executes_after_arena_drop() {
+    fn compact_driver_executes_effects_after_arena_drop() {
         run_with_large_stack(|| {
-            let (program, original, plan, mut evaluator) = {
+            let (program, plan, mut evaluator) = {
                 let mut sources = SourceMap::new();
                 let source_id = sources.add_file("phase5-boundary.xsh", PHASE5_BOUNDARY);
                 let parsed =
@@ -7512,24 +7205,9 @@ run true
                 let plan = evaluator
                     .prepare_compact_lowered_only(&parsed.arena, source_id, true)
                     .expect("phase 5 boundary fixture is wholly lowerable");
-                let original = (*evaluator.lowered_program).clone();
-                (program, original, plan, evaluator)
+                (Arc::new(program), plan, evaluator)
             };
 
-            let decoded = program.decode_driver().unwrap().unwrap();
-            assert_eq!(format!("{decoded:?}"), format!("{original:?}"));
-            assert_eq!(
-                run_driver_direct(
-                    &decoded,
-                    (*program.sources).clone(),
-                    program.store.source_id,
-                ),
-                run_driver_direct(
-                    &original,
-                    (*program.sources).clone(),
-                    program.store.source_id,
-                )
-            );
             assert!(
                 program.store.driver_steps.iter().any(|step| {
                     step.effects & (EFFECT_ENV | EFFECT_CWD | EFFECT_PROCESS) != 0
@@ -7555,28 +7233,10 @@ run true
                 }),
                 "top-level binding capture is stored by compact identity"
             );
-            evaluator.lowered_program = Arc::new(decoded);
-            for (key, kind, body) in program.decode_functions().unwrap() {
-                match (key, kind) {
-                    (LoweredFunctionKey::Name(name), LoweredFunctionKind::Pure) => {
-                        Arc::make_mut(&mut evaluator.lowered_pures).insert(name, body);
-                    }
-                    (LoweredFunctionKey::Name(name), LoweredFunctionKind::Proc) => {
-                        Arc::make_mut(&mut evaluator.lowered_procs).insert(name, body);
-                    }
-                    (LoweredFunctionKey::Qualified(name), LoweredFunctionKind::Pure) => {
-                        Arc::make_mut(&mut evaluator.lowered_qualified_pures)
-                            .insert(name, body);
-                    }
-                    (LoweredFunctionKey::Qualified(name), LoweredFunctionKind::Proc) => {
-                        Arc::make_mut(&mut evaluator.lowered_qualified_procs)
-                            .insert(name, body);
-                    }
-                }
-            }
+            evaluator.indexed_program = Some(Arc::clone(&program));
             let output = match evaluator.eval_installed_compact_lowered_only(plan) {
                 Ok(output) => output,
-                Err(_) => panic!("decoded driver remains executable"),
+                Err(_) => panic!("indexed driver remains executable"),
             };
             assert_eq!(output.stdout, b"indexed\n4\n");
             assert!(output.stderr.is_empty());
@@ -7631,7 +7291,7 @@ run true
     }
 
     #[test]
-    fn driver_propagated_process_failure_preserves_error_location_and_trace() {
+    fn driver_propagated_process_failure_records_process_propagation_and_trace_effects() {
         let source = "run false ?\n";
         let mut sources = SourceMap::new();
         let source_id = sources.add_file("phase5-propagate.xsh", source);
@@ -7647,16 +7307,6 @@ run true
             source_id,
         )
         .unwrap();
-        let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources.clone());
-        evaluator
-            .prepare_compact_lowered_only(&parsed.arena, source_id, true)
-            .expect("propagating process statement lowers");
-        let original = (*evaluator.lowered_program).clone();
-        let decoded = program.decode_driver().unwrap().unwrap();
-        assert_eq!(
-            run_driver_direct(&decoded, sources.clone(), source_id),
-            run_driver_direct(&original, sources, source_id)
-        );
         let effects = program.store.driver_steps[0].effects;
         assert_eq!(
             effects & (EFFECT_PROCESS | EFFECT_PROPAGATE | EFFECT_TRACE),
@@ -7836,7 +7486,7 @@ run true
     }
 
     #[test]
-    fn compact_driver_roundtrips_loaded_module_programs() {
+    fn compact_driver_executes_loaded_module_programs_directly() {
         let stamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("system time should be after epoch")
@@ -7910,8 +7560,6 @@ run true
             source_id,
         )
         .unwrap();
-        let decoded = program.decode_driver().unwrap().unwrap();
-        assert_eq!(format!("{decoded:?}"), format!("{original:?}"));
         let module_source = parsed
             .arena
             .module_statements(&parsed.arena.modules[0])
@@ -7938,31 +7586,17 @@ run true
             "declaration-only imported rows remain explicit compact skips"
         );
 
+        let program = Arc::new(program);
         let mut evaluator = Evaluator::new_with_sources(
             Vec::new(),
             (*program.sources).clone(),
         );
-        for (key, kind, body) in program.decode_functions().unwrap() {
-            match (key, kind) {
-                (LoweredFunctionKey::Name(name), LoweredFunctionKind::Pure) => {
-                    Arc::make_mut(&mut evaluator.lowered_pures).insert(name, body);
-                }
-                (LoweredFunctionKey::Name(name), LoweredFunctionKind::Proc) => {
-                    Arc::make_mut(&mut evaluator.lowered_procs).insert(name, body);
-                }
-                (LoweredFunctionKey::Qualified(name), LoweredFunctionKind::Pure) => {
-                    Arc::make_mut(&mut evaluator.lowered_qualified_pures)
-                        .insert(name, body);
-                }
-                (LoweredFunctionKey::Qualified(name), LoweredFunctionKind::Proc) => {
-                    Arc::make_mut(&mut evaluator.lowered_qualified_procs)
-                        .insert(name, body);
-                }
-            }
-        }
-        for statement in decoded.statements.iter().flatten() {
+        evaluator.install_compact_runtime_declarations(&declarations);
+        evaluator.indexed_program = Some(Arc::clone(&program));
+        for index in 0..program.driver_step_count().unwrap() {
             evaluator
-                .eval_lowered_top_level_stmt(statement, Span::new(source_id, 0, 0))
+                .eval_indexed_driver_step(index, Span::new(source_id, 0, 0))
+                .expect("verified driver step has a direct executor")
                 .unwrap();
         }
         assert_eq!(evaluator.stdout, b"loaded\n");
@@ -8239,14 +7873,19 @@ run true
                             )
                         },
                     );
-                let decoded = program.decode_functions().unwrap();
-                assert_eq!(decoded.len(), units.len());
-                for (key, kind, body) in decoded {
+                assert_eq!(program.function_count(), units.len());
+                for (index, function) in program.store.functions.iter().enumerate() {
+                    let (key, kind) = program.function_identity(index).unwrap();
                     let unit = units.iter().find(|unit| unit.key() == key).unwrap();
                     assert_eq!(kind, unit.kind());
-                    assert_eq!(body.slot_count, unit.lowered_body().unwrap().slot_count);
-                    assert_eq!(body.params, unit.lowered_body().unwrap().params);
-                    assert_eq!(body.body.len(), unit.lowered_body().unwrap().body.len());
+                    assert_eq!(
+                        function.slot_count as usize,
+                        unit.lowered_body().unwrap().slot_count
+                    );
+                    assert_eq!(
+                        function.params.len as usize,
+                        unit.lowered_body().unwrap().params.len()
+                    );
                 }
                 executable_files += 1;
                 functions_built += units.len();

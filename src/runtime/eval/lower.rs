@@ -1559,6 +1559,7 @@ pub(super) fn probe_compact_lower_function_units(
     )
 }
 
+#[cfg(test)]
 pub(super) fn probe_compact_lower_function_units_with_sources(
     program: &ArenaProgram,
     declarations: &CompactDeclOutput,
@@ -1573,6 +1574,64 @@ pub(super) fn probe_compact_lower_function_units_with_sources(
         source,
         Some(sources),
     )
+}
+
+pub(super) fn lower_compact_function_units_into(
+    program: &ArenaProgram,
+    declarations: &CompactDeclOutput,
+    bodies: &CompactBodyProbeOutput,
+    source: &str,
+    sources: &SourceMap,
+    mut emit: impl FnMut(LoweredFunctionUnit) -> Result<(), super::indexed::IrBuildError>,
+) -> Result<(), super::indexed::IrBuildError> {
+    let root = compact_function_defs(program);
+    let candidates = root.iter().map(|function| function.key).collect::<Vec<_>>();
+    for function in root {
+        let empty_pures = FxHashMap::default();
+        let empty_procs = FxHashMap::default();
+        let empty_qualified_pures = FxHashMap::default();
+        let empty_qualified_procs = FxHashMap::default();
+        let functions = LowerableFunctions::all_with_candidates(
+            &empty_pures,
+            &empty_procs,
+            &empty_qualified_pures,
+            &empty_qualified_procs,
+            &candidates,
+    );
+    let top_level_known = compact_function_top_level_known(
+            program,
+            declarations,
+            bodies,
+            source,
+            Some(sources),
+            function.namespace,
+            function.id,
+            Some(&functions),
+        );
+        let mut probe = CompactLowerConstructProbe {
+            program,
+            declarations,
+            bodies,
+            source,
+            sources: Some(sources),
+            current_namespace: function.namespace,
+            functions: Some(&functions),
+            top_level_known,
+            output: CompactLowerConstructProbeOutput::default(),
+            last_blocker_detail: None,
+            strict_dynamic_methods: true,
+        };
+        let (scc_member_count, scc_group) =
+            compact_function_scc_metadata(program, function);
+        let unit = probe.lower_function_unit(
+            function,
+            compact_function_dependency_keys(program, function),
+            scc_member_count,
+            scc_group,
+        );
+        emit(unit)?;
+    }
+    Ok(())
 }
 
 fn probe_compact_lower_function_units_inner(
@@ -2508,6 +2567,15 @@ fn compact_function_defs(program: &ArenaProgram) -> Vec<CompactFunctionDef> {
         }
     }
     functions
+}
+
+pub(super) fn compact_function_keys(
+    program: &ArenaProgram,
+) -> Vec<LoweredFunctionKey> {
+    compact_function_defs(program)
+        .into_iter()
+        .map(|function| function.key)
+        .collect()
 }
 
 fn collect_compact_function_def(
@@ -12795,7 +12863,7 @@ pub(super) fn lowered_pattern_matches(
     }
 }
 
-fn lowered_error_value_has_facet(value: &Value, facet: &str) -> bool {
+pub(super) fn lowered_error_value_has_facet(value: &Value, facet: &str) -> bool {
     match value {
         Value::Error(error) => error.facets.iter().any(|f| f == facet),
         Value::RunError(error) => error.facets().iter().any(|f| f == facet),
@@ -12803,7 +12871,7 @@ fn lowered_error_value_has_facet(value: &Value, facet: &str) -> bool {
     }
 }
 
-fn lowered_error_variant_matches(
+pub(super) fn lowered_error_variant_matches(
     family: &Name,
     variant: &Name,
     fields: &LoweredErrorPatternFields,

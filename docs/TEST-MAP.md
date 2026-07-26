@@ -20,8 +20,8 @@ area touched. Do not run formatter or autofix commands for agent work.
 | Indexed dependency/SCC construction | targeted `cargo test -p xsh --lib runtime::eval::indexed::tests::failed_mutual_recursion_scc_leaves_checkpoint_uncommitted` | `scripts/frontend-campaign-phase2` |
 | Interned semantic identities | targeted `cargo test -p xsh --lib runtime::eval::indexed::semantic::tests::` | `scripts/frontend-campaign-phase3` |
 | Full indexed function bodies | targeted `cargo test -p xsh --lib runtime::eval::indexed::full::tests::` | `scripts/frontend-campaign-phase4` |
-| Top-level/effect driver boundary | targeted `cargo test -p xsh --lib runtime::eval::indexed::full::tests::compact_driver_roundtrips_effects_and_executes_after_arena_drop` | `scripts/frontend-campaign-phase5` |
-| Indexed production cutover | `cargo test -p xsh --features native-tests runner::tests::indexed_and_arena_execution_modes_match --lib` | `cargo test --test integration runtime:: --features native-tests` and the same command with `XSH_TEST_EXECUTION_MODE=arena` |
+| Top-level/effect driver boundary | targeted `cargo test -p xsh --lib runtime::eval::indexed::full::tests::compact_driver_executes_effects_after_arena_drop` | `scripts/frontend-campaign-phase5` |
+| Indexed production cutover | `cargo test -p xsh --features native-tests runner::tests::indexed_and_arena_execution_modes_match --lib` | `cargo test -p xsh --test integration runtime:: --features native-tests` plus `cargo test -p xsh --test integration runtime::coverage::xsh_native_tests --features native-tests -- --exact` |
 | Explicit PGO/release investigation after ordinary gates pass | `make pgo-profile` | `make bench-pgo` |
 | Syscall diagnostics | benchmark smoke test on the host | `make bench-syscalls` on Linux/Docker |
 | LLVM IR size | `tools/llvm-lines-repeat-offenders.xsh` over an existing capture | fresh `cargo llvm-lines` capture plus the applicable behavior/benchmark gate |

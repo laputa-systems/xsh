@@ -10532,10 +10532,7 @@ impl Evaluator {
                 ) {
                     return Some(result);
                 }
-                self.indexed_function(
-                    LoweredFunctionKey::Name(function),
-                    LoweredFunctionKind::Pure,
-                )?
+                return None;
             }
         };
         let mut slots = self.try_bind_lowered_runtime_args(&lowered, args)?;
@@ -10573,10 +10570,7 @@ impl Evaluator {
                 ) {
                     return Some(result);
                 }
-                self.indexed_function(
-                    LoweredFunctionKey::Qualified(function),
-                    LoweredFunctionKind::Pure,
-                )?
+                return None;
             }
         };
         let mut slots = self.try_bind_lowered_runtime_args(&lowered, args)?;
@@ -10614,10 +10608,7 @@ impl Evaluator {
                 ) {
                     return Some(result);
                 }
-                self.indexed_function(
-                    LoweredFunctionKey::Name(function),
-                    LoweredFunctionKind::Proc,
-                )?
+                return None;
             }
         };
         let mut slots = self.try_bind_lowered_runtime_args(&lowered, args)?;
@@ -10664,10 +10655,7 @@ impl Evaluator {
                 ) {
                     return Some(result);
                 }
-                self.indexed_function(
-                    LoweredFunctionKey::Qualified(function),
-                    LoweredFunctionKind::Proc,
-                )?
+                return None;
             }
         };
         let mut slots = self.try_bind_lowered_runtime_args(&lowered, args)?;

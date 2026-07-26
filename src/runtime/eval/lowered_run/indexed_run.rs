@@ -1,9 +1,63 @@
 use super::*;
 use crate::runtime::eval::indexed::full::{
-    BLOCK_LIST, BLOCK_STATEMENTS, FullDriverTag, FullExecution, FullFunctionView, FullPayload,
-    FullStageTag, FullTag,
+    BLOCK_LIST, BLOCK_STATEMENTS, FullDriverTag, FullExecution, FullFunctionView, FullPatternTag,
+    FullPayload, FullStageTag, FullTag,
 };
 use crate::runtime::eval::indexed::IrVerifyError;
+use crate::runtime::eval::lower::{
+    lowered_error_value_has_facet, lowered_error_variant_matches,
+};
+use crate::runtime::eval::{
+    LoweredModuleExport, LoweredTopLevelSlot, LoweredTypeCheck, Propagation,
+    ScanCheck, process_handle,
+};
+use crate::modules::hash::HashAlgorithm;
+use smallvec::SmallVec;
+
+#[derive(Clone)]
+struct IndexedRunArg {
+    mode: u32,
+    value: u32,
+    span: Span,
+}
+
+#[derive(Clone)]
+struct IndexedRunEnv {
+    name: Name,
+    value: IndexedRunArg,
+}
+
+#[derive(Clone)]
+struct IndexedRunRedirection {
+    kind: RedirectionKind,
+    target: IndexedRunArg,
+    span: Span,
+}
+
+struct IndexedRunSegment {
+    target: IndexedRunArg,
+    args: Vec<IndexedRunArg>,
+    env: Vec<IndexedRunEnv>,
+    redirections: Vec<IndexedRunRedirection>,
+    timeout: Option<u32>,
+    cpu_max: Option<u32>,
+}
+
+enum IndexedProcessCommandEntry {
+    Field {
+        name: Name,
+        value: u32,
+        span: Span,
+    },
+    Run {
+        target: IndexedRunArg,
+        args: Vec<IndexedRunArg>,
+        env: Vec<IndexedRunEnv>,
+        timeout: Option<u32>,
+        cpu_max: Option<u32>,
+        span: Span,
+    },
+}
 
 fn indexed_error(error: IrVerifyError, span: Span) -> RuntimeError {
     RuntimeError::new(
@@ -50,6 +104,527 @@ fn indexed_optional_raw(
 }
 
 impl Evaluator {
+    fn indexed_block_header(slot_count: usize) -> LoweredPureFunction {
+        LoweredPureFunction {
+            params: Default::default(),
+            param_kinds: Default::default(),
+            param_checks: Default::default(),
+            param_rest: Default::default(),
+            param_defaults: Default::default(),
+            captures: Default::default(),
+            return_kind: LoweredReturnKind::Plain(LoweredType::Unit),
+            slot_count,
+            body: Vec::new(),
+            has_defers: false,
+        }
+    }
+
+    fn decode_indexed_run_arg<'a>(
+        payload: &mut FullPayload<'a>,
+        execution: &FullExecution<'a>,
+        span: Span,
+    ) -> Result<IndexedRunArg, RuntimeError> {
+        let mode = indexed_raw(payload, span)?;
+        if mode > 2 {
+            return Err(
+                RuntimeError::new("indexed-ir", "invalid indexed run argument tag")
+                    .with_span(span),
+            );
+        }
+        Ok(IndexedRunArg {
+            mode,
+            value: indexed_raw(payload, span)?,
+            span: indexed_decode::<Span>(payload, execution, span)?,
+        })
+    }
+
+    fn decode_indexed_run_args<'a>(
+        payload: &mut FullPayload<'a>,
+        execution: &FullExecution<'a>,
+        span: Span,
+    ) -> Result<Vec<IndexedRunArg>, RuntimeError> {
+        let (_, mut values) = execution
+            .block(payload, BLOCK_LIST)
+            .map_err(|error| indexed_error(error, span))?;
+        let len = indexed_raw(&mut values, span)? as usize;
+        let mut decoded = Vec::with_capacity(len);
+        for _ in 0..len {
+            decoded.push(Self::decode_indexed_run_arg(
+                &mut values,
+                execution,
+                span,
+            )?);
+        }
+        indexed_finish(values, span)?;
+        Ok(decoded)
+    }
+
+    fn decode_indexed_run_env<'a>(
+        payload: &mut FullPayload<'a>,
+        execution: &FullExecution<'a>,
+        span: Span,
+    ) -> Result<Vec<IndexedRunEnv>, RuntimeError> {
+        let (_, mut values) = execution
+            .block(payload, BLOCK_LIST)
+            .map_err(|error| indexed_error(error, span))?;
+        let len = indexed_raw(&mut values, span)? as usize;
+        let mut decoded = Vec::with_capacity(len);
+        for _ in 0..len {
+            decoded.push(IndexedRunEnv {
+                name: indexed_decode::<Name>(&mut values, execution, span)?,
+                value: Self::decode_indexed_run_arg(&mut values, execution, span)?,
+            });
+        }
+        indexed_finish(values, span)?;
+        Ok(decoded)
+    }
+
+    fn decode_indexed_run_redirections<'a>(
+        payload: &mut FullPayload<'a>,
+        execution: &FullExecution<'a>,
+        span: Span,
+    ) -> Result<Vec<IndexedRunRedirection>, RuntimeError> {
+        let (_, mut values) = execution
+            .block(payload, BLOCK_LIST)
+            .map_err(|error| indexed_error(error, span))?;
+        let len = indexed_raw(&mut values, span)? as usize;
+        let mut decoded = Vec::with_capacity(len);
+        for _ in 0..len {
+            decoded.push(IndexedRunRedirection {
+                kind: indexed_decode::<RedirectionKind>(&mut values, execution, span)?,
+                target: Self::decode_indexed_run_arg(&mut values, execution, span)?,
+                span: indexed_decode::<Span>(&mut values, execution, span)?,
+            });
+        }
+        indexed_finish(values, span)?;
+        Ok(decoded)
+    }
+
+    fn decode_indexed_run_segments<'a>(
+        payload: &mut FullPayload<'a>,
+        execution: &FullExecution<'a>,
+        span: Span,
+    ) -> Result<Vec<IndexedRunSegment>, RuntimeError> {
+        let (_, mut values) = execution
+            .block(payload, BLOCK_LIST)
+            .map_err(|error| indexed_error(error, span))?;
+        let len = indexed_raw(&mut values, span)? as usize;
+        let mut decoded = Vec::with_capacity(len);
+        for _ in 0..len {
+            let _kind = indexed_decode::<RunKind>(&mut values, execution, span)?;
+            decoded.push(IndexedRunSegment {
+                target: Self::decode_indexed_run_arg(&mut values, execution, span)?,
+                args: Self::decode_indexed_run_args(&mut values, execution, span)?,
+                env: Self::decode_indexed_run_env(&mut values, execution, span)?,
+                redirections: Self::decode_indexed_run_redirections(
+                    &mut values,
+                    execution,
+                    span,
+                )?,
+                timeout: indexed_optional_raw(&mut values, span)?,
+                cpu_max: indexed_optional_raw(&mut values, span)?,
+            });
+        }
+        indexed_finish(values, span)?;
+        Ok(decoded)
+    }
+
+    fn decode_indexed_process_command_entries<'a>(
+        payload: &mut FullPayload<'a>,
+        execution: &FullExecution<'a>,
+        span: Span,
+    ) -> Result<Vec<IndexedProcessCommandEntry>, RuntimeError> {
+        let (_, mut values) = execution
+            .block(payload, BLOCK_LIST)
+            .map_err(|error| indexed_error(error, span))?;
+        let len = indexed_raw(&mut values, span)? as usize;
+        let mut decoded = Vec::with_capacity(len);
+        for _ in 0..len {
+            decoded.push(match indexed_raw(&mut values, span)? {
+                0 => IndexedProcessCommandEntry::Field {
+                    name: indexed_decode::<Name>(&mut values, execution, span)?,
+                    value: indexed_raw(&mut values, span)?,
+                    span: indexed_decode::<Span>(&mut values, execution, span)?,
+                },
+                1 => IndexedProcessCommandEntry::Run {
+                    target: Self::decode_indexed_run_arg(&mut values, execution, span)?,
+                    args: Self::decode_indexed_run_args(&mut values, execution, span)?,
+                    env: Self::decode_indexed_run_env(&mut values, execution, span)?,
+                    timeout: indexed_optional_raw(&mut values, span)?,
+                    cpu_max: indexed_optional_raw(&mut values, span)?,
+                    span: indexed_decode::<Span>(&mut values, execution, span)?,
+                },
+                _ => {
+                    return Err(RuntimeError::new(
+                        "indexed-ir",
+                        "invalid indexed process command entry tag",
+                    )
+                    .with_span(span));
+                }
+            });
+        }
+        indexed_finish(values, span)?;
+        Ok(decoded)
+    }
+
+    fn eval_indexed_run_arg(
+        &mut self,
+        execution: &FullExecution<'_>,
+        arg: &IndexedRunArg,
+        slots: &mut [LoweredValue],
+        call_span: Span,
+    ) -> Result<ControlFlow<LoweredValue, Vec<Vec<u8>>>, RuntimeError> {
+        let value = match self.eval_indexed_expr(execution, arg.value, slots, call_span)? {
+            ControlFlow::Continue(value) => value.into_value(),
+            ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+        };
+        match arg.mode {
+            0 => Ok(ControlFlow::Continue(vec![value_to_argv_bytes(
+                value, arg.span,
+            )?])),
+            1 => match value {
+                Value::List(_) => splice_to_argv(value, arg.span).map(ControlFlow::Continue),
+                value => Ok(ControlFlow::Continue(vec![value_to_argv_bytes(
+                    value, arg.span,
+                )?])),
+            },
+            2 => splice_to_argv(value, arg.span).map(ControlFlow::Continue),
+            _ => unreachable!("indexed run argument tag was checked"),
+        }
+    }
+
+    fn eval_indexed_run_env(
+        &mut self,
+        execution: &FullExecution<'_>,
+        env: &[IndexedRunEnv],
+        slots: &mut [LoweredValue],
+        call_span: Span,
+    ) -> Result<ControlFlow<LoweredValue, BTreeMap<Vec<u8>, Vec<u8>>>, RuntimeError> {
+        let mut overlay = BTreeMap::new();
+        for assignment in env {
+            let items =
+                match self.eval_indexed_run_arg(execution, &assignment.value, slots, call_span)? {
+                    ControlFlow::Continue(items) => items,
+                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+                };
+            let [value]: [Vec<u8>; 1] = items.try_into().map_err(|_| {
+                RuntimeError::new("env-value", "environment values must be one value")
+                    .with_span(assignment.value.span)
+            })?;
+            overlay.insert(assignment.name.as_str().as_bytes().to_vec(), value);
+        }
+        Ok(ControlFlow::Continue(overlay))
+    }
+
+    fn eval_indexed_run_redirections(
+        &mut self,
+        execution: &FullExecution<'_>,
+        redirections: &[IndexedRunRedirection],
+        slots: &mut [LoweredValue],
+    ) -> Result<ControlFlow<LoweredValue, Vec<ProcessRedirection>>, RuntimeError> {
+        let mut out = Vec::with_capacity(redirections.len());
+        for redirection in redirections {
+            let target = match self.eval_indexed_run_arg(
+                execution,
+                &redirection.target,
+                slots,
+                redirection.span,
+            )? {
+                ControlFlow::Continue(items) => items,
+                ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+            };
+            let [target]: [Vec<u8>; 1] = target.try_into().map_err(|_| {
+                RuntimeError::new(
+                    "redirection-target",
+                    "redirection target must produce one path",
+                )
+                .with_span(redirection.span)
+            })?;
+            if matches!(
+                redirection.kind,
+                RedirectionKind::StdoutDup | RedirectionKind::StdinDup
+            ) {
+                let text = String::from_utf8(target).map_err(|_| {
+                    RuntimeError::new(
+                        "redirection-target",
+                        "fd redirection target must be a number",
+                    )
+                    .with_span(redirection.span)
+                })?;
+                let fd = text.trim().parse::<i32>().map_err(|_| {
+                    RuntimeError::new(
+                        "redirection-target",
+                        "fd redirection target must be a number",
+                    )
+                    .with_span(redirection.span)
+                })?;
+                out.push(ProcessRedirection::Dup {
+                    stream: if redirection.kind == RedirectionKind::StdinDup {
+                        RedirectionStream::Stdin
+                    } else {
+                        RedirectionStream::Stdout
+                    },
+                    fd,
+                });
+                continue;
+            }
+            let path =
+                PathValue::new(target).map_err(|error| error.with_span(redirection.span))?;
+            out.push(ProcessRedirection::File {
+                stream: match redirection.kind {
+                    RedirectionKind::StdinRead => RedirectionStream::Stdin,
+                    RedirectionKind::StderrWrite | RedirectionKind::StderrAppend => {
+                        RedirectionStream::Stderr
+                    }
+                    _ => RedirectionStream::Stdout,
+                },
+                mode: match redirection.kind {
+                    RedirectionKind::StdinRead => FileRedirectionMode::Read,
+                    RedirectionKind::StdoutAppend | RedirectionKind::StderrAppend => {
+                        FileRedirectionMode::Append
+                    }
+                    _ => FileRedirectionMode::Write,
+                },
+                path: self.host_path(&path),
+            });
+        }
+        Ok(ControlFlow::Continue(out))
+    }
+
+    fn indexed_process_invocation(
+        &mut self,
+        execution: &FullExecution<'_>,
+        target: &IndexedRunArg,
+        args: &[IndexedRunArg],
+        env: &[IndexedRunEnv],
+        redirections: &[IndexedRunRedirection],
+        timeout: Option<u32>,
+        cpu_max: Option<u32>,
+        slots: &mut [LoweredValue],
+        span: Span,
+    ) -> Result<ControlFlow<LoweredValue, ProcessInvocation>, RuntimeError> {
+        let target_items =
+            match self.eval_indexed_run_arg(execution, target, slots, span)? {
+                ControlFlow::Continue(items) => items,
+                ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+            };
+        let [target_value]: [Vec<u8>; 1] = target_items.try_into().map_err(|_| {
+            RuntimeError::new("argv-conversion", "run target must produce one argv item")
+                .with_span(target.span)
+        })?;
+        let mut argv = Vec::new();
+        for arg in args {
+            match self.eval_indexed_run_arg(execution, arg, slots, span)? {
+                ControlFlow::Continue(items) => argv.extend(items),
+                ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+            }
+        }
+        let env_overlay = match self.eval_indexed_run_env(execution, env, slots, span)? {
+            ControlFlow::Continue(value) => value,
+            ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+        };
+        let redirections =
+            match self.eval_indexed_run_redirections(execution, redirections, slots)? {
+                ControlFlow::Continue(value) => value,
+                ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+            };
+        let timeout = match self.eval_indexed_optional_expr(
+            execution, timeout, slots, span,
+        )? {
+            ControlFlow::Continue(Some(LoweredValue::Duration(duration))) => {
+                Some(Duration::from_millis(duration.millis))
+            }
+            ControlFlow::Continue(Some(other)) => {
+                return Err(RuntimeError::new(
+                    "type-error",
+                    format!("run timeout expected Duration, found {}", other.type_name()),
+                )
+                .with_span(span));
+            }
+            ControlFlow::Continue(None) => None,
+            ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+        };
+        let cpu_max = match self.eval_indexed_optional_expr(
+            execution, cpu_max, slots, span,
+        )? {
+            ControlFlow::Continue(Some(LoweredValue::Int(value))) => Some(value),
+            ControlFlow::Continue(Some(other)) => {
+                return Err(RuntimeError::new(
+                    "type-error",
+                    format!("run cpumax expected Int, found {}", other.type_name()),
+                )
+                .with_span(span));
+            }
+            ControlFlow::Continue(None) => None,
+            ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+        };
+        let mut full_env = self.env.snapshot_clone();
+        full_env.extend(env_overlay.clone());
+        Ok(ControlFlow::Continue(ProcessInvocation {
+            target: target_value,
+            argv,
+            cwd: self.cwd.clone(),
+            env: full_env,
+            env_overlay,
+            redirections,
+            timeout,
+            cpu_max,
+        }))
+    }
+
+    fn indexed_pattern_matches(
+        execution: &FullExecution<'_>,
+        pattern: u32,
+        value: &LoweredValue,
+        slots: &mut [LoweredValue],
+        span: Span,
+    ) -> Result<bool, RuntimeError> {
+        let (tag, mut payload) = execution
+            .pattern(pattern)
+            .map_err(|error| indexed_error(error, span))?;
+        let matched = match tag {
+            FullPatternTag::Wildcard => true,
+            FullPatternTag::Bind => {
+                let slot = indexed_decode::<usize>(&mut payload, execution, span)?;
+                slots[slot] = value.clone();
+                true
+            }
+            FullPatternTag::Type => {
+                let ty = indexed_decode::<Type>(&mut payload, execution, span)?;
+                let slot = indexed_decode::<Option<usize>>(&mut payload, execution, span)?;
+                if !lowered_value_matches_static_type(value, &ty) {
+                    false
+                } else {
+                    if let Some(slot) = slot {
+                        slots[slot] = value.clone();
+                    }
+                    true
+                }
+            }
+            FullPatternTag::Literal => {
+                indexed_decode::<LoweredValue>(&mut payload, execution, span)? == *value
+            }
+            FullPatternTag::ResultOk => {
+                let slot = indexed_decode::<Option<usize>>(&mut payload, execution, span)?;
+                let unit_only = indexed_decode::<bool>(&mut payload, execution, span)?;
+                if let LoweredValue::ResultOk(inner) = value {
+                    if unit_only && !matches!(inner.as_ref(), LoweredValue::Unit) {
+                        false
+                    } else {
+                        if let Some(slot) = slot {
+                            slots[slot] = inner.as_ref().clone();
+                        }
+                        true
+                    }
+                } else {
+                    false
+                }
+            }
+            FullPatternTag::ResultErr => {
+                let slot = indexed_decode::<Option<usize>>(&mut payload, execution, span)?;
+                let unit_only = indexed_decode::<bool>(&mut payload, execution, span)?;
+                if let LoweredValue::ResultErr(inner) = value {
+                    if unit_only && !matches!(inner.as_ref(), Value::Unit) {
+                        false
+                    } else if let Some(slot) = slot {
+                        let Some(inner) = lowered_value_from_runtime_any(inner.as_ref()) else {
+                            indexed_finish(payload, span)?;
+                            return Ok(false);
+                        };
+                        slots[slot] = inner;
+                        true
+                    } else {
+                        true
+                    }
+                } else {
+                    false
+                }
+            }
+            FullPatternTag::ErrorVariant => {
+                let family = indexed_decode::<Name>(&mut payload, execution, span)?;
+                let variant = indexed_decode::<Name>(&mut payload, execution, span)?;
+                let fields = indexed_decode::<
+                    Box<SmallVec<[(Name, Option<usize>); 4]>>,
+                >(&mut payload, execution, span)?;
+                let result_wrapped = indexed_decode::<bool>(&mut payload, execution, span)?;
+                let error = if result_wrapped {
+                    let LoweredValue::ResultErr(error) = value else {
+                        indexed_finish(payload, span)?;
+                        return Ok(false);
+                    };
+                    error.as_ref()
+                } else {
+                    let LoweredValue::Error(error) = value else {
+                        indexed_finish(payload, span)?;
+                        return Ok(false);
+                    };
+                    error.as_ref()
+                };
+                lowered_error_variant_matches(&family, &variant, &fields, error, slots)
+            }
+            FullPatternTag::Facet => {
+                let facet = indexed_decode::<Name>(&mut payload, execution, span)?;
+                let result_wrapped = indexed_decode::<bool>(&mut payload, execution, span)?;
+                let error = if result_wrapped {
+                    let LoweredValue::ResultErr(error) = value else {
+                        indexed_finish(payload, span)?;
+                        return Ok(false);
+                    };
+                    error.as_ref()
+                } else {
+                    let LoweredValue::Error(error) = value else {
+                        indexed_finish(payload, span)?;
+                        return Ok(false);
+                    };
+                    error.as_ref()
+                };
+                lowered_error_value_has_facet(error, facet.as_str())
+            }
+            FullPatternTag::Tag => {
+                let name = indexed_decode::<Name>(&mut payload, execution, span)?;
+                let field_count = indexed_raw(&mut payload, span)? as usize;
+                let mut field_slots = SmallVec::<[Option<usize>; 2]>::with_capacity(field_count);
+                for _ in 0..field_count {
+                    field_slots.push(indexed_decode::<Option<usize>>(
+                        &mut payload,
+                        execution,
+                        span,
+                    )?);
+                }
+                let LoweredValue::Tag(value) = value else {
+                    indexed_finish(payload, span)?;
+                    return Ok(false);
+                };
+                if value.name.as_ref() != name.as_str() || value.fields.len() != field_slots.len() {
+                    false
+                } else {
+                    for (slot, field) in field_slots.iter().zip(&value.fields) {
+                        if let Some(slot) = slot {
+                            slots[*slot] = field.clone();
+                        }
+                    }
+                    true
+                }
+            }
+        };
+        indexed_finish(payload, span)?;
+        Ok(matched)
+    }
+
+    fn eval_indexed_optional_expr(
+        &mut self,
+        execution: &FullExecution<'_>,
+        instruction: Option<u32>,
+        slots: &mut [LoweredValue],
+        span: Span,
+    ) -> Result<ControlFlow<LoweredValue, Option<LoweredValue>>, RuntimeError> {
+        let Some(instruction) = instruction else {
+            return Ok(ControlFlow::Continue(None));
+        };
+        self.eval_indexed_expr(execution, instruction, slots, span)
+            .map(|flow| flow.map_continue(Some))
+    }
+
     pub(in crate::runtime::eval) fn eval_indexed_driver_step(
         &mut self,
         index: usize,
@@ -62,30 +637,17 @@ impl Evaluator {
         };
         if !matches!(
             view.tag(),
-            FullDriverTag::Let
+            FullDriverTag::Skip
+                | FullDriverTag::Use
+                | FullDriverTag::Let
+                | FullDriverTag::LetRecord
                 | FullDriverTag::Assign
                 | FullDriverTag::Discard
                 | FullDriverTag::Stmt
                 | FullDriverTag::Expr
+                | FullDriverTag::Defer
+                | FullDriverTag::SignalHook
         ) {
-            return None;
-        }
-        let tags = match view.instruction_tags() {
-            Ok(tags) => tags,
-            Err(error) => return Some(Err(indexed_error(error, call_span))),
-        };
-        if !tags.iter().copied().all(Self::indexed_direct_tag) {
-            return None;
-        }
-        let stage_tags = match view.pipeline_stage_tags() {
-            Ok(tags) => tags,
-            Err(error) => return Some(Err(indexed_error(error, call_span))),
-        };
-        if !stage_tags
-            .iter()
-            .copied()
-            .all(Self::indexed_direct_stage_tag)
-        {
             return None;
         }
         Some(self.eval_indexed_driver_step_inner(view, call_span))
@@ -117,19 +679,153 @@ impl Evaluator {
             };
             slots[slot.slot] = value;
         }
-        let header = LoweredPureFunction {
-            params: Default::default(),
-            param_kinds: Default::default(),
-            param_checks: Default::default(),
-            param_rest: Default::default(),
-            param_defaults: Default::default(),
-            captures: Default::default(),
-            return_kind: LoweredReturnKind::Plain(LoweredType::Unit),
-            slot_count: view.slot_count(),
-            body: Vec::new(),
-            has_defers: false,
-        };
+        let header = Self::indexed_block_header(view.slot_count());
         let flow = match view.tag() {
+            FullDriverTag::Skip => {
+                indexed_finish(payload, call_span)?;
+                Flow::Continue(Value::Unit)
+            }
+            FullDriverTag::Use => {
+                let key =
+                    indexed_decode::<Arc<str>>(&mut payload, &execution, call_span)?;
+                let alias =
+                    indexed_decode::<Option<Name>>(&mut payload, &execution, call_span)?;
+                let path = indexed_decode::<Vec<Name>>(&mut payload, &execution, call_span)?;
+                let namespace = indexed_decode::<Name>(&mut payload, &execution, call_span)?;
+                let exports = indexed_decode::<Vec<LoweredModuleExport>>(
+                    &mut payload,
+                    &execution,
+                    call_span,
+                )?;
+                let child = indexed_raw(&mut payload, call_span)?;
+                let span = indexed_decode::<Span>(&mut payload, &execution, call_span)?;
+                indexed_finish(payload, call_span)?;
+                if path.is_empty() {
+                    return Err(
+                        RuntimeError::new("unknown-module", "empty module path")
+                            .with_span(span),
+                    );
+                }
+                let import_name = alias.unwrap_or(namespace);
+                let program = Arc::clone(
+                    self.indexed_program
+                        .as_ref()
+                        .expect("indexed driver retains its program"),
+                );
+                let child_steps = program
+                    .driver_program_step_views(child)
+                    .map_err(|error| indexed_error(error, span))?;
+                for child_view in child_steps {
+                    if child_view.tag() == FullDriverTag::Defer {
+                        continue;
+                    }
+                    let child_span = child_view
+                        .source_span()
+                        .map_err(|error| indexed_error(error, span))?;
+                    let mut modules_before = Vec::new();
+                    if let Some(scope) = self.scopes.last() {
+                        for (&name, binding) in scope {
+                            if let Value::Module(record) = &binding.value {
+                                modules_before.push((name, record.clone()));
+                            }
+                        }
+                    }
+                    match self.eval_indexed_driver_step_inner(child_view, child_span)? {
+                        Some(Flow::Continue(_)) | None => {}
+                        Some(Flow::Propagate(propagation)) => {
+                            return Err(runtime_error_from_value(
+                                propagation.error,
+                                child_span,
+                            ));
+                        }
+                        Some(_) => {
+                            return Err(RuntimeError::new(
+                                "module-load",
+                                format!("invalid control flow while importing {key}"),
+                            )
+                            .with_span(child_span));
+                        }
+                    }
+                    for (name, record) in &modules_before {
+                        if let Some(binding) = self.lookup(*name)
+                            && !matches!(&binding.value, Value::Module(_))
+                        {
+                            self.define(
+                                *name,
+                                Binding {
+                                    value: Value::Module(record.clone()),
+                                    mutable: false,
+                                },
+                            );
+                        }
+                    }
+                }
+                let mut modules_protected = Vec::new();
+                if let Some(scope) = self.scopes.last() {
+                    for (&name, binding) in scope {
+                        if let Value::Module(record) = &binding.value {
+                            modules_protected.push((name, record.clone()));
+                        }
+                    }
+                }
+                let mut record = RecordMap::new();
+                for export in exports {
+                    let value = match export.kind {
+                        LoweredModuleExportKind::Value => self
+                            .lookup(export.name)
+                            .map(|binding| binding.value.clone())
+                            .ok_or_else(|| {
+                                RuntimeError::new(
+                                    "missing-field",
+                                    format!(
+                                        "module export `{}` was not materialized",
+                                        export.name
+                                    ),
+                                )
+                                .with_span(span)
+                            })?,
+                        LoweredModuleExportKind::Pure => {
+                            let owner = export.function_namespace.unwrap_or(namespace);
+                            Value::Pure(QualifiedName::new(owner, export.name).into())
+                        }
+                        LoweredModuleExportKind::Proc => {
+                            let owner = export.function_namespace.unwrap_or(namespace);
+                            Value::Proc(QualifiedName::new(owner, export.name).into())
+                        }
+                    };
+                    record.insert(Arc::from(export.name.as_str()), value.clone());
+                    if alias.is_none() {
+                        self.define(
+                            export.name,
+                            Binding {
+                                value,
+                                mutable: false,
+                            },
+                        );
+                    }
+                }
+                for (name, module_record) in modules_protected {
+                    if let Some(binding) = self.lookup(name)
+                        && !matches!(&binding.value, Value::Module(_))
+                    {
+                        self.define(
+                            name,
+                            Binding {
+                                value: Value::Module(module_record),
+                                mutable: false,
+                            },
+                        );
+                    }
+                }
+                self.define(
+                    import_name,
+                    Binding {
+                        value: Value::Module(record),
+                        mutable: false,
+                    },
+                );
+                Flow::Continue(Value::Unit)
+            }
             FullDriverTag::Let => {
                 let target = indexed_decode::<Name>(&mut payload, &execution, call_span)?;
                 let ty =
@@ -217,6 +913,38 @@ impl Evaluator {
                 self.assign(&target, value, span)?;
                 Flow::Continue(Value::Unit)
             }
+            FullDriverTag::LetRecord => {
+                let source = indexed_raw(&mut payload, call_span)?;
+                let fields =
+                    indexed_decode::<Vec<Name>>(&mut payload, &execution, call_span)?;
+                let mutable = indexed_decode::<bool>(&mut payload, &execution, call_span)?;
+                let span = indexed_decode::<Span>(&mut payload, &execution, call_span)?;
+                indexed_finish(payload, call_span)?;
+                let source =
+                    match self.eval_indexed_expr(&execution, source, &mut slots, call_span)? {
+                        ControlFlow::Continue(value) => value,
+                        ControlFlow::Break(value) => {
+                            return Ok(Some(self.question_flow(value.into_value(), call_span)));
+                        }
+                    };
+                for name in fields {
+                    let Some(value) = lowered_record_field_value(&source, name.as_str()) else {
+                        return Err(RuntimeError::new(
+                            "field-access",
+                            format!("record has no field `{}`", name.as_str()),
+                        )
+                        .with_span(span));
+                    };
+                    self.define(
+                        name,
+                        Binding {
+                            value: value.into_value(),
+                            mutable,
+                        },
+                    );
+                }
+                Flow::Continue(Value::Unit)
+            }
             FullDriverTag::Discard => {
                 let value = indexed_raw(&mut payload, call_span)?;
                 let span = indexed_decode::<Span>(&mut payload, &execution, call_span)?;
@@ -273,54 +1001,50 @@ impl Evaluator {
                     Flow::Continue(value)
                 }
             }
-            _ => unreachable!("direct driver tag checked before evaluation"),
+            FullDriverTag::Defer => {
+                let value = indexed_raw(&mut payload, call_span)?;
+                let span = indexed_decode::<Span>(&mut payload, &execution, call_span)?;
+                indexed_finish(payload, call_span)?;
+                match self.eval_indexed_expr(&execution, value, &mut slots, span)? {
+                    ControlFlow::Continue(_) => Flow::Continue(Value::Unit),
+                    ControlFlow::Break(value) => {
+                        return Ok(Some(self.question_flow(value.into_value(), span)));
+                    }
+                }
+            }
+            FullDriverTag::SignalHook => {
+                let signal =
+                    indexed_decode::<Name>(&mut payload, &execution, call_span)?;
+                let pre_cancel =
+                    indexed_decode::<Option<String>>(&mut payload, &execution, call_span)?;
+                let body = indexed_raw(&mut payload, call_span)?;
+                let hook_slots = indexed_decode::<Vec<LoweredTopLevelSlot>>(
+                    &mut payload,
+                    &execution,
+                    call_span,
+                )?;
+                let slot_count = indexed_raw(&mut payload, call_span)? as usize;
+                let span = indexed_decode::<Span>(&mut payload, &execution, call_span)?;
+                indexed_finish(payload, call_span)?;
+                let program = Arc::clone(
+                    self.indexed_program
+                        .as_ref()
+                        .expect("indexed driver retains its program"),
+                );
+                self.register_indexed_signal_hook(
+                    signal.as_str(),
+                    pre_cancel.as_deref(),
+                    program,
+                    view.index(),
+                    body,
+                    hook_slots,
+                    slot_count,
+                    span,
+                )?;
+                Flow::Continue(Value::Unit)
+            }
         };
         Ok(Some(flow))
-    }
-
-    fn indexed_direct_tag(tag: FullTag) -> bool {
-        Self::indexed_direct_expr_tag(tag)
-            || matches!(
-                tag,
-                FullTag::IntInt
-                    | FullTag::IntSlot
-                    | FullTag::IntBinary
-                    | FullTag::IntStrByteLenSlot
-                    | FullTag::IntStrCountLinesSlot
-                    | FullTag::IntStrByteAtSlot
-                    | FullTag::BoolBool
-                    | FullTag::BoolSlot
-                    | FullTag::BoolNot
-                    | FullTag::BoolAnd
-                    | FullTag::BoolOr
-                    | FullTag::BoolIntCompare
-                    | FullTag::BoolStrPredicateSlot
-                    | FullTag::BoolContainsSlot
-                    | FullTag::BoolStrContainsSlot
-                    | FullTag::BoolTrimEmptySlot
-                    | FullTag::BoolTrimStrPredicateSlot
-                    | FullTag::BoolLiteralCompareSlot
-                    | FullTag::StmtLet
-                    | FullTag::StmtLetInt
-                    | FullTag::StmtLetBool
-                    | FullTag::StmtAssign
-                    | FullTag::StmtAssignInt
-                    | FullTag::StmtAssignBool
-                    | FullTag::StmtExpr
-                    | FullTag::StmtIf
-                    | FullTag::StmtIfBool
-                    | FullTag::StmtWhile
-                    | FullTag::StmtWhileBool
-                    | FullTag::StmtFor
-                    | FullTag::StmtPrint
-                    | FullTag::StmtRun
-                    | FullTag::StmtLoop
-                    | FullTag::StmtReturn
-                    | FullTag::StmtYield
-                    | FullTag::StmtBreak
-                    | FullTag::StmtBreakValue
-                    | FullTag::StmtContinue
-            )
     }
 
     pub(super) fn call_indexed_direct(
@@ -336,24 +1060,6 @@ impl Evaluator {
             Ok(None) => return None,
             Err(error) => return Some(Err(indexed_error(error, call_span))),
         };
-        let tags = match view.instruction_tags() {
-            Ok(tags) => tags,
-            Err(error) => return Some(Err(indexed_error(error, call_span))),
-        };
-        if view.has_defers() || !tags.iter().copied().all(Self::indexed_direct_tag) {
-            return None;
-        }
-        let stage_tags = match view.pipeline_stage_tags() {
-            Ok(tags) => tags,
-            Err(error) => return Some(Err(indexed_error(error, call_span))),
-        };
-        if !stage_tags
-            .iter()
-            .copied()
-            .all(Self::indexed_direct_stage_tag)
-        {
-            return None;
-        }
         let header = match view.header() {
             Ok(header) => header,
             Err(error) => return Some(Err(indexed_error(error, call_span))),
@@ -409,7 +1115,6 @@ impl Evaluator {
         function: LoweredFunctionKey,
         values: &[LoweredValue],
         call_span: Span,
-        direct_allowed: bool,
     ) -> Result<LoweredValue, RuntimeError> {
         let kind = if self.contains_indexed_function(function, LoweredFunctionKind::Pure) {
             LoweredFunctionKind::Pure
@@ -434,45 +1139,61 @@ impl Evaluator {
                 RuntimeError::new("unresolved-lowered-call", function.display_name())
                     .with_span(call_span)
             })?;
-        let direct = !view.has_defers()
-            && view
-                .instruction_tags()
-                .map_err(|error| indexed_error(error, call_span))?
-                .iter()
-                .copied()
-                .all(Self::indexed_direct_tag)
-            && view
-                .pipeline_stage_tags()
-                .map_err(|error| indexed_error(error, call_span))?
-                .iter()
-                .copied()
-                .all(Self::indexed_direct_stage_tag);
-        if direct && direct_allowed {
-            let header = view
-                .header()
-                .map_err(|error| indexed_error(error, call_span))?;
-            let mut next_slots = self.bind_lowered_values(&header, values, call_span)?;
-            let result = self
-                .eval_indexed_call_frame(
-                    function,
-                    kind,
-                    view,
-                    &header,
-                    &mut next_slots,
-                    call_span,
-                )
-                .and_then(|value| lowered_return_value(header.return_kind, value, call_span));
-            self.recycle_lowered_slots(next_slots);
-            return result;
-        }
-        let callee = self.lowered_function(function).ok_or_else(|| {
-            RuntimeError::new("unresolved-lowered-call", function.display_name())
-                .with_span(call_span)
-        })?;
-        let mut next_slots = self.bind_lowered_values(&callee, values, call_span)?;
+        let header = view
+            .header()
+            .map_err(|error| indexed_error(error, call_span))?;
+        let mut next_slots = self.bind_lowered_values(&header, values, call_span)?;
         let result = self
-            .eval_lowered_call_with_frame(function, &callee, &mut next_slots, call_span)
-            .and_then(|value| lowered_return_value(callee.return_kind, value, call_span));
+            .eval_indexed_call_frame(
+                function,
+                kind,
+                view,
+                &header,
+                &mut next_slots,
+                call_span,
+            )
+            .and_then(|value| lowered_return_value(header.return_kind, value, call_span));
+        self.recycle_lowered_slots(next_slots);
+        result
+    }
+
+    fn eval_indexed_self_call(
+        &mut self,
+        function: LoweredFunctionKey,
+        values: &[LoweredValue],
+        call_span: Span,
+    ) -> Result<LoweredValue, RuntimeError> {
+        let kind = if self.contains_indexed_function(function, LoweredFunctionKind::Pure) {
+            LoweredFunctionKind::Pure
+        } else if self.contains_indexed_function(function, LoweredFunctionKind::Proc) {
+            LoweredFunctionKind::Proc
+        } else {
+            return Err(RuntimeError::new(
+                "unresolved-lowered-call",
+                function.display_name(),
+            )
+            .with_span(call_span));
+        };
+        let program = Arc::clone(
+            self.indexed_program
+                .as_ref()
+                .expect("indexed caller retains its indexed program"),
+        );
+        let view = program
+            .function_view(function, kind)
+            .map_err(|error| indexed_error(error, call_span))?
+            .ok_or_else(|| {
+                RuntimeError::new("unresolved-lowered-call", function.display_name())
+                    .with_span(call_span)
+            })?;
+        let header = view
+            .header()
+            .map_err(|error| indexed_error(error, call_span))?;
+        let mut next_slots = self.bind_lowered_values(&header, values, call_span)?;
+        let result = with_lowered_eval_depth(call_span, || {
+            self.eval_indexed_function(view, &header, &mut next_slots, call_span)
+        })
+        .and_then(|value| lowered_return_value(header.return_kind, value, call_span));
         self.recycle_lowered_slots(next_slots);
         result
     }
@@ -548,83 +1269,6 @@ impl Evaluator {
         }
     }
 
-    pub(super) fn indexed_direct_expr_tag(tag: FullTag) -> bool {
-        matches!(
-            tag,
-            FullTag::ExprNull
-                | FullTag::ExprUnit
-                | FullTag::ExprInt
-                | FullTag::ExprFloat
-                | FullTag::ExprDuration
-                | FullTag::ExprBool
-                | FullTag::ExprStr
-                | FullTag::ExprBytes
-                | FullTag::ExprPath
-                | FullTag::ExprFunctionRef
-                | FullTag::ExprPathFrom
-                | FullTag::ExprParam
-                | FullTag::ExprBinary
-                | FullTag::ExprIf
-                | FullTag::ExprResultFallback
-                | FullTag::ExprFmtString
-                | FullTag::ExprPathFmtString
-                | FullTag::ExprGlob
-                | FullTag::ExprLastStatus
-                | FullTag::ExprRecord
-                | FullTag::ExprList
-                | FullTag::ExprEmptyMap
-                | FullTag::ExprBytesConcat
-                | FullTag::ExprRange
-                | FullTag::ExprTag
-                | FullTag::ExprPipeline
-                | FullTag::ExprField
-                | FullTag::ExprIndex
-                | FullTag::ExprSlice
-                | FullTag::ExprMethod
-                | FullTag::ExprStrByteLen
-                | FullTag::ExprStrByteAt
-                | FullTag::ExprStrPredicate
-                | FullTag::ExprContains
-                | FullTag::ExprRegexCompile
-                | FullTag::ExprModuleCall
-                | FullTag::ExprOk
-                | FullTag::ExprErr
-                | FullTag::ExprTry
-                | FullTag::ExprCall
-                | FullTag::ExprSelfCall
-        )
-    }
-
-    fn indexed_direct_stage_tag(tag: FullStageTag) -> bool {
-        matches!(
-            tag,
-            FullStageTag::TextLines
-                | FullStageTag::JsonLines
-                | FullStageTag::Where
-                | FullStageTag::Map
-                | FullStageTag::Enumerate
-                | FullStageTag::Zip
-                | FullStageTag::Sort
-                | FullStageTag::SortBy
-                | FullStageTag::GroupBy
-                | FullStageTag::CountBy
-                | FullStageTag::Any
-                | FullStageTag::All
-                | FullStageTag::UniqueBy
-                | FullStageTag::Count
-                | FullStageTag::Sum
-                | FullStageTag::Collect
-                | FullStageTag::First
-                | FullStageTag::Last
-                | FullStageTag::Min
-                | FullStageTag::Max
-                | FullStageTag::Take
-                | FullStageTag::Drop
-                | FullStageTag::Repeat
-                | FullStageTag::Range
-        )
-    }
-
     fn indexed_stage_name(tag: FullStageTag) -> &'static str {
         match tag {
             FullStageTag::TextLines => "text.lines",
@@ -686,6 +1330,120 @@ impl Evaluator {
                 Err(runtime_error_from_value(value.into_value(), span))
             }
         }
+    }
+
+    fn indexed_field_projection(
+        execution: &FullExecution<'_>,
+        instruction: u32,
+        item_slot: usize,
+        span: Span,
+    ) -> Result<Option<&'static str>, RuntimeError> {
+        let (tag, mut payload) =
+            indexed_value(execution.instruction_id(instruction), span)?;
+        if tag != FullTag::ExprField {
+            return Ok(None);
+        }
+        let base = indexed_raw(&mut payload, span)?;
+        let name = indexed_decode::<&'static str>(&mut payload, execution, span)?;
+        indexed_decode::<Span>(&mut payload, execution, span)?;
+        indexed_finish(payload, span)?;
+        let (base_tag, mut base_payload) =
+            indexed_value(execution.instruction_id(base), span)?;
+        if base_tag != FullTag::ExprParam {
+            return Ok(None);
+        }
+        let slot = indexed_decode::<usize>(&mut base_payload, execution, span)?;
+        indexed_finish(base_payload, span)?;
+        Ok((slot == item_slot).then_some(name))
+    }
+
+    fn indexed_record_fields(
+        execution: &FullExecution<'_>,
+        instruction: u32,
+        span: Span,
+    ) -> Result<Option<Vec<(Name, u32)>>, RuntimeError> {
+        let (tag, mut payload) =
+            indexed_value(execution.instruction_id(instruction), span)?;
+        if tag != FullTag::ExprRecord {
+            return Ok(None);
+        }
+        let (_, mut entries) = execution
+            .block(&mut payload, BLOCK_LIST)
+            .map_err(|error| indexed_error(error, span))?;
+        let len = indexed_raw(&mut entries, span)? as usize;
+        indexed_finish(payload, span)?;
+        let mut fields = Vec::with_capacity(len);
+        for _ in 0..len {
+            if indexed_raw(&mut entries, span)? != 0 {
+                return Ok(None);
+            }
+            fields.push((
+                indexed_decode::<Name>(&mut entries, execution, span)?,
+                indexed_raw(&mut entries, span)?,
+            ));
+        }
+        indexed_finish(entries, span)?;
+        Ok(Some(fields))
+    }
+
+    fn indexed_reduce_projection(
+        execution: &FullExecution<'_>,
+        item_slot: usize,
+        body: u32,
+        value: u32,
+        op: ReduceByOp,
+        span: Span,
+    ) -> Result<Option<LoweredReduceProjection<'static>>, RuntimeError> {
+        if op != ReduceByOp::Sum {
+            return Ok(None);
+        }
+        let (_, mut statements) = execution
+            .block_id(body, BLOCK_STATEMENTS)
+            .map_err(|error| indexed_error(error, span))?;
+        if indexed_raw(&mut statements, span)? != 0 {
+            return Ok(None);
+        }
+        indexed_finish(statements, span)?;
+        let Some(entries) = Self::indexed_record_fields(execution, value, span)? else {
+            return Ok(None);
+        };
+        let mut key_field = None;
+        let mut value_fields = None;
+        for (name, expr) in entries {
+            match name.as_str() {
+                "key" => {
+                    key_field =
+                        Self::indexed_field_projection(execution, expr, item_slot, span)?;
+                }
+                "value" => {
+                    let Some(fields) =
+                        Self::indexed_record_fields(execution, expr, span)?
+                    else {
+                        return Ok(None);
+                    };
+                    let mut projected = Vec::with_capacity(fields.len());
+                    for (name, expr) in fields {
+                        let Some(source) = Self::indexed_field_projection(
+                            execution,
+                            expr,
+                            item_slot,
+                            span,
+                        )? else {
+                            return Ok(None);
+                        };
+                        projected.push((name, source));
+                    }
+                    value_fields = Some(projected);
+                }
+                _ => return Ok(None),
+            }
+        }
+        Ok(key_field
+            .zip(value_fields)
+            .map(|(key_field, value_fields)| LoweredReduceProjection {
+                key_field,
+                value_fields,
+            }))
     }
 
     pub(super) fn eval_indexed_expr(
@@ -837,6 +1595,84 @@ impl Evaluator {
                 }
                 indexed_finish(branches, span)?;
                 return self.eval_indexed_expr(execution, else_value, slots, call_span);
+            }
+            FullTag::ExprMatch => {
+                let value = indexed_raw(&mut payload, call_span)?;
+                let (_, mut arms) = execution
+                    .block(&mut payload, BLOCK_LIST)
+                    .map_err(|error| indexed_error(error, call_span))?;
+                let arm_count = indexed_raw(&mut arms, call_span)? as usize;
+                let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
+                indexed_finish(payload, call_span)?;
+                let mut decoded_arms = Vec::with_capacity(arm_count);
+                for _ in 0..arm_count {
+                    decoded_arms.push((
+                        indexed_raw(&mut arms, span)?,
+                        indexed_optional_raw(&mut arms, span)?,
+                        indexed_raw(&mut arms, span)?,
+                    ));
+                }
+                indexed_finish(arms, span)?;
+                let value = match self.eval_indexed_expr(execution, value, slots, call_span)? {
+                    ControlFlow::Continue(value) => value,
+                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+                };
+                for (pattern, guard, arm_value) in decoded_arms {
+                    if Self::indexed_pattern_matches(execution, pattern, &value, slots, span)? {
+                        if let Some(guard) = guard {
+                            match self.eval_indexed_expr(
+                                execution, guard, slots, call_span,
+                            )? {
+                                ControlFlow::Continue(LoweredValue::Bool(true)) => {}
+                                ControlFlow::Continue(_) => continue,
+                                ControlFlow::Break(value) => {
+                                    return Ok(ControlFlow::Break(value));
+                                }
+                            }
+                        }
+                        return self.eval_indexed_expr(
+                            execution, arm_value, slots, call_span,
+                        );
+                    }
+                }
+                return Err(lowered_match_no_arm(span));
+            }
+            FullTag::ExprStrMatch | FullTag::ExprTagMatch => {
+                let value = indexed_raw(&mut payload, call_span)?;
+                let arm_count = indexed_raw(&mut payload, call_span)? as usize;
+                let mut arms = Vec::with_capacity(arm_count);
+                for _ in 0..arm_count {
+                    arms.push((
+                        indexed_decode::<Arc<str>>(
+                            &mut payload,
+                            execution,
+                            call_span,
+                        )?,
+                        indexed_raw(&mut payload, call_span)?,
+                    ));
+                }
+                let fallback = indexed_optional_raw(&mut payload, call_span)?;
+                let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
+                indexed_finish(payload, call_span)?;
+                let value = match self.eval_indexed_expr(execution, value, slots, call_span)? {
+                    ControlFlow::Continue(value) => value,
+                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+                };
+                let key = if tag == FullTag::ExprStrMatch {
+                    lowered_str_key(&value)
+                } else {
+                    lowered_tag_key(&value)
+                };
+                if let Some(key) = key
+                    && let Some((_, arm)) =
+                        arms.iter().find(|(candidate, _)| candidate.as_ref() == key)
+                {
+                    return self.eval_indexed_expr(execution, *arm, slots, call_span);
+                }
+                if let Some(fallback) = fallback {
+                    return self.eval_indexed_expr(execution, fallback, slots, call_span);
+                }
+                return Err(lowered_match_no_arm(span));
             }
             FullTag::ExprResultFallback => {
                 let left = indexed_raw(&mut payload, call_span)?;
@@ -1152,6 +1988,93 @@ impl Evaluator {
                     name,
                     fields: values,
                 })))
+            }
+            FullTag::ExprListComp | FullTag::ExprMapComp => {
+                let map = tag == FullTag::ExprMapComp;
+                let key = map.then(|| indexed_raw(&mut payload, call_span)).transpose()?;
+                let value = indexed_raw(&mut payload, call_span)?;
+                let target =
+                    indexed_decode::<LoweredCompTarget>(&mut payload, execution, call_span)?;
+                let iter = indexed_raw(&mut payload, call_span)?;
+                let condition = indexed_optional_raw(&mut payload, call_span)?;
+                let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
+                indexed_finish(payload, call_span)?;
+                let iter = match self.eval_indexed_expr(execution, iter, slots, span)? {
+                    ControlFlow::Continue(value) => value,
+                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+                };
+                let items = self.lowered_list_items(
+                    iter,
+                    span,
+                    if map {
+                        "map comprehension expected List"
+                    } else {
+                        "list comprehension expected List"
+                    },
+                )?;
+                if map {
+                    let mut values = BTreeMap::new();
+                    for item in items {
+                        bind_lowered_comp_target(&target, item, slots, span)?;
+                        if let Some(condition) = condition {
+                            match self.eval_indexed_bool(execution, condition, slots, span)? {
+                                ControlFlow::Continue(true) => {}
+                                ControlFlow::Continue(false) => continue,
+                                ControlFlow::Break(value) => {
+                                    return Ok(ControlFlow::Break(value));
+                                }
+                            }
+                        }
+                        let key = match self.eval_indexed_expr(
+                            execution,
+                            key.expect("map comprehension key"),
+                            slots,
+                            span,
+                        )? {
+                            ControlFlow::Continue(value) => value,
+                            ControlFlow::Break(value) => {
+                                return Ok(ControlFlow::Break(value));
+                            }
+                        };
+                        let Some(key) = lowered_str_value(&key) else {
+                            return Err(RuntimeError::new(
+                                "type-error",
+                                "map comprehension key expected Str",
+                            )
+                            .with_span(span));
+                        };
+                        let value =
+                            match self.eval_indexed_expr(execution, value, slots, span)? {
+                                ControlFlow::Continue(value) => value,
+                                ControlFlow::Break(value) => {
+                                    return Ok(ControlFlow::Break(value));
+                                }
+                            };
+                        values.insert(key.to_string(), value);
+                    }
+                    ControlFlow::Continue(LoweredValue::Map(values))
+                } else {
+                    let mut values = Vec::new();
+                    for item in items {
+                        bind_lowered_comp_target(&target, item, slots, span)?;
+                        if let Some(condition) = condition {
+                            match self.eval_indexed_bool(execution, condition, slots, span)? {
+                                ControlFlow::Continue(true) => {}
+                                ControlFlow::Continue(false) => continue,
+                                ControlFlow::Break(value) => {
+                                    return Ok(ControlFlow::Break(value));
+                                }
+                            }
+                        }
+                        match self.eval_indexed_expr(execution, value, slots, span)? {
+                            ControlFlow::Continue(value) => values.push(value),
+                            ControlFlow::Break(value) => {
+                                return Ok(ControlFlow::Break(value));
+                            }
+                        }
+                    }
+                    ControlFlow::Continue(LoweredValue::List(values))
+                }
             }
             FullTag::ExprPipeline => {
                 let input = indexed_raw(&mut payload, call_span)?;
@@ -1532,6 +2455,700 @@ impl Evaluator {
                             }
                             LoweredValue::List(mapped)
                         }
+                        FullStageTag::MapBlock | FullStageTag::FlatMapBlock => {
+                            let slot = indexed_decode::<usize>(
+                                &mut stage_payload,
+                                execution,
+                                span,
+                            )?;
+                            let body = indexed_raw(&mut stage_payload, span)?;
+                            let value = indexed_raw(&mut stage_payload, span)?;
+                            indexed_finish(stage_payload, span)?;
+                            let flat = tag == FullStageTag::FlatMapBlock;
+                            let items = self.lowered_pipeline_input_items(current, span)?;
+                            let mut mapped = Vec::with_capacity(items.len());
+                            let block_header = Self::indexed_block_header(slots.len());
+                            for item in items {
+                                slots[slot] = item;
+                                match self.eval_indexed_statement_block(
+                                    execution,
+                                    body,
+                                    &block_header,
+                                    slots,
+                                    call_span,
+                                )? {
+                                    LoweredStmtFlow::None => {}
+                                    LoweredStmtFlow::Return(value)
+                                    | LoweredStmtFlow::Propagate(value) => {
+                                        return Ok(ControlFlow::Break(value));
+                                    }
+                                    LoweredStmtFlow::Break(_) => {
+                                        return Err(RuntimeError::new(
+                                            "break-outside-loop",
+                                            "break used outside loop",
+                                        )
+                                        .with_span(span));
+                                    }
+                                    LoweredStmtFlow::Continue => {
+                                        return Err(RuntimeError::new(
+                                            "continue-outside-loop",
+                                            "continue used outside loop",
+                                        )
+                                        .with_span(span));
+                                    }
+                                }
+                                let value =
+                                    match self.eval_indexed_expr(execution, value, slots, span)? {
+                                        ControlFlow::Continue(value) => value,
+                                        ControlFlow::Break(value) => {
+                                            return Ok(ControlFlow::Break(value));
+                                        }
+                                    };
+                                if flat {
+                                    mapped.extend(self.lowered_list_items(
+                                        value,
+                                        span,
+                                        "flat-map expected List",
+                                    )?);
+                                } else {
+                                    mapped.push(value);
+                                }
+                            }
+                            LoweredValue::List(mapped)
+                        }
+                        FullStageTag::FlatMap => {
+                            let slot = indexed_decode::<usize>(
+                                &mut stage_payload,
+                                execution,
+                                span,
+                            )?;
+                            let value = indexed_raw(&mut stage_payload, span)?;
+                            indexed_finish(stage_payload, span)?;
+                            let items = self.lowered_pipeline_input_items(current, span)?;
+                            let mut mapped = Vec::new();
+                            for item in items {
+                                slots[slot] = item;
+                                let value =
+                                    match self.eval_indexed_expr(execution, value, slots, span)? {
+                                        ControlFlow::Continue(value) => value,
+                                        ControlFlow::Break(value) => {
+                                            return Ok(ControlFlow::Break(value));
+                                        }
+                                    };
+                                mapped.extend(self.lowered_list_items(
+                                    value,
+                                    span,
+                                    "flat-map expected List",
+                                )?);
+                            }
+                            LoweredValue::List(mapped)
+                        }
+                        FullStageTag::BytesChunks => {
+                            let size = indexed_raw(&mut stage_payload, span)?;
+                            indexed_finish(stage_payload, span)?;
+                            let bytes = lowered_bytes_value(&current)
+                                .ok_or_else(|| {
+                                    RuntimeError::new(
+                                        "type-error",
+                                        format!(
+                                            "bytes.chunks expected Bytes, found {}",
+                                            current.type_name()
+                                        ),
+                                    )
+                                    .with_span(span)
+                                })?
+                                .to_vec();
+                            let size =
+                                match self.eval_indexed_expr(execution, size, slots, span)? {
+                                    ControlFlow::Continue(LoweredValue::Int(value))
+                                        if value > 0 =>
+                                    {
+                                        value
+                                    }
+                                    ControlFlow::Continue(LoweredValue::Int(_)) => {
+                                        return Err(RuntimeError::new(
+                                            "bytes-chunks",
+                                            "chunk size must be positive",
+                                        )
+                                        .with_span(span));
+                                    }
+                                    ControlFlow::Continue(value) => {
+                                        return Err(RuntimeError::new(
+                                            "type-error",
+                                            format!(
+                                                "bytes.chunks size expected Int, found {}",
+                                                value.type_name()
+                                            ),
+                                        )
+                                        .with_span(span));
+                                    }
+                                    ControlFlow::Break(value) => {
+                                        return Ok(ControlFlow::Break(value));
+                                    }
+                                };
+                            let chunks = bytes_module::chunks(bytes, size, span)?;
+                            let mut lowered = Vec::with_capacity(chunks.len());
+                            for chunk in chunks {
+                                let Some(chunk) = lowered_value_from_runtime_any(&chunk) else {
+                                    return Err(RuntimeError::new(
+                                        "type-error",
+                                        format!(
+                                            "bytes.chunks produced unsupported {}",
+                                            chunk.type_name()
+                                        ),
+                                    )
+                                    .with_span(span));
+                                };
+                                lowered.push(chunk);
+                            }
+                            LoweredValue::List(lowered)
+                        }
+                        FullStageTag::BatchCount => {
+                            let count = indexed_raw(&mut stage_payload, span)?;
+                            indexed_finish(stage_payload, span)?;
+                            let count =
+                                match self.eval_indexed_expr(execution, count, slots, span)? {
+                                    ControlFlow::Continue(LoweredValue::Int(value))
+                                        if value > 0 =>
+                                    {
+                                        value as usize
+                                    }
+                                    ControlFlow::Continue(LoweredValue::Int(_)) => {
+                                        return Err(RuntimeError::new(
+                                            "stream-stage-option",
+                                            "--count must be positive",
+                                        )
+                                        .with_span(span));
+                                    }
+                                    ControlFlow::Continue(value) => {
+                                        return Err(RuntimeError::new(
+                                            "type-error",
+                                            format!(
+                                                "--count expected Int, found {}",
+                                                value.type_name()
+                                            ),
+                                        )
+                                        .with_span(span));
+                                    }
+                                    ControlFlow::Break(value) => {
+                                        return Ok(ControlFlow::Break(value));
+                                    }
+                                };
+                            let items = self.lowered_pipeline_input_items(current, span)?;
+                            let mut batches = Vec::new();
+                            let mut batch = Vec::with_capacity(count);
+                            for item in items {
+                                batch.push(item);
+                                if batch.len() == count {
+                                    batches.push(LoweredValue::List(std::mem::take(
+                                        &mut batch,
+                                    )));
+                                    batch = Vec::with_capacity(count);
+                                }
+                            }
+                            if !batch.is_empty() {
+                                batches.push(LoweredValue::List(batch));
+                            }
+                            LoweredValue::List(batches)
+                        }
+                        FullStageTag::BatchMaxArgv | FullStageTag::BatchMaxBytes => {
+                            let limit = if tag == FullStageTag::BatchMaxArgv {
+                                let max_argv = indexed_optional_raw(&mut stage_payload, span)?;
+                                match max_argv {
+                                    Some(expr) => {
+                                        match self.eval_indexed_expr(
+                                            execution, expr, slots, span,
+                                        )? {
+                                            ControlFlow::Continue(value) => {
+                                                lowered_nonnegative_count(value, span)?
+                                            }
+                                            ControlFlow::Break(value) => {
+                                                return Ok(ControlFlow::Break(value));
+                                            }
+                                        }
+                                    }
+                                    None => super::super::stream::platform_arg_max()
+                                        .saturating_sub(4096)
+                                        .clamp(1, 128 * 1024),
+                                }
+                            } else {
+                                let max_bytes = indexed_raw(&mut stage_payload, span)?;
+                                match self.eval_indexed_expr(
+                                    execution, max_bytes, slots, span,
+                                )? {
+                                    ControlFlow::Continue(value) => {
+                                        lowered_nonnegative_count(value, span)?
+                                    }
+                                    ControlFlow::Break(value) => {
+                                        return Ok(ControlFlow::Break(value));
+                                    }
+                                }
+                            };
+                            indexed_finish(stage_payload, span)?;
+                            let items = self.lowered_pipeline_input_items(current, span)?;
+                            let mut batches = Vec::new();
+                            let mut batch = Vec::new();
+                            let mut batch_len = 0usize;
+                            for item in items {
+                                let item_len = lowered_value_argv_len(&item);
+                                if tag == FullStageTag::BatchMaxBytes && item_len > limit {
+                                    return Err(RuntimeError::new(
+                                        "argv-limit",
+                                        "batch item exceeds byte budget",
+                                    )
+                                    .with_span(span));
+                                }
+                                let separator = usize::from(
+                                    tag == FullStageTag::BatchMaxArgv && !batch.is_empty(),
+                                );
+                                if !batch.is_empty()
+                                    && batch_len + separator + item_len > limit
+                                {
+                                    batches.push(LoweredValue::List(std::mem::take(
+                                        &mut batch,
+                                    )));
+                                    batch_len = 0;
+                                }
+                                let separator = usize::from(
+                                    tag == FullStageTag::BatchMaxArgv && !batch.is_empty(),
+                                );
+                                batch_len += separator + item_len;
+                                batch.push(item);
+                            }
+                            if !batch.is_empty() {
+                                batches.push(LoweredValue::List(batch));
+                            }
+                            LoweredValue::List(batches)
+                        }
+                        FullStageTag::Shuffle => {
+                            let seed = indexed_optional_raw(&mut stage_payload, span)?;
+                            indexed_finish(stage_payload, span)?;
+                            let seed = match seed {
+                                Some(seed) => {
+                                    match self.eval_indexed_expr(
+                                        execution, seed, slots, span,
+                                    )? {
+                                        ControlFlow::Continue(LoweredValue::Int(value)) => {
+                                            value as u64
+                                        }
+                                        ControlFlow::Continue(value) => {
+                                            return Err(RuntimeError::new(
+                                                "type-error",
+                                                format!(
+                                                    "shuffle seed expected Int, found {}",
+                                                    value.type_name()
+                                                ),
+                                            )
+                                            .with_span(span));
+                                        }
+                                        ControlFlow::Break(value) => {
+                                            return Ok(ControlFlow::Break(value));
+                                        }
+                                    }
+                                }
+                                None => 0,
+                            };
+                            let mut items = self.lowered_pipeline_input_items(current, span)?;
+                            let mut state =
+                                seed ^ (items.len() as u64).wrapping_mul(0x9e3779b97f4a7c15);
+                            for index in (1..items.len()).rev() {
+                                state = state
+                                    .wrapping_mul(6364136223846793005)
+                                    .wrapping_add(1);
+                                let swap = (state as usize) % (index + 1);
+                                items.swap(index, swap);
+                            }
+                            LoweredValue::List(items)
+                        }
+                        FullStageTag::Fold => {
+                            let acc_slot = indexed_decode::<usize>(
+                                &mut stage_payload,
+                                execution,
+                                span,
+                            )?;
+                            let item_slot = indexed_decode::<usize>(
+                                &mut stage_payload,
+                                execution,
+                                span,
+                            )?;
+                            let initial = indexed_raw(&mut stage_payload, span)?;
+                            let body = indexed_raw(&mut stage_payload, span)?;
+                            let value = indexed_raw(&mut stage_payload, span)?;
+                            indexed_finish(stage_payload, span)?;
+                            let mut acc =
+                                match self.eval_indexed_expr(execution, initial, slots, span)? {
+                                    ControlFlow::Continue(value) => value,
+                                    ControlFlow::Break(value) => {
+                                        return Ok(ControlFlow::Break(value));
+                                    }
+                                };
+                            let items = self.lowered_pipeline_input_items(current, span)?;
+                            let block_header = Self::indexed_block_header(slots.len());
+                            for item in items {
+                                slots[acc_slot] = acc;
+                                slots[item_slot] = item;
+                                match self.eval_indexed_statement_block(
+                                    execution,
+                                    body,
+                                    &block_header,
+                                    slots,
+                                    span,
+                                )? {
+                                    LoweredStmtFlow::None | LoweredStmtFlow::Continue => {}
+                                    LoweredStmtFlow::Propagate(value)
+                                    | LoweredStmtFlow::Return(value) => {
+                                        return Ok(ControlFlow::Break(value));
+                                    }
+                                    LoweredStmtFlow::Break(value) => {
+                                        return Ok(ControlFlow::Break(
+                                            value.unwrap_or(LoweredValue::Unit),
+                                        ));
+                                    }
+                                }
+                                acc =
+                                    match self.eval_indexed_expr(execution, value, slots, span)? {
+                                        ControlFlow::Continue(value) => value,
+                                        ControlFlow::Break(value) => {
+                                            return Ok(ControlFlow::Break(value));
+                                        }
+                                    };
+                            }
+                            slots[acc_slot] = LoweredValue::Unit;
+                            slots[item_slot] = LoweredValue::Unit;
+                            acc
+                        }
+                        FullStageTag::ReduceBy => {
+                            let item_slot = indexed_decode::<usize>(
+                                &mut stage_payload,
+                                execution,
+                                span,
+                            )?;
+                            let body = indexed_raw(&mut stage_payload, span)?;
+                            let value = indexed_raw(&mut stage_payload, span)?;
+                            let op = indexed_decode::<ReduceByOp>(
+                                &mut stage_payload,
+                                execution,
+                                span,
+                            )?;
+                            indexed_finish(stage_payload, span)?;
+                            let items = self.lowered_pipeline_input_items(current, span)?;
+                            let block_header = Self::indexed_block_header(slots.len());
+                            let mut projection = Self::indexed_reduce_projection(
+                                execution,
+                                item_slot,
+                                body,
+                                value,
+                                op,
+                                span,
+                            )?
+                            .map(LoweredProjectedReduceState::new);
+                            let mut groups = BTreeMap::new();
+                            for item in items {
+                                if let Some(projection) = projection.as_mut() {
+                                    self.eval_lowered_projected_reduce_by_item(
+                                        projection,
+                                        item,
+                                        &mut groups,
+                                        span,
+                                    )?;
+                                    continue;
+                                }
+                                slots[item_slot] = item;
+                                match self.eval_indexed_statement_block(
+                                    execution,
+                                    body,
+                                    &block_header,
+                                    slots,
+                                    span,
+                                )? {
+                                    LoweredStmtFlow::None | LoweredStmtFlow::Continue => {}
+                                    LoweredStmtFlow::Propagate(value)
+                                    | LoweredStmtFlow::Return(value) => {
+                                        return Ok(ControlFlow::Break(value));
+                                    }
+                                    LoweredStmtFlow::Break(value) => {
+                                        return Ok(ControlFlow::Break(
+                                            value.unwrap_or(LoweredValue::Unit),
+                                        ));
+                                    }
+                                }
+                                let output =
+                                    match self.eval_indexed_expr(execution, value, slots, span)? {
+                                        ControlFlow::Continue(value) => value,
+                                        ControlFlow::Break(value) => {
+                                            return Ok(ControlFlow::Break(value));
+                                        }
+                                    };
+                                let key = lowered_reduce_by_key(&output, span)?;
+                                let value =
+                                    lowered_record_field_value(&output, "value").ok_or_else(
+                                        || {
+                                            RuntimeError::new(
+                                                "reduce-by-value",
+                                                "reduce-by record is missing field `value`",
+                                            )
+                                            .with_span(span)
+                                        },
+                                    )?;
+                                lowered_reduce_group_insert(
+                                    &mut groups,
+                                    key,
+                                    value,
+                                    op,
+                                    span,
+                                )?;
+                            }
+                            slots[item_slot] = LoweredValue::Unit;
+                            LoweredValue::Map(groups.into_iter().collect())
+                        }
+                        FullStageTag::ParMap | FullStageTag::ParMapBlock => {
+                            let slot = indexed_decode::<usize>(
+                                &mut stage_payload,
+                                execution,
+                                span,
+                            )?;
+                            let body = if tag == FullStageTag::ParMapBlock {
+                                Some(indexed_raw(&mut stage_payload, span)?)
+                            } else {
+                                None
+                            };
+                            let value = indexed_raw(&mut stage_payload, span)?;
+                            indexed_finish(stage_payload, span)?;
+                            let items = self.lowered_pipeline_input_items(current, span)?;
+                            let block_header = Self::indexed_block_header(slots.len());
+                            let mut results = Vec::with_capacity(items.len());
+                            for (item_index, item) in items.into_iter().enumerate() {
+                                if self.trace_enabled {
+                                    self.trace_lowered_parallel_job(
+                                        TraceKind::ParallelJobStart,
+                                        "par-map",
+                                        item_index,
+                                        None,
+                                        span,
+                                    );
+                                }
+                                slots[slot] = item;
+                                let item_result = if let Some(body) = body {
+                                    match self.eval_indexed_statement_block(
+                                        execution,
+                                        body,
+                                        &block_header,
+                                        slots,
+                                        span,
+                                    ) {
+                                        Ok(LoweredStmtFlow::None)
+                                        | Ok(LoweredStmtFlow::Continue) => {
+                                            self.eval_indexed_expr(
+                                                execution,
+                                                value,
+                                                slots,
+                                                span,
+                                            )
+                                        }
+                                        Ok(LoweredStmtFlow::Return(value))
+                                        | Ok(LoweredStmtFlow::Propagate(value)) => {
+                                            Ok(ControlFlow::Break(value))
+                                        }
+                                        Ok(LoweredStmtFlow::Break(value)) => {
+                                            Ok(ControlFlow::Break(
+                                                value.unwrap_or(LoweredValue::Unit),
+                                            ))
+                                        }
+                                        Err(error) => Err(error),
+                                    }
+                                } else {
+                                    self.eval_indexed_expr(execution, value, slots, span)
+                                };
+                                let item_result = match item_result {
+                                    Ok(ControlFlow::Continue(value)) => value,
+                                    Ok(ControlFlow::Break(value)) => {
+                                        self.stderr.extend_from_slice(
+                                            format!(
+                                                "par-map error: {}\n",
+                                                lowered_error_message(&value)
+                                            )
+                                            .as_bytes(),
+                                        );
+                                        LoweredValue::List(Vec::new())
+                                    }
+                                    Err(error) => {
+                                        self.stderr.extend_from_slice(
+                                            format!("par-map error: {error:?}\n").as_bytes(),
+                                        );
+                                        LoweredValue::List(Vec::new())
+                                    }
+                                };
+                                let result = match item_result {
+                                    LoweredValue::ResultOk(value) => *value,
+                                    value @ LoweredValue::ResultErr(_) => {
+                                        self.stderr.extend_from_slice(
+                                            format!(
+                                                "par-map error: {}\n",
+                                                lowered_error_message(&value)
+                                            )
+                                            .as_bytes(),
+                                        );
+                                        LoweredValue::List(Vec::new())
+                                    }
+                                    value => value,
+                                };
+                                if self.trace_enabled {
+                                    self.trace_lowered_parallel_job(
+                                        TraceKind::ParallelJobEnd,
+                                        "par-map",
+                                        item_index,
+                                        None,
+                                        span,
+                                    );
+                                }
+                                results.push(result);
+                            }
+                            slots[slot] = LoweredValue::Unit;
+                            LoweredValue::List(results)
+                        }
+                        FullStageTag::Tee | FullStageTag::Each => {
+                            let slot = indexed_decode::<usize>(
+                                &mut stage_payload,
+                                execution,
+                                span,
+                            )?;
+                            let body = indexed_raw(&mut stage_payload, span)?;
+                            let parallel = if tag == FullStageTag::Each {
+                                indexed_decode::<bool>(
+                                    &mut stage_payload,
+                                    execution,
+                                    span,
+                                )?
+                            } else {
+                                false
+                            };
+                            indexed_finish(stage_payload, span)?;
+                            let items = self.lowered_pipeline_input_items(current, span)?;
+                            let tee = tag == FullStageTag::Tee;
+                            let output = if tee {
+                                items.clone()
+                            } else {
+                                Vec::new()
+                            };
+                            let block_header = Self::indexed_block_header(slots.len());
+                            for (item_index, item) in items.into_iter().enumerate() {
+                                if parallel {
+                                    self.trace_lowered_parallel_job(
+                                        TraceKind::ParallelJobStart,
+                                        "each",
+                                        item_index,
+                                        None,
+                                        span,
+                                    );
+                                }
+                                slots[slot] = item;
+                                match self.eval_indexed_statement_block(
+                                    execution,
+                                    body,
+                                    &block_header,
+                                    slots,
+                                    span,
+                                )? {
+                                    LoweredStmtFlow::None | LoweredStmtFlow::Continue => {}
+                                    LoweredStmtFlow::Return(value)
+                                    | LoweredStmtFlow::Propagate(value) => {
+                                        return Ok(ControlFlow::Break(value));
+                                    }
+                                    LoweredStmtFlow::Break(value) => {
+                                        return Ok(ControlFlow::Break(
+                                            value.unwrap_or(LoweredValue::Unit),
+                                        ));
+                                    }
+                                }
+                                if parallel {
+                                    self.trace_lowered_parallel_job(
+                                        TraceKind::ParallelJobEnd,
+                                        "each",
+                                        item_index,
+                                        None,
+                                        span,
+                                    );
+                                }
+                            }
+                            slots[slot] = LoweredValue::Unit;
+                            LoweredValue::List(output)
+                        }
+                        FullStageTag::TablePrint => {
+                            let columns = indexed_decode::<Option<Vec<String>>>(
+                                &mut stage_payload,
+                                execution,
+                                span,
+                            )?;
+                            indexed_finish(stage_payload, span)?;
+                            let records = lowered_pipeline_record_list(&current, span)?;
+                            let columns = columns.unwrap_or_else(|| {
+                                let mut seen = std::collections::BTreeSet::new();
+                                let mut columns = Vec::new();
+                                for record in &records {
+                                    for key in record.keys() {
+                                        if seen.insert(key.clone()) {
+                                            columns.push(key.to_string());
+                                        }
+                                    }
+                                }
+                                columns
+                            });
+                            let table_columns = columns
+                                .iter()
+                                .map(|name| {
+                                    let align = records
+                                        .first()
+                                        .and_then(|record| record.get(name.as_str()))
+                                        .map(|value| match value {
+                                            LoweredValue::Int(_)
+                                            | LoweredValue::Float(_)
+                                            | LoweredValue::Duration(_) => {
+                                                crate::terminal::table::TableAlign::Right
+                                            }
+                                            _ => crate::terminal::table::TableAlign::Left,
+                                        })
+                                        .unwrap_or(
+                                            crate::terminal::table::TableAlign::Left,
+                                        );
+                                    crate::terminal::table::TextTableColumn::new(
+                                        name.clone(),
+                                        0,
+                                        80,
+                                        align,
+                                    )
+                                })
+                                .collect::<Vec<_>>();
+                            let rows = records
+                                .iter()
+                                .map(|record| {
+                                    columns
+                                        .iter()
+                                        .map(|column| {
+                                            let value = record
+                                                .get(column.as_str())
+                                                .cloned()
+                                                .unwrap_or(LoweredValue::Null);
+                                            crate::terminal::table::sanitize_table_text(
+                                                &lowered_table_print_value(&value),
+                                            )
+                                        })
+                                        .collect::<Vec<_>>()
+                                })
+                                .collect::<Vec<_>>();
+                            let mut output = String::new();
+                            let width =
+                                crate::terminal::table::terminal_table_width_for_stdout(
+                                    20, 120,
+                                );
+                            crate::terminal::table::render_text_table(
+                                &table_columns,
+                                &rows,
+                                width,
+                                &mut output,
+                            );
+                            self.stdout.extend_from_slice(output.as_bytes());
+                            LoweredValue::Unit
+                        }
                         FullStageTag::Count => {
                             indexed_finish(stage_payload, span)?;
                             if let LoweredValue::Stream(stream) = current {
@@ -1703,7 +3320,6 @@ impl Evaluator {
                                     .collect()
                             })
                         }
-                        _ => unreachable!("direct pipeline stage checked before evaluation"),
                     };
                     self.trace_exit(
                         TraceKind::StreamStageExit,
@@ -1932,6 +3548,700 @@ impl Evaluator {
                     }
                 })
             }
+            FullTag::ExprRequire => {
+                let value = indexed_raw(&mut payload, call_span)?;
+                let check =
+                    indexed_decode::<LoweredTypeCheck>(&mut payload, execution, call_span)?;
+                let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
+                indexed_finish(payload, call_span)?;
+                let value = match self.eval_indexed_expr(execution, value, slots, span)? {
+                    ControlFlow::Continue(value) => value,
+                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+                };
+                ControlFlow::Continue(if lowered_value_satisfies_require(self, &value, &check.ty) {
+                    lowered_result_ok(value)
+                } else {
+                    lowered_result_err_value(
+                        RuntimeError::new(
+                            "schema",
+                            format!(
+                                "schema check failed: expected {}, found {}",
+                                check.name,
+                                value.type_name()
+                            ),
+                        )
+                        .with_span(span),
+                    )
+                })
+            }
+            FullTag::ExprLoop => {
+                let body = indexed_raw(&mut payload, call_span)?;
+                let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
+                indexed_finish(payload, call_span)?;
+                let header = Self::indexed_block_header(slots.len());
+                loop {
+                    self.service_pending_signal(span)?;
+                    if self.signal_state.shutdown_complete {
+                        break ControlFlow::Continue(LoweredValue::Unit);
+                    }
+                    match self.eval_indexed_statement_block(
+                        execution, body, &header, slots, span,
+                    )? {
+                        LoweredStmtFlow::None | LoweredStmtFlow::Continue => {}
+                        LoweredStmtFlow::Break(value) => {
+                            break ControlFlow::Continue(value.unwrap_or(LoweredValue::Unit));
+                        }
+                        LoweredStmtFlow::Return(value) => {
+                            break ControlFlow::Continue(value);
+                        }
+                        LoweredStmtFlow::Propagate(value) => {
+                            break ControlFlow::Break(value);
+                        }
+                    }
+                }
+            }
+            FullTag::ExprRetry => {
+                let (_, mut delays) = execution
+                    .block(&mut payload, BLOCK_LIST)
+                    .map_err(|error| indexed_error(error, call_span))?;
+                let delay_count = indexed_raw(&mut delays, call_span)? as usize;
+                let body = indexed_raw(&mut payload, call_span)?;
+                let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
+                indexed_finish(payload, call_span)?;
+                let mut delay_values = Vec::with_capacity(delay_count);
+                for _ in 0..delay_count {
+                    let delay = indexed_raw(&mut delays, span)?;
+                    match self.eval_indexed_expr(execution, delay, slots, span)? {
+                        ControlFlow::Continue(LoweredValue::Duration(value)) => {
+                            delay_values.push(value);
+                        }
+                        ControlFlow::Continue(value) => {
+                            return Err(RuntimeError::new(
+                                "type-error",
+                                format!(
+                                    "retry delay expected Duration, found {}",
+                                    value.type_name()
+                                ),
+                            )
+                            .with_span(span));
+                        }
+                        ControlFlow::Break(value) => {
+                            return Ok(ControlFlow::Break(value));
+                        }
+                    }
+                }
+                indexed_finish(delays, span)?;
+                let header = Self::indexed_block_header(slots.len());
+                let max_attempts = delay_values.len() + 1;
+                let mut final_error = None;
+                let mut final_traceback = None;
+                for attempt_index in 0..max_attempts {
+                    if attempt_index > 0 {
+                        self.sleep_lowered_retry_delay(
+                            &delay_values[attempt_index - 1],
+                            span,
+                        )?;
+                        if self.signal_state.shutdown_complete {
+                            break;
+                        }
+                    }
+                    let attempt_flow = self.eval_indexed_statement_block(
+                        execution, body, &header, slots, span,
+                    )?;
+                    match self.lowered_retry_attempt_value(attempt_flow) {
+                        LoweredRetryAttemptValue::Success(value) => {
+                            self.trace_lowered_retry_attempt(
+                                span,
+                                attempt_index + 1,
+                                max_attempts,
+                                None,
+                                None,
+                            );
+                            return Ok(ControlFlow::Continue(LoweredValue::ResultOk(
+                                Box::new(value),
+                            )));
+                        }
+                        LoweredRetryAttemptValue::Failed { error, traceback } => {
+                            let next_delay =
+                                delay_values.get(attempt_index).map(|delay| delay.millis);
+                            self.trace_lowered_retry_attempt(
+                                span,
+                                attempt_index + 1,
+                                max_attempts,
+                                next_delay,
+                                Some(lowered_trace_error_from_value(&error)),
+                            );
+                            final_error = Some(error);
+                            final_traceback = traceback;
+                            self.pending_traceback = None;
+                        }
+                        LoweredRetryAttemptValue::ControlBreak => {
+                            return Ok(ControlFlow::Continue(LoweredValue::Unit));
+                        }
+                        LoweredRetryAttemptValue::Escape(value) => {
+                            return Ok(ControlFlow::Break(value));
+                        }
+                    }
+                }
+                let error = final_error.unwrap_or_else(|| {
+                    Value::Error(Box::new(RuntimeError::new(
+                        "retry",
+                        "retry block did not produce a value",
+                    )))
+                });
+                self.pending_traceback = final_traceback;
+                ControlFlow::Continue(LoweredValue::ResultErr(Box::new(error)))
+            }
+            FullTag::ExprFsFiles | FullTag::ExprFsWalk => {
+                let root = indexed_raw(&mut payload, call_span)?;
+                let gitignore = indexed_decode::<bool>(&mut payload, execution, call_span)?;
+                let stat = indexed_decode::<bool>(&mut payload, execution, call_span)?;
+                let hidden = indexed_decode::<bool>(&mut payload, execution, call_span)?;
+                let exts = indexed_optional_raw(&mut payload, call_span)?;
+                let result_wrapped =
+                    indexed_decode::<bool>(&mut payload, execution, call_span)?;
+                let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
+                indexed_finish(payload, call_span)?;
+                let root = match self.eval_indexed_expr(execution, root, slots, span)? {
+                    ControlFlow::Continue(LoweredValue::Path(path)) => path,
+                    ControlFlow::Continue(_) => {
+                        let operation = if tag == FullTag::ExprFsFiles {
+                            "fs.files"
+                        } else {
+                            "fs.walk"
+                        };
+                        return Err(RuntimeError::new(
+                            "type-error",
+                            format!("{operation} expected Path"),
+                        )
+                        .with_span(span));
+                    }
+                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+                };
+                let exts = match self.eval_indexed_optional_expr(
+                    execution, exts, slots, span,
+                )? {
+                    ControlFlow::Continue(Some(value)) => lowered_str_list_arg(
+                        Some(value),
+                        if tag == FullTag::ExprFsFiles {
+                            "fs.files exts"
+                        } else {
+                            "fs.walk exts"
+                        },
+                        span,
+                    )?,
+                    ControlFlow::Continue(None) => Vec::new(),
+                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+                };
+                let emit = if tag == FullTag::ExprFsFiles {
+                    crate::modules::fs::WalkEmit::Files
+                } else {
+                    crate::modules::fs::WalkEmit::All
+                };
+                let stream = match crate::modules::fs::walk_filesystem(
+                    self.host_path(&root),
+                    gitignore,
+                    stat,
+                    hidden,
+                    emit,
+                    exts,
+                    span,
+                ) {
+                    Ok(stream) => stream,
+                    Err(error) if result_wrapped => {
+                        return Ok(ControlFlow::Continue(lowered_result_err_value(error)));
+                    }
+                    Err(error) => return Err(error),
+                };
+                let value = LoweredValue::Stream(Box::new(stream));
+                ControlFlow::Continue(if result_wrapped {
+                    lowered_result_ok(value)
+                } else {
+                    value
+                })
+            }
+            FullTag::ExprFsList => {
+                let op = indexed_decode::<RuntimeOp>(&mut payload, execution, call_span)?;
+                let path = indexed_raw(&mut payload, call_span)?;
+                let stat = indexed_optional_raw(&mut payload, call_span)?;
+                let ordered = indexed_optional_raw(&mut payload, call_span)?;
+                let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
+                indexed_finish(payload, call_span)?;
+                let operation = if op == RuntimeOp::FsLs {
+                    "fs.ls"
+                } else {
+                    "fs.children"
+                };
+                let path = match self.eval_indexed_expr(execution, path, slots, span)? {
+                    ControlFlow::Continue(value) => lowered_path_arg(value, operation, span)?,
+                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+                };
+                let stat = match self.eval_indexed_optional_expr(
+                    execution, stat, slots, span,
+                )? {
+                    ControlFlow::Continue(value) => {
+                        lowered_bool_arg_or(value, true, operation, span)?
+                    }
+                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+                };
+                let ordered = match self.eval_indexed_optional_expr(
+                    execution, ordered, slots, span,
+                )? {
+                    ControlFlow::Continue(value) => {
+                        lowered_bool_arg_or(value, true, operation, span)?
+                    }
+                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+                };
+                ControlFlow::Continue(self.lowered_stream_list_result(
+                    fs_module::list_filesystem(self.host_path(&path), stat, ordered, span),
+                    span,
+                )?)
+            }
+            FullTag::ExprFsTempDir => {
+                let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
+                indexed_finish(payload, call_span)?;
+                ControlFlow::Continue(
+                    match cap_tempfile::TempDir::new(cap_tempfile::ambient_authority()) {
+                        Ok(dir) => {
+                            let id = self.fs_roots.len() as i64 + 1;
+                            self.fs_roots.push(Some(FsRootHandle::TempDir(dir)));
+                            lowered_result_ok(fs_root_record(id))
+                        }
+                        Err(error) => lowered_result_err_value(
+                            RuntimeError::new("fs-temp-dir", error.to_string()).with_span(span),
+                        ),
+                    },
+                )
+            }
+            FullTag::ExprFsWrite | FullTag::ExprPathWrite => {
+                let path = indexed_raw(&mut payload, call_span)?;
+                let data = indexed_raw(&mut payload, call_span)?;
+                let atomic = if tag == FullTag::ExprPathWrite {
+                    indexed_decode::<bool>(&mut payload, execution, call_span)?
+                } else {
+                    false
+                };
+                let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
+                indexed_finish(payload, call_span)?;
+                let operation = if tag == FullTag::ExprFsWrite {
+                    "fs.write"
+                } else {
+                    "write"
+                };
+                let path = match self.eval_indexed_expr(execution, path, slots, span)? {
+                    ControlFlow::Continue(value) => lowered_path_arg(value, operation, span)?,
+                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+                };
+                let data = match self.eval_indexed_expr(execution, data, slots, span)? {
+                    ControlFlow::Continue(value) => {
+                        lowered_bytes_or_str_owned(value, "write", span)?
+                    }
+                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+                };
+                let result = if atomic {
+                    crate::modules::fs::write_atomic(self.host_path(&path), &data, span)
+                } else {
+                    crate::modules::fs::write_path(self.host_path(&path), &data, span)
+                };
+                ControlFlow::Continue(lowered_unit_result(result))
+            }
+            FullTag::ExprFsMkdir | FullTag::ExprPathMkdir => {
+                let path = indexed_raw(&mut payload, call_span)?;
+                let parents = indexed_optional_raw(&mut payload, call_span)?;
+                let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
+                indexed_finish(payload, call_span)?;
+                let operation = if tag == FullTag::ExprFsMkdir {
+                    "fs.mkdir"
+                } else {
+                    "mkdir"
+                };
+                let path = match self.eval_indexed_expr(execution, path, slots, span)? {
+                    ControlFlow::Continue(value) => lowered_path_arg(value, operation, span)?,
+                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+                };
+                let parents = match self.eval_indexed_optional_expr(
+                    execution, parents, slots, span,
+                )? {
+                    ControlFlow::Continue(value) => {
+                        lowered_bool_arg_or(value, true, operation, span)?
+                    }
+                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+                };
+                ControlFlow::Continue(lowered_unit_result(crate::modules::fs::mkdir_path(
+                    self.host_path(&path),
+                    parents,
+                    None,
+                    span,
+                )))
+            }
+            FullTag::ExprFsRemove | FullTag::ExprPathRemove => {
+                let path = indexed_raw(&mut payload, call_span)?;
+                let missing_ok = indexed_optional_raw(&mut payload, call_span)?;
+                let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
+                indexed_finish(payload, call_span)?;
+                let operation = if tag == FullTag::ExprFsRemove {
+                    "fs.remove"
+                } else {
+                    "remove"
+                };
+                let path = match self.eval_indexed_expr(execution, path, slots, span)? {
+                    ControlFlow::Continue(value) => lowered_path_arg(value, operation, span)?,
+                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+                };
+                let missing_ok = match self.eval_indexed_optional_expr(
+                    execution, missing_ok, slots, span,
+                )? {
+                    ControlFlow::Continue(value) => {
+                        lowered_bool_arg_or(value, false, operation, span)?
+                    }
+                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+                };
+                ControlFlow::Continue(lowered_unit_result(crate::modules::fs::remove_path(
+                    self.host_path(&path),
+                    missing_ok,
+                    span,
+                )))
+            }
+            FullTag::ExprFsCloseRoot | FullTag::ExprFsRootPath => {
+                let root = indexed_raw(&mut payload, call_span)?;
+                let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
+                indexed_finish(payload, call_span)?;
+                let root = match self.eval_indexed_expr(execution, root, slots, span)? {
+                    ControlFlow::Continue(value) => value,
+                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+                };
+                let value = if tag == FullTag::ExprFsCloseRoot {
+                    match lowered_root_id(&root, span)
+                        .ok()
+                        .and_then(|id| {
+                            id.checked_sub(1)
+                                .and_then(|index| usize::try_from(index).ok())
+                        })
+                        .and_then(|index| self.fs_roots.get_mut(index))
+                    {
+                        Some(slot) => {
+                            if slot.take().is_some() {
+                                lowered_result_ok(LoweredValue::Unit)
+                            } else {
+                                lowered_result_err_value(
+                                    RuntimeError::new(
+                                        "fs-root",
+                                        "root handle is not active",
+                                    )
+                                    .with_span(span),
+                                )
+                            }
+                        }
+                        None => lowered_result_err_value(
+                            RuntimeError::new("fs-root", "root handle is not active")
+                                .with_span(span),
+                        ),
+                    }
+                } else {
+                    match lowered_fs_root_dir(&self.fs_roots, &root, span)
+                        .and_then(|dir| root_path_from_dir(dir, span))
+                    {
+                        Ok(path) => lowered_result_ok(LoweredValue::Path(path)),
+                        Err(error) => lowered_result_err_value(error),
+                    }
+                };
+                ControlFlow::Continue(value)
+            }
+            FullTag::ExprPathReadText | FullTag::ExprPathReadBytes => {
+                let path = indexed_raw(&mut payload, call_span)?;
+                let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
+                indexed_finish(payload, call_span)?;
+                let operation = if tag == FullTag::ExprPathReadText {
+                    "read_text"
+                } else {
+                    "read_bytes"
+                };
+                let path = match self.eval_indexed_expr(execution, path, slots, span)? {
+                    ControlFlow::Continue(LoweredValue::Path(path)) => path,
+                    ControlFlow::Continue(_) => {
+                        return Err(RuntimeError::new(
+                            "type-error",
+                            format!("{operation} expected Path"),
+                        )
+                        .with_span(span));
+                    }
+                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+                };
+                let value = if tag == FullTag::ExprPathReadText {
+                    match read_host_path_bytes_vec(&self.host_path(&path), span) {
+                        Ok(bytes) => match String::from_utf8(bytes) {
+                            Ok(text) => {
+                                LoweredValue::ResultOk(Box::new(LoweredValue::Str(text.into())))
+                            }
+                            Err(error) => LoweredValue::ResultErr(Box::new(Value::Error(
+                                Box::new(
+                                    RuntimeError::new(
+                                        "invalid-utf8",
+                                        format!(
+                                            "file is not valid UTF-8 at byte {}",
+                                            error.utf8_error().valid_up_to()
+                                        ),
+                                    )
+                                    .with_span(span),
+                                ),
+                            ))),
+                        },
+                        Err(error) => {
+                            LoweredValue::ResultErr(Box::new(Value::Error(Box::new(error))))
+                        }
+                    }
+                } else {
+                    match read_host_path_bytes(&self.host_path(&path), span) {
+                        Ok(bytes) => {
+                            LoweredValue::ResultOk(Box::new(LoweredValue::Bytes(bytes)))
+                        }
+                        Err(error) => {
+                            LoweredValue::ResultErr(Box::new(Value::Error(Box::new(error))))
+                        }
+                    }
+                };
+                ControlFlow::Continue(value)
+            }
+            FullTag::ExprPathExists
+            | FullTag::ExprPathExecutable
+            | FullTag::ExprPathDu
+            | FullTag::ExprPathMetadata
+            | FullTag::ExprPathReadlink
+            | FullTag::ExprPathResolve => {
+                let path = indexed_raw(&mut payload, call_span)?;
+                let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
+                indexed_finish(payload, call_span)?;
+                let operation = match tag {
+                    FullTag::ExprPathExists => "exists",
+                    FullTag::ExprPathExecutable => "executable",
+                    FullTag::ExprPathDu => "du",
+                    FullTag::ExprPathMetadata => "metadata",
+                    FullTag::ExprPathReadlink => "readlink",
+                    FullTag::ExprPathResolve => "resolve",
+                    _ => unreachable!(),
+                };
+                let path = match self.eval_indexed_expr(execution, path, slots, span)? {
+                    ControlFlow::Continue(value) => lowered_path_arg(value, operation, span)?,
+                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+                };
+                let host_path = self.host_path(&path);
+                let value = match tag {
+                    FullTag::ExprPathExists => {
+                        match crate::modules::fs::exists(host_path, span) {
+                            Ok(value) => lowered_result_ok(LoweredValue::Bool(value)),
+                            Err(error) => lowered_result_err_value(error),
+                        }
+                    }
+                    FullTag::ExprPathExecutable => {
+                        match crate::modules::fs::executable(host_path, span) {
+                            Ok(value) => lowered_result_ok(LoweredValue::Bool(value)),
+                            Err(error) => lowered_result_err_value(error),
+                        }
+                    }
+                    FullTag::ExprPathDu => {
+                        match crate::modules::fs::disk_usage(host_path, span) {
+                            Ok(value) => lowered_result_ok(LoweredValue::Int(value)),
+                            Err(error) => lowered_result_err_value(error),
+                        }
+                    }
+                    FullTag::ExprPathMetadata => {
+                        match crate::modules::fs::metadata(host_path, span) {
+                            Ok(value) => lowered_value_from_runtime_any(&value)
+                                .map(lowered_result_ok)
+                                .ok_or_else(|| {
+                                    RuntimeError::new(
+                                        "type-error",
+                                        format!(
+                                            "metadata produced unsupported {}",
+                                            value.type_name()
+                                        ),
+                                    )
+                                    .with_span(span)
+                                })?,
+                            Err(error) => lowered_result_err_value(error),
+                        }
+                    }
+                    FullTag::ExprPathReadlink => {
+                        match crate::modules::fs::readlink(host_path, span) {
+                            Ok(value) => lowered_value_from_runtime_any(&value)
+                                .map(lowered_result_ok)
+                                .ok_or_else(|| {
+                                    RuntimeError::new(
+                                        "type-error",
+                                        format!(
+                                            "readlink produced unsupported {}",
+                                            value.type_name()
+                                        ),
+                                    )
+                                    .with_span(span)
+                                })?,
+                            Err(error) => lowered_result_err_value(error),
+                        }
+                    }
+                    FullTag::ExprPathResolve => {
+                        match crate::modules::fs::resolve_path(host_path, span) {
+                            Ok(value) => lowered_result_ok(LoweredValue::Path(value)),
+                            Err(error) => lowered_result_err_value(error),
+                        }
+                    }
+                    _ => unreachable!(),
+                };
+                ControlFlow::Continue(value)
+            }
+            FullTag::ExprJsonEncode => {
+                let value = indexed_raw(&mut payload, call_span)?;
+                let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
+                indexed_finish(payload, call_span)?;
+                let value = match self.eval_indexed_expr(execution, value, slots, span)? {
+                    ControlFlow::Continue(value) => value,
+                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+                };
+                ControlFlow::Continue(match lowered_encode_json(&value, false, span) {
+                    Ok(text) => {
+                        LoweredValue::ResultOk(Box::new(LoweredValue::Str(text.into())))
+                    }
+                    Err(error) => {
+                        LoweredValue::ResultErr(Box::new(Value::Error(Box::new(error))))
+                    }
+                })
+            }
+            FullTag::ExprArchiveTarCreate => {
+                let path = indexed_raw(&mut payload, call_span)?;
+                let root = indexed_raw(&mut payload, call_span)?;
+                let entries = indexed_raw(&mut payload, call_span)?;
+                let compression = indexed_optional_raw(&mut payload, call_span)?;
+                let overwrite = indexed_optional_raw(&mut payload, call_span)?;
+                let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
+                indexed_finish(payload, call_span)?;
+                let path = match self.eval_indexed_expr(execution, path, slots, span)? {
+                    ControlFlow::Continue(value) => {
+                        lowered_path_arg(value, "archive.tar_create", span)?
+                    }
+                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+                };
+                let root = match self.eval_indexed_expr(execution, root, slots, span)? {
+                    ControlFlow::Continue(value) => {
+                        lowered_path_arg(value, "archive.tar_create", span)?
+                    }
+                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+                };
+                let entries = match self.eval_indexed_expr(
+                    execution, entries, slots, span,
+                )? {
+                    ControlFlow::Continue(value) => {
+                        lowered_path_list_arg(value, "archive.tar_create", span)?
+                    }
+                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+                };
+                let compression = match self.eval_indexed_optional_expr(
+                    execution,
+                    compression,
+                    slots,
+                    span,
+                )? {
+                    ControlFlow::Continue(value) => {
+                        lowered_str_arg_owned(value, "auto", "archive.tar_create", span)?
+                    }
+                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+                };
+                let overwrite = match self.eval_indexed_optional_expr(
+                    execution, overwrite, slots, span,
+                )? {
+                    ControlFlow::Continue(value) => {
+                        lowered_bool_arg_or(value, false, "archive.tar_create", span)?
+                    }
+                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+                };
+                ControlFlow::Continue(lowered_unit_result(
+                    crate::modules::archive::tar_create(
+                        self.host_path(&path),
+                        self.host_path(&root),
+                        entries,
+                        &compression,
+                        overwrite,
+                        span,
+                    ),
+                ))
+            }
+            FullTag::ExprArchiveTarList => {
+                let path = indexed_raw(&mut payload, call_span)?;
+                let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
+                indexed_finish(payload, call_span)?;
+                let path = match self.eval_indexed_expr(execution, path, slots, span)? {
+                    ControlFlow::Continue(value) => {
+                        lowered_path_arg(value, "archive.tar_list", span)?
+                    }
+                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+                };
+                ControlFlow::Continue(match crate::modules::archive::tar_list(
+                    self.host_path(&path),
+                    "auto",
+                    Vec::new(),
+                    span,
+                ) {
+                    Ok(stream) => lowered_result_ok(LoweredValue::Stream(Box::new(stream))),
+                    Err(error) => lowered_result_err_value(error),
+                })
+            }
+            FullTag::ExprArchiveTarExtract => {
+                let path = indexed_raw(&mut payload, call_span)?;
+                let dest = indexed_raw(&mut payload, call_span)?;
+                let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
+                indexed_finish(payload, call_span)?;
+                let path = match self.eval_indexed_expr(execution, path, slots, span)? {
+                    ControlFlow::Continue(value) => {
+                        lowered_path_arg(value, "archive.tar_extract", span)?
+                    }
+                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+                };
+                let dest = match self.eval_indexed_expr(execution, dest, slots, span)? {
+                    ControlFlow::Continue(value) => {
+                        lowered_path_arg(value, "archive.tar_extract", span)?
+                    }
+                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+                };
+                ControlFlow::Continue(lowered_unit_result(
+                    crate::modules::archive::tar_extract(
+                        self.host_path(&path),
+                        self.host_path(&dest),
+                        0,
+                        "auto",
+                        false,
+                        Vec::new(),
+                        span,
+                    ),
+                ))
+            }
+            FullTag::ExprHashVerifyFile => {
+                let path = indexed_raw(&mut payload, call_span)?;
+                let algorithm =
+                    indexed_decode::<HashAlgorithm>(&mut payload, execution, call_span)?;
+                let expected = indexed_raw(&mut payload, call_span)?;
+                let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
+                indexed_finish(payload, call_span)?;
+                let path = match self.eval_indexed_expr(execution, path, slots, span)? {
+                    ControlFlow::Continue(value) => {
+                        lowered_path_arg(value, "hash.verify_file", span)?
+                    }
+                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+                };
+                let expected = match self.eval_indexed_expr(
+                    execution, expected, slots, span,
+                )? {
+                    ControlFlow::Continue(value) => {
+                        lowered_str_arg_owned(Some(value), "", "hash.verify_file", span)?
+                    }
+                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+                };
+                ControlFlow::Continue(
+                    match hash_module::digest_file(algorithm, &self.host_path(&path), span)
+                        .and_then(|digest| hash_module::verify_hex(&digest, &expected, span))
+                    {
+                        Ok(()) => lowered_result_ok(LoweredValue::Unit),
+                        Err(error) => lowered_result_err_value(error),
+                    },
+                )
+            }
             FullTag::ExprModuleCall => {
                 let op = indexed_decode::<RuntimeOp>(&mut payload, execution, call_span)?;
                 let (_, mut args) = execution
@@ -1970,6 +4280,610 @@ impl Evaluator {
                 );
                 return result;
             }
+            FullTag::ExprProcessCommandArgv => {
+                let target = indexed_raw(&mut payload, call_span)?;
+                let argv = indexed_raw(&mut payload, call_span)?;
+                let mut optional = [None; 12];
+                for value in &mut optional {
+                    *value = indexed_optional_raw(&mut payload, call_span)?;
+                }
+                let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
+                indexed_finish(payload, call_span)?;
+                let target = match self.eval_indexed_expr(execution, target, slots, span)? {
+                    ControlFlow::Continue(value) => value,
+                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+                };
+                let argv = match self.eval_indexed_expr(execution, argv, slots, span)? {
+                    ControlFlow::Continue(value) => value,
+                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+                };
+                let mut evaluated = Vec::with_capacity(optional.len());
+                for value in optional {
+                    match self.eval_indexed_optional_expr(
+                        execution, value, slots, span,
+                    )? {
+                        ControlFlow::Continue(value) => evaluated.push(value),
+                        ControlFlow::Break(value) => {
+                            return Ok(ControlFlow::Break(value));
+                        }
+                    }
+                }
+                let [
+                    cwd,
+                    env,
+                    stdin,
+                    stdout,
+                    stderr,
+                    stdout_append,
+                    stderr_append,
+                    timeout,
+                    detach,
+                    new_session,
+                    ignore_hup,
+                    cpu_max,
+                ]: [Option<LoweredValue>; 12] = evaluated
+                    .try_into()
+                    .expect("indexed command optional field count");
+                ControlFlow::Continue(lowered_command_plan_value(
+                    target,
+                    argv,
+                    cwd,
+                    env,
+                    stdin,
+                    stdout,
+                    stderr,
+                    stdout_append,
+                    stderr_append,
+                    timeout,
+                    detach,
+                    new_session,
+                    ignore_hup,
+                    cpu_max,
+                    span,
+                )?)
+            }
+            FullTag::ExprProcessCommandBuilder => {
+                let entries = Self::decode_indexed_process_command_entries(
+                    &mut payload,
+                    execution,
+                    call_span,
+                )?;
+                let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
+                indexed_finish(payload, call_span)?;
+                self.trace_enter(
+                    TraceKind::ModuleCall,
+                    Some(span),
+                    Some("process.command"),
+                    TracePayload::None,
+                );
+                let mut plan = None;
+                let mut cwd = None;
+                let mut env = BTreeMap::new();
+                let mut stdin = None;
+                let mut stdout = None;
+                let mut stderr = None;
+                let mut stdout_append = false;
+                let mut stderr_append = false;
+                let mut timeout = None;
+                let mut cpu_max = None;
+                let mut detach = None;
+                let mut new_session = None;
+                let mut ignore_hup = None;
+                for entry in entries {
+                    match entry {
+                        IndexedProcessCommandEntry::Field {
+                            name,
+                            value,
+                            span,
+                        } => {
+                            let value = match self.eval_indexed_expr(
+                                execution, value, slots, span,
+                            )? {
+                                ControlFlow::Continue(value) => value,
+                                ControlFlow::Break(value) => {
+                                    return Ok(ControlFlow::Break(value));
+                                }
+                            };
+                            match name.as_str() {
+                                "cwd" => {
+                                    cwd = Some(lowered_path_like_arg(
+                                        value,
+                                        "process.command",
+                                        span,
+                                    )?)
+                                }
+                                "env" => env.extend(lowered_env_record_arg(
+                                    value,
+                                    "process.command",
+                                    span,
+                                )?),
+                                "stdin" => stdin = Some(value),
+                                "stdout" => stdout = Some(value),
+                                "stderr" => stderr = Some(value),
+                                "stdout_append" => {
+                                    stdout_append = lowered_bool_builder_field(
+                                        value,
+                                        "stdout_append",
+                                        span,
+                                    )?
+                                }
+                                "stderr_append" => {
+                                    stderr_append = lowered_bool_builder_field(
+                                        value,
+                                        "stderr_append",
+                                        span,
+                                    )?
+                                }
+                                "timeout" => {
+                                    timeout = Some(lowered_duration_arg(
+                                        Some(value),
+                                        "process.command",
+                                        span,
+                                    )?)
+                                }
+                                "cpu_max" => {
+                                    let value = lowered_int_arg(
+                                        Some(value),
+                                        "process.command",
+                                        span,
+                                    )?;
+                                    if value <= 0 {
+                                        return Err(RuntimeError::new(
+                                            "cpu-max",
+                                            "cpu_max must be positive",
+                                        )
+                                        .with_span(span));
+                                    }
+                                    cpu_max = Some(value);
+                                }
+                                "detach" => {
+                                    detach = Some(lowered_bool_builder_field(
+                                        value, "detach", span,
+                                    )?)
+                                }
+                                "new_session" => {
+                                    new_session = Some(lowered_bool_builder_field(
+                                        value,
+                                        "new_session",
+                                        span,
+                                    )?)
+                                }
+                                "ignore_hup" => {
+                                    ignore_hup = Some(lowered_bool_builder_field(
+                                        value,
+                                        "ignore_hup",
+                                        span,
+                                    )?)
+                                }
+                                _ => {
+                                    return Err(RuntimeError::new(
+                                        "builder-field",
+                                        format!(
+                                            "unknown process.command field `{name}`"
+                                        ),
+                                    )
+                                    .with_span(span));
+                                }
+                            }
+                        }
+                        IndexedProcessCommandEntry::Run {
+                            target,
+                            args,
+                            env: run_env,
+                            timeout: run_timeout,
+                            cpu_max: run_cpu_max,
+                            span,
+                        } => {
+                            if plan.is_some() {
+                                return Err(RuntimeError::new(
+                                    "builder-entry",
+                                    "process.command accepts one run entry",
+                                )
+                                .with_span(span));
+                            }
+                            let target_items = match self.eval_indexed_run_arg(
+                                execution, &target, slots, span,
+                            )? {
+                                ControlFlow::Continue(value) => value,
+                                ControlFlow::Break(value) => {
+                                    return Ok(ControlFlow::Break(value));
+                                }
+                            };
+                            let [target_value]: [Vec<u8>; 1] =
+                                target_items.try_into().map_err(|_| {
+                                    RuntimeError::new(
+                                        "argv-conversion",
+                                        "run target must produce one argv item",
+                                    )
+                                    .with_span(target.span)
+                                })?;
+                            let mut argv = Vec::new();
+                            for arg in &args {
+                                match self.eval_indexed_run_arg(
+                                    execution, arg, slots, span,
+                                )? {
+                                    ControlFlow::Continue(items) => argv.extend(items),
+                                    ControlFlow::Break(value) => {
+                                        return Ok(ControlFlow::Break(value));
+                                    }
+                                }
+                            }
+                            let env_overlay = match self.eval_indexed_run_env(
+                                execution, &run_env, slots, span,
+                            )? {
+                                ControlFlow::Continue(value) => value,
+                                ControlFlow::Break(value) => {
+                                    return Ok(ControlFlow::Break(value));
+                                }
+                            };
+                            let mut run_env = BTreeMap::new();
+                            for (name, value) in env_overlay {
+                                run_env.insert(
+                                    String::from_utf8_lossy(&name).into_owned(),
+                                    String::from_utf8_lossy(&value).into_owned(),
+                                );
+                            }
+                            let run_timeout = match self.eval_indexed_optional_expr(
+                                execution,
+                                run_timeout,
+                                slots,
+                                span,
+                            )? {
+                                ControlFlow::Continue(value) => value
+                                    .map(|value| {
+                                        lowered_duration_arg(
+                                            Some(value),
+                                            "process.command",
+                                            span,
+                                        )
+                                    })
+                                    .transpose()?,
+                                ControlFlow::Break(value) => {
+                                    return Ok(ControlFlow::Break(value));
+                                }
+                            };
+                            let run_cpu_max = match self.eval_indexed_optional_expr(
+                                execution,
+                                run_cpu_max,
+                                slots,
+                                span,
+                            )? {
+                                ControlFlow::Continue(value) => value
+                                    .map(|value| {
+                                        lowered_int_arg(
+                                            Some(value),
+                                            "process.command",
+                                            span,
+                                        )
+                                    })
+                                    .transpose()?,
+                                ControlFlow::Break(value) => {
+                                    return Ok(ControlFlow::Break(value));
+                                }
+                            };
+                            if run_cpu_max.is_some_and(|value| value <= 0) {
+                                return Err(RuntimeError::new(
+                                    "cpu-max",
+                                    "cpu_max must be positive",
+                                )
+                                .with_span(span));
+                            }
+                            plan = Some(CommandPlan {
+                                target: target_value,
+                                argv,
+                                cwd: None,
+                                env: run_env,
+                                redirections: Vec::new(),
+                                timeout: run_timeout,
+                                cpu_max: run_cpu_max,
+                                detach: false,
+                                new_session: false,
+                                ignore_hup: false,
+                            });
+                        }
+                    }
+                }
+                let mut plan = plan.ok_or_else(|| {
+                    RuntimeError::new(
+                        "builder-check",
+                        "process.command requires a run entry",
+                    )
+                    .with_span(span)
+                })?;
+                if cwd.is_some() {
+                    plan.cwd = cwd;
+                }
+                plan.env.extend(env);
+                plan.redirections.extend(lowered_command_redirections(
+                    stdin,
+                    stdout,
+                    stderr,
+                    stdout_append,
+                    stderr_append,
+                    "process.command",
+                    span,
+                )?);
+                if timeout.is_some() {
+                    plan.timeout = timeout;
+                }
+                if cpu_max.is_some() {
+                    plan.cpu_max = cpu_max;
+                }
+                if let Some(value) = detach {
+                    plan.detach = value;
+                }
+                if let Some(value) = new_session {
+                    plan.new_session = value;
+                }
+                if let Some(value) = ignore_hup {
+                    plan.ignore_hup = value;
+                }
+                self.trace_exit(
+                    TraceKind::ModuleResult,
+                    Some(span),
+                    Some("process.command"),
+                    TracePayload::None,
+                );
+                ControlFlow::Continue(LoweredValue::Command(Box::new(plan)))
+            }
+            FullTag::ExprRunPipeline => {
+                let segments =
+                    Self::decode_indexed_run_segments(&mut payload, execution, call_span)?;
+                let propagate =
+                    indexed_decode::<bool>(&mut payload, execution, call_span)?;
+                let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
+                indexed_finish(payload, call_span)?;
+                let mut invocations = Vec::with_capacity(segments.len());
+                for segment in &segments {
+                    match self.indexed_process_invocation(
+                        execution,
+                        &segment.target,
+                        &segment.args,
+                        &segment.env,
+                        &segment.redirections,
+                        segment.timeout,
+                        segment.cpu_max,
+                        slots,
+                        span,
+                    )? {
+                        ControlFlow::Continue(value) => invocations.push(value),
+                        ControlFlow::Break(value) => {
+                            return Ok(ControlFlow::Break(value));
+                        }
+                    }
+                }
+                self.trace_lowered_pipeline_enter(span);
+                let end = match run_pipeline_inherit_with_policy(&invocations, self) {
+                    Ok(end) => end,
+                    Err(error) => {
+                        self.trace_lowered_pipeline_end(
+                            span,
+                            &ProcessEnd {
+                                pid: Some(0),
+                                status: error.status.as_deref().cloned(),
+                                error: Some(error.clone()),
+                            },
+                        );
+                        return Ok(ControlFlow::Continue(lowered_process_run_error(error)));
+                    }
+                };
+                if let Some(status) = &end.status {
+                    self.last_status = Some(status.clone());
+                }
+                self.trace_lowered_pipeline_end(span, &end);
+                if self.signal_state.shutdown_complete
+                    && self.signal_state.shutdown_status.is_some()
+                {
+                    return Ok(ControlFlow::Continue(LoweredValue::ResultOk(Box::new(
+                        LoweredValue::Status(Box::new(
+                            end.status.clone().unwrap_or_else(|| {
+                                ProcessStatus::signaled(libc::SIGTERM)
+                            }),
+                        )),
+                    ))));
+                }
+                let status = end
+                    .status
+                    .clone()
+                    .unwrap_or_else(|| ProcessStatus::exited(1));
+                if !status.success && propagate {
+                    ControlFlow::Continue(lowered_process_run_error(
+                        RunError::from_status(status).with_span(span),
+                    ))
+                } else if propagate {
+                    ControlFlow::Continue(LoweredValue::ResultOk(Box::new(
+                        LoweredValue::Status(Box::new(status)),
+                    )))
+                } else {
+                    ControlFlow::Continue(LoweredValue::Status(Box::new(status)))
+                }
+            }
+            FullTag::ExprRunCapture | FullTag::ExprSpawnRun => {
+                let spawn = tag == FullTag::ExprSpawnRun;
+                let kind = if spawn {
+                    RunKind::Plain
+                } else {
+                    indexed_decode::<RunKind>(&mut payload, execution, call_span)?
+                };
+                let target = Self::decode_indexed_run_arg(
+                    &mut payload,
+                    execution,
+                    call_span,
+                )?;
+                let args =
+                    Self::decode_indexed_run_args(&mut payload, execution, call_span)?;
+                let env =
+                    Self::decode_indexed_run_env(&mut payload, execution, call_span)?;
+                let redirections = Self::decode_indexed_run_redirections(
+                    &mut payload,
+                    execution,
+                    call_span,
+                )?;
+                let timeout = indexed_optional_raw(&mut payload, call_span)?;
+                let cpu_max = indexed_optional_raw(&mut payload, call_span)?;
+                let (propagate, assert_success) = if spawn {
+                    (false, false)
+                } else {
+                    (
+                        indexed_decode::<bool>(&mut payload, execution, call_span)?,
+                        indexed_decode::<bool>(&mut payload, execution, call_span)?,
+                    )
+                };
+                let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
+                indexed_finish(payload, call_span)?;
+                let invocation = match self.indexed_process_invocation(
+                    execution,
+                    &target,
+                    &args,
+                    &env,
+                    &redirections,
+                    timeout,
+                    cpu_max,
+                    slots,
+                    span,
+                )? {
+                    ControlFlow::Continue(value) => value,
+                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+                };
+                if spawn {
+                    return self.eval_lowered_spawn_invocation(
+                        invocation,
+                        SpawnOptions::default(),
+                        span,
+                    );
+                }
+                self.trace_process_run_start(span, &invocation);
+                let execution_result = execute_run_with_policy(
+                    kind,
+                    std::slice::from_ref(&invocation),
+                    span,
+                    assert_success,
+                    self,
+                );
+                if let Some(status) = execution_result.end.status.clone() {
+                    self.last_status = Some(status);
+                }
+                self.trace_process_run_end(span, &execution_result.end);
+                if self.signal_state.shutdown_complete
+                    && self.signal_state.shutdown_status.is_some()
+                {
+                    return Ok(ControlFlow::Continue(LoweredValue::ResultOk(Box::new(
+                        LoweredValue::Status(Box::new(
+                            execution_result.end.status.clone().unwrap_or_else(|| {
+                                ProcessStatus::signaled(libc::SIGTERM)
+                            }),
+                        )),
+                    ))));
+                }
+                let value = execution_result.value?;
+                let mut value = lowered_value_from_runtime_any(&value).ok_or_else(|| {
+                    RuntimeError::new(
+                        "type-error",
+                        format!("lowered run produced unsupported {}", value.type_name()),
+                    )
+                    .with_span(span)
+                })?;
+                if matches!(kind, RunKind::Status)
+                    && let LoweredValue::ResultOk(inner) = value
+                {
+                    value = *inner;
+                }
+                if propagate && matches!(value, LoweredValue::ResultErr(_)) {
+                    return Ok(ControlFlow::Break(
+                        self.lowered_question_propagation_value(value, span)?,
+                    ));
+                }
+                ControlFlow::Continue(value)
+            }
+            FullTag::ExprSpawnCommand => {
+                let command = indexed_raw(&mut payload, call_span)?;
+                let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
+                indexed_finish(payload, call_span)?;
+                let command = match self.eval_indexed_expr(execution, command, slots, span)? {
+                    ControlFlow::Continue(value) => value,
+                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+                };
+                let LoweredValue::Command(plan) = command else {
+                    return Err(RuntimeError::new(
+                        "type-error",
+                        format!("spawn expected Command, found {}", command.type_name()),
+                    )
+                    .with_span(span));
+                };
+                let options = SpawnOptions {
+                    detach: plan.detach,
+                    new_session: plan.new_session,
+                    ignore_hup: plan.ignore_hup,
+                };
+                let invocation = self.invocation_from_command_plan(&plan, span)?;
+                return self.eval_lowered_spawn_invocation(invocation, options, span);
+            }
+            FullTag::ExprWait => {
+                let target = indexed_raw(&mut payload, call_span)?;
+                let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
+                indexed_finish(payload, call_span)?;
+                let target = match self.eval_indexed_expr(execution, target, slots, span)? {
+                    ControlFlow::Continue(value) => value.into_value(),
+                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+                };
+                let value = match target {
+                    Value::ProcessHandle(handle) => self.wait_one_process_handle(*handle, span)?,
+                    Value::List(items) => self.wait_process_handle_list(items, span)?,
+                    value => process_handle::process_handle_error(
+                        RunError::new(
+                            "unknown",
+                            format!(
+                                "wait expected ProcessHandle or List[ProcessHandle], found {}",
+                                value.type_name()
+                            ),
+                        )
+                        .with_span(span),
+                    ),
+                };
+                ControlFlow::Continue(lowered_value_from_runtime_any(&value).ok_or_else(|| {
+                    RuntimeError::new("type-error", "lowered wait produced unsupported value")
+                        .with_span(span)
+                })?)
+            }
+            FullTag::ExprAbort => {
+                let status = indexed_raw(&mut payload, call_span)?;
+                let force = indexed_optional_raw(&mut payload, call_span)?;
+                let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
+                indexed_finish(payload, call_span)?;
+                let status = match self.eval_indexed_expr(execution, status, slots, span)? {
+                    ControlFlow::Continue(LoweredValue::Int(value)) => exit_status(value, span)?,
+                    ControlFlow::Continue(value) => {
+                        return Err(RuntimeError::new(
+                            "type-error",
+                            format!("abort status expected Int, found {}", value.type_name()),
+                        )
+                        .with_span(span));
+                    }
+                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+                };
+                let force = match force {
+                    Some(force) => {
+                        match self.eval_indexed_expr(execution, force, slots, span)? {
+                            ControlFlow::Continue(LoweredValue::Bool(value)) => value,
+                            ControlFlow::Continue(value) => {
+                                return Err(RuntimeError::new(
+                                    "type-error",
+                                    format!(
+                                        "abort force expected Bool, found {}",
+                                        value.type_name()
+                                    ),
+                                )
+                                .with_span(span));
+                            }
+                            ControlFlow::Break(value) => {
+                                return Ok(ControlFlow::Break(value));
+                            }
+                        }
+                    }
+                    None => false,
+                };
+                return Err(RuntimeError::abort(status, force).with_span(span));
+            }
             FullTag::ExprOk => {
                 let value = indexed_raw(&mut payload, call_span)?;
                 indexed_finish(payload, call_span)?;
@@ -1987,6 +4901,109 @@ impl Evaluator {
                     ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
                 };
                 ControlFlow::Continue(LoweredValue::ResultErr(Box::new(value.into_value())))
+            }
+            FullTag::ExprError => {
+                let error = match indexed_raw(&mut payload, call_span)? {
+                    0 => {
+                        let kind =
+                            indexed_decode::<String>(&mut payload, execution, call_span)?;
+                        let message =
+                            indexed_decode::<String>(&mut payload, execution, call_span)?;
+                        LoweredValue::Error(Box::new(error_constructor(kind, message)))
+                    }
+                    1 => {
+                        let family =
+                            indexed_decode::<String>(&mut payload, execution, call_span)
+                                .map_err(|error| {
+                                    RuntimeError::new(
+                                        error.kind,
+                                        format!("structured error family: {}", error.message),
+                                    )
+                                    .with_span(call_span)
+                                })?;
+                        let variant =
+                            indexed_decode::<String>(&mut payload, execution, call_span)
+                                .map_err(|error| {
+                                    RuntimeError::new(
+                                        error.kind,
+                                        format!("structured error variant: {}", error.message),
+                                    )
+                                    .with_span(call_span)
+                                })?;
+                        let (_, mut fields) = execution
+                            .block(&mut payload, BLOCK_LIST)
+                            .map_err(|error| indexed_error(error, call_span))?;
+                        let field_count = indexed_raw(&mut fields, call_span)? as usize;
+                        let (_, mut facets) = execution
+                            .block(&mut payload, BLOCK_LIST)
+                            .map_err(|error| indexed_error(error, call_span))?;
+                        let facet_count = indexed_raw(&mut facets, call_span)? as usize;
+                        let mut record = RecordMap::new();
+                        for _ in 0..field_count {
+                            let name = indexed_decode::<Arc<str>>(
+                                &mut fields,
+                                execution,
+                                call_span,
+                            )
+                            .map_err(|error| {
+                                RuntimeError::new(
+                                    error.kind,
+                                    format!("structured error field: {}", error.message),
+                                )
+                                .with_span(call_span)
+                            })?;
+                            let value = indexed_raw(&mut fields, call_span)?;
+                            let value = match self.eval_indexed_expr(
+                                execution, value, slots, call_span,
+                            )? {
+                                ControlFlow::Continue(value) => value.into_value(),
+                                ControlFlow::Break(value) => {
+                                    return Ok(ControlFlow::Break(value));
+                                }
+                            };
+                            record.insert(name, value);
+                        }
+                        indexed_finish(fields, call_span)?;
+                        let mut facet_names = Vec::with_capacity(facet_count);
+                        for _ in 0..facet_count {
+                            facet_names.push(indexed_decode::<Name>(
+                                &mut facets,
+                                execution,
+                                call_span,
+                            )
+                            .map_err(|error| {
+                                RuntimeError::new(
+                                    error.kind,
+                                    format!("structured error facet: {}", error.message),
+                                )
+                                .with_span(call_span)
+                            })?
+                            .as_str()
+                            .to_string());
+                        }
+                        indexed_finish(facets, call_span)?;
+                        let message = match record.get("message") {
+                            Some(Value::Str(message)) => message.to_string(),
+                            _ => format!("{family}.{variant}"),
+                        };
+                        LoweredValue::Error(Box::new(structured_error_constructor(
+                            family,
+                            variant,
+                            record,
+                            facet_names,
+                            message,
+                        )))
+                    }
+                    _ => {
+                        return Err(RuntimeError::new(
+                            "indexed-ir",
+                            "invalid indexed error expression tag",
+                        )
+                        .with_span(call_span));
+                    }
+                };
+                indexed_finish(payload, call_span)?;
+                ControlFlow::Continue(error)
             }
             FullTag::ExprTry => {
                 let value = indexed_raw(&mut payload, call_span)?;
@@ -2043,12 +5060,98 @@ impl Evaluator {
                     }
                 }
                 indexed_finish(args, span)?;
-                let direct_allowed = execution
-                    .function_identity()
-                    .is_ok_and(|(caller, _)| caller != function);
                 return self
-                    .eval_indexed_named_call(function, &values, span, direct_allowed)
+                    .eval_indexed_named_call(function, &values, span)
                     .map(ControlFlow::Continue);
+            }
+            FullTag::ExprDynamicCall => {
+                let callee = indexed_raw(&mut payload, call_span)?;
+                let (_, mut args) = execution
+                    .block(&mut payload, BLOCK_LIST)
+                    .map_err(|error| indexed_error(error, call_span))?;
+                let arg_count = indexed_raw(&mut args, call_span)? as usize;
+                let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
+                indexed_finish(payload, call_span)?;
+                let callee = match self.eval_indexed_expr(execution, callee, slots, span)? {
+                    ControlFlow::Continue(value) => value,
+                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+                };
+                let mut values = Vec::with_capacity(arg_count);
+                for _ in 0..arg_count {
+                    let splice = match indexed_raw(&mut args, span)? {
+                        0 => false,
+                        1 => true,
+                        _ => {
+                            return Err(RuntimeError::new(
+                                "indexed-ir",
+                                "invalid indexed call argument tag",
+                            )
+                            .with_span(span));
+                        }
+                    };
+                    let arg = indexed_raw(&mut args, span)?;
+                    let value = match self.eval_indexed_expr(execution, arg, slots, span)? {
+                        ControlFlow::Continue(value) => value,
+                        ControlFlow::Break(value) => {
+                            return Ok(ControlFlow::Break(value));
+                        }
+                    };
+                    if splice {
+                        values.extend(
+                            lowered_splice_arg_items(value, span)?
+                                .into_iter()
+                                .map(LoweredValue::into_value),
+                        );
+                    } else {
+                        values.push(value.into_value());
+                    }
+                }
+                indexed_finish(args, span)?;
+                let result = match callee {
+                    LoweredValue::Pure(function) => self
+                        .call_lowered_function_value_with_values(function, true, &values, span)
+                        .ok_or_else(|| {
+                            RuntimeError::new(
+                                "unresolved-call",
+                                format!(
+                                    "dynamic call to {} could not be lowered",
+                                    function.display_name()
+                                ),
+                            )
+                            .with_span(span)
+                        })??,
+                    LoweredValue::Proc(function) => self
+                        .call_lowered_function_value_with_values(function, false, &values, span)
+                        .ok_or_else(|| {
+                            RuntimeError::new(
+                                "unresolved-call",
+                                format!(
+                                    "dynamic call to {} could not be lowered",
+                                    function.display_name()
+                                ),
+                            )
+                            .with_span(span)
+                        })??,
+                    other => {
+                        return Err(RuntimeError::new(
+                            "type-error",
+                            format!(
+                                "dynamic call expected Pure or Proc, found {}",
+                                other.type_name()
+                            ),
+                        )
+                        .with_span(span));
+                    }
+                };
+                ControlFlow::Continue(lowered_value_from_runtime_any(&result).ok_or_else(
+                    || {
+                        RuntimeError::new(
+                            "type-error",
+                            format!("dynamic call returned unsupported {}", result.type_name()),
+                        )
+                        .with_span(span)
+                    },
+                )?)
             }
             FullTag::ExprSelfCall => {
                 let (_, mut args) = execution
@@ -2082,7 +5185,7 @@ impl Evaluator {
                     .function_identity()
                     .map_err(|error| indexed_error(error, span))?;
                 return self
-                    .eval_indexed_named_call(function, &values, span, false)
+                    .eval_indexed_self_call(function, &values, span)
                     .map(ControlFlow::Continue);
             }
             _ => {
@@ -2105,18 +5208,122 @@ impl Evaluator {
         call_span: Span,
     ) -> Result<LoweredStmtFlow, RuntimeError> {
         let len = indexed_raw(&mut statements, call_span)? as usize;
+        let mut defers = Vec::new();
         for _ in 0..len {
             let statement = indexed_raw(&mut statements, call_span)?;
-            match self.eval_indexed_stmt(execution, statement, header, slots, call_span)? {
+            let (tag, mut payload) =
+                indexed_value(execution.instruction_id(statement), call_span)?;
+            if tag == FullTag::StmtDefer {
+                let value = indexed_raw(&mut payload, call_span)?;
+                indexed_finish(payload, call_span)?;
+                defers.push(value);
+                continue;
+            }
+            let flow = match self.eval_indexed_stmt(
+                execution, statement, header, slots, call_span,
+            ) {
+                Ok(flow) => flow,
+                Err(error) => {
+                    if !error.abort.as_ref().is_some_and(|signal| signal.force) {
+                        let _ = self.run_indexed_defers(
+                            execution,
+                            &defers,
+                            slots,
+                            call_span,
+                        );
+                    }
+                    return Err(error);
+                }
+            };
+            match flow {
                 LoweredStmtFlow::None => {}
                 flow @ (LoweredStmtFlow::Return(_)
                 | LoweredStmtFlow::Propagate(_)
                 | LoweredStmtFlow::Break(_)
-                | LoweredStmtFlow::Continue) => return Ok(flow),
+                | LoweredStmtFlow::Continue) => {
+                    self.run_indexed_defers(execution, &defers, slots, call_span)?;
+                    return Ok(flow);
+                }
             }
         }
         indexed_finish(statements, call_span)?;
+        self.run_indexed_defers(execution, &defers, slots, call_span)?;
         Ok(LoweredStmtFlow::None)
+    }
+
+    pub(in crate::runtime::eval) fn eval_indexed_body_as_signal_hook(
+        &mut self,
+        view: crate::runtime::eval::indexed::full::FullDriverStepView<'_>,
+        body: u32,
+        slots: &mut [LoweredValue],
+        call_span: Span,
+    ) -> Result<Flow, RuntimeError> {
+        let execution = view
+            .execution()
+            .map_err(|error| indexed_error(error, call_span))?;
+        let header = Self::indexed_block_header(slots.len());
+        let flow = self.eval_indexed_statement_block(
+            &execution,
+            body,
+            &header,
+            slots,
+            call_span,
+        )?;
+        match flow {
+            LoweredStmtFlow::None => Ok(Flow::Continue(Value::Unit)),
+            LoweredStmtFlow::Return(value) => Ok(Flow::Continue(value.into_value())),
+            LoweredStmtFlow::Propagate(value) => {
+                let error = match value {
+                    LoweredValue::Error(error) => *error,
+                    LoweredValue::ResultErr(error) => *error,
+                    other => Value::Error(Box::new(
+                        RuntimeError::new(
+                            "signal-hook",
+                            format!("propagated {}", other.type_name()),
+                        )
+                        .with_span(call_span),
+                    )),
+                };
+                let kind = error.error_kind().unwrap_or("error").to_string();
+                let message = error
+                    .error_message()
+                    .unwrap_or("signal hook error")
+                    .to_string();
+                let traceback = self.pending_traceback.take().unwrap_or_else(|| Traceback {
+                    failing_span: Some(call_span),
+                    exe_path: self.exe_path_for_traceback(),
+                    operation_kind: "signal.hook".to_string(),
+                    error: TraceError { kind, message },
+                    frames: self.call_stack.clone(),
+                });
+                Ok(Flow::Propagate(Propagation { error, traceback }))
+            }
+            LoweredStmtFlow::Break(_) | LoweredStmtFlow::Continue => {
+                Ok(Flow::Continue(Value::Unit))
+            }
+        }
+    }
+
+    fn run_indexed_defers(
+        &mut self,
+        execution: &FullExecution<'_>,
+        defers: &[u32],
+        slots: &mut [LoweredValue],
+        call_span: Span,
+    ) -> Result<(), RuntimeError> {
+        for value in defers.iter().rev().copied() {
+            if matches!(
+                self.eval_indexed_expr(execution, value, slots, call_span)?,
+                ControlFlow::Break(_)
+            ) {
+                return Err(RuntimeError::new(
+                    "defer-control-flow",
+                    "deferred expression produced invalid control flow",
+                )
+                .with_span(call_span));
+            }
+        }
+        Ok(())
     }
 
     fn eval_indexed_statement_block(
@@ -2169,6 +5376,75 @@ impl Evaluator {
                 }
                 Ok(LoweredStmtFlow::None)
             }
+            FullTag::StmtGuard => {
+                let slot = indexed_decode::<usize>(&mut payload, execution, call_span)?;
+                let value = indexed_raw(&mut payload, call_span)?;
+                let else_param_slot =
+                    indexed_decode::<Option<usize>>(&mut payload, execution, call_span)?;
+                let else_body = indexed_raw(&mut payload, call_span)?;
+                let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
+                indexed_finish(payload, call_span)?;
+                let value = match self.eval_indexed_expr(execution, value, slots, call_span)? {
+                    ControlFlow::Continue(value) => value,
+                    ControlFlow::Break(value) => return Ok(LoweredStmtFlow::Return(value)),
+                };
+                match value {
+                    LoweredValue::ResultOk(value) => {
+                        slots[slot] = *value;
+                        Ok(LoweredStmtFlow::None)
+                    }
+                    LoweredValue::ResultErr(error) => {
+                        if let Some(slot) = else_param_slot {
+                            slots[slot] = LoweredValue::Error(error);
+                        }
+                        match self.eval_indexed_statement_block(
+                            execution, else_body, header, slots, span,
+                        )? {
+                            LoweredStmtFlow::None => Err(RuntimeError::new(
+                                "guard",
+                                "guard else block must diverge",
+                            )
+                            .with_span(span)),
+                            flow => Ok(flow),
+                        }
+                    }
+                    other => Err(RuntimeError::new(
+                        "type-error",
+                        format!("guard expected Result, found {}", other.type_name()),
+                    )
+                    .with_span(span)),
+                }
+            }
+            FullTag::StmtLetRecord => {
+                let source = indexed_raw(&mut payload, call_span)?;
+                let (_, mut fields) = execution
+                    .block(&mut payload, BLOCK_LIST)
+                    .map_err(|error| indexed_error(error, call_span))?;
+                let field_count = indexed_raw(&mut fields, call_span)? as usize;
+                let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
+                indexed_finish(payload, call_span)?;
+                let source =
+                    match self.eval_indexed_expr(execution, source, slots, call_span)? {
+                        ControlFlow::Continue(value) => value,
+                        ControlFlow::Break(value) => {
+                            return Ok(LoweredStmtFlow::Return(value));
+                        }
+                    };
+                for _ in 0..field_count {
+                    let name = indexed_decode::<Name>(&mut fields, execution, span)?;
+                    let slot = indexed_decode::<usize>(&mut fields, execution, span)?;
+                    let Some(value) = lowered_record_field_value(&source, name.as_str()) else {
+                        return Err(RuntimeError::new(
+                            "field-access",
+                            format!("record has no field `{}`", name.as_str()),
+                        )
+                        .with_span(span));
+                    };
+                    slots[slot] = value;
+                }
+                indexed_finish(fields, span)?;
+                Ok(LoweredStmtFlow::None)
+            }
             FullTag::StmtLetInt => {
                 let slot = indexed_decode::<usize>(&mut payload, execution, call_span)?;
                 let value = indexed_raw(&mut payload, call_span)?;
@@ -2200,6 +5476,108 @@ impl Evaluator {
                     ControlFlow::Break(value) => return Ok(LoweredStmtFlow::Return(value)),
                 };
                 slots[slot] = lowered_assign_value(op, slots[slot].clone(), value, span)?;
+                Ok(LoweredStmtFlow::None)
+            }
+            FullTag::StmtAssignField | FullTag::StmtAssignFieldInt => {
+                let typed = tag == FullTag::StmtAssignFieldInt;
+                let slot = indexed_decode::<usize>(&mut payload, execution, call_span)?;
+                let field = indexed_decode::<Arc<str>>(&mut payload, execution, call_span)?;
+                let op = indexed_decode::<AssignOp>(&mut payload, execution, call_span)?;
+                let value = indexed_raw(&mut payload, call_span)?;
+                let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
+                indexed_finish(payload, call_span)?;
+                let value = if typed {
+                    match self.eval_indexed_typed_int(execution, value, slots, call_span)? {
+                        ControlFlow::Continue(value) => LoweredValue::Int(value),
+                        ControlFlow::Break(value) => {
+                            return Ok(LoweredStmtFlow::Return(value));
+                        }
+                    }
+                } else {
+                    match self.eval_indexed_expr(execution, value, slots, call_span)? {
+                        ControlFlow::Continue(value) => value,
+                        ControlFlow::Break(value) => {
+                            return Ok(LoweredStmtFlow::Return(value));
+                        }
+                    }
+                };
+                if matches!(
+                    slots[slot],
+                    LoweredValue::Stats { .. } | LoweredValue::StatsBlob(_)
+                ) {
+                    let stats = std::mem::replace(&mut slots[slot], LoweredValue::Unit);
+                    slots[slot] = LoweredValue::RecordVec(match stats {
+                        LoweredValue::Stats {
+                            blanks,
+                            code,
+                            comments,
+                        } => lowered_inline_stats_to_record_vec(blanks, code, comments),
+                        LoweredValue::StatsBlob(stats) => stats.to_record_vec(),
+                        _ => unreachable!("checked indexed stats assignment target"),
+                    });
+                }
+                let current = match &mut slots[slot] {
+                    LoweredValue::Record(record) => record.get(field.as_ref()).cloned(),
+                    LoweredValue::RecordVec(record) => {
+                        lowered_record_vec_get(record, field.as_ref()).cloned()
+                    }
+                    _ => {
+                        return Err(RuntimeError::new(
+                            "type-error",
+                            "lowered expression expected Record",
+                        )
+                        .with_span(span));
+                    }
+                }
+                .ok_or_else(|| {
+                    RuntimeError::new("missing-field", field.to_string()).with_span(span)
+                })?;
+                let value = lowered_assign_value(op, current, value, span)?;
+                match &mut slots[slot] {
+                    LoweredValue::Record(record) => {
+                        record.insert(field.clone(), value);
+                    }
+                    LoweredValue::RecordVec(record) => {
+                        lowered_record_vec_insert(record, Name::intern(field.as_ref()), value);
+                    }
+                    _ => unreachable!("checked indexed record assignment target"),
+                }
+                Ok(LoweredStmtFlow::None)
+            }
+            FullTag::StmtAssignIndex => {
+                let slot = indexed_decode::<usize>(&mut payload, execution, call_span)?;
+                let index = indexed_raw(&mut payload, call_span)?;
+                let op = indexed_decode::<AssignOp>(&mut payload, execution, call_span)?;
+                let value = indexed_raw(&mut payload, call_span)?;
+                let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
+                indexed_finish(payload, call_span)?;
+                let key = match self.eval_indexed_expr(execution, index, slots, call_span)? {
+                    ControlFlow::Continue(value) => {
+                        lowered_str_arg(&value, "indexed assignment", span)?.to_string()
+                    }
+                    ControlFlow::Break(value) => {
+                        return Ok(LoweredStmtFlow::Return(value));
+                    }
+                };
+                let value = match self.eval_indexed_expr(execution, value, slots, call_span)? {
+                    ControlFlow::Continue(value) => value,
+                    ControlFlow::Break(value) => return Ok(LoweredStmtFlow::Return(value)),
+                };
+                let LoweredValue::Map(map) = &mut slots[slot] else {
+                    return Err(RuntimeError::new(
+                        "type-error",
+                        "indexed assignment requires a map value",
+                    )
+                    .with_span(span));
+                };
+                if op == AssignOp::Set {
+                    map.insert(key, value);
+                    return Ok(LoweredStmtFlow::None);
+                }
+                let current = map.get(key.as_str()).cloned().ok_or_else(|| {
+                    RuntimeError::new("missing-field", key.clone()).with_span(span)
+                })?;
+                map.insert(key, lowered_assign_value(op, current, value, span)?);
                 Ok(LoweredStmtFlow::None)
             }
             FullTag::StmtAssignInt => {
@@ -2346,6 +5724,88 @@ impl Evaluator {
                 }
                 Ok(LoweredStmtFlow::None)
             }
+            FullTag::StmtMatch => {
+                let value = indexed_raw(&mut payload, call_span)?;
+                let (_, mut arms) = execution
+                    .block(&mut payload, BLOCK_LIST)
+                    .map_err(|error| indexed_error(error, call_span))?;
+                let arm_count = indexed_raw(&mut arms, call_span)? as usize;
+                let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
+                indexed_finish(payload, call_span)?;
+                let mut decoded_arms = Vec::with_capacity(arm_count);
+                for _ in 0..arm_count {
+                    decoded_arms.push((
+                        indexed_raw(&mut arms, span)?,
+                        indexed_optional_raw(&mut arms, span)?,
+                        indexed_raw(&mut arms, span)?,
+                    ));
+                }
+                indexed_finish(arms, span)?;
+                let value = match self.eval_indexed_expr(execution, value, slots, call_span)? {
+                    ControlFlow::Continue(value) => value,
+                    ControlFlow::Break(value) => return Ok(LoweredStmtFlow::Return(value)),
+                };
+                for (pattern, guard, body) in decoded_arms {
+                    if Self::indexed_pattern_matches(execution, pattern, &value, slots, span)? {
+                        if let Some(guard) = guard {
+                            match self.eval_indexed_bool(
+                                execution, guard, slots, call_span,
+                            )? {
+                                ControlFlow::Continue(true) => {}
+                                ControlFlow::Continue(false) => continue,
+                                ControlFlow::Break(value) => {
+                                    return Ok(LoweredStmtFlow::Return(value));
+                                }
+                            }
+                        }
+                        return self.eval_indexed_statement_block(
+                            execution, body, header, slots, call_span,
+                        );
+                    }
+                }
+                Err(lowered_match_no_arm(span))
+            }
+            FullTag::StmtStrMatch | FullTag::StmtTagMatch => {
+                let value = indexed_raw(&mut payload, call_span)?;
+                let arm_count = indexed_raw(&mut payload, call_span)? as usize;
+                let mut arms = Vec::with_capacity(arm_count);
+                for _ in 0..arm_count {
+                    arms.push((
+                        indexed_decode::<Arc<str>>(
+                            &mut payload,
+                            execution,
+                            call_span,
+                        )?,
+                        indexed_raw(&mut payload, call_span)?,
+                    ));
+                }
+                let fallback = indexed_optional_raw(&mut payload, call_span)?;
+                let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
+                indexed_finish(payload, call_span)?;
+                let value = match self.eval_indexed_expr(execution, value, slots, call_span)? {
+                    ControlFlow::Continue(value) => value,
+                    ControlFlow::Break(value) => return Ok(LoweredStmtFlow::Return(value)),
+                };
+                let key = if tag == FullTag::StmtStrMatch {
+                    lowered_str_key(&value)
+                } else {
+                    lowered_tag_key(&value)
+                };
+                if let Some(key) = key
+                    && let Some((_, body)) =
+                        arms.iter().find(|(candidate, _)| candidate.as_ref() == key)
+                {
+                    return self.eval_indexed_statement_block(
+                        execution, *body, header, slots, call_span,
+                    );
+                }
+                if let Some(body) = fallback {
+                    return self.eval_indexed_statement_block(
+                        execution, body, header, slots, call_span,
+                    );
+                }
+                Err(lowered_match_no_arm(span))
+            }
             FullTag::StmtFor => {
                 let slot = indexed_decode::<usize>(&mut payload, execution, call_span)?;
                 let iter = indexed_raw(&mut payload, call_span)?;
@@ -2377,6 +5837,476 @@ impl Evaluator {
                     }
                 }
                 Ok(LoweredStmtFlow::None)
+            }
+            FullTag::StmtForRecord => {
+                let (_, mut fields) = execution
+                    .block(&mut payload, BLOCK_LIST)
+                    .map_err(|error| indexed_error(error, call_span))?;
+                let field_count = indexed_raw(&mut fields, call_span)? as usize;
+                let mut bindings = Vec::with_capacity(field_count);
+                for _ in 0..field_count {
+                    bindings.push((
+                        indexed_decode::<Name>(&mut fields, execution, call_span)?,
+                        indexed_decode::<usize>(&mut fields, execution, call_span)?,
+                    ));
+                }
+                indexed_finish(fields, call_span)?;
+                let iter = indexed_raw(&mut payload, call_span)?;
+                let body = indexed_raw(&mut payload, call_span)?;
+                let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
+                indexed_finish(payload, call_span)?;
+                let iter = match self.eval_indexed_expr(execution, iter, slots, call_span)? {
+                    ControlFlow::Continue(value) => value,
+                    ControlFlow::Break(value) => return Ok(LoweredStmtFlow::Return(value)),
+                };
+                let items = self.lowered_list_items(iter, span, "lowered for expected List")?;
+                for item in items {
+                    self.service_pending_signal(span)?;
+                    if self.signal_state.shutdown_complete {
+                        return Ok(LoweredStmtFlow::None);
+                    }
+                    for (name, slot) in &bindings {
+                        let Some(value) = lowered_record_field_value(&item, name.as_str()) else {
+                            return Err(RuntimeError::new(
+                                "field-access",
+                                format!("record has no field `{}`", name.as_str()),
+                            )
+                            .with_span(span));
+                        };
+                        slots[*slot] = value;
+                    }
+                    match self.eval_indexed_statement_block(
+                        execution, body, header, slots, call_span,
+                    )? {
+                        LoweredStmtFlow::None | LoweredStmtFlow::Continue => {}
+                        LoweredStmtFlow::Break(_) => break,
+                        flow @ (LoweredStmtFlow::Return(_)
+                        | LoweredStmtFlow::Propagate(_)) => return Ok(flow),
+                    }
+                }
+                Ok(LoweredStmtFlow::None)
+            }
+            FullTag::StmtForStrLines => {
+                let slot = indexed_decode::<usize>(&mut payload, execution, call_span)?;
+                let text = indexed_raw(&mut payload, call_span)?;
+                let body = indexed_raw(&mut payload, call_span)?;
+                let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
+                indexed_finish(payload, call_span)?;
+                let text = match self.eval_indexed_expr(execution, text, slots, call_span)? {
+                    ControlFlow::Continue(value) => value,
+                    ControlFlow::Break(value) => return Ok(LoweredStmtFlow::Return(value)),
+                };
+                if let Some((bytes, start, end)) = lowered_bytes_parts(&text) {
+                    let mut cursor = start;
+                    let mut line_count = 0u32;
+                    while cursor < end {
+                        let newline = memchr::memchr(b'\n', &bytes[cursor..end])
+                            .map(|offset| cursor + offset);
+                        let line_end = newline.unwrap_or(end);
+                        let view_end =
+                            if line_end > cursor && bytes[line_end - 1] == b'\r' {
+                                line_end - 1
+                            } else {
+                                line_end
+                            };
+                        line_count = line_count.wrapping_add(1);
+                        if line_count & 63 == 0 {
+                            self.service_pending_signal(span)?;
+                            if self.signal_state.shutdown_complete {
+                                return Ok(LoweredStmtFlow::None);
+                            }
+                        }
+                        assign_lowered_bytes_view(
+                            &mut slots[slot],
+                            &bytes,
+                            cursor,
+                            view_end,
+                        );
+                        match self.eval_indexed_statement_block(
+                            execution, body, header, slots, call_span,
+                        )? {
+                            LoweredStmtFlow::None | LoweredStmtFlow::Continue => {}
+                            LoweredStmtFlow::Break(_) => break,
+                            flow @ (LoweredStmtFlow::Return(_)
+                            | LoweredStmtFlow::Propagate(_)) => return Ok(flow),
+                        }
+                        let Some(newline) = newline else {
+                            break;
+                        };
+                        cursor = newline + 1;
+                    }
+                    return Ok(LoweredStmtFlow::None);
+                }
+                let Some((text, start, end)) = lowered_str_parts(&text) else {
+                    return Err(RuntimeError::new(
+                        "type-error",
+                        "lowered for lines expected Str or Bytes",
+                    )
+                    .with_span(span));
+                };
+                let bytes = text.as_bytes();
+                let mut cursor = start;
+                let mut line_count = 0u32;
+                while cursor < end {
+                    let newline = memchr::memchr(b'\n', &bytes[cursor..end])
+                        .map(|offset| cursor + offset);
+                    let line_end = newline.unwrap_or(end);
+                    let view_end = if line_end > cursor && bytes[line_end - 1] == b'\r' {
+                        line_end - 1
+                    } else {
+                        line_end
+                    };
+                    line_count = line_count.wrapping_add(1);
+                    if line_count & 63 == 0 {
+                        self.service_pending_signal(span)?;
+                        if self.signal_state.shutdown_complete {
+                            return Ok(LoweredStmtFlow::None);
+                        }
+                    }
+                    assign_lowered_str_view(&mut slots[slot], &text, cursor, view_end);
+                    match self.eval_indexed_statement_block(
+                        execution, body, header, slots, call_span,
+                    )? {
+                        LoweredStmtFlow::None | LoweredStmtFlow::Continue => {}
+                        LoweredStmtFlow::Break(_) => break,
+                        flow @ (LoweredStmtFlow::Return(_)
+                        | LoweredStmtFlow::Propagate(_)) => return Ok(flow),
+                    }
+                    let Some(newline) = newline else {
+                        break;
+                    };
+                    cursor = newline + 1;
+                }
+                Ok(LoweredStmtFlow::None)
+            }
+            FullTag::StmtScanLines => {
+                let text_slot = indexed_decode::<usize>(&mut payload, execution, call_span)?;
+                let line_slot = indexed_decode::<usize>(&mut payload, execution, call_span)?;
+                let checks =
+                    indexed_decode::<Vec<ScanCheck>>(&mut payload, execution, call_span)?;
+                let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
+                indexed_finish(payload, call_span)?;
+                let (text, start, end, bytes_mode) =
+                    if let Some((text, start, end)) = lowered_str_parts(&slots[text_slot]) {
+                        (Arc::<[u8]>::from(text.as_bytes()), start, end, false)
+                    } else if let Some((bytes, start, end)) =
+                        lowered_bytes_parts(&slots[text_slot])
+                    {
+                        (bytes, start, end, true)
+                    } else {
+                        return Err(RuntimeError::new(
+                            "type-error",
+                            "ScanLines expected Str or Bytes",
+                        )
+                        .with_span(span));
+                    };
+                let mut cursor = start;
+                let mut line_count = 0u32;
+                while cursor < end {
+                    let newline = memchr::memchr(b'\n', &text[cursor..end])
+                        .map(|offset| cursor + offset);
+                    let line_end = newline.unwrap_or(end);
+                    let view_end = if line_end > cursor && text[line_end - 1] == b'\r' {
+                        line_end - 1
+                    } else {
+                        line_end
+                    };
+                    line_count = line_count.wrapping_add(1);
+                    if line_count & 63 == 0 {
+                        self.service_pending_signal(span)?;
+                        if self.signal_state.shutdown_complete {
+                            return Ok(LoweredStmtFlow::None);
+                        }
+                    }
+                    if bytes_mode {
+                        assign_lowered_bytes_view(
+                            &mut slots[line_slot],
+                            &text,
+                            cursor,
+                            view_end,
+                        );
+                    } else {
+                        let line = std::str::from_utf8(&text[cursor..view_end])
+                            .expect("source string slice remains UTF-8");
+                        slots[line_slot] = LoweredValue::Str(Arc::from(line));
+                    }
+                    for check in &checks {
+                        let matches = match &check.condition {
+                            ScanCondition::TrimEmpty => {
+                                lowered_trim_is_empty_value(&slots[line_slot], span)?
+                            }
+                            ScanCondition::TrimStartsWith(needle) => {
+                                lowered_trim_str_predicate_value(
+                                    &slots[line_slot],
+                                    LoweredStrPredicate::StartsWith,
+                                    needle.as_slice(),
+                                    span,
+                                )?
+                            }
+                            ScanCondition::StartsWith(needle) => lowered_str_predicate_text(
+                                &slots[line_slot],
+                                LoweredStrPredicate::StartsWith,
+                                needle.as_slice(),
+                                span,
+                            )?,
+                        };
+                        if matches {
+                            if let LoweredValue::Int(ref mut value) =
+                                slots[check.counter_slot]
+                            {
+                                *value += 1;
+                            }
+                            break;
+                        }
+                    }
+                    let Some(newline) = newline else {
+                        break;
+                    };
+                    cursor = newline + 1;
+                }
+                slots[line_slot] = LoweredValue::Unit;
+                Ok(LoweredStmtFlow::None)
+            }
+            FullTag::StmtCd => {
+                let target = indexed_raw(&mut payload, call_span)?;
+                let body = indexed_raw(&mut payload, call_span)?;
+                let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
+                indexed_finish(payload, call_span)?;
+                let target = match self.eval_indexed_expr(execution, target, slots, call_span)? {
+                    ControlFlow::Continue(value) => lowered_path_like_arg(value, "cd", span)?,
+                    ControlFlow::Break(value) => {
+                        return Ok(LoweredStmtFlow::Propagate(value));
+                    }
+                };
+                let previous = self.cwd.clone();
+                let next = self.host_path(&target);
+                match cap_std::fs::Dir::open_ambient_dir(&next, cap_std::ambient_authority()) {
+                    Ok(_) => {}
+                    Err(error) if error.kind() == std::io::ErrorKind::NotADirectory => {
+                        return Ok(LoweredStmtFlow::Propagate(LoweredValue::ResultErr(
+                            Box::new(Value::Error(Box::new(
+                                RuntimeError::new(
+                                    "cwd-not-directory",
+                                    "cwd target is not a directory",
+                                )
+                                .with_span(span),
+                            ))),
+                        )));
+                    }
+                    Err(error) => {
+                        return Ok(LoweredStmtFlow::Propagate(LoweredValue::ResultErr(
+                            Box::new(Value::Error(Box::new(
+                                RuntimeError::new("cwd", error.to_string()).with_span(span),
+                            ))),
+                        )));
+                    }
+                }
+                self.trace_enter(
+                    TraceKind::CwdEnter,
+                    Some(span),
+                    Some("cd"),
+                    TracePayload::Cwd {
+                        previous: TraceArg::bytes(path_bytes(&previous)),
+                        current: TraceArg::bytes(path_bytes(&next)),
+                    },
+                );
+                self.cwd = next;
+                let result =
+                    self.eval_indexed_statement_block(execution, body, header, slots, call_span);
+                let current = self.cwd.clone();
+                self.cwd = previous.clone();
+                self.trace_exit(
+                    TraceKind::CwdExit,
+                    Some(span),
+                    Some("cd"),
+                    TracePayload::Cwd {
+                        previous: TraceArg::bytes(path_bytes(&current)),
+                        current: TraceArg::bytes(path_bytes(&previous)),
+                    },
+                );
+                result
+            }
+            FullTag::StmtEnv => {
+                let env = Self::decode_indexed_run_env(&mut payload, execution, call_span)?;
+                let body = indexed_raw(&mut payload, call_span)?;
+                indexed_finish(payload, call_span)?;
+                for assignment in &env {
+                    check_env_name(
+                        assignment.name.as_str(),
+                        assignment.value.span,
+                    )?;
+                }
+                let overlay =
+                    match self.eval_indexed_run_env(execution, &env, slots, call_span)? {
+                        ControlFlow::Continue(overlay) => overlay,
+                        ControlFlow::Break(value) => {
+                            return Ok(LoweredStmtFlow::Propagate(value));
+                        }
+                    };
+                let previous = self.env.clone();
+                self.env.extend(overlay);
+                let result =
+                    self.eval_indexed_statement_block(execution, body, header, slots, call_span);
+                self.env = previous;
+                result
+            }
+            FullTag::StmtProc => {
+                let op = indexed_decode::<RuntimeOp>(&mut payload, execution, call_span)?;
+                let (_, mut args) = execution
+                    .block(&mut payload, BLOCK_LIST)
+                    .map_err(|error| indexed_error(error, call_span))?;
+                let len = indexed_raw(&mut args, call_span)? as usize;
+                let propagate_result =
+                    indexed_decode::<bool>(&mut payload, execution, call_span)?;
+                let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
+                indexed_finish(payload, call_span)?;
+                let mut values = Vec::with_capacity(len);
+                for _ in 0..len {
+                    let arg = indexed_raw(&mut args, span)?;
+                    let value =
+                        match self.eval_indexed_expr(execution, arg, slots, call_span)? {
+                            ControlFlow::Continue(value) => value,
+                            ControlFlow::Break(value) => {
+                                return Ok(LoweredStmtFlow::Return(value));
+                            }
+                        };
+                    values.push(value);
+                }
+                indexed_finish(args, span)?;
+                let (positionals, flags) = lowered_parse_command_values(values, span)?;
+                let result = match op {
+                    RuntimeOp::FsWrite => {
+                        if positionals.len() != 2 {
+                            return Err(RuntimeError::new(
+                                "arity",
+                                "fs.write expected path and data",
+                            )
+                            .with_span(span));
+                        }
+                        let data = lowered_bytes_or_str_owned(
+                            positionals.last().cloned().expect("checked length"),
+                            "fs.write",
+                            span,
+                        )?;
+                        let path = lowered_path_arg(
+                            positionals.first().cloned().expect("checked length"),
+                            "fs.write",
+                            span,
+                        )?;
+                        lowered_unit_result(fs_module::write_path(
+                            self.host_path(&path),
+                            &data,
+                            span,
+                        ))
+                    }
+                    RuntimeOp::FsMkdir => {
+                        let parents = flags.get("parents").copied().unwrap_or(true);
+                        let path = lowered_path_arg(
+                            positionals.first().cloned().ok_or_else(|| {
+                                RuntimeError::new("arity", "fs.mkdir expected path")
+                                    .with_span(span)
+                            })?,
+                            "fs.mkdir",
+                            span,
+                        )?;
+                        lowered_unit_result(fs_module::mkdir_path(
+                            self.host_path(&path),
+                            parents,
+                            None,
+                            span,
+                        ))
+                    }
+                    RuntimeOp::FsRemove => {
+                        let missing_ok = flags.get("missing_ok").copied().unwrap_or(false);
+                        let path = lowered_path_arg(
+                            positionals.first().cloned().ok_or_else(|| {
+                                RuntimeError::new("arity", "fs.remove expected path")
+                                    .with_span(span)
+                            })?,
+                            "fs.remove",
+                            span,
+                        )?;
+                        lowered_unit_result(fs_module::remove_path(
+                            self.host_path(&path),
+                            missing_ok,
+                            span,
+                        ))
+                    }
+                    RuntimeOp::JsonWrite => {
+                        if positionals.len() != 2 {
+                            return Err(RuntimeError::new(
+                                "arity",
+                                "json.write expected path and value",
+                            )
+                            .with_span(span));
+                        }
+                        let pretty = flags.get("pretty").copied().unwrap_or(false);
+                        let value = positionals
+                            .last()
+                            .cloned()
+                            .expect("checked length")
+                            .into_value();
+                        let path = lowered_path_arg(
+                            positionals.first().cloned().expect("checked length"),
+                            "json.write",
+                            span,
+                        )?;
+                        match json_module::encode_json(&value, pretty, span) {
+                            Ok(text) => lowered_unit_result(fs_module::write_path(
+                                self.host_path(&path),
+                                text.as_bytes(),
+                                span,
+                            )),
+                            Err(error) => lowered_result_err_value(error),
+                        }
+                    }
+                    _ => {
+                        let name = api_spec().op_trace_name(op).unwrap_or("unknown");
+                        return Err(RuntimeError::new(
+                            "unsupported-proc-command",
+                            format!(
+                                "proc command syntax for {name} is not yet supported in compact lowering"
+                            ),
+                        )
+                        .with_span(span));
+                    }
+                };
+                if propagate_result {
+                    match result {
+                        LoweredValue::ResultOk(_) => Ok(LoweredStmtFlow::None),
+                        LoweredValue::ResultErr(error) => {
+                            let kind = error.error_kind().unwrap_or("error").to_string();
+                            let message = error
+                                .error_message()
+                                .unwrap_or("propagated error")
+                                .to_string();
+                            self.trace_leaf(
+                                TraceKind::ResultPropagate,
+                                Some(span),
+                                None,
+                                TracePayload::ResultPropagate {
+                                    error_kind: kind.clone(),
+                                },
+                            );
+                            let _traceback =
+                                self.pending_traceback.take().unwrap_or_else(|| Traceback {
+                                    failing_span: Some(span),
+                                    exe_path: self.exe_path.clone(),
+                                    operation_kind: "result.propagate".to_string(),
+                                    error: TraceError { kind, message },
+                                    frames: self.call_stack.clone(),
+                                });
+                            Ok(LoweredStmtFlow::Propagate(LoweredValue::ResultErr(error)))
+                        }
+                        other => Err(RuntimeError::new(
+                            "type-error",
+                            format!("`?` expected Result, found {}", other.type_name()),
+                        )
+                        .with_span(span)),
+                    }
+                } else {
+                    Ok(LoweredStmtFlow::None)
+                }
             }
             FullTag::StmtPrint => {
                 let (_, mut args) = execution

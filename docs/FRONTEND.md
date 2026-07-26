@@ -148,10 +148,11 @@ construction rewinds every graph, literal, location, operation, and semantic
 column to one checkpoint. The verifier must succeed before a `FullProgram` is
 returned.
 
-The current compact entry constructs committed function units as temporary
-lowering scratch and freezes them immediately into the indexed store. The
-runner drops the arena, checker outputs, units, and canonical maps before
-execution; product execution retains only `FullProgram`.
+The compact entry lowers and freezes one function at a time into the indexed
+store instead of retaining a program-wide collection of recursive function
+bodies. The runner drops each temporary function body after encoding and drops
+the arena, checker outputs, and canonical maps before execution; product
+execution retains only `FullProgram`.
 
 Phase 6 execution reads verified instruction, block, function, driver,
 pattern, stage, and literal payloads through borrowed views. Scalar, list,
@@ -159,15 +160,14 @@ record, formatting, field/method, result, direct user-call, typed
 integer/boolean, binding, assignment, branch, loop, iteration, print, return,
 yield, common collection-pipeline stages, and ordinary top-level driver forms
 execute without reconstructing a recursive function or driver body. Direct
-pipeline stages include text/JSON adapters, map/filter, sorting/grouping,
-predicates, aggregates, collection, and range/count transforms. A preflight
-requires every instruction and pipeline stage in a function or driver step to
-have direct execution support before selecting that path, so execution cannot
-perform part of a side-effecting region and then fall back. Process,
-parallel/block pipeline stages, match, defer, import, and other not-yet-migrated
-opcode families still use the temporary decoder as the semantic compatibility
-boundary. Recursive calls deliberately use that boundary until the direct
-executor has an explicit recursion strategy.
+pipeline stages include text/JSON adapters, map/filter, parallel and block
+stages, sorting/grouping, predicates, aggregates, collection, and range/count
+transforms. Process execution, spawning and waiting,
+filesystem/path/archive/hash/JSON host operations, match, defer, imports,
+signal hooks, recursive calls, and every cold opcode execute from borrowed
+indexed payloads as well. There is no opcode preflight or recursive decode
+fallback: a verified function or driver step stays indexed for the entire
+execution region.
 
 The Phase 4 corpus evidence covers 837 committed functions and 43,589
 instructions across 204 wholly executable files. Finalized storage is
@@ -215,11 +215,11 @@ synchronization union. It rejects invalid locations, slot/type bounds, payload
 schemas, effect bits, overlapping or unreachable program/region/sync rows,
 overlapping or unreachable slot rows, step/program cycles or sharing,
 cross-owner instructions and blocks, and gaps in the dense instruction ranges.
-Tests can decode the driver into temporary `LoweredTopLevelStmt` values to
-reuse the previous evaluator as the Phase 6 semantic oracle. Directly supported
-steps instead read borrowed indexed payloads. Values, stdout/stderr, status,
-cwd/env effects, process boundaries, errors, and normalized traces compare
-after the arena and lowering scratch have been dropped.
+Tests use the arena mode as an independent semantic oracle and execute the
+indexed store directly; the whole-function and whole-driver compatibility
+decoders have been removed. Values, stdout/stderr, status, cwd/env effects,
+process boundaries, errors, and normalized traces compare after the arena and
+lowering scratch have been dropped.
 
 The corpus comparison admits 283 of 287 checked files as complete programs.
 Those programs contain 1,647 driver steps, 705 coherent regions, and 2,919

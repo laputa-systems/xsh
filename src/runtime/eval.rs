@@ -423,11 +423,20 @@ pub(super) struct RuntimeErrorFamily {}
 struct RegisteredSignalHook {
     signal: HookSignal,
     pre_cancel: DurationValue,
-    lowered_body: Arc<LoweredPureFunction>,
+    lowered_body: Option<Arc<LoweredPureFunction>>,
+    indexed_body: Option<RegisteredIndexedSignalBody>,
     lowered_slots: Vec<LoweredTopLevelSlot>,
     scope: FxHashMap<Name, Binding>,
     span: Span,
     ignore_pending_primary: bool,
+}
+
+#[derive(Clone, Debug)]
+struct RegisteredIndexedSignalBody {
+    program: Arc<indexed::full::FullProgram>,
+    driver_step: usize,
+    body: u32,
+    slot_count: usize,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -3019,7 +3028,55 @@ impl Evaluator {
             RegisteredSignalHook {
                 signal,
                 pre_cancel,
-                lowered_body: Arc::new(lowered_function),
+                lowered_body: Some(Arc::new(lowered_function)),
+                indexed_body: None,
+                lowered_slots: hook_slots,
+                scope: self.scopes.first().cloned().unwrap_or_default(),
+                span,
+                ignore_pending_primary,
+            },
+        );
+        Ok(())
+    }
+
+    fn register_indexed_signal_hook(
+        &mut self,
+        signal: &str,
+        pre_cancel: Option<&str>,
+        program: Arc<indexed::full::FullProgram>,
+        driver_step: usize,
+        body: u32,
+        hook_slots: Vec<LoweredTopLevelSlot>,
+        slot_count: usize,
+        span: Span,
+    ) -> Result<(), RuntimeError> {
+        let signal = normalize_hook_signal(signal, span).map_err(|rejection| {
+            RuntimeError::new("signal-hook", signal_rejection_message(signal, rejection))
+                .with_span(span)
+        })?;
+        let pre_cancel = match pre_cancel {
+            Some(literal) => DurationValue::from_literal(literal).ok_or_else(|| {
+                RuntimeError::new("signal-hook", "`--pre-cancel` expects a duration literal")
+                    .with_span(span)
+            })?,
+            None => DurationValue { millis: 150 },
+        };
+        let guard = install_hook_signal_handler(signal.number)
+            .map_err(|error| RuntimeError::new("signal-hook", error.to_string()).with_span(span))?;
+        self.signal_handler_guards.push(guard);
+        let ignore_pending_primary = signal_snapshot().primary == Some(signal.number);
+        self.signal_hooks.insert(
+            signal.name.clone(),
+            RegisteredSignalHook {
+                signal,
+                pre_cancel,
+                lowered_body: None,
+                indexed_body: Some(RegisteredIndexedSignalBody {
+                    program,
+                    driver_step,
+                    body,
+                    slot_count,
+                }),
                 lowered_slots: hook_slots,
                 scope: self.scopes.first().cloned().unwrap_or_default(),
                 span,
@@ -3232,9 +3289,14 @@ impl Evaluator {
 
     fn execute_signal_hook(&mut self, hook: &RegisteredSignalHook) -> Result<Flow, RuntimeError> {
         let saved_scopes = std::mem::replace(&mut self.scopes, vec![hook.scope.clone()]);
-        let lowered_body = &hook.lowered_body;
         let call_span = hook.span;
-        let mut slots = vec![LoweredValue::Unit; lowered_body.slot_count];
+        let slot_count = hook
+            .indexed_body
+            .as_ref()
+            .map(|body| body.slot_count)
+            .or_else(|| hook.lowered_body.as_ref().map(|body| body.slot_count))
+            .expect("registered signal hook has an executable body");
+        let mut slots = vec![LoweredValue::Unit; slot_count];
         for slot_info in &hook.lowered_slots {
             if let Some(binding) = self.lookup(slot_info.name)
                 && let Some(value) = lowered_value_from_runtime(&binding.value, slot_info.kind)
@@ -3242,7 +3304,28 @@ impl Evaluator {
                 slots[slot_info.slot] = value;
             }
         }
-        let result = self.eval_lowered_body_as_signal_hook(lowered_body, &mut slots, call_span);
+        let result = if let Some(indexed_body) = &hook.indexed_body {
+            let program = Arc::clone(&indexed_body.program);
+            let view = program
+                .driver_step_view_absolute(indexed_body.driver_step)
+                .map_err(|error| {
+                    RuntimeError::new("indexed-ir", error.message).with_span(call_span)
+                })?;
+            self.eval_indexed_body_as_signal_hook(
+                view,
+                indexed_body.body,
+                &mut slots,
+                call_span,
+            )
+        } else {
+            self.eval_lowered_body_as_signal_hook(
+                hook.lowered_body
+                    .as_ref()
+                    .expect("lowered signal hook has a body"),
+                &mut slots,
+                call_span,
+            )
+        };
         self.scopes = saved_scopes;
         result
     }
@@ -4388,7 +4471,8 @@ impl Evaluator {
         let mut stopped = false;
         let mut last_value = Value::Unit;
         let mut diagnostics = Vec::new();
-        let mut compact_defers = Vec::new();
+        let mut compact_indexed_defers = Vec::new();
+        let mut compact_lowered_defers = Vec::new();
         for (index, stmt) in plan.statements.iter().enumerate() {
             let span = stmt.span;
             if let Err(error) = self.service_pending_signal(span) {
@@ -4413,31 +4497,22 @@ impl Evaluator {
             if stmt.skip_auto_main {
                 continue;
             }
-            let evaluated = if let Some(result) = self.eval_indexed_driver_step(index, span) {
-                result
-            } else {
-                let decoded = if let Some(indexed) = &self.indexed_program {
-                    indexed
-                        .decode_driver_step_at(index)
-                        .map(|(_, statement)| statement)
-                        .map_err(|error| {
-                            RuntimeError::new(
-                                "indexed-driver",
-                                format!(
-                                    "indexed driver verification failed: {}",
-                                    error.message
-                                ),
-                            )
-                            .with_span(span)
-                        })
-                } else {
-                    Ok(lowered_statements
-                        .as_ref()
-                        .and_then(|statements| statements[index].clone()))
-                };
-                let Some(lowered) = (match decoded {
-                    Ok(lowered) => lowered,
+            let evaluated = if let Some(indexed) = &self.indexed_program {
+                match indexed.driver_step_is_defer(index) {
+                    Ok(true) => {
+                        compact_indexed_defers.push(index);
+                        continue;
+                    }
+                    Ok(false) => {}
                     Err(error) => {
+                        let error = RuntimeError::new(
+                            "indexed-driver",
+                            format!(
+                                "indexed driver verification failed: {}",
+                                error.message
+                            ),
+                        )
+                        .with_span(span);
                         diagnostics.push(runtime_diagnostic(
                             span,
                             &error.message,
@@ -4450,11 +4525,23 @@ impl Evaluator {
                         ));
                         break;
                     }
-                }) else {
+                }
+                self.eval_indexed_driver_step(index, span).unwrap_or_else(|| {
+                    Err(RuntimeError::new(
+                        "indexed-driver",
+                        "verified indexed driver step has no direct executor",
+                    )
+                    .with_span(span))
+                })
+            } else {
+                let Some(lowered) = lowered_statements
+                    .as_ref()
+                    .and_then(|statements| statements[index].clone())
+                else {
                     continue;
                 };
                 if matches!(lowered.kind, LoweredTopLevelKind::Defer { .. }) {
-                    compact_defers.push(lowered);
+                    compact_lowered_defers.push(lowered);
                     continue;
                 }
                 self.eval_lowered_top_level_stmt(&lowered, span)
@@ -4677,7 +4764,22 @@ impl Evaluator {
                 self.current_scope_id(),
                 Ok(Flow::Continue(Value::Unit)),
             );
-            for lowered in compact_defers.into_iter().rev() {
+            for index in compact_indexed_defers.into_iter().rev() {
+                if cleanup.is_err() || matches!(cleanup, Ok(Flow::Propagate(_))) {
+                    break;
+                }
+                cleanup = self
+                    .eval_indexed_driver_step(index, script_span)
+                    .unwrap_or_else(|| {
+                        Err(RuntimeError::new(
+                            "indexed-driver",
+                            "verified indexed defer has no direct executor",
+                        )
+                        .with_span(script_span))
+                    })
+                    .map(|flow| flow.unwrap_or(Flow::Continue(Value::Unit)));
+            }
+            for lowered in compact_lowered_defers.into_iter().rev() {
                 if cleanup.is_err() || matches!(cleanup, Ok(Flow::Propagate(_))) {
                     break;
                 }
@@ -4782,15 +4884,27 @@ impl Evaluator {
         // param's kind is `List`, so it (and any variadic extras past the fixed
         // params) is left as `Str`.
         let main_name = Name::intern("main");
-        let main = self.lowered_procs.get(&main_name).cloned().or_else(|| {
-            self.indexed_function(
-                LoweredFunctionKey::Name(main_name),
-                LoweredFunctionKind::Proc,
-            )
+        let indexed_param_kinds = self.indexed_program.as_ref().and_then(|program| {
+            program
+                .function_param_kinds(
+                    LoweredFunctionKey::Name(main_name),
+                    LoweredFunctionKind::Proc,
+                )
+                .ok()
+                .flatten()
         });
-        if let Some(main) = main {
+        if let Some(main) = self.lowered_procs.get(&main_name) {
             for (index, arg) in args.iter_mut().enumerate() {
                 if main.param_kinds.get(index).copied() == Some(LoweredType::Path)
+                    && let Value::Str(text) = arg
+                    && let Ok(path) = PathValue::from_text(&text)
+                {
+                    *arg = Value::Path(path);
+                }
+            }
+        } else if let Some(param_kinds) = indexed_param_kinds {
+            for (index, arg) in args.iter_mut().enumerate() {
+                if param_kinds.get(index).copied() == Some(LoweredType::Path)
                     && let Value::Str(text) = arg
                     && let Ok(path) = PathValue::from_text(&text)
                 {
@@ -5215,31 +5329,7 @@ impl Evaluator {
                 .or_else(|| self.lowered_qualified_procs.get(&function))
                 .cloned(),
         };
-        lowered.or_else(|| {
-            let indexed = self.indexed_program.as_ref()?;
-            indexed
-                .decode_function(function, LoweredFunctionKind::Pure)
-                .ok()
-                .flatten()
-                .or_else(|| {
-                    indexed
-                        .decode_function(function, LoweredFunctionKind::Proc)
-                        .ok()
-                        .flatten()
-                })
-        })
-    }
-
-    fn indexed_function(
-        &self,
-        function: LoweredFunctionKey,
-        kind: LoweredFunctionKind,
-    ) -> Option<Arc<LoweredPureFunction>> {
-        self.indexed_program
-            .as_ref()?
-            .decode_function(function, kind)
-            .ok()
-            .flatten()
+        lowered
     }
 
     fn contains_indexed_function(
@@ -7109,6 +7199,9 @@ fn zero_span() -> Span {
 /// spawned threads, not the main thread. A scoped thread lets the closure borrow
 /// the arena without a `'static` bound.
 fn run_eval_on_large_stack<R: Send>(f: impl FnOnce() -> R + Send) -> R {
+    #[cfg(debug_assertions)]
+    const EVAL_STACK_SIZE: usize = 256 * 1024 * 1024;
+    #[cfg(not(debug_assertions))]
     const EVAL_STACK_SIZE: usize = 64 * 1024 * 1024;
     std::thread::scope(|scope| {
         std::thread::Builder::new()

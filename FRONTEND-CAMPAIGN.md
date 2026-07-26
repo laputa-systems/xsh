@@ -1216,20 +1216,16 @@ evaluation. Otherwise choose whole-program or coherent-region lowering.
 - [ ] Old IR code is deleted rather than left dormant.
 
 Current implementation note (2026-07-25): production retains only the verified
-`FullProgram`. Borrowed indexed views and the first direct executor slice cover
-ordinary scalar/list/record/format/result expressions, field and method access,
-module and user calls, typed integer/boolean nodes, bindings, assignment,
-branches, loops, iteration, printing, returns/yields, and matching top-level
-driver forms. Common collection pipelines execute their indexed stage payloads
-directly, including text/JSON lines, map/filter, sorting/grouping, predicates,
-aggregates, collection, and range/count transforms. Selection is all-or-nothing
-per function or driver step. Process, parallel/block pipeline stages, match,
-defer, import, signal, and remaining cold opcode families still cross the
-recursive decode compatibility boundary, and compact lowering still constructs
-recursive scratch before encoding it. The non-PGO `make bench-fast` memory and
-allocation columns remain flat after this executor cut, confirming that
-construction-side scratch is the next performance target. The recursive
-deletion and performance exit boxes therefore remain open.
+`FullProgram`, and every function, driver, process, parallel/block pipeline,
+match, defer, import, signal, recursive-call, and cold host-operation opcode
+executes directly from borrowed indexed payloads. Opcode preflight and runtime
+decode fallback have been removed. Direct self-recursion preserves the previous
+trace-frame behavior, and whole-function/whole-driver compatibility decoders
+have been deleted. Compact construction now lowers, encodes, and drops one
+function at a time instead of retaining all recursive function units at once.
+The recursive construction types themselves and the remaining arena-oracle
+runner are still present, so the recursive deletion and final performance exit
+boxes remain open.
 
 ## Phase 7: Record Shapes And Runtime Value Movement
 
