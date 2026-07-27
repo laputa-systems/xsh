@@ -68,6 +68,18 @@ enum FrameContinuation {
         value: LoweredValue,
         span: Span,
     },
+    MatchExprValue {
+        arms: Vec<(u32, Option<u32>, u32)>,
+        span: Span,
+        next: Box<FrameContinuation>,
+    },
+    MatchExprGuard {
+        arms: Vec<(u32, Option<u32>, u32)>,
+        index: usize,
+        value: LoweredValue,
+        span: Span,
+        next: Box<FrameContinuation>,
+    },
     BreakLoop,
     Defer,
     CallArguments {
@@ -82,6 +94,26 @@ enum FrameContinuation {
     WrapOk(Box<FrameContinuation>),
     WrapErr(Box<FrameContinuation>),
     Try {
+        span: Span,
+        next: Box<FrameContinuation>,
+    },
+    Require {
+        check: LoweredTypeCheck,
+        span: Span,
+        next: Box<FrameContinuation>,
+    },
+    MethodReceiver {
+        name: Arc<str>,
+        args: Vec<u32>,
+        span: Span,
+        next: Box<FrameContinuation>,
+    },
+    MethodArg {
+        name: Arc<str>,
+        args: Vec<u32>,
+        receiver: LoweredValue,
+        index: usize,
+        values: Vec<LoweredValue>,
         span: Span,
         next: Box<FrameContinuation>,
     },
@@ -781,6 +813,35 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     self.push_expr(index, else_value, value_span, next);
                 }
             }
+            FullTag::ExprMatch => {
+                let value = indexed_raw(&mut payload, span)?;
+                let (_, mut arms) = self.calls[index]
+                    .execution
+                    .block(&mut payload, BLOCK_LIST)
+                    .map_err(|error| indexed_error(error, span))?;
+                let arm_count = indexed_raw(&mut arms, span)? as usize;
+                let value_span = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
+                indexed_finish(payload, span)?;
+                let mut decoded_arms = Vec::with_capacity(arm_count);
+                for _ in 0..arm_count {
+                    decoded_arms.push((
+                        indexed_raw(&mut arms, value_span)?,
+                        indexed_optional_raw(&mut arms, value_span)?,
+                        indexed_raw(&mut arms, value_span)?,
+                    ));
+                }
+                indexed_finish(arms, value_span)?;
+                self.push_expr(
+                    index,
+                    value,
+                    value_span,
+                    FrameContinuation::MatchExprValue {
+                        arms: decoded_arms,
+                        span: value_span,
+                        next: Box::new(next),
+                    },
+                );
+            }
             FullTag::ExprResultFallback => {
                 let left = indexed_raw(&mut payload, span)?;
                 let right = indexed_raw(&mut payload, span)?;
@@ -815,6 +876,49 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     span,
                     FrameContinuation::Try {
                         span,
+                        next: Box::new(next),
+                    },
+                );
+            }
+            FullTag::ExprRequire => {
+                let value = indexed_raw(&mut payload, span)?;
+                let check = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
+                let value_span = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
+                indexed_finish(payload, span)?;
+                self.push_expr(
+                    index,
+                    value,
+                    value_span,
+                    FrameContinuation::Require {
+                        check,
+                        span: value_span,
+                        next: Box::new(next),
+                    },
+                );
+            }
+            FullTag::ExprMethod => {
+                let receiver = indexed_raw(&mut payload, span)?;
+                let name = indexed_string(&mut payload, &self.calls[index].execution, span)?;
+                let (_, mut args) = self.calls[index]
+                    .execution
+                    .block(&mut payload, BLOCK_LIST)
+                    .map_err(|error| indexed_error(error, span))?;
+                let len = indexed_raw(&mut args, span)? as usize;
+                let value_span = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
+                indexed_finish(payload, span)?;
+                let mut decoded_args = Vec::with_capacity(len);
+                for _ in 0..len {
+                    decoded_args.push(indexed_raw(&mut args, value_span)?);
+                }
+                indexed_finish(args, value_span)?;
+                self.push_expr(
+                    index,
+                    receiver,
+                    value_span,
+                    FrameContinuation::MethodReceiver {
+                        name: Arc::from(name),
+                        args: decoded_args,
+                        span: value_span,
                         next: Box::new(next),
                     },
                 );
@@ -1064,6 +1168,28 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 }
                 FrameValue::Break(value) => return self.complete_call(index, StmtFlow::Return(value)),
             },
+            FrameContinuation::MatchExprValue { arms, next, span, .. } => match value {
+                FrameValue::Value(value) => {
+                    self.select_expr_match_arm(index, arms, 0, value, span, *next)?;
+                }
+                FrameValue::Break(value) => return self.complete_call(index, StmtFlow::Return(value)),
+            },
+            FrameContinuation::MatchExprGuard {
+                arms,
+                index: arm_index,
+                value: match_value,
+                span,
+                next,
+            } => match value {
+                FrameValue::Value(value) => {
+                    if matches!(value, LoweredValue::Bool(true)) {
+                        self.push_expr(index, arms[arm_index].2, span, *next);
+                    } else {
+                        self.select_expr_match_arm(index, arms, arm_index + 1, match_value, span, *next)?;
+                    }
+                }
+                FrameValue::Break(value) => return self.complete_call(index, StmtFlow::Return(value)),
+            },
             FrameContinuation::BreakLoop => match value {
                 FrameValue::Value(_) => return self.break_loop(index),
                 FrameValue::Break(value) => return self.complete_call(index, StmtFlow::Return(value)),
@@ -1110,7 +1236,27 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                             },
                         );
                     } else {
-                        self.push_call(function, kind, values, span, Some(*next))?;
+                        let stream_call = match self
+                            .program
+                            .function_view(function, kind)
+                            .map_err(|error| indexed_error(error, span))?
+                        {
+                            Some(view) => matches!(
+                                view.header()
+                                    .map_err(|error| indexed_error(error, span))?
+                                    .return_kind,
+                                LoweredReturnKind::Plain(LoweredType::Stream)
+                            ),
+                            None => false,
+                        };
+                        if stream_call {
+                            let value = self
+                                .evaluator
+                                .eval_indexed_named_call(function, &values, span)?;
+                            self.push_value(index, FrameValue::Value(value), *next);
+                        } else {
+                            self.push_call(function, kind, values, span, Some(*next))?;
+                        }
                     }
                 }
                 FrameValue::Break(value) => return self.complete_call(index, StmtFlow::Return(value)),
@@ -1132,6 +1278,89 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 FrameValue::Value(_) => return Err(RuntimeError::new("type-error", "lowered `?` expected Result").with_span(span)),
                 FrameValue::Break(value) => self.push_value(index, FrameValue::Break(value), *next),
             },
+            FrameContinuation::Require { check, span, next } => match value {
+                FrameValue::Value(value) => {
+                    let value = if lowered_value_satisfies_require(self.evaluator, &value, &check.ty) {
+                        lowered_result_ok(value)
+                    } else {
+                        lowered_result_err_value(
+                            RuntimeError::new(
+                                "schema",
+                                format!(
+                                    "schema check failed: expected {}, found {}",
+                                    check.name,
+                                    value.type_name()
+                                ),
+                            )
+                            .with_span(span),
+                        )
+                    };
+                    self.push_value(index, FrameValue::Value(value), *next);
+                }
+                FrameValue::Break(value) => self.push_value(index, FrameValue::Break(value), *next),
+            },
+            FrameContinuation::MethodReceiver {
+                name,
+                args,
+                span,
+                next,
+                ..
+            } => match value {
+                FrameValue::Value(receiver) => {
+                    if let Some(argument) = args.first().copied() {
+                        self.push_expr(
+                            index,
+                            argument,
+                            span,
+                            FrameContinuation::MethodArg {
+                                name,
+                                args,
+                                receiver,
+                                index: 0,
+                                values: Vec::new(),
+                                span,
+                                next,
+                            },
+                        );
+                    } else {
+                        self.push_method_result(index, receiver, name, Vec::new(), span, *next)?;
+                    }
+                }
+                FrameValue::Break(value) => return self.complete_call(index, StmtFlow::Return(value)),
+            },
+            FrameContinuation::MethodArg {
+                name,
+                args,
+                receiver,
+                index: argument,
+                mut values,
+                span,
+                next,
+            } => match value {
+                FrameValue::Value(value) => {
+                    values.push(value);
+                    let next_index = argument + 1;
+                    if let Some(instruction) = args.get(next_index).copied() {
+                        self.push_expr(
+                            index,
+                            instruction,
+                            span,
+                            FrameContinuation::MethodArg {
+                                name,
+                                args,
+                                receiver,
+                                index: next_index,
+                                values,
+                                span,
+                                next,
+                            },
+                        );
+                    } else {
+                        self.push_method_result(index, receiver, name, values, span, *next)?;
+                    }
+                }
+                FrameValue::Break(value) => return self.complete_call(index, StmtFlow::Return(value)),
+            },
             FrameContinuation::ResultFallback { right, span, next } => match value {
                 FrameValue::Value(LoweredValue::ResultOk(value)) => self.push_value(index, FrameValue::Value(*value), *next),
                 FrameValue::Value(LoweredValue::ResultErr(_) | LoweredValue::Null) => self.push_expr(index, right, span, *next),
@@ -1150,6 +1379,45 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             self.calls[index].work.push(FrameWork::Finish(flow));
             Ok(())
         }
+    }
+
+    fn push_method_result(
+        &mut self,
+        index: usize,
+        receiver: LoweredValue,
+        name: Arc<str>,
+        values: Vec<LoweredValue>,
+        span: Span,
+        next: FrameContinuation,
+    ) -> Result<(), RuntimeError> {
+        let result = if !self.evaluator.trace_enabled {
+            self.evaluator
+                .eval_lowered_method_dispatch(receiver, name.as_ref(), values, &span)?
+        } else {
+            let trace_name = format!("{}.{}", receiver.type_name(), name);
+            self.evaluator.trace_enter(
+                TraceKind::MethodCall,
+                Some(span),
+                Some(&trace_name),
+                TracePayload::None,
+            );
+            let result = self
+                .evaluator
+                .eval_lowered_method_dispatch(receiver, name.as_ref(), values, &span);
+            self.evaluator.trace_exit(
+                TraceKind::MethodResult,
+                Some(span),
+                Some(&trace_name),
+                TracePayload::None,
+            );
+            result?
+        };
+        let result = match result {
+            ControlFlow::Continue(value) => FrameValue::Value(value),
+            ControlFlow::Break(value) => FrameValue::Break(value),
+        };
+        self.push_value(index, result, next);
+        Ok(())
     }
 
     fn finish_deferred_call(
@@ -1492,6 +1760,51 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         };
         self.calls[index].work.truncate(loop_index);
         Ok(())
+    }
+
+    fn select_expr_match_arm(
+        &mut self,
+        index: usize,
+        arms: Vec<(u32, Option<u32>, u32)>,
+        start: usize,
+        value: LoweredValue,
+        span: Span,
+        next: FrameContinuation,
+    ) -> Result<(), RuntimeError> {
+        for arm_index in start..arms.len() {
+            let (pattern, guard, body) = arms[arm_index];
+            let matches = {
+                let call = &mut self.calls[index];
+                Evaluator::indexed_pattern_matches(
+                    &call.execution,
+                    pattern,
+                    &value,
+                    &mut call.slots,
+                    span,
+                )?
+            };
+            if !matches {
+                continue;
+            }
+            if let Some(guard) = guard {
+                self.push_expr(
+                    index,
+                    guard,
+                    span,
+                    FrameContinuation::MatchExprGuard {
+                        arms,
+                        index: arm_index,
+                        value,
+                        span,
+                        next: Box::new(next),
+                    },
+                );
+            } else {
+                self.push_expr(index, body, span, next);
+            }
+            return Ok(());
+        }
+        Err(lowered_match_no_arm(span))
     }
 
     fn continue_loop(&mut self, index: usize) -> Result<(), RuntimeError> {
