@@ -1,5 +1,6 @@
 use crate::runtime::value::{FloatValue, RecordMap, RuntimeError, Value};
 use crate::source::Span;
+use crate::symbol::Name;
 use miniserde::json::{Array, Number, Object, Value as JsonValue};
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -369,11 +370,11 @@ fn json_to_xsh(value: JsonValue, span: Span, kind: &'static str) -> Result<Value
             Ok(Value::List(values))
         }
         JsonValue::Object(fields) => {
-            let mut values = BTreeMap::new();
+            let mut values = Vec::with_capacity(fields.len());
             for (key, item) in fields {
-                values.insert(Arc::from(key), json_to_xsh(item, span, kind)?);
+                values.push((Name::intern(&key), json_to_xsh(item, span, kind)?));
             }
-            Ok(Value::Record(RecordMap::from(values)))
+            Ok(Value::Record(RecordMap::from_name_values(values)))
         }
     }
 }

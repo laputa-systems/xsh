@@ -26,6 +26,26 @@ enum RunAttempt {
     Diagnostics { entry_source: EntrySource },
 }
 
+struct PreparedRun {
+    evaluator: Evaluator,
+    plan: crate::runtime::eval::CompactIndexedRunPlan,
+    source_id: crate::source::SourceId,
+    coverage_trace_dir: Option<PathBuf>,
+}
+
+impl PreparedRun {
+    fn run(self) -> RunAttempt {
+        let output = self.evaluator.eval_installed_compact_indexed_only(self.plan);
+        let output = match output {
+            Ok(output) => output,
+            Err(evaluator) => {
+                return diagnostic_attempt(evaluator.into_sources(), self.source_id);
+            }
+        };
+        RunAttempt::Output(script_output_from_eval(output, self.coverage_trace_dir))
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RunOptions {
     pub script: String,
@@ -38,6 +58,19 @@ pub struct ScriptOutput {
     pub status: u8,
     pub stdout: Vec<u8>,
     pub stderr: Vec<u8>,
+}
+
+#[cfg(feature = "native-tests")]
+pub struct PreparedBenchmarkScript {
+    prepared: PreparedRun,
+    options: RunOptions,
+}
+
+#[cfg(feature = "native-tests")]
+impl PreparedBenchmarkScript {
+    pub fn run(self) -> ScriptOutput {
+        finish_run_attempt(&self.options, self.prepared.run())
+    }
 }
 
 fn text_bytes(text: impl Into<String>) -> Vec<u8> {
@@ -74,22 +107,43 @@ pub fn run_startup() -> ScriptOutput {
 
 pub fn run_script(options: RunOptions) -> ScriptOutput {
     match try_run_program(&options) {
-        Ok(RunAttempt::Output(output)) => {
-            #[cfg(test)]
-            COMPACT_RUNNER_SUCCESSES.fetch_add(1, Ordering::Relaxed);
-            output
-        }
-        Ok(RunAttempt::Diagnostics { entry_source }) => render_checked_diagnostics(
-            &options.script,
-            entry_source,
-            options.args,
-            options.coverage_trace_dir,
-        ),
+        Ok(attempt) => finish_run_attempt(&options, attempt),
         Err(err) => ScriptOutput {
             status: 2,
             stdout: Vec::new(),
             stderr: text_bytes(format!("xsh: failed to read '{}': {err}\n", options.script)),
         },
+    }
+}
+
+fn finish_run_attempt(options: &RunOptions, attempt: RunAttempt) -> ScriptOutput {
+    match attempt {
+        RunAttempt::Output(output) => {
+            #[cfg(test)]
+            COMPACT_RUNNER_SUCCESSES.fetch_add(1, Ordering::Relaxed);
+            output
+        }
+        RunAttempt::Diagnostics { entry_source } => render_checked_diagnostics(
+            &options.script,
+            entry_source,
+            options.args.clone(),
+            options.coverage_trace_dir.clone(),
+        ),
+    }
+}
+
+#[cfg(feature = "native-tests")]
+pub fn prepare_benchmark_script(
+    options: RunOptions,
+) -> Result<PreparedBenchmarkScript, ScriptOutput> {
+    match try_prepare_program(&options) {
+        Ok(Ok(prepared)) => Ok(PreparedBenchmarkScript { prepared, options }),
+        Ok(Err(attempt)) => Err(finish_run_attempt(&options, attempt)),
+        Err(err) => Err(ScriptOutput {
+            status: 2,
+            stdout: Vec::new(),
+            stderr: text_bytes(format!("xsh: failed to read '{}': {err}\n", options.script)),
+        }),
     }
 }
 
@@ -157,9 +211,18 @@ fn render_checked_diagnostics(
 }
 
 fn try_run_program(options: &RunOptions) -> Result<RunAttempt, std::io::Error> {
+    Ok(match try_prepare_program(options)? {
+        Ok(prepared) => prepared.run(),
+        Err(attempt) => attempt,
+    })
+}
+
+fn try_prepare_program(
+    options: &RunOptions,
+) -> Result<Result<PreparedRun, RunAttempt>, std::io::Error> {
     let bytes = fs::read(&options.script)?;
     let entry_source = entry_source_from_bytes(&options.script, bytes);
-    Ok(run_entry_source(options, entry_source))
+    Ok(prepare_entry_source(options, entry_source))
 }
 
 fn diagnostic_attempt(sources: SourceMap, source_id: crate::source::SourceId) -> RunAttempt {
@@ -172,25 +235,25 @@ fn diagnostic_attempt(sources: SourceMap, source_id: crate::source::SourceId) ->
     }
 }
 
-fn run_entry_source(
+fn prepare_entry_source(
     options: &RunOptions,
     entry_source: EntrySource,
-) -> RunAttempt {
+) -> Result<PreparedRun, RunAttempt> {
     let source_id = entry_source.source_id;
     if !entry_source.diagnostics.is_empty() {
         let sources = entry_source.sources;
-        return RunAttempt::Output(ScriptOutput {
+        return Err(RunAttempt::Output(ScriptOutput {
             status: 2,
             stdout: Vec::new(),
             stderr: text_bytes(
                 DiagnosticRenderer::new().render(&entry_source.diagnostics, &sources),
             ),
-        });
+        }));
     }
     let (sources, parsed) =
         parse_load_entry_source_arena_only(&options.script, entry_source, Vec::new());
     if !parsed.diagnostics.is_empty() {
-        return diagnostic_attempt(sources, source_id);
+        return Err(diagnostic_attempt(sources, source_id));
     }
     let crate::syntax::parser::ArenaParseOutput {
         arena,
@@ -215,17 +278,15 @@ fn run_entry_source(
     }
     let plan = evaluator.prepare_compact_indexed_only(&arena, source_id);
     let Some(plan) = plan else {
-        return diagnostic_attempt(evaluator.into_sources(), source_id);
+        return Err(diagnostic_attempt(evaluator.into_sources(), source_id));
     };
     drop(arena);
-    let output = evaluator.eval_installed_compact_indexed_only(plan);
-    let output = match output {
-        Ok(output) => output,
-        Err(evaluator) => {
-            return diagnostic_attempt(evaluator.into_sources(), source_id);
-        }
-    };
-    RunAttempt::Output(script_output_from_eval(output, coverage_trace_dir))
+    Ok(PreparedRun {
+        evaluator,
+        plan,
+        source_id,
+        coverage_trace_dir,
+    })
 }
 
 fn script_output_from_eval(
@@ -740,6 +801,34 @@ print $root
             after > before,
             "covered run_script invocation should return through compact runner"
         );
+        let _ = fs::remove_file(&path);
+        if let Some(parent) = path.parent() {
+            let _ = fs::remove_dir(parent);
+        }
+    }
+
+    #[cfg(feature = "native-tests")]
+    #[test]
+    fn prepared_benchmark_script_matches_normal_execution() {
+        let path = temp_script(
+            "prepared-benchmark-script",
+            r#"let root = fp"${args[0]}"
+print $root
+"#,
+        );
+        let options = RunOptions {
+            script: path.to_string_lossy().into_owned(),
+            args: vec!["/tmp/xsh-prepared-benchmark".to_string()],
+            coverage_trace_dir: None,
+        };
+        let expected = run_script(options.clone());
+        let actual = prepare_benchmark_script(options)
+            .expect("prepare benchmark script")
+            .run();
+
+        assert_eq!(actual.status, expected.status);
+        assert_eq!(actual.stdout, expected.stdout);
+        assert_eq!(actual.stderr, expected.stderr);
         let _ = fs::remove_file(&path);
         if let Some(parent) = path.parent() {
             let _ = fs::remove_dir(parent);

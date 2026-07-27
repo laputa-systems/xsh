@@ -44,6 +44,13 @@ impl NameText {
             Self::Dynamic(text) => text,
         }
     }
+
+    pub(crate) fn into_arc(self) -> std::sync::Arc<str> {
+        match self {
+            Self::Preloaded(text) => std::sync::Arc::from(text),
+            Self::Dynamic(text) => text,
+        }
+    }
 }
 
 impl PartialEq for NameText {

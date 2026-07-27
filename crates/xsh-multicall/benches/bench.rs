@@ -11,6 +11,8 @@ use std::sync::{Arc, mpsc};
 
 use divan::{AllocProfiler, Bencher};
 use xsh::runner::{RunOptions, run_script};
+#[cfg(feature = "native-tests")]
+use xsh::runner::prepare_benchmark_script;
 use xsh::runtime::value::{RecordMap, Value};
 use xsh::symbol::Name;
 use xshi::interactive::bench::{
@@ -274,6 +276,31 @@ fn xsh_json_log_rollup_10000_rows(bencher: Bencher) {
     bench_operation(bencher, || {
         run_benchmark_script(&script, vec![root.clone()])
     });
+}
+
+#[cfg(feature = "native-tests")]
+#[divan::bench(skip_ext_time)]
+#[ignore]
+fn xsh_json_log_rollup_10000_rows_execution(bencher: Bencher) {
+    let fixture = BenchDir::new();
+    let root = fixture.path().join("logs");
+    make_log_corpus(&root);
+    let script = benchmark_script("json-log-rollup.xsh");
+    let root = root.to_string_lossy().into_owned();
+    bencher
+        .with_inputs(|| {
+            prepare_benchmark_script(RunOptions {
+                script: script.to_string_lossy().into_owned(),
+                args: vec![root.clone()],
+                coverage_trace_dir: None,
+            })
+            .expect("prepare JSON rollup benchmark")
+        })
+        .bench_local_values(|prepared| {
+            let output = prepared.run();
+            assert_eq!(output.status, 0, "{}", String::from_utf8_lossy(&output.stderr));
+            output.stdout.len()
+        });
 }
 
 #[divan::bench]

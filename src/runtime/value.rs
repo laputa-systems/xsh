@@ -502,6 +502,22 @@ impl RecordMap {
         }
     }
 
+    pub(crate) fn owned_key_iter(&self) -> RecordOwnedKeyIter<'_> {
+        match self {
+            Self::Dynamic(fields) => RecordOwnedKeyIter::Dynamic(fields.iter()),
+            Self::Shaped { shape, values, .. } => RecordOwnedKeyIter::Shaped {
+                keys: shape.texts.iter(),
+                values: values.iter(),
+            },
+            Self::SparseShaped(sparse) => RecordOwnedKeyIter::SparseShaped {
+                keys: sparse.shape.texts.iter(),
+                defaults: sparse.defaults,
+                overrides: sparse.overrides.as_ref(),
+                index: 0,
+            },
+        }
+    }
+
     fn ensure_dynamic(&mut self) -> &mut BTreeMap<Arc<str>, Value> {
         if matches!(self, Self::Shaped { .. } | Self::SparseShaped(_)) {
             let mut fields = BTreeMap::new();
@@ -608,6 +624,44 @@ pub enum RecordIter<'a> {
         overrides: &'a [(usize, Value)],
         index: usize,
     },
+}
+
+pub(crate) enum RecordOwnedKeyIter<'a> {
+    Dynamic(std::collections::btree_map::Iter<'a, Arc<str>, Value>),
+    Shaped {
+        keys: std::slice::Iter<'a, NameText>,
+        values: std::slice::Iter<'a, Value>,
+    },
+    SparseShaped {
+        keys: std::slice::Iter<'a, NameText>,
+        defaults: &'static [Value],
+        overrides: &'a [(usize, Value)],
+        index: usize,
+    },
+}
+
+impl<'a> Iterator for RecordOwnedKeyIter<'a> {
+    type Item = (NameText, &'a Value);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self {
+            Self::Dynamic(iter) => iter
+                .next()
+                .map(|(key, value)| (NameText::Dynamic(Arc::clone(key)), value)),
+            Self::Shaped { keys, values } => keys.next().cloned().zip(values.next()),
+            Self::SparseShaped {
+                keys,
+                defaults,
+                overrides,
+                index,
+            } => {
+                let key = keys.next()?.clone();
+                let value = sparse_shaped_value(defaults, overrides, *index);
+                *index += 1;
+                Some((key, value))
+            }
+        }
+    }
 }
 
 impl<'a> Iterator for RecordIter<'a> {

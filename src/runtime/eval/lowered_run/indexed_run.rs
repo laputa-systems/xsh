@@ -53,6 +53,16 @@ enum BinaryWork {
     },
 }
 
+enum IndexedItemPredicate<'a> {
+    StringCompare {
+        field: &'a str,
+        op: BinaryOp,
+        value: Arc<str>,
+    },
+    And(Box<IndexedItemPredicate<'a>>, Box<IndexedItemPredicate<'a>>),
+    Or(Box<IndexedItemPredicate<'a>>, Box<IndexedItemPredicate<'a>>),
+}
+
 enum ProcessCommandEntry {
     Field {
         name: Name,
@@ -1421,6 +1431,174 @@ impl Evaluator {
         Ok((slot == item_slot).then_some(name))
     }
 
+    fn indexed_field_chain_ref<'slots>(
+        execution: &FullExecution<'_>,
+        instruction: u32,
+        slots: &'slots [LoweredValue],
+        span: Span,
+    ) -> Result<Option<&'slots LoweredValue>, RuntimeError> {
+        let (tag, mut payload) =
+            indexed_value(execution.instruction_id(instruction), span)?;
+        match tag {
+            FullTag::ExprParam => {
+                let slot = indexed_decode::<usize>(&mut payload, execution, span)?;
+                indexed_finish(payload, span)?;
+                slots.get(slot).map(Some).ok_or_else(|| {
+                    RuntimeError::new("indexed-ir", "field base slot is out of bounds")
+                        .with_span(span)
+                })
+            }
+            FullTag::ExprField => {
+                let base = indexed_raw(&mut payload, span)?;
+                let name = indexed_string(&mut payload, execution, span)?;
+                let field_span = indexed_decode::<Span>(&mut payload, execution, span)?;
+                indexed_finish(payload, span)?;
+                let Some(base) = Self::indexed_field_chain_ref(
+                    execution,
+                    base,
+                    slots,
+                    field_span,
+                )? else {
+                    return Ok(None);
+                };
+                match base {
+                    LoweredValue::Record(record) | LoweredValue::Module(record) => record
+                        .get(name)
+                        .map(Some)
+                        .ok_or_else(|| RuntimeError::new("missing-field", name).with_span(field_span)),
+                    LoweredValue::RecordVec(record) => {
+                        lowered_record_vec_get(record.as_slice(), name)
+                            .map(Some)
+                            .ok_or_else(|| {
+                                RuntimeError::new("missing-field", name).with_span(field_span)
+                            })
+                    }
+                    LoweredValue::Stats {
+                        blanks,
+                        code,
+                        comments,
+                    } => lowered_inline_stats_field_value(*blanks, *code, *comments, name)
+                        .map(|_| None)
+                        .ok_or_else(|| {
+                            RuntimeError::new("missing-field", name).with_span(field_span)
+                        }),
+                    LoweredValue::StatsBlob(stats) => lowered_stats_field_value(stats, name)
+                        .map(|_| None)
+                        .ok_or_else(|| {
+                            RuntimeError::new("missing-field", name).with_span(field_span)
+                        }),
+                    _ => Ok(None),
+                }
+            }
+            _ => Ok(None),
+        }
+    }
+
+    fn indexed_string_literal<'program>(
+        execution: &'program FullExecution<'program>,
+        instruction: u32,
+        span: Span,
+    ) -> Result<Option<Arc<str>>, RuntimeError> {
+        let (tag, mut payload) =
+            indexed_value(execution.instruction_id(instruction), span)?;
+        if tag != FullTag::ExprStr {
+            return Ok(None);
+        }
+        let value = indexed_decode::<Arc<str>>(&mut payload, execution, span)?;
+        indexed_finish(payload, span)?;
+        Ok(Some(value))
+    }
+
+    fn indexed_item_predicate<'program>(
+        execution: &'program FullExecution<'program>,
+        instruction: u32,
+        item_slot: usize,
+        span: Span,
+    ) -> Result<Option<IndexedItemPredicate<'program>>, RuntimeError> {
+        let (tag, mut payload) =
+            indexed_value(execution.instruction_id(instruction), span)?;
+        if tag != FullTag::ExprBinary {
+            return Ok(None);
+        }
+        let op = indexed_decode::<BinaryOp>(&mut payload, execution, span)?;
+        let left = indexed_raw(&mut payload, span)?;
+        let right = indexed_raw(&mut payload, span)?;
+        indexed_decode::<Span>(&mut payload, execution, span)?;
+        indexed_finish(payload, span)?;
+        if op == BinaryOp::And || op == BinaryOp::Or {
+            let Some(left) = Self::indexed_item_predicate(
+                execution,
+                left,
+                item_slot,
+                span,
+            )? else {
+                return Ok(None);
+            };
+            let Some(right) = Self::indexed_item_predicate(
+                execution,
+                right,
+                item_slot,
+                span,
+            )? else {
+                return Ok(None);
+            };
+            return Ok(Some(if op == BinaryOp::And {
+                IndexedItemPredicate::And(Box::new(left), Box::new(right))
+            } else {
+                IndexedItemPredicate::Or(Box::new(left), Box::new(right))
+            }));
+        }
+        if op != BinaryOp::Eq && op != BinaryOp::Ne {
+            return Ok(None);
+        }
+        if let Some(field) =
+            Self::indexed_field_projection(execution, left, item_slot, span)?
+            && let Some(value) = Self::indexed_string_literal(execution, right, span)?
+        {
+            return Ok(Some(IndexedItemPredicate::StringCompare {
+                field,
+                op,
+                value,
+            }));
+        }
+        if let Some(field) =
+            Self::indexed_field_projection(execution, right, item_slot, span)?
+            && let Some(value) = Self::indexed_string_literal(execution, left, span)?
+        {
+            return Ok(Some(IndexedItemPredicate::StringCompare {
+                field,
+                op,
+                value,
+            }));
+        }
+        Ok(None)
+    }
+
+    fn eval_indexed_item_predicate(
+        &mut self,
+        predicate: &IndexedItemPredicate<'_>,
+        item: &LoweredValue,
+        span: Span,
+    ) -> Result<bool, RuntimeError> {
+        match predicate {
+            IndexedItemPredicate::StringCompare { field, op, value } => {
+                let field = self
+                    .indexed_borrowed_field_value(item, field, span)?
+                    .ok_or_else(|| RuntimeError::new("missing-field", *field).with_span(span))?;
+                let equal = matches!(field, LoweredValue::Str(text) if text == *value);
+                Ok(if *op == BinaryOp::Eq { equal } else { !equal })
+            }
+            IndexedItemPredicate::And(left, right) => {
+                Ok(self.eval_indexed_item_predicate(left, item, span)?
+                    && self.eval_indexed_item_predicate(right, item, span)?)
+            }
+            IndexedItemPredicate::Or(left, right) => {
+                Ok(self.eval_indexed_item_predicate(left, item, span)?
+                    || self.eval_indexed_item_predicate(right, item, span)?)
+            }
+        }
+    }
+
     fn indexed_record_fields(
         execution: &FullExecution<'_>,
         instruction: u32,
@@ -2306,8 +2484,20 @@ impl Evaluator {
                             let descending = indexed_optional_raw(&mut stage_payload, span)?;
                             indexed_finish(stage_payload, span)?;
                             let items = self.lowered_pipeline_input_items(current, span)?;
+                            let projection =
+                                Self::indexed_field_projection(execution, key, slot, span)?;
                             let mut keyed = Vec::with_capacity(items.len());
                             for item in items {
+                                if let Some(field) = projection
+                                    && let Some(key) = self.indexed_borrowed_field_value(
+                                        &item,
+                                        field,
+                                        span,
+                                    )?
+                                {
+                                    keyed.push((key, item));
+                                    continue;
+                                }
                                 slots[slot] = item;
                                 let key =
                                     match self.eval_indexed_expr(execution, key, slots, span)? {
@@ -2344,18 +2534,31 @@ impl Evaluator {
                             let key = indexed_raw(&mut stage_payload, span)?;
                             indexed_finish(stage_payload, span)?;
                             let items = self.lowered_pipeline_input_items(current, span)?;
+                            let projection =
+                                Self::indexed_field_projection(execution, key, slot, span)?;
                             let mut groups: Vec<(LoweredValue, Vec<LoweredValue>)> = Vec::new();
                             for item in items {
-                                slots[slot] = item;
-                                let key =
+                                let mut item = Some(item);
+                                let key = if let Some(field) = projection
+                                    && let Some(key) = self.indexed_borrowed_field_value(
+                                        item.as_ref().expect("group item is present"),
+                                        field,
+                                        span,
+                                    )?
+                                {
+                                    key
+                                } else {
+                                    slots[slot] = item.take().expect("group item is present");
                                     match self.eval_indexed_expr(execution, key, slots, span)? {
                                         ControlFlow::Continue(value) => value,
                                         ControlFlow::Break(value) => {
                                             return Ok(ControlFlow::Break(value));
                                         }
-                                    };
-                                let item =
-                                    std::mem::replace(&mut slots[slot], LoweredValue::Unit);
+                                    }
+                                };
+                                let item = item.unwrap_or_else(|| {
+                                    std::mem::replace(&mut slots[slot], LoweredValue::Unit)
+                                });
                                 if let Some((_, group_items)) =
                                     groups.iter_mut().find(|(existing, _)| existing == &key)
                                 {
@@ -2443,12 +2646,31 @@ impl Evaluator {
                             let predicate = indexed_raw(&mut stage_payload, span)?;
                             indexed_finish(stage_payload, span)?;
                             let items = self.lowered_pipeline_input_items(current, span)?;
+                            let item_predicate = Self::indexed_item_predicate(
+                                execution,
+                                predicate,
+                                slot,
+                                span,
+                            )?;
                             let mut filtered = Vec::new();
                             for item in items {
+                                if let Some(predicate) = &item_predicate {
+                                    if self.eval_indexed_item_predicate(
+                                        predicate,
+                                        &item,
+                                        span,
+                                    )? {
+                                        filtered.push(item);
+                                    }
+                                    continue;
+                                }
                                 slots[slot] = item;
-                                let keep = match self
-                                    .eval_indexed_bool(execution, predicate, slots, span)?
-                                {
+                                let keep = match self.eval_indexed_bool(
+                                    execution,
+                                    predicate,
+                                    slots,
+                                    span,
+                                )? {
                                     ControlFlow::Continue(value) => value,
                                     ControlFlow::Break(value) => {
                                         return Ok(ControlFlow::Break(value));
@@ -2500,8 +2722,20 @@ impl Evaluator {
                             let value = indexed_raw(&mut stage_payload, span)?;
                             indexed_finish(stage_payload, span)?;
                             let items = self.lowered_pipeline_input_items(current, span)?;
+                            let projection =
+                                Self::indexed_field_projection(execution, value, slot, span)?;
                             let mut mapped = Vec::with_capacity(items.len());
                             for (index, item) in items.into_iter().enumerate() {
+                                if let Some(field) = projection
+                                    && let Some(value) = self.indexed_borrowed_field_value(
+                                        &item,
+                                        field,
+                                        span,
+                                    )?
+                                {
+                                    mapped.push(value);
+                                    continue;
+                                }
                                 slots[slot] = item;
                                 let value =
                                     match self.eval_indexed_expr(execution, value, slots, span) {
@@ -3447,6 +3681,15 @@ impl Evaluator {
                 let name = indexed_string(&mut payload, execution, call_span)?;
                 let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
                 indexed_finish(payload, call_span)?;
+                if let Some(base) = Self::indexed_field_chain_ref(
+                    execution,
+                    base,
+                    slots,
+                    span,
+                )? && let Some(value) = lowered_record_field_value(base, name)
+                {
+                    return Ok(ControlFlow::Continue(value));
+                }
                 let base = match self.eval_indexed_expr(execution, base, slots, span)? {
                     ControlFlow::Continue(value) => value,
                     ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
@@ -6680,23 +6923,10 @@ impl Evaluator {
         name: &str,
         span: Span,
     ) -> Result<LoweredValue, RuntimeError> {
-        if let Some(value) = lowered_record_field_value(&base, name) {
+        if let Some(value) = self.indexed_borrowed_field_value(&base, name, span)? {
             return Ok(value);
         }
         match base {
-            LoweredValue::FsEntry(entry) => {
-                let value = entry
-                    .field_value(name)
-                    .ok_or_else(|| RuntimeError::new("missing-field", name).with_span(span))?
-                    .map_err(|error| error.with_span(span))?;
-                lowered_value_from_runtime_any(&value).ok_or_else(|| {
-                    RuntimeError::new(
-                        "type-error",
-                        format!("fs entry field produced unsupported {}", value.type_name()),
-                    )
-                    .with_span(span)
-                })
-            }
             LoweredValue::Error(value) => {
                 let (kind, message) = match value.as_ref() {
                     Value::Error(error) => (error.kind.clone(), error.message.clone()),
@@ -6748,6 +6978,49 @@ impl Evaluator {
             },
             LoweredValue::Path(path) => lowered_path_method_value(path, name, Vec::new(), span),
             _ => Err(RuntimeError::new("missing-field", name).with_span(span)),
+        }
+    }
+
+    fn indexed_borrowed_field_value(
+        &mut self,
+        base: &LoweredValue,
+        name: &str,
+        span: Span,
+    ) -> Result<Option<LoweredValue>, RuntimeError> {
+        match base {
+            LoweredValue::Record(record) | LoweredValue::Module(record) => record
+                .get(name)
+                .cloned()
+                .map(Some)
+                .ok_or_else(|| RuntimeError::new("missing-field", name).with_span(span)),
+            LoweredValue::RecordVec(record) => lowered_record_vec_get(record.as_slice(), name)
+                .cloned()
+                .map(Some)
+                .ok_or_else(|| RuntimeError::new("missing-field", name).with_span(span)),
+            LoweredValue::Stats {
+                blanks,
+                code,
+                comments,
+            } => lowered_inline_stats_field_value(*blanks, *code, *comments, name)
+                .map(Some)
+                .ok_or_else(|| RuntimeError::new("missing-field", name).with_span(span)),
+            LoweredValue::StatsBlob(stats) => lowered_stats_field_value(stats, name)
+                .map(Some)
+                .ok_or_else(|| RuntimeError::new("missing-field", name).with_span(span)),
+            LoweredValue::FsEntry(entry) => {
+                let value = entry
+                    .field_value(name)
+                    .ok_or_else(|| RuntimeError::new("missing-field", name).with_span(span))?
+                    .map_err(|error| error.with_span(span))?;
+                lowered_value_from_runtime_any(&value).map(Some).ok_or_else(|| {
+                    RuntimeError::new(
+                        "type-error",
+                        format!("fs entry field produced unsupported {}", value.type_name()),
+                    )
+                    .with_span(span)
+                })
+            }
+            _ => Ok(None),
         }
     }
 

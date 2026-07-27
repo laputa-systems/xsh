@@ -2019,6 +2019,25 @@ explicit-frame growth materially raises runtime memory, the sole compact path
 needs a compatibility representation, or `JSON-IMPROVEMENTS.md` acceptance
 criteria are met and the deferred latency result can be closed.
 
+Date: 2026-07-27
+Follow-up: JSON indexed execution
+Decision: Close the deferred JSON latency follow-up. The repeated regular
+`xsh_json_log_rollup_10000_rows` median is 13.58 ms, compared with 13.81 ms in
+Phase 0 and 23.13 ms in the original Stage 11 focused result. The accepted path
+keeps the compact program as the sole executable representation and does not
+depend on PGO.
+Evidence: `JSON-IMPROVEMENTS.md` and the ignored execution-only benchmark in the
+curated Divan binary. Execution alone initially measured 22.63 ms, proving that
+the regression was not parse/check/lower overhead. Borrowed indexed field
+chains, direct pipeline field projections, compiled field/literal predicates,
+owned dynamic record-key reuse, and direct shaped JSON object construction
+reduced the complete regular median to 13.58 ms. Focused runner, JSON, stream,
+record-value, and prepared-execution parity tests pass.
+Revisit condition: The regular rollup again crosses the campaign's material
+regression threshold, the fast paths diverge from general expression semantics,
+or worker-aware memory evidence identifies a material execution allocation
+regression.
+
 ## Completion Report
 
 The final evidence is stored under `target/frontend-campaign/phase-11-final`.
@@ -2050,11 +2069,11 @@ overall. It regresses record thread transfer by 85.22%, prompt rendering by
 operations and require focused repetition before using them for code changes.
 Memory columns are unchanged between regular and PGO.
 
-Remaining limitations are explicit: JSON regular latency is deferred in
-`JSON-IMPROVEMENTS.md`; generated docs are stale by accepted direction; lower
-construction allocates 12.68% more bytes despite retaining much less; and the
-test-only ambient filesystem allowlist prevents a completely green unfiltered
-`cargo test` run.
+Remaining limitations are explicit: generated docs are stale by accepted
+direction; lower construction allocates 12.68% more bytes despite retaining
+much less; worker-thread allocations are not included in Divan's normal memory
+columns; and the test-only ambient filesystem allowlist prevents a completely
+green unfiltered `cargo test` run.
 
 The campaign succeeds when XSH is compact because ownership and semantics are
 clear, not because bytes were hidden, and when real user workflows become

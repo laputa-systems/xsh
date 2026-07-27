@@ -782,16 +782,16 @@ fn lowered_result_from_runtime(value: &ResultValue) -> Option<LoweredValue> {
 
 pub(super) fn lowered_record_from_runtime(value: &RecordMap) -> Option<LoweredValue> {
     let mut record = BTreeMap::new();
-    for (key, value) in value {
-        record.insert(Arc::from(key), lowered_value_from_runtime_any(value)?);
+    for (key, value) in value.owned_key_iter() {
+        record.insert(key.into_arc(), lowered_value_from_runtime_any(value)?);
     }
     Some(LoweredValue::Record(record))
 }
 
 pub(super) fn lowered_module_from_runtime(value: &RecordMap) -> Option<LoweredValue> {
     let mut module = BTreeMap::new();
-    for (key, value) in value {
-        module.insert(Arc::from(key), lowered_value_from_runtime_any(value)?);
+    for (key, value) in value.owned_key_iter() {
+        module.insert(key.into_arc(), lowered_value_from_runtime_any(value)?);
     }
     Some(LoweredValue::Module(module))
 }

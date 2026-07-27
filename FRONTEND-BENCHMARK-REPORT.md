@@ -15,10 +15,25 @@ storage after scratch is dropped falls 20.70%. Repository-check allocation
 traffic is also below Phase 0 after removing repeated call-graph construction.
 
 It is not an unconditional performance success. Lowering allocates more total
-bytes while constructing the smaller result, JSON-heavy indexed execution is
-still slower than Phase 0, and final explicit execution frames are larger than
-the initial Phase 9 layout capture. JSON work is tracked in
-`JSON-IMPROVEMENTS.md`; generated docs were excluded by explicit direction.
+bytes while constructing the smaller result, and final explicit execution
+frames are larger than the initial Phase 9 layout capture. Generated docs were
+excluded by explicit direction. The JSON regression recorded in the original
+Stage 11 snapshot was subsequently closed; see `JSON-IMPROVEMENTS.md`.
+
+## Post-Stage 11 JSON Result
+
+The accepted regular release median for `xsh_json_log_rollup_10000_rows` is
+13.58 ms, compared with 13.81 ms in the repeated Phase 0 measurement and
+23.13 ms in the original Stage 11 focused result. The final regular result is
+1.67% faster than Phase 0 and does not depend on PGO.
+
+An ignored execution-only diagnostic established that preparation contributed
+less than 1 ms. The fixes restore borrowed indexed field chains, compile direct
+field/literal `where` predicates once per stage, reuse direct field projections
+in `sort-by`, `group-by`, and `map`, preserve owned dynamic record keys during
+runtime-to-lowered conversion, and construct shaped JSON records without a
+temporary dynamic map. The ignored diagnostic does not alter the curated suite
+or PGO workload.
 
 ## Frontend Memory
 
@@ -67,9 +82,10 @@ The explicit-frame rows scale with active call depth rather than retained
 frontend size. They are larger than the Phase 9 capture after match, require,
 and method continuations were added to restore complete behavior.
 
-## Regular And PGO
+## Stage 11 Regular And PGO Snapshot
 
-Both columns are medians of three measured full-suite runs after one warmup.
+This table predates the post-Stage 11 JSON improvements above. Both columns are
+medians of three measured full-suite runs after one warmup.
 The regular suite took 199.8 seconds including warmup; PGO took 190.7 seconds.
 Allocation totals are identical between regular and PGO; two sub-microsecond
 workloads show tiny peak-sample differences.
@@ -101,10 +117,10 @@ short enough that their negative deltas require focused repetition before they
 justify implementation changes.
 
 The repeated Phase 0 comparison measured JSON rollup at 13.81 ms and repository
-checking at 156.1 ms. Final focused regular measurements were 23.13 ms and
-161.9 ms; final focused PGO measurements were 19.28 ms and 157.8 ms. Repository
-checking is therefore near Phase 0 after the graph fix, while JSON remains the
-explicitly deferred regression.
+checking at 156.1 ms. The Stage 11 focused regular measurements were 23.13 ms
+and 161.9 ms; the Stage 11 focused PGO measurements were 19.28 ms and 157.8 ms.
+Repository checking was near Phase 0 after the graph fix. JSON later reached
+13.58 ms in the regular build and closed its follow-up without PGO.
 
 ## Syscalls
 
