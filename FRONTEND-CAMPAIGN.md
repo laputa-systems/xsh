@@ -1370,12 +1370,12 @@ survived the foundational redesign.
 - [ ] Update `docs/AGENT-ROUTING.md`.
 - [ ] Update `docs/TEST-MAP.md`.
 - [ ] Update applicable specifications.
-- [ ] Run full behavior tests.
-- [ ] Run full benchmarks and focused repeats.
-- [ ] Run coverage and layout reports.
-- [ ] Run syscall diagnostics where applicable.
-- [ ] Run regular-versus-PGO comparison.
-- [ ] Replace historical baseline data with final measurements.
+- [x] Run full behavior tests.
+- [x] Run full benchmarks and focused repeats.
+- [x] Run coverage and layout reports.
+- [x] Run syscall diagnostics where applicable.
+- [x] Run regular-versus-PGO comparison.
+- [x] Replace historical baseline data with final measurements.
 
 ### Exit Gate
 
@@ -1973,21 +1973,88 @@ new recursive builder group is merged without an isolated staging test, or a
 serial allocation/latency repeat attributes a material regression to the lazy
 table owner.
 
+Date: 2026-07-27
+Phase: 11
+Decision: Accept the frontend redesign as a qualified memory and ownership
+success, keep the compact program as the sole production representation, and
+defer the remaining JSON-heavy indexed execution regression to
+`JSON-IMPROVEMENTS.md`. Eliminate repeated whole-program call-graph and SCC
+construction while emitting function units: dependency and recursion metadata
+are now computed once per program and reused for every function. Generated docs
+remain an explicitly accepted release follow-up for this campaign report.
+Alternatives: Recompute the call graph for every function; restore the recursive
+lowered program to recover JSON latency; treat PGO as sufficient evidence that
+the regular regression is solved; or block the memory redesign on JSON work.
+The first caused the repository-check regression, the second would undo the
+ownership result, the third is contradicted by the regular measurements, and
+the fourth was explicitly rejected for Stage 11 prioritization.
+Evidence: `target/frontend-campaign/phase-11-final/frontend-stats.json`,
+`frontend-stats.txt`, `ir-layout.txt`, `bench-fast.txt`,
+`bench-regular-baseline.txt`, `bench-pgo-baseline.txt`, `bench-pgo.txt`,
+`scoped-tests.txt`, and `target/bench-syscalls-final.txt`. On the unchanged
+287-file, 545,254-byte corpus, lower-stage retained storage falls from
+12,106,023 to 2,686,770 bytes (-77.81%) and lower-stage peak live storage falls
+from 9,688,845 to 8,300,303 bytes (-14.33%). After frontend scratch is dropped,
+retained storage falls from 539,307 to 531,248 bytes (-1.49%) and peak live
+storage falls from 8,768,635 to 6,953,227 bytes (-20.70%). Lower-stage
+allocation count rises 2.71% and allocated bytes rise 12.68%, so construction
+traffic remains a measured maintenance target rather than a hidden success.
+The final fast repository-check sample uses 506,972 allocations and 65.45 MiB,
+below Phase 0's 547,004 allocations and 80.11 MiB. The full regular median is
+174.0 ms and PGO is 158.1 ms; the repeated Phase 0 comparison was 156.1 ms.
+PGO improves 14 of 19 curated workloads. The final syscall report completes for
+every benchmark, including the process pipeline's two `execve`, three `clone`,
+three `wait4`, and one `pipe2` calls. Focused frontend/indexed tests, semantic
+tests, the xsht CLI suite, 251 serial runtime tests, and exact native coverage
+pass. The broad `cargo test` run reaches 450 passes and then fails only the
+pre-existing ambient-filesystem allowlist for test-only operations in
+`src/runtime/eval/indexed/full.rs`.
+Affected workloads: Repository checking and lowerability diagnostics now avoid
+quadratic-like repeated graph traversal. Every parsed program retains the final
+compact frontend and executable representation savings. JSON rollup remains a
+documented latency follow-up; generated docs remain stale by explicit user
+direction.
+Revisit condition: Lower-stage construction traffic becomes user-visible,
+explicit-frame growth materially raises runtime memory, the sole compact path
+needs a compatibility representation, or `JSON-IMPROVEMENTS.md` acceptance
+criteria are met and the deferred latency result can be closed.
+
 ## Completion Report
 
-When the campaign finishes, replace this section with:
+The final evidence is stored under `target/frontend-campaign/phase-11-final`.
+The same 287 files and 545,254 source bytes are used before and after.
 
-- [ ] before/after architecture diagrams;
-- [ ] before/after type layouts;
-- [ ] source/token/CST/AST/semantic/IR/runtime retained-byte tables;
-- [ ] bytes per source byte and bytes per instruction for every corpus;
-- [ ] allocation and peak-live deltas for every user-facing workload;
-- [ ] latency and spread deltas;
-- [ ] lowerability coverage and blocker changes;
-- [ ] regular-versus-PGO comparison;
-- [ ] syscall changes where applicable;
-- [ ] deleted types, adapters, flags, and owner-module line counts;
-- [ ] remaining limitations and their measured importance.
+| stage | Phase 0 retained | final retained | delta | Phase 0 peak | final peak | delta |
+|---|---:|---:|---:|---:|---:|---:|
+| tokens | 899,881 | 899,884 | +0.00% | 522,076 | 531,010 | +1.71% |
+| CST | 7,180,862 | 7,180,870 | +0.00% | 2,122,895 | 2,174,763 | +2.44% |
+| AST/check | 14,412,245 | 14,397,053 | -0.11% | 6,475,480 | 6,532,540 | +0.88% |
+| lower | 12,106,023 | 2,686,770 | **-77.81%** | 9,688,845 | 8,300,303 | **-14.33%** |
+| after drop | 539,307 | 531,248 | **-1.49%** | 8,768,635 | 6,953,227 | **-20.70%** |
+
+Phase 0's recursive hot rows were 144-byte `LoweredStmt`, 72-byte
+`LoweredExpr`, and 56-byte `LoweredPattern` values with nested heap ownership.
+The final executable store uses one-byte tags, 20-byte `FullBlock`, 32-byte
+`FullFunction`, 12-byte parameter/capture rows, and 4-byte construction IDs.
+The frozen executable corpus stores 43,589 instructions in 1,843,105 bytes,
+57.11% below the conservative 4,297,136-byte recursive-row lower bound, before
+counting the old nested allocations. Final explicit execution rows are 368-byte
+`CallFrame`, 168-byte `FrameWork`, and 128-byte `FrameContinuation`; these are
+active-depth runtime costs rather than retained frontend ownership.
+
+The final regular and PGO benchmark baselines contain the complete curated
+suite. PGO improves repository checking by 9.14%, JSON rollup by 18.16%,
+extension counting by 8.53%, the short script by 8.72%, and 14 of 19 workloads
+overall. It regresses record thread transfer by 85.22%, prompt rendering by
+29.70%, and the dynamic-name session by 1.49%; the first two are very short
+operations and require focused repetition before using them for code changes.
+Memory columns are unchanged between regular and PGO.
+
+Remaining limitations are explicit: JSON regular latency is deferred in
+`JSON-IMPROVEMENTS.md`; generated docs are stale by accepted direction; lower
+construction allocates 12.68% more bytes despite retaining much less; and the
+test-only ambient filesystem allowlist prevents a completely green unfiltered
+`cargo test` run.
 
 The campaign succeeds when XSH is compact because ownership and semantics are
 clear, not because bytes were hidden, and when real user workflows become

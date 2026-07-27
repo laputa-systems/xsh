@@ -1,0 +1,145 @@
+# Frontend Benchmark Report
+
+Date: July 27, 2026  
+Host: Apple M1, 10 cores, 32 GiB, macOS 26.5  
+Corpus: 287 files, 545,254 source bytes
+
+## Verdict
+
+The grand frontend redesign is a **qualified success**.
+
+It succeeds at its primary ownership and retained-memory goals: the recursive
+lowered program is gone from production, one compact program owns executable
+behavior, lower-stage retained storage falls 77.81%, and peak live frontend
+storage after scratch is dropped falls 20.70%. Repository-check allocation
+traffic is also below Phase 0 after removing repeated call-graph construction.
+
+It is not an unconditional performance success. Lowering allocates more total
+bytes while constructing the smaller result, JSON-heavy indexed execution is
+still slower than Phase 0, and final explicit execution frames are larger than
+the initial Phase 9 layout capture. JSON work is tracked in
+`JSON-IMPROVEMENTS.md`; generated docs were excluded by explicit direction.
+
+## Frontend Memory
+
+The before and after reports use the same corpus and source bytes.
+
+| stage | Phase 0 retained | final retained | delta | Phase 0 peak | final peak | delta |
+|---|---:|---:|---:|---:|---:|---:|
+| tokens | 899,881 B | 899,884 B | +0.00% | 522,076 B | 531,010 B | +1.71% |
+| CST | 7,180,862 B | 7,180,870 B | +0.00% | 2,122,895 B | 2,174,763 B | +2.44% |
+| AST/check | 14,412,245 B | 14,397,053 B | -0.11% | 6,475,480 B | 6,532,540 B | +0.88% |
+| lower | 12,106,023 B | 2,686,770 B | **-77.81%** | 9,688,845 B | 8,300,303 B | **-14.33%** |
+| after drop | 539,307 B | 531,248 B | **-1.49%** | 8,768,635 B | 6,953,227 B | **-20.70%** |
+
+Lower construction performs 413,749 allocations versus 402,828 in Phase 0
+(+2.71%) and allocates 55,940,116 bytes versus 49,644,031 (+12.68%). The
+redesign therefore wins retained and peak memory, not construction traffic.
+
+The repository-check fast sample improves from Phase 0's 547,004 allocations
+and 80.11 MiB to 506,972 allocations and 65.45 MiB. This includes the Stage 11
+fix that computes dependency and SCC metadata once per program instead of
+rebuilding the complete call graph for every emitted function.
+
+## Representation
+
+Phase 0 used 144-byte `LoweredStmt`, 72-byte `LoweredExpr`, and 56-byte
+`LoweredPattern` rows with recursive nested allocations. The final store uses
+one-byte tags, 20-byte `FullBlock`, 32-byte `FullFunction`, 12-byte parameter
+and capture rows, and 4-byte construction IDs.
+
+The frozen executable corpus stores 43,589 instructions in 1,843,105 bytes,
+57.11% below the conservative 4,297,136-byte recursive-row lower bound. That
+lower bound excludes the recursive representation's nested heap allocations.
+
+Final active execution layouts are:
+
+| type | size |
+|---|---:|
+| `CallFrame` | 368 B |
+| `FrameWork` | 168 B |
+| `FrameContinuation` | 128 B |
+| `FullStore` header | 968 B |
+| `FullProgram` header | 984 B |
+| `AstArena` header | 1,488 B |
+
+The explicit-frame rows scale with active call depth rather than retained
+frontend size. They are larger than the Phase 9 capture after match, require,
+and method continuations were added to restore complete behavior.
+
+## Regular And PGO
+
+Both columns are medians of three measured full-suite runs after one warmup.
+The regular suite took 199.8 seconds including warmup; PGO took 190.7 seconds.
+Allocation totals are identical between regular and PGO; two sub-microsecond
+workloads show tiny peak-sample differences.
+
+| benchmark | regular | PGO | PGO delta | allocated | allocs/op |
+|---|---:|---:|---:|---:|---:|
+| `runtime_dynamic_record_build_8_fields` | 386 ns | 345 ns | -10.62% | 912 B | 9 |
+| `runtime_dynamic_record_clone_drop_8_fields` | 43 ns | 43 ns | +0.00% | 720 B | 1 |
+| `runtime_scalar_clone_drop` | 2 ns | 2 ns | +0.00% | 0 B | 0 |
+| `runtime_shaped_record_build_8_fields` | 264 ns | 248 ns | -6.06% | 1.26 KiB | 4 |
+| `runtime_shaped_record_clone_drop_8_fields` | 3 ns | 2 ns | -33.33% | 0 B | 0 |
+| `runtime_shaped_record_thread_transfer_8_fields` | 7.50 µs | 13.89 µs | +85.22% | 0 B | 0 |
+| `xsh_extension_count_1000_files` | 1.84 ms | 1.68 ms | -8.53% | 42.35 KiB | 357 |
+| `xsh_json_log_rollup_10000_rows` | 23.35 ms | 19.11 ms | -18.16% | 53.77 KiB | 409 |
+| `xsh_manifest_hash_1000_files` | 108.20 ms | 102.80 ms | -4.99% | 43.26 KiB | 352 |
+| `xsh_process_pipeline` | 14.80 ms | 14.46 ms | -2.30% | 18.56 KiB | 218 |
+| `xsh_short_script` | 210.90 µs | 192.50 µs | -8.72% | 35.49 KiB | 314 |
+| `xshi_cd_list_complete_1000_entries` | 2.75 ms | 2.45 ms | -11.05% | 452.60 KiB | 14,043 |
+| `xshi_completion_navigation_1000_entries` | 19.33 µs | 16.41 µs | -15.11% | 255 B | 7 |
+| `xshi_dynamic_name_session` | 4.63 ms | 4.70 ms | +1.49% | 8.86 KiB | 88 |
+| `xshi_history_search_render_45000_entries` | 3.24 µs | 2.16 µs | -33.40% | 2.05 KiB | 1 |
+| `xshi_prompt_render_long_command` | 101 ns | 131 ns | +29.70% | 2.05 KiB | 1 |
+| `xsht_check_xsh_repository` | 174.00 ms | 158.10 ms | -9.14% | 65.28 MiB | 505,315 |
+| `xsht_format_check_xsh_repository` | 80.40 ms | 80.01 ms | -0.49% | 274.20 KiB | 844 |
+| `xsht_lint_xsh_repository` | 64.83 ms | 64.09 ms | -1.14% | 525.90 KiB | 6,828 |
+
+PGO improves 14 of 19 workloads. The thread-transfer and prompt-render rows are
+short enough that their negative deltas require focused repetition before they
+justify implementation changes.
+
+The repeated Phase 0 comparison measured JSON rollup at 13.81 ms and repository
+checking at 156.1 ms. Final focused regular measurements were 23.13 ms and
+161.9 ms; final focused PGO measurements were 19.28 ms and 157.8 ms. Repository
+checking is therefore near Phase 0 after the graph fix, while JSON remains the
+explicitly deferred regression.
+
+## Syscalls
+
+The Docker `strace` diagnostic completed for every benchmark. Key operation
+counts include:
+
+| benchmark | selected syscall counts |
+|---|---|
+| `xsh_process_pipeline` | 2 `execve`, 3 `clone`, 3 `wait4`, 1 `pipe2`, 2 `socketpair` |
+| `xsh_json_log_rollup_10000_rows` | 22 `read`, 12 `openat`, 12 `close`, 2 `getdents64` |
+| `xsht_check_xsh_repository` | 1,212 `read`, 818 `openat`, 814 `close`, 436 `getdents64` |
+
+No retained Phase 0 `strace` artifact exists for an exact final delta. Earlier
+campaign evidence records the same process path, and the final diagnostic shows
+the expected two process executions and wait boundaries for the pipeline.
+
+## Verification
+
+Passing gates:
+
+- frontend retained-stat tests;
+- indexed builder and verifier tests;
+- semantic integration tests;
+- the complete xsht CLI test suite;
+- 251 serial runtime integration tests;
+- exact native coverage;
+- full fast memory benchmark;
+- full regular and PGO benchmark suites;
+- Docker syscall diagnostics.
+
+The unfiltered `cargo test` run reaches 450 passes, including native coverage,
+then fails `ambient_fs_policy::ambient_filesystem_use_is_allowlisted` because
+test-only code in `src/runtime/eval/indexed/full.rs` uses `std::env::temp_dir`,
+`fs::create_dir_all`, `fs::write`, and `fs::remove_dir_all`. This is unrelated
+to the Stage 11 optimization and was not modified.
+
+Generated docs checks were intentionally not run to completion. The generated
+artifacts remain stale by explicit direction.

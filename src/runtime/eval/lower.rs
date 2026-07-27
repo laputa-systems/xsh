@@ -1547,7 +1547,53 @@ pub(super) fn lower_compact_function_units_into(
 ) -> Result<(), super::indexed::IrBuildError> {
     let root = compact_function_defs(program);
     let candidates = root.iter().map(|function| function.key).collect::<Vec<_>>();
-    for function in root {
+    let index_of = root
+        .iter()
+        .enumerate()
+        .map(|(index, function)| (function.key, index))
+        .collect::<FxHashMap<_, _>>();
+    let adjacency = root
+        .iter()
+        .map(|function| {
+            compact_function_call_edges(program, function.id, function.namespace, &index_of)
+        })
+        .collect::<Vec<_>>();
+    let dependencies = adjacency
+        .iter()
+        .map(|edges| edges.iter().map(|&index| root[index].key).collect::<Vec<_>>())
+        .collect::<Vec<_>>();
+    let mut scc_metadata = vec![(1, None); root.len()];
+    for pure in [true, false] {
+        let functions = root
+            .iter()
+            .enumerate()
+            .filter(|(_, function)| function.pure == pure)
+            .collect::<Vec<_>>();
+        let kind_index_of = functions
+            .iter()
+            .enumerate()
+            .map(|(index, (_, function))| (function.key, index))
+            .collect::<FxHashMap<_, _>>();
+        let kind_adjacency = functions
+            .iter()
+            .map(|(_, function)| {
+                compact_function_call_edges(
+                    program,
+                    function.id,
+                    function.namespace,
+                    &kind_index_of,
+                )
+            })
+            .collect::<Vec<_>>();
+        for (group, scc) in compact_tarjan_sccs(kind_adjacency).into_iter().enumerate() {
+            let member_count = scc.len();
+            let group = (member_count > 1).then_some(group);
+            for index in scc {
+                scc_metadata[functions[index].0] = (member_count, group);
+            }
+        }
+    }
+    for (index, function) in root.into_iter().enumerate() {
         let empty_pures = FxHashSet::default();
         let empty_procs = FxHashSet::default();
         let empty_qualified_pures = FxHashSet::default();
@@ -1583,11 +1629,10 @@ pub(super) fn lower_compact_function_units_into(
             strict_dynamic_methods: true,
             scratch: Rc::new(RefCell::new(BuildScratch::default())),
         };
-        let (scc_member_count, scc_group) =
-            compact_function_scc_metadata(program, function);
+        let (scc_member_count, scc_group) = scc_metadata[index];
         let unit = probe.lower_function_unit(
             function,
-            compact_function_dependency_keys(program, function),
+            dependencies[index].clone(),
             scc_member_count,
             scc_group,
         );
@@ -1763,14 +1808,10 @@ fn compact_function_dependency_keys(
         .enumerate()
         .map(|(index, function)| (function.key, index))
         .collect::<FxHashMap<_, _>>();
-    let mut dependencies =
-        compact_function_call_edges(program, function.id, function.namespace, &index_of)
-            .into_iter()
-            .map(|index| functions[index].key)
-            .collect::<Vec<_>>();
-    dependencies.sort_unstable();
-    dependencies.dedup();
-    dependencies
+    compact_function_call_edges(program, function.id, function.namespace, &index_of)
+        .into_iter()
+        .map(|index| functions[index].key)
+        .collect()
 }
 
 fn compact_function_scc_metadata(
