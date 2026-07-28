@@ -739,7 +739,7 @@ observable output merely to match an external reference implementation.
 
 #### Current baseline and gap
 
-Measured July 27, 2026 with the release `xsh` working tree over
+Measured July 28, 2026 with the release `xsh` working tree over
 `/Users/josh/dev/sentry` versus `/Users/josh/d/tokei/target/release/tokei`.
 Each command was warmed up twice and measured for seven runs with `hyperfine`;
 stdout was redirected to `/dev/null`. The default path uses the host's ten
@@ -748,12 +748,14 @@ trace events.
 
 | path | XSH wall | native wall | gap | XSH user CPU | native user CPU |
 | --- | --- | --- | --- | --- | --- |
-| default table | 2.216 s | 0.918 s | **~2.41× slower** | 7.116 s | 1.745 s |
-| `--json` | 4.459 s | 0.863 s | **~5.16× slower** | 8.113 s | 1.730 s |
+| default table | 2.269 s | 0.736 s | **~3.08× slower** | 11.135 s | 1.725 s |
+| `--json` | 4.298 s | 0.799 s | **~5.38× slower** | 7.270 s | 1.723 s |
 
-The lowered `par-map` A/B is the main change behind this improvement: forcing
-`--jobs=1` measured ~5.181 s default and ~7.509 s JSON, so worker execution is
-about **2.34× faster** for the table and **1.68× faster** for JSON. Aggregate
+The all-three pass combines direct lowered-function target caching,
+`par-map |> identity flat-map |> reduce-by` worker-local fusion, and
+ownership-preserving reducer extraction. Compared with the parallel-only
+baseline, JSON moved from 4.459 s to 4.298 s; the default table moved from
+2.216 s to 2.269 s, within the run spread rather than a material win. Aggregate
 counts still differ from native tokei (language-detection/ignore differences),
 while both paired runs report the same 43-line table shape and JSON language set.
 The historical ~0.59 s default and ~0.83 s JSON measurements remain context

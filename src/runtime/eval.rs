@@ -572,7 +572,7 @@ impl LoweredFunctionKey {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum LoweredFunctionKind {
     Pure,
     Proc,
@@ -1771,6 +1771,16 @@ enum LoweredPipelineStage {
         jobs: Option<BuildExprId>,
         value: BuildExprId,
     },
+    ParMapFlatMapReduceBy {
+        slot: usize,
+        body: Option<Vec<BuildStmtId>>,
+        jobs: Option<BuildExprId>,
+        value: BuildExprId,
+        reduce_item_slot: usize,
+        reduce_body: Vec<BuildStmtId>,
+        reduce_value: BuildExprId,
+        op: ReduceByOp,
+    },
     Tee {
         slot: usize,
         body: Vec<BuildStmtId>,
@@ -2626,6 +2636,7 @@ pub struct Evaluator {
     module_export_signatures:
         Arc<FxHashMap<crate::runtime::value::FunctionName, ModuleExportSignature>>,
     indexed_program: Option<Arc<FullProgram>>,
+    indexed_function_cache: FxHashMap<(LoweredFunctionKey, LoweredFunctionKind), usize>,
     indexed_dynamic_functions: Arc<FxHashMap<QualifiedName, DynamicFunction>>,
     lowered_slot_pool: Vec<Vec<LoweredValue>>,
     tag_variants: FxHashMap<Name, usize>,
@@ -2822,6 +2833,7 @@ impl Evaluator {
             scopes: vec![FxHashMap::default()],
             module_export_signatures: Arc::new(FxHashMap::default()),
             indexed_program: None,
+            indexed_function_cache: FxHashMap::default(),
             indexed_dynamic_functions: Arc::new(FxHashMap::default()),
             lowered_slot_pool: Vec::new(),
             tag_variants: FxHashMap::default(),
@@ -2974,6 +2986,7 @@ impl Evaluator {
             scopes: shared.scopes.clone(),
             module_export_signatures: shared.module_export_signatures.clone(),
             indexed_program: shared.indexed_program.clone(),
+            indexed_function_cache: FxHashMap::default(),
             indexed_dynamic_functions: shared.indexed_dynamic_functions.clone(),
             lowered_slot_pool: Vec::new(),
             tag_variants: shared.tag_variants.clone(),
@@ -4369,15 +4382,6 @@ impl Evaluator {
         self.error_families.extend(error_families);
     }
 
-    fn contains_indexed_function(
-        &self,
-        function: LoweredFunctionKey,
-        kind: LoweredFunctionKind,
-    ) -> bool {
-        self.indexed_program
-            .as_ref()
-            .is_some_and(|program| program.contains_function(function, kind))
-    }
 }
 
 impl Evaluator {

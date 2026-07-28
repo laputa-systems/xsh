@@ -341,14 +341,82 @@ fn lowered_freeze_large_slot_list(slot: &mut LoweredValue) {
     *slot = LoweredValue::SharedList(Arc::new(items));
 }
 
-/// Stringify a `reduce-by` block's `key` field (Str/Int/Bool), matching the
-/// keys produced by `count { key }` and the old recursive evaluator.
-fn lowered_reduce_by_key(output: &LoweredValue, span: Span) -> Result<String, RuntimeError> {
-    let key = lowered_record_field(output, "key").ok_or_else(|| {
-        RuntimeError::new("reduce-by-key", "reduce-by record is missing field `key`")
-            .with_span(span)
-    })?;
-    lowered_reduce_key_value(key, span)
+fn lowered_reduce_fields_owned(
+    output: LoweredValue,
+    key_field: &str,
+    value_field: &str,
+    span: Span,
+) -> Result<(LoweredValue, LoweredValue), RuntimeError> {
+    match output {
+        LoweredValue::Record(mut entries) => {
+            let key = entries.remove(key_field).ok_or_else(|| {
+                RuntimeError::new("reduce-by-key", "reduce-by record is missing field `key`")
+                    .with_span(span)
+            })?;
+            let value = entries.remove(value_field).ok_or_else(|| {
+                RuntimeError::new(
+                    "reduce-by-value",
+                    "reduce-by record is missing field `value`",
+                )
+                .with_span(span)
+            })?;
+            Ok((key, value))
+        }
+        LoweredValue::RecordVec(mut entries) => {
+            let key_index = lowered_record_vec_field_index(&entries, key_field).ok_or_else(|| {
+                RuntimeError::new("reduce-by-key", "reduce-by record is missing field `key`")
+                    .with_span(span)
+            })?;
+            let value_index =
+                lowered_record_vec_field_index(&entries, value_field).ok_or_else(|| {
+                    RuntimeError::new(
+                        "reduce-by-value",
+                        "reduce-by record is missing field `value`",
+                    )
+                    .with_span(span)
+                })?;
+            if key_index == value_index {
+                return Err(RuntimeError::new(
+                    "reduce-by-value",
+                    "reduce-by record key and value fields overlap",
+                )
+                .with_span(span));
+            }
+            let value = entries.swap_remove(value_index).1;
+            let key_index = if value_index < key_index {
+                key_index - 1
+            } else {
+                key_index
+            };
+            let key = entries.swap_remove(key_index).1;
+            Ok((key, value))
+        }
+        _ => Err(RuntimeError::new(
+            "reduce-by-value",
+            "reduce-by block must return a record",
+        )
+        .with_span(span)),
+    }
+}
+
+fn lowered_reduce_key_value_owned(
+    key: LoweredValue,
+    span: Span,
+) -> Result<String, RuntimeError> {
+    match key {
+        LoweredValue::Str(value) => Ok(value.to_string()),
+        LoweredValue::StrView(value) => Ok(value.as_str().to_string()),
+        LoweredValue::Int(value) => Ok(value.to_string()),
+        LoweredValue::Bool(value) => Ok(value.to_string()),
+        other => Err(RuntimeError::new(
+            "type-error",
+            format!(
+                "reduce-by key must be Str, Int, or Bool, found {}",
+                other.type_name()
+            ),
+        )
+        .with_span(span)),
+    }
 }
 
 fn lowered_reduce_key_value(key: &LoweredValue, span: Span) -> Result<String, RuntimeError> {

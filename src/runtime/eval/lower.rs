@@ -6997,6 +6997,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                         self.infer_checked_stream_stage_type_with_slots(&ty, stream_stage, slots)
                     });
                 }
+                self.fuse_par_map_flat_map_reduce_by(&mut lowered_stages);
                 Some(push_build_row!(self, expr, BuildExprRow::ListPipeline { input: self.lower_expr(input, slots, current_function, item_slot)?,
                 stages: lowered_stages,
                 span, }))
@@ -7020,6 +7021,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                         self.infer_checked_stream_stage_type_with_slots(&ty, stage, slots)
                     });
                 }
+                self.fuse_par_map_flat_map_reduce_by(&mut lowered_stages);
                 Some(push_build_row!(self, expr, BuildExprRow::ListPipeline { input: self.lower_expr(input, slots, current_function, item_slot)?,
                 stages: lowered_stages,
                 span, }))
@@ -8792,6 +8794,76 @@ impl CompactLowerConstructProbe<'_, '_> {
             (self.compact_tag_variant_arity(name) == Some(0)).then(|| push_build_row!(self, expr, BuildExprRow::Tag { name: Arc::<str>::from(name.as_str().as_str()),
             fields: Default::default(), }))
         })
+    }
+
+    fn fuse_par_map_flat_map_reduce_by(&self, stages: &mut Vec<LoweredPipelineStage>) {
+        let mut fused = Vec::with_capacity(stages.len());
+        let mut index = 0;
+        while index < stages.len() {
+            if index + 2 < stages.len()
+                && self.lowered_flat_map_is_identity(&stages[index + 1])
+                && let Some((slot, body, jobs, value)) =
+                    Self::lowered_par_map_parts(&stages[index])
+                && let LoweredPipelineStage::ReduceBy {
+                    item_slot,
+                    body: reduce_body,
+                    value: reduce_value,
+                    op,
+                } = stages[index + 2].clone()
+            {
+                fused.push(LoweredPipelineStage::ParMapFlatMapReduceBy {
+                    slot,
+                    body,
+                    jobs,
+                    value,
+                    reduce_item_slot: item_slot,
+                    reduce_body,
+                    reduce_value,
+                    op,
+                });
+                index += 3;
+                continue;
+            }
+            fused.push(stages[index].clone());
+            index += 1;
+        }
+        *stages = fused;
+    }
+
+    fn lowered_par_map_parts(
+        stage: &LoweredPipelineStage,
+    ) -> Option<(usize, Option<Vec<BuildStmtId>>, Option<BuildExprId>, BuildExprId)> {
+        match stage {
+            LoweredPipelineStage::ParMap { slot, jobs, value } => {
+                Some((*slot, None, *jobs, *value))
+            }
+            LoweredPipelineStage::ParMapBlock {
+                slot,
+                body,
+                jobs,
+                value,
+            } => Some((*slot, Some(body.clone()), *jobs, *value)),
+            _ => None,
+        }
+    }
+
+    fn lowered_flat_map_is_identity(&self, stage: &LoweredPipelineStage) -> bool {
+        let (slot, body, value) = match stage {
+            LoweredPipelineStage::FlatMap { slot, value } => (*slot, true, *value),
+            LoweredPipelineStage::FlatMapBlock {
+                slot,
+                body,
+                value,
+            } => (*slot, body.is_empty(), *value),
+            _ => return false,
+        };
+        if !body {
+            return false;
+        }
+        matches!(
+            self.scratch.borrow().expressions.get(value.index()),
+            Some(BuildExprRow::Param(param)) if *param == slot
+        )
     }
 
     fn lower_pipeline_stage(

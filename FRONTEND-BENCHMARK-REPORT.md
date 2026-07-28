@@ -32,6 +32,20 @@ for the default table and 7.509 s for JSON. The default ten-worker path measured
 2.216 s and 4.459 s respectively, a 2.34× and 1.68× improvement. Native release
 tokei measured 0.918 s and 0.863 s on the same warm seven-run comparison.
 
+## All-Three Optimization Pass
+
+The July 28, 2026 follow-up added direct lowered-function target caching,
+`par-map |> identity flat-map |> reduce-by` worker-local fusion, and
+ownership-preserving extraction of reducer fields. The Sentry result was
+2.269 s for the default table and 4.298 s for JSON, versus 0.736 s and 0.799 s
+for native release tokei on the same warm seven-run comparison.
+
+Compared with the parallel-only baseline above, JSON improved modestly from
+4.459 s to 4.298 s. The default table moved from 2.216 s to 2.269 s, which is
+within the run spread and is not a material latency win. Keep the prior
+parallel-only numbers as the stable baseline until a fresh profile explains
+the remaining dynamic-value and interpreter costs.
+
 ## Post-Stage 11 JSON Result
 
 The accepted regular release median for `xsh_json_log_rollup_10000_rows` is

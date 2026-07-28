@@ -134,6 +134,25 @@ fn indexed_optional_raw(
 }
 
 impl Evaluator {
+    fn indexed_function_index(
+        &mut self,
+        program: &FullProgram,
+        function: LoweredFunctionKey,
+        kind: LoweredFunctionKind,
+    ) -> Result<Option<usize>, IrVerifyError> {
+        let cache_key = (function, kind);
+        if let Some(index) = self.indexed_function_cache.get(&cache_key).copied() {
+            return Ok(Some(index));
+        }
+        let view = program.function_view(function, kind)?;
+        if let Some(view) = view {
+            let index = view.index();
+            self.indexed_function_cache.insert(cache_key, index);
+            return Ok(Some(index));
+        }
+        Ok(None)
+    }
+
     fn indexed_block_header(slot_count: usize) -> FunctionHeader {
         FunctionHeader {
             params: Default::default(),
@@ -296,6 +315,204 @@ impl Evaluator {
         })?;
         self.stderr.extend(stderr);
         Ok(chunks)
+    }
+
+    fn eval_indexed_reduce_rows(
+        &mut self,
+        execution: &FullExecution<'_>,
+        rows: Vec<LoweredValue>,
+        reduce_item_slot: usize,
+        reduce_body: u32,
+        reduce_value: u32,
+        op: ReduceByOp,
+        slots: &mut [LoweredValue],
+        groups: &mut BTreeMap<String, LoweredValue>,
+        span: Span,
+    ) -> Result<(), RuntimeError> {
+        let block_header = Self::indexed_block_header(slots.len());
+        for row in rows {
+            slots[reduce_item_slot] = row;
+            match self.eval_indexed_statement_block(
+                execution,
+                reduce_body,
+                &block_header,
+                slots,
+                span,
+            )? {
+                StmtFlow::None | StmtFlow::Continue => {}
+                StmtFlow::Propagate(value) | StmtFlow::Return(value) => {
+                    return Err(RuntimeError::new(
+                        "par-map-reduce",
+                        lowered_error_message(&value),
+                    )
+                    .with_span(span));
+                }
+                StmtFlow::Break(value) => {
+                    return Err(RuntimeError::new(
+                        "par-map-reduce",
+                        lowered_error_message(&value.unwrap_or(LoweredValue::Unit)),
+                    )
+                    .with_span(span));
+                }
+            }
+            let output = match self.eval_indexed_expr(execution, reduce_value, slots, span)? {
+                ControlFlow::Continue(value) => value,
+                ControlFlow::Break(value) => {
+                    return Err(RuntimeError::new(
+                        "par-map-reduce",
+                        lowered_error_message(&value),
+                    )
+                    .with_span(span));
+                }
+            };
+            let (key, value) = lowered_reduce_fields_owned(output, "key", "value", span)?;
+            let key = lowered_reduce_key_value_owned(key, span)?;
+            lowered_reduce_group_insert(groups, key, value, op, span)?;
+        }
+        slots[reduce_item_slot] = LoweredValue::Unit;
+        Ok(())
+    }
+
+    fn lowered_flat_map_rows(
+        &mut self,
+        value: LoweredValue,
+        span: Span,
+    ) -> Result<Vec<LoweredValue>, RuntimeError> {
+        match value {
+            LoweredValue::List(values) => Ok(values),
+            LoweredValue::SharedList(values) => Ok((*values).clone()),
+            LoweredValue::Stream(stream) => self
+                .collect_stream_values(*stream, span)?
+                .into_iter()
+                .map(|value| {
+                    lowered_value_from_runtime_any(&value).ok_or_else(|| {
+                        RuntimeError::new(
+                            "type-error",
+                            format!("flat-map produced unsupported {}", value.type_name()),
+                        )
+                        .with_span(span)
+                    })
+                })
+                .collect(),
+            other => Err(RuntimeError::new(
+                "type-error",
+                format!("flat-map expected List or Stream, found {}", other.type_name()),
+            )
+            .with_span(span)),
+        }
+    }
+
+    fn eval_indexed_par_map_flat_map_reduce_by(
+        &mut self,
+        execution: &FullExecution<'_>,
+        body: Option<u32>,
+        value: u32,
+        reduce_item_slot: usize,
+        reduce_body: u32,
+        reduce_value: u32,
+        op: ReduceByOp,
+        slots: &[LoweredValue],
+        slot: usize,
+        items: Vec<LoweredValue>,
+        jobs: usize,
+        span: Span,
+    ) -> Result<LoweredValue, RuntimeError> {
+        let worker_count = jobs.min(items.len()).max(1);
+        let chunk_size = items.len().div_ceil(worker_count);
+        let shared = self.lowered_shared_state();
+        let symbols = shared
+            .indexed_program
+            .as_ref()
+            .expect("verified fused par-map has an indexed program")
+            .symbol_owner()
+            .clone();
+        let base_slots = slots.to_vec();
+        let completed = std::thread::scope(|scope| {
+            let mut workers = Vec::with_capacity(worker_count);
+            for (chunk_index, chunk) in items.chunks(chunk_size).enumerate() {
+                let chunk = chunk.to_vec();
+                let shared = &shared;
+                let symbols = symbols.clone();
+                let base_slots = base_slots.clone();
+                let map_header = Self::indexed_block_header(slots.len());
+                let execution = execution.thread_local();
+                let worker = std::thread::Builder::new()
+                    .stack_size(super::super::debug_test_eval_stack_size(12 * 1024 * 1024))
+                    .spawn_scoped(scope, move || {
+                        let _symbols = symbols.enter();
+                        let mut worker = Evaluator::new_lowered_worker(shared);
+                        let mut worker_slots = base_slots;
+                        let mut groups = BTreeMap::new();
+                        let result = (|| {
+                            for item in chunk {
+                                let mapped = worker.eval_indexed_par_map_item(
+                                    &execution,
+                                    body,
+                                    value,
+                                    &map_header,
+                                    &mut worker_slots,
+                                    slot,
+                                    item,
+                                    span,
+                                );
+                                let rows = worker.lowered_flat_map_rows(mapped, span)?;
+                                worker.eval_indexed_reduce_rows(
+                                    &execution,
+                                    rows,
+                                    reduce_item_slot,
+                                    reduce_body,
+                                    reduce_value,
+                                    op,
+                                    &mut worker_slots,
+                                    &mut groups,
+                                    span,
+                                )?;
+                            }
+                            Ok::<_, RuntimeError>(groups)
+                        })();
+                        (chunk_index, result, worker.stderr)
+                    })
+                    .expect("failed to spawn fused par-map worker");
+                workers.push(worker);
+            }
+            let mut completed: Vec<Option<(Result<BTreeMap<String, LoweredValue>, RuntimeError>, Vec<u8>)>> =
+                (0..workers.len()).map(|_| None).collect();
+            while !workers.is_empty() {
+                let mut index = 0;
+                let mut progress = false;
+                while index < workers.len() {
+                    if workers[index].is_finished() {
+                        let worker = workers.swap_remove(index);
+                        let (chunk_index, result, worker_stderr) = worker
+                            .join()
+                            .expect("fused par-map worker thread panicked");
+                        completed[chunk_index] = Some((result, worker_stderr));
+                        progress = true;
+                    } else {
+                        index += 1;
+                    }
+                }
+                self.service_pending_signal(span)?;
+                if !progress {
+                    std::thread::sleep(std::time::Duration::from_millis(1));
+                }
+            }
+            Ok(completed)
+        })?;
+        self.stderr.extend(
+            completed
+                .iter()
+                .filter_map(|entry| entry.as_ref())
+                .flat_map(|(_, stderr)| stderr.iter().copied()),
+        );
+        let mut groups = BTreeMap::new();
+        for completed in completed {
+            let (result, _) = completed.expect("fused par-map worker missing");
+            for (key, value) in result? {
+                lowered_reduce_group_insert(&mut groups, key, value, op, span)?;
+            }
+        }
+        Ok(LoweredValue::Map(groups))
     }
 
     fn decode_indexed_run_arg<'a>(
@@ -1332,10 +1549,21 @@ impl Evaluator {
         values: &[LoweredValue],
         call_span: Span,
     ) -> Result<LoweredValue, RuntimeError> {
-        let kind = if self.contains_indexed_function(function, LoweredFunctionKind::Pure) {
-            LoweredFunctionKind::Pure
-        } else if self.contains_indexed_function(function, LoweredFunctionKind::Proc) {
-            LoweredFunctionKind::Proc
+        let program = Arc::clone(
+            self.indexed_program
+                .as_ref()
+                .expect("indexed caller retains its indexed program"),
+        );
+        let (kind, index) = if let Some(index) = self
+            .indexed_function_index(&program, function, LoweredFunctionKind::Pure)
+            .map_err(|error| indexed_error(error, call_span))?
+        {
+            (LoweredFunctionKind::Pure, index)
+        } else if let Some(index) = self
+            .indexed_function_index(&program, function, LoweredFunctionKind::Proc)
+            .map_err(|error| indexed_error(error, call_span))?
+        {
+            (LoweredFunctionKind::Proc, index)
         } else {
             return Err(RuntimeError::new(
                 "unresolved-lowered-call",
@@ -1343,18 +1571,9 @@ impl Evaluator {
             )
             .with_span(call_span));
         };
-        let program = Arc::clone(
-            self.indexed_program
-                .as_ref()
-                .expect("indexed caller retains its indexed program"),
-        );
         let view = program
-            .function_view(function, kind)
-            .map_err(|error| indexed_error(error, call_span))?
-            .ok_or_else(|| {
-                RuntimeError::new("unresolved-lowered-call", function.display_name())
-                    .with_span(call_span)
-            })?;
+            .function_view_at(index)
+            .expect("cached lowered function index is valid");
         if self.indexed_frames_supported(view, call_span)? {
             return self.eval_indexed_with_frames(
                 program.as_ref(),
@@ -1388,10 +1607,21 @@ impl Evaluator {
         values: &[LoweredValue],
         call_span: Span,
     ) -> Result<LoweredValue, RuntimeError> {
-        let kind = if self.contains_indexed_function(function, LoweredFunctionKind::Pure) {
-            LoweredFunctionKind::Pure
-        } else if self.contains_indexed_function(function, LoweredFunctionKind::Proc) {
-            LoweredFunctionKind::Proc
+        let program = Arc::clone(
+            self.indexed_program
+                .as_ref()
+                .expect("indexed caller retains its indexed program"),
+        );
+        let index = if let Some(index) = self
+            .indexed_function_index(&program, function, LoweredFunctionKind::Pure)
+            .map_err(|error| indexed_error(error, call_span))?
+        {
+            index
+        } else if let Some(index) = self
+            .indexed_function_index(&program, function, LoweredFunctionKind::Proc)
+            .map_err(|error| indexed_error(error, call_span))?
+        {
+            index
         } else {
             return Err(RuntimeError::new(
                 "unresolved-lowered-call",
@@ -1399,18 +1629,9 @@ impl Evaluator {
             )
             .with_span(call_span));
         };
-        let program = Arc::clone(
-            self.indexed_program
-                .as_ref()
-                .expect("indexed caller retains its indexed program"),
-        );
         let view = program
-            .function_view(function, kind)
-            .map_err(|error| indexed_error(error, call_span))?
-            .ok_or_else(|| {
-                RuntimeError::new("unresolved-lowered-call", function.display_name())
-                    .with_span(call_span)
-            })?;
+            .function_view_at(index)
+            .expect("cached lowered function index is valid");
         let header = view
             .header()
             .map_err(|error| indexed_error(error, call_span))?;
@@ -1509,6 +1730,7 @@ impl Evaluator {
             FullStageTag::Fold => "fold",
             FullStageTag::ReduceBy => "reduce-by",
             FullStageTag::ParMap | FullStageTag::ParMapBlock => "par-map",
+            FullStageTag::ParMapFlatMapReduceBy => "par-map",
             FullStageTag::Tee => "tee",
             FullStageTag::Each => "each",
             FullStageTag::TablePrint => "table.print",
@@ -3328,17 +3550,9 @@ impl Evaluator {
                                             return Ok(ControlFlow::Break(value));
                                         }
                                     };
-                                let key = lowered_reduce_by_key(&output, span)?;
-                                let value =
-                                    lowered_record_field_value(&output, "value").ok_or_else(
-                                        || {
-                                            RuntimeError::new(
-                                                "reduce-by-value",
-                                                "reduce-by record is missing field `value`",
-                                            )
-                                            .with_span(span)
-                                        },
-                                    )?;
+                                let (key, value) =
+                                    lowered_reduce_fields_owned(output, "key", "value", span)?;
+                                let key = lowered_reduce_key_value_owned(key, span)?;
                                 lowered_reduce_group_insert(
                                     &mut groups,
                                     key,
@@ -3349,6 +3563,104 @@ impl Evaluator {
                             }
                             slots[item_slot] = LoweredValue::Unit;
                             LoweredValue::Map(groups.into_iter().collect())
+                        }
+                        FullStageTag::ParMapFlatMapReduceBy => {
+                            let slot = indexed_decode::<usize>(
+                                &mut stage_payload,
+                                execution,
+                                span,
+                            )?;
+                            let body = indexed_optional_raw(&mut stage_payload, span)?;
+                            let jobs = indexed_optional_raw(&mut stage_payload, span)?;
+                            let value = indexed_raw(&mut stage_payload, span)?;
+                            let reduce_item_slot = indexed_decode::<usize>(
+                                &mut stage_payload,
+                                execution,
+                                span,
+                            )?;
+                            let reduce_body = indexed_raw(&mut stage_payload, span)?;
+                            let reduce_value = indexed_raw(&mut stage_payload, span)?;
+                            let op = indexed_decode::<ReduceByOp>(
+                                &mut stage_payload,
+                                execution,
+                                span,
+                            )?;
+                            indexed_finish(stage_payload, span)?;
+                            let jobs = match jobs {
+                                Some(jobs) => match self.eval_indexed_expr(execution, jobs, slots, span)? {
+                                    ControlFlow::Continue(value) => {
+                                        lowered_nonnegative_count(value, span)?.max(1)
+                                    }
+                                    ControlFlow::Break(value) => {
+                                        return Ok(ControlFlow::Break(value));
+                                    }
+                                },
+                                None => std::thread::available_parallelism()
+                                    .map_or(1, std::num::NonZeroUsize::get),
+                            };
+                            let items = self.lowered_pipeline_input_items(current, span)?;
+                            if self.trace_enabled || jobs <= 1 || items.len() <= 1 {
+                                let map_header = Self::indexed_block_header(slots.len());
+                                let mut groups = BTreeMap::new();
+                                for (item_index, item) in items.into_iter().enumerate() {
+                                    if self.trace_enabled {
+                                        self.trace_lowered_parallel_job(
+                                            TraceKind::ParallelJobStart,
+                                            "par-map",
+                                            item_index,
+                                            None,
+                                            span,
+                                        );
+                                    }
+                                    let mapped = self.eval_indexed_par_map_item(
+                                        execution,
+                                        body,
+                                        value,
+                                        &map_header,
+                                        slots,
+                                        slot,
+                                        item,
+                                        span,
+                                    );
+                                    let rows = self.lowered_flat_map_rows(mapped, span)?;
+                                    self.eval_indexed_reduce_rows(
+                                        execution,
+                                        rows,
+                                        reduce_item_slot,
+                                        reduce_body,
+                                        reduce_value,
+                                        op,
+                                        slots,
+                                        &mut groups,
+                                        span,
+                                    )?;
+                                    if self.trace_enabled {
+                                        self.trace_lowered_parallel_job(
+                                            TraceKind::ParallelJobEnd,
+                                            "par-map",
+                                            item_index,
+                                            None,
+                                            span,
+                                        );
+                                    }
+                                }
+                                LoweredValue::Map(groups)
+                            } else {
+                                self.eval_indexed_par_map_flat_map_reduce_by(
+                                    execution,
+                                    body,
+                                    value,
+                                    reduce_item_slot,
+                                    reduce_body,
+                                    reduce_value,
+                                    op,
+                                    slots,
+                                    slot,
+                                    items,
+                                    jobs,
+                                    span,
+                                )?
+                            }
                         }
                         FullStageTag::ParMap | FullStageTag::ParMapBlock => {
                             let slot = indexed_decode::<usize>(

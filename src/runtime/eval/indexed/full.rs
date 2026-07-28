@@ -264,6 +264,7 @@ pub(in crate::runtime::eval) enum FullStageTag {
     ReduceBy,
     ParMap,
     ParMapBlock,
+    ParMapFlatMapReduceBy,
     Tee,
     Each,
     TablePrint,
@@ -789,6 +790,16 @@ impl FullProgram {
         Ok(None)
     }
 
+    pub(in crate::runtime::eval) fn function_view_at(
+        &self,
+        index: usize,
+    ) -> Option<FullFunctionView<'_>> {
+        (index < self.store.functions.len()).then_some(FullFunctionView {
+            program: self,
+            index,
+        })
+    }
+
     fn function_identity(
         &self,
         function_index: usize,
@@ -1119,6 +1130,10 @@ impl FullProgram {
 }
 
 impl<'a> FullFunctionView<'a> {
+    pub(in crate::runtime::eval) fn index(&self) -> usize {
+        self.index
+    }
+
     pub(in crate::runtime::eval) fn instruction_tags(
         &self,
     ) -> Result<&'a [FullTag], IrVerifyError> {
@@ -6187,6 +6202,34 @@ impl_stage_codec! {
         body,
         jobs,
         value,
+    },
+    LoweredPipelineStage::ParMapFlatMapReduceBy {
+        slot,
+        body,
+        jobs,
+        value,
+        reduce_item_slot,
+        reduce_body,
+        reduce_value,
+        op,
+    } => ParMapFlatMapReduceBy {
+        slot: usize,
+        body: Option<Vec<BuildStmtId>>,
+        jobs: Option<BuildExprId>,
+        value: BuildExprId,
+        reduce_item_slot: usize,
+        reduce_body: Vec<BuildStmtId>,
+        reduce_value: BuildExprId,
+        op: ReduceByOp,
+    } => LoweredPipelineStage::ParMapFlatMapReduceBy {
+        slot,
+        body,
+        jobs,
+        value,
+        reduce_item_slot,
+        reduce_body,
+        reduce_value,
+        op,
     },
     LoweredPipelineStage::Tee { slot, body } => Tee {
         slot: usize,
