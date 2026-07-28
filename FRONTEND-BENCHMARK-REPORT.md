@@ -61,6 +61,16 @@ historical p5 behavior and avoiding oversubscription on this host. A single-run 
 versus native 48.1 MiB for the default path, and 56.3 MiB versus 56.3 MiB for
 JSON. Memory is at parity; the remaining gap is execution CPU work.
 
+## Stateful Byte Scanner
+
+The July 27 follow-up adds the guarded `StmtScanBytes` lowered instruction for
+the stateful slash-comment loop in `showcase/tokei.xsh`. It replaces repeated
+lowered `byte_at` expression and statement dispatch with one general byte-state
+machine while retaining the ordinary loop as the fallback. The seven-run
+release comparison measures 1.152 s for the default table and 1.070 s for JSON,
+versus native 0.710 s and 0.712 s: approximately 1.62× and 1.50× slower. The
+frontend memory targets were not rerun for this focused performance pass.
+
 ## Current Memory Audit
 
 The campaign-scope `xsh-frontend-stats --json` run on July 28 reports the same

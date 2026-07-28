@@ -19,7 +19,7 @@ use crate::runtime::eval::{
     LoweredStatsValue, LoweredStrPredicate, LoweredTagValue, LoweredType, LoweredTypeCheck,
     LoweredModuleExport, LoweredModuleExportKind, ProgramBuild, BuildTopKind,
     LoweredTopLevelSlot, LoweredTopLevelSlots, BuildTopStmtRow, LoweredValue, ReduceByOp,
-    ScanCheck, ScanCondition,
+    ScanBytes, ScanCheck, ScanCondition,
 };
 use crate::runtime::value::{DurationValue, FloatValue, FunctionName, PathValue};
 use crate::sema::check::{CompactBodyProbeOutput, CompactDeclOutput};
@@ -217,6 +217,7 @@ pub(in crate::runtime::eval) enum FullTag {
     StmtForRecord,
     StmtForStrLines,
     StmtScanLines,
+    StmtScanBytes,
     StmtPrint,
     StmtCd,
     StmtEnv,
@@ -2650,7 +2651,8 @@ fn instruction_effects(tags: &[FullTag]) -> u32 {
                 | FullTag::StmtFor
                 | FullTag::StmtForRecord
                 | FullTag::StmtForStrLines
-                | FullTag::StmtScanLines => EFFECT_CANCELLATION,
+                | FullTag::StmtScanLines
+                | FullTag::StmtScanBytes => EFFECT_CANCELLATION,
                 _ => 0,
             }
     })
@@ -5659,6 +5661,41 @@ impl FullCodec for ScanCheck {
     }
 }
 
+impl FullCodec for ScanBytes {
+    fn encode(
+        &self,
+        builder: &mut FullBuilder,
+        output: &mut Vec<u32>,
+    ) -> Result<(), IrBuildError> {
+        self.line_slot.encode(builder, output)?;
+        self.block_depth_slot.encode(builder, output)?;
+        self.code_seen_slot.encode(builder, output)?;
+        self.comment_seen_slot.encode(builder, output)?;
+        self.in_string_slot.encode(builder, output)?;
+        self.string_delim_slot.encode(builder, output)?;
+        self.escaped_slot.encode(builder, output)?;
+        self.nested.encode(builder, output)?;
+        self.span.encode(builder, output)
+    }
+
+    fn decode(
+        decoder: &FullDecoder<'_>,
+        input: &mut FullCursor<'_>,
+    ) -> Result<Self, IrVerifyError> {
+        Ok(Self {
+            line_slot: usize::decode(decoder, input)?,
+            block_depth_slot: usize::decode(decoder, input)?,
+            code_seen_slot: usize::decode(decoder, input)?,
+            comment_seen_slot: usize::decode(decoder, input)?,
+            in_string_slot: usize::decode(decoder, input)?,
+            string_delim_slot: usize::decode(decoder, input)?,
+            escaped_slot: usize::decode(decoder, input)?,
+            nested: bool::decode(decoder, input)?,
+            span: Span::decode(decoder, input)?,
+        })
+    }
+}
+
 impl FullCodec for LoweredProcessCommandArgv {
     fn encode(
         &self,
@@ -7230,6 +7267,9 @@ impl_node_codec! {
             checks,
             span,
         },
+        BuildStmtRow::ScanBytes { config } => StmtScanBytes {
+            config: ScanBytes,
+        } => BuildStmtRow::ScanBytes { config },
         BuildStmtRow::Print {
             args,
             stderr,
@@ -7445,6 +7485,21 @@ proc main() [error] {
             .filter(|tag| **tag == FullTag::StmtScanLines)
             .count();
         assert!(scan_lines > 0, "Tokei showcase has no ScanLines instructions");
+    }
+
+    #[test]
+    fn tokei_showcase_contains_scan_bytes_fast_paths() {
+        let program = fixture(
+            "showcase/tokei.xsh",
+            include_str!("../../../../showcase/tokei.xsh"),
+        );
+        let scan_bytes = program
+            .store
+            .tags
+            .iter()
+            .filter(|tag| **tag == FullTag::StmtScanBytes)
+            .count();
+        assert!(scan_bytes > 0, "Tokei showcase has no ScanBytes instructions");
     }
 
     fn normalize_traces(events: &[crate::trace::TraceEvent]) -> String {

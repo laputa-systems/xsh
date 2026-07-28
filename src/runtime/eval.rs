@@ -1124,6 +1124,9 @@ enum BuildStmtRow {
         checks: Vec<ScanCheck>,
         span: Span,
     },
+    ScanBytes {
+        config: ScanBytes,
+    },
     Print {
         args: Vec<BuildExprId>,
         stderr: bool,
@@ -1861,6 +1864,19 @@ enum ScanCondition {
 struct ScanCheck {
     condition: ScanCondition,
     counter_slot: usize,
+}
+
+#[derive(Clone, Debug)]
+struct ScanBytes {
+    line_slot: usize,
+    block_depth_slot: usize,
+    code_seen_slot: usize,
+    comment_seen_slot: usize,
+    in_string_slot: usize,
+    string_delim_slot: usize,
+    escaped_slot: usize,
+    nested: bool,
+    span: Span,
 }
 
 #[derive(Clone, Debug)]

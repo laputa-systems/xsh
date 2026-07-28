@@ -9,7 +9,7 @@ use crate::runtime::eval::lower::{
 };
 use crate::runtime::eval::{
     LoweredModuleExport, LoweredTopLevelSlot, LoweredTypeCheck, Propagation,
-    ScanCheck, process_handle,
+    ScanBytes, ScanCheck, process_handle,
 };
 use crate::modules::hash::HashAlgorithm;
 use smallvec::SmallVec;
@@ -6997,6 +6997,94 @@ impl Evaluator {
                     cursor = newline + 1;
                 }
                 slots[line_slot] = LoweredValue::Unit;
+                Ok(StmtFlow::None)
+            }
+            FullTag::StmtScanBytes => {
+                let config = indexed_decode::<ScanBytes>(&mut payload, execution, call_span)?;
+                indexed_finish(payload, call_span)?;
+                let Some((line, start, end)) = lowered_bytes_parts(&slots[config.line_slot]) else {
+                    return Err(RuntimeError::new(
+                        "type-error",
+                        "ScanBytes expected Bytes",
+                    )
+                    .with_span(config.span));
+                };
+                let bytes = &line[start..end];
+                let mut block_depth = match slots[config.block_depth_slot] {
+                    LoweredValue::Int(value) => value,
+                    _ => {
+                        return Err(RuntimeError::new(
+                            "type-error",
+                            "ScanBytes block depth expected Int",
+                        )
+                        .with_span(config.span));
+                    }
+                };
+                let mut index = 0usize;
+                let mut code_seen = false;
+                let mut comment_seen = false;
+                let mut in_string = false;
+                let mut string_delim = -1i64;
+                let mut escaped = false;
+                while index < bytes.len() {
+                    if index & 4095 == 0 {
+                        self.service_pending_signal(config.span)?;
+                        if self.signal_state.shutdown_complete {
+                            return Ok(StmtFlow::None);
+                        }
+                    }
+                    let byte = i64::from(bytes[index]);
+                    let next_byte = bytes
+                        .get(index + 1)
+                        .copied()
+                        .map(i64::from)
+                        .unwrap_or(-1);
+                    if block_depth > 0 {
+                        comment_seen = true;
+                        if config.nested && byte == 47 && next_byte == 42 {
+                            block_depth += 1;
+                            index += 2;
+                        } else if byte == 42 && next_byte == 47 {
+                            block_depth -= 1;
+                            index += 2;
+                        } else {
+                            index += 1;
+                        }
+                    } else if in_string {
+                        code_seen = true;
+                        if escaped {
+                            escaped = false;
+                        } else if byte == 92 {
+                            escaped = true;
+                        } else if byte == string_delim {
+                            in_string = false;
+                        }
+                        index += 1;
+                    } else if byte == 34 || byte == 39 || byte == 96 {
+                        code_seen = true;
+                        in_string = true;
+                        string_delim = byte;
+                        index += 1;
+                    } else if byte == 47 && next_byte == 47 {
+                        comment_seen = true;
+                        index = bytes.len();
+                    } else if byte == 47 && next_byte == 42 {
+                        comment_seen = true;
+                        block_depth = 1;
+                        index += 2;
+                    } else {
+                        if byte != 32 && byte != 9 {
+                            code_seen = true;
+                        }
+                        index += 1;
+                    }
+                }
+                slots[config.block_depth_slot] = LoweredValue::Int(block_depth);
+                slots[config.code_seen_slot] = LoweredValue::Bool(code_seen);
+                slots[config.comment_seen_slot] = LoweredValue::Bool(comment_seen);
+                slots[config.in_string_slot] = LoweredValue::Bool(in_string);
+                slots[config.string_delim_slot] = LoweredValue::Int(string_delim);
+                slots[config.escaped_slot] = LoweredValue::Bool(escaped);
                 Ok(StmtFlow::None)
             }
             FullTag::StmtCd => {
