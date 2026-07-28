@@ -603,14 +603,15 @@ Prefer changes that reduce parser/token churn, compact install cost, body/functi
    behavior. Measure stack size, release RSS, and instruction deltas; do not
    rely on debug timing.
 
-3. **Reduce lowered value movement and retained report graphs.** The remaining
-   tokei gap is dominated by dynamic `LoweredValue` records/maps/lists, ordered
-   `par-map` coordination, and final report/JSON construction rather than one
-   missing scanner optimization. Good candidates are representation changes that
-   apply to many scripts: cheaper small records, lower-clone method dispatch,
-   more in-place collection updates when aliasing permits, or streaming JSON
-   emission that does not retain extra script-visible state. Treat each as a
-   measured release A/B over a representative user-facing workload.
+3. **Reduce lowered value movement and retained report graphs.** After restoring
+   actual `par-map` workers, the remaining tokei gap is dominated by dynamic
+   `LoweredValue` records/maps/lists, worker setup, and final report/JSON
+   construction rather than one missing scanner optimization. Good candidates
+   are representation changes that apply to many scripts: cheaper small records,
+   lower-clone method dispatch, more in-place collection updates when aliasing
+   permits, or streaming JSON emission that does not retain extra script-visible
+   state. Treat each as a measured release A/B over a representative user-facing
+   workload.
 
 4. **Guard that lowering threads every behavior-bearing arena field.** A common
    failure mode is lowered IR silently omitting something the arena carries:
@@ -738,34 +739,25 @@ observable output merely to match an external reference implementation.
 
 #### Current baseline and gap
 
-Treat the historical values below as context, not as a fresh completion claim.
+Measured July 27, 2026 with the release `xsh` working tree over
+`/Users/josh/dev/sentry` versus `/Users/josh/d/tokei/target/release/tokei`.
+Each command was warmed up twice and measured for seven runs with `hyperfine`;
+stdout was redirected to `/dev/null`. The default path uses the host's ten
+parallel workers; traced execution intentionally remains serial for ordered
+trace events.
 
-Release `showcase/tokei.xsh` over `/Users/josh/dev/sentry` vs native release
-tokei (warm, hyperfine, 7 runs):
+| path | XSH wall | native wall | gap | XSH user CPU | native user CPU |
+| --- | --- | --- | --- | --- | --- |
+| default table | 2.216 s | 0.918 s | **~2.41× slower** | 7.116 s | 1.745 s |
+| `--json` | 4.459 s | 0.863 s | **~5.16× slower** | 8.113 s | 1.730 s |
 
-| path | XSH wall | native wall | gap | XSH user CPU |
-| --- | --- | --- | --- | --- |
-| default table | ~0.59 s | ~0.77 s | **~1.31× faster** | ~1.23 s |
-| `--json` | ~0.83 s | ~0.83 s | **~parity** | ~1.31 s |
-
-Trajectory of the default path: pre-lowering it was ~1.65 s wall / ~8.6 s user
-(~2.3× native); after the `map.empty()`/block-scope scanner-lowering fixes it was
-~1.03 s / ~2.34 s (~1.35× slower). After **co-lowering the mutually-recursive
-scanner cluster** (SCC co-lowering + `bytes.concat` + match-arm block-scoping +
-bare-ident match arms; item 3 below) plus memoizing `record_schemas` (item 5), it
-is ~0.59 s wall / ~1.23 s user — **now faster than native release tokei** on the
-default path. Aggregate counts still differ from native tokei
-(language-detection/ignore differences, compared separately); XSH-vs-previous-XSH
-JSON parity is preserved (canonicalized).
-
-The `--json` gap closed at the same time: the heavy TS/JS/HTML/Markdown scanners
-run on both paths and were the dominant `--json` cost too, so lowering them (with
-cheaper per-file record materialization from the `record_schemas` memoization)
-brought `--json` from ~3.83× to **roughly at parity** with native — without
-touching the report-assembly path itself (the planned parallel report-list reducer
-is therefore no longer justified by the benchmark; re-measure before pursuing it,
-see item 4 below). The remaining XSH self-time is now value movement (alloc/free +
-value-drop/clone + btree/record), not scanning or scope hashing.
+The lowered `par-map` A/B is the main change behind this improvement: forcing
+`--jobs=1` measured ~5.181 s default and ~7.509 s JSON, so worker execution is
+about **2.34× faster** for the table and **1.68× faster** for JSON. Aggregate
+counts still differ from native tokei (language-detection/ignore differences),
+while both paired runs report the same 43-line table shape and JSON language set.
+The historical ~0.59 s default and ~0.83 s JSON measurements remain context
+only; native tokei is still faster on the current workload.
 
 #### Open performance work
 
@@ -840,19 +832,19 @@ priority order:
    `count_language`, `join_lines`) now lower; only `lang_for_name_ext` still falls
    back, on **guard patterns** (`e if e == "ts" or …`), which the lowerer does not
    yet support and which are out of scope here (a cold per-file dispatch helper).
-   Release A/B: default path went ~1.03 s → ~0.59 s wall (now faster than native);
-   `--json` ~3.07 s → ~0.83 s (parity). Covered by direct lowered tests
+   Historical release A/B: the default path went ~1.03 s → ~0.59 s wall and
+   `--json` went ~3.07 s → ~0.83 s (parity at that time). Those measurements are
+   superseded by the July 27, 2026 baseline above. Covered by direct lowered tests
    (`bytes_concat_lowers_and_matches_ast`, `mutually_recursive_pures_colower_atomically`,
    `statement_match_arms_relet_sibling_names`, `match_expr_bare_ident_fallback_lowers`)
    and tokei JSON parity.
-4. **(Resolved as a side effect of item 3 — re-measure before pursuing.)** The
-   `--json` report path was the biggest headline gap (~3.83×). The scanners are
-   identical on both paths and were the dominant `--json` cost; lowering them (item
-   3) plus the `record_schemas` memoization (item 5) brought `--json` to ~parity
-   with native (~0.83 s vs ~0.83 s) **without** touching report assembly. A
-   parallel list-merging `reduce-by` reducer (to group per-language report lists in
-   parallel, deleting the serial ~18k-file dispatch loop in `--json`) was the
-   planned next lever; it is no longer justified by the benchmark. If a future
+4. **(Historical result — re-measure before pursuing.)** The `--json` report path
+   was the biggest headline gap (~3.83×). The scanners were identical on both
+   paths and were the dominant `--json` cost; lowering them (item 3) plus
+   `record_schemas` memoization (item 5) brought `--json` to ~parity with native
+   (~0.83 s vs ~0.83 s) **without** touching report assembly. The current baseline
+   no longer supports treating the parallel list-merging `reduce-by` reducer as
+   unnecessary; re-profile before deciding whether to pursue it. If a future
    change regresses `--json`, add or adapt a representative benchmark before
    reaching for it.
 5. **(Done — `record_schemas` memoized.)** `sema::records::standard_record_type`

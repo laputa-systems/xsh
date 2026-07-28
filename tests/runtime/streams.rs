@@ -457,3 +457,29 @@ print ${results[3]}
     let stderr = String::from_utf8(output.stderr).unwrap();
     assert!(stderr.contains("par-map error"));
 }
+
+#[test]
+fn par_map_jobs_run_concurrently_and_preserve_order() {
+    let started = Instant::now();
+    let output = run_temp_script(
+        "par-map-concurrent-order",
+        "\
+let values = [1, 2, 3, 4]
+  |> par-map --jobs=4 { |value|
+    time.sleep(200ms)?
+    value * 2
+  }
+for value in values {
+  print value
+}
+",
+    );
+
+    assert!(output.status.success());
+    assert_eq!(String::from_utf8(output.stdout).unwrap(), "2\n4\n6\n8\n");
+    assert!(
+        started.elapsed() < Duration::from_millis(650),
+        "par-map did not overlap workers: {:?}",
+        started.elapsed()
+    );
+}

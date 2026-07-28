@@ -20,6 +20,18 @@ frames are larger than the initial Phase 9 layout capture. Generated docs were
 excluded by explicit direction. The JSON regression recorded in the original
 Stage 11 snapshot was subsequently closed; see `JSON-IMPROVEMENTS.md`.
 
+## Lowered `par-map` Follow-Up
+
+The current lowered `par-map` path now honors `--jobs=N` and uses bounded
+worker threads while preserving input order. The parent polls workers so signal
+hooks remain observable while workers run. Traced `par-map` remains serial to
+preserve ordered parallel-job trace events.
+
+On the July 27, 2026 Sentry showcase A/B, forcing `--jobs=1` measured 5.181 s
+for the default table and 7.509 s for JSON. The default ten-worker path measured
+2.216 s and 4.459 s respectively, a 2.34× and 1.68× improvement. Native release
+tokei measured 0.918 s and 0.863 s on the same warm seven-run comparison.
+
 ## Post-Stage 11 JSON Result
 
 The accepted regular release median for `xsh_json_log_rollup_10000_rows` is

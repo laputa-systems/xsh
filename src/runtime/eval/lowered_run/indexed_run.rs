@@ -147,6 +147,157 @@ impl Evaluator {
         }
     }
 
+    fn eval_indexed_par_map_item(
+        &mut self,
+        execution: &FullExecution<'_>,
+        body: Option<u32>,
+        value: u32,
+        block_header: &FunctionHeader,
+        slots: &mut [LoweredValue],
+        slot: usize,
+        item: LoweredValue,
+        span: Span,
+    ) -> LoweredValue {
+        slots[slot] = item;
+        let item_result = if let Some(body) = body {
+            match self.eval_indexed_statement_block(
+                execution,
+                body,
+                block_header,
+                slots,
+                span,
+            ) {
+                Ok(StmtFlow::None) | Ok(StmtFlow::Continue) => {
+                    self.eval_indexed_expr(execution, value, slots, span)
+                }
+                Ok(StmtFlow::Return(value)) | Ok(StmtFlow::Propagate(value)) => {
+                    Ok(ControlFlow::Break(value))
+                }
+                Ok(StmtFlow::Break(value)) => Ok(ControlFlow::Break(
+                    value.unwrap_or(LoweredValue::Unit),
+                )),
+                Err(error) => Err(error),
+            }
+        } else {
+            self.eval_indexed_expr(execution, value, slots, span)
+        };
+        let item_result = match item_result {
+            Ok(ControlFlow::Continue(value)) => value,
+            Ok(ControlFlow::Break(value)) => {
+                self.stderr.extend_from_slice(
+                    format!("par-map error: {}\n", lowered_error_message(&value)).as_bytes(),
+                );
+                LoweredValue::List(Vec::new())
+            }
+            Err(error) => {
+                self.stderr
+                    .extend_from_slice(format!("par-map error: {error:?}\n").as_bytes());
+                LoweredValue::List(Vec::new())
+            }
+        };
+        match item_result {
+            LoweredValue::ResultOk(value) => *value,
+            value @ LoweredValue::ResultErr(_) => {
+                self.stderr.extend_from_slice(
+                    format!("par-map error: {}\n", lowered_error_message(&value)).as_bytes(),
+                );
+                LoweredValue::List(Vec::new())
+            }
+            value => value,
+        }
+    }
+
+    fn eval_indexed_par_map_parallel(
+        &mut self,
+        execution: &FullExecution<'_>,
+        body: Option<u32>,
+        value: u32,
+        block_header: &FunctionHeader,
+        slots: &[LoweredValue],
+        slot: usize,
+        items: Vec<LoweredValue>,
+        jobs: usize,
+        span: Span,
+    ) -> Result<Vec<LoweredValue>, RuntimeError> {
+        let worker_count = jobs.min(items.len()).max(1);
+        let chunk_size = items.len().div_ceil(worker_count);
+        let shared = self.lowered_shared_state();
+        let symbols = shared
+            .indexed_program
+            .as_ref()
+            .expect("verified lowered par-map execution has an indexed program")
+            .symbol_owner()
+            .clone();
+        let base_slots = slots.to_vec();
+        let (chunks, stderr) = std::thread::scope(|scope| {
+            let mut workers = Vec::with_capacity(worker_count);
+            for (chunk_index, chunk) in items.chunks(chunk_size).enumerate() {
+                let chunk = chunk.to_vec();
+                let shared = &shared;
+                let symbols = symbols.clone();
+                let base_slots = base_slots.clone();
+                let block_header = block_header.clone();
+                let execution = execution.thread_local();
+                let worker = std::thread::Builder::new()
+                    .stack_size(super::super::debug_test_eval_stack_size(12 * 1024 * 1024))
+                    .spawn_scoped(scope, move || {
+                        let _symbols = symbols.enter();
+                        let mut worker = Evaluator::new_lowered_worker(shared);
+                        let mut worker_slots = base_slots;
+                        let mut results = Vec::with_capacity(chunk.len());
+                        for item in chunk {
+                            results.push(worker.eval_indexed_par_map_item(
+                                &execution,
+                                body,
+                                value,
+                                &block_header,
+                                &mut worker_slots,
+                                slot,
+                                item,
+                                span,
+                            ));
+                        }
+                        (results, worker.stderr)
+                    })
+                    .expect("failed to spawn lowered par-map worker");
+                workers.push((chunk_index, worker));
+            }
+            let mut completed: Vec<Option<(Vec<LoweredValue>, Vec<u8>)>> =
+                (0..workers.len()).map(|_| None).collect();
+            while !workers.is_empty() {
+                let mut index = 0;
+                let mut progress = false;
+                while index < workers.len() {
+                    if workers[index].1.is_finished() {
+                        let (chunk_index, worker) = workers.swap_remove(index);
+                        completed[chunk_index] = Some(
+                            worker
+                                .join()
+                                .expect("lowered par-map worker thread panicked"),
+                        );
+                        progress = true;
+                    } else {
+                        index += 1;
+                    }
+                }
+                self.service_pending_signal(span)?;
+                if !progress {
+                    std::thread::sleep(std::time::Duration::from_millis(1));
+                }
+            }
+            let mut chunks = Vec::with_capacity(items.len());
+            let mut stderr = Vec::new();
+            for completed in completed {
+                let (mut results, worker_stderr) = completed.expect("par-map worker missing");
+                chunks.append(&mut results);
+                stderr.extend(worker_stderr);
+            }
+            Ok((chunks, stderr))
+        })?;
+        self.stderr.extend(stderr);
+        Ok(chunks)
+    }
+
     fn decode_indexed_run_arg<'a>(
         payload: &mut FullPayload<'a>,
         execution: &FullExecution<'a>,
@@ -3210,97 +3361,72 @@ impl Evaluator {
                             } else {
                                 None
                             };
+                            let jobs = indexed_optional_raw(&mut stage_payload, span)?;
                             let value = indexed_raw(&mut stage_payload, span)?;
                             indexed_finish(stage_payload, span)?;
+                            let jobs = match jobs {
+                                Some(jobs) => {
+                                    match self.eval_indexed_expr(execution, jobs, slots, span)? {
+                                        ControlFlow::Continue(value) => {
+                                            lowered_nonnegative_count(value, span)?.max(1)
+                                        }
+                                        ControlFlow::Break(value) => {
+                                            return Ok(ControlFlow::Break(value));
+                                        }
+                                    }
+                                }
+                                None => std::thread::available_parallelism()
+                                    .map_or(1, std::num::NonZeroUsize::get),
+                            };
                             let items = self.lowered_pipeline_input_items(current, span)?;
                             let block_header = Self::indexed_block_header(slots.len());
-                            let mut results = Vec::with_capacity(items.len());
-                            for (item_index, item) in items.into_iter().enumerate() {
-                                if self.trace_enabled {
-                                    self.trace_lowered_parallel_job(
-                                        TraceKind::ParallelJobStart,
-                                        "par-map",
-                                        item_index,
-                                        None,
-                                        span,
-                                    );
-                                }
-                                slots[slot] = item;
-                                let item_result = if let Some(body) = body {
-                                    match self.eval_indexed_statement_block(
+                            let results = if self.trace_enabled || jobs <= 1 || items.len() <= 1 {
+                                let mut results = Vec::with_capacity(items.len());
+                                for (item_index, item) in items.into_iter().enumerate() {
+                                    if self.trace_enabled {
+                                        self.trace_lowered_parallel_job(
+                                            TraceKind::ParallelJobStart,
+                                            "par-map",
+                                            item_index,
+                                            None,
+                                            span,
+                                        );
+                                    }
+                                    let result = self.eval_indexed_par_map_item(
                                         execution,
                                         body,
+                                        value,
                                         &block_header,
                                         slots,
-                                        span,
-                                    ) {
-                                        Ok(StmtFlow::None)
-                                        | Ok(StmtFlow::Continue) => {
-                                            self.eval_indexed_expr(
-                                                execution,
-                                                value,
-                                                slots,
-                                                span,
-                                            )
-                                        }
-                                        Ok(StmtFlow::Return(value))
-                                        | Ok(StmtFlow::Propagate(value)) => {
-                                            Ok(ControlFlow::Break(value))
-                                        }
-                                        Ok(StmtFlow::Break(value)) => {
-                                            Ok(ControlFlow::Break(
-                                                value.unwrap_or(LoweredValue::Unit),
-                                            ))
-                                        }
-                                        Err(error) => Err(error),
-                                    }
-                                } else {
-                                    self.eval_indexed_expr(execution, value, slots, span)
-                                };
-                                let item_result = match item_result {
-                                    Ok(ControlFlow::Continue(value)) => value,
-                                    Ok(ControlFlow::Break(value)) => {
-                                        self.stderr.extend_from_slice(
-                                            format!(
-                                                "par-map error: {}\n",
-                                                lowered_error_message(&value)
-                                            )
-                                            .as_bytes(),
-                                        );
-                                        LoweredValue::List(Vec::new())
-                                    }
-                                    Err(error) => {
-                                        self.stderr.extend_from_slice(
-                                            format!("par-map error: {error:?}\n").as_bytes(),
-                                        );
-                                        LoweredValue::List(Vec::new())
-                                    }
-                                };
-                                let result = match item_result {
-                                    LoweredValue::ResultOk(value) => *value,
-                                    value @ LoweredValue::ResultErr(_) => {
-                                        self.stderr.extend_from_slice(
-                                            format!(
-                                                "par-map error: {}\n",
-                                                lowered_error_message(&value)
-                                            )
-                                            .as_bytes(),
-                                        );
-                                        LoweredValue::List(Vec::new())
-                                    }
-                                    value => value,
-                                };
-                                if self.trace_enabled {
-                                    self.trace_lowered_parallel_job(
-                                        TraceKind::ParallelJobEnd,
-                                        "par-map",
-                                        item_index,
-                                        None,
+                                        slot,
+                                        item,
                                         span,
                                     );
+                                    if self.trace_enabled {
+                                        self.trace_lowered_parallel_job(
+                                            TraceKind::ParallelJobEnd,
+                                            "par-map",
+                                            item_index,
+                                            None,
+                                            span,
+                                        );
+                                    }
+                                    results.push(result);
                                 }
-                                results.push(result);
-                            }
+                                results
+                            } else {
+                                self.eval_indexed_par_map_parallel(
+                                    execution,
+                                    body,
+                                    value,
+                                    &block_header,
+                                    slots,
+                                    slot,
+                                    items,
+                                    jobs,
+                                    span,
+                                )?
+                            };
                             slots[slot] = LoweredValue::Unit;
                             LoweredValue::List(results)
                         }

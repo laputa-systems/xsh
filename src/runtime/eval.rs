@@ -1762,11 +1762,13 @@ enum LoweredPipelineStage {
     },
     ParMap {
         slot: usize,
+        jobs: Option<BuildExprId>,
         value: BuildExprId,
     },
     ParMapBlock {
         slot: usize,
         body: Vec<BuildStmtId>,
+        jobs: Option<BuildExprId>,
         value: BuildExprId,
     },
     Tee {

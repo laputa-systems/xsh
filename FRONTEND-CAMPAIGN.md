@@ -1225,8 +1225,11 @@ statement, pattern, typed-expression, and function evaluator is deleted rather
 than left dormant, as are its recursive registries and 4,631-line compatibility
 test module. Runtime calls use a body-free `FunctionHeader`; dynamic
 functions retain their owning indexed program; signal hooks require an indexed
-body. The indexed `each --jobs` path also preserves cancellation/job-end trace
-events.
+body. Indexed `par-map` now evaluates chunks on bounded worker threads, honors
+`--jobs=N`, preserves input order, and services parent signal hooks while
+workers run. Traced `par-map` remains serial so parallel job events retain their
+existing ordered trace contract. The indexed `each --jobs` path also preserves
+cancellation/job-end trace events.
 
 Construction now uses one `BuildScratch` with separate expression,
 statement, pattern, typed-expression, and top-level row vectors. Every child

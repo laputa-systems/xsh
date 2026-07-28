@@ -2820,6 +2820,19 @@ pub(in crate::runtime::eval) struct FullExecution<'a> {
 }
 
 impl<'a> FullExecution<'a> {
+    pub(in crate::runtime::eval) fn thread_local(&self) -> Self {
+        Self {
+            decoder: FullDecoder {
+                store: self.decoder.store,
+                owner: self.decoder.owner,
+                instruction_range: self.decoder.instruction_range.clone(),
+                instruction_states: None,
+                block_states: None,
+                slot_count: self.decoder.slot_count,
+            },
+        }
+    }
+
     pub(in crate::runtime::eval) fn string(&self, raw: u32) -> Result<&str, IrVerifyError> {
         self.decoder.store.string(raw)
     }
@@ -6154,15 +6167,27 @@ impl_stage_codec! {
         value,
         op,
     },
-    LoweredPipelineStage::ParMap { slot, value } => ParMap {
+    LoweredPipelineStage::ParMap { slot, jobs, value } => ParMap {
         slot: usize,
+        jobs: Option<BuildExprId>,
         value: BuildExprId,
-    } => LoweredPipelineStage::ParMap { slot, value },
-    LoweredPipelineStage::ParMapBlock { slot, body, value } => ParMapBlock {
+    } => LoweredPipelineStage::ParMap { slot, jobs, value },
+    LoweredPipelineStage::ParMapBlock {
+        slot,
+        body,
+        jobs,
+        value,
+    } => ParMapBlock {
         slot: usize,
         body: Vec<BuildStmtId>,
+        jobs: Option<BuildExprId>,
         value: BuildExprId,
-    } => LoweredPipelineStage::ParMapBlock { slot, body, value },
+    } => LoweredPipelineStage::ParMapBlock {
+        slot,
+        body,
+        jobs,
+        value,
+    },
     LoweredPipelineStage::Tee { slot, body } => Tee {
         slot: usize,
         body: Vec<BuildStmtId>,

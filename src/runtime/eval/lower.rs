@@ -9184,21 +9184,27 @@ impl CompactLowerConstructProbe<'_, '_> {
                 if !stage.args.is_empty() {
                     return None;
                 }
-                // `--jobs=N` is a parallelism hint; serial execution preserves
-                // order and produces identical results, so we accept and ignore it.
+                let mut jobs = None;
                 for option in self.program.arena.stream_options(stage.options) {
                     if option.name.as_str() != "jobs" {
                         return None;
                     }
+                    let value = option.value?;
+                    jobs = Some(self.lower_expr(value, slots, current_function, None)?);
                 }
                 if let Some((slot, value)) =
                     self.lower_pipeline_stage_expr(stage, slots, current_function, item_ty)
                 {
-                    return Some(LoweredPipelineStage::ParMap { slot, value });
+                    return Some(LoweredPipelineStage::ParMap { slot, jobs, value });
                 }
                 let (slot, body, value) =
                     self.lower_pipeline_stage_block(stage, slots, current_function, item_ty)?;
-                Some(LoweredPipelineStage::ParMapBlock { slot, body, value })
+                Some(LoweredPipelineStage::ParMapBlock {
+                    slot,
+                    body,
+                    jobs,
+                    value,
+                })
             }
             StreamStageKind::Each => {
                 let mut parallel = false;
