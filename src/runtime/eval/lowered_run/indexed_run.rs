@@ -407,6 +407,7 @@ impl Evaluator {
         execution: &FullExecution<'_>,
         body: Option<u32>,
         value: u32,
+        flatten: bool,
         reduce_item_slot: usize,
         reduce_body: u32,
         reduce_value: u32,
@@ -455,7 +456,11 @@ impl Evaluator {
                                     item,
                                     span,
                                 );
-                                let rows = worker.lowered_flat_map_rows(mapped, span)?;
+                                let rows = if flatten {
+                                    worker.lowered_flat_map_rows(mapped, span)?
+                                } else {
+                                    vec![mapped]
+                                };
                                 worker.eval_indexed_reduce_rows(
                                     &execution,
                                     rows,
@@ -1491,10 +1496,18 @@ impl Evaluator {
             Ok(supported) => supported,
             Err(error) => return Some(Err(error)),
         };
-        if frame_support {
+        if frame_support && !super::indexed_recursive_fast_path_allowed() {
             return Some(
-                self.eval_indexed_with_frame_slots(program.as_ref(), function, kind, slots, call_span)
-                    .map(LoweredValue::into_value),
+                super::with_indexed_explicit_frames(|| {
+                    self.eval_indexed_with_frame_slots(
+                        program.as_ref(),
+                        function,
+                        kind,
+                        slots,
+                        call_span,
+                    )
+                })
+                .map(LoweredValue::into_value),
             );
         }
         let mut slots = slots;
@@ -1574,14 +1587,18 @@ impl Evaluator {
         let view = program
             .function_view_at(index)
             .expect("cached lowered function index is valid");
-        if self.indexed_frames_supported(view, call_span)? {
-            return self.eval_indexed_with_frames(
-                program.as_ref(),
-                function,
-                kind,
-                values,
-                call_span,
-            );
+        if self.indexed_frames_supported(view, call_span)?
+            && !super::indexed_recursive_fast_path_allowed()
+        {
+            return super::with_indexed_explicit_frames(|| {
+                self.eval_indexed_with_frames(
+                    program.as_ref(),
+                    function,
+                    kind,
+                    values,
+                    call_span,
+                )
+            });
         }
         let header = view
             .header()
@@ -3573,6 +3590,11 @@ impl Evaluator {
                             let body = indexed_optional_raw(&mut stage_payload, span)?;
                             let jobs = indexed_optional_raw(&mut stage_payload, span)?;
                             let value = indexed_raw(&mut stage_payload, span)?;
+                            let flatten = indexed_decode::<bool>(
+                                &mut stage_payload,
+                                execution,
+                                span,
+                            )?;
                             let reduce_item_slot = indexed_decode::<usize>(
                                 &mut stage_payload,
                                 execution,
@@ -3622,7 +3644,11 @@ impl Evaluator {
                                         item,
                                         span,
                                     );
-                                    let rows = self.lowered_flat_map_rows(mapped, span)?;
+                                    let rows = if flatten {
+                                        self.lowered_flat_map_rows(mapped, span)?
+                                    } else {
+                                        vec![mapped]
+                                    };
                                     self.eval_indexed_reduce_rows(
                                         execution,
                                         rows,
@@ -3650,6 +3676,7 @@ impl Evaluator {
                                     execution,
                                     body,
                                     value,
+                                    flatten,
                                     reduce_item_slot,
                                     reduce_body,
                                     reduce_value,

@@ -221,6 +221,30 @@ impl Evaluator {
 
 thread_local! {
     static INDEXED_EVAL_DEPTH: Cell<usize> = const { Cell::new(0) };
+    static INDEXED_EXPLICIT_FRAMES: Cell<bool> = const { Cell::new(false) };
+}
+
+pub(super) fn indexed_explicit_frames_active() -> bool {
+    INDEXED_EXPLICIT_FRAMES.with(Cell::get)
+}
+
+pub(super) fn indexed_recursive_fast_path_allowed() -> bool {
+    if cfg!(debug_assertions) {
+        return false;
+    }
+    !indexed_explicit_frames_active()
+        && INDEXED_EVAL_DEPTH.with(|depth| {
+            depth.get() < (indexed_eval_depth_limit() / 16).max(1)
+        })
+}
+
+pub(super) fn with_indexed_explicit_frames<R>(f: impl FnOnce() -> R) -> R {
+    INDEXED_EXPLICIT_FRAMES.with(|active| {
+        let previous = active.replace(true);
+        let result = f();
+        active.set(previous);
+        result
+    })
 }
 
 struct EvalDepthReset<'a> {

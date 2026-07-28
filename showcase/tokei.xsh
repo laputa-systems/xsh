@@ -1247,6 +1247,115 @@ proc children_from_reports(reports: List[FileReport]) [error] -> Result[Map[Any]
   return children
 }
 
+proc json_main(root: Path, ignore_patterns: List[Str]) [fs, error] {
+  let aggregates = fs.files(root, stat: false, exts: source_exts())?
+    |> map { |entry|
+      let language = lang_for_name_ext(entry.name, entry.ext)
+      let rel = entry.path.relative_to(root).display()
+      let keep = (language != LangUnknown or entry.ext == "") and ! hidden_relative(rel) and ! ignored_by_patterns(
+        rel,
+        ignore_patterns,
+      )
+      {language, keep, path: entry.path}
+    }
+    |> where .keep
+    |> par-map { |candidate|
+      var text = candidate.path.read_bytes() ?? b""
+      let language = if candidate.language == LangUnknown { lang_for_shebang(text) } else { candidate.language }
+      let scan = match language {
+        LangTsx => count_slash_plain(text),
+        LangPython => count_hash_language(text),
+        LangJson => count_json(text),
+        LangTypeScript => count_slash_plain(text),
+        LangPoFile => count_hash_language(text),
+        LangHtml => count_html(text, true),
+        LangSvg => count_html(text, false),
+        LangMdx => count_plain_text(text),
+        LangMarkdown => count_markdown(text),
+        LangLess => count_slash_plain(text),
+        LangJavaScript => count_slash_plain(text),
+        LangYaml => count_hash_language(text),
+        LangBash => count_hash_language(text),
+        LangCss => count_slash_plain(text),
+        LangDockerfile => count_hash_language(text),
+        LangForgeConfig => count_hash_language(text),
+        LangIni => count_hash_language(text),
+        LangLua => count_lua(text),
+        LangMakefile => count_hash_language(text),
+        LangModelica => count_slash_language(text, true, false),
+        LangPlainText => count_plain_text(text),
+        LangReStructuredText => count_code_text(text),
+        LangRust => count_slash_language(text, true, true),
+        LangShell => count_hash_language(text),
+        LangTempl => count_slash_plain(text),
+        LangToml => count_hash_language(text),
+        LangXml => count_html(text, false),
+        _ => count_language(language, text),
+      }
+      text = b""
+      {language, report: {stats: scan.stats, name: candidate.path.display()}, deep: scan.deep}
+    }
+    |> where .language != LangUnknown
+    |> reduce-by --sum { |scanned|
+      {
+        key: language_label(scanned.language),
+        value: {
+          blanks: scanned.report.stats.blanks,
+          code: scanned.report.stats.code,
+          comments: scanned.report.stats.comments,
+          total_blanks: scanned.deep.blanks,
+          total_code: scanned.deep.code,
+          total_comments: scanned.deep.comments,
+          reports: [scanned.report],
+        },
+      }
+    }
+
+  var output: Map[Any] = {}
+  var total_children: Map[Any] = {}
+  var total_blanks = 0
+  var total_code = 0
+  var total_comments = 0
+
+  for language in languages() {
+    let label = language_label(language)
+    let aggregate = aggregates.get(label, {
+      blanks: 0,
+      code: 0,
+      comments: 0,
+      total_blanks: 0,
+      total_code: 0,
+      total_comments: 0,
+      reports: [],
+    })
+    let reports = aggregate.reports
+    continue when reports.len() == 0
+    let children = children_from_reports(reports)?
+    output[label] = {
+      blanks: aggregate.blanks,
+      code: aggregate.code,
+      comments: aggregate.comments,
+      reports,
+      children,
+      inaccurate: false,
+    }
+    total_children[label] = reports
+    total_blanks += aggregate.total_blanks
+    total_code += aggregate.total_code
+    total_comments += aggregate.total_comments
+  }
+
+  output["Total"] = {
+    blanks: total_blanks,
+    code: total_code,
+    comments: total_comments,
+    reports: [],
+    children: total_children,
+    inaccurate: false,
+  }
+  print (json.encode(output)?)
+}
+
 proc main(...argv: List[Str]) [fs, error] {
   let opts: Opts = cli.parse(argv, {root: {form: "ROOT", default: p"."}, json: {form: "--json", default: false}})?
   let root = opts.root.resolve()?
@@ -1490,6 +1599,8 @@ proc main(...argv: List[Str]) [fs, error] {
     print $heavy
     return
   }
+
+  return json_main(root, ignore_patterns)?
 
   var total_blanks = 0
   var total_code = 0

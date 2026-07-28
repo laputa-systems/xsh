@@ -8800,29 +8800,46 @@ impl CompactLowerConstructProbe<'_, '_> {
         let mut fused = Vec::with_capacity(stages.len());
         let mut index = 0;
         while index < stages.len() {
-            if index + 2 < stages.len()
-                && self.lowered_flat_map_is_identity(&stages[index + 1])
-                && let Some((slot, body, jobs, value)) =
-                    Self::lowered_par_map_parts(&stages[index])
-                && let LoweredPipelineStage::ReduceBy {
-                    item_slot,
-                    body: reduce_body,
-                    value: reduce_value,
-                    op,
-                } = stages[index + 2].clone()
+            if let Some((slot, body, jobs, value)) =
+                Self::lowered_par_map_parts(&stages[index])
             {
-                fused.push(LoweredPipelineStage::ParMapFlatMapReduceBy {
-                    slot,
-                    body,
-                    jobs,
-                    value,
-                    reduce_item_slot: item_slot,
-                    reduce_body,
-                    reduce_value,
-                    op,
-                });
-                index += 3;
-                continue;
+                if index + 2 < stages.len()
+                    && self.lowered_flat_map_is_identity(&stages[index + 1])
+                    && let Some((reduce_item_slot, reduce_body, reduce_value, op)) =
+                        Self::lowered_reduce_by_parts(&stages[index + 2])
+                {
+                    fused.push(LoweredPipelineStage::ParMapFlatMapReduceBy {
+                        slot,
+                        body,
+                        jobs,
+                        value,
+                        flatten: true,
+                        reduce_item_slot,
+                        reduce_body,
+                        reduce_value,
+                        op,
+                    });
+                    index += 3;
+                    continue;
+                }
+                if index + 1 < stages.len()
+                    && let Some((reduce_item_slot, reduce_body, reduce_value, op)) =
+                        Self::lowered_reduce_by_parts(&stages[index + 1])
+                {
+                    fused.push(LoweredPipelineStage::ParMapFlatMapReduceBy {
+                        slot,
+                        body,
+                        jobs,
+                        value,
+                        flatten: false,
+                        reduce_item_slot,
+                        reduce_body,
+                        reduce_value,
+                        op,
+                    });
+                    index += 2;
+                    continue;
+                }
             }
             fused.push(stages[index].clone());
             index += 1;
@@ -8864,6 +8881,20 @@ impl CompactLowerConstructProbe<'_, '_> {
             self.scratch.borrow().expressions.get(value.index()),
             Some(BuildExprRow::Param(param)) if *param == slot
         )
+    }
+
+    fn lowered_reduce_by_parts(
+        stage: &LoweredPipelineStage,
+    ) -> Option<(usize, Vec<BuildStmtId>, BuildExprId, ReduceByOp)> {
+        match stage {
+            LoweredPipelineStage::ReduceBy {
+                item_slot,
+                body,
+                value,
+                op,
+            } => Some((*item_slot, body.clone(), *value, *op)),
+            _ => None,
+        }
     }
 
     fn lower_pipeline_stage(
@@ -12080,6 +12111,24 @@ pub(super) fn lowered_sum_values(acc: LoweredValue, val: LoweredValue) -> Lowere
         (LoweredValue::Int(a), LoweredValue::Int(b)) => LoweredValue::Int(a + b),
         (LoweredValue::Float(a), LoweredValue::Float(b)) => {
             LoweredValue::Float(crate::runtime::value::FloatValue::new(a.0 + b.0))
+        }
+        (LoweredValue::List(mut acc), LoweredValue::List(value)) => {
+            acc.extend(value);
+            LoweredValue::List(acc)
+        }
+        (LoweredValue::List(mut acc), LoweredValue::SharedList(value)) => {
+            acc.extend(value.iter().cloned());
+            LoweredValue::List(acc)
+        }
+        (LoweredValue::SharedList(acc), LoweredValue::List(value)) => {
+            let mut acc = (*acc).clone();
+            acc.extend(value);
+            LoweredValue::List(acc)
+        }
+        (LoweredValue::SharedList(acc), LoweredValue::SharedList(value)) => {
+            let mut acc = (*acc).clone();
+            acc.extend(value.iter().cloned());
+            LoweredValue::List(acc)
         }
         (LoweredValue::Record(mut acc_map), LoweredValue::Record(val_map)) => {
             for (key, value) in val_map {

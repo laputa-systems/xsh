@@ -748,18 +748,16 @@ trace events.
 
 | path | XSH wall | native wall | gap | XSH user CPU | native user CPU |
 | --- | --- | --- | --- | --- | --- |
-| default table | 2.269 s | 0.736 s | **~3.08× slower** | 11.135 s | 1.725 s |
-| `--json` | 4.298 s | 0.799 s | **~5.38× slower** | 7.270 s | 1.723 s |
+| default table | 1.428 s | 0.761 s | **~1.88× slower** | 4.239 s | 1.726 s |
+| `--json` | 1.345 s | 0.782 s | **~1.72× slower** | 2.445 s | 1.734 s |
 
-The all-three pass combines direct lowered-function target caching,
-`par-map |> identity flat-map |> reduce-by` worker-local fusion, and
-ownership-preserving reducer extraction. Compared with the parallel-only
-baseline, JSON moved from 4.459 s to 4.298 s; the default table moved from
-2.216 s to 2.269 s, within the run spread rather than a material win. Aggregate
-counts still differ from native tokei (language-detection/ignore differences),
-while both paired runs report the same 43-line table shape and JSON language set.
-The historical ~0.59 s default and ~0.83 s JSON measurements remain context
-only; native tokei is still faster on the current workload.
+The latest pass combines direct lowered-function target caching, the release
+shallow-call fast path, `par-map |> identity flat-map |> reduce-by` worker-local
+fusion, ownership-preserving reducer extraction, and worker-local JSON report
+aggregation. Aggregate counts still differ from native tokei
+(language-detection/ignore differences), while both paired runs report the same
+43-line table shape and JSON language set. A single-run RSS check is at parity:
+~42.9 MiB vs ~48.1 MiB default and ~56.3 MiB vs ~56.3 MiB JSON.
 
 #### Open performance work
 

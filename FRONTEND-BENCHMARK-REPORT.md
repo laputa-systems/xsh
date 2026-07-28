@@ -46,6 +46,53 @@ within the run spread and is not a material latency win. Keep the prior
 parallel-only numbers as the stable baseline until a fresh profile explains
 the remaining dynamic-value and interpreter costs.
 
+## Hybrid Execution And JSON Aggregation
+
+The July 28 follow-up adds a release-only shallow-call fast path that uses the
+recursive lowered evaluator while retaining explicit frames for deep calls and
+all debug builds. The Tokei JSON path now aggregates file reports with fused
+worker-local `par-map |> reduce-by` instead of a serial per-file language
+switch. The output fingerprint remains unchanged.
+
+The latest seven-run release comparison measures 1.428 s for the default table
+and 1.345 s for JSON, versus native 0.761 s and 0.782 s. That is approximately
+1.88× and 1.72× slower than native. A single-run RSS check measured 42.9 MiB
+versus native 48.1 MiB for the default path, and 56.3 MiB versus 56.3 MiB for
+JSON. Memory is at parity; the remaining gap is execution CPU work.
+
+## Pre-Rewrite Checkpoint
+
+Commit `3d848b6c8ed08419801b929c1af5ed22c26a49a3` (`another opt`, July 24,
+2026) was benchmarked in a detached release worktree on July 28 against the
+same Sentry corpus and native binary. It measured 0.969 s for the default table
+and 0.987 s for JSON, versus native 0.754 s and 0.775 s: only about 1.29× and
+1.27× slower. Its default and JSON outputs also matched the current XSH output
+fingerprints. The large gap therefore appeared after this pre-rewrite
+checkpoint, not before the frontend rewrite.
+
+## Rewrite Bisect Checkpoints
+
+Representative release checkpoints used one warmup and three measured runs on
+the same Sentry workload. Native release tokei stayed around 0.72–0.79 s across
+these short runs.
+
+| checkpoint | default table | JSON |
+| --- | ---: | ---: |
+| `3181c9a` (`p5`) | 0.927 s | 1.027 s |
+| `4ddda99` (`p6-progress`) | 3.480 s | 5.902 s |
+| `b28ac2b` (`p6`) | 3.435 s | 5.899 s |
+| `868208a` (`p9`) | 4.969 s | 7.389 s |
+| `274e73a` (`p11`) | 4.962 s | 7.443 s |
+| `c114870` (parallel lowered `par-map`) | 2.069 s | 4.457 s |
+
+The first buildable bad checkpoint is `4ddda99`: the indexed-runtime rewrite
+between `p5` and `p6-progress` introduces the first large regression. `p9`
+adds a second major step when explicit indexed execution frames replace the
+older call path. `6ed9d20` (`p6-wip`) was not benchmarkable because its checkout
+does not compile (`LOWERED_SHARED_LIST_THRESHOLD` is missing). The later
+parallel `par-map` fix recovers wall time but does not remove the underlying
+indexed interpreter overhead.
+
 ## Post-Stage 11 JSON Result
 
 The accepted regular release median for `xsh_json_log_rollup_10000_rows` is

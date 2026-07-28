@@ -1776,6 +1776,7 @@ enum LoweredPipelineStage {
         body: Option<Vec<BuildStmtId>>,
         jobs: Option<BuildExprId>,
         value: BuildExprId,
+        flatten: bool,
         reduce_item_slot: usize,
         reduce_body: Vec<BuildStmtId>,
         reduce_value: BuildExprId,
