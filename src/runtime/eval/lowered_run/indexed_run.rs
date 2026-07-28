@@ -16,6 +16,8 @@ use smallvec::SmallVec;
 
 mod explicit_run;
 
+const DEFAULT_PAR_MAP_WORKERS: usize = 6;
+
 #[derive(Clone)]
 struct RunArg {
     mode: u32,
@@ -87,6 +89,7 @@ fn indexed_error(error: IrVerifyError, span: Span) -> RuntimeError {
     .with_span(span)
 }
 
+#[inline(always)]
 fn indexed_value(
     value: Result<(FullTag, FullPayload<'_>), IrVerifyError>,
     span: Span,
@@ -94,6 +97,7 @@ fn indexed_value(
     value.map_err(|error| indexed_error(error, span))
 }
 
+#[inline(always)]
 fn indexed_decode<'a, T: crate::runtime::eval::indexed::full::FullCodec>(
     payload: &mut FullPayload<'a>,
     execution: &FullExecution<'a>,
@@ -104,6 +108,7 @@ fn indexed_decode<'a, T: crate::runtime::eval::indexed::full::FullCodec>(
         .map_err(|error| indexed_error(error, span))
 }
 
+#[inline(always)]
 fn indexed_raw(payload: &mut FullPayload<'_>, span: Span) -> Result<u32, RuntimeError> {
     payload.raw().map_err(|error| indexed_error(error, span))
 }
@@ -118,6 +123,7 @@ fn indexed_string<'payload, 'program>(
         .map_err(|error| indexed_error(error, span))
 }
 
+#[inline(always)]
 fn indexed_finish(payload: FullPayload<'_>, span: Span) -> Result<(), RuntimeError> {
     payload.finish().map_err(|error| indexed_error(error, span))
 }
@@ -239,7 +245,12 @@ impl Evaluator {
         span: Span,
     ) -> Result<Vec<LoweredValue>, RuntimeError> {
         let worker_count = jobs.min(items.len()).max(1);
-        let chunk_size = items.len().div_ceil(worker_count);
+        let item_count = items.len();
+        let mut partitions: Vec<Vec<(usize, LoweredValue)>> =
+            (0..worker_count).map(|_| Vec::new()).collect();
+        for (index, item) in items.into_iter().enumerate() {
+            partitions[index % worker_count].push((index, item));
+        }
         let shared = self.lowered_shared_state();
         let symbols = shared
             .indexed_program
@@ -250,8 +261,7 @@ impl Evaluator {
         let base_slots = slots.to_vec();
         let (chunks, stderr) = std::thread::scope(|scope| {
             let mut workers = Vec::with_capacity(worker_count);
-            for (chunk_index, chunk) in items.chunks(chunk_size).enumerate() {
-                let chunk = chunk.to_vec();
+            for (chunk_index, chunk) in partitions.into_iter().enumerate() {
                 let shared = &shared;
                 let symbols = symbols.clone();
                 let base_slots = base_slots.clone();
@@ -264,8 +274,10 @@ impl Evaluator {
                         let mut worker = Evaluator::new_lowered_worker(shared);
                         let mut worker_slots = base_slots;
                         let mut results = Vec::with_capacity(chunk.len());
-                        for item in chunk {
-                            results.push(worker.eval_indexed_par_map_item(
+                        for (item_index, item) in chunk {
+                            results.push((
+                                item_index,
+                                worker.eval_indexed_par_map_item(
                                 &execution,
                                 body,
                                 value,
@@ -274,6 +286,7 @@ impl Evaluator {
                                 slot,
                                 item,
                                 span,
+                                ),
                             ));
                         }
                         (results, worker.stderr)
@@ -281,7 +294,7 @@ impl Evaluator {
                     .expect("failed to spawn lowered par-map worker");
                 workers.push((chunk_index, worker));
             }
-            let mut completed: Vec<Option<(Vec<LoweredValue>, Vec<u8>)>> =
+            let mut completed: Vec<Option<(Vec<(usize, LoweredValue)>, Vec<u8>)>> =
                 (0..workers.len()).map(|_| None).collect();
             while !workers.is_empty() {
                 let mut index = 0;
@@ -304,14 +317,21 @@ impl Evaluator {
                     std::thread::sleep(std::time::Duration::from_millis(1));
                 }
             }
-            let mut chunks = Vec::with_capacity(items.len());
+            let mut ordered: Vec<Option<LoweredValue>> =
+                (0..item_count).map(|_| None).collect();
             let mut stderr = Vec::new();
             for completed in completed {
                 let (mut results, worker_stderr) = completed.expect("par-map worker missing");
-                chunks.append(&mut results);
+                for (item_index, result) in results.drain(..) {
+                    ordered[item_index] = Some(result);
+                }
                 stderr.extend(worker_stderr);
             }
-            Ok((chunks, stderr))
+            let results = ordered
+                .into_iter()
+                .map(|result| result.expect("par-map result missing"))
+                .collect();
+            Ok((results, stderr))
         })?;
         self.stderr.extend(stderr);
         Ok(chunks)
@@ -3618,7 +3638,9 @@ impl Evaluator {
                                     }
                                 },
                                 None => std::thread::available_parallelism()
-                                    .map_or(1, std::num::NonZeroUsize::get),
+                                    .map_or(1, |count| {
+                                        count.get().min(DEFAULT_PAR_MAP_WORKERS)
+                                    }),
                             };
                             let items = self.lowered_pipeline_input_items(current, span)?;
                             if self.trace_enabled || jobs <= 1 || items.len() <= 1 {
@@ -3715,7 +3737,9 @@ impl Evaluator {
                                     }
                                 }
                                 None => std::thread::available_parallelism()
-                                    .map_or(1, std::num::NonZeroUsize::get),
+                                    .map_or(1, |count| {
+                                        count.get().min(DEFAULT_PAR_MAP_WORKERS)
+                                    }),
                             };
                             let items = self.lowered_pipeline_input_items(current, span)?;
                             let block_header = Self::indexed_block_header(slots.len());

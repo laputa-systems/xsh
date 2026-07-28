@@ -11759,11 +11759,11 @@ fn try_lower_scan_lines(
         BuildExprRow::Param(slot) => slot,
         _ => return None,
     };
-    let if_stmt = match body {
-        [if_stmt] => self.scratch.borrow().statements[if_stmt.index()].clone(),
+    let (if_stmt, trimmed_slot) = match body {
+        [if_stmt] => (*if_stmt, None),
         [trim_stmt, if_stmt] => {
             let trimmed = self.scratch.borrow().statements[trim_stmt.index()].clone();
-            let BuildStmtRow::Let { value, .. } = trimmed else {
+            let BuildStmtRow::Let { slot, value } = trimmed else {
                 return None;
             };
             let expression = self.scratch.borrow().expressions[value.index()].clone();
@@ -11785,64 +11785,97 @@ fn try_lower_scan_lines(
             ) {
                 return None;
             }
-            self.scratch.borrow().statements[if_stmt.index()].clone()
+            (*if_stmt, Some(slot))
         }
         _ => return None,
     };
-    match if_stmt {
-        BuildStmtRow::IfBool {
-            branches,
-            else_body,
-        } => {
-            if else_body.is_some() {
-                return None;
-            }
-            let mut checks = Vec::with_capacity(branches.len());
-            for (condition, branch_body) in &branches {
-                if branch_body.len() != 1 {
-                    return None;
-                }
-                let assignment = self.scratch.borrow().statements[branch_body[0].index()].clone();
-                let counter_slot = match assignment {
-                    BuildStmtRow::Assign {
-                        slot,
-                        op: AssignOp::Add,
-                        value,
-                        ..
-                    } if matches!(
-                        self.scratch.borrow().expressions[value.index()],
-                        BuildExprRow::Int(1)
-                    ) => slot,
-                    _ => return None,
-                };
-                let condition = self.scratch.borrow().bools[condition.index()].clone();
-                let scan_condition = match condition {
-                    BuildBoolRow::TrimEmptySlot { .. } => ScanCondition::TrimEmpty,
-                    BuildBoolRow::TrimStrPredicateSlot {
-                        predicate: LoweredStrPredicate::StartsWith,
-                        needle,
-                        ..
-                    } => ScanCondition::TrimStartsWith(needle.to_vec()),
-                    BuildBoolRow::StrPredicateSlot {
-                        predicate: LoweredStrPredicate::StartsWith,
-                        needle,
-                        ..
-                    } => ScanCondition::StartsWith(needle.to_vec()),
-                    _ => return None,
-                };
-                checks.push(ScanCheck {
-                    condition: scan_condition,
-                    counter_slot,
-                });
-            }
-            Some(push_build_row!(self, stmt, BuildStmtRow::ScanLines { text_slot,
-            line_slot,
-            checks,
-            span, }))
-        }
-        _ => None,
+    let mut checks = Vec::new();
+    if !self.collect_scan_checks(if_stmt, trimmed_slot, &mut checks) {
+        return None;
     }
+    Some(push_build_row!(self, stmt, BuildStmtRow::ScanLines { text_slot,
+    line_slot,
+    checks,
+    span, }))
 }
+
+fn collect_scan_checks(
+    &self,
+    stmt: BuildStmtId,
+    trimmed_slot: Option<usize>,
+    checks: &mut Vec<ScanCheck>,
+) -> bool {
+    let BuildStmtRow::IfBool {
+        branches,
+        else_body,
+    } = self.scratch.borrow().statements[stmt.index()].clone()
+    else {
+        return false;
+    };
+    for (condition, branch_body) in &branches {
+        if branch_body.len() != 1 {
+            return false;
+        }
+        let assignment = self.scratch.borrow().statements[branch_body[0].index()].clone();
+        let counter_slot = match assignment {
+            BuildStmtRow::Assign {
+                slot,
+                op: AssignOp::Add,
+                value,
+                ..
+            } if matches!(
+                self.scratch.borrow().expressions[value.index()],
+                BuildExprRow::Int(1)
+            ) => slot,
+            BuildStmtRow::AssignInt {
+                slot,
+                op: AssignOp::Add,
+                value,
+                ..
+            } if matches!(self.scratch.borrow().ints[value.index()], BuildIntRow::Int(1)) => slot,
+            _ => return false,
+        };
+        let condition = self.scratch.borrow().bools[condition.index()].clone();
+        let scan_condition = match condition {
+            BuildBoolRow::TrimEmptySlot { .. } => ScanCondition::TrimEmpty,
+            BuildBoolRow::LiteralCompareSlot {
+                op: BinaryOp::Eq,
+                slot,
+                value: LoweredValue::Bytes(value),
+            } if trimmed_slot == Some(slot) && value.is_empty() => ScanCondition::TrimEmpty,
+            BuildBoolRow::TrimStrPredicateSlot {
+                predicate: LoweredStrPredicate::StartsWith,
+                needle,
+                ..
+            } => ScanCondition::TrimStartsWith(needle.to_vec()),
+            BuildBoolRow::StrPredicateSlot {
+                predicate: LoweredStrPredicate::StartsWith,
+                slot,
+                needle,
+                ..
+            } => {
+                if trimmed_slot == Some(slot) {
+                    ScanCondition::TrimStartsWith(needle.to_vec())
+                } else {
+                    ScanCondition::StartsWith(needle.to_vec())
+                }
+            }
+            _ => return false,
+        };
+        checks.push(ScanCheck {
+            condition: scan_condition,
+            counter_slot,
+        });
+    }
+    let Some(else_body) = else_body else {
+        return true;
+    };
+    if else_body.len() != 1 {
+        return false;
+    }
+    self.collect_scan_checks(else_body[0], trimmed_slot, checks)
+}
+
 }
 
 /// Recursively check whether a lowered statement body contains any `Defer`

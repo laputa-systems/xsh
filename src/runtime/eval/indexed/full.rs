@@ -523,6 +523,7 @@ impl Default for FullStore {
 }
 
 impl FullStore {
+    #[inline(always)]
     fn payload(&self, range: IrRange) -> Result<&[u32], IrVerifyError> {
         let bounds = range
             .bounds(self.extra.len())
@@ -530,6 +531,7 @@ impl FullStore {
         Ok(&self.extra[bounds])
     }
 
+    #[inline(always)]
     fn string(&self, raw: u32) -> Result<&str, IrVerifyError> {
         let id = IrStringId::from_raw(raw)
             .ok_or_else(|| IrVerifyError::new("full IR string id is invalid"))?;
@@ -2814,10 +2816,12 @@ pub(in crate::runtime::eval) struct FullPayload<'a> {
 }
 
 impl<'a> FullPayload<'a> {
+    #[inline(always)]
     pub(in crate::runtime::eval) fn raw(&mut self) -> Result<u32, IrVerifyError> {
         self.cursor.raw()
     }
 
+    #[inline(always)]
     pub(in crate::runtime::eval) fn decode<T: FullCodec>(
         &mut self,
         execution: &FullExecution<'a>,
@@ -2825,6 +2829,7 @@ impl<'a> FullPayload<'a> {
         T::decode(&execution.decoder, &mut self.cursor)
     }
 
+    #[inline(always)]
     pub(in crate::runtime::eval) fn finish(self) -> Result<(), IrVerifyError> {
         self.cursor.finish()
     }
@@ -2887,6 +2892,7 @@ impl<'a> FullExecution<'a> {
         Ok((key, kind))
     }
 
+    #[inline(always)]
     pub(in crate::runtime::eval) fn instruction_id(
         &self,
         raw: u32,
@@ -2934,6 +2940,7 @@ impl<'a> FullExecution<'a> {
         ))
     }
 
+    #[inline(always)]
     pub(in crate::runtime::eval) fn instruction(
         &self,
         input: &mut FullPayload<'a>,
@@ -2947,6 +2954,7 @@ impl<'a> FullExecution<'a> {
         ))
     }
 
+    #[inline(always)]
     pub(in crate::runtime::eval) fn block(
         &self,
         input: &mut FullPayload<'a>,
@@ -2956,6 +2964,7 @@ impl<'a> FullExecution<'a> {
         Ok((id, FullPayload { cursor: block }))
     }
 
+    #[inline(always)]
     pub(in crate::runtime::eval) fn block_id(
         &self,
         raw: u32,
@@ -3012,6 +3021,7 @@ impl<'a> FullExecution<'a> {
         ))
     }
 
+    #[inline(always)]
     pub(in crate::runtime::eval) fn stage_id(
         &self,
         raw: u32,
@@ -3054,20 +3064,24 @@ impl<'a> FullExecution<'a> {
         ))
     }
 
+    #[inline(always)]
     pub(in crate::runtime::eval) fn finish_instruction(&self, instruction: u32) {
         self.decoder.finish_instruction(instruction as usize);
     }
 
+    #[inline(always)]
     pub(in crate::runtime::eval) fn finish_block(&self, block: IrBlockId) {
         self.decoder.finish_block(block);
     }
 }
 
 impl<'a> FullCursor<'a> {
+    #[inline(always)]
     fn new(words: &'a [u32]) -> Self {
         Self { words, index: 0 }
     }
 
+    #[inline(always)]
     fn raw(&mut self) -> Result<u32, IrVerifyError> {
         let value = self
             .words
@@ -3078,6 +3092,7 @@ impl<'a> FullCursor<'a> {
         Ok(value)
     }
 
+    #[inline(always)]
     fn finish(self) -> Result<(), IrVerifyError> {
         if self.index == self.words.len() {
             Ok(())
@@ -3097,6 +3112,7 @@ pub(in crate::runtime::eval) struct FullDecoder<'a> {
 }
 
 impl<'a> FullDecoder<'a> {
+    #[inline(always)]
     fn block(
         &self,
         input: &mut FullCursor<'_>,
@@ -3155,6 +3171,7 @@ impl<'a> FullDecoder<'a> {
         }
     }
 
+    #[inline(always)]
     fn instruction(
         &self,
         input: &mut FullCursor<'_>,
@@ -3197,6 +3214,7 @@ impl<'a> FullDecoder<'a> {
         ))
     }
 
+    #[inline(always)]
     fn finish_instruction(&self, index: usize) {
         if let Some(states) = &self.instruction_states {
             states.borrow_mut()[index - self.instruction_range.start] = 2;
@@ -7385,6 +7403,48 @@ run true
         assert!(program.instruction_count() > 0);
         assert!(program.extra_words() > 0);
         assert!(program.retained_bytes() > size_of::<FullProgram>());
+    }
+
+    #[test]
+    fn trimmed_else_if_scanner_lowers_to_scan_lines() {
+        let program = fixture(
+            "trimmed-scanner.xsh",
+            r##"
+pure scan(text: Bytes) -> Int {
+  var blanks = 0
+  var comments = 0
+  for line in text.lines() {
+    let trimmed = line.trim()
+    if trimmed == b"" {
+      blanks += 1
+    } else if trimmed.starts_with(b"#") {
+      comments += 1
+    }
+  }
+  return text.count_lines() - blanks - comments
+}
+
+proc main() [error] {
+  print scan(b"# x\nvalue\n\n")
+}
+"##,
+        );
+        assert!(program.store.tags.contains(&FullTag::StmtScanLines));
+    }
+
+    #[test]
+    fn tokei_showcase_contains_scan_lines_fast_paths() {
+        let program = fixture(
+            "showcase/tokei.xsh",
+            include_str!("../../../../showcase/tokei.xsh"),
+        );
+        let scan_lines = program
+            .store
+            .tags
+            .iter()
+            .filter(|tag| **tag == FullTag::StmtScanLines)
+            .count();
+        assert!(scan_lines > 0, "Tokei showcase has no ScanLines instructions");
     }
 
     fn normalize_traces(events: &[crate::trace::TraceEvent]) -> String {

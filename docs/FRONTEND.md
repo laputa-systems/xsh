@@ -748,8 +748,8 @@ trace events.
 
 | path | XSH wall | native wall | gap | XSH user CPU | native user CPU |
 | --- | --- | --- | --- | --- | --- |
-| default table | 1.418 s | 0.698 s | **~2.03× slower** | 4.307 s | 1.730 s |
-| `--json` | 1.326 s | 0.695 s | **~1.91× slower** | 2.449 s | 1.736 s |
+| default table | 1.221 s | 0.714 s | **~1.71× slower** | 2.055 s | 1.744 s |
+| `--json` | 1.156 s | 0.774 s | **~1.49× slower** | 1.692 s | 1.764 s |
 
 The latest pass combines direct lowered-function target caching, the release
 shallow-call fast path, `par-map |> identity flat-map |> reduce-by` worker-local
@@ -757,7 +757,8 @@ fusion, ownership-preserving reducer extraction, and worker-local JSON report
 aggregation. Aggregate counts still differ from native tokei
 (language-detection/ignore differences), while both paired runs report the same
 43-line table shape and JSON language set. A single-run RSS check is at parity:
-~42.9 MiB vs ~48.1 MiB default and ~56.3 MiB vs ~56.3 MiB JSON.
+~42.9 MiB vs ~48.1 MiB default and ~56.3 MiB vs ~56.3 MiB JSON. The default
+`par-map` worker cap is six, matching the historical fast checkpoint.
 
 #### Open performance work
 

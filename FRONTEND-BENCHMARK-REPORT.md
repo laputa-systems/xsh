@@ -54,11 +54,25 @@ all debug builds. The Tokei JSON path now aggregates file reports with fused
 worker-local `par-map |> reduce-by` instead of a serial per-file language
 switch. The output fingerprint remains unchanged.
 
-The latest seven-run release comparison measures 1.418 s for the default table
-and 1.326 s for JSON, versus native 0.698 s and 0.695 s. That is approximately
-2.03× and 1.91× slower than native. A single-run RSS check measured 42.9 MiB
+The latest seven-run release comparison measures 1.189 s for the default table
+and 1.145 s for JSON, versus native 0.722 s and 0.731 s. That is approximately
+1.65× and 1.57× slower than native. The default worker cap is six, matching the
+historical p5 behavior and avoiding oversubscription on this host. A single-run RSS check measured 42.9 MiB
 versus native 48.1 MiB for the default path, and 56.3 MiB versus 56.3 MiB for
 JSON. Memory is at parity; the remaining gap is execution CPU work.
+
+## Current Memory Audit
+
+The campaign-scope `xsh-frontend-stats --json` run on July 28 reports the same
+peak values as the final memory table and the same `after_drop` retained value
+of 531,248 B. Retained deltas versus the report's final rows are small: tokens
++0.65%, CST +0.80%, AST/check +0.82%, lower +0.50%, and after-drop +0.00%.
+
+The current `make bench-fast` run shows no broad allocation regression, but a
+few workload-traffic deltas remain visible: JSON rollup +2.75% allocated bytes,
+manifest hashing +1.06%, and repository checking +0.70%. Peak-live bytes stay
+within +1.63% on JSON and +0.65% on manifest hashing. None exceeds the 5%
+review threshold used by the benchmark workflow.
 
 ## Focused Evaluator Benchmark
 
@@ -66,7 +80,7 @@ The new `xsh_lowered_scanner_1000_calls` workload isolates the repeated
 `scan_hash()` lowered function path in
 `crates/xsh-multicall/benches/scripts/lowered-scanner.xsh`. The ordinary
 prepared-plus-execution benchmark measured 10.87 ms, 5,559 allocations, and
-645.2 KiB allocated. Its ignored execution-only companion measured 6.234 ms
+645.2 KiB allocated. Its ignored execution-only companion measured 1.692 ms
 median over five samples, with 4 allocations and 2.36 KiB allocated. Future
 evaluator dispatch changes
 should use the execution-only row for the decision and the ordinary row to
