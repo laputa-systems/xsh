@@ -34,6 +34,8 @@ The suite covers complete operations rather than isolated helpers:
 - searching and rendering a 45,000-entry history;
 - completing a `cd` workflow over 1,000 entries;
 - checking, format-checking, and linting this repository's real XSH corpus.
+- repeated lowered scanner calls, with a prepared-execution variant that
+  isolates `eval_indexed_expr`/`eval_indexed_stmt` from frontend setup.
 
 The XSH programs exercised by the runtime benchmarks are checked-in files under
 `crates/xsh-multicall/benches/scripts/`; benchmark source is not embedded in
@@ -160,6 +162,31 @@ allocated bytes and `max alloc` on the affected real workflow. Type size alone
 is not a memory result: multiply it by realistic node volume mentally, and
 account for heap-owned `Vec`, `Arc`, map, and boxed payloads through the
 allocation measurements.
+
+### Focused lowered scanner
+
+Use `xsh_lowered_scanner_1000_calls` for changes to lowered expression and
+statement dispatch, function calls, line scanning, or scalar loop execution.
+The checked-in workload is `crates/xsh-multicall/benches/scripts/lowered-scanner.xsh`;
+its hot path is the `scan_hash()` call inside the 1,000-iteration loop. Run the
+ordinary operation to include parse/check/lower setup:
+
+```sh
+cargo bench -p xsh-multicall --bench bench xsh_lowered_scanner_1000_calls -- \
+  --sample-count 1 --sample-size 1
+```
+
+Run `xsh_lowered_scanner_1000_calls_execution` with `--include-ignored` to
+reuse the prepared indexed program and measure execution only:
+
+```sh
+cargo bench -p xsh-multicall --bench bench xsh_lowered_scanner_1000_calls_execution -- \
+  --include-ignored --sample-count 1 --sample-size 1
+```
+
+The prepared result is the decision signal for evaluator changes; the gap to
+the ordinary operation is frontend/setup work and should not be attributed to
+`eval_indexed_expr` or `eval_indexed_stmt`.
 
 Use `tools/xsh-ir-coverage.xsh` to find frequent constructs in real XSH code
 that fail to lower. Use `LLVM-LINES.md` and

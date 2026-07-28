@@ -748,8 +748,8 @@ trace events.
 
 | path | XSH wall | native wall | gap | XSH user CPU | native user CPU |
 | --- | --- | --- | --- | --- | --- |
-| default table | 1.428 s | 0.761 s | **~1.88× slower** | 4.239 s | 1.726 s |
-| `--json` | 1.345 s | 0.782 s | **~1.72× slower** | 2.445 s | 1.734 s |
+| default table | 1.418 s | 0.698 s | **~2.03× slower** | 4.307 s | 1.730 s |
+| `--json` | 1.326 s | 0.695 s | **~1.91× slower** | 2.449 s | 1.736 s |
 
 The latest pass combines direct lowered-function target caching, the release
 shallow-call fast path, `par-map |> identity flat-map |> reduce-by` worker-local

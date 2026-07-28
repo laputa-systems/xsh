@@ -54,11 +54,23 @@ all debug builds. The Tokei JSON path now aggregates file reports with fused
 worker-local `par-map |> reduce-by` instead of a serial per-file language
 switch. The output fingerprint remains unchanged.
 
-The latest seven-run release comparison measures 1.428 s for the default table
-and 1.345 s for JSON, versus native 0.761 s and 0.782 s. That is approximately
-1.88× and 1.72× slower than native. A single-run RSS check measured 42.9 MiB
+The latest seven-run release comparison measures 1.418 s for the default table
+and 1.326 s for JSON, versus native 0.698 s and 0.695 s. That is approximately
+2.03× and 1.91× slower than native. A single-run RSS check measured 42.9 MiB
 versus native 48.1 MiB for the default path, and 56.3 MiB versus 56.3 MiB for
 JSON. Memory is at parity; the remaining gap is execution CPU work.
+
+## Focused Evaluator Benchmark
+
+The new `xsh_lowered_scanner_1000_calls` workload isolates the repeated
+`scan_hash()` lowered function path in
+`crates/xsh-multicall/benches/scripts/lowered-scanner.xsh`. The ordinary
+prepared-plus-execution benchmark measured 10.87 ms, 5,559 allocations, and
+645.2 KiB allocated. Its ignored execution-only companion measured 6.234 ms
+median over five samples, with 4 allocations and 2.36 KiB allocated. Future
+evaluator dispatch changes
+should use the execution-only row for the decision and the ordinary row to
+catch frontend/setup regressions.
 
 ## Pre-Rewrite Checkpoint
 

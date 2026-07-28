@@ -11745,7 +11745,8 @@ fn lowered_bool_expr_needs_type_context(&self, expr: &BuildBoolId) -> bool {
 /// return (it yields `StmtFlow::None` for a non-error value), and an `if`
 /// Try to lower a ForStrLines body into a `ScanLines` node for faster
 /// execution. Returns `Some(ScanLines)` if the body matches the simple scanner
-/// pattern: a single `IfBool` where every branch is a counter increment.
+/// pattern: an optional `let trimmed = line.trim()` followed by an `IfBool`
+/// where every branch is a counter increment.
 fn try_lower_scan_lines(
     &self,
     text: &BuildExprId,
@@ -11758,10 +11759,36 @@ fn try_lower_scan_lines(
         BuildExprRow::Param(slot) => slot,
         _ => return None,
     };
-    if body.len() != 1 {
-        return None;
-    }
-    let if_stmt = self.scratch.borrow().statements[body[0].index()].clone();
+    let if_stmt = match body {
+        [if_stmt] => self.scratch.borrow().statements[if_stmt.index()].clone(),
+        [trim_stmt, if_stmt] => {
+            let trimmed = self.scratch.borrow().statements[trim_stmt.index()].clone();
+            let BuildStmtRow::Let { value, .. } = trimmed else {
+                return None;
+            };
+            let expression = self.scratch.borrow().expressions[value.index()].clone();
+            let BuildExprRow::Method {
+                receiver,
+                name,
+                args,
+                ..
+            } = expression
+            else {
+                return None;
+            };
+            if name.as_str() != "trim" || !args.is_empty() {
+                return None;
+            }
+            if !matches!(
+                self.scratch.borrow().expressions[receiver.index()],
+                BuildExprRow::Param(param) if param == line_slot
+            ) {
+                return None;
+            }
+            self.scratch.borrow().statements[if_stmt.index()].clone()
+        }
+        _ => return None,
+    };
     match if_stmt {
         BuildStmtRow::IfBool {
             branches,
