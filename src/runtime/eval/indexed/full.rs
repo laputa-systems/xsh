@@ -192,6 +192,7 @@ pub(in crate::runtime::eval) enum FullTag {
     ExprError,
     ExprTry,
     ExprCall,
+    ExprDirectPureCall,
     ExprDynamicCall,
     ExprSelfCall,
     StmtLet,
@@ -530,6 +531,13 @@ impl FullStore {
             .bounds(self.extra.len())
             .ok_or_else(|| IrVerifyError::new("full IR extra range is out of bounds"))?;
         Ok(&self.extra[bounds])
+    }
+
+    #[inline(always)]
+    unsafe fn payload_unchecked(&self, range: IrRange) -> &[u32] {
+        let start = range.start as usize;
+        let end = start + range.len as usize;
+        unsafe { self.extra.get_unchecked(start..end) }
     }
 
     #[inline(always)]
@@ -1051,6 +1059,7 @@ impl FullProgram {
             instruction_range,
             block_states: Some(RefCell::new(vec![0; self.store.blocks.len()])),
             slot_count: step.slot_count,
+            verified: false,
         };
         let location_words = [step.location];
         let mut location = FullCursor::new(&location_words);
@@ -1262,6 +1271,7 @@ impl<'a> FullFunctionView<'a> {
                 instruction_states: None,
                 block_states: None,
                 slot_count: function.slot_count,
+            verified: true,
             },
         })
     }
@@ -1318,6 +1328,7 @@ impl<'a> FullDriverStepView<'a> {
                 instruction_states: None,
                 block_states: None,
                 slot_count: step.slot_count,
+                verified: true,
             },
         })
     }
@@ -1342,7 +1353,7 @@ impl<'a> FullDriverStepView<'a> {
     pub(in crate::runtime::eval) fn payload(&self) -> Result<FullPayload<'a>, IrVerifyError> {
         let step = self.program.store.driver_steps[self.index];
         Ok(FullPayload {
-            cursor: FullCursor::new(self.program.store.payload(step.data.range())?),
+            cursor: FullCursor::verified(self.program.store.payload(step.data.range())?),
         })
     }
 
@@ -2615,7 +2626,9 @@ fn instruction_effects(tags: &[FullTag]) -> u32 {
                     EFFECT_SIGNAL | EFFECT_CANCELLATION | EFFECT_PROPAGATE | EFFECT_TRACE
                 }
                 FullTag::ExprDynamicCall => EFFECT_DYNAMIC_CALL | EFFECT_TRACE,
-                FullTag::ExprCall | FullTag::ExprSelfCall => EFFECT_TRACE,
+                FullTag::ExprCall | FullTag::ExprSelfCall | FullTag::ExprDirectPureCall => {
+                    EFFECT_TRACE
+                }
                 FullTag::ExprModuleCall | FullTag::StmtProc => EFFECT_HOST | EFFECT_TRACE,
                 FullTag::StmtPrint => EFFECT_HOST | EFFECT_TRACE,
                 FullTag::ExprFsFiles
@@ -2811,6 +2824,7 @@ pub(in crate::runtime::eval) trait FullCodec: Sized {
 pub(in crate::runtime::eval) struct FullCursor<'a> {
     words: &'a [u32],
     index: usize,
+    verified: bool,
 }
 
 pub(in crate::runtime::eval) struct FullPayload<'a> {
@@ -2851,6 +2865,7 @@ impl<'a> FullExecution<'a> {
                 instruction_states: None,
                 block_states: None,
                 slot_count: self.decoder.slot_count,
+                verified: self.decoder.verified,
             },
         }
     }
@@ -2899,6 +2914,18 @@ impl<'a> FullExecution<'a> {
         &self,
         raw: u32,
     ) -> Result<(FullTag, FullPayload<'a>), IrVerifyError> {
+        if self.decoder.verified {
+            let index = raw as usize;
+            let tag = unsafe { *self.decoder.store.tags.get_unchecked(index) };
+            let data = unsafe { *self.decoder.store.data.get_unchecked(index) };
+            let words = unsafe { self.decoder.store.payload_unchecked(data.range()) };
+            return Ok((
+                tag,
+                FullPayload {
+                    cursor: FullCursor::verified(words),
+                },
+            ));
+        }
         let index = raw as usize;
         if !self.decoder.instruction_range.contains(&index) {
             return Err(IrVerifyError::new(
@@ -2916,7 +2943,9 @@ impl<'a> FullExecution<'a> {
         Ok((
             tag,
             FullPayload {
-                cursor: FullCursor::new(self.decoder.store.payload(data.range())?),
+                cursor: self
+                    .decoder
+                    .cursor(self.decoder.store.payload(data.range())?),
             },
         ))
     }
@@ -2926,6 +2955,18 @@ impl<'a> FullExecution<'a> {
         raw: u32,
     ) -> Result<(FullPatternTag, FullPayload<'a>), IrVerifyError> {
         let index = raw as usize;
+        if self.decoder.verified {
+            let tag = unsafe { *self.decoder.store.patterns.get_unchecked(index) };
+            let data = unsafe { *self.decoder.store.pattern_data.get_unchecked(index) };
+            return Ok((
+                tag,
+                FullPayload {
+                    cursor: self
+                        .decoder
+                        .cursor(unsafe { self.decoder.store.payload_unchecked(data.range()) }),
+                },
+            ));
+        }
         let tag = self
             .decoder
             .store
@@ -2937,7 +2978,9 @@ impl<'a> FullExecution<'a> {
         Ok((
             tag,
             FullPayload {
-                cursor: FullCursor::new(self.decoder.store.payload(data.range())?),
+                cursor: self
+                    .decoder
+                    .cursor(self.decoder.store.payload(data.range())?),
             },
         ))
     }
@@ -2974,6 +3017,27 @@ impl<'a> FullExecution<'a> {
     ) -> Result<(IrBlockId, FullPayload<'a>), IrVerifyError> {
         let id = IrBlockId::from_raw(raw)
             .ok_or_else(|| IrVerifyError::new("full IR block id is invalid"))?;
+        if self.decoder.verified {
+            let block = unsafe { *self.decoder.store.blocks.get_unchecked(id.index()) };
+            debug_assert!(
+                block.owner == IR_NONE || block.owner == self.decoder.owner,
+                "verified block owner changed"
+            );
+            debug_assert_eq!(
+                block.flags & BLOCK_SEQUENCE_KIND_MASK,
+                expected_flags,
+                "verified block kind changed"
+            );
+            debug_assert_eq!(block.result, IR_NONE, "verified block result changed");
+            return Ok((
+                id,
+                FullPayload {
+                    cursor: self
+                        .decoder
+                        .cursor(unsafe { self.decoder.store.payload_unchecked(block.instructions) }),
+                },
+            ));
+        }
         let block = self
             .decoder
             .store
@@ -2997,7 +3061,9 @@ impl<'a> FullExecution<'a> {
         Ok((
             id,
             FullPayload {
-                cursor: FullCursor::new(self.decoder.store.payload(block.instructions)?),
+                cursor: self
+                    .decoder
+                    .cursor(self.decoder.store.payload(block.instructions)?),
             },
         ))
     }
@@ -3007,6 +3073,17 @@ impl<'a> FullExecution<'a> {
         raw: u32,
     ) -> Result<(FullPatternTag, FullPayload<'a>), IrVerifyError> {
         let index = raw as usize;
+        if self.decoder.verified {
+            let tag = unsafe { *self.decoder.store.patterns.get_unchecked(index) };
+            let data = unsafe { *self.decoder.store.pattern_data.get_unchecked(index) };
+            let words = unsafe { self.decoder.store.payload_unchecked(data.range()) };
+            return Ok((
+                tag,
+                FullPayload {
+                    cursor: FullCursor::verified(words),
+                },
+            ));
+        }
         let tag = self
             .decoder
             .store
@@ -3018,7 +3095,9 @@ impl<'a> FullExecution<'a> {
         Ok((
             tag,
             FullPayload {
-                cursor: FullCursor::new(self.decoder.store.payload(data.range())?),
+                cursor: self
+                    .decoder
+                    .cursor(self.decoder.store.payload(data.range())?),
             },
         ))
     }
@@ -3029,6 +3108,17 @@ impl<'a> FullExecution<'a> {
         raw: u32,
     ) -> Result<(FullStageTag, FullPayload<'a>), IrVerifyError> {
         let index = raw as usize;
+        if self.decoder.verified {
+            let tag = unsafe { *self.decoder.store.stages.get_unchecked(index) };
+            let data = unsafe { *self.decoder.store.stage_data.get_unchecked(index) };
+            let words = unsafe { self.decoder.store.payload_unchecked(data.range()) };
+            return Ok((
+                tag,
+                FullPayload {
+                    cursor: FullCursor::verified(words),
+                },
+            ));
+        }
         let tag = self
             .decoder
             .store
@@ -3040,7 +3130,9 @@ impl<'a> FullExecution<'a> {
         Ok((
             tag,
             FullPayload {
-                cursor: FullCursor::new(self.decoder.store.payload(data.range())?),
+                cursor: self
+                    .decoder
+                    .cursor(self.decoder.store.payload(data.range())?),
             },
         ))
     }
@@ -3050,6 +3142,17 @@ impl<'a> FullExecution<'a> {
         raw: u32,
     ) -> Result<(FullValueTag, FullPayload<'a>), IrVerifyError> {
         let index = raw as usize;
+        if self.decoder.verified {
+            let tag = unsafe { *self.decoder.store.values.get_unchecked(index) };
+            let data = unsafe { *self.decoder.store.value_data.get_unchecked(index) };
+            let words = unsafe { self.decoder.store.payload_unchecked(data.range()) };
+            return Ok((
+                tag,
+                FullPayload {
+                    cursor: FullCursor::verified(words),
+                },
+            ));
+        }
         let tag = self
             .decoder
             .store
@@ -3061,7 +3164,9 @@ impl<'a> FullExecution<'a> {
         Ok((
             tag,
             FullPayload {
-                cursor: FullCursor::new(self.decoder.store.payload(data.range())?),
+                cursor: self
+                    .decoder
+                    .cursor(self.decoder.store.payload(data.range())?),
             },
         ))
     }
@@ -3080,11 +3185,29 @@ impl<'a> FullExecution<'a> {
 impl<'a> FullCursor<'a> {
     #[inline(always)]
     fn new(words: &'a [u32]) -> Self {
-        Self { words, index: 0 }
+        Self {
+            words,
+            index: 0,
+            verified: false,
+        }
+    }
+
+    #[inline(always)]
+    fn verified(words: &'a [u32]) -> Self {
+        Self {
+            words,
+            index: 0,
+            verified: true,
+        }
     }
 
     #[inline(always)]
     fn raw(&mut self) -> Result<u32, IrVerifyError> {
+        if self.verified {
+            let value = unsafe { *self.words.get_unchecked(self.index) };
+            self.index += 1;
+            return Ok(value);
+        }
         let value = self
             .words
             .get(self.index)
@@ -3096,6 +3219,9 @@ impl<'a> FullCursor<'a> {
 
     #[inline(always)]
     fn finish(self) -> Result<(), IrVerifyError> {
+        if self.verified {
+            return Ok(());
+        }
         if self.index == self.words.len() {
             Ok(())
         } else {
@@ -3111,9 +3237,19 @@ pub(in crate::runtime::eval) struct FullDecoder<'a> {
     instruction_states: Option<RefCell<Vec<u8>>>,
     block_states: Option<RefCell<Vec<u8>>>,
     slot_count: u32,
+    verified: bool,
 }
 
 impl<'a> FullDecoder<'a> {
+    #[inline(always)]
+    fn cursor(&self, words: &'a [u32]) -> FullCursor<'a> {
+        if self.verified {
+            FullCursor::verified(words)
+        } else {
+            FullCursor::new(words)
+        }
+    }
+
     #[inline(always)]
     fn block(
         &self,
@@ -3121,6 +3257,24 @@ impl<'a> FullDecoder<'a> {
         expected_flags: u8,
     ) -> Result<(IrBlockId, FullCursor<'a>), IrVerifyError> {
         let raw = input.raw()?;
+        if self.verified {
+            let id = unsafe { IrBlockId::from_raw(raw).unwrap_unchecked() };
+            let block = unsafe { *self.store.blocks.get_unchecked(id.index()) };
+            debug_assert!(
+                block.owner == IR_NONE || block.owner == self.owner,
+                "verified block owner changed"
+            );
+            debug_assert_eq!(
+                block.flags & BLOCK_SEQUENCE_KIND_MASK,
+                expected_flags,
+                "verified block kind changed"
+            );
+            debug_assert_eq!(block.result, IR_NONE, "verified block result changed");
+            return Ok((
+                id,
+                self.cursor(unsafe { self.store.payload_unchecked(block.instructions) }),
+            ));
+        }
         let id = IrBlockId::from_raw(raw)
             .ok_or_else(|| IrVerifyError::new("full IR block id is invalid"))?;
         let block = self
@@ -3161,7 +3315,7 @@ impl<'a> FullDecoder<'a> {
         }
         Ok((
             id,
-            FullCursor::new(self.store.payload(block.instructions)?),
+            self.cursor(self.store.payload(block.instructions)?),
         ))
     }
 
@@ -3179,6 +3333,15 @@ impl<'a> FullDecoder<'a> {
         input: &mut FullCursor<'_>,
     ) -> Result<(usize, FullTag, FullCursor<'a>), IrVerifyError> {
         let index = input.raw()? as usize;
+        if self.verified {
+            let tag = unsafe { *self.store.tags.get_unchecked(index) };
+            let data = unsafe { *self.store.data.get_unchecked(index) };
+            return Ok((
+                index,
+                tag,
+                self.cursor(unsafe { self.store.payload_unchecked(data.range()) }),
+            ));
+        }
         if !self.instruction_range.contains(&index) {
             return Err(IrVerifyError::new(
                 "full IR instruction belongs to another function",
@@ -3212,7 +3375,7 @@ impl<'a> FullDecoder<'a> {
         Ok((
             index,
             tag,
-            FullCursor::new(self.store.payload(data.range())?),
+            self.cursor(self.store.payload(data.range())?),
         ))
     }
 
@@ -3566,6 +3729,7 @@ impl FullVerifier {
                 instruction_states: Some(RefCell::new(vec![0; instruction_len])),
                 block_states: Some(RefCell::new(vec![0; store.blocks.len()])),
                 slot_count: function.slot_count,
+                verified: false,
             };
             let body_id = IrBlockId::from_raw(function.body)
                 .ok_or_else(|| IrVerifyError::new("function body block is invalid"))?;
@@ -6983,6 +7147,19 @@ impl_node_codec! {
             args,
             span,
         },
+        BuildExprRow::DirectPureCall {
+            function,
+            args,
+            span,
+        } => ExprDirectPureCall {
+            function: LoweredFunctionKey,
+            args: Vec<LoweredCallArg>,
+            span: Span,
+        } => BuildExprRow::DirectPureCall {
+            function,
+            args,
+            span,
+        },
         BuildExprRow::DynamicCall { callee, args, span } => ExprDynamicCall {
             callee: BuildExprId,
             args: Vec<LoweredCallArg>,
@@ -7502,6 +7679,21 @@ proc main() [error] {
         assert!(scan_bytes > 0, "Tokei showcase has no ScanBytes instructions");
     }
 
+    #[test]
+    fn tokei_showcase_contains_direct_pure_calls() {
+        let program = fixture(
+            "showcase/tokei.xsh",
+            include_str!("../../../../showcase/tokei.xsh"),
+        );
+        let direct_calls = program
+            .store
+            .tags
+            .iter()
+            .filter(|tag| **tag == FullTag::ExprDirectPureCall)
+            .count();
+        assert!(direct_calls > 0, "Tokei showcase has no direct pure calls");
+    }
+
     fn normalize_traces(events: &[crate::trace::TraceEvent]) -> String {
         events
             .iter()
@@ -7900,7 +8092,7 @@ proc main() [error] {
             .store
             .tags
             .iter()
-            .position(|tag| *tag == FullTag::ExprCall)
+            .position(|tag| matches!(tag, FullTag::ExprCall | FullTag::ExprDirectPureCall))
             .unwrap();
         let call_payload = bad_function.store.data[call]
             .range()

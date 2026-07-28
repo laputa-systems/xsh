@@ -71,6 +71,39 @@ release comparison measures 1.152 s for the default table and 1.070 s for JSON,
 versus native 0.710 s and 0.712 s: approximately 1.62× and 1.50× slower. The
 frontend memory targets were not rerun for this focused performance pass.
 
+## Direct Pure Calls And Verified Decode
+
+The next follow-up adds `ExprDirectPureCall` for small pure lowered functions
+and a verified production decoder path. Direct calls keep traceback frames but
+skip trace enter/exit setup when tracing is disabled; verified cursors skip
+repeated instruction, block, payload, and cursor bounds validation after
+`FullVerifier::verify()` has completed. The checked decoder remains in use
+during verification.
+
+The final seven-run release comparison measured 1.149 s for the default table
+and 1.111 s for JSON, versus native 0.668 s and 0.738 s. That is approximately
+1.72× and 1.51× slower. The default result is effectively flat against the
+stateful-scanner baseline; JSON is within the observed host variance but does
+not establish a material new win. The two optimizations remain useful
+experiments for the focused evaluator path, not a replacement for the prior
+stable baseline. Frontend memory targets were not rerun.
+
+## Tokei JSON Report Assembly
+
+The JSON showcase now builds child-report lists directly in
+`children_from_reports()` instead of filling an intermediate grouped map and
+copying it into a second output map. The worker-side variant that carried child
+reports through `reduce-by` was rejected: it regressed the Sentry JSON path to
+about 1.20 s, so child extraction remains on the post-aggregation report path.
+
+A same-binary ten-run A/B against the pre-change showcase was flat: JSON was
+1.180 s current versus 1.174 s at `HEAD`, and the default table was 1.190 s
+versus 1.189 s. The focused `xsh_tokei_json_report_assembly_4000_execution`
+benchmark is now available for future report-shape changes; its current
+synthetic workload measures about 450 ms and four measured allocations. This
+is a guardrail, not evidence of a whole-Sentry latency win. Frontend memory
+targets were not rerun.
+
 ## Current Memory Audit
 
 The campaign-scope `xsh-frontend-stats --json` run on July 28 reports the same

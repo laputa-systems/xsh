@@ -1638,6 +1638,48 @@ impl Evaluator {
         result
     }
 
+    fn eval_indexed_direct_pure_call(
+        &mut self,
+        function: LoweredFunctionKey,
+        values: &[LoweredValue],
+        call_span: Span,
+    ) -> Result<LoweredValue, RuntimeError> {
+        let program = Arc::clone(
+            self.indexed_program
+                .as_ref()
+                .expect("indexed caller retains its indexed program"),
+        );
+        let index = self
+            .indexed_function_index(&program, function, LoweredFunctionKind::Pure)
+            .map_err(|error| indexed_error(error, call_span))?
+            .ok_or_else(|| {
+                RuntimeError::new("unresolved-lowered-call", function.display_name())
+                    .with_span(call_span)
+            })?;
+        let view = program
+            .function_view_at(index)
+            .expect("cached lowered function index is valid");
+        let header = view
+            .header()
+            .map_err(|error| indexed_error(error, call_span))?;
+        let mut next_slots = self.bind_lowered_values(&header, values, call_span)?;
+        let name = function.display_name();
+        self.call_stack.push(TracebackFrame {
+            kind: TracebackFrameKind::Pure,
+            name,
+            definition_span: None,
+            call_span: Some(call_span),
+        });
+        let result = with_indexed_eval_depth(call_span, || {
+            self.eval_indexed_function(view, &header, &mut next_slots, call_span)
+        });
+        self.call_stack.pop();
+        let result = result
+            .and_then(|value| lowered_return_value(header.return_kind, value, call_span));
+        self.recycle_lowered_slots(next_slots);
+        result
+    }
+
     fn eval_indexed_self_call(
         &mut self,
         function: LoweredFunctionKey,
@@ -5899,6 +5941,46 @@ impl Evaluator {
                 return self
                     .eval_indexed_named_call(function, &values, span)
                     .map(ControlFlow::Continue);
+            }
+            FullTag::ExprDirectPureCall => {
+                let function = indexed_decode::<LoweredFunctionKey>(
+                    &mut payload,
+                    execution,
+                    call_span,
+                )?;
+                let (_, mut args) = execution
+                    .block(&mut payload, BLOCK_LIST)
+                    .map_err(|error| indexed_error(error, call_span))?;
+                let len = indexed_raw(&mut args, call_span)? as usize;
+                let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
+                indexed_finish(payload, call_span)?;
+                let mut values = Vec::with_capacity(len);
+                for _ in 0..len {
+                    let kind = indexed_raw(&mut args, span)?;
+                    let arg = indexed_raw(&mut args, span)?;
+                    let value = match self.eval_indexed_expr(execution, arg, slots, span)? {
+                        ControlFlow::Continue(value) => value,
+                        ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+                    };
+                    match kind {
+                        0 => values.push(value),
+                        1 => values.extend(lowered_splice_arg_items(value, span)?),
+                        _ => {
+                            return Err(RuntimeError::new(
+                                "indexed-ir",
+                                "invalid indexed call argument kind",
+                            )
+                            .with_span(span));
+                        }
+                    }
+                }
+                indexed_finish(args, span)?;
+                let result = if self.trace_enabled {
+                    self.eval_indexed_named_call(function, &values, span)?
+                } else {
+                    self.eval_indexed_direct_pure_call(function, &values, span)?
+                };
+                return Ok(ControlFlow::Continue(result));
             }
             FullTag::ExprDynamicCall => {
                 let callee = indexed_raw(&mut payload, call_span)?;

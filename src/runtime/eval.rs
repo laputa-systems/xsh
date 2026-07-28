@@ -1596,6 +1596,11 @@ enum BuildExprRow {
         args: Vec<LoweredCallArg>,
         span: Span,
     },
+    DirectPureCall {
+        function: LoweredFunctionKey,
+        args: Vec<LoweredCallArg>,
+        span: Span,
+    },
     DynamicCall {
         callee: BuildExprId,
         args: Vec<LoweredCallArg>,

@@ -1229,19 +1229,12 @@ proc blob_stats(report: FileReport, language: Str) [error] -> Result[Stats] {
 }
 
 proc children_from_reports(reports: List[FileReport]) [error] -> Result[Map[Any]] {
-  var grouped: Map[List[FileReport]] = {}
-  let empty_reports: List[FileReport] = []
+  var children: Map[List[FileReport]] = {}
 
   for report in reports {
     for language in report.stats.blobs.keys() {
-      grouped = grouped.push(language, {stats: blob_stats(report, language)?, name: report.name})
+      children = children.push(language, {stats: blob_stats(report, language)?, name: report.name})
     }
-  }
-
-  var children: Map[Any] = {}
-
-  for language in grouped.keys() |> sort {
-    children[language] = grouped.get(language, empty_reports)
   }
 
   return children

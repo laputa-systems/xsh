@@ -250,6 +250,33 @@ fn xsh_lowered_scanner_1000_calls(bencher: Bencher) {
     bench_operation(bencher, || run_benchmark_script(&script, Vec::new()));
 }
 
+#[divan::bench]
+fn xsh_tokei_json_report_assembly_4000(bencher: Bencher) {
+    let script = benchmark_script("tokei-json-report-assembly.xsh");
+    bench_operation(bencher, || run_benchmark_script(&script, Vec::new()));
+}
+
+#[cfg(feature = "native-tests")]
+#[divan::bench(skip_ext_time)]
+#[ignore]
+fn xsh_tokei_json_report_assembly_4000_execution(bencher: Bencher) {
+    let script = benchmark_script("tokei-json-report-assembly.xsh");
+    bencher
+        .with_inputs(|| {
+            prepare_benchmark_script(RunOptions {
+                script: script.to_string_lossy().into_owned(),
+                args: Vec::new(),
+                coverage_trace_dir: None,
+            })
+            .expect("prepare Tokei JSON report assembly benchmark")
+        })
+        .bench_local_values(|prepared| {
+            let output = prepared.run();
+            assert_eq!(output.status, 0, "{}", String::from_utf8_lossy(&output.stderr));
+            output.stdout.len()
+        });
+}
+
 #[cfg(feature = "native-tests")]
 #[divan::bench(skip_ext_time)]
 #[ignore]

@@ -8571,6 +8571,11 @@ impl CompactLowerConstructProbe<'_, '_> {
                 if self_call {
                     Some(push_build_row!(self, expr, BuildExprRow::SelfCall { args: lowered_args,
                     span, }))
+                } else if self.compact_direct_pure_call_candidate(function_key.expect("checked unqualified function key")) {
+                    Some(push_build_row!(self, expr, BuildExprRow::DirectPureCall {
+                    function: function_key.expect("checked unqualified function key"),
+                    args: lowered_args,
+                    span, }))
                 } else {
                     Some(push_build_row!(self, expr, BuildExprRow::Call { function: function_key.expect("checked unqualified function key"),
                     args: lowered_args,
@@ -8712,6 +8717,21 @@ impl CompactLowerConstructProbe<'_, '_> {
             .or_else(|| self.declarations.procs.get(&name))
             .or_else(|| self.declarations.streams.get(&name))
             .or_else(|| self.compact_imported_unqualified_function_sig(name))
+    }
+
+    fn compact_direct_pure_call_candidate(&self, key: LoweredFunctionKey) -> bool {
+        let Some(function) = compact_function_defs(self.program)
+            .into_iter()
+            .find(|function| function.key == key)
+        else {
+            return false;
+        };
+        if !function.pure {
+            return false;
+        }
+        let def = self.program.arena.function_def(function.id);
+        let span = self.program.arena.span(self.program.arena.block(def.body).span);
+        span.end().saturating_sub(span.start()) <= 12 * 1024
     }
 
     fn compact_imported_unqualified_function_key(&self, name: Name) -> Option<LoweredFunctionKey> {
