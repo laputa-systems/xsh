@@ -4,6 +4,18 @@ Narrow, actionable bugs observed across the xsh runtime and standard modules.
 Each entry describes the symptom, a minimal reproduction, the likely area, and
 any known workarounds. When a ticket is resolved, delete it.
 
+## Greppable implementation handles
+
+| Ticket area | Symbols | Owner and coverage |
+|---|---|---|
+| filesystem-bound `par-map` | `eval_indexed_par_map_item`, `eval_indexed_par_map_parallel`, `fs.files`, `fs.walk` | `src/runtime/eval/lowered_run/indexed_run.rs`, filesystem module dispatch; runtime stream tests |
+| direct directory enumeration | `lower_fs_files_args`, `fs.files`, `fs.walk`, `CompactBodyProbe` | `src/runtime/eval/lower.rs`, `src/modules/fs.rs`, `src/sema/check/compact.rs`; `tests/runtime/collections.rs`, `tests/runtime/streams.rs` |
+| macOS process-tree path | `process.list`, `ProcessStatus`, `core/pstree.xsh` | `src/modules/process.rs`, `src/runtime/process.rs`, `core/pstree.xsh`; `core_pstree_prints_spawned_parent_before_child` |
+| cancellation responsiveness | `run_cancelable_temp_script`, `cancel_managed`, `CancellationDecision` | `tests/runtime/common.rs`, `src/runtime/process.rs`; process and OS cancellation tests |
+
+Treat these as issue-to-owner handles. Update the nearest behavior test and
+`docs/TEST-MAP.md` when a ticket changes runtime or module behavior.
+
 ## Open
 
 ### Reduce `par-map` overhead for filesystem-bound workloads

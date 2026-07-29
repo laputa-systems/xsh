@@ -12,6 +12,20 @@ the realistic low-risk scope is smaller; the path to ~10% requires hot-path
 sort consolidation, which carries runtime risk and is documented here as a
 follow-up rather than undertaken by default.
 
+## Greppable implementation handles
+
+| Concern | Symbols | Owner and coverage |
+|---|---|---|
+| measured compiler/runtime offenders | `Evaluator::new_with_sources_and_command_inner`, `Evaluator::prepare_compact_indexed_only`, `RuntimeError::new` | `src/runtime/eval.rs`, `src/runtime/value.rs`; runtime behavior gate in `docs/TEST-MAP.md` |
+| generic arena helpers | `vec_capacity_bytes`, `range_slice`, `Name::intern` | `src/syntax/arena.rs`, `src/symbol.rs`; syntax and symbol tests |
+| archive generic boundary | `block_on_archive` | `src/modules/archive/mod.rs`; archive module tests |
+| repeat-offender analysis | `tools/llvm-lines-repeat-offenders.xsh`, `--sum`, `--filter` | `tools/llvm-lines-repeat-offenders.xsh`; commands below |
+| user-visible regression gate | `xsh_lowered_scanner_1000_calls_execution`, `make bench` | `crates/xsh-multicall/benches/bench.rs`, `Makefile`; benchmark guidance in `docs/TEST-MAP.md` |
+
+The measured function names are retrieval handles for the current report, not
+permission to optimize them without a release A/B and the applicable behavior
+tests.
+
 ## Profile And Measurement
 
 Always measure with the release profile. The `dist` profile is reserved for CI
@@ -135,7 +149,7 @@ Top repeat offenders owned by the xsh crate, from `--sum` (project-owned):
 | 440 | 41 | `syntax::arena::vec_capacity_bytes::<T>` |
 | 432 | 25 | `syntax::arena::range_slice::<T>` |
 | 416 | 5 | `modules::archive::block_on_archive::<T, F>` |
-| 402 | 6 | `Evaluator::install_compact_lowered::<const PROFILE: bool>` |
+| 402 | 6 | historical compact-install path; current owner is `Evaluator::prepare_compact_indexed_only` |
 | 397 | 6 | `symbol::Name::intern::<T>` |
 | 348 | 4 | `RuntimeError::new::<A, B>` |
 

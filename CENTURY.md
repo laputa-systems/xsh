@@ -1,3 +1,18 @@
+## Greppable implementation handles
+
+These long-term design questions should be grounded in the current owners:
+
+| Design question | Symbols and contracts to inspect |
+|---|---|
+| formal grammar and stability | `docs/SPEC.md`, `Parser::parse_source_arena_only`, `Lexer::lex_compact`, `docs-src/CHAPTER-*.md.in` |
+| effects as capabilities | `Checker`, `Effect`, `RuntimeOp`, `docs/SPEC-TYPING.md` |
+| module versioning and schema evolution | `api_spec`, `ModuleSig`, `Type`, `docs/STDLIB.md` |
+| determinism and runtime boundaries | `FullProgram`, `TraceEvent`, `Map`, `src/runtime/eval.rs` |
+| language boundary and non-goals | `docs/CHAPTER-15-why-not-xsh.md`, `docs/SPEC-OS.md`, `docs/ARCHITECTURE.md` |
+
+These handles keep the century-scale questions connected to concrete code and
+contracts without turning this note into an implementation plan.
+
 **No formal grammar**
 
 SPEC.md mixes philosophy, normative semantics, and grammar in prose. That works now. In 30 years when someone implements XSH on a new platform or wants to build a syntax-aware tool, they need a machine-readable BNF or EBNF — not because prose is wrong, but because prose is ambiguous under adversarial reading and doesn't survive translation. SQL lasted 40 years in part because ISO standardized a grammar that implementors could argue about precisely. The formatter is an implicit grammar oracle right now, which is clever but fragile. A formal grammar doc would also make the "spec-first" commitment enforceable beyond this implementation.

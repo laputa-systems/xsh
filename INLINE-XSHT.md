@@ -4,6 +4,18 @@ This tracks Rust tests that still construct inline XSH scripts through helpers
 such as `run_temp_script`, `run_temp_script_with_args`, `write_temp_script`, and
 `run_cancelable_temp_script`.
 
+## Greppable implementation handles
+
+| Concern | Symbols | Owner and coverage |
+|---|---|---|
+| inline script helpers | `run_temp_script`, `run_temp_script_with_args`, `write_temp_script`, `run_cancelable_temp_script` | `tests/runtime/common.rs`; helper-definition matches are not migration targets by themselves |
+| native test APIs | `test.run_script`, `test.run_xsh`, `test.run_xsht_trace` | `crates/xsh-registry/src/signature/modules.rs`, `src/runtime/eval/lowered_run.rs`; native tests under `tests/xsh/` |
+| script runner boundary | `RunOptions`, `run_script`, `ScriptOutput` | `src/runner.rs`; runner tests and runtime example coverage |
+| xsht subprocess host | `NativeTestRunRequest`, `PreparedTestProgram`, `NativeTestHost` | `src/runtime/eval.rs`, `crates/xsht/src/xsht/test.rs`; `tests/runtime/coverage.rs` |
+
+Use the helper names and test names above when changing the migration count;
+the count is evidence about harness shape, not a target to reduce blindly.
+
 ## Current Count
 
 Snapshot after the next native-test migration pass:

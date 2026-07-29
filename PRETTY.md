@@ -3,6 +3,18 @@ beautiful XSH source. It is an implementation note, not a second language
 specification. Syntax and source-visible language behavior belong in
 `docs/SPEC.md`; formatter ownership and invariants belong in `docs/XSHT.md`.
 
+## Greppable implementation handles
+
+| Concern | Symbols | Owner and coverage |
+|---|---|---|
+| formatter entry and output | `Formatter`, `FormatOutput`, `format_files` | `crates/xsht/src/format.rs`, `crates/xsht/src/cli/fmt.rs`; formatter tests in `crates/xsht/tests/cli.rs` |
+| source-faithful input | `SyntaxTree`, `SyntaxTree::from_token_table`, `apply_cst_guarded_edits` | `src/syntax/cst.rs`, `crates/xsht/src/edit.rs`; CST/formatter coverage |
+| layout decisions | `canonical_parens_when_empty`, `expr_precedence`, `needs_top_level_blank` | `src/syntax/node.rs`, `crates/xsht/src/format.rs`; syntax fixture tests |
+| corpus gate | `xsht fmt --check`, `tests/syntax.rs`, `examples/catalog.json` | formatter command, syntax tests, and cataloged examples |
+
+These symbols define formatter implementation ownership; the visual principles
+below remain policy rather than an alternate syntax contract.
+
 The formatter should make ordinary XSH code pleasant to read without requiring
 authors to hand-tune every line. It should preserve meaningful choices when
 there is no strong reason to change them, and it should prefer semantic
