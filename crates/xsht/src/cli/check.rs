@@ -11,7 +11,9 @@ use std::path::{Path, PathBuf};
 use xsh::diagnostic::{Diagnostic, DiagnosticRenderer, Label, LabelStyle};
 use xsh::loader::{self, parse_load_check_file};
 use xsh::runtime::eval::Evaluator;
-use xsh::sema::check::{AnnotationFact, AnnotationFactKind, CheckOptions, Checker};
+use xsh::sema::check::{
+    AnnotationFact, AnnotationFactKind, CheckOptions, Checker, CompactBodyProbeOutput,
+};
 use xsh::source::{SourceId, SourceMap, Span};
 use xsh::syntax::parser::Parser;
 
@@ -228,9 +230,38 @@ pub fn check_paths_with_summary_options(
     let mut stderr = String::new();
     let mut seen_diagnostics: rustc_hash::FxHashSet<String> = rustc_hash::FxHashSet::default();
     let mut checked_files: rustc_hash::FxHashSet<String> = rustc_hash::FxHashSet::default();
-    for file in files {
-        if let Some(output) = cancellation_output() {
-            return output;
+    std::thread::scope(|scope| {
+        let worker_count = std::thread::available_parallelism()
+            .map(|count| count.get())
+            .unwrap_or(1)
+            .min(files.len().max(1));
+        let (job_tx, job_rx) = crossbeam_channel::unbounded();
+        let (result_tx, result_rx) = crossbeam_channel::unbounded();
+        for _ in 0..worker_count {
+            let job_rx = job_rx.clone();
+            let result_tx = result_tx.clone();
+            scope.spawn(move || {
+                while let Ok((file_index, program, source_id, sources, declarations, bodies, command_name)) = job_rx.recv() {
+                    let diagnostics = Evaluator::compact_lowerability_diagnostics_with_parts(
+                        &program,
+                        source_id,
+                        sources,
+                        declarations,
+                        bodies,
+                        Vec::new(),
+                        command_name,
+                    );
+                    if result_tx.send((file_index, diagnostics)).is_err() {
+                        break;
+                    }
+                }
+            });
+        }
+        drop(result_tx);
+        let mut submitted = 0;
+        for (file_index, file) in files.into_iter().enumerate() {
+        if cancellation_output().is_some() {
+            break;
         }
         let path_str = file.to_string_lossy().into_owned();
 
@@ -331,25 +362,51 @@ pub fn check_paths_with_summary_options(
 
         let mut type_stderr = DiagnosticRenderer::new().render(&checked.reveal_types, &sources);
 
-        let diagnostics = Evaluator::compact_lowerability_diagnostics(
-            &parsed.arena,
-            source_id,
-            sources.clone(),
-            Vec::new(),
-            xsh::runner::script_command_name(&path_str),
-        );
-        if !diagnostics.is_empty() {
-            let new_diags: Vec<_> = diagnostics
-                .iter()
-                .filter(|d| seen_diagnostics.insert(diagnostic_key(d, &sources)))
-                .cloned()
-                .collect();
-            if !new_diags.is_empty() {
-                stderr.push_str(&DiagnosticRenderer::new().render(&new_diags, &sources));
-                summary_counts.observe_diagnostics(&new_diags, &sources);
+        let declarations = Checker::check_compact_declarations(&parsed.arena);
+        let bodies = if declarations.diagnostics.is_empty() {
+            Checker::probe_compact_bodies(&parsed.arena, &declarations)
+        } else {
+            CompactBodyProbeOutput::default()
+        };
+
+        if annotation_policy.is_some() {
+            let diagnostics = Evaluator::compact_lowerability_diagnostics_with_parts(
+                &parsed.arena,
+                source_id,
+                sources.clone(),
+                declarations,
+                bodies,
+                Vec::new(),
+                xsh::runner::script_command_name(&path_str),
+            );
+            if !diagnostics.is_empty() {
+                let new_diags: Vec<_> = diagnostics
+                    .iter()
+                    .filter(|d| seen_diagnostics.insert(diagnostic_key(d, &sources)))
+                    .cloned()
+                    .collect();
+                if !new_diags.is_empty() {
+                    stderr.push_str(&DiagnosticRenderer::new().render(&new_diags, &sources));
+                    summary_counts.observe_diagnostics(&new_diags, &sources);
+                }
+                status = 2;
+                continue;
             }
-            status = 2;
-            continue;
+        } else {
+            let source_snapshot = sources.clone();
+            let command_name = xsh::runner::script_command_name(&path_str);
+            job_tx
+                .send((
+                    file_index,
+                    parsed.arena,
+                    source_id,
+                    source_snapshot,
+                    declarations,
+                    bodies,
+                    command_name,
+                ))
+                .expect("lowerability worker pool disconnected");
+            submitted += 1;
         }
 
         if let Some(annotation_policy) = annotation_policy {
@@ -396,6 +453,31 @@ pub fn check_paths_with_summary_options(
             type_stderr.push('\n');
         }
         stderr.push_str(&type_stderr);
+        }
+        drop(job_tx);
+        let mut lowerability_results = Vec::with_capacity(submitted);
+        for _ in 0..submitted {
+            lowerability_results.push(result_rx.recv().expect("lowerability worker panicked"));
+        }
+        lowerability_results.sort_unstable_by_key(|(index, _)| *index);
+        for (_, diagnostics) in lowerability_results {
+            if diagnostics.is_empty() {
+                continue;
+            }
+            let new_diags: Vec<_> = diagnostics
+                .iter()
+                .filter(|d| seen_diagnostics.insert(diagnostic_key(d, &sources)))
+                .cloned()
+                .collect();
+            if !new_diags.is_empty() {
+                stderr.push_str(&DiagnosticRenderer::new().render(&new_diags, &sources));
+                summary_counts.observe_diagnostics(&new_diags, &sources);
+            }
+            status = 2;
+        }
+    });
+    if let Some(output) = cancellation_output() {
+        return output;
     }
 
     if summary {
@@ -583,10 +665,18 @@ fn check_one_script(
     let mut stderr =
         DiagnosticRenderer::new().render(&checked.reveal_types, &checked_program.sources);
 
-    let diagnostics = Evaluator::compact_lowerability_diagnostics(
+    let declarations = Checker::check_compact_declarations(&checked_program.parsed.arena);
+    let bodies = if declarations.diagnostics.is_empty() {
+        Checker::probe_compact_bodies(&checked_program.parsed.arena, &declarations)
+    } else {
+        CompactBodyProbeOutput::default()
+    };
+    let diagnostics = Evaluator::compact_lowerability_diagnostics_with_parts(
         &checked_program.parsed.arena,
         checked_program.entry_source_id,
         checked_program.sources.clone(),
+        declarations,
+        bodies,
         Vec::new(),
         xsh::runner::script_command_name(script),
     );

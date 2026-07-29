@@ -143,6 +143,58 @@ fn fmt_explicit_directory_formats_xsh_files() {
 }
 
 #[test]
+fn fmt_checks_imported_modules() {
+    let root = TempDir::new().expect("create temp root");
+    fs::write(
+        root.path().join("helper.xsh"),
+        "export pure bad() -> Int {\n  return \"not an int\"\n}\n",
+    )
+    .expect("write helper module");
+    fs::write(
+        root.path().join("main.xsh"),
+        "use helper\nprint helper.bad()\n",
+    )
+    .expect("write main script");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+        .args(["fmt", "main.xsh"])
+        .current_dir(root.path())
+        .output()
+        .expect("run xsht fmt");
+
+    assert_eq!(output.status.code(), Some(2));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("helper.xsh"), "stderr: {stderr}");
+    assert!(stderr.contains("check.type-mismatch"), "stderr: {stderr}");
+}
+
+#[test]
+fn lint_explicit_directory_lints_xsh_files() {
+    let root = TempDir::new().expect("create temp root");
+    let project = root.path().join("project");
+    fs::create_dir_all(project.join("nested")).expect("create project dirs");
+    fs::write(project.join("main.xsh"), "let value = 1\n").expect("write main script");
+    fs::write(
+        project.join("nested").join("helper.xsh"),
+        "let value = 2\n",
+    )
+    .expect("write helper script");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+        .args(["lint", project.to_str().unwrap()])
+        .current_dir(root.path())
+        .output()
+        .expect("run xsht lint");
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn fmt_reports_invalid_xsht_config_line_width() {
     let root = TempDir::new().expect("create temp root");
     fs::write(

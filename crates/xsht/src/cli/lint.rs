@@ -2,7 +2,7 @@ use crate::xsht::cli::{
     CliOutput, XshConfig, cancellation_output, collect_configured_xsh_files, is_path_excluded,
     load_config, nearest_config_for_file, text_bytes,
 };
-use crate::xsht::config::FileToolConfig;
+use crate::xsht::config::{FileToolConfig, config_for_dir};
 use crate::xsht::edit::{SourceEdit, apply_cst_guarded_edits};
 use crate::xsht::lint::{LintOptions, Linter};
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -36,11 +36,9 @@ pub fn lint_files(files: &[String], fix: bool, runless: bool) -> CliOutput {
         }
     };
 
-    let discovered;
-    let files: &[String] = if files.is_empty() {
-        let mut paths = Vec::new();
-        if let Err(message) = collect_configured_xsh_files(Path::new("."), &cwd_config, &mut paths)
-        {
+    let discovered = match discover_lint_files(files, &cwd_config) {
+        Ok(files) => files,
+        Err(message) => {
             if let Some(output) = cancellation_output() {
                 return output;
             }
@@ -52,31 +50,10 @@ pub fn lint_files(files: &[String], fix: bool, runless: bool) -> CliOutput {
                 syscall_summary: None,
             };
         }
-        let mut filtered = Vec::new();
-        let config_cache = ConfigCache::default();
-        for path in paths {
-            match excluded_by_nearest_config(&path, &cwd_config, &config_cache) {
-                Ok(true) => {}
-                Ok(false) => filtered.push(path.to_string_lossy().into_owned()),
-                Err(message) => {
-                    return CliOutput {
-                        status: 2,
-                        stdout: Vec::new(),
-                        stderr: text_bytes(format!("xsht: {message}\n")),
-                        trace_text: String::new(),
-                        syscall_summary: None,
-                    };
-                }
-            }
-        }
-        discovered = filtered;
-        &discovered
-    } else {
-        files
     };
 
     let config_cache = ConfigCache::default();
-    let mut results = lint_files_parallel(files, fix, runless, &cwd_config, &config_cache);
+    let mut results = lint_files_parallel(&discovered, fix, runless, &cwd_config, &config_cache);
     if let Some(output) = cancellation_output() {
         return output;
     }
@@ -135,6 +112,37 @@ pub fn lint_files(files: &[String], fix: bool, runless: bool) -> CliOutput {
         trace_text: String::new(),
         syscall_summary: None,
     }
+}
+
+fn discover_lint_files(files: &[String], config: &XshConfig) -> Result<Vec<String>, String> {
+    let mut paths = Vec::new();
+    if files.is_empty() {
+        collect_configured_xsh_files(Path::new("."), config, &mut paths)?;
+        let config_cache = ConfigCache::default();
+        let mut filtered = Vec::with_capacity(paths.len());
+        for path in paths {
+            if !excluded_by_nearest_config(&path, config, &config_cache)? {
+                filtered.push(path);
+            }
+        }
+        paths = filtered;
+    } else {
+        for file in files {
+            let path = Path::new(file);
+            if path.is_dir() {
+                let dir_config = config_for_dir(path, config)?.config;
+                collect_configured_xsh_files(path, &dir_config, &mut paths)?;
+            } else {
+                paths.push(path.to_path_buf());
+            }
+        }
+    }
+    paths.sort_unstable();
+    paths.dedup();
+    Ok(paths
+        .into_iter()
+        .map(|path| path.to_string_lossy().into_owned())
+        .collect())
 }
 
 struct LintResult {

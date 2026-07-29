@@ -3427,11 +3427,28 @@ impl Evaluator {
         if !declarations.diagnostics.is_empty() {
             return Err(declarations.diagnostics.remove(0));
         }
-        self.install_compact_runtime_declarations(&declarations);
         let mut bodies = Checker::probe_compact_bodies(program, &declarations);
         if !bodies.diagnostics.is_empty() {
             return Err(bodies.diagnostics.remove(0));
         }
+        self.prepare_compact_indexed_only_or_diagnostic_with_parts(
+            program,
+            source_id,
+            allow_checker_only,
+            declarations,
+            bodies,
+        )
+    }
+
+    fn prepare_compact_indexed_only_or_diagnostic_with_parts(
+        &mut self,
+        program: &ArenaProgram,
+        source_id: SourceId,
+        allow_checker_only: bool,
+        declarations: CompactDeclOutput,
+        bodies: CompactBodyProbeOutput,
+    ) -> Result<CompactIndexedRunPlan, Diagnostic> {
+        self.install_compact_runtime_declarations(&declarations);
         let source_id = program.source_text_source_id().unwrap_or(source_id);
         let Some(source) = self.sources.get(source_id).map(|source| source.text()) else {
             return Err(compact_lowerability_diagnostic(
@@ -3561,8 +3578,8 @@ impl Evaluator {
         argv: Vec<String>,
         command_name: String,
     ) -> Vec<Diagnostic> {
-        let mut evaluator = Self::new_with_sources_and_command(argv, sources, command_name);
         program.symbol_owner().with_current(|| {
+            let mut evaluator = Self::new_with_sources_and_command(argv, sources, command_name);
             match evaluator.prepare_compact_indexed_only_or_diagnostic(program, source_id, false) {
                 Ok(_) => Vec::new(),
                 Err(diagnostic) => vec![diagnostic],
@@ -3577,9 +3594,39 @@ impl Evaluator {
         argv: Vec<String>,
         command_name: String,
     ) -> Vec<Diagnostic> {
-        let mut evaluator = Self::new_with_sources_and_command(argv, sources, command_name);
         program.symbol_owner().with_current(|| {
+            let mut evaluator = Self::new_with_sources_and_command(argv, sources, command_name);
             match evaluator.prepare_compact_indexed_only_or_diagnostic(program, source_id, true) {
+                Ok(_) => Vec::new(),
+                Err(diagnostic) => vec![diagnostic],
+            }
+        })
+    }
+
+    pub fn compact_lowerability_diagnostics_with_parts(
+        program: &ArenaProgram,
+        source_id: SourceId,
+        sources: SourceMap,
+        declarations: CompactDeclOutput,
+        bodies: CompactBodyProbeOutput,
+        argv: Vec<String>,
+        command_name: String,
+    ) -> Vec<Diagnostic> {
+        program.symbol_owner().with_current(|| {
+            let mut evaluator = Self::new_with_sources_and_command(argv, sources, command_name);
+            if let Some(diagnostic) = declarations.diagnostics.first() {
+                return vec![diagnostic.clone()];
+            }
+            if let Some(diagnostic) = bodies.diagnostics.first() {
+                return vec![diagnostic.clone()];
+            }
+            match evaluator.prepare_compact_indexed_only_or_diagnostic_with_parts(
+                program,
+                source_id,
+                true,
+                declarations,
+                bodies,
+            ) {
                 Ok(_) => Vec::new(),
                 Err(diagnostic) => vec![diagnostic],
             }
