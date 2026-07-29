@@ -10,6 +10,18 @@ The goal of each new port is **diversification**: pick tools that load-bear on
 *different* XSH axes than the ones already exercised, so each port teaches us
 something new instead of re-proving the same thing. The axes we care about:
 
+## Greppable implementation handles
+
+| Workload | Symbols | Owner and coverage |
+|---|---|---|
+| lowered compute path | `FullBuilder::build_compact`, `indexed_run`, `Evaluator::prepare_compact_indexed_only` | `src/runtime/eval/indexed/full.rs`, `src/runtime/eval/lowered_run/indexed_run.rs`, `src/runtime/eval.rs`; indexed frontend tests and benchmarks |
+| tokei forcing benchmark | `xsh_tokei_json_report_assembly_4000`, `xsh_tokei_json_report_assembly_4000_execution` | `crates/xsh-multicall/benches/bench.rs`; `showcase/tokei.xsh` |
+| CLI parsing and effects | `parse_cli`, `parse_cli_full`, `execute_run`, `time.measure` | `src/modules/cli.rs`, `src/runtime/run.rs`; `showcase/hyperfine.xsh` and runtime process tests |
+| dynamic JSON workload | `raw_json_*`, `json.decode`, `Value` | `src/modules/json.rs`, `src/runtime/value.rs`; `showcase/jq.xsh`, `showcase/tests/test-jq.xsh` |
+
+The port status below describes user-facing workloads; these handles identify
+the runtime path and test/benchmark owner to inspect before changing one.
+
 - **compute / text-scan** — pure lowerable loops, byte/string predicates, parallel
   `par-map |> reduce-by` aggregation. (Proven by tokei.)
 - **dynamic data / allocation** — nested `Value`/`Map`/`List` churn, `Arc` traffic,

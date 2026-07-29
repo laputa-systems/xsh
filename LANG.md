@@ -3,6 +3,21 @@
 Tracked design changes for the XSH language. Each entry has a rationale and a
 before/after example.
 
+## Greppable implementation handles
+
+Proposal lifecycle work should start with these concrete owners:
+
+| Concern | Symbols | Owner and coverage |
+|---|---|---|
+| semantic contract | `Checker`, `docs/SPEC.md`, `docs-src/CHAPTER-*.md.in` | `src/sema/check.rs`, language contract docs, semantic integration tests |
+| deprecation diagnostics | `LintExprVisitor`, `FixHint::replacement`, `FixHint::deletion` | `crates/xsht/src/lint.rs`, `src/diagnostic.rs`; `crates/xsht/tests/lint.rs` |
+| standard API registration | `api_spec`, `RuntimeOp` | `crates/xsh-registry/src/signature/*`, `crates/xsh-registry/src/runtime_op.rs`; `tests/fixtures/modules/standard-modules.txt` |
+| examples and generated docs | `examples/catalog.json`, `xsht docs build`, `xsht docs check` | `examples/*`, `docs-src/*`, `crates/xsht/src/docs.rs`; docs gate in `docs/TEST-MAP.md` |
+
+`LANG.md` contains open proposals only. Once a proposal reaches
+`Checker`/`RuntimeOp`/runtime behavior, move its normative explanation to
+`docs/SPEC.md` and keep these handles current.
+
 ## Process: Implementing a Proposal
 
 When a proposal is implemented, the commit must do all of the following.

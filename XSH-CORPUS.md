@@ -11,6 +11,20 @@ Self-contained applet boilerplate is intentionally not listed as a problem.
 Core applets are expected to carry their own usage/error definitions rather
 than depend on shared helpers.
 
+## Greppable implementation handles
+
+| Corpus pattern | Symbols | Owner and coverage |
+|---|---|---|
+| typed CLI parsing | `parse_cli`, `parse_cli_full`, `cli_module` | `src/modules/cli.rs`, `crates/xsh-registry/src/signature/modules.rs`; `tests/runtime/coverage.rs` and `tests/runtime/streams.rs` |
+| collection rewrite lint | `lint.prefer-list-comp`, `LintExprVisitor` | `crates/xsht/src/lint.rs`; `crates/xsht/tests/lint.rs` |
+| JSON model and conversion | `raw_json_*`, `Value`, `json.decode`, `json.encode` | `src/modules/json.rs`, `src/runtime/value.rs`; `showcase/jq.xsh` and `showcase/tests/test-jq.xsh` |
+| compact execution pressure | `FullBuilder::build_compact`, `indexed_run`, `LoweredValue` | `src/runtime/eval/indexed/full.rs`, `src/runtime/eval/lowered_run/indexed_run.rs`, `src/runtime/eval/lower.rs`; indexed runtime fixtures |
+| corpus acceptance | `examples/catalog.json`, `tests/runtime/examples.rs`, `xsht fmt --check` | examples, showcase scripts, and runtime example tests |
+
+Use the exact XSH API name for a proposed language change and the Rust symbol
+for its implementation owner; do not treat a showcase script name as the
+implementation boundary by itself.
+
 ## 1. CLI Parsing Escapes The Typed Parser
 
 ### Pattern

@@ -5,6 +5,19 @@ processes, bytes, text, structured data, host state, and explicit interop. It
 should make common orchestration tasks safe and readable without turning XSH
 into a general application runtime or a compatibility shell.
 
+## Greppable implementation handles
+
+| Concern | Symbols | Owner and coverage |
+|---|---|---|
+| public module signatures | `api_spec`, `module_sig`, `sig` | `crates/xsh-registry/src/signature/mod.rs`, `modules.rs`, `methods.rs`; `tests/fixtures/modules/standard-modules.txt` |
+| runtime operation identity | `RuntimeOp` | `crates/xsh-registry/src/runtime_op.rs`; checker/runtime parity tests |
+| stateless host implementation | module functions such as `parse_raw_json`, `decode`, `compress_file` | `src/modules/json.rs`, `ini.rs`, `archive/mod.rs`; `tests/runtime/modules.rs` |
+| evaluator-backed dispatch | `Evaluator`, `src/runtime/eval/modules.rs` | stateful module calls and runtime module tests |
+| documentation contract | `docs/SPEC.md`, `docs/STDLIB.md`, `docs/REFERENCE.md` | normative and generated docs; docs gate in `docs/TEST-MAP.md` |
+
+Keep the public XSH names in proposal text. Use the Rust symbols above when
+describing the implementation and its test owner.
+
 ## What Qualifies
 
 A standard module belongs in XSH when it:
