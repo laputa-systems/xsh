@@ -8,6 +8,20 @@ centralize archive compression policy in XSH, and use async-shaped archive
 crates only as focused parser/writer helpers. There is no Tokio archive island
 anymore. Tokio is not part of XSH's resolved dependency tree.
 
+## Greppable implementation handles
+
+Use these symbols to follow the archive boundary from the XSH API to host I/O:
+
+| Concern | Symbols | Owner and coverage |
+|---|---|---|
+| archive entrypoints | `tar_list`, `tar_extract`, `tar_create`, `zip_list`, `zip_extract`, `cpio_list`, `cpio_extract` | `src/modules/archive/tar.rs`, `zip.rs`, `cpio.rs`; archive cases in `tests/runtime/modules.rs` |
+| compression entrypoints | `compress_file`, `decompress_file`, `decompress_bytes` | `src/modules/archive/mod.rs`; `archive_module_roundtrips_compression_and_rejects_escape_paths` |
+| archive path policy | `archive_member_selected`, `clean_archive_path`, `validate_link_target` | `src/modules/archive/policy.rs`; archive extraction tests in `tests/runtime/modules.rs` |
+| blocking/async boundary | `block_on_archive`, `BlockingAsyncIo`, `archive_reader` | `src/modules/archive/mod.rs`, `src/modules/compression.rs`; archive round-trip tests |
+
+These are implementation handles, not replacements for the public `archive.*`
+API names documented in `docs/STDLIB.md`.
+
 ## Goals
 
 - Keep public `archive.*` APIs synchronous and stable.

@@ -14,6 +14,19 @@ The public type and runtime representation must agree. A function declared as
 `Result[Stream[T]]` must produce a `Value::Stream` backed by a live source; it
 must not produce a `List` or collect a `Vec` before the caller consumes it.
 
+## Greppable implementation handles
+
+| Concern | Symbols | Owner and coverage |
+|---|---|---|
+| stream value contract | `Value::Stream`, `StreamValue`, `LiveStream::next` | `src/runtime/value.rs`; stream behavior in `tests/runtime/streams.rs` |
+| stream materialization | `Evaluator::collect_stream_values`, `collect` | `src/runtime/eval/stream.rs`, `src/runtime/eval.rs`; collection and stream tests |
+| stream signatures and operation IDs | `RuntimeOp`, `api_spec`, `LoweredValue::Stream` | `crates/xsh-registry/src/signature/modules.rs`, `crates/xsh-registry/src/runtime_op.rs`, `src/runtime/eval/lower.rs` |
+| live archive/process sources | `tar_list`, `cpio_list`, `zip_list`, `process.list`, `process.threads` | `src/modules/archive/*`, `src/modules/process.rs`; `tests/runtime/modules.rs`, `process.rs`, and `streams.rs` |
+| short-circuit coverage | `take`, `first`, `any`, `all` | stream fixtures and tests under `tests/runtime/streams.rs` |
+
+The XSH API names remain the contract. The Rust handles above identify the
+signature, lowering, live-source, and collection boundaries that implement it.
+
 The primary user-facing shape is:
 
 ```xsh

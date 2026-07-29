@@ -9,6 +9,19 @@ Tokio is not part of XSH's resolved dependency graph. This file records the
 choices that keep it that way and the verification commands that should stay
 green when archive or network dependencies change.
 
+## Greppable implementation handles
+
+| Boundary | Symbols | Owner and coverage |
+|---|---|---|
+| archive adapters | `block_on_archive`, `BlockingAsyncIo`, `tar_list`, `zip_list` | `src/modules/archive/mod.rs`, `src/modules/compression.rs`, `src/modules/archive/tar.rs`, `zip.rs`; `tests/runtime/modules.rs` |
+| blocking network transport | `NetAgent`, `NetRequest`, `make_agent`, `request`, `download`, `upload` | `crates/xsh-net/src/lib.rs`; network module tests in `tests/runtime/modules.rs` |
+| XSH-facing network dispatch | `api_spec`, `RuntimeOp`, `Evaluator` module dispatch | `src/modules/signature.rs`, `crates/xsh-registry/src/runtime_op.rs`, `src/runtime/eval/modules.rs` |
+| dependency verification | `cargo tree -i tokio`, `cargo tree -e features -i tokio` | commands below; dependency metadata in `Cargo.toml` files |
+
+The `xsh-net` symbols describe the supported blocking transport contract;
+crate capability and feature selection do not by themselves define XSH
+language behavior.
+
 ## Current Direct Uses
 
 - `src/modules/archive/tar.rs` uses `astral_futures_tar` with the crate's

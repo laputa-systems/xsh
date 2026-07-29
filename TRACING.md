@@ -10,6 +10,19 @@ Tracing should make that runtime graph inspectable without turning XSH into a
 graph-programming language. The source stays simple; tooling exposes graph
 projections when users need to understand what happened.
 
+## Greppable implementation handles
+
+| Concern | Symbols | Owner and coverage |
+|---|---|---|
+| event and payload contract | `TraceEvent`, `TraceKind`, `TracePayload`, `TraceStatus` | `src/trace.rs`; trace fixtures under `tests/runtime/` |
+| dynamic parentage | `TraceEvent::with_parent`, `Evaluator::trace_enter`, `Evaluator::trace_exit`, `parent_event_id` | `src/trace.rs`, `src/runtime/eval.rs`; `spawn_trace_json_correlates_handle_ids` and process trace tests |
+| trace rendering | `TraceTextRenderer`, `TraceJsonlRenderer`, `TraceSummaryRenderer` | `src/trace.rs`; `tests/runtime/run.rs` and `tests/runtime/examples.rs` |
+| normalization and graph views | `TraceNormalizer`, `TraceFlamegraphRenderer` | `src/trace.rs`; trace rendering and summary tests |
+
+Use the exact Rust symbols for implementation work and the `xsht trace`
+command for user-facing behavior. The event contract is owned by
+`TraceEvent`/`TracePayload`, not by rendered text.
+
 ## Design Rules
 
 - Keep new language syntax out of tracing unless the same capability cannot be
