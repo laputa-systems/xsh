@@ -77,6 +77,10 @@ const ALLOWED: &[(&str, &str)] = &[
         "test-only indexed IR evidence scans the checked-in frontend corpus",
     ),
     (
+        "src/runtime/eval/indexed/full.rs",
+        "test-only indexed module-loading coverage creates an isolated host temp tree",
+    ),
+    (
         "crates/xsht/src/main.rs",
         "test entrypoint reads user-supplied test paths",
     ),

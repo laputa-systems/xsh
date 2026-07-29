@@ -1,5 +1,6 @@
 use super::{Evaluator, module_error};
 use crate::modules::process::signal_info;
+use crate::runtime::process::record_signal;
 use crate::runtime::value::{RuntimeError, Value};
 use crate::source::Span;
 use rustix::{io as rio, process as rprocess};
@@ -60,6 +61,15 @@ impl Evaluator {
         let Some(signal) = signal_from_i32(signal.number) else {
             return Ok(module_error("invalid-signal", "invalid signal", span));
         };
+        if pid.as_raw_nonzero().get() == std::process::id() as i32
+            && self
+                .signal_hooks
+                .values()
+                .any(|hook| hook.signal.number == signal.as_raw_nonzero().get())
+        {
+            record_signal(signal.as_raw_nonzero().get());
+            return Ok(Value::ok(Value::Unit));
+        }
         match rprocess::kill_process(pid, signal) {
             Ok(()) => Ok(Value::ok(Value::Unit)),
             Err(error) => {

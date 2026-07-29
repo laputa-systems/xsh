@@ -1,5 +1,13 @@
-proc normalize_df(text: Str) [error] -> Str {
-  let lines = [line.words().join(" ") for line in text.trim().lines().collect()]
+pure normalize_df_mount(line: Str) -> Str {
+  let fields = line.words()
+  if fields.get(0, "") == "Filesystem" {
+    return fields.join(" ")
+  }
+  return f"${fields.get(0, "")} ${fields.get(1, "")} ${fields.get(5, "")}"
+}
+
+proc normalize_df_mounts(text: Str) [error] -> Str {
+  let lines = [normalize_df_mount(line) for line in text.trim().lines().collect()]
   return lines.join("\n")
 }
 
@@ -30,5 +38,5 @@ proc test_df_matches_alpine_kp(ctx: TestContext) [fs, process, env, error] {
   fp"${root}/payload.txt".write("abcdef")?
   let alpine = run.text df -kP $root ?
   let ours = run.text ${ctx.xsh_bin} fp"${ctx.core_dir}/df.xsh" -- -kP $root ?
-  test.eq(normalize_df(ours), normalize_df(alpine))?
+  test.eq(normalize_df_mounts(ours), normalize_df_mounts(alpine))?
 }

@@ -71,7 +71,14 @@ fn examples_have_timed_trace_output() {
             .output()
             .expect("run xsht");
 
-        assert_ok(&output);
+        assert!(
+            output.status.success(),
+            "{}\nstatus={:?}\nstdout:\n{}\nstderr:\n{}",
+            case.path,
+            output.status.code(),
+            stdout_text(&output),
+            stderr_text(&output),
+        );
         let stderr = stderr_text(&output);
         assert!(stderr.contains("trace summary"), "{}: {stderr}", case.path);
         assert!(

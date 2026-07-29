@@ -114,6 +114,10 @@ pub(crate) fn install_hook_signal_handler(signal: i32) -> io::Result<SignalHandl
 }
 
 extern "C" fn handle_cancellation_signal(signal: i32) {
+    record_signal(signal);
+}
+
+pub(crate) fn record_signal(signal: i32) {
     if PRIMARY_SIGNAL
         .compare_exchange(0, signal, Ordering::SeqCst, Ordering::SeqCst)
         .is_err()

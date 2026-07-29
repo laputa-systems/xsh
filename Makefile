@@ -202,9 +202,10 @@ test-linux:
 	    -w /work \
 	    xsh-test \
 	    sh -c 'set -eu; \
+	        cargo build --bin xsh --bin xsh-test-sleeper; \
 	        ln -sf /work/target/debug/xsh /bin/xsh; \
 	        cargo test --features linux-priv-tests; \
-	        target/debug/xsht test'
+	        env CARGO_BIN_EXE_xsh-test-sleeper=/work/target/debug/xsh-test-sleeper target/debug/xsht test'
 
 test-linux-ci:
 	cargo test --locked --profile $(DIST_PROFILE) --features "linux-priv-tests net tools" --target $(TARGET) -- --nocapture

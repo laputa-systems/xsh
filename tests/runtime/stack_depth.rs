@@ -1,8 +1,17 @@
 use super::common::*;
+use std::sync::{Mutex, OnceLock};
 
 const SMALL_STACK_ENV: &[(&str, &str)] = &[("XSH_TEST_SMALL_EVAL_STACK", "1")];
 
+fn small_stack_stress_lock() -> &'static Mutex<()> {
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| Mutex::new(()))
+}
+
 fn run_small_stack_stress(name: &str, source: &str) {
+    let _lock = small_stack_stress_lock()
+        .lock()
+        .expect("small-stack stress lock");
     let output = run_temp_script_with_env(name, source, [], SMALL_STACK_ENV);
     assert!(
         output.status.code().is_some(),

@@ -923,8 +923,8 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     },
                 );
             }
-            FullTag::ExprCall | FullTag::ExprSelfCall => {
-                let function = if tag == FullTag::ExprCall {
+            FullTag::ExprCall | FullTag::ExprSelfCall | FullTag::ExprDirectPureCall => {
+                let function = if matches!(tag, FullTag::ExprCall | FullTag::ExprDirectPureCall) {
                     indexed_decode(&mut payload, &self.calls[index].execution, span)?
                 } else {
                     self.calls[index]

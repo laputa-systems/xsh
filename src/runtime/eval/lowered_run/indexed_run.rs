@@ -1659,6 +1659,19 @@ impl Evaluator {
         let view = program
             .function_view_at(index)
             .expect("cached lowered function index is valid");
+        if self.indexed_frames_supported(view, call_span)?
+            && !super::indexed_recursive_fast_path_allowed()
+        {
+            return super::with_indexed_explicit_frames(|| {
+                self.eval_indexed_with_frames(
+                    program.as_ref(),
+                    function,
+                    LoweredFunctionKind::Pure,
+                    values,
+                    call_span,
+                )
+            });
+        }
         let header = view
             .header()
             .map_err(|error| indexed_error(error, call_span))?;
@@ -1691,16 +1704,16 @@ impl Evaluator {
                 .as_ref()
                 .expect("indexed caller retains its indexed program"),
         );
-        let index = if let Some(index) = self
+        let (kind, index) = if let Some(index) = self
             .indexed_function_index(&program, function, LoweredFunctionKind::Pure)
             .map_err(|error| indexed_error(error, call_span))?
         {
-            index
+            (LoweredFunctionKind::Pure, index)
         } else if let Some(index) = self
             .indexed_function_index(&program, function, LoweredFunctionKind::Proc)
             .map_err(|error| indexed_error(error, call_span))?
         {
-            index
+            (LoweredFunctionKind::Proc, index)
         } else {
             return Err(RuntimeError::new(
                 "unresolved-lowered-call",
@@ -1711,6 +1724,13 @@ impl Evaluator {
         let view = program
             .function_view_at(index)
             .expect("cached lowered function index is valid");
+        if self.indexed_frames_supported(view, call_span)?
+            && !super::indexed_recursive_fast_path_allowed()
+        {
+            return super::with_indexed_explicit_frames(|| {
+                self.eval_indexed_with_frames(program.as_ref(), function, kind, values, call_span)
+            });
+        }
         let header = view
             .header()
             .map_err(|error| indexed_error(error, call_span))?;
