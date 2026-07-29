@@ -25,7 +25,7 @@ column are the first places to read.
 | compact parsed program | `Parser::parse_source_arena_only`, `ArenaProgram`, `AstArena` | `src/syntax/parser.rs`, `src/syntax/arena.rs`; parser coverage in `tests/syntax.rs` |
 | loaded module graph | `CompactFileUnit`, `CompactModuleGraph`, `parse_load_entry_source_compact_file_unit` | `src/loader.rs`; module fixtures in `tests/fixtures/runtime` |
 | compact declaration checking | `Checker::check_compact_declarations`, `CompactDeclOutput` | `src/sema/check/compact.rs`; semantic coverage in `tests/sema.rs` |
-| compact body probing | `Checker::probe_compact_bodies`, `CompactBodyProbeOutput` | `src/sema/check/compact.rs`; compact frontend fixtures in `tests/fixtures/frontend-indexed` |
+| compact body probing | `Checker::probe_compact_bodies`, `CompactBodyProbe`, `check_compact_program`, `check_compact_expr` | `src/sema/check/compact.rs`; compact frontend fixtures in `tests/fixtures/frontend-indexed` |
 | executable commit | `FullBuilder::build_compact`, `FullProgram`, `FullVerifier::verify` | `src/runtime/eval/lower.rs`, `src/runtime/eval/indexed/full.rs`; verifier tests under `runtime::eval::indexed::full::tests` |
 | indexed execution | `Evaluator::prepare_compact_indexed_only`, `indexed_run`, `CallFrame` | `src/runtime/eval.rs`, `src/runtime/eval/lowered_run/indexed_run`; `tests/runtime/frontend_indexed.rs` and `tests/runtime/stack_depth.rs` |
 | dynamic symbol ownership | `SymbolOwner`, `NameText`, `dynamic_symbol_stats` | `src/symbol.rs`; symbol lifetime tests in `src/symbol.rs::tests` |
