@@ -9,10 +9,10 @@ area touched. Do not run formatter or autofix commands for agent work.
 |---|---|---|
 | Rust compile only | `cargo build` | `cargo test` |
 | `Lexer::lex_compact`, `Parser::parse_source_arena_only`, or formatter | targeted `cargo test --test integration syntax::TEST_NAME` | `cargo test --test integration syntax::` |
-| `Checker::check_compact_declarations`, `Checker::probe_compact_bodies`, or lint | targeted `cargo test --test integration sema::TEST_NAME` for checker or `cargo test -p xsht --test lint TEST_NAME` for lint | `cargo test --test integration sema::` for checker or `cargo test -p xsht --test lint` for lint |
+| `Checker::check_compact_declarations`, `Checker::probe_compact_bodies`, or lint | targeted `cargo test --test integration sema::TEST_NAME` for checker or `cargo test -p xsht --test integration lint::TEST_NAME` for lint | `cargo test --test integration sema::` for checker or `cargo test -p xsht --test integration` for lint |
 | `Evaluator::prepare_compact_indexed_only`, `indexed_run`, or runtime behavior | targeted `cargo test --test integration runtime::TEST_NAME` | `cargo test --test integration runtime::` |
 | One runtime fixture | `cargo test --test integration runtime::TEST_NAME` | `cargo test --test integration runtime::` |
-| `xsht::cli::CliOutput`, `xsht::grep::find_matches_in_program`, or CLI/tooling | targeted `cargo test -p xsht --test cli TEST_NAME` or `cargo test -p xsht --test grep TEST_NAME` | `cargo test -p xsht --test cli --test grep` if both apply |
+| `xsht::cli::CliOutput`, `xsht::grep::find_matches_in_program`, or CLI/tooling | targeted `cargo test -p xsht --test integration cli::TEST_NAME` or `cargo test -p xsht --test integration grep::TEST_NAME` | `cargo test -p xsht --test integration` |
 | Benchmark workload | `cargo bench -p xsh-multicall --bench bench BENCHMARK -- --sample-count 1 --sample-size 1` | `make bench-fast` (memory/regression) or `make bench` (latency) |
 | Lowered evaluator dispatch | `cargo bench -p xsh-multicall --bench bench xsh_lowered_scanner_1000_calls_execution -- --include-ignored --sample-count 1 --sample-size 1` | `make bench` after the focused A/B |
 | Arena or indexed-IR layout | `scripts/ir-layout.py` (or `--only TYPE` for a focused report) | focused Divan workload plus the applicable behavior tests |

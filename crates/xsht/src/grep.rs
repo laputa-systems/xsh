@@ -4,7 +4,8 @@ use rustc_hash::FxHashMap;
 use xsh::source::Span;
 use xsh::syntax::arena::{ArenaCallArgKind, ArenaExprKind, ArenaProgram, AstArena, ExprId};
 
-/// A match: the span in the source and bindings for each metavariable.
+/// A structural grep match from `xsht::grep::find_matches_in_program`: the
+/// source span and bindings for each metavariable.
 #[derive(Clone, Debug)]
 pub struct Match {
     pub span: Span,

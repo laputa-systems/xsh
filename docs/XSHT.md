@@ -6,10 +6,28 @@ native tests, and coverage reports. Script execution remains in `xsh`; `xsht`
 may parse, check, and evaluate only when a tooling command explicitly requires
 that behavior.
 
+## Greppable Tooling Vocabulary
+
+Use these symbols as the retrieval handles for tooling work. The `xsht::cli`
+module path supplies the needed context for names such as `CliOutput`; do not
+add redundant product prefixes to already-qualified symbols.
+
+| Concern | Canonical symbols | Owner and coverage |
+|---|---|---|
+| command entry and result contract | `xsht::app::main`, `xsht::app::finish`, `xsht::cli::CliOutput` | `crates/xsht/src/app.rs`, `crates/xsht/src/cli/mod.rs`; `crates/xsht/tests/cli.rs` |
+| checked command pipeline | `check_script`, `format_files`, `lint_files` | `crates/xsht/src/cli/check.rs`, `fmt.rs`, `lint.rs`; CLI and lint integration tests |
+| structural search and refactoring | `find_matches_in_program`, `PatternExpr`, `Match`, `apply_replacement` | `crates/xsht/src/grep.rs`; `crates/xsht/tests/grep.rs` |
+| command adapters | `grep_scripts`, `refactor_scripts`, `ast_script`, `docs_command` | `crates/xsht/src/cli/grep.rs`, `refactor.rs`, `syntax_tree.rs`, `docs.rs`; `crates/xsht/tests/grep.rs` and `cli.rs` |
+| source-preserving edits | `SyntaxTree`, `apply_cst_guarded_edits`, `Formatter` | `crates/xsht/src/edit.rs`, `format.rs`, `cli/fmt.rs`; formatter coverage in `crates/xsht/tests/cli.rs` |
+
+`CliOutput` is the shared `xsht` command result, not an XSH runtime output
+type. `Match` is the structural result produced by `xsht::grep`; its module
+qualification is intentional and sufficient.
+
 ## Ownership
 
-Command dispatch starts in `crates/xsht/src/app.rs` and
-`crates/xsht/src/cli/mod.rs`. Each command has a focused module under
+Command dispatch starts in `xsht::app::main` in `crates/xsht/src/app.rs` and
+the `xsht::cli` module in `crates/xsht/src/cli/mod.rs`. Each command has a focused module under
 `crates/xsht/src/cli/`:
 
 - `check.rs` runs parser, module loading, checker, and optional source

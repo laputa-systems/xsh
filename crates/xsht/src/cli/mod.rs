@@ -4,6 +4,7 @@ use xsh::runner::ScriptOutput;
 use xsh::runtime::process::cancellation_requested_signal;
 use xsh::trace::SyscallSummary;
 
+/// Result contract shared by `xsht::cli` command adapters.
 #[derive(Clone, Debug)]
 pub struct CliOutput {
     pub status: u8,
