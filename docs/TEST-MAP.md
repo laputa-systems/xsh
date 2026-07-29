@@ -8,16 +8,16 @@ area touched. Do not run formatter or autofix commands for agent work.
 | Change | Narrow command | Broader gate |
 |---|---|---|
 | Rust compile only | `cargo build` | `cargo test` |
-| Syntax parser/formatter | targeted `cargo test --test integration syntax::TEST_NAME` | `cargo test --test integration syntax::` |
-| Checker or lint | targeted `cargo test --test integration sema::TEST_NAME` for checker or `cargo test -p xsht --test lint TEST_NAME` for lint | `cargo test --test integration sema::` for checker or `cargo test -p xsht --test lint` for lint |
-| Runtime behavior | targeted `cargo test --test integration runtime::TEST_NAME` | `cargo test --test integration runtime::` |
+| `Lexer::lex_compact`, `Parser::parse_source_arena_only`, or formatter | targeted `cargo test --test integration syntax::TEST_NAME` | `cargo test --test integration syntax::` |
+| `Checker::check_compact_declarations`, `Checker::probe_compact_bodies`, or lint | targeted `cargo test --test integration sema::TEST_NAME` for checker or `cargo test -p xsht --test lint TEST_NAME` for lint | `cargo test --test integration sema::` for checker or `cargo test -p xsht --test lint` for lint |
+| `Evaluator::prepare_compact_indexed_only`, `indexed_run`, or runtime behavior | targeted `cargo test --test integration runtime::TEST_NAME` | `cargo test --test integration runtime::` |
 | One runtime fixture | `cargo test --test integration runtime::TEST_NAME` | `cargo test --test integration runtime::` |
-| CLI/tooling | targeted `cargo test -p xsht --test cli TEST_NAME` or `cargo test -p xsht --test grep TEST_NAME` | `cargo test -p xsht --test cli --test grep` if both apply |
+| `xsht::cli::CliOutput`, `xsht::grep::find_matches_in_program`, or CLI/tooling | targeted `cargo test -p xsht --test cli TEST_NAME` or `cargo test -p xsht --test grep TEST_NAME` | `cargo test -p xsht --test cli --test grep` if both apply |
 | Benchmark workload | `cargo bench -p xsh-multicall --bench bench BENCHMARK -- --sample-count 1 --sample-size 1` | `make bench-fast` (memory/regression) or `make bench` (latency) |
 | Lowered evaluator dispatch | `cargo bench -p xsh-multicall --bench bench xsh_lowered_scanner_1000_calls_execution -- --include-ignored --sample-count 1 --sample-size 1` | `make bench` after the focused A/B |
 | Arena or indexed-IR layout | `scripts/ir-layout.py` (or `--only TYPE` for a focused report) | focused Divan workload plus the applicable behavior tests |
 | Frontend retained/peak accounting | `cargo test -p xsh --lib frontend_stats::tests` and `cargo run --bin xsh-frontend-stats -- --json tests/fixtures/frontend-indexed` | `make bench-fast` after the applicable syntax/checker gate |
-| Executable IR construction and verifier | targeted `cargo test -p xsh --lib runtime::eval::indexed::full::tests::` | `cargo test -p xsh runtime::eval::indexed::full::tests --lib --features native-tests` |
+| `FullBuilder::build_compact`, `FullVerifier::verify`, or executable IR | targeted `cargo test -p xsh --lib runtime::eval::indexed::full::tests::` | `cargo test -p xsh runtime::eval::indexed::full::tests --lib --features native-tests` |
 | Explicit execution frames | targeted `cargo test --test integration runtime::stack_depth -- --test-threads=1` | `cargo test -p xsh runner::tests --lib --features native-tests` plus the runtime gate |
 | Production executable runtime | targeted `cargo test --test integration runtime::TEST_NAME` | `cargo test -p xsh --test integration runtime:: --features native-tests -- --test-threads=1` plus `cargo test -p xsh --test integration runtime::coverage::xsh_native_tests --features native-tests -- --exact` and `make bench-fast` |
 | Explicit PGO/release investigation after ordinary gates pass | `make pgo-profile` | `make bench-pgo` |
@@ -53,7 +53,7 @@ generated tutorial output changes.
 | Linux-specific behavior | `tests/runtime/linux.rs` |
 | standard modules | `tests/runtime/modules.rs` |
 | OS-facing runtime behavior | `tests/runtime/os.rs`, `tests/runtime/unix.rs` |
-| process execution and argv | `tests/runtime/process.rs`, `tests/runtime/run.rs` |
+| `run_capture`, `spawn_managed`, and process execution | `tests/runtime/process.rs`, `tests/runtime/run.rs` |
 | retry blocks | `tests/runtime/retry.rs` |
 | structured streams | `tests/runtime/streams.rs` |
 

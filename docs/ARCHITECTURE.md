@@ -83,14 +83,14 @@ This table is the owner-module summary:
 
 | Task | Owner docs | Owner code |
 |---|---|---|
-| syntax and formatting | `docs/SPEC.md` sections 2-9 | `src/syntax/*` |
-| checking, typing, linting | `docs/SPEC-TYPING.md` | `src/sema/*` |
-| runtime evaluation | `docs/SPEC.md` relevant section | `src/runtime/*` |
-| process, cwd, env, signals, cancellation | `docs/SPEC-OS.md` | `src/runtime/run.rs`, `src/runtime/process.rs`, `src/runtime/cwd.rs` |
-| standard modules and methods | `docs/STDLIB.md`, `src/modules/README.md` | `crates/xsh-registry/src/signature/*`, `src/modules/*`, `src/runtime/eval/modules.rs`, `src/runtime/eval/methods.rs` |
-| structured streams | `docs/STREAMS.md` | `src/sema/check/stream.rs`, `src/runtime/eval/stream.rs` |
-| executable IR, verifier, and frames | `docs/FRONTEND.md` | `src/runtime/eval/indexed.rs`, `src/runtime/eval/indexed/full.rs`, `src/runtime/eval/lower.rs`, `src/runtime/eval/lowered_run/indexed_run.rs`, `src/runtime/eval/lowered_run/indexed_run/explicit_run.rs` |
-| docs and examples | `docs/GENERATED-DOCS.md`, `docs-src/README.md` | `src/docs.rs`, `docs-src/*`, `examples/*` |
+| syntax and formatting | `docs/SPEC.md` sections 2-9 | `Lexer::lex_compact`, `Parser::parse_source_arena_only`, `SyntaxTree::from_token_table` in `src/syntax/*` |
+| checking, typing, linting | `docs/SPEC-TYPING.md` | `Checker::check_compact_declarations`, `Checker::probe_compact_bodies`, `src/sema/*` |
+| runtime evaluation | `docs/SPEC.md` relevant section | `Evaluator::prepare_compact_indexed_only`, `indexed_run`, `src/runtime/*` |
+| process, cwd, env, signals, cancellation | `docs/SPEC-OS.md` | `execute_run`, `run_capture`, `spawn_managed`, `cancel_managed` in `src/runtime/run.rs` and `src/runtime/process.rs` |
+| standard modules and methods | `docs/STDLIB.md`, `src/modules/README.md` | `RuntimeOp`, `api_spec`, `src/modules/*`, `src/runtime/eval/modules.rs`, `src/runtime/eval/methods.rs` |
+| structured streams | `docs/STREAMS.md` | `check_stream_stage_arena`, `Evaluator::collect_stream_values`, `src/sema/check/stream.rs`, `src/runtime/eval/stream.rs` |
+| executable IR, verifier, and frames | `docs/FRONTEND.md` | `FullBuilder::build_compact`, `FullVerifier::verify`, `indexed_run`, `CallFrame` in `src/runtime/eval/*` |
+| docs and examples | `docs/GENERATED-DOCS.md`, `docs-src/README.md` | `guide_markdown`, `docs_command`, `examples/catalog.json`, `src/docs.rs`, `docs-src/*` |
 
 ## Agent Map For IR Work
 
@@ -126,8 +126,9 @@ the source arena.
 spans to line/column locations, and exposes original span text for diagnostics
 and traces.
 
-`src/syntax/lexer.rs` produces tokens, `parser.rs` builds `ArenaProgram` values
-through `src/syntax/arena.rs`, and `cst.rs` retains lossless token/trivia
+`Lexer::lex_compact()` in `src/syntax/lexer.rs` produces tokens,
+`Parser::parse_source_arena_only()` in `src/syntax/parser.rs` builds
+`ArenaProgram` values through `src/syntax/arena.rs`, and `cst.rs` retains lossless token/trivia
 structure for tooling. Arena nodes carry `Span` values from `src/source.rs`, and
 `ArenaParseOutput` carries both the arena program and CST. The active formatter
 lives in `crates/xsht/src/format.rs`. Parser changes should usually come with
@@ -173,7 +174,7 @@ params must be extracted before calling `parse_block()` (as `parse_with` and
 
 ## Semantics
 
-`src/sema/check.rs` owns the main checker state: lexical scopes, function
+`Checker` in `src/sema/check.rs` owns the main checker state: lexical scopes, function
 signatures, imported modules, current return type, purity context, `$?`
 availability, and stream item context.
 
@@ -198,19 +199,19 @@ not leak into generated docs or user-facing signatures.
 
 ## Runtime
 
-`src/runtime/eval.rs` owns the evaluator state: scopes, indexed program,
+`Evaluator` in `src/runtime/eval.rs` owns the evaluator state: scopes, indexed program,
 stdout/stderr capture, cwd, env, last process status, trace events, call stack,
 pending traceback, and stream item context.
 
 Focused runtime behavior lives beside it:
 
-- `src/runtime/eval/stream.rs` evaluates structured pipelines and parallel
-  stream stages.
+- `Evaluator::collect_stream_values` in `src/runtime/eval/stream.rs` materializes structured
+  stream values and drains live sources.
 - `src/runtime/eval/modules.rs` dispatches standard-module calls that still
   need evaluator state.
 - `src/runtime/process.rs` owns process invocation, redirection, argv/env
   conversion, and cancellation signals.
-- `src/runtime/run.rs` executes `run` forms.
+- `execute_run` in `src/runtime/run.rs` executes `run` forms.
 - `src/runtime/value.rs` defines runtime values and error constructors.
 
 Standard module API signatures and runtime operation IDs live in
@@ -239,7 +240,8 @@ execution; it does not use a hidden compatibility-builtin registry or sudo shim.
 
 ## Tracing And Errors
 
-`src/trace.rs` defines trace events, payloads, and traceback data. Together
+`TraceEvent` and `TracePayload` in `src/trace.rs` define trace events, payloads,
+and traceback data. Together
 these events are the runtime graph projection: source spans anchor nodes back to
 the tree-shaped program, parent ids preserve dynamic containment, and payloads
 record process, stream, cwd/env, resource, and failure relationships. Public
