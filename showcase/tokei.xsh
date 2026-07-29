@@ -1299,7 +1299,9 @@ proc json_main(root: Path, ignore_patterns: List[Str]) [fs, error] {
           total_blanks: scanned.deep.blanks,
           total_code: scanned.deep.code,
           total_comments: scanned.deep.comments,
-          reports: [scanned.report],
+          reports: [
+            scanned.report,
+          ],
         },
       }
     }
@@ -1312,15 +1314,18 @@ proc json_main(root: Path, ignore_patterns: List[Str]) [fs, error] {
 
   for language in languages() {
     let label = language_label(language)
-    let aggregate = aggregates.get(label, {
-      blanks: 0,
-      code: 0,
-      comments: 0,
-      total_blanks: 0,
-      total_code: 0,
-      total_comments: 0,
-      reports: [],
-    })
+    let aggregate = aggregates.get(
+      label,
+      {
+        blanks: 0,
+        code: 0,
+        comments: 0,
+        total_blanks: 0,
+        total_code: 0,
+        total_comments: 0,
+        reports: [],
+      },
+    )
     let reports = aggregate.reports
     continue when reports.len() == 0
     let children = children_from_reports(reports)?

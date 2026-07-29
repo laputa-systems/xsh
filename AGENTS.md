@@ -39,6 +39,12 @@ owner files, and tests before editing.
 
 Choose the narrowest useful command first, then run the full relevant gate from
 `docs/TEST-MAP.md`. Use debug builds for ordinary development and verification.
+Build the exact binary or package needed for the task instead of using bare
+`cargo build --release`: the root package declares the user-facing `xsh`,
+`xshi`, and `xsht` binaries, plus seven `xsh-test-*` helper binaries and the
+`xsh-frontend-stats` profiling tool. A root release build applies thin LTO to
+all of them, so prefer commands such as `cargo build --bin xsh`,
+`cargo build --bin xsht`, or a targeted package/test command.
 Use release builds only when working on profiling or benchmarking. Do not use
 the `dist` profile for agent work;
 it is reserved for CI release packaging.

@@ -3,6 +3,7 @@ pure normalize_df_mount(line: Str) -> Str {
   if fields.get(0, "") == "Filesystem" {
     return fields.join(" ")
   }
+
   return f"${fields.get(0, "")} ${fields.get(1, "")} ${fields.get(5, "")}"
 }
 

@@ -2,10 +2,10 @@ use crate::xsht::cli::{
     CliOutput, XshConfig, cancellation_output, collect_configured_xsh_files, load_config,
     text_bytes,
 };
-use crate::xsht::config::config_for_file;
+use crate::xsht::config::{config_for_dir, config_for_file};
 use crate::xsht::format::Formatter;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::thread;
 use xsh::diagnostic::DiagnosticRenderer;
@@ -21,22 +21,21 @@ pub fn format_files(files: &[String], check: bool) -> CliOutput {
     let mut stderr = String::new();
     let mut status = 0;
 
-    let discovered;
-    let files: &[String] = if files.is_empty() {
-        let config = match load_config() {
-            Ok(config) => config,
-            Err(message) => {
-                return CliOutput {
-                    status: 2,
-                    stdout: stdout.into_bytes(),
-                    stderr: text_bytes(format!("xsht: {message}\n")),
-                    trace_text: String::new(),
-                    syscall_summary: None,
-                };
-            }
-        };
-        let mut paths = Vec::new();
-        if let Err(message) = collect_configured_xsh_files(Path::new("."), &config, &mut paths) {
+    let config = match load_config() {
+        Ok(config) => config,
+        Err(message) => {
+            return CliOutput {
+                status: 2,
+                stdout: stdout.into_bytes(),
+                stderr: text_bytes(format!("xsht: {message}\n")),
+                trace_text: String::new(),
+                syscall_summary: None,
+            };
+        }
+    };
+    let discovered = match discover_format_files(files, &config) {
+        Ok(paths) => paths,
+        Err(message) => {
             if let Some(output) = cancellation_output() {
                 return output;
             }
@@ -48,16 +47,9 @@ pub fn format_files(files: &[String], check: bool) -> CliOutput {
                 syscall_summary: None,
             };
         }
-        discovered = paths
-            .into_iter()
-            .map(|p| p.to_string_lossy().into_owned())
-            .collect::<Vec<_>>();
-        &discovered
-    } else {
-        files
     };
 
-    let mut results = format_files_parallel(files);
+    let mut results = format_files_parallel(&discovered);
     if let Some(output) = cancellation_output() {
         return output;
     }
@@ -100,6 +92,29 @@ pub fn format_files(files: &[String], check: bool) -> CliOutput {
         trace_text: String::new(),
         syscall_summary: None,
     }
+}
+
+fn discover_format_files(files: &[String], config: &XshConfig) -> Result<Vec<String>, String> {
+    let mut discovered = Vec::new();
+    if files.is_empty() {
+        collect_configured_xsh_files(Path::new("."), config, &mut discovered)?;
+    } else {
+        for file in files {
+            let path = Path::new(file);
+            if path.is_dir() {
+                let dir_config = config_for_dir(path, config)?.config;
+                collect_configured_xsh_files(path, &dir_config, &mut discovered)?;
+            } else {
+                discovered.push(PathBuf::from(path));
+            }
+        }
+    }
+    discovered.sort_unstable();
+    discovered.dedup();
+    Ok(discovered
+        .into_iter()
+        .map(|path| path.to_string_lossy().into_owned())
+        .collect())
 }
 
 struct FormatResult {

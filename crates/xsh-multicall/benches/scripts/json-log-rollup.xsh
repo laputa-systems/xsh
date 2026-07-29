@@ -14,7 +14,9 @@ let rows = log_texts.join()
     {
       service: bucket.key,
       count: bucket.items |> count(),
-      total: bucket.items |> map .duration_ms |> sum,
+      total: bucket.items
+        |> map .duration_ms
+        |> sum,
     }
   }
   |> sort-by .service

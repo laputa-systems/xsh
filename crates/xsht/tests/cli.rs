@@ -108,6 +108,41 @@ fn fmt_uses_nearest_xsht_config_line_width() {
 }
 
 #[test]
+fn fmt_explicit_directory_formats_xsh_files() {
+    let root = TempDir::new().expect("create temp root");
+    let project = root.path().join("project");
+    fs::create_dir_all(project.join("nested")).expect("create project dirs");
+    fs::write(project.join("main.xsh"), "let values=[1,2,3]\n").expect("write main script");
+    fs::write(
+        project.join("nested").join("helper.xsh"),
+        "let values=[4,5,6]\n",
+    )
+    .expect("write nested script");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+        .args(["fmt", project.to_str().unwrap()])
+        .current_dir(root.path())
+        .output()
+        .expect("run xsht fmt");
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        fs::read_to_string(project.join("main.xsh")).expect("read main script"),
+        "let values = [1, 2, 3]\n"
+    );
+    assert_eq!(
+        fs::read_to_string(project.join("nested").join("helper.xsh"))
+            .expect("read nested script"),
+        "let values = [4, 5, 6]\n"
+    );
+}
+
+#[test]
 fn fmt_reports_invalid_xsht_config_line_width() {
     let root = TempDir::new().expect("create temp root");
     fs::write(
@@ -231,15 +266,11 @@ proc main(...argv: List[Str]) [error] -> Result[Unit] {
     );
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        stderr.contains("compact.unlowered-main"),
+        stderr.contains("compact.indexed-build"),
         "stderr: {stderr}"
     );
     assert!(
-        stderr.contains("proc main could not be lowered: unsupported statement in body"),
-        "stderr: {stderr}"
-    );
-    assert!(
-        stderr.contains("unsupported statement in body"),
+        stderr.contains("indexed IR could not encode `full_ir_function_blocker`"),
         "stderr: {stderr}"
     );
 }
@@ -318,7 +349,7 @@ proc fallible() [error] -> Result[Str] {
         "stderr: {stderr}"
     );
     assert!(
-        stderr.contains("compact.unlowered-main"),
+        stderr.contains("compact.indexed-build"),
         "stderr: {stderr}"
     );
     assert!(stderr.contains("xsht check summary:"), "stderr: {stderr}");
@@ -327,7 +358,7 @@ proc fallible() [error] -> Result[Str] {
         "stderr: {stderr}"
     );
     assert!(
-        stderr.contains("compact.unlowered-main: 1"),
+        stderr.contains("compact.indexed-build: 1"),
         "stderr: {stderr}"
     );
 }
@@ -370,7 +401,7 @@ proc fallible() [error] -> Result[Str] {
     );
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        stderr.contains("compact.unlowered-main"),
+        stderr.contains("compact.indexed-build"),
         "stderr: {stderr}"
     );
 }
@@ -443,21 +474,11 @@ proc main(...argv: List[Str]) [error] -> Result[Unit] {
     );
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        stderr.contains("compact.unlowered-main"),
+        stderr.contains("compact.indexed-build"),
         "stderr: {stderr}"
     );
     assert!(
-        stderr.contains(
-            "proc main could not be lowered because helper has an unsupported parameter default"
-        ),
-        "stderr: {stderr}"
-    );
-    assert!(
-        stderr.contains("proc main requires compact lowering"),
-        "stderr: {stderr}"
-    );
-    assert!(
-        stderr.contains("unsupported parameter default"),
+        stderr.contains("indexed IR could not encode `full_ir_function_blocker`"),
         "stderr: {stderr}"
     );
 }
@@ -491,15 +512,11 @@ let report = {corpus: scan_corpus()}
     );
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        stderr.contains("compact.unlowered-statement"),
+        stderr.contains("compact.indexed-build"),
         "stderr: {stderr}"
     );
     assert!(
-        stderr.contains("first blocker: call `scan_corpus`"),
-        "stderr: {stderr}"
-    );
-    assert!(
-        stderr.contains("first unsupported lowered construct: call `scan_corpus`"),
+        stderr.contains("indexed IR could not encode `full_ir_function_blocker`"),
         "stderr: {stderr}"
     );
 }
@@ -974,7 +991,7 @@ fn check_fs_walk_map_path_result_type_flows_to_for_loop() {
 }
 
 #[test]
-fn check_compact_lowerability_rejects_unsupported_lowered_record_method() {
+fn check_compact_lowerability_accepts_lowered_record_methods() {
     let root = TempDir::new().expect("create temp root");
     let script = root.path().join("main.xsh");
     fs::write(
@@ -999,14 +1016,9 @@ fn check_compact_lowerability_rejects_unsupported_lowered_record_method() {
 
     assert_eq!(
         output.status.code(),
-        Some(2),
+        Some(0),
         "stderr: {}",
         String::from_utf8_lossy(&output.stderr)
-    );
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(
-        stderr.contains("compact.unlowered-main"),
-        "stderr: {stderr}"
     );
 }
 

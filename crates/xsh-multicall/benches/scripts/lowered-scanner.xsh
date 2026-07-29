@@ -19,4 +19,4 @@ while index < 1000 {
   total += scan_hash(text)
   index += 1
 }
-print total
+print $total

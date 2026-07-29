@@ -2,7 +2,7 @@ proc sleeper_bin() [env, error] -> Result[Path] {
   return fp"${env.get("CARGO_BIN_EXE_xsh-test-sleeper")?}"
 }
 
-proc marker_executable(ctx: TestContext, marker: Str) [env, fs, error] -> Result[Path] {
+proc marker_executable(ctx: TestContext, marker: Str) [fs, env, error] -> Result[Path] {
   let root = test.temp_dir(ctx, name: marker)?
   let executable = fp"${root}/${marker}"
   fs.copy(sleeper_bin()?.resolve()?, executable)?
@@ -37,7 +37,7 @@ proc test_px_finds_current_test_process() [process, error] {
   test.contains(output, "mem")?
 }
 
-proc test_px_default_search_matches_executable_substrings(ctx: TestContext) [env, fs, process, time, error] {
+proc test_px_default_search_matches_executable_substrings(ctx: TestContext) [fs, process, env, time, error] {
   let marker = "xshpxexec"
   let executable = marker_executable(ctx, marker)?
   let child = process.spawn(process.command_argv(executable, [executable.display()]))?
@@ -48,7 +48,7 @@ proc test_px_default_search_matches_executable_substrings(ctx: TestContext) [env
   test.contains(output, f"${child.pid}")?
 }
 
-proc test_px_kill_signals_default_matches(ctx: TestContext) [env, fs, process, time, error] {
+proc test_px_kill_signals_default_matches(ctx: TestContext) [fs, process, env, time, error] {
   let marker = "xshpxkilld"
   let executable = marker_executable(ctx, marker)?
   let child = spawn process.command_argv(executable, [executable.display()])?
@@ -61,7 +61,7 @@ proc test_px_kill_signals_default_matches(ctx: TestContext) [env, fs, process, t
   test.eq(status.signal_number()?, 15)?
 }
 
-proc test_px_kill_accepts_numeric_signal(ctx: TestContext) [env, fs, process, time, error] {
+proc test_px_kill_accepts_numeric_signal(ctx: TestContext) [fs, process, env, time, error] {
   let marker = "xshpxkills"
   let executable = marker_executable(ctx, marker)?
   let child = spawn process.command_argv(executable, [executable.display()])?
