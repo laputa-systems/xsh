@@ -1,4 +1,4 @@
-use super::{LoweredValue, AssignOp, Span, BinaryOp, LoweredFunctionKey, LoweredFunctionKind, LoweredTypeCheck, Arc, StmtFlow, FullExecution, Evaluator, FullProgram, RuntimeError, FullFunctionView, indexed_error, LoweredReturnKind, LoweredType, Read, TraceKind, TracePayload, FunctionHeader, TracebackFrameKind, TracebackFrame, indexed_value, FullTag, indexed_decode, indexed_raw, indexed_finish, ControlFlow, BLOCK_LIST, indexed_optional_raw, lowered_freeze_large_slot_list, indexed_string, lowered_assign_value, lowered_binary_value, lowered_str_parts, lowered_bytes_parts, lowered_splice_arg_items, lowered_value_satisfies_require, lowered_result_ok, lowered_result_err_value, lowered_return_value, lowered_match_no_arm, assign_lowered_bytes_view, OsStrExt, assign_lowered_str_view, FullPayload, BLOCK_STATEMENTS};
+use super::{LoweredValue, AssignOp, Span, BinaryOp, LoweredFunctionKey, LoweredFunctionKind, LoweredTypeCheck, Arc, StmtFlow, FullExecution, Evaluator, FullProgram, RuntimeError, FullFunctionView, indexed_error, LoweredReturnKind, LoweredType, TraceKind, TracePayload, FunctionHeader, TracebackFrameKind, TracebackFrame, indexed_value, FullTag, indexed_decode, indexed_raw, indexed_finish, ControlFlow, BLOCK_LIST, indexed_optional_raw, lowered_freeze_large_slot_list, indexed_string, lowered_assign_value, lowered_binary_value, lowered_str_parts, lowered_bytes_parts, lowered_splice_arg_items, lowered_value_satisfies_require, lowered_result_ok, lowered_result_err_value, lowered_return_value, lowered_match_no_arm, assign_lowered_bytes_view, assign_lowered_str_view, FullPayload, BLOCK_STATEMENTS};
 
 enum FrameValue {
     Value(LoweredValue),
@@ -275,7 +275,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
     }
 
     fn discard_calls(&mut self) {
-        while let Some(mut call) = self.calls.pop() {
+        while let Some(call) = self.calls.pop() {
             if let Ok(header) = self
                 .program
                 .function_view(call.function, call.kind)
@@ -1595,7 +1595,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
 
     fn finish_error_call(&mut self, index: usize) -> Result<(), RuntimeError> {
         debug_assert_eq!(index, self.calls.len() - 1);
-        let mut call = self.calls.pop().expect("active indexed frame");
+        let call = self.calls.pop().expect("active indexed frame");
         if let Ok(header) = self
             .program
             .function_view(call.function, call.kind)
@@ -1643,7 +1643,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
 
     fn finish_call(&mut self, index: usize, flow: StmtFlow) -> Result<(), RuntimeError> {
         debug_assert_eq!(index, self.calls.len() - 1);
-        let mut call = self.calls.pop().expect("active indexed frame");
+        let call = self.calls.pop().expect("active indexed frame");
         let view = self
             .program
             .function_view(call.function, call.kind)
