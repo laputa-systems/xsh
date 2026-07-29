@@ -3,6 +3,19 @@
 This guide keeps tutorial chapters human-friendly while the spec and reference
 manuals stay precise.
 
+## Code References
+
+When documentation explains implementation ownership, pair the domain concept
+with an exact symbol, path, and test: “compact executable commit is owned by
+`FullBuilder::build_compact` in `src/runtime/eval/lower.rs`, covered by the
+indexed verifier tests.” Use the same spelling as the definition so `rg -w`
+finds the definition, callers, and coverage in one search.
+
+User-facing tutorial text should name the XSH symbol being taught, such as
+`test.run_script` or `Path.read_text()`. Do not replace stable XSH API names
+with implementation names, and do not add Rust internals to examples unless
+the implementation boundary is part of the lesson.
+
 ## Tutorial Chapter Shape
 
 Every tutorial chapter should have:

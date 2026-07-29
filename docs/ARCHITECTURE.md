@@ -15,6 +15,11 @@ indexed runtime:
    plain script execution for `xsh`, and `crates/xsht/src/cli/mod.rs` wires the
    `xsht` tooling commands.
 
+The primary retrieval path is symbol-first: search for the concrete type or
+method named in this document, then open its owner file and nearest test. For
+the complete frontend vocabulary, see `docs/FRONTEND.md`; for task-specific
+routing, see `docs/AGENT-ROUTING.md`.
+
 The workspace is split where a subsystem can have a stable Rust boundary
 without depending on XSH source spans, runtime values, diagnostics, or evaluator
 state. `crates/xsh-net` owns DNS resolution, HTTP/HTTPS transport, TLS

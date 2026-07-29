@@ -3,6 +3,10 @@
 Use this file to choose the smallest useful reading set before editing. Keep
 `AGENTS.md` short; put situational routing here.
 
+Every owner entry should name the concrete implementation symbol, its file,
+and its nearest test or fixture. Paths such as `src/runtime/*` are useful
+bounds, but are not sufficient search handles by themselves.
+
 ## Baseline
 
 Read these for any implementation task:
@@ -33,6 +37,12 @@ verification commands.
 | LLVM IR or generic code size | `LLVM-LINES.md`; `docs/BENCHMARKING.md` when runtime paths change | generic owners identified by `cargo llvm-lines` | `tools/llvm-lines-repeat-offenders.xsh`, targeted behavior tests, `make bench` when applicable |
 | Docs, examples, or references | `docs/DOCS-STYLE.md`; `docs/GENERATED-DOCS.md`; `docs-src/README.md` | `docs-src/*`, `src/docs.rs`, `examples/catalog.json`, generated docs | docs commands in `docs/TEST-MAP.md` |
 | Remote amd64 musl work | `../laputa/AGENTS.md` Threadripper Notes; `docs/BENCHMARKING.md` for benchmarks | remote checkout only | native command from the task |
+
+For frontend changes, use the symbol vocabulary and lifecycle table in
+`docs/FRONTEND.md`, especially `Lexer::lex_compact`,
+`Parser::parse_source_arena_only`, `Checker::check_compact_declarations`,
+`FullBuilder::build_compact`, `FullVerifier::verify`, and
+`Evaluator::prepare_compact_indexed_only`.
 
 ## Spec Sections
 
