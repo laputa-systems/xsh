@@ -1123,7 +1123,7 @@ impl<'a> Writer<'a> {
                 if index > 0 {
                     output.push_str(", ");
                 }
-                    output.push_str(param.name.as_str().as_str());
+                output.push_str(param.name.as_str().as_str());
             }
             output.push('|');
         }

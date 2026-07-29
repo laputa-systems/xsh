@@ -31,6 +31,12 @@ impl CountingAllocator {
     }
 }
 
+impl Default for CountingAllocator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 unsafe impl GlobalAlloc for CountingAllocator {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
         let ptr = unsafe { System.alloc(layout) };

@@ -3,8 +3,8 @@
 use crate::source::Span;
 use std::num::NonZeroU32;
 
-mod semantic;
 pub(super) mod full;
+mod semantic;
 
 const IR_NONE: u32 = u32::MAX;
 
@@ -153,10 +153,7 @@ impl IrVerifyError {
 
 #[cfg(test)]
 pub(super) mod tests {
-    pub(super) fn collect_xsh_paths(
-        path: &std::path::Path,
-        paths: &mut Vec<std::path::PathBuf>,
-    ) {
+    pub(super) fn collect_xsh_paths(path: &std::path::Path, paths: &mut Vec<std::path::PathBuf>) {
         if path.is_file() {
             if path.extension().is_some_and(|extension| extension == "xsh") {
                 paths.push(path.to_path_buf());

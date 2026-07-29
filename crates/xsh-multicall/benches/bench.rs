@@ -10,9 +10,9 @@ use std::sync::OnceLock;
 use std::sync::{Arc, mpsc};
 
 use divan::{AllocProfiler, Bencher};
-use xsh::runner::{RunOptions, run_script};
 #[cfg(feature = "native-tests")]
 use xsh::runner::prepare_benchmark_script;
+use xsh::runner::{RunOptions, run_script};
 use xsh::runtime::value::{RecordMap, Value};
 use xsh::symbol::Name;
 use xshi::interactive::bench::{
@@ -112,7 +112,12 @@ fn run_benchmark_script(path: &Path, args: Vec<String>) -> usize {
         args,
         coverage_trace_dir: None,
     });
-    assert_eq!(output.status, 0, "{}", String::from_utf8_lossy(&output.stderr));
+    assert_eq!(
+        output.status,
+        0,
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     output.stdout.len()
 }
 
@@ -231,7 +236,9 @@ fn runtime_shaped_record_thread_transfer_8_fields(bencher: Bencher) {
     });
     let value = Value::Record(shaped_record());
     bench_operation(bencher, || {
-        sender.send(value.clone()).expect("transfer record to worker");
+        sender
+            .send(value.clone())
+            .expect("transfer record to worker");
         ack_receiver.recv().expect("receive transferred record ack");
     });
     drop(sender);
@@ -272,7 +279,12 @@ fn xsh_tokei_json_report_assembly_4000_execution(bencher: Bencher) {
         })
         .bench_local_values(|prepared| {
             let output = prepared.run();
-            assert_eq!(output.status, 0, "{}", String::from_utf8_lossy(&output.stderr));
+            assert_eq!(
+                output.status,
+                0,
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
             output.stdout.len()
         });
 }
@@ -293,7 +305,12 @@ fn xsh_lowered_scanner_1000_calls_execution(bencher: Bencher) {
         })
         .bench_local_values(|prepared| {
             let output = prepared.run();
-            assert_eq!(output.status, 0, "{}", String::from_utf8_lossy(&output.stderr));
+            assert_eq!(
+                output.status,
+                0,
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
             output.stdout.len()
         });
 }
@@ -302,7 +319,11 @@ fn xsh_lowered_scanner_1000_calls_execution(bencher: Bencher) {
 fn xsh_process_pipeline(bencher: Bencher) {
     let fixture = BenchDir::new();
     let script = benchmark_script("process-pipeline.xsh");
-    let output = fixture.path().join("output.txt").to_string_lossy().into_owned();
+    let output = fixture
+        .path()
+        .join("output.txt")
+        .to_string_lossy()
+        .into_owned();
     bench_operation(bencher, || {
         run_benchmark_script(&script, vec![output.clone()])
     });
@@ -352,7 +373,12 @@ fn xsh_json_log_rollup_10000_rows_execution(bencher: Bencher) {
         })
         .bench_local_values(|prepared| {
             let output = prepared.run();
-            assert_eq!(output.status, 0, "{}", String::from_utf8_lossy(&output.stderr));
+            assert_eq!(
+                output.status,
+                0,
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
             output.stdout.len()
         });
 }
@@ -406,9 +432,7 @@ fn xshi_cd_list_complete_1000_entries(bencher: Bencher) {
     let dir = make_directory_fixture(1_000);
     let _cwd = CurrentDirGuard::new();
     let mut session = BenchSession::with_history(synthetic_history_45k());
-    bench_operation(bencher, || {
-        session.workflow_cd_l_completion_len(dir.path())
-    });
+    bench_operation(bencher, || session.workflow_cd_l_completion_len(dir.path()));
 }
 
 #[divan::bench]

@@ -268,10 +268,7 @@ where
 }
 
 fn test_jobs(options: &TestOptions, cases_len: usize) -> usize {
-    if cases_len <= 1
-        || options.fail_fast
-        || options.nocapture
-    {
+    if cases_len <= 1 || options.fail_fast || options.nocapture {
         return 1;
     }
     options

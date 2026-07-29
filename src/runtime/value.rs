@@ -54,7 +54,10 @@ impl RecordShape {
     }
 
     fn index_of(&self, key: &str) -> Option<usize> {
-        self.data.texts.iter().position(|field| field.as_str() == key)
+        self.data
+            .texts
+            .iter()
+            .position(|field| field.as_str() == key)
     }
 }
 
@@ -63,14 +66,8 @@ fn runtime_record_shapes() -> &'static RwLock<RuntimeRecordShapes> {
     SHAPES.get_or_init(|| RwLock::new(RuntimeRecordShapes::default()))
 }
 
-fn make_record_shape(
-    fields: Box<[Name]>,
-    symbols: Option<SymbolOwner>,
-) -> Arc<RecordShapeData> {
-    let texts = fields
-        .iter()
-        .map(|name| name.as_str())
-        .collect();
+fn make_record_shape(fields: Box<[Name]>, symbols: Option<SymbolOwner>) -> Arc<RecordShapeData> {
+    let texts = fields.iter().map(|name| name.as_str()).collect();
     Arc::new(RecordShapeData {
         names: fields,
         texts,
@@ -134,12 +131,10 @@ fn intern_dynamic_record_shape(fields: Box<[Name]>) -> Arc<RecordShapeData> {
     RUNTIME_SHAPE_MISSES.fetch_add(1, Ordering::Relaxed);
     shapes.dynamic.remove(fields.as_ref());
     if shapes.dynamic.len() >= MAX_DYNAMIC_RECORD_SHAPES {
-        shapes
-            .dynamic
-            .retain(|_, shape| shape.strong_count() != 0);
+        shapes.dynamic.retain(|_, shape| shape.strong_count() != 0);
     }
-    let symbols = SymbolOwner::current()
-        .expect("dynamic record shape requires an active symbol owner");
+    let symbols =
+        SymbolOwner::current().expect("dynamic record shape requires an active symbol owner");
     let shape = make_record_shape(fields.clone(), Some(symbols));
     if shapes.dynamic.len() < MAX_DYNAMIC_RECORD_SHAPES {
         shapes.dynamic.insert(fields, Arc::downgrade(&shape));
@@ -323,7 +318,9 @@ impl RecordMap {
         let mut values = Vec::with_capacity(fields.len());
         for (name, value) in fields {
             if names.last() == Some(&name) {
-                *values.last_mut().expect("record value exists for duplicate name") = value;
+                *values
+                    .last_mut()
+                    .expect("record value exists for duplicate name") = value;
             } else {
                 names.push(name);
                 values.push(value);
@@ -576,15 +573,13 @@ impl IntoIterator for RecordMap {
     fn into_iter(self) -> Self::IntoIter {
         match self {
             Self::Dynamic(fields) => fields.into_iter().collect::<Vec<_>>().into_iter(),
-            Self::Shaped { shape, values, .. } => {
-                shape
-                    .texts
-                    .iter()
-                    .map(|key| Arc::from(key.as_str()))
-                    .zip(values.iter().cloned())
-                    .collect::<Vec<_>>()
-                    .into_iter()
-            }
+            Self::Shaped { shape, values, .. } => shape
+                .texts
+                .iter()
+                .map(|key| Arc::from(key.as_str()))
+                .zip(values.iter().cloned())
+                .collect::<Vec<_>>()
+                .into_iter(),
             Self::SparseShaped(sparse) => sparse
                 .shape
                 .texts
@@ -1586,7 +1581,8 @@ mod tests {
 
         let second = RecordMap::from_name_values(vec![(Name::BOOL, Value::Bool(false))]);
         let RecordMap::Shaped {
-            shape: second_shape, ..
+            shape: second_shape,
+            ..
         } = &second
         else {
             panic!("preloaded fixed record must use a dense shape");
@@ -1614,7 +1610,8 @@ mod tests {
                     shape: first_shape, ..
                 },
                 RecordMap::Shaped {
-                    shape: second_shape, ..
+                    shape: second_shape,
+                    ..
                 },
             ) = (&first, &second)
             else {
@@ -1684,10 +1681,7 @@ mod tests {
 
     #[test]
     fn runtime_errors_own_dynamic_names_without_an_active_symbol_owner() {
-        let error = RuntimeError::new(
-            "dynamic-session-error",
-            "session helper failed",
-        );
+        let error = RuntimeError::new("dynamic-session-error", "session helper failed");
 
         assert_eq!(error.variant_name().as_str(), "dynamic-session-error");
     }

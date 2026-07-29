@@ -62,7 +62,9 @@ impl Checker {
         let mut ty = self.lookup(Name::intern(root))?.ty.clone();
         for segment in segments {
             ty = match segment {
-                CommandWordRefSegment::Field(name) => self.field_type_for_value(ty, &name.as_str(), span),
+                CommandWordRefSegment::Field(name) => {
+                    self.field_type_for_value(ty, &name.as_str(), span)
+                }
                 CommandWordRefSegment::Index(_) => self.index_type_for_value(ty, span),
             };
         }

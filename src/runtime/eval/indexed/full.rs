@@ -6,20 +6,17 @@ use super::{
 use crate::modules::RuntimeOp;
 use crate::modules::hash::HashAlgorithm;
 use crate::runtime::eval::{
-    BuildBoolId, BuildBoolRow, BuildExprId, BuildExprRow, BuildIntId, BuildIntRow,
-    BuildPatternId, BuildPatternRow, BuildStmtId, BuildStmtRow, BuildTopStmtId,
-    BuildScratch,
-    LoweredCallArg, LoweredCompTarget, LoweredErrorExpr,
-    LoweredErrorPatternFields, LoweredFmtPart, LoweredFunctionKey,
-    LoweredFunctionKind, LoweredFunctionUnit, BuildPatternIdSlots, LoweredPipelineStage, LoweredProcessCommandArgv,
-    FunctionHeader, LoweredProcessCommandBuilderEntry, FunctionBuild, LoweredRecordEntry,
-    LoweredReturnKind,
-    LoweredRunArg, LoweredRunArgKind, LoweredRunCapture, LoweredRunEnv,
-    LoweredRunPipelineSegment, LoweredRunRedirection, LoweredSpawnRun,
-    LoweredStatsValue, LoweredStrPredicate, LoweredTagValue, LoweredType, LoweredTypeCheck,
-    LoweredModuleExport, LoweredModuleExportKind, ProgramBuild, BuildTopKind,
-    LoweredTopLevelSlot, LoweredTopLevelSlots, BuildTopStmtRow, LoweredValue, ReduceByOp,
-    ScanBytes, ScanCheck, ScanCondition,
+    BuildBoolId, BuildBoolRow, BuildExprId, BuildExprRow, BuildIntId, BuildIntRow, BuildPatternId,
+    BuildPatternIdSlots, BuildPatternRow, BuildScratch, BuildStmtId, BuildStmtRow, BuildTopKind,
+    BuildTopStmtId, BuildTopStmtRow, FunctionBuild, FunctionHeader, LoweredCallArg,
+    LoweredCompTarget, LoweredErrorExpr, LoweredErrorPatternFields, LoweredFmtPart,
+    LoweredFunctionKey, LoweredFunctionKind, LoweredFunctionUnit, LoweredModuleExport,
+    LoweredModuleExportKind, LoweredPipelineStage, LoweredProcessCommandArgv,
+    LoweredProcessCommandBuilderEntry, LoweredRecordEntry, LoweredReturnKind, LoweredRunArg,
+    LoweredRunArgKind, LoweredRunCapture, LoweredRunEnv, LoweredRunPipelineSegment,
+    LoweredRunRedirection, LoweredSpawnRun, LoweredStatsValue, LoweredStrPredicate,
+    LoweredTagValue, LoweredTopLevelSlot, LoweredTopLevelSlots, LoweredType, LoweredTypeCheck,
+    LoweredValue, ProgramBuild, ReduceByOp, ScanBytes, ScanCheck, ScanCondition,
 };
 use crate::runtime::value::{DurationValue, FloatValue, FunctionName, PathValue};
 use crate::sema::check::{CompactBodyProbeOutput, CompactDeclOutput};
@@ -586,7 +583,7 @@ impl FullStore {
             .get(index + 1)
             .copied()
             .or_else(|| self.driver_steps.first().map(|step| step.instruction_start))
-            .unwrap_or_else(|| self.tags.len() as u32);
+            .unwrap_or(self.tags.len() as u32);
         let range = IrRange::new(start, end.saturating_sub(start));
         range
             .bounds(self.tags.len())
@@ -777,9 +774,7 @@ impl FullProgram {
             .ok_or_else(|| IrVerifyError::new("function parameter range is invalid"))?;
         self.store.params[params]
             .iter()
-            .map(|param| {
-                lowered_type_from_type(&self.store.semantic.to_type(param.type_id)?)
-            })
+            .map(|param| lowered_type_from_type(&self.store.semantic.to_type(param.type_id)?))
             .collect::<Result<Vec<_>, _>>()
             .map(Some)
     }
@@ -884,9 +879,7 @@ impl FullProgram {
         Ok(tags)
     }
 
-    pub(in crate::runtime::eval) fn driver_step_count(
-        &self,
-    ) -> Result<usize, IrVerifyError> {
+    pub(in crate::runtime::eval) fn driver_step_count(&self) -> Result<usize, IrVerifyError> {
         Ok(self.driver_root_steps()?.len())
     }
 
@@ -1149,26 +1142,18 @@ impl<'a> FullFunctionView<'a> {
     pub(in crate::runtime::eval) fn instruction_tags(
         &self,
     ) -> Result<&'a [FullTag], IrVerifyError> {
-        let range = self
-            .program
-            .store
-            .function_instruction_range(self.index)?;
+        let range = self.program.store.function_instruction_range(self.index)?;
         Ok(&self.program.store.tags[range])
     }
 
     pub(in crate::runtime::eval) fn pipeline_stage_tags(
         &self,
     ) -> Result<Vec<FullStageTag>, IrVerifyError> {
-        self.program.pipeline_stage_tags(
-            self.program
-                .store
-                .function_instruction_range(self.index)?,
-        )
+        self.program
+            .pipeline_stage_tags(self.program.store.function_instruction_range(self.index)?)
     }
 
-    pub(in crate::runtime::eval) fn header(
-        &self,
-    ) -> Result<FunctionHeader, IrVerifyError> {
+    pub(in crate::runtime::eval) fn header(&self) -> Result<FunctionHeader, IrVerifyError> {
         let function = self.program.store.functions[self.index];
         let decoder = self.execution()?.decoder;
         let params = function
@@ -1184,10 +1169,7 @@ impl<'a> FullFunctionView<'a> {
         let mut param_checks = SmallVec::new();
         let mut param_rest = SmallVec::new();
         let mut param_defaults = SmallVec::new();
-        for (offset, param) in self.program.store.params[params.clone()]
-            .iter()
-            .enumerate()
-        {
+        for (offset, param) in self.program.store.params[params.clone()].iter().enumerate() {
             let param_index = params.start + offset;
             let cold = self
                 .program
@@ -1235,11 +1217,12 @@ impl<'a> FullFunctionView<'a> {
                 mutable: capture.slot_and_flags & (1 << 31) != 0,
             });
         }
-        let return_type = self
-            .program
-            .store
-            .semantic
-            .to_type(self.program.store.semantic.signature_return_type(function.signature)?)?;
+        let return_type = self.program.store.semantic.to_type(
+            self.program
+                .store
+                .semantic
+                .signature_return_type(function.signature)?,
+        )?;
         let return_kind = match return_type {
             Type::Result(ok, _) => LoweredReturnKind::Result(lowered_type_from_type(&ok)?),
             ty => LoweredReturnKind::Plain(lowered_type_from_type(&ty)?),
@@ -1264,14 +1247,11 @@ impl<'a> FullFunctionView<'a> {
                 owner: IrFunctionId::new(self.index)
                     .map_err(|_| IrVerifyError::new("function id is invalid"))?
                     .raw(),
-                instruction_range: self
-                    .program
-                    .store
-                    .function_instruction_range(self.index)?,
+                instruction_range: self.program.store.function_instruction_range(self.index)?,
                 instruction_states: None,
                 block_states: None,
                 slot_count: function.slot_count,
-            verified: true,
+                verified: true,
             },
         })
     }
@@ -1321,10 +1301,7 @@ impl<'a> FullDriverStepView<'a> {
                 store: &self.program.store,
                 owner: driver_owner(self.index)
                     .map_err(|_| IrVerifyError::new("driver owner is invalid"))?,
-                instruction_range: self
-                    .program
-                    .store
-                    .driver_instruction_range(self.index)?,
+                instruction_range: self.program.store.driver_instruction_range(self.index)?,
                 instruction_states: None,
                 block_states: None,
                 slot_count: step.slot_count,
@@ -1343,11 +1320,8 @@ impl<'a> FullDriverStepView<'a> {
     pub(in crate::runtime::eval) fn pipeline_stage_tags(
         &self,
     ) -> Result<Vec<FullStageTag>, IrVerifyError> {
-        self.program.pipeline_stage_tags(
-            self.program
-                .store
-                .driver_instruction_range(self.index)?,
-        )
+        self.program
+            .pipeline_stage_tags(self.program.store.driver_instruction_range(self.index)?)
     }
 
     pub(in crate::runtime::eval) fn payload(&self) -> Result<FullPayload<'a>, IrVerifyError> {
@@ -1361,9 +1335,7 @@ impl<'a> FullDriverStepView<'a> {
         self.program.store.driver_steps[self.index].slot_count as usize
     }
 
-    pub(in crate::runtime::eval) fn slots(
-        &self,
-    ) -> Result<LoweredTopLevelSlots, IrVerifyError> {
+    pub(in crate::runtime::eval) fn slots(&self) -> Result<LoweredTopLevelSlots, IrVerifyError> {
         let step = self.program.store.driver_steps[self.index];
         let range = step
             .slots
@@ -1374,9 +1346,7 @@ impl<'a> FullDriverStepView<'a> {
             slots.push(LoweredTopLevelSlot {
                 name: Name::intern(self.program.store.string(slot.name)?),
                 slot: slot.slot as usize,
-                kind: lowered_type_from_type(
-                    &self.program.store.semantic.to_type(slot.type_id)?,
-                )?,
+                kind: lowered_type_from_type(&self.program.store.semantic.to_type(slot.type_id)?)?,
                 mutable: slot.flags & DRIVER_SLOT_MUTABLE != 0,
             });
         }
@@ -1587,9 +1557,7 @@ impl FullBuilder {
         symbols: crate::symbol::SymbolOwner,
     ) -> Result<FullProgram, IrBuildError> {
         let mut builder = Self::new(source_id);
-        builder.reserve_function_keys(
-            super::super::lower::compact_function_keys(program),
-        )?;
+        builder.reserve_function_keys(super::super::lower::compact_function_keys(program))?;
         let mut pures = rustc_hash::FxHashSet::default();
         let mut procs = rustc_hash::FxHashSet::default();
         let mut qualified_pures = rustc_hash::FxHashSet::default();
@@ -1664,15 +1632,10 @@ impl FullBuilder {
         drop(qualified_procs);
 
         let checkpoint = builder.checkpoint();
-        if let Err(mut error) = builder.encode_driver_root(
-            &driver,
-            &source_statements,
-            program,
-            allow_checker_only,
-        )
+        if let Err(mut error) =
+            builder.encode_driver_root(&driver, &source_statements, program, allow_checker_only)
         {
-            error.attempted_instructions =
-                builder.store.tags.len().saturating_sub(checkpoint.tags);
+            error.attempted_instructions = builder.store.tags.len().saturating_sub(checkpoint.tags);
             builder.rewind(checkpoint);
             error.committed_instructions = builder.store.tags.len();
             return Err(error);
@@ -1825,9 +1788,8 @@ impl FullBuilder {
         })?;
         self.store.blocks[block.index()].flags |= BLOCK_FUNCTION_BODY;
         self.store.functions[function.index()].body = body_id;
-        self.store.function_instruction_starts[function.index()] =
-            u32::try_from(instruction_start)
-                .map_err(|_| IrBuildError::format("instruction_overflow", None, 0, 0))?;
+        self.store.function_instruction_starts[function.index()] = u32::try_from(instruction_start)
+            .map_err(|_| IrBuildError::format("instruction_overflow", None, 0, 0))?;
         Ok(())
     }
 
@@ -1839,8 +1801,12 @@ impl FullBuilder {
         allow_checker_only: bool,
     ) -> Result<(), IrBuildError> {
         self.active_scratch = Some(program.scratch.clone());
-        let result =
-            self.encode_driver_root_with_scratch(program, source_statements, arena, allow_checker_only);
+        let result = self.encode_driver_root_with_scratch(
+            program,
+            source_statements,
+            arena,
+            allow_checker_only,
+        );
         self.active_scratch = None;
         result
     }
@@ -1889,9 +1855,10 @@ impl FullBuilder {
     }
 
     fn build_top_stmt(&self, id: BuildTopStmtId) -> Result<BuildTopStmtRow, IrBuildError> {
-        let scratch = self.active_scratch.as_ref().ok_or_else(|| {
-            IrBuildError::format("missing_indexed_build_scratch", None, 0, 0)
-        })?;
+        let scratch = self
+            .active_scratch
+            .as_ref()
+            .ok_or_else(|| IrBuildError::format("missing_indexed_build_scratch", None, 0, 0))?;
         let scratch = scratch.borrow();
         scratch
             .top_statements
@@ -1920,9 +1887,7 @@ impl FullBuilder {
             .modules
             .iter()
             .find(|module| module.key.as_str() == key.as_ref())
-            .ok_or_else(|| {
-                IrBuildError::format("driver_import_module", Some(*span), 0, 0)
-            })?;
+            .ok_or_else(|| IrBuildError::format("driver_import_module", Some(*span), 0, 0))?;
         let lowered_spans = module_statements
             .iter()
             .map(|(span, _)| (span.source_id, span.start(), span.end()))
@@ -1934,8 +1899,7 @@ impl FullBuilder {
                 (span.source_id, span.start(), span.end())
             })
             .collect::<BTreeSet<_>>();
-        if lowered_spans.len() != module_statements.len()
-            || !lowered_spans.is_subset(&source_spans)
+        if lowered_spans.len() != module_statements.len() || !lowered_spans.is_subset(&source_spans)
         {
             return Err(IrBuildError::format(
                 "driver_import_statement",
@@ -1953,7 +1917,11 @@ impl FullBuilder {
                 continue;
             }
             let source_span = arena.arena.stmt(source_statement).span;
-            let key = (source_span.source_id, source_span.start(), source_span.end());
+            let key = (
+                source_span.source_id,
+                source_span.start(),
+                source_span.end(),
+            );
             if !lowered_spans.contains(&key) {
                 return Err(IrBuildError::format(
                     "module_top_level_boundary_blocker",
@@ -1976,7 +1944,9 @@ impl FullBuilder {
     ) -> Result<u32, IrBuildError> {
         let mut child_programs = Vec::with_capacity(statements.len());
         for (_, statement) in statements {
-            let statement_row = statement.map(|statement| self.build_top_stmt(statement)).transpose()?;
+            let statement_row = statement
+                .map(|statement| self.build_top_stmt(statement))
+                .transpose()?;
             let child = match statement_row.as_ref().map(|statement| &statement.kind) {
                 Some(BuildTopKind::Use {
                     key,
@@ -1999,10 +1969,7 @@ impl FullBuilder {
                     let lowered = module_statements
                         .iter()
                         .map(|(span, statement)| {
-                            (
-                                (span.source_id, span.start(), span.end()),
-                                *statement,
-                            )
+                            ((span.source_id, span.start(), span.end()), *statement)
                         })
                         .collect::<BTreeMap<_, _>>();
                     let child_statements = arena
@@ -2074,15 +2041,16 @@ impl FullBuilder {
         let instruction_start = u32::try_from(self.store.tags.len())
             .map_err(|_| IrBuildError::format("instruction_overflow", None, 0, 0))?;
         let slots_start = self.store.driver_slots.len();
-        let slot_count = statement.as_ref().map_or(0, |statement| statement.slot_count);
-        let write_slots = statement.as_ref().is_some_and(|statement| {
-            matches!(statement.kind, BuildTopKind::Stmt(_))
-        });
+        let slot_count = statement
+            .as_ref()
+            .map_or(0, |statement| statement.slot_count);
+        let write_slots = statement
+            .as_ref()
+            .is_some_and(|statement| matches!(statement.kind, BuildTopKind::Stmt(_)));
         if let Some(statement) = statement.as_ref() {
             for slot in &statement.slots {
-                let slot_index = u32::try_from(slot.slot).map_err(|_| {
-                    IrBuildError::format("driver_slot_overflow", None, 0, 0)
-                })?;
+                let slot_index = u32::try_from(slot.slot)
+                    .map_err(|_| IrBuildError::format("driver_slot_overflow", None, 0, 0))?;
                 let type_id = self.intern_lowered_type(slot.kind)?;
                 let name = self.intern_string(&slot.name.as_str())?.raw();
                 self.store.driver_slots.push(FullDriverSlot {
@@ -2095,11 +2063,7 @@ impl FullBuilder {
                         } else {
                             0
                         }
-                        | if slot.mutable {
-                            DRIVER_SLOT_MUTABLE
-                        } else {
-                            0
-                        },
+                        | if slot.mutable { DRIVER_SLOT_MUTABLE } else { 0 },
                     reserved: [0; 3],
                 });
             }
@@ -2225,9 +2189,7 @@ impl FullBuilder {
         {
             effects |= EFFECT_BINDING_WRITE;
         }
-        effects |= instruction_effects(
-            &self.store.tags[instruction_start as usize..],
-        );
+        effects |= instruction_effects(&self.store.tags[instruction_start as usize..]);
         self.store.driver_steps.push(FullDriverStep {
             data: IrData::new(data.start, data.len),
             slots,
@@ -2285,11 +2247,7 @@ impl FullBuilder {
         Ok(())
     }
 
-    fn push_instruction(
-        &mut self,
-        tag: FullTag,
-        payload: &[u32],
-    ) -> Result<u32, IrBuildError> {
+    fn push_instruction(&mut self, tag: FullTag, payload: &[u32]) -> Result<u32, IrBuildError> {
         let function = self
             .current_owner
             .ok_or_else(|| IrBuildError::format("missing_instruction_owner", None, 0, 0))?;
@@ -2297,9 +2255,7 @@ impl FullBuilder {
             .map_err(|_| IrBuildError::format("instruction_overflow", None, 0, 0))?;
         let range = self.push_extra(payload)?;
         self.store.tags.push(tag);
-        self.store
-            .data
-            .push(IrData::new(range.start, range.len));
+        self.store.data.push(IrData::new(range.start, range.len));
         debug_assert_eq!(
             function,
             self.current_owner.expect("instruction owner remains set")
@@ -2307,11 +2263,7 @@ impl FullBuilder {
         Ok(id)
     }
 
-    fn push_pattern(
-        &mut self,
-        tag: FullPatternTag,
-        payload: &[u32],
-    ) -> Result<u32, IrBuildError> {
+    fn push_pattern(&mut self, tag: FullPatternTag, payload: &[u32]) -> Result<u32, IrBuildError> {
         let id = u32::try_from(self.store.patterns.len())
             .map_err(|_| IrBuildError::format("pattern_overflow", None, 0, 0))?;
         let range = self.push_extra(payload)?;
@@ -2322,11 +2274,7 @@ impl FullBuilder {
         Ok(id)
     }
 
-    fn push_stage(
-        &mut self,
-        tag: FullStageTag,
-        payload: &[u32],
-    ) -> Result<u32, IrBuildError> {
+    fn push_stage(&mut self, tag: FullStageTag, payload: &[u32]) -> Result<u32, IrBuildError> {
         let id = u32::try_from(self.store.stages.len())
             .map_err(|_| IrBuildError::format("stage_overflow", None, 0, 0))?;
         let range = self.push_extra(payload)?;
@@ -2337,11 +2285,7 @@ impl FullBuilder {
         Ok(id)
     }
 
-    fn push_value(
-        &mut self,
-        tag: FullValueTag,
-        payload: &[u32],
-    ) -> Result<u32, IrBuildError> {
+    fn push_value(&mut self, tag: FullValueTag, payload: &[u32]) -> Result<u32, IrBuildError> {
         let id = u32::try_from(self.store.values.len())
             .map_err(|_| IrBuildError::format("value_overflow", None, 0, 0))?;
         let range = self.push_extra(payload)?;
@@ -2377,7 +2321,9 @@ impl FullBuilder {
     fn intern_function_key(&mut self, key: LoweredFunctionKey) -> Result<u32, IrBuildError> {
         match key {
             LoweredFunctionKey::Name(name) => Ok(self.intern_string(&name.as_str())?.raw()),
-            LoweredFunctionKey::Qualified(name) => Ok(self.intern_string(&name.member.as_str())?.raw()),
+            LoweredFunctionKey::Qualified(name) => {
+                Ok(self.intern_string(&name.member.as_str())?.raw())
+            }
         }
     }
 
@@ -2430,11 +2376,10 @@ impl FullBuilder {
         construct: &'static str,
     ) -> Result<u32, IrBuildError> {
         if let Some(index) = values.iter().position(|candidate| *candidate == value) {
-            return u32::try_from(index)
-                .map_err(|_| IrBuildError::format(construct, None, 0, 0));
+            return u32::try_from(index).map_err(|_| IrBuildError::format(construct, None, 0, 0));
         }
-        let id = u32::try_from(values.len())
-            .map_err(|_| IrBuildError::format(construct, None, 0, 0))?;
+        let id =
+            u32::try_from(values.len()).map_err(|_| IrBuildError::format(construct, None, 0, 0))?;
         values.push(value);
         Ok(id)
     }
@@ -2537,7 +2482,9 @@ impl FullBuilder {
         self.store.driver_steps.truncate(checkpoint.driver_steps);
         self.store.driver_slots.truncate(checkpoint.driver_slots);
         self.store.driver_sync.truncate(checkpoint.driver_sync);
-        self.store.driver_regions.truncate(checkpoint.driver_regions);
+        self.store
+            .driver_regions
+            .truncate(checkpoint.driver_regions);
         self.store
             .driver_programs
             .truncate(checkpoint.driver_programs);
@@ -2579,9 +2526,7 @@ fn driver_tag_effects(tag: FullDriverTag) -> u32 {
     match tag {
         FullDriverTag::Use => EFFECT_IMPORT | EFFECT_DYNAMIC_CALL | EFFECT_TRACE,
         FullDriverTag::Defer => EFFECT_DEFER | EFFECT_PROPAGATE | EFFECT_TRACE,
-        FullDriverTag::SignalHook => {
-            EFFECT_SIGNAL | EFFECT_CANCELLATION | EFFECT_TRACE
-        }
+        FullDriverTag::SignalHook => EFFECT_SIGNAL | EFFECT_CANCELLATION | EFFECT_TRACE,
         FullDriverTag::Skip
         | FullDriverTag::Let
         | FullDriverTag::LetRecord
@@ -2595,10 +2540,7 @@ fn driver_tag_effects(tag: FullDriverTag) -> u32 {
 fn driver_tag_writes_binding(tag: FullDriverTag) -> bool {
     matches!(
         tag,
-        FullDriverTag::Use
-            | FullDriverTag::Let
-            | FullDriverTag::LetRecord
-            | FullDriverTag::Assign
+        FullDriverTag::Use | FullDriverTag::Let | FullDriverTag::LetRecord | FullDriverTag::Assign
     )
 }
 
@@ -2782,10 +2724,9 @@ fn lowered_type_from_type(ty: &Type) -> Result<LoweredType, IrVerifyError> {
         Type::Stream(_) => LoweredType::Stream,
         Type::Pure => LoweredType::Pure,
         Type::Proc => LoweredType::Proc,
-        Type::Error
-        | Type::ErrorFamily(_)
-        | Type::ErrorVariant { .. }
-        | Type::ErrorFacet(_) => LoweredType::Error,
+        Type::Error | Type::ErrorFamily(_) | Type::ErrorVariant { .. } | Type::ErrorFacet(_) => {
+            LoweredType::Error
+        }
         Type::Record(_) => LoweredType::Record,
         Type::Module(_) => LoweredType::Module,
         Type::List(_) => LoweredType::List,
@@ -2802,21 +2743,12 @@ fn lowered_type_from_type(ty: &Type) -> Result<LoweredType, IrVerifyError> {
 }
 
 pub(in crate::runtime::eval) trait FullCodec: Sized {
-    fn encode(
-        &self,
-        builder: &mut FullBuilder,
-        output: &mut Vec<u32>,
-    ) -> Result<(), IrBuildError>;
+    fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError>;
 
-    fn decode(
-        decoder: &FullDecoder<'_>,
-        input: &mut FullCursor<'_>,
-    ) -> Result<Self, IrVerifyError>;
+    fn decode(decoder: &FullDecoder<'_>, input: &mut FullCursor<'_>)
+    -> Result<Self, IrVerifyError>;
 
-    fn verify(
-        decoder: &FullDecoder<'_>,
-        input: &mut FullCursor<'_>,
-    ) -> Result<(), IrVerifyError> {
+    fn verify(decoder: &FullDecoder<'_>, input: &mut FullCursor<'_>) -> Result<(), IrVerifyError> {
         Self::decode(decoder, input).map(drop)
     }
 }
@@ -3032,9 +2964,9 @@ impl<'a> FullExecution<'a> {
             return Ok((
                 id,
                 FullPayload {
-                    cursor: self
-                        .decoder
-                        .cursor(unsafe { self.decoder.store.payload_unchecked(block.instructions) }),
+                    cursor: self.decoder.cursor(unsafe {
+                        self.decoder.store.payload_unchecked(block.instructions)
+                    }),
                 },
             ));
         }
@@ -3296,14 +3228,14 @@ impl<'a> FullDecoder<'a> {
                 "full IR statement/list block has an unexpected result",
             ));
         }
-        if block.owner != IR_NONE && let Some(states) = &self.block_states {
+        if block.owner != IR_NONE
+            && let Some(states) = &self.block_states
+        {
             let state = states.borrow()[id.index()];
             match state {
                 0 => states.borrow_mut()[id.index()] = 1,
                 1 => {
-                    return Err(IrVerifyError::new(
-                        "full IR block graph contains a cycle",
-                    ));
+                    return Err(IrVerifyError::new("full IR block graph contains a cycle"));
                 }
                 2 => {
                     return Err(IrVerifyError::new(
@@ -3313,10 +3245,7 @@ impl<'a> FullDecoder<'a> {
                 _ => unreachable!("block verifier state is bounded"),
             }
         }
-        Ok((
-            id,
-            self.cursor(self.store.payload(block.instructions)?),
-        ))
+        Ok((id, self.cursor(self.store.payload(block.instructions)?)))
     }
 
     fn finish_block(&self, id: IrBlockId) {
@@ -3372,11 +3301,7 @@ impl<'a> FullDecoder<'a> {
             .copied()
             .ok_or_else(|| IrVerifyError::new("full IR instruction is out of bounds"))?;
         let data = self.store.data[index];
-        Ok((
-            index,
-            tag,
-            self.cursor(self.store.payload(data.range())?),
-        ))
+        Ok((index, tag, self.cursor(self.store.payload(data.range())?)))
     }
 
     #[inline(always)]
@@ -3387,9 +3312,10 @@ impl<'a> FullDecoder<'a> {
     }
 
     fn finish_function(&self) -> Result<(), IrVerifyError> {
-        let instructions_complete = self.instruction_states.as_ref().is_none_or(|states| {
-            states.borrow().iter().all(|state| *state == 2)
-        });
+        let instructions_complete = self
+            .instruction_states
+            .as_ref()
+            .is_none_or(|states| states.borrow().iter().all(|state| *state == 2));
         let blocks_complete = self.block_states.as_ref().is_none_or(|states| {
             self.store
                 .blocks
@@ -3431,10 +3357,7 @@ fn indexed_block_can_return(store: &FullStore, block: IrBlockId) -> Result<bool,
     Ok(false)
 }
 
-fn indexed_stmt_can_return(
-    store: &FullStore,
-    instruction: usize,
-) -> Result<bool, IrVerifyError> {
+fn indexed_stmt_can_return(store: &FullStore, instruction: usize) -> Result<bool, IrVerifyError> {
     let tag = store
         .tags
         .get(instruction)
@@ -3451,20 +3374,28 @@ fn indexed_stmt_can_return(
     };
     Ok(match tag {
         FullTag::StmtReturn => true,
-        FullTag::StmtCd => {
-            indexed_block_can_return(store, block(*payload.get(1).ok_or_else(|| {
-                IrVerifyError::new("return-analysis cd payload is invalid")
-            })?)?)?
-        }
+        FullTag::StmtCd => indexed_block_can_return(
+            store,
+            block(
+                *payload
+                    .get(1)
+                    .ok_or_else(|| IrVerifyError::new("return-analysis cd payload is invalid"))?,
+            )?,
+        )?,
         FullTag::StmtEnv => {
-            indexed_block_can_return(store, block(*payload.get(1).ok_or_else(|| {
-                IrVerifyError::new("return-analysis env payload is invalid")
-            })?)?)?
+            indexed_block_can_return(
+                store,
+                block(*payload.get(1).ok_or_else(|| {
+                    IrVerifyError::new("return-analysis env payload is invalid")
+                })?)?,
+            )?
         }
         FullTag::StmtIf | FullTag::StmtIfBool => {
-            let branches = block(*payload.first().ok_or_else(|| {
-                IrVerifyError::new("return-analysis if payload is invalid")
-            })?)?;
+            let branches = block(
+                *payload
+                    .first()
+                    .ok_or_else(|| IrVerifyError::new("return-analysis if payload is invalid"))?,
+            )?;
             let branch_words = store.payload(store.blocks[branches.index()].instructions)?;
             let Some((&len, mut branch_words)) = branch_words.split_first() else {
                 return Err(IrVerifyError::new(
@@ -3479,9 +3410,7 @@ fn indexed_stmt_can_return(
                     ));
                 };
                 let Some((&body, rest)) = rest.split_first() else {
-                    return Err(IrVerifyError::new(
-                        "return-analysis if body is missing",
-                    ));
+                    return Err(IrVerifyError::new("return-analysis if body is missing"));
                 };
                 all_return &= indexed_block_can_return(store, block(body)?)?;
                 branch_words = rest;
@@ -3503,14 +3432,13 @@ fn indexed_stmt_can_return(
             all_return && else_returns
         }
         FullTag::StmtMatch => {
-            let arms = block(*payload.get(1).ok_or_else(|| {
-                IrVerifyError::new("return-analysis match payload is invalid")
-            })?)?;
+            let arms =
+                block(*payload.get(1).ok_or_else(|| {
+                    IrVerifyError::new("return-analysis match payload is invalid")
+                })?)?;
             let arm_words = store.payload(store.blocks[arms.index()].instructions)?;
             let Some((&len, mut arm_words)) = arm_words.split_first() else {
-                return Err(IrVerifyError::new(
-                    "return-analysis match arms are invalid",
-                ));
+                return Err(IrVerifyError::new("return-analysis match arms are invalid"));
             };
             let mut all_return = len != 0;
             for _ in 0..len {
@@ -3520,9 +3448,7 @@ fn indexed_stmt_can_return(
                     ));
                 };
                 let Some((&guard, rest)) = rest.split_first() else {
-                    return Err(IrVerifyError::new(
-                        "return-analysis match guard is missing",
-                    ));
+                    return Err(IrVerifyError::new("return-analysis match guard is missing"));
                 };
                 let rest = match guard {
                     0 => rest,
@@ -3536,9 +3462,7 @@ fn indexed_stmt_can_return(
                     }
                 };
                 let Some((&body, rest)) = rest.split_first() else {
-                    return Err(IrVerifyError::new(
-                        "return-analysis match body is missing",
-                    ));
+                    return Err(IrVerifyError::new("return-analysis match body is missing"));
                 };
                 all_return &= indexed_block_can_return(store, block(body)?)?;
                 arm_words = rest;
@@ -3619,13 +3543,13 @@ impl FullVerifier {
             }
         }
         for index in 0..store.strings.len() {
-            let raw = u32::try_from(index + 1)
-                .map_err(|_| IrVerifyError::new("string id overflows"))?;
+            let raw =
+                u32::try_from(index + 1).map_err(|_| IrVerifyError::new("string id overflows"))?;
             store.string(raw)?;
         }
         for index in 0..store.bytes.len() {
-            let raw = u32::try_from(index + 1)
-                .map_err(|_| IrVerifyError::new("bytes id overflows"))?;
+            let raw =
+                u32::try_from(index + 1).map_err(|_| IrVerifyError::new("bytes id overflows"))?;
             store.bytes(raw)?;
         }
         for validation in &store.validations {
@@ -3663,12 +3587,8 @@ impl FullVerifier {
             if cold.default != IR_NONE && cold.default as usize >= store.values.len() {
                 return Err(IrVerifyError::new("parameter default is out of bounds"));
             }
-            if cold.validation != IR_NONE
-                && cold.validation as usize >= store.validations.len()
-            {
-                return Err(IrVerifyError::new(
-                    "parameter validation is out of bounds",
-                ));
+            if cold.validation != IR_NONE && cold.validation as usize >= store.validations.len() {
+                return Err(IrVerifyError::new("parameter validation is out of bounds"));
             }
             previous_cold_param = Some(cold.param);
         }
@@ -3696,11 +3616,7 @@ impl FullVerifier {
                 .captures
                 .bounds(store.captures.len())
                 .ok_or_else(|| IrVerifyError::new("function capture range is invalid"))?;
-            if store
-                .semantic
-                .signature_param_count(function.signature)?
-                != params.len()
-            {
+            if store.semantic.signature_param_count(function.signature)? != params.len() {
                 return Err(IrVerifyError::new(
                     "function parameters do not match its signature",
                 ));
@@ -3738,9 +3654,7 @@ impl FullVerifier {
                 .get(body_id.index())
                 .ok_or_else(|| IrVerifyError::new("function body block is out of bounds"))?;
             if body_block.flags != (BLOCK_STATEMENTS | BLOCK_FUNCTION_BODY) {
-                return Err(IrVerifyError::new(
-                    "function body block flags are invalid",
-                ));
+                return Err(IrVerifyError::new("function body block flags are invalid"));
             }
             let body = [function.body];
             let mut cursor = FullCursor::new(&body);
@@ -3773,8 +3687,7 @@ impl FullVerifier {
             let return_type = store
                 .semantic
                 .to_type(store.semantic.signature_return_type(function.signature)?)?;
-            if !matches!(return_type, Type::Stream(_))
-                && !indexed_block_can_return(store, body_id)?
+            if !matches!(return_type, Type::Stream(_)) && !indexed_block_can_return(store, body_id)?
             {
                 return Err(IrVerifyError::new(format!(
                     "function {index} body does not terminate with a return"
@@ -3829,9 +3742,7 @@ impl FullVerifier {
                 }
                 for slot_index in slots.clone() {
                     if covered_slots[slot_index] {
-                        return Err(IrVerifyError::new(
-                            "driver slot is owned by multiple steps",
-                        ));
+                        return Err(IrVerifyError::new("driver slot is owned by multiple steps"));
                     }
                     covered_slots[slot_index] = true;
                     let slot = store.driver_slots[slot_index];
@@ -3847,9 +3758,7 @@ impl FullVerifier {
                         return Err(IrVerifyError::new("driver slot is invalid"));
                     }
                     if !names.insert(slot.name) || !indices.insert(slot.slot) {
-                        return Err(IrVerifyError::new(
-                            "driver step slots are not unique",
-                        ));
+                        return Err(IrVerifyError::new("driver step slots are not unique"));
                     }
                     if slot.flags & DRIVER_SLOT_WRITE != 0 {
                         expected_effects |= EFFECT_BINDING_WRITE;
@@ -3941,9 +3850,7 @@ impl FullVerifier {
                             .ok_or_else(|| IrVerifyError::new("driver slot range is invalid"))?;
                         for slot in &store.driver_slots[slots] {
                             let flags = slot.flags & (DRIVER_SLOT_READ | DRIVER_SLOT_WRITE);
-                            if let Some((type_id, existing)) =
-                                expected_sync.get_mut(&slot.name)
-                            {
+                            if let Some((type_id, existing)) = expected_sync.get_mut(&slot.name) {
                                 if *type_id != slot.type_id {
                                     return Err(IrVerifyError::new(
                                         "driver sync type identities conflict",
@@ -3977,7 +3884,9 @@ impl FullVerifier {
                 }
             }
             if covered_regions.iter().any(|covered| !covered) {
-                return Err(IrVerifyError::new("driver plan contains an unreachable region"));
+                return Err(IrVerifyError::new(
+                    "driver plan contains an unreachable region",
+                ));
             }
             if covered_sync.iter().any(|covered| !covered) {
                 return Err(IrVerifyError::new(
@@ -4020,14 +3929,10 @@ macro_rules! impl_word_codec {
 impl_word_codec!(
     u32,
     |value: &u32| Ok(*value),
-    |raw| Ok::<u32, IrVerifyError>(raw)
+    Ok::<u32, IrVerifyError>
 );
 impl FullCodec for usize {
-    fn encode(
-        &self,
-        builder: &mut FullBuilder,
-        output: &mut Vec<u32>,
-    ) -> Result<(), IrBuildError> {
+    fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
         if builder.current_owner.is_none() {
             return Err(IrBuildError::format("slot_without_owner", None, 0, 0));
         }
@@ -4035,8 +3940,7 @@ impl FullCodec for usize {
             return Err(IrBuildError::format("slot_out_of_bounds", None, 0, 0));
         }
         output.push(
-            u32::try_from(*self)
-                .map_err(|_| IrBuildError::format("slot_overflow", None, 0, 0))?,
+            u32::try_from(*self).map_err(|_| IrBuildError::format("slot_overflow", None, 0, 0))?,
         );
         Ok(())
     }
@@ -4104,11 +4008,7 @@ impl FullCodec for u64 {
 }
 
 impl FullCodec for FloatValue {
-    fn encode(
-        &self,
-        builder: &mut FullBuilder,
-        output: &mut Vec<u32>,
-    ) -> Result<(), IrBuildError> {
+    fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
         self.0.to_bits().encode(builder, output)
     }
 
@@ -4121,11 +4021,7 @@ impl FullCodec for FloatValue {
 }
 
 impl FullCodec for DurationValue {
-    fn encode(
-        &self,
-        builder: &mut FullBuilder,
-        output: &mut Vec<u32>,
-    ) -> Result<(), IrBuildError> {
+    fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
         self.millis.encode(builder, output)
     }
 
@@ -4158,11 +4054,7 @@ impl FullCodec for Name {
 }
 
 impl FullCodec for QualifiedName {
-    fn encode(
-        &self,
-        builder: &mut FullBuilder,
-        output: &mut Vec<u32>,
-    ) -> Result<(), IrBuildError> {
+    fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
         self.namespace.encode(builder, output)?;
         self.member.encode(builder, output)
     }
@@ -4179,14 +4071,12 @@ impl FullCodec for QualifiedName {
 }
 
 impl FullCodec for LoweredFunctionKey {
-    fn encode(
-        &self,
-        builder: &mut FullBuilder,
-        output: &mut Vec<u32>,
-    ) -> Result<(), IrBuildError> {
-        let id = builder.function_ids.get(self).copied().ok_or_else(|| {
-            IrBuildError::format("unresolved_function_identity", None, 0, 0)
-        })?;
+    fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
+        let id = builder
+            .function_ids
+            .get(self)
+            .copied()
+            .ok_or_else(|| IrBuildError::format("unresolved_function_identity", None, 0, 0))?;
         output.push(id.raw());
         Ok(())
     }
@@ -4216,11 +4106,7 @@ impl FullCodec for LoweredFunctionKey {
 }
 
 impl FullCodec for FunctionName {
-    fn encode(
-        &self,
-        builder: &mut FullBuilder,
-        output: &mut Vec<u32>,
-    ) -> Result<(), IrBuildError> {
+    fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
         if let Some(name) = self.as_name() {
             output.push(0);
             name.encode(builder, output)
@@ -4245,11 +4131,7 @@ impl FullCodec for FunctionName {
 }
 
 impl FullCodec for Span {
-    fn encode(
-        &self,
-        builder: &mut FullBuilder,
-        output: &mut Vec<u32>,
-    ) -> Result<(), IrBuildError> {
+    fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
         output.push(builder.intern_location(*self)?.raw());
         Ok(())
     }
@@ -4281,11 +4163,7 @@ impl FullCodec for Span {
 }
 
 impl FullCodec for Arc<str> {
-    fn encode(
-        &self,
-        builder: &mut FullBuilder,
-        output: &mut Vec<u32>,
-    ) -> Result<(), IrBuildError> {
+    fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
         output.push(builder.intern_string(self)?.raw());
         Ok(())
     }
@@ -4297,20 +4175,13 @@ impl FullCodec for Arc<str> {
         Ok(Arc::from(decoder.store.string(input.raw()?)?))
     }
 
-    fn verify(
-        decoder: &FullDecoder<'_>,
-        input: &mut FullCursor<'_>,
-    ) -> Result<(), IrVerifyError> {
+    fn verify(decoder: &FullDecoder<'_>, input: &mut FullCursor<'_>) -> Result<(), IrVerifyError> {
         decoder.store.string(input.raw()?).map(drop)
     }
 }
 
 impl FullCodec for NameText {
-    fn encode(
-        &self,
-        builder: &mut FullBuilder,
-        output: &mut Vec<u32>,
-    ) -> Result<(), IrBuildError> {
+    fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
         output.push(builder.intern_string(self.as_str())?.raw());
         Ok(())
     }
@@ -4324,20 +4195,13 @@ impl FullCodec for NameText {
         )))
     }
 
-    fn verify(
-        decoder: &FullDecoder<'_>,
-        input: &mut FullCursor<'_>,
-    ) -> Result<(), IrVerifyError> {
+    fn verify(decoder: &FullDecoder<'_>, input: &mut FullCursor<'_>) -> Result<(), IrVerifyError> {
         decoder.store.string(input.raw()?).map(drop)
     }
 }
 
 impl FullCodec for String {
-    fn encode(
-        &self,
-        builder: &mut FullBuilder,
-        output: &mut Vec<u32>,
-    ) -> Result<(), IrBuildError> {
+    fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
         output.push(builder.intern_string(self)?.raw());
         Ok(())
     }
@@ -4349,20 +4213,13 @@ impl FullCodec for String {
         Ok(decoder.store.string(input.raw()?)?.to_string())
     }
 
-    fn verify(
-        decoder: &FullDecoder<'_>,
-        input: &mut FullCursor<'_>,
-    ) -> Result<(), IrVerifyError> {
+    fn verify(decoder: &FullDecoder<'_>, input: &mut FullCursor<'_>) -> Result<(), IrVerifyError> {
         decoder.store.string(input.raw()?).map(drop)
     }
 }
 
 impl FullCodec for Arc<[u8]> {
-    fn encode(
-        &self,
-        builder: &mut FullBuilder,
-        output: &mut Vec<u32>,
-    ) -> Result<(), IrBuildError> {
+    fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
         output.push(builder.intern_bytes(self)?.raw());
         Ok(())
     }
@@ -4374,20 +4231,13 @@ impl FullCodec for Arc<[u8]> {
         Ok(Arc::from(decoder.store.bytes(input.raw()?)?))
     }
 
-    fn verify(
-        decoder: &FullDecoder<'_>,
-        input: &mut FullCursor<'_>,
-    ) -> Result<(), IrVerifyError> {
+    fn verify(decoder: &FullDecoder<'_>, input: &mut FullCursor<'_>) -> Result<(), IrVerifyError> {
         decoder.store.bytes(input.raw()?).map(drop)
     }
 }
 
 impl FullCodec for Vec<u8> {
-    fn encode(
-        &self,
-        builder: &mut FullBuilder,
-        output: &mut Vec<u32>,
-    ) -> Result<(), IrBuildError> {
+    fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
         output.push(builder.intern_bytes(self)?.raw());
         Ok(())
     }
@@ -4399,20 +4249,13 @@ impl FullCodec for Vec<u8> {
         Ok(decoder.store.bytes(input.raw()?)?.to_vec())
     }
 
-    fn verify(
-        decoder: &FullDecoder<'_>,
-        input: &mut FullCursor<'_>,
-    ) -> Result<(), IrVerifyError> {
+    fn verify(decoder: &FullDecoder<'_>, input: &mut FullCursor<'_>) -> Result<(), IrVerifyError> {
         decoder.store.bytes(input.raw()?).map(drop)
     }
 }
 
 impl FullCodec for PathValue {
-    fn encode(
-        &self,
-        builder: &mut FullBuilder,
-        output: &mut Vec<u32>,
-    ) -> Result<(), IrBuildError> {
+    fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
         self.bytes.encode(builder, output)
     }
 
@@ -4426,11 +4269,7 @@ impl FullCodec for PathValue {
 }
 
 impl<T: FullCodec> FullCodec for Option<T> {
-    fn encode(
-        &self,
-        builder: &mut FullBuilder,
-        output: &mut Vec<u32>,
-    ) -> Result<(), IrBuildError> {
+    fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
         match self {
             Some(value) => {
                 output.push(1);
@@ -4454,10 +4293,7 @@ impl<T: FullCodec> FullCodec for Option<T> {
         }
     }
 
-    fn verify(
-        decoder: &FullDecoder<'_>,
-        input: &mut FullCursor<'_>,
-    ) -> Result<(), IrVerifyError> {
+    fn verify(decoder: &FullDecoder<'_>, input: &mut FullCursor<'_>) -> Result<(), IrVerifyError> {
         match input.raw()? {
             0 => Ok(()),
             1 => T::verify(decoder, input),
@@ -4467,11 +4303,7 @@ impl<T: FullCodec> FullCodec for Option<T> {
 }
 
 impl<T: FullCodec> FullCodec for Box<T> {
-    fn encode(
-        &self,
-        builder: &mut FullBuilder,
-        output: &mut Vec<u32>,
-    ) -> Result<(), IrBuildError> {
+    fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
         self.as_ref().encode(builder, output)
     }
 
@@ -4482,20 +4314,13 @@ impl<T: FullCodec> FullCodec for Box<T> {
         Ok(Box::new(T::decode(decoder, input)?))
     }
 
-    fn verify(
-        decoder: &FullDecoder<'_>,
-        input: &mut FullCursor<'_>,
-    ) -> Result<(), IrVerifyError> {
+    fn verify(decoder: &FullDecoder<'_>, input: &mut FullCursor<'_>) -> Result<(), IrVerifyError> {
         T::verify(decoder, input)
     }
 }
 
 impl<A: FullCodec, B: FullCodec> FullCodec for (A, B) {
-    fn encode(
-        &self,
-        builder: &mut FullBuilder,
-        output: &mut Vec<u32>,
-    ) -> Result<(), IrBuildError> {
+    fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
         self.0.encode(builder, output)?;
         self.1.encode(builder, output)
     }
@@ -4507,21 +4332,14 @@ impl<A: FullCodec, B: FullCodec> FullCodec for (A, B) {
         Ok((A::decode(decoder, input)?, B::decode(decoder, input)?))
     }
 
-    fn verify(
-        decoder: &FullDecoder<'_>,
-        input: &mut FullCursor<'_>,
-    ) -> Result<(), IrVerifyError> {
+    fn verify(decoder: &FullDecoder<'_>, input: &mut FullCursor<'_>) -> Result<(), IrVerifyError> {
         A::verify(decoder, input)?;
         B::verify(decoder, input)
     }
 }
 
 impl<A: FullCodec, B: FullCodec, C: FullCodec> FullCodec for (A, B, C) {
-    fn encode(
-        &self,
-        builder: &mut FullBuilder,
-        output: &mut Vec<u32>,
-    ) -> Result<(), IrBuildError> {
+    fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
         self.0.encode(builder, output)?;
         self.1.encode(builder, output)?;
         self.2.encode(builder, output)
@@ -4538,10 +4356,7 @@ impl<A: FullCodec, B: FullCodec, C: FullCodec> FullCodec for (A, B, C) {
         ))
     }
 
-    fn verify(
-        decoder: &FullDecoder<'_>,
-        input: &mut FullCursor<'_>,
-    ) -> Result<(), IrVerifyError> {
+    fn verify(decoder: &FullDecoder<'_>, input: &mut FullCursor<'_>) -> Result<(), IrVerifyError> {
         A::verify(decoder, input)?;
         B::verify(decoder, input)?;
         C::verify(decoder, input)
@@ -4635,11 +4450,7 @@ impl_copy_pool_codec!(RuntimeOp, runtime_ops, "runtime operation");
 impl_copy_pool_codec!(AssignOp, assign_ops, "assignment operation");
 impl_copy_pool_codec!(BinaryOp, binary_ops, "binary operation");
 impl_copy_pool_codec!(RunKind, run_kinds, "run kind");
-impl_copy_pool_codec!(
-    RedirectionKind,
-    redirection_kinds,
-    "redirection kind"
-);
+impl_copy_pool_codec!(RedirectionKind, redirection_kinds, "redirection kind");
 
 impl FullCodec for LoweredStrPredicate {
     fn encode(
@@ -4758,11 +4569,7 @@ impl FullCodec for FormatSpec {
 }
 
 impl FullCodec for Type {
-    fn encode(
-        &self,
-        builder: &mut FullBuilder,
-        output: &mut Vec<u32>,
-    ) -> Result<(), IrBuildError> {
+    fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
         output.push(
             builder
                 .semantic
@@ -4783,11 +4590,7 @@ impl FullCodec for Type {
 }
 
 impl FullCodec for LoweredType {
-    fn encode(
-        &self,
-        builder: &mut FullBuilder,
-        output: &mut Vec<u32>,
-    ) -> Result<(), IrBuildError> {
+    fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
         lowered_type_to_type(*self)?.encode(builder, output)
     }
 
@@ -4800,11 +4603,7 @@ impl FullCodec for LoweredType {
 }
 
 impl FullCodec for LoweredTypeCheck {
-    fn encode(
-        &self,
-        builder: &mut FullBuilder,
-        output: &mut Vec<u32>,
-    ) -> Result<(), IrBuildError> {
+    fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
         self.ty.encode(builder, output)?;
         self.name.encode(builder, output)
     }
@@ -4821,11 +4620,7 @@ impl FullCodec for LoweredTypeCheck {
 }
 
 impl FullCodec for LoweredTopLevelSlot {
-    fn encode(
-        &self,
-        builder: &mut FullBuilder,
-        output: &mut Vec<u32>,
-    ) -> Result<(), IrBuildError> {
+    fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
         self.name.encode(builder, output)?;
         self.slot.encode(builder, output)?;
         self.kind.encode(builder, output)?;
@@ -4846,11 +4641,7 @@ impl FullCodec for LoweredTopLevelSlot {
 }
 
 impl FullCodec for LoweredModuleExport {
-    fn encode(
-        &self,
-        builder: &mut FullBuilder,
-        output: &mut Vec<u32>,
-    ) -> Result<(), IrBuildError> {
+    fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
         self.name.encode(builder, output)?;
         output.push(match self.kind {
             LoweredModuleExportKind::Value => 0,
@@ -4921,11 +4712,7 @@ impl_btree_codec!(String, LoweredValue);
 impl_btree_codec!(Arc<str>, LoweredValue);
 
 impl FullCodec for LoweredValue {
-    fn encode(
-        &self,
-        builder: &mut FullBuilder,
-        output: &mut Vec<u32>,
-    ) -> Result<(), IrBuildError> {
+    fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
         let mut payload = builder.take_payload();
         let tag = match self {
             Self::Null => FullValueTag::Null,
@@ -5059,24 +4846,17 @@ impl FullCodec for LoweredValue {
             FullValueTag::Unit => Self::Unit,
             FullValueTag::Int => Self::Int(i64::decode(decoder, &mut payload)?),
             FullValueTag::Float => Self::Float(FloatValue::decode(decoder, &mut payload)?),
-            FullValueTag::Duration => {
-                Self::Duration(DurationValue::decode(decoder, &mut payload)?)
-            }
+            FullValueTag::Duration => Self::Duration(DurationValue::decode(decoder, &mut payload)?),
             FullValueTag::Bool => Self::Bool(bool::decode(decoder, &mut payload)?),
             FullValueTag::Str => Self::Str(Arc::<str>::decode(decoder, &mut payload)?),
             FullValueTag::Bytes => Self::Bytes(Arc::<[u8]>::decode(decoder, &mut payload)?),
             FullValueTag::Path => Self::Path(PathValue::decode(decoder, &mut payload)?),
-            FullValueTag::Record => {
-                Self::Record(BTreeMap::<Arc<str>, LoweredValue>::decode(
-                    decoder,
-                    &mut payload,
-                )?)
-            }
+            FullValueTag::Record => Self::Record(BTreeMap::<Arc<str>, LoweredValue>::decode(
+                decoder,
+                &mut payload,
+            )?),
             FullValueTag::RecordVec => {
-                Self::RecordVec(Vec::<(Name, LoweredValue)>::decode(
-                    decoder,
-                    &mut payload,
-                )?)
+                Self::RecordVec(Vec::<(Name, LoweredValue)>::decode(decoder, &mut payload)?)
             }
             FullValueTag::Stats => Self::Stats {
                 blanks: i64::decode(decoder, &mut payload)?,
@@ -5089,15 +4869,11 @@ impl FullCodec for LoweredValue {
                 code: i64::decode(decoder, &mut payload)?,
                 comments: i64::decode(decoder, &mut payload)?,
             })),
-            FullValueTag::Module => {
-                Self::Module(BTreeMap::<Arc<str>, LoweredValue>::decode(
-                    decoder,
-                    &mut payload,
-                )?)
-            }
-            FullValueTag::List => {
-                Self::List(Vec::<LoweredValue>::decode(decoder, &mut payload)?)
-            }
+            FullValueTag::Module => Self::Module(BTreeMap::<Arc<str>, LoweredValue>::decode(
+                decoder,
+                &mut payload,
+            )?),
+            FullValueTag::List => Self::List(Vec::<LoweredValue>::decode(decoder, &mut payload)?),
             FullValueTag::Map => Self::Map(BTreeMap::<String, LoweredValue>::decode(
                 decoder,
                 &mut payload,
@@ -5114,10 +4890,7 @@ impl FullCodec for LoweredValue {
         Ok(value)
     }
 
-    fn verify(
-        decoder: &FullDecoder<'_>,
-        input: &mut FullCursor<'_>,
-    ) -> Result<(), IrVerifyError> {
+    fn verify(decoder: &FullDecoder<'_>, input: &mut FullCursor<'_>) -> Result<(), IrVerifyError> {
         let index = input.raw()? as usize;
         let tag = decoder
             .store
@@ -5248,9 +5021,10 @@ macro_rules! impl_build_id_codec {
                     IrBuildError::format("missing_indexed_build_scratch", None, 0, 0)
                 })?;
                 let scratch = scratch.borrow();
-                let row = scratch.$rows.get(self.index()).ok_or_else(|| {
-                    IrBuildError::format("indexed_build_id", None, 0, 0)
-                })?;
+                let row = scratch
+                    .$rows
+                    .get(self.index())
+                    .ok_or_else(|| IrBuildError::format("indexed_build_id", None, 0, 0))?;
                 row.encode(builder, output)
             }
 
@@ -5418,7 +5192,10 @@ impl_vec_codec!((Arc<str>, Vec<BuildStmtId>), BLOCK_LIST);
 impl_vec_codec!((BuildExprId, BuildExprId), BLOCK_LIST);
 impl_vec_codec!((BuildExprId, Vec<BuildStmtId>), BLOCK_LIST);
 impl_vec_codec!((BuildBoolId, Vec<BuildStmtId>), BLOCK_LIST);
-impl_vec_codec!((BuildPatternId, Option<BuildExprId>, BuildExprId), BLOCK_LIST);
+impl_vec_codec!(
+    (BuildPatternId, Option<BuildExprId>, BuildExprId),
+    BLOCK_LIST
+);
 impl_vec_codec!(
     (BuildPatternId, Option<BuildExprId>, Vec<BuildStmtId>),
     BLOCK_LIST
@@ -5429,11 +5206,7 @@ where
     A: smallvec::Array,
     A::Item: FullCodec,
 {
-    fn encode(
-        &self,
-        builder: &mut FullBuilder,
-        output: &mut Vec<u32>,
-    ) -> Result<(), IrBuildError> {
+    fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
         output.push(
             u32::try_from(self.len())
                 .map_err(|_| IrBuildError::format("smallvec_overflow", None, 0, 0))?,
@@ -5456,10 +5229,7 @@ where
         Ok(values)
     }
 
-    fn verify(
-        decoder: &FullDecoder<'_>,
-        input: &mut FullCursor<'_>,
-    ) -> Result<(), IrVerifyError> {
+    fn verify(decoder: &FullDecoder<'_>, input: &mut FullCursor<'_>) -> Result<(), IrVerifyError> {
         let len = input.raw()? as usize;
         for _ in 0..len {
             A::Item::verify(decoder, input)?;
@@ -5512,11 +5282,7 @@ impl_fx_map_codec!(BuildExprId);
 impl_fx_map_codec!(Vec<BuildStmtId>);
 
 impl FullCodec for LoweredCompTarget {
-    fn encode(
-        &self,
-        builder: &mut FullBuilder,
-        output: &mut Vec<u32>,
-    ) -> Result<(), IrBuildError> {
+    fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
         match self {
             Self::Slot(slot) => {
                 output.push(0);
@@ -5544,11 +5310,7 @@ impl FullCodec for LoweredCompTarget {
 }
 
 impl FullCodec for LoweredRecordEntry {
-    fn encode(
-        &self,
-        builder: &mut FullBuilder,
-        output: &mut Vec<u32>,
-    ) -> Result<(), IrBuildError> {
+    fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
         match self {
             Self::Field(name, value) => {
                 output.push(0);
@@ -5578,11 +5340,7 @@ impl FullCodec for LoweredRecordEntry {
 }
 
 impl FullCodec for LoweredCallArg {
-    fn encode(
-        &self,
-        builder: &mut FullBuilder,
-        output: &mut Vec<u32>,
-    ) -> Result<(), IrBuildError> {
+    fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
         match self {
             Self::Single(value) => {
                 output.push(0);
@@ -5608,11 +5366,7 @@ impl FullCodec for LoweredCallArg {
 }
 
 impl FullCodec for LoweredFmtPart {
-    fn encode(
-        &self,
-        builder: &mut FullBuilder,
-        output: &mut Vec<u32>,
-    ) -> Result<(), IrBuildError> {
+    fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
         match self {
             Self::Text(value) => {
                 output.push(0);
@@ -5644,11 +5398,7 @@ impl FullCodec for LoweredFmtPart {
 }
 
 impl FullCodec for LoweredRunArgKind {
-    fn encode(
-        &self,
-        builder: &mut FullBuilder,
-        output: &mut Vec<u32>,
-    ) -> Result<(), IrBuildError> {
+    fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
         let (tag, value) = match self {
             Self::Single(value) => (0, value),
             Self::SingleOrSplice(value) => (1, value),
@@ -5674,11 +5424,7 @@ impl FullCodec for LoweredRunArgKind {
 }
 
 impl FullCodec for LoweredRunArg {
-    fn encode(
-        &self,
-        builder: &mut FullBuilder,
-        output: &mut Vec<u32>,
-    ) -> Result<(), IrBuildError> {
+    fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
         self.kind.encode(builder, output)?;
         self.span.encode(builder, output)
     }
@@ -5695,11 +5441,7 @@ impl FullCodec for LoweredRunArg {
 }
 
 impl FullCodec for LoweredRunEnv {
-    fn encode(
-        &self,
-        builder: &mut FullBuilder,
-        output: &mut Vec<u32>,
-    ) -> Result<(), IrBuildError> {
+    fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
         self.name.encode(builder, output)?;
         self.value.encode(builder, output)
     }
@@ -5716,11 +5458,7 @@ impl FullCodec for LoweredRunEnv {
 }
 
 impl FullCodec for LoweredRunRedirection {
-    fn encode(
-        &self,
-        builder: &mut FullBuilder,
-        output: &mut Vec<u32>,
-    ) -> Result<(), IrBuildError> {
+    fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
         self.kind.encode(builder, output)?;
         self.target.encode(builder, output)?;
         self.span.encode(builder, output)
@@ -5739,11 +5477,7 @@ impl FullCodec for LoweredRunRedirection {
 }
 
 impl FullCodec for LoweredRunPipelineSegment {
-    fn encode(
-        &self,
-        builder: &mut FullBuilder,
-        output: &mut Vec<u32>,
-    ) -> Result<(), IrBuildError> {
+    fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
         self.kind.encode(builder, output)?;
         self.target.encode(builder, output)?;
         self.args.encode(builder, output)?;
@@ -5770,11 +5504,7 @@ impl FullCodec for LoweredRunPipelineSegment {
 }
 
 impl FullCodec for ScanCondition {
-    fn encode(
-        &self,
-        builder: &mut FullBuilder,
-        output: &mut Vec<u32>,
-    ) -> Result<(), IrBuildError> {
+    fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
         match self {
             Self::TrimEmpty => {
                 output.push(0);
@@ -5805,11 +5535,7 @@ impl FullCodec for ScanCondition {
 }
 
 impl FullCodec for ScanCheck {
-    fn encode(
-        &self,
-        builder: &mut FullBuilder,
-        output: &mut Vec<u32>,
-    ) -> Result<(), IrBuildError> {
+    fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
         self.condition.encode(builder, output)?;
         self.counter_slot.encode(builder, output)
     }
@@ -5826,11 +5552,7 @@ impl FullCodec for ScanCheck {
 }
 
 impl FullCodec for ScanBytes {
-    fn encode(
-        &self,
-        builder: &mut FullBuilder,
-        output: &mut Vec<u32>,
-    ) -> Result<(), IrBuildError> {
+    fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
         self.line_slot.encode(builder, output)?;
         self.block_depth_slot.encode(builder, output)?;
         self.code_seen_slot.encode(builder, output)?;
@@ -5861,11 +5583,7 @@ impl FullCodec for ScanBytes {
 }
 
 impl FullCodec for LoweredProcessCommandArgv {
-    fn encode(
-        &self,
-        builder: &mut FullBuilder,
-        output: &mut Vec<u32>,
-    ) -> Result<(), IrBuildError> {
+    fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
         self.target.encode(builder, output)?;
         self.argv.encode(builder, output)?;
         self.cwd.encode(builder, output)?;
@@ -5908,11 +5626,7 @@ impl FullCodec for LoweredProcessCommandArgv {
 }
 
 impl FullCodec for LoweredRunCapture {
-    fn encode(
-        &self,
-        builder: &mut FullBuilder,
-        output: &mut Vec<u32>,
-    ) -> Result<(), IrBuildError> {
+    fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
         self.kind.encode(builder, output)?;
         self.target.encode(builder, output)?;
         self.args.encode(builder, output)?;
@@ -5945,11 +5659,7 @@ impl FullCodec for LoweredRunCapture {
 }
 
 impl FullCodec for LoweredSpawnRun {
-    fn encode(
-        &self,
-        builder: &mut FullBuilder,
-        output: &mut Vec<u32>,
-    ) -> Result<(), IrBuildError> {
+    fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
         self.target.encode(builder, output)?;
         self.args.encode(builder, output)?;
         self.env.encode(builder, output)?;
@@ -5976,11 +5686,7 @@ impl FullCodec for LoweredSpawnRun {
 }
 
 impl FullCodec for LoweredProcessCommandBuilderEntry {
-    fn encode(
-        &self,
-        builder: &mut FullBuilder,
-        output: &mut Vec<u32>,
-    ) -> Result<(), IrBuildError> {
+    fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
         match self {
             Self::Field { name, value, span } => {
                 output.push(0);
@@ -6033,11 +5739,7 @@ impl FullCodec for LoweredProcessCommandBuilderEntry {
 }
 
 impl FullCodec for LoweredErrorExpr {
-    fn encode(
-        &self,
-        builder: &mut FullBuilder,
-        output: &mut Vec<u32>,
-    ) -> Result<(), IrBuildError> {
+    fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
         match self {
             Self::Simple { kind, message } => {
                 output.push(0);
@@ -6080,11 +5782,7 @@ impl FullCodec for LoweredErrorExpr {
 }
 
 impl FullCodec for BuildPatternRow {
-    fn encode(
-        &self,
-        builder: &mut FullBuilder,
-        output: &mut Vec<u32>,
-    ) -> Result<(), IrBuildError> {
+    fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
         let mut payload = builder.take_payload();
         let tag = match self {
             Self::Wildcard => FullPatternTag::Wildcard,
@@ -6165,9 +5863,7 @@ impl FullCodec for BuildPatternRow {
                 ty: Type::decode(decoder, &mut payload)?,
                 slot: Option::decode(decoder, &mut payload)?,
             },
-            FullPatternTag::Literal => {
-                Self::Literal(LoweredValue::decode(decoder, &mut payload)?)
-            }
+            FullPatternTag::Literal => Self::Literal(LoweredValue::decode(decoder, &mut payload)?),
             FullPatternTag::ResultOk => Self::ResultOk {
                 slot: Option::decode(decoder, &mut payload)?,
                 unit_only: bool::decode(decoder, &mut payload)?,
@@ -6195,10 +5891,7 @@ impl FullCodec for BuildPatternRow {
         Ok(pattern)
     }
 
-    fn verify(
-        decoder: &FullDecoder<'_>,
-        input: &mut FullCursor<'_>,
-    ) -> Result<(), IrVerifyError> {
+    fn verify(decoder: &FullDecoder<'_>, input: &mut FullCursor<'_>) -> Result<(), IrVerifyError> {
         let index = input.raw()? as usize;
         let tag = decoder
             .store
@@ -7600,9 +7293,7 @@ run true
     }
 
     fn program_name(program: &FullProgram, text: &str) -> Name {
-        program
-            .symbol_owner()
-            .with_current(|| Name::intern(text))
+        program.symbol_owner().with_current(|| Name::intern(text))
     }
 
     #[test]
@@ -7610,13 +7301,15 @@ run true
         let program = fixture("indexed-execution.xsh", INDEXED_EXECUTION);
 
         assert!(program.function_count() > 0);
-        assert!(program
-            .function_view(
-                LoweredFunctionKey::Name(program_name(&program, "main")),
-                LoweredFunctionKind::Proc,
-            )
-            .unwrap()
-            .is_some());
+        assert!(
+            program
+                .function_view(
+                    LoweredFunctionKey::Name(program_name(&program, "main")),
+                    LoweredFunctionKind::Proc,
+                )
+                .unwrap()
+                .is_some()
+        );
         assert!(program.instruction_count() > 0);
         assert!(program.extra_words() > 0);
         assert!(program.retained_bytes() > size_of::<FullProgram>());
@@ -7661,7 +7354,10 @@ proc main() [error] {
             .iter()
             .filter(|tag| **tag == FullTag::StmtScanLines)
             .count();
-        assert!(scan_lines > 0, "Tokei showcase has no ScanLines instructions");
+        assert!(
+            scan_lines > 0,
+            "Tokei showcase has no ScanLines instructions"
+        );
     }
 
     #[test]
@@ -7676,7 +7372,10 @@ proc main() [error] {
             .iter()
             .filter(|tag| **tag == FullTag::StmtScanBytes)
             .count();
-        assert!(scan_bytes > 0, "Tokei showcase has no ScanBytes instructions");
+        assert!(
+            scan_bytes > 0,
+            "Tokei showcase has no ScanBytes instructions"
+        );
     }
 
     #[test]
@@ -7767,8 +7466,7 @@ proc main() [error] {
 
             let exact_error_site = program_name(&program, "exact_error_site");
             let (result, stdout, traces) = run_full(program, exact_error_site);
-            let Value::Result(crate::runtime::value::ResultValue::Err(error)) =
-                result.unwrap()
+            let Value::Result(crate::runtime::value::ResultValue::Err(error)) = result.unwrap()
             else {
                 panic!("exact error site must return Err");
             };
@@ -7784,14 +7482,10 @@ proc main() [error] {
         run_with_large_stack(|| {
             let program = {
                 let mut sources = SourceMap::new();
-                let source_id =
-                    sources.add_file("indexed-execution.xsh", INDEXED_EXECUTION);
-                let parsed =
-                    Parser::parse_source_arena_only(source_id, INDEXED_EXECUTION);
-                let declarations =
-                    Checker::check_compact_declarations(&parsed.arena);
-                let bodies =
-                    Checker::probe_compact_bodies(&parsed.arena, &declarations);
+                let source_id = sources.add_file("indexed-execution.xsh", INDEXED_EXECUTION);
+                let parsed = Parser::parse_source_arena_only(source_id, INDEXED_EXECUTION);
+                let declarations = Checker::check_compact_declarations(&parsed.arena);
+                let bodies = Checker::probe_compact_bodies(&parsed.arena, &declarations);
                 FullBuilder::build_compact(
                     &parsed.arena,
                     &declarations,
@@ -7844,22 +7538,17 @@ proc main() [error] {
         run_with_large_stack(|| {
             let (program, plan, mut evaluator) = {
                 let mut sources = SourceMap::new();
-                let source_id = sources.add_file(
-                    "top-level-driver-boundary.xsh",
-                    TOP_LEVEL_DRIVER_BOUNDARY,
-                );
-                let parsed =
-                    Parser::parse_source_arena_only(source_id, TOP_LEVEL_DRIVER_BOUNDARY);
+                let source_id =
+                    sources.add_file("top-level-driver-boundary.xsh", TOP_LEVEL_DRIVER_BOUNDARY);
+                let parsed = Parser::parse_source_arena_only(source_id, TOP_LEVEL_DRIVER_BOUNDARY);
                 assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
-                let declarations =
-                    Checker::check_compact_declarations(&parsed.arena);
+                let declarations = Checker::check_compact_declarations(&parsed.arena);
                 assert!(
                     declarations.diagnostics.is_empty(),
                     "{:?}",
                     declarations.diagnostics
                 );
-                let bodies =
-                    Checker::probe_compact_bodies(&parsed.arena, &declarations);
+                let bodies = Checker::probe_compact_bodies(&parsed.arena, &declarations);
                 assert!(bodies.diagnostics.is_empty(), "{:?}", bodies.diagnostics);
                 let shared_sources = Arc::new(sources.clone());
                 let program = FullBuilder::build_compact(
@@ -7879,9 +7568,11 @@ proc main() [error] {
             };
 
             assert!(
-                program.store.driver_steps.iter().any(|step| {
-                    step.effects & (EFFECT_ENV | EFFECT_CWD | EFFECT_PROCESS) != 0
-                })
+                program
+                    .store
+                    .driver_steps
+                    .iter()
+                    .any(|step| { step.effects & (EFFECT_ENV | EFFECT_CWD | EFFECT_PROCESS) != 0 })
             );
             assert!(
                 program
@@ -7898,9 +7589,11 @@ proc main() [error] {
                     .any(|step| step.effects & EFFECT_DEFER != 0)
             );
             assert!(
-                program.store.captures.iter().any(|capture| {
-                    program.store.string(capture.name).ok() == Some("base")
-                }),
+                program
+                    .store
+                    .captures
+                    .iter()
+                    .any(|capture| { program.store.string(capture.name).ok() == Some("base") }),
                 "top-level binding capture is stored by compact identity"
             );
             evaluator.indexed_program = Some(Arc::clone(&program));
@@ -7918,10 +7611,8 @@ proc main() [error] {
     #[test]
     fn driver_verifier_rejects_effect_sync_and_owner_corruption() {
         let mut sources = SourceMap::new();
-        let source_id = sources.add_file(
-            "top-level-driver-boundary.xsh",
-            TOP_LEVEL_DRIVER_BOUNDARY,
-        );
+        let source_id =
+            sources.add_file("top-level-driver-boundary.xsh", TOP_LEVEL_DRIVER_BOUNDARY);
         let parsed = Parser::parse_source_arena_only(source_id, TOP_LEVEL_DRIVER_BOUNDARY);
         let declarations = Checker::check_compact_declarations(&parsed.arena);
         let bodies = Checker::probe_compact_bodies(&parsed.arena, &declarations);
@@ -8075,7 +7766,10 @@ proc main() [error] {
             .iter()
             .position(|tag| *tag == FullTag::ExprParam)
             .unwrap();
-        let slot_payload = bad_slot.store.data[slot].range().bounds(bad_slot.store.extra.len()).unwrap();
+        let slot_payload = bad_slot.store.data[slot]
+            .range()
+            .bounds(bad_slot.store.extra.len())
+            .unwrap();
         bad_slot.store.extra[slot_payload.start] = u32::MAX;
         assert!(FullVerifier::verify(&bad_slot).is_err());
 
@@ -8133,17 +7827,10 @@ proc main() [error] {
         let root_id = sources.add_file("root.xsh", "use module\n");
         let module_id = sources.add_file("module.xsh", "print 1\n");
         let mut builder = FullBuilder::new(root_id);
-        let root_location = builder
-            .intern_location(Span::new(root_id, 0, 3))
-            .unwrap();
-        let module_location = builder
-            .intern_location(Span::new(module_id, 0, 5))
-            .unwrap();
+        let root_location = builder.intern_location(Span::new(root_id, 0, 3)).unwrap();
+        let module_location = builder.intern_location(Span::new(module_id, 0, 5)).unwrap();
         assert_ne!(root_location.raw(), module_location.raw());
-        assert_eq!(
-            builder.store.location_sources,
-            vec![root_id, module_id]
-        );
+        assert_eq!(builder.store.location_sources, vec![root_id, module_id]);
 
         let program = FullProgram {
             store: builder.store,
@@ -8209,12 +7896,7 @@ proc main() [error] {
             .next()
             .map(|statement| parsed.arena.arena.stmt(statement).span.source_id)
             .unwrap();
-        assert!(
-            program
-                .store
-                .location_sources
-                .contains(&module_source)
-        );
+        assert!(program.store.location_sources.contains(&module_source));
         let child_steps = program.store.driver_programs[0]
             .steps
             .bounds(program.store.driver_steps.len())
@@ -8230,10 +7912,7 @@ proc main() [error] {
         );
 
         let program = Arc::new(program);
-        let mut evaluator = Evaluator::new_with_sources(
-            Vec::new(),
-            (*program.sources).clone(),
-        );
+        let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
         evaluator.install_compact_runtime_declarations(&declarations);
         evaluator.indexed_program = Some(Arc::clone(&program));
         for index in 0..program.driver_step_count().unwrap() {

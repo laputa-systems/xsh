@@ -1,7 +1,7 @@
 use rustc_hash::FxHashMap;
+use std::borrow::Borrow;
 use std::cell::{Cell, RefCell};
 use std::cmp::Ordering;
-use std::borrow::Borrow;
 use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::ops::Deref;
@@ -211,7 +211,6 @@ impl SymbolOwner {
             .sum();
         (symbols.len(), bytes)
     }
-
 }
 
 impl Default for SymbolOwner {
@@ -426,7 +425,9 @@ impl Ord for Name {
             return Ordering::Equal;
         }
         let interner = interner().read().expect("symbol interner poisoned");
-        interner.resolve_ref(self.0).cmp(interner.resolve_ref(other.0))
+        interner
+            .resolve_ref(self.0)
+            .cmp(interner.resolve_ref(other.0))
     }
 }
 
@@ -602,9 +603,7 @@ impl Interner {
     }
 
     fn dynamic_entry_mut(&mut self, symbol: Symbol) -> Option<&mut DynamicSymbol> {
-        self.dynamic
-            .get_mut(dynamic_index(symbol)?)?
-            .as_mut()
+        self.dynamic.get_mut(dynamic_index(symbol)?)?.as_mut()
     }
 
     fn dynamic_text_len(&self, symbol: Symbol) -> Option<usize> {
@@ -693,7 +692,7 @@ fn resolve_preloaded(symbol: Symbol) -> Option<&'static str> {
 
 #[cfg(test)]
 mod tests {
-    use super::{interner, Interner, Name, SymbolOwner};
+    use super::{Interner, Name, SymbolOwner, interner};
     use crate::modules::api_spec;
     use crate::sema::records::record_schemas;
     use crate::sema::types::Type;
@@ -775,11 +774,13 @@ mod tests {
                 let _ = Name::intern(text);
             });
         }
-        assert!(interner()
-            .read()
-            .expect("symbol interner poisoned")
-            .get(text)
-            .is_none());
+        assert!(
+            interner()
+                .read()
+                .expect("symbol interner poisoned")
+                .get(text)
+                .is_none()
+        );
     }
 
     #[test]
@@ -803,11 +804,13 @@ mod tests {
                     });
                 }
             });
-            assert!(interner()
-                .read()
-                .expect("symbol interner poisoned")
-                .get(text)
-                .is_none());
+            assert!(
+                interner()
+                    .read()
+                    .expect("symbol interner poisoned")
+                    .get(text)
+                    .is_none()
+            );
         }
     }
 

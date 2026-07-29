@@ -167,8 +167,7 @@ fn measure_compact_declarations(declarations: &CompactDeclOutput) -> (usize, usi
     let mut type_count = 0;
     let mut bytes = size_of::<CompactDeclOutput>();
 
-    bytes += declarations.types.capacity()
-        * size_of::<(crate::symbol::Name, CompactTypeDefInfo)>();
+    bytes += declarations.types.capacity() * size_of::<(crate::symbol::Name, CompactTypeDefInfo)>();
     for ty in declarations.types.values() {
         match ty {
             CompactTypeDefInfo::Alias(_) | CompactTypeDefInfo::TagUnion => {}
@@ -181,8 +180,7 @@ fn measure_compact_declarations(declarations: &CompactDeclOutput) -> (usize, usi
             CompactTypeDefInfo::Module(exports) => {
                 type_count += exports.len();
                 bytes += size_of::<BTreeMap<crate::symbol::Name, ModuleExportType>>()
-                    + exports.len()
-                        * size_of::<(crate::symbol::Name, ModuleExportType)>()
+                    + exports.len() * size_of::<(crate::symbol::Name, ModuleExportType)>()
                     + exports
                         .values()
                         .map(|export| {
@@ -209,17 +207,13 @@ fn measure_compact_declarations(declarations: &CompactDeclOutput) -> (usize, usi
 
     macro_rules! measure_error_families {
         ($families:expr, $key:ty) => {{
-            bytes += $families.capacity()
-                * size_of::<($key, crate::sema::check::ErrorFamilyInfo)>();
+            bytes +=
+                $families.capacity() * size_of::<($key, crate::sema::check::ErrorFamilyInfo)>();
             for family in $families.values() {
-                bytes += size_of::<BTreeMap<
-                    crate::symbol::Name,
-                    crate::sema::check::ErrorVariantInfo,
-                >>() + family.variants.len()
-                    * size_of::<(
-                        crate::symbol::Name,
-                        crate::sema::check::ErrorVariantInfo,
-                    )>();
+                bytes += size_of::<
+                    BTreeMap<crate::symbol::Name, crate::sema::check::ErrorVariantInfo>,
+                >() + family.variants.len()
+                    * size_of::<(crate::symbol::Name, crate::sema::check::ErrorVariantInfo)>();
                 for variant in family.variants.values() {
                     type_count += variant.fields.len();
                     bytes += size_of::<BTreeMap<crate::symbol::Name, Type>>()
@@ -269,10 +263,9 @@ fn measure_compact_body_types(
 
 fn diagnostic_count(checked: &crate::loader::CheckedEntry) -> usize {
     checked.parsed.diagnostics.len()
-        + checked
-            .checked
-            .as_ref()
-            .map_or(0, |output| output.diagnostics.len() + output.reveal_types.len())
+        + checked.checked.as_ref().map_or(0, |output| {
+            output.diagnostics.len() + output.reveal_types.len()
+        })
 }
 
 /// Measure one in-memory source through tokens, CST, AST/check, and lowering.
@@ -500,9 +493,7 @@ fn collect_xsh_paths(path: &Path, paths: &mut Vec<PathBuf>) -> io::Result<()> {
 fn aggregate_totals(files: &[FileFrontendStats]) -> FileFrontendStats {
     let mut total = FileFrontendStats {
         path: "<totals>".to_string(),
-        lowered_retained_estimated: files
-            .iter()
-            .any(|file| file.lowered_retained_estimated),
+        lowered_retained_estimated: files.iter().any(|file| file.lowered_retained_estimated),
         ..FileFrontendStats::default()
     };
     for file in files {
@@ -524,9 +515,7 @@ fn aggregate_totals(files: &[FileFrontendStats]) -> FileFrontendStats {
 fn aggregate_maxima(files: &[FileFrontendStats]) -> FileFrontendStats {
     let mut maximum = FileFrontendStats {
         path: "<maxima>".to_string(),
-        lowered_retained_estimated: files
-            .iter()
-            .any(|file| file.lowered_retained_estimated),
+        lowered_retained_estimated: files.iter().any(|file| file.lowered_retained_estimated),
         ..FileFrontendStats::default()
     };
     for file in files {
@@ -540,17 +529,17 @@ fn aggregate_stages(files: &[FileFrontendStats], maxima: bool) -> Vec<StageMetri
     let mut stages = Vec::<StageMetrics>::new();
     for file in files {
         for stage in &file.stages {
-            let target = if let Some(target) = stages.iter_mut().find(|item| item.name == stage.name)
-            {
-                target
-            } else {
-                stages.push(StageMetrics {
-                    name: stage.name,
-                    tracking_active: stage.tracking_active,
-                    ..StageMetrics::default()
-                });
-                stages.last_mut().expect("stage was just pushed")
-            };
+            let target =
+                if let Some(target) = stages.iter_mut().find(|item| item.name == stage.name) {
+                    target
+                } else {
+                    stages.push(StageMetrics {
+                        name: stage.name,
+                        tracking_active: stage.tracking_active,
+                        ..StageMetrics::default()
+                    });
+                    stages.last_mut().expect("stage was just pushed")
+                };
             target.tracking_active |= stage.tracking_active;
             if maxima {
                 target.retained_bytes = target.retained_bytes.max(stage.retained_bytes);
@@ -576,16 +565,9 @@ fn aggregate_stages(files: &[FileFrontendStats], maxima: bool) -> Vec<StageMetri
     stages
 }
 
-fn merge_arena_tables(
-    tables: &mut Vec<ArenaTableStats>,
-    source: &[ArenaTableStats],
-    maxima: bool,
-) {
+fn merge_arena_tables(tables: &mut Vec<ArenaTableStats>, source: &[ArenaTableStats], maxima: bool) {
     for table in source {
-        let target = if let Some(target) = tables
-            .iter_mut()
-            .find(|item| item.name == table.name)
-        {
+        let target = if let Some(target) = tables.iter_mut().find(|item| item.name == table.name) {
             target
         } else {
             tables.push(ArenaTableStats {
@@ -670,9 +652,7 @@ fn max_file_stats(maximum: &mut FileFrontendStats, file: &FileFrontendStats) {
     maximum.dynamic_symbol_count = maximum.dynamic_symbol_count.max(file.dynamic_symbol_count);
     maximum.dynamic_symbol_bytes = maximum.dynamic_symbol_bytes.max(file.dynamic_symbol_bytes);
     maximum.components_sum = maximum.components_sum.max(file.components_sum);
-    maximum.reported_total_bytes = maximum
-        .reported_total_bytes
-        .max(file.reported_total_bytes);
+    maximum.reported_total_bytes = maximum.reported_total_bytes.max(file.reported_total_bytes);
     maximum.lowered_blocker_events = maximum
         .lowered_blocker_events
         .max(file.lowered_blocker_events);
@@ -853,7 +833,7 @@ fn json_string(value: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{measure_source, CorpusFrontendStats, FileFrontendStats};
+    use super::{CorpusFrontendStats, FileFrontendStats, measure_source};
 
     const SOURCE: &str = "pure twice(value: Int) -> Int { return value * 2 }\nprint ${twice(3)}\n";
     const INDEXED_EXECUTION: &str =
@@ -896,7 +876,10 @@ mod tests {
         assert_eq!(first.token_retained_bytes, second.token_retained_bytes);
         assert_eq!(first.cst_retained_bytes, second.cst_retained_bytes);
         assert_eq!(first.ast_retained_bytes, second.ast_retained_bytes);
-        assert_eq!(first.semantic_retained_bytes, second.semantic_retained_bytes);
+        assert_eq!(
+            first.semantic_retained_bytes,
+            second.semantic_retained_bytes
+        );
         assert_eq!(first.lowered_retained_bytes, second.lowered_retained_bytes);
         assert_eq!(first.ast_tables, second.ast_tables);
         assert_eq!(first.reconcile_delta, 0);

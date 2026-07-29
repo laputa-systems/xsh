@@ -4,10 +4,10 @@ extern crate self as xsh;
 pub mod app;
 pub mod diagnostic;
 pub mod frontend_stats;
-pub mod mem_track;
 #[path = "runtime/eval/modules/host.rs"]
 pub mod host;
 pub mod loader;
+pub mod mem_track;
 pub mod modules;
 pub mod runner;
 pub mod runtime;

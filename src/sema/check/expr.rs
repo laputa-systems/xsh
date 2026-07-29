@@ -1063,18 +1063,20 @@ impl Checker {
                 "pattern" => Type::Str,
                 _ => Type::Unknown,
             },
-            Type::Error | Type::ErrorFamily(_) | Type::ErrorVariant { .. } => match name.as_str().as_str() {
-                "message" => Type::Str,
-                "kind" => {
-                    self.error(
-                        span,
-                        "error `.kind` was removed; match exact variants or facets instead",
-                        "check.error-removed",
-                    );
-                    Type::Str
+            Type::Error | Type::ErrorFamily(_) | Type::ErrorVariant { .. } => {
+                match name.as_str().as_str() {
+                    "message" => Type::Str,
+                    "kind" => {
+                        self.error(
+                            span,
+                            "error `.kind` was removed; match exact variants or facets instead",
+                            "check.error-removed",
+                        );
+                        Type::Str
+                    }
+                    _ => Type::Unknown,
                 }
-                _ => Type::Unknown,
-            },
+            }
             Type::ProcessError => match name.as_str().as_str() {
                 "message" => Type::Str,
                 "kind" => Type::Str,
@@ -1131,18 +1133,20 @@ impl Checker {
                     Type::Any
                 }
             },
-            Type::Error | Type::ErrorFamily(_) | Type::ErrorVariant { .. } => match name.as_str().as_str() {
-                "message" => Type::Str,
-                "kind" => {
-                    self.error(
-                        span,
-                        "error `.kind` was removed; match exact variants or facets instead",
-                        "check.error-removed",
-                    );
-                    Type::Str
+            Type::Error | Type::ErrorFamily(_) | Type::ErrorVariant { .. } => {
+                match name.as_str().as_str() {
+                    "message" => Type::Str,
+                    "kind" => {
+                        self.error(
+                            span,
+                            "error `.kind` was removed; match exact variants or facets instead",
+                            "check.error-removed",
+                        );
+                        Type::Str
+                    }
+                    _ => Type::Unknown,
                 }
-                _ => Type::Unknown,
-            },
+            }
             Type::ProcessError => match name.as_str().as_str() {
                 "message" => Type::Str,
                 "kind" => Type::Str,

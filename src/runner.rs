@@ -35,7 +35,9 @@ struct PreparedRun {
 
 impl PreparedRun {
     fn run(self) -> RunAttempt {
-        let output = self.evaluator.eval_installed_compact_indexed_only(self.plan);
+        let output = self
+            .evaluator
+            .eval_installed_compact_indexed_only(self.plan);
         let output = match output {
             Ok(output) => output,
             Err(evaluator) => {
@@ -90,8 +92,7 @@ pub fn run_startup() -> ScriptOutput {
     let source_id = sources.add_file("<startup>", "");
     let parsed = Parser::parse_source_arena_only(source_id, "");
     let _ = Checker::check_compact_declarations(&parsed.arena);
-    let mut evaluator =
-        Evaluator::new_with_sources_and_command(Vec::new(), sources, "xsh".into());
+    let mut evaluator = Evaluator::new_with_sources_and_command(Vec::new(), sources, "xsh".into());
     let plan = evaluator
         .prepare_compact_indexed_only(&parsed.arena, source_id)
         .expect("empty startup program must encode as indexed IR");
@@ -206,7 +207,9 @@ fn render_checked_diagnostics(
     ScriptOutput {
         status: 1,
         stdout: Vec::new(),
-        stderr: text_bytes(format!("xsh: indexed execution not available for '{script}'\n")),
+        stderr: text_bytes(format!(
+            "xsh: indexed execution not available for '{script}'\n"
+        )),
     }
 }
 

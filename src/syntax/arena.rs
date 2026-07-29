@@ -147,9 +147,8 @@ impl TypeExprId {
 #[cfg(test)]
 mod layout_tests {
     use super::{
-        vec_capacity_bytes, ArenaColdVec, ArenaExprData, ArenaExprTag, ArenaStmtData,
-        ArenaStmtTag, ArenaTypeExprData, ArenaTypeExprTag, ExprId, PatternId, StmtId,
-        TypeExprId,
+        ArenaColdVec, ArenaExprData, ArenaExprTag, ArenaStmtData, ArenaStmtTag, ArenaTypeExprData,
+        ArenaTypeExprTag, ExprId, PatternId, StmtId, TypeExprId, vec_capacity_bytes,
     };
     use std::mem::size_of;
 
@@ -3837,8 +3836,9 @@ impl<T> ArenaTableCapacity for Vec<T> {
 
 impl<T> ArenaTableCapacity for ArenaColdVec<T> {
     fn retained_capacity_bytes(&self) -> usize {
-        self.as_vec()
-            .map_or(0, |values| size_of::<Vec<T>>() + values.capacity() * size_of::<T>())
+        self.as_vec().map_or(0, |values| {
+            size_of::<Vec<T>>() + values.capacity() * size_of::<T>()
+        })
     }
 }
 

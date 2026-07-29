@@ -41,8 +41,8 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-mod lower;
 mod indexed;
+mod lower;
 use indexed::full::{FullBuilder, FullProgram};
 mod lowered_ops;
 use lowered_ops::{lowered_value_from_runtime, lowered_value_from_runtime_any};
@@ -2231,13 +2231,11 @@ fn lowered_record_map_eq_vec(
     vec: &[(Name, LoweredValue)],
 ) -> bool {
     map.len() == vec.len()
-        && vec
-            .iter()
-            .all(|(key, value)| {
-                let key_text = key.as_str();
-                map.get::<str>(key_text.as_str())
-                    .is_some_and(|left| left == value)
-            })
+        && vec.iter().all(|(key, value)| {
+            let key_text = key.as_str();
+            map.get::<str>(key_text.as_str())
+                .is_some_and(|left| left == value)
+        })
 }
 
 fn lowered_record_map_eq_stats_value(
@@ -2821,12 +2819,7 @@ impl Evaluator {
         sources: SourceMap,
         command_name: String,
     ) -> Self {
-        Self::new_with_sources_and_command_inner(
-            argv,
-            Arc::new(sources),
-            command_name,
-            None,
-        )
+        Self::new_with_sources_and_command_inner(argv, Arc::new(sources), command_name, None)
     }
 
     pub fn new_with_shared_sources_and_command(
@@ -3187,9 +3180,7 @@ impl Evaluator {
         let program = Arc::clone(&indexed_body.program);
         let view = program
             .driver_step_view_absolute(indexed_body.driver_step)
-            .map_err(|error| {
-                RuntimeError::new("indexed-ir", error.message).with_span(call_span)
-            })?;
+            .map_err(|error| RuntimeError::new("indexed-ir", error.message).with_span(call_span))?;
         let result =
             self.eval_indexed_body_as_signal_hook(view, indexed_body.body, &mut slots, call_span);
         self.scopes = saved_scopes;
@@ -3604,8 +3595,9 @@ impl Evaluator {
             .as_ref()
             .map(|program| program.symbol_owner().clone());
         run_eval(move || match symbols {
-            Some(symbols) => symbols
-                .with_current(|| self.try_eval_installed_compact_indexed_only_inner(plan)),
+            Some(symbols) => {
+                symbols.with_current(|| self.try_eval_installed_compact_indexed_only_inner(plan))
+            }
             None => self.try_eval_installed_compact_indexed_only_inner(plan),
         })
     }
@@ -3717,13 +3709,15 @@ impl Evaluator {
                     break;
                 }
             }
-            let evaluated = self.eval_indexed_driver_step(index, span).unwrap_or_else(|| {
-                Err(RuntimeError::new(
-                    "indexed-driver",
-                    "verified indexed driver step has no direct executor",
-                )
-                .with_span(span))
-            });
+            let evaluated = self
+                .eval_indexed_driver_step(index, span)
+                .unwrap_or_else(|| {
+                    Err(RuntimeError::new(
+                        "indexed-driver",
+                        "verified indexed driver step has no direct executor",
+                    )
+                    .with_span(span))
+                });
             match evaluated {
                 Ok(Some(Flow::Continue(value))) => last_value = value,
                 Ok(Some(Flow::Return(value))) => {
@@ -4217,9 +4211,7 @@ impl Evaluator {
                     traceback = Some(propagation.traceback);
                     break;
                 }
-                Some(Ok(Some(
-                    Flow::Return(_) | Flow::Break(_) | Flow::ContinueLoop,
-                ))) => {
+                Some(Ok(Some(Flow::Return(_) | Flow::Break(_) | Flow::ContinueLoop))) => {
                     diagnostics.push(runtime_diagnostic(
                         span,
                         "invalid top-level control flow in test setup",
@@ -4328,12 +4320,7 @@ impl Evaluator {
             Some(_) => vec![ctx],
             None => Vec::new(),
         };
-        match self.call_indexed_direct(
-            key,
-            LoweredFunctionKind::Proc,
-            &args,
-            script_span,
-        ) {
+        match self.call_indexed_direct(key, LoweredFunctionKind::Proc, &args, script_span) {
             Some(Ok(value)) => Ok(Some(value)),
             Some(Err(error)) => {
                 let span = error.span.unwrap_or(script_span);
@@ -4403,7 +4390,6 @@ impl Evaluator {
         let (error_families, _, _, _) = compact_runtime_error_families(declarations);
         self.error_families.extend(error_families);
     }
-
 }
 
 impl Evaluator {
@@ -5917,15 +5903,13 @@ fn compact_root_proc_main_requires_auto_call_indexed(
     {
         return Ok(true);
     }
-    indexed
-        .driver_step_is_skip(last_index)
-        .map_err(|error| {
-            compact_lowerability_diagnostic(
-                program.arena.stmt(last_stmt).span,
-                &format!("indexed driver verification failed: {}", error.message),
-                "compact.indexed-driver",
-            )
-        })
+    indexed.driver_step_is_skip(last_index).map_err(|error| {
+        compact_lowerability_diagnostic(
+            program.arena.stmt(last_stmt).span,
+            &format!("indexed driver verification failed: {}", error.message),
+            "compact.indexed-driver",
+        )
+    })
 }
 
 fn compact_should_skip_auto_main_stmt(

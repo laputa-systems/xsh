@@ -59,15 +59,15 @@ use super::lower::{
     lowered_sum_records, lowered_sum_values, lowered_tag_key,
 };
 use super::lowered_ops::{
-    compare_lowered_sort_keys, lowered_assign_value, lowered_binary_value,
-    lowered_bytes_arg, lowered_bytes_parts, lowered_bytes_value, lowered_contains_value,
-    lowered_index_value, lowered_method_value, lowered_nonnegative_count,
-    lowered_path_method_value, lowered_return_value, lowered_slice_value, lowered_str_arg,
-    lowered_str_byte_at_value, lowered_str_byte_len_value, lowered_str_count_lines_value,
-    lowered_str_parts, lowered_str_predicate_text, lowered_str_predicate_value,
-    lowered_str_value, lowered_trim_is_empty_value, lowered_trim_str_predicate_value,
-    lowered_type_name, lowered_value_from_runtime, lowered_value_from_runtime_any,
-    lowered_value_matches, push_lowered_display,
+    compare_lowered_sort_keys, lowered_assign_value, lowered_binary_value, lowered_bytes_arg,
+    lowered_bytes_parts, lowered_bytes_value, lowered_contains_value, lowered_index_value,
+    lowered_method_value, lowered_nonnegative_count, lowered_path_method_value,
+    lowered_return_value, lowered_slice_value, lowered_str_arg, lowered_str_byte_at_value,
+    lowered_str_byte_len_value, lowered_str_count_lines_value, lowered_str_parts,
+    lowered_str_predicate_text, lowered_str_predicate_value, lowered_str_value,
+    lowered_trim_is_empty_value, lowered_trim_str_predicate_value, lowered_type_name,
+    lowered_value_from_runtime, lowered_value_from_runtime_any, lowered_value_matches,
+    push_lowered_display,
 };
 use super::modules::{
     auth as auth_module, display_spawn_argv, intercept_test_host_call, record_int_field,
@@ -79,12 +79,11 @@ use super::modules::{
     test_temp_path, test_value_matches_type,
 };
 use super::{
-    Binding, Evaluator, Flow, FsRootHandle, DynamicFunction, LoweredCompTarget,
-    LoweredFunctionKey, LoweredFunctionKind, LoweredModuleExportKind, FunctionHeader,
-    LoweredReturnKind, StmtFlow, LoweredStrPredicate, LoweredTagValue, LoweredType,
-    LoweredValue, Name, ReduceByOp, ScanCondition,
-    assign_lowered_bytes_view, assign_lowered_str_view, bytes_contains, check_env_name,
-    compound_assignment_value, exit_status, lowered_inline_stats_field_value,
+    Binding, DynamicFunction, Evaluator, Flow, FsRootHandle, FunctionHeader, LoweredCompTarget,
+    LoweredFunctionKey, LoweredFunctionKind, LoweredModuleExportKind, LoweredReturnKind,
+    LoweredStrPredicate, LoweredTagValue, LoweredType, LoweredValue, Name, ReduceByOp,
+    ScanCondition, StmtFlow, assign_lowered_bytes_view, assign_lowered_str_view, bytes_contains,
+    check_env_name, compound_assignment_value, exit_status, lowered_inline_stats_field_value,
     lowered_inline_stats_to_record_vec, lowered_record_vec_get, lowered_record_vec_get_mut,
     lowered_record_vec_insert, lowered_record_vec_or_stats, lowered_stats_field_value,
     lowered_str_view_value, lowered_value_matches_static_type, module_error, module_io_error,
@@ -233,9 +232,7 @@ pub(super) fn indexed_recursive_fast_path_allowed() -> bool {
         return false;
     }
     !indexed_explicit_frames_active()
-        && INDEXED_EVAL_DEPTH.with(|depth| {
-            depth.get() < (indexed_eval_depth_limit() / 16).max(1)
-        })
+        && INDEXED_EVAL_DEPTH.with(|depth| depth.get() < (indexed_eval_depth_limit() / 16).max(1))
 }
 
 pub(super) fn with_indexed_explicit_frames<R>(f: impl FnOnce() -> R) -> R {
@@ -387,10 +384,11 @@ fn lowered_reduce_fields_owned(
             Ok((key, value))
         }
         LoweredValue::RecordVec(mut entries) => {
-            let key_index = lowered_record_vec_field_index(&entries, key_field).ok_or_else(|| {
-                RuntimeError::new("reduce-by-key", "reduce-by record is missing field `key`")
-                    .with_span(span)
-            })?;
+            let key_index =
+                lowered_record_vec_field_index(&entries, key_field).ok_or_else(|| {
+                    RuntimeError::new("reduce-by-key", "reduce-by record is missing field `key`")
+                        .with_span(span)
+                })?;
             let value_index =
                 lowered_record_vec_field_index(&entries, value_field).ok_or_else(|| {
                     RuntimeError::new(
@@ -415,18 +413,14 @@ fn lowered_reduce_fields_owned(
             let key = entries.swap_remove(key_index).1;
             Ok((key, value))
         }
-        _ => Err(RuntimeError::new(
-            "reduce-by-value",
-            "reduce-by block must return a record",
-        )
-        .with_span(span)),
+        _ => Err(
+            RuntimeError::new("reduce-by-value", "reduce-by block must return a record")
+                .with_span(span),
+        ),
     }
 }
 
-fn lowered_reduce_key_value_owned(
-    key: LoweredValue,
-    span: Span,
-) -> Result<String, RuntimeError> {
+fn lowered_reduce_key_value_owned(key: LoweredValue, span: Span) -> Result<String, RuntimeError> {
     match key {
         LoweredValue::Str(value) => Ok(value.to_string()),
         LoweredValue::StrView(value) => Ok(value.as_str().to_string()),
@@ -633,9 +627,8 @@ fn lowered_projected_key_value(
     if let (LoweredValue::RecordVec(record), Some(indices)) = (item, indices) {
         return Ok(record[indices.key].1.clone());
     }
-    lowered_record_field_value(item, projection.key_field).ok_or_else(|| {
-        RuntimeError::new("missing-field", projection.key_field).with_span(span)
-    })
+    lowered_record_field_value(item, projection.key_field)
+        .ok_or_else(|| RuntimeError::new("missing-field", projection.key_field).with_span(span))
 }
 
 fn lowered_projected_record_value(
@@ -650,9 +643,8 @@ fn lowered_projected_record_value(
         {
             record[indices.values[index]].1.clone()
         } else {
-            lowered_record_field_value(item, source_field).ok_or_else(|| {
-                RuntimeError::new("missing-field", *source_field).with_span(span)
-            })?
+            lowered_record_field_value(item, source_field)
+                .ok_or_else(|| RuntimeError::new("missing-field", *source_field).with_span(span))?
         };
         value.push((*name, field_value));
     }
@@ -3091,10 +3083,7 @@ fn bind_lowered_comp_target(
     }
 }
 
-fn lowered_param_check(
-    lowered: &FunctionHeader,
-    index: usize,
-) -> Option<&super::LoweredTypeCheck> {
+fn lowered_param_check(lowered: &FunctionHeader, index: usize) -> Option<&super::LoweredTypeCheck> {
     lowered.param_checks.get(index).and_then(Option::as_ref)
 }
 
@@ -3297,7 +3286,6 @@ impl Evaluator {
         .map_err(|error| RuntimeError::new("fs-dir", error.to_string()).with_span(span))?;
         Ok(self.push_lowered_fs_root(FsRootHandle::Dir(dir)))
     }
-
 
     fn eval_lowered_module_call_values(
         &mut self,
@@ -6958,11 +6946,7 @@ impl Evaluator {
                     let function_key = function
                         .as_name()
                         .map(LoweredFunctionKey::Name)
-                        .or_else(|| {
-                            function
-                                .as_qualified()
-                                .map(LoweredFunctionKey::Qualified)
-                        })
+                        .or_else(|| function.as_qualified().map(LoweredFunctionKey::Qualified))
                         .expect("function identity is interned");
                     let result = self
                         .call_indexed_direct(
@@ -9226,12 +9210,15 @@ impl Evaluator {
             .or_else(|| function.as_qualified().map(LoweredFunctionKey::Qualified))?;
         self.call_indexed_direct(
             function,
-            if pure { LoweredFunctionKind::Pure } else { LoweredFunctionKind::Proc },
+            if pure {
+                LoweredFunctionKind::Pure
+            } else {
+                LoweredFunctionKind::Proc
+            },
             args,
             call_span,
         )
     }
-
 
     fn hydrate_lowered_captures(
         &mut self,
@@ -9410,7 +9397,6 @@ impl Evaluator {
     }
 
     #[inline(never)]
-
 
     /// Open a file for `Path.lines()` / `Path.bytes_lines()` and wrap it in a
     /// live line stream. Returns a `Result` value (Ok stream / Err on open
@@ -9657,10 +9643,8 @@ impl Evaluator {
                 RuntimeError::new("module-load", "loaded module failed to check").with_span(span),
             );
         }
-        let bodies = crate::sema::check::Checker::probe_compact_bodies(
-            &parsed.arena,
-            &declarations,
-        );
+        let bodies =
+            crate::sema::check::Checker::probe_compact_bodies(&parsed.arena, &declarations);
         if !bodies.diagnostics.is_empty() {
             return Err(
                 RuntimeError::new("module-load", "loaded module body failed to check")
@@ -9774,7 +9758,9 @@ impl Evaluator {
         // private namespace so same-named exports from other loaded files do
         // not overwrite them.
         let mut record_fields = Vec::with_capacity(
-            exported_let_names.len().saturating_add(exported_functions.len()),
+            exported_let_names
+                .len()
+                .saturating_add(exported_functions.len()),
         );
         for name in exported_let_names {
             if let Some(value) = child_exports.get_name(name) {
@@ -9901,16 +9887,10 @@ impl Evaluator {
                 defers.push((index, span));
                 continue;
             }
-            match self
-                .eval_indexed_driver_step(index, span)
-                .ok_or_else(|| {
-                    RuntimeError::new(
-                        "module-load",
-                        "indexed module driver step is unavailable",
-                    )
+            match self.eval_indexed_driver_step(index, span).ok_or_else(|| {
+                RuntimeError::new("module-load", "indexed module driver step is unavailable")
                     .with_span(span)
-                })??
-            {
+            })?? {
                 Some(Flow::Continue(_)) | None => {}
                 Some(Flow::Propagate(propagation)) => {
                     return Err(runtime_error_from_value(propagation.error, span));
@@ -9925,15 +9905,10 @@ impl Evaluator {
             }
         }
         for (index, span) in defers.into_iter().rev() {
-            let _ = self
-                .eval_indexed_driver_step(index, span)
-                .ok_or_else(|| {
-                    RuntimeError::new(
-                        "module-load",
-                        "indexed module defer is unavailable",
-                    )
+            let _ = self.eval_indexed_driver_step(index, span).ok_or_else(|| {
+                RuntimeError::new("module-load", "indexed module defer is unavailable")
                     .with_span(span)
-                })??;
+            })??;
         }
         // Collect exported `let` values for the export record, and the child
         // top-level bindings so the caller can make the module's functions
@@ -9991,7 +9966,6 @@ impl Evaluator {
             ))),
         }
     }
-
 
     fn eval_lowered_method_dispatch(
         &mut self,
@@ -10230,7 +10204,6 @@ impl Evaluator {
         }
     }
 
-
     fn eval_lowered_projected_reduce_by_item(
         &mut self,
         state: &mut LoweredProjectedReduceState<'_>,
@@ -10313,5 +10286,4 @@ impl Evaluator {
         }
         Ok(())
     }
-
 }

@@ -4,11 +4,11 @@ mod collections;
 mod common;
 #[path = "runtime/coverage.rs"]
 mod coverage;
-#[path = "runtime/frontend_indexed.rs"]
-mod frontend_indexed;
 #[cfg(feature = "tools")]
 #[path = "runtime/examples.rs"]
 mod examples;
+#[path = "runtime/frontend_indexed.rs"]
+mod frontend_indexed;
 #[path = "runtime/interactive.rs"]
 mod interactive;
 #[path = "runtime/linux.rs"]

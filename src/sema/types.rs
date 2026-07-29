@@ -120,10 +120,7 @@ impl Type {
         use std::mem::size_of;
         let mut total = size_of::<Self>();
         match self {
-            Self::List(inner)
-            | Self::Map(inner)
-            | Self::Stream(inner)
-            | Self::Optional(inner) => {
+            Self::List(inner) | Self::Map(inner) | Self::Stream(inner) | Self::Optional(inner) => {
                 total = total.saturating_add(size_of::<Type>() + inner.retained_bytes());
             }
             Self::Result(ok, err) => {
@@ -138,9 +135,7 @@ impl Type {
                 }
             }
             Self::Module(exports) => {
-                total = total.saturating_add(
-                    exports.len() * size_of::<(Name, ModuleExportType)>(),
-                );
+                total = total.saturating_add(exports.len() * size_of::<(Name, ModuleExportType)>());
                 for export in exports.values() {
                     total = total.saturating_add(export.retained_bytes());
                 }

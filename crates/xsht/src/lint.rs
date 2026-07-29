@@ -827,7 +827,11 @@ impl<'a> Linter<'a> {
             if let Some(default) = param.default {
                 self.lint_expr(default);
             }
-            self.define(param.name.as_str().as_str(), self.arena.span(param.span), true);
+            self.define(
+                param.name.as_str().as_str(),
+                self.arena.span(param.span),
+                true,
+            );
         }
         self.lint_block_statements(def.body);
         self.lint_unreachable_trailing_return(def.body);
@@ -1152,9 +1156,9 @@ impl<'a> Linter<'a> {
 
     fn type_expr_refs_user_type(&self, ty: TypeExprId) -> bool {
         match type_expr_kind(self.arena, ty) {
-            ArenaTypeExprKind::Named(name) => self
-                .type_declarations
-                .contains_key(name.as_str().as_str()),
+            ArenaTypeExprKind::Named(name) => {
+                self.type_declarations.contains_key(name.as_str().as_str())
+            }
             ArenaTypeExprKind::List(inner)
             | ArenaTypeExprKind::Map(inner)
             | ArenaTypeExprKind::Stream(inner)
@@ -2509,7 +2513,11 @@ impl<'a> Linter<'a> {
             .block_params(self.arena.block(block).params)
             .to_vec()
         {
-            self.define(param.name.as_str().as_str(), self.arena.span(param.span), true);
+            self.define(
+                param.name.as_str().as_str(),
+                self.arena.span(param.span),
+                true,
+            );
         }
         self.lint_block_statements(block);
         self.pop_scope();
@@ -5640,10 +5648,8 @@ fn collect_expr_effects(
             }
             if let ArenaExprKind::Field { base, name: func } = arena.expr(callee).kind
                 && let ArenaExprKind::Ident(module) = arena.expr(base).kind
-                && let Some(eff) = Effect::from_module_call(
-                    module.as_str().as_str(),
-                    func.as_str().as_str(),
-                )
+                && let Some(eff) =
+                    Effect::from_module_call(module.as_str().as_str(), func.as_str().as_str())
             {
                 effects.insert(eff);
             }

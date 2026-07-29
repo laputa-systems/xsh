@@ -1,17 +1,15 @@
-use super::*;
+use super::{LoweredValue, AssignOp, Span, BinaryOp, LoweredFunctionKey, LoweredFunctionKind, Arc, StmtFlow, Evaluator, RuntimeError, LoweredReturnKind, LoweredType, Read, TraceKind, TracePayload, FunctionHeader, TracebackFrameKind, TracebackFrame, ControlFlow, lowered_freeze_large_slot_list, lowered_assign_value, lowered_binary_value, lowered_str_parts, lowered_bytes_parts, lowered_splice_arg_items, lowered_value_satisfies_require, lowered_result_ok, lowered_result_err_value, lowered_return_value, lowered_match_no_arm, assign_lowered_bytes_view, OsStrExt, assign_lowered_str_view, OpenOptionsExt, Name, RedirectionKind, lowered_error_message, ReduceByOp, BTreeMap, lowered_reduce_fields_owned, lowered_reduce_key_value_owned, lowered_reduce_group_insert, lowered_value_from_runtime_any, RunKind, value_to_argv_bytes, Value, splice_to_argv, ProcessRedirection, RedirectionStream, PathValue, FileRedirectionMode, ProcessInvocation, Duration, Type, lowered_value_matches_static_type, Flow, lowered_value_from_runtime, runtime_error_from_value, Binding, LoweredModuleExportKind, QualifiedName, RecordMap, value_matches_static_type, lowered_type_name, compound_assignment_value, lowered_record_field_value, lowered_stmt_flow_to_flow, with_indexed_eval_depth, StreamValue, lowered_record_vec_get, lowered_inline_stats_field_value, lowered_stats_field_value, LoweredReduceProjection, DurationValue, FunctionName, lowered_path_from_value, lowered_str_key, lowered_tag_key, FormatSpec, push_lowered_fmt_value, lowered_record_vec_append_or_replace_unsorted, lowered_inline_stats_to_record_vec, lowered_record_vec_or_stats, lowered_bytes_value, LoweredTagValue, LoweredCompTarget, bind_lowered_comp_target, lowered_str_value, lowered_pipeline_input, lowered_pipeline_item_count, lowered_str_view_value, btree_map, compare_lowered_sort_keys, lowered_count_key, bytes_module, lowered_nonnegative_count, lowered_value_argv_len, LoweredProjectedReduceState, TraceError, lowered_trace_error_from_value, lowered_pipeline_record_list, lowered_table_print_value, LiveStream, lowered_index_value, lowered_slice_value, lowered_str_byte_len_value, lowered_str_byte_at_value, LoweredStrPredicate, lowered_str_predicate_value, lowered_contains_value, RegexValue, LoweredRetryAttemptValue, lowered_str_list_arg, RuntimeOp, lowered_path_arg, lowered_bool_arg_or, fs_module, FsRootHandle, fs_root_record, lowered_bytes_or_str_owned, lowered_unit_result, lowered_root_id, lowered_fs_root_dir, root_path_from_dir, read_host_path_bytes_vec, read_host_path_bytes, lowered_encode_json, lowered_path_list_arg, lowered_str_arg_owned, hash_module, lowered_command_plan_value, lowered_path_like_arg, lowered_env_record_arg, lowered_bool_builder_field, lowered_duration_arg, lowered_int_arg, CommandPlan, lowered_command_redirections, run_pipeline_inherit_with_policy, ProcessEnd, lowered_process_run_error, ProcessStatus, RunError, SpawnOptions, execute_run_with_policy, exit_status, error_constructor, structured_error_constructor, Traceback, lowered_record_vec_insert, lowered_str_arg, ScanCondition, lowered_trim_is_empty_value, lowered_trim_str_predicate_value, lowered_str_predicate_text, TraceArg, path_bytes, check_env_name, lowered_parse_command_values, json_module, api_spec, push_lowered_display, lowered_status_segment_record, lowered_path_method_value, lowered_str_count_lines_value, bytes_contains};
+use crate::modules::hash::HashAlgorithm;
+use crate::runtime::eval::indexed::IrVerifyError;
 use crate::runtime::eval::indexed::full::{
     BLOCK_LIST, BLOCK_STATEMENTS, FullDriverTag, FullExecution, FullFunctionView, FullPatternTag,
     FullPayload, FullProgram, FullStageTag, FullTag,
 };
-use crate::runtime::eval::indexed::IrVerifyError;
-use crate::runtime::eval::lower::{
-    lowered_error_value_has_facet, lowered_error_variant_matches,
-};
+use crate::runtime::eval::lower::{lowered_error_value_has_facet, lowered_error_variant_matches};
 use crate::runtime::eval::{
-    LoweredModuleExport, LoweredTopLevelSlot, LoweredTypeCheck, Propagation,
-    ScanBytes, ScanCheck, process_handle,
+    LoweredModuleExport, LoweredTopLevelSlot, LoweredTypeCheck, Propagation, ScanBytes, ScanCheck,
+    process_handle,
 };
-use crate::modules::hash::HashAlgorithm;
 use smallvec::SmallVec;
 
 mod explicit_run;
@@ -49,10 +47,7 @@ struct RunSegment {
 
 enum BinaryWork {
     Expr(u32),
-    Apply {
-        op: BinaryOp,
-        span: Span,
-    },
+    Apply { op: BinaryOp, span: Span },
 }
 
 enum IndexedItemPredicate<'a> {
@@ -185,22 +180,16 @@ impl Evaluator {
     ) -> LoweredValue {
         slots[slot] = item;
         let item_result = if let Some(body) = body {
-            match self.eval_indexed_statement_block(
-                execution,
-                body,
-                block_header,
-                slots,
-                span,
-            ) {
+            match self.eval_indexed_statement_block(execution, body, block_header, slots, span) {
                 Ok(StmtFlow::None) | Ok(StmtFlow::Continue) => {
                     self.eval_indexed_expr(execution, value, slots, span)
                 }
                 Ok(StmtFlow::Return(value)) | Ok(StmtFlow::Propagate(value)) => {
                     Ok(ControlFlow::Break(value))
                 }
-                Ok(StmtFlow::Break(value)) => Ok(ControlFlow::Break(
-                    value.unwrap_or(LoweredValue::Unit),
-                )),
+                Ok(StmtFlow::Break(value)) => {
+                    Ok(ControlFlow::Break(value.unwrap_or(LoweredValue::Unit)))
+                }
                 Err(error) => Err(error),
             }
         } else {
@@ -278,14 +267,14 @@ impl Evaluator {
                             results.push((
                                 item_index,
                                 worker.eval_indexed_par_map_item(
-                                &execution,
-                                body,
-                                value,
-                                &block_header,
-                                &mut worker_slots,
-                                slot,
-                                item,
-                                span,
+                                    &execution,
+                                    body,
+                                    value,
+                                    &block_header,
+                                    &mut worker_slots,
+                                    slot,
+                                    item,
+                                    span,
                                 ),
                             ));
                         }
@@ -317,8 +306,7 @@ impl Evaluator {
                     std::thread::sleep(std::time::Duration::from_millis(1));
                 }
             }
-            let mut ordered: Vec<Option<LoweredValue>> =
-                (0..item_count).map(|_| None).collect();
+            let mut ordered: Vec<Option<LoweredValue>> = (0..item_count).map(|_| None).collect();
             let mut stderr = Vec::new();
             for completed in completed {
                 let (mut results, worker_stderr) = completed.expect("par-map worker missing");
@@ -361,11 +349,10 @@ impl Evaluator {
             )? {
                 StmtFlow::None | StmtFlow::Continue => {}
                 StmtFlow::Propagate(value) | StmtFlow::Return(value) => {
-                    return Err(RuntimeError::new(
-                        "par-map-reduce",
-                        lowered_error_message(&value),
-                    )
-                    .with_span(span));
+                    return Err(
+                        RuntimeError::new("par-map-reduce", lowered_error_message(&value))
+                            .with_span(span),
+                    );
                 }
                 StmtFlow::Break(value) => {
                     return Err(RuntimeError::new(
@@ -378,11 +365,10 @@ impl Evaluator {
             let output = match self.eval_indexed_expr(execution, reduce_value, slots, span)? {
                 ControlFlow::Continue(value) => value,
                 ControlFlow::Break(value) => {
-                    return Err(RuntimeError::new(
-                        "par-map-reduce",
-                        lowered_error_message(&value),
-                    )
-                    .with_span(span));
+                    return Err(
+                        RuntimeError::new("par-map-reduce", lowered_error_message(&value))
+                            .with_span(span),
+                    );
                 }
             };
             let (key, value) = lowered_reduce_fields_owned(output, "key", "value", span)?;
@@ -416,7 +402,10 @@ impl Evaluator {
                 .collect(),
             other => Err(RuntimeError::new(
                 "type-error",
-                format!("flat-map expected List or Stream, found {}", other.type_name()),
+                format!(
+                    "flat-map expected List or Stream, found {}",
+                    other.type_name()
+                ),
             )
             .with_span(span)),
         }
@@ -500,17 +489,20 @@ impl Evaluator {
                     .expect("failed to spawn fused par-map worker");
                 workers.push(worker);
             }
-            let mut completed: Vec<Option<(Result<BTreeMap<String, LoweredValue>, RuntimeError>, Vec<u8>)>> =
-                (0..workers.len()).map(|_| None).collect();
+            let mut completed: Vec<
+                Option<(
+                    Result<BTreeMap<String, LoweredValue>, RuntimeError>,
+                    Vec<u8>,
+                )>,
+            > = (0..workers.len()).map(|_| None).collect();
             while !workers.is_empty() {
                 let mut index = 0;
                 let mut progress = false;
                 while index < workers.len() {
                     if workers[index].is_finished() {
                         let worker = workers.swap_remove(index);
-                        let (chunk_index, result, worker_stderr) = worker
-                            .join()
-                            .expect("fused par-map worker thread panicked");
+                        let (chunk_index, result, worker_stderr) =
+                            worker.join().expect("fused par-map worker thread panicked");
                         completed[chunk_index] = Some((result, worker_stderr));
                         progress = true;
                     } else {
@@ -548,8 +540,7 @@ impl Evaluator {
         let mode = indexed_raw(payload, span)?;
         if mode > 2 {
             return Err(
-                RuntimeError::new("indexed-ir", "invalid indexed run argument tag")
-                    .with_span(span),
+                RuntimeError::new("indexed-ir", "invalid indexed run argument tag").with_span(span),
             );
         }
         Ok(RunArg {
@@ -570,11 +561,7 @@ impl Evaluator {
         let len = indexed_raw(&mut values, span)? as usize;
         let mut decoded = Vec::with_capacity(len);
         for _ in 0..len {
-            decoded.push(Self::decode_indexed_run_arg(
-                &mut values,
-                execution,
-                span,
-            )?);
+            decoded.push(Self::decode_indexed_run_arg(&mut values, execution, span)?);
         }
         indexed_finish(values, span)?;
         Ok(decoded)
@@ -637,11 +624,7 @@ impl Evaluator {
                 target: Self::decode_indexed_run_arg(&mut values, execution, span)?,
                 args: Self::decode_indexed_run_args(&mut values, execution, span)?,
                 env: Self::decode_indexed_run_env(&mut values, execution, span)?,
-                redirections: Self::decode_indexed_run_redirections(
-                    &mut values,
-                    execution,
-                    span,
-                )?,
+                redirections: Self::decode_indexed_run_redirections(&mut values, execution, span)?,
                 timeout: indexed_optional_raw(&mut values, span)?,
                 cpu_max: indexed_optional_raw(&mut values, span)?,
             });
@@ -789,8 +772,7 @@ impl Evaluator {
                 });
                 continue;
             }
-            let path =
-                PathValue::new(target).map_err(|error| error.with_span(redirection.span))?;
+            let path = PathValue::new(target).map_err(|error| error.with_span(redirection.span))?;
             out.push(ProcessRedirection::File {
                 stream: match redirection.kind {
                     RedirectionKind::StdinRead => RedirectionStream::Stdin,
@@ -824,11 +806,10 @@ impl Evaluator {
         slots: &mut [LoweredValue],
         span: Span,
     ) -> Result<ControlFlow<LoweredValue, ProcessInvocation>, RuntimeError> {
-        let target_items =
-            match self.eval_indexed_run_arg(execution, target, slots, span)? {
-                ControlFlow::Continue(items) => items,
-                ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
-            };
+        let target_items = match self.eval_indexed_run_arg(execution, target, slots, span)? {
+            ControlFlow::Continue(items) => items,
+            ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+        };
         let [target_value]: [Vec<u8>; 1] = target_items.try_into().map_err(|_| {
             RuntimeError::new("argv-conversion", "run target must produce one argv item")
                 .with_span(target.span)
@@ -849,9 +830,7 @@ impl Evaluator {
                 ControlFlow::Continue(value) => value,
                 ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
             };
-        let timeout = match self.eval_indexed_optional_expr(
-            execution, timeout, slots, span,
-        )? {
+        let timeout = match self.eval_indexed_optional_expr(execution, timeout, slots, span)? {
             ControlFlow::Continue(Some(LoweredValue::Duration(duration))) => {
                 Some(Duration::from_millis(duration.millis))
             }
@@ -865,9 +844,7 @@ impl Evaluator {
             ControlFlow::Continue(None) => None,
             ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
         };
-        let cpu_max = match self.eval_indexed_optional_expr(
-            execution, cpu_max, slots, span,
-        )? {
+        let cpu_max = match self.eval_indexed_optional_expr(execution, cpu_max, slots, span)? {
             ControlFlow::Continue(Some(LoweredValue::Int(value))) => Some(value),
             ControlFlow::Continue(Some(other)) => {
                 return Err(RuntimeError::new(
@@ -964,9 +941,11 @@ impl Evaluator {
             FullPatternTag::ErrorVariant => {
                 let family = indexed_decode::<Name>(&mut payload, execution, span)?;
                 let variant = indexed_decode::<Name>(&mut payload, execution, span)?;
-                let fields = indexed_decode::<
-                    Box<SmallVec<[(Name, Option<usize>); 4]>>,
-                >(&mut payload, execution, span)?;
+                let fields = indexed_decode::<Box<SmallVec<[(Name, Option<usize>); 4]>>>(
+                    &mut payload,
+                    execution,
+                    span,
+                )?;
                 let result_wrapped = indexed_decode::<bool>(&mut payload, execution, span)?;
                 let error = if result_wrapped {
                     let LoweredValue::ResultErr(error) = value else {
@@ -1108,10 +1087,8 @@ impl Evaluator {
                 Flow::Continue(Value::Unit)
             }
             FullDriverTag::Use => {
-                let key =
-                    indexed_decode::<Arc<str>>(&mut payload, &execution, call_span)?;
-                let alias =
-                    indexed_decode::<Option<Name>>(&mut payload, &execution, call_span)?;
+                let key = indexed_decode::<Arc<str>>(&mut payload, &execution, call_span)?;
+                let alias = indexed_decode::<Option<Name>>(&mut payload, &execution, call_span)?;
                 let path = indexed_decode::<Vec<Name>>(&mut payload, &execution, call_span)?;
                 let namespace = indexed_decode::<Name>(&mut payload, &execution, call_span)?;
                 let exports = indexed_decode::<Vec<LoweredModuleExport>>(
@@ -1124,8 +1101,7 @@ impl Evaluator {
                 indexed_finish(payload, call_span)?;
                 if path.is_empty() {
                     return Err(
-                        RuntimeError::new("unknown-module", "empty module path")
-                            .with_span(span),
+                        RuntimeError::new("unknown-module", "empty module path").with_span(span)
                     );
                 }
                 let import_name = alias.unwrap_or(namespace);
@@ -1155,10 +1131,7 @@ impl Evaluator {
                     match self.eval_indexed_driver_step_inner(child_view, child_span)? {
                         Some(Flow::Continue(_)) | None => {}
                         Some(Flow::Propagate(propagation)) => {
-                            return Err(runtime_error_from_value(
-                                propagation.error,
-                                child_span,
-                            ));
+                            return Err(runtime_error_from_value(propagation.error, child_span));
                         }
                         Some(_) => {
                             return Err(RuntimeError::new(
@@ -1199,10 +1172,7 @@ impl Evaluator {
                             .ok_or_else(|| {
                                 RuntimeError::new(
                                     "missing-field",
-                                    format!(
-                                        "module export `{}` was not materialized",
-                                        export.name
-                                    ),
+                                    format!("module export `{}` was not materialized", export.name),
                                 )
                                 .with_span(span)
                             })?,
@@ -1259,17 +1229,13 @@ impl Evaluator {
                 )?;
                 let mutable = indexed_decode::<bool>(&mut payload, &execution, call_span)?;
                 let value = indexed_raw(&mut payload, call_span)?;
-                let value_span =
-                    indexed_decode::<Span>(&mut payload, &execution, call_span)?;
+                let value_span = indexed_decode::<Span>(&mut payload, &execution, call_span)?;
                 indexed_finish(payload, call_span)?;
                 let mut value =
                     match self.eval_indexed_expr(&execution, value, &mut slots, call_span)? {
                         ControlFlow::Continue(value) => value.into_value(),
                         ControlFlow::Break(value) => {
-                            return Ok(Some(self.question_flow(
-                                value.into_value(),
-                                call_span,
-                            )));
+                            return Ok(Some(self.question_flow(value.into_value(), call_span)));
                         }
                     };
                 if let Some(check) = &validation {
@@ -1315,10 +1281,7 @@ impl Evaluator {
                     match self.eval_indexed_expr(&execution, value, &mut slots, call_span)? {
                         ControlFlow::Continue(value) => value.into_value(),
                         ControlFlow::Break(value) => {
-                            return Ok(Some(self.question_flow(
-                                value.into_value(),
-                                call_span,
-                            )));
+                            return Ok(Some(self.question_flow(value.into_value(), call_span)));
                         }
                     };
                 let value = if op == AssignOp::Set {
@@ -1337,8 +1300,7 @@ impl Evaluator {
             }
             FullDriverTag::LetRecord => {
                 let source = indexed_raw(&mut payload, call_span)?;
-                let fields =
-                    indexed_decode::<Vec<Name>>(&mut payload, &execution, call_span)?;
+                let fields = indexed_decode::<Vec<Name>>(&mut payload, &execution, call_span)?;
                 let mutable = indexed_decode::<bool>(&mut payload, &execution, call_span)?;
                 let span = indexed_decode::<Span>(&mut payload, &execution, call_span)?;
                 indexed_finish(payload, call_span)?;
@@ -1381,13 +1343,8 @@ impl Evaluator {
             FullDriverTag::Stmt => {
                 let statement = indexed_raw(&mut payload, call_span)?;
                 indexed_finish(payload, call_span)?;
-                let flow = self.eval_indexed_stmt(
-                    &execution,
-                    statement,
-                    &header,
-                    &mut slots,
-                    call_span,
-                )?;
+                let flow =
+                    self.eval_indexed_stmt(&execution, statement, &header, &mut slots, call_span)?;
                 for slot in &top_level_slots {
                     if slot.mutable {
                         self.assign(
@@ -1398,9 +1355,7 @@ impl Evaluator {
                     }
                 }
                 match flow {
-                    StmtFlow::Propagate(value) => {
-                        self.question_flow(value.into_value(), call_span)
-                    }
+                    StmtFlow::Propagate(value) => self.question_flow(value.into_value(), call_span),
                     flow => lowered_stmt_flow_to_flow(flow),
                 }
             }
@@ -1411,10 +1366,7 @@ impl Evaluator {
                     match self.eval_indexed_expr(&execution, value, &mut slots, call_span)? {
                         ControlFlow::Continue(value) => value.into_value(),
                         ControlFlow::Break(value) => {
-                            return Ok(Some(self.question_flow(
-                                value.into_value(),
-                                call_span,
-                            )));
+                            return Ok(Some(self.question_flow(value.into_value(), call_span)));
                         }
                     };
                 if matches!(value, Value::Result(_)) {
@@ -1435,8 +1387,7 @@ impl Evaluator {
                 }
             }
             FullDriverTag::SignalHook => {
-                let signal =
-                    indexed_decode::<Name>(&mut payload, &execution, call_span)?;
+                let signal = indexed_decode::<Name>(&mut payload, &execution, call_span)?;
                 let pre_cancel =
                     indexed_decode::<Option<String>>(&mut payload, &execution, call_span)?;
                 let body = indexed_raw(&mut payload, call_span)?;
@@ -1598,11 +1549,10 @@ impl Evaluator {
         {
             (LoweredFunctionKind::Proc, index)
         } else {
-            return Err(RuntimeError::new(
-                "unresolved-lowered-call",
-                function.display_name(),
-            )
-            .with_span(call_span));
+            return Err(
+                RuntimeError::new("unresolved-lowered-call", function.display_name())
+                    .with_span(call_span),
+            );
         };
         let view = program
             .function_view_at(index)
@@ -1611,13 +1561,7 @@ impl Evaluator {
             && !super::indexed_recursive_fast_path_allowed()
         {
             return super::with_indexed_explicit_frames(|| {
-                self.eval_indexed_with_frames(
-                    program.as_ref(),
-                    function,
-                    kind,
-                    values,
-                    call_span,
-                )
+                self.eval_indexed_with_frames(program.as_ref(), function, kind, values, call_span)
             });
         }
         let header = view
@@ -1625,14 +1569,7 @@ impl Evaluator {
             .map_err(|error| indexed_error(error, call_span))?;
         let mut next_slots = self.bind_lowered_values(&header, values, call_span)?;
         let result = self
-            .eval_indexed_call_frame(
-                function,
-                kind,
-                view,
-                &header,
-                &mut next_slots,
-                call_span,
-            )
+            .eval_indexed_call_frame(function, kind, view, &header, &mut next_slots, call_span)
             .and_then(|value| lowered_return_value(header.return_kind, value, call_span));
         self.recycle_lowered_slots(next_slots);
         result
@@ -1687,8 +1624,8 @@ impl Evaluator {
             self.eval_indexed_function(view, &header, &mut next_slots, call_span)
         });
         self.call_stack.pop();
-        let result = result
-            .and_then(|value| lowered_return_value(header.return_kind, value, call_span));
+        let result =
+            result.and_then(|value| lowered_return_value(header.return_kind, value, call_span));
         self.recycle_lowered_slots(next_slots);
         result
     }
@@ -1715,11 +1652,10 @@ impl Evaluator {
         {
             (LoweredFunctionKind::Proc, index)
         } else {
-            return Err(RuntimeError::new(
-                "unresolved-lowered-call",
-                function.display_name(),
-            )
-            .with_span(call_span));
+            return Err(
+                RuntimeError::new("unresolved-lowered-call", function.display_name())
+                    .with_span(call_span),
+            );
         };
         let view = program
             .function_view_at(index)
@@ -1769,12 +1705,10 @@ impl Evaluator {
             let flow = result?;
             write_back?;
             return match flow {
-                StmtFlow::None => Ok(LoweredValue::Stream(Box::new(
-                    StreamValue::from_values(items),
-                ))),
-                StmtFlow::Return(value) if matches!(value, LoweredValue::Stream(_)) => {
-                    Ok(value)
-                }
+                StmtFlow::None => Ok(LoweredValue::Stream(Box::new(StreamValue::from_values(
+                    items,
+                )))),
+                StmtFlow::Return(value) if matches!(value, LoweredValue::Stream(_)) => Ok(value),
                 StmtFlow::Return(LoweredValue::Unit) => Ok(LoweredValue::Stream(Box::new(
                     StreamValue::from_values(items),
                 ))),
@@ -1800,17 +1734,15 @@ impl Evaluator {
         write_back?;
         match flow {
             StmtFlow::Return(value) | StmtFlow::Propagate(value) => Ok(value),
-            StmtFlow::None => {
-                Err(RuntimeError::new("return", "lowered function did not return")
-                    .with_span(call_span))
-            }
-            StmtFlow::Continue => {
-                Err(RuntimeError::new("control-flow", "continue outside loop")
-                    .with_span(call_span))
-            }
-            StmtFlow::Break(_) => Err(
-                RuntimeError::new("control-flow", "break outside loop").with_span(call_span),
+            StmtFlow::None => Err(
+                RuntimeError::new("return", "lowered function did not return").with_span(call_span),
             ),
+            StmtFlow::Continue => {
+                Err(RuntimeError::new("control-flow", "continue outside loop").with_span(call_span))
+            }
+            StmtFlow::Break(_) => {
+                Err(RuntimeError::new("control-flow", "break outside loop").with_span(call_span))
+            }
         }
     }
 
@@ -1822,9 +1754,9 @@ impl Evaluator {
             FullStageTag::Map | FullStageTag::MapBlock => "map",
             FullStageTag::FlatMap | FullStageTag::FlatMapBlock => "flat-map",
             FullStageTag::BytesChunks => "bytes.chunks",
-            FullStageTag::BatchCount
-            | FullStageTag::BatchMaxArgv
-            | FullStageTag::BatchMaxBytes => "batch",
+            FullStageTag::BatchCount | FullStageTag::BatchMaxArgv | FullStageTag::BatchMaxBytes => {
+                "batch"
+            }
             FullStageTag::Shuffle => "shuffle",
             FullStageTag::Fold => "fold",
             FullStageTag::ReduceBy => "reduce-by",
@@ -1872,9 +1804,7 @@ impl Evaluator {
                 format!("--desc expected Bool, found {}", value.type_name()),
             )
             .with_span(span)),
-            ControlFlow::Break(value) => {
-                Err(runtime_error_from_value(value.into_value(), span))
-            }
+            ControlFlow::Break(value) => Err(runtime_error_from_value(value.into_value(), span)),
         }
     }
 
@@ -1884,8 +1814,7 @@ impl Evaluator {
         item_slot: usize,
         span: Span,
     ) -> Result<Option<&'program str>, RuntimeError> {
-        let (tag, mut payload) =
-            indexed_value(execution.instruction_id(instruction), span)?;
+        let (tag, mut payload) = indexed_value(execution.instruction_id(instruction), span)?;
         if tag != FullTag::ExprField {
             return Ok(None);
         }
@@ -1893,8 +1822,7 @@ impl Evaluator {
         let name = indexed_string(&mut payload, execution, span)?;
         indexed_decode::<Span>(&mut payload, execution, span)?;
         indexed_finish(payload, span)?;
-        let (base_tag, mut base_payload) =
-            indexed_value(execution.instruction_id(base), span)?;
+        let (base_tag, mut base_payload) = indexed_value(execution.instruction_id(base), span)?;
         if base_tag != FullTag::ExprParam {
             return Ok(None);
         }
@@ -1909,8 +1837,7 @@ impl Evaluator {
         slots: &'slots [LoweredValue],
         span: Span,
     ) -> Result<Option<&'slots LoweredValue>, RuntimeError> {
-        let (tag, mut payload) =
-            indexed_value(execution.instruction_id(instruction), span)?;
+        let (tag, mut payload) = indexed_value(execution.instruction_id(instruction), span)?;
         match tag {
             FullTag::ExprParam => {
                 let slot = indexed_decode::<usize>(&mut payload, execution, span)?;
@@ -1925,19 +1852,16 @@ impl Evaluator {
                 let name = indexed_string(&mut payload, execution, span)?;
                 let field_span = indexed_decode::<Span>(&mut payload, execution, span)?;
                 indexed_finish(payload, span)?;
-                let Some(base) = Self::indexed_field_chain_ref(
-                    execution,
-                    base,
-                    slots,
-                    field_span,
-                )? else {
+                let Some(base) = Self::indexed_field_chain_ref(execution, base, slots, field_span)?
+                else {
                     return Ok(None);
                 };
                 match base {
-                    LoweredValue::Record(record) | LoweredValue::Module(record) => record
-                        .get(name)
-                        .map(Some)
-                        .ok_or_else(|| RuntimeError::new("missing-field", name).with_span(field_span)),
+                    LoweredValue::Record(record) | LoweredValue::Module(record) => {
+                        record.get(name).map(Some).ok_or_else(|| {
+                            RuntimeError::new("missing-field", name).with_span(field_span)
+                        })
+                    }
                     LoweredValue::RecordVec(record) => {
                         lowered_record_vec_get(record.as_slice(), name)
                             .map(Some)
@@ -1971,8 +1895,7 @@ impl Evaluator {
         instruction: u32,
         span: Span,
     ) -> Result<Option<Arc<str>>, RuntimeError> {
-        let (tag, mut payload) =
-            indexed_value(execution.instruction_id(instruction), span)?;
+        let (tag, mut payload) = indexed_value(execution.instruction_id(instruction), span)?;
         if tag != FullTag::ExprStr {
             return Ok(None);
         }
@@ -1987,8 +1910,7 @@ impl Evaluator {
         item_slot: usize,
         span: Span,
     ) -> Result<Option<IndexedItemPredicate<'program>>, RuntimeError> {
-        let (tag, mut payload) =
-            indexed_value(execution.instruction_id(instruction), span)?;
+        let (tag, mut payload) = indexed_value(execution.instruction_id(instruction), span)?;
         if tag != FullTag::ExprBinary {
             return Ok(None);
         }
@@ -1998,20 +1920,11 @@ impl Evaluator {
         indexed_decode::<Span>(&mut payload, execution, span)?;
         indexed_finish(payload, span)?;
         if op == BinaryOp::And || op == BinaryOp::Or {
-            let Some(left) = Self::indexed_item_predicate(
-                execution,
-                left,
-                item_slot,
-                span,
-            )? else {
+            let Some(left) = Self::indexed_item_predicate(execution, left, item_slot, span)? else {
                 return Ok(None);
             };
-            let Some(right) = Self::indexed_item_predicate(
-                execution,
-                right,
-                item_slot,
-                span,
-            )? else {
+            let Some(right) = Self::indexed_item_predicate(execution, right, item_slot, span)?
+            else {
                 return Ok(None);
             };
             return Ok(Some(if op == BinaryOp::And {
@@ -2023,8 +1936,7 @@ impl Evaluator {
         if op != BinaryOp::Eq && op != BinaryOp::Ne {
             return Ok(None);
         }
-        if let Some(field) =
-            Self::indexed_field_projection(execution, left, item_slot, span)?
+        if let Some(field) = Self::indexed_field_projection(execution, left, item_slot, span)?
             && let Some(value) = Self::indexed_string_literal(execution, right, span)?
         {
             return Ok(Some(IndexedItemPredicate::StringCompare {
@@ -2033,8 +1945,7 @@ impl Evaluator {
                 value,
             }));
         }
-        if let Some(field) =
-            Self::indexed_field_projection(execution, right, item_slot, span)?
+        if let Some(field) = Self::indexed_field_projection(execution, right, item_slot, span)?
             && let Some(value) = Self::indexed_string_literal(execution, left, span)?
         {
             return Ok(Some(IndexedItemPredicate::StringCompare {
@@ -2060,14 +1971,12 @@ impl Evaluator {
                 let equal = matches!(field, LoweredValue::Str(text) if text == *value);
                 Ok(if *op == BinaryOp::Eq { equal } else { !equal })
             }
-            IndexedItemPredicate::And(left, right) => {
-                Ok(self.eval_indexed_item_predicate(left, item, span)?
-                    && self.eval_indexed_item_predicate(right, item, span)?)
-            }
-            IndexedItemPredicate::Or(left, right) => {
-                Ok(self.eval_indexed_item_predicate(left, item, span)?
-                    || self.eval_indexed_item_predicate(right, item, span)?)
-            }
+            IndexedItemPredicate::And(left, right) => Ok(self
+                .eval_indexed_item_predicate(left, item, span)?
+                && self.eval_indexed_item_predicate(right, item, span)?),
+            IndexedItemPredicate::Or(left, right) => Ok(self
+                .eval_indexed_item_predicate(left, item, span)?
+                || self.eval_indexed_item_predicate(right, item, span)?),
         }
     }
 
@@ -2076,8 +1985,7 @@ impl Evaluator {
         instruction: u32,
         span: Span,
     ) -> Result<Option<Vec<(Name, u32)>>, RuntimeError> {
-        let (tag, mut payload) =
-            indexed_value(execution.instruction_id(instruction), span)?;
+        let (tag, mut payload) = indexed_value(execution.instruction_id(instruction), span)?;
         if tag != FullTag::ExprRecord {
             return Ok(None);
         }
@@ -2126,23 +2034,17 @@ impl Evaluator {
         for (name, expr) in entries {
             match name.as_str().as_str() {
                 "key" => {
-                    key_field =
-                        Self::indexed_field_projection(execution, expr, item_slot, span)?;
+                    key_field = Self::indexed_field_projection(execution, expr, item_slot, span)?;
                 }
                 "value" => {
-                    let Some(fields) =
-                        Self::indexed_record_fields(execution, expr, span)?
-                    else {
+                    let Some(fields) = Self::indexed_record_fields(execution, expr, span)? else {
                         return Ok(None);
                     };
                     let mut projected = Vec::with_capacity(fields.len());
                     for (name, expr) in fields {
-                        let Some(source) = Self::indexed_field_projection(
-                            execution,
-                            expr,
-                            item_slot,
-                            span,
-                        )? else {
+                        let Some(source) =
+                            Self::indexed_field_projection(execution, expr, item_slot, span)?
+                        else {
                             return Ok(None);
                         };
                         projected.push((name, source));
@@ -2167,8 +2069,7 @@ impl Evaluator {
         slots: &mut [LoweredValue],
         call_span: Span,
     ) -> Result<ControlFlow<LoweredValue, LoweredValue>, RuntimeError> {
-        let (tag, mut payload) =
-            indexed_value(execution.instruction_id(instruction), call_span)?;
+        let (tag, mut payload) = indexed_value(execution.instruction_id(instruction), call_span)?;
         let result = match tag {
             FullTag::ExprNull => {
                 indexed_finish(payload, call_span)?;
@@ -2193,8 +2094,7 @@ impl Evaluator {
                 ControlFlow::Continue(LoweredValue::Float(value))
             }
             FullTag::ExprDuration => {
-                let value =
-                    indexed_decode::<DurationValue>(&mut payload, execution, call_span)?;
+                let value = indexed_decode::<DurationValue>(&mut payload, execution, call_span)?;
                 indexed_finish(payload, call_span)?;
                 ControlFlow::Continue(LoweredValue::Duration(value))
             }
@@ -2219,8 +2119,7 @@ impl Evaluator {
                 ControlFlow::Continue(LoweredValue::Path(value))
             }
             FullTag::ExprFunctionRef => {
-                let function =
-                    indexed_decode::<FunctionName>(&mut payload, execution, call_span)?;
+                let function = indexed_decode::<FunctionName>(&mut payload, execution, call_span)?;
                 let pure = indexed_decode::<bool>(&mut payload, execution, call_span)?;
                 indexed_finish(payload, call_span)?;
                 ControlFlow::Continue(if pure {
@@ -2277,15 +2176,8 @@ impl Evaluator {
                         .eval_indexed_bool(execution, right, slots, span)
                         .map(|flow| flow.map_continue(LoweredValue::Bool));
                 }
-                return self.eval_indexed_binary_stack(
-                    execution,
-                    slots,
-                    call_span,
-                    op,
-                    left,
-                    right,
-                    span,
-                );
+                return self
+                    .eval_indexed_binary_stack(execution, slots, call_span, op, left, right, span);
             }
             FullTag::ExprIf => {
                 let (_, mut branches) = execution
@@ -2334,9 +2226,7 @@ impl Evaluator {
                 for (pattern, guard, arm_value) in decoded_arms {
                     if Self::indexed_pattern_matches(execution, pattern, &value, slots, span)? {
                         if let Some(guard) = guard {
-                            match self.eval_indexed_expr(
-                                execution, guard, slots, call_span,
-                            )? {
+                            match self.eval_indexed_expr(execution, guard, slots, call_span)? {
                                 ControlFlow::Continue(LoweredValue::Bool(true)) => {}
                                 ControlFlow::Continue(_) => continue,
                                 ControlFlow::Break(value) => {
@@ -2344,9 +2234,7 @@ impl Evaluator {
                                 }
                             }
                         }
-                        return self.eval_indexed_expr(
-                            execution, arm_value, slots, call_span,
-                        );
+                        return self.eval_indexed_expr(execution, arm_value, slots, call_span);
                     }
                 }
                 return Err(lowered_match_no_arm(span));
@@ -2357,11 +2245,7 @@ impl Evaluator {
                 let mut arms = Vec::with_capacity(arm_count);
                 for _ in 0..arm_count {
                     arms.push((
-                        indexed_decode::<Arc<str>>(
-                            &mut payload,
-                            execution,
-                            call_span,
-                        )?,
+                        indexed_decode::<Arc<str>>(&mut payload, execution, call_span)?,
                         indexed_raw(&mut payload, call_span)?,
                     ));
                 }
@@ -2410,11 +2294,7 @@ impl Evaluator {
                     .map_err(|error| indexed_error(error, call_span))?;
                 let len = indexed_raw(&mut parts, call_span)? as usize;
                 let path_span = if path {
-                    Some(indexed_decode::<Span>(
-                        &mut payload,
-                        execution,
-                        call_span,
-                    )?)
+                    Some(indexed_decode::<Span>(&mut payload, execution, call_span)?)
                 } else {
                     None
                 };
@@ -2429,12 +2309,9 @@ impl Evaluator {
                         }
                         1 => {
                             let expr = indexed_raw(&mut parts, call_span)?;
-                            let span =
-                                indexed_decode::<Span>(&mut parts, execution, call_span)?;
+                            let span = indexed_decode::<Span>(&mut parts, execution, call_span)?;
                             let spec = indexed_decode::<Option<FormatSpec>>(
-                                &mut parts,
-                                execution,
-                                call_span,
+                                &mut parts, execution, call_span,
                             )?;
                             let value =
                                 match self.eval_indexed_expr(execution, expr, slots, call_span)? {
@@ -2467,11 +2344,7 @@ impl Evaluator {
                 let pattern = indexed_decode::<Arc<str>>(&mut payload, execution, call_span)?;
                 let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
                 indexed_finish(payload, call_span)?;
-                let matches = crate::runtime::eval::expand_glob_pattern(
-                    &self.cwd,
-                    &pattern,
-                    span,
-                )?;
+                let matches = crate::runtime::eval::expand_glob_pattern(&self.cwd, &pattern, span)?;
                 let mut values = Vec::with_capacity(matches.len());
                 for bytes in matches {
                     values.push(LoweredValue::Path(
@@ -2498,8 +2371,7 @@ impl Evaluator {
                 for _ in 0..len {
                     match indexed_raw(&mut entries, call_span)? {
                         0 => {
-                            let name =
-                                indexed_decode::<Name>(&mut entries, execution, call_span)?;
+                            let name = indexed_decode::<Name>(&mut entries, execution, call_span)?;
                             let expr = indexed_raw(&mut entries, call_span)?;
                             let value =
                                 match self.eval_indexed_expr(execution, expr, slots, call_span)? {
@@ -2508,11 +2380,7 @@ impl Evaluator {
                                         return Ok(ControlFlow::Break(value));
                                     }
                                 };
-                            lowered_record_vec_append_or_replace_unsorted(
-                                &mut record,
-                                name,
-                                value,
-                            );
+                            lowered_record_vec_append_or_replace_unsorted(&mut record, name, value);
                         }
                         1 => {
                             let expr = indexed_raw(&mut entries, call_span)?;
@@ -2547,9 +2415,9 @@ impl Evaluator {
                                     code,
                                     comments,
                                 } => {
-                                    for (key, value) in lowered_inline_stats_to_record_vec(
-                                        blanks, code, comments,
-                                    ) {
+                                    for (key, value) in
+                                        lowered_inline_stats_to_record_vec(blanks, code, comments)
+                                    {
                                         lowered_record_vec_append_or_replace_unsorted(
                                             &mut record,
                                             key,
@@ -2705,7 +2573,9 @@ impl Evaluator {
             }
             FullTag::ExprListComp | FullTag::ExprMapComp => {
                 let map = tag == FullTag::ExprMapComp;
-                let key = map.then(|| indexed_raw(&mut payload, call_span)).transpose()?;
+                let key = map
+                    .then(|| indexed_raw(&mut payload, call_span))
+                    .transpose()?;
                 let value = indexed_raw(&mut payload, call_span)?;
                 let target =
                     indexed_decode::<LoweredCompTarget>(&mut payload, execution, call_span)?;
@@ -2757,13 +2627,12 @@ impl Evaluator {
                             )
                             .with_span(span));
                         };
-                        let value =
-                            match self.eval_indexed_expr(execution, value, slots, span)? {
-                                ControlFlow::Continue(value) => value,
-                                ControlFlow::Break(value) => {
-                                    return Ok(ControlFlow::Break(value));
-                                }
-                            };
+                        let value = match self.eval_indexed_expr(execution, value, slots, span)? {
+                            ControlFlow::Continue(value) => value,
+                            ControlFlow::Break(value) => {
+                                return Ok(ControlFlow::Break(value));
+                            }
+                        };
                         values.insert(key.to_string(), value);
                     }
                     ControlFlow::Continue(LoweredValue::Map(values))
@@ -2841,17 +2710,13 @@ impl Evaluator {
                                     .position(|byte| *byte == b'\n')
                                     .map(|offset| cursor + offset);
                                 let line_end = newline.unwrap_or(end);
-                                let view_end =
-                                    if line_end > cursor && bytes[line_end - 1] == b'\r' {
-                                        line_end - 1
-                                    } else {
-                                        line_end
-                                    };
-                                lines.push(lowered_str_view_value(
-                                    text.clone(),
-                                    cursor,
-                                    view_end,
-                                ));
+                                let view_end = if line_end > cursor && bytes[line_end - 1] == b'\r'
+                                {
+                                    line_end - 1
+                                } else {
+                                    line_end
+                                };
+                                lines.push(lowered_str_view_value(text.clone(), cursor, view_end));
                                 let Some(newline) = newline else {
                                     break;
                                 };
@@ -2897,10 +2762,7 @@ impl Evaluator {
                                     .enumerate()
                                     .map(|(index, value)| {
                                         LoweredValue::Record(btree_map(vec![
-                                            (
-                                                Arc::from("index"),
-                                                LoweredValue::Int(index as i64),
-                                            ),
+                                            (Arc::from("index"), LoweredValue::Int(index as i64)),
                                             (Arc::from("value"), value),
                                         ]))
                                     })
@@ -2918,7 +2780,8 @@ impl Evaluator {
                                         return Ok(ControlFlow::Break(value));
                                     }
                                 };
-                            let right = self.lowered_list_items(other, span, "zip expected List")?;
+                            let right =
+                                self.lowered_list_items(other, span, "zip expected List")?;
                             LoweredValue::List(
                                 left.into_iter()
                                     .zip(right)
@@ -2937,21 +2800,15 @@ impl Evaluator {
                             let mut items = self.lowered_pipeline_input_items(current, span)?;
                             items.sort_unstable_by(compare_lowered_sort_keys);
                             if self.eval_indexed_pipeline_descending(
-                                execution,
-                                descending,
-                                slots,
-                                span,
+                                execution, descending, slots, span,
                             )? {
                                 items.reverse();
                             }
                             LoweredValue::List(items)
                         }
                         FullStageTag::SortBy => {
-                            let slot = indexed_decode::<usize>(
-                                &mut stage_payload,
-                                execution,
-                                span,
-                            )?;
+                            let slot =
+                                indexed_decode::<usize>(&mut stage_payload, execution, span)?;
                             let key = indexed_raw(&mut stage_payload, span)?;
                             let descending = indexed_optional_raw(&mut stage_payload, span)?;
                             indexed_finish(stage_payload, span)?;
@@ -2961,11 +2818,8 @@ impl Evaluator {
                             let mut keyed = Vec::with_capacity(items.len());
                             for item in items {
                                 if let Some(field) = projection
-                                    && let Some(key) = self.indexed_borrowed_field_value(
-                                        &item,
-                                        field,
-                                        span,
-                                    )?
+                                    && let Some(key) =
+                                        self.indexed_borrowed_field_value(&item, field, span)?
                                 {
                                     keyed.push((key, item));
                                     continue;
@@ -2978,31 +2832,22 @@ impl Evaluator {
                                             return Ok(ControlFlow::Break(value));
                                         }
                                     };
-                                let item =
-                                    std::mem::replace(&mut slots[slot], LoweredValue::Unit);
+                                let item = std::mem::replace(&mut slots[slot], LoweredValue::Unit);
                                 keyed.push((key, item));
                             }
                             keyed.sort_unstable_by(|(left, _), (right, _)| {
                                 compare_lowered_sort_keys(left, right)
                             });
                             if self.eval_indexed_pipeline_descending(
-                                execution,
-                                descending,
-                                slots,
-                                span,
+                                execution, descending, slots, span,
                             )? {
                                 keyed.reverse();
                             }
-                            LoweredValue::List(
-                                keyed.into_iter().map(|(_, item)| item).collect(),
-                            )
+                            LoweredValue::List(keyed.into_iter().map(|(_, item)| item).collect())
                         }
                         FullStageTag::GroupBy => {
-                            let slot = indexed_decode::<usize>(
-                                &mut stage_payload,
-                                execution,
-                                span,
-                            )?;
+                            let slot =
+                                indexed_decode::<usize>(&mut stage_payload, execution, span)?;
                             let key = indexed_raw(&mut stage_payload, span)?;
                             indexed_finish(stage_payload, span)?;
                             let items = self.lowered_pipeline_input_items(current, span)?;
@@ -3016,8 +2861,7 @@ impl Evaluator {
                                         item.as_ref().expect("group item is present"),
                                         field,
                                         span,
-                                    )?
-                                {
+                                    )? {
                                     key
                                 } else {
                                     slots[slot] = item.take().expect("group item is present");
@@ -3052,11 +2896,8 @@ impl Evaluator {
                             )
                         }
                         FullStageTag::CountBy => {
-                            let slot = indexed_decode::<usize>(
-                                &mut stage_payload,
-                                execution,
-                                span,
-                            )?;
+                            let slot =
+                                indexed_decode::<usize>(&mut stage_payload, execution, span)?;
                             let key = indexed_raw(&mut stage_payload, span)?;
                             indexed_finish(stage_payload, span)?;
                             let items = self.lowered_pipeline_input_items(current, span)?;
@@ -3081,11 +2922,8 @@ impl Evaluator {
                             LoweredValue::Map(counts)
                         }
                         FullStageTag::UniqueBy => {
-                            let slot = indexed_decode::<usize>(
-                                &mut stage_payload,
-                                execution,
-                                span,
-                            )?;
+                            let slot =
+                                indexed_decode::<usize>(&mut stage_payload, execution, span)?;
                             let key = indexed_raw(&mut stage_payload, span)?;
                             indexed_finish(stage_payload, span)?;
                             let items = self.lowered_pipeline_input_items(current, span)?;
@@ -3100,8 +2938,7 @@ impl Evaluator {
                                             return Ok(ControlFlow::Break(value));
                                         }
                                     };
-                                let item =
-                                    std::mem::replace(&mut slots[slot], LoweredValue::Unit);
+                                let item = std::mem::replace(&mut slots[slot], LoweredValue::Unit);
                                 if !seen.iter().any(|existing| existing == &key) {
                                     seen.push(key);
                                     unique.push(item);
@@ -3110,46 +2947,31 @@ impl Evaluator {
                             LoweredValue::List(unique)
                         }
                         FullStageTag::Where => {
-                            let slot = indexed_decode::<usize>(
-                                &mut stage_payload,
-                                execution,
-                                span,
-                            )?;
+                            let slot =
+                                indexed_decode::<usize>(&mut stage_payload, execution, span)?;
                             let predicate = indexed_raw(&mut stage_payload, span)?;
                             indexed_finish(stage_payload, span)?;
                             let items = self.lowered_pipeline_input_items(current, span)?;
-                            let item_predicate = Self::indexed_item_predicate(
-                                execution,
-                                predicate,
-                                slot,
-                                span,
-                            )?;
+                            let item_predicate =
+                                Self::indexed_item_predicate(execution, predicate, slot, span)?;
                             let mut filtered = Vec::new();
                             for item in items {
                                 if let Some(predicate) = &item_predicate {
-                                    if self.eval_indexed_item_predicate(
-                                        predicate,
-                                        &item,
-                                        span,
-                                    )? {
+                                    if self.eval_indexed_item_predicate(predicate, &item, span)? {
                                         filtered.push(item);
                                     }
                                     continue;
                                 }
                                 slots[slot] = item;
-                                let keep = match self.eval_indexed_bool(
-                                    execution,
-                                    predicate,
-                                    slots,
-                                    span,
-                                )? {
+                                let keep = match self
+                                    .eval_indexed_bool(execution, predicate, slots, span)?
+                                {
                                     ControlFlow::Continue(value) => value,
                                     ControlFlow::Break(value) => {
                                         return Ok(ControlFlow::Break(value));
                                     }
                                 };
-                                let item =
-                                    std::mem::replace(&mut slots[slot], LoweredValue::Unit);
+                                let item = std::mem::replace(&mut slots[slot], LoweredValue::Unit);
                                 if keep {
                                     filtered.push(item);
                                 }
@@ -3157,11 +2979,8 @@ impl Evaluator {
                             LoweredValue::List(filtered)
                         }
                         FullStageTag::Any | FullStageTag::All => {
-                            let slot = indexed_decode::<usize>(
-                                &mut stage_payload,
-                                execution,
-                                span,
-                            )?;
+                            let slot =
+                                indexed_decode::<usize>(&mut stage_payload, execution, span)?;
                             let predicate = indexed_raw(&mut stage_payload, span)?;
                             indexed_finish(stage_payload, span)?;
                             let items = self.lowered_pipeline_input_items(current, span)?;
@@ -3186,11 +3005,8 @@ impl Evaluator {
                             LoweredValue::Bool(matched)
                         }
                         FullStageTag::Map => {
-                            let slot = indexed_decode::<usize>(
-                                &mut stage_payload,
-                                execution,
-                                span,
-                            )?;
+                            let slot =
+                                indexed_decode::<usize>(&mut stage_payload, execution, span)?;
                             let value = indexed_raw(&mut stage_payload, span)?;
                             indexed_finish(stage_payload, span)?;
                             let items = self.lowered_pipeline_input_items(current, span)?;
@@ -3199,11 +3015,8 @@ impl Evaluator {
                             let mut mapped = Vec::with_capacity(items.len());
                             for (index, item) in items.into_iter().enumerate() {
                                 if let Some(field) = projection
-                                    && let Some(value) = self.indexed_borrowed_field_value(
-                                        &item,
-                                        field,
-                                        span,
-                                    )?
+                                    && let Some(value) =
+                                        self.indexed_borrowed_field_value(&item, field, span)?
                                 {
                                     mapped.push(value);
                                     continue;
@@ -3216,9 +3029,9 @@ impl Evaluator {
                                             return Ok(ControlFlow::Break(value));
                                         }
                                         Err(error) => {
-                                            return Err(self.stream_item_runtime_error(
-                                                "map", index, error,
-                                            ));
+                                            return Err(
+                                                self.stream_item_runtime_error("map", index, error)
+                                            );
                                         }
                                     };
                                 mapped.push(value);
@@ -3226,11 +3039,8 @@ impl Evaluator {
                             LoweredValue::List(mapped)
                         }
                         FullStageTag::MapBlock | FullStageTag::FlatMapBlock => {
-                            let slot = indexed_decode::<usize>(
-                                &mut stage_payload,
-                                execution,
-                                span,
-                            )?;
+                            let slot =
+                                indexed_decode::<usize>(&mut stage_payload, execution, span)?;
                             let body = indexed_raw(&mut stage_payload, span)?;
                             let value = indexed_raw(&mut stage_payload, span)?;
                             indexed_finish(stage_payload, span)?;
@@ -3248,8 +3058,7 @@ impl Evaluator {
                                     call_span,
                                 )? {
                                     StmtFlow::None => {}
-                                    StmtFlow::Return(value)
-                                    | StmtFlow::Propagate(value) => {
+                                    StmtFlow::Return(value) | StmtFlow::Propagate(value) => {
                                         return Ok(ControlFlow::Break(value));
                                     }
                                     StmtFlow::Break(_) => {
@@ -3287,11 +3096,8 @@ impl Evaluator {
                             LoweredValue::List(mapped)
                         }
                         FullStageTag::FlatMap => {
-                            let slot = indexed_decode::<usize>(
-                                &mut stage_payload,
-                                execution,
-                                span,
-                            )?;
+                            let slot =
+                                indexed_decode::<usize>(&mut stage_payload, execution, span)?;
                             let value = indexed_raw(&mut stage_payload, span)?;
                             indexed_finish(stage_payload, span)?;
                             let items = self.lowered_pipeline_input_items(current, span)?;
@@ -3328,34 +3134,31 @@ impl Evaluator {
                                     .with_span(span)
                                 })?
                                 .to_vec();
-                            let size =
-                                match self.eval_indexed_expr(execution, size, slots, span)? {
-                                    ControlFlow::Continue(LoweredValue::Int(value))
-                                        if value > 0 =>
-                                    {
-                                        value
-                                    }
-                                    ControlFlow::Continue(LoweredValue::Int(_)) => {
-                                        return Err(RuntimeError::new(
-                                            "bytes-chunks",
-                                            "chunk size must be positive",
-                                        )
-                                        .with_span(span));
-                                    }
-                                    ControlFlow::Continue(value) => {
-                                        return Err(RuntimeError::new(
-                                            "type-error",
-                                            format!(
-                                                "bytes.chunks size expected Int, found {}",
-                                                value.type_name()
-                                            ),
-                                        )
-                                        .with_span(span));
-                                    }
-                                    ControlFlow::Break(value) => {
-                                        return Ok(ControlFlow::Break(value));
-                                    }
-                                };
+                            let size = match self.eval_indexed_expr(execution, size, slots, span)? {
+                                ControlFlow::Continue(LoweredValue::Int(value)) if value > 0 => {
+                                    value
+                                }
+                                ControlFlow::Continue(LoweredValue::Int(_)) => {
+                                    return Err(RuntimeError::new(
+                                        "bytes-chunks",
+                                        "chunk size must be positive",
+                                    )
+                                    .with_span(span));
+                                }
+                                ControlFlow::Continue(value) => {
+                                    return Err(RuntimeError::new(
+                                        "type-error",
+                                        format!(
+                                            "bytes.chunks size expected Int, found {}",
+                                            value.type_name()
+                                        ),
+                                    )
+                                    .with_span(span));
+                                }
+                                ControlFlow::Break(value) => {
+                                    return Ok(ControlFlow::Break(value));
+                                }
+                            };
                             let chunks = bytes_module::chunks(bytes, size, span)?;
                             let mut lowered = Vec::with_capacity(chunks.len());
                             for chunk in chunks {
@@ -3376,43 +3179,40 @@ impl Evaluator {
                         FullStageTag::BatchCount => {
                             let count = indexed_raw(&mut stage_payload, span)?;
                             indexed_finish(stage_payload, span)?;
-                            let count =
-                                match self.eval_indexed_expr(execution, count, slots, span)? {
-                                    ControlFlow::Continue(LoweredValue::Int(value))
-                                        if value > 0 =>
-                                    {
-                                        value as usize
-                                    }
-                                    ControlFlow::Continue(LoweredValue::Int(_)) => {
-                                        return Err(RuntimeError::new(
-                                            "stream-stage-option",
-                                            "--count must be positive",
-                                        )
-                                        .with_span(span));
-                                    }
-                                    ControlFlow::Continue(value) => {
-                                        return Err(RuntimeError::new(
-                                            "type-error",
-                                            format!(
-                                                "--count expected Int, found {}",
-                                                value.type_name()
-                                            ),
-                                        )
-                                        .with_span(span));
-                                    }
-                                    ControlFlow::Break(value) => {
-                                        return Ok(ControlFlow::Break(value));
-                                    }
-                                };
+                            let count = match self
+                                .eval_indexed_expr(execution, count, slots, span)?
+                            {
+                                ControlFlow::Continue(LoweredValue::Int(value)) if value > 0 => {
+                                    value as usize
+                                }
+                                ControlFlow::Continue(LoweredValue::Int(_)) => {
+                                    return Err(RuntimeError::new(
+                                        "stream-stage-option",
+                                        "--count must be positive",
+                                    )
+                                    .with_span(span));
+                                }
+                                ControlFlow::Continue(value) => {
+                                    return Err(RuntimeError::new(
+                                        "type-error",
+                                        format!(
+                                            "--count expected Int, found {}",
+                                            value.type_name()
+                                        ),
+                                    )
+                                    .with_span(span));
+                                }
+                                ControlFlow::Break(value) => {
+                                    return Ok(ControlFlow::Break(value));
+                                }
+                            };
                             let items = self.lowered_pipeline_input_items(current, span)?;
                             let mut batches = Vec::new();
                             let mut batch = Vec::with_capacity(count);
                             for item in items {
                                 batch.push(item);
                                 if batch.len() == count {
-                                    batches.push(LoweredValue::List(std::mem::take(
-                                        &mut batch,
-                                    )));
+                                    batches.push(LoweredValue::List(std::mem::take(&mut batch)));
                                     batch = Vec::with_capacity(count);
                                 }
                             }
@@ -3426,9 +3226,9 @@ impl Evaluator {
                                 let max_argv = indexed_optional_raw(&mut stage_payload, span)?;
                                 match max_argv {
                                     Some(expr) => {
-                                        match self.eval_indexed_expr(
-                                            execution, expr, slots, span,
-                                        )? {
+                                        match self
+                                            .eval_indexed_expr(execution, expr, slots, span)?
+                                        {
                                             ControlFlow::Continue(value) => {
                                                 lowered_nonnegative_count(value, span)?
                                             }
@@ -3443,9 +3243,7 @@ impl Evaluator {
                                 }
                             } else {
                                 let max_bytes = indexed_raw(&mut stage_payload, span)?;
-                                match self.eval_indexed_expr(
-                                    execution, max_bytes, slots, span,
-                                )? {
+                                match self.eval_indexed_expr(execution, max_bytes, slots, span)? {
                                     ControlFlow::Continue(value) => {
                                         lowered_nonnegative_count(value, span)?
                                     }
@@ -3471,12 +3269,8 @@ impl Evaluator {
                                 let separator = usize::from(
                                     tag == FullStageTag::BatchMaxArgv && !batch.is_empty(),
                                 );
-                                if !batch.is_empty()
-                                    && batch_len + separator + item_len > limit
-                                {
-                                    batches.push(LoweredValue::List(std::mem::take(
-                                        &mut batch,
-                                    )));
+                                if !batch.is_empty() && batch_len + separator + item_len > limit {
+                                    batches.push(LoweredValue::List(std::mem::take(&mut batch)));
                                     batch_len = 0;
                                 }
                                 let separator = usize::from(
@@ -3495,9 +3289,7 @@ impl Evaluator {
                             indexed_finish(stage_payload, span)?;
                             let seed = match seed {
                                 Some(seed) => {
-                                    match self.eval_indexed_expr(
-                                        execution, seed, slots, span,
-                                    )? {
+                                    match self.eval_indexed_expr(execution, seed, slots, span)? {
                                         ControlFlow::Continue(LoweredValue::Int(value)) => {
                                             value as u64
                                         }
@@ -3522,25 +3314,17 @@ impl Evaluator {
                             let mut state =
                                 seed ^ (items.len() as u64).wrapping_mul(0x9e3779b97f4a7c15);
                             for index in (1..items.len()).rev() {
-                                state = state
-                                    .wrapping_mul(6364136223846793005)
-                                    .wrapping_add(1);
+                                state = state.wrapping_mul(6364136223846793005).wrapping_add(1);
                                 let swap = (state as usize) % (index + 1);
                                 items.swap(index, swap);
                             }
                             LoweredValue::List(items)
                         }
                         FullStageTag::Fold => {
-                            let acc_slot = indexed_decode::<usize>(
-                                &mut stage_payload,
-                                execution,
-                                span,
-                            )?;
-                            let item_slot = indexed_decode::<usize>(
-                                &mut stage_payload,
-                                execution,
-                                span,
-                            )?;
+                            let acc_slot =
+                                indexed_decode::<usize>(&mut stage_payload, execution, span)?;
+                            let item_slot =
+                                indexed_decode::<usize>(&mut stage_payload, execution, span)?;
                             let initial = indexed_raw(&mut stage_payload, span)?;
                             let body = indexed_raw(&mut stage_payload, span)?;
                             let value = indexed_raw(&mut stage_payload, span)?;
@@ -3565,8 +3349,7 @@ impl Evaluator {
                                     span,
                                 )? {
                                     StmtFlow::None | StmtFlow::Continue => {}
-                                    StmtFlow::Propagate(value)
-                                    | StmtFlow::Return(value) => {
+                                    StmtFlow::Propagate(value) | StmtFlow::Return(value) => {
                                         return Ok(ControlFlow::Break(value));
                                     }
                                     StmtFlow::Break(value) => {
@@ -3575,41 +3358,29 @@ impl Evaluator {
                                         ));
                                     }
                                 }
-                                acc =
-                                    match self.eval_indexed_expr(execution, value, slots, span)? {
-                                        ControlFlow::Continue(value) => value,
-                                        ControlFlow::Break(value) => {
-                                            return Ok(ControlFlow::Break(value));
-                                        }
-                                    };
+                                acc = match self.eval_indexed_expr(execution, value, slots, span)? {
+                                    ControlFlow::Continue(value) => value,
+                                    ControlFlow::Break(value) => {
+                                        return Ok(ControlFlow::Break(value));
+                                    }
+                                };
                             }
                             slots[acc_slot] = LoweredValue::Unit;
                             slots[item_slot] = LoweredValue::Unit;
                             acc
                         }
                         FullStageTag::ReduceBy => {
-                            let item_slot = indexed_decode::<usize>(
-                                &mut stage_payload,
-                                execution,
-                                span,
-                            )?;
+                            let item_slot =
+                                indexed_decode::<usize>(&mut stage_payload, execution, span)?;
                             let body = indexed_raw(&mut stage_payload, span)?;
                             let value = indexed_raw(&mut stage_payload, span)?;
-                            let op = indexed_decode::<ReduceByOp>(
-                                &mut stage_payload,
-                                execution,
-                                span,
-                            )?;
+                            let op =
+                                indexed_decode::<ReduceByOp>(&mut stage_payload, execution, span)?;
                             indexed_finish(stage_payload, span)?;
                             let items = self.lowered_pipeline_input_items(current, span)?;
                             let block_header = Self::indexed_block_header(slots.len());
                             let mut projection = Self::indexed_reduce_projection(
-                                execution,
-                                item_slot,
-                                body,
-                                value,
-                                op,
-                                span,
+                                execution, item_slot, body, value, op, span,
                             )?
                             .map(LoweredProjectedReduceState::new);
                             let mut groups = BTreeMap::new();
@@ -3632,8 +3403,7 @@ impl Evaluator {
                                     span,
                                 )? {
                                     StmtFlow::None | StmtFlow::Continue => {}
-                                    StmtFlow::Propagate(value)
-                                    | StmtFlow::Return(value) => {
+                                    StmtFlow::Propagate(value) | StmtFlow::Return(value) => {
                                         return Ok(ControlFlow::Break(value));
                                     }
                                     StmtFlow::Break(value) => {
@@ -3652,57 +3422,39 @@ impl Evaluator {
                                 let (key, value) =
                                     lowered_reduce_fields_owned(output, "key", "value", span)?;
                                 let key = lowered_reduce_key_value_owned(key, span)?;
-                                lowered_reduce_group_insert(
-                                    &mut groups,
-                                    key,
-                                    value,
-                                    op,
-                                    span,
-                                )?;
+                                lowered_reduce_group_insert(&mut groups, key, value, op, span)?;
                             }
                             slots[item_slot] = LoweredValue::Unit;
                             LoweredValue::Map(groups.into_iter().collect())
                         }
                         FullStageTag::ParMapFlatMapReduceBy => {
-                            let slot = indexed_decode::<usize>(
-                                &mut stage_payload,
-                                execution,
-                                span,
-                            )?;
+                            let slot =
+                                indexed_decode::<usize>(&mut stage_payload, execution, span)?;
                             let body = indexed_optional_raw(&mut stage_payload, span)?;
                             let jobs = indexed_optional_raw(&mut stage_payload, span)?;
                             let value = indexed_raw(&mut stage_payload, span)?;
-                            let flatten = indexed_decode::<bool>(
-                                &mut stage_payload,
-                                execution,
-                                span,
-                            )?;
-                            let reduce_item_slot = indexed_decode::<usize>(
-                                &mut stage_payload,
-                                execution,
-                                span,
-                            )?;
+                            let flatten =
+                                indexed_decode::<bool>(&mut stage_payload, execution, span)?;
+                            let reduce_item_slot =
+                                indexed_decode::<usize>(&mut stage_payload, execution, span)?;
                             let reduce_body = indexed_raw(&mut stage_payload, span)?;
                             let reduce_value = indexed_raw(&mut stage_payload, span)?;
-                            let op = indexed_decode::<ReduceByOp>(
-                                &mut stage_payload,
-                                execution,
-                                span,
-                            )?;
+                            let op =
+                                indexed_decode::<ReduceByOp>(&mut stage_payload, execution, span)?;
                             indexed_finish(stage_payload, span)?;
                             let jobs = match jobs {
-                                Some(jobs) => match self.eval_indexed_expr(execution, jobs, slots, span)? {
-                                    ControlFlow::Continue(value) => {
-                                        lowered_nonnegative_count(value, span)?.max(1)
+                                Some(jobs) => {
+                                    match self.eval_indexed_expr(execution, jobs, slots, span)? {
+                                        ControlFlow::Continue(value) => {
+                                            lowered_nonnegative_count(value, span)?.max(1)
+                                        }
+                                        ControlFlow::Break(value) => {
+                                            return Ok(ControlFlow::Break(value));
+                                        }
                                     }
-                                    ControlFlow::Break(value) => {
-                                        return Ok(ControlFlow::Break(value));
-                                    }
-                                },
+                                }
                                 None => std::thread::available_parallelism()
-                                    .map_or(1, |count| {
-                                        count.get().min(DEFAULT_PAR_MAP_WORKERS)
-                                    }),
+                                    .map_or(1, |count| count.get().min(DEFAULT_PAR_MAP_WORKERS)),
                             };
                             let items = self.lowered_pipeline_input_items(current, span)?;
                             if self.trace_enabled || jobs <= 1 || items.len() <= 1 {
@@ -3774,11 +3526,8 @@ impl Evaluator {
                             }
                         }
                         FullStageTag::ParMap | FullStageTag::ParMapBlock => {
-                            let slot = indexed_decode::<usize>(
-                                &mut stage_payload,
-                                execution,
-                                span,
-                            )?;
+                            let slot =
+                                indexed_decode::<usize>(&mut stage_payload, execution, span)?;
                             let body = if tag == FullStageTag::ParMapBlock {
                                 Some(indexed_raw(&mut stage_payload, span)?)
                             } else {
@@ -3799,9 +3548,7 @@ impl Evaluator {
                                     }
                                 }
                                 None => std::thread::available_parallelism()
-                                    .map_or(1, |count| {
-                                        count.get().min(DEFAULT_PAR_MAP_WORKERS)
-                                    }),
+                                    .map_or(1, |count| count.get().min(DEFAULT_PAR_MAP_WORKERS)),
                             };
                             let items = self.lowered_pipeline_input_items(current, span)?;
                             let block_header = Self::indexed_block_header(slots.len());
@@ -3856,29 +3603,18 @@ impl Evaluator {
                             LoweredValue::List(results)
                         }
                         FullStageTag::Tee | FullStageTag::Each => {
-                            let slot = indexed_decode::<usize>(
-                                &mut stage_payload,
-                                execution,
-                                span,
-                            )?;
+                            let slot =
+                                indexed_decode::<usize>(&mut stage_payload, execution, span)?;
                             let body = indexed_raw(&mut stage_payload, span)?;
                             let parallel = if tag == FullStageTag::Each {
-                                indexed_decode::<bool>(
-                                    &mut stage_payload,
-                                    execution,
-                                    span,
-                                )?
+                                indexed_decode::<bool>(&mut stage_payload, execution, span)?
                             } else {
                                 false
                             };
                             indexed_finish(stage_payload, span)?;
                             let items = self.lowered_pipeline_input_items(current, span)?;
                             let tee = tag == FullStageTag::Tee;
-                            let output = if tee {
-                                items.clone()
-                            } else {
-                                Vec::new()
-                            };
+                            let output = if tee { items.clone() } else { Vec::new() };
                             let block_header = Self::indexed_block_header(slots.len());
                             for (item_index, item) in items.into_iter().enumerate() {
                                 if parallel {
@@ -3923,8 +3659,7 @@ impl Evaluator {
                                 };
                                 match flow {
                                     StmtFlow::None | StmtFlow::Continue => {}
-                                    StmtFlow::Return(value)
-                                    | StmtFlow::Propagate(value) => {
+                                    StmtFlow::Return(value) | StmtFlow::Propagate(value) => {
                                         if parallel {
                                             let runtime_value = value.clone().into_value();
                                             let trace_error =
@@ -3999,9 +3734,7 @@ impl Evaluator {
                                             }
                                             _ => crate::terminal::table::TableAlign::Left,
                                         })
-                                        .unwrap_or(
-                                            crate::terminal::table::TableAlign::Left,
-                                        );
+                                        .unwrap_or(crate::terminal::table::TableAlign::Left);
                                     crate::terminal::table::TextTableColumn::new(
                                         name.clone(),
                                         0,
@@ -4029,9 +3762,7 @@ impl Evaluator {
                                 .collect::<Vec<_>>();
                             let mut output = String::new();
                             let width =
-                                crate::terminal::table::terminal_table_width_for_stdout(
-                                    20, 120,
-                                );
+                                crate::terminal::table::terminal_table_width_for_stdout(20, 120);
                             crate::terminal::table::render_text_table(
                                 &table_columns,
                                 &rows,
@@ -4186,30 +3917,26 @@ impl Evaluator {
                                         return Ok(ControlFlow::Break(value));
                                     }
                                 };
-                            let end =
-                                match self.eval_indexed_expr(execution, end, slots, span)? {
-                                    ControlFlow::Continue(LoweredValue::Int(value)) => value,
-                                    ControlFlow::Continue(value) => {
-                                        return Err(RuntimeError::new(
-                                            "type-error",
-                                            format!(
-                                                "range end expected Int, found {}",
-                                                value.type_name()
-                                            ),
-                                        )
-                                        .with_span(span));
-                                    }
-                                    ControlFlow::Break(value) => {
-                                        return Ok(ControlFlow::Break(value));
-                                    }
-                                };
+                            let end = match self.eval_indexed_expr(execution, end, slots, span)? {
+                                ControlFlow::Continue(LoweredValue::Int(value)) => value,
+                                ControlFlow::Continue(value) => {
+                                    return Err(RuntimeError::new(
+                                        "type-error",
+                                        format!(
+                                            "range end expected Int, found {}",
+                                            value.type_name()
+                                        ),
+                                    )
+                                    .with_span(span));
+                                }
+                                ControlFlow::Break(value) => {
+                                    return Ok(ControlFlow::Break(value));
+                                }
+                            };
                             LoweredValue::List(if start <= end {
                                 (start..end).map(LoweredValue::Int).collect()
                             } else {
-                                (end + 1..=start)
-                                    .rev()
-                                    .map(LoweredValue::Int)
-                                    .collect()
+                                (end + 1..=start).rev().map(LoweredValue::Int).collect()
                             })
                         }
                     };
@@ -4232,12 +3959,8 @@ impl Evaluator {
                 let name = indexed_string(&mut payload, execution, call_span)?;
                 let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
                 indexed_finish(payload, call_span)?;
-                if let Some(base) = Self::indexed_field_chain_ref(
-                    execution,
-                    base,
-                    slots,
-                    span,
-                )? && let Some(value) = lowered_record_field_value(base, name)
+                if let Some(base) = Self::indexed_field_chain_ref(execution, base, slots, span)?
+                    && let Some(value) = lowered_record_field_value(base, name)
                 {
                     return Ok(ControlFlow::Continue(value));
                 }
@@ -4297,11 +4020,10 @@ impl Evaluator {
                 let len = indexed_raw(&mut args, call_span)? as usize;
                 let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
                 indexed_finish(payload, call_span)?;
-                let receiver =
-                    match self.eval_indexed_expr(execution, receiver, slots, span)? {
-                        ControlFlow::Continue(value) => value,
-                        ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
-                    };
+                let receiver = match self.eval_indexed_expr(execution, receiver, slots, span)? {
+                    ControlFlow::Continue(value) => value,
+                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+                };
                 let mut values = Vec::with_capacity(len);
                 for _ in 0..len {
                     let arg = indexed_raw(&mut args, span)?;
@@ -4312,12 +4034,7 @@ impl Evaluator {
                 }
                 indexed_finish(args, span)?;
                 if !self.trace_enabled {
-                    return self.eval_lowered_method_dispatch(
-                        receiver,
-                        name,
-                        values,
-                        &span,
-                    );
+                    return self.eval_lowered_method_dispatch(receiver, name, values, &span);
                 }
                 let trace_name = format!("{}.{}", receiver.type_name(), name);
                 self.trace_enter(
@@ -4360,8 +4077,9 @@ impl Evaluator {
                 let index = match self.eval_indexed_expr(execution, index, slots, span)? {
                     ControlFlow::Continue(LoweredValue::Int(value)) => value,
                     ControlFlow::Continue(_) => {
-                        return Err(RuntimeError::new("type-error", "byte_at expected Int")
-                            .with_span(span));
+                        return Err(
+                            RuntimeError::new("type-error", "byte_at expected Int").with_span(span)
+                        );
                     }
                     ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
                 };
@@ -4428,11 +4146,10 @@ impl Evaluator {
                     ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
                 };
                 let Some(pattern) = lowered_str_value(&pattern) else {
-                    return Err(RuntimeError::new(
-                        "type-error",
-                        "regex.compile expected Str",
-                    )
-                    .with_span(span));
+                    return Err(
+                        RuntimeError::new("type-error", "regex.compile expected Str")
+                            .with_span(span),
+                    );
                 };
                 ControlFlow::Continue(match crate::modules::regex::compile(pattern, span) {
                     Ok(regex) => LoweredValue::ResultOk(Box::new(LoweredValue::Regex(Box::new(
@@ -4441,36 +4158,35 @@ impl Evaluator {
                             regex: Arc::new(regex),
                         },
                     )))),
-                    Err(error) => {
-                        LoweredValue::ResultErr(Box::new(Value::Error(Box::new(error))))
-                    }
+                    Err(error) => LoweredValue::ResultErr(Box::new(Value::Error(Box::new(error)))),
                 })
             }
             FullTag::ExprRequire => {
                 let value = indexed_raw(&mut payload, call_span)?;
-                let check =
-                    indexed_decode::<LoweredTypeCheck>(&mut payload, execution, call_span)?;
+                let check = indexed_decode::<LoweredTypeCheck>(&mut payload, execution, call_span)?;
                 let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
                 indexed_finish(payload, call_span)?;
                 let value = match self.eval_indexed_expr(execution, value, slots, span)? {
                     ControlFlow::Continue(value) => value,
                     ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
                 };
-                ControlFlow::Continue(if lowered_value_satisfies_require(self, &value, &check.ty) {
-                    lowered_result_ok(value)
-                } else {
-                    lowered_result_err_value(
-                        RuntimeError::new(
-                            "schema",
-                            format!(
-                                "schema check failed: expected {}, found {}",
-                                check.name,
-                                value.type_name()
-                            ),
+                ControlFlow::Continue(
+                    if lowered_value_satisfies_require(self, &value, &check.ty) {
+                        lowered_result_ok(value)
+                    } else {
+                        lowered_result_err_value(
+                            RuntimeError::new(
+                                "schema",
+                                format!(
+                                    "schema check failed: expected {}, found {}",
+                                    check.name,
+                                    value.type_name()
+                                ),
+                            )
+                            .with_span(span),
                         )
-                        .with_span(span),
-                    )
-                })
+                    },
+                )
             }
             FullTag::ExprLoop => {
                 let body = indexed_raw(&mut payload, call_span)?;
@@ -4482,9 +4198,9 @@ impl Evaluator {
                     if self.signal_state.shutdown_complete {
                         break ControlFlow::Continue(LoweredValue::Unit);
                     }
-                    match self.eval_indexed_statement_block(
-                        execution, body, &header, slots, span,
-                    )? {
+                    match self
+                        .eval_indexed_statement_block(execution, body, &header, slots, span)?
+                    {
                         StmtFlow::None | StmtFlow::Continue => {}
                         StmtFlow::Break(value) => {
                             break ControlFlow::Continue(value.unwrap_or(LoweredValue::Unit));
@@ -4535,17 +4251,13 @@ impl Evaluator {
                 let mut final_traceback = None;
                 for attempt_index in 0..max_attempts {
                     if attempt_index > 0 {
-                        self.sleep_lowered_retry_delay(
-                            &delay_values[attempt_index - 1],
-                            span,
-                        )?;
+                        self.sleep_lowered_retry_delay(&delay_values[attempt_index - 1], span)?;
                         if self.signal_state.shutdown_complete {
                             break;
                         }
                     }
-                    let attempt_flow = self.eval_indexed_statement_block(
-                        execution, body, &header, slots, span,
-                    )?;
+                    let attempt_flow =
+                        self.eval_indexed_statement_block(execution, body, &header, slots, span)?;
                     match self.lowered_retry_attempt_value(attempt_flow) {
                         LoweredRetryAttemptValue::Success(value) => {
                             self.trace_lowered_retry_attempt(
@@ -4555,9 +4267,9 @@ impl Evaluator {
                                 None,
                                 None,
                             );
-                            return Ok(ControlFlow::Continue(LoweredValue::ResultOk(
-                                Box::new(value),
-                            )));
+                            return Ok(ControlFlow::Continue(LoweredValue::ResultOk(Box::new(
+                                value,
+                            ))));
                         }
                         LoweredRetryAttemptValue::Failed { error, traceback } => {
                             let next_delay =
@@ -4596,8 +4308,7 @@ impl Evaluator {
                 let stat = indexed_decode::<bool>(&mut payload, execution, call_span)?;
                 let hidden = indexed_decode::<bool>(&mut payload, execution, call_span)?;
                 let exts = indexed_optional_raw(&mut payload, call_span)?;
-                let result_wrapped =
-                    indexed_decode::<bool>(&mut payload, execution, call_span)?;
+                let result_wrapped = indexed_decode::<bool>(&mut payload, execution, call_span)?;
                 let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
                 indexed_finish(payload, call_span)?;
                 let root = match self.eval_indexed_expr(execution, root, slots, span)? {
@@ -4616,9 +4327,7 @@ impl Evaluator {
                     }
                     ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
                 };
-                let exts = match self.eval_indexed_optional_expr(
-                    execution, exts, slots, span,
-                )? {
+                let exts = match self.eval_indexed_optional_expr(execution, exts, slots, span)? {
                     ControlFlow::Continue(Some(value)) => lowered_str_list_arg(
                         Some(value),
                         if tag == FullTag::ExprFsFiles {
@@ -4674,22 +4383,19 @@ impl Evaluator {
                     ControlFlow::Continue(value) => lowered_path_arg(value, operation, span)?,
                     ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
                 };
-                let stat = match self.eval_indexed_optional_expr(
-                    execution, stat, slots, span,
-                )? {
+                let stat = match self.eval_indexed_optional_expr(execution, stat, slots, span)? {
                     ControlFlow::Continue(value) => {
                         lowered_bool_arg_or(value, true, operation, span)?
                     }
                     ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
                 };
-                let ordered = match self.eval_indexed_optional_expr(
-                    execution, ordered, slots, span,
-                )? {
-                    ControlFlow::Continue(value) => {
-                        lowered_bool_arg_or(value, true, operation, span)?
-                    }
-                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
-                };
+                let ordered =
+                    match self.eval_indexed_optional_expr(execution, ordered, slots, span)? {
+                        ControlFlow::Continue(value) => {
+                            lowered_bool_arg_or(value, true, operation, span)?
+                        }
+                        ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+                    };
                 ControlFlow::Continue(self.lowered_stream_list_result(
                     fs_module::list_filesystem(self.host_path(&path), stat, ordered, span),
                     span,
@@ -4757,14 +4463,13 @@ impl Evaluator {
                     ControlFlow::Continue(value) => lowered_path_arg(value, operation, span)?,
                     ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
                 };
-                let parents = match self.eval_indexed_optional_expr(
-                    execution, parents, slots, span,
-                )? {
-                    ControlFlow::Continue(value) => {
-                        lowered_bool_arg_or(value, true, operation, span)?
-                    }
-                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
-                };
+                let parents =
+                    match self.eval_indexed_optional_expr(execution, parents, slots, span)? {
+                        ControlFlow::Continue(value) => {
+                            lowered_bool_arg_or(value, true, operation, span)?
+                        }
+                        ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+                    };
                 ControlFlow::Continue(lowered_unit_result(crate::modules::fs::mkdir_path(
                     self.host_path(&path),
                     parents,
@@ -4786,14 +4491,13 @@ impl Evaluator {
                     ControlFlow::Continue(value) => lowered_path_arg(value, operation, span)?,
                     ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
                 };
-                let missing_ok = match self.eval_indexed_optional_expr(
-                    execution, missing_ok, slots, span,
-                )? {
-                    ControlFlow::Continue(value) => {
-                        lowered_bool_arg_or(value, false, operation, span)?
-                    }
-                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
-                };
+                let missing_ok =
+                    match self.eval_indexed_optional_expr(execution, missing_ok, slots, span)? {
+                        ControlFlow::Continue(value) => {
+                            lowered_bool_arg_or(value, false, operation, span)?
+                        }
+                        ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+                    };
                 ControlFlow::Continue(lowered_unit_result(crate::modules::fs::remove_path(
                     self.host_path(&path),
                     missing_ok,
@@ -4822,11 +4526,8 @@ impl Evaluator {
                                 lowered_result_ok(LoweredValue::Unit)
                             } else {
                                 lowered_result_err_value(
-                                    RuntimeError::new(
-                                        "fs-root",
-                                        "root handle is not active",
-                                    )
-                                    .with_span(span),
+                                    RuntimeError::new("fs-root", "root handle is not active")
+                                        .with_span(span),
                                 )
                             }
                         }
@@ -4871,8 +4572,8 @@ impl Evaluator {
                             Ok(text) => {
                                 LoweredValue::ResultOk(Box::new(LoweredValue::Str(text.into())))
                             }
-                            Err(error) => LoweredValue::ResultErr(Box::new(Value::Error(
-                                Box::new(
+                            Err(error) => {
+                                LoweredValue::ResultErr(Box::new(Value::Error(Box::new(
                                     RuntimeError::new(
                                         "invalid-utf8",
                                         format!(
@@ -4881,8 +4582,8 @@ impl Evaluator {
                                         ),
                                     )
                                     .with_span(span),
-                                ),
-                            ))),
+                                ))))
+                            }
                         },
                         Err(error) => {
                             LoweredValue::ResultErr(Box::new(Value::Error(Box::new(error))))
@@ -4890,9 +4591,7 @@ impl Evaluator {
                     }
                 } else {
                     match read_host_path_bytes(&self.host_path(&path), span) {
-                        Ok(bytes) => {
-                            LoweredValue::ResultOk(Box::new(LoweredValue::Bytes(bytes)))
-                        }
+                        Ok(bytes) => LoweredValue::ResultOk(Box::new(LoweredValue::Bytes(bytes))),
                         Err(error) => {
                             LoweredValue::ResultErr(Box::new(Value::Error(Box::new(error))))
                         }
@@ -4924,24 +4623,20 @@ impl Evaluator {
                 };
                 let host_path = self.host_path(&path);
                 let value = match tag {
-                    FullTag::ExprPathExists => {
-                        match crate::modules::fs::exists(host_path, span) {
-                            Ok(value) => lowered_result_ok(LoweredValue::Bool(value)),
-                            Err(error) => lowered_result_err_value(error),
-                        }
-                    }
+                    FullTag::ExprPathExists => match crate::modules::fs::exists(host_path, span) {
+                        Ok(value) => lowered_result_ok(LoweredValue::Bool(value)),
+                        Err(error) => lowered_result_err_value(error),
+                    },
                     FullTag::ExprPathExecutable => {
                         match crate::modules::fs::executable(host_path, span) {
                             Ok(value) => lowered_result_ok(LoweredValue::Bool(value)),
                             Err(error) => lowered_result_err_value(error),
                         }
                     }
-                    FullTag::ExprPathDu => {
-                        match crate::modules::fs::disk_usage(host_path, span) {
-                            Ok(value) => lowered_result_ok(LoweredValue::Int(value)),
-                            Err(error) => lowered_result_err_value(error),
-                        }
-                    }
+                    FullTag::ExprPathDu => match crate::modules::fs::disk_usage(host_path, span) {
+                        Ok(value) => lowered_result_ok(LoweredValue::Int(value)),
+                        Err(error) => lowered_result_err_value(error),
+                    },
                     FullTag::ExprPathMetadata => {
                         match crate::modules::fs::metadata(host_path, span) {
                             Ok(value) => lowered_value_from_runtime_any(&value)
@@ -4995,12 +4690,8 @@ impl Evaluator {
                     ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
                 };
                 ControlFlow::Continue(match lowered_encode_json(&value, false, span) {
-                    Ok(text) => {
-                        LoweredValue::ResultOk(Box::new(LoweredValue::Str(text.into())))
-                    }
-                    Err(error) => {
-                        LoweredValue::ResultErr(Box::new(Value::Error(Box::new(error))))
-                    }
+                    Ok(text) => LoweredValue::ResultOk(Box::new(LoweredValue::Str(text.into()))),
+                    Err(error) => LoweredValue::ResultErr(Box::new(Value::Error(Box::new(error)))),
                 })
             }
             FullTag::ExprArchiveTarCreate => {
@@ -5023,43 +4714,34 @@ impl Evaluator {
                     }
                     ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
                 };
-                let entries = match self.eval_indexed_expr(
-                    execution, entries, slots, span,
-                )? {
+                let entries = match self.eval_indexed_expr(execution, entries, slots, span)? {
                     ControlFlow::Continue(value) => {
                         lowered_path_list_arg(value, "archive.tar_create", span)?
                     }
                     ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
                 };
-                let compression = match self.eval_indexed_optional_expr(
-                    execution,
-                    compression,
-                    slots,
+                let compression =
+                    match self.eval_indexed_optional_expr(execution, compression, slots, span)? {
+                        ControlFlow::Continue(value) => {
+                            lowered_str_arg_owned(value, "auto", "archive.tar_create", span)?
+                        }
+                        ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+                    };
+                let overwrite =
+                    match self.eval_indexed_optional_expr(execution, overwrite, slots, span)? {
+                        ControlFlow::Continue(value) => {
+                            lowered_bool_arg_or(value, false, "archive.tar_create", span)?
+                        }
+                        ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+                    };
+                ControlFlow::Continue(lowered_unit_result(crate::modules::archive::tar_create(
+                    self.host_path(&path),
+                    self.host_path(&root),
+                    entries,
+                    &compression,
+                    overwrite,
                     span,
-                )? {
-                    ControlFlow::Continue(value) => {
-                        lowered_str_arg_owned(value, "auto", "archive.tar_create", span)?
-                    }
-                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
-                };
-                let overwrite = match self.eval_indexed_optional_expr(
-                    execution, overwrite, slots, span,
-                )? {
-                    ControlFlow::Continue(value) => {
-                        lowered_bool_arg_or(value, false, "archive.tar_create", span)?
-                    }
-                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
-                };
-                ControlFlow::Continue(lowered_unit_result(
-                    crate::modules::archive::tar_create(
-                        self.host_path(&path),
-                        self.host_path(&root),
-                        entries,
-                        &compression,
-                        overwrite,
-                        span,
-                    ),
-                ))
+                )))
             }
             FullTag::ExprArchiveTarList => {
                 let path = indexed_raw(&mut payload, call_span)?;
@@ -5071,15 +4753,17 @@ impl Evaluator {
                     }
                     ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
                 };
-                ControlFlow::Continue(match crate::modules::archive::tar_list(
-                    self.host_path(&path),
-                    "auto",
-                    Vec::new(),
-                    span,
-                ) {
-                    Ok(stream) => lowered_result_ok(LoweredValue::Stream(Box::new(stream))),
-                    Err(error) => lowered_result_err_value(error),
-                })
+                ControlFlow::Continue(
+                    match crate::modules::archive::tar_list(
+                        self.host_path(&path),
+                        "auto",
+                        Vec::new(),
+                        span,
+                    ) {
+                        Ok(stream) => lowered_result_ok(LoweredValue::Stream(Box::new(stream))),
+                        Err(error) => lowered_result_err_value(error),
+                    },
+                )
             }
             FullTag::ExprArchiveTarExtract => {
                 let path = indexed_raw(&mut payload, call_span)?;
@@ -5098,17 +4782,15 @@ impl Evaluator {
                     }
                     ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
                 };
-                ControlFlow::Continue(lowered_unit_result(
-                    crate::modules::archive::tar_extract(
-                        self.host_path(&path),
-                        self.host_path(&dest),
-                        0,
-                        "auto",
-                        false,
-                        Vec::new(),
-                        span,
-                    ),
-                ))
+                ControlFlow::Continue(lowered_unit_result(crate::modules::archive::tar_extract(
+                    self.host_path(&path),
+                    self.host_path(&dest),
+                    0,
+                    "auto",
+                    false,
+                    Vec::new(),
+                    span,
+                )))
             }
             FullTag::ExprHashVerifyFile => {
                 let path = indexed_raw(&mut payload, call_span)?;
@@ -5123,9 +4805,7 @@ impl Evaluator {
                     }
                     ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
                 };
-                let expected = match self.eval_indexed_expr(
-                    execution, expected, slots, span,
-                )? {
+                let expected = match self.eval_indexed_expr(execution, expected, slots, span)? {
                     ControlFlow::Continue(value) => {
                         lowered_str_arg_owned(Some(value), "", "hash.verify_file", span)?
                     }
@@ -5197,9 +4877,7 @@ impl Evaluator {
                 };
                 let mut evaluated = Vec::with_capacity(optional.len());
                 for value in optional {
-                    match self.eval_indexed_optional_expr(
-                        execution, value, slots, span,
-                    )? {
+                    match self.eval_indexed_optional_expr(execution, value, slots, span)? {
                         ControlFlow::Continue(value) => evaluated.push(value),
                         ControlFlow::Break(value) => {
                             return Ok(ControlFlow::Break(value));
@@ -5269,26 +4947,18 @@ impl Evaluator {
                 let mut ignore_hup = None;
                 for entry in entries {
                     match entry {
-                        ProcessCommandEntry::Field {
-                            name,
-                            value,
-                            span,
-                        } => {
-                            let value = match self.eval_indexed_expr(
-                                execution, value, slots, span,
-                            )? {
-                                ControlFlow::Continue(value) => value,
-                                ControlFlow::Break(value) => {
-                                    return Ok(ControlFlow::Break(value));
-                                }
-                            };
+                        ProcessCommandEntry::Field { name, value, span } => {
+                            let value =
+                                match self.eval_indexed_expr(execution, value, slots, span)? {
+                                    ControlFlow::Continue(value) => value,
+                                    ControlFlow::Break(value) => {
+                                        return Ok(ControlFlow::Break(value));
+                                    }
+                                };
                             match name.as_str().as_str() {
                                 "cwd" => {
-                                    cwd = Some(lowered_path_like_arg(
-                                        value,
-                                        "process.command",
-                                        span,
-                                    )?)
+                                    cwd =
+                                        Some(lowered_path_like_arg(value, "process.command", span)?)
                                 }
                                 "env" => env.extend(lowered_env_record_arg(
                                     value,
@@ -5299,18 +4969,12 @@ impl Evaluator {
                                 "stdout" => stdout = Some(value),
                                 "stderr" => stderr = Some(value),
                                 "stdout_append" => {
-                                    stdout_append = lowered_bool_builder_field(
-                                        value,
-                                        "stdout_append",
-                                        span,
-                                    )?
+                                    stdout_append =
+                                        lowered_bool_builder_field(value, "stdout_append", span)?
                                 }
                                 "stderr_append" => {
-                                    stderr_append = lowered_bool_builder_field(
-                                        value,
-                                        "stderr_append",
-                                        span,
-                                    )?
+                                    stderr_append =
+                                        lowered_bool_builder_field(value, "stderr_append", span)?
                                 }
                                 "timeout" => {
                                     timeout = Some(lowered_duration_arg(
@@ -5320,11 +4984,8 @@ impl Evaluator {
                                     )?)
                                 }
                                 "cpu_max" => {
-                                    let value = lowered_int_arg(
-                                        Some(value),
-                                        "process.command",
-                                        span,
-                                    )?;
+                                    let value =
+                                        lowered_int_arg(Some(value), "process.command", span)?;
                                     if value <= 0 {
                                         return Err(RuntimeError::new(
                                             "cpu-max",
@@ -5335,9 +4996,8 @@ impl Evaluator {
                                     cpu_max = Some(value);
                                 }
                                 "detach" => {
-                                    detach = Some(lowered_bool_builder_field(
-                                        value, "detach", span,
-                                    )?)
+                                    detach =
+                                        Some(lowered_bool_builder_field(value, "detach", span)?)
                                 }
                                 "new_session" => {
                                     new_session = Some(lowered_bool_builder_field(
@@ -5347,18 +5007,13 @@ impl Evaluator {
                                     )?)
                                 }
                                 "ignore_hup" => {
-                                    ignore_hup = Some(lowered_bool_builder_field(
-                                        value,
-                                        "ignore_hup",
-                                        span,
-                                    )?)
+                                    ignore_hup =
+                                        Some(lowered_bool_builder_field(value, "ignore_hup", span)?)
                                 }
                                 _ => {
                                     return Err(RuntimeError::new(
                                         "builder-field",
-                                        format!(
-                                            "unknown process.command field `{name}`"
-                                        ),
+                                        format!("unknown process.command field `{name}`"),
                                     )
                                     .with_span(span));
                                 }
@@ -5379,14 +5034,13 @@ impl Evaluator {
                                 )
                                 .with_span(span));
                             }
-                            let target_items = match self.eval_indexed_run_arg(
-                                execution, &target, slots, span,
-                            )? {
-                                ControlFlow::Continue(value) => value,
-                                ControlFlow::Break(value) => {
-                                    return Ok(ControlFlow::Break(value));
-                                }
-                            };
+                            let target_items =
+                                match self.eval_indexed_run_arg(execution, &target, slots, span)? {
+                                    ControlFlow::Continue(value) => value,
+                                    ControlFlow::Break(value) => {
+                                        return Ok(ControlFlow::Break(value));
+                                    }
+                                };
                             let [target_value]: [Vec<u8>; 1] =
                                 target_items.try_into().map_err(|_| {
                                     RuntimeError::new(
@@ -5397,18 +5051,16 @@ impl Evaluator {
                                 })?;
                             let mut argv = Vec::new();
                             for arg in &args {
-                                match self.eval_indexed_run_arg(
-                                    execution, arg, slots, span,
-                                )? {
+                                match self.eval_indexed_run_arg(execution, arg, slots, span)? {
                                     ControlFlow::Continue(items) => argv.extend(items),
                                     ControlFlow::Break(value) => {
                                         return Ok(ControlFlow::Break(value));
                                     }
                                 }
                             }
-                            let env_overlay = match self.eval_indexed_run_env(
-                                execution, &run_env, slots, span,
-                            )? {
+                            let env_overlay = match self
+                                .eval_indexed_run_env(execution, &run_env, slots, span)?
+                            {
                                 ControlFlow::Continue(value) => value,
                                 ControlFlow::Break(value) => {
                                     return Ok(ControlFlow::Break(value));
@@ -5429,11 +5081,7 @@ impl Evaluator {
                             )? {
                                 ControlFlow::Continue(value) => value
                                     .map(|value| {
-                                        lowered_duration_arg(
-                                            Some(value),
-                                            "process.command",
-                                            span,
-                                        )
+                                        lowered_duration_arg(Some(value), "process.command", span)
                                     })
                                     .transpose()?,
                                 ControlFlow::Break(value) => {
@@ -5448,11 +5096,7 @@ impl Evaluator {
                             )? {
                                 ControlFlow::Continue(value) => value
                                     .map(|value| {
-                                        lowered_int_arg(
-                                            Some(value),
-                                            "process.command",
-                                            span,
-                                        )
+                                        lowered_int_arg(Some(value), "process.command", span)
                                     })
                                     .transpose()?,
                                 ControlFlow::Break(value) => {
@@ -5482,11 +5126,8 @@ impl Evaluator {
                     }
                 }
                 let mut plan = plan.ok_or_else(|| {
-                    RuntimeError::new(
-                        "builder-check",
-                        "process.command requires a run entry",
-                    )
-                    .with_span(span)
+                    RuntimeError::new("builder-check", "process.command requires a run entry")
+                        .with_span(span)
                 })?;
                 if cwd.is_some() {
                     plan.cwd = cwd;
@@ -5527,8 +5168,7 @@ impl Evaluator {
             FullTag::ExprRunPipeline => {
                 let segments =
                     Self::decode_indexed_run_segments(&mut payload, execution, call_span)?;
-                let propagate =
-                    indexed_decode::<bool>(&mut payload, execution, call_span)?;
+                let propagate = indexed_decode::<bool>(&mut payload, execution, call_span)?;
                 let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
                 indexed_finish(payload, call_span)?;
                 let mut invocations = Vec::with_capacity(segments.len());
@@ -5574,9 +5214,9 @@ impl Evaluator {
                 {
                     return Ok(ControlFlow::Continue(LoweredValue::ResultOk(Box::new(
                         LoweredValue::Status(Box::new(
-                            end.status.clone().unwrap_or_else(|| {
-                                ProcessStatus::signaled(libc::SIGTERM)
-                            }),
+                            end.status
+                                .clone()
+                                .unwrap_or_else(|| ProcessStatus::signaled(libc::SIGTERM)),
                         )),
                     ))));
                 }
@@ -5589,9 +5229,9 @@ impl Evaluator {
                         RunError::from_status(status).with_span(span),
                     ))
                 } else if propagate {
-                    ControlFlow::Continue(LoweredValue::ResultOk(Box::new(
-                        LoweredValue::Status(Box::new(status)),
-                    )))
+                    ControlFlow::Continue(LoweredValue::ResultOk(Box::new(LoweredValue::Status(
+                        Box::new(status),
+                    ))))
                 } else {
                     ControlFlow::Continue(LoweredValue::Status(Box::new(status)))
                 }
@@ -5603,20 +5243,11 @@ impl Evaluator {
                 } else {
                     indexed_decode::<RunKind>(&mut payload, execution, call_span)?
                 };
-                let target = Self::decode_indexed_run_arg(
-                    &mut payload,
-                    execution,
-                    call_span,
-                )?;
-                let args =
-                    Self::decode_indexed_run_args(&mut payload, execution, call_span)?;
-                let env =
-                    Self::decode_indexed_run_env(&mut payload, execution, call_span)?;
-                let redirections = Self::decode_indexed_run_redirections(
-                    &mut payload,
-                    execution,
-                    call_span,
-                )?;
+                let target = Self::decode_indexed_run_arg(&mut payload, execution, call_span)?;
+                let args = Self::decode_indexed_run_args(&mut payload, execution, call_span)?;
+                let env = Self::decode_indexed_run_env(&mut payload, execution, call_span)?;
+                let redirections =
+                    Self::decode_indexed_run_redirections(&mut payload, execution, call_span)?;
                 let timeout = indexed_optional_raw(&mut payload, call_span)?;
                 let cpu_max = indexed_optional_raw(&mut payload, call_span)?;
                 let (propagate, assert_success) = if spawn {
@@ -5667,9 +5298,11 @@ impl Evaluator {
                 {
                     return Ok(ControlFlow::Continue(LoweredValue::ResultOk(Box::new(
                         LoweredValue::Status(Box::new(
-                            execution_result.end.status.clone().unwrap_or_else(|| {
-                                ProcessStatus::signaled(libc::SIGTERM)
-                            }),
+                            execution_result
+                                .end
+                                .status
+                                .clone()
+                                .unwrap_or_else(|| ProcessStatus::signaled(libc::SIGTERM)),
                         )),
                     ))));
                 }
@@ -5760,24 +5393,19 @@ impl Evaluator {
                     ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
                 };
                 let force = match force {
-                    Some(force) => {
-                        match self.eval_indexed_expr(execution, force, slots, span)? {
-                            ControlFlow::Continue(LoweredValue::Bool(value)) => value,
-                            ControlFlow::Continue(value) => {
-                                return Err(RuntimeError::new(
-                                    "type-error",
-                                    format!(
-                                        "abort force expected Bool, found {}",
-                                        value.type_name()
-                                    ),
-                                )
-                                .with_span(span));
-                            }
-                            ControlFlow::Break(value) => {
-                                return Ok(ControlFlow::Break(value));
-                            }
+                    Some(force) => match self.eval_indexed_expr(execution, force, slots, span)? {
+                        ControlFlow::Continue(LoweredValue::Bool(value)) => value,
+                        ControlFlow::Continue(value) => {
+                            return Err(RuntimeError::new(
+                                "type-error",
+                                format!("abort force expected Bool, found {}", value.type_name()),
+                            )
+                            .with_span(span));
                         }
-                    }
+                        ControlFlow::Break(value) => {
+                            return Ok(ControlFlow::Break(value));
+                        }
+                    },
                     None => false,
                 };
                 return Err(RuntimeError::abort(status, force).with_span(span));
@@ -5803,31 +5431,27 @@ impl Evaluator {
             FullTag::ExprError => {
                 let error = match indexed_raw(&mut payload, call_span)? {
                     0 => {
-                        let kind =
-                            indexed_decode::<String>(&mut payload, execution, call_span)?;
-                        let message =
-                            indexed_decode::<String>(&mut payload, execution, call_span)?;
+                        let kind = indexed_decode::<String>(&mut payload, execution, call_span)?;
+                        let message = indexed_decode::<String>(&mut payload, execution, call_span)?;
                         LoweredValue::Error(Box::new(error_constructor(kind, message)))
                     }
                     1 => {
-                        let family =
-                            indexed_decode::<String>(&mut payload, execution, call_span)
-                                .map_err(|error| {
-                                    RuntimeError::new(
-                                        error.kind,
-                                        format!("structured error family: {}", error.message),
-                                    )
-                                    .with_span(call_span)
-                                })?;
-                        let variant =
-                            indexed_decode::<String>(&mut payload, execution, call_span)
-                                .map_err(|error| {
-                                    RuntimeError::new(
-                                        error.kind,
-                                        format!("structured error variant: {}", error.message),
-                                    )
-                                    .with_span(call_span)
-                                })?;
+                        let family = indexed_decode::<String>(&mut payload, execution, call_span)
+                            .map_err(|error| {
+                            RuntimeError::new(
+                                error.kind,
+                                format!("structured error family: {}", error.message),
+                            )
+                            .with_span(call_span)
+                        })?;
+                        let variant = indexed_decode::<String>(&mut payload, execution, call_span)
+                            .map_err(|error| {
+                                RuntimeError::new(
+                                    error.kind,
+                                    format!("structured error variant: {}", error.message),
+                                )
+                                .with_span(call_span)
+                            })?;
                         let (_, mut fields) = execution
                             .block(&mut payload, BLOCK_LIST)
                             .map_err(|error| indexed_error(error, call_span))?;
@@ -5838,46 +5462,40 @@ impl Evaluator {
                         let facet_count = indexed_raw(&mut facets, call_span)? as usize;
                         let mut record = RecordMap::new();
                         for _ in 0..field_count {
-                            let name = indexed_decode::<Arc<str>>(
-                                &mut fields,
-                                execution,
-                                call_span,
-                            )
-                            .map_err(|error| {
-                                RuntimeError::new(
-                                    error.kind,
-                                    format!("structured error field: {}", error.message),
-                                )
-                                .with_span(call_span)
-                            })?;
+                            let name =
+                                indexed_decode::<Arc<str>>(&mut fields, execution, call_span)
+                                    .map_err(|error| {
+                                        RuntimeError::new(
+                                            error.kind,
+                                            format!("structured error field: {}", error.message),
+                                        )
+                                        .with_span(call_span)
+                                    })?;
                             let value = indexed_raw(&mut fields, call_span)?;
-                            let value = match self.eval_indexed_expr(
-                                execution, value, slots, call_span,
-                            )? {
-                                ControlFlow::Continue(value) => value.into_value(),
-                                ControlFlow::Break(value) => {
-                                    return Ok(ControlFlow::Break(value));
-                                }
-                            };
+                            let value =
+                                match self.eval_indexed_expr(execution, value, slots, call_span)? {
+                                    ControlFlow::Continue(value) => value.into_value(),
+                                    ControlFlow::Break(value) => {
+                                        return Ok(ControlFlow::Break(value));
+                                    }
+                                };
                             record.insert(name, value);
                         }
                         indexed_finish(fields, call_span)?;
                         let mut facet_names = Vec::with_capacity(facet_count);
                         for _ in 0..facet_count {
-                            facet_names.push(indexed_decode::<Name>(
-                                &mut facets,
-                                execution,
-                                call_span,
-                            )
-                            .map_err(|error| {
-                                RuntimeError::new(
-                                    error.kind,
-                                    format!("structured error facet: {}", error.message),
-                                )
-                                .with_span(call_span)
-                            })?
-                            .as_str()
-                            .to_string());
+                            facet_names.push(
+                                indexed_decode::<Name>(&mut facets, execution, call_span)
+                                    .map_err(|error| {
+                                        RuntimeError::new(
+                                            error.kind,
+                                            format!("structured error facet: {}", error.message),
+                                        )
+                                        .with_span(call_span)
+                                    })?
+                                    .as_str()
+                                    .to_string(),
+                            );
                         }
                         indexed_finish(facets, call_span)?;
                         let message = match record.get("message") {
@@ -5926,11 +5544,8 @@ impl Evaluator {
                 };
             }
             FullTag::ExprCall => {
-                let function = indexed_decode::<LoweredFunctionKey>(
-                    &mut payload,
-                    execution,
-                    call_span,
-                )?;
+                let function =
+                    indexed_decode::<LoweredFunctionKey>(&mut payload, execution, call_span)?;
                 let (_, mut args) = execution
                     .block(&mut payload, BLOCK_LIST)
                     .map_err(|error| indexed_error(error, call_span))?;
@@ -5963,11 +5578,8 @@ impl Evaluator {
                     .map(ControlFlow::Continue);
             }
             FullTag::ExprDirectPureCall => {
-                let function = indexed_decode::<LoweredFunctionKey>(
-                    &mut payload,
-                    execution,
-                    call_span,
-                )?;
+                let function =
+                    indexed_decode::<LoweredFunctionKey>(&mut payload, execution, call_span)?;
                 let (_, mut args) = execution
                     .block(&mut payload, BLOCK_LIST)
                     .map_err(|error| indexed_error(error, call_span))?;
@@ -6052,9 +5664,7 @@ impl Evaluator {
                                 .as_name()
                                 .map(LoweredFunctionKey::Name)
                                 .or_else(|| {
-                                    function
-                                        .as_qualified()
-                                        .map(LoweredFunctionKey::Qualified)
+                                    function.as_qualified().map(LoweredFunctionKey::Qualified)
                                 })
                                 .expect("function identity is interned"),
                             LoweredFunctionKind::Pure,
@@ -6077,9 +5687,7 @@ impl Evaluator {
                                 .as_name()
                                 .map(LoweredFunctionKey::Name)
                                 .or_else(|| {
-                                    function
-                                        .as_qualified()
-                                        .map(LoweredFunctionKey::Qualified)
+                                    function.as_qualified().map(LoweredFunctionKey::Qualified)
                                 })
                                 .expect("function identity is interned"),
                             LoweredFunctionKind::Proc,
@@ -6107,15 +5715,13 @@ impl Evaluator {
                         .with_span(span));
                     }
                 };
-                ControlFlow::Continue(lowered_value_from_runtime_any(&result).ok_or_else(
-                    || {
-                        RuntimeError::new(
-                            "type-error",
-                            format!("dynamic call returned unsupported {}", result.type_name()),
-                        )
-                        .with_span(span)
-                    },
-                )?)
+                ControlFlow::Continue(lowered_value_from_runtime_any(&result).ok_or_else(|| {
+                    RuntimeError::new(
+                        "type-error",
+                        format!("dynamic call returned unsupported {}", result.type_name()),
+                    )
+                    .with_span(span)
+                })?)
             }
             FullTag::ExprSelfCall => {
                 let (_, mut args) = execution
@@ -6183,8 +5789,11 @@ impl Evaluator {
             match item {
                 BinaryWork::Apply { op, span } => {
                     let right = values.pop().ok_or_else(|| {
-                        RuntimeError::new("indexed-ir", "binary expression is missing a right value")
-                            .with_span(span)
+                        RuntimeError::new(
+                            "indexed-ir",
+                            "binary expression is missing a right value",
+                        )
+                        .with_span(span)
                     })?;
                     let left = values.pop().ok_or_else(|| {
                         RuntimeError::new("indexed-ir", "binary expression is missing a left value")
@@ -6245,26 +5854,19 @@ impl Evaluator {
         let mut defers = Vec::new();
         for _ in 0..len {
             let statement = indexed_raw(&mut statements, call_span)?;
-            let (tag, mut payload) =
-                indexed_value(execution.instruction_id(statement), call_span)?;
+            let (tag, mut payload) = indexed_value(execution.instruction_id(statement), call_span)?;
             if tag == FullTag::StmtDefer {
                 let value = indexed_raw(&mut payload, call_span)?;
                 indexed_finish(payload, call_span)?;
                 defers.push(value);
                 continue;
             }
-            let flow = match self.eval_indexed_stmt(
-                execution, statement, header, slots, call_span,
-            ) {
+            let flow = match self.eval_indexed_stmt(execution, statement, header, slots, call_span)
+            {
                 Ok(flow) => flow,
                 Err(error) => {
                     if !error.abort.as_ref().is_some_and(|signal| signal.force) {
-                        let _ = self.run_indexed_defers(
-                            execution,
-                            &defers,
-                            slots,
-                            call_span,
-                        );
+                        let _ = self.run_indexed_defers(execution, &defers, slots, call_span);
                     }
                     return Err(error);
                 }
@@ -6296,13 +5898,8 @@ impl Evaluator {
             .execution()
             .map_err(|error| indexed_error(error, call_span))?;
         let header = Self::indexed_block_header(slots.len());
-        let flow = self.eval_indexed_statement_block(
-            &execution,
-            body,
-            &header,
-            slots,
-            call_span,
-        )?;
+        let flow =
+            self.eval_indexed_statement_block(&execution, body, &header, slots, call_span)?;
         match flow {
             StmtFlow::None => Ok(Flow::Continue(Value::Unit)),
             StmtFlow::Return(value) => Ok(Flow::Continue(value.into_value())),
@@ -6332,9 +5929,7 @@ impl Evaluator {
                 });
                 Ok(Flow::Propagate(Propagation { error, traceback }))
             }
-            StmtFlow::Break(_) | StmtFlow::Continue => {
-                Ok(Flow::Continue(Value::Unit))
-            }
+            StmtFlow::Break(_) | StmtFlow::Continue => Ok(Flow::Continue(Value::Unit)),
         }
     }
 
@@ -6397,8 +5992,7 @@ impl Evaluator {
         slots: &mut [LoweredValue],
         call_span: Span,
     ) -> Result<StmtFlow, RuntimeError> {
-        let (tag, mut payload) =
-            indexed_value(execution.instruction_id(instruction), call_span)?;
+        let (tag, mut payload) = indexed_value(execution.instruction_id(instruction), call_span)?;
         match tag {
             FullTag::StmtLet => {
                 let slot = indexed_decode::<usize>(&mut payload, execution, call_span)?;
@@ -6434,11 +6028,10 @@ impl Evaluator {
                         match self.eval_indexed_statement_block(
                             execution, else_body, header, slots, span,
                         )? {
-                            StmtFlow::None => Err(RuntimeError::new(
-                                "guard",
-                                "guard else block must diverge",
-                            )
-                            .with_span(span)),
+                            StmtFlow::None => {
+                                Err(RuntimeError::new("guard", "guard else block must diverge")
+                                    .with_span(span))
+                            }
                             flow => Ok(flow),
                         }
                     }
@@ -6457,13 +6050,12 @@ impl Evaluator {
                 let field_count = indexed_raw(&mut fields, call_span)? as usize;
                 let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
                 indexed_finish(payload, call_span)?;
-                let source =
-                    match self.eval_indexed_expr(execution, source, slots, call_span)? {
-                        ControlFlow::Continue(value) => value,
-                        ControlFlow::Break(value) => {
-                            return Ok(StmtFlow::Return(value));
-                        }
-                    };
+                let source = match self.eval_indexed_expr(execution, source, slots, call_span)? {
+                    ControlFlow::Continue(value) => value,
+                    ControlFlow::Break(value) => {
+                        return Ok(StmtFlow::Return(value));
+                    }
+                };
                 for _ in 0..field_count {
                     let name = indexed_decode::<Name>(&mut fields, execution, span)?;
                     let slot = indexed_decode::<usize>(&mut fields, execution, span)?;
@@ -6620,11 +6212,10 @@ impl Evaluator {
                 let value = indexed_raw(&mut payload, call_span)?;
                 let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
                 indexed_finish(payload, call_span)?;
-                let value =
-                    match self.eval_indexed_typed_int(execution, value, slots, call_span)? {
-                        ControlFlow::Continue(value) => value,
-                        ControlFlow::Break(value) => return Ok(StmtFlow::Return(value)),
-                    };
+                let value = match self.eval_indexed_typed_int(execution, value, slots, call_span)? {
+                    ControlFlow::Continue(value) => value,
+                    ControlFlow::Break(value) => return Ok(StmtFlow::Return(value)),
+                };
                 if op == AssignOp::Set {
                     slots[slot] = LoweredValue::Int(value);
                     return Ok(StmtFlow::None);
@@ -6678,9 +6269,9 @@ impl Evaluator {
                     let condition = indexed_raw(&mut branches, call_span)?;
                     let body = indexed_raw(&mut branches, call_span)?;
                     let condition = if typed {
-                        match self.eval_indexed_typed_bool(
-                            execution, condition, slots, call_span,
-                        )? {
+                        match self
+                            .eval_indexed_typed_bool(execution, condition, slots, call_span)?
+                        {
                             ControlFlow::Continue(value) => value,
                             ControlFlow::Break(value) => {
                                 return Ok(StmtFlow::Return(value));
@@ -6724,9 +6315,9 @@ impl Evaluator {
                         return Ok(StmtFlow::None);
                     }
                     let condition = if typed {
-                        match self.eval_indexed_typed_bool(
-                            execution, condition, slots, call_span,
-                        )? {
+                        match self
+                            .eval_indexed_typed_bool(execution, condition, slots, call_span)?
+                        {
                             ControlFlow::Continue(value) => value,
                             ControlFlow::Break(value) => {
                                 return Ok(StmtFlow::Return(value));
@@ -6743,9 +6334,9 @@ impl Evaluator {
                     if !condition {
                         break;
                     }
-                    match self.eval_indexed_statement_block(
-                        execution, body, header, slots, call_span,
-                    )? {
+                    match self
+                        .eval_indexed_statement_block(execution, body, header, slots, call_span)?
+                    {
                         StmtFlow::None | StmtFlow::Continue => {}
                         StmtFlow::Break(_) => break,
                         StmtFlow::Return(value) => {
@@ -6782,9 +6373,7 @@ impl Evaluator {
                 for (pattern, guard, body) in decoded_arms {
                     if Self::indexed_pattern_matches(execution, pattern, &value, slots, span)? {
                         if let Some(guard) = guard {
-                            match self.eval_indexed_bool(
-                                execution, guard, slots, call_span,
-                            )? {
+                            match self.eval_indexed_bool(execution, guard, slots, call_span)? {
                                 ControlFlow::Continue(true) => {}
                                 ControlFlow::Continue(false) => continue,
                                 ControlFlow::Break(value) => {
@@ -6805,11 +6394,7 @@ impl Evaluator {
                 let mut arms = Vec::with_capacity(arm_count);
                 for _ in 0..arm_count {
                     arms.push((
-                        indexed_decode::<Arc<str>>(
-                            &mut payload,
-                            execution,
-                            call_span,
-                        )?,
+                        indexed_decode::<Arc<str>>(&mut payload, execution, call_span)?,
                         indexed_raw(&mut payload, call_span)?,
                     ));
                 }
@@ -6829,14 +6414,12 @@ impl Evaluator {
                     && let Some((_, body)) =
                         arms.iter().find(|(candidate, _)| candidate.as_ref() == key)
                 {
-                    return self.eval_indexed_statement_block(
-                        execution, *body, header, slots, call_span,
-                    );
+                    return self
+                        .eval_indexed_statement_block(execution, *body, header, slots, call_span);
                 }
                 if let Some(body) = fallback {
-                    return self.eval_indexed_statement_block(
-                        execution, body, header, slots, call_span,
-                    );
+                    return self
+                        .eval_indexed_statement_block(execution, body, header, slots, call_span);
                 }
                 Err(lowered_match_no_arm(span))
             }
@@ -6857,9 +6440,9 @@ impl Evaluator {
                         return Ok(StmtFlow::None);
                     }
                     slots[slot] = item;
-                    match self.eval_indexed_statement_block(
-                        execution, body, header, slots, call_span,
-                    )? {
+                    match self
+                        .eval_indexed_statement_block(execution, body, header, slots, call_span)?
+                    {
                         StmtFlow::None | StmtFlow::Continue => {}
                         StmtFlow::Break(_) => break,
                         StmtFlow::Return(value) => {
@@ -6909,13 +6492,12 @@ impl Evaluator {
                         };
                         slots[*slot] = value;
                     }
-                    match self.eval_indexed_statement_block(
-                        execution, body, header, slots, call_span,
-                    )? {
+                    match self
+                        .eval_indexed_statement_block(execution, body, header, slots, call_span)?
+                    {
                         StmtFlow::None | StmtFlow::Continue => {}
                         StmtFlow::Break(_) => break,
-                        flow @ (StmtFlow::Return(_)
-                        | StmtFlow::Propagate(_)) => return Ok(flow),
+                        flow @ (StmtFlow::Return(_) | StmtFlow::Propagate(_)) => return Ok(flow),
                     }
                 }
                 Ok(StmtFlow::None)
@@ -6937,12 +6519,11 @@ impl Evaluator {
                         let newline = memchr::memchr(b'\n', &bytes[cursor..end])
                             .map(|offset| cursor + offset);
                         let line_end = newline.unwrap_or(end);
-                        let view_end =
-                            if line_end > cursor && bytes[line_end - 1] == b'\r' {
-                                line_end - 1
-                            } else {
-                                line_end
-                            };
+                        let view_end = if line_end > cursor && bytes[line_end - 1] == b'\r' {
+                            line_end - 1
+                        } else {
+                            line_end
+                        };
                         line_count = line_count.wrapping_add(1);
                         if line_count & 63 == 0 {
                             self.service_pending_signal(span)?;
@@ -6950,19 +6531,15 @@ impl Evaluator {
                                 return Ok(StmtFlow::None);
                             }
                         }
-                        assign_lowered_bytes_view(
-                            &mut slots[slot],
-                            &bytes,
-                            cursor,
-                            view_end,
-                        );
+                        assign_lowered_bytes_view(&mut slots[slot], &bytes, cursor, view_end);
                         match self.eval_indexed_statement_block(
                             execution, body, header, slots, call_span,
                         )? {
                             StmtFlow::None | StmtFlow::Continue => {}
                             StmtFlow::Break(_) => break,
-                            flow @ (StmtFlow::Return(_)
-                            | StmtFlow::Propagate(_)) => return Ok(flow),
+                            flow @ (StmtFlow::Return(_) | StmtFlow::Propagate(_)) => {
+                                return Ok(flow);
+                            }
                         }
                         let Some(newline) = newline else {
                             break;
@@ -6982,8 +6559,8 @@ impl Evaluator {
                 let mut cursor = start;
                 let mut line_count = 0u32;
                 while cursor < end {
-                    let newline = memchr::memchr(b'\n', &bytes[cursor..end])
-                        .map(|offset| cursor + offset);
+                    let newline =
+                        memchr::memchr(b'\n', &bytes[cursor..end]).map(|offset| cursor + offset);
                     let line_end = newline.unwrap_or(end);
                     let view_end = if line_end > cursor && bytes[line_end - 1] == b'\r' {
                         line_end - 1
@@ -6998,13 +6575,12 @@ impl Evaluator {
                         }
                     }
                     assign_lowered_str_view(&mut slots[slot], &text, cursor, view_end);
-                    match self.eval_indexed_statement_block(
-                        execution, body, header, slots, call_span,
-                    )? {
+                    match self
+                        .eval_indexed_statement_block(execution, body, header, slots, call_span)?
+                    {
                         StmtFlow::None | StmtFlow::Continue => {}
                         StmtFlow::Break(_) => break,
-                        flow @ (StmtFlow::Return(_)
-                        | StmtFlow::Propagate(_)) => return Ok(flow),
+                        flow @ (StmtFlow::Return(_) | StmtFlow::Propagate(_)) => return Ok(flow),
                     }
                     let Some(newline) = newline else {
                         break;
@@ -7016,29 +6592,26 @@ impl Evaluator {
             FullTag::StmtScanLines => {
                 let text_slot = indexed_decode::<usize>(&mut payload, execution, call_span)?;
                 let line_slot = indexed_decode::<usize>(&mut payload, execution, call_span)?;
-                let checks =
-                    indexed_decode::<Vec<ScanCheck>>(&mut payload, execution, call_span)?;
+                let checks = indexed_decode::<Vec<ScanCheck>>(&mut payload, execution, call_span)?;
                 let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
                 indexed_finish(payload, call_span)?;
-                let (text, start, end, bytes_mode) =
-                    if let Some((text, start, end)) = lowered_str_parts(&slots[text_slot]) {
-                        (Arc::<[u8]>::from(text.as_bytes()), start, end, false)
-                    } else if let Some((bytes, start, end)) =
-                        lowered_bytes_parts(&slots[text_slot])
-                    {
-                        (bytes, start, end, true)
-                    } else {
-                        return Err(RuntimeError::new(
-                            "type-error",
-                            "ScanLines expected Str or Bytes",
-                        )
-                        .with_span(span));
-                    };
+                let (text, start, end, bytes_mode) = if let Some((text, start, end)) =
+                    lowered_str_parts(&slots[text_slot])
+                {
+                    (Arc::<[u8]>::from(text.as_bytes()), start, end, false)
+                } else if let Some((bytes, start, end)) = lowered_bytes_parts(&slots[text_slot]) {
+                    (bytes, start, end, true)
+                } else {
+                    return Err(
+                        RuntimeError::new("type-error", "ScanLines expected Str or Bytes")
+                            .with_span(span),
+                    );
+                };
                 let mut cursor = start;
                 let mut line_count = 0u32;
                 while cursor < end {
-                    let newline = memchr::memchr(b'\n', &text[cursor..end])
-                        .map(|offset| cursor + offset);
+                    let newline =
+                        memchr::memchr(b'\n', &text[cursor..end]).map(|offset| cursor + offset);
                     let line_end = newline.unwrap_or(end);
                     let view_end = if line_end > cursor && text[line_end - 1] == b'\r' {
                         line_end - 1
@@ -7053,12 +6626,7 @@ impl Evaluator {
                         }
                     }
                     if bytes_mode {
-                        assign_lowered_bytes_view(
-                            &mut slots[line_slot],
-                            &text,
-                            cursor,
-                            view_end,
-                        );
+                        assign_lowered_bytes_view(&mut slots[line_slot], &text, cursor, view_end);
                     } else {
                         let line = std::str::from_utf8(&text[cursor..view_end])
                             .expect("source string slice remains UTF-8");
@@ -7085,9 +6653,7 @@ impl Evaluator {
                             )?,
                         };
                         if matches {
-                            if let LoweredValue::Int(ref mut value) =
-                                slots[check.counter_slot]
-                            {
+                            if let LoweredValue::Int(ref mut value) = slots[check.counter_slot] {
                                 *value += 1;
                             }
                             break;
@@ -7105,11 +6671,8 @@ impl Evaluator {
                 let config = indexed_decode::<ScanBytes>(&mut payload, execution, call_span)?;
                 indexed_finish(payload, call_span)?;
                 let Some((line, start, end)) = lowered_bytes_parts(&slots[config.line_slot]) else {
-                    return Err(RuntimeError::new(
-                        "type-error",
-                        "ScanBytes expected Bytes",
-                    )
-                    .with_span(config.span));
+                    return Err(RuntimeError::new("type-error", "ScanBytes expected Bytes")
+                        .with_span(config.span));
                 };
                 let bytes = &line[start..end];
                 let mut block_depth = match slots[config.block_depth_slot] {
@@ -7136,11 +6699,7 @@ impl Evaluator {
                         }
                     }
                     let byte = i64::from(bytes[index]);
-                    let next_byte = bytes
-                        .get(index + 1)
-                        .copied()
-                        .map(i64::from)
-                        .unwrap_or(-1);
+                    let next_byte = bytes.get(index + 1).copied().map(i64::from).unwrap_or(-1);
                     if block_depth > 0 {
                         comment_seen = true;
                         if config.nested && byte == 47 && next_byte == 42 {
@@ -7205,22 +6764,22 @@ impl Evaluator {
                 match cap_std::fs::Dir::open_ambient_dir(&next, cap_std::ambient_authority()) {
                     Ok(_) => {}
                     Err(error) if error.kind() == std::io::ErrorKind::NotADirectory => {
-                        return Ok(StmtFlow::Propagate(LoweredValue::ResultErr(
-                            Box::new(Value::Error(Box::new(
+                        return Ok(StmtFlow::Propagate(LoweredValue::ResultErr(Box::new(
+                            Value::Error(Box::new(
                                 RuntimeError::new(
                                     "cwd-not-directory",
                                     "cwd target is not a directory",
                                 )
                                 .with_span(span),
-                            ))),
-                        )));
+                            )),
+                        ))));
                     }
                     Err(error) => {
-                        return Ok(StmtFlow::Propagate(LoweredValue::ResultErr(
-                            Box::new(Value::Error(Box::new(
+                        return Ok(StmtFlow::Propagate(LoweredValue::ResultErr(Box::new(
+                            Value::Error(Box::new(
                                 RuntimeError::new("cwd", error.to_string()).with_span(span),
-                            ))),
-                        )));
+                            )),
+                        ))));
                     }
                 }
                 self.trace_enter(
@@ -7253,18 +6812,14 @@ impl Evaluator {
                 let body = indexed_raw(&mut payload, call_span)?;
                 indexed_finish(payload, call_span)?;
                 for assignment in &env {
-                    check_env_name(
-                        &assignment.name.as_str(),
-                        assignment.value.span,
-                    )?;
+                    check_env_name(&assignment.name.as_str(), assignment.value.span)?;
                 }
-                let overlay =
-                    match self.eval_indexed_run_env(execution, &env, slots, call_span)? {
-                        ControlFlow::Continue(overlay) => overlay,
-                        ControlFlow::Break(value) => {
-                            return Ok(StmtFlow::Propagate(value));
-                        }
-                    };
+                let overlay = match self.eval_indexed_run_env(execution, &env, slots, call_span)? {
+                    ControlFlow::Continue(overlay) => overlay,
+                    ControlFlow::Break(value) => {
+                        return Ok(StmtFlow::Propagate(value));
+                    }
+                };
                 let previous = self.env.clone();
                 self.env.extend(overlay);
                 let result =
@@ -7278,20 +6833,18 @@ impl Evaluator {
                     .block(&mut payload, BLOCK_LIST)
                     .map_err(|error| indexed_error(error, call_span))?;
                 let len = indexed_raw(&mut args, call_span)? as usize;
-                let propagate_result =
-                    indexed_decode::<bool>(&mut payload, execution, call_span)?;
+                let propagate_result = indexed_decode::<bool>(&mut payload, execution, call_span)?;
                 let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
                 indexed_finish(payload, call_span)?;
                 let mut values = Vec::with_capacity(len);
                 for _ in 0..len {
                     let arg = indexed_raw(&mut args, span)?;
-                    let value =
-                        match self.eval_indexed_expr(execution, arg, slots, call_span)? {
-                            ControlFlow::Continue(value) => value,
-                            ControlFlow::Break(value) => {
-                                return Ok(StmtFlow::Return(value));
-                            }
-                        };
+                    let value = match self.eval_indexed_expr(execution, arg, slots, call_span)? {
+                        ControlFlow::Continue(value) => value,
+                        ControlFlow::Break(value) => {
+                            return Ok(StmtFlow::Return(value));
+                        }
+                    };
                     values.push(value);
                 }
                 indexed_finish(args, span)?;
@@ -7325,8 +6878,7 @@ impl Evaluator {
                         let parents = flags.get("parents").copied().unwrap_or(true);
                         let path = lowered_path_arg(
                             positionals.first().cloned().ok_or_else(|| {
-                                RuntimeError::new("arity", "fs.mkdir expected path")
-                                    .with_span(span)
+                                RuntimeError::new("arity", "fs.mkdir expected path").with_span(span)
                             })?,
                             "fs.mkdir",
                             span,
@@ -7437,17 +6989,14 @@ impl Evaluator {
                 let len = indexed_raw(&mut args, call_span)? as usize;
                 let stderr = indexed_decode::<bool>(&mut payload, execution, call_span)?;
                 let flush = indexed_decode::<bool>(&mut payload, execution, call_span)?;
-                let propagate_result =
-                    indexed_decode::<bool>(&mut payload, execution, call_span)?;
+                let propagate_result = indexed_decode::<bool>(&mut payload, execution, call_span)?;
                 let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
                 indexed_finish(payload, call_span)?;
                 let mut line = String::new();
                 let mut argv = Vec::with_capacity(len);
                 for index in 0..len {
                     let arg = indexed_raw(&mut args, span)?;
-                    let value = match self.eval_indexed_expr(
-                        execution, arg, slots, call_span,
-                    )? {
+                    let value = match self.eval_indexed_expr(execution, arg, slots, call_span)? {
                         ControlFlow::Continue(value) => value,
                         ControlFlow::Break(value) => {
                             return Ok(StmtFlow::Return(value));
@@ -7488,9 +7037,7 @@ impl Evaluator {
                 if propagate_result {
                     match self.last_status.as_ref().and_then(|status| status.code) {
                         Some(0) | None => Ok(StmtFlow::None),
-                        Some(code) => Ok(StmtFlow::Propagate(LoweredValue::Int(
-                            i64::from(code),
-                        ))),
+                        Some(code) => Ok(StmtFlow::Propagate(LoweredValue::Int(i64::from(code)))),
                     }
                 } else {
                     Ok(StmtFlow::None)
@@ -7498,8 +7045,7 @@ impl Evaluator {
             }
             FullTag::StmtRun => {
                 let value = indexed_raw(&mut payload, call_span)?;
-                let propagate_result =
-                    indexed_decode::<bool>(&mut payload, execution, call_span)?;
+                let propagate_result = indexed_decode::<bool>(&mut payload, execution, call_span)?;
                 indexed_finish(payload, call_span)?;
                 match self.eval_indexed_expr(execution, value, slots, call_span)? {
                     ControlFlow::Continue(value) => {
@@ -7507,16 +7053,13 @@ impl Evaluator {
                             match value {
                                 LoweredValue::ResultOk(_) => Ok(StmtFlow::None),
                                 value @ LoweredValue::ResultErr(_) => {
-                                    let value = self
-                                        .lowered_question_propagation_value(value, call_span)?;
+                                    let value =
+                                        self.lowered_question_propagation_value(value, call_span)?;
                                     Ok(StmtFlow::Propagate(value))
                                 }
                                 other => Err(RuntimeError::new(
                                     "type-error",
-                                    format!(
-                                        "`?` expected Result, found {}",
-                                        other.type_name()
-                                    ),
+                                    format!("`?` expected Result, found {}", other.type_name()),
                                 )
                                 .with_span(call_span)),
                             }
@@ -7531,9 +7074,9 @@ impl Evaluator {
                 let body = indexed_raw(&mut payload, call_span)?;
                 indexed_finish(payload, call_span)?;
                 loop {
-                    match self.eval_indexed_statement_block(
-                        execution, body, header, slots, call_span,
-                    )? {
+                    match self
+                        .eval_indexed_statement_block(execution, body, header, slots, call_span)?
+                    {
                         StmtFlow::None | StmtFlow::Continue => {}
                         StmtFlow::Break(_) => break,
                         StmtFlow::Return(value) => {
@@ -7645,12 +7188,7 @@ impl Evaluator {
                 "pid" => Ok(LoweredValue::Int(handle.pid)),
                 "command" => Ok(LoweredValue::Str(handle.command.clone())),
                 "argv" => Ok(LoweredValue::List(
-                    handle
-                        .argv
-                        .iter()
-                        .cloned()
-                        .map(LoweredValue::Str)
-                        .collect(),
+                    handle.argv.iter().cloned().map(LoweredValue::Str).collect(),
                 )),
                 "detached" => Ok(LoweredValue::Bool(handle.detached)),
                 _ => Err(RuntimeError::new("missing-field", name).with_span(span)),
@@ -7691,13 +7229,15 @@ impl Evaluator {
                     .field_value(name)
                     .ok_or_else(|| RuntimeError::new("missing-field", name).with_span(span))?
                     .map_err(|error| error.with_span(span))?;
-                lowered_value_from_runtime_any(&value).map(Some).ok_or_else(|| {
-                    RuntimeError::new(
-                        "type-error",
-                        format!("fs entry field produced unsupported {}", value.type_name()),
-                    )
-                    .with_span(span)
-                })
+                lowered_value_from_runtime_any(&value)
+                    .map(Some)
+                    .ok_or_else(|| {
+                        RuntimeError::new(
+                            "type-error",
+                            format!("fs entry field produced unsupported {}", value.type_name()),
+                        )
+                        .with_span(span)
+                    })
             }
             _ => Ok(None),
         }
@@ -7710,8 +7250,7 @@ impl Evaluator {
         slots: &mut [LoweredValue],
         call_span: Span,
     ) -> Result<ControlFlow<LoweredValue, i64>, RuntimeError> {
-        let (tag, mut payload) =
-            indexed_value(execution.instruction_id(instruction), call_span)?;
+        let (tag, mut payload) = indexed_value(execution.instruction_id(instruction), call_span)?;
         let value = match tag {
             FullTag::IntInt => {
                 let value = indexed_decode::<i64>(&mut payload, execution, call_span)?;
@@ -7734,15 +7273,11 @@ impl Evaluator {
                 let left = indexed_raw(&mut payload, call_span)?;
                 let right = indexed_raw(&mut payload, call_span)?;
                 indexed_finish(payload, call_span)?;
-                let left = match self.eval_indexed_typed_int(
-                    execution, left, slots, call_span,
-                )? {
+                let left = match self.eval_indexed_typed_int(execution, left, slots, call_span)? {
                     ControlFlow::Continue(value) => value,
                     ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
                 };
-                let right = match self.eval_indexed_typed_int(
-                    execution, right, slots, call_span,
-                )? {
+                let right = match self.eval_indexed_typed_int(execution, right, slots, call_span)? {
                     ControlFlow::Continue(value) => value,
                     ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
                 };
@@ -7753,11 +7288,8 @@ impl Evaluator {
                     BinaryOp::Div if right != 0 => left / right,
                     BinaryOp::Rem if right != 0 => left % right,
                     BinaryOp::Div | BinaryOp::Rem => {
-                        return Err(RuntimeError::new(
-                            "division-by-zero",
-                            "division by zero",
-                        )
-                        .with_span(call_span));
+                        return Err(RuntimeError::new("division-by-zero", "division by zero")
+                            .with_span(call_span));
                     }
                     _ => unreachable!("verified typed int operation"),
                 }
@@ -7780,19 +7312,17 @@ impl Evaluator {
                 let default = indexed_optional_raw(&mut payload, call_span)?;
                 let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
                 indexed_finish(payload, call_span)?;
-                let index = match self.eval_indexed_typed_int(
-                    execution, index, slots, call_span,
-                )? {
+                let index = match self.eval_indexed_typed_int(execution, index, slots, call_span)? {
                     ControlFlow::Continue(value) => value,
                     ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
                 };
                 let default = match default {
-                    Some(default) => match self.eval_indexed_typed_int(
-                        execution, default, slots, call_span,
-                    )? {
-                        ControlFlow::Continue(value) => value,
-                        ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
-                    },
+                    Some(default) => {
+                        match self.eval_indexed_typed_int(execution, default, slots, call_span)? {
+                            ControlFlow::Continue(value) => value,
+                            ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+                        }
+                    }
                     None => -1,
                 };
                 lowered_str_byte_at_value(&slots[slot], index, default, span)?
@@ -7815,8 +7345,7 @@ impl Evaluator {
         slots: &mut [LoweredValue],
         call_span: Span,
     ) -> Result<ControlFlow<LoweredValue, bool>, RuntimeError> {
-        let (tag, mut payload) =
-            indexed_value(execution.instruction_id(instruction), call_span)?;
+        let (tag, mut payload) = indexed_value(execution.instruction_id(instruction), call_span)?;
         let value = match tag {
             FullTag::BoolBool => {
                 let value = indexed_decode::<bool>(&mut payload, execution, call_span)?;
@@ -7850,11 +7379,10 @@ impl Evaluator {
                 let left = indexed_raw(&mut payload, call_span)?;
                 let right = indexed_raw(&mut payload, call_span)?;
                 indexed_finish(payload, call_span)?;
-                let left =
-                    match self.eval_indexed_typed_bool(execution, left, slots, call_span)? {
-                        ControlFlow::Continue(value) => value,
-                        ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
-                    };
+                let left = match self.eval_indexed_typed_bool(execution, left, slots, call_span)? {
+                    ControlFlow::Continue(value) => value,
+                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+                };
                 if tag == FullTag::BoolAnd && !left {
                     return Ok(ControlFlow::Continue(false));
                 }
@@ -7868,16 +7396,14 @@ impl Evaluator {
                 let left = indexed_raw(&mut payload, call_span)?;
                 let right = indexed_raw(&mut payload, call_span)?;
                 indexed_finish(payload, call_span)?;
-                let left =
-                    match self.eval_indexed_typed_int(execution, left, slots, call_span)? {
-                        ControlFlow::Continue(value) => value,
-                        ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
-                    };
-                let right =
-                    match self.eval_indexed_typed_int(execution, right, slots, call_span)? {
-                        ControlFlow::Continue(value) => value,
-                        ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
-                    };
+                let left = match self.eval_indexed_typed_int(execution, left, slots, call_span)? {
+                    ControlFlow::Continue(value) => value,
+                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+                };
+                let right = match self.eval_indexed_typed_int(execution, right, slots, call_span)? {
+                    ControlFlow::Continue(value) => value,
+                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+                };
                 match op {
                     BinaryOp::Eq => left == right,
                     BinaryOp::Ne => left != right,
@@ -7892,19 +7418,14 @@ impl Evaluator {
                 let slot = indexed_decode::<usize>(&mut payload, execution, call_span)?;
                 let predicate =
                     indexed_decode::<LoweredStrPredicate>(&mut payload, execution, call_span)?;
-                let needle = indexed_decode::<Arc<[u8]>>(
-                    &mut payload,
-                    execution,
-                    call_span,
-                )?;
+                let needle = indexed_decode::<Arc<[u8]>>(&mut payload, execution, call_span)?;
                 let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
                 indexed_finish(payload, call_span)?;
                 lowered_str_predicate_text(&slots[slot], predicate, &needle, span)?
             }
             FullTag::BoolContainsSlot => {
                 let slot = indexed_decode::<usize>(&mut payload, execution, call_span)?;
-                let needle =
-                    indexed_decode::<LoweredValue>(&mut payload, execution, call_span)?;
+                let needle = indexed_decode::<LoweredValue>(&mut payload, execution, call_span)?;
                 let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
                 indexed_finish(payload, call_span)?;
                 lowered_contains_value(&slots[slot], &needle, span)?
@@ -7930,11 +7451,7 @@ impl Evaluator {
                 let slot = indexed_decode::<usize>(&mut payload, execution, call_span)?;
                 let predicate =
                     indexed_decode::<LoweredStrPredicate>(&mut payload, execution, call_span)?;
-                let needle = indexed_decode::<Arc<[u8]>>(
-                    &mut payload,
-                    execution,
-                    call_span,
-                )?;
+                let needle = indexed_decode::<Arc<[u8]>>(&mut payload, execution, call_span)?;
                 let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
                 indexed_finish(payload, call_span)?;
                 lowered_trim_str_predicate_value(&slots[slot], predicate, &needle, span)?
@@ -7942,8 +7459,7 @@ impl Evaluator {
             FullTag::BoolLiteralCompareSlot => {
                 let op = indexed_decode::<BinaryOp>(&mut payload, execution, call_span)?;
                 let slot = indexed_decode::<usize>(&mut payload, execution, call_span)?;
-                let value =
-                    indexed_decode::<LoweredValue>(&mut payload, execution, call_span)?;
+                let value = indexed_decode::<LoweredValue>(&mut payload, execution, call_span)?;
                 indexed_finish(payload, call_span)?;
                 let equal = slots[slot] == value;
                 match op {
@@ -7972,9 +7488,7 @@ impl Evaluator {
     ) -> Result<ControlFlow<LoweredValue, bool>, RuntimeError> {
         match self.eval_indexed_expr(execution, instruction, slots, call_span)? {
             ControlFlow::Break(value) => Ok(ControlFlow::Break(value)),
-            ControlFlow::Continue(LoweredValue::Bool(value)) => {
-                Ok(ControlFlow::Continue(value))
-            }
+            ControlFlow::Continue(LoweredValue::Bool(value)) => Ok(ControlFlow::Continue(value)),
             ControlFlow::Continue(LoweredValue::Status(status)) => {
                 Ok(ControlFlow::Continue(status.success))
             }
@@ -8071,14 +7585,15 @@ pure pipeline(values: List[Int]) -> List[Int] {
             .call_indexed_direct(
                 LoweredFunctionKey::Name(pipeline),
                 LoweredFunctionKind::Pure,
-                &[Value::List(vec![Value::Int(3), Value::Int(1), Value::Int(2)])],
+                &[Value::List(vec![
+                    Value::Int(3),
+                    Value::Int(1),
+                    Value::Int(2),
+                ])],
                 Span::new(source_id, 0, 0),
             )
             .expect("collection pipeline uses only direct indexed opcodes")
             .unwrap();
-        assert_eq!(
-            piped,
-            Value::List(vec![Value::Int(4), Value::Int(6)])
-        );
+        assert_eq!(piped, Value::List(vec![Value::Int(4), Value::Int(6)]));
     }
 }

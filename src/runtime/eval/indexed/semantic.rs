@@ -1,6 +1,4 @@
-use super::{
-    IR_NONE, IrBuildError, IrData, IrRange, IrVerifyError, ShapeId, SignatureId, TypeId,
-};
+use super::{IR_NONE, IrBuildError, IrData, IrRange, IrVerifyError, ShapeId, SignatureId, TypeId};
 use crate::sema::types::{CallableParamType, CallableType, ModuleExportType, Type};
 use crate::symbol::{Name, Symbol};
 use crate::syntax::node::Effect;
@@ -80,10 +78,7 @@ impl TypeTag {
     }
 
     fn has_one_name(self) -> bool {
-        matches!(
-            self,
-            Self::ErrorFamily | Self::ErrorFacet | Self::Tag
-        )
+        matches!(self, Self::ErrorFamily | Self::ErrorFacet | Self::Tag)
     }
 }
 
@@ -143,19 +138,13 @@ impl SemanticPools {
             .ok_or_else(|| IrVerifyError::new("type id is out of bounds"))
     }
 
-    pub(super) fn signature_return_type(
-        &self,
-        id: SignatureId,
-    ) -> Result<TypeId, IrVerifyError> {
+    pub(super) fn signature_return_type(&self, id: SignatureId) -> Result<TypeId, IrVerifyError> {
         let payload = self.signature_payload(id)?;
         TypeId::from_raw(payload[0])
             .ok_or_else(|| IrVerifyError::new("signature return type id is invalid"))
     }
 
-    pub(super) fn signature_param_count(
-        &self,
-        id: SignatureId,
-    ) -> Result<usize, IrVerifyError> {
+    pub(super) fn signature_param_count(&self, id: SignatureId) -> Result<usize, IrVerifyError> {
         Ok(self.signature_payload(id)?[2] as usize)
     }
 
@@ -182,10 +171,7 @@ impl SemanticPools {
         ))
     }
 
-    pub(super) fn record_fields(
-        &self,
-        id: TypeId,
-    ) -> Result<(&[Name], &[u32]), IrVerifyError> {
+    pub(super) fn record_fields(&self, id: TypeId) -> Result<(&[Name], &[u32]), IrVerifyError> {
         if self.type_tag(id)? != TypeTag::Record {
             return Err(IrVerifyError::new("type id does not denote a record"));
         }
@@ -286,19 +272,14 @@ impl SemanticPools {
                             optional,
                         },
                         _ => {
-                            return Err(IrVerifyError::new(
-                                "module export kind is invalid",
-                            ));
+                            return Err(IrVerifyError::new("module export kind is invalid"));
                         }
                     };
                     fields.insert(name, value);
                 }
                 Type::Module(fields)
             }
-            TypeTag::Result => Type::Result(
-                Box::new(child(data.lhs)?),
-                Box::new(child(data.rhs)?),
-            ),
+            TypeTag::Result => Type::Result(Box::new(child(data.lhs)?), Box::new(child(data.rhs)?)),
             TypeTag::Status => Type::Status,
             TypeTag::EnvPathList => Type::EnvPathList,
             TypeTag::Error => Type::Error,
@@ -309,9 +290,7 @@ impl SemanticPools {
                 family: Name::from_symbol(Symbol::from_raw(data.lhs)),
                 variant: Name::from_symbol(Symbol::from_raw(data.rhs)),
             },
-            TypeTag::ErrorFacet => {
-                Type::ErrorFacet(Name::from_symbol(Symbol::from_raw(data.lhs)))
-            }
+            TypeTag::ErrorFacet => Type::ErrorFacet(Name::from_symbol(Symbol::from_raw(data.lhs))),
             TypeTag::ProcessError => Type::ProcessError,
             TypeTag::Pure => Type::Pure,
             TypeTag::Proc => Type::Proc,
@@ -323,11 +302,7 @@ impl SemanticPools {
         })
     }
 
-    fn to_signature(
-        &self,
-        id: SignatureId,
-        depth: usize,
-    ) -> Result<CallableType, IrVerifyError> {
+    fn to_signature(&self, id: SignatureId, depth: usize) -> Result<CallableType, IrVerifyError> {
         if depth > self.type_tags.len() + self.signature_data.len() {
             return Err(IrVerifyError::new("semantic graph contains a cycle"));
         }
@@ -352,7 +327,7 @@ impl SemanticPools {
             Some(effects)
         };
         let mut params = Vec::with_capacity(payload[2] as usize);
-        for raw in payload[3 + effect_count..].chunks_exact(3) {
+        for raw in payload[3 + effect_count..].as_chunks::<3>().0 {
             params.push(CallableParamType {
                 name: Name::from_symbol(Symbol::from_raw(raw[0])),
                 ty: self.to_type_inner(
@@ -366,20 +341,18 @@ impl SemanticPools {
         }
         Ok(CallableType {
             params,
-            return_ty: Box::new(self.to_type_inner(
-                TypeId::from_raw(payload[0])
-                    .ok_or_else(|| IrVerifyError::new("return type id is invalid"))?,
-                depth + 1,
-            )?),
+            return_ty: Box::new(
+                self.to_type_inner(
+                    TypeId::from_raw(payload[0])
+                        .ok_or_else(|| IrVerifyError::new("return type id is invalid"))?,
+                    depth + 1,
+                )?,
+            ),
             effects,
         })
     }
 
-    fn display_type_inner(
-        &self,
-        id: TypeId,
-        depth: usize,
-    ) -> Result<String, IrVerifyError> {
+    fn display_type_inner(&self, id: TypeId, depth: usize) -> Result<String, IrVerifyError> {
         if depth > self.type_tags.len() {
             return Err(IrVerifyError::new("type graph contains a cycle"));
         }
@@ -509,12 +482,10 @@ impl SemanticPools {
             {
                 return Err(IrVerifyError::new("signature effect is invalid"));
             }
-            for param in payload[3 + effects..].chunks_exact(3) {
+            for param in payload[3 + effects..].as_chunks::<3>().0 {
                 verify_type_raw(self, param[1], None)?;
                 if param[2] & !(PARAM_DEFAULTED | PARAM_REST) != 0 {
-                    return Err(IrVerifyError::new(
-                        "signature parameter flags are invalid",
-                    ));
+                    return Err(IrVerifyError::new("signature parameter flags are invalid"));
                 }
             }
         }
@@ -551,8 +522,8 @@ impl SemanticPools {
                 }
                 TypeTag::ErrorVariant => {}
                 TypeTag::Record => {
-                    let id = TypeId::new(index)
-                        .map_err(|_| IrVerifyError::new("type id overflows"))?;
+                    let id =
+                        TypeId::new(index).map_err(|_| IrVerifyError::new("type id overflows"))?;
                     let (_, fields) = self.record_fields(id)?;
                     for raw in fields {
                         verify_type_raw(self, *raw, Some(index))?;
@@ -570,16 +541,14 @@ impl SemanticPools {
                     let end = start
                         .checked_add(len)
                         .ok_or_else(|| IrVerifyError::new("module payload range overflows"))?;
-                    let exports =
-                        self.type_extra.get(start..end).ok_or_else(|| {
-                            IrVerifyError::new("module payload is out of bounds")
-                        })?;
-                    for export in exports.chunks_exact(2) {
+                    let exports = self
+                        .type_extra
+                        .get(start..end)
+                        .ok_or_else(|| IrVerifyError::new("module payload is out of bounds"))?;
+                    for export in exports.as_chunks::<2>().0 {
                         let kind = export[0] & 0b11;
                         if export[0] & !(0b11 | MODULE_EXPORT_OPTIONAL) != 0 || kind > 2 {
-                            return Err(IrVerifyError::new(
-                                "module export flags are invalid",
-                            ));
+                            return Err(IrVerifyError::new("module export flags are invalid"));
                         }
                         if kind == 0 {
                             verify_type_raw(self, export[1], Some(index))?;
@@ -614,8 +583,7 @@ fn verify_type_raw(
     raw: u32,
     before: Option<usize>,
 ) -> Result<TypeId, IrVerifyError> {
-    let id =
-        TypeId::from_raw(raw).ok_or_else(|| IrVerifyError::new("type id is invalid"))?;
+    let id = TypeId::from_raw(raw).ok_or_else(|| IrVerifyError::new("type id is invalid"))?;
     if id.index() >= pools.type_tags.len() {
         return Err(IrVerifyError::new("type id is out of bounds"));
     }
@@ -739,11 +707,7 @@ impl SemanticPoolBuilder {
         }
     }
 
-    pub(super) fn rewind(
-        &mut self,
-        pools: &mut SemanticPools,
-        checkpoint: SemanticCheckpoint,
-    ) {
+    pub(super) fn rewind(&mut self, pools: &mut SemanticPools, checkpoint: SemanticCheckpoint) {
         pools.type_tags.truncate(checkpoint.types);
         pools.type_data.truncate(checkpoint.types);
         pools.type_extra.truncate(checkpoint.type_extra);
@@ -754,8 +718,7 @@ impl SemanticPoolBuilder {
         self.types.retain(|_, id| id.index() < checkpoint.types);
         self.signatures
             .retain(|_, id| id.index() < checkpoint.signatures);
-        self.shapes
-            .retain(|_, id| id.index() < checkpoint.shapes);
+        self.shapes.retain(|_, id| id.index() < checkpoint.shapes);
     }
 
     pub(super) fn intern_type(
@@ -765,12 +728,7 @@ impl SemanticPoolBuilder {
     ) -> Result<TypeId, IrBuildError> {
         let (key, data, extra) = match ty {
             Type::Unknown | Type::Invalid => {
-                return Err(IrBuildError::format(
-                    "recovery_type",
-                    None,
-                    0,
-                    0,
-                ));
+                return Err(IrBuildError::format("recovery_type", None, 0, 0));
             }
             Type::Any => scalar(TypeTag::Any),
             Type::Null => scalar(TypeTag::Null),
@@ -809,11 +767,11 @@ impl SemanticPoolBuilder {
                             words.push(self.intern_type(pools, ty)?.raw());
                         }
                         ModuleExportType::Proc { sig, optional } => {
-                            words.push(1 | u32::from(*optional) * MODULE_EXPORT_OPTIONAL);
+                            words.push(1 | (u32::from(*optional) * MODULE_EXPORT_OPTIONAL));
                             words.push(self.intern_signature(pools, sig)?.raw());
                         }
                         ModuleExportType::Pure { sig, optional } => {
-                            words.push(2 | u32::from(*optional) * MODULE_EXPORT_OPTIONAL);
+                            words.push(2 | (u32::from(*optional) * MODULE_EXPORT_OPTIONAL));
                             words.push(self.intern_signature(pools, sig)?.raw());
                         }
                     }
@@ -892,11 +850,14 @@ impl SemanticPoolBuilder {
             });
         }
         let effects = normalized_effects(signature.effects.as_deref());
-        self.intern_signature_key(pools, SignatureKey {
-            return_type,
-            effects,
-            params: params.into_boxed_slice(),
-        })
+        self.intern_signature_key(
+            pools,
+            SignatureKey {
+                return_type,
+                effects,
+                params: params.into_boxed_slice(),
+            },
+        )
     }
 
     pub(super) fn intern_signature_parts(
@@ -916,11 +877,14 @@ impl SemanticPoolBuilder {
             .collect::<Vec<_>>()
             .into_boxed_slice();
         let effects = normalized_effects(effects);
-        self.intern_signature_key(pools, SignatureKey {
-            return_type,
-            effects,
-            params,
-        })
+        self.intern_signature_key(
+            pools,
+            SignatureKey {
+                return_type,
+                effects,
+                params,
+            },
+        )
     }
 
     fn unary(
@@ -947,8 +911,7 @@ impl SemanticPoolBuilder {
         }
         let id = SignatureId::new(pools.signature_data.len())?;
         let mut words = Vec::with_capacity(
-            3 + key.effects.as_ref().map_or(0, |effects| effects.len())
-                + key.params.len() * 3,
+            3 + key.effects.as_ref().map_or(0, |effects| effects.len()) + key.params.len() * 3,
         );
         words.push(key.return_type.raw());
         match &key.effects {
@@ -968,7 +931,9 @@ impl SemanticPoolBuilder {
         }
         let start = checked_u32(pools.signature_extra.len(), "semantic_extra_overflow")?;
         let len = checked_u32(words.len(), "semantic_extra_overflow")?;
-        pools.signature_data.push(IrData::from_range(IrRange::new(start, len)));
+        pools
+            .signature_data
+            .push(IrData::from_range(IrRange::new(start, len)));
         pools.signature_extra.extend(words);
         self.signatures.insert(key, id);
         Ok(id)
@@ -1039,10 +1004,7 @@ mod tests {
                     rest: false,
                 },
             ],
-            return_ty: Box::new(Type::Result(
-                Box::new(Type::Int),
-                Box::new(Type::Error),
-            )),
+            return_ty: Box::new(Type::Result(Box::new(Type::Int), Box::new(Type::Error))),
             effects: Some(vec![Effect::Fs, Effect::Error]),
         }
     }
@@ -1063,12 +1025,8 @@ mod tests {
         assert_eq!(first, second);
 
         let signature = callable();
-        let first_signature = builder
-            .intern_signature(&mut pools, &signature)
-            .unwrap();
-        let second_signature = builder
-            .intern_signature(&mut pools, &signature)
-            .unwrap();
+        let first_signature = builder.intern_signature(&mut pools, &signature).unwrap();
+        let second_signature = builder.intern_signature(&mut pools, &signature).unwrap();
         assert_eq!(first_signature, second_signature);
         let mut reordered_effects = signature.clone();
         reordered_effects.effects = Some(vec![Effect::Error, Effect::Fs, Effect::Fs]);
@@ -1162,9 +1120,7 @@ mod tests {
         let list = builder
             .intern_type(&mut pools, &Type::List(Box::new(Type::Int)))
             .unwrap();
-        let signature = builder
-            .intern_signature(&mut pools, &callable())
-            .unwrap();
+        let signature = builder.intern_signature(&mut pools, &callable()).unwrap();
         builder
             .intern_type(
                 &mut pools,

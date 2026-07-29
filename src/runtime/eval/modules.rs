@@ -457,7 +457,7 @@ pub(super) fn validate_module_contract(
     source: Option<&str>,
 ) -> Result<(), String> {
     for (field, expected_value) in required {
-        let expected = module_contract_expected_type(field.as_ref(), expected_value, source)?;
+        let expected = module_contract_expected_type(field, expected_value, source)?;
         let Some(actual) = exports.get(field.as_ref()) else {
             return Err(module_contract_message(
                 source,
@@ -475,7 +475,7 @@ pub(super) fn validate_module_contract(
         }
     }
     for (field, expected_value) in optional {
-        let expected = module_contract_expected_type(field.as_ref(), expected_value, source)?;
+        let expected = module_contract_expected_type(field, expected_value, source)?;
         if let Some(actual) = exports.get(field.as_ref())
             && !module_contract_type_matches(signatures, actual, &expected)
         {

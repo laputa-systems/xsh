@@ -362,7 +362,8 @@ impl CompactDeclCollector {
         let def = program.arena.function_def(id);
         self.output.function_defs += 1;
         self.check_standard_module_shadow(&def.name.as_str(), span);
-        if kind == CompactFunctionKind::Proc && CoreCommand::from_name(&def.name.as_str()).is_some() {
+        if kind == CompactFunctionKind::Proc && CoreCommand::from_name(&def.name.as_str()).is_some()
+        {
             self.error(
                 span,
                 "proc name conflicts with a core command",
@@ -452,7 +453,7 @@ impl CompactDeclCollector {
         span: crate::source::Span,
         builtin_message: &str,
     ) {
-        if is_builtin_or_standard_record_type_name(&name.as_str()) {
+        if is_builtin_or_standard_record_type_name(name.as_str()) {
             self.error(span, builtin_message, "check.duplicate-name");
         }
         self.check_standard_module_shadow(&name.as_str(), span);
