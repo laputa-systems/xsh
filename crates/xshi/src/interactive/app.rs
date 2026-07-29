@@ -2228,7 +2228,7 @@ mod tests {
         for index in 0..8 {
             let output = execute_line(
                 &mut session,
-                &format!("PHASE8_SESSION_{index}=ok /usr/bin/true"),
+                &format!("DYNAMIC_SESSION_{index}=ok /usr/bin/true"),
             );
             assert_eq!(output.status, 0);
         }

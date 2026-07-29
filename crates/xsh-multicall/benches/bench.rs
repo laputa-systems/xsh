@@ -415,7 +415,7 @@ fn xshi_cd_list_complete_1000_entries(bencher: Bencher) {
 fn xshi_dynamic_name_session(bencher: Bencher) {
     let mut session = BenchSession::with_history(Vec::new());
     let commands = (0..8)
-        .map(|index| format!("PHASE8_SESSION_{index}=ok /usr/bin/true"))
+        .map(|index| format!("DYNAMIC_SESSION_{index}=ok /usr/bin/true"))
         .collect::<Vec<_>>();
     let mut index = 0;
     bench_operation(bencher, || {

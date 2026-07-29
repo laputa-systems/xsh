@@ -1,8 +1,8 @@
 use super::common::xsh;
 
 #[test]
-fn vertical_slice_indexed_execution_is_frozen() {
-    let output = xsh(["tests/fixtures/frontend-campaign/vertical-slice.xsh"]);
+fn indexed_execution_fixture_runs_on_the_standard_path() {
+    let output = xsh(["tests/fixtures/frontend-indexed/indexed-execution.xsh"]);
 
     assert!(
         output.status.success(),
@@ -16,8 +16,8 @@ fn vertical_slice_indexed_execution_is_frozen() {
 }
 
 #[test]
-fn formerly_unsupported_slice_runs_on_the_standard_execution_path() {
-    let output = xsh(["tests/fixtures/frontend-campaign/vertical-slice-unsupported.xsh"]);
+fn indexed_method_call_fixture_runs_on_the_standard_path() {
+    let output = xsh(["tests/fixtures/frontend-indexed/indexed-method-call.xsh"]);
 
     assert!(
         output.status.success(),

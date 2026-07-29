@@ -7531,9 +7531,9 @@ mod tests {
     use std::fs;
     use std::time::{SystemTime, UNIX_EPOCH};
 
-    const VERTICAL_SLICE: &str =
-        include_str!("../../../../tests/fixtures/frontend-campaign/vertical-slice.xsh");
-    const PHASE5_BOUNDARY: &str = r#"
+    const INDEXED_EXECUTION: &str =
+        include_str!("../../../../tests/fixtures/frontend-indexed/indexed-execution.xsh");
+    const TOP_LEVEL_DRIVER_BOUNDARY: &str = r#"
 let base: Int = 1
 
 pure plus_base(value: Int) -> Int {
@@ -7549,7 +7549,7 @@ while index < 3 {
 }
 
 env {
-  PHASE5_BOUNDARY = "indexed"
+  TOP_LEVEL_DRIVER_BOUNDARY = "indexed"
 } {
   print "indexed"
 }
@@ -7606,8 +7606,8 @@ run true
     }
 
     #[test]
-    fn full_indexed_program_represents_every_vertical_function() {
-        let program = fixture("vertical-slice.xsh", VERTICAL_SLICE);
+    fn full_indexed_program_represents_every_indexed_fixture_function() {
+        let program = fixture("indexed-execution.xsh", INDEXED_EXECUTION);
 
         assert!(program.function_count() > 0);
         assert!(program
@@ -7756,7 +7756,7 @@ proc main() [error] {
     #[test]
     fn direct_full_program_preserves_values_output_errors_and_traces() {
         run_with_large_stack(|| {
-            let program = Arc::new(fixture("vertical-slice.xsh", VERTICAL_SLICE));
+            let program = Arc::new(fixture("indexed-execution.xsh", INDEXED_EXECUTION));
 
             let main = program_name(&program, "main");
             let (result, stdout, traces) = run_full(Arc::clone(&program), main);
@@ -7785,9 +7785,9 @@ proc main() [error] {
             let program = {
                 let mut sources = SourceMap::new();
                 let source_id =
-                    sources.add_file("vertical-slice.xsh", VERTICAL_SLICE);
+                    sources.add_file("indexed-execution.xsh", INDEXED_EXECUTION);
                 let parsed =
-                    Parser::parse_source_arena_only(source_id, VERTICAL_SLICE);
+                    Parser::parse_source_arena_only(source_id, INDEXED_EXECUTION);
                 let declarations =
                     Checker::check_compact_declarations(&parsed.arena);
                 let bodies =
@@ -7796,7 +7796,7 @@ proc main() [error] {
                     &parsed.arena,
                     &declarations,
                     &bodies,
-                    VERTICAL_SLICE,
+                    INDEXED_EXECUTION,
                     Arc::new(sources),
                     source_id,
                 )
@@ -7835,7 +7835,7 @@ proc main() [error] {
         assert_eq!(
             size_of::<FullTag>() + size_of::<IrData>(),
             9,
-            "full Phase 4 instructions use one-byte tags and eight-byte data"
+            "full indexed instructions use one-byte tags and eight-byte data"
         );
     }
 
@@ -7844,9 +7844,12 @@ proc main() [error] {
         run_with_large_stack(|| {
             let (program, plan, mut evaluator) = {
                 let mut sources = SourceMap::new();
-                let source_id = sources.add_file("phase5-boundary.xsh", PHASE5_BOUNDARY);
+                let source_id = sources.add_file(
+                    "top-level-driver-boundary.xsh",
+                    TOP_LEVEL_DRIVER_BOUNDARY,
+                );
                 let parsed =
-                    Parser::parse_source_arena_only(source_id, PHASE5_BOUNDARY);
+                    Parser::parse_source_arena_only(source_id, TOP_LEVEL_DRIVER_BOUNDARY);
                 assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
                 let declarations =
                     Checker::check_compact_declarations(&parsed.arena);
@@ -7863,7 +7866,7 @@ proc main() [error] {
                     &parsed.arena,
                     &declarations,
                     &bodies,
-                    PHASE5_BOUNDARY,
+                    TOP_LEVEL_DRIVER_BOUNDARY,
                     shared_sources,
                     source_id,
                 )
@@ -7871,7 +7874,7 @@ proc main() [error] {
                 let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources);
                 let plan = evaluator
                     .prepare_compact_indexed_only(&parsed.arena, source_id)
-                    .expect("phase 5 boundary fixture is wholly lowerable");
+                    .expect("top-level driver boundary fixture is wholly lowerable");
                 (Arc::new(program), plan, evaluator)
             };
 
@@ -7915,15 +7918,18 @@ proc main() [error] {
     #[test]
     fn driver_verifier_rejects_effect_sync_and_owner_corruption() {
         let mut sources = SourceMap::new();
-        let source_id = sources.add_file("phase5-boundary.xsh", PHASE5_BOUNDARY);
-        let parsed = Parser::parse_source_arena_only(source_id, PHASE5_BOUNDARY);
+        let source_id = sources.add_file(
+            "top-level-driver-boundary.xsh",
+            TOP_LEVEL_DRIVER_BOUNDARY,
+        );
+        let parsed = Parser::parse_source_arena_only(source_id, TOP_LEVEL_DRIVER_BOUNDARY);
         let declarations = Checker::check_compact_declarations(&parsed.arena);
         let bodies = Checker::probe_compact_bodies(&parsed.arena, &declarations);
         let program = FullBuilder::build_compact(
             &parsed.arena,
             &declarations,
             &bodies,
-            PHASE5_BOUNDARY,
+            TOP_LEVEL_DRIVER_BOUNDARY,
             Arc::new(sources),
             source_id,
         )
@@ -7961,7 +7967,7 @@ proc main() [error] {
     fn driver_propagated_process_failure_records_process_propagation_and_trace_effects() {
         let source = "run false ?\n";
         let mut sources = SourceMap::new();
-        let source_id = sources.add_file("phase5-propagate.xsh", source);
+        let source_id = sources.add_file("top-level-propagate.xsh", source);
         let parsed = Parser::parse_source_arena_only(source_id, source);
         let declarations = Checker::check_compact_declarations(&parsed.arena);
         let bodies = Checker::probe_compact_bodies(&parsed.arena, &declarations);
@@ -7985,7 +7991,7 @@ proc main() [error] {
     fn driver_rejects_non_skippable_unlowered_top_level_statement() {
         let source = "print \"boundary\"\n";
         let mut sources = SourceMap::new();
-        let source_id = sources.add_file("phase5-reject.xsh", source);
+        let source_id = sources.add_file("top-level-reject.xsh", source);
         let parsed = Parser::parse_source_arena_only(source_id, source);
         let statements = parsed.arena.statement_ids().collect::<Vec<_>>();
         let lowered = ProgramBuild {
@@ -8004,7 +8010,7 @@ proc main() [error] {
 
     #[test]
     fn verifier_rejects_cross_function_instruction_ownership() {
-        let mut program = fixture("vertical-slice.xsh", VERTICAL_SLICE);
+        let mut program = fixture("indexed-execution.xsh", INDEXED_EXECUTION);
         let target = program.store.function_instruction_starts[0];
         let body = IrBlockId::from_raw(program.store.functions[1].body).unwrap();
         let body_words = program.store.blocks[body.index()]
@@ -8024,7 +8030,7 @@ proc main() [error] {
 
     #[test]
     fn verifier_rejects_block_ownership_and_missing_function_terminators() {
-        let program = fixture("vertical-slice.xsh", VERTICAL_SLICE);
+        let program = fixture("indexed-execution.xsh", INDEXED_EXECUTION);
 
         let mut bad_owner = program.clone();
         let body = IrBlockId::from_raw(bad_owner.store.functions[0].body).unwrap();
@@ -8048,7 +8054,7 @@ proc main() [error] {
                         .then_some((function, instruction))
                 })?
             })
-            .expect("vertical slice has a single-return function");
+            .expect("indexed execution fixture has a single-return function");
         bad_terminator.store.tags[return_instruction] = FullTag::StmtBreakValue;
         let error = FullVerifier::verify(&bad_terminator).unwrap_err();
         assert!(
@@ -8060,7 +8066,7 @@ proc main() [error] {
 
     #[test]
     fn verifier_rejects_slot_pattern_function_stage_and_location_bounds() {
-        let program = fixture("vertical-slice.xsh", VERTICAL_SLICE);
+        let program = fixture("indexed-execution.xsh", INDEXED_EXECUTION);
 
         let mut bad_slot = program.clone();
         let slot = bad_slot

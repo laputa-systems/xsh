@@ -65,9 +65,11 @@ typechecking, `docs/SPEC-INTERACTIVE.md` covers `xshi`, and
 signals, cancellation, and signal hooks. `docs/XSH-GUIDE.md` shows the intended
 script shape, including target examples that may be ahead of the implementation.
 `docs/FRONTEND.md` is the implementation guide for the compact frontend,
-lowered IR plumbing, symbol identity, registry invariants, and benchmark
-verification. `docs/COVERAGE.md` tracks the practical coverage plan for areas
-that need larger harnesses rather than branch-only tests.
+indexed runtime plumbing, symbol identity, registry invariants, and benchmark
+verification. `../FRONTEND-FOLLOWUPS.md` records evidence-based performance and
+memory work that remains after the architecture closeout. `docs/COVERAGE.md`
+tracks the practical coverage plan for areas that need larger harnesses rather
+than branch-only tests.
 
 ## Agent Routing
 

@@ -29,7 +29,7 @@ verification commands.
 | Tracing and tracebacks | `docs/SPEC.md` section 18; `docs/ARCHITECTURE.md` Tracing And Errors | `src/trace.rs`, `src/runtime/eval.rs`, `crates/xsht/src/cli/mod.rs` | `tests/runtime/coverage.rs`, trace tests |
 | CLI or tooling | `docs/SPEC.md` section 19; `docs/REFERENCE.md`; `docs/XSHT.md` | `crates/xsht/src/cli/mod.rs`, `crates/xsht/src/cli/grep.rs`, `crates/xsht/src/cli/refactor.rs`, `src/docs.rs`, `src/runner.rs` | `crates/xsht/tests/cli.rs`, `crates/xsht/tests/grep.rs`, `crates/xsht/tests/docs.rs` |
 | Interactive shell | `docs/SPEC-INTERACTIVE.md`; `docs/ARCHITECTURE.md` Interactive | `crates/xshi/src/interactive/*`, `crates/xsht/src/cli/mod.rs`, `src/runtime/process.rs` | `tests/runtime/interactive.rs` |
-| Executable IR or user-visible performance | `docs/FRONTEND.md`; `docs/BENCHMARKING.md`; `docs/ARCHITECTURE.md` Executable IR Ownership | `src/runtime/eval/indexed.rs`, `indexed/full.rs`, `lower.rs`, `lowered_run/indexed_run.rs`, `lowered_run/indexed_run/explicit_run.rs`, `src/runtime/eval.rs` | targeted executable/runtime tests, `scripts/ir-layout.py`, `make bench-fast`, then `make bench` for latency |
+| Executable IR or user-visible performance | `docs/FRONTEND.md`; `../FRONTEND-FOLLOWUPS.md`; `docs/BENCHMARKING.md`; `docs/ARCHITECTURE.md` Executable IR Ownership | `src/runtime/eval/indexed.rs`, `indexed/full.rs`, `lower.rs`, `lowered_run/indexed_run.rs`, `lowered_run/indexed_run/explicit_run.rs`, `src/runtime/eval.rs` | targeted executable/runtime tests, `scripts/ir-layout.py`, `make bench-fast`, then `make bench` for latency |
 | LLVM IR or generic code size | `LLVM-LINES.md`; `docs/BENCHMARKING.md` when runtime paths change | generic owners identified by `cargo llvm-lines` | `tools/llvm-lines-repeat-offenders.xsh`, targeted behavior tests, `make bench` when applicable |
 | Docs, examples, or references | `docs/DOCS-STYLE.md`; `docs/GENERATED-DOCS.md`; `docs-src/README.md` | `docs-src/*`, `src/docs.rs`, `examples/catalog.json`, generated docs | docs commands in `docs/TEST-MAP.md` |
 | Remote amd64 musl work | `../laputa/AGENTS.md` Threadripper Notes; `docs/BENCHMARKING.md` for benchmarks | remote checkout only | native command from the task |
@@ -69,8 +69,8 @@ the same change.
 
 ## Final Frontend Gates
 
-The historical `frontend-campaign-phase*` scripts were removed after the
-indexed runtime became the sole production path. Use `docs/TEST-MAP.md` for the
+Historical frontend migration scripts were removed after the indexed runtime
+became the sole production path. Use `docs/TEST-MAP.md` for the
 current direct frontend, explicit-frame, and runtime gates. Do not recreate a
 shadow executor or a command-line lowering switch to diagnose a gap; retain the
 checked source only long enough to render its diagnostic.

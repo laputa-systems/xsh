@@ -12,7 +12,7 @@ allocation-heavy workloads. The benchmark wraps the same mimalloc allocator
 with `AllocProfiler`, so allocation accounting does not change the allocator
 being measured. Other hosts use the system allocator.
 
-The executable frontend has no separate campaign benchmark runner or shadow
+The executable frontend has no separate legacy benchmark runner or shadow
 execution mode. Use the normal suite for all final evidence: `make bench-fast`
 for deterministic allocation and peak-live comparisons, then `make bench` for
 latency repeats. The focused `xsht_check_xsh_repository` and
@@ -131,7 +131,7 @@ Treat a small single-run delta—especially below roughly 5% for sub-millisecond
 work—as inconclusive. `make bench` is a regression sweep, not statistical proof
 that a marginal timing change is real.
 
-Use the existing complete operations as phase lenses:
+Use the existing complete operations as cost lenses:
 
 - `xsht_format_check_xsh_repository` emphasizes lexing, parsing, and CST
   construction;
@@ -141,7 +141,7 @@ Use the existing complete operations as phase lenses:
 - the `xsh_*` workloads include parse, check, lower, and execution over real
   scripts and deterministic data.
 
-These are attribution clues, not isolated phase scorecards. If a change only
+These are attribution clues, not isolated stage scorecards. If a change only
 helps a synthetic parse or evaluator loop but does not improve a represented
 operation, it should not shape the implementation or PGO profile.
 

@@ -12,7 +12,7 @@ xsh-frontend-stats
 Usage:
   xsh-frontend-stats [--json|--text] [ROOT ...]
 
-With no roots, measures the frontend campaign corpus.
+With no roots, measures the frontend fixture corpus.
 ";
 
 fn main() -> ExitCode {

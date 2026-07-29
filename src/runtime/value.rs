@@ -1659,7 +1659,7 @@ mod tests {
     }
 
     #[test]
-    fn value_layout_stays_within_the_phase_seven_budget() {
+    fn value_layout_stays_within_the_compact_runtime_budget() {
         assert_eq!(size_of::<Value>(), 48);
     }
 
@@ -1685,10 +1685,10 @@ mod tests {
     #[test]
     fn runtime_errors_own_dynamic_names_without_an_active_symbol_owner() {
         let error = RuntimeError::new(
-            "phase-eight-session-error",
+            "dynamic-session-error",
             "session helper failed",
         );
 
-        assert_eq!(error.variant_name().as_str(), "phase-eight-session-error");
+        assert_eq!(error.variant_name().as_str(), "dynamic-session-error");
     }
 }

@@ -30,7 +30,7 @@ pub const DEFAULT_ROOTS: &[&str] = &[
     "tests/fixtures/syntax",
     "tests/fixtures/sema",
     "tests/fixtures/runtime",
-    "tests/fixtures/frontend-campaign",
+    "tests/fixtures/frontend-indexed",
 ];
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -856,8 +856,8 @@ mod tests {
     use super::{measure_source, CorpusFrontendStats, FileFrontendStats};
 
     const SOURCE: &str = "pure twice(value: Int) -> Int { return value * 2 }\nprint ${twice(3)}\n";
-    const VERTICAL_SLICE: &str =
-        include_str!("../tests/fixtures/frontend-campaign/vertical-slice.xsh");
+    const INDEXED_EXECUTION: &str =
+        include_str!("../tests/fixtures/frontend-indexed/indexed-execution.xsh");
 
     #[test]
     fn source_measurements_are_deterministic_without_allocator_tracking() {
@@ -889,9 +889,9 @@ mod tests {
     }
 
     #[test]
-    fn vertical_slice_retained_columns_are_stable() {
-        let first = measure_source("vertical-slice.xsh", VERTICAL_SLICE);
-        let second = measure_source("vertical-slice.xsh", VERTICAL_SLICE);
+    fn indexed_execution_retained_columns_are_stable() {
+        let first = measure_source("indexed-execution.xsh", INDEXED_EXECUTION);
+        let second = measure_source("indexed-execution.xsh", INDEXED_EXECUTION);
 
         assert_eq!(first.token_retained_bytes, second.token_retained_bytes);
         assert_eq!(first.cst_retained_bytes, second.cst_retained_bytes);

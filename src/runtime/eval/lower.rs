@@ -3313,7 +3313,7 @@ impl CompactLowerConstructProbe<'_, '_> {
         }
         // NOTE: nested loops are supported by the lowered runtime (break/continue
         // use StmtFlow which correctly scopes to the innermost loop).
-        // The check is removed — it was a Phase 1 safety measure that is no longer needed.
+        // The check is removed — it was an early indexed-lowering safety measure that is no longer needed.
         let mut slots = SlotScope::from_names(params.iter().copied());
         let captures = self.append_immutable_top_level_captures(&mut slots);
         let blockers_before = self.output.blocker_events;

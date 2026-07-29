@@ -4,8 +4,8 @@ mod collections;
 mod common;
 #[path = "runtime/coverage.rs"]
 mod coverage;
-#[path = "runtime/frontend_campaign.rs"]
-mod frontend_campaign;
+#[path = "runtime/frontend_indexed.rs"]
+mod frontend_indexed;
 #[cfg(feature = "tools")]
 #[path = "runtime/examples.rs"]
 mod examples;

@@ -13,10 +13,10 @@ area touched. Do not run formatter or autofix commands for agent work.
 | Runtime behavior | targeted `cargo test --test integration runtime::TEST_NAME` | `cargo test --test integration runtime::` |
 | One runtime fixture | `cargo test --test integration runtime::TEST_NAME` | `cargo test --test integration runtime::` |
 | CLI/tooling | targeted `cargo test -p xsht --test cli TEST_NAME` or `cargo test -p xsht --test grep TEST_NAME` | `cargo test -p xsht --test cli --test grep` if both apply |
-| Benchmark workload | `cargo bench -p xsh-multicall --bench bench BENCHMARK -- --sample-count 1 --sample-size 1` | `make bench-fast` (campaign/memory) or `make bench` (latency) |
+| Benchmark workload | `cargo bench -p xsh-multicall --bench bench BENCHMARK -- --sample-count 1 --sample-size 1` | `make bench-fast` (memory/regression) or `make bench` (latency) |
 | Lowered evaluator dispatch | `cargo bench -p xsh-multicall --bench bench xsh_lowered_scanner_1000_calls_execution -- --include-ignored --sample-count 1 --sample-size 1` | `make bench` after the focused A/B |
 | Arena or indexed-IR layout | `scripts/ir-layout.py` (or `--only TYPE` for a focused report) | focused Divan workload plus the applicable behavior tests |
-| Frontend retained/peak accounting | `cargo test -p xsh --lib frontend_stats::tests` and `cargo run --bin xsh-frontend-stats -- --json tests/fixtures/frontend-campaign` | `make bench-fast` after the applicable syntax/checker gate |
+| Frontend retained/peak accounting | `cargo test -p xsh --lib frontend_stats::tests` and `cargo run --bin xsh-frontend-stats -- --json tests/fixtures/frontend-indexed` | `make bench-fast` after the applicable syntax/checker gate |
 | Executable IR construction and verifier | targeted `cargo test -p xsh --lib runtime::eval::indexed::full::tests::` | `cargo test -p xsh runtime::eval::indexed::full::tests --lib --features native-tests` |
 | Explicit execution frames | targeted `cargo test --test integration runtime::stack_depth -- --test-threads=1` | `cargo test -p xsh runner::tests --lib --features native-tests` plus the runtime gate |
 | Production executable runtime | targeted `cargo test --test integration runtime::TEST_NAME` | `cargo test -p xsh --test integration runtime:: --features native-tests -- --test-threads=1` plus `cargo test -p xsh --test integration runtime::coverage::xsh_native_tests --features native-tests -- --exact` and `make bench-fast` |
@@ -47,7 +47,7 @@ generated tutorial output changes.
 |---|---|
 | collection values and methods | `tests/runtime/collections.rs` |
 | coverage, lint, grep-adjacent tooling | `tests/runtime/coverage.rs` |
-| frontend campaign scorecard | `tests/runtime/frontend_campaign.rs` |
+| frontend indexed fixtures | `tests/runtime/frontend_indexed.rs` |
 | cataloged examples | `tests/runtime/examples.rs` |
 | interactive behavior | `tests/runtime/interactive.rs` |
 | Linux-specific behavior | `tests/runtime/linux.rs` |
@@ -64,7 +64,7 @@ generated tutorial output changes.
 | `tests/fixtures/syntax` | parser and formatter fixture sources |
 | `tests/fixtures/sema` | checker fixture sources |
 | `tests/fixtures/runtime` | executable runtime fixture scripts |
-| `tests/fixtures/frontend-campaign` | frozen compact-IR scorecard and blocker inputs |
+| `tests/fixtures/frontend-indexed` | frozen indexed-execution and indexed-method fixtures |
 | `examples` | tutorial examples cataloged in `examples/catalog.json` |
 | `showcase` and `showcase/tests` | larger standalone scripts and native tests |
 

@@ -41,7 +41,8 @@ Markdown under `docs/` is the primary generated artifact for agents, code review
 - `docs/JSON.md`: guidance for JSON boundary patterns and dynamic JSON tools.
 - `docs/STREAMS.md`: structured stream implementation notes and invariants.
 - `docs/COVERAGE.md`: practical coverage plan and harness notes.
-- `docs/FRONTEND.md`: compact frontend, lowered IR, symbol identity, registry invariant, and benchmark contract.
+- `docs/FRONTEND.md`: compact frontend, indexed runtime, symbol identity, ownership, and verification contract.
+- `../FRONTEND-FOLLOWUPS.md`: evidence-based frontend performance and memory follow-ups.
 - `docs/BENCHMARKING.md`: user-facing benchmarks, PGO, baselines, and syscall diagnostics.
 - `LLVM-LINES.md`: release LLVM IR size analysis and repeated-monomorphization workflow.
 
