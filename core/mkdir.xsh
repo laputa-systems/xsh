@@ -27,56 +27,34 @@ pure common_mode(raw: Str) -> Result[Int] {
   }
 }
 
+type MkdirOptions = {parents: Bool, mode: Str, directories: List[Str]}
+
 proc main(...argv: List[Str]) [fs, error] {
-  if argv.len() == 0 {
-    return Err(usage_error("mkdir", "[-p|--parents] DIR..."))
-  }
-
-  var start = 0
-  var parents = false
-  var mode = -1
-
-  while start < argv.len() {
-    let arg = argv[start]
-
-    if arg == "-p" or arg == "--parents" {
-      parents = true
-      start += 1
-      continue
-    }
-
-    if arg == "-m" or arg == "--mode" {
-      if start + 1 >= argv.len() {
-        return Err(usage_error("mkdir", "[-p] [-m MODE] DIR..."))
-      }
-
-      mode = common_mode(argv[start + 1])?
-      start += 2
-      continue
-    }
-
-    if arg.starts_with("--mode=") {
-      mode = common_mode(arg.replace("--mode=", ""))?
-      start += 1
-      continue
-    }
-
-    if arg.starts_with("-m") and arg.count_chars() > 2 {
-      mode = common_mode(arg.replace("-m", ""))?
-      start += 1
-      continue
-    }
-
-    break
-  }
-
-  if argv.len() <= start {
+  let opts: MkdirOptions = cli.applet(
+    argv,
+    {
+      parents: {
+        form: "-p --parents",
+        default: false,
+      },
+      mode: {
+        form: "-m --mode MODE",
+        default: "",
+      },
+      directories: {
+        form: "...DIR",
+      },
+    },
+  )?
+  if opts.directories.len() == 0 {
     return Err(usage_error("mkdir", "[-p] [-m MODE] DIR..."))
   }
 
-  for item in argv |> drop(start) {
+  let mode = if opts.mode == "" { -1 } else { common_mode(opts.mode)? }
+
+  for item in opts.directories {
     let target = fp"${item}"
-    target.mkdir(parents: parents)?
+    target.mkdir(parents: opts.parents)?
 
     if mode >= 0 {
       target.chmod(mode)?

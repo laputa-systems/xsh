@@ -429,6 +429,8 @@ pure split_iface_arg(arg: Str) -> Record {
   return {physical: arg, logical: arg}
 }
 
+type IfdownOptions = {all: Bool, operands: List[Str]}
+
 stream state_configured_ifaces(state_path: Path) [fs, error] -> Stream[Record] {
   if ! state_path.exists()? {
     return
@@ -448,16 +450,24 @@ stream state_configured_ifaces(state_path: Path) [fs, error] -> Stream[Record] {
 }
 
 proc main(...argv: List[Str]) [fs, process, env, error] {
-  var all = false
-  var operands: List[Str] = []
-
-  for arg in argv {
-    match arg {
-      "-a" | "--all" => all = true
-      "-v" | "--verbose" => {}
-      _ => operands = operands.push(arg)
-    }
-  }
+  let opts: IfdownOptions = cli.applet(
+    argv,
+    {
+      all: {
+        form: "-a --all",
+        default: false,
+      },
+      ignored: {
+        form: "-v --verbose",
+        default: false,
+      },
+      operands: {
+        form: "...INTERFACE",
+      },
+    },
+  )?
+  let all = opts.all
+  let operands = opts.operands
 
   if ! all and operands.len() == 0 {
     return Err(IfdownError.Usage("ifdown: expected -a or interface name"))

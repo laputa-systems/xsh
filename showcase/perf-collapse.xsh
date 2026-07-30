@@ -83,73 +83,48 @@ pure comm_from_header(line: Str) -> Str {
 }
 
 pure parse_options(argv: List[Str]) -> Result[Options] {
-  var input = ""
-  var comm = ""
-  var include = ""
-  var exclude = ""
-  var top = 0
-  var leaf_first = false
-  var i = 0
+  let parsed = cli.applet(
+    argv,
+    {
+      comm: {
+        form: "--comm NAME",
+        default: "",
+      },
+      include: {
+        form: "--include REGEX",
+        default: "",
+      },
+      exclude: {
+        form: "--exclude REGEX",
+        default: "",
+      },
+      top: {
+        form: "--top N",
+        kind: "Int",
+        default: 0,
+      },
+      leaf_first: {
+        form: "--leaf-first",
+        default: false,
+      },
+      operands: {
+        form: "...FILE",
+      },
+    },
+  )?
+  let input = parsed.operands.get(0, "")
 
-  while i < argv.len() {
-    let item = argv[i]
-
-    if item == "--comm" {
-      i += 1
-
-      if i >= argv.len() {
-        return Err(ScriptError.Failed("usage", usage()))
-      }
-
-      comm = argv[i]
-    } else if item == "--include" {
-      i += 1
-
-      if i >= argv.len() {
-        return Err(ScriptError.Failed("usage", usage()))
-      }
-
-      include = argv[i]
-    } else if item == "--exclude" {
-      i += 1
-
-      if i >= argv.len() {
-        return Err(ScriptError.Failed("usage", usage()))
-      }
-
-      exclude = argv[i]
-    } else if item == "--top" {
-      i += 1
-
-      if i >= argv.len() {
-        return Err(ScriptError.Failed("usage", usage()))
-      }
-
-      top = json.decode(argv[i])?
-    } else if item == "--leaf-first" {
-      leaf_first = true
-    } else if item.starts_with("--") {
-      return Err(ScriptError.Failed("usage", usage()))
-    } else if input == "" {
-      input = item
-    } else {
-      return Err(ScriptError.Failed("usage", usage()))
-    }
-
-    i += 1
-  }
-
-  if input == "" {
+  if parsed.operands.len() != 1 {
     return Err(ScriptError.Failed("usage", usage()))
   }
 
   return {
     input: fp"${input}",
-    comm: comm,
-    include: include,
-    exclude: exclude,
-    top: top,
-    leaf_first: leaf_first,
+    comm: parsed.comm,
+    include: parsed.include,
+    exclude: parsed.exclude,
+    top: parsed.top,
+    leaf_first: parsed.leaf_first,
   }
 }
 

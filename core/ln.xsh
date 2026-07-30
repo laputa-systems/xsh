@@ -21,31 +21,37 @@ pure dest_for(source: Path, target: Path, target_is_dir: Bool) -> Path {
   return target
 }
 
+type LnOptions = {symbolic: Bool, force: Bool, no_target_directory: Bool, paths: List[Str]}
+
 proc main(...argv: List[Str]) [fs, error] {
-  var symbolic = false
-  var force = false
-  var no_target_directory = false
-  var paths: List[Str] = []
-
-  for arg in argv {
-    match arg {
-      "-s" => symbolic = true
-      "-f" => force = true
-      "-n" => {}
-      "-T" | "--no-target-directory" => no_target_directory = true
-      "-sf" | "-fs" | "-sfn" | "-snf" | "-fns" | "-fsn" | "-nsf" | "-nfs" => {
-        symbolic = true
-        force = true
-      }
-      _ => {
-        if arg.starts_with("-") {
-          return Err(reject_unsupported("ln", arg))
-        }
-
-        paths = paths.push(arg)
-      }
-    }
-  }
+  let opts: LnOptions = cli.applet(
+    argv,
+    {
+      symbolic: {
+        form: "-s",
+        default: false,
+      },
+      force: {
+        form: "-f",
+        default: false,
+      },
+      no_target_directory: {
+        form: "-T --no-target-directory",
+        default: false,
+      },
+      ignored: {
+        form: "-n",
+        default: false,
+      },
+      paths: {
+        form: "...PATH",
+      },
+    },
+  )?
+  let symbolic = opts.symbolic
+  let force = opts.force
+  let no_target_directory = opts.no_target_directory
+  let paths = opts.paths
 
   if paths.len() < 2 {
     return Err(usage_error("ln", "[-sfnT] SOURCE... DEST"))

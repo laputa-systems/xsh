@@ -126,6 +126,8 @@ Byte inspection, encoding, decoding, copying, and hashing helpers.
 
 Script command-line parsing into typed option records.
 
+- `cli.applet(argv: List[Str], schema: Record, command: Str = default) -> Result[Record, Error]` - pure; Returns `Record` or `Error` failure data. ID `module.cli.applet.0`.
+  Params: `argv: List[Str]`, `schema: Record`, `command: Str = default`
 - `cli.commands(argv: List[Str], commands: Record) -> Result[Record, Error]` - pure; Returns `Record` or `Error` failure data. ID `module.cli.commands.0`.
   Params: `argv: List[Str]`, `commands: Record`
 - `cli.commands(argv: List[Str], rootless_default: Str, commands: Record, fallback_command: Record = default) -> Result[Record, Error]` - pure; Returns `Record` or `Error` failure data. ID `module.cli.commands.1`.

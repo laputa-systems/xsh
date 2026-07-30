@@ -1694,6 +1694,7 @@ Archive entry records have `path: Path`, `kind: Str`, `size: Int`, `mode: Int`,
 
 `cli`:
 
+- `cli.applet(argv: List[Str], schema: Record, command: Str = current script) -> Result[Record]`.
 - `cli.parse(argv: List[Str], schema: Record, command: Str = current script) -> Result[Record]`.
 - `cli.parse_full(argv: List[Str], schema: Record, env: Record = {},
   command: Str = current script) ->
@@ -1727,6 +1728,14 @@ repeated positionals. If `kind` is absent, the value type is inferred from
 non-negative decimal integers and returns an `Int` value. Runtime results
 include `null` for absent optional scalar fields. Errors include the failing
 argv index in the diagnostic message when the failure comes from an input item.
+
+`cli.applet` uses the same typed schema and result inference as `cli.parse`, but
+its scalar options use last-occurrence-wins semantics. This supports common
+Unix applet forms such as short-option clusters and attached short values, with
+a later occurrence overriding an earlier one. `cli.parse` remains strict:
+repeating a non-repeated scalar option is a usage error. Both APIs reject
+undeclared options and preserve the existing `--` operands-only marker; use a
+repeated positional form such as `...FILE` for applet operands.
 
 `cli.parse` and `cli.parse_full` reserve `-h` and `--help` implicitly. Schemas
 do not declare a help option or include a help field in their result record.

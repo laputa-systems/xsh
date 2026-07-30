@@ -9,10 +9,6 @@ pure usage_error(applet_name: Str, summary: Str) -> Error {
   return AppletError.Usage(usage(applet_name, summary))
 }
 
-pure reject_unsupported(applet_name: Str, flag: Str) -> Error {
-  return AppletError.Usage(f"${applet_name}: unsupported option '${flag}'")
-}
-
 pure file_type_name(kind: Str) -> Str {
   match kind {
     "dir" => "directory"
@@ -84,38 +80,23 @@ proc render_format(fmt: Str, target: Path, meta: FsEntry) [fs, error] -> Str {
   return out
 }
 
+type StatOptions = {format: Str, paths: List[Str]}
+
 proc main(...argv: List[Str]) [fs, error] {
-  var fmt = ""
-  var paths: List[Str] = []
-  var index = 0
-
-  while index < argv.len() {
-    let arg = argv[index]
-
-    if arg == "-c" or arg == "--format" {
-      if index + 1 >= argv.len() {
-        return Err(usage_error("stat", "-c FORMAT PATH..."))
-      }
-
-      fmt = argv[index + 1]
-      index += 2
-      continue
-    }
-
-    if arg.starts_with("--format=") {
-      fmt = arg.replace("--format=", "")
-    } else if arg.starts_with("-c") and arg.count_chars() > 2 {
-      fmt = arg.replace("-c", "")
-    } else {
-      if arg.starts_with("-") {
-        return Err(reject_unsupported("stat", arg))
-      }
-
-      paths = paths.push(arg)
-    }
-
-    index += 1
-  }
+  let opts: StatOptions = cli.applet(
+    argv,
+    {
+      format: {
+        form: "-c --format FORMAT",
+        default: "",
+      },
+      paths: {
+        form: "...PATH",
+      },
+    },
+  )?
+  let fmt = opts.format
+  let paths = opts.paths
 
   if paths.len() == 0 {
     return Err(usage_error("stat", "[-c FORMAT] PATH..."))

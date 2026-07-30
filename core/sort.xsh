@@ -1,6 +1,18 @@
 #!/bin/xsh
 error AppletError = Usage(message: Str) : Usage
 
+type SortOptions = {
+  reverse: Bool,
+  unique: Bool,
+  numeric: Bool,
+  fold_case: Bool,
+  blank: Bool,
+  key: Str,
+  delimiter: Str,
+  output: Str,
+  paths: List[Str],
+}
+
 pure reject_unsupported(applet_name: Str, flag: Str) -> Error {
   return AppletError.Usage(f"${applet_name}: unsupported option '${flag}'")
 }
@@ -42,89 +54,78 @@ proc read_text_inputs(paths: List[Str]) [fs, error, io] -> Result[Str] {
 }
 
 proc main(...argv: List[Str]) [fs, error, io] {
-  var reverse = false
-  var unique = false
-  var numeric = false
-  var fold_case = false
-  var key_field = 0
-  var has_key = false
-  var delimiter = ""
-  var output = p""
-  var has_output = false
-  var paths: List[Str] = []
-  var index = 0
-
-  while index < argv.len() {
-    let arg = argv[index]
-
-    match arg {
-      "-r" | "--reverse" => reverse = true
-      "-u" | "--unique" => unique = true
-      "-n" | "--numeric-sort" => numeric = true
-      "-f" | "--ignore-case" => fold_case = true
-      "-b" => {}
-      "-k" => {
-        key_field = key_index(argv[index + 1])
-        has_key = true
-        index += 1
-      }
-      "-t" => {
-        delimiter = argv[index + 1]
-        index += 1
-      }
-      "-nr" | "-rn" => {
-        numeric = true
-        reverse = true
-      }
-      "-o" => {
-        output = fp"${argv[index + 1]}"
-        has_output = true
-        index += 1
-      }
-      _ => {
-        if arg.starts_with("-") {
-          if arg.starts_with("-k") and arg.count_chars() > 2 {
-            key_field = key_index(arg.replace("-k", ""))
-            has_key = true
-          } else if arg.starts_with("-t") and arg.count_chars() > 2 {
-            delimiter = arg.replace("-t", "")
-          } else {
-            return Err(reject_unsupported("sort", arg))
-          }
-        } else {
-          paths = paths.push(arg)
-        }
-      }
-    }
-
-    index += 1
-  }
+  let opts: SortOptions = cli.applet(
+    argv,
+    {
+      reverse: {
+        form: "-r --reverse",
+        default: false,
+      },
+      unique: {
+        form: "-u --unique",
+        default: false,
+      },
+      numeric: {
+        form: "-n --numeric-sort",
+        default: false,
+      },
+      fold_case: {
+        form: "-f --ignore-case",
+        default: false,
+      },
+      blank: {
+        form: "-b",
+        default: false,
+      },
+      key: {
+        form: "-k KEY",
+        default: "",
+      },
+      delimiter: {
+        form: "-t DELIMITER",
+        default: "",
+      },
+      output: {
+        form: "-o FILE",
+        default: "",
+      },
+      paths: {
+        form: "...FILE",
+      },
+    },
+  )?
+  let has_key = opts.key != ""
+  let key_field = if has_key { key_index(opts.key) } else { 0 }
+  let has_output = opts.output != ""
+  let output = if has_output { fp"${opts.output}" } else { p"" }
+  let delimiter = opts.delimiter
+  let paths = opts.paths
 
   let input = read_text_inputs(paths)?
 
-  let sorted = if numeric and has_key {
-    if reverse {
+  let sorted = if opts.numeric and has_key {
+    if opts.reverse {
       input.lines() |> sort-by --desc numeric_field_key(., delimiter, key_field)
     } else {
       input.lines() |> sort-by numeric_field_key(., delimiter, key_field)
     }
   } else if has_key {
-    if reverse {
-      input.lines() |> sort-by --desc field_key(., delimiter, key_field, fold_case)
+    if opts.reverse {
+      input.lines() |> sort-by --desc field_key(., delimiter, key_field, opts.fold_case)
     } else {
-      input.lines() |> sort-by field_key(., delimiter, key_field, fold_case)
+      input.lines() |> sort-by field_key(., delimiter, key_field, opts.fold_case)
     }
-  } else if numeric {
-    if reverse { input.lines() |> sort-by --desc numeric_key(.) } else { input.lines() |> sort-by numeric_key(.) }
-  } else if fold_case {
-    if reverse { input.lines() |> sort-by --desc .lower() } else { input.lines() |> sort-by .lower() }
-  } else if reverse {
+  } else if opts.numeric {
+    if opts.reverse { input.lines() |> sort-by --desc numeric_key(.) } else { input.lines() |> sort-by numeric_key(.) }
+  } else if opts.fold_case {
+    if opts.reverse { input.lines() |> sort-by --desc .lower() } else { input.lines() |> sort-by .lower() }
+  } else if opts.reverse {
     input.lines() |> sort-by --desc .
   } else {
     input.lines() |> sort
   }
 
-  let lines = if unique { sorted |> unique-by . } else { sorted }
+  let lines = if opts.unique { sorted |> unique-by . } else { sorted }
 
   let text = if lines.len() == 0 {
     ""

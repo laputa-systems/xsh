@@ -9,18 +9,6 @@ pure usage_error(applet_name: Str, summary: Str) -> Error {
   return AppletError.Usage(usage(applet_name, summary))
 }
 
-pure reject_unsupported(applet_name: Str, flag: Str) -> Error {
-  return AppletError.Usage(f"${applet_name}: unsupported option '${flag}'")
-}
-
-pure require_arg(applet_name: Str, summary: Str, argv: List[Str], index: Int) -> Result[Str] {
-  if argv.len() <= index {
-    return Err(usage_error(applet_name, summary))
-  }
-
-  return argv[index]
-}
-
 pure common_int(raw: Str, label: Str) -> Result[Int] {
   match raw {
     "1k" | "1K" => 1024
@@ -68,32 +56,28 @@ pure should_emit(value: Int, step: Int, last: Int) -> Bool {
   return value >= last
 }
 
+type SeqOptions = {equal_width: Bool, separator: Str, operands: List[Str]}
+
 proc main(...argv: List[Str]) [error, io] {
-  var equal_width = false
-  var separator = "\n"
-  var operands: List[Str] = []
-  var index = 0
-
-  while index < argv.len() {
-    let arg = argv[index]
-
-    if arg == "-w" or arg == "--equal-width" {
-      equal_width = true
-    } else if arg == "-s" or arg == "--separator" {
-      separator = unescape(require_arg("seq", "[-w] [-s SEP] [FIRST [STEP]] LAST", argv, index + 1)?)
-      index += 1
-    } else if arg.starts_with("--separator=") {
-      separator = unescape(arg.replace("--separator=", ""))
-    } else if arg.starts_with("-s") and arg.count_chars() > 2 {
-      separator = unescape(arg.replace("-s", ""))
-    } else if arg.starts_with("--") {
-      return Err(reject_unsupported("seq", arg))
-    } else {
-      operands = operands.push(arg)
-    }
-
-    index += 1
-  }
+  let opts: SeqOptions = cli.applet(
+    argv,
+    {
+      equal_width: {
+        form: "-w --equal-width",
+        default: false,
+      },
+      separator: {
+        form: "-s --separator SEP",
+        default: "\n",
+      },
+      operands: {
+        form: "...ARG",
+      },
+    },
+  )?
+  let equal_width = opts.equal_width
+  let separator = unescape(opts.separator)
+  let operands = opts.operands
 
   var first = 1
   var step = 1

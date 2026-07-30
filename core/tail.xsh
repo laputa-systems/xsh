@@ -1,6 +1,8 @@
 #!/bin/xsh
 error AppletError = Usage(message: Str) : Usage
 
+type TailOptions = {count: Str, quiet: Bool, verbose: Bool, paths: List[Str]}
+
 proc read_text_inputs(paths: List[Str]) [fs, error, io] -> Result[Str] {
   var out = ""
 
@@ -27,39 +29,28 @@ pure common_int(raw: Str, label: Str) -> Result[Int] {
 }
 
 proc main(...argv: List[Str]) [fs, error, io] {
-  var count = 10
-  var quiet = false
-  var verbose = false
-  var paths: List[Str] = []
-  var index = 0
-
-  while index < argv.len() {
-    let arg = argv[index]
-
-    if arg == "-n" or arg == "--lines" {
-      if index + 1 >= argv.len() {
-        return Err(AppletError.Usage("tail: option requires an argument -- n"))
-      }
-
-      count = common_int(argv[index + 1], "line count")?
-      index += 2
-      continue
-    }
-
-    if arg == "-q" or arg == "--quiet" or arg == "--silent" {
-      quiet = true
-    } else if arg == "-v" or arg == "--verbose" {
-      verbose = true
-    } else if arg.starts_with("-n") and arg.count_chars() > 2 {
-      count = common_int(arg.replace("-n", ""), "line count")?
-    } else if arg.starts_with("-") and arg.count_chars() > 1 {
-      count = common_int(arg.replace("-", ""), "line count")?
-    } else {
-      paths = paths.push(arg)
-    }
-
-    index += 1
-  }
+  let opts: TailOptions = cli.applet(
+    argv,
+    {
+      count: {
+        form: "-n --lines N",
+        default: "10",
+      },
+      quiet: {
+        form: "-q --quiet --silent",
+        default: false,
+      },
+      verbose: {
+        form: "-v --verbose",
+        default: false,
+      },
+      paths: {
+        form: "...FILE",
+      },
+    },
+  )?
+  let count = common_int(opts.count, "line count")?
+  let paths = opts.paths
 
   if paths.len() == 0 {
     let lines = io.stdin_text()?.lines().collect()
@@ -73,7 +64,7 @@ proc main(...argv: List[Str]) [fs, error, io] {
   }
 
   var first = true
-  let show_headers = verbose or paths.len() > 1 and ! quiet
+  let show_headers = opts.verbose or paths.len() > 1 and ! opts.quiet
 
   for item in paths {
     if show_headers {

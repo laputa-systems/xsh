@@ -1,10 +1,4 @@
 #!/bin/xsh
-error AppletError = Usage(message: Str) : Usage
-
-pure reject_unsupported(applet_name: Str, flag: Str) -> Error {
-  return AppletError.Usage(f"${applet_name}: unsupported option '${flag}'")
-}
-
 type Counts = {dirs: Int, files: Int}
 
 pure empty_counts() -> Counts {
@@ -86,42 +80,39 @@ proc print_target(raw: Str, all: Bool, dirs_only: Bool, max_depth: Int) [fs, err
 }
 
 proc main(...argv: List[Str]) [fs, error] {
-  var paths: List[Str] = []
-  var parsing_flags = true
-  var all = false
-  var dirs_only = false
-  var max_depth = 0
-  var index = 0
-
-  while index < argv.len() {
-    let arg = argv[index]
-
-    if parsing_flags and arg == "--" {
-      parsing_flags = false
-    } else if parsing_flags and (arg == "-a" or arg == "--all") {
-      all = true
-    } else if parsing_flags and (arg == "-d" or arg == "--dirs-only") {
-      dirs_only = true
-    } else if parsing_flags and (arg == "-I" or arg == "--no-ignore") {
-      let _ = arg
-    } else if parsing_flags and (arg == "-L" or arg == "--level") {
-      index += 1
-      max_depth = argv[index].parse_int()?
-    } else if parsing_flags and arg.starts_with("-L") and arg.count_chars() > 2 {
-      max_depth = arg.replace("-L", "").parse_int()?
-    } else if parsing_flags and arg == "--color" {
-      index += 1
-      let _ = argv[index]
-    } else if parsing_flags and arg.starts_with("--color=") {
-      let _ = arg
-    } else if parsing_flags and arg.starts_with("-") and arg.count_chars() > 1 {
-      return Err(reject_unsupported("tree", arg))
-    } else {
-      paths = paths.push(arg)
-    }
-
-    index += 1
-  }
+  let options = cli.applet(
+    argv,
+    {
+      all: {
+        form: "-a --all",
+        default: false,
+      },
+      dirs_only: {
+        form: "-d --dirs-only",
+        default: false,
+      },
+      no_ignore: {
+        form: "-I --no-ignore",
+        default: false,
+      },
+      max_depth: {
+        form: "-L --level N",
+        kind: "Int",
+        default: 0,
+      },
+      color: {
+        form: "--color[=WHEN]",
+        default: "",
+      },
+      paths: {
+        form: "...PATH",
+      },
+    },
+  )?
+  let all = options.all
+  let dirs_only = options.dirs_only
+  let max_depth = options.max_depth
+  var paths = [target for target in options.paths]
 
   if paths.len() == 0 {
     paths = paths.push(".")

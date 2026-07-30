@@ -1,6 +1,20 @@
 #!/bin/xsh
 error AppletError = Usage(message: Str) : Usage
 
+type FdOptions = {
+  hidden: Bool,
+  ignore: Bool,
+  glob: Bool,
+  ignore_case: Bool,
+  absolute: Bool,
+  print0: Bool,
+  max_depth: Int,
+  kind: Str,
+  ext: Str,
+  excludes: List[Str],
+  operands: List[Str],
+}
+
 pure glob_match(pattern: Str, text: Str) -> Bool {
   if pattern == "*" {
     return true
@@ -32,72 +46,65 @@ pure hidden_path(path_text: Str) -> Bool {
 }
 
 proc main(...argv: List[Str]) [fs, error, io] {
-  var pattern = ""
+  let opts: FdOptions = cli.applet(
+    argv,
+    {
+      hidden: {
+        form: "-H --hidden",
+        default: false,
+      },
+      ignore: {
+        form: "-I --no-ignore",
+        default: true,
+      },
+      glob: {
+        form: "-g --glob",
+        default: false,
+      },
+      ignore_case: {
+        form: "-i --ignore-case",
+        default: false,
+      },
+      absolute: {
+        form: "-a --absolute-path",
+        default: false,
+      },
+      print0: {
+        form: "-0 --print0",
+        default: false,
+      },
+      max_depth: {
+        form: "-d --max-depth N",
+        kind: "Int",
+        default: 0,
+      },
+      kind: {
+        form: "-t --type TYPE",
+        default: "",
+      },
+      ext: {
+        form: "-e --extension EXT",
+        default: "",
+      },
+      excludes: {
+        form: "-E --exclude PATTERN",
+        repeated: true,
+      },
+      color: {
+        form: "--color WHEN",
+        default: "",
+      },
+      operands: {
+        form: "...ARG",
+      },
+    },
+  )?
+  let operands = opts.operands
+  let pattern = operands.get(0, "")
+  let kind = opts.kind
+  let ext = opts.ext
+  let excludes = opts.excludes
   var roots: List[Path] = []
-  var kind = ""
-  var ext = ""
-  var hidden = false
-  var ignore = true
-  var glob = false
-  var ignore_case = false
-  var absolute = false
-  var print0 = false
-  var max_depth = 0
-  var excludes: List[Str] = []
-  var operands: List[Str] = []
-  var index = 0
-
-  while index < argv.len() {
-    let arg = argv[index]
-
-    match arg {
-      "-H" | "--hidden" => hidden = true
-      "-I" | "--no-ignore" => ignore = false
-      "-g" | "--glob" => glob = true
-      "-i" | "--ignore-case" => ignore_case = true
-      "-a" | "--absolute-path" => absolute = true
-      "-0" | "--print0" => print0 = true
-      "-d" | "--max-depth" => {
-        index += 1
-        max_depth = argv[index].parse_int()?
-      }
-      "-t" | "--type" => {
-        index += 1
-        kind = argv[index]
-      }
-      "-e" | "--extension" => {
-        index += 1
-        ext = argv[index]
-      }
-      "-E" | "--exclude" => {
-        index += 1
-        excludes = excludes.push(argv[index])
-      }
-      _ => {
-        if arg.starts_with("--color=") {
-          let _ = arg
-        } else if arg.starts_with("-d") and arg.count_chars() > 2 {
-          max_depth = arg.replace("-d", "").parse_int()?
-        } else if arg.starts_with("-t") and arg.count_chars() > 2 {
-          kind = arg.replace("-t", "")
-        } else if arg.starts_with("-e") and arg.count_chars() > 2 {
-          ext = arg.replace("-e", "")
-        } else if arg.starts_with("-E") and arg.count_chars() > 2 {
-          excludes = excludes.push(arg.replace("-E", ""))
-        } else if arg.starts_with("-") {
-          return Err(AppletError.Usage("fd: unsupported option"))
-        } else {
-          operands = operands.push(arg)
-        }
-      }
-    }
-
-    index += 1
-  }
-
-  if operands.len() > 0 {
-    pattern = operands[0]
-  }
 
   if operands.len() > 1 {
     for operand in operands |> drop(1) {
@@ -109,30 +116,30 @@ proc main(...argv: List[Str]) [fs, error, io] {
     roots = [p"."]
   }
 
-  let match_pattern = if ignore_case { pattern.lower() } else { pattern }
-  let re = if glob or match_pattern == "" { regex.compile(".*")? } else { regex.compile(match_pattern)? }
+  let match_pattern = if opts.ignore_case { pattern.lower() } else { pattern }
+  let re = if opts.glob or match_pattern == "" { regex.compile(".*")? } else { regex.compile(match_pattern)? }
 
   for root in roots {
-    for entry in fs.walk(root, gitignore: ignore, hidden: hidden)? |> sort-by .path {
+    for entry in fs.walk(root, gitignore: opts.ignore, hidden: opts.hidden)? |> sort-by .path {
       let name = entry.path.name()
-      let comparable = if ignore_case { name.lower() } else { name }
+      let comparable = if opts.ignore_case { name.lower() } else { name }
       let rel = entry.path.relative_to(root)
       let rel_text = rel.display()
       let depth = rel_text.split("/").len()
       continue when rel_text == "."
-      continue when ! hidden and hidden_path(rel_text)
-      continue when max_depth > 0 and depth > max_depth
+      continue when ! opts.hidden and hidden_path(rel_text)
+      continue when opts.max_depth > 0 and depth > opts.max_depth
       continue when (kind == "f" or kind == "file") and entry.kind != "file"
       continue when (kind == "d" or kind == "dir" or kind == "directory") and entry.kind != "dir"
       continue when (kind == "l" or kind == "symlink") and entry.kind != "symlink"
       continue when (kind == "x" or kind == "executable") and ! entry.path.executable()?
       continue when ext != "" and entry.ext != ext
       continue when excludes |> any glob_match(., name)
-      continue when glob and ! glob_match(match_pattern, name)
-      continue when ! glob and ! re.matches(comparable)
-      let shown = if absolute { entry.path.resolve()?.display() } else { rel_text }
+      continue when opts.glob and ! glob_match(match_pattern, name)
+      continue when ! opts.glob and ! re.matches(comparable)
+      let shown = if opts.absolute { entry.path.resolve()?.display() } else { rel_text }
 
-      if print0 {
+      if opts.print0 {
         io.write_stdout(f"${shown}\0")?
       } else {
         print $shown

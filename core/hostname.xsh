@@ -5,17 +5,23 @@ pure reject_unsupported(applet_name: Str, flag: Str) -> Error {
   return AppletError.Usage(f"${applet_name}: unsupported option '${flag}'")
 }
 
-proc main(...argv: List[Str]) [process, env, error] {
-  var short = false
+type HostnameOptions = {short: Bool}
 
-  for arg in argv {
-    match arg {
-      "-s" => short = true
-      "-f" => {}
-      _ => return Err(reject_unsupported("hostname", arg))
-    }
-  }
+proc main(...argv: List[Str]) [process, env, error] {
+  let opts: HostnameOptions = cli.applet(
+    argv,
+    {
+      short: {
+        form: "-s",
+        default: false,
+      },
+      ignored: {
+        form: "-f",
+        default: false,
+      },
+    },
+  )?
 
   let name = system.hostname()?
-  print ${if short { name.split(".")[0] } else { name }}
+  print ${if opts.short { name.split(".")[0] } else { name }}
 }

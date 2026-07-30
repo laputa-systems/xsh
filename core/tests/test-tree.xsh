@@ -50,5 +50,5 @@ ${right.display()}
   let err = test.temp_path(ctx, name: "tree.err")
   let status = run.status ${ctx.xsh_bin} fp"${ctx.core_dir}/tree.xsh" -- -z $left 2> $err
   test.ok(! status.exited_with(0))?
-  test.contains(err.read_text()?, "unsupported option")?
+  test.contains(err.read_text()?, "unknown argument")?
 }

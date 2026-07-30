@@ -1,45 +1,29 @@
 #!/usr/bin/env -S xsh --
-error ShowcaseDfError = Usage(message: Str) : Usage
-
 type DfOpts = {human: Bool, portable: Bool, paths: List[Path]}
 
-pure usage() -> Str {
-  return "usage: df.xsh [-h] [-k] [-P] [PATH...]"
-}
-
 pure parse_args(argv: List[Str]) -> Result[DfOpts] {
-  var human = true
-  var portable = false
-  var paths: List[Path] = []
-  var parsing_flags = true
-
-  for arg in argv {
-    if parsing_flags and arg == "--" {
-      parsing_flags = false
-    } else if parsing_flags {
-      match arg {
-        "--help" => return Err(ShowcaseDfError.Usage(usage()))
-        "-h" => human = true
-        "-k" => human = false
-        "-P" => portable = true
-        "-kP" | "-Pk" => {
-          human = false
-          portable = true
-        }
-        _ => {
-          if arg.starts_with("-") {
-            return Err(ShowcaseDfError.Usage(f"df.xsh: unsupported option '${arg}'"))
-          }
-
-          paths = paths.push(fp"${arg}")
-        }
-      }
-    } else {
-      paths = paths.push(fp"${arg}")
-    }
-  }
-
-  return {human, portable, paths}
+  let options = cli.applet(
+    argv,
+    {
+      show_human: {
+        form: "-h",
+        default: false,
+      },
+      kilobytes: {
+        form: "-k",
+        default: false,
+      },
+      portable: {
+        form: "-P",
+        default: false,
+      },
+      paths: {
+        form: "...PATH",
+        kind: "Path",
+      },
+    },
+  )?
+  return {human: options.show_human or ! options.kilobytes, portable: options.portable, paths: options.paths}
 }
 
 pure size_text(size_1k: Int, human: Bool) -> Str {

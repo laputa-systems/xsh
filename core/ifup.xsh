@@ -660,17 +660,27 @@ pure split_iface_arg(arg: Str) -> Record {
   return {physical: arg, logical: arg}
 }
 
-proc main(...argv: List[Str]) [fs, process, env, time, error] {
-  var all = false
-  var operands: List[Str] = []
+type IfupOptions = {all: Bool, operands: List[Str]}
 
-  for arg in argv {
-    match arg {
-      "-a" | "--all" => all = true
-      "-v" | "--verbose" => {}
-      _ => operands = operands.push(arg)
-    }
-  }
+proc main(...argv: List[Str]) [fs, process, env, time, error] {
+  let opts: IfupOptions = cli.applet(
+    argv,
+    {
+      all: {
+        form: "-a --all",
+        default: false,
+      },
+      ignored: {
+        form: "-v --verbose",
+        default: false,
+      },
+      operands: {
+        form: "...INTERFACE",
+      },
+    },
+  )?
+  let all = opts.all
+  let operands = opts.operands
 
   if ! all and operands.len() == 0 {
     return Err(IfupError.Usage("ifup: expected -a or interface name"))

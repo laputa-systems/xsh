@@ -1,6 +1,26 @@
 #!/bin/xsh
 error AppletError = Usage(message: Str) : Usage
 
+type RgOptions = {
+  ignore_case: Bool,
+  fixed: Bool,
+  word: Bool,
+  line_match: Bool,
+  invert: Bool,
+  line_numbers: Bool,
+  with_filename: Bool,
+  no_filename: Bool,
+  list_files: Bool,
+  count: Bool,
+  quiet: Bool,
+  hidden: Bool,
+  ignore: Bool,
+  globs: List[Str],
+  color: Str,
+  pattern_option: Str,
+  operands: List[Str],
+}
+
 pure glob_match(pattern: Str, text: Str) -> Bool {
   if pattern == "*" {
     return true
@@ -148,69 +168,100 @@ proc search_file(
 }
 
 proc main(...argv: List[Str]) [fs, error, io] {
-  var pattern = ""
-  var paths: List[Path] = []
-  var ignore_case = false
-  var fixed = false
-  var word = false
-  var line_match = false
-  var invert = false
-  var line_numbers = false
-  var with_filename = false
-  var no_filename = false
-  var list_files = false
-  var count = false
-  var quiet = false
-  var hidden = false
-  var ignore = true
-  var globs: List[Str] = []
-  var color = false
-  var index = 0
-
-  while index < argv.len() {
-    let arg = argv[index]
-
-    match arg {
-      "-i" => ignore_case = true
-      "-F" => fixed = true
-      "-w" => word = true
-      "-x" => line_match = true
-      "-v" => invert = true
-      "-n" => line_numbers = true
-      "-H" => with_filename = true
-      "-h" => no_filename = true
-      "-l" => list_files = true
-      "-c" => count = true
-      "-q" => quiet = true
-      "--hidden" => hidden = true
-      "-I" | "--no-ignore" => ignore = false
-      "-e" => {
-        index += 1
-        pattern = argv[index]
-      }
-      "-g" | "--glob" => {
-        index += 1
-        globs = globs.push(argv[index])
-      }
-      _ => {
-        if arg.starts_with("--color=") {
-          color = arg.ends_with("always")
-        } else if arg.starts_with("-e") and arg.count_chars() > 2 {
-          pattern = arg.replace("-e", "")
-        } else if arg.starts_with("-g") and arg.count_chars() > 2 {
-          globs = globs.push(arg.replace("-g", ""))
-        } else if arg.starts_with("-") {
-          return Err(AppletError.Usage("rg: unsupported option"))
-        } else if pattern == "" {
-          pattern = arg
-        } else {
-          paths = paths.push(fp"${arg}")
-        }
-      }
-    }
-
-    index += 1
+  let opts: RgOptions = cli.applet(
+    argv,
+    {
+      ignore_case: {
+        form: "-i",
+        default: false,
+      },
+      fixed: {
+        form: "-F",
+        default: false,
+      },
+      word: {
+        form: "-w",
+        default: false,
+      },
+      line_match: {
+        form: "-x",
+        default: false,
+      },
+      invert: {
+        form: "-v",
+        default: false,
+      },
+      line_numbers: {
+        form: "-n",
+        default: false,
+      },
+      with_filename: {
+        form: "-H",
+        default: false,
+      },
+      no_filename: {
+        form: "-h",
+        default: false,
+      },
+      list_files: {
+        form: "-l",
+        default: false,
+      },
+      count: {
+        form: "-c",
+        default: false,
+      },
+      quiet: {
+        form: "-q",
+        default: false,
+      },
+      hidden: {
+        form: "--hidden",
+        default: false,
+      },
+      ignore: {
+        form: "-I --no-ignore",
+        default: true,
+      },
+      globs: {
+        form: "-g --glob GLOB",
+        repeated: true,
+      },
+      color: {
+        form: "--color WHEN",
+        default: "auto",
+      },
+      pattern_option: {
+        form: "-e PATTERN",
+        default: "",
+      },
+      operands: {
+        form: "...ARG",
+      },
+    },
+  )?
+  let pattern = if opts.pattern_option != "" {
+    opts.pattern_option
+  } else {
+    opts.operands.get(0, "")
   }
+  let path_args = if opts.pattern_option != "" { opts.operands } else { opts.operands |> drop(1) }
+  var paths: List[Path] = [fp"${arg}" for arg in path_args]
+  let ignore_case = opts.ignore_case
+  let fixed = opts.fixed
+  let word = opts.word
+  let line_match = opts.line_match
+  let invert = opts.invert
+  let line_numbers = opts.line_numbers
+  let with_filename = opts.with_filename
+  let no_filename = opts.no_filename
+  let list_files = opts.list_files
+  let count = opts.count
+  let quiet = opts.quiet
+  let hidden = opts.hidden
+  let ignore = opts.ignore
+  let globs = opts.globs
+  let color = opts.color == "always"
 
   if pattern == "" {
     return Err(AppletError.Usage("rg: missing pattern"))

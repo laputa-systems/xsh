@@ -4,95 +4,36 @@ use lib.auth as auth
 type SuOptions = {login: Bool, preserve_env: Bool, shell: Str, command: Str, user: Str, extra_args: List[Str]}
 
 pure parse_su_args(argv: List[Str]) -> Result[SuOptions] {
-  var login = false
-  var preserve_env = false
-  var shell = ""
-  var command = ""
-  var operands: List[Str] = []
-  var index = 0
-  var operands_only = false
+  let options = cli.applet(
+    argv,
+    {
+      login: {
+        form: "-l --login",
+        default: false,
+      },
+      preserve_env: {
+        form: "-m -p --preserve-environment --preserve-env",
+        default: false,
+      },
+      shell: {
+        form: "-s --shell SHELL",
+        default: "",
+      },
+      command: {
+        form: "-c --command COMMAND",
+        default: "",
+      },
+      operands: {
+        form: "...USER",
+      },
+    },
+  )?
+  var login = options.login
+  var operands = options.operands
 
-  while index < argv.len() {
-    let arg = argv[index]
-
-    if operands_only or arg == "-" or ! arg.starts_with("-") {
-      if arg == "-" and operands.len() == 0 and command == "" {
-        login = true
-      } else {
-        operands = operands.push(arg)
-      }
-
-      index += 1
-      continue
-    }
-
-    if arg == "--" {
-      operands_only = true
-      index += 1
-      continue
-    }
-
-    if arg == "-l" or arg == "--login" {
-      login = true
-      index += 1
-      continue
-    }
-
-    if arg == "-m" or arg == "-p" or arg == "--preserve-environment" or arg == "--preserve-env" {
-      preserve_env = true
-      index += 1
-      continue
-    }
-
-    if arg == "-s" or arg == "--shell" {
-      if index + 1 >= argv.len() {
-        return Err(auth.AuthError.Failed(auth.missing_option_value("su", "s")))
-      }
-
-      shell = argv[index + 1]
-      index += 2
-      continue
-    }
-
-    if arg.starts_with("--shell=") {
-      shell = arg.replace("--shell=", "")
-      index += 1
-      continue
-    }
-
-    if arg.starts_with("-s") and arg.count_chars() > 2 {
-      shell = (arg.split("") |> drop(2)).join("")
-      index += 1
-      continue
-    }
-
-    if arg == "-c" or arg == "--command" {
-      if index + 1 >= argv.len() {
-        return Err(auth.AuthError.Failed(auth.missing_option_value("su", "c")))
-      }
-
-      command = argv[index + 1]
-      index += 2
-      continue
-    }
-
-    if arg.starts_with("--command=") {
-      command = arg.replace("--command=", "")
-      index += 1
-      continue
-    }
-
-    if arg.starts_with("-c") and arg.count_chars() > 2 {
-      command = (arg.split("") |> drop(2)).join("")
-      index += 1
-      continue
-    }
-
-    if arg.starts_with("--") {
-      return Err(auth.AuthError.Failed(auth.unrecognized_option(arg)))
-    }
-
-    return Err(auth.AuthError.Failed(auth.invalid_option(arg.split("")[1])))
+  if operands.len() > 0 and operands[0] == "-" {
+    login = true
+    operands = operands |> drop(1)
   }
 
   let target = if operands.len() == 0 { "root" } else { operands[0] }
@@ -101,9 +42,9 @@ pure parse_su_args(argv: List[Str]) -> Result[SuOptions] {
 
   return {
     login: login,
-    preserve_env: preserve_env,
-    shell: shell,
-    command: command,
+    preserve_env: options.preserve_env,
+    shell: options.shell,
+    command: options.command,
     user: target,
     extra_args: rest,
   }

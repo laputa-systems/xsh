@@ -1,30 +1,23 @@
 #!/bin/xsh
 error AppletError = Usage(message: Str) : Usage
 
+type HostOptions = {query_type: Str, operands: List[Str]}
+
 proc main(...argv: List[Str]) [net, error] {
-  var query_type = ""
-  var operands: List[Str] = []
-  var index = 0
-
-  while index < argv.len() {
-    let arg = argv[index]
-
-    match arg {
-      "-t" | "--type" => {
-        index += 1
-        query_type = argv[index]
-      }
-      _ => {
-        if arg.starts_with("-") {
-          return Err(AppletError.Usage("host: unsupported option"))
-        }
-
-        operands = operands.push(arg)
-      }
-    }
-
-    index += 1
-  }
+  let opts: HostOptions = cli.applet(
+    argv,
+    {
+      query_type: {
+        form: "-t --type TYPE",
+        default: "",
+      },
+      operands: {
+        form: "...ARG",
+      },
+    },
+  )?
+  let query_type = opts.query_type
+  let operands = opts.operands
 
   if operands.len() == 0 or operands.len() > 2 {
     return Err(AppletError.Usage("host: expected NAME [SERVER]"))

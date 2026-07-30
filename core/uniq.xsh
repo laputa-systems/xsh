@@ -23,24 +23,28 @@ proc read_text_inputs(paths: List[Str]) [fs, error, io] -> Result[Str] {
   return out
 }
 
+type UniqOptions = {show_counts: Bool, only_duplicates: Bool, paths: List[Str]}
+
 proc main(...argv: List[Str]) [fs, error, io] {
-  var show_counts = false
-  var only_duplicates = false
-  var paths: List[Str] = []
-
-  for arg in argv {
-    match arg {
-      "-c" => show_counts = true
-      "-d" => only_duplicates = true
-      _ => {
-        if arg.starts_with("-") {
-          return Err(reject_unsupported("uniq", arg))
-        }
-
-        paths = paths.push(arg)
-      }
-    }
-  }
+  let opts: UniqOptions = cli.applet(
+    argv,
+    {
+      show_counts: {
+        form: "-c",
+        default: false,
+      },
+      only_duplicates: {
+        form: "-d",
+        default: false,
+      },
+      paths: {
+        form: "...FILE",
+      },
+    },
+  )?
+  let show_counts = opts.show_counts
+  let only_duplicates = opts.only_duplicates
+  let paths = opts.paths
 
   var previous = ""
   var count = 0

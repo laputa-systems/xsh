@@ -11,42 +11,28 @@ pure basename_value(name: Str, suffix: Str) -> Str {
   return base
 }
 
-proc main(...argv: List[Str]) [io] -> Int {
-  var multiple = false
-  var suffix = ""
-  var names: List[Str] = []
-  var index = 0
+type BasenameOptions = {multiple: Bool, suffix: Str, names: List[Str]}
 
-  while index < argv.len() {
-    let arg = argv[index]
-
-    match arg {
-      "-a" => multiple = true
-      "-s" => {
-        if index + 1 >= argv.len() {
-          return 2
-        }
-
-        suffix = argv[index + 1]
-        multiple = true
-        index += 1
-      }
-      _ => {
-        if arg.starts_with("-s") and arg.count_chars() > 2 {
-          suffix = arg.replace("-s", "")
-          multiple = true
-        } else {
-          if arg.starts_with("-") {
-            return 2
-          }
-
-          names = names.push(arg)
-        }
-      }
-    }
-
-    index += 1
-  }
+proc main(...argv: List[Str]) [error, io] -> Result[Int] {
+  let opts: BasenameOptions = cli.applet(
+    argv,
+    {
+      multiple: {
+        form: "-a",
+        default: false,
+      },
+      suffix: {
+        form: "-s SUFFIX",
+        default: "",
+      },
+      names: {
+        form: "...NAME",
+      },
+    },
+  )?
+  var multiple = opts.multiple or opts.suffix != ""
+  var suffix = opts.suffix
+  var names = opts.names
 
   if names.len() == 0 {
     return 2

@@ -1,17 +1,18 @@
 #!/bin/xsh
 error AppletError = Usage(message: Str) : Usage
 
+type CatOptions = {paths: List[Str]}
+
 proc main(...argv: List[Str]) [fs, error, io] {
-  if argv.len() == 0 {
+  let opts: CatOptions = cli.applet(argv, {paths: {form: "...FILE"}})?
+  let paths = opts.paths
+
+  if paths.len() == 0 {
     io.write_stdout(io.stdin_text()?)?
     return
   }
 
-  for arg in argv {
-    if arg.starts_with("-") and arg != "-" {
-      return Err(AppletError.Usage("cat: unsupported option"))
-    }
-
+  for arg in paths {
     if arg == "-" {
       io.write_stdout(io.stdin_text()?)?
     } else {

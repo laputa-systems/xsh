@@ -1,28 +1,22 @@
 #!/bin/xsh
 error AppletError = Usage(message: Str) : Usage
 
+type DfOptions = {targets: List[Str]}
+
 proc main(...argv: List[Str]) [fs, error] {
-  var targets: List[Str] = []
-  var parsing_flags = true
-
-  for arg in argv {
-    if parsing_flags and arg == "--" {
-      parsing_flags = false
-    } else if parsing_flags {
-      match arg {
-        "-k" | "-P" | "-kP" | "-Pk" | "--portability" => {}
-        _ => {
-          if arg.starts_with("-") {
-            return Err(AppletError.Usage(f"df: unsupported option '${arg}'"))
-          }
-
-          targets = targets.push(arg)
-        }
-      }
-    } else {
-      targets = targets.push(arg)
-    }
-  }
+  let opts: DfOptions = cli.applet(
+    argv,
+    {
+      ignored: {
+        form: "-k -P --portability",
+        default: false,
+      },
+      targets: {
+        form: "...PATH",
+      },
+    },
+  )?
+  var targets = opts.targets
 
   if targets.len() == 0 {
     targets = ["."]

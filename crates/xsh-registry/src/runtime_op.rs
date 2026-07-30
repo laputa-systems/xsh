@@ -20,6 +20,7 @@ pub enum RuntimeOp {
     ArchiveDecompress,
     ArchiveDecompressBytes,
     CliParse,
+    CliApplet,
     CliParseFull,
     CliCommands,
     CliTokens,

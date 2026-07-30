@@ -1,6 +1,14 @@
 #!/bin/xsh
 error AppletError = Usage(message: Str) : Usage
 
+type MvOptions = {
+  no_target_directory: Bool,
+  no_clobber: Bool,
+  force: Bool,
+  target: Str,
+  operands: List[Str],
+}
+
 pure usage(applet_name: Str, summary: Str) -> Str {
   return f"usage: xsh applets/${applet_name}.xsh -- ${summary}"
 }
@@ -22,41 +30,41 @@ pure dest_for(source: Path, target: Path, target_is_dir: Bool) -> Path {
 }
 
 proc main(...argv: List[Str]) [fs, error] {
-  var no_target_directory = false
-  var no_clobber = false
-  var target_directory = p""
-  var has_target_directory = false
-  var paths: List[Str] = []
-  var index = 0
-
-  while index < argv.len() {
-    let arg = argv[index]
-
-    match arg {
-      "-T" | "--no-target-directory" => no_target_directory = true
-      "-f" => no_clobber = false
-      "-n" => no_clobber = true
-      "-i" => {}
-      "-t" => {
-        if index + 1 >= argv.len() {
-          return Err(usage_error("mv", "[-fT] [-t DIR] SOURCE... DEST"))
-        }
-
-        target_directory = fp"${argv[index + 1]}"
-        has_target_directory = true
-        index += 1
-      }
-      _ => {
-        if arg.starts_with("-") {
-          return Err(reject_unsupported("mv", arg))
-        }
-
-        paths = paths.push(arg)
-      }
-    }
-
-    index += 1
-  }
+  let opts: MvOptions = cli.applet(
+    argv,
+    {
+      no_target_directory: {
+        form: "-T --no-target-directory",
+        default: false,
+      },
+      no_clobber: {
+        form: "-n",
+        default: false,
+        conflicts: "force",
+      },
+      force: {
+        form: "-f",
+        default: false,
+        conflicts: "no_clobber",
+      },
+      ignored: {
+        form: "-i",
+        default: false,
+      },
+      target: {
+        form: "-t DIR",
+        default: "",
+      },
+      operands: {
+        form: "...FILE",
+      },
+    },
+  )?
+  let no_target_directory = opts.no_target_directory
+  let no_clobber = opts.no_clobber
+  let target_directory = fp"${opts.target}"
+  let has_target_directory = opts.target != ""
+  let paths = opts.operands
 
   if paths.len() < 1 {
     return Err(usage_error("mv", "[-fT] [-t DIR] SOURCE... DEST"))

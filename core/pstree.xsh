@@ -90,8 +90,7 @@ pure process_by_pid(pid: Int) -> List[Process] {
     }
   }
 
-  let empty: List[Process] = []
-  return empty
+  []
 }
 
 pure child_group_between(parent_pid: Int, low: Int, high: Int) -> List[Process] {
@@ -261,6 +260,16 @@ proc print_parent_chain(
   return f"${prefix}  "
 }
 
+type PstreeOptions = {
+  show_args: Bool,
+  ascii: Bool,
+  vt100: Bool,
+  show_help: Bool,
+  show_pids: Bool,
+  show_parents: Bool,
+  operands: List[Str],
+}
+
 proc main(...argv: List[Str]) [fs, process, error] {
   if host.sysname == "Darwin" and argv.len() == 0 {
     let tree = run.text pstree -w ?
@@ -268,56 +277,50 @@ proc main(...argv: List[Str]) [fs, process, error] {
     return
   }
 
-  var show_args = true
-  var show_pids = true
-  var show_parents = false
-  var help = false
-  var ascii = false
-  var parsing_flags = true
-  var operands: List[Str] = []
-
-  for arg in argv {
-    if parsing_flags and arg == "--" {
-      parsing_flags = false
-    } else if parsing_flags and (arg == "-a" or arg == "--arguments") {
-      show_args = true
-    } else if parsing_flags and (arg == "-A" or arg == "--ascii") {
-      ascii = true
-    } else if parsing_flags and (arg == "-c" or arg == "--compact-not") {
-      let _ = arg
-    } else if parsing_flags and (arg == "-G" or arg == "--vt100") {
-      ascii = false
-    } else if parsing_flags and (arg == "-h" or arg == "--help") {
-      help = true
-    } else if parsing_flags and (arg == "-l" or arg == "--long") {
-      let _ = arg
-    } else if parsing_flags and (arg == "-p" or arg == "--show-pids") {
-      show_pids = true
-    } else if parsing_flags and (arg == "-s" or arg == "--show-parents") {
-      show_parents = true
-    } else if parsing_flags and (arg == "-t" or arg == "--thread-names") {
-      let _ = arg
-    } else if parsing_flags and (arg == "-T" or arg == "--hide-threads") {
-      let _ = arg
-    } else if parsing_flags and arg.starts_with("-") and arg.count_chars() > 1 {
-      for flag in arg.replace("-", "").split("") {
-        match flag {
-          "a" => show_args = true
-          "A" => ascii = true
-          "c" => let _ = flag
-          "G" => ascii = false
-          "h" => help = true
-          "l" => let _ = flag
-          "p" => show_pids = true
-          "s" => show_parents = true
-          "t" | "T" => let _ = flag
-          _ => return Err(reject_unsupported("pstree", arg))
-        }
-      }
-    } else {
-      operands = operands.push(arg)
-    }
-  }
+  let opts: PstreeOptions = cli.applet(
+    argv,
+    {
+      show_args: {
+        form: "-a --arguments",
+        default: true,
+      },
+      ascii: {
+        form: "-A --ascii",
+        default: false,
+        conflicts: "vt100",
+      },
+      vt100: {
+        form: "-G --vt100",
+        default: false,
+        conflicts: "ascii",
+      },
+      show_help: {
+        form: "-h",
+        default: false,
+      },
+      show_pids: {
+        form: "-p --show-pids",
+        default: true,
+      },
+      show_parents: {
+        form: "-s --show-parents",
+        default: false,
+      },
+      ignored: {
+        form: "-c --compact-not -l --long -t --thread-names -T --hide-threads",
+        default: false,
+      },
+      operands: {
+        form: "...ARG",
+      },
+    },
+  )?
+  let show_args = opts.show_args
+  let show_pids = opts.show_pids
+  let show_parents = opts.show_parents
+  let help = opts.show_help
+  let ascii = opts.ascii and ! opts.vt100
+  let operands = opts.operands
 
   if help {
     print_help()

@@ -9,43 +9,33 @@ pure usage_error(applet_name: Str, summary: Str) -> Error {
   return AppletError.Usage(usage(applet_name, summary))
 }
 
-pure reject_unsupported(applet_name: Str, flag: Str) -> Error {
-  return AppletError.Usage(f"${applet_name}: unsupported option '${flag}'")
-}
+type TouchOptions = {no_create: Bool, reference: Str, paths: List[Str]}
 
 proc main(...argv: List[Str]) [fs, error] {
-  var no_create = false
-  var reference = p""
-  var has_reference = false
-  var paths: List[Str] = []
-  var index = 0
-
-  while index < argv.len() {
-    let arg = argv[index]
-
-    match arg {
-      "-c" | "--no-create" => no_create = true
-      "-a" | "-m" | "-h" => {}
-      "-r" => {
-        if index + 1 >= argv.len() {
-          return Err(usage_error("touch", "[-c] [-r FILE] PATH..."))
-        }
-
-        reference = fp"${argv[index + 1]}"
-        has_reference = true
-        index += 1
-      }
-      _ => {
-        if arg.starts_with("-") {
-          return Err(reject_unsupported("touch", arg))
-        }
-
-        paths = paths.push(arg)
-      }
-    }
-
-    index += 1
-  }
+  let opts: TouchOptions = cli.applet(
+    argv,
+    {
+      no_create: {
+        form: "-c --no-create",
+        default: false,
+      },
+      reference: {
+        form: "-r FILE",
+        default: "",
+      },
+      ignored: {
+        form: "-a -m -h",
+        default: false,
+      },
+      paths: {
+        form: "...PATH",
+      },
+    },
+  )?
+  let no_create = opts.no_create
+  let reference = fp"${opts.reference}"
+  let has_reference = opts.reference != ""
+  let paths = opts.paths
 
   if paths.len() == 0 {
     return Err(usage_error("touch", "[-c] [-r FILE] PATH..."))

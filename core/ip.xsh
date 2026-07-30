@@ -26,18 +26,23 @@ proc print_route() [process, error] {
   }
 }
 
+type IpOptions = {operands: List[Str]}
+
 proc main(...argv: List[Str]) [process, error] {
-  if argv.len() == 1 and (argv[0] == "addr" or argv[0] == "address") {
+  let opts: IpOptions = cli.applet(argv, {operands: {form: "...ARG"}})?
+  let operands = opts.operands
+
+  if operands.len() == 1 and (operands[0] == "addr" or operands[0] == "address") {
     print_addr("")?
-  } else if argv.len() == 2 and (argv[0] == "addr" or argv[0] == "address") and argv[1] == "show" {
+  } else if operands.len() == 2 and (operands[0] == "addr" or operands[0] == "address") and operands[1] == "show" {
     print_addr("")?
-  } else if argv.len() == 4 and (argv[0] == "addr" or argv[0] == "address") and argv[1] == "show" and argv[2] == "dev" {
-    print_addr(argv[3])?
-  } else if argv.len() == 3 and (argv[0] == "addr" or argv[0] == "address") and argv[1] == "dev" {
-    print_addr(argv[2])?
-  } else if argv.len() == 1 and argv[0] == "route" {
+  } else if operands.len() == 4 and (operands[0] == "addr" or operands[0] == "address") and operands[1] == "show" and operands[2] == "dev" {
+    print_addr(operands[3])?
+  } else if operands.len() == 3 and (operands[0] == "addr" or operands[0] == "address") and operands[1] == "dev" {
+    print_addr(operands[2])?
+  } else if operands.len() == 1 and operands[0] == "route" {
     print_route()?
-  } else if argv.len() == 2 and argv[0] == "route" and argv[1] == "show" {
+  } else if operands.len() == 2 and operands[0] == "route" and operands[1] == "show" {
     print_route()?
   } else {
     return Err(AppletError.Usage("ip: expected addr or route"))

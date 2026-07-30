@@ -4,79 +4,51 @@ use lib.auth as auth
 type PasswdOptions = {algorithm: Str, action: Str, user: Str}
 
 pure parse_passwd_args(argv: List[Str]) -> Result[PasswdOptions] {
-  var algorithm = "sha512"
-  var action = "set"
-  var user_name = ""
-  var index = 0
-  var operands_only = false
+  let opts = cli.applet(
+    argv,
+    {
+      algorithm: {
+        form: "-a --algorithm ALGORITHM",
+        default: "sha512",
+      },
+      delete: {
+        form: "-d --delete",
+        default: false,
+        conflicts: [
+          "lock",
+          "unlock",
+        ],
+      },
+      lock: {
+        form: "-l --lock",
+        default: false,
+        conflicts: [
+          "delete",
+          "unlock",
+        ],
+      },
+      unlock: {
+        form: "-u --unlock",
+        default: false,
+        conflicts: [
+          "delete",
+          "lock",
+        ],
+      },
+      operands: {
+        form: "...USER",
+      },
+    },
+  )?
 
-  while index < argv.len() {
-    let arg = argv[index]
+  let action = if opts.delete { "delete" } else if opts.lock { "lock" } else if opts.unlock { "unlock" } else { "set" }
+  let user_name = if opts.operands.len() == 0 { "" } else { opts.operands[0] }
 
-    if operands_only or arg == "-" or ! arg.starts_with("-") {
-      if user_name != "" {
-        return Err(auth.AuthError.Failed("extra operand"))
-      }
-
-      user_name = arg
-      index += 1
-      continue
-    }
-
-    if arg == "--" {
-      operands_only = true
-      index += 1
-      continue
-    }
-
-    if arg == "-a" or arg == "--algorithm" {
-      if index + 1 >= argv.len() {
-        return Err(auth.AuthError.Failed(auth.missing_option_value("passwd", "a")))
-      }
-
-      algorithm = argv[index + 1]
-      index += 2
-      continue
-    }
-
-    if arg.starts_with("--algorithm=") {
-      algorithm = arg.replace("--algorithm=", "")
-      index += 1
-      continue
-    }
-
-    if arg.starts_with("-a") and arg.count_chars() > 2 {
-      algorithm = (arg.split("") |> drop(2)).join("")
-      index += 1
-      continue
-    }
-
-    if arg == "-d" or arg == "--delete" {
-      action = "delete"
-      index += 1
-      continue
-    }
-
-    if arg == "-l" or arg == "--lock" {
-      action = "lock"
-      index += 1
-      continue
-    }
-
-    if arg == "-u" or arg == "--unlock" {
-      action = "unlock"
-      index += 1
-      continue
-    }
-
-    if arg.starts_with("--") {
-      return Err(auth.AuthError.Failed(auth.unrecognized_option(arg)))
-    }
-
-    return Err(auth.AuthError.Failed(auth.invalid_option(arg.split("")[1])))
+  if opts.operands.len() > 1 {
+    return Err(auth.AuthError.Failed("extra operand"))
   }
 
-  return {algorithm: algorithm, action: action, user: user_name}
+  return {algorithm: opts.algorithm, action: action, user: user_name}
 }
 
 proc read_new_password(user_name: Str, algorithm: Str) [process, error, io] -> Result[Str] {

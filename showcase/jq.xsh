@@ -4928,49 +4928,45 @@ type Args = {
 }
 
 pure parse_args(argv: List[Str]) -> Result[Args] {
-  var filter = ""
-  var have_filter = false
-  var files: List[Str] = []
-  var compact = false
-  var raw_output = false
-  var null_input = false
-  var slurp = false
-  var sort_keys = false
-  var i = 0
-
-  while i < argv.len() {
-    let a = argv.get(i, "")
-
-    if a == "-c" or a == "--compact-output" {
-      compact = true
-    } else if a == "-r" or a == "--raw-output" {
-      raw_output = true
-    } else if a == "-n" or a == "--null-input" {
-      null_input = true
-    } else if a == "-s" or a == "--slurp" {
-      slurp = true
-    } else if a == "-S" or a == "--sort-keys" {
-      sort_keys = true
-    } else if a == "-j" {
-      raw_output = true
-    } else if ! have_filter {
-      filter = a
-      have_filter = true
-    } else {
-      files = files.push(a)
-    }
-
-    i = i + 1
-  }
+  let opts = cli.applet(
+    argv,
+    {
+      compact: {
+        form: "-c --compact-output",
+        default: false,
+      },
+      raw_output: {
+        form: "-r -j --raw-output",
+        default: false,
+      },
+      null_input: {
+        form: "-n --null-input",
+        default: false,
+      },
+      slurp: {
+        form: "-s --slurp",
+        default: false,
+      },
+      sort_keys: {
+        form: "-S --sort-keys",
+        default: false,
+      },
+      operands: {
+        form: "...ARG",
+      },
+    },
+  )?
+  let filter = opts.operands.get(0, "")
+  let files = opts.operands |> drop(1)
 
   return Ok({
     filter: filter,
     files: files,
-    compact: compact,
-    raw_output: raw_output,
-    null_input: null_input,
-    slurp: slurp,
-    sort_keys: sort_keys,
+    compact: opts.compact,
+    raw_output: opts.raw_output,
+    null_input: opts.null_input,
+    slurp: opts.slurp,
+    sort_keys: opts.sort_keys,
   })
 }
 

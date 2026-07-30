@@ -107,18 +107,52 @@ struct ParsedValues {
     warnings: Vec<String>,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ParsePolicy {
+    Strict,
+    Applet,
+}
+
+impl ParsePolicy {
+    fn allows_scalar_overwrite(self) -> bool {
+        matches!(self, Self::Applet)
+    }
+}
+
 pub(crate) fn parse_cli(
     argv: Vec<String>,
     schema: RecordMap,
     command: &str,
     span: Span,
 ) -> Result<Value, RuntimeError> {
-    let specs = parse_schema(schema, span)?;
-    if argv_requests_help(&argv) {
-        return Err(cli_help_error(usage_text(&specs, command), span));
+    parse_cli_with_policy(argv, schema, command, span, ParsePolicy::Strict)
+}
+
+pub(crate) fn parse_cli_applet(
+    argv: Vec<String>,
+    schema: RecordMap,
+    command: &str,
+    span: Span,
+) -> Result<Value, RuntimeError> {
+    parse_cli_with_policy(argv, schema, command, span, ParsePolicy::Applet)
+}
+
+fn parse_cli_with_policy(
+    argv: Vec<String>,
+    schema: RecordMap,
+    command: &str,
+    span: Span,
+    policy: ParsePolicy,
+) -> Result<Value, RuntimeError> {
+    let specs = parse_schema_with_policy(schema, span, policy)?;
+    if argv_requests_help(&argv, &specs, policy) {
+        return Err(cli_help_error(
+            usage_text_with_policy(&specs, command, policy),
+            span,
+        ));
     }
-    let parsed = parse_values(&argv, &specs, &RecordMap::new(), span)
-        .map_err(|error| cli_usage_error(error, usage_text(&specs, command)))?;
+    let parsed = parse_values(&argv, &specs, &RecordMap::new(), span, policy)
+        .map_err(|error| cli_usage_error(error, usage_text_with_policy(&specs, command, policy)))?;
     Ok(Value::ok(Value::Record(parsed.values)))
 }
 
@@ -130,10 +164,10 @@ pub(crate) fn parse_cli_full(
     span: Span,
 ) -> Result<Value, RuntimeError> {
     let specs = parse_schema(schema, span)?;
-    if argv_requests_help(&argv) {
+    if argv_requests_help(&argv, &specs, ParsePolicy::Strict) {
         return Err(cli_help_error(usage_text(&specs, command), span));
     }
-    let parsed = parse_values(&argv, &specs, &env, span)
+    let parsed = parse_values(&argv, &specs, &env, span, ParsePolicy::Strict)
         .map_err(|error| cli_usage_error(error, usage_text(&specs, command)))?;
     Ok(Value::ok(Value::Record(RecordMap::from([
         (Arc::from("values"), Value::Record(parsed.values)),
@@ -264,7 +298,17 @@ fn looks_negative_number(arg: &str) -> bool {
     matches!(chars.next(), Some(ch) if ch.is_ascii_digit())
 }
 
-fn argv_requests_help(argv: &[String]) -> bool {
+fn argv_requests_help(
+    argv: &[String],
+    specs: &BTreeMap<String, OptionSpec>,
+    policy: ParsePolicy,
+) -> bool {
+    let mut short_specs = BTreeMap::new();
+    for spec in specs.values() {
+        for short in &spec.short {
+            short_specs.insert(short.as_str(), spec);
+        }
+    }
     for arg in argv {
         if arg == "--" {
             return false;
@@ -274,11 +318,25 @@ fn argv_requests_help(argv: &[String]) -> bool {
         }
         if let Some(shorts) = arg.strip_prefix('-')
             && !shorts.starts_with('-')
-            && shorts.len() > 1
             && !looks_negative_number(arg)
-            && shorts.chars().any(|ch| ch == 'h')
         {
-            return true;
+            if shorts == "h" && (policy == ParsePolicy::Strict || !short_specs.contains_key("h")) {
+                return true;
+            }
+            if shorts.len() <= 1 {
+                continue;
+            }
+            for ch in shorts.chars() {
+                if ch == 'h' && (policy == ParsePolicy::Strict || !short_specs.contains_key("h")) {
+                    return true;
+                }
+                let Some(spec) = short_specs.get(ch.to_string().as_str()) else {
+                    break;
+                };
+                if !spec.flag {
+                    break;
+                }
+            }
         }
     }
     false
@@ -371,10 +429,18 @@ fn parse_schema(
     schema: RecordMap,
     span: Span,
 ) -> Result<BTreeMap<String, OptionSpec>, RuntimeError> {
+    parse_schema_with_policy(schema, span, ParsePolicy::Strict)
+}
+
+fn parse_schema_with_policy(
+    schema: RecordMap,
+    span: Span,
+    policy: ParsePolicy,
+) -> Result<BTreeMap<String, OptionSpec>, RuntimeError> {
     let mut specs = BTreeMap::new();
     for (name, descriptor) in schema {
         let spec = parse_descriptor(&name, descriptor, span)?;
-        validate_not_reserved_help(&name, &spec, span)?;
+        validate_not_reserved_help(&name, &spec, span, policy)?;
         specs.insert(name.to_string(), spec);
     }
     Ok(specs)
@@ -384,11 +450,12 @@ fn validate_not_reserved_help(
     name: &str,
     spec: &OptionSpec,
     span: Span,
+    policy: ParsePolicy,
 ) -> Result<(), RuntimeError> {
     if normalize_arg_name(name) == "help" || spec.long.iter().any(|long| long == "help") {
         return Err(cli_error("`--help` is reserved by cli.parse", span));
     }
-    if spec.short.iter().any(|short| short == "h") {
+    if policy == ParsePolicy::Strict && spec.short.iter().any(|short| short == "h") {
         return Err(cli_error("`-h` is reserved by cli.parse", span));
     }
     Ok(())
@@ -1124,6 +1191,7 @@ fn parse_values(
     specs: &BTreeMap<String, OptionSpec>,
     env: &RecordMap,
     span: Span,
+    policy: ParsePolicy,
 ) -> Result<ParsedValues, RuntimeError> {
     let positionals: Vec<(&String, &OptionSpec)> =
         specs.iter().filter(|(_, spec)| spec.positional).collect();
@@ -1140,6 +1208,7 @@ fn parse_values(
         warnings: &mut parsed.warnings,
         present: BTreeMap::new(),
         span,
+        policy,
     };
     let mut index = 0;
     while index < argv.len() {
@@ -1197,7 +1266,10 @@ fn parse_values(
                     span,
                 ));
             };
-            if !spec.repeated && state.present.contains_key(&name) {
+            if !policy.allows_scalar_overwrite()
+                && !spec.repeated
+                && state.present.contains_key(&name)
+            {
                 return Err(cli_error(
                     format!("duplicate argument at argv[{index}]: --{raw_name}"),
                     span,
@@ -1290,6 +1362,7 @@ struct ArgParseState<'a> {
     warnings: &'a mut Vec<String>,
     present: BTreeMap<String, bool>,
     span: Span,
+    policy: ParsePolicy,
 }
 
 impl ArgParseState<'_> {
@@ -1309,7 +1382,10 @@ impl ArgParseState<'_> {
                 .specs
                 .get(name)
                 .expect("short option map points at an existing spec");
-            if !spec.repeated && self.present.contains_key(name) {
+            if !self.policy.allows_scalar_overwrite()
+                && !spec.repeated
+                && self.present.contains_key(name)
+            {
                 return Err(cli_error(
                     format!("duplicate argument at argv[{}]: -{short_name}", *index),
                     self.span,
@@ -1360,7 +1436,31 @@ impl ArgParseState<'_> {
         value: Value,
         index: usize,
     ) -> Result<(), RuntimeError> {
-        if !spec.repeated && self.present.contains_key(name) {
+        if self.policy == ParsePolicy::Applet {
+            for conflict in &spec.conflicts {
+                let conflict = normalize_arg_name(conflict);
+                if !self.present.contains_key(&conflict) {
+                    continue;
+                }
+                let conflict_spec = self
+                    .specs
+                    .get(&conflict)
+                    .expect("conflict points at an existing option");
+                let reset = conflict_spec.default.clone().unwrap_or_else(|| {
+                    if conflict_spec.flag {
+                        Value::Bool(false)
+                    } else {
+                        Value::Null
+                    }
+                });
+                self.output.insert(Arc::from(conflict.as_str()), reset);
+                self.present.remove(&conflict);
+            }
+        }
+        if !self.policy.allows_scalar_overwrite()
+            && !spec.repeated
+            && self.present.contains_key(name)
+        {
             return Err(cli_error(
                 format!("duplicate argument at argv[{index}]: --{name}"),
                 self.span,
@@ -1516,7 +1616,13 @@ fn parse_command_record(
         span,
     )?;
     if !spec.options.is_empty() {
-        let options = parse_values(&option_argv, &spec.options, &RecordMap::new(), span)?;
+        let options = parse_values(
+            &option_argv,
+            &spec.options,
+            &RecordMap::new(),
+            span,
+            ParsePolicy::Strict,
+        )?;
         for (key, value) in options.values.iter() {
             output.insert(Arc::from(key), value.clone());
         }
@@ -1725,6 +1831,14 @@ fn optional_value_default(
 }
 
 fn usage_text(specs: &BTreeMap<String, OptionSpec>, command: &str) -> String {
+    usage_text_with_policy(specs, command, ParsePolicy::Strict)
+}
+
+fn usage_text_with_policy(
+    specs: &BTreeMap<String, OptionSpec>,
+    command: &str,
+    policy: ParsePolicy,
+) -> String {
     let mut usage = format!("usage: {command}");
     for (name, spec) in specs {
         if spec.hidden {
@@ -1786,7 +1900,15 @@ fn usage_text(specs: &BTreeMap<String, OptionSpec>, command: &str) -> String {
         }
     }
     output.push('\n');
-    output.push_str("  -h, --help  show this help");
+    if policy == ParsePolicy::Applet
+        && specs
+            .values()
+            .any(|spec| spec.short.iter().any(|short| short == "h"))
+    {
+        output.push_str("  --help  show this help");
+    } else {
+        output.push_str("  -h, --help  show this help");
+    }
     output
 }
 

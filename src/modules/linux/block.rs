@@ -905,7 +905,9 @@ fn format_guid(bytes: &[u8; 16]) -> String {
 
 fn decode_gpt_name(bytes: &[u8]) -> String {
     let units = bytes
-        .as_chunks::<2>().0.iter()
+        .as_chunks::<2>()
+        .0
+        .iter()
         .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]))
         .take_while(|unit| *unit != 0)
         .collect::<Vec<_>>();

@@ -3609,6 +3609,20 @@ impl Evaluator {
                     span,
                 )?
             }
+            RuntimeOp::CliApplet if values.len() == 2 || values.len() == 3 => {
+                let command = lowered_str_arg_owned(
+                    values.get(2).cloned(),
+                    &self.command_name,
+                    "cli.applet",
+                    span,
+                )?;
+                let schema = lowered_record_runtime_arg(values.remove(1), "cli.applet", span)?;
+                let argv = lowered_str_list_runtime_arg(values.remove(0), "cli.applet", span)?;
+                lowered_module_result_value(
+                    cli_module::parse_cli_applet(argv, schema, &command, span),
+                    span,
+                )?
+            }
             RuntimeOp::CliParseFull if (2..=4).contains(&values.len()) => {
                 let command = lowered_str_arg_owned(
                     values.get(3).cloned(),

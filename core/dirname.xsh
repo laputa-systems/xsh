@@ -13,16 +13,15 @@ pure reject_unsupported(applet_name: Str, flag: Str) -> Error {
   return AppletError.Usage(f"${applet_name}: unsupported option '${flag}'")
 }
 
+type DirnameOptions = {paths: List[Str]}
+
 proc main(...argv: List[Str]) [error] {
-  if argv.len() == 0 {
+  let opts: DirnameOptions = cli.applet(argv, {paths: {form: "...PATH"}})?
+  if opts.paths.len() == 0 {
     return Err(usage_error("dirname", "PATH..."))
   }
 
-  for arg in argv {
-    if arg.starts_with("-") {
-      return Err(reject_unsupported("dirname", arg))
-    }
-
+  for arg in opts.paths {
     print fp"${arg}".parent()
   }
 }

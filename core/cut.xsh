@@ -63,40 +63,38 @@ pure cut_chars(line: Str, spec: Str) -> Str {
   return selected.join("")
 }
 
+type CutOptions = {delimiter: Str, fields: Str, characters: Str, separated_only: Bool, paths: List[Str]}
+
 proc main(...argv: List[Str]) [fs, error, io] {
-  var delimiter = "\t"
-  var field_spec = ""
-  var char_spec = ""
-  var separated_only = false
-  var paths: List[Str] = []
-  var index = 0
-
-  while index < argv.len() {
-    let arg = argv[index]
-
-    if arg == "-d" {
-      delimiter = argv[index + 1]
-      index += 1
-    } else if arg.starts_with("-d") and arg.count_chars() > 2 {
-      delimiter = arg.replace("-d", "")
-    } else if arg == "-f" {
-      field_spec = argv[index + 1]
-      index += 1
-    } else if arg.starts_with("-f") and arg.count_chars() > 2 {
-      field_spec = arg.replace("-f", "")
-    } else if arg == "-c" {
-      char_spec = argv[index + 1]
-      index += 1
-    } else if arg.starts_with("-c") and arg.count_chars() > 2 {
-      char_spec = arg.replace("-c", "")
-    } else if arg == "-s" {
-      separated_only = true
-    } else {
-      paths = paths.push(arg)
-    }
-
-    index += 1
-  }
+  let opts: CutOptions = cli.applet(
+    argv,
+    {
+      delimiter: {
+        form: "-d DELIMITER",
+        default: "\t",
+      },
+      fields: {
+        form: "-f LIST",
+        default: "",
+      },
+      characters: {
+        form: "-c LIST",
+        default: "",
+      },
+      separated_only: {
+        form: "-s",
+        default: false,
+      },
+      paths: {
+        form: "...FILE",
+      },
+    },
+  )?
+  let delimiter = opts.delimiter
+  var field_spec = opts.fields
+  let char_spec = opts.characters
+  let separated_only = opts.separated_only
+  let paths = opts.paths
 
   if field_spec == "" and char_spec == "" {
     field_spec = "1"

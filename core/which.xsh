@@ -13,16 +13,22 @@ pure reject_unsupported(applet_name: Str, flag: Str) -> Error {
   return AppletError.Usage(f"${applet_name}: unsupported option '${flag}'")
 }
 
-proc main(...argv: List[Str]) [process, error] {
-  var names: List[Str] = []
+type WhichOptions = {names: List[Str]}
 
-  for arg in argv {
-    if arg == "-a" {} else if arg.starts_with("-") {
-      return Err(reject_unsupported("which", arg))
-    } else {
-      names = names.push(arg)
-    }
-  }
+proc main(...argv: List[Str]) [process, error] {
+  let opts: WhichOptions = cli.applet(
+    argv,
+    {
+      ignored: {
+        form: "-a",
+        default: false,
+      },
+      names: {
+        form: "...NAME",
+      },
+    },
+  )?
+  let names = opts.names
 
   if names.len() == 0 {
     return Err(usage_error("which", "NAME..."))

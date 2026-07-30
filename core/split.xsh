@@ -70,36 +70,35 @@ proc read_bytes_input(source: Str) [fs, error, io] -> Result[Bytes] {
   return fp"${source}".read_bytes()?
 }
 
+type SplitOptions = {lines: Str, bytes: Str, suffix_length: Str, paths: List[Str]}
+
 proc main(...argv: List[Str]) [fs, error, io] {
-  var lines_per_file = 100
-  var bytes_per_file = 0
-  var paths: List[Str] = []
-  var index = 0
+  let opts: SplitOptions = cli.applet(
+    argv,
+    {
+      lines: {
+        form: "-l LINES",
+        default: "100",
+      },
+      bytes: {
+        form: "-b BYTES",
+        default: "0",
+      },
+      suffix_length: {
+        form: "-a LENGTH",
+        default: "2",
+      },
+      paths: {
+        form: "...FILE",
+      },
+    },
+  )?
+  let lines_per_file = common_int(opts.lines, "line count")?
+  let bytes_per_file = common_int(opts.bytes, "byte count")?
+  let paths = opts.paths
 
-  while index < argv.len() {
-    let arg = argv[index]
-
-    if arg == "-l" {
-      lines_per_file = common_int(argv[index + 1], "line count")?
-      index += 1
-    } else if arg.starts_with("-l") and arg.count_chars() > 2 {
-      lines_per_file = common_int(arg.replace("-l", ""), "line count")?
-    } else if arg == "-b" {
-      bytes_per_file = common_int(argv[index + 1], "byte count")?
-      index += 1
-    } else if arg.starts_with("-b") and arg.count_chars() > 2 {
-      bytes_per_file = common_int(arg.replace("-b", ""), "byte count")?
-    } else if arg == "-a" {
-      if argv[index + 1] != "2" {
-        return Err(usage_error("split", "only two-letter suffixes are supported"))
-      }
-
-      index += 1
-    } else {
-      paths = paths.push(arg)
-    }
-
-    index += 1
+  if opts.suffix_length != "2" {
+    return Err(usage_error("split", "only two-letter suffixes are supported"))
   }
 
   if lines_per_file <= 0 or bytes_per_file < 0 {

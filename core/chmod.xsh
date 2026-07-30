@@ -200,17 +200,27 @@ pure mode_for(spec: Str, current: Int, is_dir: Bool) -> Result[Int] {
   return octal_mode(spec)
 }
 
-proc main(...argv: List[Str]) [fs, error] {
-  var recursive = false
-  var paths: List[Str] = []
+type ChmodOptions = {recursive: Bool, paths: List[Str]}
 
-  for arg in argv {
-    match arg {
-      "-R" => recursive = true
-      "-c" | "-f" | "-v" => {}
-      _ => paths = paths.push(arg)
-    }
-  }
+proc main(...argv: List[Str]) [fs, error] {
+  let opts: ChmodOptions = cli.applet(
+    argv,
+    {
+      recursive: {
+        form: "-R",
+        default: false,
+      },
+      ignored: {
+        form: "-c -f -v",
+        default: false,
+      },
+      paths: {
+        form: "...PATH",
+      },
+    },
+  )?
+  let recursive = opts.recursive
+  let paths = opts.paths
 
   if paths.len() < 2 {
     return Err(usage_error("chmod", "[-R] MODE PATH..."))

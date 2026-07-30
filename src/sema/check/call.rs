@@ -776,7 +776,7 @@ impl Checker {
                 }
             }
         }
-        let return_ty = if module == "cli" && name == "parse" {
+        let return_ty = if module == "cli" && matches!(name, "parse" | "applet") {
             self.infer_args_parse_return_arena(arena, source, args)
                 .map(|ty| Type::Result(Box::new(ty), Box::new(Type::Error)))
                 .unwrap_or_else(|| sig.return_ty.clone())

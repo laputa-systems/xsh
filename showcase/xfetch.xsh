@@ -8,7 +8,9 @@ pure ratio_text(used: Int, total: Int) -> Str {
 }
 
 proc main(...argv: List[Str]) [fs, process, env, time, error] {
-  if argv.len() > 0 and argv[0] == "--help" {
+  let options = cli.applet(argv, {show_help: {form: "-h", default: false}})?
+
+  if options.show_help {
     print "usage: xfetch.xsh"
     return
   }

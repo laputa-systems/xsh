@@ -532,6 +532,7 @@ fn lowered_module_op_supported(op: RuntimeOp) -> bool {
             | RuntimeOp::AppletSuloginSession
             | RuntimeOp::AppletMdev
             | RuntimeOp::CliParse
+            | RuntimeOp::CliApplet
             | RuntimeOp::CliParseFull
             | RuntimeOp::CliCommands
             | RuntimeOp::CliTokens

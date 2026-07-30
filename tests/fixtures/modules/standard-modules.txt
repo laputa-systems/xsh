@@ -38,6 +38,7 @@ module bytes
   zero_at(path: Path, offset: Int, length: Int, create: Bool = default) -> Result[Int, Error] effect
 
 module cli
+  applet(argv: List[Str], schema: Record, command: Str = default) -> Result[Record, Error] pure
   commands(argv: List[Str], commands: Record) -> Result[Record, Error] pure
   commands(argv: List[Str], rootless_default: Str, commands: Record, fallback_command: Record = default) -> Result[Record, Error] pure
   parse(argv: List[Str], schema: Record, command: Str = default) -> Result[Record, Error] pure

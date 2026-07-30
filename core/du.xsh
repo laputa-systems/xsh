@@ -56,47 +56,60 @@ proc disk_usage(target: Path, opts: DuOptions, top_level: Bool) [fs, error] -> R
   return size
 }
 
+type DuCliOptions = {
+  summarize: Bool,
+  human: Bool,
+  all: Bool,
+  total: Bool,
+  apparent: Bool,
+  megabytes: Bool,
+  targets: List[Str],
+}
+
 proc main(...argv: List[Str]) [fs, error] {
-  var summarize = false
-  var human = false
-  var all = false
-  var total = false
-  var apparent = false
-  var megabytes = false
-  var targets: List[Str] = []
-
-  for arg in argv {
-    match arg {
-      "-s" | "--summarize" => summarize = true
-      "-h" | "--human-readable" => human = true
-      "-a" | "--all" => all = true
-      "-c" | "--total" => total = true
-      "-b" | "--bytes" => apparent = true
-      "-k" => {}
-      "-m" => megabytes = true
-      "-sh" | "-hs" => {
-        summarize = true
-        human = true
-      }
-      "-ah" | "-ha" => {
-        all = true
-        human = true
-      }
-      "-ak" | "-ka" => all = true
-      "-sk" | "-ks" => summarize = true
-      "-sm" | "-ms" => {
-        summarize = true
-        megabytes = true
-      }
-      _ => {
-        if arg.starts_with("-") {
-          return Err(AppletError.Usage(f"du: unsupported option '${arg}'"))
-        }
-
-        targets = targets.push(arg)
-      }
-    }
-  }
+  let cli_opts: DuCliOptions = cli.applet(
+    argv,
+    {
+      summarize: {
+        form: "-s --summarize",
+        default: false,
+      },
+      human: {
+        form: "-h --human-readable",
+        default: false,
+      },
+      all: {
+        form: "-a --all",
+        default: false,
+      },
+      total: {
+        form: "-c --total",
+        default: false,
+      },
+      apparent: {
+        form: "-b --bytes",
+        default: false,
+      },
+      megabytes: {
+        form: "-m",
+        default: false,
+      },
+      ignored: {
+        form: "-k",
+        default: false,
+      },
+      targets: {
+        form: "...PATH",
+      },
+    },
+  )?
+  let summarize = cli_opts.summarize
+  let human = cli_opts.human
+  let all = cli_opts.all
+  let total = cli_opts.total
+  let apparent = cli_opts.apparent
+  let megabytes = cli_opts.megabytes
+  var targets = cli_opts.targets
 
   if targets.len() == 0 {
     targets = ["."]

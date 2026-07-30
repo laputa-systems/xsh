@@ -448,6 +448,19 @@ fn cli_module() -> ModuleSig {
             ),
         ),
         (
+            "applet",
+            sig(
+                vec![
+                    param("argv", Type::List(Box::new(Type::Str))),
+                    param("schema", Type::Record(BTreeMap::new())),
+                    default_param("command", Type::Str),
+                ],
+                result(Type::Record(BTreeMap::new())),
+                true,
+                RuntimeOp::CliApplet,
+            ),
+        ),
+        (
             "usage",
             sig(
                 vec![

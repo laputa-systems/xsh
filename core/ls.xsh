@@ -1,6 +1,15 @@
 #!/bin/xsh
 error AppletError = Usage(message: Str) : Usage
 
+type LsOptions = {
+  show_all: Bool,
+  list_directory_itself: Bool,
+  long_format: Bool,
+  recursive: Bool,
+  indicator: Bool,
+  targets: List[Str],
+}
+
 proc print_entry(entry: FsEntry, long_format: Bool, indicator: Str) [fs] {
   print_entry_as(entry, entry.name, long_format, indicator)
 }
@@ -29,32 +38,48 @@ proc list_dir(target: Path, show_all: Bool, long_format: Bool, indicator: Str) [
 }
 
 proc main(...argv: List[Str]) [fs, error] {
-  var show_all = false
-  var list_directory_itself = false
-  var long_format = false
-  var recursive = false
-  var indicator = ""
-  var targets: List[Str] = []
-
-  for arg in argv {
-    match arg {
-      "-1" => {}
-      "-a" | "-A" => show_all = true
-      "-d" => list_directory_itself = true
-      "-l" | "-g" | "-n" | "-o" => long_format = true
-      "-p" => indicator = "/"
-      "-F" => indicator = "/"
-      "-R" => recursive = true
-      "-r" | "-s" | "-S" | "-t" | "-U" | "-h" => {}
-      _ => {
-        if arg.starts_with("-") {
-          return Err(AppletError.Usage(f"ls: unsupported option '${arg}'"))
-        }
-
-        targets = targets.push(arg)
-      }
-    }
-  }
+  let opts: LsOptions = cli.applet(
+    argv,
+    {
+      show_all: {
+        form: "-a -A",
+        default: false,
+      },
+      list_directory_itself: {
+        form: "-d",
+        default: false,
+      },
+      long_format: {
+        form: "-l",
+        default: false,
+      },
+      long_aliases: {
+        form: "-g -n -o",
+        default: false,
+      },
+      indicator: {
+        form: "-p -F",
+        default: false,
+      },
+      recursive: {
+        form: "-R",
+        default: false,
+      },
+      ignored: {
+        form: "-1 -r -s -S -t -U -h",
+        default: false,
+      },
+      targets: {
+        form: "...PATH",
+      },
+    },
+  )?
+  let show_all = opts.show_all
+  let list_directory_itself = opts.list_directory_itself
+  let long_format = opts.long_format or opts.long_aliases
+  let recursive = opts.recursive
+  let indicator = if opts.indicator { "/" } else { "" }
+  var targets = opts.targets
 
   if targets.len() == 0 {
     targets = ["."]

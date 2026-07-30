@@ -387,6 +387,12 @@ shorthand for `{kind: "Bool", default: false}`.
 
 Source: `examples/idiom-typed-cli.xsh`.
 
+For Unix-style applets, use `cli.applet` with the same schema shape. It accepts
+the compact option forms used by applets and uses the last occurrence for a
+non-repeated scalar option; `cli.parse` remains strict and reports duplicate
+scalar options. The focused compatibility cases live in
+`tests/xsh/stdlib/args.xsh` under `test_cli_applet_*`.
+
 ## enumerate for indexed iteration
 
 `enumerate()` wraps each stream item in a record with `.index` (zero-based) and

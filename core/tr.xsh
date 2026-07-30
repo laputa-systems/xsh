@@ -73,37 +73,33 @@ pure complement(chars: Str) -> Str {
   return out
 }
 
-proc main(...argv: List[Str]) [fs, error, io] {
-  var delete = false
-  var squeeze = false
-  var complement_set = false
-  var values: List[Str] = []
+type TrOptions = {delete: Bool, squeeze: Bool, complement: Bool, values: List[Str]}
 
-  for arg in argv {
-    match arg {
-      "-d" => delete = true
-      "-s" => squeeze = true
-      "-c" | "-C" => complement_set = true
-      "-ds" | "-sd" => {
-        delete = true
-        squeeze = true
-      }
-      "-cd" | "-dc" | "-Cd" | "-dC" => {
-        complement_set = true
-        delete = true
-      }
-      "-cs" | "-sc" | "-Cs" | "-sC" => {
-        complement_set = true
-        squeeze = true
-      }
-      "-cds" | "-csd" | "-dcs" | "-dsc" | "-scd" | "-sdc" => {
-        complement_set = true
-        delete = true
-        squeeze = true
-      }
-      _ => values = values.push(arg)
-    }
-  }
+proc main(...argv: List[Str]) [fs, error, io] {
+  let opts: TrOptions = cli.applet(
+    argv,
+    {
+      delete: {
+        form: "-d",
+        default: false,
+      },
+      squeeze: {
+        form: "-s",
+        default: false,
+      },
+      complement: {
+        form: "-c -C",
+        default: false,
+      },
+      values: {
+        form: "...ARG",
+      },
+    },
+  )?
+  let delete = opts.delete
+  let squeeze = opts.squeeze
+  let complement_set = opts.complement
+  let values = opts.values
 
   if delete {
     if values.len() < 1 or values.len() > 2 {

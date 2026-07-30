@@ -13,22 +13,23 @@ pure reject_unsupported(applet_name: Str, flag: Str) -> Error {
   return AppletError.Usage(f"${applet_name}: unsupported option '${flag}'")
 }
 
+type ReadlinkOptions = {canonicalize: Bool, paths: List[Str]}
+
 proc main(...argv: List[Str]) [fs, error] {
-  var canonicalize = false
-  var paths: List[Str] = []
-
-  for arg in argv {
-    match arg {
-      "-f" | "--canonicalize" => canonicalize = true
-      _ => {
-        if arg.starts_with("-") {
-          return Err(reject_unsupported("readlink", arg))
-        }
-
-        paths = paths.push(arg)
-      }
-    }
-  }
+  let opts: ReadlinkOptions = cli.applet(
+    argv,
+    {
+      canonicalize: {
+        form: "-f --canonicalize",
+        default: false,
+      },
+      paths: {
+        form: "...PATH",
+      },
+    },
+  )?
+  let canonicalize = opts.canonicalize
+  let paths = opts.paths
 
   if paths.len() == 0 {
     return Err(usage_error("readlink", "[-f] PATH..."))

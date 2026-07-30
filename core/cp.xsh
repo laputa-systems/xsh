@@ -1,6 +1,17 @@
 #!/bin/xsh
 error AppletError = Usage(message: Str) : Usage
 
+type CpOptions = {
+  recursive: Bool,
+  no_clobber: Bool,
+  force: Bool,
+  no_target_directory: Bool,
+  hardlink: Bool,
+  symlink: Bool,
+  target: Str,
+  operands: List[Str],
+}
+
 pure usage(applet_name: Str, summary: Str) -> Str {
   return f"usage: xsh applets/${applet_name}.xsh -- ${summary}"
 }
@@ -22,49 +33,57 @@ pure dest_for(source: Path, target: Path, target_is_dir: Bool) -> Path {
 }
 
 proc main(...argv: List[Str]) [fs, error] {
-  var recursive = false
-  var no_clobber = false
-  var no_target_directory = false
-  var link_mode = "copy"
-  var target_directory = p""
-  var has_target_directory = false
-  var paths: List[Str] = []
-  var index = 0
-
-  while index < argv.len() {
-    let arg = argv[index]
-
-    match arg {
-      "--parents" => return Err(reject_unsupported("cp", "--parents"))
-      "--no-target-directory" => no_target_directory = true
-      "-T" => no_target_directory = true
-      "-R" | "-r" => recursive = true
-      "-a" => recursive = true
-      "-n" => no_clobber = true
-      "-f" => no_clobber = false
-      "-l" => link_mode = "hardlink"
-      "-s" => link_mode = "symlink"
-      "-p" | "-d" | "-P" | "-H" | "-L" | "-i" | "-u" => {}
-      "-t" => {
-        if index + 1 >= argv.len() {
-          return Err(usage_error("cp", "[-R|-r|-a|-p|-T] [-t DIR] SOURCE... DEST"))
-        }
-
-        target_directory = fp"${argv[index + 1]}"
-        has_target_directory = true
-        index += 1
-      }
-      _ => {
-        if arg.starts_with("-") {
-          return Err(reject_unsupported("cp", arg))
-        }
-
-        paths = paths.push(arg)
-      }
-    }
-
-    index += 1
-  }
+  let opts: CpOptions = cli.applet(
+    argv,
+    {
+      recursive: {
+        form: "-R -r -a",
+        default: false,
+      },
+      no_clobber: {
+        form: "-n",
+        default: false,
+        conflicts: "force",
+      },
+      force: {
+        form: "-f",
+        default: false,
+        conflicts: "no_clobber",
+      },
+      no_target_directory: {
+        form: "-T --no-target-directory",
+        default: false,
+      },
+      hardlink: {
+        form: "-l",
+        default: false,
+        conflicts: "symlink",
+      },
+      symlink: {
+        form: "-s",
+        default: false,
+        conflicts: "hardlink",
+      },
+      target: {
+        form: "-t DIR",
+        default: "",
+      },
+      ignored: {
+        form: "-p -d -P -H -L -i -u",
+        default: false,
+      },
+      operands: {
+        form: "...FILE",
+      },
+    },
+  )?
+  let recursive = opts.recursive
+  let no_clobber = opts.no_clobber
+  let no_target_directory = opts.no_target_directory
+  let link_mode = if opts.symlink { "symlink" } else if opts.hardlink { "hardlink" } else { "copy" }
+  let target_directory = fp"${opts.target}"
+  let has_target_directory = opts.target != ""
+  let paths = opts.operands
 
   if paths.len() < 1 or ! has_target_directory and paths.len() < 2 {
     return Err(usage_error("cp", "[-R|-r|-a|-p|-T] [-t DIR] SOURCE... DEST"))

@@ -13,22 +13,23 @@ pure reject_unsupported(applet_name: Str, flag: Str) -> Error {
   return AppletError.Usage(f"${applet_name}: unsupported option '${flag}'")
 }
 
+type RmdirOptions = {parents: Bool, targets: List[Str]}
+
 proc main(...argv: List[Str]) [fs, error] {
-  var parents = false
-  var targets: List[Str] = []
-
-  for arg in argv {
-    match arg {
-      "-p" => parents = true
-      _ => {
-        if arg.starts_with("-") {
-          return Err(reject_unsupported("rmdir", arg))
-        }
-
-        targets = targets.push(arg)
-      }
-    }
-  }
+  let opts: RmdirOptions = cli.applet(
+    argv,
+    {
+      parents: {
+        form: "-p",
+        default: false,
+      },
+      targets: {
+        form: "...DIR",
+      },
+    },
+  )?
+  let parents = opts.parents
+  let targets = opts.targets
 
   if targets.len() == 0 {
     return Err(usage_error("rmdir", "[-p] DIR..."))

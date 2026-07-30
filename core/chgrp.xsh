@@ -9,24 +9,38 @@ pure usage_error(applet_name: Str, summary: Str) -> Error {
   return AppletError.Usage(usage(applet_name, summary))
 }
 
+type ChgrpOptions = {recursive: Bool, no_dereference: Bool, dereference: Bool, operands: List[Str]}
+
 proc main(...argv: List[Str]) [fs, error] {
-  if argv.len() < 2 {
-    return Err(usage_error("chgrp", "[-Rh] GROUP PATH..."))
-  }
-
-  var recursive = false
-  var follow_symlinks = true
-  var operands: List[Str] = []
-
-  for arg in argv {
-    match arg {
-      "-R" | "--recursive" => recursive = true
-      "-h" | "--no-dereference" => follow_symlinks = false
-      "-H" | "-L" | "--dereference" => follow_symlinks = true
-      "-c" | "-f" | "-v" | "--apply" => {}
-      _ => operands = operands.push(arg)
-    }
-  }
+  let opts: ChgrpOptions = cli.applet(
+    argv,
+    {
+      recursive: {
+        form: "-R --recursive",
+        default: false,
+      },
+      no_dereference: {
+        form: "-h --no-dereference",
+        default: false,
+        conflicts: "dereference",
+      },
+      dereference: {
+        form: "-H -L --dereference",
+        default: false,
+        conflicts: "no_dereference",
+      },
+      ignored: {
+        form: "-c -f -v --apply",
+        default: false,
+      },
+      operands: {
+        form: "...ARG",
+      },
+    },
+  )?
+  let recursive = opts.recursive
+  let follow_symlinks = ! opts.no_dereference
+  let operands = opts.operands
 
   if operands.len() < 2 {
     return Err(usage_error("chgrp", "[-Rh] GROUP PATH..."))

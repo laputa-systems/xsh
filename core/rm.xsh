@@ -15,28 +15,28 @@ proc remove_tree(root: Path) [fs, error] {
   }
 }
 
+type RmOptions = {recursive: Bool, force: Bool, targets: List[Str]}
+
 proc main(...argv: List[Str]) [fs, error] {
-  var recursive = false
-  var force = false
-  var targets: List[Str] = []
-
-  for arg in argv {
-    match arg {
-      "-f" => force = true
-      "-r" | "-R" => recursive = true
-      "-rf" | "-fr" | "-Rf" | "-fR" => {
-        recursive = true
-        force = true
-      }
-      _ => {
-        if arg.starts_with("-") {
-          return Err(reject_unsupported("rm", arg))
-        }
-
-        targets = targets.push(arg)
-      }
-    }
-  }
+  let opts: RmOptions = cli.applet(
+    argv,
+    {
+      recursive: {
+        form: "-r -R",
+        default: false,
+      },
+      force: {
+        form: "-f",
+        default: false,
+      },
+      targets: {
+        form: "...PATH",
+      },
+    },
+  )?
+  let recursive = opts.recursive
+  let force = opts.force
+  let targets = opts.targets
 
   if targets.len() == 0 {
     if force {

@@ -113,29 +113,6 @@ pure queries(patterns: List[Str]) -> List[Query] {
   [query(pattern) for pattern in patterns]
 }
 
-pure normalize_kill_args(argv: List[Str]) -> List[Str] {
-  var normalized: List[Str] = []
-  var index = 0
-
-  while index < argv.len() {
-    let arg = argv[index]
-
-    if arg == "--kill" {
-      if index + 1 < argv.len() and is_decimal(argv[index + 1]) {
-        normalized = normalized.push(arg)
-      } else {
-        normalized = normalized.push("--kill=15")
-      }
-    } else {
-      normalized = normalized.push(arg)
-    }
-
-    index += 1
-  }
-
-  return normalized
-}
-
 pure unique_ints(items: List[Int]) -> List[Int] {
   var unique: List[Int] = []
 
@@ -542,7 +519,7 @@ proc ports_for_pids(pids: List[Int]) [process, error] -> Result[List[PortProcess
 
 proc main(...argv: List[Str]) [fs, process, env, time, error] {
   let opts: Options = cli.parse(
-    normalize_kill_args(argv),
+    argv,
     {
       full: {
         form: "-f",
