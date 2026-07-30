@@ -17,11 +17,12 @@ The executable examples in `examples/` and standalone programs in `showcase/`
 are part of this contract. Each `.xsh` example must be cataloged, and each
 standalone showcase script must be covered by a native test in `showcase/tests/`.
 
-`LANG.md` tracks open language design proposals. **When a proposal is
-implemented:** remove its entry from `LANG.md` entirely — implemented behaviour
-belongs here in `docs/SPEC.md` and in the relevant `docs-src/CHAPTER-*.md.in`
-template, not in `LANG.md`. Follow the full checklist in `LANG.md §Process`
-and reference the entry in the commit message.
+`LANG.md` tracks open language design proposals and unresolved implementation
+tickets. **When a proposal is implemented:** remove its entry from `LANG.md`
+entirely — implemented behaviour belongs here in `docs/SPEC.md` and in the
+relevant `docs-src/CHAPTER-*.md.in` template, not in `LANG.md`. Follow the full
+proposal checklist in `LANG.md §Process` and reference the entry in the commit
+message.
 
 ## Section Map
 

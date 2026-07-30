@@ -32,8 +32,9 @@ owner files, and tests before editing.
   it creates large generated churn.
 - If language behavior changes, update `docs/SPEC.md` first or in the same
   change.
-- `LANG.md` contains only open language proposals. Implemented behavior belongs
-  in `docs/SPEC.md` and `docs-src/CHAPTER-*.md.in`.
+- `LANG.md` contains only open language proposals and unresolved tickets.
+  Implemented behavior belongs in `docs/SPEC.md` and
+  `docs-src/CHAPTER-*.md.in`.
 
 ## Verification
 

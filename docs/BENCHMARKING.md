@@ -217,9 +217,9 @@ the ordinary operation is frontend/setup work and should not be attributed to
 `eval_indexed_expr` or `eval_indexed_stmt`.
 
 Use `tools/xsh-ir-coverage.xsh` to find frequent constructs in real XSH code
-that fail to lower. Use `LLVM-LINES.md` and
-`tools/llvm-lines-repeat-offenders.xsh` when the concern is generated code size
-rather than runtime memory. A useful interpreter or IR change therefore has a
+that fail to lower. Use `tools/llvm-lines-repeat-offenders.xsh` with a
+`cargo llvm-lines` capture when the concern is generated code size rather than
+runtime memory. A useful interpreter or IR change therefore has a
 short evidence chain:
 
 1. a real suite workload exposes the cost;

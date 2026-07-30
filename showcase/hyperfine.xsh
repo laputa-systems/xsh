@@ -13,8 +13,8 @@
 #
 # A port to diversify XSH's proving grounds onto the *effectful* axis: subprocess
 # spawning, wall-clock + CPU timing, warmups, float statistics, and serialization.
-# See PORTS.md. Commands run directly through xsh's own process launcher (no /bin/sh)
-# via `time.measure(.., quiet: true)`, which was extended (for this port) to report
+# Commands run directly through xsh's own process launcher (no /bin/sh) via
+# `time.measure(.., quiet: true)`, which was extended (for this port) to report
 # nanosecond wall time plus user/system CPU, and to discard child output. xsh's fixed
 # startup cost is probed via `xsh --startup` and reported as a calibration baseline.
 type Opts = {

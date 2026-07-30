@@ -44,7 +44,6 @@ Markdown under `docs/` is the primary generated artifact for agents, code review
 - `docs/FRONTEND.md`: compact frontend, indexed runtime, symbol identity, ownership, and verification contract.
 - `../FRONTEND-FOLLOWUPS.md`: evidence-based frontend performance and memory follow-ups.
 - `docs/BENCHMARKING.md`: user-facing benchmarks, PGO, baselines, and syscall diagnostics.
-- `LLVM-LINES.md`: release LLVM IR size analysis and repeated-monomorphization workflow.
 
 ## Maintenance
 

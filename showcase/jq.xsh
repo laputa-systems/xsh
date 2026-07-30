@@ -5,7 +5,7 @@
 #
 # Why this file looks the way it does
 # -----------------------------------
-# jq is the "dynamic data / allocation" forcing function (see PORTS.md): a tree of
+# jq is the "dynamic data / allocation" forcing function: a tree of
 # nested dynamic values that gets traversed and rebuilt constantly. It is a real
 # interpreter — lexer, precedence parser, and a tree-walking evaluator with jq's
 # stream/backtracking semantics — written entirely in XSH `pure` functions.
@@ -44,7 +44,7 @@
 #   exact and we never depend on its key ordering.
 # - One numeric type. jq numbers are IEEE doubles, so `JNum(Float)` is the only number
 #   variant; integral values render without a decimal point. (Decimal literal
-#   preservation / bignums are a deliberate gap — see PORTS.md.)
+#   preservation / bignums are a deliberate gap.)
 # - jq filters produce a *stream* of outputs; with no generators in XSH we model a
 #   filter as `eval(ast, input, scope) -> Result[List[Json]]` (eager streams).
 type Entry = {k: Str, v: Json}
