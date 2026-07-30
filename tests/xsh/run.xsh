@@ -708,3 +708,79 @@ let _ = status.exit_code()?
   test.eq(output.status, 3)?
   test.contains(output.stderr, "status-kind")?
 }
+
+proc test_nested_traceback_includes_user_procs_and_pure_functions(ctx: TestContext) [error] {
+  let output = test.run_script(
+    ctx,
+    """
+pure leaf() -> Result[Unit] {
+  let _ = Path.parse_bytes(b"bad\\0path")?
+  return Ok()
+}
+pure middle() -> Result[Unit] {
+  let _ = leaf()?
+  return Ok()
+}
+
+proc outer() -> Result[Unit] {
+  let _ = middle()?
+  return Ok()
+}
+
+proc main(args: List[Str]) -> Result[Unit] {
+  outer()?
+  return Ok()
+}
+
+main(args)?
+""",
+  )?
+
+  test.eq(output.status, 3)?
+  test.contains(output.stderr, "call path:")?
+  test.contains(output.stderr, "proc main")?
+  test.contains(output.stderr, "proc outer")?
+  test.contains(output.stderr, "pure middle")?
+  test.contains(output.stderr, "pure leaf")?
+  test.contains(output.stderr, "nul-path")?
+}
+
+proc test_foundation_literals_defers_streams_and_builders(ctx: TestContext) [fs, process, time, error] {
+  let root = test.temp_dir(ctx, name: "foundation")?
+  let marker = fp"${root}/marker"
+  defer marker.write("cleaned")?
+  let file = fp"${root}/note.txt"
+  file.write("""alpha
+beta
+""")?
+  let content = file.read_text()?
+  let mode = 0o755
+  let label = f"mode ${mode}"
+  let raw_lines = run.stream --text printf "%s\n" alpha beta gamma
+  let lines = raw_lines |> drop(1) |> take(1)
+  let total = [1, 2, 3] |> sum()
+  let unique = [1, 1, 2, 3] |> unique-by { . }
+  let command = process.command {
+    timeout = 2s
+    run --timeout=1s echo ok
+  }
+  test.ok(process.run(command)?.exited_with(0))?
+  test.eq(mode, 493)?
+  test.ok("493" in label)?
+  test.eq(lines[0], "beta")?
+  test.eq(total, 6)?
+  test.eq(unique[2], 3)?
+  test.eq(content, """alpha
+beta
+""")?
+}
+
+proc test_run_timeout_error(ctx: TestContext) [error] {
+  let output = test.run_script(
+    ctx,
+    """let _ = run --timeout=10ms sh -c "sleep 1" ?
+""",
+  )?
+  test.eq(output.status, 3)?
+  test.contains(output.stderr, "timeout")?
+}

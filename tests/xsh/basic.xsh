@@ -24,6 +24,37 @@ proc test_process_command_builder() [process, error] {
   test.ok(status.exited_with(0), "builder command should run")?
 }
 
+pure language_sugar_label(value: Str) -> Result[Str] {
+  value
+}
+
+pure language_sugar_returned(value: Str) -> Result[Str] {
+  return value
+}
+
+proc test_language_sugar_edge_cases(ctx: TestContext) [fs, error] {
+  let root = test.temp_dir(ctx, name: "language-sugar")?
+  let file = fp"${root}/note.txt"
+  file.write("""alpha
+beta
+""")?
+  let content = file.read_text()?
+  let raw = r"\n ${literal}"
+  let nested = f"""${{name: "demo"}.name}:${if true { "x}" } else { "y" }}:${f"${1}"}"""
+  let escaped = f"\${not_interp}:${"ok"}:\x63\u{61}"
+  let names = fs.children(root) |> map { .name }
+
+  test.eq(language_sugar_label("ok")?, "ok")?
+  test.eq(language_sugar_returned("return")?, "return")?
+  test.eq(content, """alpha
+beta
+""")?
+  test.eq(raw, r"\n ${literal}")?
+  test.eq(nested, "demo:x}:1")?
+  test.eq(escaped, "\${not_interp}:ok:ca")?
+  test.eq(names[0], "note.txt")?
+}
+
 proc test_dns_mock(ctx: TestContext) [net, error] {
   test.mock(
     ctx,

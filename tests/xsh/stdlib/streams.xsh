@@ -282,6 +282,48 @@ proc test_flat_map_identity_reduce_by_matches_direct_rows() [error] {
   test.eq(nested.get("odd", {count: 0, total: 0}), {count: 500, total: 250000})?
 }
 
+proc test_projected_reduce_by_preserves_duplicate_output_fields(ctx: TestContext) [error] {
+  let output = test.run_script(
+    ctx,
+    """
+let rows = [
+  {key: "g", a: 1, b: 10},
+  {key: "g", a: 2, b: 20},
+  {key: "g", a: 3, b: 30},
+]
+let reduced = (rows)
+  |> reduce-by --sum { |row|
+    {key: row.key, value: {x: row.a, x: row.b}}
+  }
+let g = reduced.get("g", {x: 0})
+print f"x=\${g.x}"
+""",
+  )?
+  test.ok(output.success, output.stderr)?
+  test.eq(output.stdout, "x=10\n")?
+}
+
+proc test_stream_producers_are_lazy_and_run_defers_on_stop(ctx: TestContext) [fs, error] {
+  let marker = test.temp_path(ctx, name: "stream-marker")
+  let output = test.run_script(
+    ctx,
+    f"""
+stream nums(marker: Path) [fs, error] -> Stream[Int] {
+  defer marker.write("closed")?
+  for n in range(5) {
+    yield n
+  }
+}
+
+let first = nums(Path("${marker.display()}")) |> first()?
+print \${first}
+print \${Path("${marker.display()}").read_text() ?}
+""",
+  )?
+  test.ok(output.success, output.stderr)?
+  test.eq(output.stdout, "0\nclosed\n")?
+}
+
 proc test_parallel_count_and_group_by_match_serial() [error] {
   # group-by must preserve encounter order within each group.
   let nums = [0] |> range(0, 20000)

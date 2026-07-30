@@ -30,6 +30,14 @@ owner files, and tests before editing.
 - Update the closest tests, examples, and `docs/` markdown for the behavior you
   changed. Do not rebuild or edit `docs-html/` unless the user explicitly asks;
   it creates large generated churn.
+- Prefer an `xsht` native test first for XSH behavior: add or extend a
+  `proc test_*` under `tests/**/*.xsh` or `showcase/tests/**/*.xsh` when the
+  contract can be expressed through XSH, using `test.run_script`,
+  `test.run_xsh`, `test.run_xsht_trace`, temp resources, and mocks as needed.
+  Keep Rust integration tests for host or CLI boundaries, exact process or
+  byte-level lifecycles, platform or privilege behavior, PTYs, and fixtures or
+  servers that native tests cannot own. Before embedding XSH source in Rust,
+  confirm that the behavior crosses one of those Rust-owned boundaries.
 - If language behavior changes, update `docs/SPEC.md` first or in the same
   change.
 - `LANG.md` contains only open language proposals and unresolved tickets.

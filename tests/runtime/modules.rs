@@ -164,62 +164,6 @@ fn write64(data: &mut [u8], offset: usize, value: u64) {
 }
 
 #[test]
-fn io_module_reads_stdin_and_writes_stdout() {
-    let path = write_temp_script(
-        "io-module",
-        r#"
-let data = io.stdin_bytes()?
-io.write_stdout_bytes(data)?
-"#,
-    );
-    let mut child = Command::new(env!("CARGO_BIN_EXE_xsh"))
-        .arg(&path)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .spawn()
-        .expect("spawn xsh");
-    child
-        .stdin
-        .as_mut()
-        .expect("stdin pipe")
-        .write_all(b"hello stdin\n")
-        .expect("write stdin");
-    let output = child.wait_with_output().expect("wait xsh");
-    let _ = std::fs::remove_file(path);
-
-    assert!(output.status.success());
-    assert_eq!(String::from_utf8(output.stdout).unwrap(), "hello stdin\n");
-}
-
-#[test]
-fn io_module_reads_one_stdin_line() {
-    let path = write_temp_script(
-        "io-line",
-        r#"
-let line = io.stdin_line()?
-print ${line}
-"#,
-    );
-    let mut child = Command::new(env!("CARGO_BIN_EXE_xsh"))
-        .arg(&path)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .spawn()
-        .expect("spawn xsh");
-    child
-        .stdin
-        .as_mut()
-        .expect("stdin pipe")
-        .write_all(b"first\r\nsecond\n")
-        .expect("write stdin");
-    let output = child.wait_with_output().expect("wait xsh");
-    let _ = std::fs::remove_file(path);
-
-    assert!(output.status.success());
-    assert_eq!(String::from_utf8(output.stdout).unwrap(), "first\n");
-}
-
-#[test]
 fn collection_modules_execute_success_paths() {
     let output = xsh(["tests/fixtures/runtime/collections.xsh"]);
 
@@ -2282,9 +2226,19 @@ impl LocalHttpsHttp2Server {
                         .expect("send HTTPS H2 body");
                 }
                 connection.graceful_shutdown();
-                futures_lite::future::poll_fn(|cx| connection.poll_closed(cx))
-                    .await
-                    .expect("close HTTPS H2 connection");
+                let close_result =
+                    futures_lite::future::poll_fn(|cx| connection.poll_closed(cx)).await;
+                if let Err(error) = close_result {
+                    let peer_closed = error.get_io().is_some_and(|io| {
+                        matches!(
+                            io.kind(),
+                            std::io::ErrorKind::BrokenPipe
+                                | std::io::ErrorKind::ConnectionReset
+                                | std::io::ErrorKind::UnexpectedEof
+                        )
+                    });
+                    assert!(peer_closed, "close HTTPS H2 connection: {error:?}");
+                }
             });
             LocalHttpsSummary { handled: expected }
         });

@@ -38,10 +38,6 @@ pub(crate) fn json_parse(text: &str) -> JsonValue {
     miniserde::json::from_str(text).expect("parse JSON")
 }
 
-pub(crate) fn json_parse_lines(text: &str) -> Vec<JsonValue> {
-    text.lines().map(json_parse).collect()
-}
-
 pub(crate) fn json_field<'a>(value: &'a JsonValue, key: &str) -> &'a JsonValue {
     match value {
         JsonValue::Object(fields) => fields.get(key).unwrap_or_else(|| panic!("missing {key}")),
