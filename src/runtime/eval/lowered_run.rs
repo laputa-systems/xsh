@@ -5940,6 +5940,142 @@ impl Evaluator {
                     }
                 }
             }
+            RuntimeOp::NetRequestMany if values.len() == 1 => {
+                let batch = lowered_record_arg(values.pop(), "net.request_many", span)?;
+                if let Some(value) =
+                    intercept_test_host_call(self, "net.request_many", batch.clone(), span)
+                {
+                    lowered_runtime_value(value, span)?
+                } else {
+                    let Some(values) = batch.get("requests") else {
+                        return Ok(ControlFlow::Continue(lowered_result_err_value(
+                            RuntimeError::new("net-request-many", "requests is required")
+                                .with_span(span),
+                        )));
+                    };
+                    let Value::List(records) = values else {
+                        return Ok(ControlFlow::Continue(lowered_result_err_value(
+                            RuntimeError::new("type-error", "requests must be List[Record]")
+                                .with_span(span),
+                        )));
+                    };
+                    let requests = records
+                        .iter()
+                        .map(|value| match value {
+                            Value::Record(record) => self.net_request_from_record(record.clone(), span),
+                            _ => Err(
+                                RuntimeError::new("type-error", "requests must be List[Record]")
+                                    .with_span(span),
+                            ),
+                        })
+                        .collect::<Result<Vec<_>, _>>()?;
+                    let concurrency = match batch.get("concurrency") {
+                        Some(Value::Int(value)) if *value >= 0 => *value as usize,
+                        Some(Value::Int(_)) => {
+                            return Ok(ControlFlow::Continue(lowered_result_err_value(
+                                RuntimeError::new(
+                                    "net-concurrency",
+                                    "concurrency must be at least one",
+                                )
+                                .with_span(span),
+                            )));
+                        }
+                        Some(_) => {
+                            return Ok(ControlFlow::Continue(lowered_result_err_value(
+                                RuntimeError::new("type-error", "concurrency must be Int")
+                                    .with_span(span),
+                            )));
+                        }
+                        None => 16,
+                    };
+                    if concurrency == 0 {
+                        return Ok(ControlFlow::Continue(lowered_result_err_value(
+                            RuntimeError::new(
+                                "net-concurrency",
+                                "concurrency must be at least one",
+                            )
+                            .with_span(span),
+                        )));
+                    }
+                    let options = self.net_call_options(&batch, span)?;
+                    match self.net_agent(&options, span) {
+                        Ok(agent) => match net_module::request_many(&agent, requests, concurrency, span)
+                        {
+                            Ok(value) => lowered_runtime_value(value, span)?,
+                            Err(error) => lowered_result_err_value(error),
+                        },
+                        Err(error) => lowered_result_err_value(error),
+                    }
+                }
+            }
+            RuntimeOp::NetDownloadMany if values.len() == 1 => {
+                let batch = lowered_record_arg(values.pop(), "net.download_many", span)?;
+                if let Some(value) =
+                    intercept_test_host_call(self, "net.download_many", batch.clone(), span)
+                {
+                    lowered_runtime_value(value, span)?
+                } else {
+                    let Some(values) = batch.get("downloads") else {
+                        return Ok(ControlFlow::Continue(lowered_result_err_value(
+                            RuntimeError::new("net-download-many", "downloads is required")
+                                .with_span(span),
+                        )));
+                    };
+                    let Value::List(records) = values else {
+                        return Ok(ControlFlow::Continue(lowered_result_err_value(
+                            RuntimeError::new("type-error", "downloads must be List[Record]")
+                                .with_span(span),
+                        )));
+                    };
+                    let downloads = records
+                        .iter()
+                        .map(|value| match value {
+                            Value::Record(record) => self.net_download_from_record(record.clone(), span),
+                            _ => Err(
+                                RuntimeError::new("type-error", "downloads must be List[Record]")
+                                    .with_span(span),
+                            ),
+                        })
+                        .collect::<Result<Vec<_>, _>>()?;
+                    let concurrency = match batch.get("concurrency") {
+                        Some(Value::Int(value)) if *value >= 0 => *value as usize,
+                        Some(Value::Int(_)) => {
+                            return Ok(ControlFlow::Continue(lowered_result_err_value(
+                                RuntimeError::new(
+                                    "net-concurrency",
+                                    "concurrency must be at least one",
+                                )
+                                .with_span(span),
+                            )));
+                        }
+                        Some(_) => {
+                            return Ok(ControlFlow::Continue(lowered_result_err_value(
+                                RuntimeError::new("type-error", "concurrency must be Int")
+                                    .with_span(span),
+                            )));
+                        }
+                        None => 16,
+                    };
+                    if concurrency == 0 {
+                        return Ok(ControlFlow::Continue(lowered_result_err_value(
+                            RuntimeError::new(
+                                "net-concurrency",
+                                "concurrency must be at least one",
+                            )
+                            .with_span(span),
+                        )));
+                    }
+                    let options = self.net_call_options(&batch, span)?;
+                    match self.net_agent(&options, span) {
+                        Ok(agent) => match net_module::download_many(&agent, downloads, concurrency, span)
+                        {
+                            Ok(value) => lowered_runtime_value(value, span)?,
+                            Err(error) => lowered_result_err_value(error),
+                        },
+                        Err(error) => lowered_result_err_value(error),
+                    }
+                }
+            }
             RuntimeOp::NetDownload if values.len() == 1 => {
                 let record = lowered_record_arg(values.pop(), "net.download", span)?;
                 if let Some(value) =

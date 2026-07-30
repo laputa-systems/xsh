@@ -410,6 +410,243 @@ print ${{first.body.utf8()?}} ${{second.body.utf8()?}}
 
 #[cfg(feature = "net")]
 #[test]
+fn net_module_request_many_returns_ordered_results() {
+    let server = LocalHttpServer::spawn(3);
+    let source = format!(
+        r#"
+let responses = net.request_many({{
+  requests: [
+    {{method: "GET", url: "{url}/hello", headers: [{{name: "Connection", value: "close"}}]}},
+    {{method: "GET", url: "ftp://example.test/"}},
+    {{method: "GET", url: "{url}/status", headers: [{{name: "Connection", value: "close"}}], fail_status: true}},
+    {{method: "GET", url: "{url}/hello", headers: [{{name: "Connection", value: "close"}}]}},
+  ],
+  concurrency: 2,
+  pool: "many",
+}})?
+match responses[1] {{
+  Err(scheme) => match responses[2] {{
+    Err(status) => print ${{responses[0]?.body.utf8()?}} ${{scheme.kind}} ${{status.kind}} ${{responses[3]?.body.utf8()?}}
+  }}
+}}
+"#,
+        url = server.url,
+    );
+
+    let output = run_temp_script("net-request-many", &source);
+    let summary = server.join();
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        String::from_utf8(output.stdout).unwrap(),
+        "hello net-scheme net-status hello\n"
+    );
+    assert_eq!(summary.handled, 3);
+}
+
+#[cfg(feature = "net")]
+#[test]
+fn net_module_download_many_streams_ordered_files() {
+    let server = LocalHttpServer::spawn(2);
+    let first = temp_path("net-download-many-first.txt");
+    let second = temp_path("net-download-many-second.txt");
+    let _ = std::fs::remove_file(&first);
+    let _ = std::fs::remove_file(&second);
+    let source = format!(
+        r#"
+let responses = net.download_many({{
+  downloads: [
+    {{url: "{url}/hello", dest: Path({first}), overwrite: true}},
+    {{url: "{url}/hello", dest: Path({second}), overwrite: true}},
+  ],
+  concurrency: 2,
+  pool: "many-downloads",
+}})?
+print ${{responses[0]?.bytes}} ${{responses[1]?.bytes}}
+"#,
+        url = server.url,
+        first = xsh_string_literal(first.to_str().unwrap()),
+        second = xsh_string_literal(second.to_str().unwrap()),
+    );
+
+    let output = run_temp_script("net-download-many", &source);
+    let summary = server.join();
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(String::from_utf8(output.stdout).unwrap(), "5 5\n");
+    assert_eq!(std::fs::read(&first).unwrap(), b"hello");
+    assert_eq!(std::fs::read(&second).unwrap(), b"hello");
+    assert_eq!(summary.handled, 2);
+    let _ = std::fs::remove_file(first);
+    let _ = std::fs::remove_file(second);
+}
+
+#[cfg(feature = "net")]
+#[test]
+fn net_module_download_many_follows_redirects_and_keeps_atomic_destination_on_limit() {
+    let server = LocalHttpServer::spawn(3);
+    let redirected = temp_path("net-download-many-redirected.txt");
+    let limited = temp_path("net-download-many-limited.txt");
+    let _ = std::fs::remove_file(&redirected);
+    let _ = std::fs::remove_file(&limited);
+    std::fs::write(&limited, b"previous").expect("write existing download destination");
+    let source = format!(
+        r#"
+let responses = net.download_many({{
+  downloads: [
+    {{url: "{url}/redirect", dest: Path({redirected}), overwrite: true, redirects: 1}},
+    {{url: "{url}/hello", dest: Path({limited}), overwrite: true, max_body_bytes: 4}},
+  ],
+  concurrency: 2,
+  pool: "many-download-redirects",
+}})?
+match responses[1] {{
+  Err(limit) => print ${{responses[0]?.bytes}} ${{limit.kind}}
+}}
+"#,
+        url = server.url,
+        redirected = xsh_string_literal(redirected.to_str().unwrap()),
+        limited = xsh_string_literal(limited.to_str().unwrap()),
+    );
+
+    let output = run_temp_script("net-download-many-redirects", &source);
+    let summary = server.join();
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(String::from_utf8(output.stdout).unwrap(), "5 net-body-limit\n");
+    assert_eq!(std::fs::read(&redirected).unwrap(), b"hello");
+    assert_eq!(std::fs::read(&limited).unwrap(), b"previous");
+    assert_eq!(summary.handled, 3);
+    let _ = std::fs::remove_file(redirected);
+    let _ = std::fs::remove_file(limited);
+}
+
+#[cfg(feature = "net")]
+#[test]
+fn net_module_request_many_verifies_local_https() {
+    let server = LocalHttpsServer::spawn(2);
+    let ca = temp_path("net-request-many-ca.pem");
+    let _ = std::fs::remove_file(&ca);
+    std::fs::write(&ca, LOCAL_HTTPS_CA).expect("write local HTTPS CA");
+    let source = format!(
+        r#"
+let responses = net.request_many({{
+  requests: [
+    {{method: "GET", url: "{url}/secure"}},
+    {{method: "GET", url: "{url}/secure"}},
+  ],
+  concurrency: 2,
+  ca_certificate: Path({ca}),
+  pool: "many-https",
+}})?
+print ${{responses[0]?.body.utf8()?}} ${{responses[1]?.body.utf8()?}}
+"#,
+        url = server.url,
+        ca = xsh_string_literal(ca.to_str().unwrap()),
+    );
+
+    let output = run_temp_script("net-request-many-https", &source);
+    let summary = server.join();
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(String::from_utf8(output.stdout).unwrap(), "secure secure\n");
+    assert_eq!(summary.handled, 2);
+    let _ = std::fs::remove_file(ca);
+}
+
+#[cfg(feature = "net")]
+#[test]
+fn net_module_request_many_negotiates_local_https_http2() {
+    let server = LocalHttpsHttp2Server::spawn(2);
+    let ca = temp_path("net-request-many-h2-ca.pem");
+    let _ = std::fs::remove_file(&ca);
+    std::fs::write(&ca, LOCAL_HTTPS_CA).expect("write local HTTPS CA");
+    let source = format!(
+        r#"
+let responses = net.request_many({{
+  requests: [
+    {{method: "GET", url: "{url}/h2"}},
+    {{method: "GET", url: "{url}/h2"}},
+  ],
+  concurrency: 1,
+  ca_certificate: Path({ca}),
+  pool: "many-https-h2",
+}})?
+print ${{responses[0]?.body.utf8()?}} ${{responses[1]?.body.utf8()?}}
+"#,
+        url = server.url,
+        ca = xsh_string_literal(ca.to_str().unwrap()),
+    );
+
+    let output = run_temp_script("net-request-many-https-h2", &source);
+    let summary = server.join();
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(String::from_utf8(output.stdout).unwrap(), "h2 h2\n");
+    assert_eq!(summary.handled, 2);
+    let _ = std::fs::remove_file(ca);
+}
+
+#[cfg(feature = "net")]
+#[test]
+fn net_module_download_many_negotiates_local_https_http2() {
+    let server = LocalHttpsHttp2Server::spawn(1);
+    let ca = temp_path("net-download-many-h2-ca.pem");
+    let dest = temp_path("net-download-many-h2.txt");
+    let _ = std::fs::remove_file(&ca);
+    let _ = std::fs::remove_file(&dest);
+    std::fs::write(&ca, LOCAL_HTTPS_CA).expect("write local HTTPS CA");
+    let source = format!(
+        r#"
+let responses = net.download_many({{
+  downloads: [{{url: "{url}/h2", dest: Path({dest}), overwrite: true}}],
+  ca_certificate: Path({ca}),
+  pool: "many-download-h2",
+}})?
+print ${{responses[0]?.bytes}}
+"#,
+        url = server.url,
+        ca = xsh_string_literal(ca.to_str().unwrap()),
+        dest = xsh_string_literal(dest.to_str().unwrap()),
+    );
+
+    let output = run_temp_script("net-download-many-h2", &source);
+    let summary = server.join();
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(String::from_utf8(output.stdout).unwrap(), "2\n");
+    assert_eq!(std::fs::read(&dest).unwrap(), b"h2");
+    assert_eq!(summary.handled, 1);
+    let _ = std::fs::remove_file(ca);
+    let _ = std::fs::remove_file(dest);
+}
+
+#[cfg(feature = "net")]
+#[test]
 fn net_module_verifies_local_https_with_custom_ca() {
     let server = LocalHttpsServer::spawn(2);
     let ca = temp_path("net-local-https-ca.pem");
@@ -1996,6 +2233,66 @@ impl LocalHttpsServer {
 
     fn join(self) -> LocalHttpsSummary {
         self.handle.join().expect("HTTPS server")
+    }
+}
+
+#[cfg(feature = "net")]
+struct LocalHttpsHttp2Server {
+    url: String,
+    handle: std::thread::JoinHandle<LocalHttpsSummary>,
+}
+
+#[cfg(feature = "net")]
+impl LocalHttpsHttp2Server {
+    fn spawn(expected: usize) -> Self {
+        let listener =
+            std::net::TcpListener::bind("127.0.0.1:0").expect("bind HTTPS H2 listener");
+        let addr = listener.local_addr().expect("HTTPS H2 listener addr");
+        let url = format!("https://{addr}");
+        let mut config = local_https_config();
+        config.alpn_protocols = vec![b"h2".to_vec()];
+        let config = Arc::new(config);
+        let handle = std::thread::spawn(move || {
+            futures_lite::future::block_on(async move {
+                let (stream, _) = listener.accept().expect("accept HTTPS H2 connection");
+                let stream = async_io::Async::new(stream).expect("make HTTPS H2 stream async");
+                let acceptor = futures_rustls::TlsAcceptor::from(config);
+                let stream = acceptor.accept(stream).await.expect("accept HTTPS H2 TLS");
+                let mut connection = h2::server::handshake(stream)
+                    .await
+                    .expect("HTTPS H2 handshake");
+                for _ in 0..expected {
+                    let (request, mut respond) = connection
+                        .accept()
+                        .await
+                        .expect("HTTPS H2 request result")
+                        .expect("HTTPS H2 request");
+                    assert_eq!(request.version(), http::Version::HTTP_2);
+                    assert_eq!(request.uri().path(), "/h2");
+                    let mut body = respond
+                        .send_response(
+                            http::Response::builder()
+                                .status(200)
+                                .body(())
+                                .expect("HTTPS H2 response"),
+                            false,
+                        )
+                        .expect("send HTTPS H2 response");
+                    body.send_data(bytes::Bytes::from_static(b"h2"), true)
+                        .expect("send HTTPS H2 body");
+                }
+                connection.graceful_shutdown();
+                futures_lite::future::poll_fn(|cx| connection.poll_closed(cx))
+                    .await
+                    .expect("close HTTPS H2 connection");
+            });
+            LocalHttpsSummary { handled: expected }
+        });
+        Self { url, handle }
+    }
+
+    fn join(self) -> LocalHttpsSummary {
+        self.handle.join().expect("HTTPS H2 server")
     }
 }
 

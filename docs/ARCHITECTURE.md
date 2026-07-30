@@ -30,6 +30,19 @@ translate records and paths into plain Rust request structs, convert crate
 results back into `Value`/`RuntimeError`, preserve source spans, honor test
 mocks, and manage evaluator-owned pool state.
 
+`net.request`, `net.download`, and `net.upload` are blocking host calls.
+`net.request_many` and `net.download_many` are bounded transport capabilities:
+the former buffers response bodies, while the latter streams directly to caller
+destinations. They drive the local `hyper-futures-lite`, `async-io`, and
+`futures-rustls` stack inside one host call, without exposing futures,
+callbacks, `await`, a process-wide event loop, or evaluator worker threads.
+Their connections are reused by origin only while the batch runs; HTTPS selects
+HTTP/2 only after ALPN negotiates `h2`, otherwise it uses HTTP/1.1. Tokio,
+`hyper-util`, and `hyper-rustls` are intentionally absent from this boundary.
+The relevant grep targets are `request_many`, `download_many`,
+`AsyncHttpConnection`, `AsyncHttpExecutor`, and
+`net_module_request_many_negotiates_local_https_http2`.
+
 There is no JIT, green-thread scheduler, or async task runtime in the execution
 path. The checked arena is lowered into a compact verified indexed store before
 execution. `src/runtime/eval.rs` and its focused runtime modules execute borrowed

@@ -44,6 +44,34 @@ and other setup that users would not wait for during the measured operation
 stay outside the measured closure. A benchmark belongs in this suite only when
 making it faster would directly improve a user-visible workflow.
 
+### External loopback HTTP benchmark
+
+`xsh_net_http1_10000_requests_blocking` exercises the `net.request` path in
+`crates/xsh-multicall/benches/scripts/net-http1-requests-10000-blocking.xsh`.
+It first constructs the same 10,000-record request list as the batch case,
+then requests a three-byte file 10,000 times serially from a local `darkhttpd`
+server with HTTP keep-alive enabled. The server and its temporary document root
+are created outside the measured closure. This is intentionally an ignored
+benchmark so the ordinary suite does not depend on a host-installed server.
+Install `darkhttpd` (or set `DARKHTTPD` to its executable) and run:
+
+```sh
+cargo bench -p xsh-multicall --bench bench xsh_net_http1_10000_requests_blocking -- \
+  --include-ignored --sample-count 1 --sample-size 1
+```
+
+`xsh_net_http1_10000_requests_batch_8` runs the same workload through
+`net.request_many` with eight concurrent HTTP/1.1 connections. Use the same host
+settings and this command for its paired measurement:
+
+```sh
+cargo bench -p xsh-multicall --bench bench xsh_net_http1_10000_requests_batch_8 -- \
+  --include-ignored --sample-count 1 --sample-size 1
+```
+
+The loopback workload measures XSH and client overhead without WAN latency; a
+delayed server is required to measure latency hiding separately.
+
 ## Baselines
 
 Run:

@@ -108,6 +108,11 @@ xsh-net = { path = "crates/xsh-net", optional = true }
 xsh-registry = { path = "crates/xsh-registry" }
 
 [dev-dependencies]
+async-io = "2"
+bytes = "1"
+futures-rustls = "0.26"
+h2 = { package = "h2-futures", git = "https://github.com/joshuarli/h2-futures-lite", rev = "732e8770cc6bbf998c573844f62e0afaccec3192" }
+http = "1"
 proc-macro2 = { version = "1", features = ["span-locations"] }
 syn = { version = "2", features = ["full", "visit"] }
 walkdir = "2"

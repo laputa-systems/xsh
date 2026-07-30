@@ -4,10 +4,13 @@
 use std::ffi::CStr;
 use std::fs;
 use std::hint::black_box;
+use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
+use std::process::{Child, Command, Stdio};
 #[cfg(target_os = "linux")]
 use std::sync::OnceLock;
 use std::sync::{Arc, mpsc};
+use std::time::{Duration, Instant};
 
 use divan::{AllocProfiler, Bencher};
 #[cfg(feature = "native-tests")]
@@ -76,6 +79,72 @@ impl BenchDir {
 
     fn path(&self) -> &Path {
         self.0.path()
+    }
+}
+
+struct DarkHttpdServer {
+    _root: BenchDir,
+    child: Child,
+    addr: String,
+    url: String,
+}
+
+impl DarkHttpdServer {
+    fn spawn() -> Self {
+        let executable = std::env::var_os("DARKHTTPD").unwrap_or_else(|| "darkhttpd".into());
+        for _ in 0..10 {
+            let root = BenchDir::new();
+            fs::write(root.path().join("response.txt"), b"ok\n")
+                .expect("write HTTP benchmark body");
+            let listener = TcpListener::bind("127.0.0.1:0").expect("reserve HTTP benchmark port");
+            let port = listener
+                .local_addr()
+                .expect("read HTTP benchmark port")
+                .port();
+            drop(listener);
+            let child = Command::new(&executable)
+                .arg(root.path())
+                .args(["--addr", "127.0.0.1", "--port"])
+                .arg(port.to_string())
+                .args(["--maxconn", "1024", "--no-listing"])
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+                .unwrap_or_else(|error| {
+                    panic!(
+                        "start darkhttpd for HTTP benchmark (set DARKHTTPD to override): {error}"
+                    )
+                });
+            let server = Self {
+                _root: root,
+                child,
+                addr: format!("127.0.0.1:{port}"),
+                url: format!("http://127.0.0.1:{port}/response.txt"),
+            };
+            if server.wait_until_ready() {
+                return server;
+            }
+            drop(server);
+        }
+        panic!("darkhttpd did not become ready for the HTTP benchmark");
+    }
+
+    fn wait_until_ready(&self) -> bool {
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while Instant::now() < deadline {
+            if TcpStream::connect(&self.addr).is_ok() {
+                return true;
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        false
+    }
+}
+
+impl Drop for DarkHttpdServer {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
     }
 }
 
@@ -249,6 +318,28 @@ fn runtime_shaped_record_thread_transfer_8_fields(bencher: Bencher) {
 fn xsh_short_script(bencher: Bencher) {
     let script = benchmark_script("short-script.xsh");
     bench_operation(bencher, || run_benchmark_script(&script, Vec::new()));
+}
+
+// This external-service benchmark is opt-in so the regular suite does not
+// require darkhttpd. Its setup is deliberately outside the measured closure.
+#[divan::bench]
+#[ignore = "requires darkhttpd; run with --include-ignored"]
+fn xsh_net_http1_10000_requests_blocking(bencher: Bencher) {
+    let server = DarkHttpdServer::spawn();
+    let script = benchmark_script("net-http1-requests-10000-blocking.xsh");
+    bench_operation(bencher, || {
+        run_benchmark_script(&script, vec![server.url.clone()])
+    });
+}
+
+#[divan::bench]
+#[ignore = "requires darkhttpd; run with --include-ignored"]
+fn xsh_net_http1_10000_requests_batch_8(bencher: Bencher) {
+    let server = DarkHttpdServer::spawn();
+    let script = benchmark_script("net-http1-requests-10000-batch.xsh");
+    bench_operation(bencher, || {
+        run_benchmark_script(&script, vec![server.url.clone()])
+    });
 }
 
 #[divan::bench]

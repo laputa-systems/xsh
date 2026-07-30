@@ -261,8 +261,10 @@ module net
   close_all_pools() -> Result[Unit, Error] effect
   close_pool(name: Str = default) -> Result[Unit, Error] effect
   download(request: Record) -> Result[{bytes: Int, headers: List[{name: Str, value: Str}], reason: Str, status: Int, url: Str}, Error] effect
+  download_many(batch: Record) -> Result[List[Result[{bytes: Int, headers: List[{name: Str, value: Str}], reason: Str, status: Int, url: Str}, Error]], Error] effect
   pool(name: Str = default, max_idle_per_host: Int = default, idle_timeout: Duration = default) -> Result[{idle_timeout_ms: Int, max_idle_per_host: Int, name: Str}, Error] effect
   request(request: Record) -> Result[{body: Bytes, bytes: Int, headers: List[{name: Str, value: Str}], reason: Str, status: Int, url: Str}, Error] effect
+  request_many(batch: Record) -> Result[List[Result[{body: Bytes, bytes: Int, headers: List[{name: Str, value: Str}], reason: Str, status: Int, url: Str}, Error]], Error] effect
   upload(request: Record) -> Result[{bytes: Int, headers: List[{name: Str, value: Str}], reason: Str, status: Int, url: Str}, Error] effect
 
 module patch

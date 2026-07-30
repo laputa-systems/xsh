@@ -140,6 +140,70 @@ pub(crate) fn request(
         .map_err(|error| runtime_error(error, span))
 }
 
+#[cfg(feature = "net")]
+pub(crate) fn request_many(
+    agent: &NetAgent,
+    requests: Vec<NetRequest>,
+    concurrency: usize,
+    span: Span,
+) -> Result<Value, RuntimeError> {
+    xsh_net::request_many(agent, requests, concurrency)
+        .map(|responses| {
+            Value::ok(Value::List(
+                responses
+                    .into_iter()
+                    .map(|response| match response {
+                        Ok(response) => response_record(response),
+                        Err(error) => Value::err(Value::Error(Box::new(runtime_error(error, span)))),
+                    })
+                    .collect(),
+            ))
+        })
+        .map_err(|error| runtime_error(error, span))
+}
+
+#[cfg(feature = "net")]
+pub(crate) fn download_many(
+    agent: &NetAgent,
+    downloads: Vec<NetDownload>,
+    concurrency: usize,
+    span: Span,
+) -> Result<Value, RuntimeError> {
+    xsh_net::download_many(agent, downloads, concurrency)
+        .map(|responses| {
+            Value::ok(Value::List(
+                responses
+                    .into_iter()
+                    .map(|response| match response {
+                        Ok(response) => response_record(response),
+                        Err(error) => Value::err(Value::Error(Box::new(runtime_error(error, span)))),
+                    })
+                    .collect(),
+            ))
+        })
+        .map_err(|error| runtime_error(error, span))
+}
+
+#[cfg(not(feature = "net"))]
+pub(crate) fn download_many(
+    _agent: &NetAgent,
+    _downloads: Vec<NetDownload>,
+    _concurrency: usize,
+    span: Span,
+) -> Result<Value, RuntimeError> {
+    Err(net_disabled(span))
+}
+
+#[cfg(not(feature = "net"))]
+pub(crate) fn request_many(
+    _agent: &NetAgent,
+    _requests: Vec<NetRequest>,
+    _concurrency: usize,
+    span: Span,
+) -> Result<Value, RuntimeError> {
+    Err(net_disabled(span))
+}
+
 #[cfg(not(feature = "net"))]
 pub(crate) fn request(
     _agent: &NetAgent,

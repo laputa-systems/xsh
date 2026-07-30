@@ -1004,12 +1004,30 @@ fn net_module() -> ModuleSig {
             ),
         ),
         (
+            "request_many",
+            sig(
+                vec![param("batch", Type::Record(BTreeMap::new()))],
+                result(Type::List(Box::new(result(net_response_type(true))))),
+                false,
+                RuntimeOp::NetRequestMany,
+            ),
+        ),
+        (
             "download",
             sig(
                 vec![param("request", Type::Record(BTreeMap::new()))],
                 result(net_response_type(false)),
                 false,
                 RuntimeOp::NetDownload,
+            ),
+        ),
+        (
+            "download_many",
+            sig(
+                vec![param("batch", Type::Record(BTreeMap::new()))],
+                result(Type::List(Box::new(result(net_response_type(false))))),
+                false,
+                RuntimeOp::NetDownloadMany,
             ),
         ),
         (

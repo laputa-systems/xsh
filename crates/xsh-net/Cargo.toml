@@ -8,11 +8,21 @@ publish = false
 workspace = true
 
 [dependencies]
+async-executor = "1"
+async-io = "2"
 cap-net-ext = "4.0.2"
 cap-std = "4.0.2"
 crossbeam-channel = "0.5"
+futures-lite = { version = "2", default-features = false, features = ["race", "std"] }
+futures-rustls = "0.26"
+http = "1"
+http-body-util = "0.1"
+hyper = { git = "https://github.com/joshuarli/hyper-futures-lite", rev = "c99b20ce178251a962289977fdfa2474e2564f8e", default-features = false, features = ["client", "http1", "http2"] }
 libc = "0.2"
 rustc-hash = "2.1.3"
 rustls = { version = "0.23.41", default-features = false, features = ["aws_lc_rs", "std", "tls12"] }
 rustls-platform-verifier = "0.7.0"
 rustls-pemfile = "2"
+
+[dev-dependencies]
+h2 = { package = "h2-futures", git = "https://github.com/joshuarli/h2-futures-lite", rev = "732e8770cc6bbf998c573844f62e0afaccec3192" }

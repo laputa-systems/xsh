@@ -687,6 +687,8 @@ fn lowered_module_op_supported(op: RuntimeOp) -> bool {
             | RuntimeOp::NetClosePool
             | RuntimeOp::NetCloseAllPools
             | RuntimeOp::NetRequest
+            | RuntimeOp::NetRequestMany
+            | RuntimeOp::NetDownloadMany
             | RuntimeOp::NetDownload
             | RuntimeOp::NetUpload
             | RuntimeOp::PathAbsolute

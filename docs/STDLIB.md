@@ -564,10 +564,14 @@ HTTP request, transfer, and connection-pool helpers.
   Params: `name: Str = default`
 - `net.download(request: Record) -> Result[{bytes: Int, headers: List[{name: Str, value: Str}], reason: Str, status: Int, url: Str}, Error]` - effect; Returns `{bytes: Int, headers: List[{name: Str, value: Str}], reason: Str, status: Int, url: Str}` or `Error` failure data. ID `module.net.download.0`.
   Params: `request: Record`
+- `net.download_many(batch: Record) -> Result[List[Result[{bytes: Int, headers: List[{name: Str, value: Str}], reason: Str, status: Int, url: Str}, Error]], Error]` - effect; Returns ordered download results or `Error` failure data. ID `module.net.download_many.0`.
+  Params: `batch: Record`
 - `net.pool(name: Str = default, max_idle_per_host: Int = default, idle_timeout: Duration = default) -> Result[{idle_timeout_ms: Int, max_idle_per_host: Int, name: Str}, Error]` - effect; Returns `{idle_timeout_ms: Int, max_idle_per_host: Int, name: Str}` or `Error` failure data. ID `module.net.pool.0`.
   Params: `name: Str = default`, `max_idle_per_host: Int = default`, `idle_timeout: Duration = default`
 - `net.request(request: Record) -> Result[{body: Bytes, bytes: Int, headers: List[{name: Str, value: Str}], reason: Str, status: Int, url: Str}, Error]` - effect; Returns `{body: Bytes, bytes: Int, headers: List[{name: Str, value: Str}], reason: Str, status: Int, url: Str}` or `Error` failure data. ID `module.net.request.0`.
   Params: `request: Record`
+- `net.request_many(batch: Record) -> Result[List[Result[{body: Bytes, bytes: Int, headers: List[{name: Str, value: Str}], reason: Str, status: Int, url: Str}, Error]], Error]` - effect; Returns ordered request results or `Error` failure data. ID `module.net.request_many.0`.
+  Params: `batch: Record`
 - `net.upload(request: Record) -> Result[{bytes: Int, headers: List[{name: Str, value: Str}], reason: Str, status: Int, url: Str}, Error]` - effect; Returns `{bytes: Int, headers: List[{name: Str, value: Str}], reason: Str, status: Int, url: Str}` or `Error` failure data. ID `module.net.upload.0`.
   Params: `request: Record`
 

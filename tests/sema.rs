@@ -2607,7 +2607,9 @@ fn checker_enforces_net_effect_for_http_module_calls() {
         r#"
 proc bad() [fs] -> Unit {
   let _ = net.request({method: "GET", url: "https://example.test/"})
+  let _ = net.request_many({requests: [{method: "GET", url: "https://example.test/"}]})
   let _ = net.download({url: "https://example.test/file", dest: Path("out")})
+  let _ = net.download_many({downloads: [{url: "https://example.test/file", dest: Path("out")}]})
   let _ = net.upload({url: "https://example.test/upload", source: Path("in")})
 }
 "#,
@@ -2621,7 +2623,9 @@ proc bad() [fs] -> Unit {
         r#"
 proc good() [net] -> Unit {
   let _ = net.request({method: "GET", url: "https://example.test/"})
+  let _ = net.request_many({requests: [{method: "GET", url: "https://example.test/"}]})
   let _ = net.download({url: "https://example.test/file", dest: Path("out")})
+  let _ = net.download_many({downloads: [{url: "https://example.test/file", dest: Path("out")}]})
   let _ = net.upload({url: "https://example.test/upload", source: Path("in")})
 }
 "#,
@@ -2632,7 +2636,9 @@ proc good() [net] -> Unit {
         r#"
 proc good() [io] -> Unit {
   let _ = net.request({method: "GET", url: "https://example.test/"})
+  let _ = net.request_many({requests: [{method: "GET", url: "https://example.test/"}]})
   let _ = net.download({url: "https://example.test/file", dest: Path("out")})
+  let _ = net.download_many({downloads: [{url: "https://example.test/file", dest: Path("out")}]})
   let _ = net.upload({url: "https://example.test/upload", source: Path("in")})
 }
 "#,

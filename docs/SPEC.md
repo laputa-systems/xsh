@@ -2056,13 +2056,18 @@ when the field is absent.
 - `net.close_pool(name: Str = "default") -> Result[Unit]`.
 - `net.close_all_pools() -> Result[Unit]`.
 - `net.request(request: Record) -> Result[Record]`.
+- `net.request_many(batch: Record) -> Result[List[Result[Record]]]`.
 - `net.download(request: Record) -> Result[Record]`.
+- `net.download_many(batch: Record) -> Result[List[Result[Record]]]`.
 - `net.upload(request: Record) -> Result[Record]`.
 
-`net` supports HTTP and HTTPS only. It uses runtime-managed Hyper clients with
-Rustls and the `aws-lc-rs` crypto provider, keyed by caller-visible pool name
-and TLS configuration. Hostnames are resolved by the XSH DNS helper layer, and
-TCP sockets are opened through `cap-net-ext` using a `cap-std` network pool. TLS
+`net` supports HTTP and HTTPS only. `net.request`, `net.download`, and
+`net.upload` use XSH's blocking HTTP/1.1 transport; `net.request_many` and
+`net.download_many` use an internal nonblocking transport. Both use Rustls and the `aws-lc-rs`
+crypto provider, keyed by caller-visible pool name and TLS configuration.
+Hostnames are resolved by the XSH DNS helper layer. The blocking transport opens
+TCP sockets through `cap-net-ext` using a `cap-std` network pool; the batch
+transport owns its nonblocking sockets for the duration of its call. TLS
 verification is enabled by default with platform verification, honors
 `SSL_CERT_FILE`, accepts an explicit `ca_certificate: Path`, and allows
 `tls_verify: false` only through an explicit request field.
@@ -2081,6 +2086,22 @@ file and rename atomically by default. Unsupported schemes, invalid URLs,
 unsupported methods, TLS failures, DNS failures, redirects, timeouts, status
 failures when `fail_status` is true, and response-size limits use structured
 error kinds.
+
+`net.request_many` executes a bounded batch of requests on the current
+evaluator thread using internal nonblocking I/O. It uses HTTP/2 when HTTPS ALPN
+negotiates `h2`, otherwise HTTP/1.1. Its batch record takes
+`requests: List[Record]`, optional `concurrency: Int = 16`, and the same
+`pool`, TLS, and CA fields accepted by `net.request`; those options apply to
+every request in the batch. Connections are reused by origin within that batch,
+not retained after it returns. It preserves request order and returns one inner
+`Result` per request, allowing independent failures without starting XSH worker
+threads or exposing futures, callbacks, or `await`.
+
+`net.download_many` takes `downloads: List[Record]`, optional `concurrency: Int
+= 16`, and the same outer pool, TLS, and CA fields. Each download record uses
+the `net.download` fields and streams its response directly to its atomic
+destination; it never materializes a response body in XSH memory. It preserves
+input order and returns one inner `Result` per download.
 
 List values expose collection operations as methods:
 

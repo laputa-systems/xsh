@@ -109,6 +109,8 @@ pub enum RuntimeOp {
     SetRemove,
     ModuleLoad,
     NetRequest,
+    NetRequestMany,
+    NetDownloadMany,
     NetDownload,
     NetUpload,
     NetPool,

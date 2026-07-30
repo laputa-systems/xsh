@@ -2809,6 +2809,11 @@ fn module_summary(module: &str) -> &'static str {
 }
 
 fn function_summary(module: &str, function: &str) -> String {
+    match (module, function) {
+        ("net", "request_many") => return "Returns ordered request results.".to_string(),
+        ("net", "download_many") => return "Returns ordered download results.".to_string(),
+        _ => {}
+    }
     format!(
         "{} `{}` operation.",
         module_summary(module).trim_end_matches('.'),
