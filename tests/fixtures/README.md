@@ -6,6 +6,7 @@ smallest fixture that exercises the behavior under test.
 | Directory | Used by | Purpose |
 |---|---|---|
 | `syntax` | `tests/syntax.rs` | parser, formatter, lexer, and syntax oracle inputs |
+| `fmt` | `tests/xsh/formatter.xsh::test_fmt_fixture` | annotated disk-backed formatter fixture and golden exercised through `xsht fmt` |
 | `sema` | `tests/sema.rs` | checker and lint inputs |
 | `runtime` | `tests/runtime/*` | executable scripts for runtime behavior |
 | `diagnostics` | diagnostics tests | rendered diagnostic fixtures |

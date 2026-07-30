@@ -134,7 +134,8 @@ structure for tooling. Arena nodes carry `Span` values from `src/source.rs`, and
 lives in `crates/xsht/src/format.rs`. Parser changes should usually come with
 formatter and syntax fixture coverage so new syntax round-trips.
 
-`docs/XSHT.md` describes the tooling architecture in more detail: command
+`docs/XSHT.md` describes the tooling architecture in more detail, while
+`docs/XSHT-FMT.md` describes formatter design and layout policy: command
 ownership, `xsht-config.ini`, AST-vs-CST responsibilities, formatter comment
 policy, and CST-backed source edits for autofixes.
 

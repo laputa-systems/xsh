@@ -62,6 +62,7 @@ generated tutorial output changes.
 | Fixture | Purpose |
 |---|---|
 | `tests/fixtures/syntax` | parser and formatter fixture sources |
+| `tests/fixtures/fmt` | annotated disk-backed formatter fixture and golden used by `tests/xsh/formatter.xsh` |
 | `tests/fixtures/sema` | checker fixture sources |
 | `tests/fixtures/runtime` | executable runtime fixture scripts |
 | `tests/fixtures/frontend-indexed` | frozen indexed-execution and indexed-method fixtures |
