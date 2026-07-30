@@ -41,14 +41,17 @@ beta
   let content = file.read_text()?
   let raw = r"\n ${literal}"
   let nested = f"""${{name: "demo"}.name}:${if true { "x}" } else { "y" }}:${f"${1}"}"""
-  let escaped = f"\${not_interp}:${"ok"}:\x63\u{61}"
-  let names = fs.children(root) |> map { .name }
+  let escaped = f"\${not_interp}:${"ok"}:ca"
+  let names = fs.children(root) |> map .name
 
   test.eq(language_sugar_label("ok")?, "ok")?
   test.eq(language_sugar_returned("return")?, "return")?
-  test.eq(content, """alpha
+  test.eq(
+    content,
+    """alpha
 beta
-""")?
+""",
+  )?
   test.eq(raw, r"\n ${literal}")?
   test.eq(nested, "demo:x}:1")?
   test.eq(escaped, "\${not_interp}:ok:ca")?

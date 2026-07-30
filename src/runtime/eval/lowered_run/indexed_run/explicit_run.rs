@@ -1,4 +1,15 @@
-use super::{LoweredValue, AssignOp, Span, BinaryOp, LoweredFunctionKey, LoweredFunctionKind, LoweredTypeCheck, Arc, StmtFlow, FullExecution, Evaluator, FullProgram, RuntimeError, FullFunctionView, indexed_error, LoweredReturnKind, LoweredType, TraceKind, TracePayload, FunctionHeader, TracebackFrameKind, TracebackFrame, indexed_value, FullTag, indexed_decode, indexed_raw, indexed_finish, ControlFlow, BLOCK_LIST, indexed_optional_raw, lowered_freeze_large_slot_list, indexed_string, lowered_assign_value, lowered_binary_value, lowered_str_parts, lowered_bytes_parts, lowered_splice_arg_items, lowered_value_satisfies_require, lowered_result_ok, lowered_result_err_value, lowered_return_value, lowered_match_no_arm, assign_lowered_bytes_view, assign_lowered_str_view, FullPayload, BLOCK_STATEMENTS};
+use super::{
+    Arc, AssignOp, BLOCK_LIST, BLOCK_STATEMENTS, BinaryOp, ControlFlow, Evaluator, FullExecution,
+    FullFunctionView, FullPayload, FullProgram, FullTag, FunctionHeader, LoweredFunctionKey,
+    LoweredFunctionKind, LoweredReturnKind, LoweredType, LoweredTypeCheck, LoweredValue,
+    RuntimeError, Span, StmtFlow, TraceKind, TracePayload, TracebackFrame, TracebackFrameKind,
+    assign_lowered_bytes_view, assign_lowered_str_view, indexed_decode, indexed_error,
+    indexed_finish, indexed_optional_raw, indexed_raw, indexed_string, indexed_value,
+    lowered_assign_value, lowered_binary_value, lowered_bytes_parts,
+    lowered_freeze_large_slot_list, lowered_match_no_arm, lowered_result_err_value,
+    lowered_result_ok, lowered_return_value, lowered_splice_arg_items, lowered_str_parts,
+    lowered_value_satisfies_require,
+};
 
 enum FrameValue {
     Value(LoweredValue),
@@ -249,9 +260,10 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 .expect("active indexed frame");
             let work = self.calls[index].work.pop().expect("indexed frame work");
             if let Err(error) = self.step(index, work)
-                && self.pending_error.is_none() {
-                    self.begin_error_unwind(error);
-                }
+                && self.pending_error.is_none()
+            {
+                self.begin_error_unwind(error);
+            }
         }
         self.result.take().expect("indexed frame result")
     }
@@ -1611,11 +1623,9 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     .map_err(|error| indexed_error(error, call.call_span))
             })
         {
-            let _ = self.evaluator.write_back_lowered_captures(
-                &header,
-                &call.slots,
-                call.call_span,
-            );
+            let _ =
+                self.evaluator
+                    .write_back_lowered_captures(&header, &call.slots, call.call_span);
         }
         self.evaluator.recycle_lowered_slots(call.slots);
         self.evaluator.call_stack.pop();

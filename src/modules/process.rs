@@ -1813,7 +1813,7 @@ fn macos_process_records(span: Span) -> Result<Vec<ProcessRecord>, RuntimeError>
     buffer.truncate(returned_size);
 
     let mut metadata = Vec::with_capacity(returned_size / KINFO_PROC_SIZE);
-    for row in buffer.chunks_exact(KINFO_PROC_SIZE) {
+    for row in buffer.as_chunks::<KINFO_PROC_SIZE>().0 {
         let pid = i32::from_ne_bytes(row[PID_OFFSET..PID_OFFSET + 4].try_into().unwrap());
         if pid <= 0 {
             continue;
@@ -1845,13 +1845,11 @@ fn macos_process_records(span: Span) -> Result<Vec<ProcessRecord>, RuntimeError>
         .output()
         .map_err(|error| RuntimeError::new("process-list", error.to_string()).with_span(span))?;
     if !output.status.success() {
-        return Err(
-            RuntimeError::new(
-                "process-list",
-                String::from_utf8_lossy(&output.stderr).trim().to_string(),
-            )
-            .with_span(span),
-        );
+        return Err(RuntimeError::new(
+            "process-list",
+            String::from_utf8_lossy(&output.stderr).trim().to_string(),
+        )
+        .with_span(span));
     }
 
     let mut records = Vec::with_capacity(metadata.len());
@@ -1871,7 +1869,11 @@ fn macos_process_records(span: Span) -> Result<Vec<ProcessRecord>, RuntimeError>
         let Ok(pid) = pid.parse::<i32>() else {
             continue;
         };
-        let Some(metadata) = metadata.binary_search_by_key(&pid, |record| record.pid).ok().map(|index| &metadata[index]) else {
+        let Some(metadata) = metadata
+            .binary_search_by_key(&pid, |record| record.pid)
+            .ok()
+            .map(|index| &metadata[index])
+        else {
             continue;
         };
         let Ok(parent_pid) = parent_pid.parse::<i32>() else {

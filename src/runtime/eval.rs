@@ -446,7 +446,6 @@ pub(super) struct TestCall {
 
 /// Upper bound on recycled scope maps held in `scope_pool` (deep recursion
 /// shouldn't let the pool grow without bound).
-
 macro_rules! build_id {
     ($name:ident) => {
         #[derive(Clone, Copy, Debug, Eq, PartialEq)]

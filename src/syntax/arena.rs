@@ -203,6 +203,9 @@ impl ArenaRange {
     }
 }
 
+// Keep the cold collection at one pointer wide when absent; boxing the Vec
+// preserves that layout and avoids allocating storage for the common empty case.
+#[allow(clippy::box_collection)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ArenaColdVec<T>(Option<Box<Vec<T>>>);
 

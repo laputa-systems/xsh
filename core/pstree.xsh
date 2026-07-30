@@ -174,7 +174,8 @@ pure render_children(
   for item in children |> enumerate() {
     let child = item.value
     let child_is_last = item.index + 1 == child_count
-    output = f"${output}${prefix}${connector(child_is_last, ascii)}${process_label(child, show_args, show_pids)}\n"
+    output = f"""${output}${prefix}${connector(child_is_last, ascii)}${process_label(child, show_args, show_pids)}
+"""
     let child_prefix = if child_is_last { f"${prefix}  " } else { f"${prefix}${vertical(ascii)}" }
     output = f"${output}${render_children(child.pid, child_prefix, show_args, show_pids, ascii, next_visited)}"
   }
@@ -184,7 +185,8 @@ pure render_children(
 
 pure render_process(row: Process, show_args: Bool, show_pids: Bool, ascii: Bool) -> Str {
   let visited: List[Int] = []
-  return f"${process_label(row, show_args, show_pids)}\n${render_children(row.pid, "  ", show_args, show_pids, ascii, visited)}"
+  return f"""${process_label(row, show_args, show_pids)}
+${render_children(row.pid, "  ", show_args, show_pids, ascii, visited)}"""
 }
 
 proc print_pid_root(pid: Int, show_args: Bool, show_pids: Bool, ascii: Bool) [error] {
@@ -262,7 +264,7 @@ proc print_parent_chain(
 proc main(...argv: List[Str]) [fs, process, error] {
   if host.sysname == "Darwin" and argv.len() == 0 {
     let tree = run.text pstree -w ?
-    print tree
+    print $tree
     return
   }
 

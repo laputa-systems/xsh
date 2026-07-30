@@ -246,7 +246,7 @@ impl SemanticPools {
                     .get(start..start + len)
                     .ok_or_else(|| IrVerifyError::new("module payload is out of bounds"))?;
                 let mut fields = BTreeMap::new();
-                for (name, export) in names.iter().copied().zip(exports.chunks_exact(2)) {
+                for (name, export) in names.iter().copied().zip(exports.as_chunks::<2>().0) {
                     let optional = export[0] & MODULE_EXPORT_OPTIONAL != 0;
                     let value = match export[0] & 0b11 {
                         0 => ModuleExportType::Value {

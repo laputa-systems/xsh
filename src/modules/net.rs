@@ -154,7 +154,9 @@ pub(crate) fn request_many(
                     .into_iter()
                     .map(|response| match response {
                         Ok(response) => response_record(response),
-                        Err(error) => Value::err(Value::Error(Box::new(runtime_error(error, span)))),
+                        Err(error) => {
+                            Value::err(Value::Error(Box::new(runtime_error(error, span))))
+                        }
                     })
                     .collect(),
             ))
@@ -176,7 +178,9 @@ pub(crate) fn download_many(
                     .into_iter()
                     .map(|response| match response {
                         Ok(response) => response_record(response),
-                        Err(error) => Value::err(Value::Error(Box::new(runtime_error(error, span)))),
+                        Err(error) => {
+                            Value::err(Value::Error(Box::new(runtime_error(error, span))))
+                        }
                     })
                     .collect(),
             ))

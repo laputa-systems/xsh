@@ -1625,7 +1625,6 @@ impl FullBuilder {
             true,
         );
         let source_statements = program.statement_ids().collect::<Vec<_>>();
-        drop(functions);
         drop(pures);
         drop(procs);
         drop(qualified_pures);
@@ -3920,17 +3919,13 @@ macro_rules! impl_word_codec {
                 _decoder: &FullDecoder<'_>,
                 input: &mut FullCursor<'_>,
             ) -> Result<Self, IrVerifyError> {
-                ($decode)(input.raw()?)
+                ($decode)(input.raw())
             }
         }
     };
 }
 
-impl_word_codec!(
-    u32,
-    |value: &u32| Ok(*value),
-    Ok::<u32, IrVerifyError>
-);
+impl_word_codec!(u32, |value: &u32| Ok(*value), |raw| raw);
 impl FullCodec for usize {
     fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
         if builder.current_owner.is_none() {
@@ -3956,15 +3951,16 @@ impl FullCodec for usize {
         Ok(slot)
     }
 }
-impl_word_codec!(
-    bool,
-    |value: &bool| Ok(u32::from(*value)),
+impl_word_codec!(bool, |value: &bool| Ok(u32::from(*value)), |raw: Result<
+    u32,
+    IrVerifyError,
+>| raw.and_then(
     |raw| match raw {
         0 => Ok(false),
         1 => Ok(true),
         _ => Err(IrVerifyError::new("boolean payload is invalid")),
     }
-);
+));
 
 impl FullCodec for i64 {
     fn encode(

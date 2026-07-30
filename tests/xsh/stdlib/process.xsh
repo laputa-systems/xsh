@@ -3,16 +3,16 @@ proc test_process_module() [fs, process, error] {
   test.ok(current_pid > 0)?
   test.ok(process.list()? |> any .pid == current_pid, "process list should contain current pid")?
   test.ok(
-    process.list()?
+    (process.list()?
       |> where .pid > 0 and .parent_pid >= 0 and .argv0 != "" and .uid >= 0 and .start_time_ms > 0 and .runtime_seconds >= 0
-      |> count() > 0,
+      |> count()) > 0,
     "process list should contain typed fields",
   )?
   test.ok(process.threads(current_pid)? |> any .owner_pid == current_pid, "process threads should accept a pid")?
   test.ok(
-    process.threads()?
+    (process.threads()?
       |> where .pid > 0 and .owner_pid > 0 and .thread_id > 0 and .parent_pid >= 0 and .argv0 != "" and .uid >= 0 and .start_time_ms > 0 and .runtime_seconds >= 0
-      |> count() > 0,
+      |> count()) > 0,
     "process threads should contain typed fields",
   )?
   let stats = process.stats(current_pid)?
@@ -81,7 +81,7 @@ proc test_process_command_redirections(ctx: TestContext) [fs, process, error] {
 proc test_process_timeout_errors() [process, error] {
   let command = process.command_argv("sh", ["sh", "-c", "sleep 1"], timeout: 10ms)
   match process.run(command) {
-    Err(ProcessError.Timeout {message}) => test.ok("timed out" in message)?
+    Err(ProcessError.Timeout {message: message}) => test.ok("timed out" in message)?
     Err(is Timeout) => test.fail("timeout facet without nominal variant")?
     Err(error) => test.fail(f"unexpected process error: ${error.message}")?
     Ok(_) => test.fail("timed-out process succeeded")?
@@ -114,7 +114,7 @@ proc test_process_wait_and_handle_contracts() [process, error] {
 
   let duplicate = spawn run true ?
   match wait [duplicate, duplicate] {
-    Err(ProcessError.Unknown {message}) => test.ok("already requested" in message)?
+    Err(ProcessError.Unknown {message: message}) => test.ok("already requested" in message)?
     Err(error) => test.fail(f"unexpected duplicate wait error: ${error.message}")?
     Ok(_) => test.fail("duplicate wait succeeded")?
   }
@@ -123,7 +123,7 @@ proc test_process_wait_and_handle_contracts() [process, error] {
   let alias_copy = alias
   let _ = wait alias?
   match wait alias_copy {
-    Err(ProcessError.Unknown {message}) => test.ok("no longer live" in message)?
+    Err(ProcessError.Unknown {message: message}) => test.ok("no longer live" in message)?
     Err(error) => test.fail(f"unexpected alias wait error: ${error.message}")?
     Ok(_) => test.fail("alias wait succeeded")?
   }
@@ -132,14 +132,14 @@ proc test_process_wait_and_handle_contracts() [process, error] {
 proc test_process_spawn_setup_errors() [process, env, error] {
   env PATH="/bin:/usr/bin" {
     match spawn run xsh-definitely-missing-command {
-      Err(ProcessError.NotFound {message}) => test.ok("not found" in message)?
+      Err(ProcessError.NotFound {message: message}) => test.ok("not found" in message)?
       Err(error) => test.fail(f"unexpected spawn error: ${error.message}")?
       Ok(_) => test.fail("missing command spawned")?
     }
   }
 
   match spawn run true > /definitely/missing/xsh-spawn-output {
-    Err(ProcessError.Redirection {message}) => test.ok(message != "")?
+    Err(ProcessError.Redirection {message: message}) => test.ok(message != "")?
     Err(error) => test.fail(f"unexpected redirection error: ${error.message}")?
     Ok(_) => test.fail("invalid redirection succeeded")?
   }
@@ -156,7 +156,7 @@ proc process_handle_from_record() [process, error] -> Result[Record] {
 
 proc process_handle_from_ok() [process, error] -> Result[ProcessHandle] {
   let nested = spawn run true ?
-  return Ok(nested)
+  nested
 }
 
 proc process_handle_from_list() [process, error] -> Result[List[ProcessHandle]] {
@@ -169,7 +169,7 @@ proc test_process_spawn_timeout_and_return_transfer() [process, time, error] {
   let handle = spawn command?
   time.sleep(50ms)?
   match wait handle {
-    Err(ProcessError.Timeout {message}) => test.ok("timed out" in message)?
+    Err(ProcessError.Timeout {message: message}) => test.ok("timed out" in message)?
     Err(error) => test.fail(f"unexpected spawn timeout error: ${error.message}")?
     Ok(_) => test.fail("spawn timeout did not expire")?
   }
@@ -198,7 +198,11 @@ print \${status.exit_code()?}
 """
   let text_trace = test.run_xsht_trace(ctx, source, ["--trace", "--raw"])?
   test.ok(text_trace.success, text_trace.stderr)?
-  test.eq(text_trace.stdout, "7\n")?
+  test.eq(
+    text_trace.stdout,
+    """7
+""",
+  )?
   for kind in [
     "kind=spawn.start",
     "kind=spawn.ready",
@@ -208,6 +212,7 @@ print \${status.exit_code()?}
   ] {
     test.contains(text_trace.stderr, kind)?
   }
+
   test.contains(text_trace.stderr, "b\"exit 7\"")?
   test.contains(text_trace.stderr, "status={kind:exit success:false code:7}")?
   test.contains(text_trace.stderr, "signal=b\"TERM\"")?
@@ -220,7 +225,11 @@ print \${status.exit_code()?}
     ["--trace", "--raw", "--trace-format", "jsonl"],
   )?
   test.ok(json_trace.success, json_trace.stderr)?
-  test.eq(json_trace.stdout, "7\n")?
+  test.eq(
+    json_trace.stdout,
+    """7
+""",
+  )?
   test.contains(json_trace.stderr, "\"kind\":\"spawn.start\"")?
   test.contains(json_trace.stderr, "\"kind\":\"wait.end\"")?
   test.contains(json_trace.stderr, "\"kind\":\"spawn.cancel\"")?

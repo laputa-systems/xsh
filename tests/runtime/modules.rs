@@ -469,7 +469,10 @@ match responses[1] {{
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
-    assert_eq!(String::from_utf8(output.stdout).unwrap(), "5 net-body-limit\n");
+    assert_eq!(
+        String::from_utf8(output.stdout).unwrap(),
+        "5 net-body-limit\n"
+    );
     assert_eq!(std::fs::read(&redirected).unwrap(), b"hello");
     assert_eq!(std::fs::read(&limited).unwrap(), b"previous");
     assert_eq!(summary.handled, 3);
@@ -2189,8 +2192,7 @@ struct LocalHttpsHttp2Server {
 #[cfg(feature = "net")]
 impl LocalHttpsHttp2Server {
     fn spawn(expected: usize) -> Self {
-        let listener =
-            std::net::TcpListener::bind("127.0.0.1:0").expect("bind HTTPS H2 listener");
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind HTTPS H2 listener");
         let addr = listener.local_addr().expect("HTTPS H2 listener addr");
         let url = format!("https://{addr}");
         let mut config = local_https_config();

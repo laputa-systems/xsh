@@ -39,13 +39,17 @@ proc test_net_module_with_mocks(ctx: TestContext) [fs, net, error] {
     ctx,
     "net.download_many",
     {pool: "stdlib-test"},
-    Ok([Ok({
-      status: 200,
-      reason: "OK",
-      bytes: 2,
-      headers: [{name: "content-type", value: "text/plain"}],
-      url: "https://example.test/file",
-    })]),
+    Ok(
+      [
+        Ok({
+          status: 200,
+          reason: "OK",
+          bytes: 2,
+          headers: [{name: "content-type", value: "text/plain"}],
+          url: "https://example.test/file",
+        }),
+      ],
+    ),
   )?
 
   test.mock(

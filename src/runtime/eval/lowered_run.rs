@@ -3188,7 +3188,6 @@ impl Evaluator {
     /// reached, remaining items are collected into a Vec.
     ///
     /// Returns (new_current, stage_count_consumed).
-
     fn push_lowered_fs_root(&mut self, root: FsRootHandle) -> LoweredValue {
         let id = self.fs_roots.len() as i64 + 1;
         self.fs_roots.push(Some(root));
@@ -5962,11 +5961,14 @@ impl Evaluator {
                     let requests = records
                         .iter()
                         .map(|value| match value {
-                            Value::Record(record) => self.net_request_from_record(record.clone(), span),
-                            _ => Err(
-                                RuntimeError::new("type-error", "requests must be List[Record]")
-                                    .with_span(span),
-                            ),
+                            Value::Record(record) => {
+                                self.net_request_from_record(record.clone(), span)
+                            }
+                            _ => Err(RuntimeError::new(
+                                "type-error",
+                                "requests must be List[Record]",
+                            )
+                            .with_span(span)),
                         })
                         .collect::<Result<Vec<_>, _>>()?;
                     let concurrency = match batch.get("concurrency") {
@@ -5999,11 +6001,12 @@ impl Evaluator {
                     }
                     let options = self.net_call_options(&batch, span)?;
                     match self.net_agent(&options, span) {
-                        Ok(agent) => match net_module::request_many(&agent, requests, concurrency, span)
-                        {
-                            Ok(value) => lowered_runtime_value(value, span)?,
-                            Err(error) => lowered_result_err_value(error),
-                        },
+                        Ok(agent) => {
+                            match net_module::request_many(&agent, requests, concurrency, span) {
+                                Ok(value) => lowered_runtime_value(value, span)?,
+                                Err(error) => lowered_result_err_value(error),
+                            }
+                        }
                         Err(error) => lowered_result_err_value(error),
                     }
                 }
@@ -6030,11 +6033,14 @@ impl Evaluator {
                     let downloads = records
                         .iter()
                         .map(|value| match value {
-                            Value::Record(record) => self.net_download_from_record(record.clone(), span),
-                            _ => Err(
-                                RuntimeError::new("type-error", "downloads must be List[Record]")
-                                    .with_span(span),
-                            ),
+                            Value::Record(record) => {
+                                self.net_download_from_record(record.clone(), span)
+                            }
+                            _ => Err(RuntimeError::new(
+                                "type-error",
+                                "downloads must be List[Record]",
+                            )
+                            .with_span(span)),
                         })
                         .collect::<Result<Vec<_>, _>>()?;
                     let concurrency = match batch.get("concurrency") {
@@ -6067,11 +6073,12 @@ impl Evaluator {
                     }
                     let options = self.net_call_options(&batch, span)?;
                     match self.net_agent(&options, span) {
-                        Ok(agent) => match net_module::download_many(&agent, downloads, concurrency, span)
-                        {
-                            Ok(value) => lowered_runtime_value(value, span)?,
-                            Err(error) => lowered_result_err_value(error),
-                        },
+                        Ok(agent) => {
+                            match net_module::download_many(&agent, downloads, concurrency, span) {
+                                Ok(value) => lowered_runtime_value(value, span)?,
+                                Err(error) => lowered_result_err_value(error),
+                            }
+                        }
                         Err(error) => lowered_result_err_value(error),
                     }
                 }
@@ -9533,7 +9540,6 @@ impl Evaluator {
     }
 
     #[inline(never)]
-
     /// Open a file for `Path.lines()` / `Path.bytes_lines()` and wrap it in a
     /// live line stream. Returns a `Result` value (Ok stream / Err on open
     /// failure), matching the runtime contract of the lowered method dispatch.

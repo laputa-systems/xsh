@@ -300,7 +300,11 @@ print f"x=\${g.x}"
 """,
   )?
   test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "x=10\n")?
+  test.eq(
+    output.stdout,
+    """x=10
+""",
+  )?
 }
 
 proc test_stream_producers_are_lazy_and_run_defers_on_stop(ctx: TestContext) [fs, error] {
@@ -321,7 +325,12 @@ print \${Path("${marker.display()}").read_text() ?}
 """,
   )?
   test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "0\nclosed\n")?
+  test.eq(
+    output.stdout,
+    """0
+closed
+""",
+  )?
 }
 
 proc test_parallel_count_and_group_by_match_serial() [error] {

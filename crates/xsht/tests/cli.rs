@@ -136,8 +136,7 @@ fn fmt_explicit_directory_formats_xsh_files() {
         "let values = [1, 2, 3]\n"
     );
     assert_eq!(
-        fs::read_to_string(project.join("nested").join("helper.xsh"))
-            .expect("read nested script"),
+        fs::read_to_string(project.join("nested").join("helper.xsh")).expect("read nested script"),
         "let values = [4, 5, 6]\n"
     );
 }
@@ -174,11 +173,8 @@ fn lint_explicit_directory_lints_xsh_files() {
     let project = root.path().join("project");
     fs::create_dir_all(project.join("nested")).expect("create project dirs");
     fs::write(project.join("main.xsh"), "let value = 1\n").expect("write main script");
-    fs::write(
-        project.join("nested").join("helper.xsh"),
-        "let value = 2\n",
-    )
-    .expect("write helper script");
+    fs::write(project.join("nested").join("helper.xsh"), "let value = 2\n")
+        .expect("write helper script");
 
     let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
         .args(["lint", project.to_str().unwrap()])
@@ -317,10 +313,7 @@ proc main(...argv: List[Str]) [error] -> Result[Unit] {
         String::from_utf8_lossy(&output.stderr)
     );
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(
-        stderr.contains("compact.indexed-build"),
-        "stderr: {stderr}"
-    );
+    assert!(stderr.contains("compact.indexed-build"), "stderr: {stderr}");
     assert!(
         stderr.contains("indexed IR could not encode `full_ir_function_blocker`"),
         "stderr: {stderr}"
@@ -400,10 +393,7 @@ proc fallible() [error] -> Result[Str] {
         stderr.contains("parse.expected-expression"),
         "stderr: {stderr}"
     );
-    assert!(
-        stderr.contains("compact.indexed-build"),
-        "stderr: {stderr}"
-    );
+    assert!(stderr.contains("compact.indexed-build"), "stderr: {stderr}");
     assert!(stderr.contains("xsht check summary:"), "stderr: {stderr}");
     assert!(
         stderr.contains("parse.expected-expression: 1"),
@@ -452,10 +442,7 @@ proc fallible() [error] -> Result[Str] {
         String::from_utf8_lossy(&output.stderr)
     );
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(
-        stderr.contains("compact.indexed-build"),
-        "stderr: {stderr}"
-    );
+    assert!(stderr.contains("compact.indexed-build"), "stderr: {stderr}");
 }
 
 #[test]
@@ -525,10 +512,7 @@ proc main(...argv: List[Str]) [error] -> Result[Unit] {
         String::from_utf8_lossy(&output.stderr)
     );
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(
-        stderr.contains("compact.indexed-build"),
-        "stderr: {stderr}"
-    );
+    assert!(stderr.contains("compact.indexed-build"), "stderr: {stderr}");
     assert!(
         stderr.contains("indexed IR could not encode `full_ir_function_blocker`"),
         "stderr: {stderr}"
@@ -563,10 +547,7 @@ let report = {corpus: scan_corpus()}
         String::from_utf8_lossy(&output.stderr)
     );
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(
-        stderr.contains("compact.indexed-build"),
-        "stderr: {stderr}"
-    );
+    assert!(stderr.contains("compact.indexed-build"), "stderr: {stderr}");
     assert!(
         stderr.contains("indexed IR could not encode `full_ir_function_blocker`"),
         "stderr: {stderr}"

@@ -9189,14 +9189,9 @@ impl CompactLowerConstructProbe<'_, '_> {
                 }
                 if lowered_str_byte_op(&name.as_str(), &lowered_args) {
                     return Some(match name.as_str().as_str() {
-                        "byte_len" => push_build_row!(
-                            self,
-                            expr,
-                            BuildExprRow::StrByteLen {
-                                receiver,
-                                span,
-                            }
-                        ),
+                        "byte_len" => {
+                            push_build_row!(self, expr, BuildExprRow::StrByteLen { receiver, span })
+                        }
                         "byte_at" => {
                             let mut args = lowered_args.into_iter();
                             push_build_row!(

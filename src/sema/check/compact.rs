@@ -1020,7 +1020,11 @@ impl CompactBodyProbe<'_> {
         }
     }
 
-    fn check_compact_call(&mut self, callee: ExprId, args: crate::syntax::arena::ArenaRange) -> Type {
+    fn check_compact_call(
+        &mut self,
+        callee: ExprId,
+        args: crate::syntax::arena::ArenaRange,
+    ) -> Type {
         let callee_expr = self.program.arena.expr(callee);
         let callee_ty = self.check_compact_expr(callee);
         for arg in self.program.arena.call_args(args) {

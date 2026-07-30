@@ -757,9 +757,11 @@ beta
   let mode = 0o755
   let label = f"mode ${mode}"
   let raw_lines = run.stream --text printf "%s\n" alpha beta gamma
-  let lines = raw_lines |> drop(1) |> take(1)
-  let total = [1, 2, 3] |> sum()
-  let unique = [1, 1, 2, 3] |> unique-by { . }
+  let lines = raw_lines
+    |> drop(1)
+    |> take(1)
+  let total = [1, 2, 3] |> sum
+  let unique = [1, 1, 2, 3] |> unique-by .
   let command = process.command {
     timeout = 2s
     run --timeout=1s echo ok
@@ -770,9 +772,12 @@ beta
   test.eq(lines[0], "beta")?
   test.eq(total, 6)?
   test.eq(unique[2], 3)?
-  test.eq(content, """alpha
+  test.eq(
+    content,
+    """alpha
 beta
-""")?
+""",
+  )?
 }
 
 proc test_run_timeout_error(ctx: TestContext) [error] {

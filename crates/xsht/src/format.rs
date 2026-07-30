@@ -642,7 +642,7 @@ impl<'a> Writer<'a> {
                 if use_multiline {
                     output.push_str(" =\n");
                     let variant_indent = " ".repeat(indent + 4);
-                    output.push_str(&format!("{variant_indent}{}", &parts[0]));
+                    output.push_str(&format!("{variant_indent}{}", parts[0]));
                     let cont_indent = " ".repeat(indent);
                     for part in &parts[1..] {
                         output.push('\n');

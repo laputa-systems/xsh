@@ -283,8 +283,7 @@ fn sha_crypt<D: Digest + OutputSizeUser>(password: &[u8], salt: &[u8], rounds: u
     }
 
     let mut hash_out = Vec::with_capacity(rearranged.len() * 4 / 3 + 1);
-    let chunks = rearranged.chunks_exact(3);
-    let remainder = chunks.remainder();
+    let (chunks, remainder) = rearranged.as_chunks::<3>();
     let mut buf = [0u8; 4];
     for chunk in chunks {
         encode_3bytes(chunk[0], chunk[1], chunk[2], &mut buf);

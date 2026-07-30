@@ -123,7 +123,7 @@ fn apply_config_record(
     stderr: &mut dyn Write,
 ) {
     for (name, value) in fields {
-        match name.as_ref() {
+        match name {
             "env" => apply_config_env(session, value, stderr),
             "aliases" => apply_config_aliases(session, value, stderr),
             other => {

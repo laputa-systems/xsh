@@ -51,7 +51,7 @@ fn parse_run(args: Vec<String>) -> Result<Option<RunOptions>, String> {
     }
 
     let mut index = 0;
-    while let Some(arg) = args.get(index) {
+    if let Some(arg) = args.get(index) {
         match arg.as_str() {
             "--" => {}
             "-i" | "--interactive" => {
@@ -74,7 +74,6 @@ fn parse_run(args: Vec<String>) -> Result<Option<RunOptions>, String> {
             }
             _ => {}
         }
-        break;
     }
     if let Some(arg) = args.get(index)
         && matches!(

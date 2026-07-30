@@ -784,10 +784,9 @@ pub fn request_many(
         ));
     }
     let request_count = requests.len();
-    let mut partitions: Vec<Vec<(usize, NetRequest)>> =
-        (0..concurrency.min(requests.len()).max(1))
-            .map(|_| Vec::new())
-            .collect();
+    let mut partitions: Vec<Vec<(usize, NetRequest)>> = (0..concurrency.min(requests.len()).max(1))
+        .map(|_| Vec::new())
+        .collect();
     let worker_count = partitions.len();
     for (index, request) in requests.into_iter().enumerate() {
         partitions[index % worker_count].push((index, request));
@@ -892,7 +891,9 @@ async fn async_request_worker(
             ),
         )
         .await;
-        if result.is_err() && let Ok(origin) = origin {
+        if result.is_err()
+            && let Ok(origin) = origin
+        {
             connections.remove(&origin);
         }
         responses.push((index, result));
@@ -933,7 +934,9 @@ async fn async_download_worker(
             ),
         )
         .await;
-        if result.is_err() && let Ok(origin) = origin {
+        if result.is_err()
+            && let Ok(origin) = origin
+        {
             connections.remove(&origin);
         }
         responses.push((index, result));
@@ -1096,14 +1099,13 @@ async fn async_with_timeout<T>(
     request: impl Future<Output = NetResult<T>>,
 ) -> NetResult<T> {
     match timeout {
-        Some(timeout) => futures_lite::future::race(
-            request,
-            async move {
+        Some(timeout) => {
+            futures_lite::future::race(request, async move {
                 async_io::Timer::after(timeout).await;
                 Err(NetError::new("net-timeout", "request timed out"))
-            },
-        )
-        .await,
+            })
+            .await
+        }
         None => request.await,
     }
 }
@@ -2198,7 +2200,10 @@ mod async_http2_tests {
                 assert_eq!(request.uri().path(), "/proof");
                 let mut body = respond
                     .send_response(
-                        Response::builder().status(200).body(()).expect("H2 response"),
+                        Response::builder()
+                            .status(200)
+                            .body(())
+                            .expect("H2 response"),
                         false,
                     )
                     .expect("send H2 response");

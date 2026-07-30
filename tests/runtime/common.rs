@@ -221,7 +221,8 @@ pub(crate) fn run_temp_script_with_env<const N: usize>(
 
 fn command_for_script_with_leading_args(path: &Path, leading_args: &[&str]) -> Command {
     let trace_args = translated_trace_args(leading_args);
-    let command = if let Some(args) = trace_args {
+    
+    if let Some(args) = trace_args {
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_xsht"));
         cmd.arg("trace").args(args).arg(path);
         cmd
@@ -229,8 +230,7 @@ fn command_for_script_with_leading_args(path: &Path, leading_args: &[&str]) -> C
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_xsh"));
         cmd.args(leading_args).arg(path);
         cmd
-    };
-    command
+    }
 }
 
 fn translated_trace_args(leading_args: &[&str]) -> Option<Vec<String>> {
