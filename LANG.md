@@ -469,7 +469,6 @@ any known workarounds. When a ticket is resolved, delete it.
 |---|---|---|
 | filesystem-bound `par-map` | `eval_indexed_par_map_item`, `eval_indexed_par_map_parallel`, `fs.files`, `fs.walk` | `src/runtime/eval/lowered_run/indexed_run.rs`, filesystem module dispatch; runtime stream tests |
 | direct directory enumeration | `lower_fs_files_args`, `fs.files`, `fs.walk`, `CompactBodyProbe` | `src/runtime/eval/lower.rs`, `src/modules/fs.rs`, `src/sema/check/compact.rs`; `tests/runtime/collections.rs`, `tests/runtime/streams.rs` |
-| macOS process-tree path | `process.list`, `ProcessStatus`, `core/pstree.xsh` | `src/modules/process.rs`, `src/runtime/process.rs`, `core/pstree.xsh`; `core_pstree_prints_spawned_parent_before_child` |
 | cancellation responsiveness | `run_cancelable_temp_script`, `cancel_managed`, `CancellationDecision` | `tests/runtime/common.rs`, `src/runtime/process.rs`; process and OS cancellation tests |
 
 Treat these as issue-to-owner handles. Update the nearest behavior test and
@@ -546,40 +545,6 @@ The Linux source reader in `packages/repo/linux/kbuild.xsh` must probe
 `Kbuild` and `Makefile` for hundreds of active directories. Compare its
 forced-cold timing with a prototype using a direct-entry operation, and verify
 that Kbuild precedence and complete plan equivalence are unchanged.
-
-### Optimize the slow macOS `pstree` process listing path
-
-**Symptom**
-
-`unix::core_pstree_without_root_prints_visible_roots` takes approximately 16
-seconds on macOS. Running `target/debug/xsh core/pstree.xsh` directly shows the
-same cost, so the Rust assertion is not the bottleneck.
-
-**Desired behavior**
-
-The default `pstree` view should enumerate and render the host process tree in
-well under a second for ordinary developer machines.
-
-**Likely area**
-
-`process.list()` on macOS and the collection-heavy process grouping and parent
-lookup logic in `core/pstree.xsh`. The current implementation loads the entire
-process table and performs substantial interpreted sorting, grouping, and
-scanning.
-
-**Minimal reproduction**
-
-```sh
-time target/debug/xsh core/pstree.xsh
-cargo test --test runtime unix::core_pstree_without_root_prints_visible_roots
-```
-
-**Possible directions**
-
-- Reduce per-process work in the macOS `process.list()` implementation.
-- Provide an indexed or purpose-built process-tree operation for `pstree`.
-- Optimize the XSH grouping, sorting, and parent lookup operations used by the
-  applet.
 
 ### Long-running XSH scripts should respond promptly to Ctrl-C and SIGTERM
 

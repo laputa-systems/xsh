@@ -48,6 +48,13 @@ proc test_pstree_rejects_unknown_pid(ctx: TestContext) [fs, process, env, error]
 proc test_pstree_default_prints_visible_root(ctx: TestContext) [process, env, error] {
   let output = run.text ${ctx.xsh_bin} fp"${ctx.core_dir}/pstree.xsh" ?
   test.ok(output.trim() != "")?
+
+  if system.uname()?.sysname == "Darwin" {
+    test.contains(output, "launchd")?
+    test.contains(output, "00001")?
+    return
+  }
+
   test.contains(output, "pstree.xsh")?
   test.contains(output, "[")?
 }

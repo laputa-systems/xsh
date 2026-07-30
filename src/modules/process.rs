@@ -122,37 +122,11 @@ impl LiveStream for LinuxProcessStream {
 
 #[cfg(target_os = "macos")]
 fn list_processes_stream(span: Span) -> Result<StreamValue, RuntimeError> {
-    use std::ffi::c_void;
-
-    const PROC_ALL_PIDS: u32 = 1;
-    let needed = unsafe { libc::proc_listpids(PROC_ALL_PIDS, 0, std::ptr::null_mut(), 0) };
-    if needed < 0 {
-        return Err(
-            RuntimeError::new("process-list", std::io::Error::last_os_error().to_string())
-                .with_span(span),
-        );
-    }
-    let mut pids = vec![0i32; needed as usize / std::mem::size_of::<i32>() + 64];
-    let bytes = (pids.len() * std::mem::size_of::<i32>()) as i32;
-    let returned =
-        unsafe { libc::proc_listpids(PROC_ALL_PIDS, 0, pids.as_mut_ptr().cast::<c_void>(), bytes) };
-    if returned < 0 {
-        return Err(
-            RuntimeError::new("process-list", std::io::Error::last_os_error().to_string())
-                .with_span(span),
-        );
-    }
-    let count = returned as usize / std::mem::size_of::<i32>();
-    let mut pids = pids
-        .into_iter()
-        .take(count)
-        .filter(|pid| *pid > 0)
-        .collect::<Vec<_>>();
-    pids.sort_unstable();
+    let records = macos_process_records(span)?;
     Ok(StreamValue::from_live(
         "process.list",
         MacProcessStream {
-            pids: pids.into_iter(),
+            records: records.into_iter(),
             now_ms: now_epoch_ms(),
         },
     ))
@@ -160,21 +134,17 @@ fn list_processes_stream(span: Span) -> Result<StreamValue, RuntimeError> {
 
 #[cfg(target_os = "macos")]
 struct MacProcessStream {
-    pids: std::vec::IntoIter<i32>,
+    records: std::vec::IntoIter<ProcessRecord>,
     now_ms: i64,
 }
 
 #[cfg(target_os = "macos")]
 impl LiveStream for MacProcessStream {
     fn next(&mut self, span: Span) -> Result<Option<Value>, RuntimeError> {
-        loop {
-            let Some(pid) = self.pids.next() else {
-                return Ok(None);
-            };
-            if let Some(record) = macos_process_record(pid) {
-                return Ok(Some(process_record_value(record, self.now_ms, span)));
-            }
-        }
+        Ok(self
+            .records
+            .next()
+            .map(|record| process_record_value(record, self.now_ms, span)))
     }
 }
 
@@ -1785,6 +1755,165 @@ fn macos_process_record(pid: i32) -> Option<ProcessRecord> {
         status: macos_status(info.pbi_status),
         start_time_ms,
     })
+}
+
+#[cfg(target_os = "macos")]
+fn macos_process_records(span: Span) -> Result<Vec<ProcessRecord>, RuntimeError> {
+    use std::ffi::c_void;
+    use std::process::Command;
+
+    // KERN_PROC_ALL provides stable metadata for every visible process in one
+    // snapshot. macOS does not expose the complete command line through that
+    // record, so ps supplies the same full-width command field used by the
+    // host pstree implementation.
+    const KINFO_PROC_SIZE: usize = 648;
+    const PID_OFFSET: usize = 40;
+    const STATUS_OFFSET: usize = 36;
+    const UID_OFFSET: usize = 420;
+    const START_TIME_SECONDS_OFFSET: usize = 0;
+    const START_TIME_MICROSECONDS_OFFSET: usize = 8;
+
+    let mib = [libc::CTL_KERN, libc::KERN_PROC, libc::KERN_PROC_ALL, 0];
+    let mut size = 0usize;
+    let result = unsafe {
+        libc::sysctl(
+            mib.as_ptr().cast_mut(),
+            mib.len() as u32,
+            std::ptr::null_mut(),
+            &mut size,
+            std::ptr::null_mut(),
+            0,
+        )
+    };
+    if result != 0 {
+        return Err(
+            RuntimeError::new("process-list", std::io::Error::last_os_error().to_string())
+                .with_span(span),
+        );
+    }
+
+    let mut buffer = vec![0u8; size.saturating_add(KINFO_PROC_SIZE)];
+    let mut returned_size = buffer.len();
+    let result = unsafe {
+        libc::sysctl(
+            mib.as_ptr().cast_mut(),
+            mib.len() as u32,
+            buffer.as_mut_ptr().cast::<c_void>(),
+            &mut returned_size,
+            std::ptr::null_mut(),
+            0,
+        )
+    };
+    if result != 0 {
+        return Err(
+            RuntimeError::new("process-list", std::io::Error::last_os_error().to_string())
+                .with_span(span),
+        );
+    }
+    buffer.truncate(returned_size);
+
+    let mut metadata = Vec::with_capacity(returned_size / KINFO_PROC_SIZE);
+    for row in buffer.chunks_exact(KINFO_PROC_SIZE) {
+        let pid = i32::from_ne_bytes(row[PID_OFFSET..PID_OFFSET + 4].try_into().unwrap());
+        if pid <= 0 {
+            continue;
+        }
+        let uid = u32::from_ne_bytes(row[UID_OFFSET..UID_OFFSET + 4].try_into().unwrap());
+        let start_seconds = i64::from_ne_bytes(
+            row[START_TIME_SECONDS_OFFSET..START_TIME_SECONDS_OFFSET + 8]
+                .try_into()
+                .unwrap(),
+        );
+        let start_microseconds = i64::from_ne_bytes(
+            row[START_TIME_MICROSECONDS_OFFSET..START_TIME_MICROSECONDS_OFFSET + 8]
+                .try_into()
+                .unwrap(),
+        );
+        metadata.push(MacProcessMetadata {
+            pid,
+            uid: uid as i64,
+            status: macos_status(row[STATUS_OFFSET] as u32),
+            start_time_ms: start_seconds
+                .saturating_mul(1000)
+                .saturating_add(start_microseconds / 1000),
+        });
+    }
+    metadata.sort_unstable_by_key(|record| record.pid);
+
+    let output = Command::new("/bin/ps")
+        .args(["-axwwo", "user=,pid=,ppid=,pgid=,command="])
+        .output()
+        .map_err(|error| RuntimeError::new("process-list", error.to_string()).with_span(span))?;
+    if !output.status.success() {
+        return Err(
+            RuntimeError::new(
+                "process-list",
+                String::from_utf8_lossy(&output.stderr).trim().to_string(),
+            )
+            .with_span(span),
+        );
+    }
+
+    let mut records = Vec::with_capacity(metadata.len());
+    for line in String::from_utf8_lossy(&output.stdout).lines() {
+        let Some((user, rest)) = macos_ps_field(line) else {
+            continue;
+        };
+        let Some((pid, rest)) = macos_ps_field(rest) else {
+            continue;
+        };
+        let Some((parent_pid, rest)) = macos_ps_field(rest) else {
+            continue;
+        };
+        let Some((_process_group_id, command)) = macos_ps_field(rest) else {
+            continue;
+        };
+        let Ok(pid) = pid.parse::<i32>() else {
+            continue;
+        };
+        let Some(metadata) = metadata.binary_search_by_key(&pid, |record| record.pid).ok().map(|index| &metadata[index]) else {
+            continue;
+        };
+        let Ok(parent_pid) = parent_pid.parse::<i32>() else {
+            continue;
+        };
+        let argv = command.trim_end().to_string();
+        let argv0 = argv.split_whitespace().next().unwrap_or("").to_string();
+        let command = std::path::Path::new(&argv0)
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+            .filter(|name| !name.is_empty())
+            .unwrap_or_default();
+        records.push(ProcessRecord {
+            pid: pid as i64,
+            parent_pid: parent_pid as i64,
+            command,
+            argv,
+            argv0,
+            user: user.to_string(),
+            uid: metadata.uid,
+            status: metadata.status.clone(),
+            start_time_ms: metadata.start_time_ms,
+        });
+    }
+    records.sort_unstable_by_key(|record| record.pid);
+    Ok(records)
+}
+
+#[cfg(target_os = "macos")]
+#[derive(Clone, Debug)]
+struct MacProcessMetadata {
+    pid: i32,
+    uid: i64,
+    status: String,
+    start_time_ms: i64,
+}
+
+#[cfg(target_os = "macos")]
+fn macos_ps_field(input: &str) -> Option<(&str, &str)> {
+    let input = input.trim_start();
+    let end = input.find(char::is_whitespace)?;
+    Some((&input[..end], &input[end..]))
 }
 
 #[cfg(target_os = "macos")]

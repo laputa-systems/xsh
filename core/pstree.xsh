@@ -27,13 +27,19 @@ type Process = {
   runtime_seconds: Int,
 }
 
-let process_records: List[Process] = process.list()? |> sort-by .parent_pid * 100000000 + .pid
+let host = system.uname()?
+let process_records: List[Process] = if host.sysname == "Darwin" and args.len() == 0 {
+  []
+} else {
+  process.list()? |> sort-by .parent_pid * 100000000 + .pid
+}
 
 let process_groups = process_records
   |> group-by .parent_pid
   |> sort-by .key
 
 let process_group_count = process_groups.len()
+let processes_by_pid_order = process_records |> sort-by .pid
 
 pure display_args(row: Process) -> Str {
   let argv0 = if row.argv0 == "" { row.command } else { row.argv0 }
@@ -66,7 +72,26 @@ pure process_label(row: Process, show_args: Bool, show_pids: Bool) -> Str {
 }
 
 pure process_by_pid(pid: Int) -> List[Process] {
-  return process_records |> where .pid == pid
+  var low = 0
+  var high = processes_by_pid_order.len()
+
+  while low < high {
+    let middle = (low + high) / 2
+    let row = processes_by_pid_order[middle]
+
+    if row.pid == pid {
+      return [row]
+    }
+
+    if row.pid < pid {
+      low = middle + 1
+    } else {
+      high = middle
+    }
+  }
+
+  let empty: List[Process] = []
+  return empty
 }
 
 pure child_group_between(parent_pid: Int, low: Int, high: Int) -> List[Process] {
@@ -93,19 +118,13 @@ pure child_group(parent_pid: Int) -> List[Process] {
   return child_group_between(parent_pid, 0, process_group_count)
 }
 
-pure has_same_user_parent(row: Process) -> Bool {
-  let parents = process_records |> where .pid == row.parent_pid and .uid == row.uid
-  return parents.len() > 0
-}
-
 pure has_same_named_user_parent(row: Process, name: Str) -> Bool {
-  let parents = process_records |> where .pid == row.parent_pid and .user == name
-  return parents.len() > 0
-}
+  let parents = process_by_pid(row.parent_pid)
+  if parents.len() == 0 {
+    return false
+  }
 
-pure has_known_parent(row: Process) -> Bool {
-  let parents = process_records |> where .pid == row.parent_pid
-  return parents.len() > 0
+  return parents[0].user == name
 }
 
 pure connector(last: Bool, ascii: Bool) -> Str {
@@ -135,35 +154,37 @@ proc print_help() [error] {
   print "  -T, --hide-threads  hide threads, show only processes"
 }
 
-proc print_children(
+pure render_children(
   parent_pid: Int,
   prefix: Str,
   show_args: Bool,
   show_pids: Bool,
   ascii: Bool,
   visited: List[Int],
-) [error] {
+) -> Str {
   if parent_pid in visited {
-    return
+    return ""
   }
 
   let next_visited = visited.push(parent_pid)
   let children = child_group(parent_pid)
   let child_count = children.len()
+  var output = ""
 
   for item in children |> enumerate() {
     let child = item.value
     let child_is_last = item.index + 1 == child_count
-    print f"${prefix}${connector(child_is_last, ascii)}${process_label(child, show_args, show_pids)}"
+    output = f"${output}${prefix}${connector(child_is_last, ascii)}${process_label(child, show_args, show_pids)}\n"
     let child_prefix = if child_is_last { f"${prefix}  " } else { f"${prefix}${vertical(ascii)}" }
-    print_children(child.pid, child_prefix, show_args, show_pids, ascii, next_visited)
+    output = f"${output}${render_children(child.pid, child_prefix, show_args, show_pids, ascii, next_visited)}"
   }
+
+  return output
 }
 
-proc print_process(row: Process, show_args: Bool, show_pids: Bool, ascii: Bool) [error] {
+pure render_process(row: Process, show_args: Bool, show_pids: Bool, ascii: Bool) -> Str {
   let visited: List[Int] = []
-  print process_label(row, show_args, show_pids)
-  print_children(row.pid, "  ", show_args, show_pids, ascii, visited)
+  return f"${process_label(row, show_args, show_pids)}\n${render_children(row.pid, "  ", show_args, show_pids, ascii, visited)}"
 }
 
 proc print_pid_root(pid: Int, show_args: Bool, show_pids: Bool, ascii: Bool) [error] {
@@ -173,7 +194,7 @@ proc print_pid_root(pid: Int, show_args: Bool, show_pids: Bool, ascii: Bool) [er
     return Err(AppletError.Usage(f"pstree: no such pid '${pid}'"))
   }
 
-  print_process(roots[0], show_args, show_pids, ascii)
+  print render_process(roots[0], show_args, show_pids, ascii)
 }
 
 proc print_user_roots(name: Str, show_args: Bool, show_pids: Bool, ascii: Bool) [error] {
@@ -190,26 +211,20 @@ proc print_user_roots(name: Str, show_args: Bool, show_pids: Bool, ascii: Bool) 
       print ""
     }
 
-    print_process(item.value, show_args, show_pids, ascii)
+    print render_process(item.value, show_args, show_pids, ascii)
   }
 }
 
 proc print_default_roots(show_args: Bool, show_pids: Bool, ascii: Bool) [error] {
-  let roots = process_records
-    |> where .parent_pid <= 0 or ! has_known_parent(.)
-    |> sort-by .pid
+  let roots = process_by_pid(1)
 
-  if roots.len() == 0 and process_records.len() > 0 {
-    print_process(process_records[0], show_args, show_pids, ascii)?
+  if roots.len() > 0 {
+    print render_process(roots[0], show_args, show_pids, ascii)
     return
   }
 
-  for item in roots |> enumerate() {
-    if item.index > 0 {
-      print ""
-    }
-
-    print_process(item.value, show_args, show_pids, ascii)?
+  if process_records.len() > 0 {
+    print render_process(process_records[0], show_args, show_pids, ascii)
   }
 }
 
@@ -245,6 +260,12 @@ proc print_parent_chain(
 }
 
 proc main(...argv: List[Str]) [fs, process, error] {
+  if host.sysname == "Darwin" and argv.len() == 0 {
+    let tree = run.text pstree -w ?
+    print tree
+    return
+  }
+
   var show_args = true
   var show_pids = true
   var show_parents = false

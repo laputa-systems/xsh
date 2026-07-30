@@ -551,13 +551,16 @@ in scripts.
 final counts, `-I`/`--no-ignore` as a compatibility no-op, and
 `--color=auto|always|never` as a compatibility no-op.
 
-`pstree` uses `process.list()` data. It defaults to psmisc-style
-`-Gatlp` output: command arguments, VT100-style tree drawing, long lines, full
-process names, and PID display. It accepts `-a`/`--arguments`,
-`-A`/`--ascii`, `-c`/`--compact-not`, `-G`/`--vt100`, `-l`/`--long`,
-`-h`/`--help`, `-p`/`--show-pids`, `-s`/`--show-parents`,
-`-t`/`--thread-names`, and `-T`/`--hide-threads`, plus optional `PID` or
-`USER` selection, cycle protection, and deterministic child ordering by pid.
+`pstree` uses `process.list()` data. On macOS, its default view delegates to the
+host `pstree -w` implementation so the output, process visibility, command
+arguments, root selection, and tree glyphs have host-tool parity. Other
+platforms use the XSH renderer, which defaults to psmisc-style `-Gatlp` output:
+command arguments, VT100-style tree drawing, long lines, full process names,
+and PID display. The XSH renderer accepts `-a`/`--arguments`, `-A`/`--ascii`,
+`-c`/`--compact-not`, `-G`/`--vt100`, `-l`/`--long`, `-h`/`--help`,
+`-p`/`--show-pids`, `-s`/`--show-parents`, `-t`/`--thread-names`, and
+`-T`/`--hide-threads`, plus optional `PID` or `USER` selection, cycle
+protection, and deterministic child ordering by pid.
 Thread-oriented utilities can use `process.threads()` for per-thread records on
 Linux and macOS.
 

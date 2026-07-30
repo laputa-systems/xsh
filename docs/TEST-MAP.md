@@ -50,6 +50,7 @@ generated tutorial output changes.
 | coverage, lint, grep-adjacent tooling | `tests/runtime/coverage.rs` |
 | frontend indexed fixtures | `tests/runtime/frontend_indexed.rs` |
 | cataloged examples | `tests/runtime/examples.rs` |
+| `core/pstree.xsh` process-tree output | `core/tests/test-pstree.xsh`, `tests/runtime/unix.rs` |
 | interactive behavior | `tests/runtime/interactive.rs` |
 | Linux-specific behavior | `tests/runtime/linux.rs` |
 | standard modules | `tests/runtime/modules.rs` |
