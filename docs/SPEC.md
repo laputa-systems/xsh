@@ -2164,8 +2164,10 @@ adapter `text.lines()` is available in pipelines.
 - `.contains(needle: Str) -> Bool`.
 - `.lines() -> Stream[Str]`.
 - `.words() -> List[Str]`, split with Unicode whitespace semantics.
-- `.split(separator: Str) -> List[Str]`; an empty separator splits into Unicode
-  scalar values.
+- `.split(separator: Str, maxsplit: Int = -1) -> List[Str]`; an empty separator
+  splits into Unicode scalar values. A negative `maxsplit` performs unlimited
+  splits, zero performs no splits, and a positive value limits the number of
+  separators consumed. The final item contains the unsplit remainder.
 - `.fields(delimiter: Str = "") -> List[Str]`; an empty delimiter uses Unicode
   whitespace and a non-empty delimiter drops empty fields.
 - `.replace(from: Str, to: Str) -> Str`.

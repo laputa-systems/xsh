@@ -69,7 +69,7 @@ proc main(...argv: List[Str]) [fs, error] {
   print f"${rows.len()} row(s) loaded"
 
   if opts.filter != "" {
-    let parts = opts.filter.split("=")
+    let parts = opts.filter.split("=", maxsplit: 1)
 
     if parts.len() < 2 {
       print "error: --filter must be COL=VAL"

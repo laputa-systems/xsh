@@ -6,7 +6,7 @@ pure split_words(text: Str) -> List[Str] {
 }
 
 pure is_assignment(arg: Str) -> Bool {
-  let parts = arg.split("=")
+  let parts = arg.split("=", maxsplit: 1)
   parts.len() > 1 and parts[0] != ""
 }
 
@@ -59,16 +59,8 @@ proc main(...raw: List[Str]) [process, env, error] {
   var index = 0
 
   while index < argv.len() and is_assignment(argv[index]) {
-    let parts = argv[index].split("=")
-    var value_parts: List[Str] = []
-    var part_index = 1
-
-    while part_index < parts.len() {
-      value_parts = value_parts.push(parts[part_index])
-      part_index += 1
-    }
-
-    let value = value_parts.join("=")
+    let parts = argv[index].split("=", maxsplit: 1)
+    let value = parts.get(1, "")
 
     match parts[0] {
       "PATH" => path_update = value

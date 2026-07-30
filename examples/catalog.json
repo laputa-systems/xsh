@@ -206,7 +206,7 @@
       "expected_status": 0,
       "stdout": {
         "kind": "exact",
-        "value": "beta gamma b alpha|beta|gamma\n2 3 2 3 desserts\nalpha-beta-gamma abc no way gamma\n4 195 \u00e9 3\n"
+        "value": "beta gamma key value=with=equals b alpha|beta|gamma\n2 3 2 3 desserts\nalpha-beta-gamma abc no way gamma\n4 195 \u00e9 3\n"
       },
       "stderr": {
         "kind": "empty"

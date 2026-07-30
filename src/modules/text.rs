@@ -4,16 +4,41 @@ use crate::runtime::value::{RuntimeError, Value};
 use crate::source::Span;
 use rustc_hash::FxHashSet;
 
-pub(crate) fn split_text(text: &str, separator: &str) -> Vec<Value> {
+pub(crate) fn split_text(text: &str, separator: &str, maxsplit: Option<i64>) -> Vec<Value> {
     if separator.is_empty() {
-        text.chars()
+        let Some(maxsplit) = maxsplit.filter(|value| *value >= 0) else {
+            return text
+                .chars()
+                .map(|ch| Value::Str(ch.to_string().into()))
+                .collect();
+        };
+        if maxsplit == 0 {
+            return vec![Value::Str(text.into())];
+        }
+        let chars = text.chars().collect::<Vec<_>>();
+        let split_count = (maxsplit as usize).min(chars.len());
+        let mut output = chars[..split_count]
+            .iter()
             .map(|ch| Value::Str(ch.to_string().into()))
-            .collect()
-    } else {
-        text.split(separator)
-            .map(|part| Value::Str(part.into()))
-            .collect()
+            .collect::<Vec<_>>();
+        if split_count < chars.len() {
+            output.push(Value::Str(
+                chars[split_count..].iter().collect::<String>().into(),
+            ));
+        }
+        return output;
     }
+
+    let Some(maxsplit) = maxsplit.filter(|value| *value >= 0) else {
+        return text
+            .split(separator)
+            .map(|part| Value::Str(part.into()))
+            .collect();
+    };
+    let limit = maxsplit.saturating_add(1) as usize;
+    text.splitn(limit, separator)
+        .map(|part| Value::Str(part.into()))
+        .collect()
 }
 
 pub(crate) fn fields_text(text: &str, delimiter: &str) -> Vec<Value> {
@@ -207,8 +232,11 @@ mod tests {
     #[test]
     fn text_helpers_cover_script_methods() {
         crate::symbol::SymbolOwner::new().with_current(|| {
-            assert_eq!(strings(split_text("ab", "")), ["a", "b"]);
-            assert_eq!(strings(split_text("a,b", ",")), ["a", "b"]);
+            assert_eq!(strings(split_text("ab", "", None)), ["a", "b"]);
+            assert_eq!(strings(split_text("a,b", ",", None)), ["a", "b"]);
+            assert_eq!(strings(split_text("a,b,c", ",", Some(1))), ["a", "b,c"]);
+            assert_eq!(strings(split_text("a,b,c", ",", Some(0))), ["a,b,c"]);
+            assert_eq!(strings(split_text("a,b,c", ",", Some(-1))), ["a", "b", "c"]);
             assert_eq!(lower_text("HeLLo"), "hello");
             assert_eq!(upper_text("HeLLo"), "HELLO");
             assert_eq!(parse_int_text("0x2a", test_span()).expect("parse int"), 42);

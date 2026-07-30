@@ -1068,8 +1068,8 @@ Process-scoped utility helpers.
 - `Str.replace(from: Str, to: Str) -> Str` - pure; Returns `Str`. ID `method.Str.replace.0`.
   Params: `from: Str`, `to: Str`
 - `Str.reverse() -> Str` - pure; Returns `Str`. ID `method.Str.reverse.0`.
-- `Str.split(separator: Str) -> List[Str]` - pure; Returns `List[Str]`. ID `method.Str.split.0`.
-  Params: `separator: Str`
+- `Str.split(separator: Str, maxsplit: Int = default) -> List[Str]` - pure; Returns `List[Str]`. ID `method.Str.split.0`.
+  Params: `separator: Str`, `maxsplit: Int = default`
 - `Str.squeeze(chars: Str = default) -> Str` - pure; Returns `Str`. ID `method.Str.squeeze.0`.
   Params: `chars: Str = default`
 - `Str.starts_with(prefix: Str) -> Bool` - pure; Returns `Bool`. ID `method.Str.starts_with.0`.

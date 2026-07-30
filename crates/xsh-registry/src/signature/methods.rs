@@ -613,7 +613,10 @@ pub(in crate::signature) fn value_methods() -> Vec<MethodReceiverSig> {
                 ),
                 method(
                     "split",
-                    vec![param("separator", Type::Str)],
+                    vec![
+                        param("separator", Type::Str),
+                        default_param("maxsplit", Type::Int),
+                    ],
                     MethodReturn::Type(Type::List(Box::new(Type::Str))),
                     true,
                     RuntimeOp::TextSplit,

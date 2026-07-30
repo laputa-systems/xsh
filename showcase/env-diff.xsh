@@ -12,7 +12,7 @@ pure parse_env(content: Str) -> Map[Str] {
   for line in content.lines() {
     let t = line.trim()
     continue when t == "" or t.starts_with("#")
-    let parts = t.fields("=")
+    let parts = t.split("=", maxsplit: 1)
     continue when parts.len() < 2
     let key = parts[0].trim()
 

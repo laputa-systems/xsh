@@ -1064,10 +1064,20 @@ pub(super) fn lowered_str_method_value(
                 span,
             )
         }
-        "split" if args.len() == 1 => {
+        "split" if args.len() == 1 || args.len() == 2 => {
             let separator = lowered_str_arg(&args[0], "split", span)?;
+            let maxsplit = match args.get(1) {
+                Some(LoweredValue::Int(value)) => Some(*value),
+                Some(_) => {
+                    return Err(
+                        RuntimeError::new("type-error", "split maxsplit expected Int")
+                            .with_span(span),
+                    );
+                }
+                None => None,
+            };
             lowered_runtime_list(
-                crate::modules::text::split_text(text_value, separator),
+                crate::modules::text::split_text(text_value, separator, maxsplit),
                 span,
             )
         }

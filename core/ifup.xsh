@@ -651,7 +651,7 @@ proc configure_interface(config: Config, state_path: Path, physical: Str, logica
 }
 
 pure split_iface_arg(arg: Str) -> Record {
-  let parts = arg.split("=")
+  let parts = arg.split("=", maxsplit: 1)
 
   if parts.len() >= 2 {
     return {physical: parts[0], logical: parts[1]}

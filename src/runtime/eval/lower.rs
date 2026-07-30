@@ -174,6 +174,7 @@ fn lowered_method_call_args(name: Name, args: &[ArenaCallArg]) -> Option<Vec<Exp
         "squeeze" => named_method_call_args(args, &[], &["chars"]),
         "fields" => named_method_call_args(args, &[], &["delimiter"]),
         "join" => named_method_call_args(args, &[], &["separator"]),
+        "split" => named_method_call_args(args, &["separator"], &["maxsplit"]),
         "dump" => named_method_call_args(args, &[], &["format"]),
         "strings" => named_method_call_args(args, &[], &["min_len"]),
         "wrap" => named_method_call_args(args, &["width"], &[]),
@@ -12202,9 +12203,8 @@ fn lowered_method_supported_for_type(ty: &Type, name: Name, arg_count: usize) ->
             | "parse_float" | "base64_decode" | "base32_decode" | "count_lines" | "count_words"
             | "count_chars" | "count_bytes" | "byte_len" => arg_count == 0,
             "fields" | "squeeze" => arg_count <= 1,
-            "split" | "wrap" | "delete" | "starts_with" | "ends_with" | "contains" => {
-                arg_count == 1
-            }
+            "split" => arg_count == 1 || arg_count == 2,
+            "wrap" | "delete" | "starts_with" | "ends_with" | "contains" => arg_count == 1,
             "replace" | "translate" => arg_count == 2,
             "byte_at" | "byte_slice" | "find" => arg_count == 1 || arg_count == 2,
             _ => false,

@@ -420,7 +420,7 @@ proc deconfigure_interface(config: Config, state_path: Path, physical: Str, logi
 }
 
 pure split_iface_arg(arg: Str) -> Record {
-  let parts = arg.split("=")
+  let parts = arg.split("=", maxsplit: 1)
 
   if parts.len() >= 2 {
     return {physical: parts[0], logical: parts[1]}
@@ -440,7 +440,7 @@ stream state_configured_ifaces(state_path: Path) [fs, error] -> Stream[Record] {
     let fields = line.words()
 
     if fields.len() >= 1 {
-      let parts = fields[0].split("=")
+      let parts = fields[0].split("=", maxsplit: 1)
 
       if parts.len() >= 2 {
         yield {physical: parts[0], logical: parts[1]}
