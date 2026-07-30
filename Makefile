@@ -4,6 +4,10 @@ DARWIN_CODESIGN_FLAGS ?=
 ifneq ($(DARWIN_CODESIGN_ENTITLEMENTS),)
 DARWIN_CODESIGN_FLAGS += --entitlements $(DARWIN_CODESIGN_ENTITLEMENTS)
 endif
+# Keep Rust and native dependencies on the same minimum macOS version. Without
+# this, the current SDK can stamp aws-lc-sys objects with a newer deployment
+# target than the Rust linker target.
+DARWIN_DEPLOYMENT_TARGET ?= 26.0
 TARGET ?= x86_64-unknown-linux-musl
 COV_BACKEND ?= $(shell if [ "$$(uname -s)" = Linux ] && [ "$$(uname -m)" = x86_64 ] && [ -f /etc/alpine-release ]; then echo native; else echo docker; fi)
 COV_CARGO ?= $(shell command -v cargo 2>/dev/null || printf '%s/.cargo/bin/cargo\n' "$$HOME")
@@ -52,7 +56,7 @@ install-Darwin: install-darwin
 install-Linux: install-linux
 
 install-darwin:
-	RUSTFLAGS="$(strip $(DARWIN_DIST_RUSTFLAGS))" cargo build --release -p xsh-multicall --no-default-features --features "native-tests net tools"
+	MACOSX_DEPLOYMENT_TARGET="$(DARWIN_DEPLOYMENT_TARGET)" RUSTFLAGS="$(strip $(DARWIN_DIST_RUSTFLAGS))" cargo build --release -p xsh-multicall --no-default-features --features "native-tests net tools"
 	cp ./target/release/xsh-multicall ~/usr/bin/xsh-multicall
 	ln -sf xsh-multicall ~/usr/bin/xsh
 	ln -sf xsh-multicall ~/usr/bin/xshi
@@ -103,10 +107,10 @@ ifeq ($(TARGET),aarch64-unknown-linux-musl)
 DIST_ENV = $(DIST_RUSTFLAGS_ENV) CFLAGS_aarch64_unknown_linux_musl="$(strip $(CFLAGS_aarch64_unknown_linux_musl) $(DIST_TARGET_CFLAGS))" AWS_LC_SYS_CFLAGS_aarch64_unknown_linux_musl="$(strip $(AWS_LC_SYS_CFLAGS_aarch64_unknown_linux_musl) $(DIST_TARGET_CFLAGS))" AWS_LC_SYS_NO_JITTER_ENTROPY=1 CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_RUSTFLAGS="$(strip $(DIST_FULL_RUSTFLAGS))"
 endif
 ifeq ($(TARGET),aarch64-apple-darwin)
-DIST_ENV = CFLAGS_aarch64_apple_darwin="$(strip $(DIST_TARGET_CFLAGS))" CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS="$(strip $(DIST_DARWIN_RUSTFLAGS))"
+DIST_ENV = MACOSX_DEPLOYMENT_TARGET="$(DARWIN_DEPLOYMENT_TARGET)" CFLAGS_aarch64_apple_darwin="$(strip $(DIST_TARGET_CFLAGS))" CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS="$(strip $(DIST_DARWIN_RUSTFLAGS))"
 endif
 ifeq ($(TARGET),x86_64-apple-darwin)
-DIST_ENV = CFLAGS_x86_64_apple_darwin="$(strip $(DIST_TARGET_CFLAGS))" CARGO_TARGET_X86_64_APPLE_DARWIN_RUSTFLAGS="$(strip $(DIST_DARWIN_RUSTFLAGS))"
+DIST_ENV = MACOSX_DEPLOYMENT_TARGET="$(DARWIN_DEPLOYMENT_TARGET)" CFLAGS_x86_64_apple_darwin="$(strip $(DIST_TARGET_CFLAGS))" CARGO_TARGET_X86_64_APPLE_DARWIN_RUSTFLAGS="$(strip $(DIST_DARWIN_RUSTFLAGS))"
 endif
 
 dist: dist-$(shell uname -s)
@@ -211,7 +215,7 @@ test-linux-ci:
 	cargo test --locked --profile $(DIST_PROFILE) --features "linux-priv-tests net tools" --target $(TARGET) -- --nocapture
 
 test-macos-ci:
-	cargo test --locked --profile $(DIST_PROFILE) --features "net tools" --target $(TARGET) -- --nocapture
+	MACOSX_DEPLOYMENT_TARGET="$(DARWIN_DEPLOYMENT_TARGET)" cargo test --locked --profile $(DIST_PROFILE) --features "net tools" --target $(TARGET) -- --nocapture
 
 LLVM_BIN := $(shell rustc --print sysroot)/lib/rustlib/$(shell rustc -vV | awk '/^host:/ {print $$2}')/bin
 PGO_DIR := $(CURDIR)/target/pgo-profiles
