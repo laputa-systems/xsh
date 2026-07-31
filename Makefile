@@ -1,4 +1,4 @@
-.PHONY: build lint docs test cov test-linux test-linux-ci test-macos-ci bench bench-fast bench-pgo bench-syscalls pgo-profile release-pgo install-darwin install-linux dist dist-ci
+.PHONY: build lint docs test cov test-linux test-linux-ci test-macos-ci bench bench-fast bench-pgo bench-syscalls pgo-profile release-pgo install-darwin install-linux dist dist-native dist-ci
 
 DARWIN_CODESIGN_FLAGS ?=
 ifneq ($(DARWIN_CODESIGN_ENTITLEMENTS),)
@@ -134,11 +134,12 @@ ifeq ($(filter $(TARGET),aarch64-apple-darwin x86_64-apple-darwin),)
 			make dist DOCKER_BUILD=1 DIST_BUILD_STD_FLAGS= \
 		'
 else
-	$(DIST_ENV) cargo build -p xsh-multicall --locked --profile $(DIST_PROFILE) $(DIST_BUILD_STD_FLAGS) --target $(TARGET) --no-default-features --features "net tools"
-	ln -sf $(DIST_BIN) target/$(TARGET)/dist/xsh
+	$(MAKE) dist-native
 endif
 
-dist-Linux:
+dist-Linux: dist-native
+
+dist-native:
 	$(DIST_ENV) cargo build -p xsh-multicall --locked --profile $(DIST_PROFILE) $(DIST_BUILD_STD_FLAGS) --target $(TARGET) --no-default-features --features "net tools"
 	ln -sf $(DIST_BIN) target/$(TARGET)/dist/xsh
 
