@@ -117,6 +117,40 @@ print f\"same=${{same}} txt=${{streamed_txt_count}}/${{streamed_txt_size}} md=${
 }
 
 #[test]
+fn par_map_filesystem_reads_preserve_all_results() {
+    let root = temp_path("par-map-filesystem-reads");
+    std::fs::create_dir_all(&root).expect("create par-map filesystem root");
+    for index in 0..32 {
+        std::fs::write(root.join(format!("entry-{index:02}.txt")), format!("{index}\n"))
+            .expect("write par-map filesystem entry");
+    }
+    let source = format!(
+        "\
+let root = Path({})
+let entries = fs.files(root, stat: false)? |> collect()
+let lengths = entries |> par-map --jobs=8 {{ |entry|
+  entry.path.read_text()?.count_chars()
+}}
+print f\"count=${{lengths.len()}} total=${{lengths |> sum()}}\"
+",
+        xsh_string_literal(root.to_str().unwrap())
+    );
+
+    let output = run_temp_script("par-map-filesystem-reads", &source);
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        String::from_utf8(output.stdout).unwrap(),
+        "count=32 total=86\n"
+    );
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
 fn batch_max_argv_splits_long_path_lists_before_running_commands() {
     let mut source = String::from("let files = [");
     for index in 0..300 {
