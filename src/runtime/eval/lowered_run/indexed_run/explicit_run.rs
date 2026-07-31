@@ -1,19 +1,41 @@
 use super::{
-    Arc, AssignOp, BLOCK_LIST, BLOCK_STATEMENTS, BinaryOp, ControlFlow, Evaluator, FullExecution,
-    FullFunctionView, FullPayload, FullProgram, FullTag, FunctionHeader, LoweredFunctionKey,
-    LoweredFunctionKind, LoweredReturnKind, LoweredType, LoweredTypeCheck, LoweredValue,
-    RuntimeError, Span, StmtFlow, TraceKind, TracePayload, TracebackFrame, TracebackFrameKind,
-    assign_lowered_bytes_view, assign_lowered_str_view, indexed_decode, indexed_error,
-    indexed_finish, indexed_optional_raw, indexed_raw, indexed_string, indexed_value,
-    lowered_assign_value, lowered_binary_value, lowered_bytes_parts,
-    lowered_freeze_large_slot_list, lowered_match_no_arm, lowered_result_err_value,
-    lowered_result_ok, lowered_return_value, lowered_splice_arg_items, lowered_str_parts,
-    lowered_value_satisfies_require,
+    Arc, AssignOp, BLOCK_LIST, BLOCK_STATEMENTS, BTreeMap, BinaryOp, ControlFlow, Evaluator,
+    FullExecution, FullFunctionView, FullPayload, FullProgram, FullTag, FunctionHeader,
+    LoweredCompTarget, LoweredFunctionKey, LoweredFunctionKind, LoweredReturnKind, LoweredType,
+    LoweredTypeCheck, LoweredValue, Name, RuntimeError, Span, StmtFlow, TraceKind, TracePayload,
+    TracebackFrame, TracebackFrameKind, assign_lowered_bytes_view, assign_lowered_str_view,
+    bind_lowered_comp_target, indexed_decode, indexed_error, indexed_finish, indexed_optional_raw,
+    indexed_raw, indexed_string, indexed_value, lowered_assign_value, lowered_binary_value,
+    lowered_bytes_parts, lowered_freeze_large_slot_list, lowered_match_no_arm,
+    lowered_record_vec_append_or_replace_unsorted, lowered_record_vec_or_stats,
+    lowered_result_err_value, lowered_result_ok, lowered_return_value, lowered_splice_arg_items,
+    lowered_str_parts, lowered_value_satisfies_require,
 };
 
 enum FrameValue {
     Value(LoweredValue),
     Break(LoweredValue),
+}
+
+// Compound expressions must stay in the active heap-backed frame machine. Falling back to the
+// recursive evaluator here would nest another explicit runner for each Result call in the
+// expression and consume native stack even when the outer loop itself is iterative.
+enum FrameRecordEntry {
+    Field { name: Name, instruction: u32 },
+    Spread(u32),
+}
+
+struct ListCompState {
+    map: bool,
+    key: Option<u32>,
+    value: u32,
+    target: LoweredCompTarget,
+    condition: Option<u32>,
+    items: Vec<LoweredValue>,
+    index: usize,
+    values: Vec<LoweredValue>,
+    map_values: BTreeMap<String, LoweredValue>,
+    span: Span,
 }
 
 enum FrameContinuation {
@@ -131,6 +153,36 @@ enum FrameContinuation {
     ResultFallback {
         right: u32,
         span: Span,
+        next: Box<FrameContinuation>,
+    },
+    ListItems {
+        items: Vec<u32>,
+        index: usize,
+        values: Vec<LoweredValue>,
+        next: Box<FrameContinuation>,
+    },
+    RecordItems {
+        entries: Vec<FrameRecordEntry>,
+        index: usize,
+        fields: Vec<(Name, LoweredValue)>,
+        span: Span,
+        next: Box<FrameContinuation>,
+    },
+    ListCompIter {
+        state: Box<ListCompState>,
+        next: Box<FrameContinuation>,
+    },
+    ListCompCondition {
+        state: Box<ListCompState>,
+        next: Box<FrameContinuation>,
+    },
+    ListCompKey {
+        state: Box<ListCompState>,
+        next: Box<FrameContinuation>,
+    },
+    ListCompValue {
+        state: Box<ListCompState>,
+        key: Option<String>,
         next: Box<FrameContinuation>,
     },
 }
@@ -883,6 +935,120 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     },
                 );
             }
+            FullTag::ExprList => {
+                let (_, mut values) = self.calls[index]
+                    .execution
+                    .block(&mut payload, BLOCK_LIST)
+                    .map_err(|error| indexed_error(error, span))?;
+                let len = indexed_raw(&mut values, span)? as usize;
+                let mut items = Vec::with_capacity(len);
+                for _ in 0..len {
+                    items.push(indexed_raw(&mut values, span)?);
+                }
+                indexed_finish(values, span)?;
+                indexed_finish(payload, span)?;
+                if let Some(&instruction) = items.first() {
+                    self.push_expr(
+                        index,
+                        instruction,
+                        span,
+                        FrameContinuation::ListItems {
+                            items,
+                            index: 0,
+                            values: Vec::with_capacity(len),
+                            next: Box::new(next),
+                        },
+                    );
+                } else {
+                    self.push_value(
+                        index,
+                        FrameValue::Value(LoweredValue::List(Vec::new())),
+                        next,
+                    );
+                }
+            }
+            FullTag::ExprRecord => {
+                let (_, mut entries) = self.calls[index]
+                    .execution
+                    .block(&mut payload, BLOCK_LIST)
+                    .map_err(|error| indexed_error(error, span))?;
+                let len = indexed_raw(&mut entries, span)? as usize;
+                let mut decoded_entries = Vec::with_capacity(len);
+                for _ in 0..len {
+                    match indexed_raw(&mut entries, span)? {
+                        0 => decoded_entries.push(FrameRecordEntry::Field {
+                            name: indexed_decode(&mut entries, &self.calls[index].execution, span)?,
+                            instruction: indexed_raw(&mut entries, span)?,
+                        }),
+                        1 => decoded_entries
+                            .push(FrameRecordEntry::Spread(indexed_raw(&mut entries, span)?)),
+                        _ => {
+                            return Err(RuntimeError::new(
+                                "indexed-ir",
+                                "invalid indexed record entry",
+                            )
+                            .with_span(span));
+                        }
+                    }
+                }
+                indexed_finish(entries, span)?;
+                indexed_finish(payload, span)?;
+                if let Some(entry) = decoded_entries.first() {
+                    let instruction = match entry {
+                        FrameRecordEntry::Field { instruction, .. }
+                        | FrameRecordEntry::Spread(instruction) => *instruction,
+                    };
+                    self.push_expr(
+                        index,
+                        instruction,
+                        span,
+                        FrameContinuation::RecordItems {
+                            entries: decoded_entries,
+                            index: 0,
+                            fields: Vec::new(),
+                            span,
+                            next: Box::new(next),
+                        },
+                    );
+                } else {
+                    self.push_value(
+                        index,
+                        FrameValue::Value(lowered_record_vec_or_stats(Vec::new())),
+                        next,
+                    );
+                }
+            }
+            FullTag::ExprListComp | FullTag::ExprMapComp => {
+                let map = tag == FullTag::ExprMapComp;
+                let key = map.then(|| indexed_raw(&mut payload, span)).transpose()?;
+                let value = indexed_raw(&mut payload, span)?;
+                let target = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
+                let iter = indexed_raw(&mut payload, span)?;
+                let condition = indexed_optional_raw(&mut payload, span)?;
+                let value_span = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
+                indexed_finish(payload, span)?;
+                let state = ListCompState {
+                    map,
+                    key,
+                    value,
+                    target,
+                    condition,
+                    items: Vec::new(),
+                    index: 0,
+                    values: Vec::new(),
+                    map_values: BTreeMap::new(),
+                    span: value_span,
+                };
+                self.push_expr(
+                    index,
+                    iter,
+                    value_span,
+                    FrameContinuation::ListCompIter {
+                        state: Box::new(state),
+                        next: Box::new(next),
+                    },
+                );
+            }
             FullTag::ExprResultFallback => {
                 let left = indexed_raw(&mut payload, span)?;
                 let right = indexed_raw(&mut payload, span)?;
@@ -1532,6 +1698,156 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 FrameValue::Value(value) => self.push_value(index, FrameValue::Value(value), *next),
                 FrameValue::Break(value) => self.push_value(index, FrameValue::Break(value), *next),
             },
+            FrameContinuation::ListItems {
+                items,
+                index: item_index,
+                mut values,
+                next,
+            } => match value {
+                FrameValue::Value(value) => {
+                    values.push(value);
+                    if let Some(&instruction) = items.get(item_index + 1) {
+                        let span = self.calls[index].call_span;
+                        self.push_expr(
+                            index,
+                            instruction,
+                            span,
+                            FrameContinuation::ListItems {
+                                items,
+                                index: item_index + 1,
+                                values,
+                                next,
+                            },
+                        );
+                    } else {
+                        self.push_value(
+                            index,
+                            FrameValue::Value(LoweredValue::List(values)),
+                            *next,
+                        );
+                    }
+                }
+                FrameValue::Break(value) => {
+                    return self.complete_call(index, StmtFlow::Return(value));
+                }
+            },
+            FrameContinuation::RecordItems {
+                entries,
+                index: entry_index,
+                mut fields,
+                span,
+                next,
+            } => match value {
+                FrameValue::Value(value) => {
+                    append_record_entry(&mut fields, &entries[entry_index], value, span)?;
+                    if let Some(entry) = entries.get(entry_index + 1) {
+                        let instruction = match entry {
+                            FrameRecordEntry::Field { instruction, .. }
+                            | FrameRecordEntry::Spread(instruction) => *instruction,
+                        };
+                        self.push_expr(
+                            index,
+                            instruction,
+                            span,
+                            FrameContinuation::RecordItems {
+                                entries,
+                                index: entry_index + 1,
+                                fields,
+                                span,
+                                next,
+                            },
+                        );
+                    } else {
+                        fields.sort_unstable_by_key(|(name, _)| *name);
+                        self.push_value(
+                            index,
+                            FrameValue::Value(lowered_record_vec_or_stats(fields)),
+                            *next,
+                        );
+                    }
+                }
+                FrameValue::Break(value) => {
+                    return self.complete_call(index, StmtFlow::Return(value));
+                }
+            },
+            FrameContinuation::ListCompIter { mut state, next } => match value {
+                FrameValue::Value(value) => {
+                    state.items = self.evaluator.lowered_list_items(
+                        value,
+                        state.span,
+                        if state.map {
+                            "map comprehension expected List"
+                        } else {
+                            "list comprehension expected List"
+                        },
+                    )?;
+                    self.step_list_comp(index, *state, *next)?;
+                }
+                FrameValue::Break(value) => {
+                    return self.complete_call(index, StmtFlow::Return(value));
+                }
+            },
+            FrameContinuation::ListCompCondition { state, next } => match value {
+                FrameValue::Value(value) => {
+                    if frame_condition_bool(value, state.span)? {
+                        self.push_list_comp_projection(index, *state, *next)?;
+                    } else {
+                        let mut state = *state;
+                        state.index += 1;
+                        self.step_list_comp(index, state, *next)?;
+                    }
+                }
+                FrameValue::Break(value) => {
+                    return self.complete_call(index, StmtFlow::Return(value));
+                }
+            },
+            FrameContinuation::ListCompKey { state, next } => match value {
+                FrameValue::Value(LoweredValue::Str(key)) => {
+                    self.push_expr(
+                        index,
+                        state.value,
+                        state.span,
+                        FrameContinuation::ListCompValue {
+                            state,
+                            key: Some(key.to_string()),
+                            next,
+                        },
+                    );
+                }
+                FrameValue::Value(value) => {
+                    return Err(RuntimeError::new(
+                        "type-error",
+                        format!(
+                            "map comprehension key expected Str, found {}",
+                            value.type_name()
+                        ),
+                    )
+                    .with_span(state.span));
+                }
+                FrameValue::Break(value) => {
+                    return self.complete_call(index, StmtFlow::Return(value));
+                }
+            },
+            FrameContinuation::ListCompValue {
+                mut state,
+                key,
+                next,
+            } => match value {
+                FrameValue::Value(value) => {
+                    if state.map {
+                        state
+                            .map_values
+                            .insert(key.expect("map comprehension key was evaluated"), value);
+                    } else {
+                        state.values.push(value);
+                    }
+                    state.index += 1;
+                    self.step_list_comp(index, *state, *next)?;
+                }
+                FrameValue::Break(value) => {
+                    return self.complete_call(index, StmtFlow::Return(value));
+                }
+            },
         }
         Ok(())
     }
@@ -1544,6 +1860,74 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             self.calls[index].work.push(FrameWork::Finish(flow));
             Ok(())
         }
+    }
+
+    fn step_list_comp(
+        &mut self,
+        index: usize,
+        state: ListCompState,
+        next: FrameContinuation,
+    ) -> Result<(), RuntimeError> {
+        while state.index < state.items.len() {
+            let item = state.items[state.index].clone();
+            bind_lowered_comp_target(
+                &state.target,
+                item,
+                &mut self.calls[index].slots,
+                state.span,
+            )?;
+            if let Some(condition) = state.condition {
+                self.push_expr(
+                    index,
+                    condition,
+                    state.span,
+                    FrameContinuation::ListCompCondition {
+                        state: Box::new(state),
+                        next: Box::new(next),
+                    },
+                );
+                return Ok(());
+            }
+            return self.push_list_comp_projection(index, state, next);
+        }
+        let value = if state.map {
+            LoweredValue::Map(state.map_values)
+        } else {
+            LoweredValue::List(state.values)
+        };
+        self.push_value(index, FrameValue::Value(value), next);
+        Ok(())
+    }
+
+    fn push_list_comp_projection(
+        &mut self,
+        index: usize,
+        state: ListCompState,
+        next: FrameContinuation,
+    ) -> Result<(), RuntimeError> {
+        if state.map {
+            self.push_expr(
+                index,
+                state.key.expect("map comprehension key"),
+                state.span,
+                FrameContinuation::ListCompKey {
+                    state: Box::new(state),
+                    next: Box::new(next),
+                },
+            );
+        } else {
+            self.push_expr(
+                index,
+                state.value,
+                state.span,
+                FrameContinuation::ListCompValue {
+                    state: Box::new(state),
+                    key: None,
+                    next: Box::new(next),
+                },
+            );
+        }
+        Ok(())
     }
 
     fn push_method_result(
@@ -2055,6 +2439,59 @@ fn frame_condition_bool(value: LoweredValue, span: Span) -> Result<bool, Runtime
             Err(RuntimeError::new("type-error", "lowered expression expected Bool").with_span(span))
         }
     }
+}
+
+fn append_record_entry(
+    fields: &mut Vec<(Name, LoweredValue)>,
+    entry: &FrameRecordEntry,
+    value: LoweredValue,
+    span: Span,
+) -> Result<(), RuntimeError> {
+    match entry {
+        FrameRecordEntry::Field { name, .. } => {
+            lowered_record_vec_append_or_replace_unsorted(fields, *name, value);
+        }
+        FrameRecordEntry::Spread(_) => match value {
+            LoweredValue::Record(record) | LoweredValue::Module(record) => {
+                for (key, value) in record {
+                    lowered_record_vec_append_or_replace_unsorted(
+                        fields,
+                        Name::intern(key.as_ref()),
+                        value,
+                    );
+                }
+            }
+            LoweredValue::RecordVec(record) => {
+                for (key, value) in record {
+                    lowered_record_vec_append_or_replace_unsorted(fields, key, value);
+                }
+            }
+            LoweredValue::Stats {
+                blanks,
+                code,
+                comments,
+            } => {
+                for (key, value) in
+                    super::lowered_inline_stats_to_record_vec(blanks, code, comments)
+                {
+                    lowered_record_vec_append_or_replace_unsorted(fields, key, value);
+                }
+            }
+            LoweredValue::StatsBlob(stats) => {
+                for (key, value) in stats.to_record_vec() {
+                    lowered_record_vec_append_or_replace_unsorted(fields, key, value);
+                }
+            }
+            value => {
+                return Err(RuntimeError::new(
+                    "type-error",
+                    format!("record spread expected Record, found {}", value.type_name()),
+                )
+                .with_span(span));
+            }
+        },
+    }
+    Ok(())
 }
 
 fn decode_statements(mut payload: FullPayload<'_>, span: Span) -> Result<Vec<u32>, RuntimeError> {
