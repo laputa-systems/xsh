@@ -624,8 +624,19 @@ pub(crate) fn list_filesystem(
     ordered: bool,
     span: Span,
 ) -> Result<StreamValue, RuntimeError> {
-    let mut children = std::fs::read_dir(&root)
-        .map_err(|error| RuntimeError::new("fs-ls", error.to_string()).with_span(span))?
+    let read_dir = std::fs::read_dir(&root)
+        .map_err(|error| RuntimeError::new("fs-ls", error.to_string()).with_span(span))?;
+    if !ordered {
+        return Ok(StreamValue::from_live(
+            "fs.children",
+            DirectDirectoryStream {
+                entries: read_dir,
+                stat,
+                span,
+            },
+        ));
+    }
+    let mut children = read_dir
         .map(|entry| entry.map(|entry| (entry.path(), entry)))
         .collect::<Result<Vec<_>, _>>()
         .map_err(|error| RuntimeError::new("fs-ls", error.to_string()).with_span(span))?;
@@ -638,22 +649,49 @@ pub(crate) fn list_filesystem(
     }
     let mut items = Vec::with_capacity(children.len());
     for (path, entry) in children {
-        if stat {
-            let metadata = std::fs::symlink_metadata(&path)
-                .map_err(|error| RuntimeError::new("fs-ls", error.to_string()).with_span(span))?;
-            push_fs_entry(&mut items, &path, &metadata)?;
-        } else {
-            let file_type = entry
-                .file_type()
-                .map_err(|error| RuntimeError::new("fs-ls", error.to_string()).with_span(span))?;
-            items.push(StreamItem {
-                value: Value::FsEntry(FsEntryValue::new(path, file_type)),
-                index: items.len(),
-                source_span: None,
-            });
-        }
+        let value = direct_directory_entry_value(entry, path, stat, span)?;
+        items.push(StreamItem {
+            value,
+            index: items.len(),
+            source_span: None,
+        });
     }
     Ok(StreamValue::from_items(items))
+}
+
+struct DirectDirectoryStream {
+    entries: std::fs::ReadDir,
+    stat: bool,
+    span: Span,
+}
+
+impl LiveStream for DirectDirectoryStream {
+    fn next(&mut self, _span: Span) -> Result<Option<Value>, RuntimeError> {
+        let Some(entry) = self.entries.next() else {
+            return Ok(None);
+        };
+        let entry = entry
+            .map_err(|error| RuntimeError::new("fs-ls", error.to_string()).with_span(self.span))?;
+        let path = entry.path();
+        direct_directory_entry_value(entry, path, self.stat, self.span).map(Some)
+    }
+}
+
+fn direct_directory_entry_value(
+    entry: std::fs::DirEntry,
+    path: PathBuf,
+    stat: bool,
+    span: Span,
+) -> Result<Value, RuntimeError> {
+    if stat {
+        let metadata = std::fs::symlink_metadata(&path)
+            .map_err(|error| RuntimeError::new("fs-ls", error.to_string()).with_span(span))?;
+        return fs_entry_record(&path, &metadata);
+    }
+    let file_type = entry
+        .file_type()
+        .map_err(|error| RuntimeError::new("fs-ls", error.to_string()).with_span(span))?;
+    Ok(Value::FsEntry(FsEntryValue::new(path, file_type)))
 }
 
 pub(crate) fn disk_usage(path: PathBuf, span: Span) -> Result<i64, RuntimeError> {
@@ -925,7 +963,7 @@ fn mount_sources(span: Span) -> Result<Vec<MountSource>, RuntimeError> {
 
 #[cfg(test)]
 mod tests {
-    use super::{df_capacity_percent, mount_for, mounts};
+    use super::{df_capacity_percent, list_filesystem, mount_for, mounts};
     use crate::runtime::value::Value;
     use crate::source::{SourceId, Span};
     use std::path::Path;
@@ -961,6 +999,18 @@ mod tests {
         let root = mount_for(Path::new("/"), test_span()).expect("root mount");
         assert_eq!(root.mounted_on, Path::new("/"));
         assert!(root.blocks_1k > 0);
+    }
+
+    #[test]
+    fn unordered_directory_listing_is_lazy() {
+        let root = tempfile::tempdir().expect("create directory listing fixture");
+        std::fs::write(root.path().join("first.txt"), "first").expect("write first entry");
+        std::fs::create_dir(root.path().join("nested")).expect("create nested entry");
+        let listing = list_filesystem(root.path().to_path_buf(), false, false, test_span())
+        .expect("list directory");
+
+        assert!(listing.source.is_some());
+        assert!(listing.items.is_empty());
     }
 }
 
@@ -1848,20 +1898,6 @@ fn raw_walk_entry(
         path: path.to_path_buf(),
         file_type,
     }))
-}
-
-fn push_fs_entry(
-    output: &mut Vec<StreamItem>,
-    path: &Path,
-    metadata: &std::fs::Metadata,
-) -> Result<(), RuntimeError> {
-    let index = output.len();
-    output.push(StreamItem {
-        value: fs_entry_record(path, metadata)?,
-        index,
-        source_span: None,
-    });
-    Ok(())
 }
 
 pub(crate) fn fs_entry_record(

@@ -467,7 +467,6 @@ any known workarounds. When a ticket is resolved, delete it.
 
 | Ticket area | Symbols | Owner and coverage |
 |---|---|---|
-| direct directory enumeration | `lower_fs_files_args`, `fs.files`, `fs.walk`, `CompactBodyProbe` | `src/runtime/eval/lower.rs`, `src/modules/fs.rs`, `src/sema/check/compact.rs`; `tests/runtime/collections.rs`, `tests/runtime/streams.rs` |
 | cancellation responsiveness | `run_cancelable_temp_script`, `cancel_managed`, `CancellationDecision` | `tests/runtime/common.rs`, `src/runtime/process.rs`; process and OS cancellation tests |
 | `par-map` worker error reporting | `eval_indexed_par_map_item`, `eval_indexed_par_map_parallel`, `lowered_return_value` | `src/runtime/eval/lowered_run/indexed_run.rs`, `src/runtime/eval/lowered_ops.rs`; parallel stream and PM integration tests |
 | implicit `Result` returns in lowered evaluation | `lowered_return_value`, `lowered_return_kind_accepts_unit_fallthrough` | `src/runtime/eval/lowered_ops.rs`, `src/runtime/eval/lower.rs`; lowered-vs-ordinary return tests |
@@ -694,35 +693,6 @@ Run this with ordinary evaluation and lowered parallel evaluation, then repeat
 with helpers that use explicit `return Ok(...)` and helpers whose final result
 is a bare expression. Both forms should complete without stack growth or a
 process abort.
-
-### Provide efficient direct-directory entry enumeration
-
-**Symptom**
-
-XSH scripts that must honor a two-file precedence rule, such as Linux
-`Kbuild` over `Makefile`, currently choose between repeated `exists`/read
-probes or a recursive `fs.files` index. The recursive index is too broad for
-this use, while the repeated probes are costly across mounted source trees.
-
-**Desired behavior**
-
-Expose a standard, non-recursive directory-entry operation that can enumerate
-one directory's names and kinds with optional metadata. A script should be
-able to select the preferred file and read exactly one source file while
-retaining ordinary XSH error propagation.
-
-**Likely area**
-
-The standard `fs` module and its filesystem lowering. Preserve the existing
-`fs.files`/`fs.walk` semantics; this ticket is for a narrow direct-directory
-operation rather than a Linux-specific API.
-
-**Minimal reproduction**
-
-The Linux source reader in `packages/repo/linux/kbuild.xsh` must probe
-`Kbuild` and `Makefile` for hundreds of active directories. Compare its
-forced-cold timing with a prototype using a direct-entry operation, and verify
-that Kbuild precedence and complete plan equivalence are unchanged.
 
 ### Long-running XSH scripts should respond promptly to Ctrl-C and SIGTERM
 
