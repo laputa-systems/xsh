@@ -57,6 +57,7 @@ generated tutorial output changes.
 | OS-facing runtime behavior | `tests/runtime/os.rs`, `tests/runtime/unix.rs` |
 | `run_capture`, `spawn_managed`, and process execution | `tests/runtime/process.rs`, `tests/runtime/run.rs` |
 | retry blocks | `tests/runtime/retry.rs` |
+| stack depth and explicit lowered frames | `tests/runtime/stack_depth.rs` |
 | structured streams | `tests/runtime/streams.rs` |
 
 ## Fixture Locations

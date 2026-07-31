@@ -469,7 +469,7 @@ any known workarounds. When a ticket is resolved, delete it.
 |---|---|---|
 | cancellation responsiveness | `run_cancelable_temp_script`, `cancel_managed`, `CancellationDecision` | `tests/runtime/common.rs`, `src/runtime/process.rs`; process and OS cancellation tests |
 | `par-map` worker error reporting | `eval_indexed_par_map_item`, `eval_indexed_par_map_parallel`, `lowered_return_value` | `src/runtime/eval/lowered_run/indexed_run.rs`, `src/runtime/eval/lowered_ops.rs`; parallel stream and PM integration tests |
-| nested lowered `Result` calls | `lowered_return_value`, `eval_call`, `eval_indexed_par_map_parallel` | `src/runtime/eval/lowered_ops.rs`, `src/runtime/eval/lowered_run`; nested effectful-call and PM world-build tests |
+| implicit `Result` returns in lowered evaluation | `lowered_return_value`, `lowered_return_kind_accepts_unit_fallthrough` | `src/runtime/eval/lowered_ops.rs`, `src/runtime/eval/lower.rs`; lowered-vs-ordinary return tests |
 
 Treat these as issue-to-owner handles. Update the nearest behavior test and
 `docs/TEST-MAP.md` when a ticket changes runtime or module behavior.
@@ -537,82 +537,37 @@ prints `par-map error` and the caller later reports `missing-field: built`.
 The proposed behavior should identify the package item and report the original
 worker failure at the `par-map` boundary.
 
-### Prevent stack overflow in nested lowered `Result` calls
+### Preserve implicit `Result` returns in lowered evaluation
 
 **Symptom**
 
-The world build can overflow the XSH worker stack after a package batch has
-finished, while a lowered caller invokes a small effectful helper returning
-`Result[T]`. The failure is a process abort with no XSH source traceback:
+An effectful procedure declared with `-> Result[T]` may use a bare final value
+such as `built` as its successful fallthrough. Ordinary evaluation treats that
+value as `Ok(built)`, but lowered evaluation can reject the same path with
+`lowered return type mismatch`. A caller such as `par-map` then replaces the
+worker result with its failure sentinel, hiding the original mismatch behind a
+later shape error.
 
-```text
-thread '<unknown>' has overflowed its stack
-fatal runtime error: stack overflow, aborting
-```
+**Desired behavior**
 
-The affected path was `pm/world.xsh::world_remote_metadata_hashes` calling
-`pm/world.xsh::remote_metadata_sha256` after the package-build `par-map`
-completed. After that preflight succeeded, the same run could abort while
-evaluating the shallow boolean `batch.failed or built.len() == 0` in
-`pm/world.xsh::world_plan_repo`, and later while entering
-`pm/world.xsh::stage_world_build_batch`. Making every helper return explicit,
-fetching metadata sequentially, and removing the optional metadata comparison
-from the required world-build path avoids the abort, but it does not explain
-why these shallow lowered paths consume the stack.
-
-**Packages integration references**
-
-- `../packages/pm/world.xsh::world_plan_repo` formerly invoked the metadata
-  preflight after `build_world_package_or_empty` completed; the current
-  required path intentionally skips that optional optimization.
-- `../packages/pm/world.xsh::world_remote_metadata_hashes` collects the
-  preflight values, and `../packages/pm/world.xsh::remote_metadata_sha256`
-  performs the nested effectful lookup.
-- `../packages/pm/world.xsh::stage_world_build_batch` is the current staging
-  helper; it always stages a successful build and does not enter the unstable
-  metadata-comparison path.
-- The package-side workaround is disabling that optional comparison in the
-  required world-build path; it is not a replacement for fixing lowered call
-  and expression evaluation.
-
-**Acceptance gates**
-
-- The minimal reproduction completes in ordinary and lowered evaluation with
-  bounded stack use and no process abort; the bare-return variant must also be
-  covered once implicit `Result` returns are fixed.
-- `make world-build WORLD_TO_TRANCHE=1 WORLD_JOBS=1` and the default parallel
-  invocation `make world-build WORLD_TO_TRANCHE=1` both exit successfully.
-- Neither invocation may emit `stack overflow`, `fatal runtime error`, or an
-  unscoped lowered-runtime failure; any failure must retain an XSH source span.
-- The PM integration test must pass while the optional metadata comparison is
-  disabled, and a focused regression test must exercise
-  `world_remote_metadata_hashes` and `remote_metadata_sha256` directly before
-  that optimization is restored.
-
-**Proposal**
-
-Audit lowered call and result propagation frames for recursive evaluator entry
-or repeated wrapper construction. A finite chain of effectful calls and a
-single `par-map` boundary must have stack use proportional to call depth, not
-to the size of the returned collection or the number of already-completed
-workers. Report a structured runtime error with the active XSH span if a
-lowered evaluation cannot make progress; never abort the process with a raw
-stack overflow for this case.
+The implicit-return contract must be identical in ordinary and lowered
+evaluation. In particular, a bare final expression in a procedure returning
+`Result[T]` must be lowered to `Ok(expression)` when its type is `T`, while an
+explicit `Ok(...)`, `Err(...)`, or propagated error keeps its existing meaning.
+The same rule should apply to implicit Unit fallthrough and to every lowered
+call boundary, including parallel stream workers.
 
 **Minimal reproduction**
 
 ```xsh
-proc leaf(value: Int) [error] -> Result[Int] {
-  return Ok(value)
-}
-
-proc middle(value: Int) [error] -> Result[Int] {
-  leaf(value)?
+proc build() [error] -> Result[List[Str]] {
+  let built = ["ok"]
+  built
 }
 
 proc main() [error] -> Result[Unit] {
-  let values = [1, 2] |> par-map --jobs=2 { |value|
-    middle(value)
+  let values = [1, 2] |> par-map --jobs=2 { |_|
+    build()
   }
   print values
 }
@@ -620,10 +575,35 @@ proc main() [error] -> Result[Unit] {
 main()?
 ```
 
-Run this with ordinary evaluation and lowered parallel evaluation, then repeat
-with helpers that use explicit `return Ok(...)` and helpers whose final result
-is a bare expression. Both forms should complete without stack growth or a
-process abort.
+Run this through both ordinary evaluation and lowered `par-map` evaluation.
+Both paths should produce two successful `List[Str]` values and no lowered
+return-type error.
+
+**Packages integration references**
+
+- `../packages/pm/world.xsh::build_world_package` and
+  `../packages/pm/world.xsh::build_world_package_or_empty` are the affected
+  world-build return paths.
+- `../packages/pm/build.xsh::build_packages_in_chroot` and
+  `../packages/pm/build.xsh::build_packages` are the package batch callers.
+- `../packages/pm/repo.xsh::stage_built_package` and
+  `../packages/pm/repo.xsh::order_repo_build_packages` are downstream
+  `Result[List[...]]` paths that must preserve successful fallthrough values.
+
+**Acceptance gates**
+
+- The minimal reproduction produces two successful values in both ordinary and
+  lowered evaluation, including when the final expression is bare.
+- The package-side compatibility returns may remain while the language fix is
+  pending, but removing them after the XSH fix must leave
+  `make world-build WORLD_TO_TRANCHE=1 WORLD_JOBS=4` successful.
+- Add lowered and ordinary evaluator tests for `Result[T]` bare fallthrough,
+  explicit `Ok`, explicit `Err`, and `?` propagation; all must agree.
+
+**Workaround**
+
+Write `return Ok(built)` explicitly in affected procedures. This is a
+compatibility workaround, not the intended language contract.
 
 ### Long-running XSH scripts should respond promptly to Ctrl-C and SIGTERM
 

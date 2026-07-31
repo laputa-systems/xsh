@@ -227,7 +227,12 @@ pub(super) fn indexed_explicit_frames_active() -> bool {
     INDEXED_EXPLICIT_FRAMES.with(Cell::get)
 }
 
-pub(super) fn indexed_recursive_fast_path_allowed() -> bool {
+pub(super) fn indexed_recursive_fast_path_allowed(return_kind: LoweredReturnKind) -> bool {
+    // Result propagation adds wrapper and unwind work around a call. Keep it
+    // on the heap-backed frame path even when shallow plain calls may recurse.
+    if matches!(return_kind, LoweredReturnKind::Result(_)) {
+        return false;
+    }
     if cfg!(debug_assertions) {
         return false;
     }

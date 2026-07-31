@@ -1518,7 +1518,7 @@ impl Evaluator {
             Ok(supported) => supported,
             Err(error) => return Some(Err(error)),
         };
-        if frame_support && !super::indexed_recursive_fast_path_allowed() {
+        if frame_support && !super::indexed_recursive_fast_path_allowed(header.return_kind) {
             return Some(
                 super::with_indexed_explicit_frames(|| {
                     self.eval_indexed_with_frame_slots(
@@ -1608,16 +1608,16 @@ impl Evaluator {
         let view = program
             .function_view_at(index)
             .expect("cached lowered function index is valid");
+        let header = view
+            .header()
+            .map_err(|error| indexed_error(error, call_span))?;
         if self.indexed_frames_supported(view, call_span)?
-            && !super::indexed_recursive_fast_path_allowed()
+            && !super::indexed_recursive_fast_path_allowed(header.return_kind)
         {
             return super::with_indexed_explicit_frames(|| {
                 self.eval_indexed_with_frames(program.as_ref(), function, kind, values, call_span)
             });
         }
-        let header = view
-            .header()
-            .map_err(|error| indexed_error(error, call_span))?;
         let mut next_slots = self.bind_lowered_values(&header, values, call_span)?;
         let result = self
             .eval_indexed_call_frame(function, kind, view, &header, &mut next_slots, call_span)
@@ -1647,8 +1647,11 @@ impl Evaluator {
         let view = program
             .function_view_at(index)
             .expect("cached lowered function index is valid");
+        let header = view
+            .header()
+            .map_err(|error| indexed_error(error, call_span))?;
         if self.indexed_frames_supported(view, call_span)?
-            && !super::indexed_recursive_fast_path_allowed()
+            && !super::indexed_recursive_fast_path_allowed(header.return_kind)
         {
             return super::with_indexed_explicit_frames(|| {
                 self.eval_indexed_with_frames(
@@ -1660,9 +1663,6 @@ impl Evaluator {
                 )
             });
         }
-        let header = view
-            .header()
-            .map_err(|error| indexed_error(error, call_span))?;
         let mut next_slots = self.bind_lowered_values(&header, values, call_span)?;
         let name = function.display_name();
         self.call_stack.push(TracebackFrame {
@@ -1711,16 +1711,16 @@ impl Evaluator {
         let view = program
             .function_view_at(index)
             .expect("cached lowered function index is valid");
+        let header = view
+            .header()
+            .map_err(|error| indexed_error(error, call_span))?;
         if self.indexed_frames_supported(view, call_span)?
-            && !super::indexed_recursive_fast_path_allowed()
+            && !super::indexed_recursive_fast_path_allowed(header.return_kind)
         {
             return super::with_indexed_explicit_frames(|| {
                 self.eval_indexed_with_frames(program.as_ref(), function, kind, values, call_span)
             });
         }
-        let header = view
-            .header()
-            .map_err(|error| indexed_error(error, call_span))?;
         let mut next_slots = self.bind_lowered_values(&header, values, call_span)?;
         let result = with_indexed_eval_depth(call_span, || {
             self.eval_indexed_function(view, &header, &mut next_slots, call_span)
