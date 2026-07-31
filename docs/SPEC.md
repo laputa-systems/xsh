@@ -1844,8 +1844,14 @@ files are written through a temporary file in the destination directory.
   `""` to emit extensionless files.
 - `fs.dirs(path: Path, gitignore: Bool = true, stat: Bool = true, hidden: Bool = false) -> Result[Stream[Record]]` —
   equivalent to `fs.walk |> where .kind == "dir"`.
-- `fs.ls(path: Path, stat: Bool = true, ordered: Bool = true) -> Result[Stream[Record]]`.
-- `fs.children(path: Path, stat: Bool = true, ordered: Bool = true) -> Result[Stream[Record]]`.
+- `fs.ls(path: Path, stat: Bool = true, ordered: Bool = true) -> Result[Stream[Record]]` —
+  enumerates only the entries directly under `path`; it never recurses. With
+  `ordered: false`, the stream reads directory entries lazily in host order.
+  `ordered: true` materializes and sorts the entries by path before yielding
+  them. `stat: false` uses the directory entry type and leaves stat-derived
+  fields at their zero values.
+- `fs.children(path: Path, stat: Bool = true, ordered: Bool = true) -> Result[Stream[Record]]` —
+  an alias of `fs.ls` for scripts that want to emphasize direct children.
 - `fs.metadata(path: Path) -> Result[Record]`.
 - `fs.filesystem_stats(path: Path) -> Result[Record]`.
 - `fs.mounts() -> Result[Stream[Record]]`; call `.collect()` when a reusable list is needed.

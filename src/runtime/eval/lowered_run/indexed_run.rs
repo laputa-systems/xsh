@@ -291,9 +291,11 @@ impl Evaluator {
             .clone();
         let base_slots = slots.to_vec();
         let (chunks, stderr) = std::thread::scope(|scope| {
+            let (sender, receiver) = std::sync::mpsc::sync_channel(worker_count);
             let mut workers = Vec::with_capacity(worker_count);
             for (chunk_index, chunk) in partitions.into_iter().enumerate() {
                 let shared = &shared;
+                let sender = sender.clone();
                 let symbols = symbols.clone();
                 let base_slots = base_slots.clone();
                 let block_header = block_header.clone();
@@ -320,33 +322,40 @@ impl Evaluator {
                                 ),
                             ));
                         }
-                        (results, worker.stderr)
+                        sender
+                            .send((chunk_index, results, worker.stderr))
+                            .expect("lowered par-map receiver dropped");
                     })
                     .expect("failed to spawn lowered par-map worker");
                 workers.push((chunk_index, worker));
             }
+            drop(sender);
             let mut completed: Vec<Option<(Vec<(usize, LoweredValue)>, Vec<u8>)>> =
                 (0..workers.len()).map(|_| None).collect();
-            while !workers.is_empty() {
-                let mut index = 0;
-                let mut progress = false;
-                while index < workers.len() {
-                    if workers[index].1.is_finished() {
-                        let (chunk_index, worker) = workers.swap_remove(index);
-                        completed[chunk_index] = Some(
-                            worker
-                                .join()
-                                .expect("lowered par-map worker thread panicked"),
-                        );
-                        progress = true;
-                    } else {
-                        index += 1;
+            let mut remaining = workers.len();
+            while remaining > 0 {
+                match receiver.recv_timeout(std::time::Duration::from_millis(1)) {
+                    Ok((chunk_index, results, worker_stderr)) => {
+                        completed[chunk_index] = Some((results, worker_stderr));
+                        remaining -= 1;
+                        self.service_pending_signal(span)?;
+                    }
+                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                        self.service_pending_signal(span)?;
+                    }
+                    Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                        return Err(RuntimeError::new(
+                            "par-map",
+                            "worker exited without returning its results",
+                        )
+                        .with_span(span));
                     }
                 }
-                self.service_pending_signal(span)?;
-                if !progress {
-                    std::thread::sleep(std::time::Duration::from_millis(1));
-                }
+            }
+            for (_, worker) in workers {
+                worker
+                    .join()
+                    .expect("lowered par-map worker thread panicked");
             }
             let mut ordered: Vec<Option<LoweredValue>> = (0..item_count).map(|_| None).collect();
             let mut stderr = Vec::new();
