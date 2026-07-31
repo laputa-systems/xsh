@@ -8,7 +8,7 @@ fn small_stack_stress_lock() -> &'static Mutex<()> {
     LOCK.get_or_init(|| Mutex::new(()))
 }
 
-fn run_small_stack_stress(name: &str, source: &str) {
+fn run_small_stack_stress(name: &str, source: &str) -> std::process::Output {
     let _lock = small_stack_stress_lock()
         .lock()
         .expect("small-stack stress lock");
@@ -26,6 +26,7 @@ fn run_small_stack_stress(name: &str, source: &str) {
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
+    output
 }
 
 fn nested_expression_source(depth: usize) -> String {
@@ -104,6 +105,15 @@ fn small_stack_par_map_worker_recursion_does_not_abort() {
         "stack-depth-par-map-worker-recursion",
         include_str!("../fixtures/runtime/stack-depth/par-map-worker-recursion.xsh"),
     );
+}
+
+#[test]
+fn small_stack_nested_lowered_result_calls_do_not_abort() {
+    let output = run_small_stack_stress(
+        "stack-depth-nested-lowered-result",
+        include_str!("../fixtures/runtime/stack-depth/nested-lowered-result.xsh"),
+    );
+    assert_eq!(String::from_utf8(output.stdout).unwrap(), "2\n2\n2\n2\n");
 }
 
 #[test]
