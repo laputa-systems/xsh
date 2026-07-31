@@ -134,20 +134,12 @@ ifeq ($(filter $(TARGET),aarch64-apple-darwin x86_64-apple-darwin),)
 			make dist DOCKER_BUILD=1 DIST_BUILD_STD_FLAGS= \
 		'
 else
-	$(DIST_ENV) cargo build -p xsh-multicall --target-dir $(CURDIR)/target/dist-build --locked --profile $(DIST_PROFILE) $(DIST_BUILD_STD_FLAGS) --target $(TARGET) --no-default-features --features "net tools"
-	mkdir -p target/$(TARGET)
-	rm -rf target/$(TARGET)/dist target/$(TARGET)/$(DIST_PROFILE_DIR)
-	ln -sfn ../dist-build/$(TARGET)/dist target/$(TARGET)/dist
-	ln -sfn ../dist-build/$(TARGET)/$(DIST_PROFILE_DIR) target/$(TARGET)/$(DIST_PROFILE_DIR)
+	$(DIST_ENV) cargo build -p xsh-multicall --locked --profile $(DIST_PROFILE) $(DIST_BUILD_STD_FLAGS) --target $(TARGET) --no-default-features --features "net tools"
 	ln -sf $(DIST_BIN) target/$(TARGET)/dist/xsh
 endif
 
 dist-Linux:
-	$(DIST_ENV) cargo build -p xsh-multicall --target-dir $(CURDIR)/target/dist-build --locked --profile $(DIST_PROFILE) $(DIST_BUILD_STD_FLAGS) --target $(TARGET) --no-default-features --features "net tools"
-	mkdir -p target/$(TARGET)
-	rm -rf target/$(TARGET)/dist target/$(TARGET)/$(DIST_PROFILE_DIR)
-	ln -sfn ../dist-build/$(TARGET)/dist target/$(TARGET)/dist
-	ln -sfn ../dist-build/$(TARGET)/$(DIST_PROFILE_DIR) target/$(TARGET)/$(DIST_PROFILE_DIR)
+	$(DIST_ENV) cargo build -p xsh-multicall --locked --profile $(DIST_PROFILE) $(DIST_BUILD_STD_FLAGS) --target $(TARGET) --no-default-features --features "net tools"
 	ln -sf $(DIST_BIN) target/$(TARGET)/dist/xsh
 
 dist-ci: dist
