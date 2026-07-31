@@ -471,7 +471,6 @@ any known workarounds. When a ticket is resolved, delete it.
 | direct directory enumeration | `lower_fs_files_args`, `fs.files`, `fs.walk`, `CompactBodyProbe` | `src/runtime/eval/lower.rs`, `src/modules/fs.rs`, `src/sema/check/compact.rs`; `tests/runtime/collections.rs`, `tests/runtime/streams.rs` |
 | cancellation responsiveness | `run_cancelable_temp_script`, `cancel_managed`, `CancellationDecision` | `tests/runtime/common.rs`, `src/runtime/process.rs`; process and OS cancellation tests |
 | `par-map` worker error reporting | `eval_indexed_par_map_item`, `eval_indexed_par_map_parallel`, `lowered_return_value` | `src/runtime/eval/lowered_run/indexed_run.rs`, `src/runtime/eval/lowered_ops.rs`; parallel stream and PM integration tests |
-| implicit `Result` returns in lowered evaluation | `lowered_return_value`, `lowered_return_kind_accepts_unit_fallthrough` | `src/runtime/eval/lowered_ops.rs`, `src/runtime/eval/lower.rs`; lowered-vs-ordinary return tests |
 | nested lowered `Result` calls | `lowered_return_value`, `eval_call`, `eval_indexed_par_map_parallel` | `src/runtime/eval/lowered_ops.rs`, `src/runtime/eval/lowered_run`; nested effectful-call and PM world-build tests |
 
 Treat these as issue-to-owner handles. Update the nearest behavior test and
@@ -539,74 +538,6 @@ Force a worker failure or lowered return-type mismatch. The current runtime
 prints `par-map error` and the caller later reports `missing-field: built`.
 The proposed behavior should identify the package item and report the original
 worker failure at the `par-map` boundary.
-
-### Preserve implicit `Result` returns in lowered evaluation
-
-**Symptom**
-
-An effectful procedure declared with `-> Result[T]` may use a bare final value
-such as `built` as its successful fallthrough. Ordinary evaluation treats that
-value as `Ok(built)`, but lowered evaluation can reject the same path with
-`lowered return type mismatch`. A caller such as `par-map` then replaces the
-worker result with its failure sentinel, hiding the original mismatch behind a
-later shape error.
-
-**Desired behavior**
-
-The implicit-return contract must be identical in ordinary and lowered
-evaluation. In particular, a bare final expression in a procedure returning
-`Result[T]` must be lowered to `Ok(expression)` when its type is `T`, while an
-explicit `Ok(...)`, `Err(...)`, or propagated error keeps its existing meaning.
-The same rule should apply to implicit Unit fallthrough and to every lowered
-call boundary, including parallel stream workers.
-
-**Minimal reproduction**
-
-```xsh
-proc build() [error] -> Result[List[Str]] {
-  let built = ["ok"]
-  built
-}
-
-proc main() [error] -> Result[Unit] {
-  let values = [1, 2] |> par-map --jobs=2 { |_|
-    build()
-  }
-  print values
-}
-
-main()?
-```
-
-Run this through both ordinary evaluation and lowered `par-map` evaluation.
-Both paths should produce two successful `List[Str]` values and no lowered
-return-type error.
-
-**Packages integration references**
-
-- `../packages/pm/world.xsh::build_world_package` and
-  `../packages/pm/world.xsh::build_world_package_or_empty` are the affected
-  world-build return paths.
-- `../packages/pm/build.xsh::build_packages_in_chroot` and
-  `../packages/pm/build.xsh::build_packages` are the package batch callers.
-- `../packages/pm/repo.xsh::stage_built_package` and
-  `../packages/pm/repo.xsh::order_repo_build_packages` are downstream
-  `Result[List[...]]` paths that must preserve successful fallthrough values.
-
-**Acceptance gates**
-
-- The minimal reproduction produces two successful values in both ordinary and
-  lowered evaluation, including when the final expression is bare.
-- The package-side compatibility returns may remain while the language fix is
-  pending, but removing them after the XSH fix must leave
-  `make world-build WORLD_TO_TRANCHE=1 WORLD_JOBS=4` successful.
-- Add lowered and ordinary evaluator tests for `Result[T]` bare fallthrough,
-  explicit `Ok`, explicit `Err`, and `?` propagation; all must agree.
-
-**Workaround**
-
-Write `return Ok(built)` explicitly in affected procedures. This is a
-compatibility workaround, not the intended language contract.
 
 ### Prevent stack overflow in nested lowered `Result` calls
 
