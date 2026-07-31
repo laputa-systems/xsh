@@ -65,6 +65,8 @@ jobs:
       CFLAGS_aarch64_unknown_linux_musl: --target=aarch64-unknown-linux-musl
       AWS_LC_SYS_CFLAGS_aarch64_unknown_linux_musl: --target=aarch64-unknown-linux-musl
       CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_RUSTFLAGS: -C target-feature=+crt-static -C link-arg=--defsym=__isoc23_sscanf=sscanf -C link-arg=--defsym=__isoc23_strtol=strtol
+      CFLAGS_aarch64_apple_darwin: -mcpu=apple-m1
+      CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS: -C target-cpu=apple-m1
     steps:
       - uses: actions/checkout@v4
         with:
