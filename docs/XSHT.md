@@ -72,7 +72,12 @@ request order and may mix exact lookups with deterministic search:
 ```sh
 xsht api api:json.read method:Path.read_text record:FsEntry language:run.status
 xsht api --format jsonl --strict api:archive.tar_extract search:"rooted extraction"
+xsht api summary
 ```
+
+`xsht api summary` prints the complete sorted module/function tree, method
+receiver tree, record list, and language-reference groups after a compact count
+header. `--format jsonl` returns the same inventory as structured arrays.
 
 Use `--query-file PATH` or `--stdin` to add one selector per line to the same
 request. `crates/xsht/src/api.rs::query` renders the registry;

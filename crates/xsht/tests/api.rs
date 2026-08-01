@@ -42,6 +42,75 @@ fn api_mixed_batch_preserves_query_order() {
 }
 
 #[test]
+fn api_summary_reports_the_complete_queryable_surface() {
+    let output = xsht(&["api", "summary"]);
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("utf8 stdout");
+    assert!(stdout.starts_with("XSH API summary\n"), "{stdout}");
+    for label in [
+        "standard modules:",
+        "module functions:",
+        "module overloads:",
+        "method receivers:",
+        "methods:",
+        "method overloads:",
+        "standard records:",
+        "language reference items:",
+        "total queryable items:",
+        "documented items:",
+    ] {
+        assert!(stdout.contains(label), "{stdout}");
+    }
+    assert!(stdout.contains("\nmodules\n"), "{stdout}");
+    for (module, signatures) in xsh::modules::api_spec().module_entries() {
+        assert!(stdout.contains(&format!("── {module} (")), "{stdout}");
+        for function in &signatures.functions {
+            assert!(stdout.contains(&format!("── {} (", function.name)), "{stdout}");
+        }
+    }
+    assert!(stdout.contains("\nmethods\n"), "{stdout}");
+    assert!(stdout.contains("\nrecords\n"), "{stdout}");
+    for record in xsh_registry::records::record_schemas().keys() {
+        assert!(stdout.contains(&format!("── {record}\n")), "{stdout}");
+    }
+    assert!(stdout.contains("\nlanguage\n"), "{stdout}");
+    assert_eq!(String::from_utf8(output.stderr).unwrap(), "");
+}
+
+#[test]
+fn api_summary_jsonl_is_one_structured_response() {
+    let output = xsht(&["api", "summary", "--format", "jsonl"]);
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("utf8 stdout");
+    assert_eq!(stdout.lines().count(), 1, "{stdout}");
+    assert!(stdout.contains("\"kind\":\"summary\""), "{stdout}");
+    assert!(stdout.contains("\"total_queryable_items\":"), "{stdout}");
+    assert!(stdout.contains("\"modules\":["), "{stdout}");
+    assert!(stdout.contains("\"method_receivers\":["), "{stdout}");
+    assert!(stdout.contains("\"records\":["), "{stdout}");
+    assert!(stdout.contains("\"language_groups\":["), "{stdout}");
+    let parsed = xsh::modules::json::parse_raw_json(stdout.trim()).expect("parse summary JSON");
+    assert!(xsh::modules::json::raw_json_get(&parsed, "modules").is_some());
+    assert!(xsh::modules::json::raw_json_get(&parsed, "method_receivers").is_some());
+    assert!(xsh::modules::json::raw_json_get(&parsed, "records").is_some());
+    assert!(xsh::modules::json::raw_json_get(&parsed, "language_groups").is_some());
+}
+
+#[test]
+fn api_summary_rejects_selectors() {
+    let output = xsht(&["api", "summary", "api:json.read"]);
+
+    assert_eq!(output.status.code(), Some(2));
+    assert!(
+        String::from_utf8(output.stderr)
+            .unwrap()
+            .contains("cannot be combined with selectors"),
+    );
+}
+
+#[test]
 fn api_jsonl_has_one_response_per_selector() {
     let output = xsht(&[
         "api",

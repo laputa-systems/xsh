@@ -34,6 +34,7 @@ cargo build --bin xsh
 cargo build --bin xsht
 cargo test -p xsh-registry --lib
 cargo test -p xsht --test api
+target/debug/xsht api summary
 cargo test --test integration runtime::examples::
 ```
 

@@ -1,5 +1,6 @@
 use std::fs;
 use std::io::Read;
+use std::collections::BTreeMap;
 use xsh::modules::api_spec;
 use xsh::modules::signature::{MethodReceiver, MethodReturn, ModuleFnSig};
 use xsh::sema::records::record_schemas;
@@ -22,6 +23,7 @@ pub enum ApiDetails {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ApiOptions {
+    pub summary: bool,
     pub queries: Vec<String>,
     pub query_files: Vec<String>,
     pub read_stdin: bool,
@@ -65,6 +67,48 @@ struct ApiResponse {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+struct ApiSummary {
+    standard_modules: usize,
+    module_functions: usize,
+    module_overloads: usize,
+    method_receivers: usize,
+    methods: usize,
+    method_overloads: usize,
+    standard_records: usize,
+    language_reference_items: usize,
+    total_queryable_items: usize,
+    documented_items: usize,
+    modules: Vec<ApiModuleTree>,
+    method_receivers_tree: Vec<ApiMethodReceiverTree>,
+    records: Vec<String>,
+    language_groups: Vec<ApiLanguageGroup>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct ApiModuleTree {
+    name: String,
+    functions: Vec<ApiCallableTree>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct ApiMethodReceiverTree {
+    name: String,
+    methods: Vec<ApiCallableTree>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct ApiCallableTree {
+    name: String,
+    overloads: usize,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct ApiLanguageGroup {
+    name: String,
+    items: Vec<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 enum Selector {
     Module(String),
     Api(String, String),
@@ -75,6 +119,9 @@ enum Selector {
 }
 
 pub fn query(options: &ApiOptions) -> Result<ApiOutput, ApiError> {
+    if options.summary {
+        return summary(options);
+    }
     let raw_queries = collect_queries(options)?;
     if raw_queries.is_empty() {
         return Err(usage_error(
@@ -120,6 +167,130 @@ pub fn query(options: &ApiOptions) -> Result<ApiOutput, ApiError> {
         status: if options.strict && missing { 1 } else { 0 },
         stdout,
     })
+}
+
+fn summary(options: &ApiOptions) -> Result<ApiOutput, ApiError> {
+    if !options.queries.is_empty() || !options.query_files.is_empty() || options.read_stdin {
+        return Err(usage_error(
+            "`xsht api summary` does not accept selectors, --query-file, or --stdin",
+        ));
+    }
+    if options.strict || options.details.is_some() {
+        return Err(usage_error(
+            "`xsht api summary` accepts only the optional --format text|jsonl",
+        ));
+    }
+
+    let catalog = catalog();
+    let spec = api_spec();
+    let mut modules = spec
+        .module_entries()
+        .map(|(name, module)| ApiModuleTree {
+            name: name.to_string(),
+            functions: module
+                .functions
+                .iter()
+                .map(|function| ApiCallableTree {
+                    name: function.name.to_string(),
+                    overloads: function.overloads.len(),
+                })
+                .collect(),
+        })
+        .collect::<Vec<_>>();
+    modules.sort_by(|left, right| left.name.cmp(&right.name));
+    for module in &mut modules {
+        module
+            .functions
+            .sort_by(|left, right| left.name.cmp(&right.name));
+    }
+
+    let mut method_receivers_tree = spec
+        .method_entries()
+        .map(|(receiver, methods)| ApiMethodReceiverTree {
+            name: summary_receiver_name(receiver).to_string(),
+            methods: methods
+                .iter()
+                .map(|method| ApiCallableTree {
+                    name: method.name.to_string(),
+                    overloads: method.overloads.len(),
+                })
+                .collect(),
+        })
+        .collect::<Vec<_>>();
+    method_receivers_tree.sort_by(|left, right| left.name.cmp(&right.name));
+    for receiver in &mut method_receivers_tree {
+        receiver
+            .methods
+            .sort_by(|left, right| left.name.cmp(&right.name));
+    }
+
+    let records = record_schemas()
+        .keys()
+        .map(|name| name.to_string())
+        .collect::<Vec<_>>();
+    let mut language_groups = BTreeMap::<String, Vec<String>>::new();
+    for reference in language_references() {
+        let (group, item) = reference
+            .id
+            .split_once('.')
+            .map_or(("other", reference.id.as_str()), |(group, item)| (group, item));
+        language_groups
+            .entry(group.to_string())
+            .or_default()
+            .push(item.to_string());
+    }
+    let language_groups = language_groups
+        .into_iter()
+        .map(|(name, mut items)| {
+            items.sort();
+            ApiLanguageGroup { name, items }
+        })
+        .collect::<Vec<_>>();
+
+    let standard_modules = modules.len();
+    let module_functions = modules.iter().map(|module| module.functions.len()).sum();
+    let module_overloads = modules
+        .iter()
+        .flat_map(|module| module.functions.iter())
+        .map(|function| function.overloads)
+        .sum();
+    let method_receivers = method_receivers_tree.len();
+    let methods = method_receivers_tree
+        .iter()
+        .map(|receiver| receiver.methods.len())
+        .sum();
+    let method_overloads = method_receivers_tree
+        .iter()
+        .flat_map(|receiver| receiver.methods.iter())
+        .map(|method| method.overloads)
+        .sum();
+    let standard_records = records.len();
+    let language_reference_items = language_groups.iter().map(|group| group.items.len()).sum();
+    let documented_items = catalog
+        .iter()
+        .filter(|item| !item.summary.trim().is_empty())
+        .count();
+    let summary = ApiSummary {
+        standard_modules,
+        module_functions,
+        module_overloads,
+        method_receivers,
+        methods,
+        method_overloads,
+        standard_records,
+        language_reference_items,
+        total_queryable_items: catalog.len(),
+        documented_items,
+        modules,
+        method_receivers_tree,
+        records,
+        language_groups,
+    };
+    let stdout = match options.format {
+        ApiFormat::Text => render_summary_text(&summary),
+        ApiFormat::Jsonl => render_summary_jsonl(&summary),
+    };
+    Ok(ApiOutput { status: 0, stdout })
 }
 
 fn collect_queries(options: &ApiOptions) -> Result<Vec<(String, bool)>, ApiError> {
@@ -510,6 +681,207 @@ fn render_text(responses: &[ApiResponse]) -> String {
         }
     }
     output
+}
+
+fn render_summary_text(summary: &ApiSummary) -> String {
+    let mut output = format!(
+        "XSH API summary\n\
+standard modules: {}\n\
+module functions: {}\n\
+module overloads: {}\n\
+method receivers: {}\n\
+methods: {}\n\
+method overloads: {}\n\
+standard records: {}\n\
+language reference items: {}\n\
+total queryable items: {}\n\
+documented items: {}\n",
+        summary.standard_modules,
+        summary.module_functions,
+        summary.module_overloads,
+        summary.method_receivers,
+        summary.methods,
+        summary.method_overloads,
+        summary.standard_records,
+        summary.language_reference_items,
+        summary.total_queryable_items,
+        summary.documented_items,
+    );
+    append_callable_tree(
+        &mut output,
+        "modules",
+        summary.modules.iter().map(|module| (&module.name, &module.functions)),
+    );
+    append_callable_tree(
+        &mut output,
+        "methods",
+        summary
+            .method_receivers_tree
+            .iter()
+            .map(|receiver| (&receiver.name, &receiver.methods)),
+    );
+    append_leaf_tree(&mut output, "records", &summary.records);
+    let language_groups = summary
+        .language_groups
+        .iter()
+        .map(|group| (&group.name, &group.items))
+        .collect::<Vec<_>>();
+    append_group_tree(&mut output, "language", &language_groups);
+    output
+}
+
+fn render_summary_jsonl(summary: &ApiSummary) -> String {
+    let mut output = format!(
+        "{{\"schema_version\":1,\"kind\":\"summary\",\"standard_modules\":{},\"module_functions\":{},\"module_overloads\":{},\"method_receivers\":{},\"methods\":{},\"method_overloads\":{},\"standard_records\":{},\"language_reference_items\":{},\"total_queryable_items\":{},\"documented_items\":{}",
+        summary.standard_modules,
+        summary.module_functions,
+        summary.module_overloads,
+        summary.method_receivers,
+        summary.methods,
+        summary.method_overloads,
+        summary.standard_records,
+        summary.language_reference_items,
+        summary.total_queryable_items,
+        summary.documented_items,
+    );
+    push_summary_modules_json(&mut output, &summary.modules);
+    push_summary_methods_json(&mut output, &summary.method_receivers_tree);
+    output.push(',');
+    push_json_array(&mut output, "records", &summary.records, false);
+    push_summary_language_json(&mut output, &summary.language_groups);
+    output.push_str("}\n");
+    output
+}
+
+fn append_callable_tree<'a>(
+    output: &mut String,
+    title: &str,
+    groups: impl Iterator<Item = (&'a String, &'a Vec<ApiCallableTree>)>,
+) {
+    output.push('\n');
+    output.push_str(title);
+    output.push('\n');
+    let groups = groups.collect::<Vec<_>>();
+    for (group_index, (group, callables)) in groups.iter().enumerate() {
+        let group_last = group_index + 1 == groups.len();
+        output.push_str(if group_last { "└── " } else { "├── " });
+        output.push_str(group);
+        output.push_str(&format!(" ({} items)\n", callables.len()));
+        for (callable_index, callable) in callables.iter().enumerate() {
+            output.push_str(if group_last { "    " } else { "│   " });
+            output.push_str(if callable_index + 1 == callables.len() { "└── " } else { "├── " });
+            output.push_str(&callable.name);
+            output.push_str(" (");
+            output.push_str(&overload_label(callable.overloads));
+            output.push_str(")\n");
+        }
+    }
+}
+
+fn append_leaf_tree(output: &mut String, title: &str, items: &[String]) {
+    output.push('\n');
+    output.push_str(title);
+    output.push('\n');
+    for (index, item) in items.iter().enumerate() {
+        output.push_str(if index + 1 == items.len() { "└── " } else { "├── " });
+        output.push_str(item);
+        output.push('\n');
+    }
+}
+
+fn append_group_tree(output: &mut String, title: &str, groups: &[(&String, &Vec<String>)]) {
+    output.push('\n');
+    output.push_str(title);
+    output.push('\n');
+    for (group_index, (group, items)) in groups.iter().enumerate() {
+        let group_last = group_index + 1 == groups.len();
+        output.push_str(if group_last { "└── " } else { "├── " });
+        output.push_str(group);
+        output.push_str(&format!(" ({} items)\n", items.len()));
+        for (item_index, item) in items.iter().enumerate() {
+            output.push_str(if group_last { "    " } else { "│   " });
+            output.push_str(if item_index + 1 == items.len() { "└── " } else { "├── " });
+            output.push_str(item);
+            output.push('\n');
+        }
+    }
+}
+
+fn push_summary_modules_json(output: &mut String, modules: &[ApiModuleTree]) {
+    output.push_str(",\"modules\":[");
+    for (module_index, module) in modules.iter().enumerate() {
+        if module_index > 0 {
+            output.push(',');
+        }
+        output.push_str("{\"name\":");
+        push_json_string(output, &module.name);
+        output.push_str(",\"functions\":[");
+        push_callable_tree_json(output, &module.functions);
+        output.push_str("]}");
+    }
+    output.push(']');
+}
+
+fn push_summary_methods_json(output: &mut String, receivers: &[ApiMethodReceiverTree]) {
+    output.push_str(",\"method_receivers\":[");
+    for (receiver_index, receiver) in receivers.iter().enumerate() {
+        if receiver_index > 0 {
+            output.push(',');
+        }
+        output.push_str("{\"name\":");
+        push_json_string(output, &receiver.name);
+        output.push_str(",\"methods\":[");
+        push_callable_tree_json(output, &receiver.methods);
+        output.push_str("]}");
+    }
+    output.push(']');
+}
+
+fn push_callable_tree_json(output: &mut String, callables: &[ApiCallableTree]) {
+    for (callable_index, callable) in callables.iter().enumerate() {
+        if callable_index > 0 {
+            output.push(',');
+        }
+        output.push_str("{\"name\":");
+        push_json_string(output, &callable.name);
+        output.push_str(&format!(",\"overloads\":{}}}", callable.overloads));
+    }
+}
+
+fn push_summary_language_json(output: &mut String, groups: &[ApiLanguageGroup]) {
+    output.push_str(",\"language_groups\":[");
+    for (group_index, group) in groups.iter().enumerate() {
+        if group_index > 0 {
+            output.push(',');
+        }
+        output.push_str("{\"name\":");
+        push_json_string(output, &group.name);
+        output.push_str(",\"items\":[");
+        for (item_index, item) in group.items.iter().enumerate() {
+            if item_index > 0 {
+                output.push(',');
+            }
+            push_json_string(output, item);
+        }
+        output.push_str("]}");
+    }
+    output.push(']');
+}
+
+fn summary_receiver_name(receiver: MethodReceiver) -> &'static str {
+    match receiver {
+        MethodReceiver::PathConstructor => "Path constructor",
+        MethodReceiver::Path => "Path methods",
+        _ => receiver_name(receiver),
+    }
+}
+
+fn overload_label(overloads: usize) -> String {
+    if overloads == 1 {
+        "1 overload".to_string()
+    } else {
+        format!("{overloads} overloads")
+    }
 }
 
 fn write_full_text_item(output: &mut String, item: &ApiItem) {
