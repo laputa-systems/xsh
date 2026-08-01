@@ -89,59 +89,6 @@ memory work that remains after the architecture closeout. `docs/COVERAGE.md`
 tracks the practical coverage plan for areas that need larger harnesses rather
 than branch-only tests.
 
-## Ownership Map
-
-`AGENTS.md` supplies the task-routing policy. This table is the owner-module
-summary used after selecting the relevant contract and test gate:
-
-| Task | Owner docs | Owner code |
-|---|---|---|
-| syntax and formatting | `docs/SPEC.md` sections 2-9 | `Lexer::lex_compact`, `Parser::parse_source_arena_only`, `SyntaxTree::from_token_table` in `src/syntax/*` |
-| checking, typing, linting | `docs/SPEC-TYPING.md` | `Checker::check_compact_declarations`, `Checker::probe_compact_bodies`, `src/sema/*` |
-| runtime evaluation | `docs/SPEC.md` relevant section | `Evaluator::prepare_compact_indexed_only`, `indexed_run`, `src/runtime/*` |
-| process, cwd, env, signals, cancellation | `docs/SPEC-OS.md` | `execute_run`, `run_capture`, `spawn_managed`, `cancel_managed` in `src/runtime/run.rs` and `src/runtime/process.rs` |
-| standard modules and methods | `xsht api`, `src/modules/README.md` | `RuntimeOp`, `api_spec`, `src/modules/*`, `src/runtime/eval/modules.rs` |
-| structured streams | `docs/STREAMS.md` | `check_stream_stage_arena`, `Evaluator::collect_stream_values`, `src/sema/check/stream.rs`, `src/runtime/eval/stream.rs` |
-| executable IR, verifier, and frames | `docs/FRONTEND.md` | `FullBuilder::build_compact`, `FullVerifier::verify`, `indexed_run`, `CallFrame` in `src/runtime/eval/*` |
-| docs and examples | `AGENTS.md`, `examples/README.md` | `ApiSpec`, `api::query`, `examples::load_catalog`, `examples::validate_catalog`, `examples/catalog.json` |
-
-## Agent Map For IR Work
-
-Use this path when changing interpreter-speed behavior:
-
-1. Read `docs/SPEC.md` for source-visible semantics and `docs/FRONTEND.md` for the
-   lowered fast-path contract.
-2. Inspect `src/syntax/arena.rs` for the arena node or type shape, and
-   `src/syntax/node.rs` for shared leaf syntax such as operators and type
-   expressions.
-3. Inspect `src/sema/check.rs` and `src/modules/signature.rs` for checked
-   signatures and method/module operation IDs.
-4. Inspect the normal runtime behavior in `src/runtime/eval.rs`,
-   `src/runtime/eval/methods.rs`, `src/runtime/eval/modules.rs`, or
-   `src/runtime/eval/stmt.rs`.
-5. Add executable support only when it has an exhaustive indexed encoding,
-   verifier coverage, and exact runtime behavior. Stateful or OS-facing work is
-   represented by an explicit host/runtime operation referenced by indexed IR.
-6. Update `tools/xsh-ir-coverage.xsh` for expansion coverage and add a
-   user-visible workload to `crates/xsh-multicall/benches/bench.rs` only when
-   the change affects an interaction users actually wait for.
-
-The indexed IR is not a new language layer. It is the verified executable
-representation derived from checked arena syntax after definitions are known.
-Imported user modules are part of complete-program admission. Process forms,
-stateful module calls, tracing-sensitive execution, and OS effects remain
-explicit runtime boundaries in the indexed driver rather than reasons to retain
-the source arena.
-
-## Syntax
-
-`src/source.rs` assigns source IDs, tracks UTF-8 source files, maps byte-offset
-spans to line/column locations, and exposes original span text for diagnostics
-and traces.
-
-`Lexer::lex_compact()` in `src/syntax/lexer.rs` produces tokens,
-`Parser::parse_source_arena_only()` in `src/syntax/parser.rs` builds
-`ArenaProgram` values through `src/syntax/arena.rs`, and `cst.rs` retains lossless token/trivia
 structure for tooling. Arena nodes carry `Span` values from `src/source.rs`, and
 `ArenaParseOutput` carries both the arena program and CST. The active formatter
 lives in `crates/xsht/src/format.rs`. Parser changes should usually come with

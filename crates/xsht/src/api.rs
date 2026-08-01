@@ -50,6 +50,7 @@ struct ApiItem {
     kind: &'static str,
     summary: String,
     contract: String,
+    curated: bool,
     tags: Vec<String>,
     signatures: Vec<String>,
     runtime_ops: Vec<String>,
@@ -78,6 +79,7 @@ struct ApiSummary {
     language_reference_items: usize,
     total_queryable_items: usize,
     documented_items: usize,
+    curated_items: usize,
     modules: Vec<ApiModuleTree>,
     method_receivers_tree: Vec<ApiMethodReceiverTree>,
     records: Vec<String>,
@@ -270,6 +272,7 @@ fn summary(options: &ApiOptions) -> Result<ApiOutput, ApiError> {
         .iter()
         .filter(|item| !item.summary.trim().is_empty())
         .count();
+    let curated_items = catalog.iter().filter(|item| item.curated).count();
     let summary = ApiSummary {
         standard_modules,
         module_functions,
@@ -281,6 +284,7 @@ fn summary(options: &ApiOptions) -> Result<ApiOutput, ApiError> {
         language_reference_items,
         total_queryable_items: catalog.len(),
         documented_items,
+        curated_items,
         modules,
         method_receivers_tree,
         records,
@@ -531,6 +535,7 @@ fn item_from_docs(
         kind,
         summary: docs.summary.clone(),
         contract: docs.contract.clone(),
+        curated: docs.curated,
         tags: docs.tags.clone(),
         signatures,
         runtime_ops,
@@ -672,7 +677,7 @@ fn render_text(responses: &[ApiResponse]) -> String {
             output.push_str("kind: ");
             output.push_str(item.kind);
             output.push('\n');
-            output.push_str("summary: ");
+            output.push_str(if item.curated { "purpose: " } else { "context: " });
             output.push_str(&item.summary);
             output.push('\n');
             if response.details == ApiDetails::Full {
@@ -695,7 +700,8 @@ method overloads: {}\n\
 standard records: {}\n\
 language reference items: {}\n\
 total queryable items: {}\n\
-documented items: {}\n",
+documented items: {}\n\
+curated items: {}\n",
         summary.standard_modules,
         summary.module_functions,
         summary.module_overloads,
@@ -706,6 +712,7 @@ documented items: {}\n",
         summary.language_reference_items,
         summary.total_queryable_items,
         summary.documented_items,
+        summary.curated_items,
     );
     append_callable_tree(
         &mut output,
@@ -732,7 +739,7 @@ documented items: {}\n",
 
 fn render_summary_jsonl(summary: &ApiSummary) -> String {
     let mut output = format!(
-        "{{\"schema_version\":1,\"kind\":\"summary\",\"standard_modules\":{},\"module_functions\":{},\"module_overloads\":{},\"method_receivers\":{},\"methods\":{},\"method_overloads\":{},\"standard_records\":{},\"language_reference_items\":{},\"total_queryable_items\":{},\"documented_items\":{}",
+        "{{\"schema_version\":1,\"kind\":\"summary\",\"standard_modules\":{},\"module_functions\":{},\"module_overloads\":{},\"method_receivers\":{},\"methods\":{},\"method_overloads\":{},\"standard_records\":{},\"language_reference_items\":{},\"total_queryable_items\":{},\"documented_items\":{},\"curated_items\":{}",
         summary.standard_modules,
         summary.module_functions,
         summary.module_overloads,
@@ -743,6 +750,7 @@ fn render_summary_jsonl(summary: &ApiSummary) -> String {
         summary.language_reference_items,
         summary.total_queryable_items,
         summary.documented_items,
+        summary.curated_items,
     );
     push_summary_modules_json(&mut output, &summary.modules);
     push_summary_methods_json(&mut output, &summary.method_receivers_tree);
@@ -947,6 +955,8 @@ fn push_json_item(output: &mut String, item: &ApiItem) {
     push_json_field(output, "kind", item.kind, true);
     push_json_field(output, "summary", &item.summary, true);
     push_json_field(output, "contract", &item.contract, true);
+    output.push_str("\"curated\":");
+    output.push_str(if item.curated { "true," } else { "false," });
     push_json_array(output, "tags", &item.tags, true);
     push_json_array(output, "signatures", &item.signatures, true);
     push_json_array(output, "runtime_ops", &item.runtime_ops, true);

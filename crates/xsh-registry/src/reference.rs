@@ -323,6 +323,7 @@ fn language_reference(
         docs: ApiDocs {
             summary,
             contract,
+            curated: true,
             tags,
             navigation: ApiNavigation {
                 implementation: vec![implementation.to_string()],

@@ -258,6 +258,30 @@ The JSON rollup follow-up is closed. On the Apple M1 measurement host, the regul
 with 13.81 ms for the repeated pre-redesign measurement. The accepted path remains
 the compact indexed program and does not require PGO.
 
+## Changing Indexed Execution
+
+When changing interpreter-speed behavior, follow this path before adding an
+indexed encoding:
+
+1. Read `docs/SPEC.md` for source-visible semantics and this document for the
+   compact executable contract.
+2. Inspect `src/syntax/arena.rs` for the arena shape, `src/syntax/node.rs` for
+   shared syntax, and `src/sema/check.rs` plus `src/modules/signature.rs` for
+   checked signatures and operation identities.
+3. Inspect the ordinary runtime behavior in `src/runtime/eval.rs`,
+   `src/runtime/eval/modules.rs`, `src/runtime/eval/lowered_ops.rs`, or the
+   focused runtime owner before changing indexed dispatch.
+4. Add executable support only when the behavior has an exhaustive encoding,
+   verifier coverage, and exact runtime parity. Keep stateful and OS-facing work
+   behind explicit host/runtime operations.
+5. Update `tools/xsh-ir-coverage.xsh` for accepted expansion coverage and add a
+   user-visible benchmark workload only when the interaction affects latency.
+
+The indexed representation is not a language layer. It is the verified
+execution form of checked arena syntax. Imported modules participate in complete
+program admission; processes, tracing-sensitive execution, and OS effects stay
+explicit runtime boundaries rather than reasons to retain a source executor.
+
 ## Change and Verification Map
 
 | Change | Read first | Focused verification |

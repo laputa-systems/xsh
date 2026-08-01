@@ -88,6 +88,7 @@ pub fn record_docs(name: &str) -> ApiDocs {
     ApiDocs {
         summary: format!("Standard `{name}` record schema."),
         contract: String::new(),
+        curated: false,
         tags: vec!["record".to_string(), name.to_ascii_lowercase()],
         navigation: ApiNavigation {
             implementation: vec!["crates/xsh-registry/src/records.rs".to_string()],

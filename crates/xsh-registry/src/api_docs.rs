@@ -2,6 +2,7 @@
 pub struct ApiDocs {
     pub summary: String,
     pub contract: String,
+    pub curated: bool,
     pub tags: Vec<String>,
     pub navigation: ApiNavigation,
 }

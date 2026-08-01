@@ -73,6 +73,42 @@ tracked proposal:
 
 ---
 
+## Standard Library Design
+
+The standard library makes systems glue predictable across files, processes,
+bytes, structured data, host state, and explicit interop. It must remain small,
+inspectable, and tied to orchestration rather than becoming a second application
+runtime.
+
+A proposed module or public API qualifies only when it:
+
+- owns a recurring systems-script boundary such as argv, files, processes,
+  archives, config formats, checksums, host metadata, or structured text;
+- replaces fragile shell glue with typed values and explicit `Result` failures;
+- has a complete, deterministic contract and focused executable coverage;
+- behaves consistently on ordinary Unix hosts or is explicitly scoped under
+  `linux` or `unix`;
+- avoids ambient process-global policy unless that policy is the operation.
+
+Prefer narrow helpers and inspectable records, paths, bytes, collections,
+streams, and `Result` values. Do not add hidden handles, background state,
+callbacks, parser objects, or another runtime behind a module API.
+
+The following remain non-goals unless an open proposal changes the boundary:
+
+- XDG/user-directory discovery, UUID, generic bisect, or `fnmatch` helpers;
+- global logging frameworks, compatibility-shell parsing, or shell expansion;
+- general buffered I/O, socket, custom-stream, memory-I/O, or TCP/UDP
+  frameworks beyond focused DNS and HTTP orchestration;
+- broad cryptography beyond packaging-oriented digests and verification;
+- low-level memory, pointer, ABI, or C-interop APIs.
+
+Before adding a standard API, inspect `xsht api summary`, query the nearest
+module and method surfaces, and inspect `ApiSpec`, `RuntimeOp`, the matching
+`src/modules/` or `src/runtime/eval/modules.rs` owner, and the nearest native
+test. If the current surface already solves the problem, improve its contract
+or test coverage instead of adding another spelling.
+
 ## Open Proposals
 
 ### `spawn` stderr redirection

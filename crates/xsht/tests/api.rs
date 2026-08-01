@@ -59,6 +59,7 @@ fn api_summary_reports_the_complete_queryable_surface() {
         "language reference items:",
         "total queryable items:",
         "documented items:",
+        "curated items:",
     ] {
         assert!(stdout.contains(label), "{stdout}");
     }
@@ -87,6 +88,7 @@ fn api_summary_jsonl_is_one_structured_response() {
     assert_eq!(stdout.lines().count(), 1, "{stdout}");
     assert!(stdout.contains("\"kind\":\"summary\""), "{stdout}");
     assert!(stdout.contains("\"total_queryable_items\":"), "{stdout}");
+    assert!(stdout.contains("\"curated_items\":"), "{stdout}");
     assert!(stdout.contains("\"modules\":["), "{stdout}");
     assert!(stdout.contains("\"method_receivers\":["), "{stdout}");
     assert!(stdout.contains("\"records\":["), "{stdout}");
@@ -262,7 +264,7 @@ fn api_search_is_local_and_deterministic() {
     let stdout = String::from_utf8(output.stdout).expect("utf8 stdout");
     assert!(stdout.contains("status: matches"), "{stdout}");
     assert!(
-        stdout.contains("api: module.archive.tar_extract"),
+        stdout.contains("api: module.archive.tar_create"),
         "{stdout}"
     );
     assert!(stdout.contains("api: module.patch.apply"), "{stdout}");
