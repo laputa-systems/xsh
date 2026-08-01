@@ -1,14 +1,10 @@
 type StringListResult = Result[List[Str]]
+
 error ReturnError = Failure(message: Str) : InvalidData
 
 proc build() [error] -> Result[List[Str]] {
   let built = ["ok"]
   built
-}
-
-proc build_explicitly() [error] -> Result[List[Str]] {
-  let built = ["ok"]
-  return Ok(built)
 }
 
 proc fail_explicitly() [error] -> Result[List[Str]] {
@@ -23,13 +19,8 @@ proc fail_through_question() [error] -> Result[Int] {
   fail_leaf()?
 }
 
-proc implicit_unit() [error] -> Result[Unit] {
-  let marker = 1
-}
-
-proc build_through_alias() [error] -> StringListResult {
-  let built = ["ok"]
-  return Ok(built)
+proc implicit_unit() [error] {
+  test.eq(1, 1)?
 }
 
 proc build_bare_through_alias() [error] -> StringListResult {
@@ -38,7 +29,7 @@ proc build_bare_through_alias() [error] -> StringListResult {
 }
 
 proc leaf(value: Int) [error] -> Result[Int] {
-  return Ok(value)
+  value
 }
 
 proc middle(value: Int) [error] -> Result[Int] {
@@ -46,23 +37,24 @@ proc middle(value: Int) [error] -> Result[Int] {
 }
 
 proc test_implicit_result_return_in_par_map() [error] {
-  let values = [1, 2] |> par-map --jobs=2 { |_|
-    build()
-  }
+  let values = [1, 2]
+    |> par-map --jobs=2 { |_|
+      build()
+    }
 
   test.eq(values, [["ok"], ["ok"]])?
 
-  let block_values = [1, 2] |> par-map --jobs=2 { |_|
-    let built = ["ok"]
-    built
-  }
+  let block_values = [1, 2]
+    |> par-map --jobs=2 { |_|
+      let built = ["ok"]
+      built
+    }
 
   test.eq(block_values, [["ok"], ["ok"]])?
 }
 
 proc test_result_return_shapes_agree() [error] {
   test.eq(build()?, ["ok"])?
-  test.eq(build_explicitly()?, ["ok"])?
   implicit_unit()?
 
   match fail_explicitly() {
@@ -77,16 +69,51 @@ proc test_result_return_shapes_agree() [error] {
 }
 
 proc test_nested_result_calls_in_par_map() [error] {
-  let values = [1, 2] |> par-map --jobs=2 { |value|
-    middle(value)
-  }
+  let values = [1, 2]
+    |> par-map --jobs=2 { |value|
+      middle(value)
+    }
 
   test.eq(values, [1, 2])?
 }
 
 proc test_result_alias_return_shape() [error] {
-  test.eq(build_through_alias()?, ["ok"])?
   test.eq(build_bare_through_alias()?, ["ok"])?
+}
+
+proc test_explicit_result_return_shapes(ctx: TestContext) [fs, error] {
+  let output = test.run_script(
+    ctx,
+    """type StringListResult = Result[List[Str]]
+
+proc build_explicitly() [error] -> Result[List[Str]] {
+  return Ok(["ok"])
+}
+
+proc build_through_alias() [error] -> StringListResult {
+  return Ok(["ok"])
+}
+
+proc leaf(value: Int) [error] -> Result[Int] {
+  return Ok(value)
+}
+
+proc middle(value: Int) [error] -> Result[Int] {
+  leaf(value)?
+}
+
+let direct = build_explicitly()?
+let alias = build_through_alias()?
+print direct[0] alias[0] middle(3)?
+""",
+  )?
+
+  test.ok(output.success, output.stderr)?
+  test.eq(
+    output.stdout,
+    """ok ok 3
+""",
+  )?
 }
 
 proc test_implicit_result_return_through_module(ctx: TestContext) [fs, error] {
@@ -115,5 +142,9 @@ print values[0][0] values[1][0]
   )?
 
   test.ok(output.status == 0, output.stderr)?
-  test.eq(output.stdout, "ok ok\n")?
+  test.eq(
+    output.stdout,
+    """ok ok
+""",
+  )?
 }

@@ -700,5 +700,3 @@ proc main(...argv: List[Str]) [fs, process, env, time, error] {
     configure_interface(config, state_path, selection.physical, selection.logical)?
   }
 }
-
-main(@args)?

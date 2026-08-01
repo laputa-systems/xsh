@@ -12,7 +12,6 @@ bounds, but are not sufficient search handles by themselves.
 Read these for any implementation task:
 
 - `docs/CHAPTER-01-why-xsh.md`
-- `docs/IDIOMS.md`
 - the nearest code and tests for the change
 
 Use `docs/ARCHITECTURE.md` for subsystem ownership and `docs/TEST-MAP.md` for

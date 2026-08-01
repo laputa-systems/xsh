@@ -487,5 +487,3 @@ proc main(...argv: List[Str]) [fs, process, env, error] {
     deconfigure_interface(config, state_path, selection.physical, selection.logical)?
   }
 }
-
-main(@args)?

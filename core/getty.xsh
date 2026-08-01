@@ -119,4 +119,4 @@ proc main(...argv: List[Str]) [fs, process, error, io] -> Result[Int] {
   return run_external_login(options, username)?
 }
 
-main(@args)?
+abort(main(@args)?)

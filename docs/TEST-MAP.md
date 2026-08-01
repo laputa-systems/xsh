@@ -42,6 +42,17 @@ cargo test --test integration runtime::examples::
 Run the runtime example test when a retained showcase,
 `examples/catalog.json`, or generated reference output changes.
 
+## XSH Corpus Gate
+
+Use the runnable-corpus integration test after changing core applets, native
+tests, showcases, tools, benchmark scripts, or repository automation scripts.
+It checks formatting and linting without rewriting files; intentional parser,
+formatter, and runtime fixtures under `tests/fixtures/` are excluded.
+
+```sh
+cargo test --test integration runtime::coverage::runnable_xsh_corpus_is_formatted_and_lints_without_warnings
+```
+
 ## Runtime Test Modules
 
 | Area | File |

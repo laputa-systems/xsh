@@ -540,6 +540,38 @@ fn xsht_fmt_check_accepts_stable_examples() {
 }
 
 #[test]
+fn runnable_xsh_corpus_is_formatted_and_lints_without_warnings() {
+    let tracked = Command::new("git")
+        .args(["ls-files", "*.xsh"])
+        .output()
+        .expect("list tracked XSH files");
+    assert_ok(&tracked);
+    let tracked_files = stdout_text(&tracked);
+    let files = tracked_files
+        .lines()
+        .filter(|path| !path.starts_with("tests/fixtures/"))
+        .collect::<Vec<_>>();
+
+    let formatted = Command::new(env!("CARGO_BIN_EXE_xsht"))
+        .args(["fmt", "--check"])
+        .args(&files)
+        .output()
+        .expect("run xsht fmt");
+    assert_ok(&formatted);
+    assert_eq!(stdout_text(&formatted), "");
+    assert_eq!(stderr_text(&formatted), "");
+
+    let linted = Command::new(env!("CARGO_BIN_EXE_xsht"))
+        .arg("lint")
+        .args(files)
+        .output()
+        .expect("run xsht lint");
+    assert_ok(&linted);
+    assert_eq!(stdout_text(&linted), "");
+    assert_eq!(stderr_text(&linted), "");
+}
+
+#[test]
 fn xsht_fmt_writes_canonical_source() {
     let path = temp_xsh_path("fmt-writes");
     std::fs::write(
@@ -1124,7 +1156,13 @@ fn xsht_test_runs_catalog_examples_only_when_requested() {
 #[test]
 fn xsht_test_cov_list_does_not_execute_tests() {
     let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
-        .args(["test", "--cov", "--list", "test_pass"])
+        .args([
+            "test",
+            "--cov",
+            "--list",
+            "--exact",
+            "tests/xsh/basic.xsh::test_pass",
+        ])
         .output()
         .expect("run xsht");
 

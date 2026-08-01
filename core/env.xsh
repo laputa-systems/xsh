@@ -103,5 +103,3 @@ proc main(...raw: List[Str]) [process, env, error] {
     handle_status(process.run(process.command_argv(command_argv[0], command_argv))?)?
   }
 }
-
-main(@args)?

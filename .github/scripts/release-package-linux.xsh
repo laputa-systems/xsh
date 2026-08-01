@@ -12,5 +12,3 @@ proc main(version: Str, target: Str, arch: Str) [fs, error] {
   fs.install(fp"${bin_dir}/xsh-multicall", multicall, 0o755, overwrite: true)?
   fp"dist/xsh-multicall-${version}-${arch}-linux-musl.sha256".write(checksum_line(multicall)?)?
 }
-
-main(@args)?

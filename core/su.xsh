@@ -78,4 +78,4 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] -> Result[Int] {
   }
 }
 
-main(@args)?
+abort(main(@args)?)

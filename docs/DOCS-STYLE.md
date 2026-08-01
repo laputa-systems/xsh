@@ -27,15 +27,15 @@ It is not a tutorial corpus.
 | API signatures and generated reference | `docs/STDLIB.md`, `docs/REFERENCE.md` |
 | subsystem ownership | `docs/ARCHITECTURE.md` |
 | test selection | `docs/TEST-MAP.md` |
-| durable composition guidance | `docs/IDIOMS.md` |
 | task navigation | `docs/AGENT-ROUTING.md` |
 
 ## Examples And Tests
 
 `tests/xsh/stdlib/*.xsh` and nearest focused native tests own exhaustive
-behavior coverage. `examples/*.xsh` contains only cataloged, substantial
-multi-module showcases. `examples/README.md` must link each retained showcase
-to its canonical docs and focused coverage.
+behavior coverage and are the default idiomatic XSH corpus. `examples/*.xsh`
+contains only cataloged, substantial multi-module showcases.
+`examples/README.md` must link each retained showcase to its canonical docs and
+focused coverage.
 
 Run the formatter-free docs and showcase gates in `docs/TEST-MAP.md` after
 changing generated reference metadata, canonical docs, or retained examples.

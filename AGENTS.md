@@ -14,7 +14,6 @@ core command scripts, examples, docs, and tests.
 Always read:
 
 - `docs/CHAPTER-01-why-xsh.md`
-- `docs/IDIOMS.md`
 - `docs/AGENT-ROUTING.md`
 - the nearest code and tests for the requested change
 
@@ -48,6 +47,9 @@ owner files, and tests before editing.
 - Put focused behavior coverage in `tests/xsh/stdlib/*.xsh` or the nearest
   native test module. Syntax, API behavior, edge cases, errors, platform
   behavior, and regressions are tests, not examples.
+- Write native tests as the default idiomatic XSH corpus: make ownership,
+  effects, cleanup, typed boundaries, and expected errors clear in the test
+  itself instead of maintaining a separate idiom guide.
 - Put a script in `examples/*.xsh` only when it is a substantial, idiomatic
   multi-module program that is useful to read as a whole. It must not duplicate
   focused native-test coverage.
@@ -59,8 +61,8 @@ owner files, and tests before editing.
 - Put language contracts in `docs/SPEC.md`, OS behavior in `docs/SPEC-OS.md`,
   streams in `docs/STREAMS.md`, JSON boundaries in `docs/JSON.md`, API details
   in `docs/STDLIB.md` or `docs/REFERENCE.md`, architecture in
-  `docs/ARCHITECTURE.md`, testing in `docs/TEST-MAP.md`, idioms in
-  `docs/IDIOMS.md`, and task navigation in `docs/AGENT-ROUTING.md`.
+  `docs/ARCHITECTURE.md`, testing in `docs/TEST-MAP.md`, and task navigation in
+  `docs/AGENT-ROUTING.md`.
 - Do not add prose that restates obvious syntax or API signatures. Prefer exact
   symbols, module paths, and test names; document non-obvious constraints and
   rationale; update the canonical owner instead of creating another guide.

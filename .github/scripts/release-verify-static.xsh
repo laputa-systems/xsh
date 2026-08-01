@@ -12,5 +12,3 @@ proc main(target: Str, ...bins: List[Str]) [process, error, io] {
     }
   }
 }
-
-main(@args)?
