@@ -10,11 +10,9 @@ SESSION_VOLUME ?= xsh-gym-task-ecount-session
 WORK_DIR ?= $(GYM_DIR)/.work/task-ecount
 OUTPUT_DIR ?= $(GYM_DIR)/.out/task-ecount
 
-# The prerelease pi binary is baked into the base image as pi-bun (see
-# Dockerfile); build it with `make bun-linux-arm64-musl` in ~/d/pi. A glibc pi
-# binary cannot run inside the Alpine container; a host macOS Node entrypoint
-# is not usable either. PI_BINARY remains an optional runtime override mount.
-PI_SOURCE ?= $(HOME)/d/pi/packages/coding-agent/binaries/linux-arm64-musl/pi-bun
+# The prerelease pi binary is fetched from the release URL pinned in the
+# Dockerfile and baked into the base image. PI_BINARY remains an optional
+# runtime override mount for the ecount task image.
 PI_BINARY ?=
 PI_COMMAND ?= pi
 PI_PROVIDER ?= openrouter
@@ -32,11 +30,8 @@ TASK_HELLO_OUTPUT_DIR ?= $(GYM_DIR)/.out/task-hello
 
 .PHONY: task-ecount task-hello base-image task-ecount-image
 
-base-image: $(GYM_DIR)/pi-bun
+base-image:
 	$(DOCKER) build --platform $(PLATFORM) -f $(GYM_DIR)/Dockerfile -t $(BASE_IMAGE) $(BUILD_CONTEXT)
-
-$(GYM_DIR)/pi-bun: $(PI_SOURCE)
-	cp $(PI_SOURCE) $(GYM_DIR)/pi-bun
 
 task-ecount-image: base-image
 	$(DOCKER) build --platform $(PLATFORM) \
@@ -49,10 +44,15 @@ task-hello: base-image
 	@DOCKER="$(DOCKER)" \
 		PLATFORM="$(PLATFORM)" \
 		GYM_DIR="$(GYM_DIR)" \
+# build context; the binary is staged into a named volume (no bind mounts) and
+# extracted to the host.
 		BASE_IMAGE="$(BASE_IMAGE)" \
+	docker build --platform linux/arm64 \
+		--build-arg EXPECTED_LINKAGE=glibc \
+		-t $(BUN_LINUX_ARM64_IMAGE) \
+		-f Dockerfile.bun .
 		SESSION_VOLUME="$(TASK_HELLO_SESSION_VOLUME)" \
 		WORK_DIR="$(TASK_HELLO_WORK_DIR)" \
-		OUTPUT_DIR="$(TASK_HELLO_OUTPUT_DIR)" \
 		PI_COMMAND="$(PI_COMMAND)" \
 		PI_PROVIDER="$(PI_PROVIDER)" \
 		PI_MODEL="$(PI_MODEL)" \
