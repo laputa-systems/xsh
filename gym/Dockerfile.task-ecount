@@ -1,0 +1,9 @@
+ARG BASE_IMAGE=xsh-gym:latest
+FROM ${BASE_IMAGE}
+
+# The task oracle needs no host toolchain or runtime beyond fd; the remaining
+# oracle utilities are BusyBox applets already present in the base image.
+ARG FD_VERSION=10.2.0-r3
+RUN apk add --no-cache "fd=${FD_VERSION}"
+
+COPY task-ecount.md /work/
