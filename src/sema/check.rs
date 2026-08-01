@@ -3,7 +3,7 @@
 use crate::diagnostic::Severity;
 pub(crate) use crate::diagnostic::{Diagnostic, FixHint, Label};
 pub(crate) use crate::modules::{
-    ApiArgCheck, MethodReceiver, MethodSig, ModuleFnSig, RuntimeOp, api_spec,
+    ApiArgCheck, MethodReceiver, MethodSig, ModuleFnSig, api_spec,
 };
 use crate::runtime::signal::{normalize_hook_signal, signal_rejection_message};
 pub(crate) use crate::sema::records::standard_record_type;

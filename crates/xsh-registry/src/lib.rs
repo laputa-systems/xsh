@@ -6,6 +6,7 @@
 
 pub mod api_docs;
 pub mod errors;
+mod examples;
 pub mod records;
 pub mod reference;
 pub mod runtime_op;

@@ -65,24 +65,35 @@ stay in the individual `crates/xsht/src/cli/*.rs` modules.
 
 ## API Queries
 
-`xsht api` reads the canonical API registry; it does not parse generated
-Markdown or maintain a second documentation table. Batch selectors preserve
-request order and may mix exact lookups with deterministic search:
+`xsht api` is the standalone first-contact reference for XSH. With no selector
+it prints a tiny valid script and the basic `xsht check`, `xsht fmt`, `xsht
+lint`, and `xsh SCRIPT` loop. It reads the canonical API registry; it does not
+parse generated Markdown or maintain a second documentation table. Batch
+selectors preserve request order and may mix exact lookups with deterministic
+search:
 
 ```sh
+xsht api
 xsht api api:json.read method:Path.read_text record:FsEntry language:run.status
 xsht api --format jsonl --strict api:archive.tar_extract search:"rooted extraction"
 xsht api summary
 ```
 
-`xsht api summary` prints the complete sorted module/function tree, method
-receiver tree, record list, and language-reference groups after a compact count
-header. `--format jsonl` returns the same inventory as structured arrays.
+`module:NAME` prints the module overview and its member index. Exact API
+queries print purpose, contract, derived effects, signatures, tags, and a short
+example when one is useful. `xsht api summary` prints the complete sorted
+module/function tree, method receiver tree, record list, and language-reference
+groups after a compact count header. `--format jsonl` returns the same
+inventory as structured arrays.
+
+API examples are maintained as XSH snippets under docs/snippets/api/; the
+registry maps them to API IDs and xsht api returns their contents.
 
 Use `--query-file PATH` or `--stdin` to add one selector per line to the same
-request. `crates/xsht/src/api.rs::query` renders the registry;
+request. `crates/xsht/src/api.rs::query` renders and derives the registry;
 `crates/xsht/src/cli/api.rs::api_command` owns CLI result conversion; and
-`crates/xsht/tests/api.rs` covers text, JSONL, strict, file, and stdin batches.
+`crates/xsht/tests/api.rs` covers onboarding, text, JSONL, strict, file, stdin,
+module, and exact-item queries.
 
 ## Configuration
 

@@ -1,4 +1,4 @@
-pub use crate::api_docs::{ApiDocs, ApiNavigation};
+pub use crate::api_docs::ApiDocs;
 use crate::records::{
     archive_entry_type, diff_result_type, dns_host_type, dns_lookup_type, elf_info_type,
     env_entry_type, env_path_entry_type, fs_copy_tree_result_type, fs_entry_type,
@@ -31,6 +31,7 @@ mod streams;
 pub(in crate::signature) use builders::command_callable;
 pub use docs::{method_api_id, module_api_id, receiver_name};
 pub(in crate::signature) use methods::value_methods;
+pub use modules::record_docs;
 pub(in crate::signature) use modules::build_api_spec;
 
 #[derive(Clone, Debug)]
@@ -86,19 +87,11 @@ impl ApiSpec {
                 return Err(format!("API docs for '{id}' have an empty tag"));
             }
             if docs
-                .navigation
-                .implementation
-                .iter()
-                .any(|path| path.trim().is_empty())
-                || docs
-                    .navigation
-                    .tests
-                    .iter()
-                    .any(|path| path.trim().is_empty())
+                .example
+                .as_deref()
+                .is_some_and(|example| example.trim().is_empty())
             {
-                return Err(format!(
-                    "API docs for '{id}' have an empty navigation entry"
-                ));
+                return Err(format!("API docs for '{id}' have an empty example"));
             }
         }
 
@@ -292,7 +285,7 @@ mod tests {
     #[test]
     fn record_and_language_registry_docs_are_complete() {
         for name in records::record_schemas().keys() {
-            let docs = records::record_docs(name);
+            let docs = super::record_docs(name);
             assert!(!docs.summary.trim().is_empty(), "record.{name}");
             assert!(
                 docs.tags.iter().all(|tag| !tag.trim().is_empty()),

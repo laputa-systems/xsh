@@ -42,6 +42,98 @@ fn api_mixed_batch_preserves_query_order() {
 }
 
 #[test]
+fn api_without_query_is_a_standalone_onboarding_guide() {
+    let output = xsht(&["api"]);
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("utf8 stdout");
+    for fragment in [
+        "XSH API getting started",
+        "proc main(...argv: List[Str]) [io]",
+        "xsht check hello.xsh",
+        "xsht fmt hello.xsh",
+        "xsht lint hello.xsh",
+        "xsht api module:fs",
+        "xsht api api:fs.read_text",
+    ] {
+        assert!(stdout.contains(fragment), "{stdout}");
+    }
+    assert_eq!(String::from_utf8(output.stderr).unwrap(), "");
+}
+
+#[test]
+fn api_without_query_jsonl_is_a_valid_guide_object() {
+    let output = xsht(&["api", "--format", "jsonl"]);
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("utf8 stdout");
+    assert_eq!(stdout.lines().count(), 1, "{stdout}");
+    let parsed = xsh::modules::json::parse_raw_json(stdout.trim()).expect("parse guide JSON");
+    assert_eq!(
+        xsh::modules::json::raw_json_get(&parsed, "kind")
+            .and_then(xsh::modules::json::raw_json_as_str),
+        Some("guide")
+    );
+    assert_eq!(String::from_utf8(output.stderr).unwrap(), "");
+}
+
+#[test]
+fn api_onboarding_script_passes_xsht_check() {
+    let output = xsht(&["api"]);
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("utf8 stdout");
+    let start = stdout.find("proc main(...argv: List[Str]) [io]").unwrap();
+    let end = stdout[start..].find("\n\nBasic development loop:").unwrap() + start;
+    let root = tempfile::tempdir().expect("tempdir");
+    let script = root.path().join("hello.xsh");
+    std::fs::write(&script, &stdout[start..end]).expect("write onboarding script");
+
+    let checked = Command::new(env!("CARGO_BIN_EXE_xsht"))
+        .args(["check", script.to_str().expect("script path")])
+        .current_dir(workspace_root())
+        .output()
+        .expect("run xsht check");
+    assert!(checked.status.success(), "{}", String::from_utf8_lossy(&checked.stderr));
+}
+
+#[test]
+fn api_module_query_lists_the_module_and_its_members() {
+    let output = xsht(&["api", "module:fs"]);
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("utf8 stdout");
+    assert!(stdout.contains("status: matches"), "{stdout}");
+    assert!(stdout.contains("api: module.fs\n"), "{stdout}");
+    assert!(stdout.contains("api: module.fs.read_text\n"), "{stdout}");
+    assert!(stdout.contains("purpose:"), "{stdout}");
+    assert_eq!(String::from_utf8(output.stderr).unwrap(), "");
+}
+
+#[test]
+fn api_exact_item_explains_effects_and_contract() {
+    let output = xsht(&["api", "api:fs.read_text"]);
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("utf8 stdout");
+    assert!(stdout.contains("contract:"), "{stdout}");
+    assert!(stdout.contains("effects: fs"), "{stdout}");
+    assert!(stdout.contains("signature: fs.read_text"), "{stdout}");
+    assert_eq!(String::from_utf8(output.stderr).unwrap(), "");
+}
+
+#[test]
+fn api_language_group_includes_the_language_contract() {
+    let output = xsht(&["api", "language:effect"]);
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("utf8 stdout");
+    assert!(stdout.contains("status: matches"), "{stdout}");
+    assert!(stdout.contains("api: language.effect.fs"), "{stdout}");
+    assert!(stdout.contains("contract:"), "{stdout}");
+    assert_eq!(String::from_utf8(output.stderr).unwrap(), "");
+}
+
+#[test]
 fn api_summary_reports_the_complete_queryable_surface() {
     let output = xsht(&["api", "summary"]);
 
@@ -59,7 +151,6 @@ fn api_summary_reports_the_complete_queryable_surface() {
         "language reference items:",
         "total queryable items:",
         "documented items:",
-        "curated items:",
     ] {
         assert!(stdout.contains(label), "{stdout}");
     }
@@ -88,7 +179,7 @@ fn api_summary_jsonl_is_one_structured_response() {
     assert_eq!(stdout.lines().count(), 1, "{stdout}");
     assert!(stdout.contains("\"kind\":\"summary\""), "{stdout}");
     assert!(stdout.contains("\"total_queryable_items\":"), "{stdout}");
-    assert!(stdout.contains("\"curated_items\":"), "{stdout}");
+    assert!(stdout.contains("\"documented_items\":"), "{stdout}");
     assert!(stdout.contains("\"modules\":["), "{stdout}");
     assert!(stdout.contains("\"method_receivers\":["), "{stdout}");
     assert!(stdout.contains("\"records\":["), "{stdout}");
@@ -184,49 +275,37 @@ fn api_combines_query_file_and_argv_queries() {
 }
 
 #[test]
-fn api_navigation_paths_resolve_in_the_workspace() {
-    let root = workspace_root();
+fn api_inventory_is_standalone_and_documented() {
+    let mut ids = Vec::new();
     for (id, docs) in xsh::modules::api_spec().docs_entries() {
-        for path in docs
-            .navigation
-            .implementation
-            .iter()
-            .chain(&docs.navigation.tests)
-        {
-            let path = path
-                .split_once("::")
-                .map_or(path.as_str(), |(path, _)| path);
-            assert!(root.join(path).is_file(), "{id}: {path}");
-        }
-        if let Some(showcase) = &docs.navigation.showcase {
-            assert!(root.join(showcase).is_file(), "{id}: {showcase}");
-        }
+        ids.push(id.to_string());
+        assert_documented(id, docs);
     }
     for name in xsh_registry::records::record_schemas().keys() {
-        let docs = xsh_registry::records::record_docs(name);
-        for path in docs
-            .navigation
-            .implementation
-            .iter()
-            .chain(&docs.navigation.tests)
-        {
-            assert!(root.join(path).is_file(), "record.{name}: {path}");
-        }
+        let id = format!("record.{name}");
+        ids.push(id.clone());
+        assert_documented(&id, &xsh_registry::signature::record_docs(name));
     }
     for reference in xsh_registry::reference::language_references() {
-        for path in reference
-            .docs
-            .navigation
-            .implementation
-            .iter()
-            .chain(&reference.docs.navigation.tests)
-        {
-            assert!(
-                root.join(path).is_file(),
-                "language.{}: {path}",
-                reference.id
-            );
-        }
+        let id = format!("language.{}", reference.id);
+        ids.push(id.clone());
+        assert_documented(&id, &reference.docs);
+    }
+
+    let mut sorted_ids = ids.clone();
+    sorted_ids.sort();
+    sorted_ids.dedup();
+    assert_eq!(sorted_ids.len(), ids.len(), "API item IDs must be unique");
+}
+
+fn assert_documented(id: &str, docs: &xsh_registry::api_docs::ApiDocs) {
+    assert!(!docs.summary.trim().is_empty(), "{id} has no purpose");
+    assert!(
+        docs.tags.iter().all(|tag| !tag.trim().is_empty()),
+        "{id} has an empty tag"
+    );
+    if let Some(example) = &docs.example {
+        assert!(!example.trim().is_empty(), "{id} has an empty example");
     }
 }
 

@@ -1,11 +1,12 @@
 use crate::sema::types::{ModuleExportType, Type};
 use crate::symbol::Name;
+use crate::syntax::node::Effect;
 use rustc_hash::FxHashMap;
 use std::collections::BTreeMap;
 use std::sync::OnceLock;
 use xsh_registry::signature as registry;
 
-pub use registry::{ApiArgCheck, ApiDocs, ApiNavigation, MethodReceiver};
+pub use registry::{ApiArgCheck, ApiDocs, MethodReceiver};
 pub use xsh_registry::RuntimeOp;
 
 #[derive(Clone, Debug)]
@@ -114,6 +115,11 @@ impl ApiSpec {
             .map(|sig| sig.op)
     }
 
+    pub fn module_required_effect(&self, module: &str, name: &str) -> Option<Effect> {
+        self.module_overloads(module, name)
+            .and_then(|overloads| overloads.iter().find_map(|sig| sig.effect.clone()))
+    }
+
     pub fn method_overloads(&self, receiver: MethodReceiver, name: &str) -> Option<&[MethodSig]> {
         self.methods
             .iter()
@@ -163,6 +169,9 @@ pub struct ModuleFnSig {
     pub command: bool,
     pub arg_check: ApiArgCheck,
     pub op: RuntimeOp,
+    /// Host capability inferred while adapting the canonical module or method
+    /// signature. The checker and `xsht api` consume the same value.
+    pub effect: Option<Effect>,
 }
 
 #[derive(Clone, Debug)]
@@ -213,28 +222,35 @@ pub fn api_spec() -> &'static ApiSpec {
 fn convert_module_entry(entry: &registry::ModuleEntry) -> ModuleEntry {
     ModuleEntry {
         name: entry.name,
-        sig: convert_module_sig(&entry.sig),
+        sig: convert_module_sig(entry.name, &entry.sig),
     }
 }
 
-fn convert_module_sig(sig: &registry::ModuleSig) -> ModuleSig {
+fn convert_module_sig(module: &str, sig: &registry::ModuleSig) -> ModuleSig {
     ModuleSig {
-        functions: sig.functions.iter().map(convert_named_module_fns).collect(),
+        functions: sig
+            .functions
+            .iter()
+            .map(|function| convert_named_module_fns(module, function))
+            .collect(),
     }
 }
 
-fn convert_named_module_fns(function: &registry::NamedModuleFns) -> NamedModuleFns {
+fn convert_named_module_fns(
+    module: &str,
+    function: &registry::NamedModuleFns,
+) -> NamedModuleFns {
     NamedModuleFns {
         name: function.name,
         overloads: function
             .overloads
             .iter()
-            .map(convert_module_fn_sig)
+            .map(|sig| convert_module_fn_sig(module, function.name, sig))
             .collect(),
     }
 }
 
-fn convert_module_fn_sig(sig: &registry::ModuleFnSig) -> ModuleFnSig {
+fn convert_module_fn_sig(module: &str, function: &str, sig: &registry::ModuleFnSig) -> ModuleFnSig {
     ModuleFnSig {
         params: sig.params.iter().map(convert_param_sig).collect(),
         return_ty: convert_type(&sig.return_ty),
@@ -242,6 +258,7 @@ fn convert_module_fn_sig(sig: &registry::ModuleFnSig) -> ModuleFnSig {
         command: sig.command,
         arg_check: sig.arg_check,
         op: sig.op,
+        effect: Effect::from_module_call(module, function),
     }
 }
 
@@ -259,21 +276,36 @@ fn convert_method_receiver_sig(entry: &registry::MethodReceiverSig) -> MethodRec
         methods: entry
             .methods
             .iter()
-            .map(convert_named_method_sigs)
+            .map(|method| convert_named_method_sigs(entry.receiver, method))
             .collect(),
     }
 }
 
-fn convert_named_method_sigs(method: &registry::NamedMethodSigs) -> NamedMethodSigs {
+fn convert_named_method_sigs(
+    receiver: MethodReceiver,
+    method: &registry::NamedMethodSigs,
+) -> NamedMethodSigs {
     NamedMethodSigs {
         name: method.name,
-        overloads: method.overloads.iter().map(convert_method_sig).collect(),
+        overloads: method
+            .overloads
+            .iter()
+            .map(|sig| convert_method_sig(receiver, sig))
+            .collect(),
     }
 }
 
-fn convert_method_sig(sig: &registry::MethodSig) -> MethodSig {
+fn convert_method_sig(receiver: MethodReceiver, sig: &registry::MethodSig) -> MethodSig {
     MethodSig {
-        sig: convert_module_fn_sig(&sig.sig),
+        sig: ModuleFnSig {
+            params: sig.sig.params.iter().map(convert_param_sig).collect(),
+            return_ty: convert_type(&sig.sig.return_ty),
+            pure: sig.sig.pure,
+            command: sig.sig.command,
+            arg_check: sig.sig.arg_check,
+            op: sig.sig.op,
+            effect: method_required_effect(receiver, sig.sig.op),
+        },
         return_ty: match &sig.return_ty {
             registry::MethodReturn::Type(ty) => MethodReturn::Type(convert_type(ty)),
             registry::MethodReturn::Receiver => MethodReturn::Receiver,
@@ -335,6 +367,36 @@ pub(crate) fn convert_type(ty: &xsh_registry::types::Type) -> Type {
     }
 }
 
+fn method_required_effect(receiver: MethodReceiver, op: RuntimeOp) -> Option<Effect> {
+    match receiver {
+        MethodReceiver::Path => match op {
+            RuntimeOp::PathResolve
+            | RuntimeOp::FsExists
+            | RuntimeOp::FsExecutable
+            | RuntimeOp::FsDu
+            | RuntimeOp::FsMetadata
+            | RuntimeOp::FsRead
+            | RuntimeOp::FsReadText
+            | RuntimeOp::FsWrite
+            | RuntimeOp::FsWriteAtomic
+            | RuntimeOp::FsCopy
+            | RuntimeOp::FsRename
+            | RuntimeOp::FsMkdir
+            | RuntimeOp::FsRemove
+            | RuntimeOp::FsRemoveDir
+            | RuntimeOp::FsTouch
+            | RuntimeOp::FsTruncate
+            | RuntimeOp::FsChmod
+            | RuntimeOp::FsHardlink
+            | RuntimeOp::FsUnlink
+            | RuntimeOp::FsReadlink => Some(Effect::Fs),
+            _ => None,
+        },
+        MethodReceiver::ProcessHandle => Some(Effect::Process),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{MethodReturn, api_spec, convert_type};
@@ -374,6 +436,13 @@ mod tests {
                     .zip(&registry_function.overloads)
                 {
                     assert_module_overload_matches_registry(main_overload, registry_overload);
+                    assert_eq!(
+                        main_overload.effect,
+                        crate::syntax::node::Effect::from_module_call(
+                            main_module.name,
+                            main_function.name,
+                        )
+                    );
                 }
             }
         }
@@ -393,6 +462,13 @@ mod tests {
                     assert_module_overload_matches_registry(
                         &main_overload.sig,
                         &registry_overload.sig,
+                    );
+                    assert_eq!(
+                        main_overload.sig.effect,
+                        super::method_required_effect(
+                            main_receiver.receiver,
+                            main_overload.sig.op,
+                        )
                     );
                     match (&main_overload.return_ty, &registry_overload.return_ty) {
                         (

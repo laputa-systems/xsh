@@ -92,7 +92,10 @@ const API_HELP: &str = "\
 xsht api
 
 Usage:
-  xsht api [OPTIONS] QUERY...
+  xsht api [OPTIONS] [QUERY...]
+
+With no QUERY, prints a short XSH getting-started guide. Use `xsht api --help`
+for the selector grammar and `xsht api summary` for the full index.
 
 Query selectors:
   summary
@@ -496,9 +499,6 @@ fn parse_api(args: &[String]) -> Result<Command, String> {
         index += 1;
     }
 
-    if !summary && queries.is_empty() && query_files.is_empty() && !read_stdin {
-        return Err("`xsht api` requires QUERY, --query-file, or --stdin".to_string());
-    }
     if summary && (!queries.is_empty() || !query_files.is_empty() || read_stdin) {
         return Err("`xsht api summary` cannot be combined with selectors or query inputs".to_string());
     }

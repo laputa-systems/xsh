@@ -1,13 +1,12 @@
 use std::fs;
 use std::io::Read;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use xsh::modules::api_spec;
 use xsh::modules::signature::{MethodReceiver, MethodReturn, ModuleFnSig};
 use xsh::sema::records::record_schemas;
 use xsh::sema::types::Type;
-use xsh_registry::records::record_docs;
 use xsh_registry::reference::language_references;
-use xsh_registry::signature::{method_api_id, module_api_id, receiver_name};
+use xsh_registry::signature::{method_api_id, module_api_id, receiver_name, record_docs};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ApiFormat {
@@ -50,13 +49,10 @@ struct ApiItem {
     kind: &'static str,
     summary: String,
     contract: String,
-    curated: bool,
+    example: Option<String>,
+    effects: Vec<String>,
     tags: Vec<String>,
     signatures: Vec<String>,
-    runtime_ops: Vec<String>,
-    implementation: Vec<String>,
-    tests: Vec<String>,
-    showcase: Option<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -79,7 +75,6 @@ struct ApiSummary {
     language_reference_items: usize,
     total_queryable_items: usize,
     documented_items: usize,
-    curated_items: usize,
     modules: Vec<ApiModuleTree>,
     method_receivers_tree: Vec<ApiMethodReceiverTree>,
     records: Vec<String>,
@@ -126,9 +121,7 @@ pub fn query(options: &ApiOptions) -> Result<ApiOutput, ApiError> {
     }
     let raw_queries = collect_queries(options)?;
     if raw_queries.is_empty() {
-        return Err(usage_error(
-            "`xsht api` requires at least one QUERY, --query-file, or --stdin",
-        ));
+        return Ok(intro(options));
     }
 
     let catalog = catalog();
@@ -143,10 +136,9 @@ pub fn query(options: &ApiOptions) -> Result<ApiOutput, ApiError> {
         if matches.is_empty() {
             missing = true;
         }
-        let details = options.details.unwrap_or_else(|| match selector {
-            Selector::Search(_) => ApiDetails::Basic,
-            _ => ApiDetails::Full,
-        });
+        let details = options
+            .details
+            .unwrap_or_else(|| default_details(&selector));
         responses.push(ApiResponse {
             query: raw_query,
             status: if matches.is_empty() {
@@ -272,7 +264,11 @@ fn summary(options: &ApiOptions) -> Result<ApiOutput, ApiError> {
         .iter()
         .filter(|item| !item.summary.trim().is_empty())
         .count();
-    let curated_items = catalog.iter().filter(|item| item.curated).count();
+    assert_eq!(
+        documented_items,
+        catalog.len(),
+        "the canonical API catalog contains an undocumented public item"
+    );
     let summary = ApiSummary {
         standard_modules,
         module_functions,
@@ -284,7 +280,6 @@ fn summary(options: &ApiOptions) -> Result<ApiOutput, ApiError> {
         language_reference_items,
         total_queryable_items: catalog.len(),
         documented_items,
-        curated_items,
         modules,
         method_receivers_tree,
         records,
@@ -322,6 +317,61 @@ fn collect_queries(options: &ApiOptions) -> Result<Vec<(String, bool)>, ApiError
         queries.extend(query_lines(&text).map(|query| (query, true)));
     }
     Ok(queries)
+}
+
+fn intro(options: &ApiOptions) -> ApiOutput {
+    let stdout = match options.format {
+        ApiFormat::Text => intro_text(),
+        ApiFormat::Jsonl => intro_jsonl(),
+    };
+    ApiOutput { status: 0, stdout }
+}
+
+const INTRO_SCRIPT: &str = include_str!("../../../docs/snippets/api/hello.xsh");
+
+fn intro_text() -> String {
+    format!(
+        "XSH API getting started\n\nWrite this as hello.xsh:\n\n{}\n\nBasic development loop:\n  xsht check hello.xsh\n  xsht fmt hello.xsh\n  xsht lint hello.xsh\n  xsh hello.xsh\n\nAsk for language rules, a module overview, or one exact API item:\n  xsht api language:core\n  xsht api module:fs\n  xsht api api:fs.read_text\n  xsht api method:Path.read_text\n  xsht api record:FsEntry\n  xsht api search:rooted extraction\n\nExact API items include purpose, contract, effects, signatures, tags, and a small example when one is useful. Use `xsht api summary` for the complete index and `--format jsonl` for machine-readable output.\n",
+        INTRO_SCRIPT.trim_end(),
+    )
+}
+
+fn intro_jsonl() -> String {
+    let mut output = String::from("{\"schema_version\":1,\"kind\":\"guide\"");
+    output.push(',');
+    push_json_field(&mut output, "title", "XSH API getting started", true);
+    push_json_field(
+        &mut output,
+        "script",
+        INTRO_SCRIPT.trim_end(),
+        true,
+    );
+    push_json_array(
+        &mut output,
+        "loop",
+        &[
+            "xsht check hello.xsh".to_string(),
+            "xsht fmt hello.xsh".to_string(),
+            "xsht lint hello.xsh".to_string(),
+            "xsh hello.xsh".to_string(),
+        ],
+        true,
+    );
+    push_json_array(
+        &mut output,
+        "queries",
+        &[
+            "language:core".to_string(),
+            "module:fs".to_string(),
+            "api:fs.read_text".to_string(),
+            "method:Path.read_text".to_string(),
+            "record:FsEntry".to_string(),
+            "search:rooted extraction".to_string(),
+        ],
+        false,
+    );
+    output.push_str("}\n");
+    output
 }
 
 fn query_lines(text: &str) -> impl Iterator<Item = String> + '_ {
@@ -370,7 +420,11 @@ fn select(catalog: &[ApiItem], selector: &Selector) -> Vec<ApiItem> {
     let mut matches = match selector {
         Selector::Module(module) => catalog
             .iter()
-            .filter(|item| item.kind == "module" && item.id == format!("module.{module}"))
+            .filter(|item| {
+                (item.kind == "module" || item.kind == "module-function")
+                    && (item.id == format!("module.{module}")
+                        || item.id.starts_with(&format!("module.{module}.")))
+            })
             .cloned()
             .collect(),
         Selector::Api(module, function) => catalog
@@ -403,6 +457,14 @@ fn select(catalog: &[ApiItem], selector: &Selector) -> Vec<ApiItem> {
     };
     matches.sort_by(|left, right| left.id.cmp(&right.id));
     matches
+}
+
+fn default_details(selector: &Selector) -> ApiDetails {
+    match selector {
+        Selector::Module(_) | Selector::Search(_) => ApiDetails::Basic,
+        Selector::Language(_) => ApiDetails::Full,
+        Selector::Api(_, _) | Selector::Method(_, _) | Selector::Record(_) => ApiDetails::Full,
+    }
 }
 
 fn search(catalog: &[ApiItem], terms: &str) -> Vec<ApiItem> {
@@ -472,7 +534,7 @@ fn catalog() -> Vec<ApiItem> {
                         })
                     })
                     .collect(),
-                Vec::new(),
+                module_effects(module),
             ));
         }
         for function in &module.functions {
@@ -487,11 +549,7 @@ fn catalog() -> Vec<ApiItem> {
                         .iter()
                         .map(|overload| module_signature(module_name, function.name, overload))
                         .collect(),
-                    function
-                        .overloads
-                        .iter()
-                        .map(|overload| format!("{:?}", overload.op))
-                        .collect(),
+                    module_function_effects(&function.overloads),
                 ));
             }
         }
@@ -509,17 +567,17 @@ fn catalog() -> Vec<ApiItem> {
                         .iter()
                         .map(|overload| method_signature(receiver, method.name, overload))
                         .collect(),
-                    method
-                        .overloads
-                        .iter()
-                        .map(|overload| format!("{:?}", overload.sig.op))
-                        .collect(),
+                    method_effects(&method.overloads),
                 ));
             }
         }
     }
     items.extend(record_items());
     items.extend(language_items());
+    assert!(
+        items.iter().all(|item| !item.summary.trim().is_empty()),
+        "the canonical API catalog contains an undocumented public item"
+    );
     items
 }
 
@@ -528,20 +586,17 @@ fn item_from_docs(
     kind: &'static str,
     docs: &xsh::modules::signature::ApiDocs,
     signatures: Vec<String>,
-    runtime_ops: Vec<String>,
+    effects: Vec<String>,
 ) -> ApiItem {
     ApiItem {
         id,
         kind,
         summary: docs.summary.clone(),
         contract: docs.contract.clone(),
-        curated: docs.curated,
+        example: docs.example.clone(),
+        effects,
         tags: docs.tags.clone(),
         signatures,
-        runtime_ops,
-        implementation: docs.navigation.implementation.clone(),
-        tests: docs.navigation.tests.clone(),
-        showcase: docs.navigation.showcase.clone(),
     }
 }
 
@@ -555,7 +610,7 @@ fn record_items() -> Vec<ApiItem> {
                 "record",
                 &docs,
                 vec![format!("{name} {}", render_type(&ty))],
-                Vec::new(),
+                vec!["none".to_string()],
             )
         })
         .collect()
@@ -570,10 +625,46 @@ fn language_items() -> Vec<ApiItem> {
                 "language",
                 &reference.docs,
                 Vec::new(),
-                Vec::new(),
+                vec!["none".to_string()],
             )
         })
         .collect()
+}
+
+fn module_effects(signature: &xsh::modules::signature::ModuleSig) -> Vec<String> {
+    let mut effects = BTreeSet::new();
+    for function in &signature.functions {
+        for effect in module_function_effects(&function.overloads) {
+            effects.insert(effect);
+        }
+    }
+    effects.into_iter().collect()
+}
+
+fn module_function_effects(overloads: &[ModuleFnSig]) -> Vec<String> {
+    let mut effects = BTreeSet::new();
+    for overload in overloads {
+        if let Some(effect) = &overload.effect {
+            effects.insert(effect.as_str().to_string());
+        }
+    }
+    if effects.is_empty() {
+        effects.insert("none".to_string());
+    }
+    effects.into_iter().collect()
+}
+
+fn method_effects(overloads: &[xsh::modules::signature::MethodSig]) -> Vec<String> {
+    let mut effects = BTreeSet::new();
+    for overload in overloads {
+        if let Some(effect) = &overload.sig.effect {
+            effects.insert(effect.as_str().to_string());
+        }
+    }
+    if effects.is_empty() {
+        effects.insert("none".to_string());
+    }
+    effects.into_iter().collect()
 }
 
 fn module_signature(module: &str, function: &str, signature: &ModuleFnSig) -> String {
@@ -677,7 +768,7 @@ fn render_text(responses: &[ApiResponse]) -> String {
             output.push_str("kind: ");
             output.push_str(item.kind);
             output.push('\n');
-            output.push_str(if item.curated { "purpose: " } else { "context: " });
+            output.push_str("purpose: ");
             output.push_str(&item.summary);
             output.push('\n');
             if response.details == ApiDetails::Full {
@@ -701,7 +792,7 @@ standard records: {}\n\
 language reference items: {}\n\
 total queryable items: {}\n\
 documented items: {}\n\
-curated items: {}\n",
+",
         summary.standard_modules,
         summary.module_functions,
         summary.module_overloads,
@@ -712,7 +803,6 @@ curated items: {}\n",
         summary.language_reference_items,
         summary.total_queryable_items,
         summary.documented_items,
-        summary.curated_items,
     );
     append_callable_tree(
         &mut output,
@@ -739,7 +829,7 @@ curated items: {}\n",
 
 fn render_summary_jsonl(summary: &ApiSummary) -> String {
     let mut output = format!(
-        "{{\"schema_version\":1,\"kind\":\"summary\",\"standard_modules\":{},\"module_functions\":{},\"module_overloads\":{},\"method_receivers\":{},\"methods\":{},\"method_overloads\":{},\"standard_records\":{},\"language_reference_items\":{},\"total_queryable_items\":{},\"documented_items\":{},\"curated_items\":{}",
+        "{{\"schema_version\":1,\"kind\":\"summary\",\"standard_modules\":{},\"module_functions\":{},\"module_overloads\":{},\"method_receivers\":{},\"methods\":{},\"method_overloads\":{},\"standard_records\":{},\"language_reference_items\":{},\"total_queryable_items\":{},\"documented_items\":{}",
         summary.standard_modules,
         summary.module_functions,
         summary.module_overloads,
@@ -750,7 +840,6 @@ fn render_summary_jsonl(summary: &ApiSummary) -> String {
         summary.language_reference_items,
         summary.total_queryable_items,
         summary.documented_items,
-        summary.curated_items,
     );
     push_summary_modules_json(&mut output, &summary.modules);
     push_summary_methods_json(&mut output, &summary.method_receivers_tree);
@@ -898,14 +987,12 @@ fn write_full_text_item(output: &mut String, item: &ApiItem) {
         output.push_str(&item.contract);
         output.push('\n');
     }
+    output.push_str("effects: ");
+    output.push_str(&item.effects.join(", "));
+    output.push('\n');
     for signature in &item.signatures {
         output.push_str("signature: ");
         output.push_str(signature);
-        output.push('\n');
-    }
-    for operation in &item.runtime_ops {
-        output.push_str("runtime-op: ");
-        output.push_str(operation);
         output.push('\n');
     }
     if !item.tags.is_empty() {
@@ -913,20 +1000,13 @@ fn write_full_text_item(output: &mut String, item: &ApiItem) {
         output.push_str(&item.tags.join(", "));
         output.push('\n');
     }
-    for path in &item.implementation {
-        output.push_str("implementation: ");
-        output.push_str(path);
-        output.push('\n');
-    }
-    for path in &item.tests {
-        output.push_str("tests: ");
-        output.push_str(path);
-        output.push('\n');
-    }
-    if let Some(showcase) = &item.showcase {
-        output.push_str("showcase: ");
-        output.push_str(showcase);
-        output.push('\n');
+    if let Some(example) = &item.example {
+        output.push_str("example:\n");
+        for line in example.lines() {
+            output.push_str("  ");
+            output.push_str(line);
+            output.push('\n');
+        }
     }
 }
 
@@ -955,18 +1035,15 @@ fn push_json_item(output: &mut String, item: &ApiItem) {
     push_json_field(output, "kind", item.kind, true);
     push_json_field(output, "summary", &item.summary, true);
     push_json_field(output, "contract", &item.contract, true);
-    output.push_str("\"curated\":");
-    output.push_str(if item.curated { "true," } else { "false," });
-    push_json_array(output, "tags", &item.tags, true);
-    push_json_array(output, "signatures", &item.signatures, true);
-    push_json_array(output, "runtime_ops", &item.runtime_ops, true);
-    push_json_array(output, "implementation", &item.implementation, true);
-    push_json_array(output, "tests", &item.tests, true);
-    output.push_str("\"showcase\":");
-    match &item.showcase {
-        Some(showcase) => push_json_string(output, showcase),
+    push_json_array(output, "effects", &item.effects, true);
+    output.push_str("\"example\":");
+    match &item.example {
+        Some(example) => push_json_string(output, example),
         None => output.push_str("null"),
     }
+    output.push(',');
+    push_json_array(output, "tags", &item.tags, true);
+    push_json_array(output, "signatures", &item.signatures, true);
     output.push('}');
 }
 

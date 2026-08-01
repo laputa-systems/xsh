@@ -3,7 +3,8 @@
 use super::methods::{bytes_copy_type, cli_token_type};
 use super::streams::fs_entry_stream;
 use super::{
-    ApiArgCheck, ApiSpec, BTreeMap, ModuleEntry, ModuleSig, RuntimeOp, Type, archive_entry_type,
+    ApiArgCheck, ApiDocs, ApiSpec, BTreeMap, ModuleEntry, ModuleSig, RuntimeOp, Type,
+    archive_entry_type,
     btree_map, default_param, diff_result_type, dns_host_type, dns_lookup_type, elf_info_type,
     env_entry_type, env_path_entry_type, fs_copy_tree_result_type, fs_entry_type,
     fs_filesystem_stats_type, fs_lock_type, fs_mount_type, fs_remove_manifest_result_type,
@@ -167,7 +168,6 @@ pub(in crate::signature) fn build_api_spec() -> ApiSpec {
         value_methods(),
     )
 }
-
 fn applet_user_type() -> Type {
     Type::Record(btree_map(vec![
         ("name".to_string(), Type::Str),
@@ -3728,4 +3728,105 @@ fn utils_module() -> ModuleSig {
             RuntimeOp::UtilsCache,
         ),
     )])
+}
+pub fn record_docs(name: &str) -> ApiDocs {
+    let doc = record_doc(name)
+        .unwrap_or_else(|| panic!("missing record documentation for '{name}'"));
+    ApiDocs {
+        summary: doc.summary.to_string(),
+        contract: doc.contract.to_string(),
+        example: crate::examples::source(&format!("record.{name}")),
+        tags: {
+            let mut tags = Vec::new();
+            let record_name = name.to_ascii_lowercase();
+            for tag in std::iter::once("record")
+                .chain(std::iter::once(record_name.as_str()))
+                .chain(doc.tags.iter().copied())
+            {
+                if !tags.iter().any(|existing| existing == tag) {
+                    tags.push(tag.to_string());
+                }
+            }
+            tags
+        },
+    }
+}
+
+#[derive(Clone, Copy)]
+struct RecordDoc {
+    summary: &'static str,
+    contract: &'static str,
+    tags: &'static [&'static str],
+}
+
+fn record_doc(name: &str) -> Option<RecordDoc> {
+    let doc: (&'static str, &'static str, &'static [&'static str]) = match name {
+        "ArchiveEntry" => ("Describes one archive member.", "The path is an archive-relative member name; it is not an unrestricted host path.", &["archive", "path", "record"]),
+        "DiffResult" => ("Summarizes a generated unified diff.", "The counts describe the returned diff text and do not imply that a patch was applied.", &["diff", "text", "record"]),
+        "DnsHost" => ("Describes one resolved DNS host address.", "The address is resolver output at lookup time and may become stale immediately.", &["dns", "net", "host-state"]),
+        "DnsLookup" => ("Describes one DNS record answer.", "Record type, value, and TTL come from the resolver boundary and are not independently authenticated by the record.", &["dns", "net", "record"]),
+        "ElfDynamicTag" => ("Describes one ELF dynamic-section tag.", "The tag is parsed metadata from an input file; inspecting it does not load or execute the object.", &["elf", "binary", "record"]),
+        "ElfInfo" => ("Describes ELF headers and dynamic dependencies.", "Fields reflect the inspected bytes and malformed binaries remain errors before this record is returned.", &["elf", "binary", "record"]),
+        "EnvEntry" => ("Describes one environment variable entry.", "The raw and decoded forms preserve the distinction between host bytes and UTF-8 text.", &["env", "configuration", "record"]),
+        "EnvPathEntry" => ("Describes one component of an environment path list.", "An empty component is retained as data because it can have path-search meaning.", &["env", "path", "record"]),
+        "FsCopyTreeResult" => ("Reports files and directories copied by a tree operation.", "Counts describe completed host operations and do not by themselves guarantee a complete source snapshot.", &["filesystem", "copy", "record"]),
+        "FsEntry" => ("Describes one filesystem directory entry and its metadata.", "Metadata is a host snapshot; permission and timestamp fields can change after the record is read.", &["filesystem", "metadata", "record"]),
+        "FsFilesystemStats" => ("Reports capacity statistics for a filesystem.", "Values are a point-in-time host observation and must not be used as a reservation without a separate operation.", &["filesystem", "capacity", "record"]),
+        "FsLock" => ("Represents an owned filesystem lock.", "The record carries release ownership; call fs.unlock exactly once or transfer the documented ownership.", &["filesystem", "locking", "ownership"]),
+        "FsMount" => ("Describes one mounted filesystem.", "Mount data is a host-global snapshot and does not grant permission to mutate the mount.", &["filesystem", "mount", "host-state"]),
+        "FsRemoveManifestResult" => ("Reports paths removed by a manifest operation.", "The record describes constrained manifest removals and does not authorize a later unrestricted deletion.", &["filesystem", "remove", "record"]),
+        "FsRoot" => ("Represents a rooted filesystem capability.", "Operations using the root stay below its destination boundary; close the capability when its ownership ends.", &["filesystem", "rooted", "capability"]),
+        "Group" => ("Describes a Unix group account.", "The record is a host identity snapshot and does not itself confer group membership or privilege.", &["group", "identity", "record"]),
+        "LinuxBlockDevice" => ("Describes one Linux block device.", "Device metadata is host-global and may require privilege to inspect or act upon.", &["linux", "device", "record"]),
+        "LinuxDiskUsage" => ("Reports Linux filesystem disk usage.", "The values are a point-in-time kernel/filesystem observation rather than a reservation.", &["linux", "filesystem", "record"]),
+        "LinuxFileAttrs" => ("Describes Linux extended file attributes.", "Attributes belong to host filesystem state and may require privilege to read or change.", &["linux", "filesystem", "record"]),
+        "LinuxInterface" => ("Describes one Linux network interface.", "The record is a host-global networking snapshot and can become stale before use.", &["linux", "network", "record"]),
+        "LinuxInterfaceAddress" => ("Describes one address assigned to a Linux interface.", "The address record is observational; configuring it requires the separate privileged API.", &["linux", "network", "record"]),
+        "LinuxRoute" => ("Describes one Linux routing-table entry.", "Routes are host-global snapshot data and are not changed by constructing this record.", &["linux", "network", "record"]),
+        "LinuxLoopDevice" => ("Describes one Linux loop device.", "An attached loop resource remains host-owned until an explicit detach operation releases it.", &["linux", "loop", "ownership"]),
+        "LinuxMemInfo" => ("Reports Linux memory counters.", "Counters are a point-in-time kernel observation and can change between fields or calls.", &["linux", "memory", "host-state"]),
+        "LinuxBlkid" => ("Describes Linux block-device identification data.", "Identification fields come from the device probe and must not be treated as a write authorization.", &["linux", "device", "inspection"]),
+        "LinuxFsck" => ("Reports a Linux filesystem check result.", "Exit/status fields remain data; a check result does not imply that repair was performed.", &["linux", "filesystem", "status-data"]),
+        "LinuxModinfo" => ("Describes Linux kernel-module metadata.", "The record is inspection data and does not load the named module.", &["linux", "kernel", "inspection"]),
+        "LinuxModule" => ("Describes one loaded Linux kernel module.", "The record reflects host kernel state at query time and may disappear before a later operation.", &["linux", "kernel", "host-state"]),
+        "LinuxModuleParam" => ("Describes one Linux kernel-module parameter.", "Parameter values are host metadata and changing them requires an explicit privileged operation.", &["linux", "kernel", "configuration"]),
+        "LinuxOpenFile" => ("Describes one open file held by a Linux process.", "The record is a point-in-time process snapshot and does not keep the file descriptor alive.", &["linux", "process", "filesystem"]),
+        "LinuxPartition" => ("Describes one Linux partition.", "Partition data is storage metadata; changing it requires a separate explicit destructive operation.", &["linux", "storage", "record"]),
+        "LinuxPartitionTable" => ("Describes a Linux partition table.", "The record is a complete inspection snapshot and is not itself a request to write storage.", &["linux", "storage", "record"]),
+        "LinuxRfkill" => ("Describes Linux radio-block state.", "The state is host device policy and can change outside the current script.", &["linux", "rfkill", "host-state"]),
+        "LinuxUevent" => ("Describes one Linux device uevent.", "The record is an event snapshot from the host kernel stream and is not replayable by construction.", &["linux", "device", "streaming"]),
+        "MeasuredCommand" => ("Reports status and elapsed time for a measured command.", "Timing is additional data; the command retains its normal process status and error distinction.", &["time", "process", "status-data"]),
+        "MimeInfo" => ("Describes a MIME type lookup result.", "The record is derived from a media-type database or path spelling and does not verify file contents.", &["mime", "lookup", "record"]),
+        "MimeParse" => ("Describes parsed media-type components.", "Fields reflect validated media-type syntax; malformed input never becomes a partial trusted record.", &["mime", "parsing", "record"]),
+        "NetHeader" => ("Describes one HTTP header.", "Header names and values remain protocol text; callers must apply any application-specific trust or duplicate policy.", &["net", "http", "record"]),
+        "NetPool" => ("Represents an evaluator-owned HTTP connection pool.", "Pool ownership and cleanup stay with the evaluator session; close it explicitly when the workflow ends.", &["net", "http", "ownership"]),
+        "NetResponse" => ("Describes one structured HTTP response.", "Status, headers, and body are separate data; a non-success status is not silently converted into a transport error.", &["net", "http", "status-data"]),
+        "PatchResult" => ("Reports files changed by a rooted patch.", "The result describes a patch applied below the supplied root; it is not an authorization to write outside that root.", &["patch", "rooted", "record"]),
+        "ProcessEntry" => ("Describes one process-table entry.", "The record is a point-in-time host snapshot and the process may exit before any later action.", &["process", "inspection", "record"]),
+        "ProcessPort" => ("Describes one process-owned network port.", "Listener data is observational and can change independently of the record after enumeration.", &["process", "network", "record"]),
+        "ProcessThread" => ("Describes one thread belonging to a process.", "Thread data is a host snapshot and does not retain or synchronize with the thread.", &["process", "thread", "record"]),
+        "Signal" => ("Describes a Unix signal value.", "The numeric signal is host protocol data; sending it is a separate explicit process operation.", &["process", "signal", "record"]),
+        "Spawn" => ("Represents an owned spawned process.", "The handle lifecycle must end through wait, cancel, detach, or transfer; dropping ownership has cleanup semantics.", &["process", "ownership", "handle"]),
+        "SystemMemory" => ("Reports host memory totals and availability.", "The values are a point-in-time observation and are not a reservation or allocation guarantee.", &["system", "memory", "host-state"]),
+        "SystemOsRelease" => ("Describes host operating-system release metadata.", "Fields come from host release files and missing metadata remains an error rather than an invented value.", &["system", "os", "record"]),
+        "TestCall" => ("Describes one recorded native-test mock call.", "The call record belongs to the mock scope and is evidence for assertions, not a live host handle.", &["test", "mock", "record"]),
+        "TestContext" => ("Carries native-test resources and assertion context.", "The context is owned by one native test invocation and must not escape that test's lifecycle.", &["test", "native-tests", "ownership"]),
+        "Uname" => ("Describes the host kernel identity returned by uname.", "The fields identify the running host at query time and are not a portable feature-negotiation contract.", &["system", "uname", "record"]),
+        "UnixChildEvent" => ("Describes one reaped Unix child event.", "Reaping consumes host wait state; the event must be correlated with the process owner that spawned the child.", &["unix", "process", "reaping"]),
+        "UnixGroupId" => ("Describes Unix group identity numbers.", "The numeric IDs are host account metadata and do not themselves alter process credentials.", &["unix", "identity", "group"]),
+        "UnixId" => ("Describes Unix user and group identity numbers.", "The record reports host credentials; changing them requires a separate explicit process operation.", &["unix", "identity", "record"]),
+        "UnixKillAllResult" => ("Reports a Unix process-set signal operation.", "The result records attempted host effects and does not imply every selected process accepted the signal.", &["unix", "process", "signal", "status-data"]),
+        "UnixLoggedProcessGroup" => ("Represents an owned Unix process group with logging.", "The group and log ownership must be closed through the documented lifecycle before the supervising scope ends.", &["unix", "process", "ownership", "logging"]),
+        "UnixPid1Event" => ("Describes one PID 1 lifecycle event.", "PID 1 events are host process-lifecycle state and are meaningful only in the corresponding Unix supervisor boundary.", &["unix", "pid1", "process"]),
+        "UnixPid1Shutdown" => ("Describes a requested PID 1 shutdown action.", "Shutdown data represents an external host-global transition and must be handled as final control flow.", &["unix", "pid1", "shutdown"]),
+        "UnixSpawnedChild" => ("Represents a Unix child spawned in a process group.", "The child handle owns cleanup and wait coordination until the caller explicitly transfers or ends it.", &["unix", "process", "ownership"]),
+        "UnixTtyAttrs" => ("Describes Unix terminal attributes.", "Attributes are tied to a host terminal descriptor and restoring them remains the caller's responsibility after mutation.", &["unix", "tty", "record"]),
+        "User" => ("Describes a Unix user account.", "The record is a host identity snapshot and does not itself grant the script that user's privileges.", &["user", "identity", "record"]),
+        _ => return None,
+    };
+    Some(RecordDoc {
+        summary: doc.0,
+        contract: doc.1,
+        tags: doc.2,
+    })
 }

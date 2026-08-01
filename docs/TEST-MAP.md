@@ -33,13 +33,15 @@ area touched. Do not run formatter or autofix commands for agent work.
 cargo build --bin xsh
 cargo build --bin xsht
 cargo test -p xsh-registry --lib
+cargo test -p xsh --lib modules::signature
 cargo test -p xsht --test api
-target/debug/xsht api summary
-cargo test --test integration runtime::examples::
+target/debug/xsht api
+target/debug/xsht api summary --format jsonl
+git diff --check
 ```
 
-Run the runtime example test when a retained showcase,
-`examples/catalog.json`, or API navigation changes.
+Run the relevant language or runtime test gate when the API contract or an
+example exposes behavior that changed outside the registry and renderer.
 
 ## XSH Corpus Gate
 
@@ -79,7 +81,7 @@ cargo test --test integration runtime::coverage::runnable_xsh_corpus_is_formatte
 | `tests/fixtures/sema` | checker fixture sources |
 | `tests/fixtures/runtime` | executable runtime fixture scripts |
 | `tests/fixtures/frontend-indexed` | frozen indexed-execution and indexed-method fixtures |
-| `examples` | curated showcases cataloged in `examples/catalog.json` |
+| `examples` | standalone example scripts cataloged in `examples/catalog.json` |
 | `showcase` and `showcase/tests` | larger standalone scripts and native tests |
 
 ## Commands To Avoid

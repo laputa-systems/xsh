@@ -1,7 +1,7 @@
 #![allow(clippy::single_call_fn)]
 
 use super::{
-    Checker, Effect, MethodReceiver, RuntimeOp, Span, Type, api_spec, call_arg_span_arena,
+    Checker, MethodReceiver, Span, Type, api_spec, call_arg_span_arena,
     collection_item_ty, common_module_overload_expected_arena, map_item_ty,
     merge_collection_item_ty, module_overload_matches_arena, module_sig_accepts_arg_name_at_arena,
     module_sig_accepts_arity, module_sig_accepts_names_arena,
@@ -9,39 +9,9 @@ use super::{
 use crate::sema::check::{ApiArgCheck, MethodSig};
 use crate::syntax::arena::{ArenaCallArg, ArenaProgram};
 
-pub(super) fn method_required_effect(receiver: MethodReceiver, op: RuntimeOp) -> Option<Effect> {
-    match receiver {
-        MethodReceiver::Path => match op {
-            RuntimeOp::PathResolve
-            | RuntimeOp::FsExists
-            | RuntimeOp::FsExecutable
-            | RuntimeOp::FsDu
-            | RuntimeOp::FsMetadata
-            | RuntimeOp::FsRead
-            | RuntimeOp::FsReadText
-            | RuntimeOp::FsWrite
-            | RuntimeOp::FsWriteAtomic
-            | RuntimeOp::FsCopy
-            | RuntimeOp::FsRename
-            | RuntimeOp::FsMkdir
-            | RuntimeOp::FsRemove
-            | RuntimeOp::FsRemoveDir
-            | RuntimeOp::FsTouch
-            | RuntimeOp::FsTruncate
-            | RuntimeOp::FsChmod
-            | RuntimeOp::FsHardlink
-            | RuntimeOp::FsUnlink
-            | RuntimeOp::FsReadlink => Some(Effect::Fs),
-            _ => None,
-        },
-        MethodReceiver::ProcessHandle => Some(Effect::Process),
-        _ => None,
-    }
-}
-
 /// Arena-native mirror of every function above, operating on the arena's
 /// call-argument representation instead of the old recursive AST's.
-/// `method_required_effect` and the collection-item helpers
+/// The signature metadata's required effect and the collection-item helpers
 /// (`collection_item_ty`/`map_item_ty`/`merge_collection_item_ty`) are pure
 /// `Type`-level and reused unchanged.
 #[allow(dead_code)]
@@ -318,7 +288,7 @@ impl Checker {
             );
         }
         if let Some(caller_effs) = self.current_effects.clone()
-            && let Some(required) = method_required_effect(receiver, method.sig.op)
+            && let Some(required) = method.sig.effect.clone()
             && !Self::effects_covers(&caller_effs, &required)
         {
             self.error(

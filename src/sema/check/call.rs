@@ -289,7 +289,7 @@ impl Checker {
                 if api_spec().module(&module.as_str()).is_some() {
                     if let Some(caller_effs) = self.current_effects.clone()
                         && let Some(required) =
-                            Effect::from_module_call(&module.as_str(), &name.as_str())
+                            api_spec().module_required_effect(&module.as_str(), &name.as_str())
                         && !Self::effects_covers(&caller_effs, &required)
                     {
                         self.error(
