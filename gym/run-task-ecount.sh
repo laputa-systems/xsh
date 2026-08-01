@@ -20,7 +20,7 @@ pi_auth_file=${PI_AUTH_FILE:?PI_AUTH_FILE is required}
 pi_agent_dir=${PI_AGENT_DIR:-/run/pi-agent}
 
 mkdir -p "$work_dir" "$output_dir"
-cp "$gym_dir/agents.md" "$gym_dir/handbook.md" "$gym_dir/task-ecount.md" "$work_dir/"
+cp "$gym_dir/agents.md" "$gym_dir/handbook.md" "$gym_dir/task-ecount.md" "$gym_dir/review.md" "$work_dir/"
 rm -f \
   "$work_dir/ecount.xsh" \
   "$output_dir/session.jsonl" \
@@ -162,6 +162,7 @@ eval_status=0
     cp /session/candidate.stdout /export/candidate.stdout 2>/dev/null || true
     cp /session/oracle.stdout /export/oracle.stdout 2>/dev/null || true
     cp /work/ecount.xsh /export/ecount.xsh 2>/dev/null || true
+    cp /work/review.md /export/review.md 2>/dev/null || true
   }
   trap copy_results 0
 
@@ -179,6 +180,17 @@ eval_status=0
     fi
   else
     echo "pi completed without creating /work/ecount.xsh" >&2
+    eval_status=1
+  fi
+
+  # agents.md requires a session review at /work/review.md with the two
+  # template sections.
+  if test -s /work/review.md \
+      && grep -q "^## XSH language proposals" /work/review.md \
+      && grep -q "^## xsht friction" /work/review.md; then
+    echo "task-ecount evaluation passed (review.md)"
+  else
+    echo "task-ecount evaluation failed: review.md missing or incomplete" >&2
     eval_status=1
   fi
 

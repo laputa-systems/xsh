@@ -44,15 +44,10 @@ task-hello: base-image
 	@DOCKER="$(DOCKER)" \
 		PLATFORM="$(PLATFORM)" \
 		GYM_DIR="$(GYM_DIR)" \
-# build context; the binary is staged into a named volume (no bind mounts) and
-# extracted to the host.
 		BASE_IMAGE="$(BASE_IMAGE)" \
-	docker build --platform linux/arm64 \
-		--build-arg EXPECTED_LINKAGE=glibc \
-		-t $(BUN_LINUX_ARM64_IMAGE) \
-		-f Dockerfile.bun .
 		SESSION_VOLUME="$(TASK_HELLO_SESSION_VOLUME)" \
 		WORK_DIR="$(TASK_HELLO_WORK_DIR)" \
+		OUTPUT_DIR="$(TASK_HELLO_OUTPUT_DIR)" \
 		PI_COMMAND="$(PI_COMMAND)" \
 		PI_PROVIDER="$(PI_PROVIDER)" \
 		PI_MODEL="$(PI_MODEL)" \

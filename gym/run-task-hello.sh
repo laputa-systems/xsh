@@ -19,7 +19,7 @@ pi_auth_file=${PI_AUTH_FILE:?PI_AUTH_FILE is required}
 pi_agent_dir=${PI_AGENT_DIR:-/run/pi-agent}
 
 mkdir -p "$work_dir" "$output_dir"
-cp "$gym_dir/agents.md" "$gym_dir/handbook.md" "$gym_dir/task-hello.md" "$work_dir/"
+cp "$gym_dir/agents.md" "$gym_dir/handbook.md" "$gym_dir/task-hello.md" "$gym_dir/review.md" "$work_dir/"
 rm -f \
   "$work_dir/answer.txt" \
   "$output_dir/session.jsonl" \
@@ -118,13 +118,24 @@ eval_status=0
 if test -f "$work_dir/answer.txt"; then
   content=$(tr -d "\r\n" < "$work_dir/answer.txt")
   if test "$content" = "hello"; then
-    echo "task-hello evaluation passed"
+    echo "task-hello evaluation passed (answer.txt)"
   else
     echo "task-hello evaluation failed: unexpected content" >&2
     eval_status=1
   fi
 else
   echo "pi completed without creating /work/answer.txt" >&2
+  eval_status=1
+fi
+
+# agents.md requires a session review at /work/review.md with the two template
+# sections.
+if test -s "$work_dir/review.md" \
+    && grep -q "^## XSH language proposals" "$work_dir/review.md" \
+    && grep -q "^## xsht friction" "$work_dir/review.md"; then
+  echo "task-hello evaluation passed (review.md)"
+else
+  echo "task-hello evaluation failed: review.md missing or incomplete" >&2
   eval_status=1
 fi
 

@@ -27,4 +27,4 @@ WORKDIR /work
 
 # These files are also available when /work is replaced with a bind mount at
 # runtime. The task workspace can be mounted over this directory unchanged.
-COPY agents.md handbook.md /work/
+COPY agents.md handbook.md review.md /work/
