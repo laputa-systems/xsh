@@ -26,7 +26,7 @@ before adding a new abstraction.
 3. Implement runtime dispatch in `src/runtime/eval/methods.rs` or a focused
    helper.
 4. Add tests in `tests/runtime/modules.rs` or the closest runtime module.
-5. Regenerate docs; `docs/STDLIB.md` and `docs-html/*` should update.
+5. Regenerate docs; `docs/STDLIB.md` should update.
 
 ## Add A Module Function
 
@@ -60,7 +60,7 @@ before adding a new abstraction.
 2. Update or add examples in `examples/`.
 3. Add new examples to `examples/catalog.json`.
 4. Run the docs gate in `docs/TEST-MAP.md`.
-5. Keep generated `docs/CHAPTER-*.md` and `docs-html/*` changes.
+5. Keep generated `docs/CHAPTER-*.md` changes.
 
 ## Update Reference Or Standard-Library Docs
 
@@ -68,7 +68,7 @@ before adding a new abstraction.
    `crates/xsh-registry/src/signature/*`.
 2. Run the docs gate in `docs/TEST-MAP.md`.
 3. Keep generated `docs/REFERENCE.md`, `docs/STDLIB.md`, `docs/XSH-GUIDE.md`,
-   and `docs-html/*` changes that match the source change.
+   changes that match the source change.
 
 ## Add Lowered IR Support
 

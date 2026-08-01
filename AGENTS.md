@@ -28,8 +28,8 @@ owner files, and tests before editing.
 - Preserve useful comments and do not add banner or separator comments.
 - Do not add dependencies unless there is a clear need and no local equivalent.
 - Update the closest tests, examples, and `docs/` markdown for the behavior you
-  changed. Do not rebuild or edit `docs-html/` unless the user explicitly asks;
-  it creates large generated churn.
+  changed. Do not rebuild or edit generated documentation unless the user
+  explicitly asks; it creates large generated churn.
 - Prefer an `xsht` native test first for XSH behavior: add or extend a
   `proc test_*` under `tests/**/*.xsh` or `showcase/tests/**/*.xsh` when the
   contract can be expressed through XSH, using `test.run_script`,

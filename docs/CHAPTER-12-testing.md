@@ -64,13 +64,17 @@ or use a cataloged example instead.
 
 ## Use Temp Resources
 
-`TestContext` contains the stable test name, source file, and temp root:
+`TestContext` contains the stable test name, source file, temp root, the
+resolved `xsh` executable, and the directory containing the test's core
+scripts:
 
 ```xsh
 proc test_temp(ctx: TestContext) -> Result[Unit] {
   let path = test.temp_path(ctx)
   let dir = test.temp_dir(ctx, name: "work")?
   let file = test.temp_file(ctx, name: "input", contents: b"data")?
+  let child = ctx.xsh_bin
+  let core = ctx.core_dir
   test.ne(path, dir)?
   test.ok(file.name.starts_with("input"))?
 }
@@ -153,7 +157,6 @@ xsht test --exact tests/xsh/basic.xsh::test_pass
 xsht test --list
 xsht test --nocapture
 xsht test --fail-fast
-xsht test --jobs 4
 xsht test --examples [FILTER]
 xsht test --all [FILTER]
 xsht test --cov [FILTER]
@@ -164,15 +167,10 @@ Native test IDs are stable names such as
 `tests/xsh/net.xsh::test_fetch`. Catalog example IDs are
 `examples::hello`, `examples::dns-net`, and so on.
 
-Tests run concurrently by default, capped to a small worker count. Use
-`--jobs 1` for serial execution. `--nocapture`, `--fail-fast`, and syscall
-tracing run serially so their output and stopping behavior stay predictable.
-
-`--cov` runs matching native and example tests, then prints XSH source line/proc
-coverage and standard API coverage derived from raw JSONL traces. `--cov-json`
-writes the same coverage data as structured JSON without printing the coverage
-report. Use `make cov` for Linux LLVM source coverage of the Rust implementation
-plus the aggregated XSH coverage report.
+`--cov` runs matching native and example tests, then prints API coverage derived
+from raw JSONL traces. `--cov-json` writes the same coverage data as structured
+JSON without printing the coverage report. Use `make cov` for Linux LLVM source
+coverage of the Rust implementation plus the aggregated XSH API coverage report.
 
 ## What You Know Now
 

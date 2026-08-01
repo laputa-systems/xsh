@@ -2,7 +2,7 @@
 
 This page is generated from `docs-src/CHAPTER-*.md.in`.
 
-Markdown under `docs/` is the primary generated artifact for agents, code review, and repository navigation. Human readers should start with `docs-html/index.html`, which is generated from the same markdown and checked for drift by `xsht docs check`.
+Markdown under `docs/` is the primary generated artifact for agents, code review, and repository navigation. It is generated from the templates under `docs-src/` and checked for drift by `xsht docs check`.
 
 `docs/SPEC.md` is the normative language contract. `docs/SPEC-OS.md` details OS-facing runtime behavior such as signals, process groups, cancellation, and signal hooks. `docs/STDLIB.md` is the generated standard-library manual. `STDLIB-PROPOSALS.md` records standard-library design criteria, explicit non-goals, and open proposals. `docs/REFERENCE.md` is the generated non-stdlib language and tooling reference. The tutorial chapters are generated from `docs-src/` and include only cataloged examples from `examples/`.
 

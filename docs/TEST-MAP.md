@@ -33,9 +33,9 @@ Use these commands instead of `make docs`; the make target runs `cargo fmt`.
 
 ```sh
 cargo build --bin xsh
-cargo run -p xsht --features docs-html -- docs build
-cargo run -p xsht --features docs-html -- docs check
-cargo test -p xsht --features docs-html docs
+cargo run -p xsht -- docs build
+cargo run -p xsht -- docs check
+cargo test -p xsht docs
 cargo test --test integration runtime::examples::
 ```
 

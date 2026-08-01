@@ -104,18 +104,18 @@ id, depth, kind, optional source span, optional name, timing, and payload data.
 The same example with normalized raw events looks like this:
 
 ```text
-id=1 parent=- depth=0 kind=script.enter name="script" span=examples/trace.xsh:1:1-3:2
-id=2 parent=1 depth=1 kind=proc.enter name="say" span=examples/trace.xsh:5:1-5:14
-id=3 parent=2 depth=2 kind=core.call name="print" api_id="core.print" span=examples/trace.xsh:2:3-3:1 argv=[b"traced"]
-id=4 parent=3 depth=2 kind=core.result name="print" api_id="core.print" span=examples/trace.xsh:2:3-3:1
-id=5 parent=2 depth=1 kind=proc.exit name="say" span=examples/trace.xsh:5:1-5:14
-id=6 parent=1 depth=1 kind=run.start name="printf" api_id="run" span=examples/trace.xsh:6:12-6:41 target=b"printf" argv=[b"%s\n", b"done"] cwd=b"<cwd>"
-id=7 parent=6 depth=1 kind=run.end api_id="run" span=examples/trace.xsh:6:12-6:41 status={kind:exit success:true code:0}
-id=8 parent=1 depth=1 kind=method.call name="Str.trim" api_id="method.Str.trim" span=examples/trace.xsh:7:7-7:18
-id=9 parent=8 depth=1 kind=method.result name="Str.trim" api_id="method.Str.trim" span=examples/trace.xsh:7:7-7:18
-id=10 parent=1 depth=1 kind=core.call name="print" api_id="core.print" span=examples/trace.xsh:7:1-8:1 argv=[b"done"]
-id=11 parent=10 depth=1 kind=core.result name="print" api_id="core.print" span=examples/trace.xsh:7:1-8:1
-id=12 parent=1 depth=0 kind=script.exit name="script" span=examples/trace.xsh:1:1-3:2
+id=1 parent=- depth=0 kind=script.enter name="script" span=<cwd>/examples/trace.xsh:1:1-3:2
+id=2 parent=1 depth=1 kind=proc.enter name="say" span=<cwd>/examples/trace.xsh:5:1-5:14
+id=3 parent=2 depth=2 kind=core.call name="print" api_id="core.print" span=<cwd>/examples/trace.xsh:2:3-3:1 argv=[b"traced"]
+id=4 parent=3 depth=2 kind=core.result name="print" api_id="core.print" span=<cwd>/examples/trace.xsh:2:3-3:1
+id=5 parent=2 depth=1 kind=proc.exit name="say" span=<cwd>/examples/trace.xsh:5:1-5:14
+id=6 parent=1 depth=1 kind=run.start name="printf" api_id="run" span=<cwd>/examples/trace.xsh:6:12-6:41 target=b"printf" argv=[b"%s\n", b"done"] cwd=b"<cwd>"
+id=7 parent=6 depth=1 kind=run.end api_id="run" span=<cwd>/examples/trace.xsh:6:12-6:41 status={kind:exit success:true code:0}
+id=8 parent=1 depth=1 kind=method.call name="Str.trim" api_id="method.Str.trim" span=<cwd>/examples/trace.xsh:7:7-7:18
+id=9 parent=8 depth=1 kind=method.result name="Str.trim" api_id="method.Str.trim" span=<cwd>/examples/trace.xsh:7:7-7:18
+id=10 parent=1 depth=1 kind=core.call name="print" api_id="core.print" span=<cwd>/examples/trace.xsh:7:1-8:1 argv=[b"done"]
+id=11 parent=10 depth=1 kind=core.result name="print" api_id="core.print" span=<cwd>/examples/trace.xsh:7:1-8:1
+id=12 parent=1 depth=0 kind=script.exit name="script" span=<cwd>/examples/trace.xsh:1:1-3:2
 ```
 
 Useful event kinds include:

@@ -197,8 +197,8 @@ For every converted API, update together:
 - examples, `core/`, and `showcase/` callers that use indexing or `.len()`;
 - stream documentation where the list of live sources is maintained.
 
-Do not edit `docs-html/` directly. Regenerate it only through the documented
-docs gate when implementation is complete.
+Regenerate the Markdown documentation only through the documented docs gate
+when implementation is complete.
 
 ## Explicitly out of scope for this pass
 

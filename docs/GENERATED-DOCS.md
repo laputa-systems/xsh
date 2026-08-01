@@ -11,8 +11,6 @@ change.
 | `docs/XSH-GUIDE.md` | `src/docs.rs` and discovered chapter metadata |
 | `docs/STDLIB.md` | standard module signatures in `crates/xsh-registry/src/signature/*` |
 | `docs/REFERENCE.md` | CLI/reference metadata in `src/docs.rs` and related implementation metadata |
-| `docs-html/*` | markdown docs and `xsht docs build` |
-| `docs-html/reference/data.json` | generated stdlib/reference model from `src/docs.rs` |
 
 Support docs such as `docs/AGENT-ROUTING.md`, `docs/TEST-MAP.md`,
 `docs/GENERATED-DOCS.md`, `docs/JSON.md`, `docs/STREAMS.md`, `docs/FRONTEND.md`,
@@ -21,10 +19,9 @@ otherwise.
 
 ## Workflow
 
-1. Edit the source file, not only the generated markdown or HTML.
+1. Edit the source file, not only the generated Markdown.
 2. Run the formatter-free docs gate in `docs/TEST-MAP.md`.
-3. Keep changed generated markdown and `docs-html/*` artifacts when they reflect
-   the source change.
+3. Keep changed generated Markdown artifacts when they reflect the source change.
 4. If generated output changes unexpectedly, inspect the source metadata before
    deciding whether to keep it.
 

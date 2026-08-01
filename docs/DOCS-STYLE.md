@@ -85,9 +85,9 @@ Edit `docs-src/`, cataloged examples, and implementation metadata first. Then
 run:
 
 ```sh
-cargo run -p xsht --features docs-html -- docs build
-cargo run -p xsht --features docs-html -- docs check
-cargo test -p xsht --features docs-html docs
+cargo run -p xsht -- docs build
+cargo run -p xsht -- docs check
+cargo test -p xsht docs
 cargo test --test runtime example_
 ```
 
