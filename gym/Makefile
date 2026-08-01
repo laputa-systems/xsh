@@ -56,7 +56,7 @@ task-hello: base-image
 		PI_OFFLINE="$(PI_OFFLINE)" \
 		PI_AUTH_FILE="$(PI_AUTH_FILE)" \
 		PI_AGENT_DIR="$(PI_AGENT_DIR)" \
-		sh "$(GYM_DIR)/run-task-hello.sh"
+		xsh "$(GYM_DIR)/run-task-hello.xsh"
 
 task-ecount: task-ecount-image
 	@DOCKER="$(DOCKER)" \
@@ -76,4 +76,4 @@ task-ecount: task-ecount-image
 		PI_OFFLINE="$(PI_OFFLINE)" \
 		PI_AUTH_FILE="$(PI_AUTH_FILE)" \
 		PI_AGENT_DIR="$(PI_AGENT_DIR)" \
-		sh "$(GYM_DIR)/run-task-ecount.sh"
+		xsh "$(GYM_DIR)/run-task-ecount.xsh"
