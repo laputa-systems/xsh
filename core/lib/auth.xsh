@@ -1,13 +1,20 @@
+##! Authentication and account-file helpers for shipped core applets.
+## Public authentication helper for shipped core applets.
 export error AuthError = Failed(message: Str) : Usage
 
+## Public authentication helper for shipped core applets.
 export type PasswdEntry = {name: Str, password: Str, uid: Int, gid: Int, gecos: Str, home: Path, shell: Str}
 
+## Public authentication helper for shipped core applets.
 export type ShadowRecord = {raw: Bool, username: Str, password: Str, rest: List[Str], line: Str}
 
+## Public authentication helper for shipped core applets.
 export type LookupResult = {found: Bool, user: PasswdEntry}
 
+## Public authentication helper for shipped core applets.
 export type PasswordResult = {found: Bool, password: Str}
 
+## Public authentication helper for shipped core applets.
 export pure dummy_user() -> PasswdEntry {
   return {
     name: "",
@@ -20,28 +27,34 @@ export pure dummy_user() -> PasswdEntry {
   }
 }
 
+## Public authentication helper for shipped core applets.
 export proc fail(applet_name: Str, message: Str) [io] -> Int {
   eprint f"${applet_name}: ${message}"
   return 1
 }
 
+## Public authentication helper for shipped core applets.
 export pure missing_option_value(applet_name: Str, flag: Str) -> Str {
   let _ = applet_name
   return f"option requires an argument -- ${flag}"
 }
 
+## Public authentication helper for shipped core applets.
 export pure invalid_option(flag: Str) -> Str {
   return f"invalid option -${flag}"
 }
 
+## Public authentication helper for shipped core applets.
 export pure unrecognized_option(flag: Str) -> Str {
   return f"unrecognized option ${flag}"
 }
 
+## Public authentication helper for shipped core applets.
 export pure split_fields(line: Str) -> List[Str] {
   return line.split(":")
 }
 
+## Public authentication helper for shipped core applets.
 export pure parse_passwd(text: Str) -> Result[List[PasswdEntry]] {
   var entries: List[PasswdEntry] = []
 
@@ -66,6 +79,7 @@ export pure parse_passwd(text: Str) -> Result[List[PasswdEntry]] {
   return entries
 }
 
+## Public authentication helper for shipped core applets.
 export pure parse_shadow(text: Str) -> List[ShadowRecord] {
   var records: List[ShadowRecord] = []
 
@@ -83,6 +97,7 @@ export pure parse_shadow(text: Str) -> List[ShadowRecord] {
   return records
 }
 
+## Public authentication helper for shipped core applets.
 export pure render_shadow(records: List[Any]) -> Str {
   var lines: List[Str] = []
 
@@ -104,18 +119,22 @@ export pure render_shadow(records: List[Any]) -> Str {
 """
 }
 
+## Public authentication helper for shipped core applets.
 export proc passwd_path() [env, error] -> Result[Path] {
   return fp"${env.get_or("XSH_PASSWD_FILE", "/etc/passwd")?}"
 }
 
+## Public authentication helper for shipped core applets.
 export proc shadow_path() [env, error] -> Result[Path] {
   return fp"${env.get_or("XSH_SHADOW_FILE", "/etc/shadow")?}"
 }
 
+## Public authentication helper for shipped core applets.
 export proc nologin_path() [env, error] -> Result[Path] {
   return fp"${env.get_or("XSH_NOLOGIN_FILE", "/etc/nologin.txt")?}"
 }
 
+## Public authentication helper for shipped core applets.
 export proc passwd_file_configured() [env] -> Bool {
   var found = false
 
@@ -127,10 +146,12 @@ export proc passwd_file_configured() [env] -> Bool {
   return found
 }
 
+## Public authentication helper for shipped core applets.
 export proc read_passwd_entries() [fs, env, error] -> Result[List[PasswdEntry]] {
   return parse_passwd(passwd_path()?.read_text()?)?
 }
 
+## Public authentication helper for shipped core applets.
 export proc read_shadow_records() [fs, env, error] -> Result[List[ShadowRecord]] {
   let path_value = shadow_path()?
 
@@ -142,10 +163,12 @@ export proc read_shadow_records() [fs, env, error] -> Result[List[ShadowRecord]]
   return parse_shadow(path_value.read_text()?)
 }
 
+## Public authentication helper for shipped core applets.
 export proc write_shadow_records(records: List[Any]) [fs, env, error] {
   shadow_path()?.write_atomic(render_shadow(records))?
 }
 
+## Public authentication helper for shipped core applets.
 export proc lookup_user(name: Str) [fs, env, error] -> Result[PasswdEntry] {
   if passwd_file_configured() {
     for entry in read_passwd_entries()? {
@@ -170,6 +193,7 @@ export proc lookup_user(name: Str) [fs, env, error] -> Result[PasswdEntry] {
   }
 }
 
+## Public authentication helper for shipped core applets.
 export proc user_by_uid(uid: Int) [fs, env, error] -> Result[PasswdEntry] {
   if passwd_file_configured() {
     for entry in read_passwd_entries()? {
@@ -194,6 +218,7 @@ export proc user_by_uid(uid: Int) [fs, env, error] -> Result[PasswdEntry] {
   }
 }
 
+## Public authentication helper for shipped core applets.
 export proc current_user_name() [fs, process, env, error] -> Result[Str] {
   var name = "root"
 
@@ -205,6 +230,7 @@ export proc current_user_name() [fs, process, env, error] -> Result[Str] {
   return name
 }
 
+## Public authentication helper for shipped core applets.
 export pure shadow_password(records: List[Any], username: Str) -> PasswordResult {
   for item in records {
     if ! item.raw and item.username == username {
@@ -215,6 +241,7 @@ export pure shadow_password(records: List[Any], username: Str) -> PasswordResult
   return {found: false, password: ""}
 }
 
+## Public authentication helper for shipped core applets.
 export pure account_hash(user_entry: Any, records: List[Any]) -> PasswordResult {
   let shadow = shadow_password(records, user_entry.name)
 
@@ -229,6 +256,7 @@ export pure account_hash(user_entry: Any, records: List[Any]) -> PasswordResult 
   return {found: false, password: ""}
 }
 
+## Public authentication helper for shipped core applets.
 export proc authenticate(user_entry: Any) [fs, process, env, error, io] -> Result[Bool] {
   let records = read_shadow_records()?
   let credential = account_hash(user_entry, records)
@@ -246,6 +274,7 @@ export proc authenticate(user_entry: Any) [fs, process, env, error, io] -> Resul
   return Err(AuthError.Failed("incorrect password"))
 }
 
+## Public authentication helper for shipped core applets.
 export pure current_password(records: List[Any], passwd: List[Any], username: Str) -> PasswordResult {
   let shadow = shadow_password(records, username)
 
@@ -262,6 +291,7 @@ export pure current_password(records: List[Any], passwd: List[Any], username: St
   return {found: false, password: ""}
 }
 
+## Public authentication helper for shipped core applets.
 export pure lock_password(password: Str) -> Str {
   if password.starts_with("!") {
     return password
@@ -270,6 +300,7 @@ export pure lock_password(password: Str) -> Str {
   return f"!${password}"
 }
 
+## Public authentication helper for shipped core applets.
 export pure unlock_password(password: Str) -> Str {
   if password.starts_with("!") {
     return (password.split("") |> drop(1)).join("")
@@ -278,6 +309,7 @@ export pure unlock_password(password: Str) -> Str {
   return password
 }
 
+## Public authentication helper for shipped core applets.
 export pure shadow_rest_with_defaults(rest: List[Str], last_change: Str) -> List[Str] {
   var values = rest
 
@@ -296,6 +328,7 @@ export pure shadow_rest_with_defaults(rest: List[Str], last_change: Str) -> List
   ]
 }
 
+## Public authentication helper for shipped core applets.
 export pure upsert_shadow(records: List[Any], username: Str, password: Str, last_change: Str) -> List[Any] {
   var out: List[Any] = []
   var found = false
@@ -325,6 +358,7 @@ export pure upsert_shadow(records: List[Any], username: Str, password: Str, last
   return out
 }
 
+## Public authentication helper for shipped core applets.
 export proc days_since_epoch() [time] -> Str {
   return f"${time.now() / 86400000}"
 }

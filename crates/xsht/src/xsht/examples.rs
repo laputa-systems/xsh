@@ -62,7 +62,10 @@ pub fn validate_catalog(root: impl AsRef<Path>, catalog: &ExampleCatalog) -> Res
 
         let path = root.join(&example.path);
         if !path.is_file() {
-            errors.push(format!("cataloged showcase '{}' does not exist", example.path));
+            errors.push(format!(
+                "cataloged showcase '{}' does not exist",
+                example.path
+            ));
             continue;
         }
         let text = match fs::read_to_string(&path) {
@@ -76,7 +79,10 @@ pub fn validate_catalog(root: impl AsRef<Path>, catalog: &ExampleCatalog) -> Res
         let source_id = sources.add_file(&example.path, text.clone());
         let formatted = Formatter::new().format_source(source_id, &text);
         if !formatted.diagnostics.is_empty() {
-            errors.push(format!("showcase '{}' does not parse for formatting", example.path));
+            errors.push(format!(
+                "showcase '{}' does not parse for formatting",
+                example.path
+            ));
         } else if formatted.formatted != text {
             errors.push(format!("showcase '{}' needs formatting", example.path));
         }

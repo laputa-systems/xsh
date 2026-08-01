@@ -10,7 +10,7 @@ pub(crate) use crate::sema::records::standard_record_type;
 pub(crate) use crate::sema::types::{CallableParamType, CallableType, ModuleExportType, Type};
 pub(crate) use crate::source::Span;
 pub(crate) use crate::symbol::{Name, QualifiedName};
-use crate::syntax::arena::{ArenaProgram, TypeExprId};
+use crate::syntax::arena::{ArenaProgram, ArenaStmtKind, TypeExprId};
 pub(crate) use crate::syntax::node::{BinaryOp, CoreCommand, Effect, RunKind, UnaryOp};
 
 pub(crate) use rustc_hash::{FxHashMap, FxHashSet};
@@ -461,6 +461,73 @@ impl Checker {
         self.collect_definitions_arena(program, type_program, source, program.statement_ids());
         for stmt in program.statement_ids() {
             self.check_stmt_arena(program, source, stmt);
+        }
+    }
+
+    pub(crate) fn check_public_module_docs(
+        program: &ArenaProgram,
+        _source: &str,
+    ) -> Vec<Diagnostic> {
+        let mut checker = Self::new(CheckOptions::default());
+        let statements = program.statement_ids().collect::<Vec<_>>();
+        checker.check_public_docs(program, program.statements, &statements);
+        checker.diagnostics
+    }
+
+    fn check_public_docs(
+        &mut self,
+        program: &ArenaProgram,
+        statement_range: crate::syntax::arena::ArenaRange,
+        statements: &[crate::syntax::arena::StmtId],
+    ) {
+        let docs = &program.docs;
+        let exports = statements
+            .iter()
+            .copied()
+            .filter(|statement| {
+                matches!(
+                    program.arena.stmt(*statement).kind,
+                    ArenaStmtKind::Export(_)
+                )
+            })
+            .collect::<Vec<_>>();
+        let Some(first_export) = exports.first().copied() else {
+            return;
+        };
+
+        if program.module_doc_for(statement_range).is_none() {
+            self.error(
+                program.arena.stmt(first_export).span,
+                "exported modules require a preceding ##! module doc comment",
+                "check.missing-module-doc",
+            );
+        }
+        for doc in &docs.duplicate_modules {
+            self.error(
+                *doc,
+                "modules may declare only one ##! module doc comment",
+                "check.duplicate-module-doc",
+            );
+        }
+        for doc in &docs.orphaned {
+            self.error(
+                *doc,
+                "doc comments must immediately precede an export or appear as the module ##! doc",
+                "check.orphan-doc-comment",
+            );
+        }
+        for export in exports {
+            if !docs
+                .exports
+                .iter()
+                .any(|(statement, _)| *statement == export)
+            {
+                self.error(
+                    program.arena.stmt(export).span,
+                    "exported declarations require preceding ## doc comments",
+                    "check.missing-public-doc",
+                );
+            }
         }
     }
 

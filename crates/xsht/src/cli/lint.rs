@@ -15,6 +15,7 @@ use xsh::diagnostic::{Diagnostic, DiagnosticRenderer, Label};
 use xsh::loader::{parse_load_check_bytes, parse_load_check_text};
 use xsh::sema::check::CheckOptions;
 use xsh::source::{SourceId, SourceMap, Span};
+use xsh::symbol::SymbolOwner;
 pub fn lint_files(files: &[String], fix: bool, runless: bool) -> CliOutput {
     if let Some(output) = cancellation_output() {
         return output;
@@ -348,12 +349,15 @@ fn lint_one_file(
         return lint_one_file_with_fixes(index, file, text, &config);
     }
 
-    let mut checked_program = parse_load_check_bytes(
-        file,
-        bytes,
-        config.module_roots.clone(),
-        CheckOptions::default(),
-    );
+    let symbols = SymbolOwner::new();
+    let mut checked_program = symbols.with_current(|| {
+        parse_load_check_bytes(
+            file,
+            bytes,
+            config.module_roots.clone(),
+            CheckOptions::default(),
+        )
+    });
     if !checked_program.parsed.diagnostics.is_empty() {
         return LintResult {
             index,
@@ -417,12 +421,15 @@ fn lint_one_file_with_fixes(
     text: String,
     config: &ResolvedLintConfig,
 ) -> LintResult {
-    let checked_program = parse_load_check_text(
-        file,
-        text.clone(),
-        config.module_roots.clone(),
-        CheckOptions::default(),
-    );
+    let symbols = SymbolOwner::new();
+    let checked_program = symbols.with_current(|| {
+        parse_load_check_text(
+            file,
+            text.clone(),
+            config.module_roots.clone(),
+            CheckOptions::default(),
+        )
+    });
     if !checked_program.parsed.diagnostics.is_empty() {
         return LintResult {
             index,
@@ -540,12 +547,15 @@ fn validate_fixed_text(
     config: &ResolvedLintConfig,
     allow_non_entry_check_diagnostics: bool,
 ) -> Result<(), String> {
-    let checked_program = parse_load_check_text(
-        file,
-        text.to_string(),
-        config.module_roots.clone(),
-        CheckOptions::default(),
-    );
+    let symbols = SymbolOwner::new();
+    let checked_program = symbols.with_current(|| {
+        parse_load_check_text(
+            file,
+            text.to_string(),
+            config.module_roots.clone(),
+            CheckOptions::default(),
+        )
+    });
     if !checked_program.parsed.diagnostics.is_empty() {
         return Err(checked_program.render_parse_diagnostics());
     }
@@ -727,6 +737,7 @@ mod tests {
     use tempfile::TempDir;
     use xsh::diagnostic::{Diagnostic, FixHint, Severity};
     use xsh::source::{SourceId, Span};
+    use xsh::symbol::SymbolOwner;
 
     fn config() -> ResolvedLintConfig {
         ResolvedLintConfig {
@@ -754,8 +765,10 @@ mod tests {
     #[test]
     fn lint_fix_handles_nested_map_fixes_without_corrupting_source() {
         let source = "\
+##! Lint fixture module.
 type EtcSum = {path: Str, sha256: Str}
 
+## Builds a map from etcsum records.
 export proc map_etcsums(etcsums: List[EtcSum]) [error] -> Result[Map[Str]] {
   var mapped: Map[Str] = map.empty()
 
@@ -954,75 +967,84 @@ proc main() [] -> Int {
 
     #[test]
     fn lint_fix_repairs_missing_effects_from_imported_module_proc() {
-        let temp = TempDir::new().expect("tempdir");
-        let module_path = temp.path().join("kbuild.xsh");
-        fs::write(
-            &module_path,
-            "\
+        SymbolOwner::new().with_current(|| {
+            let temp = TempDir::new().expect("tempdir");
+            let module_path = temp.path().join("ARGV.xsh");
+            fs::write(
+                &module_path,
+                "\
+##! Kbuild fixture module.
+## Returns a task status with an environment effect.
 export proc image_task() [env] -> Int {
   1
 }
 ",
-        )
-        .expect("write module");
-        let entry_path = temp.path().join("main.xsh");
-        let source = "\
-use kbuild
+            )
+            .expect("write module");
+            let entry_path = temp.path().join("main.xsh");
+            let source = "\
+use ARGV
 
 proc main() [] -> Int {
-  kbuild.image_task()
+  ARGV.image_task()
 }
 ";
-        let config = config();
-        let result = lint_one_file_with_fixes(
-            0,
-            &entry_path.to_string_lossy(),
-            source.to_string(),
-            &config,
-        );
-        let LintResultKind::Write { text, .. } = result.kind else {
-            panic!("expected fixed source to be written");
-        };
+            let config = config();
+            let result = lint_one_file_with_fixes(
+                0,
+                &entry_path.to_string_lossy(),
+                source.to_string(),
+                &config,
+            );
+            let LintResultKind::Write { text, .. } = result.kind else {
+                panic!("expected fixed source to be written");
+            };
 
-        assert!(text.contains("proc main() [env] -> Int"));
+            assert!(text.contains("proc main() [env] -> Int"));
+        });
     }
 
     #[test]
     fn lint_fix_repairs_entry_effects_with_unrelated_module_check_error() {
-        let temp = TempDir::new().expect("tempdir");
-        let module_path = temp.path().join("kbuild.xsh");
-        fs::write(
-            &module_path,
-            "\
+        SymbolOwner::new().with_current(|| {
+            let temp = TempDir::new().expect("tempdir");
+            let module_path = temp.path().join("ARGV.xsh");
+            fs::write(
+                &module_path,
+                "\
+##! Kbuild fixture module.
+## Returns a task status with an environment effect.
 export proc image_task() [env] -> Int {
   1
 }
 
+## Deliberately contains an unrelated module error.
 export proc unrelated_bad() {
   1()
 }
 ",
-        )
-        .expect("write module");
-        let entry_path = temp.path().join("main.xsh");
-        let source = "\
-use kbuild
+            )
+            .expect("write module");
+            let entry_path = temp.path().join("main.xsh");
+            let source = "\
+use ARGV
 
 proc main() [] -> Int {
-  kbuild.image_task()
+  ARGV.image_task()
 }
 ";
-        let config = config();
-        let result = lint_one_file_with_fixes(
-            0,
-            &entry_path.to_string_lossy(),
-            source.to_string(),
-            &config,
-        );
-        let LintResultKind::Write { text, .. } = result.kind else {
-            panic!("expected fixed source to be written");
-        };
+            let config = config();
+            let result = lint_one_file_with_fixes(
+                0,
+                &entry_path.to_string_lossy(),
+                source.to_string(),
+                &config,
+            );
+            let LintResultKind::Write { text, .. } = result.kind else {
+                panic!("expected fixed source to be written");
+            };
 
-        assert!(text.contains("proc main() [env] -> Int"));
+            assert!(text.contains("proc main() [env] -> Int"));
+        });
     }
 }

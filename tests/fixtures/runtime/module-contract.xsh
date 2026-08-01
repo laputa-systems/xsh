@@ -12,9 +12,14 @@ let plugin_path = fp"${root}/plugin.xsh"
 fs.write(
   plugin_path,
   """
+##! Test plugin module contract.
+
+## Exposes the plugin name.
 export let name: Str = "demo"
+## Exposes the optional plugin description.
 export let description: Str = "loaded module"
 
+## Writes the plugin name into the requested root.
 export proc execute(root: Path) [fs, error] -> Result[Unit] {
   fs.write(fp"\${root}/out.txt", name)?
 }
@@ -24,4 +29,4 @@ export proc execute(root: Path) [fs, error] -> Result[Unit] {
 let plugin = module.load(plugin_path)?.require(Plugin)?
 print $plugin.name plugin.has("description") plugin.has("missing") plugin.keys().len()
 plugin.execute(root)?
-print fp"${root}/out.txt".read_text()?
+print (fp"${root}/out.txt".read_text()?)

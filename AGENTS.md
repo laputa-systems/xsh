@@ -60,7 +60,7 @@ owner files, and tests before editing.
 
 - Put language contracts in `docs/SPEC.md`, OS behavior in `docs/SPEC-OS.md`,
   streams in `docs/STREAMS.md`, JSON boundaries in `docs/JSON.md`, API details
-  in `docs/STDLIB.md` or `docs/REFERENCE.md`, architecture in
+  in `xsht api`, architecture in
   `docs/ARCHITECTURE.md`, testing in `docs/TEST-MAP.md`, and task navigation in
   `docs/AGENT-ROUTING.md`.
 - Do not add prose that restates obvious syntax or API signatures. Prefer exact

@@ -456,7 +456,8 @@ fn xsht_check_annotate_rewrites_only_requested_script() {
     std::fs::create_dir_all(&dir).expect("create temp dir");
     let helper = dir.join("helper.xsh");
     let main = dir.join("main.xsh");
-    let helper_source = "export let value = 1\n";
+    let helper_source =
+        "##! Annotate helper module.\n## Exposes the imported value.\nexport let value = 1\n";
     std::fs::write(&helper, helper_source).expect("write helper");
     std::fs::write(
         &main,
@@ -530,7 +531,12 @@ fn xsh_rejects_reveal_type() {
 #[test]
 fn xsht_fmt_check_accepts_stable_examples() {
     let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
-        .args(["fmt", "--check", "tests/fixtures/runtime/cli-simple.xsh", "tests/fixtures/runtime/cli-args.xsh"])
+        .args([
+            "fmt",
+            "--check",
+            "tests/fixtures/runtime/cli-simple.xsh",
+            "tests/fixtures/runtime/cli-args.xsh",
+        ])
         .output()
         .expect("run xsht");
 
@@ -754,7 +760,7 @@ fn xsht_lint_uses_nested_config_for_discovered_files() {
     .expect("write nested config");
     std::fs::write(
         lib.join("helper.xsh"),
-        "export pure value() -> Str {\n  \"ok\"\n}\n",
+        "##! Nested config helper module.\n## Returns the configured helper value.\nexport pure value() -> Str {\n  \"ok\"\n}\n",
     )
     .expect("write helper module");
     std::fs::write(app.join("main.xsh"), "use helper\nprint helper.value()\n")
@@ -1018,7 +1024,9 @@ fn xsht_test_uses_cwd_config_for_excludes_and_module_path() {
     .expect("write config");
     std::fs::write(
         root.join("lib/helper.xsh"),
-        r#"export pure value() -> Str {
+        r#"##! CWD config helper module.
+## Returns the helper value for the native test.
+export pure value() -> Str {
   return "ok"
 }
 "#,

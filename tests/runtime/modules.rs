@@ -652,8 +652,11 @@ fn dynamic_module_load_returns_exports_and_proc_call_invokes_proc_values() {
     std::fs::write(
         &helper,
         r#"
+##! Dynamic helper module.
+## Exposes the helper name.
 export let helper_name = "demo"
 
+## Renders a helper label.
 export pure helper_label(value: Str) -> Str {
   return f"helper:${value}"
 }
@@ -663,6 +666,7 @@ export pure helper_label(value: Str) -> Str {
     std::fs::write(
         &package,
         r#"
+##! Dynamic package module.
 use helper
 
 let prefix = helper_name
@@ -675,12 +679,15 @@ proc emit_private(value: Str) -> Result[Unit] {
   print ${label_private(value)}
 }
 
+## Exposes the package name.
 export let name = prefix
 
+## Renders a package label.
 export pure label(value: Str) -> Str {
   return label_private(value)
 }
 
+## Emits the package build value.
 export proc build(value: Str) -> Result[Unit] {
   emit_private(value)?
 }
@@ -794,8 +801,11 @@ fn package_style_module_hook_calls_run_on_compact_runtime() {
     std::fs::write(
         &package,
         r#"
+##! Package hook module.
+## Exposes the package name.
 export let name = "demo"
 
+## Writes the package marker into the destination.
 export proc build(dest: Path) [fs, error] -> Result[Unit] {
   fs.mkdir(dest)?
   fs.write(fp"${dest}/ok", f"${name}:${fs.cwd()?.name()}\n")?
@@ -877,14 +887,23 @@ fn dynamic_module_proc_bareword_run_args_resolve_correctly() {
     std::fs::write(
         &package,
         r#"
+##! Bareword run argument package module.
+## Exposes the package name.
 export let name = "bareword-test"
+## Exposes the package version.
 export let ver = "1.0"
+## Exposes the package release.
 export let rel = "1"
+## Exposes runtime dependencies.
 export let deps: List[Str] = []
+## Exposes make dependencies.
 export let mkdeps: List[Str] = []
+## Exposes source paths.
 export let sources: List[Path] = []
+## Exposes source checksums.
 export let checksums: List[Str] = []
 
+## Exercises bareword arguments while building the package.
 export proc build(dest: Path) [fs, process, error] {
   var patched_ninja = "rule link\n command = cc\nrule compile\n command = cc\n"
 
@@ -948,6 +967,8 @@ fn dynamic_module_load_reports_module_restriction_errors() {
         (
             "bad-var",
             r#"
+##! Invalid dynamic module fixture.
+## Exposes a value after a forbidden mutable declaration.
 var count = 1
 export let name = "bad"
 "#,
@@ -955,6 +976,8 @@ export let name = "bad"
         (
             "bad-command",
             r#"
+##! Invalid dynamic module fixture.
+## Exposes a value after a forbidden top-level command.
 print bad
 export let name = "bad"
 "#,
@@ -1003,6 +1026,35 @@ export let name = "bad"
         "{hook_stderr}"
     );
     assert!(hook_stderr.contains("signal-hook.xsh"), "{hook_stderr}");
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn dynamic_module_load_rejects_undocumented_exports() {
+    let root = temp_path("dynamic-module-doc-contract");
+    std::fs::create_dir_all(&root).expect("create dynamic module root");
+    let package = root.join("undocumented.xsh");
+    let main = root.join("main.xsh");
+    std::fs::write(&package, "export let name = \"undocumented\"\n")
+        .expect("write undocumented module");
+    std::fs::write(
+        &main,
+        format!(
+            "let _ = module.load(Path({}))?\n",
+            xsh_string_literal(package.to_str().unwrap())
+        ),
+    )
+    .expect("write dynamic module main");
+
+    let output = xsh([main.to_str().unwrap()]);
+
+    assert!(!output.status.success());
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("undocumented exports"),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
     let _ = std::fs::remove_dir_all(root);
 }
 
@@ -1321,6 +1373,8 @@ fn proc_call_from_module_preserves_runtime_cwd() {
     std::fs::write(
         &callee,
         "\
+##! CWD writer module.
+## Writes the active runtime working directory.
 export proc write_cwd(out: Path) [fs, error] {
   fs.write(out, fs.cwd()?.display())?
 }
@@ -1331,6 +1385,8 @@ export proc write_cwd(out: Path) [fs, error] {
         &caller,
         format!(
             "\
+##! CWD caller module.
+## Loads the writer and invokes it within the requested directory.
 export proc invoke(src: Path, out: Path) [fs, error] {{
   let module_exports = module.load(fp\"{}\")?
   cd src {{

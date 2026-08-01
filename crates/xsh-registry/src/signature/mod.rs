@@ -1,3 +1,4 @@
+pub use crate::api_docs::{ApiDocs, ApiNavigation};
 use crate::records::{
     archive_entry_type, diff_result_type, dns_host_type, dns_lookup_type, elf_info_type,
     env_entry_type, env_path_entry_type, fs_copy_tree_result_type, fs_entry_type,
@@ -22,11 +23,13 @@ pub(in crate::signature) use std::collections::BTreeMap;
 use std::sync::OnceLock;
 
 mod builders;
+mod docs;
 mod methods;
 mod modules;
 mod streams;
 
 pub(in crate::signature) use builders::command_callable;
+pub use docs::{method_api_id, module_api_id, receiver_name};
 pub(in crate::signature) use methods::value_methods;
 pub(in crate::signature) use modules::build_api_spec;
 
@@ -34,11 +37,78 @@ pub(in crate::signature) use modules::build_api_spec;
 pub struct ApiSpec {
     pub modules: Vec<ModuleEntry>,
     pub methods: Vec<MethodReceiverSig>,
+    docs: BTreeMap<String, ApiDocs>,
 }
 
 impl ApiSpec {
     pub fn new(modules: Vec<ModuleEntry>, methods: Vec<MethodReceiverSig>) -> Self {
-        Self { modules, methods }
+        let docs = docs::build_api_docs(&modules, &methods);
+        let spec = Self {
+            modules,
+            methods,
+            docs,
+        };
+        spec.validate_docs()
+            .expect("standard API registry must have complete documentation");
+        spec
+    }
+
+    pub fn docs(&self, id: &str) -> Option<&ApiDocs> {
+        self.docs.get(id)
+    }
+
+    pub fn docs_entries(&self) -> impl Iterator<Item = (&str, &ApiDocs)> {
+        self.docs.iter().map(|(id, docs)| (id.as_str(), docs))
+    }
+
+    pub fn validate_docs(&self) -> Result<(), String> {
+        let mut expected = BTreeMap::<String, ()>::new();
+        for module in &self.modules {
+            expected.insert(format!("module.{}", module.name), ());
+            for function in &module.sig.functions {
+                expected.insert(module_api_id(module.name, function.name), ());
+            }
+        }
+        for receiver in &self.methods {
+            for method in &receiver.methods {
+                expected.insert(method_api_id(receiver.receiver, method.name), ());
+            }
+        }
+
+        for id in expected.keys() {
+            let Some(docs) = self.docs(id) else {
+                return Err(format!("missing API docs for '{id}'"));
+            };
+            if docs.summary.trim().is_empty() {
+                return Err(format!("API docs for '{id}' have an empty summary"));
+            }
+            if docs.tags.iter().any(|tag| tag.trim().is_empty()) {
+                return Err(format!("API docs for '{id}' have an empty tag"));
+            }
+            if docs
+                .navigation
+                .implementation
+                .iter()
+                .any(|path| path.trim().is_empty())
+                || docs
+                    .navigation
+                    .tests
+                    .iter()
+                    .any(|path| path.trim().is_empty())
+            {
+                return Err(format!(
+                    "API docs for '{id}' have an empty navigation entry"
+                ));
+            }
+        }
+
+        for id in self.docs.keys() {
+            if !expected.contains_key(id) {
+                return Err(format!("API docs contain unknown item '{id}'"));
+            }
+        }
+
+        Ok(())
     }
 }
 
@@ -205,4 +275,55 @@ pub fn default_param(name: &'static str, ty: Type) -> ParamSig {
 
 pub fn result(ok: Type) -> Type {
     Type::Result(Box::new(ok), Box::new(Type::Error))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::api_spec;
+    use crate::{records, reference};
+
+    #[test]
+    fn public_api_items_have_complete_registry_docs() {
+        api_spec()
+            .validate_docs()
+            .expect("public API docs should be complete");
+    }
+
+    #[test]
+    fn record_and_language_registry_docs_are_complete() {
+        for name in records::record_schemas().keys() {
+            let docs = records::record_docs(name);
+            assert!(!docs.summary.trim().is_empty(), "record.{name}");
+            assert!(
+                docs.tags.iter().all(|tag| !tag.trim().is_empty()),
+                "record.{name}"
+            );
+        }
+
+        let references = reference::language_references();
+        for reference in &references {
+            assert!(!reference.id.trim().is_empty());
+            assert!(
+                !reference.docs.summary.trim().is_empty(),
+                "{}",
+                reference.id
+            );
+            assert!(
+                reference.docs.tags.iter().all(|tag| !tag.trim().is_empty()),
+                "{}",
+                reference.id
+            );
+        }
+        let mut ids = references
+            .iter()
+            .map(|reference| &reference.id)
+            .collect::<Vec<_>>();
+        ids.sort_unstable();
+        ids.dedup();
+        assert_eq!(
+            ids.len(),
+            references.len(),
+            "language reference IDs must be unique"
+        );
+    }
 }

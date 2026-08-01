@@ -24,23 +24,21 @@ area touched. Do not run formatter or autofix commands for agent work.
 | Explicit PGO/release investigation after ordinary gates pass | `make pgo-profile` | `make bench-pgo` |
 | Syscall diagnostics | benchmark smoke test on the host | `make bench-syscalls` on Linux/Docker |
 | LLVM IR size | `tools/llvm-lines-repeat-offenders.xsh` over an existing capture | fresh `cargo llvm-lines` capture plus the applicable behavior/benchmark gate |
-| Docs/reference/examples | see `Docs Gate` below | same |
+| API registry/reference/examples | see `API Gate` below | same |
 | Broad cross-cutting work | closest targeted tests | `cargo test` |
 
-## Docs Gate
-
-Use these commands instead of `make docs`; the make target runs `cargo fmt`.
+## API Gate
 
 ```sh
 cargo build --bin xsh
-cargo run -p xsht -- docs build
-cargo run -p xsht -- docs check
-cargo test -p xsht docs
+cargo build --bin xsht
+cargo test -p xsh-registry --lib
+cargo test -p xsht --test api
 cargo test --test integration runtime::examples::
 ```
 
 Run the runtime example test when a retained showcase,
-`examples/catalog.json`, or generated reference output changes.
+`examples/catalog.json`, or API navigation changes.
 
 ## XSH Corpus Gate
 
@@ -87,7 +85,6 @@ cargo test --test integration runtime::coverage::runnable_xsh_corpus_is_formatte
 
 - `make lint`, `cargo fmt`, `cargo fmt --all`, `cargo clippy --fix`, `xsht fmt`,
   and `xsht lint --fix` rewrite files and are left to the user.
-- `make docs` currently runs `cargo fmt`; use the formatter-free docs gate above.
 - The `dist` profile is reserved for release packaging, not local agent
   verification.
 - Benchmark and PGO commands intentionally use release code generation.

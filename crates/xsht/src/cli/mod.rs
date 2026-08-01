@@ -96,9 +96,9 @@ fn cancellation_signal_name(signal: i32) -> String {
     }
 }
 
+mod api;
 mod check;
 mod coverage;
-mod docs;
 mod files;
 mod fmt;
 mod grep;
@@ -107,12 +107,12 @@ mod refactor;
 mod syntax_tree;
 mod trace;
 
+pub use api::api_command;
 pub use check::{
     AnnotationPolicy, AnnotationSelection, check_paths_with_options,
     check_paths_with_summary_options, check_script, check_script_with_options,
 };
 pub use coverage::CoverageCollector;
-pub use docs::docs_command;
 pub use files::{
     CONFIG_FILE_NAME, FormatConfig, XshConfig, collect_configured_xsh_files, collect_xsh_files,
     load_config,

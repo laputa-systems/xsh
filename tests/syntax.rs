@@ -89,6 +89,34 @@ fn parser_fixture_covers_baseline_shapes() {
 }
 
 #[test]
+fn parser_retains_module_and_export_doc_comment_spans() {
+    let source = r#"
+##! Test module documentation.
+
+## Exposes a documented value.
+export let value: Int = 1
+"#;
+    let output = Parser::parse_source_arena_only(SourceId::new(0), source);
+
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let module_doc = output.arena.module_doc().expect("module doc span");
+    assert_eq!(
+        &source[module_doc.range()],
+        "##! Test module documentation.\n"
+    );
+    let export = output
+        .arena
+        .statement_ids()
+        .next()
+        .expect("export statement");
+    let export_doc = output.arena.export_doc(export).expect("export doc span");
+    assert_eq!(
+        &source[export_doc.range()],
+        "## Exposes a documented value."
+    );
+}
+
+#[test]
 fn arena_accessors_decode_compact_frontend_shapes() {
     let source = r#"
 proc main(name: Str) [fs, error] -> Result[Unit] {

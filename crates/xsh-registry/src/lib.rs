@@ -4,6 +4,7 @@
 //! scripts and runtime code can consume the same definitions without creating a
 //! Cargo build cycle.
 
+pub mod api_docs;
 pub mod errors;
 pub mod records;
 pub mod reference;

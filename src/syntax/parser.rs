@@ -102,8 +102,10 @@ impl<'a> Parser<'a> {
                 }
                 parser.skip_separators();
             }
+            let mut program = arena.finish();
+            program.attach_doc_comments(parser.source);
             ArenaParseOutput {
-                arena: arena.finish(),
+                arena: program,
                 cst,
                 diagnostics: parser.diagnostics,
             }
@@ -167,6 +169,7 @@ impl<'a> Parser<'a> {
             self.skip_separators();
         }
         let statements = arena.finish_root_statements_from(start);
+        arena.attach_doc_comments_for_statements(self.source, statements);
         ArenaParseFragment {
             statements,
             cst,
@@ -186,7 +189,9 @@ impl<'a> Parser<'a> {
             }
             self.skip_separators();
         }
-        arena.finish()
+        let mut program = arena.finish();
+        program.attach_doc_comments(self.source);
+        program
     }
 
     pub(in crate::syntax::parser) fn current_binary_op(&self) -> Option<(BinaryOp, u8, usize)> {

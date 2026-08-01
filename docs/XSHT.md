@@ -1,7 +1,7 @@
 # XSHT Tooling Architecture
 
 `xsht` is the tooling frontend for XSH source files. It owns checks, linting,
-formatting, source annotation, structural search, refactoring, docs commands,
+formatting, source annotation, structural search, refactoring, API queries,
 native tests, and coverage reports. Script execution remains in `xsh`; `xsht`
 may parse, check, and evaluate only when a tooling command explicitly requires
 that behavior.
@@ -17,7 +17,7 @@ add redundant product prefixes to already-qualified symbols.
 | command entry and result contract | `xsht::app::main`, `xsht::app::finish`, `xsht::cli::CliOutput` | `crates/xsht/src/app.rs`, `crates/xsht/src/cli/mod.rs`; `crates/xsht/tests/cli.rs` |
 | checked command pipeline | `check_script`, `format_files`, `lint_files` | `crates/xsht/src/cli/check.rs`, `fmt.rs`, `lint.rs`; CLI and lint integration tests |
 | structural search and refactoring | `find_matches_in_program`, `PatternExpr`, `Match`, `apply_replacement` | `crates/xsht/src/grep.rs`; `crates/xsht/tests/grep.rs` |
-| command adapters | `grep_scripts`, `refactor_scripts`, `ast_script`, `docs_command` | `crates/xsht/src/cli/grep.rs`, `refactor.rs`, `syntax_tree.rs`, `docs.rs`; `crates/xsht/tests/grep.rs` and `cli.rs` |
+| command adapters | `api_command`, `grep_scripts`, `refactor_scripts`, `ast_script` | `crates/xsht/src/cli/api.rs`, `grep.rs`, `refactor.rs`, `syntax_tree.rs`; `crates/xsht/tests/api.rs`, `grep.rs`, and `cli.rs` |
 | source-preserving edits | `SyntaxTree`, `apply_cst_guarded_edits`, `Formatter` | `crates/xsht/src/edit.rs`, `format.rs`, `cli/fmt.rs`; formatter coverage in `crates/xsht/tests/cli.rs` |
 
 `CliOutput` is the shared `xsht` command result, not an XSH runtime output
@@ -36,8 +36,8 @@ the `xsht::cli` module in `crates/xsht/src/cli/mod.rs`. Each command has a focus
   pipeline, then applies the formatter from `crates/xsht/src/format.rs`.
 - `lint.rs` runs lint analysis over checked programs and applies safe autofixes.
 - `grep.rs` and `refactor.rs` use AST-aware structural matching.
+- `api.rs` renders the canonical registry for batch API queries.
 - `files.rs` owns configured file discovery and `xsht-config.ini` parsing.
-- `docs.rs` owns generated docs commands.
 
 The shared language pipeline stays in the main `xsh` crate. `src/syntax`
 lexes, parses, and builds both the semantic AST and the lossless CST.
@@ -62,6 +62,22 @@ crate by ownership:
 CLI command modules should call these helpers for common setup and rewrite
 safety. Command-specific result aggregation, exit-code policy, and output text
 stay in the individual `crates/xsht/src/cli/*.rs` modules.
+
+## API Queries
+
+`xsht api` reads the canonical API registry; it does not parse generated
+Markdown or maintain a second documentation table. Batch selectors preserve
+request order and may mix exact lookups with deterministic search:
+
+```sh
+xsht api api:json.read method:Path.read_text record:FsEntry language:run.status
+xsht api --format jsonl --strict api:archive.tar_extract search:"rooted extraction"
+```
+
+Use `--query-file PATH` or `--stdin` to add one selector per line to the same
+request. `crates/xsht/src/api.rs::query` renders the registry;
+`crates/xsht/src/cli/api.rs::api_command` owns CLI result conversion; and
+`crates/xsht/tests/api.rs` covers text, JSONL, strict, file, and stdin batches.
 
 ## Configuration
 

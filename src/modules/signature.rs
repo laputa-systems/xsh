@@ -1,10 +1,11 @@
 use crate::sema::types::{ModuleExportType, Type};
 use crate::symbol::Name;
 use rustc_hash::FxHashMap;
+use std::collections::BTreeMap;
 use std::sync::OnceLock;
 use xsh_registry::signature as registry;
 
-pub use registry::{ApiArgCheck, MethodReceiver};
+pub use registry::{ApiArgCheck, ApiDocs, ApiNavigation, MethodReceiver};
 pub use xsh_registry::RuntimeOp;
 
 #[derive(Clone, Debug)]
@@ -12,6 +13,7 @@ pub struct ApiSpec {
     modules: Vec<ModuleEntry>,
     module_index: FxHashMap<&'static str, usize>,
     methods: Vec<MethodReceiverSig>,
+    docs: BTreeMap<String, ApiDocs>,
     /// Reverse map from a `RuntimeOp` to its `module.function` spelling, for
     /// `module.call`/`module.result` trace event names.
     op_names: FxHashMap<RuntimeOp, String>,
@@ -25,10 +27,17 @@ impl ApiSpec {
                 .iter()
                 .map(convert_method_receiver_sig)
                 .collect(),
+            spec.docs_entries()
+                .map(|(id, docs)| (id.to_string(), docs.clone()))
+                .collect(),
         )
     }
 
-    fn new(modules: Vec<ModuleEntry>, methods: Vec<MethodReceiverSig>) -> Self {
+    fn new(
+        modules: Vec<ModuleEntry>,
+        methods: Vec<MethodReceiverSig>,
+        docs: BTreeMap<String, ApiDocs>,
+    ) -> Self {
         let module_index = modules
             .iter()
             .enumerate()
@@ -48,6 +57,7 @@ impl ApiSpec {
             modules,
             module_index,
             methods,
+            docs,
             op_names,
         }
     }
@@ -56,6 +66,14 @@ impl ApiSpec {
     /// standard module function (used as the `module.call` trace name).
     pub fn op_trace_name(&self, op: RuntimeOp) -> Option<&str> {
         self.op_names.get(&op).map(String::as_str)
+    }
+
+    pub fn docs(&self, id: &str) -> Option<&ApiDocs> {
+        self.docs.get(id)
+    }
+
+    pub fn docs_entries(&self) -> impl Iterator<Item = (&str, &ApiDocs)> {
+        self.docs.iter().map(|(id, docs)| (id.as_str(), docs))
     }
 
     #[allow(dead_code)]
@@ -326,6 +344,11 @@ mod tests {
     fn api_spec_adapter_exactly_mirrors_registry() {
         let main = api_spec();
         let registry = registry::api_spec();
+
+        assert_eq!(
+            main.docs_entries().collect::<Vec<_>>(),
+            registry.docs_entries().collect::<Vec<_>>()
+        );
 
         assert_eq!(main.modules.len(), registry.modules.len());
         for (main_module, registry_module) in main.modules.iter().zip(&registry.modules) {

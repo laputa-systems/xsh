@@ -26,14 +26,14 @@ verification commands.
 | Runtime evaluation | `docs/SPEC.md` relevant section; `docs/ARCHITECTURE.md` Runtime | `src/runtime/eval.rs`, `src/runtime/eval/*`, `src/runtime/value.rs` | `tests/runtime.rs`, `tests/runtime/*`, `tests/fixtures/runtime` |
 | Process, cwd, env, signals, cancellation | `docs/SPEC.md` sections 9-12; `docs/SPEC-OS.md`; `docs/ARCHITECTURE.md` Runtime | `src/runtime/run.rs`, `src/runtime/process.rs`, `src/runtime/cwd.rs`, `src/runtime/eval/command.rs`, `src/runtime/eval/stmt.rs` | `tests/runtime/run.rs`, `process.rs`, `os.rs`, `unix.rs`, `linux.rs` |
 | Structured streams | `docs/SPEC.md` section 14; `docs/STREAMS.md`; `docs/ARCHITECTURE.md` Runtime | `src/sema/check/stream.rs`, `src/runtime/eval/stream.rs`, `crates/xsh-registry/src/signature/streams.rs` | `tests/xsh/stdlib/streams.xsh`, `tests/runtime/streams.rs`, `examples/streams.xsh` |
-| Standard module or method API | `docs/SPEC.md` section 13; `docs/STDLIB.md`; `src/modules/README.md` | `crates/xsh-registry/src/signature/*`, `crates/xsh-registry/src/runtime_op.rs`, matching `src/modules/*.rs`, `src/runtime/eval/modules.rs`, `src/runtime/eval/methods.rs` | `tests/runtime/modules.rs`, targeted module tests |
+| Standard module or method API | `docs/SPEC.md` section 13; `xsht api module:MODULE api:MODULE.FUNCTION method:TYPE.METHOD`; `src/modules/README.md` | `crates/xsh-registry/src/signature/*`, `crates/xsh-registry/src/runtime_op.rs`, matching `src/modules/*.rs`, `src/runtime/eval/modules.rs` | `tests/runtime/modules.rs`, targeted module tests |
 | JSON behavior | `docs/SPEC.md` section 16; `docs/JSON.md` | `src/modules/json.rs`, `src/runtime/value.rs`, `src/sema/check.rs` | `tests/xsh/stdlib/json.xsh`, JSON cases in `tests/sema.rs`, `tests/runtime/modules.rs`, `examples/json.xsh` |
 | Tracing and tracebacks | `docs/SPEC.md` section 18; `docs/ARCHITECTURE.md` Tracing And Errors | `src/trace.rs`, `src/runtime/eval.rs`, `crates/xsht/src/cli/mod.rs` | `tests/runtime/coverage.rs`, trace tests |
-| CLI or tooling | `docs/SPEC.md` section 19; `docs/REFERENCE.md`; `docs/XSHT.md`; `docs/XSHT-FMT.md` for formatter behavior | `crates/xsht/src/cli/mod.rs`, `crates/xsht/src/cli/grep.rs`, `crates/xsht/src/cli/refactor.rs`, `src/docs.rs`, `src/runner.rs` | `crates/xsht/tests/cli.rs`, `crates/xsht/tests/grep.rs`, `crates/xsht/tests/docs.rs`, `tests/xsh/formatter.xsh` |
+| CLI or tooling | `docs/SPEC.md` section 19; `docs/XSHT.md`; `docs/XSHT-FMT.md` for formatter behavior; `xsht api language:cli` | `crates/xsht/src/cli/mod.rs`, `crates/xsht/src/cli/grep.rs`, `crates/xsht/src/cli/refactor.rs`, `src/runner.rs` | `crates/xsht/tests/cli.rs`, `crates/xsht/tests/grep.rs`, `crates/xsht/tests/api.rs`, `tests/xsh/formatter.xsh` |
 | Interactive shell | `docs/SPEC-INTERACTIVE.md`; `docs/ARCHITECTURE.md` Interactive | `crates/xshi/src/interactive/*`, `crates/xsht/src/cli/mod.rs`, `src/runtime/process.rs` | `tests/runtime/interactive.rs` |
 | Executable IR or user-visible performance | `docs/FRONTEND.md`; `../FRONTEND-FOLLOWUPS.md`; `docs/BENCHMARKING.md`; `docs/ARCHITECTURE.md` Executable IR Ownership | `src/runtime/eval/indexed.rs`, `indexed/full.rs`, `lower.rs`, `lowered_run/indexed_run.rs`, `lowered_run/indexed_run/explicit_run.rs`, `src/runtime/eval.rs` | targeted executable/runtime tests, `scripts/ir-layout.py`, `make bench-fast`, then `make bench` for latency |
 | LLVM IR or generic code size | `docs/BENCHMARKING.md` | generic owners identified by `cargo llvm-lines` | `tools/llvm-lines-repeat-offenders.xsh`, targeted behavior tests, `make bench` when applicable |
-| Docs, examples, or references | `docs/DOCS-STYLE.md`; `docs/GENERATED-DOCS.md`; `examples/README.md` | `crates/xsht/src/docs.rs`, `crates/xsht/src/xsht/examples.rs`, `examples/catalog.json`, canonical docs | `crates/xsht/tests/docs.rs`, `tests/runtime/examples.rs`, docs commands in `docs/TEST-MAP.md` |
+| Docs, examples, or references | `docs/DOCS-STYLE.md`; `examples/README.md`; `XSHT-API-REGISTRY.md` | `crates/xsh-registry/src/signature/*`, `crates/xsht/src/api.rs`, `crates/xsht/src/xsht/examples.rs`, `examples/catalog.json`, canonical docs | `crates/xsht/tests/api.rs`, `tests/runtime/examples.rs`, API commands in `docs/TEST-MAP.md` |
 | Remote amd64 musl work | `../laputa/AGENTS.md` Threadripper Notes; `docs/BENCHMARKING.md` for benchmarks | remote checkout only | native command from the task |
 
 For frontend changes, use the symbol vocabulary and lifecycle table in
@@ -68,12 +68,6 @@ For most changes, read the `docs/SPEC.md` introduction, `Philosophy`, and
 | tracing and tracebacks | 18 |
 | CLI | 19 |
 | native tests and fixtures | 20-21 |
-
-## Generated Artifacts
-
-Before editing generated files, read `docs/GENERATED-DOCS.md`. In general, edit
-the source of generation first, then regenerate and keep the generated output in
-the same change.
 
 ## Final Frontend Gates
 

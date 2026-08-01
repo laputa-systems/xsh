@@ -10,10 +10,10 @@ Proposal lifecycle work should start with these concrete owners:
 
 | Concern | Symbols | Owner and coverage |
 |---|---|---|
-| semantic contract | `Checker`, `docs/SPEC.md`, `docs-src/CHAPTER-*.md.in` | `src/sema/check.rs`, language contract docs, semantic integration tests |
+| semantic contract | `Checker`, `docs/SPEC.md`, `xsht api` | `src/sema/check.rs`, language contract docs, semantic integration tests |
 | deprecation diagnostics | `LintExprVisitor`, `FixHint::replacement`, `FixHint::deletion` | `crates/xsht/src/lint.rs`, `src/diagnostic.rs`; `crates/xsht/tests/lint.rs` |
 | standard API registration | `api_spec`, `RuntimeOp` | `crates/xsh-registry/src/signature/*`, `crates/xsh-registry/src/runtime_op.rs`; `tests/fixtures/modules/standard-modules.txt` |
-| examples and generated docs | `examples/catalog.json`, `xsht docs build`, `xsht docs check` | `examples/*`, `docs-src/*`, `crates/xsht/src/docs.rs`; docs gate in `docs/TEST-MAP.md` |
+| examples and API registry | `examples/catalog.json`, `ApiSpec`, `xsht api` | `examples/*`, `crates/xsh-registry/src/signature/*`, `crates/xsht/src/api.rs`; API gate in `docs/TEST-MAP.md` |
 
 `LANG.md` contains open proposals and unresolved tickets only. Once a proposal
 reaches `Checker`/`RuntimeOp`/runtime behavior, move its normative explanation to
@@ -25,7 +25,7 @@ When a proposal is implemented, the commit must do all of the following.
 
 **1. LANG.md** — remove the entry from *Open Proposals*. It no longer belongs
 here. The rationale and example live in `docs/SPEC.md` and the relevant
-`docs-src/CHAPTER-*.md.in`. LANG.md only tracks things that are not yet done.
+canonical companion document. LANG.md only tracks things that are not yet done.
 
 **2. SPEC.md** — update `docs/SPEC.md` to describe the new behaviour as
 normative. Add to the grammar if it introduces new syntax, add to the type
@@ -47,18 +47,16 @@ why in the lint rule comment.
 `examples/*.xsh`, and `tests/xsh/*.xsh` immediately after adding the rule.
 Commit the migrated files in the same commit or the next.
 
-**6. Update docs chapters** — edit the relevant `docs-src/CHAPTER-*.md.in`
-template to use only canonical patterns. Remove examples that demonstrate the
-old form. If the feature is significant enough, add a dedicated section with
-its own example.
+**6. Update canonical docs** — edit the owning contract document and any
+required registry docs. Remove examples that demonstrate the old form.
 
 **7. Add or update an example** — add a focused `examples/*.xsh` file (or
 update the closest existing one) that demonstrates the feature. Add or update
 the entry in `examples/catalog.json`. The example must be cataloged, pass
 `xsht fmt --check`, and produce stable output.
 
-**8. Regenerate docs** — run `./target/debug/xsht docs build` and confirm
-`./target/debug/xsht docs check` passes.
+**8. Query the API** — run `./target/debug/xsht api` for changed public
+surfaces and the API gate in `docs/TEST-MAP.md`.
 
 **9. Commit message** — reference the LANG.md entry:
 `feat: implement implicit main invocation (LANG.md)`

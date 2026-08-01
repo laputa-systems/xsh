@@ -2827,3 +2827,58 @@ let i = (-3.0).abs()
     );
     assert_no_codes(&output, &["check.type-mismatch", "check.unknown-method"]);
 }
+
+#[test]
+fn checker_requires_retained_docs_for_public_exports() {
+    let output = check_with_module(
+        "use plugin\n",
+        r#"
+export let value: Int = 1
+"#,
+    );
+
+    assert!(has_code(&output, "check.missing-module-doc"), "{output:?}");
+    assert!(has_code(&output, "check.missing-public-doc"), "{output:?}");
+}
+
+#[test]
+fn checker_accepts_documented_public_exports() {
+    let output = check_with_module(
+        "use plugin\n",
+        r#"
+##! Test module documentation.
+
+## Exposes a documented value.
+export let value: Int = 1
+"#,
+    );
+
+    assert_no_codes(
+        &output,
+        &["check.missing-module-doc", "check.missing-public-doc"],
+    );
+}
+
+#[test]
+fn checker_rejects_orphaned_and_duplicate_module_docs() {
+    let output = check_with_module(
+        "use plugin\n",
+        r#"
+##! First module documentation.
+# ordinary commentary separates module doc blocks
+##! Duplicate module documentation.
+
+## Orphaned documentation.
+let value = 1
+
+## Exposes a documented value.
+export let exported: Int = value
+"#,
+    );
+
+    assert!(
+        has_code(&output, "check.duplicate-module-doc"),
+        "{output:?}"
+    );
+    assert!(has_code(&output, "check.orphan-doc-comment"), "{output:?}");
+}

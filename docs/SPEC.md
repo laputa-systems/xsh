@@ -2,9 +2,8 @@
 
 This is the living implementation contract for XSH.
 `docs/CHAPTER-01-why-xsh.md` supplies philosophical grounding,
-`docs/STDLIB.md` is the generated standard-library API manual, and
-`docs/REFERENCE.md` is the generated non-stdlib language and tooling reference.
-When those documents disagree,
+and `xsht api` is the canonical query interface for standard-library and
+language reference data. When those documents disagree,
 `docs/SPEC.md` is authoritative for core language behavior; update this file
 before changing language behavior.
 `docs/SPEC-TYPING.md` is the detailed contract for typechecking, including
@@ -176,7 +175,8 @@ flow.
 The implemented v1 surface includes:
 
 - UTF-8 source files with byte-offset spans and rendered line/column positions.
-- Comments beginning with `#`.
+- Comments beginning with `#`, including retained `##!` module docs and `##`
+  exported-declaration docs.
 - Newline and semicolon statement terminators.
 - `use`, `export`, `let`, `var`, `proc`, `pure`, `type`, `return`, `defer`,
   `if`, `else`, `while`, `for`, `break`, `continue`, and `match`.
@@ -220,14 +220,13 @@ The implemented v1 surface includes:
   `ProcessError`, `ProcessHandle`, `Command`, `Pure`, `Proc`, and `Unit`.
 - Standard modules are available without `use`; module, method, record,
   builtin type-name, and builtin error API metadata is defined by the internal
-  language registry and generated module, method, and record API signatures
-  live in `docs/STDLIB.md`.
+  language registry and queried with `xsht api`.
 - Text and JSON-lines traces, method trace events, tracebacks, `xsh`, `xshi`,
   and `xsht`.
 
 The following remain outside v1 unless this spec later promotes them:
 shell-string process execution, first-class command block literals, slice
-syntax, block-valued named arguments, public tagged JSON, doc comments,
+syntax, block-valued named arguments, public tagged JSON,
 multi-job interactive job control, script-level job-control syntax, service
 supervision, command-compatible Seed applet shims, and
 package-manager-specific grammar.
@@ -257,6 +256,13 @@ its own line, or after a complete statement where a newline, semicolon, `}`, or
 end of file would be valid. End-of-line statement comments are trivia attached
 to the preceding statement; they are not part of the semantic AST.
 
+`##!` starts a module doc block and `##` starts an exported-declaration doc
+block. Consecutive lines with the same prefix form one retained documentation
+span. A module with any `export` must have one `##!` block before executable
+module content, and every `export` must have a contiguous `##` block immediately
+before it. `##` blocks that do not attach to an export and additional `##!`
+blocks are checker errors. Ordinary `#` comments remain non-semantic.
+
 Reserved keywords:
 
 ```text
@@ -284,7 +290,7 @@ Identifiers used in expressions match:
 ```
 
 The standard module names are the module entries in the internal
-language-facing registry that generates `docs/STDLIB.md`. Those names are
+language-facing registry queried by `xsht api`. Those names are
 reserved in simple binding and alias positions so module namespaces cannot be
 shadowed or aliased by ordinary declarations. Record destructuring may bind
 fields with those names because standard record schemas commonly contain fields
@@ -3034,8 +3040,7 @@ CLI commands:
 - `xsht test [OPTIONS] [FILTER]`.
 - `xsht grep PATTERN [FILE...]`.
 - `xsht refactor PATTERN REPLACEMENT [FILE...]`.
-- `xsht docs build`.
-- `xsht docs check`.
+- `xsht api [OPTIONS] QUERY...`.
 
 Exit codes:
 

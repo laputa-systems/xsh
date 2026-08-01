@@ -464,7 +464,17 @@ pub struct ArenaProgram {
     pub arena: AstArena,
     pub statements: ArenaRange,
     pub modules: Vec<ArenaUserModule>,
+    pub docs: ArenaDocComments,
     symbols: crate::symbol::SymbolOwner,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct ArenaDocComments {
+    pub module: Option<Span>,
+    pub module_ranges: Vec<(ArenaRange, Span)>,
+    pub exports: Vec<(StmtId, Span)>,
+    pub orphaned: Vec<Span>,
+    pub duplicate_modules: Vec<Span>,
 }
 
 impl ArenaProgram {
@@ -543,6 +553,169 @@ impl ArenaProgram {
     pub fn module_statements(&self, module: &ArenaUserModule) -> impl Iterator<Item = StmtId> + '_ {
         self.arena.stmt_ids(module.statements)
     }
+
+    pub fn module_doc(&self) -> Option<Span> {
+        self.docs.module
+    }
+
+    pub fn module_doc_for(&self, statements: ArenaRange) -> Option<Span> {
+        self.docs
+            .module_ranges
+            .iter()
+            .find_map(|(range, span)| (*range == statements).then_some(*span))
+            .or_else(|| {
+                (self.statements == statements)
+                    .then_some(self.docs.module)
+                    .flatten()
+            })
+    }
+
+    pub fn export_doc(&self, statement: StmtId) -> Option<Span> {
+        self.docs
+            .exports
+            .iter()
+            .find_map(|(export, span)| (*export == statement).then_some(*span))
+    }
+
+    pub(crate) fn attach_doc_comments(&mut self, source: &str) {
+        let statements = self.statement_ids().collect::<Vec<_>>();
+        self.docs = doc_comments_for_statements(&self.arena, source, &statements);
+    }
+}
+
+fn doc_comments_for_statements(
+    arena: &AstArena,
+    source: &str,
+    statements: &[StmtId],
+) -> ArenaDocComments {
+    let first_statement = statements
+        .first()
+        .map(|statement| arena.stmt(*statement).span);
+    let module = module_doc_comment(source, first_statement);
+    let exports = statements
+        .iter()
+        .copied()
+        .filter(|&statement| matches!(arena.stmt(statement).kind, ArenaStmtKind::Export(_))).map(|statement| {
+                let span = arena.stmt(statement).span;
+                attached_export_doc_comment(source, span).map(|doc| (statement, doc))
+            })
+        .flatten()
+        .collect::<Vec<_>>();
+    let source_id = first_statement
+        .map(|span| span.source_id)
+        .unwrap_or(crate::source::SourceId::new(0));
+    let blocks = doc_comment_blocks(source, source_id);
+    let attached_starts = module
+        .into_iter()
+        .chain(exports.iter().map(|(_, span)| *span))
+        .map(Span::start)
+        .collect::<Vec<_>>();
+    ArenaDocComments {
+        module,
+        module_ranges: Vec::new(),
+        exports,
+        orphaned: blocks
+            .iter()
+            .filter_map(|(_, span)| (!attached_starts.contains(&span.start())).then_some(*span))
+            .collect(),
+        duplicate_modules: blocks
+            .iter()
+            .filter_map(|(module_block, span)| {
+                (*module_block && module.is_some() && Some(*span) != module).then_some(*span)
+            })
+            .collect(),
+    }
+}
+
+fn module_doc_comment(source: &str, first_statement: Option<Span>) -> Option<Span> {
+    let first_statement = first_statement?;
+    let prefix = &source[..first_statement.start()];
+    let mut offset = 0usize;
+    let mut start = None;
+    let mut end = None;
+    for line in prefix.split_inclusive('\n') {
+        let line_start = offset;
+        let line_end = offset + line.len();
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            offset = line_end;
+            continue;
+        }
+        if trimmed.starts_with("##!") {
+            start.get_or_insert(line_start);
+            end = Some(line_end);
+            offset = line_end;
+            continue;
+        }
+        if start.is_some() {
+            break;
+        }
+        return None;
+    }
+    match (start, end) {
+        (Some(start), Some(end)) => Some(Span::new(first_statement.source_id, start, end)),
+        _ => None,
+    }
+}
+
+fn attached_export_doc_comment(source: &str, statement: Span) -> Option<Span> {
+    let mut end = statement.start();
+    while end > 0 && matches!(source.as_bytes()[end - 1], b'\n' | b'\r') {
+        end -= 1;
+    }
+    let mut start = end;
+    let mut doc_start = None;
+    let mut doc_end = None;
+    while start > 0 {
+        let line_end = start;
+        let line_start = source[..line_end].rfind('\n').map_or(0, |index| index + 1);
+        let line = source[line_start..line_end].trim_end_matches('\r');
+        let trimmed = line.trim_start();
+        if trimmed.starts_with("##") && !trimmed.starts_with("##!") {
+            doc_start = Some(line_start);
+            doc_end.get_or_insert(line_end);
+            start = line_start.saturating_sub(1);
+            continue;
+        }
+        break;
+    }
+    match (doc_start, doc_end) {
+        (Some(start), Some(end)) => Some(Span::new(statement.source_id, start, end)),
+        _ => None,
+    }
+}
+
+fn doc_comment_blocks(source: &str, source_id: crate::source::SourceId) -> Vec<(bool, Span)> {
+    let mut blocks = Vec::new();
+    let mut offset = 0usize;
+    let mut lines = source.split_inclusive('\n').peekable();
+    while let Some(line) = lines.next() {
+        let line_start = offset;
+        offset += line.len();
+        let trimmed = line.trim_start();
+        let module = trimmed.starts_with("##!");
+        let export = trimmed.starts_with("##") && !module;
+        if !module && !export {
+            continue;
+        }
+        let mut end = offset;
+        while let Some(next) = lines.peek() {
+            let next_trimmed = next.trim_start();
+            let same_kind = if module {
+                next_trimmed.starts_with("##!")
+            } else {
+                next_trimmed.starts_with("##") && !next_trimmed.starts_with("##!")
+            };
+            if !same_kind {
+                break;
+            }
+            let next = lines.next().expect("peeked doc line");
+            offset += next.len();
+            end = offset;
+        }
+        blocks.push((module, Span::new(source_id, line_start, end)));
+    }
+    blocks
 }
 
 #[derive(Default)]
@@ -583,6 +756,7 @@ pub struct ArenaProgramBuilder<'a> {
     builder_entry_inputs: Vec<ArenaBuilderEntry>,
     builder_entry_input_starts: Vec<usize>,
     modules: Vec<ArenaUserModule>,
+    docs: ArenaDocComments,
 }
 
 impl<'a> ArenaProgramBuilder<'a> {
@@ -633,6 +807,7 @@ impl<'a> ArenaProgramBuilder<'a> {
             builder_entry_inputs: Vec::new(),
             builder_entry_input_starts: Vec::new(),
             modules: Vec::new(),
+            docs: ArenaDocComments::default(),
         }
     }
 
@@ -691,6 +866,7 @@ impl<'a> ArenaProgramBuilder<'a> {
             builder_entry_inputs: Vec::new(),
             builder_entry_input_starts: Vec::new(),
             modules: Vec::new(),
+            docs: ArenaDocComments::default(),
         }
     }
 
@@ -736,6 +912,17 @@ impl<'a> ArenaProgramBuilder<'a> {
         let statements = self.lowerer.lower_stmt_id_range(&self.statements[start..]);
         self.statements.truncate(start);
         statements
+    }
+
+    pub fn attach_doc_comments_for_statements(&mut self, source: &str, statements: ArenaRange) {
+        let statement_ids = self.lowerer.arena.stmt_ids(statements).collect::<Vec<_>>();
+        let docs = doc_comments_for_statements(&self.lowerer.arena, source, &statement_ids);
+        if let Some(module) = docs.module {
+            self.docs.module_ranges.push((statements, module));
+        }
+        self.docs.exports.extend(docs.exports);
+        self.docs.orphaned.extend(docs.orphaned);
+        self.docs.duplicate_modules.extend(docs.duplicate_modules);
     }
 
     pub fn statement_ids(&self, range: ArenaRange) -> Vec<StmtId> {
@@ -2693,21 +2880,39 @@ impl<'a> ArenaProgramBuilder<'a> {
 
     pub fn finish(mut self) -> ArenaProgram {
         let statements = self.lowerer.lower_stmt_id_range(&self.statements);
-        ArenaProgram {
+        let source = self.lowerer.source;
+        let mut program = ArenaProgram {
             arena: self.lowerer.arena,
             statements,
             modules: self.modules,
+            docs: self.docs,
             symbols: self.symbols,
+        };
+        if program.docs.module.is_none()
+            && program.docs.module_ranges.is_empty()
+            && let Some(source) = source
+        {
+            program.attach_doc_comments(source);
         }
+        program
     }
 
     pub fn finish_with_statements(self, statements: ArenaRange) -> ArenaProgram {
-        ArenaProgram {
+        let source = self.lowerer.source;
+        let mut program = ArenaProgram {
             arena: self.lowerer.arena,
             statements,
             modules: self.modules,
+            docs: self.docs,
             symbols: self.symbols,
+        };
+        if program.docs.module.is_none()
+            && program.docs.module_ranges.is_empty()
+            && let Some(source) = source
+        {
+            program.attach_doc_comments(source);
         }
+        program
     }
 }
 

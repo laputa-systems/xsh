@@ -9798,6 +9798,15 @@ impl Evaluator {
             .map(|source| source.text().to_string())
             .unwrap_or_default();
 
+        let doc_diagnostics =
+            crate::sema::check::Checker::check_public_module_docs(&parsed.arena, &module_text);
+        if !doc_diagnostics.is_empty() {
+            return Err(
+                RuntimeError::new("module-load", "loaded module has undocumented exports")
+                    .with_span(span),
+            );
+        }
+
         let declarations = crate::sema::check::Checker::check_compact_declarations(&parsed.arena);
         if !declarations.diagnostics.is_empty() {
             return Err(

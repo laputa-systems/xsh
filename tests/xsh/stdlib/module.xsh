@@ -11,9 +11,14 @@ proc test_module_load(ctx: TestContext) [fs, error] {
   fs.write(
     plugin_path,
     """
+##! Test plugin module contract.
+
+## Exposes the plugin name.
 export let name: Str = "demo"
+## Exposes the optional plugin description.
 export let description: Str = "loaded module"
 
+## Writes the plugin name into the requested root.
 export proc execute(root: Path) [fs, error] -> Result[Unit] {
   fs.write(fp"\${root}/out.txt", name)?
 }

@@ -121,8 +121,11 @@ fn par_map_filesystem_reads_preserve_all_results() {
     let root = temp_path("par-map-filesystem-reads");
     std::fs::create_dir_all(&root).expect("create par-map filesystem root");
     for index in 0..32 {
-        std::fs::write(root.join(format!("entry-{index:02}.txt")), format!("{index}\n"))
-            .expect("write par-map filesystem entry");
+        std::fs::write(
+            root.join(format!("entry-{index:02}.txt")),
+            format!("{index}\n"),
+        )
+        .expect("write par-map filesystem entry");
     }
     let source = format!(
         "\

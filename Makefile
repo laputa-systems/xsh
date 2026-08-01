@@ -155,14 +155,6 @@ dist-ci: dist
 		fi; \
 	done
 
-docs:
-	cargo fmt
-	cargo build --bin xsh
-	cargo run -p xsht -- docs build
-	cargo run -p xsht -- docs check
-	cargo test -p xsht docs
-	cargo test --test runtime example_
-
 cov: cov-$(COV_BACKEND)
 
 cov-docker:

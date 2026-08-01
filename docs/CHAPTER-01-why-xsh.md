@@ -88,6 +88,6 @@ use XSH to compose the host-facing work around them.
 ## Using This Reference
 
 `docs/SPEC.md` is the language contract, `docs/SPEC-OS.md` owns process and
-signal behavior, `docs/STDLIB.md` and `docs/REFERENCE.md` provide generated API
-reference, and `docs/AGENT-ROUTING.md` selects the smallest useful reading and
-test set for a change.
+signal behavior, `xsht api` provides exact API discovery, and
+`docs/AGENT-ROUTING.md` selects the smallest useful reading and test set for a
+change.

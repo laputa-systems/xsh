@@ -100,10 +100,10 @@ This table is the owner-module summary:
 | checking, typing, linting | `docs/SPEC-TYPING.md` | `Checker::check_compact_declarations`, `Checker::probe_compact_bodies`, `src/sema/*` |
 | runtime evaluation | `docs/SPEC.md` relevant section | `Evaluator::prepare_compact_indexed_only`, `indexed_run`, `src/runtime/*` |
 | process, cwd, env, signals, cancellation | `docs/SPEC-OS.md` | `execute_run`, `run_capture`, `spawn_managed`, `cancel_managed` in `src/runtime/run.rs` and `src/runtime/process.rs` |
-| standard modules and methods | `docs/STDLIB.md`, `src/modules/README.md` | `RuntimeOp`, `api_spec`, `src/modules/*`, `src/runtime/eval/modules.rs`, `src/runtime/eval/methods.rs` |
+| standard modules and methods | `xsht api`, `src/modules/README.md` | `RuntimeOp`, `api_spec`, `src/modules/*`, `src/runtime/eval/modules.rs` |
 | structured streams | `docs/STREAMS.md` | `check_stream_stage_arena`, `Evaluator::collect_stream_values`, `src/sema/check/stream.rs`, `src/runtime/eval/stream.rs` |
 | executable IR, verifier, and frames | `docs/FRONTEND.md` | `FullBuilder::build_compact`, `FullVerifier::verify`, `indexed_run`, `CallFrame` in `src/runtime/eval/*` |
-| docs and examples | `docs/GENERATED-DOCS.md`, `examples/README.md` | `docs::build`, `docs::check`, `examples::load_catalog`, `examples::validate_catalog`, `examples/catalog.json` |
+| docs and examples | `XSHT-API-REGISTRY.md`, `examples/README.md` | `ApiSpec`, `api::query`, `examples::load_catalog`, `examples::validate_catalog`, `examples/catalog.json` |
 
 ## Agent Map For IR Work
 

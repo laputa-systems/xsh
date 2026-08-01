@@ -1,6 +1,7 @@
+use crate::xsht::api::{ApiDetails, ApiFormat, ApiOptions};
 use crate::xsht::cli::{
-    AnnotationPolicy, AnnotationSelection, CliOutput, TraceFormat, TraceOptions, ast_script,
-    check_paths_with_summary_options, docs_command, format_files, grep_scripts, lint_files,
+    AnnotationPolicy, AnnotationSelection, CliOutput, TraceFormat, TraceOptions, api_command,
+    ast_script, check_paths_with_summary_options, format_files, grep_scripts, lint_files,
     refactor_scripts, trace_script,
 };
 use crate::xsht::test::{TestOptions, test_scripts};
@@ -24,7 +25,7 @@ Commands:
   lint       Run quality checks and optional fixes
   ast        Print parser debug output
   trace      Run a script with trace output
-  docs       Build or check generated docs
+  api        Query canonical language and standard-library API metadata
   test       Run XSH tests
   grep       Search scripts with AST patterns
   refactor   Rewrite scripts with AST patterns
@@ -87,12 +88,26 @@ Options:
   --trace-top-syscalls N  Number of syscall rows to show. Defaults to 8
 ";
 
-const DOCS_HELP: &str = "\
-xsht docs
+const API_HELP: &str = "\
+xsht api
 
 Usage:
-  xsht docs build
-  xsht docs check
+  xsht api [OPTIONS] QUERY...
+
+Query selectors:
+  module:NAME
+  api:MODULE.FUNCTION
+  method:RECEIVER.METHOD
+  record:NAME
+  language:ID
+  search:TERMS
+
+Options:
+  --format text|jsonl     Output format; defaults to text
+  --strict                Exit 1 when any selector has no match
+  --details basic|full    Output detail level
+  --query-file PATH       Read one selector per UTF-8 line
+  --stdin                 Read one selector per UTF-8 line from stdin
 ";
 
 const TEST_HELP: &str = "\
@@ -177,7 +192,7 @@ pub fn main() -> ExitCode {
         }) => finish_command(|| lint_files(&files, fix, runless)),
         Ok(Command::Ast { script }) => finish_command(|| ast_script(&script)),
         Ok(Command::Trace { options }) => finish_command(|| trace_script(options)),
-        Ok(Command::Docs { command }) => finish_command(|| docs_command(&command)),
+        Ok(Command::Api { options }) => finish_command(|| api_command(&options)),
         Ok(Command::Test { options }) => finish_command(|| test_scripts(options)),
         Ok(Command::Grep { pattern, files }) => finish_command(|| grep_scripts(&pattern, &files)),
         Ok(Command::Refactor {
@@ -216,8 +231,8 @@ enum Command {
     Trace {
         options: TraceOptions,
     },
-    Docs {
-        command: String,
+    Api {
+        options: ApiOptions,
     },
     Test {
         options: TestOptions,
@@ -247,7 +262,7 @@ fn parse_tool(args: Vec<String>) -> Result<Command, String> {
         "lint" => parse_lint(&args[1..]),
         "ast" => parse_ast(&args[1..]),
         "trace" => parse_trace(&args[1..]),
-        "docs" => parse_docs(&args[1..]),
+        "api" => parse_api(&args[1..]),
         "test" => parse_test(&args[1..]),
         "grep" => parse_grep(&args[1..]),
         "refactor" => parse_refactor(&args[1..]),
@@ -275,7 +290,7 @@ fn help_for_command(command: &str) -> Option<&'static str> {
         "lint" => Some(LINT_HELP),
         "ast" => Some(AST_HELP),
         "trace" => Some(TRACE_HELP),
-        "docs" => Some(DOCS_HELP),
+        "api" => Some(API_HELP),
         "test" => Some(TEST_HELP),
         "grep" => Some(GREP_HELP),
         "refactor" => Some(REFACTOR_HELP),
@@ -409,15 +424,99 @@ fn parse_ast(args: &[String]) -> Result<Command, String> {
     })
 }
 
-fn parse_docs(args: &[String]) -> Result<Command, String> {
-    match args {
-        [] => Err("`xsht docs` requires build|check".to_string()),
-        [arg] if matches!(arg.as_str(), "--help" | "-h" | "help") => Ok(Command::Help(DOCS_HELP)),
-        [command] if matches!(command.as_str(), "build" | "check") => Ok(Command::Docs {
-            command: command.clone(),
-        }),
-        [command] => Err(format!("unknown `xsht docs` command '{command}'")),
-        _ => Err("`xsht docs` accepts exactly one command: build or check".to_string()),
+fn parse_api(args: &[String]) -> Result<Command, String> {
+    let mut queries = Vec::new();
+    let mut query_files = Vec::new();
+    let mut read_stdin = false;
+    let mut format = ApiFormat::Text;
+    let mut strict = false;
+    let mut details = None;
+    let mut index = 0;
+
+    while let Some(arg) = args.get(index) {
+        match arg.as_str() {
+            "--help" | "-h" => return Ok(Command::Help(API_HELP)),
+            "--strict" => strict = true,
+            "--stdin" => read_stdin = true,
+            "--format" => {
+                let value = args
+                    .get(index + 1)
+                    .ok_or_else(|| "`xsht api --format` requires text or jsonl".to_string())?;
+                format = parse_api_format(value)?;
+                index += 1;
+            }
+            option if option.starts_with("--format=") => {
+                let value = option
+                    .strip_prefix("--format=")
+                    .expect("checked format prefix");
+                format = parse_api_format(value)?;
+            }
+            "--details" => {
+                let value = args
+                    .get(index + 1)
+                    .ok_or_else(|| "`xsht api --details` requires basic or full".to_string())?;
+                details = Some(parse_api_details(value)?);
+                index += 1;
+            }
+            option if option.starts_with("--details=") => {
+                let value = option
+                    .strip_prefix("--details=")
+                    .expect("checked details prefix");
+                details = Some(parse_api_details(value)?);
+            }
+            "--query-file" => {
+                let path = args
+                    .get(index + 1)
+                    .ok_or_else(|| "`xsht api --query-file` requires PATH".to_string())?;
+                query_files.push(path.clone());
+                index += 1;
+            }
+            option if option.starts_with("--query-file=") => {
+                let path = option
+                    .strip_prefix("--query-file=")
+                    .expect("checked query-file prefix");
+                if path.is_empty() {
+                    return Err("`xsht api --query-file` requires PATH".to_string());
+                }
+                query_files.push(path.to_string());
+            }
+            option if option.starts_with('-') => {
+                return Err(format!("unknown `xsht api` option '{option}'"));
+            }
+            _ => queries.push(arg.clone()),
+        }
+        index += 1;
+    }
+
+    if queries.is_empty() && query_files.is_empty() && !read_stdin {
+        return Err("`xsht api` requires QUERY, --query-file, or --stdin".to_string());
+    }
+
+    Ok(Command::Api {
+        options: ApiOptions {
+            queries,
+            query_files,
+            read_stdin,
+            format,
+            strict,
+            details,
+        },
+    })
+}
+
+fn parse_api_format(value: &str) -> Result<ApiFormat, String> {
+    match value {
+        "text" => Ok(ApiFormat::Text),
+        "jsonl" => Ok(ApiFormat::Jsonl),
+        _ => Err("`xsht api --format` must be text or jsonl".to_string()),
+    }
+}
+
+fn parse_api_details(value: &str) -> Result<ApiDetails, String> {
+    match value {
+        "basic" => Ok(ApiDetails::Basic),
+        "full" => Ok(ApiDetails::Full),
+        _ => Err("`xsht api --details` must be basic or full".to_string()),
     }
 }
 

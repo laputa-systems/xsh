@@ -146,7 +146,7 @@ fn fmt_checks_imported_modules() {
     let root = TempDir::new().expect("create temp root");
     fs::write(
         root.path().join("helper.xsh"),
-        "export pure bad() -> Int {\n  return \"not an int\"\n}\n",
+        "##! Invalid helper module.\n## Deliberately returns the wrong type.\nexport pure bad() -> Int {\n  return \"not an int\"\n}\n",
     )
     .expect("write helper module");
     fs::write(
@@ -450,12 +450,19 @@ fn check_top_level_user_imports_are_skippable_for_lowerability() {
     let root = TempDir::new().expect("create temp root");
     let project = root.path().join("project");
     fs::create_dir_all(project.join("pm")).expect("create module dir");
-    fs::write(project.join("helper.xsh"), "export let value = 1\n").expect("write helper");
-    fs::write(project.join("pm").join("make.xsh"), "export let jobs = 1\n")
-        .expect("write pm module");
+    fs::write(
+        project.join("helper.xsh"),
+        "##! Helper module.\n## Exposes a test value.\nexport let value = 1\n",
+    )
+    .expect("write helper");
+    fs::write(
+        project.join("pm").join("make.xsh"),
+        "##! Make helper module.\n## Exposes configured jobs.\nexport let jobs = 1\n",
+    )
+    .expect("write pm module");
     fs::write(
         project.join("PKGBUILD-shared.xsh"),
-        "export let pkgname = \"demo\"\n",
+        "##! Shared package module.\n## Exposes the package name.\nexport let pkgname = \"demo\"\n",
     )
     .expect("write hyphen module");
     fs::write(
@@ -768,7 +775,11 @@ fn check_explicit_list_annotation_survives_any_result_binding() {
 #[test]
 fn check_local_binding_can_shadow_import_capture_for_lowerability() {
     let root = TempDir::new().expect("create temp root");
-    fs::write(root.path().join("remote.xsh"), "export let value = 1\n").expect("write module");
+    fs::write(
+        root.path().join("remote.xsh"),
+        "##! Remote module.\n## Exposes the imported value.\nexport let value = 1\n",
+    )
+    .expect("write module");
     let script = root.path().join("main.xsh");
     fs::write(
         &script,

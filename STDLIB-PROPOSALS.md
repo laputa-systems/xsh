@@ -13,7 +13,7 @@ into a general application runtime or a compatibility shell.
 | runtime operation identity | `RuntimeOp` | `crates/xsh-registry/src/runtime_op.rs`; checker/runtime parity tests |
 | stateless host implementation | module functions such as `parse_raw_json`, `decode`, `compress_file` | `src/modules/json.rs`, `ini.rs`, `archive/mod.rs`; `tests/runtime/modules.rs` |
 | evaluator-backed dispatch | `Evaluator`, `src/runtime/eval/modules.rs` | stateful module calls and runtime module tests |
-| documentation contract | `docs/SPEC.md`, `docs/STDLIB.md`, `docs/REFERENCE.md` | normative and generated docs; docs gate in `docs/TEST-MAP.md` |
+| documentation contract | `docs/SPEC.md`, `ApiSpec`, `xsht api` | normative contracts and canonical registry; API gate in `docs/TEST-MAP.md` |
 
 Keep the public XSH names in proposal text. Use the Rust symbols above when
 describing the implementation and its test owner.
@@ -62,9 +62,7 @@ auditable, and tied to XSH's orchestration tier.
 
 Before proposing or implementing a module, inspect the current stdlib surface:
 
-- `docs/STDLIB.md` is the generated standard-library API manual.
-- `docs/REFERENCE.md` is the generated non-stdlib language and tooling
-  reference.
+- `xsht api` is the standard-library and language reference interface.
 - `docs/SPEC.md` is the normative behavior contract; search for the module name
   in the standard modules section.
 - `crates/xsh-registry/src/signature/modules.rs` contains checker-visible module
@@ -103,12 +101,12 @@ the closest focused runtime module.
 encoders, and update the generated standard-module contract fixture when
 signatures change.
 
-**6. Docs and examples** - update the relevant `docs-src/CHAPTER-*.md.in`
-template when the API belongs in the tutorial path. Add a small cataloged
-example only when it demonstrates a real workflow better than a unit test.
+**6. Registry docs and examples** - update the required `ApiDocs` entry beside
+the public signature. Add a small cataloged example only when it demonstrates a
+real workflow better than a native test.
 
-**7. Regenerate docs** - run `xsht docs build` and confirm `xsht docs check`
-passes.
+**7. Query the API** - run `xsht api module:MODULE api:MODULE.FUNCTION` and
+the API gate in `docs/TEST-MAP.md`.
 
 **8. Commit message** - reference this file:
 `feat: add mime module (STDLIB-PROPOSALS.md)`

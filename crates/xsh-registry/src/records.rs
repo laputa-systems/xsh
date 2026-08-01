@@ -1,3 +1,4 @@
+use crate::api_docs::{ApiDocs, ApiNavigation};
 use crate::types::Type;
 use std::collections::BTreeMap;
 use std::sync::LazyLock;
@@ -81,6 +82,19 @@ pub fn record_schemas() -> BTreeMap<&'static str, Type> {
         ("UnixTtyAttrs", unix_tty_attrs_type()),
         ("User", user_record_type()),
     ])
+}
+
+pub fn record_docs(name: &str) -> ApiDocs {
+    ApiDocs {
+        summary: format!("Standard `{name}` record schema."),
+        contract: String::new(),
+        tags: vec!["record".to_string(), name.to_ascii_lowercase()],
+        navigation: ApiNavigation {
+            implementation: vec!["crates/xsh-registry/src/records.rs".to_string()],
+            tests: vec!["tests/xsh/stdlib/record.xsh".to_string()],
+            showcase: None,
+        },
+    }
 }
 
 static RECORD_SCHEMAS: LazyLock<BTreeMap<&'static str, Type>> = LazyLock::new(record_schemas);

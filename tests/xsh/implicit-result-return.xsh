@@ -121,6 +121,9 @@ proc test_implicit_result_return_through_module(ctx: TestContext) [fs, error] {
   let module_dir = fp"${root}/lib"
   module_dir.mkdir()?
   fp"${module_dir}/helper.xsh".write("""
+##! Helper module for implicit Result return coverage.
+
+## Builds the fixed value through an implicit Result tail.
 export proc build() [error] -> Result[List[Str]] {
   let built = ["ok"]
   built

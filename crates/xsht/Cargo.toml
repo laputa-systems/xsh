@@ -32,8 +32,8 @@ name = "integration"
 path = "tests/integration.rs"
 
 [[test]]
-name = "docs"
-path = "tests/docs.rs"
+name = "api"
+path = "tests/api.rs"
 
 [lints.clippy]
 nursery = { level = "allow", priority = -2 }

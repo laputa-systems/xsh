@@ -22,4 +22,4 @@ source spans, mocks, trace-sensitive behavior, cwd/env state, and runtime values
 in the main evaluator adapters.
 
 Generated stdlib docs come from the language registry. See
-`docs/GENERATED-DOCS.md` before editing `docs/STDLIB.md` directly.
+`xsht api module:MODULE` before changing a public signature or runtime owner.

@@ -41,7 +41,7 @@ proc test_fs_tree_metadata_install_and_locking(ctx: TestContext) [fs, error] {
   test.ok(root_mount.fstype != "")?
   test.ok(fs.cwd()?.display() != "")?
   let gitroot = fs.gitroot()?
-  test.ok(fp"${gitroot}/docs/STDLIB.md".exists()?)?
+  test.ok(fp"${gitroot}/docs/SPEC.md".exists()?)?
   let children = fs.children(nested)? |> sort-by .name
   let listed = fs.ls(nested)? |> sort-by .name
   test.eq(children.len(), listed.len())?

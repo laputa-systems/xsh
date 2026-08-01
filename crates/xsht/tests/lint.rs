@@ -5,7 +5,7 @@ use std::sync::Arc;
 use xsh::diagnostic::Diagnostic;
 use xsh::sema::check::Checker;
 use xsh::source::SourceId;
-use xsh::symbol::Name;
+use xsh::symbol::{Name, SymbolOwner};
 use xsh::syntax::arena::{ArenaProgram, ArenaProgramBuilder};
 use xsh::syntax::parser::{ArenaParseOutput, Parser};
 use xsht::format::Formatter;
@@ -231,57 +231,62 @@ proc main() [] -> Int {
 
 #[test]
 fn linter_reports_missing_effects_from_imported_module_proc() {
-    let module_source = "\
+    SymbolOwner::new().with_current(|| {
+        let module_source = "\
+##! Kbuild lint fixture module.
+## Returns a task status with an environment effect.
 export proc image_task() [env] -> Int {
   1
 }
 ";
-    let main_source = "\
+        let main_source = "\
 use kbuild
 
 proc main() [] -> Int {
   kbuild.image_task()
 }
 ";
-    // Assemble the multi-module arena the way the loader does: parse the entry
-    // and the imported module into one builder, resolve the `use`, and register
-    // the module body.
-    let mut builder = ArenaProgramBuilder::with_token_capacity(main_source.len() / 4 + 1);
-    let root = Parser::parse_source_into_arena_builder(SourceId::new(0), main_source, &mut builder);
-    assert!(root.diagnostics.is_empty(), "{:?}", root.diagnostics);
-    let module =
-        Parser::parse_source_into_arena_builder(SourceId::new(1), module_source, &mut builder);
-    assert!(module.diagnostics.is_empty(), "{:?}", module.diagnostics);
-    for stmt in builder.statement_ids(root.statements) {
-        if let Some((use_id, _path, _span)) = builder.use_stmt_for_statement(stmt) {
-            builder.set_use_resolved(use_id, Arc::from("kbuild"));
+        // Assemble the multi-module arena the way the loader does: parse the entry
+        // and the imported module into one builder, resolve the `use`, and register
+        // the module body.
+        let mut builder = ArenaProgramBuilder::with_token_capacity(main_source.len() / 4 + 1);
+        let root =
+            Parser::parse_source_into_arena_builder(SourceId::new(0), main_source, &mut builder);
+        assert!(root.diagnostics.is_empty(), "{:?}", root.diagnostics);
+        let module =
+            Parser::parse_source_into_arena_builder(SourceId::new(1), module_source, &mut builder);
+        assert!(module.diagnostics.is_empty(), "{:?}", module.diagnostics);
+        for stmt in builder.statement_ids(root.statements) {
+            if let Some((use_id, _path, _span)) = builder.use_stmt_for_statement(stmt) {
+                builder.set_use_resolved(use_id, Arc::from("kbuild"));
+            }
         }
-    }
-    builder.push_arena_module(
-        "kbuild".to_string(),
-        Name::intern("kbuild"),
-        module.statements,
-    );
-    let arena = builder.finish_with_statements(root.statements);
-    let checked = Checker::check_arena(&arena, main_source);
+        builder.push_arena_module(
+            "kbuild".to_string(),
+            Name::intern("kbuild"),
+            module.statements,
+        );
+        let arena = builder.finish_with_statements(root.statements);
+        let checked = Checker::check_arena(&arena, main_source);
 
-    let diagnostics = lint_and_assert_fmt_stable(
-        &arena,
-        main_source,
-        LintOptions {
-            callable_effects: checked.callable_effects,
-            ..LintOptions::default()
-        },
-    );
-    let diagnostic = diagnostics
-        .iter()
-        .find(|diagnostic| diagnostic.code.as_deref() == Some("lint.missing-effects"))
-        .expect("expected missing effects lint");
+        let diagnostics = lint_and_assert_fmt_stable(
+            &arena,
+            main_source,
+            LintOptions {
+                callable_effects: checked.callable_effects,
+                ..LintOptions::default()
+            },
+        );
+        let diagnostic = diagnostics
+            .iter()
+            .find(|diagnostic| diagnostic.code.as_deref() == Some("lint.missing-effects"))
+            .expect("expected missing effects lint");
 
-    assert_eq!(
-        diagnostic.fix_hints[0].replacement.as_deref(),
-        Some("[env]")
-    );
+        assert_eq!(
+            diagnostic.fix_hints[0].replacement.as_deref(),
+            Some("[env]")
+        );
+    });
 }
 
 #[test]

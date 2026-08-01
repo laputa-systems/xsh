@@ -12,7 +12,7 @@ It is not a tutorial corpus.
   is the executable contract.
 - State non-obvious ownership, platform constraints, ordering guarantees,
   representation boundaries, and intentional omissions. Do not restate syntax
-  that `docs/SPEC.md`, `docs/STDLIB.md`, or `docs/REFERENCE.md` already defines.
+  that `docs/SPEC.md` or `xsht api` already defines.
 - Keep one canonical owner per topic. Link to that owner instead of adding a
   second cross-cutting explanation.
 
@@ -24,7 +24,7 @@ It is not a tutorial corpus.
 | OS-facing behavior | `docs/SPEC-OS.md` |
 | stream behavior | `docs/STREAMS.md` |
 | JSON boundaries | `docs/JSON.md` |
-| API signatures and generated reference | `docs/STDLIB.md`, `docs/REFERENCE.md` |
+| API signatures and structured reference | `xsht api` |
 | subsystem ownership | `docs/ARCHITECTURE.md` |
 | test selection | `docs/TEST-MAP.md` |
 | task navigation | `docs/AGENT-ROUTING.md` |

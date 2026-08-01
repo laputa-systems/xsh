@@ -198,6 +198,7 @@ impl Checker {
         self.define_standard_values();
 
         let stmt_ids: Vec<StmtId> = program.module_statements(module).collect();
+        self.check_public_docs(program, module.statements, &stmt_ids);
         self.collect_type_imports_arena(program, stmt_ids.iter().copied());
         let mut names = FxHashSet::default();
         for stmt_id in &stmt_ids {

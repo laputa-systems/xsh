@@ -1007,7 +1007,7 @@ mod tests {
         std::fs::write(root.path().join("first.txt"), "first").expect("write first entry");
         std::fs::create_dir(root.path().join("nested")).expect("create nested entry");
         let listing = list_filesystem(root.path().to_path_buf(), false, false, test_span())
-        .expect("list directory");
+            .expect("list directory");
 
         assert!(listing.source.is_some());
         assert!(listing.items.is_empty());

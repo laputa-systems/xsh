@@ -1,14 +1,14 @@
+#[path = "api.rs"]
+pub mod api;
 #[path = "app.rs"]
 pub mod app;
 #[path = "cli/mod.rs"]
 pub mod cli;
 #[path = "config.rs"]
 pub(crate) mod config;
-#[path = "docs.rs"]
-pub mod docs;
-pub mod examples;
 #[path = "edit.rs"]
 pub(crate) mod edit;
+pub mod examples;
 #[path = "format.rs"]
 pub mod format;
 #[path = "grep.rs"]

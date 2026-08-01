@@ -26,7 +26,7 @@ before adding a new abstraction.
 3. Implement runtime dispatch in `src/runtime/eval/methods.rs` or a focused
    helper.
 4. Add tests in `tests/runtime/modules.rs` or the closest runtime module.
-5. Regenerate `docs/STDLIB.md` through the docs gate.
+5. Query the resulting API with `xsht api api:MODULE.FUNCTION` and run the API gate.
 
 ## Add A Module Function
 
@@ -35,7 +35,7 @@ before adding a new abstraction.
 3. Dispatch evaluator-stateful behavior from `src/runtime/eval/modules.rs`.
 4. Add or update record schemas in `crates/xsh-registry/src/records.rs` when the API returns
    structured records.
-5. Add runtime tests and regenerate `docs/STDLIB.md`.
+5. Add runtime tests, update the registry docs, and run `xsht api module:MODULE`.
 
 ## Add Runtime Process Behavior
 
@@ -66,13 +66,13 @@ before adding a new abstraction.
    catalog it in `examples/catalog.json` and link it from `examples/README.md`.
 4. Run the docs and showcase gates in `docs/TEST-MAP.md`.
 
-## Update Reference Or Standard-Library Docs
+## Update API Registry
 
-1. Edit implementation metadata or signatures, usually in `src/docs.rs` or
+1. Edit the public signature and required `ApiDocs` navigation in
    `crates/xsh-registry/src/signature/*`.
-2. Run the docs gate in `docs/TEST-MAP.md`.
-3. Keep generated `docs/REFERENCE.md` and `docs/STDLIB.md` changes that match
-   the source change.
+2. Query the changed API with `xsht api` and run the API gate in
+   `docs/TEST-MAP.md`.
+3. Add focused native coverage before adding a curated showcase.
 
 ## Add Lowered IR Support
 
