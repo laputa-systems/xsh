@@ -33,7 +33,7 @@ fn docs_checker_accepts_current_workspace_directly() {
 }
 
 #[test]
-fn docs_generation_excludes_removed_showcase_catalog() {
+fn docs_generation_only_writes_code_derived_reference_outputs() {
     let report = docs_report();
     let paths = report
         .generated
@@ -41,7 +41,10 @@ fn docs_generation_excludes_removed_showcase_catalog() {
         .map(|file| file.path.to_string_lossy().into_owned())
         .collect::<Vec<_>>();
 
-    assert!(!paths.contains(&"docs/SHOWCASE.md".to_string()));
+    assert_eq!(
+        paths,
+        vec!["docs/STDLIB.md".to_string(), "docs/REFERENCE.md".to_string()]
+    );
 }
 
 #[test]

@@ -9,7 +9,7 @@ const PTY_TIMEOUT: Duration = Duration::from_secs(15);
 #[test]
 fn hello_example_runs_through_cli() {
     let output = Command::new(env!("CARGO_BIN_EXE_xsh"))
-        .arg("examples/hello.xsh")
+        .arg("tests/fixtures/runtime/cli-simple.xsh")
         .output()
         .expect("run xsh");
 
@@ -21,7 +21,7 @@ fn hello_example_runs_through_cli() {
 #[test]
 fn args_example_prints_script_arguments() {
     let output = Command::new(env!("CARGO_BIN_EXE_xsh"))
-        .args(["examples/args.xsh", "--", "one", "two"])
+        .args(["tests/fixtures/runtime/cli-args.xsh", "--", "one", "two"])
         .output()
         .expect("run xsh");
 

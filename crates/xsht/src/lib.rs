@@ -6,4 +6,4 @@ pub use xsht::cli::{
     collect_configured_xsh_files, collect_xsh_files, docs_command, format_files, grep_scripts,
     lint_files, load_config, refactor_scripts, trace_script,
 };
-pub use xsht::{app, cli, docs, format, grep, lint};
+pub use xsht::{app, cli, docs, examples, format, grep, lint};

@@ -26,7 +26,7 @@ before adding a new abstraction.
 3. Implement runtime dispatch in `src/runtime/eval/methods.rs` or a focused
    helper.
 4. Add tests in `tests/runtime/modules.rs` or the closest runtime module.
-5. Regenerate docs; `docs/STDLIB.md` should update.
+5. Regenerate `docs/STDLIB.md` through the docs gate.
 
 ## Add A Module Function
 
@@ -35,7 +35,7 @@ before adding a new abstraction.
 3. Dispatch evaluator-stateful behavior from `src/runtime/eval/modules.rs`.
 4. Add or update record schemas in `crates/xsh-registry/src/records.rs` when the API returns
    structured records.
-5. Add runtime tests and regenerate stdlib docs.
+5. Add runtime tests and regenerate `docs/STDLIB.md`.
 
 ## Add Runtime Process Behavior
 
@@ -52,23 +52,27 @@ before adding a new abstraction.
 2. Update signatures in `crates/xsh-registry/src/signature/streams.rs`.
 3. Update checking in `src/sema/check/stream.rs`.
 4. Update runtime behavior in `src/runtime/eval/stream.rs`.
-5. Add tests in `tests/runtime/streams.rs` and examples when user-facing.
+5. Add focused tests in `tests/xsh/stdlib/streams.xsh` or `tests/runtime/streams.rs`.
+6. Update `examples/streams.xsh` only when the change affects durable
+   multi-module composition.
 
-## Update Tutorial Docs
+## Update Canonical Docs Or Showcases
 
-1. Edit `docs-src/CHAPTER-*.md.in`.
-2. Update or add examples in `examples/`.
-3. Add new examples to `examples/catalog.json`.
-4. Run the docs gate in `docs/TEST-MAP.md`.
-5. Keep generated `docs/CHAPTER-*.md` changes.
+1. Choose the canonical owner with `docs/DOCS-STYLE.md` and name the exact
+   symbols and tests that establish the contract.
+2. Add focused coverage in `tests/xsh/stdlib/*.xsh` or the nearest native test
+   before adding an example.
+3. Add or update `examples/*.xsh` only for a substantial multi-module program;
+   catalog it in `examples/catalog.json` and link it from `examples/README.md`.
+4. Run the docs and showcase gates in `docs/TEST-MAP.md`.
 
 ## Update Reference Or Standard-Library Docs
 
 1. Edit implementation metadata or signatures, usually in `src/docs.rs` or
    `crates/xsh-registry/src/signature/*`.
 2. Run the docs gate in `docs/TEST-MAP.md`.
-3. Keep generated `docs/REFERENCE.md`, `docs/STDLIB.md`, `docs/XSH-GUIDE.md`,
-   changes that match the source change.
+3. Keep generated `docs/REFERENCE.md` and `docs/STDLIB.md` changes that match
+   the source change.
 
 ## Add Lowered IR Support
 

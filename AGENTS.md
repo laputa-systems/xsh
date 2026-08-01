@@ -14,7 +14,6 @@ core command scripts, examples, docs, and tests.
 Always read:
 
 - `docs/CHAPTER-01-why-xsh.md`
-- `docs/CHAPTER-15-why-not-xsh.md`
 - `docs/IDIOMS.md`
 - `docs/AGENT-ROUTING.md`
 - the nearest code and tests for the requested change
@@ -41,8 +40,30 @@ owner files, and tests before editing.
 - If language behavior changes, update `docs/SPEC.md` first or in the same
   change.
 - `LANG.md` contains only open language proposals and unresolved tickets.
-  Implemented behavior belongs in `docs/SPEC.md` and
-  `docs-src/CHAPTER-*.md.in`.
+  Implemented behavior belongs in `docs/SPEC.md` and its canonical companion
+  documentation.
+
+## Content Tiers
+
+- Put focused behavior coverage in `tests/xsh/stdlib/*.xsh` or the nearest
+  native test module. Syntax, API behavior, edge cases, errors, platform
+  behavior, and regressions are tests, not examples.
+- Put a script in `examples/*.xsh` only when it is a substantial, idiomatic
+  multi-module program that is useful to read as a whole. It must not duplicate
+  focused native-test coverage.
+- Put larger production-like programs in `showcase/`. Existing `showcase/`
+  content is outside ordinary example maintenance.
+
+## Documentation Routing
+
+- Put language contracts in `docs/SPEC.md`, OS behavior in `docs/SPEC-OS.md`,
+  streams in `docs/STREAMS.md`, JSON boundaries in `docs/JSON.md`, API details
+  in `docs/STDLIB.md` or `docs/REFERENCE.md`, architecture in
+  `docs/ARCHITECTURE.md`, testing in `docs/TEST-MAP.md`, idioms in
+  `docs/IDIOMS.md`, and task navigation in `docs/AGENT-ROUTING.md`.
+- Do not add prose that restates obvious syntax or API signatures. Prefer exact
+  symbols, module paths, and test names; document non-obvious constraints and
+  rationale; update the canonical owner instead of creating another guide.
 
 ## Verification
 

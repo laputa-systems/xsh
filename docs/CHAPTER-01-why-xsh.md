@@ -78,11 +78,16 @@ That is the worthy successor: not a clone of the old shell, and not a small
 application runtime wearing shell syntax, but a clean language for the work the
 old shell proved was essential.
 
-## Reading This Guide
+## What XSH Is Not
 
-The next chapter starts gently. It shows a complete script, command arguments,
-basic values, `Result` flow, and ordinary control flow before moving into
-processes, files, text, JSON, structured streams, types, and larger programs.
+XSH does not compete with runtimes designed for fine-grained concurrency,
+long-lived application services, or interactive terminal interfaces. Keep those
+jobs in a service runtime, a dedicated TUI framework, or a specialized tool;
+use XSH to compose the host-facing work around them.
 
-You do not need to know POSIX shell to begin. If you do know shell, you will see
-the same operating-system model with fewer traps and sharper boundaries.
+## Using This Reference
+
+`docs/SPEC.md` is the language contract, `docs/SPEC-OS.md` owns process and
+signal behavior, `docs/STDLIB.md` and `docs/REFERENCE.md` provide generated API
+reference, and `docs/AGENT-ROUTING.md` selects the smallest useful reading and
+test set for a change.

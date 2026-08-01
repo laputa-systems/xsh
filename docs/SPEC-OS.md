@@ -1,5 +1,10 @@
 # XSH OS Runtime Specification
 
+`examples/processes.xsh` is the curated process and host-state composition
+showcase. Focused process, system, user, and group coverage lives in
+`tests/xsh/stdlib/process.xsh`, `tests/xsh/stdlib/system.xsh`,
+`tests/xsh/stdlib/user.xsh`, and `tests/xsh/stdlib/group.xsh`.
+
 This document is the detailed contract for OS-facing runtime behavior in XSH.
 `docs/SPEC.md` remains authoritative for language syntax and user-visible
 semantics. This file records how those semantics are implemented at the process,

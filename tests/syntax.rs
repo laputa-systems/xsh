@@ -2623,9 +2623,9 @@ fn parser_formatter_roundtrip_property_over_baseline_snippets() {
 #[test]
 fn formatter_is_idempotent_on_example_catalog() {
     use xsh::source::SourceId;
-    use xsht::docs::load_example_catalog;
+    use xsht::examples::load_catalog;
 
-    let catalog = load_example_catalog(".").expect("load examples/catalog.json");
+    let catalog = load_catalog(".").expect("load examples/catalog.json");
     for case in catalog.examples {
         let source =
             std::fs::read_to_string(&case.path).unwrap_or_else(|_| panic!("read {}", case.path));

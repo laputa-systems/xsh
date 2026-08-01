@@ -3,7 +3,7 @@
 use crate::xsht::cli::{
     CliOutput, CoverageCollector, cancellation_output, collect_xsh_files, load_config,
 };
-use crate::xsht::docs::{OutputPolicy, load_example_catalog};
+use crate::xsht::examples::{OutputPolicy, load_catalog, test_name, validate_catalog};
 use std::fs;
 use std::io::{IsTerminal, Write};
 use std::os::unix::ffi::OsStringExt;
@@ -583,12 +583,13 @@ fn discover_native_tests(
 }
 
 fn discover_example_tests(options: &TestOptions) -> Result<Vec<TestCase>, String> {
-    let catalog = load_example_catalog(".")?;
+    let catalog = load_catalog(".")?;
+    validate_catalog(".", &catalog)?;
     let cases = catalog
         .examples
         .into_iter()
         .filter_map(|case| {
-            let id = format!("examples::{}", case.include_id);
+            let id = format!("examples::{}", test_name(&case.path));
             test_id_matches(&id, options).then_some(TestCase::Example(ExampleTestCase {
                 id,
                 path: case.path,

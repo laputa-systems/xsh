@@ -80,9 +80,9 @@ is rendered as a diagnostic; it cannot select another evaluator.
 `docs/SPEC.md` is the language contract. `docs/SPEC-TYPING.md` covers
 typechecking, `docs/SPEC-INTERACTIVE.md` covers `xshi`, and
 `docs/SPEC-OS.md` covers OS-facing runtime behavior such as process groups,
-signals, cancellation, and signal hooks. `docs/XSH-GUIDE.md` shows the intended
-script shape, including target examples that may be ahead of the implementation.
-`docs/FRONTEND.md` is the implementation guide for the compact frontend,
+signals, cancellation, and signal hooks. `docs/AGENT-ROUTING.md` chooses the
+smallest useful reading set for a change. `docs/FRONTEND.md` is the
+implementation guide for the compact frontend,
 indexed runtime plumbing, symbol identity, registry invariants, and benchmark
 verification. `../FRONTEND-FOLLOWUPS.md` records evidence-based performance and
 memory work that remains after the architecture closeout. `docs/COVERAGE.md`
@@ -103,7 +103,7 @@ This table is the owner-module summary:
 | standard modules and methods | `docs/STDLIB.md`, `src/modules/README.md` | `RuntimeOp`, `api_spec`, `src/modules/*`, `src/runtime/eval/modules.rs`, `src/runtime/eval/methods.rs` |
 | structured streams | `docs/STREAMS.md` | `check_stream_stage_arena`, `Evaluator::collect_stream_values`, `src/sema/check/stream.rs`, `src/runtime/eval/stream.rs` |
 | executable IR, verifier, and frames | `docs/FRONTEND.md` | `FullBuilder::build_compact`, `FullVerifier::verify`, `indexed_run`, `CallFrame` in `src/runtime/eval/*` |
-| docs and examples | `docs/GENERATED-DOCS.md`, `docs-src/README.md` | `guide_markdown`, `docs_command`, `examples/catalog.json`, `src/docs.rs`, `docs-src/*` |
+| docs and examples | `docs/GENERATED-DOCS.md`, `examples/README.md` | `docs::build`, `docs::check`, `examples::load_catalog`, `examples::validate_catalog`, `examples/catalog.json` |
 
 ## Agent Map For IR Work
 

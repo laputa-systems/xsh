@@ -87,7 +87,7 @@ fn write_cgroup_control(path: &Path, content: &str) -> std::io::Result<()> {
 #[test]
 fn xsht_trace_rejects_syscalls_on_non_linux() {
     let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
-        .args(["trace", "--syscalls", "examples/hello.xsh"])
+        .args(["trace", "--syscalls", "tests/fixtures/runtime/cli-simple.xsh"])
         .output()
         .expect("run xsht");
 
@@ -108,7 +108,7 @@ fn xsht_syscall_trace_includes_summary_when_ptrace_available() {
             "--syscalls",
             "--trace-top-syscalls",
             "3",
-            "examples/hello.xsh",
+            "tests/fixtures/runtime/cli-simple.xsh",
         ])
         .output()
         .expect("run xsht");

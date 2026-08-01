@@ -1,9 +1,11 @@
 use super::common::*;
 use std::collections::BTreeSet;
-use xsht::docs::{ExampleCatalog, OutputPolicy, load_example_catalog};
+use xsht::examples::{ExampleCatalog, OutputPolicy, load_catalog, validate_catalog};
 
 fn example_catalog() -> ExampleCatalog {
-    load_example_catalog(".").expect("load examples/catalog.json")
+    let catalog = load_catalog(".").expect("load examples/catalog.json");
+    validate_catalog(".", &catalog).expect("validate examples/catalog.json");
+    catalog
 }
 
 fn example_paths() -> Vec<String> {
@@ -112,9 +114,9 @@ fn examples_have_timed_trace_output() {
 }
 
 #[test]
-fn trace_error_example_has_timed_error_trace() {
+fn trace_error_fixture_has_timed_error_trace() {
     let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
-        .args(["trace", "examples/trace-error.xsh"])
+        .args(["trace", "tests/fixtures/runtime/cli-trace-error.xsh"])
         .output()
         .expect("run xsht");
 
@@ -169,7 +171,7 @@ fn example_runtime_cases_cover_every_example_script() {
 #[test]
 fn trace_output_includes_timing() {
     let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
-        .args(["trace", "--raw", "examples/trace.xsh"])
+        .args(["trace", "--raw", "tests/fixtures/runtime/cli-trace.xsh"])
         .output()
         .expect("run xsht");
 

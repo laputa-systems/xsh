@@ -1,9 +1,10 @@
 # XSH Specification
 
 This is the living implementation contract for XSH.
-`docs/XSH-GUIDE.md` indexes generated tutorial material, `docs/STDLIB.md` is the
-generated standard-library API manual, and `docs/REFERENCE.md` is the generated
-non-stdlib language and tooling reference. When those documents disagree,
+`docs/CHAPTER-01-why-xsh.md` supplies philosophical grounding,
+`docs/STDLIB.md` is the generated standard-library API manual, and
+`docs/REFERENCE.md` is the generated non-stdlib language and tooling reference.
+When those documents disagree,
 `docs/SPEC.md` is authoritative for core language behavior; update this file
 before changing language behavior.
 `docs/SPEC-TYPING.md` is the detailed contract for typechecking, including
@@ -20,7 +21,7 @@ standalone showcase script must be covered by a native test in `showcase/tests/`
 `LANG.md` tracks open language design proposals and unresolved implementation
 tickets. **When a proposal is implemented:** remove its entry from `LANG.md`
 entirely — implemented behaviour belongs here in `docs/SPEC.md` and in the
-relevant `docs-src/CHAPTER-*.md.in` template, not in `LANG.md`. Follow the full
+relevant canonical companion document, not in `LANG.md`. Follow the full
 proposal checklist in `LANG.md §Process` and reference the entry in the commit
 message.
 

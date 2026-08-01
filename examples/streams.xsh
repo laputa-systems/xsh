@@ -3,6 +3,8 @@ defer fs.close_root(root_handle)?
 let root = fs.root_path(root_handle)?
 let src = fp"${root}/src"
 src.mkdir()
+let docs = fp"${root}/docs"
+docs.mkdir()
 
 fs.write(
   fp"${src}/main.xsh",
@@ -16,13 +18,26 @@ fs.write(
 """,
 )?
 
-let files = fs.files(root) |> sort-by .name
-let names = files |> map .name
+fs.write(
+  fp"${docs}/README.md",
+  """structured reports
+""",
+)?
 
-let reports = files
+let reports = fs.files(root)
+  |> where .kind == "file"
+  |> map { |entry|
+    {name: entry.name, size: entry.size, parent: entry.path.parent().name}
+  }
+  |> sort-by .name
+
+let labels = reports
   |> par-map { |value|
-    f"${value.name}:${value.size}"
+    f"${value.parent}/${value.name}:${value.size}"
   }
 
-print names[0] names[1]
-print reports[0] reports[1]
+let source_reports = reports |> where .parent == "src"
+
+print f"files ${reports.len()} source ${source_reports.len()}"
+print labels[0] labels[1] labels[2]
+print f"largest ${reports[2].name} ${reports[2].size}"

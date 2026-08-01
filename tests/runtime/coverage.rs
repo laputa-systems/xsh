@@ -17,7 +17,7 @@ fn reassigning_let_is_check_error() {
 #[test]
 fn xsht_check_uses_shared_pipeline() {
     let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
-        .args(["check", "examples/hello.xsh"])
+        .args(["check", "tests/fixtures/runtime/cli-simple.xsh"])
         .output()
         .expect("run xsht");
 
@@ -530,7 +530,7 @@ fn xsh_rejects_reveal_type() {
 #[test]
 fn xsht_fmt_check_accepts_stable_examples() {
     let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
-        .args(["fmt", "--check", "examples/hello.xsh", "examples/args.xsh"])
+        .args(["fmt", "--check", "tests/fixtures/runtime/cli-simple.xsh", "tests/fixtures/runtime/cli-args.xsh"])
         .output()
         .expect("run xsht");
 
@@ -874,7 +874,7 @@ print ${label}
 #[test]
 fn xsht_ast_prints_parser_debug_output() {
     let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
-        .args(["ast", "examples/trace.xsh"])
+        .args(["ast", "tests/fixtures/runtime/cli-trace.xsh"])
         .output()
         .expect("run xsht");
 
@@ -1102,20 +1102,23 @@ proc test_beta() [error] {
 #[test]
 fn xsht_test_runs_catalog_examples_only_when_requested() {
     let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
-        .args(["test", "--examples", "--exact", "examples::hello"])
+        .args(["test", "--examples", "--exact", "examples::release-package"])
         .output()
         .expect("run xsht");
     let all = Command::new(env!("CARGO_BIN_EXE_xsht"))
-        .args(["test", "--all", "--list", "hello"])
+        .args(["test", "--all", "--list", "release-package"])
         .output()
         .expect("run xsht");
 
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).unwrap();
     assert!(stdout.contains("running 1 tests"));
-    assert!(stdout.contains("examples::hello ... ok"));
+    assert!(stdout.contains("examples::release-package ... ok"));
     assert!(all.status.success());
-    assert_eq!(String::from_utf8(all.stdout).unwrap(), "examples::hello\n");
+    assert_eq!(
+        String::from_utf8(all.stdout).unwrap(),
+        "examples::release-package\n"
+    );
 }
 
 #[test]
@@ -1244,7 +1247,7 @@ fn xsht_test_cov_json_counts_example_runs_as_examples() {
             "test",
             "--examples",
             "--exact",
-            "examples::hello",
+            "examples::release-package",
             "--cov-json",
             path.to_str().unwrap(),
         ])

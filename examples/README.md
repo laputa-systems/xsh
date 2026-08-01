@@ -1,50 +1,23 @@
-# Examples
+# Curated Showcases
 
-Examples in this directory must use syntax and behavior documented in
-`docs/SPEC.md`. Each `.xsh` file is cataloged in `examples/catalog.json`, covered by
-the runtime example corpus in `tests/runtime.rs`, and checked by `xsht fmt
---check`.
+`examples/` contains a small set of executable programs that demonstrate how
+multiple XSH modules fit together. It is not a feature-probe directory:
+focused behavior, errors, edge cases, and platform coverage belong in
+`tests/xsh/stdlib/*.xsh` or the nearest native test module.
 
-- `hello.xsh`: minimal top-level script.
-- `args.xsh`: top-level script argument iteration.
-- `result.xsh`: `Result` and `?` propagation on a pure function.
-- `run.xsh`: explicit external process execution.
-- `status.xsh`: status-preserving `run` with nonzero status as data.
-- `spawn-wait.xsh`: process fan-out with explicit owned handles and list wait.
-- `capture-text.xsh`: UTF-8 stdout capture.
-- `capture-bytes.xsh`: byte stdout capture.
-- `bytes.xsh`: base64/base32 byte roundtrips, byte slicing/dumps/strings,
-  explicit byte-to-text decoding, typed byte comparison, and block copying.
-- `text.xsh`: fixed-string text splitting, fields, joining, replacement,
-  reversal, and counts.
-- `env.xsh`: child environment overlays and scoped `env` blocks.
-- `files.xsh`: `fs`, `path`, and `text` module use, including structured
-  listings and path methods.
-- `streams.xsh`: structured stream filtering, mapping, collection, and bounded
-  `par-map`.
-- `batch.xsh`: stream batching for count-based chunks and argv-safe command
-  splices.
-- `table.xsh`: typed sorting and deterministic table rendering for file
-  records.
-- `adapters.xsh`: explicit text, bytes, and JSON-lines adapters into
-  structured pipelines.
-- `json.xsh`: ordinary JSON read/write with explicit path, bytes, error, and
-  status conversions.
-- `cd.xsh`: scoped runtime cwd changes.
-- `build-simple.xsh`: build-like file staging plus explicit `run`.
-- `control.xsh`: `while`, `break`, `continue`, and minimal `match`.
-- `package-records.xsh`: package record schemas, defaults, and rest parameters.
-- `stream-surface.xsh`: compact stream surface examples including `defer`, `f`
-  strings, duration and octal literals, `run.stream`, newer stream stages, and
-  process command builders.
-- `hash-tree.xsh`: tree manifest hashing with typed digests and checksum
-  verification.
-- `typed-cli-options.xsh`: typed option/subcommand parsing and regex records
-  for Seed-like script inputs.
-- `archive.xsh`: safe tar create/list/extract with gzip auto compression.
-- `diff-patch.xsh`: unified diff generation and rooted patch application.
-- `processes.xsh`: process, time, system, user, and group module coverage.
-- `trace.xsh`: trace summary and raw trace coverage for proc and external process calls.
-- `trace-error.xsh`: tracebacks for propagated `Err` values.
+`examples/catalog.json` is the executable showcase manifest. It records each
+program's arguments, expected status and output, and trace policy. The runtime
+gate in `tests/runtime/examples.rs` executes every cataloged program, checks
+formatting and linting, and verifies that the manifest covers every
+`examples/*.xsh` file.
 
-Larger standalone tools live as self-tested scripts under `showcase/`.
+| Showcase | Composition focus | Canonical documentation | Focused coverage |
+|---|---|---|---|
+| `json.xsh` | typed JSON read/write, JSON-lines, and schema checks at a persistence boundary | `docs/JSON.md` | `tests/xsh/stdlib/json.xsh` |
+| `streams.xsh` | filesystem records through serial and bounded parallel stream stages | `docs/STREAMS.md` | `tests/xsh/stdlib/streams.xsh` |
+| `processes.xsh` | process discovery, structured command plans, concurrent waits, and host identity records | `docs/SPEC-OS.md` | `tests/xsh/stdlib/process.xsh`, `tests/xsh/stdlib/system.xsh` |
+| `release-package.xsh` | staged archive creation, safe extraction, rooted patching, and byte-preserving compression | `docs/STDLIB.md` | `tests/xsh/stdlib/archive.xsh`, `tests/xsh/stdlib/diff.xsh`, `tests/xsh/stdlib/patch.xsh` |
+| `typed-cli-options.xsh` | typed options, command dispatch, path conversion, and regex-backed input records | `docs/SPEC.md`, `docs/REFERENCE.md` | `tests/xsh/stdlib/args.xsh` |
+
+Put larger production-like programs in `showcase/`; do not turn a focused
+native test into an example merely to demonstrate one API call.

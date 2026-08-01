@@ -39,8 +39,8 @@ cargo test -p xsht docs
 cargo test --test integration runtime::examples::
 ```
 
-Run the runtime example test when chapter examples, `examples/catalog.json`, or
-generated tutorial output changes.
+Run the runtime example test when a retained showcase,
+`examples/catalog.json`, or generated reference output changes.
 
 ## Runtime Test Modules
 
@@ -69,7 +69,7 @@ generated tutorial output changes.
 | `tests/fixtures/sema` | checker fixture sources |
 | `tests/fixtures/runtime` | executable runtime fixture scripts |
 | `tests/fixtures/frontend-indexed` | frozen indexed-execution and indexed-method fixtures |
-| `examples` | tutorial examples cataloged in `examples/catalog.json` |
+| `examples` | curated showcases cataloged in `examples/catalog.json` |
 | `showcase` and `showcase/tests` | larger standalone scripts and native tests |
 
 ## Commands To Avoid

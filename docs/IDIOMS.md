@@ -59,7 +59,7 @@ let label = epoch_year()?
 print ${label}
 ```
 
-Source: `docs/CHAPTER-10-types-records-procs.md` (effect annotations example).
+Contract: `docs/SPEC.md` section 7; focused coverage: `tests/xsh/effects.xsh`.
 
 For richer error context, use `.context(kind, message)?` to wrap a failure with
 a more specific error kind before it propagates:
@@ -88,7 +88,7 @@ let counts = fs.walk(root)
   |> sort-by .count
 ```
 
-Source: `examples/extension-count.xsh`.
+Focused coverage: `tests/xsh/stdlib/streams.xsh::test_parallel_count_and_group_by_match_serial`.
 
 Use `for` when the body has complex side effects, mutates state, or needs an
 early `return`:
@@ -149,8 +149,9 @@ defer root.remove(missing_ok: true)
 ```
 
 `missing_ok: true` is safe even if a failure inside the proc removed the
-directory already. Source: `examples/idiom-temp-dir.xsh`, and throughout the
-corpus (`examples/streams.xsh`, `examples/tee.xsh`, `examples/table.xsh`).
+directory already. See the immediate cleanup pattern in `examples/json.xsh`,
+`examples/streams.xsh`, and `examples/release-package.xsh`; focused filesystem
+coverage lives in `tests/xsh/stdlib/fs.xsh`.
 
 ## Building maps
 
@@ -261,7 +262,7 @@ let results = items
 
 `tee` is useful during development to inspect intermediate values. Remove it
 when the script is stable; the surrounding pipeline does not need to change.
-Source: `examples/tee.xsh`.
+Focused coverage: `tests/xsh/stdlib/streams.xsh`.
 
 ## Installing files
 
@@ -316,7 +317,7 @@ proc describe(s: Str) {
 }
 ```
 
-Source: `examples/guard.xsh`. Use `guard let` when the error case is a bail-out
+Contract: `docs/SPEC.md` section 8. Use `guard let` when the error case is a bail-out
 and the success case is the main path. Prefer `?` when no side-effect is needed
 on failure.
 
@@ -351,7 +352,7 @@ for line in text.lines() {
 }
 ```
 
-Source: `examples/loop.xsh`, `showcase/env-diff.xsh`, `showcase/backup-rotate.xsh`.
+Sources: `showcase/env-diff.xsh`, `showcase/backup-rotate.xsh`.
 
 ## Typed CLI with cli.parse
 
@@ -497,7 +498,8 @@ As a pipeline terminal after collecting:
 counts |> table.print(columns: ["ext", "files", "lines"])
 ```
 
-Source: `examples/table.xsh`. Prefer `table.print` over
+Focused coverage: `tests/xsh/stdlib/fs.xsh::test_stable_tables_sort_files_and_process_records`.
+Prefer `table.print` over
 hand-formatted loops when records already carry named fields.
 
 ## f-string field widths
@@ -583,7 +585,8 @@ pure area(s: Shape) -> Int {
 ```
 
 Use tag unions when a `match` on a `Str` starts to feel stringly-typed. The
-linter emits `lint.stringly-typed-match` as a nudge. Source: `examples/tags.xsh`.
+linter emits `lint.stringly-typed-match` as a nudge. Contract:
+`docs/SPEC.md` section 5; focused checker coverage lives in `tests/sema.rs`.
 
 ## loop as expression
 
@@ -598,7 +601,7 @@ let found = loop {
 
 The type of the `loop` expression is inferred from the `break` argument. Use
 this when a search needs to return a value without a mutable accumulator and an
-early `return`. Source: `examples/loop.xsh`.
+early `return`. Contract: `docs/SPEC.md` section 8.
 
 ## Scoped directory change with cd {}
 
@@ -617,7 +620,7 @@ let after = run.text pwd ?
 ```
 
 Use `cd {}` instead of manual `chdir` calls to avoid leaking the changed
-directory. Source: `examples/cd.xsh`.
+directory. Focused coverage: `tests/xsh/stdlib/env.xsh`.
 
 ## Filesystem lock
 

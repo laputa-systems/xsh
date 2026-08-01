@@ -6,6 +6,7 @@ pub mod cli;
 pub(crate) mod config;
 #[path = "docs.rs"]
 pub mod docs;
+pub mod examples;
 #[path = "edit.rs"]
 pub(crate) mod edit;
 #[path = "format.rs"]

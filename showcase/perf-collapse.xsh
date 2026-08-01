@@ -8,7 +8,7 @@ error ScriptError = Failed(kind: Str, message: Str)
 # Collapse `perf script` callchains into folded stacks for flamegraph rendering.
 #
 # Usage:
-#   perf record -F 999 -g -- target/debug/xsh examples/extension-count.xsh
+#   perf record -F 999 -g -- target/debug/xsh examples/streams.xsh
 #   perf script > out.perf
 #   xsh showcase/perf-collapse.xsh -- out.perf > out.folded
 #   xsh showcase/flamegraph.xsh -- out.folded > out.svg

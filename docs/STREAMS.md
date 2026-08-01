@@ -1,8 +1,8 @@
 # Structured Streams — Architecture & Performance
 
 How the `|>` structured pipeline executes, and the performance model behind it.
-This is the maintainer reference; the user-facing guide is
-`docs/CHAPTER-08-structured-streams.md`.
+`examples/streams.xsh` is the curated composition showcase;
+`tests/xsh/stdlib/streams.xsh` owns focused behavior coverage.
 
 ## 1. Surface
 

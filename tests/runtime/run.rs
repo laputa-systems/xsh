@@ -3,15 +3,15 @@ use super::common::*;
 #[test]
 fn xsht_trace_runs_and_xsh_rejects_trace_options() {
     let trace = Command::new(env!("CARGO_BIN_EXE_xsht"))
-        .args(["trace", "examples/hello.xsh"])
+        .args(["trace", "tests/fixtures/runtime/cli-simple.xsh"])
         .output()
         .expect("run xsht");
     let trace_format = Command::new(env!("CARGO_BIN_EXE_xsh"))
-        .args(["--trace-format", "jsonl", "examples/hello.xsh"])
+        .args(["--trace-format", "jsonl", "tests/fixtures/runtime/cli-simple.xsh"])
         .output()
         .expect("run xsh");
     let stale = Command::new(env!("CARGO_BIN_EXE_xsht"))
-        .args(["stale", "examples/hello.xsh"])
+        .args(["stale", "tests/fixtures/runtime/cli-simple.xsh"])
         .output()
         .expect("run xsht");
 
@@ -39,7 +39,7 @@ fn xsht_trace_runs_and_xsh_rejects_trace_options() {
 #[test]
 fn xsh_rejects_tool_subcommands() {
     let output = Command::new(env!("CARGO_BIN_EXE_xsh"))
-        .args(["check", "examples/hello.xsh"])
+        .args(["check", "tests/fixtures/runtime/cli-simple.xsh"])
         .output()
         .expect("run xsh");
 
@@ -94,7 +94,7 @@ fn xsh_help_describes_script_runner() {
 #[test]
 fn xsht_trace_accepts_script_args_without_double_dash() {
     let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
-        .args(["trace", "examples/args.xsh", "one", "two"])
+        .args(["trace", "tests/fixtures/runtime/cli-args.xsh", "one", "two"])
         .output()
         .expect("run xsht trace");
 
@@ -110,7 +110,7 @@ fn xsht_trace_accepts_script_args_without_double_dash() {
 #[test]
 fn xsh_rejects_trace_flags() {
     let output = Command::new(env!("CARGO_BIN_EXE_xsh"))
-        .args(["--raw", "examples/hello.xsh"])
+        .args(["--raw", "tests/fixtures/runtime/cli-simple.xsh"])
         .output()
         .expect("run xsh");
 
@@ -125,7 +125,7 @@ fn xsh_rejects_trace_flags() {
 #[test]
 fn xsht_trace_accepts_syscalls_flag() {
     let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
-        .args(["--syscalls", "examples/hello.xsh"])
+        .args(["--syscalls", "tests/fixtures/runtime/cli-simple.xsh"])
         .output()
         .expect("run xsht");
 
@@ -145,7 +145,7 @@ fn xsht_trace_rejects_invalid_trace_top_syscalls() {
             "--syscalls",
             "--trace-top-syscalls",
             "0",
-            "examples/hello.xsh",
+            "tests/fixtures/runtime/cli-simple.xsh",
         ])
         .output()
         .expect("run xsht");
@@ -162,7 +162,7 @@ fn xsht_trace_rejects_invalid_trace_top_syscalls() {
 #[test]
 fn xsht_trace_rejects_syscalls_on_non_linux() {
     let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
-        .args(["trace", "--syscalls", "examples/hello.xsh"])
+        .args(["trace", "--syscalls", "tests/fixtures/runtime/cli-simple.xsh"])
         .output()
         .expect("run xsht");
 
@@ -183,7 +183,7 @@ fn xsht_syscall_trace_includes_summary_when_ptrace_available() {
             "--syscalls",
             "--trace-top-syscalls",
             "3",
-            "examples/hello.xsh",
+            "tests/fixtures/runtime/cli-simple.xsh",
         ])
         .output()
         .expect("run xsht");
@@ -205,7 +205,7 @@ fn xsht_syscall_trace_includes_summary_when_ptrace_available() {
 #[test]
 fn xsh_accepts_script_args_without_double_dash() {
     let output = Command::new(env!("CARGO_BIN_EXE_xsh"))
-        .args(["examples/args.xsh", "one"])
+        .args(["tests/fixtures/runtime/cli-args.xsh", "one"])
         .output()
         .expect("run xsh");
 
@@ -217,7 +217,7 @@ fn xsh_accepts_script_args_without_double_dash() {
 #[test]
 fn xsh_accepts_leading_double_dash_for_shebang_scripts() {
     let output = Command::new(env!("CARGO_BIN_EXE_xsh"))
-        .args(["--", "examples/args.xsh", "one", "two"])
+        .args(["--", "tests/fixtures/runtime/cli-args.xsh", "one", "two"])
         .output()
         .expect("run xsh");
 
@@ -271,7 +271,7 @@ fn run_trace_preserves_argv_boundaries() {
 
 #[test]
 fn xsht_trace_jsonl_is_on_stderr() {
-    let output = xsht(["trace", "--trace-format", "jsonl", "examples/hello.xsh"]);
+    let output = xsht(["trace", "--trace-format", "jsonl", "tests/fixtures/runtime/cli-simple.xsh"]);
 
     assert!(output.status.success());
     assert_eq!(String::from_utf8(output.stdout).unwrap(), "hello\n");
@@ -293,7 +293,7 @@ fn xsht_trace_file_keeps_runtime_stderr_separate() {
             "trace",
             "--trace-file",
             path.to_str().unwrap(),
-            "examples/hello.xsh",
+            "tests/fixtures/runtime/cli-simple.xsh",
         ])
         .output()
         .expect("run xsht");

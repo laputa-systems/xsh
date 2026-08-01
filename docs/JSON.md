@@ -4,6 +4,9 @@ JSON is a boundary format in XSH, not the internal language of a script. Decode
 it at the edge, check the shape you intend to trust, and keep the rest of the
 program in typed XSH values.
 
+`examples/json.xsh` is the curated persistence and JSON-lines composition
+showcase. `tests/xsh/stdlib/json.xsh` owns focused acceptance and error cases.
+
 ## The Default Pattern
 
 Use a named schema when later code depends on fields having a stable shape.
