@@ -19,46 +19,56 @@ Proposal lifecycle work should start with these concrete owners:
 reaches `Checker`/`RuntimeOp`/runtime behavior, move its normative explanation to
 `docs/SPEC.md` and keep these handles current.
 
-## Process: Implementing a Proposal
+## Process: Implementing A Language Change
 
-When a proposal is implemented, the commit must do all of the following.
+When a proposal, language contract, exported XSH declaration, or public API
+changes, the commit must do all of the following.
 
-**1. LANG.md** — remove the entry from *Open Proposals*. It no longer belongs
-here. The rationale and example live in `docs/SPEC.md` and the relevant
-canonical companion document. LANG.md only tracks things that are not yet done.
+**1. LANG.md** — remove an implemented proposal from *Open Proposals*. The
+rationale and example live in `docs/SPEC.md` and the relevant canonical
+companion document. `LANG.md` tracks only unresolved language work.
 
 **2. SPEC.md** — update `docs/SPEC.md` to describe the new behaviour as
 normative. Add to the grammar if it introduces new syntax, add to the type
 listing if it introduces a new value kind, update an existing section if it
 changes existing behaviour (e.g., deprecations).
 
-**3. Lint rule** — if the feature deprecates an old spelling or pattern, add a
+**3. Public API registry** — when a standard module, method, record, effect,
+run form, stream stage, trace event, or CLI form changes, update its canonical
+registry data and required `ApiDocs` navigation. Verify the result through a
+batched `xsht api` query.
+
+**4. Exported XSH docs** — when a module exports declarations, keep its `##!`
+module doc and every exported declaration's adjacent `##` doc current. Missing,
+orphaned, and duplicate doc blocks are checker errors.
+
+**5. Lint rule** — if the feature deprecates an old spelling or pattern, add a
 lint rule in `crates/xsht/src/lint.rs` that flags the outdated form. Use
 `Severity::Warning` and the `lint.*` code namespace. Follow existing rules as
 models.
 
-**4. Autofix** — attach a `FixHint::replacement` or `FixHint::deletion` to
+**6. Autofix** — attach a `FixHint::replacement` or `FixHint::deletion` to
 the lint diagnostic whenever the transformation is mechanical. This lets
 `xsht lint --fix` migrate existing code automatically without human review.
 If the transformation is ambiguous, emit the warning without a fix and document
 why in the lint rule comment.
 
-**5. Migrate existing code** — run `xsht lint --fix` on `showcase/*.xsh`,
-`examples/*.xsh`, and `tests/xsh/*.xsh` immediately after adding the rule.
-Commit the migrated files in the same commit or the next.
+**7. Migrate existing code** — update affected XSH manually and leave
+formatting/autofix commands to the user. Keep native tests as the default
+idiomatic XSH corpus.
 
-**6. Update canonical docs** — edit the owning contract document and any
+**8. Update canonical docs** — edit the owning contract document and any
 required registry docs. Remove examples that demonstrate the old form.
 
-**7. Add or update an example** — add a focused `examples/*.xsh` file (or
-update the closest existing one) that demonstrates the feature. Add or update
-the entry in `examples/catalog.json`. The example must be cataloged, pass
-`xsht fmt --check`, and produce stable output.
+**9. Add or update an example** — update `examples/*.xsh` only when the change
+affects a substantial multi-module program. Focused behavior belongs in a
+native test instead.
 
-**8. Query the API** — run `./target/debug/xsht api` for changed public
-surfaces and the API gate in `docs/TEST-MAP.md`.
+**10. Verify** — run the narrowest behavior gate, the API gate for public
+surfaces, and the broader command from `docs/TEST-MAP.md`.
 
-**9. Commit message** — reference the LANG.md entry:
+**11. Commit message** — reference the LANG.md entry when implementing a
+tracked proposal:
 `feat: implement implicit main invocation (LANG.md)`
 
 ---

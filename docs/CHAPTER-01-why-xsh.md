@@ -89,5 +89,4 @@ use XSH to compose the host-facing work around them.
 
 `docs/SPEC.md` is the language contract, `docs/SPEC-OS.md` owns process and
 signal behavior, `xsht api` provides exact API discovery, and
-`docs/AGENT-ROUTING.md` selects the smallest useful reading and test set for a
-change.
+`AGENTS.md` selects the smallest useful reading and test set for a change.

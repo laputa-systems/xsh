@@ -14,11 +14,11 @@ core command scripts, examples, docs, and tests.
 Always read:
 
 - `docs/CHAPTER-01-why-xsh.md`
-- `docs/AGENT-ROUTING.md`
 - the nearest code and tests for the requested change
 
-Use `docs/AGENT-ROUTING.md` to choose the task-specific spec, architecture,
-owner files, and tests before editing.
+Use the documentation-routing policy below, `docs/ARCHITECTURE.md`, and
+`docs/TEST-MAP.md` to choose the task-specific contract, owner files, and tests
+before editing.
 
 ## Implementation Rules
 
@@ -61,8 +61,7 @@ owner files, and tests before editing.
 - Put language contracts in `docs/SPEC.md`, OS behavior in `docs/SPEC-OS.md`,
   streams in `docs/STREAMS.md`, JSON boundaries in `docs/JSON.md`, API details
   in `xsht api`, architecture in
-  `docs/ARCHITECTURE.md`, testing in `docs/TEST-MAP.md`, and task navigation in
-  `docs/AGENT-ROUTING.md`.
+  `docs/ARCHITECTURE.md`, and testing in `docs/TEST-MAP.md`.
 - Do not add prose that restates obvious syntax or API signatures. Prefer exact
   symbols, module paths, and test names; document non-obvious constraints and
   rationale; update the canonical owner instead of creating another guide.

@@ -17,8 +17,8 @@ indexed runtime:
 
 The primary retrieval path is symbol-first: search for the concrete type or
 method named in this document, then open its owner file and nearest test. For
-the complete frontend vocabulary, see `docs/FRONTEND.md`; for task-specific
-routing, see `docs/AGENT-ROUTING.md`.
+the complete frontend vocabulary, see `docs/FRONTEND.md`; use the routing
+policy in `AGENTS.md` for task-specific reading and verification.
 
 The workspace is split where a subsystem can have a stable Rust boundary
 without depending on XSH source spans, runtime values, diagnostics, or evaluator
@@ -80,8 +80,8 @@ is rendered as a diagnostic; it cannot select another evaluator.
 `docs/SPEC.md` is the language contract. `docs/SPEC-TYPING.md` covers
 typechecking, `docs/SPEC-INTERACTIVE.md` covers `xshi`, and
 `docs/SPEC-OS.md` covers OS-facing runtime behavior such as process groups,
-signals, cancellation, and signal hooks. `docs/AGENT-ROUTING.md` chooses the
-smallest useful reading set for a change. `docs/FRONTEND.md` is the
+signals, cancellation, and signal hooks. The `AGENTS.md` routing policy chooses
+the smallest useful reading set for a change. `docs/FRONTEND.md` is the
 implementation guide for the compact frontend,
 indexed runtime plumbing, symbol identity, registry invariants, and benchmark
 verification. `../FRONTEND-FOLLOWUPS.md` records evidence-based performance and
@@ -89,10 +89,10 @@ memory work that remains after the architecture closeout. `docs/COVERAGE.md`
 tracks the practical coverage plan for areas that need larger harnesses rather
 than branch-only tests.
 
-## Agent Routing
+## Ownership Map
 
-`docs/AGENT-ROUTING.md` is the compact task router. Use it before deep reading.
-This table is the owner-module summary:
+`AGENTS.md` supplies the task-routing policy. This table is the owner-module
+summary used after selecting the relevant contract and test gate:
 
 | Task | Owner docs | Owner code |
 |---|---|---|
@@ -103,7 +103,7 @@ This table is the owner-module summary:
 | standard modules and methods | `xsht api`, `src/modules/README.md` | `RuntimeOp`, `api_spec`, `src/modules/*`, `src/runtime/eval/modules.rs` |
 | structured streams | `docs/STREAMS.md` | `check_stream_stage_arena`, `Evaluator::collect_stream_values`, `src/sema/check/stream.rs`, `src/runtime/eval/stream.rs` |
 | executable IR, verifier, and frames | `docs/FRONTEND.md` | `FullBuilder::build_compact`, `FullVerifier::verify`, `indexed_run`, `CallFrame` in `src/runtime/eval/*` |
-| docs and examples | `XSHT-API-REGISTRY.md`, `examples/README.md` | `ApiSpec`, `api::query`, `examples::load_catalog`, `examples::validate_catalog`, `examples/catalog.json` |
+| docs and examples | `AGENTS.md`, `examples/README.md` | `ApiSpec`, `api::query`, `examples::load_catalog`, `examples::validate_catalog`, `examples/catalog.json` |
 
 ## Agent Map For IR Work
 
