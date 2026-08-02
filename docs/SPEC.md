@@ -317,7 +317,12 @@ string form and autofixes it to the equivalent escaped string literal `"\n"`.
 Expression string literals do not interpolate. `${expr}` interpolation is
 recognized only in command words and quoted command word parts. `$name` and
 `$record.field` are accepted shorthand there for simple binding or field-access
-chains. Arbitrary expressions still require `${expr}`.
+chains. Arbitrary expressions still require `${expr}`. In an expression
+string, a `$name` lookalike is plain text, not interpolation;
+`lint.dollar-in-expression-string` warns when such text names an in-scope
+binding. Interpolate with a display string (`f"..."`) or concatenation (`+`),
+and keep a literal dollar sign with a raw string (`r"..."`) or the `\$`
+escape.
 
 Bytes literals are `b"..."` and support the same byte escapes except
 `\u{HEX}`. They produce `Bytes`.

@@ -409,7 +409,7 @@ fn core_doc(item: &str) -> ReferenceDoc {
         "command-interpolation" => ("Defines explicit command and argv interpolation.", "Interpolated values remain typed argv boundaries; XSH does not perform implicit shell evaluation or word splitting."),
         "path-literals" => ("Defines typed path literals.", "A path literal is a Path value and crosses into text or host bytes only through an explicit conversion."),
         "glob-literals" => ("Defines filesystem glob literals.", "Glob expansion is an explicit filesystem operation with deterministic path values rather than shell word splitting."),
-        "display-strings" => ("Defines display-string interpolation.", "Display strings are presentation text and do not become command argv or filesystem paths implicitly."),
+        "display-strings" => ("Defines display-string interpolation.", "Display strings are presentation text: they interpolate with `${expr}` and do not become command argv or filesystem paths implicitly. Ordinary expression string literals never interpolate, so `$name` inside `\"...\"` is literal text; `lint.dollar-in-expression-string` warns when it names an in-scope binding, and raw strings keep `$` literal."),
         _ => panic!("missing core-language documentation for {item}"),
     };
     reference_doc(summary, contract, &["language", item])

@@ -1035,6 +1035,92 @@ impl<'a> Linter<'a> {
         );
     }
 
+    fn lint_dollar_in_expression_string(&mut self, expr: ExprId) {
+        let arena_expr = self.arena.expr(expr);
+        let ArenaExprKind::Str(_) = arena_expr.kind else {
+            return;
+        };
+        let expr_span = arena_expr.span;
+        let Some(source) = self.source.get(expr_span.range()) else {
+            return;
+        };
+        // Raw strings are the documented way to keep `$` as literal text; the
+        // trap is a plain `$name` inside an ordinary (non-raw) expression string.
+        if source.starts_with('r') {
+            return;
+        }
+        let bytes = source.as_bytes();
+        let mut index = 0;
+        while index < bytes.len() && bytes[index] == b'"' {
+            index += 1;
+        }
+        let mut end = bytes.len();
+        while end > index && bytes[end - 1] == b'"' {
+            end -= 1;
+        }
+        while index < end {
+            match bytes[index] {
+                b'\\' => {
+                    // `\$` is an explicit literal dollar; skip the escape and its
+                    // target rather than treating it as an interpolation marker.
+                    index += 2;
+                }
+                b'$' => {
+                    let name_start = index + 1;
+                    if bytes
+                        .get(name_start)
+                        .is_some_and(|byte| byte.is_ascii_alphabetic() || *byte == b'_')
+                    {
+                        let mut name_end = name_start;
+                        while name_end < end
+                            && (bytes[name_end].is_ascii_alphanumeric() || bytes[name_end] == b'_')
+                        {
+                            name_end += 1;
+                        }
+                        let name = &source[name_start..name_end];
+                        if self.is_binding_in_scope_or_assigned(name) {
+                            let dollar_span = Span::new(
+                                expr_span.source_id,
+                                expr_span.start() + index,
+                                expr_span.start() + name_end,
+                            );
+                            self.diagnostics.push(
+                                Diagnostic::new(
+                                    Severity::Warning,
+                                    format!(
+                                        "expression string literals never interpolate; `${name}` is literal text here"
+                                    ),
+                                )
+                                .with_code("lint.dollar-in-expression-string")
+                                .with_label(Label::primary(
+                                    dollar_span,
+                                    format!(
+                                        "use an f-string or `+` concatenation to interpolate `{name}`"
+                                    ),
+                                ))
+                                .with_note(
+                                    "write `r\"...\"` or `\\$` when a literal dollar sign is intended",
+                                ),
+                            );
+                        }
+                        index = name_end;
+                        continue;
+                    }
+                    index += 1;
+                }
+                _ => index += 1,
+            }
+        }
+    }
+
+    fn is_binding_in_scope_or_assigned(&self, name: &str) -> bool {
+        self.scopes.iter().rev().any(|scope| scope.contains_key(name))
+            || self
+                .assigned_names
+                .iter()
+                .any(|assigned| assigned.as_str().as_str() == name)
+    }
+
     fn lint_json_encode_decode_roundtrip(&mut self, expr: ExprId) {
         let Some(label_span) = self.json_encode_decode_label(expr) else {
             return;
@@ -4655,6 +4741,7 @@ impl LintExprVisitor<'_, '_> {
                 self.linter.lint_block(block);
             }
             ArenaExprKind::Str(_) => {
+                self.linter.lint_dollar_in_expression_string(expr);
                 if !self.suppress_expr_autofixes {
                     self.linter.lint_redundant_newline_triple_string(expr);
                 }
