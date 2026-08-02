@@ -2946,12 +2946,16 @@ impl CompactLowerConstructProbe<'_, '_> {
     fn text_value_in_span<'a>(
         &'a self,
         text: &'a crate::syntax::arena::ArenaText,
-        context: Span,
+        _context: Span,
     ) -> Option<&'a str> {
         match text {
-            crate::syntax::arena::ArenaText::Source(bytes) => {
-                let start = bytes.start as usize;
-                let span = Span::new(context.source_id, start, start + bytes.len as usize);
+            crate::syntax::arena::ArenaText::Source(text_source) => {
+                let start = text_source.bytes.start as usize;
+                let span = Span::new(
+                    text_source.source_id,
+                    start,
+                    start + text_source.bytes.len as usize,
+                );
                 self.program
                     .arena
                     .text_value(text, self.source)
@@ -2979,12 +2983,12 @@ impl CompactLowerConstructProbe<'_, '_> {
 
     fn text_value<'a>(&'a self, text: &'a crate::syntax::arena::ArenaText) -> Option<&'a str> {
         match text {
-            crate::syntax::arena::ArenaText::Source(bytes) => {
-                let start = bytes.start as usize;
+            crate::syntax::arena::ArenaText::Source(text_source) => {
+                let start = text_source.bytes.start as usize;
                 let span = Span::new(
-                    self.program.arena.span_source_id?,
+                    text_source.source_id,
                     start,
-                    start + bytes.len as usize,
+                    start + text_source.bytes.len as usize,
                 );
                 self.program
                     .arena

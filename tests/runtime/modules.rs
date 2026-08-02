@@ -923,6 +923,7 @@ export proc build(dest: Path) [fs, process, error] {
 
   fs.write(fp"/tmp/bareword-run-test", patched_ninja)?
   run echo "-C" "build" samu ?
+  run echo --format json ?
   run echo apples ?
 }
 "#,
@@ -955,6 +956,10 @@ build_fn.call(p"/tmp/bareword-dest")?
     assert!(
         stdout.contains("-C build samu"),
         "missing '-C build samu' in: {stdout}"
+    );
+    assert!(
+        stdout.contains("--format json"),
+        "missing '--format json' in: {stdout}"
     );
     assert!(stdout.contains("apples"), "missing 'apples' in: {stdout}");
 }

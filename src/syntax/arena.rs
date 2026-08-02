@@ -4013,9 +4013,12 @@ impl AstArena {
         let index = id.index();
         let data = self.text_data[index];
         match self.text_tags[index] {
-            ArenaTextTag::Source => ArenaText::Source(ArenaByteSpan {
-                start: data.lhs,
-                len: data.rhs,
+            ArenaTextTag::Source => ArenaText::Source(ArenaTextSource {
+                bytes: ArenaByteSpan {
+                    start: data.lhs,
+                    len: data.rhs,
+                },
+                source_id: data.source_id,
             }),
             ArenaTextTag::Cooked => ArenaText::Cooked(self.cooked_texts[data.lhs as usize].clone()),
         }
@@ -4023,8 +4026,11 @@ impl AstArena {
 
     pub fn text_value<'a>(&'a self, text: &'a ArenaText, source: &'a str) -> Option<&'a str> {
         match text {
-            ArenaText::Source(bytes) => {
-                let span = bytes.to_span(self.span_source_id?);
+            ArenaText::Source(text_source) => {
+                if Some(text_source.source_id) != self.span_source_id {
+                    return None;
+                }
+                let span = text_source.bytes.to_span(text_source.source_id);
                 source.get(span.start()..span.end())
             }
             ArenaText::Cooked(value) => Some(value.as_ref()),
@@ -4893,8 +4899,14 @@ pub enum ArenaFmtPart {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ArenaText {
-    Source(ArenaByteSpan),
+    Source(ArenaTextSource),
     Cooked(Arc<str>),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ArenaTextSource {
+    pub bytes: ArenaByteSpan,
+    pub source_id: SourceId,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -4904,16 +4916,27 @@ pub enum ArenaTextTag {
     Cooked,
 }
 
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(C)]
 pub struct ArenaTextData {
     pub lhs: u32,
     pub rhs: u32,
+    pub source_id: SourceId,
+}
+
+impl Default for ArenaTextData {
+    fn default() -> Self {
+        Self::new(0, 0, SourceId::new(0))
+    }
 }
 
 impl ArenaTextData {
-    const fn new(lhs: u32, rhs: u32) -> Self {
-        Self { lhs, rhs }
+    const fn new(lhs: u32, rhs: u32, source_id: SourceId) -> Self {
+        Self {
+            lhs,
+            rhs,
+            source_id,
+        }
     }
 }
 
@@ -5475,18 +5498,11 @@ impl ArenaLowerer<'_> {
         if self.arena.span_source_id.is_none() {
             self.arena.span_source_id = Some(span.source_id);
         }
-        if self.arena.span_source_id != Some(span.source_id) {
-            let cooked: Arc<str> = Arc::from(
-                self.source
-                    .and_then(|source| source.get(span.start()..span.end()))
-                    .unwrap_or(""),
-            );
-            return self.push_cooked_text(&cooked);
-        }
         self.arena.text_tags.push(ArenaTextTag::Source);
         self.arena.text_data.push(ArenaTextData::new(
             raw_index(span.start()),
             raw_index(span.end() - span.start()),
+            span.source_id,
         ));
         id
     }
@@ -5496,7 +5512,9 @@ impl ArenaLowerer<'_> {
         let cooked = raw_index(self.arena.cooked_texts.len());
         self.arena.cooked_texts.push(value.clone());
         self.arena.text_tags.push(ArenaTextTag::Cooked);
-        self.arena.text_data.push(ArenaTextData::new(cooked, 0));
+        self.arena
+            .text_data
+            .push(ArenaTextData::new(cooked, 0, SourceId::new(0)));
         id
     }
 
