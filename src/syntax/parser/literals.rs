@@ -5,6 +5,27 @@ use crate::syntax::arena::{ArenaProgramBuilder, ArenaRange, ExprId};
 use std::sync::Arc;
 
 impl<'a> Parser<'a> {
+    pub(super) fn reject_path_string_interpolation(&mut self, span: Span) {
+        let raw = self.quoted_content(span);
+        let has_interpolation = literal::interpolation_chunks(raw, self.string_content_offset(span))
+            .is_some_and(|chunks| {
+                chunks
+                    .iter()
+                    .any(|chunk| matches!(chunk, InterpolationChunk::Expr { .. }))
+            });
+        if has_interpolation {
+            self.diagnostics.push(
+                Diagnostic::error("p-strings do not interpolate")
+                    .with_code("parse.path-string-interpolation")
+                    .with_label(Label::primary(
+                        span,
+                        "use `fp\"...\"` for an interpolated path",
+                    ))
+                    .with_note("`p\"...\"` keeps `${...}` literal; `\\${` is also a literal marker"),
+            );
+        }
+    }
+
     pub(super) fn starts_bare_path_literal(&self) -> bool {
         literal::scan_bare_path_at(self.source, self.current_start()).is_some()
     }

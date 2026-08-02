@@ -2483,6 +2483,8 @@ const LOWERED_METHOD_NAMES: &[&str] = &[
     "count_chars",
     "count_bytes",
     "byte_len",
+    "len",
+    "length",
     "byte_at",
     "byte_slice",
     "slice",

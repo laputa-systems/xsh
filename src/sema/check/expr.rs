@@ -1,8 +1,8 @@
 #![allow(clippy::single_call_fn)]
 
 use super::{
-    BTreeMap, BinaryOp, Checker, Effect, Name, RunKind, Span, Type, UnaryOp, api_spec,
-    block_has_exit_point_arena,
+    BTreeMap, BinaryOp, Checker, Diagnostic, Effect, Label, Name, RunKind, Span, Type, UnaryOp,
+    api_spec, block_has_exit_point_arena, collection_item_ty, merge_collection_item_ty,
 };
 use crate::syntax::arena::{
     ArenaExprKind, ArenaExprOrRun, ArenaFmtPart, ArenaProgram, ArenaRange, ArenaRecordFieldKind,
@@ -978,6 +978,21 @@ impl Checker {
                     Type::Str if matches!(op, BinaryOp::Add) => {
                         self.expect_type(&Type::Str, &right_ty, right_span);
                         Type::Str
+                    }
+                    Type::List(_) if matches!((&left_ty, &right_ty), (Type::List(_), Type::List(_))) => {
+                        self.diagnostics.push(
+                            Diagnostic::error("list concatenation does not use `+`")
+                                .with_code("check.operator-type")
+                                .with_label(Label::primary(
+                                    left_span,
+                                    "`+` is defined for numbers and strings, not lists",
+                                ))
+                                .with_note("use `.extend(other)` to concatenate lists"),
+                        );
+                        Type::List(Box::new(merge_collection_item_ty(
+                            collection_item_ty(&left_ty),
+                            collection_item_ty(&right_ty),
+                        )))
                     }
                     _ => {
                         self.expect_type(&Type::Int, &left_ty, left_span);

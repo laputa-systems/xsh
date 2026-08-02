@@ -617,6 +617,7 @@ impl<'a> Parser<'a> {
             }
             (TokenTag::PathString, _) => {
                 let span = self.bump();
+                self.reject_path_string_interpolation(span);
                 let value: Arc<str> = self.decoded_quoted_text(span, false);
                 Some(ArenaOnlyExpr {
                     id: arena.push_path_str_expr(&value, span),

@@ -952,6 +952,26 @@ proc main(args: List[Str]) -> Result[Unit] {
     }
 
     #[test]
+    fn rejects_interpolation_in_path_strings() {
+        let output = Parser::parse_source_arena_only(SourceId::new(0), "let x = p\"${name}\"\n");
+
+        let diagnostic = output
+            .diagnostics
+            .iter()
+            .find(|diag| diag.code.as_deref() == Some("parse.path-string-interpolation"))
+            .expect("expected p-string interpolation diagnostic");
+        assert!(diagnostic.message.contains("do not interpolate"));
+        assert!(diagnostic.notes.iter().any(|note| note.contains("literal")));
+
+        let escaped = Parser::parse_source_arena_only(SourceId::new(0), "let x = p\"\\${name}\"\n");
+        assert!(
+            escaped.diagnostics.is_empty(),
+            "escaped interpolation marker should remain literal: {:?}",
+            escaped.diagnostics
+        );
+    }
+
+    #[test]
     fn explains_dollar_names_in_expression_context() {
         let output =
             Parser::parse_source_arena_only(SourceId::new(0), "env { FOO = $foo } { print ok }\n");

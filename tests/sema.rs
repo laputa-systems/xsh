@@ -95,6 +95,39 @@ let also_bad = 1.0 < 2
 }
 
 #[test]
+fn checker_explains_unknown_methods_and_list_concatenation() {
+    let source = r#"
+let text = "abc"
+let bad_length = text.length()
+let left: List[Str] = ["a"]
+let right: List[Str] = ["b"]
+let joined = left + right
+"#;
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let diagnostics = Checker::check_arena(&parsed.arena, source).diagnostics;
+
+    let unknown = diagnostics
+        .iter()
+        .find(|diagnostic| diagnostic.code.as_deref() == Some("check.unknown-method"))
+        .expect("expected unknown method diagnostic");
+    assert!(unknown.message.contains("`length` on Str"));
+    assert!(unknown
+        .notes
+        .iter()
+        .any(|note| note.contains("count_chars") && note.contains("byte_len")));
+
+    let list = diagnostics
+        .iter()
+        .find(|diagnostic| diagnostic.code.as_deref() == Some("check.operator-type"))
+        .expect("expected list operator diagnostic");
+    assert!(list
+        .notes
+        .iter()
+        .any(|note| note.contains(".extend(other)")));
+}
+
+#[test]
 fn checker_reports_nominal_error_migration_and_payload_errors() {
     let output = check(
         r#"

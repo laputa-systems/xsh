@@ -128,6 +128,17 @@ impl ApiSpec {
             .map(|method| method.overloads.as_slice())
     }
 
+    pub fn method_names(
+        &self,
+        receiver: MethodReceiver,
+    ) -> impl Iterator<Item = &'static str> + '_ {
+        self.methods
+            .iter()
+            .find(|entry| entry.receiver == receiver)
+            .into_iter()
+            .flat_map(|entry| entry.methods.iter().map(|method| method.name))
+    }
+
     pub fn method_op(&self, receiver: MethodReceiver, name: &str) -> Option<RuntimeOp> {
         self.method_overloads(receiver, name)
             .and_then(|overloads| overloads.first())

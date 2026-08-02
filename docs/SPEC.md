@@ -328,7 +328,8 @@ Bytes literals are `b"..."` and support the same byte escapes except
 `\u{HEX}`. They produce `Bytes`.
 
 Path literals are `p"..."` and support the same escapes as string literals.
-They produce `Path` and do not interpolate.
+They produce `Path` and do not interpolate. An unescaped `${...}` in a p-string
+is rejected; use `fp"..."` when the path should interpolate.
 
 Formatted path literals are `fp"..."` or `fp"""..."""` and support `${expr}`
 interpolation with display conversion. They produce `Path`.

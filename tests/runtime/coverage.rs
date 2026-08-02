@@ -33,6 +33,24 @@ fn xsh_refuses_checker_errors_before_execution() {
 }
 
 #[test]
+fn runtime_unknown_method_names_receiver_and_candidates() {
+    let path = write_temp_script(
+        "runtime-unknown-method-context",
+        "let value: Any = \"abc\"\nprint $value.length()\n",
+    );
+    let output = Command::new(env!("CARGO_BIN_EXE_xsh"))
+        .arg(&path)
+        .output()
+        .expect("run xsh");
+
+    assert_exit(&output, 3);
+    assert_stderr_contains(&output, "unknown method `length` on Str");
+    assert_stderr_contains(&output, "count_chars");
+
+    std::fs::remove_file(path).expect("remove temp script");
+}
+
+#[test]
 fn xsht_check_uses_shared_pipeline() {
     let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
         .args(["check", "tests/fixtures/runtime/cli-simple.xsh"])

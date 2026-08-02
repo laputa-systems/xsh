@@ -851,16 +851,19 @@ pub(super) fn lowered_method_value(
     args: Vec<LoweredValue>,
     span: Span,
 ) -> Result<LoweredValue, RuntimeError> {
+    let receiver_type = receiver.type_name();
     if matches!(receiver, LoweredValue::Str(_) | LoweredValue::StrView(_)) {
-        return lowered_str_method_value(&receiver, name, args, span);
+        return lowered_str_method_value(&receiver, name, args, span)
+            .map_err(|error| improve_unsupported_method_error(error, receiver_type, name, span));
     }
     if matches!(
         receiver,
         LoweredValue::Bytes(_) | LoweredValue::BytesView(_)
     ) {
-        return lowered_bytes_method_value(&receiver, name, args, span);
+        return lowered_bytes_method_value(&receiver, name, args, span)
+            .map_err(|error| improve_unsupported_method_error(error, receiver_type, name, span));
     }
-    match receiver {
+    let result = match receiver {
         LoweredValue::Int(value) => lowered_int_method_value(value, name, args, span),
         LoweredValue::Float(value) => lowered_float_method_value(value, name, args, span),
         LoweredValue::Digest(digest) => lowered_digest_method_value(digest, name, args, span),
@@ -913,7 +916,70 @@ pub(super) fn lowered_method_value(
             lowered_result_method_value(LoweredValue::ResultErr(value), name, args, span)
         }
         _ => Err(RuntimeError::new("type-error", "unsupported lowered method").with_span(span)),
+    };
+    result.map_err(|error| improve_unsupported_method_error(error, receiver_type, name, span))
+}
+
+fn improve_unsupported_method_error(
+    error: RuntimeError,
+    receiver_type: &str,
+    name: &str,
+    span: Span,
+) -> RuntimeError {
+    if !error.message.contains("unsupported lowered") {
+        return error;
     }
+    let candidates = match receiver_type {
+        "Str" => crate::modules::MethodReceiver::Str,
+        "Bytes" => crate::modules::MethodReceiver::Bytes,
+        "Int" => crate::modules::MethodReceiver::Int,
+        "Float" => crate::modules::MethodReceiver::Float,
+        "Path" => crate::modules::MethodReceiver::Path,
+        "List" => crate::modules::MethodReceiver::List,
+        "Map" => crate::modules::MethodReceiver::Map,
+        "Record" => crate::modules::MethodReceiver::Record,
+        "Result" => crate::modules::MethodReceiver::Result,
+        _ => return error,
+    };
+    let mut names = crate::modules::api_spec()
+        .method_names(candidates)
+        .filter(|candidate| *candidate == name || method_name_is_nearby(name, candidate))
+        .map(|candidate| format!("`{candidate}()`"))
+        .collect::<Vec<_>>();
+    if receiver_type == "Str" && matches!(name, "len" | "length") {
+        names = ["byte_len", "count_bytes", "count_chars"]
+            .into_iter()
+            .map(|candidate| format!("`{candidate}()`"))
+            .collect();
+    }
+    let mut message = format!("unknown method `{name}` on {receiver_type}");
+    if !names.is_empty() {
+        message.push_str(&format!("; candidates: {}", names.join(", ")));
+    }
+    RuntimeError::new("unsupported-call", message).with_span(span)
+}
+
+fn method_name_is_nearby(unknown: &str, candidate: &str) -> bool {
+    let distance = edit_distance(unknown, candidate);
+    distance <= unknown.chars().count().max(candidate.chars().count()) / 3 + 1
+}
+
+fn edit_distance(left: &str, right: &str) -> usize {
+    let right = right.chars().collect::<Vec<_>>();
+    let mut previous = (0..=right.len()).collect::<Vec<_>>();
+    for (left_index, left_char) in left.chars().enumerate() {
+        let mut current = vec![left_index + 1];
+        for (right_index, right_char) in right.iter().enumerate() {
+            let cost = usize::from(left_char != *right_char);
+            current.push(
+                (current[right_index] + 1)
+                    .min(previous[right_index + 1] + 1)
+                    .min(previous[right_index] + cost),
+            );
+        }
+        previous = current;
+    }
+    previous[right.len()]
 }
 
 fn lowered_int_method_value(

@@ -1,7 +1,7 @@
 #![allow(clippy::single_call_fn)]
 
 use super::{
-    Checker, MethodReceiver, Span, Type, api_spec, call_arg_span_arena,
+    Checker, Diagnostic, Label, MethodReceiver, Span, Type, api_spec, call_arg_span_arena,
     collection_item_ty, common_module_overload_expected_arena, map_item_ty,
     merge_collection_item_ty, module_overload_matches_arena, module_sig_accepts_arg_name_at_arena,
     module_sig_accepts_arity, module_sig_accepts_names_arena,
@@ -275,7 +275,7 @@ impl Checker {
         unknown_code: &str,
     ) -> Type {
         let Some(overloads) = api_spec().method_overloads(receiver, name) else {
-            self.error(span, "unknown method", unknown_code);
+            self.report_unknown_method(receiver, receiver_ty, name, span, unknown_code);
             return Type::Unknown;
         };
         let (method, args_checked) =
@@ -324,6 +324,39 @@ impl Checker {
         }
         self.check_method_args_arena(arena, source, args, method, args_checked, span);
         method.concrete_return_ty(receiver_ty)
+    }
+
+    fn report_unknown_method(
+        &mut self,
+        receiver: MethodReceiver,
+        receiver_ty: &Type,
+        name: &str,
+        span: Span,
+        code: &str,
+    ) {
+        let mut diagnostic = Diagnostic::error(format!(
+            "unknown method `{name}` on {receiver_ty}"
+        ))
+        .with_code(code)
+        .with_label(Label::primary(span, format!("`{name}` is not defined for {receiver_ty}")));
+        let mut candidates = api_spec()
+            .method_names(receiver)
+            .filter(|candidate| method_name_is_nearby(name, candidate))
+            .collect::<Vec<_>>();
+        if receiver == MethodReceiver::Str && matches!(name, "len" | "length") {
+            candidates = vec!["byte_len", "count_bytes", "count_chars"];
+        }
+        if !candidates.is_empty() {
+            diagnostic = diagnostic.with_note(format!(
+                "available methods include: {}",
+                candidates
+                    .into_iter()
+                    .map(|candidate| format!("`{candidate}()`"))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ));
+        }
+        self.diagnostics.push(diagnostic);
     }
 
     fn check_list_method_call_arena(
@@ -599,6 +632,29 @@ impl Checker {
             }
         }
     }
+}
+
+fn method_name_is_nearby(unknown: &str, candidate: &str) -> bool {
+    let distance = edit_distance(unknown, candidate);
+    distance <= unknown.chars().count().max(candidate.chars().count()) / 3 + 1
+}
+
+fn edit_distance(left: &str, right: &str) -> usize {
+    let right = right.chars().collect::<Vec<_>>();
+    let mut previous = (0..=right.len()).collect::<Vec<_>>();
+    for (left_index, left_char) in left.chars().enumerate() {
+        let mut current = vec![left_index + 1];
+        for (right_index, right_char) in right.iter().enumerate() {
+            let cost = usize::from(left_char != *right_char);
+            current.push(
+                (current[right_index] + 1)
+                    .min(previous[right_index + 1] + 1)
+                    .min(previous[right_index] + cost),
+            );
+        }
+        previous = current;
+    }
+    previous[right.len()]
 }
 
 #[allow(dead_code)]
