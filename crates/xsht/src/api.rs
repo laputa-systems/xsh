@@ -620,12 +620,22 @@ fn language_items() -> Vec<ApiItem> {
     language_references()
         .into_iter()
         .map(|reference| {
+            let signatures = if reference.signature.is_empty() {
+                Vec::new()
+            } else {
+                vec![reference.signature.clone()]
+            };
+            let effects = if reference.effects.is_empty() {
+                vec!["none".to_string()]
+            } else {
+                reference.effects.clone()
+            };
             item_from_docs(
                 format!("language.{}", reference.id),
                 "language",
                 &reference.docs,
-                Vec::new(),
-                vec!["none".to_string()],
+                signatures,
+                effects,
             )
         })
         .collect()

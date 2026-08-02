@@ -88,6 +88,9 @@ pub(crate) fn source(id: &str) -> Option<String> {
         "language.core.display-strings" => {
             include_str!("../../../docs/snippets/api/core-display-strings.xsh")
         }
+        "language.core.print" => {
+            include_str!("../../../docs/snippets/api/core-print.xsh")
+        }
         _ => return None,
     };
     Some(source.trim_end().to_string())
