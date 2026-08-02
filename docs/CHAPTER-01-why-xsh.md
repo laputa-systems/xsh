@@ -1,5 +1,3 @@
-# Chapter 1: Why XSH
-
 XSH is a clean-slate systems scripting language for a modern Linux userspace.
 
 It is not a POSIX shell replacement in the compatibility sense, and it is not
@@ -85,8 +83,3 @@ long-lived application services, or interactive terminal interfaces. Keep those
 jobs in a service runtime, a dedicated TUI framework, or a specialized tool;
 use XSH to compose the host-facing work around them.
 
-## Using This Reference
-
-`docs/SPEC.md` is the language contract, `docs/SPEC-OS.md` owns process and
-signal behavior, `xsht api` provides exact API discovery, and
-`AGENTS.md` selects the smallest useful reading and test set for a change.
