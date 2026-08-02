@@ -296,8 +296,9 @@ shadowed or aliased by ordinary declarations. Record destructuring may bind
 fields with those names because standard record schemas commonly contain fields
 such as `path`.
 `args` is a special case: it is also the predeclared script argument value, so
-ordinary bindings named `args` are allowed for compatibility; qualified
-`cli.parse(...)` still resolves to the standard module.
+ordinary bindings named `args` are allowed in nested scopes; the root binding
+remains the script argument value. Qualified `cli.parse(...)` still resolves to
+the standard module.
 
 Command and proc identifiers additionally allow `-` after the first character:
 
@@ -1171,6 +1172,9 @@ value-producing result is intentional:
 let _ = fs.remove(path)?
 ```
 
+`_` is a discard binding, not a reusable variable. Repeated `let _ = ...`
+bindings are allowed and each initializer is still evaluated.
+
 `Result.context(kind: Str, message: Str = "", ...)` returns the original
 `Ok` unchanged. For `Err`, it appends diagnostic context to the error value so
 runtime diagnostics and traces can name the failing package, rule, stage, path,
@@ -1280,7 +1284,7 @@ argument boundaries and types remain explicit.
 stdout. `eprint` does the same on stderr. `print --flush` and `eprint --flush`
 write to the process's inherited stdout or stderr immediately instead of the
 captured script-output buffer; `--flush` is recognized only as the first
-argument. Both return `Unit`. They accept human-facing scalar output: `Str`,
+argument. Both return `Unit` and require no declared effect. They accept human-facing scalar output: `Str`,
 `Int`, `Bool`, and `Path`. `Path` interpolation and printing use display
 conversion and must not canonicalize, resolve, or otherwise change the path.
 
@@ -1376,6 +1380,8 @@ Process results:
 - `run.status` is the explicit status-preserving form. It evaluates to
   `Status`, updates `$?`, and does not propagate unsuccessful completion
   unless followed by trailing `?`.
+- In statement position, `run.status` is the best-effort form: it evaluates and
+  discards the status without requiring a discard binding.
 - `run.text` returns `Result[Str, ProcessError]`.
 - `run.bytes` returns `Result[Bytes, ProcessError]`.
 - `run.capture --text` returns
@@ -2815,8 +2821,10 @@ spans from the builder block.
 `new_session: Bool`, `ignore_hup: Bool`, and exactly one plain `run` entry. It
 captures a typed process plan without executing it. `process.command_argv`
 builds the same typed plan from data; its `argv` list is the full argv vector
-and must include `argv[0]`. XSH resolves `target` as the executable and passes
-the remaining argv items as process arguments. `process.run` executes a command
+and must include `argv[0]`, the child program name. `argv[0]` may be a custom
+name; XSH resolves `target` as the executable and passes the remaining argv
+items as process arguments. An empty argv list is a checker diagnostic when
+known statically and a runtime error otherwise. `process.run` executes a command
 plan, returns completed nonzero exits and signal terminations as `Ok(Status)`,
 and returns setup, timeout, or cancellation failures as `Err(ProcessError)`.
 `process.spawn` consumes the detach/session/HUP fields. Both `process.run` and
@@ -3047,6 +3055,11 @@ CLI commands:
 - `xsht grep PATTERN [FILE...]`.
 - `xsht refactor PATTERN REPLACEMENT [FILE...]`.
 - `xsht api [OPTIONS] QUERY...`.
+
+For `xsh`, `--` separates the interpreter's options and script path from the
+script's own arguments. Both `xsh SCRIPT -- ARGS...` and the shebang-compatible
+`xsh -- SCRIPT ARGS...` forms are accepted; the separator is optional when the
+script path is unambiguous.
 
 Exit codes:
 

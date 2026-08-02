@@ -2,8 +2,9 @@
 
 use super::expr::is_path_like_arena_expr;
 use super::{
-    ApiArgCheck, BTreeMap, CallableParamType, Checker, FxHashSet, MethodReceiver, ModuleExportType,
-    Name, QualifiedName, Span, Type, UnaryOp, api_spec, call_arg_expr_id_arena,
+    ApiArgCheck, BTreeMap, CallableParamType, Checker, Diagnostic, FxHashSet, Label,
+    MethodReceiver, ModuleExportType, Name, QualifiedName, Span, Type, UnaryOp, api_spec,
+    call_arg_expr_id_arena,
     call_arg_span_arena, standard_record_type,
 };
 use crate::syntax::arena::{
@@ -1084,7 +1085,19 @@ impl Checker {
         let expr = arena.arena.expr(expr_id);
 
         if let ArenaExprKind::List(items) = expr.kind {
-            for item in arena.arena.expr_ids(items) {
+            let mut items = arena.arena.expr_ids(items);
+            if items.next().is_none() {
+                self.diagnostics.push(
+                    Diagnostic::error(
+                        "process.command_argv argv must include argv[0], the child program name",
+                    )
+                    .with_code("check.process-argv-empty")
+                    .with_label(Label::primary(expr.span, "argv is empty"))
+                    .with_note("include the child program name as the first argv item"),
+                );
+                return;
+            }
+            for item in items {
                 let item_ty = self.check_expr_arena(arena, source, item, None);
                 if !process_command_argv_item_type_is_valid(&item_ty) {
                     self.error(

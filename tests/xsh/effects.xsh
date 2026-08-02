@@ -32,6 +32,16 @@ proc test_correct_annotation_passes(ctx: TestContext) [fs, process, error] {
   test.ok(result.ok, "expected clean check")?
 }
 
+proc test_print_requires_no_effect(ctx: TestContext) [fs, process, error] {
+  let src = test.temp_file(
+    ctx,
+    name: "t.xsh",
+    contents: b"proc good() [fs] { print \"ok\"; eprint \"warn\" }\n",
+  )?
+  let result = run_check(src)?
+  test.ok(result.ok, "print and eprint should require no effect")?
+}
+
 proc test_io_covers_net(ctx: TestContext) [fs, process, error] {
   let src = test.temp_file(
     ctx,

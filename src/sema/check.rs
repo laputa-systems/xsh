@@ -607,6 +607,13 @@ impl Checker {
 
     pub(crate) fn check_standard_module_shadow(&mut self, name: &str, span: Span) {
         if name == "args" {
+            if self.scopes.len() == 1 {
+                self.error(
+                    span,
+                    "name `args` shadows the built-in script-arguments binding",
+                    "check.standard-module-shadow",
+                );
+            }
             return;
         }
         if api_spec().is_standard_module(name) {
@@ -622,16 +629,6 @@ impl Checker {
                 .with_code("check.reveal-type")
                 .with_label(Label::primary(span, "expression has this type")),
         );
-    }
-
-    pub(crate) fn check_builtin_args_shadow(&mut self, name: &str, span: Span) {
-        if name == "args" {
-            self.error(
-                span,
-                "name `args` shadows the built-in script-arguments binding",
-                "check.standard-module-shadow",
-            );
-        }
     }
 
     fn current_scope(&self) -> &FxHashMap<Name, Binding> {

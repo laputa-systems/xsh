@@ -38,6 +38,17 @@ print ${{status.ok}} ${{env_status.ok}} ${{false_status.exited_with(1)}}
 }
 
 #[test]
+fn process_command_argv_reports_missing_argv0() {
+    let output = run_temp_script(
+        "process-command-argv-missing-argv0",
+        "let command = process.command_argv(\"echo\", [])\n",
+    );
+
+    assert_eq!(output.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("check.process-argv-empty"));
+}
+
+#[test]
 fn spawn_and_command_plan_cpumax_use_fake_cgroup_scope() {
     let root = temp_path("spawn-cpumax-cgroup");
     let _ = std::fs::remove_dir_all(&root);

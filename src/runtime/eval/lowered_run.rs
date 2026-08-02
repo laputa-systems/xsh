@@ -2101,7 +2101,11 @@ fn lowered_command_plan_value(
     let target = lowered_command_target_bytes(target, span)?;
     let argv_words = lowered_argv_list(Some(argv), "process.command_argv", span)?;
     if argv_words.is_empty() {
-        return Err(RuntimeError::new("argv-empty", "argv must contain argv[0]").with_span(span));
+        return Err(RuntimeError::new(
+            "argv-empty",
+            "argv must include argv[0], the child program name",
+        )
+        .with_span(span));
     }
     for word in &argv_words {
         if word.contains(&0) {

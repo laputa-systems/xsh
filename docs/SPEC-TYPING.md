@@ -182,7 +182,16 @@ the true branch of `if value != null`, and the false branch of `if value ==
 null`, a binding of type `T?` is narrowed to `T`. `!` reverses the refinement.
 For `and`, true-branch refinements from both operands apply. For `or`,
 false-branch refinements from both operands apply. These refinements are local
-to the checked branch body.
+to the checked branch body. Use this form when the value is needed only when
+present; use `??` when a fallback is appropriate:
+
+```xsh
+let maybe_name: Str? = "demo"
+if maybe_name != null {
+  print maybe_name
+}
+let name = maybe_name ?? "unknown"
+```
 
 ## Schema Check Boundaries
 

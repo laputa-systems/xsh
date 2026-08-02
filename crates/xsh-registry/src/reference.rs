@@ -436,10 +436,10 @@ fn core_doc(item: &str) -> ReferenceDoc {
         "print" => {
             return reference_doc_full(
                 "Prints values to standard output.",
-                "`print` writes its arguments separated by a single space and appends a newline to stdout; `eprint` does the same on stderr. `--flush` is recognized only as the first argument and writes to the inherited stream immediately instead of the captured script-output buffer. Both return Unit and require the io effect. Accepted values are human-facing scalars: Str, Int, Bool, and Path; Path uses display conversion without canonicalizing. Command-word position interpolates with `$name` or `${expr}`, while expression string literals such as `\"$name\"` never interpolate; use `f\"${expr}\"` for expression-string interpolation.",
+                "`print` writes its arguments separated by a single space and appends a newline to stdout; `eprint` does the same on stderr. `--flush` is recognized only as the first argument and writes to the inherited stream immediately instead of the captured script-output buffer. Both return Unit and require no declared effect. Accepted values are human-facing scalars: Str, Int, Bool, and Path; Path uses display conversion without canonicalizing. Command-word position interpolates with `$name` or `${expr}`, while expression string literals such as `\"$name\"` never interpolate; use `f\"${expr}\"` for expression-string interpolation.",
                 &["language", "print", "output", "builtin"],
                 "print [--flush] ARG...",
-                &["io"],
+                &[],
             )
         }
         _ => panic!("missing core-language documentation for {item}"),

@@ -128,6 +128,21 @@ let joined = left + right
 }
 
 #[test]
+fn checker_allows_nested_args_and_repeated_discard_bindings() {
+    let output = check(
+        r#"
+let _ = 1
+let _ = 2
+proc local() {
+  let args = "local"
+  print $args
+}
+"#,
+    );
+    assert_no_codes(&output, &["check.duplicate-name", "check.standard-module-shadow"]);
+}
+
+#[test]
 fn checker_reports_nominal_error_migration_and_payload_errors() {
     let output = check(
         r#"
@@ -886,6 +901,16 @@ let code = status.exit_code() ?
             "check.named-arg",
         ],
     );
+}
+
+#[test]
+fn checker_reports_empty_process_argv() {
+    let output = check(
+        r#"
+let command = process.command_argv("echo", [])
+"#,
+    );
+    assert!(has_code(&output, "check.process-argv-empty"));
 }
 
 #[test]

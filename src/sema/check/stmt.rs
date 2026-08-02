@@ -189,10 +189,12 @@ impl Checker {
     ) {
         match &arena.arena.binding_target(target).kind {
             ArenaBindingTargetKind::Name(name) => {
+                if name.as_str() == "_" {
+                    return;
+                }
                 if self.current_scope().contains_key(name) {
                     self.error(span, "duplicate name in scope", "check.duplicate-name");
                 }
-                self.check_builtin_args_shadow(&name.as_str(), span);
                 self.define(
                     *name,
                     if self.in_pure && mutable {

@@ -13,6 +13,8 @@ Usage:
 
 --startup boots the interpreter and exits immediately, running no program. It
 exposes the fixed startup cost for benchmarking (e.g. as a calibration baseline).
+Use `--` between SCRIPT and ARGS when the script path or first argument could be
+ambiguous; `xsh SCRIPT -- ARGS...` is also accepted.
 ";
 
 pub fn main() -> ExitCode {
