@@ -3,6 +3,15 @@ PLATFORM ?= linux/arm64
 
 GYM_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 BUILD_CONTEXT ?= $(GYM_DIR)
+PROJECT_DIR := $(abspath $(GYM_DIR)/..)
+
+# The Docker platform and local Rust target must describe the same Linux
+# architecture. Override XSH_TARGET explicitly when using another platform.
+XSH_TARGET ?= $(if $(filter linux/amd64,$(PLATFORM)),x86_64-unknown-linux-musl,aarch64-unknown-linux-musl)
+XSH_DIST_TARGET ?= $(if $(filter Darwin,$(shell uname -s)),dist-Linux-docker,dist-Linux)
+XSH_CARGO_TARGET_DIR ?= $(if $(filter dist-Linux-docker,$(XSH_DIST_TARGET)),$(PROJECT_DIR)/target/docker-$(XSH_TARGET)-release,$(PROJECT_DIR)/target)
+XSH_DIST_DIR ?= $(XSH_CARGO_TARGET_DIR)/$(XSH_TARGET)/dist
+XSH_STAGING_DIR ?= $(GYM_DIR)/.dist
 
 BASE_IMAGE ?= xsh-gym:latest
 TASK_IMAGE ?= xsh-gym-task-ecount:latest
@@ -10,9 +19,8 @@ SESSION_VOLUME ?= xsh-gym-task-ecount-session
 WORK_DIR ?= $(GYM_DIR)/.work/task-ecount
 OUTPUT_DIR ?= $(GYM_DIR)/.out/task-ecount
 
-# The prerelease pi binary is fetched from the release URL pinned in the
-# Dockerfile and baked into the base image. PI_BINARY remains an optional
-# runtime override mount for the ecount task image.
+# Pi is still fetched from the pinned image URL and baked into the base image.
+# XSH and XSHT are built locally by the xsh-dist prerequisite below.
 PI_BINARY ?=
 PI_COMMAND ?= pi
 PI_PROVIDER ?= openrouter
@@ -28,9 +36,27 @@ TASK_HELLO_SESSION_VOLUME ?= xsh-gym-task-hello-session
 TASK_HELLO_WORK_DIR ?= $(GYM_DIR)/.work/task-hello
 TASK_HELLO_OUTPUT_DIR ?= $(GYM_DIR)/.out/task-hello
 
-.PHONY: task-ecount task-hello base-image task-ecount-image
+TASK_TAGS_WORK_DIR ?= $(GYM_DIR)/.work/task-tags
+TASK_TAGS_OUTPUT_DIR ?= $(GYM_DIR)/.out/task-tags
+TASK_TAGS_SESSION_VOLUME ?= xsh-gym-task-tags-session
 
-base-image:
+OUTER_DIR ?=
+OUTER_ITERATIONS ?= 2
+OUTER_PI_COMMAND ?= pi
+OUTER_PI_PROVIDER ?= $(PI_PROVIDER)
+OUTER_PI_MODEL ?= $(PI_MODEL)
+OUTER_PI_THINKING ?= $(PI_THINKING)
+OUTER_PI_OFFLINE ?= 0
+
+.PHONY: task-ecount task-hello task-tags outer-loop base-image task-ecount-image xsh-dist
+
+xsh-dist:
+	$(MAKE) -C $(PROJECT_DIR) $(XSH_DIST_TARGET) TARGET=$(XSH_TARGET)
+	mkdir -p $(XSH_STAGING_DIR)
+	cp -fL $(XSH_DIST_DIR)/xsh $(XSH_STAGING_DIR)/xsh
+	cp -fL $(XSH_DIST_DIR)/xsht $(XSH_STAGING_DIR)/xsht
+
+base-image: xsh-dist
 	$(DOCKER) build --platform $(PLATFORM) -f $(GYM_DIR)/Dockerfile -t $(BASE_IMAGE) $(BUILD_CONTEXT)
 
 task-ecount-image: base-image
@@ -77,3 +103,43 @@ task-ecount: task-ecount-image
 		PI_AUTH_FILE="$(PI_AUTH_FILE)" \
 		PI_AGENT_DIR="$(PI_AGENT_DIR)" \
 		xsh "$(GYM_DIR)/run-task-ecount.xsh"
+
+task-tags: base-image
+	@DOCKER="$(DOCKER)" \
+		PLATFORM="$(PLATFORM)" \
+		GYM_DIR="$(GYM_DIR)" \
+		BASE_IMAGE="$(BASE_IMAGE)" \
+		SESSION_VOLUME="$(TASK_TAGS_SESSION_VOLUME)" \
+		WORK_DIR="$(TASK_TAGS_WORK_DIR)" \
+		OUTPUT_DIR="$(TASK_TAGS_OUTPUT_DIR)" \
+		PI_COMMAND="$(PI_COMMAND)" \
+		PI_PROVIDER="$(PI_PROVIDER)" \
+		PI_MODEL="$(PI_MODEL)" \
+		PI_THINKING="$(PI_THINKING)" \
+		PI_TELEMETRY="$(PI_TELEMETRY)" \
+		PI_OFFLINE="$(PI_OFFLINE)" \
+		PI_AUTH_FILE="$(PI_AUTH_FILE)" \
+		PI_AGENT_DIR="$(PI_AGENT_DIR)" \
+		xsh "$(GYM_DIR)/run-task-tags.xsh"
+
+outer-loop: base-image
+	@DOCKER="$(DOCKER)" \
+		PLATFORM="$(PLATFORM)" \
+		GYM_DIR="$(GYM_DIR)" \
+		BASE_IMAGE="$(BASE_IMAGE)" \
+		PI_COMMAND="$(PI_COMMAND)" \
+		PI_PROVIDER="$(PI_PROVIDER)" \
+		PI_MODEL="$(PI_MODEL)" \
+		PI_THINKING="$(PI_THINKING)" \
+		PI_TELEMETRY="$(PI_TELEMETRY)" \
+		PI_OFFLINE="$(PI_OFFLINE)" \
+		PI_AUTH_FILE="$(PI_AUTH_FILE)" \
+		PI_AGENT_DIR="$(PI_AGENT_DIR)" \
+		OUTER_DIR="$(OUTER_DIR)" \
+		OUTER_ITERATIONS="$(OUTER_ITERATIONS)" \
+		OUTER_PI_COMMAND="$(OUTER_PI_COMMAND)" \
+		OUTER_PI_PROVIDER="$(OUTER_PI_PROVIDER)" \
+		OUTER_PI_MODEL="$(OUTER_PI_MODEL)" \
+		OUTER_PI_THINKING="$(OUTER_PI_THINKING)" \
+		OUTER_PI_OFFLINE="$(OUTER_PI_OFFLINE)" \
+		xsh "$(GYM_DIR)/run-outer-loop.xsh"

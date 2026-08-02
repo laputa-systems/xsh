@@ -88,6 +88,15 @@ pipeline operator:
       |> where .kind == "file"
       |> map { |entry| entry.path }
 
+List values pipe into the same stages directly. The pipeline result is a
+lazy stream until a terminal such as collect is applied, and print rejects an
+unconsumed stream:
+
+    let lowered = argv
+      |> map { |a| a.lower() }
+      |> collect()
+    let joined = lowered.join(", ")
+
 Common stages include where, map, sort-by, and terminals such as collect and
 count. Query their language references when the stage’s block or ordering
 semantics matter:
@@ -150,6 +159,15 @@ Use module and language prefixes for an overview:
 Exact results show the purpose, contract, effects, signature, tags, and an
 example when one is useful. Treat the displayed signature and contract as the
 source of truth for a task.
+
+The pinned gym image may predate the `api` subcommand, in which case
+`xsht api` reports `unknown command 'api'`. Confirm what the installed build
+actually supports with `xsht --help` before relying on any command. When `api`
+is absent, discover method names by trial and error: write the smallest script
+that calls the candidate method and run `xsht check` until it accepts. For
+example, the verified list-length method in this image is `List.len()`
+(`argv.len() == 0`), while `length()`, `size()`, `count()`, and `is_empty()`
+are rejected as unknown methods.
 
 After creating or changing a script, use this loop:
 

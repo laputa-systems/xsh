@@ -1,5 +1,5 @@
 *
-!agents.md
-!handbook.md
-!task-ecount.md
-!review.md
+!runtime/
+!runtime/**
+!.dist/
+!.dist/**

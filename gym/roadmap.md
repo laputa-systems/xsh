@@ -3,10 +3,15 @@
 ## Initial environment
 
 The first gym is deliberately narrow. The agent receives the task prompt,
-task-neutral rules, and the user-facing handbook in a minimal Alpine container.
+task-neutral rules, and the user-facing handbook from `runtime/` in a minimal
+Alpine container.
 It can invoke xsh and xsht, use the BusyBox applets and task-specific utilities
 provided by the image, and work in `/work`. The first eval uses a transparent
 command-line oracle instead of a checked-in harness.
+
+The host-side outer controller is documented in the repository-level `GYM.md`.
+It invokes a full-access Pi judge between isolated trials so handbook changes
+are attributed by hash and replayed by the next inner run.
 
 ## Pure-XSH gym
 

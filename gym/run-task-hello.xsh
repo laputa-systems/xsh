@@ -28,6 +28,9 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     "--mount", f"type=bind,src=${cfg.work_dir.display()},dst=/work",
     "--mount", f"type=volume,src=${cfg.session_volume},dst=/session",
     "--mount", f"type=bind,src=${cfg.gym_dir.display()}/gym-agent.xsh,dst=/run/gym-agent.xsh,readonly",
+    "--mount", f"type=bind,src=${cfg.work_dir.display()}/agents.md,dst=/work/agents.md,readonly",
+    "--mount", f"type=bind,src=${cfg.work_dir.display()}/handbook.md,dst=/work/handbook.md,readonly",
+    "--mount", f"type=bind,src=${cfg.work_dir.display()}/${cfg.task_file},dst=/work/${cfg.task_file},readonly",
   ]
   let envs = agent_envs(cfg)
   let command = [

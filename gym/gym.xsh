@@ -7,6 +7,7 @@ export type Config = {
   docker: Str,
   platform: Str,
   gym_dir: Path,
+  runtime_dir: Path,
   work_dir: Path,
   output_dir: Path,
   session_volume: Str,
@@ -22,6 +23,7 @@ export type Config = {
   pi_agent_dir: Path,
   auth_file: Path,
   pi_binary: Str,
+  handbook_file: Path,
 }
 
 ## Reads the task configuration from the environment.
@@ -40,6 +42,7 @@ export proc parse_config(
     docker: docker,
     platform: platform,
     gym_dir: gym_dir,
+    runtime_dir: fp"${gym_dir}/runtime",
     work_dir: work_dir,
     output_dir: output_dir,
     session_volume: session_volume,
@@ -55,6 +58,7 @@ export proc parse_config(
     pi_agent_dir: env.path("PI_AGENT_DIR", p"/run/pi-agent")?,
     auth_file: env.path("PI_AUTH_FILE")?,
     pi_binary: env.get_or("PI_BINARY", "")?,
+    handbook_file: env.path("HANDBOOK_FILE", fp"${gym_dir}/runtime/handbook.md")?,
   }
 }
 
@@ -62,9 +66,10 @@ export proc parse_config(
 export proc prepare_workdir(cfg: Config, outputs: List[Str]) [fs, error] -> Result[Unit] {
   fs.mkdir(cfg.work_dir)?
   fs.mkdir(cfg.output_dir)?
-  for name in ["agents.md", "handbook.md", "review.md", cfg.task_file] {
-    fs.copy(fp"${cfg.gym_dir}/${name}", fp"${cfg.work_dir}/${name}", overwrite: true)?
+  for name in ["agents.md", "review.md", cfg.task_file] {
+    fs.copy(fp"${cfg.runtime_dir}/${name}", fp"${cfg.work_dir}/${name}", overwrite: true)?
   }
+  fs.copy(cfg.handbook_file, fp"${cfg.work_dir}/handbook.md", overwrite: true)?
   for name in outputs {
     fs.remove(fp"${cfg.work_dir}/${name}", missing_ok: true)?
     fs.remove(fp"${cfg.output_dir}/${name}", missing_ok: true)?

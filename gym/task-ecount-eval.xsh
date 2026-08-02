@@ -19,22 +19,41 @@ proc copy_results() [fs, error] -> Result[Unit] {
   }
 }
 
-proc main() [fs, process, env, error, io] {
+proc main() [fs, process, env, time, error, io] {
   defer copy_results()?
   var eval_status = 0
+  var candidate_wall_ns = 0
+  var candidate_user_ns = 0
+  var candidate_system_ns = 0
+  var oracle_wall_ns = 0
+  var oracle_user_ns = 0
+  var oracle_system_ns = 0
 
   if fs.exists(p"/work/ecount.xsh")? {
-    let candidate_status = run.status xsh /work/ecount.xsh /usr/share > /session/candidate.stdout
+    let candidate = time.measure(process.command_argv(
+      "xsh",
+      ["xsh", "/work/ecount.xsh", "/usr/share"],
+      stdout: p"/session/candidate.stdout",
+    ))?
+    candidate_wall_ns = candidate.wall_ns
+    candidate_user_ns = candidate.user_ns
+    candidate_system_ns = candidate.system_ns
+    let candidate_status = candidate.status
     if ! candidate_status.ok {
       eval_status = candidate_status.exit_code() ?? 1
     }
-    if eval_status == 0 {
-      # The oracle is the byte-exact sh pipeline; keep it as one command so
-      # its semantics and output do not drift from the original harness.
-      let oracle_status = run.status sh -c "fd --color=never -tf . /usr/share | awk -F. 'NF > 1 {print tolower(\$NF)}' | sort | uniq -c | sort -n" > /session/oracle.stdout
-      if ! oracle_status.ok {
-        eval_status = 1
-      }
+    # The oracle is the byte-exact sh pipeline; keep it as one command so its
+    # semantics and output do not drift from the original harness.
+    let oracle = time.measure(process.command_argv(
+      "sh",
+      ["sh", "-c", "fd --color=never -tf . /usr/share | awk -F. 'NF > 1 {print tolower(\$NF)}' | sort | uniq -c | sort -n"],
+      stdout: p"/session/oracle.stdout",
+    ))?
+    oracle_wall_ns = oracle.wall_ns
+    oracle_user_ns = oracle.user_ns
+    oracle_system_ns = oracle.system_ns
+    if ! oracle.status.ok {
+      eval_status = 1
     }
     if eval_status == 0 {
       let candidate = fs.read_text(p"/session/candidate.stdout")?
@@ -84,6 +103,14 @@ proc main() [fs, process, env, error, io] {
     session: "/session/task-ecount-session.jsonl",
     inputs: {agents_sha256: agents_sha, handbook_sha256: handbook_sha, task_sha256: task_sha},
     outputs: {candidate_sha256: candidate_sha, oracle_sha256: oracle_sha},
+    timings: {
+      candidate_wall_ns: candidate_wall_ns,
+      candidate_user_ns: candidate_user_ns,
+      candidate_system_ns: candidate_system_ns,
+      oracle_wall_ns: oracle_wall_ns,
+      oracle_user_ns: oracle_user_ns,
+      oracle_system_ns: oracle_system_ns,
+    },
   }, pretty: true)?
   abort(eval_status)
 }

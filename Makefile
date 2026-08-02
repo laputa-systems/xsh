@@ -1,4 +1,4 @@
-.PHONY: build lint docs test cov test-linux test-linux-ci test-macos-ci bench bench-fast bench-pgo bench-syscalls pgo-profile release-pgo install-darwin install-linux dist dist-native dist-ci
+.PHONY: build lint docs test cov test-linux test-linux-ci test-macos-ci bench bench-fast bench-pgo bench-syscalls pgo-profile release-pgo install-darwin install-linux dist dist-native dist-Linux-docker dist-ci
 
 DARWIN_CODESIGN_FLAGS ?=
 ifneq ($(DARWIN_CODESIGN_ENTITLEMENTS),)
@@ -106,6 +106,23 @@ endif
 ifeq ($(TARGET),aarch64-unknown-linux-musl)
 DIST_ENV = $(DIST_RUSTFLAGS_ENV) CFLAGS_aarch64_unknown_linux_musl="$(strip $(CFLAGS_aarch64_unknown_linux_musl) $(DIST_TARGET_CFLAGS))" AWS_LC_SYS_CFLAGS_aarch64_unknown_linux_musl="$(strip $(AWS_LC_SYS_CFLAGS_aarch64_unknown_linux_musl) $(DIST_TARGET_CFLAGS))" AWS_LC_SYS_NO_JITTER_ENTROPY=1 CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_RUSTFLAGS="$(strip $(DIST_FULL_RUSTFLAGS))"
 endif
+
+# Dockerfile.test already supplies the compiler, C library, target CFLAGS, and
+# aws-lc environment. Pass only the Rust flags needed by the dist build so the
+# Docker path can invoke Cargo directly without replacing that environment.
+DIST_DOCKER_ENV =
+ifeq ($(TARGET),x86_64-unknown-linux-musl)
+DIST_DOCKER_ENV = RUSTFLAGS="-L native=/usr/lib" CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS="$(strip $(DIST_FULL_RUSTFLAGS) -L native=/usr/lib)"
+endif
+ifeq ($(TARGET),aarch64-unknown-linux-musl)
+DIST_DOCKER_ENV = RUSTFLAGS="-L native=/usr/lib" CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_RUSTFLAGS="$(strip $(DIST_FULL_RUSTFLAGS) -L native=/usr/lib)"
+endif
+
+# Dockerfile.test provides rust-src for the toolchain, but its CI-like musl
+# setup follows the existing macOS distribution recipe and does not rebuild
+# the standard library here.
+DIST_DOCKER_BUILD_STD_FLAGS ?=
+
 ifeq ($(TARGET),aarch64-apple-darwin)
 DIST_ENV = MACOSX_DEPLOYMENT_TARGET="$(DARWIN_DEPLOYMENT_TARGET)" CFLAGS_aarch64_apple_darwin="$(strip $(DIST_TARGET_CFLAGS))" CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS="$(strip $(DIST_DARWIN_RUSTFLAGS))"
 endif
@@ -139,9 +156,35 @@ endif
 
 dist-Linux: dist-native
 
+# Cross-build a Linux musl distribution from macOS (or another non-Linux host)
+# using the CI-like toolchain in Dockerfile.test. Keep the target directory on
+# the host so incremental Cargo artifacts survive gym iterations.
+dist-Linux-docker:
+	docker build -t xsh-test -f Dockerfile.test .
+	mkdir -p target/docker-$(TARGET)-release
+	docker run --rm \
+		-v $(CURDIR):/work \
+		-v $(CURDIR)/target/docker-$(TARGET)-release:/work/target \
+		-v xsh-cargo-registry:/root/.cargo/registry \
+		-w /work \
+		-e TARGET=$(TARGET) \
+		-e CARGO_TARGET_DIR=/work/target \
+		xsh-test \
+		sh -c ' \
+			SR=$$(rustc --target $(TARGET) --print sysroot)/lib/rustlib/$(TARGET)/lib && \
+			ln -sf /usr/lib/libgcc_s.so.1 "$$SR/libgcc_s.so" && \
+			ln -sf /usr/lib/libgcc_s.so.1 "$$SR/libgcc_s.so.1" && \
+			ln -sf /usr/lib/libc.so "$$SR/libc.so" && \
+			$(DIST_DOCKER_ENV) cargo build -p xsh-multicall --locked --profile $(DIST_PROFILE) $(DIST_DOCKER_BUILD_STD_FLAGS) --target $(TARGET) --no-default-features --features "net tools" && \
+			mkdir -p target/$(TARGET)/dist && \
+			ln -sf xsh-multicall target/$(TARGET)/dist/xsh && \
+			ln -sf xsh-multicall target/$(TARGET)/dist/xsht \
+		'
+
 dist-native:
 	$(DIST_ENV) cargo build -p xsh-multicall --locked --profile $(DIST_PROFILE) $(DIST_BUILD_STD_FLAGS) --target $(TARGET) --no-default-features --features "net tools"
 	ln -sf $(DIST_BIN) target/$(TARGET)/dist/xsh
+	ln -sf $(DIST_BIN) target/$(TARGET)/dist/xsht
 
 dist-ci: dist
 	@echo "=== verifying static linkage ==="

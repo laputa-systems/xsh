@@ -6,4 +6,4 @@ FROM ${BASE_IMAGE}
 ARG FD_VERSION=10.2.0-r3
 RUN apk add --no-cache "fd=${FD_VERSION}"
 
-COPY task-ecount.md /work/
+COPY runtime/task-ecount.md /work/

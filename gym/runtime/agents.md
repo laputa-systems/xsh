@@ -7,8 +7,8 @@ directly verifiable solution.
 You are running as `root` in a minimal Alpine Linux container with `/work` as
 the working directory. The task workspace is mounted at `/work`; it contains
 this file, `handbook.md`, the selected task file, and the files you create.
-The image may also provide copies of the two handbook files before the
-workspace is mounted.
+The image may also provide copies of the reference files before the workspace
+is mounted.
 
 The fixed base environment contains BusyBox applets, `xsh`, `xsht`, `curl`, and
 the system CA certificates. The task-specific image may add a named utility
