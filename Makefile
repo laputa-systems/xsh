@@ -15,6 +15,8 @@ COV_CARGO_BIN ?= $(patsubst %/,%,$(dir $(COV_CARGO)))
 COV_NATIVE_LINKER ?= $(shell command -v cc 2>/dev/null || command -v clang 2>/dev/null || command -v gcc 2>/dev/null)
 DIST_PROFILE ?= dist
 DIST_PROFILE_DIR = $(if $(filter release,$(DIST_PROFILE)),release,$(DIST_PROFILE))
+XSH_TEST_IMAGE ?= xsh-test
+XSH_TEST_IMAGE_BUILD ?= 1
 CARGO_BUILD_WARNINGS = deny
 export CARGO_BUILD_WARNINGS
 DIST_BUILD_STD_FLAGS ?= -Z build-std=std
@@ -159,7 +161,7 @@ dist-Linux: dist-native
 # Cross-build a Linux musl distribution from macOS (or another non-Linux host)
 # using the CI-like toolchain in Dockerfile.test.
 dist-Linux-docker:
-	docker build -t xsh-test -f Dockerfile.test .
+	if [ "$(XSH_TEST_IMAGE_BUILD)" = "1" ]; then docker build -t $(XSH_TEST_IMAGE) -f Dockerfile.test .; else docker image inspect $(XSH_TEST_IMAGE) >/dev/null; fi
 	mkdir -p target/docker-$(TARGET)-release
 	docker run --rm \
 		-v $(CURDIR):/work \
@@ -168,7 +170,7 @@ dist-Linux-docker:
 		-w /work \
 		-e TARGET=$(TARGET) \
 		-e CARGO_TARGET_DIR=/work/target \
-		xsh-test \
+		$(XSH_TEST_IMAGE) \
 		sh -c ' \
 			SR=$$(rustc --target $(TARGET) --print sysroot)/lib/rustlib/$(TARGET)/lib && \
 			ln -sf /usr/lib/libgcc_s.so.1 "$$SR/libgcc_s.so" && \
