@@ -221,6 +221,7 @@ pub const CORE_LANGUAGE_ITEMS: &[&str] = &[
     "path-literals",
     "glob-literals",
     "display-strings",
+    "print",
 ];
 use crate::api_docs::ApiDocs;
 
@@ -228,6 +229,11 @@ use crate::api_docs::ApiDocs;
 pub struct LanguageReference {
     pub id: String,
     pub docs: ApiDocs,
+    /// Command or rule signature shown in the reference; empty when the
+    /// language rule has no callable signature of its own.
+    pub signature: String,
+    /// Host effects the rule requires; empty when the rule is not effectful.
+    pub effects: Vec<String>,
 }
 
 pub fn language_references() -> Vec<LanguageReference> {
@@ -239,19 +245,22 @@ pub fn language_references() -> Vec<LanguageReference> {
             row.form.replace(' ', "-")
         };
         let doc = run_doc(row);
-        references.push(language_reference(id, doc.summary, doc.contract, doc.tags));
+        references.push(language_reference(id, doc));
     }
     for row in EFFECT_REFERENCES {
         let doc = effect_doc(row.name);
-        references.push(language_reference(format!("effect.{}", row.name), doc.summary, doc.contract, doc.tags));
+        references.push(language_reference(format!("effect.{}", row.name), doc));
     }
     for stage in STREAM_STAGES {
         let doc = stream_doc(stage);
-        references.push(language_reference(format!("stream.{}", stage.replace('.', "-")), doc.summary, doc.contract, doc.tags));
+        references.push(language_reference(
+            format!("stream.{}", stage.replace('.', "-")),
+            doc,
+        ));
     }
     for event in TRACE_EVENTS {
         let doc = trace_doc(event);
-        references.push(language_reference(format!("trace.{event}"), doc.summary, doc.contract, doc.tags));
+        references.push(language_reference(format!("trace.{event}"), doc));
     }
     for form in CLI_FORMS {
         let id = form
@@ -262,11 +271,11 @@ pub fn language_references() -> Vec<LanguageReference> {
             .replace(['[', ']', '.', '/'], "-")
             .replace("--", "-");
         let doc = cli_doc(form);
-        references.push(language_reference(format!("cli.{id}"), doc.summary, doc.contract, doc.tags));
+        references.push(language_reference(format!("cli.{id}"), doc));
     }
     for item in CORE_LANGUAGE_ITEMS {
         let doc = core_doc(item);
-        references.push(language_reference(format!("core.{item}"), doc.summary, doc.contract, doc.tags));
+        references.push(language_reference(format!("core.{item}"), doc));
     }
     references
 }
@@ -275,13 +284,27 @@ struct ReferenceDoc {
     summary: String,
     contract: String,
     tags: Vec<String>,
+    signature: String,
+    effects: Vec<String>,
 }
 
 fn reference_doc(summary: &str, contract: &str, tags: &[&str]) -> ReferenceDoc {
+    reference_doc_full(summary, contract, tags, "", &[])
+}
+
+fn reference_doc_full(
+    summary: &str,
+    contract: &str,
+    tags: &[&str],
+    signature: &str,
+    effects: &[&str],
+) -> ReferenceDoc {
     ReferenceDoc {
         summary: summary.to_string(),
         contract: contract.to_string(),
         tags: tags.iter().map(|tag| (*tag).to_string()).collect(),
+        signature: signature.to_string(),
+        effects: effects.iter().map(|effect| (*effect).to_string()).collect(),
     }
 }
 
@@ -410,24 +433,30 @@ fn core_doc(item: &str) -> ReferenceDoc {
         "path-literals" => ("Defines typed path literals.", "A path literal is a Path value and crosses into text or host bytes only through an explicit conversion."),
         "glob-literals" => ("Defines filesystem glob literals.", "Glob expansion is an explicit filesystem operation with deterministic path values rather than shell word splitting."),
         "display-strings" => ("Defines display-string interpolation.", "Display strings are presentation text: they interpolate with `${expr}` and do not become command argv or filesystem paths implicitly. Ordinary expression string literals never interpolate, so `$name` inside `\"...\"` is literal text; `lint.dollar-in-expression-string` warns when it names an in-scope binding, and raw strings keep `$` literal."),
+        "print" => {
+            return reference_doc_full(
+                "Prints values to standard output.",
+                "`print` writes its arguments separated by a single space and appends a newline to stdout; `eprint` does the same on stderr. `--flush` is recognized only as the first argument and writes to the inherited stream immediately instead of the captured script-output buffer. Both return Unit and require the io effect. Accepted values are human-facing scalars: Str, Int, Bool, and Path; Path uses display conversion without canonicalizing. Command-word position interpolates with `$name` or `${expr}`, while expression string literals such as `\"$name\"` never interpolate; use `f\"${expr}\"` for expression-string interpolation.",
+                &["language", "print", "output", "builtin"],
+                "print [--flush] ARG...",
+                &["io"],
+            )
+        }
         _ => panic!("missing core-language documentation for {item}"),
     };
     reference_doc(summary, contract, &["language", item])
 }
 
-fn language_reference(
-    id: String,
-    summary: String,
-    contract: String,
-    tags: Vec<String>,
-) -> LanguageReference {
+fn language_reference(id: String, doc: ReferenceDoc) -> LanguageReference {
     LanguageReference {
         id: id.clone(),
         docs: ApiDocs {
-            summary,
-            contract,
+            summary: doc.summary,
+            contract: doc.contract,
             example: crate::examples::source(&format!("language.{id}")),
-            tags,
+            tags: doc.tags,
         },
+        signature: doc.signature,
+        effects: doc.effects,
     }
 }

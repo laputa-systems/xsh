@@ -134,6 +134,59 @@ fn api_language_group_includes_the_language_contract() {
 }
 
 #[test]
+fn api_print_builtin_is_indexed_with_signature_effects_and_example() {
+    let output = xsht(&["api", "language:core.print"]);
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("utf8 stdout");
+    assert!(stdout.contains("status: exact"), "{stdout}");
+    assert!(stdout.contains("api: language.core.print"), "{stdout}");
+    assert!(stdout.contains("effects: io"), "{stdout}");
+    assert!(stdout.contains("signature: print [--flush] ARG..."), "{stdout}");
+    assert!(
+        stdout.contains("separated by a single space"),
+        "{stdout}"
+    );
+    assert!(
+        stdout.contains("expression string literals"),
+        "{stdout}"
+    );
+    assert!(stdout.contains("example:"), "{stdout}");
+    assert!(stdout.contains("print \"hello\" $name"), "{stdout}");
+    assert_eq!(String::from_utf8(output.stderr).unwrap(), "");
+}
+
+#[test]
+fn api_print_builtin_is_discoverable_by_search() {
+    let output = xsht(&["api", "search:print"]);
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("utf8 stdout");
+    assert!(stdout.contains("status: matches"), "{stdout}");
+    assert!(stdout.contains("api: language.core.print"), "{stdout}");
+    assert!(stdout.contains("Prints values to standard output."), "{stdout}");
+    assert_eq!(String::from_utf8(output.stderr).unwrap(), "");
+}
+
+#[test]
+fn api_print_builtin_is_found_by_output_and_builtin_terms() {
+    let output = xsht(&["api", "search:builtin"]);
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("utf8 stdout");
+    assert!(stdout.contains("status: exact"), "{stdout}");
+    assert!(stdout.contains("api: language.core.print"), "{stdout}");
+    assert_eq!(String::from_utf8(output.stderr).unwrap(), "");
+
+    let output = xsht(&["api", "search:output"]);
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("utf8 stdout");
+    assert!(stdout.contains("status: matches"), "{stdout}");
+    assert!(stdout.contains("api: language.core.print"), "{stdout}");
+    assert_eq!(String::from_utf8(output.stderr).unwrap(), "");
+}
+
+#[test]
 fn api_summary_reports_the_complete_queryable_surface() {
     let output = xsht(&["api", "summary"]);
 
