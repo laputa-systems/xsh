@@ -15,6 +15,24 @@ fn reassigning_let_is_check_error() {
 }
 
 #[test]
+fn xsh_refuses_checker_errors_before_execution() {
+    let path = write_temp_script(
+        "checker-gate-before-execution",
+        "print \"before\"\nlet value = \"abc\"\nprint $value.length()\n",
+    );
+    let output = Command::new(env!("CARGO_BIN_EXE_xsh"))
+        .arg(&path)
+        .output()
+        .expect("run xsh");
+
+    assert_exit(&output, 2);
+    assert!(output.stdout.is_empty(), "checker errors must prevent execution");
+    assert_stderr_contains(&output, "check.unknown-method");
+
+    std::fs::remove_file(path).expect("remove temp script");
+}
+
+#[test]
 fn xsht_check_uses_shared_pipeline() {
     let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
         .args(["check", "tests/fixtures/runtime/cli-simple.xsh"])

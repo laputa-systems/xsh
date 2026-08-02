@@ -1,4 +1,4 @@
-use crate::diagnostic::DiagnosticRenderer;
+use crate::diagnostic::{DiagnosticRenderer, Severity};
 use crate::loader::{
     EntrySource, entry_source_from_bytes, parse_load_check_entry_source_with_token_table,
     parse_load_entry_source_arena_only,
@@ -264,6 +264,23 @@ fn prepare_entry_source(
         diagnostics: _,
     } = parsed;
     drop(cst);
+
+    let entry_text = sources
+        .get(source_id)
+        .map(|source| source.text())
+        .unwrap_or("");
+    let check = Checker::check_arena_with_options(&arena, entry_text, CheckOptions::default());
+    if check
+        .diagnostics
+        .iter()
+        .any(|diagnostic| diagnostic.severity == Severity::Error)
+    {
+        return Err(RunAttempt::Output(ScriptOutput {
+            status: 2,
+            stdout: Vec::new(),
+            stderr: text_bytes(DiagnosticRenderer::new().render(&check.diagnostics, &sources)),
+        }));
+    }
 
     let mut evaluator = Evaluator::new_with_sources_and_command(
         options.args.clone(),
