@@ -1658,3 +1658,102 @@ proc main(source_path: Path, names: List[Str]) [fs, error] {
         "effectful contains calls should not be autofixed"
     );
 }
+
+#[test]
+fn linter_warns_for_dollar_lookalike_in_expression_string() {
+    let source = "\
+let body = \"hello\"
+let line = \"tags: $body\"
+print $line
+";
+    let parsed = parse_lint_source(source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let diagnostics = lint_and_assert_fmt_stable(&parsed.arena, source, LintOptions::default());
+    let dollar: Vec<_> = diagnostics
+        .iter()
+        .filter(|d| d.code.as_deref() == Some("lint.dollar-in-expression-string"))
+        .collect();
+    assert_eq!(dollar.len(), 1);
+    assert!(
+        dollar[0].message.contains("`$body` is literal text"),
+        "unexpected message: {}",
+        dollar[0].message
+    );
+    assert!(
+        dollar[0].labels[0]
+            .message
+            .as_deref()
+            .is_some_and(|message| message.contains("interpolate `body`")),
+        "unexpected label: {:?}",
+        dollar[0].labels[0].message
+    );
+}
+
+#[test]
+fn linter_skips_interpolating_string_and_literal_dollar_contexts() {
+    let source = "\
+let body = \"hello\"
+let escaped = \"literal \\$body\"
+let raw = r\"$body\"
+let fmt = f\"tags: ${body}\"
+print \"tags: $body\" $escaped $raw $fmt
+";
+    let parsed = parse_lint_source(source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let diagnostics = lint_and_assert_fmt_stable(&parsed.arena, source, LintOptions::default());
+    assert!(
+        !diagnostics
+            .iter()
+            .any(|d| d.code.as_deref() == Some("lint.dollar-in-expression-string")),
+        "command-word interpolation, escaped dollars, raw strings, and f-strings must not warn: {diagnostics:?}"
+    );
+}
+
+#[test]
+fn linter_skips_unbound_dollar_lookalikes_in_expression_string() {
+    let source = "\
+let note = \"home: $HOME cost: $5 template: $unbound and $field.field\"
+print $note
+";
+    let parsed = parse_lint_source(source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let diagnostics = lint_and_assert_fmt_stable(&parsed.arena, source, LintOptions::default());
+    assert!(
+        !diagnostics
+            .iter()
+            .any(|d| d.code.as_deref() == Some("lint.dollar-in-expression-string")),
+        "dollar lookalikes that do not name a binding should not warn: {diagnostics:?}"
+    );
+}
+
+#[test]
+fn linter_warns_for_dollar_lookalike_in_triple_quoted_and_parenthesized_expressions() {
+    let source = "\
+let body = \"hello\"
+let block = \"\"\"line one
+tags: $body
+line three\"\"\"
+print (\"tags: $body\") $block
+";
+    let parsed = parse_lint_source(source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let diagnostics = lint_and_assert_fmt_stable(&parsed.arena, source, LintOptions::default());
+    let dollar: Vec<_> = diagnostics
+        .iter()
+        .filter(|d| d.code.as_deref() == Some("lint.dollar-in-expression-string"))
+        .collect();
+    assert_eq!(dollar.len(), 2);
+    assert!(dollar.iter().all(|d| d.message.contains("`$body` is literal text")));
+}

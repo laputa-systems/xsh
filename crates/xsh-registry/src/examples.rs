@@ -85,6 +85,9 @@ pub(crate) fn source(id: &str) -> Option<String> {
         "language.core.path-literals" => {
             include_str!("../../../docs/snippets/api/core-path-literals.xsh")
         }
+        "language.core.display-strings" => {
+            include_str!("../../../docs/snippets/api/core-display-strings.xsh")
+        }
         _ => return None,
     };
     Some(source.trim_end().to_string())
