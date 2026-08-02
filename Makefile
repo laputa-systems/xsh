@@ -157,8 +157,7 @@ endif
 dist-Linux: dist-native
 
 # Cross-build a Linux musl distribution from macOS (or another non-Linux host)
-# using the CI-like toolchain in Dockerfile.test. Keep the target directory on
-# the host so incremental Cargo artifacts survive gym iterations.
+# using the CI-like toolchain in Dockerfile.test.
 dist-Linux-docker:
 	docker build -t xsh-test -f Dockerfile.test .
 	mkdir -p target/docker-$(TARGET)-release
