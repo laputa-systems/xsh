@@ -944,7 +944,12 @@ export proc build(dest: Path) [fs, process, error] {
   )
 
   fs.write(fp"/tmp/bareword-run-test", patched_ninja)?
+  run echo -a json ?
+  run echo -ab json ?
+  run echo -- json ?
+  run echo --f json ?
   run echo "-C" "build" samu ?
+  run echo --- json ?
   run echo --format json ?
   run echo apples ?
 }
@@ -979,6 +984,11 @@ build_fn.call(p"/tmp/bareword-dest")?
         stdout.contains("-C build samu"),
         "missing '-C build samu' in: {stdout}"
     );
+    assert!(stdout.contains("-a json"), "missing '-a json' in: {stdout}");
+    assert!(stdout.contains("-ab json"), "missing '-ab json' in: {stdout}");
+    assert!(stdout.contains("-- json"), "missing '-- json' in: {stdout}");
+    assert!(stdout.contains("--f json"), "missing '--f json' in: {stdout}");
+    assert!(stdout.contains("--- json"), "missing '--- json' in: {stdout}");
     assert!(
         stdout.contains("--format json"),
         "missing '--format json' in: {stdout}"
