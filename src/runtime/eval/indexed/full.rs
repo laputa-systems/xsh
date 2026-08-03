@@ -250,6 +250,7 @@ pub(in crate::runtime::eval) enum FullStageTag {
     TextLines,
     JsonLines,
     Where,
+    WhereBlock,
     Map,
     MapBlock,
     FlatMap,
@@ -274,7 +275,9 @@ pub(in crate::runtime::eval) enum FullStageTag {
     GroupBy,
     CountBy,
     Any,
+    AnyBlock,
     All,
+    AllBlock,
     UniqueBy,
     Count,
     Sum,
@@ -6022,6 +6025,11 @@ impl_stage_codec! {
         slot: usize,
         predicate: BuildExprId,
     } => LoweredPipelineStage::Where { slot, predicate },
+    LoweredPipelineStage::WhereBlock { slot, body, value } => WhereBlock {
+        slot: usize,
+        body: Vec<BuildStmtId>,
+        value: BuildExprId,
+    } => LoweredPipelineStage::WhereBlock { slot, body, value },
     LoweredPipelineStage::Map { slot, value } => Map {
         slot: usize,
         value: BuildExprId,
@@ -6194,10 +6202,20 @@ impl_stage_codec! {
         slot: usize,
         predicate: BuildExprId,
     } => LoweredPipelineStage::Any { slot, predicate },
+    LoweredPipelineStage::AnyBlock { slot, body, value } => AnyBlock {
+        slot: usize,
+        body: Vec<BuildStmtId>,
+        value: BuildExprId,
+    } => LoweredPipelineStage::AnyBlock { slot, body, value },
     LoweredPipelineStage::All { slot, predicate } => All {
         slot: usize,
         predicate: BuildExprId,
     } => LoweredPipelineStage::All { slot, predicate },
+    LoweredPipelineStage::AllBlock { slot, body, value } => AllBlock {
+        slot: usize,
+        body: Vec<BuildStmtId>,
+        value: BuildExprId,
+    } => LoweredPipelineStage::AllBlock { slot, body, value },
     LoweredPipelineStage::UniqueBy { slot, key } => UniqueBy {
         slot: usize,
         key: BuildExprId,

@@ -338,8 +338,8 @@ fn effect_doc(name: &str) -> ReferenceDoc {
 
 fn stream_doc(stage: &str) -> ReferenceDoc {
     let (summary, contract, tags): (&'static str, &'static str, &'static [&'static str]) = match stage {
-        "where" => ("Filters stream items with a predicate block.", "Items remain in source order and only values whose predicate succeeds continue.", &["stream", "filter"]),
-        "map" => ("Transforms each stream item with a block.", "Mapping preserves source order unless a later stage explicitly changes ordering.", &["stream", "transform"]),
+        "where" => ("Filters stream items with a predicate block.", "Items remain in source order and only values whose predicate succeeds continue. The predicate block may contain multiple statements, including local `let` bindings.", &["stream", "filter"]),
+        "map" => ("Transforms each stream item with a block.", "Mapping preserves source order unless a later stage explicitly changes ordering. The transform block may contain multiple statements, including local `let` bindings.", &["stream", "transform"]),
         "par-map" => ("Transforms stream items with bounded parallel workers.", "The worker bound is explicit, output order is deterministic for the ordered form, and cancellation still runs stream cleanup.", &["stream", "parallel", "bounded", "ordered"]),
         "each" => ("Runs a side-effecting block for each stream item.", "The original item remains available to downstream stages and block failures stop the stream explicitly.", &["stream", "effect", "transform"]),
         "batch" => ("Groups stream items into bounded lists.", "The final short batch is retained and the configured batch size must be positive.", &["stream", "batch", "bounded"]),
@@ -359,7 +359,7 @@ fn stream_doc(stage: &str) -> ReferenceDoc {
         "group-by" => ("Groups stream items by a projected key.", "The terminal materializes groups and preserves each group's source order.", &["stream", "terminal", "grouping"]),
         "fold" | "reduce" => ("Reduces stream items with an explicit accumulator block.", "Accumulator updates follow source order for the serial form; parallel variants require an associative reduction contract.", &["stream", "reduction", "accumulator"]),
         "flat-map" => ("Replaces each item with and flattens a child stream.", "Child streams are consumed under the parent stream's cleanup scope and their order is preserved.", &["stream", "transform", "flattening"]),
-        "any" | "all" => ("Short-circuits a predicate over stream items.", "The terminal stops as soon as the truth value is determined and runs source cleanup on early stop.", &["stream", "terminal", "short-circuit"]),
+        "any" | "all" => ("Short-circuits a predicate over stream items.", "The terminal stops as soon as the truth value is determined and runs source cleanup on early stop. The predicate block may contain multiple statements, including local `let` bindings.", &["stream", "terminal", "short-circuit"]),
         "shuffle" => ("Randomizes the order of all stream items.", "The input is materialized before shuffling and the result is intentionally nondeterministic.", &["stream", "terminal", "random"]),
         "table.print" => ("Renders stream records as a terminal table.", "Rendering is a terminal presentation boundary and uses terminal width policy rather than raw byte length.", &["stream", "terminal", "tui", "display"]),
         "text.lines" => ("Adapts text into a lazy line stream.", "Line decoding is UTF-8 based and consumption remains tied to the source stream lifecycle.", &["stream", "text", "utf8", "adapter"]),

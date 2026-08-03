@@ -1721,6 +1721,11 @@ enum LoweredPipelineStage {
         slot: usize,
         predicate: BuildExprId,
     },
+    WhereBlock {
+        slot: usize,
+        body: Vec<BuildStmtId>,
+        value: BuildExprId,
+    },
     Map {
         slot: usize,
         value: BuildExprId,
@@ -1825,9 +1830,19 @@ enum LoweredPipelineStage {
         slot: usize,
         predicate: BuildExprId,
     },
+    AnyBlock {
+        slot: usize,
+        body: Vec<BuildStmtId>,
+        value: BuildExprId,
+    },
     All {
         slot: usize,
         predicate: BuildExprId,
+    },
+    AllBlock {
+        slot: usize,
+        body: Vec<BuildStmtId>,
+        value: BuildExprId,
     },
     UniqueBy {
         slot: usize,

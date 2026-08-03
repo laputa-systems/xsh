@@ -125,6 +125,55 @@ beta
   [{name: "small", size: 1}, {name: "large", size: 4}] |> table.print(columns: ["name", "size"])
 }
 
+proc test_predicate_stage_blocks_bind_local_lets() [error] {
+  # A multi-statement predicate block with a local let binding must compile
+  # and behave identically to the single-expression form for where/any/all.
+  let nums = [1, 2, 3, 4, 5, 6]
+
+  let filtered_block = nums
+    |> where { |n|
+      let rem = n % 2
+      rem == 0
+    }
+  let filtered_expr = nums
+    |> where { |n|
+      n % 2 == 0
+    }
+  test.eq(filtered_block, filtered_expr)?
+  test.eq(filtered_block, [2, 4, 6])?
+
+  let any_block = nums
+    |> any { |n|
+      let twice = n * 2
+      twice > 8
+    }
+  let any_expr = nums
+    |> any { |n|
+      n * 2 > 8
+    }
+  test.eq(any_block, any_expr)?
+  test.ok(any_block)?
+
+  let all_block = nums
+    |> all { |n|
+      let rem = n % 2
+      rem == 0
+    }
+  let all_expr = nums
+    |> all { |n|
+      n % 2 == 0
+    }
+  test.eq(all_block, all_expr)?
+  test.ok(! all_block)?
+  test.ok(
+    [2, 4, 6]
+      |> all { |n|
+        let rem = n % 2
+        rem == 0
+      },
+  )?
+}
+
 proc test_implicit_standard_read_helpers_and_pipe_shorthand(ctx: TestContext) [fs, error] {
   let file = test.temp_file(ctx, name: "pipe-shorthand-input", contents: b"ok\nwarn one\nwarn two\n")?
   let file_text = fs.read_text(file)?

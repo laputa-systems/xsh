@@ -10279,9 +10279,14 @@ impl CompactLowerConstructProbe<'_, '_> {
                 {
                     return Some(LoweredPipelineStage::Where { slot, predicate });
                 }
-                let (slot, predicate) =
-                    self.lower_pipeline_stage_expr(stage, slots, current_function, item_ty)?;
-                Some(LoweredPipelineStage::Where { slot, predicate })
+                if let Some((slot, predicate)) =
+                    self.lower_pipeline_stage_expr(stage, slots, current_function, item_ty)
+                {
+                    return Some(LoweredPipelineStage::Where { slot, predicate });
+                }
+                let (slot, body, value) =
+                    self.lower_pipeline_stage_block(stage, slots, current_function, item_ty)?;
+                Some(LoweredPipelineStage::WhereBlock { slot, body, value })
             }
             StreamStageKind::Map => {
                 if !stage.options.is_empty() {
@@ -10340,9 +10345,14 @@ impl CompactLowerConstructProbe<'_, '_> {
                 {
                     return Some(LoweredPipelineStage::Any { slot, predicate });
                 }
-                let (slot, predicate) =
-                    self.lower_pipeline_stage_expr(stage, slots, current_function, item_ty)?;
-                Some(LoweredPipelineStage::Any { slot, predicate })
+                if let Some((slot, predicate)) =
+                    self.lower_pipeline_stage_expr(stage, slots, current_function, item_ty)
+                {
+                    return Some(LoweredPipelineStage::Any { slot, predicate });
+                }
+                let (slot, body, value) =
+                    self.lower_pipeline_stage_block(stage, slots, current_function, item_ty)?;
+                Some(LoweredPipelineStage::AnyBlock { slot, body, value })
             }
             StreamStageKind::All => {
                 if !stage.options.is_empty() {
@@ -10353,9 +10363,14 @@ impl CompactLowerConstructProbe<'_, '_> {
                 {
                     return Some(LoweredPipelineStage::All { slot, predicate });
                 }
-                let (slot, predicate) =
-                    self.lower_pipeline_stage_expr(stage, slots, current_function, item_ty)?;
-                Some(LoweredPipelineStage::All { slot, predicate })
+                if let Some((slot, predicate)) =
+                    self.lower_pipeline_stage_expr(stage, slots, current_function, item_ty)
+                {
+                    return Some(LoweredPipelineStage::All { slot, predicate });
+                }
+                let (slot, body, value) =
+                    self.lower_pipeline_stage_block(stage, slots, current_function, item_ty)?;
+                Some(LoweredPipelineStage::AllBlock { slot, body, value })
             }
             StreamStageKind::Take | StreamStageKind::Drop => {
                 if !stage.options.is_empty() {

@@ -1801,7 +1801,7 @@ impl Evaluator {
         match tag {
             FullStageTag::TextLines => "text.lines",
             FullStageTag::JsonLines => "json.lines",
-            FullStageTag::Where => "where",
+            FullStageTag::Where | FullStageTag::WhereBlock => "where",
             FullStageTag::Map | FullStageTag::MapBlock => "map",
             FullStageTag::FlatMap | FullStageTag::FlatMapBlock => "flat-map",
             FullStageTag::BytesChunks => "bytes.chunks",
@@ -1822,8 +1822,8 @@ impl Evaluator {
             FullStageTag::SortBy => "sort-by",
             FullStageTag::GroupBy => "group-by",
             FullStageTag::CountBy | FullStageTag::Count => "count",
-            FullStageTag::Any => "any",
-            FullStageTag::All => "all",
+            FullStageTag::Any | FullStageTag::AnyBlock => "any",
+            FullStageTag::All | FullStageTag::AllBlock => "all",
             FullStageTag::UniqueBy => "unique-by",
             FullStageTag::Sum => "sum",
             FullStageTag::Collect => "collect",
@@ -3043,6 +3043,59 @@ impl Evaluator {
                             }
                             LoweredValue::List(filtered)
                         }
+                        FullStageTag::WhereBlock => {
+                            let slot =
+                                indexed_decode::<usize>(&mut stage_payload, execution, span)?;
+                            let body = indexed_raw(&mut stage_payload, span)?;
+                            let value = indexed_raw(&mut stage_payload, span)?;
+                            indexed_finish(stage_payload, span)?;
+                            let items = self.lowered_pipeline_input_items(current, span)?;
+                            let block_header = Self::indexed_block_header(slots.len());
+                            let mut filtered = Vec::new();
+                            for item in items {
+                                slots[slot] = item;
+                                match self.eval_indexed_statement_block(
+                                    execution,
+                                    body,
+                                    &block_header,
+                                    slots,
+                                    call_span,
+                                )? {
+                                    StmtFlow::None => {}
+                                    StmtFlow::Return(value) | StmtFlow::Propagate(value) => {
+                                        return Ok(ControlFlow::Break(value));
+                                    }
+                                    StmtFlow::Break(_) => {
+                                        return Err(RuntimeError::new(
+                                            "break-outside-loop",
+                                            "break used outside loop",
+                                        )
+                                        .with_span(span));
+                                    }
+                                    StmtFlow::Continue => {
+                                        return Err(RuntimeError::new(
+                                            "continue-outside-loop",
+                                            "continue used outside loop",
+                                        )
+                                        .with_span(span));
+                                    }
+                                }
+                                let keep = match self
+                                    .eval_indexed_bool(execution, value, slots, span)?
+                                {
+                                    ControlFlow::Continue(value) => value,
+                                    ControlFlow::Break(value) => {
+                                        return Ok(ControlFlow::Break(value));
+                                    }
+                                };
+                                let item =
+                                    std::mem::replace(&mut slots[slot], LoweredValue::Unit);
+                                if keep {
+                                    filtered.push(item);
+                                }
+                            }
+                            LoweredValue::List(filtered)
+                        }
                         FullStageTag::Any | FullStageTag::All => {
                             let slot =
                                 indexed_decode::<usize>(&mut stage_payload, execution, span)?;
@@ -3055,6 +3108,60 @@ impl Evaluator {
                                 slots[slot] = item;
                                 let keep = match self
                                     .eval_indexed_bool(execution, predicate, slots, span)?
+                                {
+                                    ControlFlow::Continue(value) => value,
+                                    ControlFlow::Break(value) => {
+                                        return Ok(ControlFlow::Break(value));
+                                    }
+                                };
+                                slots[slot] = LoweredValue::Unit;
+                                if keep != all {
+                                    matched = !all;
+                                    break;
+                                }
+                            }
+                            LoweredValue::Bool(matched)
+                        }
+                        FullStageTag::AnyBlock | FullStageTag::AllBlock => {
+                            let slot =
+                                indexed_decode::<usize>(&mut stage_payload, execution, span)?;
+                            let body = indexed_raw(&mut stage_payload, span)?;
+                            let value = indexed_raw(&mut stage_payload, span)?;
+                            indexed_finish(stage_payload, span)?;
+                            let items = self.lowered_pipeline_input_items(current, span)?;
+                            let all = tag == FullStageTag::AllBlock;
+                            let block_header = Self::indexed_block_header(slots.len());
+                            let mut matched = all;
+                            for item in items {
+                                slots[slot] = item;
+                                match self.eval_indexed_statement_block(
+                                    execution,
+                                    body,
+                                    &block_header,
+                                    slots,
+                                    call_span,
+                                )? {
+                                    StmtFlow::None => {}
+                                    StmtFlow::Return(value) | StmtFlow::Propagate(value) => {
+                                        return Ok(ControlFlow::Break(value));
+                                    }
+                                    StmtFlow::Break(_) => {
+                                        return Err(RuntimeError::new(
+                                            "break-outside-loop",
+                                            "break used outside loop",
+                                        )
+                                        .with_span(span));
+                                    }
+                                    StmtFlow::Continue => {
+                                        return Err(RuntimeError::new(
+                                            "continue-outside-loop",
+                                            "continue used outside loop",
+                                        )
+                                        .with_span(span));
+                                    }
+                                }
+                                let keep = match self
+                                    .eval_indexed_bool(execution, value, slots, span)?
                                 {
                                     ControlFlow::Continue(value) => value,
                                     ControlFlow::Break(value) => {
