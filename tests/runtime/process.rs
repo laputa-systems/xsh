@@ -321,7 +321,10 @@ while ! fs.exists(marker)? and tries < 100 {{
 }}
 process.kill(spawned.pid, signal: \"TERM\")?
 match process.kill(2147483647, signal: \"0\") {{
-  Err(e) => print ${{spawned.detach}} ${{spawned.new_session}} ${{spawned.ignore_hup}} ${{fs.exists(marker)?}} ${{e.kind}}
+  Err(e) => {{
+    test.error_kind(e, \"process-missing\")?
+    print ${{spawned.detach}} ${{spawned.new_session}} ${{spawned.ignore_hup}} ${{fs.exists(marker)?}} \"process-missing\"
+  }}
 }}
 ",
         xsh_string_literal(marker.to_str().unwrap())

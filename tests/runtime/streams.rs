@@ -20,9 +20,10 @@ let streamed = fs.walk(root)
   |> reduce-by --sum {{ |row|
     {{key: row.ext, value: {{count: row.count, size: row.size}}}}
   }}
-let collected = fs.walk(root)
+let collected_rows = fs.walk(root)
   |> where .kind == \"file\"
   |> collect()
+let collected = collected_rows
   |> par-map --jobs=4 {{ |entry|
     {{ext: entry.ext, count: 1, size: entry.size}}
   }}
@@ -85,9 +86,10 @@ for row in fs.walk(root)
     _ => {{}}
   }}
 }}
-let collected = fs.walk(root)
+let collected_rows = fs.walk(root)
   |> where .kind == \"file\"
   |> collect()
+let collected = collected_rows
   |> par-map --jobs=4 {{ |entry|
     {{ext: entry.ext, count: 1, size: entry.size}}
   }}

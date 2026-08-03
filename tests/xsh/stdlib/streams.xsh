@@ -282,7 +282,7 @@ proc test_flat_map_identity_reduce_by_matches_direct_rows() [error] {
   test.eq(nested.get("odd", {count: 0, total: 0}), {count: 500, total: 250000})?
 }
 
-proc test_projected_reduce_by_preserves_duplicate_output_fields(ctx: TestContext) [error] {
+proc test_projected_reduce_by_sums_output_fields(ctx: TestContext) [error] {
   let output = test.run_script(
     ctx,
     """
@@ -293,16 +293,16 @@ let rows = [
 ]
 let reduced = (rows)
   |> reduce-by --sum { |row|
-    {key: row.key, value: {x: row.a, x: row.b}}
+    {key: row.key, value: {x: row.a, y: row.b}}
   }
-let g = reduced.get("g", {x: 0})
+let g = reduced.get("g", {x: 0, y: 0})
 print f"x=\${g.x}"
 """,
   )?
   test.ok(output.success, output.stderr)?
   test.eq(
     output.stdout,
-    """x=10
+    """x=6
 """,
   )?
 }

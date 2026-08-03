@@ -97,7 +97,10 @@ fn unix_set_hostname_requires_dry_run_or_real_mode() {
         "unix-set-hostname-gated",
         "\
 match unix.set_hostname(\"xsh\") {
-  Err(e) => print ${e.kind}
+  Err(e) => {
+    test.error_kind(e, \"unix-real-required\")?
+    print \"unix-real-required\"
+  }
 }
 ",
     );
@@ -220,7 +223,10 @@ unix.kill_process_group(child.pid, \"TERM\")?
 time.sleep(50ms)?
 let reaped = unix.reap_child_events()?.collect()
 match process.kill(child.pid, signal: \"0\") {{
-  Err(e) => print ${{child.detach}} ${{child.new_session}} ${{child.ignore_hup}} ${{fs.exists(marker)?}} ${{reaped.len() >= 0}} ${{e.kind}}
+  Err(e) => {{
+    test.error_kind(e, \"process-missing\")?
+    print ${{child.detach}} ${{child.new_session}} ${{child.ignore_hup}} ${{fs.exists(marker)?}} ${{reaped.len() >= 0}} \"process-missing\"
+  }}
 }}
 ",
         xsh_string_literal(marker.to_str().unwrap()),
@@ -391,7 +397,10 @@ wait \"$child\"
         "unix-killall-wrapper",
         "\
 match unix.kill_all(\"wrapper-killall-target\") {
-  Err(e) => print ${e.kind}
+  Err(e) => {
+    test.error_kind(e, \"process-missing\")?
+    print \"process-missing\"
+  }
 }
 ",
     );

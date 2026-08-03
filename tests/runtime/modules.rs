@@ -44,7 +44,10 @@ print ${{info.type}} ${{info.class}} ${{info.endian}} ${{info.machine}} ${{info.
 let plain = elf.inspect(Path({plain}))?
 print ${{plain.type}} ${{plain.needed.len()}}
 match elf.inspect(Path({bad})) {{
-  Err(error) => print ${{error.kind}}
+  Err(error) => {{
+    test.error_kind(error, "elf-malformed")?
+    print "elf-malformed"
+  }}
 }}
 "#,
         elf = xsh_string_literal(elf.to_str().unwrap()),
@@ -183,7 +186,10 @@ fn dns_module_resolves_localhost_and_reports_unsupported_records() {
 let hosts = dns.resolve_host("localhost")?
 let bad = dns.lookup("localhost", "TXT")
 match bad {
-  Err(e) => print ${hosts.len() > 0} ${e.kind}
+  Err(e) => {
+    test.error_kind(e, "dns-record")?
+    print ${hosts.len() > 0} "dns-record"
+  }
 }
 "#,
     );
@@ -284,7 +290,11 @@ let _closed = net.close_pool("test")?
 let _closed_all = net.close_all_pools()?
 match failed {{
   Err(e) => match bad_ca {{
-    Err(ca) => print ${{pool.max_idle_per_host}} ${{pool.idle_timeout_ms}} ${{first.body.utf8()?}} ${{second.body.utf8()?}} ${{headed.status}} ${{headed.bytes}} ${{redirected.body.utf8()?}} ${{posted.body.utf8()?}} ${{posted_file.body.utf8()?}} ${{status.status}} ${{downloaded.bytes}} ${{uploaded.status}} ${{e.kind}} ${{ca.kind}}
+    Err(ca) => {{
+      test.error_kind(e, "net-scheme")?
+      test.error_kind(ca, "net-ca-certificate")?
+      print ${{pool.max_idle_per_host}} ${{pool.idle_timeout_ms}} ${{first.body.utf8()?}} ${{second.body.utf8()?}} ${{headed.status}} ${{headed.bytes}} ${{redirected.body.utf8()?}} ${{posted.body.utf8()?}} ${{posted_file.body.utf8()?}} ${{status.status}} ${{downloaded.bytes}} ${{uploaded.status}} "net-scheme" "net-ca-certificate"
+    }}
   }}
 }}
 "#,
@@ -358,19 +368,24 @@ fn net_module_request_many_returns_ordered_results() {
     let server = LocalHttpServer::spawn(3);
     let source = format!(
         r#"
-let responses = net.request_many({{
-  requests: [
+let request_items: List[Record] = [
     {{method: "GET", url: "{url}/hello", headers: [{{name: "Connection", value: "close"}}]}},
     {{method: "GET", url: "ftp://example.test/"}},
     {{method: "GET", url: "{url}/status", headers: [{{name: "Connection", value: "close"}}], fail_status: true}},
     {{method: "GET", url: "{url}/hello", headers: [{{name: "Connection", value: "close"}}]}},
-  ],
+]
+let responses = net.request_many({{
+  requests: request_items,
   concurrency: 2,
   pool: "many",
 }})?
 match responses[1] {{
   Err(scheme) => match responses[2] {{
-    Err(status) => print ${{responses[0]?.body.utf8()?}} ${{scheme.kind}} ${{status.kind}} ${{responses[3]?.body.utf8()?}}
+    Err(status) => {{
+      test.error_kind(scheme, "net-scheme")?
+      test.error_kind(status, "net-status")?
+      print ${{responses[0]?.body.utf8()?}} "net-scheme" "net-status" ${{responses[3]?.body.utf8()?}}
+    }}
   }}
 }}
 "#,
@@ -444,16 +459,20 @@ fn net_module_download_many_follows_redirects_and_keeps_atomic_destination_on_li
     std::fs::write(&limited, b"previous").expect("write existing download destination");
     let source = format!(
         r#"
-let responses = net.download_many({{
-  downloads: [
+let download_items: List[Record] = [
     {{url: "{url}/redirect", dest: Path({redirected}), overwrite: true, redirects: 1}},
     {{url: "{url}/hello", dest: Path({limited}), overwrite: true, max_body_bytes: 4}},
-  ],
+]
+let responses = net.download_many({{
+  downloads: download_items,
   concurrency: 2,
   pool: "many-download-redirects",
 }})?
 match responses[1] {{
-  Err(limit) => print ${{responses[0]?.bytes}} ${{limit.kind}}
+  Err(limit) => {{
+    test.error_kind(limit, "net-body-limit")?
+    print ${{responses[0]?.bytes}} "net-body-limit"
+  }}
 }}
 "#,
         url = server.url,
@@ -760,7 +779,10 @@ type BadPackage = module {{
 let loaded = module.load(Path({}))?
 let checked = loaded.require(BadPackage)
 match checked {{
-  Err(e) => print ${{e.kind}}
+  Err(e) => {{
+    test.error_kind(e, "schema")?
+    print "schema"
+  }}
 }}
 "#,
             xsh_string_literal(package.to_str().unwrap())
@@ -1229,6 +1251,7 @@ fn user_modules_import_exports_aliases_and_cycles() {
     std::fs::write(
         &helper,
         "\
+##! Helper fixture module.
 use package as p
 
 let greeting = \"hi\"
@@ -1237,11 +1260,13 @@ pure line(name: Str) -> Str {
   return f\"${greeting} ${name}\"
 }
 
+## Greets by name.
 export proc greet(name: Str) -> Result[Unit] {
   print ${line(name)}
   return Ok()
 }
 
+## Shows a package name.
 export proc show(pkg: p.Package) -> Result[Unit] {
   print ${line(pkg.name)}
   return Ok()
@@ -1252,8 +1277,11 @@ export proc show(pkg: p.Package) -> Result[Unit] {
     std::fs::write(
         &package,
         "\
+##! Package fixture module.
 let secret = \"hidden\"
+## Public package type.
 export type Package = {name: Str, root: Path}
+## Public package value.
 export let pkg: Package = {name: \"demo\", root: Path(\"src\")}
 ",
     )
@@ -1268,20 +1296,35 @@ helper.greet(\"namespace\")?
 show(p.pkg)?
 print ${p.pkg.name}
 match p.get(\"Package\") {
-  Err(e) => print ${e.kind}
+  Err(e) => {
+    test.error_kind(e, \"missing-field\")?
+    print \"missing-field\"
+  }
 }
 ",
     )
     .expect("write main");
     std::fs::write(&cycle_main, "use a\n").expect("write cycle main");
-    std::fs::write(&a, "use b\nexport let value = 1\n").expect("write a");
-    std::fs::write(&b, "use a\nexport let value = 2\n").expect("write b");
+    std::fs::write(
+        &a,
+        "##! Cycle fixture A.\n## Public cycle value.\nuse b\nexport let value = 1\n",
+    )
+    .expect("write a");
+    std::fs::write(
+        &b,
+        "##! Cycle fixture B.\n## Public cycle value.\nuse a\nexport let value = 2\n",
+    )
+    .expect("write b");
 
     let output = Command::new(env!("CARGO_BIN_EXE_xsh"))
         .arg(&main)
         .output()
         .expect("run xsh");
-    assert!(output.status.success());
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     assert_eq!(
         String::from_utf8(output.stdout).unwrap(),
         "hi world\nhi namespace\nhi demo\ndemo\nmissing-field\n"
@@ -1322,16 +1365,22 @@ fn user_module_qualified_types_and_first_class_functions_stay_callable() {
     std::fs::write(
         &package,
         "\
+##! Qualified values fixture module.
+## Exposes a typed package value and operations.
+## Public package type.
 export type Package = {name: Str}
 
+## Labels a package.
 export pure label(pkg: Package) -> Str {
   return f\"pkg:${pkg.name}\"
 }
 
+## Shows a package label.
 export proc show(pkg: Package) -> Result[Unit] {
   print ${label(pkg)}
 }
 
+## Public package value.
 export let pkg: Package = {name: \"demo\"}
 ",
     )
@@ -1447,6 +1496,9 @@ fn user_modules_can_resolve_from_module_path_and_default_alias() {
     std::fs::write(
         module_dir.join("configure.xsh"),
         "\
+##! Configure fixture module.
+## Provides a package label.
+## Labels a package.
 export pure label(name: Str) -> Str {
   return f\"configured ${name}\"
 }
@@ -1526,7 +1578,10 @@ let stripped = fp\"${{out}}/stripped\"
 archive.tar_extract(tgz, stripped, strip_components: 1)?
 let stripped_data = fp\"${{stripped}}/a.txt\".read_text()?.trim()
 match archive.tar_extract(tgz, dest) {{
-  Err(e) => print ${{entries.len()}} ${{data}} ${{e.kind}}
+  Err(e) => {{
+    test.error_kind(e, \"archive-extract\")?
+    print ${{entries.len()}} ${{data}} \"archive-extract\"
+  }}
 }}
 print ${{stripped_data}}
 print ${{archive.tar_list(tbz)?.collect().len()}} ${{archive.tar_list(txz)?.collect().len()}} ${{archive.tar_list(plain)?.collect().len()}}
@@ -1567,30 +1622,51 @@ archive.decompress(lzma, fp\"${{out}}/a.lzma.out\")?
 print ${{gz_data}} ${{fp\"${{out}}/a.bz2.out\".read_text()?.trim()}} ${{fp\"${{out}}/a.xz.out\".read_text()?.trim()}} ${{fp\"${{out}}/a.lzma.out\".read_text()?.trim()}}
 print ${{archive.decompress_bytes(gz_probe)?.utf8()?.trim()}} ${{archive.decompress_bytes(bz2_probe)?.utf8()?.trim()}} ${{archive.decompress_bytes(xz_probe)?.utf8()?.trim()}} ${{archive.decompress_bytes(auto_lzma)?.utf8()?.trim()}}
 match archive.compress(payload, fp\"${{out}}/bad.zz\", format: \"zip\") {{
-  Err(e) => print ${{e.kind}}
+  Err(e) => {{
+    test.error_kind(e, \"archive-compression\")?
+    print \"archive-compression\"
+  }}
 }}
 match archive.compress(payload, fp\"${{out}}/bad.gz\", format: \"auto\", level: 10) {{
-  Err(e) => print ${{e.kind}}
+  Err(e) => {{
+    test.error_kind(e, \"archive-compression\")?
+    print \"archive-compression\"
+  }}
 }}
 let unknown = fp\"${{out}}/unknown.bin\"
 payload.copy(unknown)?
 match archive.decompress(unknown, fp\"${{out}}/unknown.out\") {{
-  Err(e) => print ${{e.kind}}
+  Err(e) => {{
+    test.error_kind(e, \"archive-compression\")?
+    print \"archive-compression\"
+  }}
 }}
 let zip_entries = archive.zip_list(Path({}))?.collect()
 archive.zip_extract(Path({}), fp\"${{out}}/zip\")?
 print ${{zip_entries.len()}} ${{fp\"${{out}}/zip/zip/note.txt\".read_text()?.trim()}}
 match archive.tar_extract(Path({}), fp\"${{out}}/bad-parent\") {{
-  Err(e) => print ${{e.kind}}
+  Err(e) => {{
+    test.error_kind(e, \"archive-path\")?
+    print \"archive-path\"
+  }}
 }}
 match archive.tar_extract(Path({}), fp\"${{out}}/bad-absolute\") {{
-  Err(e) => print ${{e.kind}}
+  Err(e) => {{
+    test.error_kind(e, \"archive-path\")?
+    print \"archive-path\"
+  }}
 }}
 match archive.tar_extract(Path({}), fp\"${{out}}/bad-symlink\") {{
-  Err(e) => print ${{e.kind}}
+  Err(e) => {{
+    test.error_kind(e, \"archive-escape\")?
+    print \"archive-escape\"
+  }}
 }}
 match archive.zip_extract(Path({}), fp\"${{out}}/bad-zip\") {{
-  Err(e) => print ${{e.kind}}
+  Err(e) => {{
+    test.error_kind(e, \"archive-path\")?
+    print \"archive-path\"
+  }}
 }}
 ",
         xsh_string_literal(src.to_str().unwrap()),
@@ -1659,16 +1735,25 @@ let out = Path({})
 let entries = archive.zip_list(zip)?.collect()
 print ${{entries.len()}}
 match archive.zip_extract(zip, fp\"${{out}}/extract\") {{
-  Err(e) => print ${{e.kind}}
+  Err(e) => {{
+    test.error_kind(e, \"archive-zip-extract\")?
+    print \"archive-zip-extract\"
+  }}
 }}
 archive.zip_extract(zip, fp\"${{out}}/extract\", overwrite: true)?
 print ${{fp\"${{out}}/extract/many/file-00.txt\".read_text()?.trim()}}
 let not_zip = Path({})
 match archive.zip_list(not_zip) {{
-  Err(e) => print ${{e.kind}}
+  Err(e) => {{
+    test.error_kind(e, \"archive-zip-open\")?
+    print \"archive-zip-open\"
+  }}
 }}
 match archive.zip_extract(not_zip, fp\"${{out}}/bad-open\") {{
-  Err(e) => print ${{e.kind}}
+  Err(e) => {{
+    test.error_kind(e, \"archive-zip-open\")?
+    print \"archive-zip-open\"
+  }}
 }}
 ",
         xsh_string_literal(zip.to_str().unwrap()),
@@ -1759,7 +1844,10 @@ let stripped = fp\"${{out}}/stripped\"
 archive.tar_extract(tarball, stripped, 2)?
 print ${{fp\"${{stripped}}/a.txt\".exists()?}}
 match archive.tar_extract(tarball, fp\"${{out}}/negative\", -1) {{
-  Err(e) => print ${{e.kind}}
+  Err(e) => {{
+    test.error_kind(e, \"archive-extract\")?
+    print \"archive-extract\"
+  }}
 }}
 ",
         xsh_string_literal(src.to_str().unwrap()),
