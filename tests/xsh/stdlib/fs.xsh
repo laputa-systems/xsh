@@ -283,6 +283,41 @@ proc test_fs_walk_honors_gitignore_by_default_and_can_disable_it(ctx: TestContex
   test.ok(".env" in raw_hidden)?
 }
 
+proc test_fs_optional_arguments_accept_positional_forms(ctx: TestContext) [fs, error] {
+  # Positional optional arguments must compile and behave identically to the
+  # equivalent named form (regression for compact-runtime fs.files/fs.walk).
+  let root = test.temp_dir(ctx, name: "fs-positional-optional")?
+  fp"${root}/nested".mkdir()?
+  fp"${root}/.git".mkdir()?
+  fp"${root}/.gitignore".write(".git/\n*.log\n")?
+  fp"${root}/a.txt".write("text")?
+  fp"${root}/b.log".write("ignored")?
+  fp"${root}/nested/c.txt".write("text")?
+  fp"${root}/.git/config".write("ignored")?
+
+  let by_name = fs.files(root, gitignore: false)
+    |> sort-by .path
+    |> map { |e| e.path.display() }
+    |> collect()
+  let by_position = fs.files(root, false)
+    |> sort-by .path
+    |> map { |e| e.path.display() }
+    |> collect()
+  test.eq(by_position.join(","), by_name.join(","))?
+
+  let walk_by_name = fs.walk(root, gitignore: false)
+    |> sort-by .path
+    |> map { |e| e.path.display() }
+    |> collect()
+  let walk_by_position = fs.walk(root, false)
+    |> sort-by .path
+    |> map { |e| e.path.display() }
+    |> collect()
+  test.eq(walk_by_position.join(","), walk_by_name.join(","))?
+  test.ok(by_name.join(",").contains("b.log"))?
+  test.ok(by_name.join(",").contains("nested/c.txt"))?
+}
+
 proc test_fs_files_recurses_with_raw_walk_and_preserves_entry_ext(ctx: TestContext) [fs, error] {
   let root = test.temp_dir(ctx, name: "fs-files-recursive")?
   fp"${root}/include/bits".mkdir()?

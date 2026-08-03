@@ -933,10 +933,27 @@ fn lower_fs_write_args(args: &[ArenaCallArg]) -> Option<LoweredFsWriteArgs> {
 fn lower_fs_mkdir_args(args: &[ArenaCallArg]) -> Option<LoweredFsMkdirArgs> {
     let mut path = None;
     let mut parents = None;
+    let mut next_positional = 0usize;
     for arg in args {
         match arg.kind {
-            ArenaCallArgKind::Positional(value) if path.is_none() => path = Some(value),
-            ArenaCallArgKind::Positional(_) => return None,
+            ArenaCallArgKind::Positional(value) => {
+                match next_positional {
+                    0 => {
+                        if path.is_some() {
+                            return None;
+                        }
+                        path = Some(value);
+                    }
+                    1 => {
+                        if parents.is_some() {
+                            return None;
+                        }
+                        parents = Some(value);
+                    }
+                    _ => return None,
+                }
+                next_positional += 1;
+            }
             ArenaCallArgKind::Named { name, value, .. } if name == "path" => {
                 if path.replace(value).is_some() {
                     return None;
@@ -959,10 +976,27 @@ fn lower_fs_mkdir_args(args: &[ArenaCallArg]) -> Option<LoweredFsMkdirArgs> {
 fn lower_fs_remove_args(args: &[ArenaCallArg]) -> Option<LoweredFsRemoveArgs> {
     let mut path = None;
     let mut missing_ok = None;
+    let mut next_positional = 0usize;
     for arg in args {
         match arg.kind {
-            ArenaCallArgKind::Positional(value) if path.is_none() => path = Some(value),
-            ArenaCallArgKind::Positional(_) => return None,
+            ArenaCallArgKind::Positional(value) => {
+                match next_positional {
+                    0 => {
+                        if path.is_some() {
+                            return None;
+                        }
+                        path = Some(value);
+                    }
+                    1 => {
+                        if missing_ok.is_some() {
+                            return None;
+                        }
+                        missing_ok = Some(value);
+                    }
+                    _ => return None,
+                }
+                next_positional += 1;
+            }
             ArenaCallArgKind::Named { name, value, .. } if name == "path" => {
                 if path.replace(value).is_some() {
                     return None;
@@ -1222,19 +1256,39 @@ fn compact_run_command_asserts_success(
         )
 }
 
-fn lower_fs_files_args(arena: &AstArena, args: &[ArenaCallArg]) -> Option<LoweredFsFilesArgs> {
+fn lower_fs_files_args(
+    arena: &AstArena,
+    args: &[ArenaCallArg],
+    has_exts: bool,
+) -> Option<LoweredFsFilesArgs> {
     let mut root = None;
     let mut gitignore = true;
     let mut stat = true;
     let mut hidden = false;
     let mut exts = None;
+    let mut next_positional = 0usize;
     for arg in args {
         match arg.kind {
             ArenaCallArgKind::Positional(value) => {
-                if root.is_some() {
-                    return None;
+                // Optional arguments may be passed positionally in parameter
+                // order (path, gitignore, stat, exts, hidden). `walk`/`dirs`
+                // share this helper but have no `exts` parameter, so a fourth
+                // positional maps directly to `hidden` for them.
+                match next_positional {
+                    0 => {
+                        if root.is_some() {
+                            return None;
+                        }
+                        root = Some(value);
+                    }
+                    1 => gitignore = arena_bool_literal(arena, value)?,
+                    2 => stat = arena_bool_literal(arena, value)?,
+                    3 if has_exts => exts = Some(value),
+                    3 => hidden = arena_bool_literal(arena, value)?,
+                    4 => hidden = arena_bool_literal(arena, value)?,
+                    _ => return None,
                 }
-                root = Some(value);
+                next_positional += 1;
             }
             ArenaCallArgKind::Named { name, value, .. } if name == "gitignore" => {
                 gitignore = arena_bool_literal(arena, value)?;
@@ -7681,7 +7735,8 @@ impl CompactLowerConstructProbe<'_, '_> {
                         && let ArenaExprKind::Ident(module) = self.program.arena.expr(base).kind
                     {
                         if module == "fs" && name == "files" {
-                            let options = lower_fs_files_args(&self.program.arena, &args_vec)?;
+                            let options =
+                                lower_fs_files_args(&self.program.arena, &args_vec, true)?;
                             return Some(push_build_row!(
                                 self,
                                 expr,
@@ -7714,7 +7769,8 @@ impl CompactLowerConstructProbe<'_, '_> {
                             ));
                         }
                         if module == "fs" && name == "walk" {
-                            let options = lower_fs_files_args(&self.program.arena, &args_vec)?;
+                            let options =
+                                lower_fs_files_args(&self.program.arena, &args_vec, false)?;
                             return Some(push_build_row!(
                                 self,
                                 expr,
@@ -8372,7 +8428,8 @@ impl CompactLowerConstructProbe<'_, '_> {
                         ));
                     }
                     if module == "fs" && name == "files" {
-                        let options = lower_fs_files_args(&self.program.arena, &args_vec)?;
+                        let options =
+                            lower_fs_files_args(&self.program.arena, &args_vec, true)?;
                         return Some(push_build_row!(
                             self,
                             expr,
@@ -8401,7 +8458,8 @@ impl CompactLowerConstructProbe<'_, '_> {
                         ));
                     }
                     if module == "fs" && name == "walk" {
-                        let options = lower_fs_files_args(&self.program.arena, &args_vec)?;
+                        let options =
+                            lower_fs_files_args(&self.program.arena, &args_vec, false)?;
                         return Some(push_build_row!(
                             self,
                             expr,
