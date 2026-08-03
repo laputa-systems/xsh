@@ -138,7 +138,7 @@ pub fn query(options: &ApiOptions) -> Result<ApiOutput, ApiError> {
         }
         let details = options
             .details
-            .unwrap_or_else(|| default_details(&selector));
+            .unwrap_or_else(|| default_details(&selector, &matches));
         responses.push(ApiResponse {
             query: raw_query,
             status: if matches.is_empty() {
@@ -459,8 +459,14 @@ fn select(catalog: &[ApiItem], selector: &Selector) -> Vec<ApiItem> {
     matches
 }
 
-fn default_details(selector: &Selector) -> ApiDetails {
+fn default_details(selector: &Selector, matches: &[ApiItem]) -> ApiDetails {
     match selector {
+        // A `module:NAME.MEMBER` query resolves to a single module-function item;
+        // render its contract as fully as `api:NAME.MEMBER` so the text formatter
+        // shows the signature. A bare `module:NAME` overview keeps Basic output.
+        Selector::Module(_) if matches.len() == 1 && matches[0].kind == "module-function" => {
+            ApiDetails::Full
+        }
         Selector::Module(_) | Selector::Search(_) => ApiDetails::Basic,
         Selector::Language(_) => ApiDetails::Full,
         Selector::Api(_, _) | Selector::Method(_, _) | Selector::Record(_) => ApiDetails::Full,

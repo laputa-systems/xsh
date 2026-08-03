@@ -401,3 +401,101 @@ fn api_search_is_local_and_deterministic() {
     );
     assert!(stdout.contains("api: module.patch.apply"), "{stdout}");
 }
+
+#[test]
+fn api_stream_stage_group_by_shows_signature_and_record_shape() {
+    let output = xsht(&["api", "language:stream.group-by"]);
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("utf8 stdout");
+    assert!(stdout.contains("status: exact"), "{stdout}");
+    assert!(stdout.contains("api: language.stream.group-by"), "{stdout}");
+    assert!(stdout.contains("signature: "), "{stdout}");
+    assert!(stdout.contains("Stream[{key, items: List[T]}]"), "{stdout}");
+    assert!(stdout.contains("items"), "{stdout}");
+    assert_eq!(String::from_utf8(output.stderr).unwrap(), "");
+}
+
+#[test]
+fn api_stream_stages_carry_a_signature_in_jsonl() {
+    let output = xsht(&[
+        "api",
+        "--format",
+        "jsonl",
+        "language:stream.map",
+        "language:stream.where",
+        "language:stream.sort-by",
+        "language:stream.fold",
+        "language:stream.each",
+        "language:stream.collect",
+        "language:stream.unique-by",
+    ]);
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("utf8 stdout");
+    let lines = stdout.lines().collect::<Vec<_>>();
+    assert_eq!(lines.len(), 7, "{lines:?}");
+    for query in [
+        "map",
+        "where",
+        "sort-by",
+        "fold",
+        "each",
+        "collect",
+        "unique-by",
+    ] {
+        let id = format!("language:stream.{query}");
+        let line = lines
+            .iter()
+            .find(|line| line.contains(&format!("\"query\":\"{id}\"")))
+            .unwrap_or_else(|| panic!("missing {id} in {lines:?}"));
+        assert!(
+            !line.contains("\"signatures\":[]"),
+            "{id} has an empty signature list: {line}"
+        );
+        assert!(line.contains("\"signatures\":["), "{id}: {line}");
+    }
+    assert_eq!(String::from_utf8(output.stderr).unwrap(), "");
+}
+
+#[test]
+fn api_module_member_text_shows_the_signature() {
+    let output = xsht(&["api", "module:tui.left_pad"]);
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("utf8 stdout");
+    assert!(stdout.contains("status: exact"), "{stdout}");
+    assert!(stdout.contains("api: module.tui.left_pad"), "{stdout}");
+    assert!(
+        stdout.contains("signature: tui.left_pad(text: Str, width: Int) -> Str"),
+        "{stdout}"
+    );
+    assert_eq!(String::from_utf8(output.stderr).unwrap(), "");
+}
+
+#[test]
+fn api_module_member_jsonl_matches_text_signature() {
+    let output = xsht(&["api", "--format", "jsonl", "module:tui.left_pad"]);
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("utf8 stdout");
+    assert!(stdout.contains("\"signatures\":["), "{stdout}");
+    assert!(
+        stdout.contains("tui.left_pad(text: Str, width: Int) -> Str"),
+        "{stdout}"
+    );
+    assert_eq!(String::from_utf8(output.stderr).unwrap(), "");
+}
+
+#[test]
+fn api_module_overview_stays_concise() {
+    let output = xsht(&["api", "module:env"]);
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("utf8 stdout");
+    assert!(stdout.contains("status: matches"), "{stdout}");
+    assert!(stdout.contains("api: module.env\n"), "{stdout}");
+    // An overview lists members by purpose, not by dumping every signature.
+    assert!(!stdout.contains("signature: env."), "{stdout}");
+    assert_eq!(String::from_utf8(output.stderr).unwrap(), "");
+}
