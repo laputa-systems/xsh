@@ -748,7 +748,9 @@ print ${value}
             .join("compact_user_helper.xsh");
         fs::write(
             &helper,
-            r#"export pure label(value: Str) -> Str {
+            r#"##! Compact runner helper module.
+## Labels a value.
+export pure label(value: Str) -> Str {
   return value + "!"
 }
 "#,
