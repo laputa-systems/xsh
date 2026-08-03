@@ -379,6 +379,17 @@ is automatically invoked with `args` after all other top-level statements
 complete. `lint.redundant-main-call` flags and autofixes an explicit
 `main(@args)` call when implicit invocation applies.
 
+The compact runtime dispatches script arguments into an auto-invoked `main`
+positionally and can collect a tail only into a spread (rest) parameter.
+`main` should therefore declare script arguments through a spread parameter,
+e.g. `proc main(...argv: List[Str])`. A `main` whose fixed (non-defaulted)
+parameter is not a CLI scalar (`Str` or `Path`) can never bind a script
+argument and cannot run under `xsh`, so `xsht check` reports a
+`compact.main-missing-spread` diagnostic at check time naming the spread form
+instead of letting the script fail only when it is run. An empty `main()`,
+fixed scalar or defaulted parameters, and a `main` that also declares a spread
+parameter remain valid.
+
 Script arguments after `--` are available through the predeclared immutable
 binding `args: List[Str]`. The current interpreter also accepts `ARGV` as a
 compatibility alias; new examples and docs should use `args`.
