@@ -512,6 +512,72 @@ proc test_sort_by_desc_reverses_sort_order() [error] {
   test.eq(words[2], "apple")?
 }
 
+proc test_sort_by_compound_record_keys_and_stability() [error] {
+  let records = [
+    {
+      name: "b",
+      count: 2,
+    },
+    {
+      name: "a",
+      count: 1,
+    },
+    {
+      name: "c",
+      count: 1,
+    },
+  ]
+
+  # A two-field record key compares lexicographically: count first, then name.
+  let direct = records
+    |> sort-by { |r|
+      {c: r.count, n: r.name}
+    }
+
+  test.eq(direct, [{name: "a", count: 1}, {name: "c", count: 1}, {name: "b", count: 2}])?
+
+  # --desc reverses the compound comparison.
+  let desc = records
+    |> sort-by --desc { |r|
+      {c: r.count, n: r.name}
+    }
+
+  test.eq(desc, [{name: "b", count: 2}, {name: "c", count: 1}, {name: "a", count: 1}])?
+
+  # The documented two-pass stable idiom matches the direct compound key.
+  let two_pass = records
+    |> sort-by { |r|
+      r.name
+    }
+    |> sort-by { |r|
+      r.count
+    }
+
+  test.eq(two_pass, direct)?
+
+  # Stable sort keeps equal-key items in source order.
+  let repeats = [
+    {
+      name: "x",
+      count: 1,
+    },
+    {
+      name: "y",
+      count: 1,
+    },
+    {
+      name: "z",
+      count: 1,
+    },
+  ]
+  let stable = repeats |> sort-by .count
+  test.eq(stable, repeats)?
+
+  # Whole-record sort uses the same record ordering.
+  let whole = records |> sort
+  test.eq(whole, direct)?
+}
+
 proc test_structured_stream_batch_count_and_argv_limits() [process, error] {
   let by_count = [1, 2, 3, 4, 5] |> batch --count=2
   let by_size = [p"aaaa", p"bbbb", p"cccc"] |> batch --max-bytes=10

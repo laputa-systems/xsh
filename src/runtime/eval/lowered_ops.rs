@@ -471,6 +471,25 @@ pub(super) fn lowered_contains_value(
     }
 }
 
+/// Whether a projected sort key has a defined ordering. The supported key,
+/// item, and record-field types stay aligned with the checker contract in
+/// `src/sema/check/stream.rs`; anything else must fail loudly instead of
+/// silently comparing equal and leaving the stream unsorted.
+pub(super) fn lowered_sort_key_orderable(value: &LoweredValue) -> bool {
+    match value {
+        LoweredValue::Int(_)
+        | LoweredValue::Bool(_)
+        | LoweredValue::Str(_)
+        | LoweredValue::StrView(_)
+        | LoweredValue::Path(_) => true,
+        LoweredValue::Record(fields) => fields.values().all(lowered_sort_key_orderable),
+        LoweredValue::RecordVec(fields) => fields
+            .iter()
+            .all(|(_, value)| lowered_sort_key_orderable(value)),
+        _ => false,
+    }
+}
+
 pub(super) fn compare_lowered_sort_keys(left: &LoweredValue, right: &LoweredValue) -> Ordering {
     if let (Some(left), Some(right)) = (lowered_str_value(left), lowered_str_value(right)) {
         return left.cmp(right);
@@ -479,8 +498,49 @@ pub(super) fn compare_lowered_sort_keys(left: &LoweredValue, right: &LoweredValu
         (LoweredValue::Int(left), LoweredValue::Int(right)) => left.cmp(right),
         (LoweredValue::Bool(left), LoweredValue::Bool(right)) => left.cmp(right),
         (LoweredValue::Path(left), LoweredValue::Path(right)) => left.bytes.cmp(&right.bytes),
+        (
+            LoweredValue::Record(_) | LoweredValue::RecordVec(_),
+            LoweredValue::Record(_) | LoweredValue::RecordVec(_),
+        ) => compare_lowered_record_sort_keys(left, right),
         _ => left.type_name().cmp(right.type_name()),
     }
+}
+
+/// Lexicographic record comparison for sort keys: fields compare one by one in
+/// sorted field-name order, and a shorter record precedes a longer one when
+/// every shared field is equal. Normalizing field order makes the comparison
+/// independent of how the record was built (map or vec representation).
+fn compare_lowered_record_sort_keys(left: &LoweredValue, right: &LoweredValue) -> Ordering {
+    let left_fields = lowered_record_sort_fields(left);
+    let right_fields = lowered_record_sort_fields(right);
+    for (left_field, right_field) in left_fields.iter().zip(right_fields.iter()) {
+        match left_field.0.cmp(&right_field.0) {
+            Ordering::Equal => {}
+            ordering => return ordering,
+        }
+        match compare_lowered_sort_keys(left_field.1, right_field.1) {
+            Ordering::Equal => {}
+            ordering => return ordering,
+        }
+    }
+    left_fields.len().cmp(&right_fields.len())
+}
+
+/// Deterministic field-name-ordered view of a record for key comparison.
+fn lowered_record_sort_fields(value: &LoweredValue) -> Vec<(Arc<str>, &LoweredValue)> {
+    let mut fields = match value {
+        LoweredValue::Record(fields) => fields
+            .iter()
+            .map(|(name, value)| (name.clone(), value))
+            .collect::<Vec<(Arc<str>, &LoweredValue)>>(),
+        LoweredValue::RecordVec(fields) => fields
+            .iter()
+            .map(|(name, value)| (Arc::<str>::from(name.as_str().as_str()), value))
+            .collect::<Vec<(Arc<str>, &LoweredValue)>>(),
+        _ => Vec::new(),
+    };
+    fields.sort_by(|(left, _), (right, _)| left.cmp(right));
+    fields
 }
 
 pub(super) fn lowered_find_text_bytes(text: &str, needle: &str, start: i64) -> i64 {

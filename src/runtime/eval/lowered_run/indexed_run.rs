@@ -10,7 +10,7 @@ use super::{
     TraceError, TraceKind, TracePayload, Traceback, TracebackFrame, TracebackFrameKind, Type,
     Value, api_spec, assign_lowered_bytes_view, assign_lowered_str_view, bind_lowered_comp_target,
     btree_map, bytes_contains, bytes_module, check_env_name, compare_lowered_sort_keys,
-    compound_assignment_value, error_constructor, execute_run_with_policy, exit_status, fs_module,
+    compound_assignment_value, lowered_sort_key_orderable, error_constructor, execute_run_with_policy, exit_status, fs_module,
     fs_root_record, hash_module, json_module, lowered_assign_value, lowered_binary_value,
     lowered_bool_arg_or, lowered_bool_builder_field, lowered_bytes_or_str_owned,
     lowered_bytes_parts, lowered_bytes_value, lowered_command_plan_value,
@@ -2849,7 +2849,7 @@ impl Evaluator {
                             let descending = indexed_optional_raw(&mut stage_payload, span)?;
                             indexed_finish(stage_payload, span)?;
                             let mut items = self.lowered_pipeline_input_items(current, span)?;
-                            items.sort_unstable_by(compare_lowered_sort_keys);
+                            items.sort_by(compare_lowered_sort_keys);
                             if self.eval_indexed_pipeline_descending(
                                 execution, descending, slots, span,
                             )? {
@@ -2886,7 +2886,21 @@ impl Evaluator {
                                 let item = std::mem::replace(&mut slots[slot], LoweredValue::Unit);
                                 keyed.push((key, item));
                             }
-                            keyed.sort_unstable_by(|(left, _), (right, _)| {
+                            if let Some(key) = keyed
+                                .iter()
+                                .find(|(key, _)| !lowered_sort_key_orderable(key))
+                                .map(|(key, _)| key)
+                            {
+                                return Err(RuntimeError::new(
+                                    "stream-sort-key",
+                                    format!(
+                                        "sort-by keys must be Int, Str, Bool, Path, or Records of supported keys; found {}",
+                                        key.type_name()
+                                    ),
+                                )
+                                .with_span(span));
+                            }
+                            keyed.sort_by(|(left, _), (right, _)| {
                                 compare_lowered_sort_keys(left, right)
                             });
                             if self.eval_indexed_pipeline_descending(

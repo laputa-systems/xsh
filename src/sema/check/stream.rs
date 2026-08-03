@@ -129,17 +129,19 @@ impl Checker {
                 if !stage.args.is_empty() || stage.block.is_some() {
                     self.error(stage_span, "sort accepts no arguments", "check.arity");
                 }
-                if !matches!(
+                if matches!(
                     item_ty,
                     Type::Int | Type::Str | Type::Bool | Type::Path | Type::Unknown
-                ) {
+                ) || is_sortable_record_key_type(&item_ty) {
+                    Type::Stream(Box::new(item_ty))
+                } else {
                     self.error(
                         stage_span,
-                        "sort items must be Int, Str, Bool, or Path",
+                        "sort items must be Int, Str, Bool, Path, or a record of supported items",
                         "check.stream-sort",
                     );
+                    Type::Stream(Box::new(item_ty))
                 }
-                Type::Stream(Box::new(item_ty))
             }
             StreamStageKind::SortBy => {
                 self.check_stage_no_args_arena(arena, stage);
@@ -163,13 +165,10 @@ impl Checker {
                 }
                 let key_ty = self.check_required_stream_block_arena(arena, source, stage, &item_ty);
                 let key_ty = result_ok_or_self(&key_ty);
-                if !matches!(
-                    key_ty,
-                    Type::Int | Type::Str | Type::Bool | Type::Path | Type::Unknown
-                ) {
+                if !is_sortable_key_type(&key_ty) {
                     self.error(
                         stage_span,
-                        "sort-by keys must be Int, Str, Bool, or Path",
+                        "sort-by keys must be Int, Str, Bool, Path, or a record of supported keys",
                         "check.stream-sort",
                     );
                 }
@@ -825,4 +824,20 @@ fn result_ok_or_self(ty: &Type) -> Type {
         Type::Result(ok, _) => (**ok).clone(),
         _ => ty.clone(),
     }
+}
+
+/// Whether a projected `sort-by` key or `sort` item type has a defined
+/// ordering. Records are orderable when every field is itself orderable; the
+/// runtime comparator in `lowered_ops.rs` implements the same surface so a
+/// checked program and an unchecked `xsh` run agree on what can sort.
+fn is_sortable_key_type(ty: &Type) -> bool {
+    match ty {
+        Type::Int | Type::Str | Type::Bool | Type::Path | Type::Unknown => true,
+        Type::Record(fields) => fields.values().all(is_sortable_key_type),
+        _ => false,
+    }
+}
+
+fn is_sortable_record_key_type(ty: &Type) -> bool {
+    matches!(ty, Type::Record(fields) if fields.values().all(is_sortable_key_type))
 }

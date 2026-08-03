@@ -1694,7 +1694,11 @@ fn checker_rejects_stage_8_table_and_sort_contract_errors() {
             "check.type-mismatch",
         ),
         (
-            "[{ name: \"a\" }] |> sort-by { { key: .name } }\n",
+            "[{ name: \"a\" }] |> sort-by { |r| [r.name] }\n",
+            "check.stream-sort",
+        ),
+        (
+            "[{ name: \"a\" }] |> sort-by { |r| { scores: [r.name] } }\n",
             "check.stream-sort",
         ),
     ];
@@ -1706,6 +1710,18 @@ fn checker_rejects_stage_8_table_and_sort_contract_errors() {
             "expected {code} in diagnostics: {output:?}"
         );
     }
+}
+
+#[test]
+fn checker_accepts_sort_by_record_keys_and_record_sort_items() {
+    let output = check(
+        "[{name: \"a\", count: 1}] |> sort-by { |r| {c: r.count, n: r.name} }\n",
+    );
+    assert!(output.is_empty(), "{:?}", output);
+    let nested = check("[{id: 1}] |> sort-by { |r| {outer: {inner: r.id}} }\n");
+    assert!(nested.is_empty(), "{:?}", nested);
+    let record_sort = check("[{name: \"b\", count: 2}, {name: \"a\", count: 1}] |> sort\n");
+    assert!(record_sort.is_empty(), "{:?}", record_sort);
 }
 
 #[test]

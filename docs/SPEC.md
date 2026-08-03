@@ -2786,6 +2786,17 @@ worker-local aggregation avoids building one intermediate list. Suffixes such as
 `par-map |> where |> flat-map |> reduce-by` currently materialize between
 stages.
 
+`sort` and `sort-by` order by a defined key ordering. Supported items and
+projected keys are `Int`, `Str`, `Bool`, `Path`, and `Record`s whose fields are
+themselves supported (recursively). Records compare field by field in sorted
+field-name order, so `sort-by { |r| {c: r.count, n: r.name} }` sorts by `count`
+then `name`. The default order is ascending and `--desc` reverses it. Both
+stages are stable: items with equal keys keep their source order, so sorting by
+a secondary key first and the primary key second is a reliable two-pass idiom
+for compound ordering. Any other item or key type is rejected at check time and
+fails at runtime with a diagnostic naming the stage and the offending type
+rather than silently returning unsorted input.
+
 ## 15. Builder Blocks
 
 Builder blocks are accepted only by APIs whose signatures declare a builder

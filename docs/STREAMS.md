@@ -208,6 +208,9 @@ could win on flat trees. See §7 pitfalls.
   count/sum, use `reduce-by` (O(distinct)) or `count { key }`.
 - **Order isn't free.** Recursive walks are unordered/parallel; `take`/`first`/
   `last` over them are nondeterministic. Add `|> sort-by` when order matters.
+  `sort-by`/`sort` are stable and order `Int`/`Str`/`Bool`/`Path` keys and
+  records (field by field in sorted field-name order); unsupported key types
+  fail loudly instead of silently leaving the stream unsorted.
 - **Don't wrap trivial work in a `pure`.** A per-item user-function call pays
   scope + dispatch overhead; prefer a builtin (`.lower()` over a `translate`
   helper) or an inline block.
