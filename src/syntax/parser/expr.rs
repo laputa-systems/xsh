@@ -247,6 +247,50 @@ impl<'a> Parser<'a> {
             .map(|expr| expr.id)
     }
 
+    /// When the precedence loop stops on a token that looks like a C-style
+    /// boolean operator (`||`, `&&`, `|`, `&`) or a `then` keyword, emit a
+    /// constructive diagnostic that names the offending token and points the
+    /// agent at the word-form `or`/`and` operators instead of the block brace
+    /// that follows. This turns a ~10-turn operator-spelling discovery into a
+    /// one-line fix without changing any valid-program parsing.
+    fn report_unsupported_boolean_operator(&mut self) {
+        let (unsupported, supported, span) = match (self.current_tag(), self.peek_tag(1)) {
+            (TokenTag::Pipe, Some(TokenTag::Pipe)) => {
+                let span = self.span(self.current_start(), self.peek_end(1).unwrap());
+                ("||", "'or'", span)
+            }
+            (TokenTag::Amp, Some(TokenTag::Amp)) => {
+                let span = self.span(self.current_start(), self.peek_end(1).unwrap());
+                ("&&", "'and'", span)
+            }
+            (TokenTag::Pipe, _) => ("|", "'or'", self.current_span()),
+            (TokenTag::Amp, _) => ("&", "'and'", self.current_span()),
+            (TokenTag::Ident, _) if self.at_ident("then") => {
+                let span = self.current_span();
+                self.diagnostics.push(
+                    Diagnostic::error("the `then` keyword is not used in XSH")
+                        .with_code("parse.unsupported-then")
+                        .with_label(Label::primary(
+                            span,
+                            "XSH `if`/`while`/`for` heads are followed directly by `{`, not `then`",
+                        )),
+                );
+                return;
+            }
+            _ => return,
+        };
+        self.diagnostics.push(
+            Diagnostic::error(format!(
+                "unsupported operator '{unsupported}': XSH boolean operators are the word forms {supported}"
+            ))
+            .with_code("parse.unsupported-boolean-operator")
+            .with_label(Label::primary(
+                span,
+                format!("use {supported} instead of '{unsupported}'"),
+            )),
+        );
+    }
+
     fn parse_precedence_arena_only(
         &mut self,
         min_prec: u8,
@@ -426,6 +470,7 @@ impl<'a> Parser<'a> {
                     self.skip_newlines();
                 }
                 let Some((op, prec, tokens)) = self.current_binary_op() else {
+                    self.report_unsupported_boolean_operator();
                     break;
                 };
                 if prec < min_prec {

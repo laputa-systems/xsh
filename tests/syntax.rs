@@ -357,6 +357,48 @@ fn parser_rejects_bracketed_map_comprehension_keys() {
 }
 
 #[test]
+fn parser_reports_unsupported_c_style_boolean_operators_constructively() {
+    // Unsupported C-style boolean operators and the `then` keyword must be
+    // named by a constructive diagnostic that points at the offending token,
+    // not at the block brace that follows the condition.
+    let cases = [
+        ("proc main() { if a || b { } }\n", "parse.unsupported-boolean-operator"),
+        ("proc main() { if a && b { } }\n", "parse.unsupported-boolean-operator"),
+        ("proc main() { if a | b { } }\n", "parse.unsupported-boolean-operator"),
+        ("proc main() { if a & b { } }\n", "parse.unsupported-boolean-operator"),
+        ("proc main() { if a then { } }\n", "parse.unsupported-then"),
+    ];
+    for (source, code) in cases {
+        let output = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(
+            output
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code.as_deref() == Some(code)),
+            "expected {code} but got for source:\n{source}\n{:?}",
+            output.diagnostics
+        );
+    }
+}
+
+#[test]
+fn parser_accepts_word_form_boolean_operators() {
+    // The valid `or`/`and` word forms must parse without diagnostics so the
+    // new constructive error does not change valid-program behavior.
+    for source in [
+        "proc main() { if a or b { } }\n",
+        "proc main() { if a or b and c { } }\n",
+    ] {
+        let output = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(
+            output.diagnostics.is_empty(),
+            "source:\n{source}\n{:?}",
+            output.diagnostics
+        );
+    }
+}
+
+#[test]
 fn parser_accepts_nominal_error_declarations_and_patterns() {
     let source = r#"
 error FsError = NotFound(file: Path) : NotFound | PermissionDenied(file: Path, op: Str) : PermissionDenied

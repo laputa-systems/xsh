@@ -748,6 +748,12 @@ impl<'a> Parser<'a> {
         self.start_at(self.index + distance)
     }
 
+    pub(in crate::syntax::parser) fn peek_end(&self, distance: usize) -> Option<usize> {
+        self.index
+            .checked_add(distance)
+            .and_then(|i| self.end_at(i))
+    }
+
     pub(in crate::syntax::parser) fn start_at(&self, index: usize) -> Option<usize> {
         self.token_table.start_at(index)
     }
