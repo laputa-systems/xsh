@@ -3537,6 +3537,32 @@ impl Evaluator {
                 "compact.unlowered-main",
             ));
         }
+        if auto_main_required {
+            let span = root
+                .iter()
+                .copied()
+                .find_map(|stmt| compact_root_proc_main_span(program, stmt))
+                .unwrap_or_else(zero_span);
+            let unbindable = compact_root_proc_main_unbindable_fixed_param(
+                program,
+                &root,
+                &indexed,
+            )
+            .map_err(|error| {
+                compact_lowerability_diagnostic(
+                    span,
+                    &format!("indexed driver verification failed: {}", error.message),
+                    "compact.indexed-driver",
+                )
+            })?;
+            if unbindable {
+                return Err(compact_lowerability_diagnostic(
+                    span,
+                    "proc main must use the spread form `(...argv: List[Str])` to receive script arguments; a fixed parameter of this type cannot bind script arguments in the compact runtime",
+                    "compact.main-missing-spread",
+                ));
+            }
+        }
         let indexed = Arc::new(indexed);
         self.indexed_program = Some(Arc::clone(&indexed));
         let compact_auto_main_args = if auto_main_required {
@@ -6042,6 +6068,76 @@ fn compact_root_proc_main_span(program: &ArenaProgram, id: StmtId) -> Option<Spa
             if program.arena.function_def(def).name == Name::intern("main") =>
         {
             Some(program.arena.stmt(id).span)
+        }
+        _ => None,
+    }
+}
+
+/// Whether the entry `main` declares a fixed (non-rest, non-defaulted)
+/// parameter whose type is not a CLI scalar (`Str` or `Path`, the only types
+/// the compact runtime's auto-main dispatch can bind from script arguments).
+/// Such a `main` can never bind a script argument and never run under `xsh`, so
+/// it must be rejected at check/lowering time instead of failing at run time
+/// with `compact-unsupported-main`. The rule mirrors the runtime binder: a
+/// fixed scalar (`Str`/`Path`) parameter can bind a CLI argument, a fixed
+/// defaulted parameter can be satisfied by its default, and a rest parameter is
+/// always `List` and fine; only a non-defaulted fixed parameter of some other
+/// type (e.g. `List[Str]`) can never bind.
+fn compact_root_proc_main_unbindable_fixed_param(
+    program: &ArenaProgram,
+    root: &[StmtId],
+    indexed: &FullProgram,
+) -> Result<bool, crate::runtime::eval::indexed::IrVerifyError> {
+    let Some(main_def) = root.iter().copied().find_map(|stmt| match program.arena.stmt(stmt).kind {
+        ArenaStmtKind::Export(inner) => {
+            compact_root_proc_main_unbindable_fixed_param_inner(program, inner)
+        }
+        ArenaStmtKind::ProcDef(def)
+            if program
+                .arena
+                .function_def(def)
+                .name
+                == Name::intern("main") =>
+        {
+            Some(def)
+        }
+        _ => None,
+    }) else {
+        return Ok(false);
+    };
+    let def = program.arena.function_def(main_def);
+    let params = program.arena.params(def.params);
+    let Some(kinds) = indexed.function_param_kinds(
+        LoweredFunctionKey::Name(Name::intern("main")),
+        LoweredFunctionKind::Proc,
+    )?
+    else {
+        return Ok(false);
+    };
+    Ok(kinds.iter().enumerate().any(|(index, kind)| {
+        let param = params.get(index);
+        let rest = param.is_some_and(|param| param.rest);
+        let defaulted = param.is_some_and(|param| param.default.is_some());
+        !rest && !defaulted && !matches!(kind, LoweredType::Str | LoweredType::Path)
+    }))
+}
+
+fn compact_root_proc_main_unbindable_fixed_param_inner(
+    program: &ArenaProgram,
+    id: StmtId,
+) -> Option<crate::syntax::arena::FunctionDefId> {
+    match program.arena.stmt(id).kind {
+        ArenaStmtKind::Export(inner) => {
+            compact_root_proc_main_unbindable_fixed_param_inner(program, inner)
+        }
+        ArenaStmtKind::ProcDef(def)
+            if program
+                .arena
+                .function_def(def)
+                .name
+                == Name::intern("main") =>
+        {
+            Some(def)
         }
         _ => None,
     }

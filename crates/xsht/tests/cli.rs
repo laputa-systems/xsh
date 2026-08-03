@@ -1067,6 +1067,59 @@ fn check_compact_lowerability_accepts_lowered_record_methods() {
 }
 
 #[test]
+fn check_rejects_main_without_spread_parameter_but_accepts_spread() {
+    let root = TempDir::new().expect("create temp root");
+    let nonspread = root.path().join("nonspread.xsh");
+    fs::write(
+        &nonspread,
+        "proc main(argv: List[Str]) [env, error] {\n  print \"hello\"\n}\n",
+    )
+    .expect("write script");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+        .args(["check", "nonspread.xsh"])
+        .current_dir(root.path())
+        .output()
+        .expect("run xsht check");
+
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("compact.main-missing-spread"),
+        "stderr: {stderr}"
+    );
+    assert!(
+        stderr.contains("spread form `(...argv: List[Str])`"),
+        "stderr: {stderr}"
+    );
+
+    let spread = root.path().join("spread.xsh");
+    fs::write(
+        &spread,
+        "proc main(...argv: List[Str]) [fs, env, error] {\n  print \"hello\"\n}\n",
+    )
+    .expect("write script");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+        .args(["check", "spread.xsh"])
+        .current_dir(root.path())
+        .output()
+        .expect("run xsht check");
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn lint_returns_interrupted_status_for_pending_sigint() {
     let _lock = SIGNAL_TEST_LOCK.lock().unwrap();
     let _guard = xsh::runtime::process::install_cancellation_signal_handlers()
