@@ -499,3 +499,44 @@ fn api_module_overview_stays_concise() {
     assert!(!stdout.contains("signature: env."), "{stdout}");
     assert_eq!(String::from_utf8(output.stderr).unwrap(), "");
 }
+
+#[test]
+fn api_method_receiver_query_lists_every_method_of_a_type() {
+    let output = xsht(&["api", "method:Str"]);
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("utf8 stdout");
+    assert!(stdout.contains("status: matches"), "{stdout}");
+    // A bare receiver query lists the receiver's methods by id without error.
+    assert!(stdout.contains("api: method.Str.lower\n"), "{stdout}");
+    assert!(stdout.contains("purpose:"), "{stdout}");
+    // Like a module overview, a receiver overview stays concise: no full signature dump.
+    assert!(!stdout.contains("signature: Str.lower"), "{stdout}");
+    assert_eq!(String::from_utf8(output.stderr).unwrap(), "");
+}
+
+#[test]
+fn api_method_receiver_query_keeps_exact_member_lookup() {
+    let output = xsht(&["api", "method:Str.lower"]);
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("utf8 stdout");
+    assert!(stdout.contains("status: exact"), "{stdout}");
+    assert!(stdout.contains("api: method.Str.lower\n"), "{stdout}");
+    assert!(stdout.contains("contract:"), "{stdout}");
+    assert!(stdout.contains("signature: Str.lower"), "{stdout}");
+    assert_eq!(String::from_utf8(output.stderr).unwrap(), "");
+}
+
+#[test]
+fn api_method_receiver_works_for_path_constructor_receiver() {
+    // The Path constructor receiver shares the "Path" receiver name, so a bare
+    // receiver query lists its methods alongside the path methods.
+    let output = xsht(&["api", "method:Path"]);
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("utf8 stdout");
+    assert!(stdout.contains("status: matches"), "{stdout}");
+    assert!(stdout.contains("api: method.Path.ext\n"), "{stdout}");
+    assert_eq!(String::from_utf8(output.stderr).unwrap(), "");
+}
