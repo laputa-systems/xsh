@@ -540,3 +540,20 @@ fn api_method_receiver_works_for_path_constructor_receiver() {
     assert!(stdout.contains("api: method.Path.ext\n"), "{stdout}");
     assert_eq!(String::from_utf8(output.stderr).unwrap(), "");
 }
+
+#[test]
+fn api_core_bindings_names_var_and_let_immutability() {
+    let output = xsht(&["api", "language:core.bindings"]);
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("utf8 stdout");
+    assert!(stdout.contains("status: exact"), "{stdout}");
+    assert!(stdout.contains("api: language.core.bindings\n"), "{stdout}");
+    // The mutable-binding token must be discoverable from the reference, and
+    // `let` must be described as immutable, so a first-time agent writing a
+    // mutable counter does not have to guess `let mut` / `mut` / `let var`.
+    assert!(stdout.contains("var"), "{stdout}");
+    assert!(stdout.contains("let") && stdout.contains("immutable"), "{stdout}");
+    assert!(stdout.contains("let mut"), "{stdout}");
+    assert_eq!(String::from_utf8(output.stderr).unwrap(), "");
+}
