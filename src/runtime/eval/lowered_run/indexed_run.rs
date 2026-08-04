@@ -3870,7 +3870,16 @@ impl Evaluator {
                                 }
                             }
                             slots[slot] = LoweredValue::Unit;
-                            LoweredValue::List(output)
+                            if tee {
+                                // tee is a pass-through stage: it yields the
+                                // items unchanged for later stages. each is a
+                                // terminal stage that the checker types as Unit,
+                                // so its pipeline value must be Unit rather than
+                                // the drained (empty) list.
+                                LoweredValue::List(output)
+                            } else {
+                                LoweredValue::Unit
+                            }
                         }
                         FullStageTag::TablePrint => {
                             let columns = indexed_decode::<Option<Vec<String>>>(

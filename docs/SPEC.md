@@ -2742,16 +2742,19 @@ let warnings = fs.read_text(p"build.log")?
 ```
 
 Accepted **transformation** stage kinds include `where`, `map`, `par-map`,
-`each`, `batch`, `sort`, `sort-by`, `take`, `drop`, `unique-by`, `enumerate`,
+`batch`, `sort`, `sort-by`, `take`, `drop`, `unique-by`, `enumerate`,
 `zip`, `range`, `repeat`, `tee`, and `flat-map`. These produce a stream.
 
 Accepted **terminal** stage kinds: `count()`, `collect()`, `sum()`, `min()`,
 `max()`, `first()`, `last()`, `any`, `all`, `fold(init) { ... }`, `reduce`,
-`shuffle`, `group-by`, and `table.print(...)`. These produce a scalar,
+`shuffle`, `group-by`, `each`, and `table.print(...)`. These produce a scalar,
 materialized list, or consume the stream.
 
 `each` is for effects and accepts a block whose result is `Unit` or
-`Result[Unit]`. `map` and `par-map` are for values and require a final
+`Result[Unit]`. A pipeline that ends in a `Unit`-valued terminal stage such as
+`each` or `table.print(...)` evaluates to `Unit`, so it may be a procedure's
+final statement and is accepted by both `xsht check` and the runtime. `map`
+and `par-map` are for values and require a final
 expression or command tail value. Stage blocks may bind one explicit item
 parameter with `{ |item| ... }`, but the implicit `.` item is available in
 one-expression and multi-statement stage blocks.
