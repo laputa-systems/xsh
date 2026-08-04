@@ -185,7 +185,7 @@ The implemented v1 surface includes:
   defaulted parameters, plus default and rest parameters.
 - Expression-style pure and proc calls, plus fully qualified standard-module
   command calls for effectful APIs returning `Result[Unit]`.
-- `Ok(value)`, `Err(value)`, `fail(message)`, `Result`, postfix `?`,
+- `Ok(value)`, `Err(value)`, `Result`, postfix `?`,
   right-associative `??` fallback, `Result.context(...)`, and implicit
   `Ok(value)` wrapping for `Result[T]` tail values.
 - User-defined tag union types with exhaustiveness checking: `type Level = Info | Warn | Error(Str)`.
@@ -1144,15 +1144,9 @@ parameter binding.
 ```text
 Ok(value)
 Err(error)
-fail(message)
 ```
 
-`Ok()` is equivalent to `Ok(Unit)`. `fail(message)` constructs an
-`Err(Error)` validation failure with kind `validation`; its message must be a
-`Str`. It is intended for deliberate rejection of input and participates in
-ordinary postfix-`?` propagation without performing an unrelated host
-operation. A top-level propagated failure exits with the standard nonzero
-runtime status.
+`Ok()` is equivalent to `Ok(Unit)`.
 
 Postfix `?` can be applied only to a `Result`. If the value is `Ok(value)`,
 `?` evaluates to `value`. If the value is `Err(error)`, `?` returns

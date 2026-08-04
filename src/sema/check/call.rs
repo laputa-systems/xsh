@@ -568,16 +568,6 @@ impl Checker {
                 self.check_abort_call_arena(arena, source, args, span);
                 Type::Unit
             }
-            "fail" => {
-                if args.len() != 1 {
-                    self.error(span, "fail expects one message", "check.arity");
-                }
-                if let Some(arg) = args.first() {
-                    let actual = self.check_call_arg_arena(arena, source, &arg.kind, Some(&Type::Str));
-                    self.expect_type(&Type::Str, &actual, call_arg_span_arena(arena, &arg.kind));
-                }
-                Type::Result(Box::new(Type::Unit), Box::new(Type::Error))
-            }
             "env" => {
                 self.check_expr_arg_list_arena(arena, source, args, &[Type::Str], span);
                 Type::Result(Box::new(Type::Str), Box::new(Type::Error))

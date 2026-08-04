@@ -5609,20 +5609,6 @@ impl Evaluator {
                 };
                 ControlFlow::Continue(LoweredValue::ResultErr(Box::new(value.into_value())))
             }
-            FullTag::ExprFail => {
-                let value = indexed_raw(&mut payload, call_span)?;
-                indexed_finish(payload, call_span)?;
-                let value = match self.eval_indexed_expr(execution, value, slots, call_span)? {
-                    ControlFlow::Continue(value) => value,
-                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
-                };
-                let LoweredValue::Str(message) = value else {
-                    return Err(RuntimeError::new("type-error", "fail expects Str").with_span(call_span));
-                };
-                ControlFlow::Continue(LoweredValue::ResultErr(Box::new(Value::Error(Box::new(
-                    RuntimeError::new("validation", message.to_string()).with_span(call_span),
-                )))))
-            }
             FullTag::ExprError => {
                 let error = match indexed_raw(&mut payload, call_span)? {
                     0 => {

@@ -186,7 +186,6 @@ pub(in crate::runtime::eval) enum FullTag {
     ExprAbort,
     ExprOk,
     ExprErr,
-    ExprFail,
     ExprError,
     ExprTry,
     ExprCall,
@@ -6836,9 +6835,6 @@ impl_node_codec! {
         BuildExprRow::Err(value) => ExprErr {
             value: BuildExprId,
         } => BuildExprRow::Err(value),
-        BuildExprRow::Fail(value) => ExprFail {
-            value: BuildExprId,
-        } => BuildExprRow::Fail(value),
         BuildExprRow::Error(value) => ExprError {
             value: Box<LoweredErrorExpr>,
         } => BuildExprRow::Error(value),
