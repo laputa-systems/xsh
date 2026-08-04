@@ -126,6 +126,15 @@ fn small_stack_nested_result_record_materialization_does_not_abort() {
 }
 
 #[test]
+fn small_stack_nested_format_method_calls_do_not_abort() {
+    let output = run_small_stack_stress(
+        "stack-depth-nested-format-method-calls",
+        include_str!("../fixtures/runtime/stack-depth/nested-result-string-transform.xsh"),
+    );
+    assert_eq!(String::from_utf8(output.stdout).unwrap(), "MT_TOOL_MAX\n");
+}
+
+#[test]
 fn small_stack_indexed_frames_run_defers_on_abort() {
     let output = run_temp_script_with_env(
         "stack-depth-indexed-frame-defer",

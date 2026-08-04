@@ -1,15 +1,16 @@
 use super::{
     Arc, AssignOp, BLOCK_LIST, BLOCK_STATEMENTS, BTreeMap, BinaryOp, ControlFlow, Evaluator,
-    FullExecution, FullFunctionView, FullPayload, FullProgram, FullTag, FunctionHeader,
+    FormatSpec, FullExecution, FullFunctionView, FullPayload, FullProgram, FullTag, FunctionHeader,
     LoweredCompTarget, LoweredFunctionKey, LoweredFunctionKind, LoweredReturnKind, LoweredType,
-    LoweredTypeCheck, LoweredValue, Name, RuntimeError, Span, StmtFlow, TraceKind, TracePayload,
+    LoweredTypeCheck, LoweredValue, Name, PathValue, RuntimeError, Span, StmtFlow, TraceKind,
+    TracePayload,
     TracebackFrame, TracebackFrameKind, assign_lowered_bytes_view, assign_lowered_str_view,
     bind_lowered_comp_target, indexed_decode, indexed_error, indexed_finish, indexed_optional_raw,
     indexed_raw, indexed_string, indexed_value, lowered_assign_value, lowered_binary_value,
     lowered_bytes_parts, lowered_freeze_large_slot_list, lowered_match_no_arm,
     lowered_record_vec_append_or_replace_unsorted, lowered_record_vec_or_stats,
     lowered_result_err_value, lowered_result_ok, lowered_return_value, lowered_splice_arg_items,
-    lowered_str_parts, lowered_value_satisfies_require,
+    lowered_str_parts, lowered_value_satisfies_require, push_lowered_fmt_value,
 };
 
 enum FrameValue {
@@ -17,9 +18,9 @@ enum FrameValue {
     Break(LoweredValue),
 }
 
-// Compound expressions must stay in the active heap-backed frame machine. Falling back to the
-// recursive evaluator here would nest another explicit runner for each Result call in the
-// expression and consume native stack even when the outer loop itself is iterative.
+// Compound expressions and formatted strings must stay in the active heap-backed frame machine.
+// Falling back to the recursive evaluator here would nest another explicit runner for each Result
+// call in the expression and consume native stack even when the outer loop itself is iterative.
 enum FrameRecordEntry {
     Field { name: Name, instruction: u32 },
     Spread(u32),
@@ -36,6 +37,19 @@ struct ListCompState {
     values: Vec<LoweredValue>,
     map_values: BTreeMap<String, LoweredValue>,
     span: Span,
+}
+
+struct FmtState {
+    parts: Vec<FmtPart>,
+    index: usize,
+    text: String,
+    path_span: Option<Span>,
+}
+
+#[derive(Clone)]
+enum FmtPart {
+    Text(Arc<str>),
+    Expr(u32, Span, Option<FormatSpec>),
 }
 
 enum FrameContinuation {
@@ -148,6 +162,12 @@ enum FrameContinuation {
         index: usize,
         values: Vec<LoweredValue>,
         span: Span,
+        next: Box<FrameContinuation>,
+    },
+    FmtValue {
+        state: FmtState,
+        span: Span,
+        spec: Option<FormatSpec>,
         next: Box<FrameContinuation>,
     },
     ResultFallback {
@@ -1049,6 +1069,53 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     },
                 );
             }
+            FullTag::ExprFmtString | FullTag::ExprPathFmtString => {
+                let path = tag == FullTag::ExprPathFmtString;
+                let (_, mut encoded_parts) = self.calls[index]
+                    .execution
+                    .block(&mut payload, BLOCK_LIST)
+                    .map_err(|error| indexed_error(error, span))?;
+                let len = indexed_raw(&mut encoded_parts, span)? as usize;
+                let mut parts = Vec::with_capacity(len);
+                for _ in 0..len {
+                    match indexed_raw(&mut encoded_parts, span)? {
+                        0 => parts.push(FmtPart::Text(indexed_decode(
+                            &mut encoded_parts,
+                            &self.calls[index].execution,
+                            span,
+                        )?)),
+                        1 => parts.push(FmtPart::Expr(
+                            indexed_raw(&mut encoded_parts, span)?,
+                            indexed_decode(&mut encoded_parts, &self.calls[index].execution, span)?,
+                            indexed_decode(&mut encoded_parts, &self.calls[index].execution, span)?,
+                        )),
+                        _ => {
+                            return Err(RuntimeError::new(
+                                "indexed-ir",
+                                "invalid indexed format part",
+                            )
+                            .with_span(span));
+                        }
+                    }
+                }
+                indexed_finish(encoded_parts, span)?;
+                let path_span = if path {
+                    Some(indexed_decode(&mut payload, &self.calls[index].execution, span)?)
+                } else {
+                    None
+                };
+                indexed_finish(payload, span)?;
+                self.step_fmt(
+                    index,
+                    FmtState {
+                        parts,
+                        index: 0,
+                        text: String::new(),
+                        path_span,
+                    },
+                    next,
+                )?;
+            }
             FullTag::ExprResultFallback => {
                 let left = indexed_raw(&mut payload, span)?;
                 let right = indexed_raw(&mut payload, span)?;
@@ -1688,6 +1755,20 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     return self.complete_call(index, StmtFlow::Return(value));
                 }
             },
+            FrameContinuation::FmtValue {
+                mut state,
+                span,
+                spec,
+                next,
+            } => match value {
+                FrameValue::Value(value) => {
+                    push_lowered_fmt_value(&mut state.text, &value, span, spec.as_ref())?;
+                    self.step_fmt(index, state, *next)?;
+                }
+                FrameValue::Break(value) => {
+                    return self.complete_call(index, StmtFlow::Return(value));
+                }
+            },
             FrameContinuation::ResultFallback { right, span, next } => match value {
                 FrameValue::Value(LoweredValue::ResultOk(value)) => {
                     self.push_value(index, FrameValue::Value(*value), *next)
@@ -1967,6 +2048,46 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         };
         self.push_value(index, result, next);
         Ok(())
+    }
+
+    fn step_fmt(
+        &mut self,
+        index: usize,
+        mut state: FmtState,
+        next: FrameContinuation,
+    ) -> Result<(), RuntimeError> {
+        loop {
+            let Some(part) = state.parts.get(state.index).cloned() else {
+                let value = if let Some(span) = state.path_span {
+                    LoweredValue::Path(
+                        PathValue::from_text(state.text)
+                            .map_err(|error| error.with_span(span))?,
+                    )
+                } else {
+                    LoweredValue::Str(state.text.into())
+                };
+                self.push_value(index, FrameValue::Value(value), next);
+                return Ok(());
+            };
+            state.index += 1;
+            match part {
+                FmtPart::Text(text) => state.text.push_str(&text),
+                FmtPart::Expr(instruction, span, spec) => {
+                    self.push_expr(
+                        index,
+                        instruction,
+                        span,
+                        FrameContinuation::FmtValue {
+                            state,
+                            span,
+                            spec,
+                            next: Box::new(next),
+                        },
+                    );
+                    return Ok(());
+                }
+            }
+        }
     }
 
     fn finish_deferred_call(&mut self, index: usize, flow: StmtFlow) -> Result<(), RuntimeError> {
