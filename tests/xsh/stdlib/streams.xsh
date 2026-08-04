@@ -696,6 +696,19 @@ proc test_structured_streams_walk_filter_map_collect_and_count(ctx: TestContext)
   test.eq(count, 2)?
 }
 
+proc test_direct_collect_of_lazy_module_stream_is_a_list(ctx: TestContext) [fs, error] {
+  let root = test.temp_dir(ctx, name: "stream-direct-collect")?
+  fp"${root}/a.txt".write("a")?
+  fp"${root}/b.txt".write("b")?
+  fp"${root}/c.txt".write("c")?
+  # A module-produced lazy stream piped straight into the collect terminal, with
+  # no intervening transformation stage, must lower and run as a materialized
+  # list (regression: the direct result was mis-typed as a stream, so `len` was
+  # rejected and the pipeline failed to compile).
+  let all = fs.files(root) |> collect()
+  test.eq(all.len(), 3)?
+}
+
 proc test_table_print_wraps_cells_to_terminal_width(ctx: TestContext) [error] {
   let output = test.run_script(
     ctx,
