@@ -627,6 +627,28 @@ proc test_sort_by_compound_record_keys_and_stability() [error] {
   test.eq(whole, direct)?
 }
 
+proc test_sort_by_map_accumulator_any_typed_fields() [error] {
+  # Map.empty() is Map[Any], so Map.get(k, 0) yields an Any-typed field. A
+  # sort-by over such a field must checker-accept the same way the runtime does
+  # (the actual value is a supported scalar Int), matching the loud-failure
+  # gate in lower/ops.
+  let counts = map.empty()
+  let keys = ["b", "a"]
+  let acc = counts.set("a", 2).set("b", 1)
+
+  let by_count = keys
+    |> map { |k| {count: acc.get(k, 0), ext: k} }
+    |> sort-by .count
+  test.eq(by_count, [{count: 1, ext: "b"}, {count: 2, ext: "a"}])?
+
+  # The list-comprehension equivalent accepts and sorts identically.
+  let by_count_comp = [
+    {count: acc.get(k, 0), ext: k}
+    for k in keys
+  ] |> sort-by .count
+  test.eq(by_count_comp, by_count)?
+}
+
 proc test_structured_stream_batch_count_and_argv_limits() [process, error] {
   let by_count = [1, 2, 3, 4, 5] |> batch --count=2
   let by_size = [p"aaaa", p"bbbb", p"cccc"] |> batch --max-bytes=10
