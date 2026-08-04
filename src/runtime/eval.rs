@@ -1585,6 +1585,7 @@ enum BuildExprRow {
     },
     Ok(BuildExprId),
     Err(BuildExprId),
+    Fail(BuildExprId),
     // Boxed: `LoweredErrorExpr::Structured` inlines two `String`s plus two
     // `Vec`s (~96 bytes) that would otherwise size every `BuildExprId` variant
     // for the sake of the comparatively rare structured-error-literal case.

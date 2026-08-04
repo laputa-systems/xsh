@@ -9634,6 +9634,17 @@ impl CompactLowerConstructProbe<'_, '_> {
                         }
                     ));
                 }
+                if name == "fail"
+                    && let Some(positional) = positional_call_args(&args_vec)
+                    && let [message] = positional.as_slice()
+                {
+                    let message = self.lower_expr(*message, slots, current_function, item_slot)?;
+                    return Some(push_build_row!(
+                        self,
+                        expr,
+                        BuildExprRow::Fail(message)
+                    ));
+                }
                 let positional = positional_call_args(&args_vec);
                 if let Some(arity) = self.compact_tag_variant_arity(name) {
                     let positional = positional.as_ref()?;

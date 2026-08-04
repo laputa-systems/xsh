@@ -94,6 +94,21 @@ proc test_result_unit_statements_propagate_by_default() [time, error] {
   time.sleep(1ms)
 }
 
+proc test_fail_constructor_propagates_validation_error(ctx: TestContext) [error] {
+  let output = test.run_script(
+    ctx,
+    """
+if true {
+  fail("invalid configuration")?
+}
+fs.write(p"never-created", "bad")?
+""",
+  )?
+  test.ok(! output.success, output.stdout)?
+  test.ok(output.status != 0, output.stderr)?
+  test.eq(output.stdout, "")?
+}
+
 proc test_script_stdout_can_emit_invalid_utf8_bytes() [error, io] {
   io.write_stdout_bytes(b"\xff\0a")?
 }
