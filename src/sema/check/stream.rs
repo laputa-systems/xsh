@@ -830,9 +830,16 @@ fn result_ok_or_self(ty: &Type) -> Type {
 /// ordering. Records are orderable when every field is itself orderable; the
 /// runtime comparator in `lowered_ops.rs` implements the same surface so a
 /// checked program and an unchecked `xsh` run agree on what can sort.
+///
+/// `Unknown` and `Any` are accepted to match the runtime: an `Any`-typed key
+/// (for example a record field produced by `Map.get(key, fallback)`) is the
+/// static view of a value that is a supported scalar (Int, Str, Bool, Path) at
+/// runtime. The runtime `lowered_sort_key_orderable` still fails loudly when the
+/// actual value is not orderable, so the checker and the runtime agree on every
+/// program that runs correctly.
 fn is_sortable_key_type(ty: &Type) -> bool {
     match ty {
-        Type::Int | Type::Str | Type::Bool | Type::Path | Type::Unknown => true,
+        Type::Int | Type::Str | Type::Bool | Type::Path | Type::Unknown | Type::Any => true,
         Type::Record(fields) => fields.values().all(is_sortable_key_type),
         _ => false,
     }

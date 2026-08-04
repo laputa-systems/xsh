@@ -2802,7 +2802,11 @@ stages.
 
 `sort` and `sort-by` order by a defined key ordering. Supported items and
 projected keys are `Int`, `Str`, `Bool`, `Path`, and `Record`s whose fields are
-themselves supported (recursively). Records compare field by field in sorted
+themselves supported (recursively). Statically-`Any`/unknown keys (for example
+an `Any`-typed record field produced by `Map.get(key, fallback)` on a
+`Map[Any]`) are also accepted because the runtime sorts the actual supported
+scalar value; such keys fail loudly at runtime only when the actual value is
+not orderable. Records compare field by field in sorted
 field-name order, so `sort-by { |r| {c: r.count, n: r.name} }` sorts by `count`
 then `name`. The default order is ascending and `--desc` reverses it. Both
 stages are stable: items with equal keys keep their source order, so sorting by
