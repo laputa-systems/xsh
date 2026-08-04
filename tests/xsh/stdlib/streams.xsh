@@ -55,6 +55,37 @@ beta
     6,
   )?
 
+  # Accumulator-plus-item form: the block binds the accumulator (typed by the
+  # initial value) before the stream item, and the tail produces the accumulator.
+  test.eq(
+    [1, 2, 3]
+      |> fold(0) { |acc, it|
+        acc + it
+      },
+    6,
+  )?
+
+  test.eq(
+    [1, 2, 3]
+      |> reduce(10) { |acc, it|
+        acc + it
+      },
+    16,
+  )?
+
+  # A bare accumulator-ident tail no longer trips the indexed IR builder; it
+  # returns the running accumulator unchanged.
+  test.eq([1, 2, 3] |> fold(0) { |x| x }, 0)?
+
+  # Counting through fold without group-by: the accumulator is a Map and the
+  # item a Str, which the two-parameter binding types correctly.
+  let fold_counts = ["a", "b", "a", "c"]
+    |> fold(map.empty()) { |acc, it| acc.set(it, acc.get(it, 0) + 1) }
+  test.eq(fold_counts.get("a", 0), 2)?
+  test.eq(fold_counts.get("b", 0), 1)?
+  test.eq(fold_counts.get("c", 0), 1)?
+  test.eq(fold_counts.len(), 3)?
+
   test.eq(
     [1, 2, 3]
       |> reduce(10) { |acc|

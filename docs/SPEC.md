@@ -2757,7 +2757,11 @@ final statement and is accepted by both `xsht check` and the runtime. `map`
 and `par-map` are for values and require a final
 expression or command tail value. Stage blocks may bind one explicit item
 parameter with `{ |item| ... }`, but the implicit `.` item is available in
-one-expression and multi-statement stage blocks.
+one-expression and multi-statement stage blocks. `fold`/`reduce` additionally
+accept a two-parameter block `{ |acc, item| ... }` whose first parameter is the
+accumulated value (typed by the initial value) and whose second is the stream
+item; the block's tail must produce the accumulator's type, and the stage
+returns that accumulated value.
 
 A tail proc call with `?` unwraps the `Ok` value and propagates errors: if
 any item fails, the entire stage short-circuits with that error. Without

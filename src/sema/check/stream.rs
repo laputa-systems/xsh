@@ -321,7 +321,12 @@ impl Checker {
                     .first()
                     .map(|arg| self.check_call_arg_arena(arena, source, &arg.kind, None))
                     .unwrap_or(Type::Unknown);
-                let actual = self.check_required_stream_block_arena(arena, source, stage, &item_ty);
+                // A `fold`/`reduce` block binds the accumulator (typed by the
+                // initial value) before the stream item, so it accepts up to
+                // two parameters: `|acc, item| ...`. The tail must produce the
+                // accumulator type.
+                let actual =
+                    self.check_fold_stream_block_arena(arena, source, stage, &acc_ty, &item_ty);
                 let actual = result_ok_or_self(&actual);
                 self.expect_type(&acc_ty, &actual, stage_span);
                 acc_ty
@@ -462,30 +467,74 @@ impl Checker {
             );
             return Type::Unknown;
         };
-        self.check_stream_block_arena(arena, source, block, item_ty)
+        self.check_stream_block_params_arena(
+            arena,
+            source,
+            block,
+            &[item_ty.clone()],
+            1,
+            item_ty,
+        )
     }
 
-    fn check_stream_block_arena(
+    /// `fold`/`reduce` blocks bind the accumulator (typed by the stage's
+    /// initial value) before the stream item, so the block may take up to two
+    /// parameters: `fold(init) { |acc, item| ... }`. The tail must still
+    /// produce the accumulator type.
+    fn check_fold_stream_block_arena(
+        &mut self,
+        arena: &ArenaProgram,
+        source: &str,
+        stage: &ArenaStreamStage,
+        acc_ty: &Type,
+        item_ty: &Type,
+    ) -> Type {
+        let Some(block) = stage.block else {
+            self.error(
+                arena.arena.span(stage.span),
+                "stream stage requires a block",
+                "check.stream-stage-block",
+            );
+            return Type::Unknown;
+        };
+        self.check_stream_block_params_arena(
+            arena,
+            source,
+            block,
+            &[acc_ty.clone(), item_ty.clone()],
+            2,
+            item_ty,
+        )
+    }
+
+    fn check_stream_block_params_arena(
         &mut self,
         arena: &ArenaProgram,
         source: &str,
         block_id: crate::syntax::arena::BlockId,
+        param_tys: &[Type],
+        max_params: usize,
         item_ty: &Type,
     ) -> Type {
         let block = arena.arena.block(block_id);
         let params = arena.arena.block_params(block.params);
-        if params.len() > 1 {
+        if params.len() > max_params {
             self.error(
-                arena.arena.span(params[1].span),
-                "stream stage blocks accept at most one parameter",
+                arena.arena.span(params[max_params].span),
+                if max_params == 1 {
+                    "stream stage blocks accept at most one parameter"
+                } else {
+                    "fold/reduce blocks accept at most two parameters (accumulator, item)"
+                },
                 "check.stream-block-params",
             );
         }
         self.push_scope();
-        if let Some(param) = params.first() {
+        for (index, param) in params.iter().take(max_params).enumerate() {
+            let ty = param_tys.get(index).cloned().unwrap_or(Type::Unknown);
             self.define(
                 param.name,
-                Binding::new(item_ty.clone(), false),
+                Binding::new(ty, false),
                 arena.arena.span(param.span),
             );
         }

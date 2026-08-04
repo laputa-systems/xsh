@@ -10739,9 +10739,6 @@ impl CompactLowerConstructProbe<'_, '_> {
         let statements = self.program.arena.block(block).statements;
         let ids = self.program.arena.stmt_ids(statements).collect::<Vec<_>>();
         let (&tail, prefix) = ids.split_last()?;
-        let ArenaStmtKind::Expr(expr) = self.program.arena.stmt(tail).kind else {
-            return None;
-        };
         let initial = self.lower_expr(initial, slots, current_function, None)?;
         let saved = slots.enter();
         let params = self
@@ -10796,7 +10793,12 @@ impl CompactLowerConstructProbe<'_, '_> {
             }
             body.push(lowered);
         }
-        let value = match self.lower_expr(expr, slots, current_function, Some(item_slot)) {
+        let value = match self.lower_tail_stmt_as_expr(
+            tail,
+            slots,
+            current_function,
+            Some(item_slot),
+        ) {
             Some(value) => value,
             None => {
                 slots.exit(saved);

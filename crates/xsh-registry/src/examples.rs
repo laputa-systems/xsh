@@ -67,6 +67,8 @@ pub(crate) fn source(id: &str) -> Option<String> {
             include_str!("../../../docs/snippets/api/stream-par-map.xsh")
         }
         "language.stream.where" => include_str!("../../../docs/snippets/api/stream-where.xsh"),
+        "language.stream.fold" => include_str!("../../../docs/snippets/api/stream-fold.xsh"),
+        "language.stream.reduce" => include_str!("../../../docs/snippets/api/stream-reduce.xsh"),
         "language.core.procs" => include_str!("../../../docs/snippets/api/core-procs.xsh"),
         "language.core.pure-functions" => {
             include_str!("../../../docs/snippets/api/core-pure-functions.xsh")

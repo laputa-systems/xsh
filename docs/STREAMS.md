@@ -61,6 +61,10 @@ eager vec handlers and the lazy sinks.
 - **Folding** (`count`/`sum`/`min`/`max`/`last`/`fold`/`reduce`): fold one item at
   a time into O(1) state (`CountSink`, `SumSink`, …) — no materialization. So
   `fs.walk |> where … |> count()` is O(1) live memory.
+  `fold(init)`/`reduce(init)` use an explicit accumulator block that binds the
+  accumulator (typed by the initial value) first and the stream item second:
+  `|> fold(0) { |acc, item| acc + item }`. It is a sequential user combine with
+  no merge function and returns that accumulator.
 - **Explicit materialization** (`collect()`): drain to a `List[T]`, equivalent
   to the automatic collection that happens when a non-terminal pipeline reaches
   an expression boundary.
