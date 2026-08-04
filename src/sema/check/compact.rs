@@ -1332,7 +1332,7 @@ impl CompactBodyProbe<'_> {
                 Some(binding) if !binding.mutable => {
                     self.error(
                         span,
-                        "assignment to immutable `let` binding",
+                        "assignment to immutable `let` binding; declare with `var` to allow reassignment",
                         "check.assign-let",
                     );
                 }

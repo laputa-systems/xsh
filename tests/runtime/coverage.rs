@@ -10,6 +10,12 @@ fn reassigning_let_is_check_error() {
 
     assert_exit(&output, 2);
     assert_stderr_contains(&output, "check.assign-let");
+    // The diagnostic should teach the discoverable mutable-binding token.
+    let stderr = String::from_utf8(output.stderr).expect("utf8 stderr");
+    assert!(
+        stderr.contains("declare with `var`"),
+        "expected assign-let diagnostic to name `var`: {stderr}"
+    );
 
     std::fs::remove_file(path).expect("remove temp script");
 }

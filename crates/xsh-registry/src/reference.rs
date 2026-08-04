@@ -427,7 +427,7 @@ fn core_doc(item: &str) -> ReferenceDoc {
         "source-files" => ("Defines source-file and module loading boundaries.", "Source files are parsed and checked as modules; imports retain their source boundaries for diagnostics and runtime loading."),
         "comments" => ("Defines XSH comments and documentation comments.", "Documentation comments participate in exported-module contracts while ordinary comments remain source trivia."),
         "statements" => ("Defines statement sequencing and result propagation.", "Statement position applies the language's success and error propagation rules rather than silently discarding Result values."),
-        "bindings" => ("Defines typed bindings and assignment scope.", "Bindings have declared mutability and type boundaries; reassignment cannot create an invalid inferred state."),
+        "bindings" => ("Defines typed bindings and assignment scope.", "Bindings are immutable with `let`; declare a reassignable binding with `var` (`var x = 0; x = x + 1`). `let mut` is not valid syntax. Reassignment cannot create an invalid inferred state."),
         "procs" => ("Defines procedure declarations and calls.", "Procedure calls preserve lexical scope, declared effects, return types, and runtime trace containment."),
         "pure-functions" => ("Defines effect-free function declarations.", "Pure functions cannot cross host-effect boundaries and retain a distinct trace/evaluation contract."),
         "records" => ("Defines structural and named record values.", "Named records are checked at their boundary; dynamic record access must be narrowed before typed field use."),
