@@ -211,7 +211,6 @@ pub const CORE_LANGUAGE_ITEMS: &[&str] = &[
     "pure-functions",
     "records",
     "results",
-    "fail",
     "postfix-question",
     "fallback",
     "run",
@@ -433,15 +432,6 @@ fn core_doc(item: &str) -> ReferenceDoc {
         "pure-functions" => ("Defines effect-free function declarations.", "Pure functions cannot cross host-effect boundaries and retain a distinct trace/evaluation contract."),
         "records" => ("Defines structural and named record values.", "Named records are checked at their boundary; dynamic record access must be narrowed before typed field use."),
         "results" => ("Defines Result values and error families.", "Expected host failures remain Result data until ? or another explicit boundary propagates them."),
-        "fail" => {
-            return reference_doc_full(
-                "Constructs a deliberate validation failure.",
-                "`fail(message)` constructs an `Err(Error)` validation failure with kind `validation`; postfix `?` propagates it without performing a host operation, and a top-level propagation exits nonzero.",
-                &["language", "fail", "validation", "error"],
-                "fail(message: Str) -> Result[Unit, Error]",
-                &[],
-            )
-        }
         "postfix-question" => ("Defines postfix ? error propagation.", "? unwraps a Result or returns its error and requires the declared error effect outside retry attempt blocks."),
         "fallback" => ("Defines fallback expressions for recoverable values.", "Fallback applies only to the documented missing/failed shape and does not erase unrelated errors."),
         "run" => ("Defines process run forms and status boundaries.", "Statement, value, status, capture, and stream forms differ in whether a nonzero child exit is asserted, returned, or wrapped as Result data."),
