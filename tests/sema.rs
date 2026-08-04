@@ -625,6 +625,35 @@ let byte_count = "hé".count_bytes()
 }
 
 #[test]
+fn checker_handles_fold_accumulator_plus_item_blocks() {
+    // The two-parameter accumulator form types the first param as the
+    // accumulator (initial value) and the second as the stream item; the tail
+    // must return the accumulator type.
+    let sum = check(
+        r#"
+let total = [1, 2, 3] |> fold(0) { |acc, it| acc + it }
+let counted = ["a", "b", "a"] |> fold(map.empty()) { |acc, it| acc.set(it, acc.get(it, 0) + 1) }
+"#,
+    );
+    assert_no_codes(
+        &sum,
+        &["check.stream-block-params", "check.type-mismatch", "check.arity"],
+    );
+
+    // A bare accumulator tail compiles and is no longer an IR-blocked form.
+    let bare = check("let x = [1, 2] |> fold(0) { |acc| acc }\n");
+    assert_no_codes(&bare, &["check.stream-block-params", "check.unresolved-name"]);
+
+    // A three-parameter fold block is rejected with a fold-specific diagnostic.
+    let three = check("let x = [1, 2] |> fold(0) { |acc, it, extra| acc + it }\n");
+    assert!(has_code(&three, "check.stream-block-params"));
+
+    // Non-fold stream stages still accept at most one parameter.
+    let map_two = check("let x = [1, 2] |> map { |a, b| a }\n");
+    assert!(has_code(&map_two, "check.stream-block-params"));
+}
+
+#[test]
 fn checker_handles_user_stream_producers() {
     let ok = check(
         r#"
