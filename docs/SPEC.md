@@ -2770,7 +2770,8 @@ any item fails, the entire stage short-circuits with that error. Without
 This lets the caller choose between short-circuit semantics (use `?`) and
 collect-all semantics (omit `?`), matching how Rust's rayon, Go's
 goroutines, and Haskell's `parMap` separate parallelism from error
-handling.
+handling. The unwrapped value may be used inline as a receiver in the same
+expression, for example `map { |s| (s.split(".") |> last())?.lower() }`.
 
 `where`, `any`, and `all` require `Bool` or `Result[Bool]`. `min()` and
 `max()` return `Result[T]`. `first()` and `last()` return `Result[T]`.
