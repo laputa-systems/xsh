@@ -4707,6 +4707,24 @@ impl CompactLowerConstructProbe<'_, '_> {
                 fields.insert(Name::intern("value"), value);
                 Some(Type::List(Box::new(Type::Record(fields))))
             }
+            StreamStageKind::First
+            | StreamStageKind::Last
+            | StreamStageKind::Min
+            | StreamStageKind::Max => {
+                // These terminals consume the stream and return a single item;
+                // in this build `first`/`last`/`min`/`max` yield a `Result`, so
+                // the pipeline carries a `Result<item, Error>` until a postfix
+                // `?` (or null-safe receiver) unwraps it. Without this the
+                // lightweight slot inference falls through to the input list
+                // type, so a null-safe method call such as
+                // `(s.split(".") |> last())?.lower()` is mistaken for a method
+                // on the list and wrongly rejected as an IR blocker.
+                let item = match input {
+                    Type::List(item) | Type::Stream(item) => item.as_ref().clone(),
+                    _ => return None,
+                };
+                Some(Type::Result(Box::new(item), Box::new(Type::Error)))
+            }
             StreamStageKind::Collect => match input {
                 Type::List(item) | Type::Stream(item) => Some(Type::List(item.clone())),
                 _ => None,

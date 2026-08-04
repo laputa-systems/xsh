@@ -73,6 +73,24 @@ beta
     16,
   )?
 
+  # A postfix `?` inside a stream-stage closure, followed by a method call on
+  # the unwrapped value, must compile and propagate normally instead of
+  # tripping the compact indexed-IR `full_ir_function_blocker`. The blocker was
+  # caused by the slot-based pipeline inference mis-typing a `first`/`last`/
+  # `min`/`max` terminal as its input list, so the `.lower()` on the unwrapped
+  # item was mistaken for a method on the list.
+  let ext_lower = ["a.TXT", "b.com"]
+    |> map { |s| (s.split(".") |> last())?.lower() }
+    |> collect()
+  test.eq(ext_lower, ["txt", "com"])?
+
+  # A bare trailing `?` (no method tail) in a stage block is still accepted and
+  # unwraps the terminal result inside the closure.
+  let firsts = [["a"], ["b"], ["c"]]
+    |> map { |row| row.get(0)? }
+    |> collect()
+  test.eq(firsts, ["a", "b", "c"])?
+
   # A bare accumulator-ident tail no longer trips the indexed IR builder; it
   # returns the running accumulator unchanged.
   test.eq([1, 2, 3] |> fold(0) { |x| x }, 0)?
