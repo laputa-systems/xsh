@@ -110,6 +110,7 @@ enum Selector {
     Module(String),
     Api(String, String),
     Method(String, String),
+    MethodReceiver(String),
     Record(String),
     Language(String),
     Search(String),
@@ -331,7 +332,7 @@ const INTRO_SCRIPT: &str = include_str!("../../../docs/snippets/api/hello.xsh");
 
 fn intro_text() -> String {
     format!(
-        "XSH API getting started\n\nWrite this as hello.xsh:\n\n{}\n\nBasic development loop:\n  xsht check hello.xsh\n  xsht fmt hello.xsh\n  xsht lint hello.xsh\n  xsh hello.xsh\n\nAsk for language rules, a module overview, or one exact API item:\n  xsht api language:core\n  xsht api module:fs\n  xsht api api:fs.read_text\n  xsht api method:Path.read_text\n  xsht api record:FsEntry\n  xsht api search:rooted extraction\n\nExact API items include purpose, contract, effects, signatures, tags, and a small example when one is useful. Use `xsht api summary` for the complete index and `--format jsonl` for machine-readable output.\n",
+        "XSH API getting started\n\nWrite this as hello.xsh:\n\n{}\n\nBasic development loop:\n  xsht check hello.xsh\n  xsht fmt hello.xsh\n  xsht lint hello.xsh\n  xsh hello.xsh\n\nAsk for language rules, a module or receiver overview, or one exact API item:\n  xsht api language:core\n  xsht api module:fs\n  xsht api method:Str\n  xsht api api:fs.read_text\n  xsht api method:Path.read_text\n  xsht api record:FsEntry\n  xsht api search:rooted extraction\n\n`method:Str` lists every method on the Str receiver by purpose; append a member name (method:Str.lower) to read one exact item. Exact API items include purpose, contract, effects, signatures, tags, and a small example when one is useful. Use `xsht api summary` for the complete index and `--format jsonl` for machine-readable output.\n",
         INTRO_SCRIPT.trim_end(),
     )
 }
@@ -364,6 +365,7 @@ fn intro_jsonl() -> String {
             "language:core".to_string(),
             "module:fs".to_string(),
             "api:fs.read_text".to_string(),
+            "method:Str".to_string(),
             "method:Path.read_text".to_string(),
             "record:FsEntry".to_string(),
             "search:rooted extraction".to_string(),
@@ -395,8 +397,14 @@ fn parse_selector(raw: &str) -> Result<Selector, String> {
         "module" => Ok(Selector::Module(value.to_string())),
         "api" => split_member_selector(raw, value)
             .map(|(module, function)| Selector::Api(module, function)),
-        "method" => split_member_selector(raw, value)
-            .map(|(receiver, method)| Selector::Method(receiver, method)),
+        "method" => {
+            if value.contains('.') {
+                split_member_selector(raw, value)
+                    .map(|(receiver, method)| Selector::Method(receiver, method))
+            } else {
+                Ok(Selector::MethodReceiver(value.to_string()))
+            }
+        }
         "record" => Ok(Selector::Record(value.to_string())),
         "language" => Ok(Selector::Language(value.to_string())),
         "search" => Ok(Selector::Search(value.to_string())),
@@ -439,6 +447,14 @@ fn select(catalog: &[ApiItem], selector: &Selector) -> Vec<ApiItem> {
             })
             .cloned()
             .collect(),
+        Selector::MethodReceiver(receiver) => catalog
+            .iter()
+            .filter(|item| {
+                item.kind == "method"
+                    && item.id.starts_with(&format!("method.{receiver}."))
+            })
+            .cloned()
+            .collect(),
         Selector::Record(record) => catalog
             .iter()
             .filter(|item| item.id == format!("record.{record}"))
@@ -467,7 +483,9 @@ fn default_details(selector: &Selector, matches: &[ApiItem]) -> ApiDetails {
         Selector::Module(_) if matches.len() == 1 && matches[0].kind == "module-function" => {
             ApiDetails::Full
         }
-        Selector::Module(_) | Selector::Search(_) => ApiDetails::Basic,
+        Selector::Module(_) | Selector::MethodReceiver(_) | Selector::Search(_) => {
+            ApiDetails::Basic
+        }
         Selector::Language(_) => ApiDetails::Full,
         Selector::Api(_, _) | Selector::Method(_, _) | Selector::Record(_) => ApiDetails::Full,
     }

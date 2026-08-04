@@ -79,7 +79,7 @@ xsht api --format jsonl --strict api:archive.tar_extract search:"rooted extracti
 xsht api summary
 ```
 
-`module:NAME` prints the module overview and its member index. Exact API
+`module:NAME` prints the module overview and its member index. `method:NAME` prints the receiver overview and its member index; `method:NAME.MEMBER` reads one exact item. Exact API
 queries print purpose, contract, derived effects, signatures, tags, and a short
 example when one is useful. `xsht api summary` prints the complete sorted
 module/function tree, method receiver tree, record list, and language-reference
