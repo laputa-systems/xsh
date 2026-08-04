@@ -4707,6 +4707,10 @@ impl CompactLowerConstructProbe<'_, '_> {
                 fields.insert(Name::intern("value"), value);
                 Some(Type::List(Box::new(Type::Record(fields))))
             }
+            StreamStageKind::Collect => match input {
+                Type::List(item) | Type::Stream(item) => Some(Type::List(item.clone())),
+                _ => None,
+            },
             _ => lowered_checked_type(input).and_then(type_for_lowered_type),
         }
     }
