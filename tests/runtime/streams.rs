@@ -179,6 +179,40 @@ fn batch_max_argv_splits_long_path_lists_before_running_commands() {
 }
 
 #[test]
+fn terminal_each_as_final_proc_statement_exits_clean() {
+    // Regression: a proc whose final statement is the terminal stream stage
+    // `each` was accepted by `xsht check` (typed as Unit) but failed at
+    // runtime with `lowered return type mismatch` (exit 3) after emitting all
+    // its output, because the runtime lowered the drained `each` to an empty
+    // list instead of Unit. Checker and runtime must agree: exit 0 with full
+    // output.
+    let source = r#"
+proc main() [io] {
+  ["one", "two", "three"]
+    |> each { |word| print $word }
+}
+"#;
+    let path = write_temp_script("stream-terminal-each-final", source);
+    let path_str = path.to_str().unwrap();
+
+    let check = xsht(["check", path_str]);
+    assert!(
+        check.status.success(),
+        "xsht check rejected a terminal `each` final statement: {}",
+        String::from_utf8_lossy(&check.stderr)
+    );
+
+    let run = xsh([path_str]);
+    assert!(
+        run.status.success(),
+        "xsh failed on a terminal `each` final statement: {}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert_eq!(String::from_utf8(run.stdout).unwrap(), "one\ntwo\nthree\n");
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
 fn sigterm_cancels_parallel_stream_process_work_without_losing_trace_context() {
     let root = temp_path("cancel-parallel-stream-root");
     std::fs::create_dir_all(&root).unwrap();
