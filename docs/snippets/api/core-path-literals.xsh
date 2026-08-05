@@ -1,1 +1,1 @@
-let path = p"config.txt"
+let config_path = p"config.txt"

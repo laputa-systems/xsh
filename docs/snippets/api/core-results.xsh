@@ -1,1 +1,1 @@
-let value: Result[Str] = Ok("ready")
+let value = Ok("ready")

@@ -1,1 +1,2 @@
-let files = fs.files(p".").collect()
+let files = fs.files(p".")?.collect()
+print $files

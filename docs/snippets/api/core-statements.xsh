@@ -1,2 +1,2 @@
 let answer = 40 + 2
-print answer
+print $answer

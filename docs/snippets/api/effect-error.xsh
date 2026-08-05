@@ -1,3 +1,3 @@
-proc load(path: Path) [fs, error] -> Result[Str] {
-  return path.read_text()?
+proc load(file_path: Path) [fs, error] -> Result[Str] {
+  return file_path.read_text()?
 }
