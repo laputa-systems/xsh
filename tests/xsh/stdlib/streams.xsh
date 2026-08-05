@@ -151,6 +151,14 @@ beta
 
   test.eq(groups[0].key, "a")?
   test.eq(groups[0].items.len(), 2)?
+
+  let scalar_groups = [3, 1, 2, 1]
+    |> group-by { |value| value }
+    |> sort-by { |bucket| bucket.key }
+  test.eq(scalar_groups[0].key, 1)?
+  test.eq(scalar_groups[1].key, 2)?
+  test.eq(scalar_groups[2].key, 3)?
+
   let shuffled = [1, 2, 3, 4] |> shuffle(7)
   test.eq(shuffled.len(), 4)?
   test.eq(shuffled |> sort, [1, 2, 3, 4])?

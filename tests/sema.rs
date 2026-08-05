@@ -1754,6 +1754,21 @@ fn checker_accepts_sort_by_record_keys_and_record_sort_items() {
 }
 
 #[test]
+fn checker_accepts_group_by_key_sort_by_for_scalar_keys() {
+    let cases = [
+        "[3, 1, 2, 1] |> group-by { |x| x } |> sort-by { |g| g.key }\n",
+        "[\"b\", \"a\"] |> group-by { |x| x } |> sort-by { |g| g.key }\n",
+        "[true, false] |> group-by { |x| x } |> sort-by { |g| g.key }\n",
+        "[Path(\"b\"), Path(\"a\")] |> group-by { |x| x } |> sort-by { |g| g.key }\n",
+    ];
+
+    for source in cases {
+        let output = check(source);
+        assert!(output.is_empty(), "group key should be sortable: {output:?}");
+    }
+}
+
+#[test]
 fn checker_accepts_sort_by_desc_flag() {
     let output = check("[1, 2, 3] |> sort-by --desc .\n");
     assert!(output.is_empty(), "{:?}", output);

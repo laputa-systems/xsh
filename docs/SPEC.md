@@ -2821,8 +2821,11 @@ an `Any`-typed record field produced by `Map.get(key, fallback)` on a
 scalar value; such keys fail loudly at runtime only when the actual value is
 not orderable. Records compare field by field in sorted
 field-name order, so `sort-by { |r| {c: r.count, n: r.name} }` sorts by `count`
-then `name`. The default order is ascending and `--desc` reverses it. Both
-stages are stable: items with equal keys keep their source order, so sorting by
+then `name`. A `group-by` result exposes its projected key as the concrete type
+of the grouping block, so `group-by { |x| x.id } |> sort-by { |g| g.key }` is
+valid when that key is sortable. The default order is ascending and `--desc`
+reverses it. Both stages are stable: items with equal keys keep their source
+order, so sorting by
 a secondary key first and the primary key second is a reliable two-pass idiom
 for compound ordering. Any other item or key type is rejected at check time and
 fails at runtime with a diagnostic naming the stage and the offending type
