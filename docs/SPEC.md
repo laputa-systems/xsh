@@ -2732,8 +2732,14 @@ for i in range(5) {
 ```
 
 Value pipeline calls are accepted when a stage is an ordinary expression call
-rather than a stream stage. Without an explicit `.` placeholder, the previous
-pipeline value is inserted as the first argument:
+rather than a stream stage. A bare method name uses the previous value as its
+receiver (`value |> split(",")` is the same call shape as
+`value.split(",")`). A qualified function call uses the previous value as its
+first argument. The stage may end in `?`, which propagates a `Result` returned
+by that call. These forms are lowered to ordinary calls before semantic
+checking, so a local value, a method receiver, and a Result-returning tail obey
+the same contract. Without an explicit `.` placeholder, the previous
+pipeline value is inserted as the first argument for qualified calls:
 
 ```xsh
 let readme_text = p"README.md".read_bytes()?.utf8()?

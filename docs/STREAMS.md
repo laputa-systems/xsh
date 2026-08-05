@@ -6,7 +6,11 @@ How the `|>` structured pipeline executes, and the performance model behind it.
 
 ## 1. Surface
 
-A structured pipeline is `source |> stage |> … |> stage`. Three result shapes:
+A structured pipeline is `source |> stage |> … |> stage`. Value stages use the
+same `|>` spelling but are lowered to ordinary calls: a bare method name takes
+the preceding value as its receiver, while a qualified call takes it as its
+first argument. A trailing `?` remains an explicit Result propagation step.
+Three result shapes:
 
 - ends in a non-terminal stage → a **`List[T]`** (items collected at the boundary);
 - ends in `collect()` → a **`List[T]`** (explicit materialization);

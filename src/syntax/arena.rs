@@ -1812,6 +1812,50 @@ impl<'a> ArenaProgramBuilder<'a> {
         }
     }
 
+    /// Lower a value-expression pipeline stage to the ordinary call shape it
+    /// denotes. A bare call such as `value |> split(",")` is method sugar;
+    /// qualified calls retain their callee and receive the value as their first
+    /// argument. This keeps value pipelines composable with the same call and
+    /// method checker used outside pipeline syntax.
+    pub fn build_value_pipeline_stage(
+        &mut self,
+        input: ExprId,
+        stage: ExprId,
+        span: Span,
+    ) -> Option<ExprId> {
+        let (call, needs_try) = match self.lowerer.arena.expr(stage).kind {
+            ArenaExprKind::Try(inner) => (inner, true),
+            _ => (stage, false),
+        };
+        let ArenaExprKind::Call { callee, args } = self.lowerer.arena.expr(call).kind else {
+            return None;
+        };
+        let (callee, prepend_input) =
+            if let ArenaExprKind::Ident(name) = self.lowerer.arena.expr(callee).kind {
+                (self.push_field_expr(input, name, span), false)
+            } else {
+                (callee, true)
+            };
+        let mut call_args = Vec::with_capacity(
+            usize::from(prepend_input) + self.lowerer.arena.call_args(args).len(),
+        );
+        if prepend_input {
+            call_args.push(ArenaCallArg {
+                kind: ArenaCallArgKind::Positional(input),
+            });
+        }
+        call_args.extend(self.lowerer.arena.call_args(args).iter().cloned());
+        let start = self.lowerer.arena.call_args.len();
+        self.lowerer.arena.call_args.extend(call_args);
+        let args = ArenaRange::new(start, self.lowerer.arena.call_args.len() - start);
+        let call = self.push_call_expr(callee, args, span);
+        Some(if needs_try {
+            self.push_try_expr(call, span)
+        } else {
+            call
+        })
+    }
+
     // Pipe stages accumulate in a plain `Vec` on the parser's call stack
     // across repeated `|>` occurrences (see `ArenaPendingPipeline` in
     // expr.rs) and are only committed here once, when the chain ends —

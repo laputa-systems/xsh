@@ -972,6 +972,16 @@ fn parser_accepts_structured_pipeline_stages() {
 }
 
 #[test]
+fn pipeline_value_calls_accept_plain_receivers_result_tails_and_named_blocks() {
+    let source = r#"
+let parts = "a,b" |> split(",")
+let selected = [{value: "b"}] |> where { |entry| entry.value == "b" } |> first()?
+let first = ["a", "b"] |> get(0)?
+"#;
+    assert_parse_and_check(SourceId::new(0), source);
+}
+
+#[test]
 fn parser_and_desugar_accept_pipeline_call_shorthand() {
     let output = Parser::parse_source_arena_only(
         SourceId::new(0),
@@ -986,13 +996,14 @@ let names = items |> map .path |> sort
 
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let arena = &output.arena.arena;
-    let ArenaExprKind::Pipeline { stages, .. } = arena.expr(root_let_init_expr(&output, 0)).kind
+    let ArenaExprKind::StructuredPipeline { stages, .. } =
+        arena.expr(root_let_init_expr(&output, 0)).kind
     else {
-        panic!("expected mixed pipeline surface");
+        panic!("expected structured pipeline after value-stage lowering");
     };
-    let stages = arena.pipe_stages(stages);
-    assert!(matches!(stages[0].kind, ArenaPipeStageKind::Expr(_)));
-    assert!(matches!(stages[1].kind, ArenaPipeStageKind::Stream(_)));
+    let stages = arena.stream_stages(stages);
+    assert_eq!(stages[0].kind, StreamStageKind::TextStreamLines);
+    assert_eq!(stages[1].kind, StreamStageKind::Where);
 
     let ArenaExprKind::StructuredPipeline { stages, .. } =
         arena.expr(root_let_init_expr(&output, 1)).kind

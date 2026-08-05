@@ -26,6 +26,7 @@ pub(super) struct ArenaOnlyExpr {
 /// started from; `left.id` is stale while a chain is pending (only `left.span`
 /// stays accurate) — every other postfix branch must seal first.
 enum ArenaPendingPipeline {
+    Value { input: ExprId },
     Pipeline {
         input: ExprId,
         stages: Vec<ArenaPipeStage>,
@@ -39,6 +40,7 @@ enum ArenaPendingPipeline {
 impl ArenaPendingPipeline {
     fn seal(self, arena: &mut ArenaProgramBuilder<'_>, span: Span) -> ExprId {
         match self {
+            ArenaPendingPipeline::Value { input } => input,
             ArenaPendingPipeline::Pipeline { input, stages } => {
                 arena.build_pipeline_expr(input, stages, span)
             }
@@ -70,12 +72,16 @@ fn extend_arena_pending_pipeline(
             stages: vec![stream],
         },
         (None, ArenaPipeStageKind::Expr(expr_id)) => {
-            let stage = arena.build_pipe_stage(ArenaPipeStageKind::Expr(expr_id), stage_span);
-            ArenaPendingPipeline::Pipeline {
-                input,
-                stages: vec![stage],
+            if let Some(input) = arena.build_value_pipeline_stage(input, expr_id, stage_span) {
+                ArenaPendingPipeline::Value { input }
+            } else {
+                let stage = arena.build_pipe_stage(ArenaPipeStageKind::Expr(expr_id), stage_span);
+                ArenaPendingPipeline::Pipeline {
+                    input,
+                    stages: vec![stage],
+                }
             }
-        }
+        },
         (
             Some(ArenaPendingPipeline::Structured { input, mut stages }),
             ArenaPipeStageKind::Stream(stream),
@@ -88,15 +94,35 @@ fn extend_arena_pending_pipeline(
             ArenaPipeStageKind::Expr(expr_id),
         ) => {
             let sealed = arena.build_structured_pipeline_expr(input, stages, prev_span);
-            let stage = arena.build_pipe_stage(ArenaPipeStageKind::Expr(expr_id), stage_span);
-            ArenaPendingPipeline::Pipeline {
-                input: sealed,
-                stages: vec![stage],
+            if let Some(input) = arena.build_value_pipeline_stage(sealed, expr_id, stage_span) {
+                ArenaPendingPipeline::Value { input }
+            } else {
+                let stage = arena.build_pipe_stage(ArenaPipeStageKind::Expr(expr_id), stage_span);
+                ArenaPendingPipeline::Pipeline {
+                    input: sealed,
+                    stages: vec![stage],
+                }
+            }
+        }
+        (Some(ArenaPendingPipeline::Value { input }), ArenaPipeStageKind::Expr(expr_id)) => {
+            if let Some(input) = arena.build_value_pipeline_stage(input, expr_id, stage_span) {
+                ArenaPendingPipeline::Value { input }
+            } else {
+                let stage = arena.build_pipe_stage(ArenaPipeStageKind::Expr(expr_id), stage_span);
+                ArenaPendingPipeline::Pipeline {
+                    input,
+                    stages: vec![stage],
+                }
+            }
+        }
+        (Some(ArenaPendingPipeline::Value { input }), ArenaPipeStageKind::Stream(stream)) => {
+            ArenaPendingPipeline::Structured {
+                input,
+                stages: vec![stream],
             }
         }
         (Some(ArenaPendingPipeline::Pipeline { input, mut stages }), kind) => {
-            let stage = arena.build_pipe_stage(kind, stage_span);
-            stages.push(stage);
+            stages.push(arena.build_pipe_stage(kind, stage_span));
             ArenaPendingPipeline::Pipeline { input, stages }
         }
     }

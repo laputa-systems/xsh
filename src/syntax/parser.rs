@@ -392,7 +392,26 @@ impl<'a> Parser<'a> {
             self.start_at(index + 1).is_some_and(|start| start > end)
                 && !matches!(
                     tag,
-                    TokenTag::Newline | TokenTag::Semicolon | TokenTag::RBrace | TokenTag::Eof
+                    TokenTag::Newline
+                        | TokenTag::Semicolon
+                        | TokenTag::RBrace
+                        | TokenTag::Eof
+                        | TokenTag::EqEq
+                        | TokenTag::BangEq
+                        | TokenTag::Lt
+                        | TokenTag::Le
+                        | TokenTag::Gt
+                        | TokenTag::Ge
+                        | TokenTag::Plus
+                        | TokenTag::Minus
+                        | TokenTag::Star
+                        | TokenTag::Slash
+                        | TokenTag::Percent
+                        | TokenTag::QuestionQuestion
+                )
+                && !matches!(
+                    self.token_table.keyword_at(index + 1),
+                    Some(Keyword::And | Keyword::Or | Keyword::In)
                 )
         })
     }
