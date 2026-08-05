@@ -20,13 +20,13 @@ let first3 = fs.walk(root)
 |> where .kind == \"file\"
 |> take(3)
 |> map .name
-print f\"take ok=${{pulled < 50 && first3.len() == 3}}\"
+print f\"take ok=${{pulled < 50 and first3.len() == 3}}\"
 
 var pulled_any = 0
 let any_file = fs.walk(root)
 |> tee {{ |entry| pulled_any = pulled_any + 1 }}
 |> any .kind == \"file\"
-print f\"any ok=${{pulled_any < 50 && any_file}}\"
+print f\"any ok=${{pulled_any < 50 and any_file}}\"
 
 var pulled_break = 0
 for entry in fs.walk(root) |> where .kind == \"file\" {{

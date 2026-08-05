@@ -289,7 +289,9 @@ proc test_fs_optional_arguments_accept_positional_forms(ctx: TestContext) [fs, e
   let root = test.temp_dir(ctx, name: "fs-positional-optional")?
   fp"${root}/nested".mkdir()?
   fp"${root}/.git".mkdir()?
-  fp"${root}/.gitignore".write(".git/\n*.log\n")?
+  fp"${root}/.gitignore".write(""".git/
+*.log
+""")?
   fp"${root}/a.txt".write("text")?
   fp"${root}/b.log".write("ignored")?
   fp"${root}/nested/c.txt".write("text")?
@@ -297,25 +299,33 @@ proc test_fs_optional_arguments_accept_positional_forms(ctx: TestContext) [fs, e
 
   let by_name = fs.files(root, gitignore: false)
     |> sort-by .path
-    |> map { |e| e.path.display() }
+    |> map { |e|
+      e.path.display()
+    }
     |> collect()
   let by_position = fs.files(root, false)
     |> sort-by .path
-    |> map { |e| e.path.display() }
+    |> map { |e|
+      e.path.display()
+    }
     |> collect()
   test.eq(by_position.join(","), by_name.join(","))?
 
   let walk_by_name = fs.walk(root, gitignore: false)
     |> sort-by .path
-    |> map { |e| e.path.display() }
+    |> map { |e|
+      e.path.display()
+    }
     |> collect()
   let walk_by_position = fs.walk(root, false)
     |> sort-by .path
-    |> map { |e| e.path.display() }
+    |> map { |e|
+      e.path.display()
+    }
     |> collect()
   test.eq(walk_by_position.join(","), walk_by_name.join(","))?
-  test.ok(by_name.join(",").contains("b.log"))?
-  test.ok(by_name.join(",").contains("nested/c.txt"))?
+  test.ok("b.log" in by_name.join(","))?
+  test.ok("nested/c.txt" in by_name.join(","))?
 }
 
 proc test_fs_files_recurses_with_raw_walk_and_preserves_entry_ext(ctx: TestContext) [fs, error] {

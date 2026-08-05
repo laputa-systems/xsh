@@ -597,7 +597,12 @@ fn runnable_xsh_corpus_is_formatted_and_lints_without_warnings() {
     let tracked_files = stdout_text(&tracked);
     let files = tracked_files
         .lines()
-        .filter(|path| !path.starts_with("tests/fixtures/"))
+        .filter(|path| {
+            // Fixtures and API snippets are intentionally non-runnable source:
+            // the former exercise parser/runtime edge cases, while the latter
+            // may use illustrative placeholders.
+            !path.starts_with("tests/fixtures/") && !path.starts_with("docs/snippets/")
+        })
         .collect::<Vec<_>>();
 
     let formatted = Command::new(env!("CARGO_BIN_EXE_xsht"))

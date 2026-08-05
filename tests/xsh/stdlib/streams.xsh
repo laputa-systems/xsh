@@ -80,25 +80,37 @@ beta
   # `min`/`max` terminal as its input list, so the `.lower()` on the unwrapped
   # item was mistaken for a method on the list.
   let ext_lower = ["a.TXT", "b.com"]
-    |> map { |s| (s.split(".") |> last())?.lower() }
+    |> map { |s|
+      (s.split(".") |> last())?.lower()
+    }
     |> collect()
   test.eq(ext_lower, ["txt", "com"])?
 
   # A bare trailing `?` (no method tail) in a stage block is still accepted and
   # unwraps the terminal result inside the closure.
   let firsts = [["a"], ["b"], ["c"]]
-    |> map { |row| row.get(0)? }
+    |> map { |row|
+      row.get(0)?
+    }
     |> collect()
   test.eq(firsts, ["a", "b", "c"])?
 
   # A bare accumulator-ident tail no longer trips the indexed IR builder; it
   # returns the running accumulator unchanged.
-  test.eq([1, 2, 3] |> fold(0) { |x| x }, 0)?
+  test.eq(
+    [1, 2, 3]
+      |> fold(0) { |x|
+        x
+      },
+    0,
+  )?
 
   # Counting through fold without group-by: the accumulator is a Map and the
   # item a Str, which the two-parameter binding types correctly.
   let fold_counts = ["a", "b", "a", "c"]
-    |> fold(map.empty()) { |acc, it| acc.set(it, acc.get(it, 0) + 1) }
+    |> fold(map.empty()) { |acc, it|
+      acc.set(it, acc.get(it, 0) + 1)
+    }
   test.eq(fold_counts.get("a", 0), 2)?
   test.eq(fold_counts.get("b", 0), 1)?
   test.eq(fold_counts.get("c", 0), 1)?
@@ -153,8 +165,12 @@ beta
   test.eq(groups[0].items.len(), 2)?
 
   let scalar_groups = [3, 1, 2, 1]
-    |> group-by { |value| value }
-    |> sort-by { |bucket| bucket.key }
+    |> group-by { |value|
+      value
+    }
+    |> sort-by { |bucket|
+      bucket.key
+    }
   test.eq(scalar_groups[0].key, 1)?
   test.eq(scalar_groups[1].key, 2)?
   test.eq(scalar_groups[2].key, 3)?
@@ -694,15 +710,14 @@ proc test_sort_by_map_accumulator_any_typed_fields() [error] {
   let acc = counts.set("a", 2).set("b", 1)
 
   let by_count = keys
-    |> map { |k| {count: acc.get(k, 0), ext: k} }
+    |> map { |k|
+      {count: acc.get(k, 0), ext: k}
+    }
     |> sort-by .count
   test.eq(by_count, [{count: 1, ext: "b"}, {count: 2, ext: "a"}])?
 
   # The list-comprehension equivalent accepts and sorts identically.
-  let by_count_comp = [
-    {count: acc.get(k, 0), ext: k}
-    for k in keys
-  ] |> sort-by .count
+  let by_count_comp = [{count: acc.get(k, 0), ext: k} for k in keys] |> sort-by .count
   test.eq(by_count_comp, by_count)?
 }
 
@@ -780,6 +795,7 @@ proc test_direct_collect_of_lazy_module_stream_is_a_list(ctx: TestContext) [fs, 
   fp"${root}/a.txt".write("a")?
   fp"${root}/b.txt".write("b")?
   fp"${root}/c.txt".write("c")?
+
   # A module-produced lazy stream piped straight into the collect terminal, with
   # no intervening transformation stage, must lower and run as a materialized
   # list (regression: the direct result was mis-typed as a stream, so `len` was
