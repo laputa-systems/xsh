@@ -117,10 +117,10 @@ jobs:
           target_upper="$(printf '%s' '${{ matrix.target }}' | tr 'a-z-' 'A-Z_')"
           musl_inc="/usr/include/${{ matrix.arch }}-linux-musl"
 
-          echo "CC=${PWD}/${llvm_dir}/bin/clang" >> "$GITHUB_ENV"
-          echo "CC_${target_upper}=${PWD}/${llvm_dir}/bin/clang" >> "$GITHUB_ENV"
-          echo "CARGO_TARGET_${target_upper}_LINKER=rust-lld" >> "$GITHUB_ENV"
           {
+            echo "CC=${PWD}/${llvm_dir}/bin/clang"
+            echo "CC_${target_upper}=${PWD}/${llvm_dir}/bin/clang"
+            echo "CARGO_TARGET_${target_upper}_LINKER=rust-lld"
             # The prebuilt clang is Alpine-built; it doesn't know Debian multiarch
             # paths. Point it at the musl-dev headers explicitly.
             echo "CFLAGS_${target_upper}=--target=${{ matrix.target }} -I${musl_inc}"
@@ -137,6 +137,10 @@ jobs:
         run: |
           ci_target=linux; case ${{ matrix.os }} in darwin) ci_target=macos;; esac
           make test-${ci_target}-ci TARGET=${{ matrix.target }}
+
+      # Disabled for now until multicall binary is separated.
+      # - name: Validate xshi-only PGO candidate
+      #   run: make release-pgo PGO_TARGET=${{ matrix.target }}
 
       - name: Verify static linkage
         if: matrix.os == 'linux'

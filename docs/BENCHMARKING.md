@@ -1,8 +1,8 @@
 # Benchmarking
 
 XSH benchmarks latency-sensitive workflows that users experience through the
-`xsh`, `xshi`, and `xsht` surfaces. The same curated suite drives regression
-tracking and profile-guided optimization (PGO).
+`xsh`, `xshi`, and `xsht` surfaces. The curated suite drives regression
+tracking.
 
 The suite lives in `crates/xsh-multicall/benches/bench.rs` as one Divan
 benchmark binary. Divan's global allocation profiler records median wall-clock
@@ -11,6 +11,10 @@ Linux release builds use mimalloc because the musl allocator regresses these
 allocation-heavy workloads. The benchmark wraps the same mimalloc allocator
 with `AllocProfiler`, so allocation accounting does not change the allocator
 being measured. Other hosts use the system allocator.
+
+The benchmark-only `xshi::interactive::bench` helpers are enabled through the
+`benchmark-support` feature used by the benchmark scripts; release application
+builds do not compile them.
 
 The executable frontend has no separate legacy benchmark runner or shadow
 execution mode. Use the normal suite for all final evidence: `make bench-fast`
@@ -56,7 +60,7 @@ benchmark so the ordinary suite does not depend on a host-installed server.
 Install `darkhttpd` (or set `DARKHTTPD` to its executable) and run:
 
 ```sh
-cargo bench -p xsh-multicall --bench bench xsh_net_http1_10000_requests_blocking -- \
+cargo bench -p xsh-multicall --bench bench --features benchmark-support xsh_net_http1_10000_requests_blocking -- \
   --include-ignored --sample-count 1 --sample-size 1
 ```
 
@@ -65,7 +69,7 @@ cargo bench -p xsh-multicall --bench bench xsh_net_http1_10000_requests_blocking
 settings and this command for its paired measurement:
 
 ```sh
-cargo bench -p xsh-multicall --bench bench xsh_net_http1_10000_requests_batch_8 -- \
+cargo bench -p xsh-multicall --bench bench --features benchmark-support xsh_net_http1_10000_requests_batch_8 -- \
   --include-ignored --sample-count 1 --sample-size 1
 ```
 
@@ -130,14 +134,14 @@ type-layout view.
 
 The user-facing suite remains the decision point for interpreter and lowered-IR
 work. Diagnostics narrow down a regression from that suite; they do not define
-a second benchmark corpus or a separate PGO workload.
+a second benchmark corpus or a separate workload.
 
 Start with the affected operation and keep the exact workload while iterating:
 
 ```sh
 make bench-fast
 # or one operation:
-cargo bench -p xsh-multicall --bench bench xsht_check_xsh_repository --   --sample-count 1 --sample-size 1
+cargo bench -p xsh-multicall --bench bench --features benchmark-support xsht_check_xsh_repository --   --sample-count 1 --sample-size 1
 ```
 
 `make bench-fast` already records Divan `max alloc` in the baseline. `alloc`
@@ -171,7 +175,7 @@ Use the existing complete operations as cost lenses:
 
 These are attribution clues, not isolated stage scorecards. If a change only
 helps a synthetic parse or evaluator loop but does not improve a represented
-operation, it should not shape the implementation or PGO profile.
+operation, it should not shape the implementation or benchmark suite.
 
 For structural IR memory, run:
 
@@ -200,7 +204,7 @@ its hot path is the `scan_hash()` call inside the 1,000-iteration loop. Run the
 ordinary operation to include parse/check/lower setup:
 
 ```sh
-cargo bench -p xsh-multicall --bench bench xsh_lowered_scanner_1000_calls -- \
+cargo bench -p xsh-multicall --bench bench --features benchmark-support xsh_lowered_scanner_1000_calls -- \
   --sample-count 1 --sample-size 1
 ```
 
@@ -208,7 +212,7 @@ Run `xsh_lowered_scanner_1000_calls_execution` with `--include-ignored` to
 reuse the prepared indexed program and measure execution only:
 
 ```sh
-cargo bench -p xsh-multicall --bench bench xsh_lowered_scanner_1000_calls_execution -- \
+cargo bench -p xsh-multicall --bench bench --features benchmark-support xsh_lowered_scanner_1000_calls_execution -- \
   --include-ignored --sample-count 1 --sample-size 1
 ```
 
@@ -227,38 +231,8 @@ short evidence chain:
    memory, type layout, lowerability, syscalls, or generated code;
 3. the nearest runtime and lowering parity tests protect behavior;
 4. the focused workload improves, followed by `make bench`;
-5. stop when the ordinary gate fails; PGO does not make a regressed
-   implementation acceptable.
-
-## PGO
-
-Do not run PGO during ordinary runtime, IR, or representation iteration. The
-instrumented rebuild is intentionally expensive and provides low-signal
-feedback while non-PGO latency, allocation, behavior, or coverage results are
-still changing. First make `make bench` and the relevant correctness gates pass.
-
-Run:
-
-```sh
-make pgo-profile
-make release-pgo
-```
-
-`pgo-profile` removes the previous profile directory, runs the entire benchmark
-suite with instrumentation and `--sample-size 1`, and merges the generated
-profiles with `llvm-profdata`. There is no separate PGO filter: the curated
-benchmark suite defines what the product should optimize. The single-sample
-workload keeps fast operations from dominating the profile through repetition.
-
-Use:
-
-```sh
-make bench-pgo
-```
-
-to benchmark regular and PGO builds into separate host baselines and compare
-them only for a stable release candidate or an explicit PGO investigation. PGO
-should improve the same user-facing workflows used to justify it.
+5. stop when the ordinary gate fails; a separate optimization workflow does not
+   make a regressed implementation acceptable.
 
 ## Syscall Diagnostics
 

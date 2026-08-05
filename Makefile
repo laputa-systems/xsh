@@ -1,4 +1,4 @@
-.PHONY: build lint docs test cov test-linux test-linux-ci test-macos-ci bench bench-fast bench-pgo bench-syscalls pgo-profile release-pgo install-darwin install-linux dist dist-native dist-Linux-docker dist-ci
+.PHONY: build lint docs test cov test-linux test-linux-ci test-macos-ci bench bench-fast bench-pgo bench-syscalls pgo-instrument pgo-profile release-pgo install-darwin install-linux dist dist-native dist-Linux-docker dist-ci
 
 DARWIN_CODESIGN_FLAGS ?=
 ifneq ($(DARWIN_CODESIGN_ENTITLEMENTS),)
@@ -247,11 +247,17 @@ test-macos-ci:
 	MACOSX_DEPLOYMENT_TARGET="$(DARWIN_DEPLOYMENT_TARGET)" cargo test --locked --profile $(DIST_PROFILE) --features "net tools" --target $(TARGET) -- --nocapture
 
 LLVM_BIN := $(shell rustc --print sysroot)/lib/rustlib/$(shell rustc -vV | awk '/^host:/ {print $$2}')/bin
-PGO_DIR := $(CURDIR)/target/pgo-profiles
+PGO_HOST_TARGET := $(shell rustc -vV | awk '/^host:/ {print $$2}')
+PGO_TARGET ?= $(PGO_HOST_TARGET)
+PGO_DIR := $(CURDIR)/target/pgo-profiles/$(PGO_TARGET)
 PGO_MERGED := $(PGO_DIR)/merged.profdata
-PGO_USE_RUSTFLAGS := -Cprofile-use=$(PGO_MERGED)
-REGULAR_BASELINE := $(shell scripts/bench-baseline.py --variant regular --print-path)
-PGO_BASELINE := $(shell scripts/bench-baseline.py --variant pgo --print-path)
+PGO_INSTRUMENT_TARGET_DIR := $(CURDIR)/target/pgo-instrument
+PGO_DRIVER_TARGET_DIR := $(CURDIR)/target/pgo-driver
+PGO_USE_TARGET_DIR := $(CURDIR)/target/pgo-use
+PGO_INSTRUMENT_BINARY := $(PGO_INSTRUMENT_TARGET_DIR)/$(PGO_TARGET)/release/xshi
+PGO_USE_BINARY := $(PGO_USE_TARGET_DIR)/$(PGO_TARGET)/release/xshi
+PGO_USE_RUSTFLAGS := -Cprofile-use=$(PGO_MERGED) -Cllvm-args=-pgo-warn-missing-function
+PGO_GENERATE_RUSTFLAGS := -Cprofile-generate=$(PGO_DIR)
 
 bench:
 	@scripts/bench-baseline.py
@@ -262,22 +268,30 @@ bench-fast:
 bench-syscalls:
 	@scripts/bench-syscalls.py
 
-pgo-profile:
-	rm -rf $(PGO_DIR)
+pgo-instrument:
+	rm -rf $(PGO_DIR) $(PGO_INSTRUMENT_TARGET_DIR) $(PGO_DRIVER_TARGET_DIR) $(PGO_USE_TARGET_DIR)
 	mkdir -p $(PGO_DIR)
-	RUSTFLAGS="-Cprofile-generate=$(PGO_DIR)" cargo bench -p xsh-multicall --bench bench -- --sample-size 1
-	$(LLVM_BIN)/llvm-profdata merge -o $(PGO_MERGED) $(PGO_DIR)
+	env -u RUSTFLAGS -u CARGO_ENCODED_RUSTFLAGS cargo rustc --locked -p xshi --bin xshi --release --target $(PGO_TARGET) --target-dir $(PGO_INSTRUMENT_TARGET_DIR) -- $(PGO_GENERATE_RUSTFLAGS)
+
+pgo-profile: pgo-instrument
+	env -u RUSTFLAGS -u CARGO_ENCODED_RUSTFLAGS cargo test --locked --test integration --no-run --features "native-tests net tools" --target-dir $(PGO_DRIVER_TARGET_DIR)
+	env -u RUSTFLAGS -u CARGO_ENCODED_RUSTFLAGS LLVM_PROFILE_FILE="$(PGO_DIR)/xshi-%p.profraw" XSH_PGO_BINARY="$(PGO_INSTRUMENT_BINARY)" CARGO_TARGET_DIR="$(PGO_DRIVER_TARGET_DIR)" cargo test --locked --test integration --features "native-tests net tools" runtime::interactive::xshi_pgo_profile_workload -- --ignored --exact --test-threads=1
+	@raw_profiles="$$(find "$(PGO_DIR)" -type f -name '*.profraw' -print)"; \
+		test -n "$$raw_profiles"; \
+		$(LLVM_BIN)/llvm-profdata merge -o "$(PGO_MERGED)" $$raw_profiles; \
+		$(LLVM_BIN)/llvm-profdata show --all-functions "$(PGO_MERGED)" | grep -q 'xshi'; \
+		! $(LLVM_BIN)/llvm-profdata show --all-functions "$(PGO_MERGED)" | grep -Eiq 'divan|xshi.*interactive.*bench|(^|[[:space:]])xsh\.|(^|[[:space:]])xsht\.'
 
 $(PGO_MERGED):
 	$(MAKE) pgo-profile
 
-bench-pgo: $(PGO_MERGED)
-	@scripts/bench-baseline.py --variant regular --quiet
-	@RUSTFLAGS="$(PGO_USE_RUSTFLAGS)" scripts/bench-baseline.py --variant pgo --quiet
-	@scripts/diff-baselines.py $(REGULAR_BASELINE) $(PGO_BASELINE)
+bench-pgo:
+	@:
 
 release-pgo: $(PGO_MERGED)
-	RUSTFLAGS="$(PGO_USE_RUSTFLAGS)" cargo build --release -p xsh-multicall --no-default-features --features "net tools"
+	env -u RUSTFLAGS -u CARGO_ENCODED_RUSTFLAGS cargo rustc --locked -p xshi --bin xshi --release --target $(PGO_TARGET) --target-dir $(PGO_USE_TARGET_DIR) -- $(PGO_USE_RUSTFLAGS)
+	@! $(LLVM_BIN)/llvm-nm "$(PGO_USE_BINARY)" 2>/dev/null | grep -Eq '(__llvm_profile|llvm_profile)'
+	@! $(LLVM_BIN)/llvm-objdump -h "$(PGO_USE_BINARY)" 2>/dev/null | grep -Eiq '(__llvm_prf|llvm_prf)'
 
 $(LINUX_INSTALL_CRT_DIR)/%.o: /usr/lib/%.o
 	mkdir -p $(LINUX_INSTALL_CRT_DIR)

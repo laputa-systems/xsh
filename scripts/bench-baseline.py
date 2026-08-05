@@ -365,7 +365,16 @@ def run_suite(
     sample_count: int | None,
     sample_size: int | None,
 ) -> tuple[int, str, dict[str, Metrics], float]:
-    command = ["cargo", "bench", "-p", "xsh-multicall", "--bench", "bench"]
+    command = [
+        "cargo",
+        "bench",
+        "-p",
+        "xsh-multicall",
+        "--bench",
+        "bench",
+        "--features",
+        "benchmark-support",
+    ]
     divan_args: list[str] = []
     if sample_count is not None:
         divan_args.extend(["--sample-count", str(sample_count)])
