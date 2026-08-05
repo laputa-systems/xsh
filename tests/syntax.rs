@@ -362,10 +362,22 @@ fn parser_reports_unsupported_c_style_boolean_operators_constructively() {
     // named by a constructive diagnostic that points at the offending token,
     // not at the block brace that follows the condition.
     let cases = [
-        ("proc main() { if a || b { } }\n", "parse.unsupported-boolean-operator"),
-        ("proc main() { if a && b { } }\n", "parse.unsupported-boolean-operator"),
-        ("proc main() { if a | b { } }\n", "parse.unsupported-boolean-operator"),
-        ("proc main() { if a & b { } }\n", "parse.unsupported-boolean-operator"),
+        (
+            "proc main() { if a || b { } }\n",
+            "parse.unsupported-boolean-operator",
+        ),
+        (
+            "proc main() { if a && b { } }\n",
+            "parse.unsupported-boolean-operator",
+        ),
+        (
+            "proc main() { if a | b { } }\n",
+            "parse.unsupported-boolean-operator",
+        ),
+        (
+            "proc main() { if a & b { } }\n",
+            "parse.unsupported-boolean-operator",
+        ),
         ("proc main() { if a then { } }\n", "parse.unsupported-then"),
     ];
     for (source, code) in cases {

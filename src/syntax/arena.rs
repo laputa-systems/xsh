@@ -595,11 +595,13 @@ fn doc_comments_for_statements(
     let exports = statements
         .iter()
         .copied()
-        .filter(|&statement| matches!(arena.stmt(statement).kind, ArenaStmtKind::Export(_))).map(|statement| {
-                let span = arena.stmt(statement).span;
-                attached_export_doc_comment(source, span).map(|doc| (statement, doc))
-            })
-        .flatten()
+        .filter_map(|statement| {
+            if !matches!(arena.stmt(statement).kind, ArenaStmtKind::Export(_)) {
+                return None;
+            }
+            let span = arena.stmt(statement).span;
+            attached_export_doc_comment(source, span).map(|doc| (statement, doc))
+        })
         .collect::<Vec<_>>();
     let source_id = first_statement
         .map(|span| span.source_id)

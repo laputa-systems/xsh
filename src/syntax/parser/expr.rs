@@ -26,7 +26,9 @@ pub(super) struct ArenaOnlyExpr {
 /// started from; `left.id` is stale while a chain is pending (only `left.span`
 /// stays accurate) — every other postfix branch must seal first.
 enum ArenaPendingPipeline {
-    Value { input: ExprId },
+    Value {
+        input: ExprId,
+    },
     Pipeline {
         input: ExprId,
         stages: Vec<ArenaPipeStage>,
@@ -81,7 +83,7 @@ fn extend_arena_pending_pipeline(
                     stages: vec![stage],
                 }
             }
-        },
+        }
         (
             Some(ArenaPendingPipeline::Structured { input, mut stages }),
             ArenaPipeStageKind::Stream(stream),

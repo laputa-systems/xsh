@@ -1,6 +1,6 @@
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::io::Read;
-use std::collections::{BTreeMap, BTreeSet};
 use xsh::modules::api_spec;
 use xsh::modules::signature::{MethodReceiver, MethodReturn, ModuleFnSig};
 use xsh::sema::records::record_schemas;
@@ -228,7 +228,9 @@ fn summary(options: &ApiOptions) -> Result<ApiOutput, ApiError> {
         let (group, item) = reference
             .id
             .split_once('.')
-            .map_or(("other", reference.id.as_str()), |(group, item)| (group, item));
+            .map_or(("other", reference.id.as_str()), |(group, item)| {
+                (group, item)
+            });
         language_groups
             .entry(group.to_string())
             .or_default()
@@ -341,12 +343,7 @@ fn intro_jsonl() -> String {
     let mut output = String::from("{\"schema_version\":1,\"kind\":\"guide\"");
     output.push(',');
     push_json_field(&mut output, "title", "XSH API getting started", true);
-    push_json_field(
-        &mut output,
-        "script",
-        INTRO_SCRIPT.trim_end(),
-        true,
-    );
+    push_json_field(&mut output, "script", INTRO_SCRIPT.trim_end(), true);
     push_json_array(
         &mut output,
         "loop",
@@ -450,8 +447,7 @@ fn select(catalog: &[ApiItem], selector: &Selector) -> Vec<ApiItem> {
         Selector::MethodReceiver(receiver) => catalog
             .iter()
             .filter(|item| {
-                item.kind == "method"
-                    && item.id.starts_with(&format!("method.{receiver}."))
+                item.kind == "method" && item.id.starts_with(&format!("method.{receiver}."))
             })
             .cloned()
             .collect(),
@@ -525,7 +521,7 @@ fn search_score(item: &ApiItem, terms: &[String]) -> Option<u8> {
     }) {
         return None;
     }
-    if terms.iter().any(|term| id == *term) {
+    if terms.contains(&id) {
         return Some(0);
     }
     if terms.iter().any(|term| tags.iter().any(|tag| tag == term)) {
@@ -841,7 +837,10 @@ documented items: {}\n\
     append_callable_tree(
         &mut output,
         "modules",
-        summary.modules.iter().map(|module| (&module.name, &module.functions)),
+        summary
+            .modules
+            .iter()
+            .map(|module| (&module.name, &module.functions)),
     );
     append_callable_tree(
         &mut output,
@@ -895,12 +894,20 @@ fn append_callable_tree<'a>(
     let groups = groups.collect::<Vec<_>>();
     for (group_index, (group, callables)) in groups.iter().enumerate() {
         let group_last = group_index + 1 == groups.len();
-        output.push_str(if group_last { "└── " } else { "├── " });
+        output.push_str(if group_last {
+            "└── "
+        } else {
+            "├── "
+        });
         output.push_str(group);
         output.push_str(&format!(" ({} items)\n", callables.len()));
         for (callable_index, callable) in callables.iter().enumerate() {
             output.push_str(if group_last { "    " } else { "│   " });
-            output.push_str(if callable_index + 1 == callables.len() { "└── " } else { "├── " });
+            output.push_str(if callable_index + 1 == callables.len() {
+                "└── "
+            } else {
+                "├── "
+            });
             output.push_str(&callable.name);
             output.push_str(" (");
             output.push_str(&overload_label(callable.overloads));
@@ -914,7 +921,11 @@ fn append_leaf_tree(output: &mut String, title: &str, items: &[String]) {
     output.push_str(title);
     output.push('\n');
     for (index, item) in items.iter().enumerate() {
-        output.push_str(if index + 1 == items.len() { "└── " } else { "├── " });
+        output.push_str(if index + 1 == items.len() {
+            "└── "
+        } else {
+            "├── "
+        });
         output.push_str(item);
         output.push('\n');
     }
@@ -926,12 +937,20 @@ fn append_group_tree(output: &mut String, title: &str, groups: &[(&String, &Vec<
     output.push('\n');
     for (group_index, (group, items)) in groups.iter().enumerate() {
         let group_last = group_index + 1 == groups.len();
-        output.push_str(if group_last { "└── " } else { "├── " });
+        output.push_str(if group_last {
+            "└── "
+        } else {
+            "├── "
+        });
         output.push_str(group);
         output.push_str(&format!(" ({} items)\n", items.len()));
         for (item_index, item) in items.iter().enumerate() {
             output.push_str(if group_last { "    " } else { "│   " });
-            output.push_str(if item_index + 1 == items.len() { "└── " } else { "├── " });
+            output.push_str(if item_index + 1 == items.len() {
+                "└── "
+            } else {
+                "├── "
+            });
             output.push_str(item);
             output.push('\n');
         }

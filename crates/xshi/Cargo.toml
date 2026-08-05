@@ -13,7 +13,7 @@ xsh = { path = "../..", default-features = false, features = ["net", "tools"] }
 
 [features]
 default = []
-benchmark-support = []
+benchmark = []
 
 [dev-dependencies]
 tempfile = "3"

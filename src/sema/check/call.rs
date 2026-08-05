@@ -4,8 +4,7 @@ use super::expr::is_path_like_arena_expr;
 use super::{
     ApiArgCheck, BTreeMap, CallableParamType, Checker, Diagnostic, FxHashSet, Label,
     MethodReceiver, ModuleExportType, Name, QualifiedName, Span, Type, UnaryOp, api_spec,
-    call_arg_expr_id_arena,
-    call_arg_span_arena, standard_record_type,
+    call_arg_expr_id_arena, call_arg_span_arena, standard_record_type,
 };
 use crate::syntax::arena::{
     ArenaCallArg, ArenaCallArgKind, ArenaExprKind, ArenaProgram, ArenaRange, ArenaRecordFieldKind,

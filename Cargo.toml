@@ -62,7 +62,7 @@ doctest = false
 
 [features]
 default = ["native-tests", "net", "tools"]
-benchmark-support = []
+benchmark = []
 linux-priv-tests = []
 native-tests = ["xsh-registry/native-tests"]
 net = [

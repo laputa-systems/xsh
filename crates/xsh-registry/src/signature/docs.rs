@@ -211,7 +211,10 @@ struct DocRow {
 
 fn api_tags(scope: &str, name: &str, tags: &[&str]) -> Vec<String> {
     let mut result = Vec::new();
-    for tag in std::iter::once(scope).chain(std::iter::once(name)).chain(tags.iter().copied()) {
+    for tag in std::iter::once(scope)
+        .chain(std::iter::once(name))
+        .chain(tags.iter().copied())
+    {
         if !result.iter().any(|existing| existing == tag) {
             result.push(tag.to_string());
         }
@@ -219,11 +222,10 @@ fn api_tags(scope: &str, name: &str, tags: &[&str]) -> Vec<String> {
     result
 }
 
-fn function_doc(
-    module: &str,
-    function: &str,
-) -> Option<DocRow> {
-    let docs: Option<(&'static str, &'static str, &'static [&'static str])> = match (module, function) {
+fn function_doc(module: &str, function: &str) -> Option<DocRow> {
+    let docs: Option<(&'static str, &'static str, &'static [&'static str])> = match (
+        module, function,
+    ) {
         ("json", "read") => Some((
             "Reads one JSON document from a path.",
             "Successful parsing returns Any; require a schema before trusting fields.",
@@ -609,7 +611,11 @@ fn function_doc(
             "The root boundary is enforced before the host lookup, including for symlink-sensitive paths.",
             &["filesystem", "rooted", "metadata"],
         )),
-        ("fs", "root_mkdir" | "root_remove" | "root_readlink" | "root_chmod" | "root_symlink" | "root_install_file") => Some((
+        (
+            "fs",
+            "root_mkdir" | "root_remove" | "root_readlink" | "root_chmod" | "root_symlink"
+            | "root_install_file",
+        ) => Some((
             "Mutates a path below a rooted filesystem capability.",
             "Relative paths are validated against the root before the mutation and cannot address an outside destination.",
             &["filesystem", "rooted", "mutation"],
@@ -624,7 +630,11 @@ fn function_doc(
             "After close, further operations on the root are invalid and ownership must not be reused.",
             &["filesystem", "rooted", "ownership"],
         )),
-        ("fs", "executable" | "world_writable" | "sticky" | "setuid" | "setgid" | "owner_executable" | "group_executable" | "other_executable") => Some((
+        (
+            "fs",
+            "executable" | "world_writable" | "sticky" | "setuid" | "setgid" | "owner_executable"
+            | "group_executable" | "other_executable",
+        ) => Some((
             "Inspects one permission bit on a filesystem path.",
             "The result is metadata observed at the time of the call and does not change the path.",
             &["filesystem", "permissions", "metadata"],
@@ -764,12 +774,23 @@ fn function_doc(
             "The result is a host-global snapshot and is only available on Linux.",
             &["linux", "network", "host-state"],
         )),
-        ("linux", "link_up" | "link_down" | "set_ipv4_address" | "flush_ipv4_addresses" | "add_default_ipv4_route" | "del_default_ipv4_route") => Some((
+        (
+            "linux",
+            "link_up"
+            | "link_down"
+            | "set_ipv4_address"
+            | "flush_ipv4_addresses"
+            | "add_default_ipv4_route"
+            | "del_default_ipv4_route",
+        ) => Some((
             "Changes Linux network link or route configuration.",
             "The operation mutates host-global networking state and requires the corresponding platform privilege.",
             &["linux", "network", "privileged"],
         )),
-        ("linux", "dhcp_socket" | "dhcp_send" | "dhcp_recv" | "dhcp_close" | "dhcp_send_release") => Some((
+        (
+            "linux",
+            "dhcp_socket" | "dhcp_send" | "dhcp_recv" | "dhcp_close" | "dhcp_send_release",
+        ) => Some((
             "Performs one stage of the Linux DHCP socket lifecycle.",
             "The handle and packet flow are caller-owned; the operation is platform-specific and privilege-sensitive.",
             &["linux", "dhcp", "network", "privileged"],
@@ -779,12 +800,21 @@ fn function_doc(
             "Device paths address host-global resources and may require privilege; no implicit device discovery is performed.",
             &["linux", "device", "privileged"],
         )),
-        ("linux", "mount" | "mount_all" | "umount_all" | "swapon" | "swapon_all" | "swapoff" | "swapoff_all") => Some((
+        (
+            "linux",
+            "mount" | "mount_all" | "umount_all" | "swapon" | "swapon_all" | "swapoff"
+            | "swapoff_all",
+        ) => Some((
             "Changes Linux mount or swap state.",
             "The operation is host-global, privilege-sensitive, and can affect processes outside the current script.",
             &["linux", "mount", "privileged", "host-global"],
         )),
-        ("linux", "meminfo" | "disk_usage" | "dmesg" | "is_mountpoint" | "file_attrs" | "file_version" | "open_files" | "partition_table" | "blkid" | "modinfo" | "rfkill_list" | "loop_list" | "modules") => Some((
+        (
+            "linux",
+            "meminfo" | "disk_usage" | "dmesg" | "is_mountpoint" | "file_attrs" | "file_version"
+            | "open_files" | "partition_table" | "blkid" | "modinfo" | "rfkill_list" | "loop_list"
+            | "modules",
+        ) => Some((
             "Reads a Linux host-state record or inspection stream.",
             "The result is a point-in-time observation and is unavailable or restricted on hosts without the corresponding Linux interface.",
             &["linux", "inspection", "host-state"],
@@ -1064,7 +1094,11 @@ fn function_doc(
             "The result is display text and preserves the sign and magnitude of the duration.",
             &["time", "duration", "display"],
         )),
-        ("tui", "reset" | "bold" | "dim" | "red" | "green" | "yellow" | "blue" | "magenta" | "cyan" | "white" | "gray" | "clear" | "home" | "erase_line" | "hide_cursor" | "show_cursor") => Some((
+        (
+            "tui",
+            "reset" | "bold" | "dim" | "red" | "green" | "yellow" | "blue" | "magenta" | "cyan"
+            | "white" | "gray" | "clear" | "home" | "erase_line" | "hide_cursor" | "show_cursor",
+        ) => Some((
             "Returns a terminal control sequence for the selected display operation.",
             "The value is output text; callers choose when to write it and the API does not mutate terminal state by itself.",
             &["tui", "terminal", "control-sequence"],
@@ -1089,7 +1123,13 @@ fn function_doc(
             "The operation owns a process-lifecycle boundary and can affect descendants outside the immediate call.",
             &["unix", "process", "lifecycle", "privileged"],
         )),
-        ("unix", "spawn_process_group" | "spawn_process_group_log" | "spawn_logged_process_group" | "spawn_with_tty") => Some((
+        (
+            "unix",
+            "spawn_process_group"
+            | "spawn_process_group_log"
+            | "spawn_logged_process_group"
+            | "spawn_with_tty",
+        ) => Some((
             "Starts a Unix process group with explicit lifecycle and terminal options.",
             "The returned child ownership, logging destination, and tty boundary are explicit; cleanup must be deliberate.",
             &["unix", "process", "ownership", "tty"],
@@ -1151,14 +1191,17 @@ fn function_doc(
         )),
         _ => None,
     };
-    docs.map(|(summary, contract, tags)| DocRow { summary, contract, tags })
+    docs.map(|(summary, contract, tags)| DocRow {
+        summary,
+        contract,
+        tags,
+    })
 }
 
-fn method_doc(
-    receiver: &str,
-    method: &str,
-) -> Option<DocRow> {
-    let docs: Option<(&'static str, &'static str, &'static [&'static str])> = match (receiver, method) {
+fn method_doc(receiver: &str, method: &str) -> Option<DocRow> {
+    let docs: Option<(&'static str, &'static str, &'static [&'static str])> = match (
+        receiver, method,
+    ) {
         ("Path", "resolve") => Some((
             "Resolves a path through the filesystem.",
             "Use resolve only when symlink-aware canonical host resolution is required; it may fail for missing paths.",
@@ -1194,97 +1237,455 @@ fn method_doc(
             "Invalid byte sequences are an error; keep Bytes when text validity is not guaranteed.",
             &["bytes", "utf8", "conversion"],
         )),
-        ("Path", "display") => Some(("Formats a path for display.", "Display text is not a filesystem operation and must not be parsed back as an implicit path.", &["path", "display"])),
-        ("Path", "name") => Some(("Returns the final path component.", "The result is text derived from the path spelling and may be empty for a root-like path.", &["path", "component"])),
-        ("Path", "ext") => Some(("Returns the path extension.", "Extension parsing follows the path component rules and does not inspect file contents.", &["path", "component"])),
-        ("Path", "normalize") => Some(("Normalizes lexical path components.", "Normalization is lexical and does not resolve symlinks or require the path to exist.", &["path", "normalization"])),
-        ("Path", "parent") => Some(("Returns the lexical parent path.", "The operation does not query the filesystem or resolve symlinks.", &["path", "component"])),
-        ("Path", "strip_prefix") => Some(("Removes an explicit path prefix.", "The prefix must match the path boundary; unrelated paths return an error.", &["path", "relative"])),
-        ("Path", "with_ext") => Some(("Replaces a path extension.", "The operation changes spelling only and does not rename or touch the filesystem path.", &["path", "component"])),
-        ("Path", "exists" | "executable") => Some(("Checks a filesystem property for a path.", "The result describes the host at lookup time; permission and other lookup failures remain errors.", &["path", "filesystem", "metadata"])),
-        ("Path", "du") => Some(("Calculates disk usage for a path.", "The count follows host allocation semantics rather than only logical file length.", &["path", "filesystem", "usage"])),
-        ("Path", "metadata") => Some(("Reads a path's filesystem metadata record.", "Metadata is a host snapshot and follows the path's permissions and symlink behavior.", &["path", "filesystem", "metadata"])),
-        ("Path", "read_bytes") => Some(("Reads a file as Bytes.", "The operation preserves arbitrary file bytes and does not perform UTF-8 validation.", &["path", "filesystem", "bytes"])),
-        ("Path", "lines") => Some(("Streams UTF-8 file lines.", "Line production is lazy and invalid UTF-8 remains an error at the text boundary.", &["path", "filesystem", "streaming"])),
-        ("Path", "bytes_lines") => Some(("Streams file lines as Bytes.", "The byte stream preserves non-UTF-8 content and remains lazy until consumed.", &["path", "filesystem", "streaming", "bytes"])),
-        ("Path", "write") => Some(("Writes text or bytes to a path.", "The input type selects the boundary explicitly and the destination policy is owned by the filesystem call.", &["path", "filesystem", "write"])),
-        ("Path", "copy") => Some(("Copies a path to an explicit destination.", "Overwrite behavior is explicit and filesystem failures remain errors.", &["path", "filesystem", "copy"])),
-        ("Path", "rename") => Some(("Renames a path to an explicit destination.", "The operation is a host rename boundary and does not silently copy across filesystems.", &["path", "filesystem", "rename"])),
-        ("Path", "mkdir") => Some(("Creates a directory at a path.", "The parents option controls ancestor creation; existing non-directories remain errors.", &["path", "filesystem", "directory"])),
-        ("Path", "remove") => Some(("Removes a path with an explicit missing policy.", "Removal is not recursive unless the selected host operation says so, and missing_ok controls absence.", &["path", "filesystem", "remove"])),
-        ("Path", "remove_dir") => Some(("Removes an empty directory.", "Non-empty directories and missing paths remain errors.", &["path", "filesystem", "remove"])),
-        ("Path", "touch" | "touch_from") => Some(("Creates or updates a path timestamp.", "Creation and reference-path policy are explicit; timestamp mutation is a filesystem effect.", &["path", "filesystem", "metadata"])),
-        ("Path", "truncate") => Some(("Changes a file's length.", "The requested size is explicit and truncation can discard data, so failures and size policy remain visible.", &["path", "filesystem", "destructive"])),
-        ("Path", "chmod") => Some(("Changes permission bits on a path.", "The mode is an explicit host permission value and the operation may require privilege.", &["path", "filesystem", "permissions"])),
-        ("Path", "hardlink") => Some(("Creates a hard link to a path.", "The target must satisfy host filesystem link rules and remains a shared inode, not a copied file.", &["path", "filesystem", "link"])),
-        ("Path", "unlink") => Some(("Removes one directory entry.", "Unlink changes the directory entry while open handles may continue to own the inode.", &["path", "filesystem", "remove"])),
-        ("Path", "readlink") => Some(("Reads a symbolic link target.", "The returned path is link text; it is not canonicalized or required to exist.", &["path", "filesystem", "symlink"])),
-        ("Path", "parse_bytes") => Some(("Parses Bytes as a filesystem path.", "Invalid path encoding is an error and no implicit lossy text conversion is performed.", &["path", "bytes", "parsing"])),
-        ("EnvPathList", "prepend" | "append") => Some(("Adds a path to an environment path list.", "The mutation is scoped to the path-list value and preserves explicit component ordering.", &["env", "path", "mutation"])),
-        ("EnvPathList", "pop") => Some(("Removes one path from an environment path list.", "The returned path owns the removed component and an empty list reports an error.", &["env", "path", "ownership"])),
-        ("Int", "float") => Some(("Converts an integer to Float.", "The conversion follows the host numeric representation and does not parse display text.", &["numeric", "conversion"])),
-        ("Float", "floor" | "ceil" | "round") => Some(("Rounds a floating-point value to an integer.", "Non-finite values and values outside the integer range return an error.", &["numeric", "rounding"])),
-        ("Float", "format") => Some(("Formats a floating-point value with an optional precision.", "The result is display text and is not a lossless numeric serialization contract.", &["numeric", "display"])),
-        ("Float", "sqrt" | "pow" | "exp" | "ln" | "log" | "sin" | "cos" | "tan" | "abs") => Some(("Computes a floating-point mathematical function.", "Domain errors follow the numeric result contract rather than being hidden as text or status values.", &["numeric", "math"])),
-        ("Record", "has") => Some(("Checks whether a record contains a field.", "Field presence is distinct from the field's value and does not require a typed field lookup.", &["record", "lookup"])),
-        ("Record", "get") => Some(("Reads a dynamic record field.", "Missing fields return an error result so callers cannot confuse absence with a null-like value.", &["record", "lookup", "dynamic"])),
-        ("Record", "keys") => Some(("Lists the field names in a record.", "The returned names describe the record value and are ordered by the record map contract.", &["record", "collection"])),
-        ("Map", "len") => Some(("Returns the number of entries in a map.", "The count is a pure snapshot of the map value.", &["map", "collection"])),
-        ("Map", "has") => Some(("Checks whether a map contains a key.", "Key presence is distinct from the stored value and does not mutate the map.", &["map", "lookup"])),
-        ("Map", "get") => Some(("Reads a map value with or without a fallback.", "The fallback overload distinguishes missing keys from stored values and never inserts the fallback.", &["map", "lookup", "fallback"])),
-        ("Map", "set") => Some(("Returns a map with one key replaced.", "The operation returns the updated value rather than mutating an unrelated alias.", &["map", "mutation"])),
-        ("Map", "push") => Some(("Appends a value to a map entry list.", "The entry is treated as a list and the returned map owns the updated list value.", &["map", "mutation", "collection"])),
-        ("Map", "remove") => Some(("Returns a map without one key.", "Removing a missing key leaves the map value unchanged.", &["map", "mutation"])),
-        ("Map", "keys" | "values") => Some(("Lists map keys or values.", "The result is a snapshot collection and does not retain a live map handle.", &["map", "collection"])),
-        ("List", "len") => Some(("Returns the number of list elements.", "The count is a pure snapshot of the list value.", &["list", "collection"])),
-        ("List", "contains") => Some(("Checks whether a list contains a value.", "Comparison follows XSH value equality and does not mutate the list.", &["list", "lookup"])),
-        ("List", "get") => Some(("Reads a list element with or without a fallback.", "The fallback overload distinguishes an out-of-range index from a stored value and does not resize the list.", &["list", "lookup", "fallback"])),
-        ("List", "push") => Some(("Returns a list with one value appended.", "The operation produces an updated list value rather than relying on hidden mutable collection state.", &["list", "mutation"])),
-        ("List", "extend") => Some(("Returns a list with another list appended.", "Elements are copied in input order and the source list remains independently owned.", &["list", "mutation", "collection"])),
-        ("List", "join") => Some(("Joins list values into text.", "Conversion is explicit at the text boundary and does not invoke shell word splitting.", &["list", "text"])),
-        ("Str", "trim") => Some(("Removes surrounding Unicode whitespace.", "Only the boundary is changed; interior characters remain in order.", &["text", "unicode"])),
-        ("Str", "starts_with" | "ends_with" | "contains") => Some(("Checks a text relationship.", "Matching operates on UTF-8 text values and returns a pure boolean.", &["text", "lookup"])),
-        ("Str", "lines" | "words" | "fields") => Some(("Splits text into a structured list.", "The selected delimiter and whitespace policy define the boundary; no shell parsing is implied.", &["text", "split", "collection"])),
-        ("Str", "split") => Some(("Splits text at an explicit separator.", "Separator handling is literal API behavior and does not invoke a regular expression or shell parser.", &["text", "split"])),
-        ("Str", "replace") => Some(("Replaces text occurrences.", "Replacement is literal according to the method contract and returns a new Str value.", &["text", "replace"])),
-        ("Str", "wrap") => Some(("Wraps text to a requested width.", "Width and line boundaries are explicit; the method returns presentation text rather than terminal output.", &["text", "layout"])),
-        ("Str", "translate") => Some(("Translates characters through an explicit mapping.", "Unmapped characters follow the method's deletion or preservation policy and are not silently re-encoded.", &["text", "transform"])),
-        ("Str", "lower" | "upper") => Some(("Changes text case.", "Case conversion follows Unicode text rules and returns a new Str value.", &["text", "unicode", "transform"])),
-        ("Str", "delete" | "squeeze" | "reverse") => Some(("Transforms text characters.", "The method returns a new value and applies its character policy without changing byte data in place.", &["text", "transform"])),
-        ("Str", "count_lines" | "count_words" | "count_chars" | "count_bytes" | "byte_len") => Some(("Counts a text property.", "Character, byte, and line counts are distinct UTF-8 measurements; select the method that matches the boundary.", &["text", "count", "utf8"])),
-        ("Str", "byte_at" | "byte_slice") => Some(("Reads a byte position or range from UTF-8 text.", "Indices are byte offsets and must land on valid UTF-8 boundaries where a Str result is required.", &["text", "utf8", "bounds"])),
-        ("Str", "find") => Some(("Finds a text substring position.", "The result uses the documented byte-offset convention and absence remains distinguishable.", &["text", "lookup", "offset"])),
-        ("Str", "parse_int") => Some(("Parses text as an integer.", "The accepted radix and syntax are explicit; malformed or out-of-range text returns an error.", &["text", "parsing", "numeric"])),
-        ("Str", "parse_float") => Some(("Parses text as a floating-point value.", "Malformed or non-finite input follows the numeric parser contract and returns an error.", &["text", "parsing", "numeric"])),
-        ("Str", "base64_decode" | "base32_decode") => Some(("Decodes text from a base encoding into Bytes.", "Invalid alphabet or padding returns an error rather than partially decoded bytes.", &["text", "encoding", "bytes"])),
-        ("Bytes", "len") => Some(("Returns the number of bytes.", "The count is a pure snapshot and is not a character count.", &["bytes", "count"])),
-        ("Bytes", "slice") => Some(("Returns a byte range.", "The range is bounds-checked and the result owns its copied bytes.", &["bytes", "bounds"])),
-        ("Bytes", "dump") => Some(("Formats bytes as a diagnostic dump.", "The result is display text and must not be used as an implicit binary round trip.", &["bytes", "display"])),
-        ("Bytes", "strings") => Some(("Extracts printable strings from bytes.", "The extraction is a diagnostic view and does not assert that all input bytes are UTF-8.", &["bytes", "inspection", "text"])),
-        ("Bytes", "base64" | "base32") => Some(("Encodes bytes using a base alphabet.", "The result is text for an explicit interchange boundary and preserves all input bytes.", &["bytes", "encoding", "text"])),
-        ("Bytes", "md5" | "sha1" | "sha256" | "sha512") => Some(("Calculates a digest for the byte value.", "The digest method consumes bytes directly; choose an algorithm appropriate to the integrity or compatibility boundary.", &["bytes", "hash", "digest"])),
-        ("Bytes", "chunks") => Some(("Splits bytes into fixed-size chunks.", "Chunk size and final remainder behavior are explicit; the result is a collection of owned byte values.", &["bytes", "chunks", "collection"])),
-        ("Bytes", "compare") => Some(("Compares two byte buffers.", "Comparison is bytewise and independent of UTF-8 decoding.", &["bytes", "comparison"])),
-        ("Bytes", "contains") => Some(("Checks whether one byte buffer contains another.", "Matching is bytewise and does not decode either value as text.", &["bytes", "lookup"])),
-        ("Bytes", "byte_at") => Some(("Reads one byte at an explicit offset.", "The offset is bounds-checked and the result is independent of UTF-8 decoding.", &["bytes", "lookup", "bounds"])),
-        ("Bytes", "count_lines") => Some(("Counts line separators in bytes.", "The operation is byte-oriented and does not require valid UTF-8.", &["bytes", "count", "lines"])),
-        ("Bytes", "lines") => Some(("Splits bytes into line-oriented chunks.", "The operation is byte-oriented and does not require valid UTF-8; each emitted chunk remains Bytes.", &["bytes", "lines", "streaming"])),
-        ("Bytes", "lower") => Some(("Lowercases ASCII-compatible bytes.", "Only the method's byte-level case policy applies; arbitrary binary data remains binary.", &["bytes", "transform"])),
-        ("Bytes", "trim") => Some(("Trims the byte boundary.", "Trimming follows the byte whitespace policy and does not decode arbitrary input as text.", &["bytes", "transform"])),
-        ("Bytes", "starts_with" | "ends_with") => Some(("Checks a byte-prefix or suffix relationship.", "Matching is bytewise and returns a pure boolean.", &["bytes", "lookup"])),
-        ("Status", "exited" | "signaled") => Some(("Checks how a process status completed.", "The predicate distinguishes normal exit from signal termination without discarding the original status.", &["process", "status-data"])),
-        ("Status", "exited_with") => Some(("Checks a process exit code.", "The comparison applies only to normal exits; signaled statuses remain distinct.", &["process", "status-data", "comparison"])),
-        ("Status", "exit_code" | "signal_number") => Some(("Reads one field from a process status.", "The field is optional by process outcome and callers must use the matching outcome predicate first.", &["process", "status-data"])),
-        ("Digest", "hex") => Some(("Formats a digest as hexadecimal text.", "Formatting is deterministic display/interchange output and does not recalculate the digest.", &["hash", "digest", "hex"])),
-        ("Digest", "base64") => Some(("Formats a digest as base64 text.", "Formatting preserves the digest bytes and does not add a verification step.", &["hash", "digest", "base64"])),
-        ("Regex", "matches") => Some(("Tests whether a regex matches text.", "The compiled expression is reused without changing the input text.", &["regex", "matching"])),
-        ("Regex", "find") => Some(("Finds regex matches in text.", "Match positions and text are returned as structured values; no replacement occurs.", &["regex", "matching", "search"])),
-        ("Regex", "captures") => Some(("Extracts regex capture groups.", "Capture absence remains distinguishable from an empty capture and the input is not mutated.", &["regex", "captures"])),
-        ("Regex", "replace") => Some(("Replaces regex matches in text.", "Replacement syntax follows the regex method contract and returns a new string.", &["regex", "replace"])),
-        ("ProcessHandle", "cancel") => Some(("Requests cancellation of an owned process handle.", "Cancellation changes handle lifecycle and process state; wait or detach remains the caller's responsibility.", &["process", "ownership", "cancellation"])),
+        ("Path", "display") => Some((
+            "Formats a path for display.",
+            "Display text is not a filesystem operation and must not be parsed back as an implicit path.",
+            &["path", "display"],
+        )),
+        ("Path", "name") => Some((
+            "Returns the final path component.",
+            "The result is text derived from the path spelling and may be empty for a root-like path.",
+            &["path", "component"],
+        )),
+        ("Path", "ext") => Some((
+            "Returns the path extension.",
+            "Extension parsing follows the path component rules and does not inspect file contents.",
+            &["path", "component"],
+        )),
+        ("Path", "normalize") => Some((
+            "Normalizes lexical path components.",
+            "Normalization is lexical and does not resolve symlinks or require the path to exist.",
+            &["path", "normalization"],
+        )),
+        ("Path", "parent") => Some((
+            "Returns the lexical parent path.",
+            "The operation does not query the filesystem or resolve symlinks.",
+            &["path", "component"],
+        )),
+        ("Path", "strip_prefix") => Some((
+            "Removes an explicit path prefix.",
+            "The prefix must match the path boundary; unrelated paths return an error.",
+            &["path", "relative"],
+        )),
+        ("Path", "with_ext") => Some((
+            "Replaces a path extension.",
+            "The operation changes spelling only and does not rename or touch the filesystem path.",
+            &["path", "component"],
+        )),
+        ("Path", "exists" | "executable") => Some((
+            "Checks a filesystem property for a path.",
+            "The result describes the host at lookup time; permission and other lookup failures remain errors.",
+            &["path", "filesystem", "metadata"],
+        )),
+        ("Path", "du") => Some((
+            "Calculates disk usage for a path.",
+            "The count follows host allocation semantics rather than only logical file length.",
+            &["path", "filesystem", "usage"],
+        )),
+        ("Path", "metadata") => Some((
+            "Reads a path's filesystem metadata record.",
+            "Metadata is a host snapshot and follows the path's permissions and symlink behavior.",
+            &["path", "filesystem", "metadata"],
+        )),
+        ("Path", "read_bytes") => Some((
+            "Reads a file as Bytes.",
+            "The operation preserves arbitrary file bytes and does not perform UTF-8 validation.",
+            &["path", "filesystem", "bytes"],
+        )),
+        ("Path", "lines") => Some((
+            "Streams UTF-8 file lines.",
+            "Line production is lazy and invalid UTF-8 remains an error at the text boundary.",
+            &["path", "filesystem", "streaming"],
+        )),
+        ("Path", "bytes_lines") => Some((
+            "Streams file lines as Bytes.",
+            "The byte stream preserves non-UTF-8 content and remains lazy until consumed.",
+            &["path", "filesystem", "streaming", "bytes"],
+        )),
+        ("Path", "write") => Some((
+            "Writes text or bytes to a path.",
+            "The input type selects the boundary explicitly and the destination policy is owned by the filesystem call.",
+            &["path", "filesystem", "write"],
+        )),
+        ("Path", "copy") => Some((
+            "Copies a path to an explicit destination.",
+            "Overwrite behavior is explicit and filesystem failures remain errors.",
+            &["path", "filesystem", "copy"],
+        )),
+        ("Path", "rename") => Some((
+            "Renames a path to an explicit destination.",
+            "The operation is a host rename boundary and does not silently copy across filesystems.",
+            &["path", "filesystem", "rename"],
+        )),
+        ("Path", "mkdir") => Some((
+            "Creates a directory at a path.",
+            "The parents option controls ancestor creation; existing non-directories remain errors.",
+            &["path", "filesystem", "directory"],
+        )),
+        ("Path", "remove") => Some((
+            "Removes a path with an explicit missing policy.",
+            "Removal is not recursive unless the selected host operation says so, and missing_ok controls absence.",
+            &["path", "filesystem", "remove"],
+        )),
+        ("Path", "remove_dir") => Some((
+            "Removes an empty directory.",
+            "Non-empty directories and missing paths remain errors.",
+            &["path", "filesystem", "remove"],
+        )),
+        ("Path", "touch" | "touch_from") => Some((
+            "Creates or updates a path timestamp.",
+            "Creation and reference-path policy are explicit; timestamp mutation is a filesystem effect.",
+            &["path", "filesystem", "metadata"],
+        )),
+        ("Path", "truncate") => Some((
+            "Changes a file's length.",
+            "The requested size is explicit and truncation can discard data, so failures and size policy remain visible.",
+            &["path", "filesystem", "destructive"],
+        )),
+        ("Path", "chmod") => Some((
+            "Changes permission bits on a path.",
+            "The mode is an explicit host permission value and the operation may require privilege.",
+            &["path", "filesystem", "permissions"],
+        )),
+        ("Path", "hardlink") => Some((
+            "Creates a hard link to a path.",
+            "The target must satisfy host filesystem link rules and remains a shared inode, not a copied file.",
+            &["path", "filesystem", "link"],
+        )),
+        ("Path", "unlink") => Some((
+            "Removes one directory entry.",
+            "Unlink changes the directory entry while open handles may continue to own the inode.",
+            &["path", "filesystem", "remove"],
+        )),
+        ("Path", "readlink") => Some((
+            "Reads a symbolic link target.",
+            "The returned path is link text; it is not canonicalized or required to exist.",
+            &["path", "filesystem", "symlink"],
+        )),
+        ("Path", "parse_bytes") => Some((
+            "Parses Bytes as a filesystem path.",
+            "Invalid path encoding is an error and no implicit lossy text conversion is performed.",
+            &["path", "bytes", "parsing"],
+        )),
+        ("EnvPathList", "prepend" | "append") => Some((
+            "Adds a path to an environment path list.",
+            "The mutation is scoped to the path-list value and preserves explicit component ordering.",
+            &["env", "path", "mutation"],
+        )),
+        ("EnvPathList", "pop") => Some((
+            "Removes one path from an environment path list.",
+            "The returned path owns the removed component and an empty list reports an error.",
+            &["env", "path", "ownership"],
+        )),
+        ("Int", "float") => Some((
+            "Converts an integer to Float.",
+            "The conversion follows the host numeric representation and does not parse display text.",
+            &["numeric", "conversion"],
+        )),
+        ("Float", "floor" | "ceil" | "round") => Some((
+            "Rounds a floating-point value to an integer.",
+            "Non-finite values and values outside the integer range return an error.",
+            &["numeric", "rounding"],
+        )),
+        ("Float", "format") => Some((
+            "Formats a floating-point value with an optional precision.",
+            "The result is display text and is not a lossless numeric serialization contract.",
+            &["numeric", "display"],
+        )),
+        ("Float", "sqrt" | "pow" | "exp" | "ln" | "log" | "sin" | "cos" | "tan" | "abs") => Some((
+            "Computes a floating-point mathematical function.",
+            "Domain errors follow the numeric result contract rather than being hidden as text or status values.",
+            &["numeric", "math"],
+        )),
+        ("Record", "has") => Some((
+            "Checks whether a record contains a field.",
+            "Field presence is distinct from the field's value and does not require a typed field lookup.",
+            &["record", "lookup"],
+        )),
+        ("Record", "get") => Some((
+            "Reads a dynamic record field.",
+            "Missing fields return an error result so callers cannot confuse absence with a null-like value.",
+            &["record", "lookup", "dynamic"],
+        )),
+        ("Record", "keys") => Some((
+            "Lists the field names in a record.",
+            "The returned names describe the record value and are ordered by the record map contract.",
+            &["record", "collection"],
+        )),
+        ("Map", "len") => Some((
+            "Returns the number of entries in a map.",
+            "The count is a pure snapshot of the map value.",
+            &["map", "collection"],
+        )),
+        ("Map", "has") => Some((
+            "Checks whether a map contains a key.",
+            "Key presence is distinct from the stored value and does not mutate the map.",
+            &["map", "lookup"],
+        )),
+        ("Map", "get") => Some((
+            "Reads a map value with or without a fallback.",
+            "The fallback overload distinguishes missing keys from stored values and never inserts the fallback.",
+            &["map", "lookup", "fallback"],
+        )),
+        ("Map", "set") => Some((
+            "Returns a map with one key replaced.",
+            "The operation returns the updated value rather than mutating an unrelated alias.",
+            &["map", "mutation"],
+        )),
+        ("Map", "push") => Some((
+            "Appends a value to a map entry list.",
+            "The entry is treated as a list and the returned map owns the updated list value.",
+            &["map", "mutation", "collection"],
+        )),
+        ("Map", "remove") => Some((
+            "Returns a map without one key.",
+            "Removing a missing key leaves the map value unchanged.",
+            &["map", "mutation"],
+        )),
+        ("Map", "keys" | "values") => Some((
+            "Lists map keys or values.",
+            "The result is a snapshot collection and does not retain a live map handle.",
+            &["map", "collection"],
+        )),
+        ("List", "len") => Some((
+            "Returns the number of list elements.",
+            "The count is a pure snapshot of the list value.",
+            &["list", "collection"],
+        )),
+        ("List", "contains") => Some((
+            "Checks whether a list contains a value.",
+            "Comparison follows XSH value equality and does not mutate the list.",
+            &["list", "lookup"],
+        )),
+        ("List", "get") => Some((
+            "Reads a list element with or without a fallback.",
+            "The fallback overload distinguishes an out-of-range index from a stored value and does not resize the list.",
+            &["list", "lookup", "fallback"],
+        )),
+        ("List", "push") => Some((
+            "Returns a list with one value appended.",
+            "The operation produces an updated list value rather than relying on hidden mutable collection state.",
+            &["list", "mutation"],
+        )),
+        ("List", "extend") => Some((
+            "Returns a list with another list appended.",
+            "Elements are copied in input order and the source list remains independently owned.",
+            &["list", "mutation", "collection"],
+        )),
+        ("List", "join") => Some((
+            "Joins list values into text.",
+            "Conversion is explicit at the text boundary and does not invoke shell word splitting.",
+            &["list", "text"],
+        )),
+        ("Str", "trim") => Some((
+            "Removes surrounding Unicode whitespace.",
+            "Only the boundary is changed; interior characters remain in order.",
+            &["text", "unicode"],
+        )),
+        ("Str", "starts_with" | "ends_with" | "contains") => Some((
+            "Checks a text relationship.",
+            "Matching operates on UTF-8 text values and returns a pure boolean.",
+            &["text", "lookup"],
+        )),
+        ("Str", "lines" | "words" | "fields") => Some((
+            "Splits text into a structured list.",
+            "The selected delimiter and whitespace policy define the boundary; no shell parsing is implied.",
+            &["text", "split", "collection"],
+        )),
+        ("Str", "split") => Some((
+            "Splits text at an explicit separator.",
+            "Separator handling is literal API behavior and does not invoke a regular expression or shell parser.",
+            &["text", "split"],
+        )),
+        ("Str", "replace") => Some((
+            "Replaces text occurrences.",
+            "Replacement is literal according to the method contract and returns a new Str value.",
+            &["text", "replace"],
+        )),
+        ("Str", "wrap") => Some((
+            "Wraps text to a requested width.",
+            "Width and line boundaries are explicit; the method returns presentation text rather than terminal output.",
+            &["text", "layout"],
+        )),
+        ("Str", "translate") => Some((
+            "Translates characters through an explicit mapping.",
+            "Unmapped characters follow the method's deletion or preservation policy and are not silently re-encoded.",
+            &["text", "transform"],
+        )),
+        ("Str", "lower" | "upper") => Some((
+            "Changes text case.",
+            "Case conversion follows Unicode text rules and returns a new Str value.",
+            &["text", "unicode", "transform"],
+        )),
+        ("Str", "delete" | "squeeze" | "reverse") => Some((
+            "Transforms text characters.",
+            "The method returns a new value and applies its character policy without changing byte data in place.",
+            &["text", "transform"],
+        )),
+        ("Str", "count_lines" | "count_words" | "count_chars" | "count_bytes" | "byte_len") => {
+            Some((
+                "Counts a text property.",
+                "Character, byte, and line counts are distinct UTF-8 measurements; select the method that matches the boundary.",
+                &["text", "count", "utf8"],
+            ))
+        }
+        ("Str", "byte_at" | "byte_slice") => Some((
+            "Reads a byte position or range from UTF-8 text.",
+            "Indices are byte offsets and must land on valid UTF-8 boundaries where a Str result is required.",
+            &["text", "utf8", "bounds"],
+        )),
+        ("Str", "find") => Some((
+            "Finds a text substring position.",
+            "The result uses the documented byte-offset convention and absence remains distinguishable.",
+            &["text", "lookup", "offset"],
+        )),
+        ("Str", "parse_int") => Some((
+            "Parses text as an integer.",
+            "The accepted radix and syntax are explicit; malformed or out-of-range text returns an error.",
+            &["text", "parsing", "numeric"],
+        )),
+        ("Str", "parse_float") => Some((
+            "Parses text as a floating-point value.",
+            "Malformed or non-finite input follows the numeric parser contract and returns an error.",
+            &["text", "parsing", "numeric"],
+        )),
+        ("Str", "base64_decode" | "base32_decode") => Some((
+            "Decodes text from a base encoding into Bytes.",
+            "Invalid alphabet or padding returns an error rather than partially decoded bytes.",
+            &["text", "encoding", "bytes"],
+        )),
+        ("Bytes", "len") => Some((
+            "Returns the number of bytes.",
+            "The count is a pure snapshot and is not a character count.",
+            &["bytes", "count"],
+        )),
+        ("Bytes", "slice") => Some((
+            "Returns a byte range.",
+            "The range is bounds-checked and the result owns its copied bytes.",
+            &["bytes", "bounds"],
+        )),
+        ("Bytes", "dump") => Some((
+            "Formats bytes as a diagnostic dump.",
+            "The result is display text and must not be used as an implicit binary round trip.",
+            &["bytes", "display"],
+        )),
+        ("Bytes", "strings") => Some((
+            "Extracts printable strings from bytes.",
+            "The extraction is a diagnostic view and does not assert that all input bytes are UTF-8.",
+            &["bytes", "inspection", "text"],
+        )),
+        ("Bytes", "base64" | "base32") => Some((
+            "Encodes bytes using a base alphabet.",
+            "The result is text for an explicit interchange boundary and preserves all input bytes.",
+            &["bytes", "encoding", "text"],
+        )),
+        ("Bytes", "md5" | "sha1" | "sha256" | "sha512") => Some((
+            "Calculates a digest for the byte value.",
+            "The digest method consumes bytes directly; choose an algorithm appropriate to the integrity or compatibility boundary.",
+            &["bytes", "hash", "digest"],
+        )),
+        ("Bytes", "chunks") => Some((
+            "Splits bytes into fixed-size chunks.",
+            "Chunk size and final remainder behavior are explicit; the result is a collection of owned byte values.",
+            &["bytes", "chunks", "collection"],
+        )),
+        ("Bytes", "compare") => Some((
+            "Compares two byte buffers.",
+            "Comparison is bytewise and independent of UTF-8 decoding.",
+            &["bytes", "comparison"],
+        )),
+        ("Bytes", "contains") => Some((
+            "Checks whether one byte buffer contains another.",
+            "Matching is bytewise and does not decode either value as text.",
+            &["bytes", "lookup"],
+        )),
+        ("Bytes", "byte_at") => Some((
+            "Reads one byte at an explicit offset.",
+            "The offset is bounds-checked and the result is independent of UTF-8 decoding.",
+            &["bytes", "lookup", "bounds"],
+        )),
+        ("Bytes", "count_lines") => Some((
+            "Counts line separators in bytes.",
+            "The operation is byte-oriented and does not require valid UTF-8.",
+            &["bytes", "count", "lines"],
+        )),
+        ("Bytes", "lines") => Some((
+            "Splits bytes into line-oriented chunks.",
+            "The operation is byte-oriented and does not require valid UTF-8; each emitted chunk remains Bytes.",
+            &["bytes", "lines", "streaming"],
+        )),
+        ("Bytes", "lower") => Some((
+            "Lowercases ASCII-compatible bytes.",
+            "Only the method's byte-level case policy applies; arbitrary binary data remains binary.",
+            &["bytes", "transform"],
+        )),
+        ("Bytes", "trim") => Some((
+            "Trims the byte boundary.",
+            "Trimming follows the byte whitespace policy and does not decode arbitrary input as text.",
+            &["bytes", "transform"],
+        )),
+        ("Bytes", "starts_with" | "ends_with") => Some((
+            "Checks a byte-prefix or suffix relationship.",
+            "Matching is bytewise and returns a pure boolean.",
+            &["bytes", "lookup"],
+        )),
+        ("Status", "exited" | "signaled") => Some((
+            "Checks how a process status completed.",
+            "The predicate distinguishes normal exit from signal termination without discarding the original status.",
+            &["process", "status-data"],
+        )),
+        ("Status", "exited_with") => Some((
+            "Checks a process exit code.",
+            "The comparison applies only to normal exits; signaled statuses remain distinct.",
+            &["process", "status-data", "comparison"],
+        )),
+        ("Status", "exit_code" | "signal_number") => Some((
+            "Reads one field from a process status.",
+            "The field is optional by process outcome and callers must use the matching outcome predicate first.",
+            &["process", "status-data"],
+        )),
+        ("Digest", "hex") => Some((
+            "Formats a digest as hexadecimal text.",
+            "Formatting is deterministic display/interchange output and does not recalculate the digest.",
+            &["hash", "digest", "hex"],
+        )),
+        ("Digest", "base64") => Some((
+            "Formats a digest as base64 text.",
+            "Formatting preserves the digest bytes and does not add a verification step.",
+            &["hash", "digest", "base64"],
+        )),
+        ("Regex", "matches") => Some((
+            "Tests whether a regex matches text.",
+            "The compiled expression is reused without changing the input text.",
+            &["regex", "matching"],
+        )),
+        ("Regex", "find") => Some((
+            "Finds regex matches in text.",
+            "Match positions and text are returned as structured values; no replacement occurs.",
+            &["regex", "matching", "search"],
+        )),
+        ("Regex", "captures") => Some((
+            "Extracts regex capture groups.",
+            "Capture absence remains distinguishable from an empty capture and the input is not mutated.",
+            &["regex", "captures"],
+        )),
+        ("Regex", "replace") => Some((
+            "Replaces regex matches in text.",
+            "Replacement syntax follows the regex method contract and returns a new string.",
+            &["regex", "replace"],
+        )),
+        ("ProcessHandle", "cancel") => Some((
+            "Requests cancellation of an owned process handle.",
+            "Cancellation changes handle lifecycle and process state; wait or detach remains the caller's responsibility.",
+            &["process", "ownership", "cancellation"],
+        )),
         _ => None,
     };
-    docs.map(|(summary, contract, tags)| DocRow { summary, contract, tags })
+    docs.map(|(summary, contract, tags)| DocRow {
+        summary,
+        contract,
+        tags,
+    })
 }
 
 fn method_docs(receiver: MethodReceiver, method: &str) -> ApiDocs {

@@ -69,7 +69,7 @@ def build_image() -> None:
 
 def benchmark_executable() -> str:
     result = docker_run(
-        "cargo bench -p xsh-multicall --bench bench --features benchmark-support "
+        "cargo bench -p xsh-multicall --bench bench --features benchmark "
         "--no-run --message-format=json",
         capture=True,
     )

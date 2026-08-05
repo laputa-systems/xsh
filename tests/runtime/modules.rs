@@ -985,10 +985,19 @@ build_fn.call(p"/tmp/bareword-dest")?
         "missing '-C build samu' in: {stdout}"
     );
     assert!(stdout.contains("-a json"), "missing '-a json' in: {stdout}");
-    assert!(stdout.contains("-ab json"), "missing '-ab json' in: {stdout}");
+    assert!(
+        stdout.contains("-ab json"),
+        "missing '-ab json' in: {stdout}"
+    );
     assert!(stdout.contains("-- json"), "missing '-- json' in: {stdout}");
-    assert!(stdout.contains("--f json"), "missing '--f json' in: {stdout}");
-    assert!(stdout.contains("--- json"), "missing '--- json' in: {stdout}");
+    assert!(
+        stdout.contains("--f json"),
+        "missing '--f json' in: {stdout}"
+    );
+    assert!(
+        stdout.contains("--- json"),
+        "missing '--- json' in: {stdout}"
+    );
     assert!(
         stdout.contains("--format json"),
         "missing '--format json' in: {stdout}"

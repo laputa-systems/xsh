@@ -31,8 +31,8 @@ mod streams;
 pub(in crate::signature) use builders::command_callable;
 pub use docs::{method_api_id, module_api_id, receiver_name};
 pub(in crate::signature) use methods::value_methods;
-pub use modules::record_docs;
 pub(in crate::signature) use modules::build_api_spec;
+pub use modules::record_docs;
 
 #[derive(Clone, Debug)]
 pub struct ApiSpec {

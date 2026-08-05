@@ -373,7 +373,7 @@ def run_suite(
         "--bench",
         "bench",
         "--features",
-        "benchmark-support",
+        "benchmark",
     ]
     divan_args: list[str] = []
     if sample_count is not None:

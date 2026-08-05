@@ -3548,9 +3548,7 @@ impl Evaluator {
                 .find_map(|stmt| compact_root_proc_main_span(program, stmt))
                 .unwrap_or_else(zero_span);
             let unbindable = compact_root_proc_main_unbindable_fixed_param(
-                program,
-                &root,
-                &indexed,
+                program, &root, &indexed,
             )
             .map_err(|error| {
                 compact_lowerability_diagnostic(
@@ -6092,21 +6090,21 @@ fn compact_root_proc_main_unbindable_fixed_param(
     root: &[StmtId],
     indexed: &FullProgram,
 ) -> Result<bool, crate::runtime::eval::indexed::IrVerifyError> {
-    let Some(main_def) = root.iter().copied().find_map(|stmt| match program.arena.stmt(stmt).kind {
-        ArenaStmtKind::Export(inner) => {
-            compact_root_proc_main_unbindable_fixed_param_inner(program, inner)
-        }
-        ArenaStmtKind::ProcDef(def)
-            if program
-                .arena
-                .function_def(def)
-                .name
-                == Name::intern("main") =>
-        {
-            Some(def)
-        }
-        _ => None,
-    }) else {
+    let Some(main_def) =
+        root.iter()
+            .copied()
+            .find_map(|stmt| match program.arena.stmt(stmt).kind {
+                ArenaStmtKind::Export(inner) => {
+                    compact_root_proc_main_unbindable_fixed_param_inner(program, inner)
+                }
+                ArenaStmtKind::ProcDef(def)
+                    if program.arena.function_def(def).name == Name::intern("main") =>
+                {
+                    Some(def)
+                }
+                _ => None,
+            })
+    else {
         return Ok(false);
     };
     let def = program.arena.function_def(main_def);
@@ -6135,11 +6133,7 @@ fn compact_root_proc_main_unbindable_fixed_param_inner(
             compact_root_proc_main_unbindable_fixed_param_inner(program, inner)
         }
         ArenaStmtKind::ProcDef(def)
-            if program
-                .arena
-                .function_def(def)
-                .name
-                == Name::intern("main") =>
+            if program.arena.function_def(def).name == Name::intern("main") =>
         {
             Some(def)
         }

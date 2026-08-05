@@ -32,7 +32,10 @@ fn xsh_refuses_checker_errors_before_execution() {
         .expect("run xsh");
 
     assert_exit(&output, 2);
-    assert!(output.stdout.is_empty(), "checker errors must prevent execution");
+    assert!(
+        output.stdout.is_empty(),
+        "checker errors must prevent execution"
+    );
     assert_stderr_contains(&output, "check.unknown-method");
 
     std::fs::remove_file(path).expect("remove temp script");

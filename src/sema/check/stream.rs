@@ -132,7 +132,8 @@ impl Checker {
                 if matches!(
                     item_ty,
                     Type::Int | Type::Str | Type::Bool | Type::Path | Type::Unknown
-                ) || is_sortable_record_key_type(&item_ty) {
+                ) || is_sortable_record_key_type(&item_ty)
+                {
                     Type::Stream(Box::new(item_ty))
                 } else {
                     self.error(
@@ -471,7 +472,7 @@ impl Checker {
             arena,
             source,
             block,
-            &[item_ty.clone()],
+            std::slice::from_ref(item_ty),
             1,
             item_ty,
         )

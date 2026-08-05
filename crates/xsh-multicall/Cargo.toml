@@ -9,7 +9,7 @@ default = ["native-tests", "net", "tools"]
 native-tests = ["xsh/native-tests", "xsht/native-tests"]
 net = ["xsh/net"]
 tools = ["xsh/tools"]
-benchmark-support = ["xshi/benchmark-support"]
+benchmark = ["xshi/benchmark"]
 
 [dependencies]
 xsh = { path = "../..", default-features = false }
@@ -26,7 +26,7 @@ tempfile = "3"
 [[bench]]
 name = "bench"
 harness = false
-required-features = ["benchmark-support"]
+required-features = ["benchmark"]
 
 [lints.clippy]
 nursery = { level = "allow", priority = -2 }

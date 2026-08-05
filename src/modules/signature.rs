@@ -247,10 +247,7 @@ fn convert_module_sig(module: &str, sig: &registry::ModuleSig) -> ModuleSig {
     }
 }
 
-fn convert_named_module_fns(
-    module: &str,
-    function: &registry::NamedModuleFns,
-) -> NamedModuleFns {
+fn convert_named_module_fns(module: &str, function: &registry::NamedModuleFns) -> NamedModuleFns {
     NamedModuleFns {
         name: function.name,
         overloads: function
@@ -476,10 +473,7 @@ mod tests {
                     );
                     assert_eq!(
                         main_overload.sig.effect,
-                        super::method_required_effect(
-                            main_receiver.receiver,
-                            main_overload.sig.op,
-                        )
+                        super::method_required_effect(main_receiver.receiver, main_overload.sig.op,)
                     );
                     match (&main_overload.return_ty, &registry_overload.return_ty) {
                         (

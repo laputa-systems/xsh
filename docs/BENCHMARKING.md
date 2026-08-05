@@ -13,7 +13,7 @@ with `AllocProfiler`, so allocation accounting does not change the allocator
 being measured. Other hosts use the system allocator.
 
 The benchmark-only `xshi::interactive::bench` helpers are enabled through the
-`benchmark-support` feature used by the benchmark scripts; release application
+`benchmark` feature used by the benchmark scripts; release application
 builds do not compile them.
 
 The executable frontend has no separate legacy benchmark runner or shadow
@@ -60,7 +60,7 @@ benchmark so the ordinary suite does not depend on a host-installed server.
 Install `darkhttpd` (or set `DARKHTTPD` to its executable) and run:
 
 ```sh
-cargo bench -p xsh-multicall --bench bench --features benchmark-support xsh_net_http1_10000_requests_blocking -- \
+cargo bench -p xsh-multicall --bench bench --features benchmark xsh_net_http1_10000_requests_blocking -- \
   --include-ignored --sample-count 1 --sample-size 1
 ```
 
@@ -69,7 +69,7 @@ cargo bench -p xsh-multicall --bench bench --features benchmark-support xsh_net_
 settings and this command for its paired measurement:
 
 ```sh
-cargo bench -p xsh-multicall --bench bench --features benchmark-support xsh_net_http1_10000_requests_batch_8 -- \
+cargo bench -p xsh-multicall --bench bench --features benchmark xsh_net_http1_10000_requests_batch_8 -- \
   --include-ignored --sample-count 1 --sample-size 1
 ```
 
@@ -141,7 +141,7 @@ Start with the affected operation and keep the exact workload while iterating:
 ```sh
 make bench-fast
 # or one operation:
-cargo bench -p xsh-multicall --bench bench --features benchmark-support xsht_check_xsh_repository --   --sample-count 1 --sample-size 1
+cargo bench -p xsh-multicall --bench bench --features benchmark xsht_check_xsh_repository --   --sample-count 1 --sample-size 1
 ```
 
 `make bench-fast` already records Divan `max alloc` in the baseline. `alloc`
@@ -204,7 +204,7 @@ its hot path is the `scan_hash()` call inside the 1,000-iteration loop. Run the
 ordinary operation to include parse/check/lower setup:
 
 ```sh
-cargo bench -p xsh-multicall --bench bench --features benchmark-support xsh_lowered_scanner_1000_calls -- \
+cargo bench -p xsh-multicall --bench bench --features benchmark xsh_lowered_scanner_1000_calls -- \
   --sample-count 1 --sample-size 1
 ```
 
@@ -212,7 +212,7 @@ Run `xsh_lowered_scanner_1000_calls_execution` with `--include-ignored` to
 reuse the prepared indexed program and measure execution only:
 
 ```sh
-cargo bench -p xsh-multicall --bench bench --features benchmark-support xsh_lowered_scanner_1000_calls_execution -- \
+cargo bench -p xsh-multicall --bench bench --features benchmark xsh_lowered_scanner_1000_calls_execution -- \
   --include-ignored --sample-count 1 --sample-size 1
 ```
 

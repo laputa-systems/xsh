@@ -162,12 +162,8 @@ fn xshi_pgo_profile_workload() {
         ),
     ];
     let started = Instant::now();
-    let mut pty = spawn_xshi_pty_with_binary_and_temp_home(
-        &binary,
-        Some(&work),
-        &envs,
-        Some(home.clone()),
-    );
+    let mut pty =
+        spawn_xshi_pty_with_binary_and_temp_home(&binary, Some(&work), &envs, Some(home.clone()));
     set_pty_window(&pty.master, 24, 100);
 
     let mut transcript = pty.read_until("$ ", PTY_TIMEOUT);
@@ -961,7 +957,11 @@ fn pgo_profile_binary() -> PathBuf {
     let binary = std::env::var_os("XSH_PGO_BINARY")
         .map(PathBuf::from)
         .expect("XSH_PGO_BINARY must name the instrumented application binary");
-    assert!(binary.is_file(), "XSH_PGO_BINARY is not a file: {}", binary.display());
+    assert!(
+        binary.is_file(),
+        "XSH_PGO_BINARY is not a file: {}",
+        binary.display()
+    );
     assert!(
         std::env::var_os("LLVM_PROFILE_FILE").is_some(),
         "LLVM_PROFILE_FILE must be set for the profile-only workload"

@@ -8392,9 +8392,11 @@ impl CompactLowerConstructProbe<'_, '_> {
                 }
                 if let ArenaExprKind::Ident(module) = self.program.arena.expr(base).kind {
                     if module.as_str() == "error" && name.as_str() == "fail" {
-                        let [ArenaCallArg {
-                            kind: ArenaCallArgKind::Positional(message),
-                        }] = args_vec.as_slice()
+                        let [
+                            ArenaCallArg {
+                                kind: ArenaCallArgKind::Positional(message),
+                            },
+                        ] = args_vec.as_slice()
                         else {
                             return None;
                         };
@@ -8471,8 +8473,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                         ));
                     }
                     if module == "fs" && name == "files" {
-                        let options =
-                            lower_fs_files_args(&self.program.arena, &args_vec, true)?;
+                        let options = lower_fs_files_args(&self.program.arena, &args_vec, true)?;
                         return Some(push_build_row!(
                             self,
                             expr,
@@ -8501,8 +8502,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                         ));
                     }
                     if module == "fs" && name == "walk" {
-                        let options =
-                            lower_fs_files_args(&self.program.arena, &args_vec, false)?;
+                        let options = lower_fs_files_args(&self.program.arena, &args_vec, false)?;
                         return Some(push_build_row!(
                             self,
                             expr,
@@ -10832,18 +10832,14 @@ impl CompactLowerConstructProbe<'_, '_> {
             }
             body.push(lowered);
         }
-        let value = match self.lower_tail_stmt_as_expr(
-            tail,
-            slots,
-            current_function,
-            Some(item_slot),
-        ) {
-            Some(value) => value,
-            None => {
-                slots.exit(saved);
-                return None;
-            }
-        };
+        let value =
+            match self.lower_tail_stmt_as_expr(tail, slots, current_function, Some(item_slot)) {
+                Some(value) => value,
+                None => {
+                    slots.exit(saved);
+                    return None;
+                }
+            };
         slots.exit(saved);
         Some(LoweredPipelineStage::Fold {
             acc_slot,

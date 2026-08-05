@@ -3,11 +3,11 @@ use super::{
     FormatSpec, FullExecution, FullFunctionView, FullPayload, FullProgram, FullTag, FunctionHeader,
     LoweredCompTarget, LoweredFunctionKey, LoweredFunctionKind, LoweredReturnKind, LoweredType,
     LoweredTypeCheck, LoweredValue, Name, PathValue, RuntimeError, Span, StmtFlow, TraceKind,
-    TracePayload,
-    TracebackFrame, TracebackFrameKind, assign_lowered_bytes_view, assign_lowered_str_view,
-    bind_lowered_comp_target, indexed_decode, indexed_error, indexed_finish, indexed_optional_raw,
-    indexed_raw, indexed_string, indexed_value, lowered_assign_value, lowered_binary_value,
-    lowered_bytes_parts, lowered_freeze_large_slot_list, lowered_match_no_arm,
+    TracePayload, TracebackFrame, TracebackFrameKind, assign_lowered_bytes_view,
+    assign_lowered_str_view, bind_lowered_comp_target, indexed_decode, indexed_error,
+    indexed_finish, indexed_optional_raw, indexed_raw, indexed_string, indexed_value,
+    lowered_assign_value, lowered_binary_value, lowered_bytes_parts,
+    lowered_freeze_large_slot_list, lowered_match_no_arm,
     lowered_record_vec_append_or_replace_unsorted, lowered_record_vec_or_stats,
     lowered_result_err_value, lowered_result_ok, lowered_return_value, lowered_splice_arg_items,
     lowered_str_parts, lowered_value_satisfies_require, push_lowered_fmt_value,
@@ -1100,7 +1100,11 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 }
                 indexed_finish(encoded_parts, span)?;
                 let path_span = if path {
-                    Some(indexed_decode(&mut payload, &self.calls[index].execution, span)?)
+                    Some(indexed_decode(
+                        &mut payload,
+                        &self.calls[index].execution,
+                        span,
+                    )?)
                 } else {
                     None
                 };
@@ -1949,7 +1953,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         state: ListCompState,
         next: FrameContinuation,
     ) -> Result<(), RuntimeError> {
-        while state.index < state.items.len() {
+        if state.index < state.items.len() {
             let item = state.items[state.index].clone();
             bind_lowered_comp_target(
                 &state.target,
@@ -2060,8 +2064,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             let Some(part) = state.parts.get(state.index).cloned() else {
                 let value = if let Some(span) = state.path_span {
                     LoweredValue::Path(
-                        PathValue::from_text(state.text)
-                            .map_err(|error| error.with_span(span))?,
+                        PathValue::from_text(state.text).map_err(|error| error.with_span(span))?,
                     )
                 } else {
                     LoweredValue::Str(state.text.into())

@@ -2,7 +2,7 @@
 
 mod app;
 #[doc(hidden)]
-#[cfg(feature = "benchmark-support")]
+#[cfg(feature = "benchmark")]
 pub mod bench;
 mod complete;
 mod config;

@@ -1755,5 +1755,9 @@ print (\"tags: $body\") $block
         .filter(|d| d.code.as_deref() == Some("lint.dollar-in-expression-string"))
         .collect();
     assert_eq!(dollar.len(), 2);
-    assert!(dollar.iter().all(|d| d.message.contains("`$body` is literal text")));
+    assert!(
+        dollar
+            .iter()
+            .all(|d| d.message.contains("`$body` is literal text"))
+    );
 }

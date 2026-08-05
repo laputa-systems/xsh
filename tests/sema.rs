@@ -112,19 +112,22 @@ let joined = left + right
         .find(|diagnostic| diagnostic.code.as_deref() == Some("check.unknown-method"))
         .expect("expected unknown method diagnostic");
     assert!(unknown.message.contains("`length` on Str"));
-    assert!(unknown
-        .notes
-        .iter()
-        .any(|note| note.contains("count_chars") && note.contains("byte_len")));
+    assert!(
+        unknown
+            .notes
+            .iter()
+            .any(|note| note.contains("count_chars") && note.contains("byte_len"))
+    );
 
     let list = diagnostics
         .iter()
         .find(|diagnostic| diagnostic.code.as_deref() == Some("check.operator-type"))
         .expect("expected list operator diagnostic");
-    assert!(list
-        .notes
-        .iter()
-        .any(|note| note.contains(".extend(other)")));
+    assert!(
+        list.notes
+            .iter()
+            .any(|note| note.contains(".extend(other)"))
+    );
 }
 
 #[test]
@@ -139,7 +142,10 @@ proc local() {
 }
 "#,
     );
-    assert_no_codes(&output, &["check.duplicate-name", "check.standard-module-shadow"]);
+    assert_no_codes(
+        &output,
+        &["check.duplicate-name", "check.standard-module-shadow"],
+    );
 }
 
 #[test]
@@ -637,12 +643,19 @@ let counted = ["a", "b", "a"] |> fold(map.empty()) { |acc, it| acc.set(it, acc.g
     );
     assert_no_codes(
         &sum,
-        &["check.stream-block-params", "check.type-mismatch", "check.arity"],
+        &[
+            "check.stream-block-params",
+            "check.type-mismatch",
+            "check.arity",
+        ],
     );
 
     // A bare accumulator tail compiles and is no longer an IR-blocked form.
     let bare = check("let x = [1, 2] |> fold(0) { |acc| acc }\n");
-    assert_no_codes(&bare, &["check.stream-block-params", "check.unresolved-name"]);
+    assert_no_codes(
+        &bare,
+        &["check.stream-block-params", "check.unresolved-name"],
+    );
 
     // A three-parameter fold block is rejected with a fold-specific diagnostic.
     let three = check("let x = [1, 2] |> fold(0) { |acc, it, extra| acc + it }\n");
@@ -1743,9 +1756,7 @@ fn checker_rejects_stage_8_table_and_sort_contract_errors() {
 
 #[test]
 fn checker_accepts_sort_by_record_keys_and_record_sort_items() {
-    let output = check(
-        "[{name: \"a\", count: 1}] |> sort-by { |r| {c: r.count, n: r.name} }\n",
-    );
+    let output = check("[{name: \"a\", count: 1}] |> sort-by { |r| {c: r.count, n: r.name} }\n");
     assert!(output.is_empty(), "{:?}", output);
     let nested = check("[{id: 1}] |> sort-by { |r| {outer: {inner: r.id}} }\n");
     assert!(nested.is_empty(), "{:?}", nested);
@@ -1764,7 +1775,10 @@ fn checker_accepts_group_by_key_sort_by_for_scalar_keys() {
 
     for source in cases {
         let output = check(source);
-        assert!(output.is_empty(), "group key should be sortable: {output:?}");
+        assert!(
+            output.is_empty(),
+            "group key should be sortable: {output:?}"
+        );
     }
 }
 

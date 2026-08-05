@@ -979,7 +979,9 @@ impl Checker {
                         self.expect_type(&Type::Str, &right_ty, right_span);
                         Type::Str
                     }
-                    Type::List(_) if matches!((&left_ty, &right_ty), (Type::List(_), Type::List(_))) => {
+                    Type::List(_)
+                        if matches!((&left_ty, &right_ty), (Type::List(_), Type::List(_))) =>
+                    {
                         self.diagnostics.push(
                             Diagnostic::error("list concatenation does not use `+`")
                                 .with_code("check.operator-type")

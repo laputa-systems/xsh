@@ -1114,7 +1114,10 @@ impl<'a> Linter<'a> {
     }
 
     fn is_binding_in_scope_or_assigned(&self, name: &str) -> bool {
-        self.scopes.iter().rev().any(|scope| scope.contains_key(name))
+        self.scopes
+            .iter()
+            .rev()
+            .any(|scope| scope.contains_key(name))
             || self
                 .assigned_names
                 .iter()

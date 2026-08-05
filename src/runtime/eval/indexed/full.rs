@@ -2567,9 +2567,7 @@ fn instruction_effects(tags: &[FullTag]) -> u32 {
                         | EFFECT_HOST
                         | EFFECT_TRACE
                 }
-                FullTag::ExprAbort | FullTag::ExprFail => {
-                    EFFECT_PROPAGATE | EFFECT_TRACE
-                }
+                FullTag::ExprAbort | FullTag::ExprFail => EFFECT_PROPAGATE | EFFECT_TRACE,
                 FullTag::ExprDynamicCall => EFFECT_DYNAMIC_CALL | EFFECT_TRACE,
                 FullTag::ExprCall | FullTag::ExprSelfCall | FullTag::ExprDirectPureCall => {
                     EFFECT_TRACE

@@ -500,7 +500,9 @@ fn parse_api(args: &[String]) -> Result<Command, String> {
     }
 
     if summary && (!queries.is_empty() || !query_files.is_empty() || read_stdin) {
-        return Err("`xsht api summary` cannot be combined with selectors or query inputs".to_string());
+        return Err(
+            "`xsht api summary` cannot be combined with selectors or query inputs".to_string(),
+        );
     }
 
     Ok(Command::Api {

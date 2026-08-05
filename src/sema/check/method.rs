@@ -334,11 +334,12 @@ impl Checker {
         span: Span,
         code: &str,
     ) {
-        let mut diagnostic = Diagnostic::error(format!(
-            "unknown method `{name}` on {receiver_ty}"
-        ))
-        .with_code(code)
-        .with_label(Label::primary(span, format!("`{name}` is not defined for {receiver_ty}")));
+        let mut diagnostic = Diagnostic::error(format!("unknown method `{name}` on {receiver_ty}"))
+            .with_code(code)
+            .with_label(Label::primary(
+                span,
+                format!("`{name}` is not defined for {receiver_ty}"),
+            ));
         let mut candidates = api_spec()
             .method_names(receiver)
             .filter(|candidate| method_name_is_nearby(name, candidate))

@@ -10,7 +10,7 @@ use super::{
     TraceError, TraceKind, TracePayload, Traceback, TracebackFrame, TracebackFrameKind, Type,
     Value, api_spec, assign_lowered_bytes_view, assign_lowered_str_view, bind_lowered_comp_target,
     btree_map, bytes_contains, bytes_module, check_env_name, compare_lowered_sort_keys,
-    compound_assignment_value, lowered_sort_key_orderable, error_constructor, execute_run_with_policy, exit_status, fs_module,
+    compound_assignment_value, error_constructor, execute_run_with_policy, exit_status, fs_module,
     fs_root_record, hash_module, json_module, lowered_assign_value, lowered_binary_value,
     lowered_bool_arg_or, lowered_bool_builder_field, lowered_bytes_or_str_owned,
     lowered_bytes_parts, lowered_bytes_value, lowered_command_plan_value,
@@ -26,14 +26,14 @@ use super::{
     lowered_record_vec_insert, lowered_record_vec_or_stats, lowered_reduce_fields_owned,
     lowered_reduce_group_insert, lowered_reduce_key_value_owned, lowered_result_err_value,
     lowered_result_ok, lowered_return_value, lowered_root_id, lowered_slice_value,
-    lowered_splice_arg_items, lowered_stats_field_value, lowered_status_segment_record,
-    lowered_stmt_flow_to_flow, lowered_str_arg, lowered_str_arg_owned, lowered_str_byte_at_value,
-    lowered_str_byte_len_value, lowered_str_count_lines_value, lowered_str_key,
-    lowered_str_list_arg, lowered_str_parts, lowered_str_predicate_text,
-    lowered_str_predicate_value, lowered_str_value, lowered_str_view_value,
-    lowered_table_print_value, lowered_tag_key, lowered_trace_error_from_value,
-    lowered_trim_is_empty_value, lowered_trim_str_predicate_value, lowered_type_name,
-    lowered_unit_result, lowered_value_argv_len, lowered_value_from_runtime,
+    lowered_sort_key_orderable, lowered_splice_arg_items, lowered_stats_field_value,
+    lowered_status_segment_record, lowered_stmt_flow_to_flow, lowered_str_arg,
+    lowered_str_arg_owned, lowered_str_byte_at_value, lowered_str_byte_len_value,
+    lowered_str_count_lines_value, lowered_str_key, lowered_str_list_arg, lowered_str_parts,
+    lowered_str_predicate_text, lowered_str_predicate_value, lowered_str_value,
+    lowered_str_view_value, lowered_table_print_value, lowered_tag_key,
+    lowered_trace_error_from_value, lowered_trim_is_empty_value, lowered_trim_str_predicate_value,
+    lowered_type_name, lowered_unit_result, lowered_value_argv_len, lowered_value_from_runtime,
     lowered_value_from_runtime_any, lowered_value_matches_static_type,
     lowered_value_satisfies_require, path_bytes, push_lowered_display, push_lowered_fmt_value,
     read_host_path_bytes, read_host_path_bytes_vec, root_path_from_dir,
@@ -3080,16 +3080,14 @@ impl Evaluator {
                                         .with_span(span));
                                     }
                                 }
-                                let keep = match self
-                                    .eval_indexed_bool(execution, value, slots, span)?
-                                {
-                                    ControlFlow::Continue(value) => value,
-                                    ControlFlow::Break(value) => {
-                                        return Ok(ControlFlow::Break(value));
-                                    }
-                                };
-                                let item =
-                                    std::mem::replace(&mut slots[slot], LoweredValue::Unit);
+                                let keep =
+                                    match self.eval_indexed_bool(execution, value, slots, span)? {
+                                        ControlFlow::Continue(value) => value,
+                                        ControlFlow::Break(value) => {
+                                            return Ok(ControlFlow::Break(value));
+                                        }
+                                    };
+                                let item = std::mem::replace(&mut slots[slot], LoweredValue::Unit);
                                 if keep {
                                     filtered.push(item);
                                 }
@@ -3160,14 +3158,13 @@ impl Evaluator {
                                         .with_span(span));
                                     }
                                 }
-                                let keep = match self
-                                    .eval_indexed_bool(execution, value, slots, span)?
-                                {
-                                    ControlFlow::Continue(value) => value,
-                                    ControlFlow::Break(value) => {
-                                        return Ok(ControlFlow::Break(value));
-                                    }
-                                };
+                                let keep =
+                                    match self.eval_indexed_bool(execution, value, slots, span)? {
+                                        ControlFlow::Continue(value) => value,
+                                        ControlFlow::Break(value) => {
+                                            return Ok(ControlFlow::Break(value));
+                                        }
+                                    };
                                 slots[slot] = LoweredValue::Unit;
                                 if keep != all {
                                     matched = !all;
