@@ -2763,7 +2763,9 @@ materialized list, or consume the stream.
 `each` or `table.print(...)` evaluates to `Unit`, so it may be a procedure's
 final statement and is accepted by both `xsht check` and the runtime. `map`
 and `par-map` are for values and require a final
-expression or command tail value. Stage blocks may bind one explicit item
+expression or command tail value. An `if`/`else` expression is valid in that
+position, including as a direct conditional tail without an intermediate
+binding. Stage blocks may bind one explicit item
 parameter with `{ |item| ... }`, but the implicit `.` item is available in
 one-expression and multi-statement stage blocks. `fold`/`reduce` additionally
 accept a two-parameter block `{ |acc, item| ... }` whose first parameter is the
