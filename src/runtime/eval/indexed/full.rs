@@ -184,6 +184,7 @@ pub(in crate::runtime::eval) enum FullTag {
     ExprProcessCommandArgv,
     ExprProcessCommandBuilder,
     ExprAbort,
+    ExprFail,
     ExprOk,
     ExprErr,
     ExprError,
@@ -2566,8 +2567,8 @@ fn instruction_effects(tags: &[FullTag]) -> u32 {
                         | EFFECT_HOST
                         | EFFECT_TRACE
                 }
-                FullTag::ExprAbort => {
-                    EFFECT_SIGNAL | EFFECT_CANCELLATION | EFFECT_PROPAGATE | EFFECT_TRACE
+                FullTag::ExprAbort | FullTag::ExprFail => {
+                    EFFECT_PROPAGATE | EFFECT_TRACE
                 }
                 FullTag::ExprDynamicCall => EFFECT_DYNAMIC_CALL | EFFECT_TRACE,
                 FullTag::ExprCall | FullTag::ExprSelfCall | FullTag::ExprDirectPureCall => {
@@ -6829,6 +6830,10 @@ impl_node_codec! {
             force,
             span,
         },
+        BuildExprRow::Fail { message, span } => ExprFail {
+            message: BuildExprId,
+            span: Span,
+        } => BuildExprRow::Fail { message, span },
         BuildExprRow::Ok(value) => ExprOk {
             value: BuildExprId,
         } => BuildExprRow::Ok(value),

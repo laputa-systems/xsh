@@ -3,6 +3,11 @@ proc test_test_helpers() [error] {
   test.error_kind(test.fail("covered failure"), "test-fail")?
 }
 
+proc test_error_fail_constructs_validation_result() [error] {
+  let failure = error.fail("header is missing")
+  test.error_kind(failure, "validation")?
+}
+
 proc test_run_script_captures_status_env_args_and_bytes(ctx: TestContext) [error] {
   let ok = test.run_script(
     ctx,

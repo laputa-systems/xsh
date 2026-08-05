@@ -1583,6 +1583,10 @@ enum BuildExprRow {
         force: Option<BuildExprId>,
         span: Span,
     },
+    Fail {
+        message: BuildExprId,
+        span: Span,
+    },
     Ok(BuildExprId),
     Err(BuildExprId),
     // Boxed: `LoweredErrorExpr::Structured` inlines two `String`s plus two

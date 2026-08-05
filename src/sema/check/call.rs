@@ -229,6 +229,10 @@ impl Checker {
         if let ArenaExprKind::Field { base, name } = callee_kind {
             let base_kind = arena.arena.expr(base).kind;
             if let ArenaExprKind::Ident(module) = base_kind {
+                if module.as_str() == "error" && name.as_str() == "fail" {
+                    self.check_expr_arg_list_arena(arena, source, args, &[Type::Str], span);
+                    return Type::Result(Box::new(Type::Unit), Box::new(Type::Error));
+                }
                 if self.error_families.contains_key(&module) {
                     return self.check_error_variant_constructor_arena(
                         arena, source, module, name, args, span,

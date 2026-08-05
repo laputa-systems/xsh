@@ -106,7 +106,9 @@ transformed.
 propagates, `??` recovers, `match` handles. Nothing can throw without the
 caller seeing `?` in the code. The error kind is a plain string, not a class
 hierarchy. Code that looks clean either handles errors or explicitly
-propagates them.
+propagates them. `error.fail(message)` constructs a `Result[Unit, Error]` with
+kind `validation`; it is the explicit spelling for an expected validation
+failure and requires the enclosing proc's `error` effect when propagated.
 
 **Greppable by default.** XSH code must be searchable with ordinary text
 tools. This means no sigils that change meaning based on context, no implicit
@@ -185,7 +187,7 @@ The implemented v1 surface includes:
   defaulted parameters, plus default and rest parameters.
 - Expression-style pure and proc calls, plus fully qualified standard-module
   command calls for effectful APIs returning `Result[Unit]`.
-- `Ok(value)`, `Err(value)`, `Result`, postfix `?`,
+- `Ok(value)`, `Err(value)`, `Result`, `error.fail(message)`, postfix `?`,
   right-associative `??` fallback, `Result.context(...)`, and implicit
   `Ok(value)` wrapping for `Result[T]` tail values.
 - User-defined tag union types with exhaustiveness checking: `type Level = Info | Warn | Error(Str)`.

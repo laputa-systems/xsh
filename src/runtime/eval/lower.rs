@@ -8391,6 +8391,27 @@ impl CompactLowerConstructProbe<'_, '_> {
                     ));
                 }
                 if let ArenaExprKind::Ident(module) = self.program.arena.expr(base).kind {
+                    if module.as_str() == "error" && name.as_str() == "fail" {
+                        let [ArenaCallArg {
+                            kind: ArenaCallArgKind::Positional(message),
+                        }] = args_vec.as_slice()
+                        else {
+                            return None;
+                        };
+                        return Some(push_build_row!(
+                            self,
+                            expr,
+                            BuildExprRow::Fail {
+                                message: self.lower_expr(
+                                    *message,
+                                    slots,
+                                    current_function,
+                                    item_slot,
+                                )?,
+                                span,
+                            }
+                        ));
+                    }
                     if module == "Path" && name == "parse_bytes" {
                         let positional = positional_call_args(&args_vec)?;
                         if positional.len() == 1 {

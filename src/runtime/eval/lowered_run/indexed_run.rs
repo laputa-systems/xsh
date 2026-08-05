@@ -5591,6 +5591,27 @@ impl Evaluator {
                 };
                 return Err(RuntimeError::abort(status, force).with_span(span));
             }
+            FullTag::ExprFail => {
+                let message = indexed_raw(&mut payload, call_span)?;
+                let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
+                indexed_finish(payload, call_span)?;
+                let message = match self.eval_indexed_expr(execution, message, slots, span)? {
+                    ControlFlow::Continue(value) => match lowered_str_value(&value) {
+                        Some(message) => message.to_string(),
+                        None => {
+                            return Err(RuntimeError::new(
+                                "type-error",
+                                format!("error.fail expected Str, found {}", value.type_name()),
+                            )
+                            .with_span(span));
+                        }
+                    },
+                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+                };
+                return Ok(ControlFlow::Continue(LoweredValue::ResultErr(Box::new(
+                    error_constructor("validation", message),
+                ))));
+            }
             FullTag::ExprOk => {
                 let value = indexed_raw(&mut payload, call_span)?;
                 indexed_finish(payload, call_span)?;
