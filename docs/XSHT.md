@@ -153,15 +153,15 @@ but fix application uses non-overlapping source edits guarded by the CST.
 
 Safe fixes must satisfy all of these:
 
-- the original file loads, parses, resolves imports, and checks;
-  effect-annotation fixes may also run when the only checker diagnostics are
-  effect violations that the fixer can remove;
+- the original file loads, parses, and resolves imports; safe fixes may run when
+  checker diagnostics already exist, provided the edit does not introduce new
+  checker diagnostics;
 - the fix is represented as a source replacement over an original span;
 - overlapping fixes are resolved before application;
 - a replacement span containing comments is skipped unless the fixer explicitly
   handles those comments;
-- the edited source parses, resolves imports, checks, and formats before it is
-  written.
+- the edited source parses, resolves imports, and formats; it may retain only
+  checker diagnostics that were already present before the edit.
 
 When a lint can report a real issue but cannot safely preserve nearby comments,
 it should report the diagnostic without a fix hint. This is better than

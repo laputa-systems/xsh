@@ -12,7 +12,7 @@ use std::sync::OnceLock;
 use std::sync::{Arc, mpsc};
 use std::time::{Duration, Instant};
 
-use divan::{AllocProfiler, Bencher};
+use rustbench::{AllocProfiler, Bencher};
 #[cfg(feature = "native-tests")]
 use xsh::runner::prepare_benchmark_script;
 use xsh::runner::{RunOptions, run_script};
@@ -264,36 +264,36 @@ fn dynamic_record() -> RecordMap {
     record
 }
 
-#[divan::bench]
+#[rustbench::bench]
 fn runtime_scalar_clone_drop(bencher: Bencher) {
     let value = Value::Int(42);
     bench_operation(bencher, || value.clone());
 }
 
-#[divan::bench]
+#[rustbench::bench]
 fn runtime_shaped_record_build_8_fields(bencher: Bencher) {
     let _warm_shape = shaped_record();
     bench_operation(bencher, shaped_record);
 }
 
-#[divan::bench]
+#[rustbench::bench]
 fn runtime_dynamic_record_build_8_fields(bencher: Bencher) {
     bench_operation(bencher, dynamic_record);
 }
 
-#[divan::bench]
+#[rustbench::bench]
 fn runtime_shaped_record_clone_drop_8_fields(bencher: Bencher) {
     let record = shaped_record();
     bench_operation(bencher, || record.clone());
 }
 
-#[divan::bench]
+#[rustbench::bench]
 fn runtime_dynamic_record_clone_drop_8_fields(bencher: Bencher) {
     let record = dynamic_record();
     bench_operation(bencher, || record.clone());
 }
 
-#[divan::bench]
+#[rustbench::bench]
 fn runtime_shaped_record_thread_transfer_8_fields(bencher: Bencher) {
     let (sender, receiver) = mpsc::sync_channel(0);
     let (ack_sender, ack_receiver) = mpsc::sync_channel(0);
@@ -314,7 +314,7 @@ fn runtime_shaped_record_thread_transfer_8_fields(bencher: Bencher) {
     worker.join().expect("join record transfer worker");
 }
 
-#[divan::bench]
+#[rustbench::bench]
 fn xsh_short_script(bencher: Bencher) {
     let script = benchmark_script("short-script.xsh");
     bench_operation(bencher, || run_benchmark_script(&script, Vec::new()));
@@ -322,7 +322,7 @@ fn xsh_short_script(bencher: Bencher) {
 
 // This external-service benchmark is opt-in so the regular suite does not
 // require darkhttpd. Its setup is deliberately outside the measured closure.
-#[divan::bench]
+#[rustbench::bench]
 #[ignore = "requires darkhttpd; run with --include-ignored"]
 fn xsh_net_http1_10000_requests_blocking(bencher: Bencher) {
     let server = DarkHttpdServer::spawn();
@@ -332,7 +332,7 @@ fn xsh_net_http1_10000_requests_blocking(bencher: Bencher) {
     });
 }
 
-#[divan::bench]
+#[rustbench::bench]
 #[ignore = "requires darkhttpd; run with --include-ignored"]
 fn xsh_net_http1_10000_requests_batch_8(bencher: Bencher) {
     let server = DarkHttpdServer::spawn();
@@ -342,20 +342,20 @@ fn xsh_net_http1_10000_requests_batch_8(bencher: Bencher) {
     });
 }
 
-#[divan::bench]
+#[rustbench::bench]
 fn xsh_lowered_scanner_1000_calls(bencher: Bencher) {
     let script = benchmark_script("lowered-scanner.xsh");
     bench_operation(bencher, || run_benchmark_script(&script, Vec::new()));
 }
 
-#[divan::bench]
+#[rustbench::bench]
 fn xsh_tokei_json_report_assembly_4000(bencher: Bencher) {
     let script = benchmark_script("tokei-json-report-assembly.xsh");
     bench_operation(bencher, || run_benchmark_script(&script, Vec::new()));
 }
 
 #[cfg(feature = "native-tests")]
-#[divan::bench(skip_ext_time)]
+#[rustbench::bench(skip_ext_time)]
 #[ignore]
 fn xsh_tokei_json_report_assembly_4000_execution(bencher: Bencher) {
     let script = benchmark_script("tokei-json-report-assembly.xsh");
@@ -381,7 +381,7 @@ fn xsh_tokei_json_report_assembly_4000_execution(bencher: Bencher) {
 }
 
 #[cfg(feature = "native-tests")]
-#[divan::bench(skip_ext_time)]
+#[rustbench::bench(skip_ext_time)]
 #[ignore]
 fn xsh_lowered_scanner_1000_calls_execution(bencher: Bencher) {
     let script = benchmark_script("lowered-scanner.xsh");
@@ -406,7 +406,7 @@ fn xsh_lowered_scanner_1000_calls_execution(bencher: Bencher) {
         });
 }
 
-#[divan::bench]
+#[rustbench::bench]
 fn xsh_process_pipeline(bencher: Bencher) {
     let fixture = BenchDir::new();
     let script = benchmark_script("process-pipeline.xsh");
@@ -420,7 +420,7 @@ fn xsh_process_pipeline(bencher: Bencher) {
     });
 }
 
-#[divan::bench]
+#[rustbench::bench]
 fn xsh_extension_count_1000_files(bencher: Bencher) {
     let fixture = BenchDir::new();
     let root = fixture.path().join("src");
@@ -432,7 +432,7 @@ fn xsh_extension_count_1000_files(bencher: Bencher) {
     });
 }
 
-#[divan::bench]
+#[rustbench::bench]
 fn xsh_json_log_rollup_10000_rows(bencher: Bencher) {
     let fixture = BenchDir::new();
     let root = fixture.path().join("logs");
@@ -445,7 +445,7 @@ fn xsh_json_log_rollup_10000_rows(bencher: Bencher) {
 }
 
 #[cfg(feature = "native-tests")]
-#[divan::bench(skip_ext_time)]
+#[rustbench::bench(skip_ext_time)]
 #[ignore]
 fn xsh_json_log_rollup_10000_rows_execution(bencher: Bencher) {
     let fixture = BenchDir::new();
@@ -474,7 +474,7 @@ fn xsh_json_log_rollup_10000_rows_execution(bencher: Bencher) {
         });
 }
 
-#[divan::bench]
+#[rustbench::bench]
 fn xsh_manifest_hash_1000_files(bencher: Bencher) {
     let fixture = BenchDir::new();
     let root = fixture.path().join("pkgroot");
@@ -495,13 +495,13 @@ fn make_directory_fixture(entries: usize) -> tempfile::TempDir {
     dir
 }
 
-#[divan::bench]
+#[rustbench::bench]
 fn xshi_prompt_render_long_command(bencher: Bencher) {
     let mut render = RenderBench::new("gh api repos/laputa-systems/xsh/issues", 80);
     bench_operation(bencher, || render.render_prompt("$ ", 80));
 }
 
-#[divan::bench]
+#[rustbench::bench]
 fn xshi_completion_navigation_1000_entries(bencher: Bencher) {
     let dir = make_directory_fixture(1_000);
     // Interactive sessions change the process cwd. Restore it before the
@@ -512,13 +512,13 @@ fn xshi_completion_navigation_1000_entries(bencher: Bencher) {
     bench_operation(bencher, || session.complete_len("cd dir-09", 9, 80));
 }
 
-#[divan::bench]
+#[rustbench::bench]
 fn xshi_history_search_render_45000_entries(bencher: Bencher) {
     let mut search = HistorySearchRenderBench::new("cargo test xsh", 40, 100);
     bench_operation(bencher, || search.render_navigation());
 }
 
-#[divan::bench]
+#[rustbench::bench]
 fn xshi_cd_list_complete_1000_entries(bencher: Bencher) {
     let dir = make_directory_fixture(1_000);
     let _cwd = CurrentDirGuard::new();
@@ -526,7 +526,7 @@ fn xshi_cd_list_complete_1000_entries(bencher: Bencher) {
     bench_operation(bencher, || session.workflow_cd_l_completion_len(dir.path()));
 }
 
-#[divan::bench]
+#[rustbench::bench]
 fn xshi_dynamic_name_session(bencher: Bencher) {
     let mut session = BenchSession::with_history(Vec::new());
     let commands = (0..8)
@@ -540,7 +540,7 @@ fn xshi_dynamic_name_session(bencher: Bencher) {
     });
 }
 
-#[divan::bench]
+#[rustbench::bench]
 fn xsht_check_xsh_repository(bencher: Bencher) {
     let paths = Vec::new();
     bench_operation(bencher, || {
@@ -549,7 +549,7 @@ fn xsht_check_xsh_repository(bencher: Bencher) {
     });
 }
 
-#[divan::bench]
+#[rustbench::bench]
 fn xsht_format_check_xsh_repository(bencher: Bencher) {
     let paths = Vec::new();
     bench_operation(bencher, || {
@@ -558,7 +558,7 @@ fn xsht_format_check_xsh_repository(bencher: Bencher) {
     });
 }
 
-#[divan::bench]
+#[rustbench::bench]
 fn xsht_lint_xsh_repository(bencher: Bencher) {
     let paths = Vec::new();
     bench_operation(bencher, || {
@@ -569,5 +569,5 @@ fn xsht_lint_xsh_repository(bencher: Bencher) {
 
 fn main() {
     std::env::set_current_dir(repository_root()).expect("enter repository root");
-    divan::main();
+    rustbench::main();
 }

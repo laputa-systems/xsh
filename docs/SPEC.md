@@ -3169,11 +3169,13 @@ annotated.
 `xsht lint --fix` applies safe fixes as non-overlapping source replacements
 guarded by the CST. A replacement span containing comments is skipped unless the
 specific fixer knows how to preserve or reattach them. Rewritten files must
-parse, resolve imports, check, and format before they are written.
+parse, resolve imports, and format without introducing new checker diagnostics;
+pre-existing checker diagnostics may remain.
 It removes provably needless local binding annotations and rewrites simple
-`.contains(value)` membership or substring checks to `value in receiver` when
-the checker proves that `in` has the same semantics and the rewrite does not
-move effectful expressions.
+`.contains(value)` membership or substring checks to `value in receiver` (or
+`value not in receiver` for negated calls) when the checker proves that
+membership syntax has the same semantics and the rewrite does not move
+effectful expressions.
 
 During `xsht check`, `reveal_type(expr)` is a checker-only builtin that accepts
 one positional argument, reports the inferred type as a note, and has type

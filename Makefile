@@ -1,3 +1,5 @@
+RUSTBENCH ?= cargo run --quiet --manifest-path ../../rustbench/Cargo.toml --
+
 .PHONY: build lint docs test cov test-linux test-linux-ci test-macos-ci bench bench-fast bench-pgo bench-syscalls pgo-instrument pgo-profile release-pgo install-darwin install-linux dist dist-native dist-Linux-docker dist-ci
 
 DARWIN_CODESIGN_FLAGS ?=
@@ -260,13 +262,13 @@ PGO_USE_RUSTFLAGS := -Cprofile-use=$(PGO_MERGED) -Cllvm-args=-pgo-warn-missing-f
 PGO_GENERATE_RUSTFLAGS := -Cprofile-generate=$(PGO_DIR)
 
 bench:
-	@scripts/bench-baseline.py
+	@$(RUSTBENCH) baseline --root "$(CURDIR)" --baseline "$(CURDIR)/crates/xsh-multicall/benches/baseline.json" -- cargo bench -p xsh-multicall --bench bench --features benchmark
 
 bench-fast:
-	@scripts/bench-baseline.py --fast
+	@$(RUSTBENCH) baseline --root "$(CURDIR)" --baseline "$(CURDIR)/crates/xsh-multicall/benches/fast-baseline.json" --fast -- cargo bench -p xsh-multicall --bench bench --features benchmark
 
 bench-syscalls:
-	@scripts/bench-syscalls.py
+	@$(RUSTBENCH) syscalls --root "$(CURDIR)"
 
 pgo-instrument:
 	rm -rf $(PGO_DIR) $(PGO_INSTRUMENT_TARGET_DIR) $(PGO_DRIVER_TARGET_DIR) $(PGO_USE_TARGET_DIR)
@@ -280,7 +282,7 @@ pgo-profile: pgo-instrument
 		test -n "$$raw_profiles"; \
 		$(LLVM_BIN)/llvm-profdata merge -o "$(PGO_MERGED)" $$raw_profiles; \
 		$(LLVM_BIN)/llvm-profdata show --all-functions "$(PGO_MERGED)" | grep -q 'xshi'; \
-		! $(LLVM_BIN)/llvm-profdata show --all-functions "$(PGO_MERGED)" | grep -Eiq 'divan|xshi.*interactive.*bench|(^|[[:space:]])xsh\.|(^|[[:space:]])xsht\.'
+		! $(LLVM_BIN)/llvm-profdata show --all-functions "$(PGO_MERGED)" | grep -Eiq 'divan|rustbench|xshi.*interactive.*bench|(^|[[:space:]])xsh\.|(^|[[:space:]])xsht\.'
 
 $(PGO_MERGED):
 	$(MAKE) pgo-profile

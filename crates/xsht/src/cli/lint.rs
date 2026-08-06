@@ -14,7 +14,7 @@ use std::thread;
 use xsh::diagnostic::{Diagnostic, DiagnosticRenderer, Label};
 use xsh::loader::{parse_load_check_bytes, parse_load_check_text};
 use xsh::sema::check::CheckOptions;
-use xsh::source::{SourceId, SourceMap, Span};
+use xsh::source::SourceMap;
 use xsh::symbol::SymbolOwner;
 pub fn lint_files(files: &[String], fix: bool, runless: bool) -> CliOutput {
     if let Some(output) = cancellation_output() {
@@ -97,7 +97,16 @@ pub fn lint_files(files: &[String], fix: bool, runless: bool) -> CliOutput {
                     }
                 }
             }
-            LintResultKind::Write { file, text } => {
+            LintResultKind::Write {
+                file,
+                text,
+                status: result_status,
+                stderr: result_stderr,
+            } => {
+                if result_status > status {
+                    status = result_status;
+                }
+                stderr.push_str(&result_stderr);
                 if let Err(err) = fs::write(&file, &text) {
                     status = 4;
                     stderr.push_str(&format!("xsht: failed to write '{file}': {err}\n"));
@@ -165,6 +174,8 @@ enum LintResultKind {
     Write {
         file: String,
         text: String,
+        status: u8,
+        stderr: String,
     },
 }
 
@@ -443,53 +454,41 @@ fn lint_one_file_with_fixes(
         .checked
         .as_ref()
         .expect("checked program after clean parse");
-    let check_diagnostics_are_entry_effect_violations =
-        entry_check_diagnostics_are_effect_violations(
-            &checked.diagnostics,
-            checked_program.entry_source_id,
-        );
-    let fixable_check_diagnostics: Vec<_> = checked
-        .diagnostics
-        .iter()
-        .filter(|d| d.fix_hints.iter().any(|h| h.replacement.is_some()))
-        .collect();
-    if !checked.diagnostics.is_empty()
-        && !check_diagnostics_are_entry_effect_violations
-        && fixable_check_diagnostics.is_empty()
-    {
-        return LintResult {
-            index,
-            kind: LintResultKind::FixDiagnostics {
-                status: 2,
-                stderr: checked_program.render_check_diagnostics(),
-            },
-        };
-    }
     let mut lint_options = config.lint_options.clone();
     lint_options.expr_types = checked.expr_types.clone();
     lint_options.callable_effects = checked.callable_effects.clone();
     let linted = Linter::lint(&checked_program.parsed.arena, &text, lint_options);
 
-    let ast_fixes = if checked.diagnostics.is_empty() {
-        collect_fix_spans(&linted.diagnostics)
-    } else {
-        let mut fixes = collect_fix_spans_for_codes(&linted.diagnostics, &["lint.missing-effects"]);
-        fixes.extend(collect_fix_spans(&checked.diagnostics));
-        fixes
-    };
+    let mut ast_fixes = collect_fix_spans(&linted.diagnostics);
+    ast_fixes.extend(collect_fix_spans(&checked.diagnostics));
     if ast_fixes.is_empty() {
         if linted.diagnostics.is_empty() {
             return LintResult {
                 index,
-                kind: LintResultKind::Clean,
+                kind: if checked.diagnostics.is_empty() {
+                    LintResultKind::Clean
+                } else {
+                    LintResultKind::FixDiagnostics {
+                        status: 2,
+                        stderr: checked_program.render_check_diagnostics(),
+                    }
+                },
             };
         }
+        let mut stderr = String::new();
+        let status = if checked.diagnostics.is_empty() { 1 } else { 2 };
+        if !checked.diagnostics.is_empty() {
+            stderr.push_str(&checked_program.render_check_diagnostics());
+            stderr.push('\n');
+        }
+        stderr.push_str(
+            &DiagnosticRenderer::new().render(&linted.diagnostics, &checked_program.sources),
+        );
         return LintResult {
             index,
             kind: LintResultKind::FixDiagnostics {
-                status: 1,
-                stderr: DiagnosticRenderer::new()
-                    .render(&linted.diagnostics, &checked_program.sources),
+                status,
+                stderr,
             },
         };
     }
@@ -513,22 +512,35 @@ fn lint_one_file_with_fixes(
             };
         }
     };
-    if let Err(stderr) = validate_fixed_text(
+    let remaining_check_stderr = match validate_fixed_text(
         file,
         &final_text,
         config,
-        check_diagnostics_are_entry_effect_violations,
+        &checked.diagnostics,
     ) {
-        return LintResult {
-            index,
-            kind: LintResultKind::FixDiagnostics { status: 2, stderr },
-        };
-    }
+        Ok(stderr) => stderr,
+        Err(stderr) => {
+            return LintResult {
+                index,
+                kind: LintResultKind::FixDiagnostics { status: 2, stderr },
+            };
+        }
+    };
 
     if final_text == text {
-        LintResult {
-            index,
-            kind: LintResultKind::Clean,
+        if remaining_check_stderr.is_empty() {
+            LintResult {
+                index,
+                kind: LintResultKind::Clean,
+            }
+        } else {
+            LintResult {
+                index,
+                kind: LintResultKind::FixDiagnostics {
+                    status: 2,
+                    stderr: remaining_check_stderr,
+                },
+            }
         }
     } else {
         LintResult {
@@ -536,6 +548,8 @@ fn lint_one_file_with_fixes(
             kind: LintResultKind::Write {
                 file: file.to_string(),
                 text: final_text,
+                status: if remaining_check_stderr.is_empty() { 0 } else { 2 },
+                stderr: remaining_check_stderr,
             },
         }
     }
@@ -545,8 +559,8 @@ fn validate_fixed_text(
     file: &str,
     text: &str,
     config: &ResolvedLintConfig,
-    allow_non_entry_check_diagnostics: bool,
-) -> Result<(), String> {
+    original_check_diagnostics: &[Diagnostic],
+) -> Result<String, String> {
     let symbols = SymbolOwner::new();
     let checked_program = symbols.with_current(|| {
         parse_load_check_text(
@@ -563,17 +577,14 @@ fn validate_fixed_text(
         .checked
         .as_ref()
         .expect("checked program after clean parse");
-    if !checked.diagnostics.is_empty() {
-        if allow_non_entry_check_diagnostics
-            && checked.diagnostics.iter().all(|diagnostic| {
-                !diagnostic_is_from_source(diagnostic, checked_program.entry_source_id)
-            })
-        {
-            return Ok(());
-        }
+    if !check_diagnostics_are_preserved(original_check_diagnostics, &checked.diagnostics) {
         return Err(checked_program.render_check_diagnostics());
     }
-    Ok(())
+    Ok(if checked.diagnostics.is_empty() {
+        String::new()
+    } else {
+        checked_program.render_check_diagnostics()
+    })
 }
 
 fn apply_cst_fixes(
@@ -619,18 +630,6 @@ fn collect_fix_spans(diagnostics: &[Diagnostic]) -> Vec<(usize, usize, String)> 
     collect_fix_spans_by_code(diagnostics, |_| true)
 }
 
-fn collect_fix_spans_for_codes(
-    diagnostics: &[Diagnostic],
-    allowed_codes: &[&str],
-) -> Vec<(usize, usize, String)> {
-    collect_fix_spans_by_code(diagnostics, |diagnostic| {
-        diagnostic
-            .code
-            .as_deref()
-            .is_some_and(|code| allowed_codes.contains(&code))
-    })
-}
-
 fn collect_fix_spans_by_code(
     diagnostics: &[Diagnostic],
     include: impl Fn(&Diagnostic) -> bool,
@@ -666,31 +665,35 @@ fn collect_fix_spans_by_code(
     non_overlapping
 }
 
-fn entry_check_diagnostics_are_effect_violations(
-    diagnostics: &[Diagnostic],
-    entry_source_id: SourceId,
-) -> bool {
-    let mut saw_entry_diagnostic = false;
-    for diagnostic in diagnostics {
-        if !diagnostic_is_from_source(diagnostic, entry_source_id) {
-            continue;
-        }
-        saw_entry_diagnostic = true;
-        if diagnostic.code.as_deref() != Some("check.effect-violation") {
-            return false;
-        }
-    }
-    saw_entry_diagnostic
+fn check_diagnostic_signature(diagnostic: &Diagnostic) -> String {
+    format!(
+        "{:?}:{}:{}",
+        diagnostic.severity,
+        diagnostic.code.as_deref().unwrap_or(""),
+        diagnostic.message
+    )
 }
 
-fn diagnostic_is_from_source(diagnostic: &Diagnostic, source_id: SourceId) -> bool {
-    diagnostic
-        .span
-        .is_some_and(|span| span.source_id == source_id)
-        || diagnostic
-            .labels
-            .iter()
-            .any(|label| label.span.source_id == source_id)
+fn check_diagnostics_are_preserved(
+    original: &[Diagnostic],
+    current: &[Diagnostic],
+) -> bool {
+    let mut remaining = FxHashMap::default();
+    for diagnostic in original {
+        *remaining
+            .entry(check_diagnostic_signature(diagnostic))
+            .or_insert(0usize) += 1;
+    }
+    for diagnostic in current {
+        let Some(count) = remaining.get_mut(&check_diagnostic_signature(diagnostic)) else {
+            return false;
+        };
+        if *count == 0 {
+            return false;
+        }
+        *count -= 1;
+    }
+    true
 }
 
 #[allow(clippy::single_call_fn)]
@@ -943,6 +946,29 @@ proc main() [fs] {
         };
 
         assert!(text.contains("proc main() [fs, error]"));
+    }
+
+    #[test]
+    fn lint_fix_applies_safe_lints_with_unrelated_check_errors() {
+        let source = "\
+proc main(names: List[Str]) {
+  let path = Path(\"/srv/xsh\")
+  if ! names.contains(\"factory/tools\") {
+    print $path
+  }
+}
+
+let unresolved = missing
+";
+        let config = config();
+        let result = lint_one_file_with_fixes(0, "fixture.xsh", source.to_string(), &config);
+        let LintResultKind::Write { text, .. } = result.kind else {
+            panic!("expected safe lint fixes to be written");
+        };
+
+        assert!(!text.contains("Path(\"/srv/xsh\")"));
+        assert!(text.contains("not in"));
+        assert!(text.contains("let unresolved = missing"));
     }
 
     #[test]

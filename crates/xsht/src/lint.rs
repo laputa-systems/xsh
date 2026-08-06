@@ -2905,16 +2905,25 @@ impl<'a> Linter<'a> {
         if receiver_text.contains('#') || needle_text.contains('#') {
             return;
         }
-        let replacement = if call_is_directly_negated(self.source, span) {
-            format!("({needle_text} in {receiver_text})")
+        let (fix_span, replacement) = if let Some(negation_start) =
+            directly_negated_start(self.source, span)
+        {
+            (
+                Span::new(span.source_id, negation_start, span.end()),
+                format!("{needle_text} not in {receiver_text}"),
+            )
         } else {
-            format!("{needle_text} in {receiver_text}")
+            (span, format!("{needle_text} in {receiver_text}"))
         };
         self.diagnostics.push(
             Diagnostic::new(Severity::Warning, "prefer `in` over `.contains(...)`")
                 .with_code("lint.prefer-in")
                 .with_label(Label::secondary(span, "use membership syntax instead"))
-                .with_fix_hint(FixHint::replacement(span, "rewrite with `in`", replacement)),
+                .with_fix_hint(FixHint::replacement(
+                    fix_span,
+                    "rewrite with membership syntax",
+                    replacement,
+                )),
         );
     }
 
@@ -5408,13 +5417,13 @@ fn prefer_in_receiver_type(ty: &Type) -> bool {
     matches!(ty, Type::List(_) | Type::Str | Type::Bytes | Type::Path)
 }
 
-fn call_is_directly_negated(source: &str, span: Span) -> bool {
+fn directly_negated_start(source: &str, span: Span) -> Option<usize> {
     let bytes = source.as_bytes();
     let mut pos = span.start();
     while pos > 0 && matches!(bytes[pos - 1], b' ' | b'\t') {
         pos -= 1;
     }
-    pos > 0 && bytes[pos - 1] == b'!'
+    pos.checked_sub(1).filter(|&bang| bytes[bang] == b'!')
 }
 
 fn expr_may_have_effects(arena: &AstArena, expr: ExprId) -> bool {

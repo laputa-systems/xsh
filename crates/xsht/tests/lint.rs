@@ -1622,7 +1622,7 @@ proc main(names: List[Str], name: Str, text: Str, source_path: Path) {
         replacements,
         [
             "name in names",
-            "(name in names)",
+            "name not in names",
             "name in [\"a\", \"b\"]",
             "\"needle\" in text",
             "\"/\" in source_path.display()",
