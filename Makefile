@@ -167,8 +167,12 @@ dist-Linux-docker:
 		-e TARGET=$(TARGET) \
 		-e CARGO_TARGET_DIR=/work/target \
 		-e CARGO_BUILD_WARNINGS=$(CARGO_BUILD_WARNINGS) \
+		-e HOST_UID=$$(id -u) \
+		-e HOST_GID=$$(id -g) \
 		$(XSH_TEST_IMAGE) \
 		sh -c ' \
+			chown_target() { chown -R "$${HOST_UID}:$${HOST_GID}" /work/target; } && \
+			trap chown_target EXIT && \
 			SR=$$(rustc --target $(TARGET) --print sysroot)/lib/rustlib/$(TARGET)/lib && \
 			ln -sf /usr/lib/libgcc_s.so.1 "$$SR/libgcc_s.so" && \
 			ln -sf /usr/lib/libgcc_s.so.1 "$$SR/libgcc_s.so.1" && \
