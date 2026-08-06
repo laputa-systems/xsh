@@ -19,6 +19,7 @@ DIST_PROFILE ?= dist
 DIST_PROFILE_DIR = $(if $(filter release,$(DIST_PROFILE)),release,$(DIST_PROFILE))
 XSH_TEST_IMAGE ?= xsh-test
 XSH_TEST_IMAGE_BUILD ?= 1
+DOCKER_PLATFORM ?= $(if $(filter x86_64-unknown-linux-musl,$(TARGET)),linux/amd64,linux/arm64)
 CARGO_BUILD_WARNINGS = deny
 export CARGO_BUILD_WARNINGS
 DIST_BUILD_STD_FLAGS ?= -Z build-std=std
@@ -155,15 +156,17 @@ dist-Linux: dist-native
 # Cross-build a Linux musl distribution from macOS (or another non-Linux host)
 # using the CI-like toolchain in Dockerfile.test.
 dist-Linux-docker:
-	if [ "$(XSH_TEST_IMAGE_BUILD)" = "1" ]; then docker build -t $(XSH_TEST_IMAGE) -f Dockerfile.test .; else docker image inspect $(XSH_TEST_IMAGE) >/dev/null; fi
-	mkdir -p target/docker-$(TARGET)-release
+	if [ "$(XSH_TEST_IMAGE_BUILD)" = "1" ]; then docker build --platform=$(DOCKER_PLATFORM) -t $(XSH_TEST_IMAGE) -f Dockerfile.test .; else docker image inspect $(XSH_TEST_IMAGE) >/dev/null; fi
+	mkdir -p target
 	docker run --rm \
+		--platform=$(DOCKER_PLATFORM) \
 		-v $(CURDIR):/work \
-		-v $(CURDIR)/target/docker-$(TARGET)-release:/work/target \
+		-v $(CURDIR)/target:/work/target \
 		-v xsh-cargo-registry:/root/.cargo/registry \
 		-w /work \
 		-e TARGET=$(TARGET) \
 		-e CARGO_TARGET_DIR=/work/target \
+		-e CARGO_BUILD_WARNINGS=$(CARGO_BUILD_WARNINGS) \
 		$(XSH_TEST_IMAGE) \
 		sh -c ' \
 			SR=$$(rustc --target $(TARGET) --print sysroot)/lib/rustlib/$(TARGET)/lib && \
@@ -171,7 +174,7 @@ dist-Linux-docker:
 			ln -sf /usr/lib/libgcc_s.so.1 "$$SR/libgcc_s.so.1" && \
 			ln -sf /usr/lib/libc.so "$$SR/libc.so" && \
 			$(DIST_DOCKER_ENV) cargo build --locked --profile $(DIST_PROFILE) $(DIST_DOCKER_BUILD_STD_FLAGS) --target $(TARGET) --no-default-features --features "net tools" --bin xsh --bin xsht --bin xshi && \
-			if [ "$(DIST_PROFILE_DIR)" != dist ]; then mkdir -p target/$(TARGET)/dist && for bin in $(DIST_BINS); do cp -f target/$(TARGET)/$(DIST_PROFILE_DIR)/$$bin target/$(TARGET)/dist/$$bin; done; fi && \
+			if [ "$(DIST_PROFILE_DIR)" != dist ]; then mkdir -p target/$(TARGET)/dist && for bin in $(DIST_BINS); do cp -f target/$(TARGET)/$(DIST_PROFILE_DIR)/$$bin target/$(TARGET)/dist/$$bin; done; fi \
 		'
 
 dist-native:

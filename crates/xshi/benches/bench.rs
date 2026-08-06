@@ -5,6 +5,7 @@ use std::ffi::CStr;
 use std::fs;
 #[cfg(target_os = "linux")]
 use std::hint::black_box;
+use std::path::PathBuf;
 #[cfg(target_os = "linux")]
 use std::sync::OnceLock;
 
@@ -56,6 +57,20 @@ fn bench_operation<O>(bencher: Bencher, operation: impl FnMut() -> O) {
     bencher.bench_local(operation);
 }
 
+struct CurrentDirGuard(PathBuf);
+
+impl CurrentDirGuard {
+    fn new() -> Self {
+        Self(std::env::current_dir().expect("read current directory"))
+    }
+}
+
+impl Drop for CurrentDirGuard {
+    fn drop(&mut self) {
+        std::env::set_current_dir(&self.0).expect("restore current directory");
+    }
+}
+
 fn make_directory_fixture(entries: usize) -> tempfile::TempDir {
     let dir = tempfile::tempdir().expect("create directory fixture");
     for index in 0..entries {
@@ -74,11 +89,10 @@ fn xshi_prompt_render_long_command(bencher: Bencher) {
 #[rustybench::bench]
 fn xshi_completion_navigation_1000_entries(bencher: Bencher) {
     let dir = make_directory_fixture(1_000);
-    let original_cwd = std::env::current_dir().expect("read current directory");
+    let _cwd = CurrentDirGuard::new();
     let mut session = BenchSession::with_history(Vec::new());
     session.set_cwd(dir.path());
     bench_operation(bencher, || session.complete_len("cd dir-09", 9, 80));
-    std::env::set_current_dir(original_cwd).expect("restore current directory");
 }
 
 #[rustybench::bench]
@@ -90,10 +104,9 @@ fn xshi_history_search_render_45000_entries(bencher: Bencher) {
 #[rustybench::bench]
 fn xshi_cd_list_complete_1000_entries(bencher: Bencher) {
     let dir = make_directory_fixture(1_000);
-    let original_cwd = std::env::current_dir().expect("read current directory");
+    let _cwd = CurrentDirGuard::new();
     let mut session = BenchSession::with_history(synthetic_history_45k());
     bench_operation(bencher, || session.workflow_cd_l_completion_len(dir.path()));
-    std::env::set_current_dir(original_cwd).expect("restore current directory");
 }
 
 #[rustybench::bench]

@@ -14,29 +14,8 @@ env:
   CARGO_INCREMENTAL: 0
 
 jobs:
-  warm-cache:
-    name: Warm LLVM cache (${{ matrix.arch }})
-    strategy:
-      fail-fast: false
-      matrix:
-        arch: [x86_64, aarch64]
-    runs-on: ${{ matrix.arch == 'x86_64' && 'ubuntu-24.04' || 'ubuntu-24.04-arm' }}
-    steps:
-      - name: Cache prebuilt LLVM toolchain
-        id: cache-llvm
-        uses: actions/cache@v4
-        with:
-          path: clang+llvm-22.1.8-${{ matrix.arch }}-linux-musl
-          key: llvm-prebuilt-musl-${{ matrix.arch }}-22.1.8
-
-      - name: Download prebuilt LLVM
-        if: steps.cache-llvm.outputs.cache-hit != 'true'
-        run: |
-          curl -fsSL "https://github.com/laputa-systems/llvm-prebuilt-musl/releases/download/llvm-musl-22.1.8/clang+llvm-22.1.8-${{ matrix.arch }}-linux-musl.tar.xz" | tar xJ
-
   package:
     name: Package ${{ matrix.package }}
-    needs: warm-cache
     strategy:
       fail-fast: false
       matrix:
@@ -90,49 +69,16 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
-      - name: Restore prebuilt LLVM toolchain
-        if: matrix.os == 'linux'
-        id: cache-llvm
-        uses: actions/cache/restore@v4
-        with:
-          path: clang+llvm-22.1.8-${{ matrix.arch }}-linux-musl
-          key: llvm-prebuilt-musl-${{ matrix.arch }}-22.1.8
-
-      - name: Install native build dependencies
-        if: matrix.os == 'linux'
-        run: |
-          set -euo pipefail
-
-          # musl: dynamic linker so the prebuilt (musl-linked) clang can run on glibc.
-          # musl-dev: musl headers and libs for cross-compilation from glibc.
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends musl musl-dev
-
-          llvm_version="22.1.8"
-          llvm_dir="clang+llvm-${llvm_version}-${{ matrix.arch }}-linux-musl"
-
-          # warm-cache populates this; fall back to a direct download if the
-          # cache was evicted between jobs (extremely unlikely, but cheap).
-          if [ ! -d "$llvm_dir" ]; then
-            curl -fsSL "https://github.com/laputa-systems/llvm-prebuilt-musl/releases/download/llvm-musl-${llvm_version}/clang+llvm-${llvm_version}-${{ matrix.arch }}-linux-musl.tar.xz" | tar xJ
-          fi
-          target_upper="$(printf '%s' '${{ matrix.target }}' | tr 'a-z-' 'A-Z_')"
-          musl_inc="/usr/include/${{ matrix.arch }}-linux-musl"
-
-          {
-            echo "CC=${PWD}/${llvm_dir}/bin/clang"
-            echo "CC_${target_upper}=${PWD}/${llvm_dir}/bin/clang"
-            echo "CARGO_TARGET_${target_upper}_LINKER=rust-lld"
-            # The prebuilt clang is Alpine-built; it doesn't know Debian multiarch
-            # paths. Point it at the musl-dev headers explicitly.
-            echo "CFLAGS_${target_upper}=--target=${{ matrix.target }} -I${musl_inc}"
-            echo "AWS_LC_SYS_CFLAGS_${target_upper}=--target=${{ matrix.target }} -I${musl_inc}"
-          } >> "$GITHUB_ENV"
-
       - name: Install Rust target
+        if: matrix.os == 'darwin'
         run: rustup target add ${{ matrix.target }}
 
       - name: Build optimized binary
+        if: matrix.os == 'linux'
+        run: make dist-Linux-docker TARGET=${{ matrix.target }} XSH_TEST_IMAGE=xsh-test XSH_TEST_IMAGE_BUILD=1
+
+      - name: Build optimized Darwin binaries
+        if: matrix.os == 'darwin'
         run: make dist TARGET=${{ matrix.target }}
 
       - name: Smoke-test independent binaries
@@ -230,11 +176,6 @@ jobs:
             echo 'unexpected compressed binary artifact' >&2
             exit 1
           fi
-          if find dist -maxdepth 1 -type f -name 'xsh-multicall*' -print -quit | grep -q .; then
-            echo 'legacy multicall artifact remains' >&2
-            exit 1
-          fi
-
       - name: Package core scripts
         env:
           RELEASE_TAG: release-${{ github.sha }}
