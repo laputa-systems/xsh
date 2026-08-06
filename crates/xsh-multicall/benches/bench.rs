@@ -22,11 +22,6 @@ use xshi::interactive::bench::{
     BenchSession, HistorySearchRenderBench, RenderBench, synthetic_history_45k,
 };
 
-#[cfg(target_os = "linux")]
-#[global_allocator]
-static ALLOC: AllocProfiler<mimalloc::MiMalloc> = AllocProfiler::new(mimalloc::MiMalloc);
-
-#[cfg(not(target_os = "linux"))]
 #[global_allocator]
 static ALLOC: AllocProfiler = AllocProfiler::system();
 

@@ -23,7 +23,7 @@ material regression or a parity failure in the specialized paths.
 
 ### 1. Account for Worker Memory
 
-Ordinary Divan allocation columns cover the controlling benchmark thread, while
+Ordinary Rustbench allocation columns cover the controlling benchmark thread, while
 indexed execution and `par-map` can run on bounded workers. Add worker-aware
 allocation or RSS evidence before treating a runtime-memory claim as complete.
 The output should distinguish frontend construction, controller allocation, and

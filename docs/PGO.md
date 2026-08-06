@@ -1,6 +1,6 @@
 # Profile-Guided Optimization
 
-PGO is an application optimization workflow, separate from the Divan
+PGO is an application optimization workflow, separate from the Rustbench
 benchmark and regression workflow in `docs/BENCHMARKING.md`.
 
 Do not run PGO during ordinary runtime, IR, or representation iteration. The
@@ -56,7 +56,7 @@ host_target=$(rustc -vV | awk '/^host:/ {print $2}')
 $(rustc --print sysroot)/lib/rustlib/$host_target/bin/llvm-profdata show --all-functions --counts target/pgo-profiles/$host_target/merged.profdata
 ```
 
-The profile has no Divan benchmark entry points. `release-pgo` applies
+The profile has no Rustbench benchmark entry points. `release-pgo` applies
 `-Cprofile-use` only to a separate standalone `xshi` release build under
 `target/pgo-use/<target>/`, enables LLVM's missing-function diagnostic, and
 rejects a final binary that still contains LLVM profile runtime symbols or

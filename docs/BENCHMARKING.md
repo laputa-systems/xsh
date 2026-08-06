@@ -4,8 +4,8 @@ XSH benchmarks latency-sensitive workflows that users experience through the
 `xsh`, `xshi`, and `xsht` surfaces. The curated suite drives regression
 tracking.
 
-The suite lives in `crates/xsh-multicall/benches/bench.rs` as one Divan
-benchmark binary. Divan's global allocation profiler records median wall-clock
+The suite lives in `crates/xsh-multicall/benches/bench.rs` as one Rustbench
+benchmark binary. Rustbench's global allocation profiler records median wall-clock
 latency, allocation count per operation, and allocated bytes per operation.
 Linux release builds use mimalloc because the musl allocator regresses these
 allocation-heavy workloads. The benchmark wraps the same mimalloc allocator
@@ -13,7 +13,7 @@ with `AllocProfiler`, so allocation accounting does not change the allocator
 being measured. Other hosts use the system allocator.
 
 The benchmark-only `xshi::interactive::bench` helpers are enabled through the
-`benchmark` feature used by the benchmark scripts; release application
+`benchmark` feature used by the benchmark suite; release application
 builds do not compile them.
 
 The executable frontend has no separate legacy benchmark runner or shadow
@@ -84,15 +84,16 @@ Run:
 make bench
 ```
 
-The baseline helper compares the current run with a host-specific file under
+The Rustbench baseline command compares the current run with a structured JSON file under
 `crates/xsh-multicall/benches/`, then replaces that local baseline. Baseline
 files are ignored by Git because timing data is machine-specific. The normal
 path runs one discarded warmup suite followed by three measured suites and
 records the median of those three runs. This keeps the default reasonably quick
 while reducing cold page-cache and one-off scheduler effects. The report also
 shows the timing spread across the three measured runs so unstable results are
-visible. The helper always prints and records whole-suite wall time
-(`wall_s`, plus measured and warmup totals) so iteration cost is explicit.
+visible. The baseline JSON records whole-suite wall time in nanoseconds through
+`wall_ns`, `warmup_wall_ns`, `measured_wall_ns`, and `suite_wall_ns`, so iteration
+cost is explicit.
 
 Each row records:
 
@@ -101,7 +102,7 @@ benchmark_name    median_ns    allocation_count    allocation_bytes    max_alloc
 ```
 
 Latency is the primary signal for ordinary performance work. Allocation count,
-allocated bytes, and Divan `max alloc` (peak live requested bytes and count on
+allocated bytes, and Rustbench `max alloc` (peak live requested bytes and count on
 the benchmark thread) explain memory and representation changes. Added and
 removed benchmarks are reported explicitly.
 
@@ -113,12 +114,14 @@ For representation and allocation work, prefer:
 make bench-fast
 ```
 
-which is `scripts/bench-baseline.py --fast`. That mode uses zero warmup suites,
-one measured suite, Divan `--sample-count 1 --sample-size 1`, and a memory-only
-report that omits per-benchmark time and run spread. Allocation
-traffic is deterministic enough for single-sample comparison. The default
+which is `rustbench baseline --fast`. That mode uses zero warmup suites,
+one measured suite, Rustbench `--sample-count 1 --sample-size 1`, and is intended
+for fast allocation comparison rather than a reliable latency measurement. The
+comparison still prints the normal metric columns, but the timing value is only
+a single-sample signal. Allocation traffic is deterministic enough for this use.
+The default
 baseline path gets a `-fast` suffix so fast runs do not overwrite normal
-latency baselines. Override with `--baseline`, `--variant`, `--warmup-runs`,
+latency baselines. Override with `--baseline`, `--variant`, `--warmup`,
 `--runs`, `--sample-count`, or `--sample-size` when needed.
 
 Do not mix fast and normal baseline files when judging deltas: single-sample
@@ -144,13 +147,13 @@ make bench-fast
 cargo bench -p xsh-multicall --bench bench --features benchmark xsht_check_xsh_repository --   --sample-count 1 --sample-size 1
 ```
 
-`make bench-fast` already records Divan `max alloc` in the baseline. `alloc`
+`make bench-fast` already records Rustbench `max alloc` in the baseline. `alloc`
 measures total allocation traffic; `max alloc` measures the peak live requested
 bytes and allocation count observed on the benchmark thread. The latter is the
-first retained-memory lens for parser arenas and lowered IR. Divan does not
+first retained-memory lens for parser arenas and lowered IR. Rustbench does not
 count allocations performed by threads it does not control, so use process RSS
 only when the workload is substantially multithreaded or allocator retention is
-the question. Use multi-sample Divan settings only when stabilizing latency,
+the question. Use multi-sample Rustbench settings only when stabilizing latency,
 not when iterating on allocation bytes.
 
 Run benchmark processes serially. XSH has process-global interners and caches,
@@ -189,7 +192,7 @@ reports the summary plus the variants and fields of every tracked hot arena,
 builder, semantic type, indexed IR, runtime value, lowering-probe, and evaluator
 type. Deleted recursive executable types are intentionally absent. Use
 repeatable `--only TYPE` filters when a focused report is easier to compare.
-Compare it before and after representation changes, then check Divan's
+Compare it before and after representation changes, then check Rustbench's
 allocated bytes and `max alloc` on the affected real workflow. Type size alone
 is not a memory result: multiply it by realistic node volume mentally, and
 account for heap-owned `Vec`, `Arc`, map, and boxed payloads through the

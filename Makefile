@@ -282,7 +282,7 @@ pgo-profile: pgo-instrument
 		test -n "$$raw_profiles"; \
 		$(LLVM_BIN)/llvm-profdata merge -o "$(PGO_MERGED)" $$raw_profiles; \
 		$(LLVM_BIN)/llvm-profdata show --all-functions "$(PGO_MERGED)" | grep -q 'xshi'; \
-		! $(LLVM_BIN)/llvm-profdata show --all-functions "$(PGO_MERGED)" | grep -Eiq 'divan|rustbench|xshi.*interactive.*bench|(^|[[:space:]])xsh\.|(^|[[:space:]])xsht\.'
+		! $(LLVM_BIN)/llvm-profdata show --all-functions "$(PGO_MERGED)" | grep -Eiq 'rustbench|xshi.*interactive.*bench|(^|[[:space:]])xsh\.|(^|[[:space:]])xsht\.'
 
 $(PGO_MERGED):
 	$(MAKE) pgo-profile
