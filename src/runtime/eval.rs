@@ -2692,6 +2692,7 @@ pub struct Evaluator {
     active_modules: Vec<String>,
     stdout: Vec<u8>,
     stderr: Vec<u8>,
+    capture_process_output: bool,
     cwd: PathBuf,
     env: RuntimeEnv,
     interactive: bool,
@@ -2768,6 +2769,7 @@ impl PreparedTestProgram {
                     &self.setup_shared
                 };
                 let mut evaluator = Evaluator::new_lowered_worker(shared);
+                evaluator.capture_process_output = true;
                 for (name, value) in env_overlay {
                     evaluator = evaluator.with_env_var(name, value);
                 }
@@ -2884,6 +2886,7 @@ impl Evaluator {
             active_modules: Vec::new(),
             stdout: Vec::new(),
             stderr: Vec::new(),
+            capture_process_output: false,
             cwd,
             env: RuntimeEnv::inherited(),
             interactive: false,
@@ -3037,6 +3040,7 @@ impl Evaluator {
             active_modules: shared.active_modules.clone(),
             stdout: Vec::new(),
             stderr: Vec::new(),
+            capture_process_output: false,
             cwd: shared.cwd.clone(),
             env: shared.env.clone(),
             #[cfg(feature = "native-tests")]
@@ -4172,12 +4176,13 @@ impl Evaluator {
 
     #[cfg(feature = "native-tests")]
     pub fn eval_test(
-        self,
+        mut self,
         program: &ArenaProgram,
         source_id: SourceId,
         test_name: &str,
         ctx: Value,
     ) -> TestEvalOutput {
+        self.capture_process_output = true;
         let symbols = program.symbol_owner().clone();
         run_eval(move || {
             symbols.with_current(|| self.eval_test_inner(program, source_id, test_name, ctx))
@@ -4190,6 +4195,7 @@ impl Evaluator {
         program: Arc<ArenaProgram>,
         source_id: SourceId,
     ) -> PreparedTestProgram {
+        self.capture_process_output = true;
         let plan = self
             .prepare_compact_indexed_only(&program, source_id)
             .expect("checked native-test programs must encode as indexed IR");

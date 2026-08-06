@@ -714,23 +714,17 @@ fn run_capture_stdio(
         return Err(map_cgroup_error(error));
     }
     let _foreground = ForegroundTerminal::take(group);
-    let stdout = child
-        .stdout
-        .take()
-        .ok_or_else(|| RunError::new("io", "failed to capture child stdout"))?;
+    let stdout = child.stdout.take();
     let stderr = if capture_stderr {
-        Some(
-            child
-                .stderr
-                .take()
-                .ok_or_else(|| RunError::new("io", "failed to capture child stderr"))?,
-        )
+        child.stderr.take()
     } else {
         None
     };
-    let stdout_fd = stdout.as_raw_fd();
+    let stdout_fd = stdout.as_ref().map(|stdout| stdout.as_raw_fd());
     let stderr_fd = stderr.as_ref().map(|stderr| stderr.as_raw_fd());
-    set_nonblocking(stdout.as_fd())?;
+    if let Some(stdout) = stdout.as_ref() {
+        set_nonblocking(stdout.as_fd())?;
+    }
     if let Some(stderr) = stderr.as_ref() {
         set_nonblocking(stderr.as_fd())?;
     }
@@ -742,13 +736,15 @@ fn run_capture_stdio(
     let mut buf = [0u8; 8192];
 
     let status = loop {
-        drain_capture_fd(
-            stdout_fd,
-            &mut captured_stdout,
-            &mut capture_limit_hit,
-            group,
-            &mut buf,
-        );
+        if let Some(stdout_fd) = stdout_fd {
+            drain_capture_fd(
+                stdout_fd,
+                &mut captured_stdout,
+                &mut capture_limit_hit,
+                group,
+                &mut buf,
+            );
+        }
         if let Some(stderr_fd) = stderr_fd {
             drain_capture_fd(
                 stderr_fd,
@@ -761,13 +757,15 @@ fn run_capture_stdio(
 
         if let Some(status) = child.try_wait().map_err(map_wait_error)? {
             if !capture_limit_hit {
-                drain_capture_fd(
-                    stdout_fd,
-                    &mut captured_stdout,
-                    &mut capture_limit_hit,
-                    group,
-                    &mut buf,
-                );
+                if let Some(stdout_fd) = stdout_fd {
+                    drain_capture_fd(
+                        stdout_fd,
+                        &mut captured_stdout,
+                        &mut capture_limit_hit,
+                        group,
+                        &mut buf,
+                    );
+                }
                 if let Some(stderr_fd) = stderr_fd {
                     drain_capture_fd(
                         stderr_fd,
@@ -792,11 +790,14 @@ fn run_capture_stdio(
             check_cancellation(group, &mut cancellation, policy);
         }
 
-        let stdout = unsafe { BorrowedFd::borrow_raw(stdout_fd) };
-        let mut pollfds = vec![revent::PollFd::from_borrowed_fd(
-            stdout,
-            revent::PollFlags::IN,
-        )];
+        let mut pollfds = Vec::new();
+        if let Some(stdout_fd) = stdout_fd {
+            let stdout = unsafe { BorrowedFd::borrow_raw(stdout_fd) };
+            pollfds.push(revent::PollFd::from_borrowed_fd(
+                stdout,
+                revent::PollFlags::IN,
+            ));
+        }
         if let Some(stderr_fd) = stderr_fd {
             let stderr = unsafe { BorrowedFd::borrow_raw(stderr_fd) };
             pollfds.push(revent::PollFd::from_borrowed_fd(
@@ -805,7 +806,11 @@ fn run_capture_stdio(
             ));
         }
         let timeout = revent::Timespec::try_from(WAIT_POLL).expect("WAIT_POLL fits Timespec");
-        let _ = revent::poll(&mut pollfds, Some(&timeout));
+        if pollfds.is_empty() {
+            std::thread::sleep(WAIT_POLL);
+        } else {
+            let _ = revent::poll(&mut pollfds, Some(&timeout));
+        }
     };
 
     if capture_limit_hit && cancellation.is_none() {
@@ -1869,6 +1874,41 @@ mod tests {
         assert!(!is_benign_setpgid_race(&io::Error::from_raw_os_error(
             libc::EINVAL
         )));
+    }
+
+    #[test]
+    fn capture_allows_explicit_stdout_redirection() {
+        let output_path = std::env::temp_dir().join(format!(
+            "xsh-process-capture-redirection-{}",
+            std::process::id()
+        ));
+        let env = std::env::vars_os()
+            .map(|(name, value)| (name.as_bytes().to_vec(), value.as_bytes().to_vec()))
+            .collect();
+        let invocation = ProcessInvocation {
+            target: b"sh".to_vec(),
+            argv: vec![
+                b"-c".to_vec(),
+                b"printf redirected; printf captured >&2".to_vec(),
+            ],
+            cwd: std::env::current_dir().expect("current directory"),
+            env,
+            env_overlay: BTreeMap::new(),
+            redirections: vec![ProcessRedirection::File {
+                stream: RedirectionStream::Stdout,
+                mode: FileRedirectionMode::Write,
+                path: output_path.clone(),
+            }],
+            timeout: None,
+            cpu_max: None,
+        };
+
+        let output = run_capture_with_stderr(&invocation).expect("capture redirected process");
+        assert!(output.end.status.expect("process status").success);
+        assert!(output.stdout.is_empty());
+        assert_eq!(output.stderr, b"captured");
+        assert_eq!(std::fs::read(&output_path).expect("read redirected output"), b"redirected");
+        std::fs::remove_file(output_path).expect("remove redirected output");
     }
 
     #[test]

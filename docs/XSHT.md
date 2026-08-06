@@ -112,6 +112,10 @@ registration only; they do not change `xsht check`, `xsht fmt`, or `xsht lint`
 discovery. The ordinary top-level `exclude` remains the shared discovery filter
 for path-oriented commands.
 
+Native tests capture `process.run` stdout and stderr per test by default. `xsht
+test` shows that output for failed tests; `xsht test --nocapture` shows it while
+tests run. Normal XSH execution continues to inherit child process streams.
+
 The default `module_path` is `.` (the current working directory). A config file
 may set `module_path` explicitly to replace that default for projects whose
 modules live in another directory.

@@ -20,7 +20,7 @@ xsht = { path = "../xsht", default-features = false }
 mimalloc = "0.1.52"
 
 [dev-dependencies]
-rustbench = { path = "../../../../rustbench" }
+rustybench = "0.1"
 tempfile = "3"
 
 [[bench]]

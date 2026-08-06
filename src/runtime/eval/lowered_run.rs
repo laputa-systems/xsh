@@ -15,8 +15,8 @@ use crate::runtime::process::{
     CancellationPolicy, ChildWaitOutcome, FileRedirectionMode, ManagedStdio, ProcessEnd,
     ProcessInvocation, ProcessRedirection, ProcessSegmentStatus, ProcessStatus, RedirectionStream,
     SpawnManagedOptions, SpawnOptions, WAIT_POLL, cancel_managed, path_bytes, poll_managed,
-    resolve_executable, run_inherit_with_policy, run_pipeline_inherit_with_policy,
-    run_quiet_with_policy, spawn_command, spawn_managed,
+    resolve_executable, run_capture_with_stderr_policy, run_inherit_with_policy,
+    run_pipeline_inherit_with_policy, run_quiet_with_policy, spawn_command, spawn_managed,
 };
 use crate::runtime::run::execute_run_with_policy;
 use crate::runtime::value::{
@@ -6307,7 +6307,16 @@ impl Evaluator {
                 )?;
                 let invocation = self.invocation_from_command_plan(&plan, span)?;
                 self.trace_process_run_start(span, &invocation);
-                match run_inherit_with_policy(&invocation, self) {
+                let outcome = if self.capture_process_output {
+                    run_capture_with_stderr_policy(&invocation, self).map(|output| {
+                        self.stdout.extend_from_slice(&output.stdout);
+                        self.stderr.extend_from_slice(&output.stderr);
+                        output.end
+                    })
+                } else {
+                    run_inherit_with_policy(&invocation, self)
+                };
+                match outcome {
                     Ok(end) => {
                         let status = end.status.clone().expect("completed process has status");
                         self.last_status = Some(status.clone());

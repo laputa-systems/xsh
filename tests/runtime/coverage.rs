@@ -1231,6 +1231,56 @@ proc test_beta() [error] {
 }
 
 #[test]
+fn xsht_test_captures_process_output_by_default() {
+    let root = temp_path("xsht-test-process-output-capture");
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(root.join("tests")).expect("create native test dir");
+    std::fs::write(
+        root.join("tests/main.xsh"),
+        r#"
+proc test_process_output() [process, error] {
+  let command = process.command_argv(
+    "sh",
+    ["sh", "-c", "printf process-stdout; printf process-stderr >&2"],
+  )
+  test.ok(process.run(command)?.exited_with(0))?
+}
+"#,
+    )
+    .expect("write process-output test");
+
+    let captured = Command::new(env!("CARGO_BIN_EXE_xsht"))
+        .arg("test")
+        .current_dir(&root)
+        .output()
+        .expect("run xsht with captured process output");
+
+    assert_ok(&captured);
+    let stdout = stdout_text(&captured);
+    assert!(stdout.contains("tests/main.xsh::test_process_output ... ok"));
+    assert!(!stdout.contains("process-stdout"), "{stdout}");
+    assert!(!stdout.contains("process-stderr"), "{stdout}");
+    assert_eq!(stderr_text(&captured), "");
+
+    let nocapture = Command::new(env!("CARGO_BIN_EXE_xsht"))
+        .args([
+            "test",
+            "--nocapture",
+            "--exact",
+            "tests/main.xsh::test_process_output",
+        ])
+        .current_dir(&root)
+        .output()
+        .expect("run xsht with visible process output");
+
+    assert_ok(&nocapture);
+    assert!(stdout_text(&nocapture).contains("process-stdout"));
+    assert_eq!(stderr_text(&nocapture), "process-stderr");
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
 fn xsht_test_runs_catalog_examples_only_when_requested() {
     let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
         .args(["test", "--examples", "--exact", "examples::release-package"])
