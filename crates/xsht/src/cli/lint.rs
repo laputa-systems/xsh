@@ -972,6 +972,33 @@ let unresolved = missing
     }
 
     #[test]
+    fn lint_fix_does_not_create_orphan_docs_from_multiline_strings() {
+        let source = "\
+proc main() {
+  let target = Path(\"/srv/xsh\")
+  let report = \"# Manager\\n\\n## North-star impact\\n\\nfixture\\n\\n## task-tags\\n\"
+  print $target
+}
+";
+        let config = config();
+        let result = lint_one_file_with_fixes(0, "fixture.xsh", source.to_string(), &config);
+        let LintResultKind::Write {
+            text,
+            status,
+            stderr,
+            ..
+        } = result.kind
+        else {
+            panic!("expected safe lint fix to be written");
+        };
+
+        assert_eq!(status, 0, "unexpected diagnostics: {stderr}");
+        assert!(stderr.is_empty());
+        assert!(text.contains("## North-star impact"));
+        assert!(text.contains("## task-tags"));
+    }
+
+    #[test]
     fn lint_fix_repairs_missing_effects_from_called_restricted_proc() {
         let source = "\
 proc timestamp() [time] -> Int {

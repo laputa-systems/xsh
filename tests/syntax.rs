@@ -117,6 +117,19 @@ export let value: Int = 1
 }
 
 #[test]
+fn parser_does_not_treat_multiline_string_headings_as_doc_comments() {
+    let source = r##"
+let report = "# Manager\n\n## North-star impact\n\nfixture\n\n## task-tags\n"
+"##;
+    let output = Parser::parse_source_arena_only(SourceId::new(0), source);
+
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    assert!(output.arena.docs.module.is_none());
+    assert!(output.arena.docs.orphaned.is_empty());
+    assert!(output.arena.docs.duplicate_modules.is_empty());
+}
+
+#[test]
 fn arena_accessors_decode_compact_frontend_shapes() {
     let source = r#"
 proc main(name: Str) [fs, error] -> Result[Unit] {

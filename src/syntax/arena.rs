@@ -5,6 +5,8 @@ use crate::syntax::node::{
     FormatSpec, FormatSpecKind, IntLiteral, RedirectionKind, RunKind, SignalHookOptions,
     StreamStageKind, UnaryOp,
 };
+use crate::syntax::lexer::Lexer;
+use crate::syntax::token::{TokenTable, TokenTag};
 use std::mem::size_of;
 use std::num::NonZeroU32;
 use std::ops::{Deref, DerefMut};
@@ -591,7 +593,16 @@ fn doc_comments_for_statements(
     let first_statement = statements
         .first()
         .map(|statement| arena.stmt(*statement).span);
-    let module = module_doc_comment(source, first_statement);
+    let source_id = first_statement
+        .map(|span| span.source_id)
+        .unwrap_or(crate::source::SourceId::new(0));
+    // Doc comments are source trivia, not text that merely happens to begin
+    // with `##`. In particular, formatter output may contain triple-quoted
+    // strings whose decoded value has Markdown headings on their own lines.
+    // Reuse the lexer so those string contents cannot become documentation.
+    let token_table = Lexer::new(source_id, source).lex_compact().token_table;
+    let blocks = doc_comment_blocks(source, source_id, &token_table);
+    let module = module_doc_comment(source, first_statement, &blocks);
     let exports = statements
         .iter()
         .copied()
@@ -600,13 +611,9 @@ fn doc_comments_for_statements(
                 return None;
             }
             let span = arena.stmt(statement).span;
-            attached_export_doc_comment(source, span).map(|doc| (statement, doc))
+            attached_export_doc_comment(source, span, &blocks).map(|doc| (statement, doc))
         })
         .collect::<Vec<_>>();
-    let source_id = first_statement
-        .map(|span| span.source_id)
-        .unwrap_or(crate::source::SourceId::new(0));
-    let blocks = doc_comment_blocks(source, source_id);
     let attached_starts = module
         .into_iter()
         .chain(exports.iter().map(|(_, span)| *span))
@@ -629,93 +636,80 @@ fn doc_comments_for_statements(
     }
 }
 
-fn module_doc_comment(source: &str, first_statement: Option<Span>) -> Option<Span> {
+fn module_doc_comment(
+    source: &str,
+    first_statement: Option<Span>,
+    blocks: &[(bool, Span)],
+) -> Option<Span> {
     let first_statement = first_statement?;
-    let prefix = &source[..first_statement.start()];
-    let mut offset = 0usize;
-    let mut start = None;
-    let mut end = None;
-    for line in prefix.split_inclusive('\n') {
-        let line_start = offset;
-        let line_end = offset + line.len();
-        let trimmed = line.trim();
-        if trimmed.is_empty() {
-            offset = line_end;
-            continue;
-        }
-        if trimmed.starts_with("##!") {
-            start.get_or_insert(line_start);
-            end = Some(line_end);
-            offset = line_end;
-            continue;
-        }
-        if start.is_some() {
-            break;
-        }
-        return None;
-    }
-    match (start, end) {
-        (Some(start), Some(end)) => Some(Span::new(first_statement.source_id, start, end)),
-        _ => None,
-    }
+    let (_, span) = blocks.iter().find(|(module, span)| {
+        *module && span.start() < first_statement.start() && span.end() <= first_statement.start()
+    })?;
+    let prefix = &source[..span.start()];
+    prefix
+        .lines()
+        .all(|line| line.trim().is_empty())
+        .then_some(*span)
 }
 
-fn attached_export_doc_comment(source: &str, statement: Span) -> Option<Span> {
-    let mut end = statement.start();
-    while end > 0 && matches!(source.as_bytes()[end - 1], b'\n' | b'\r') {
-        end -= 1;
-    }
-    let mut start = end;
-    let mut doc_start = None;
-    let mut doc_end = None;
-    while start > 0 {
-        let line_end = start;
-        let line_start = source[..line_end].rfind('\n').map_or(0, |index| index + 1);
-        let line = source[line_start..line_end].trim_end_matches('\r');
-        let trimmed = line.trim_start();
-        if trimmed.starts_with("##") && !trimmed.starts_with("##!") {
-            doc_start = Some(line_start);
-            doc_end.get_or_insert(line_end);
-            start = line_start.saturating_sub(1);
-            continue;
-        }
-        break;
-    }
-    match (doc_start, doc_end) {
-        (Some(start), Some(end)) => Some(Span::new(statement.source_id, start, end)),
-        _ => None,
-    }
+fn attached_export_doc_comment(
+    source: &str,
+    statement: Span,
+    blocks: &[(bool, Span)],
+) -> Option<Span> {
+    let (_, block) = blocks.iter().rev().find(|(module, span)| {
+        !module
+            && span.end() <= statement.start()
+            && source[span.end()..statement.start()]
+                .bytes()
+                .all(|byte| matches!(byte, b' ' | b'\t' | b'\r'))
+    })?;
+    let end = source[..block.end()].trim_end_matches(['\r', '\n']).len();
+    Some(Span::new(statement.source_id, block.start(), end))
 }
 
-fn doc_comment_blocks(source: &str, source_id: crate::source::SourceId) -> Vec<(bool, Span)> {
-    let mut blocks = Vec::new();
-    let mut offset = 0usize;
-    let mut lines = source.split_inclusive('\n').peekable();
-    while let Some(line) = lines.next() {
-        let line_start = offset;
-        offset += line.len();
-        let trimmed = line.trim_start();
-        let module = trimmed.starts_with("##!");
-        let export = trimmed.starts_with("##") && !module;
+fn doc_comment_blocks(
+    source: &str,
+    source_id: crate::source::SourceId,
+    token_table: &TokenTable,
+) -> Vec<(bool, Span)> {
+    let mut comments = Vec::new();
+    for index in 0..token_table.len() {
+        if token_table.tag_at(index) != Some(TokenTag::Comment) {
+            continue;
+        }
+        let Some(span) = token_table.span_at(index, source_id, source) else {
+            continue;
+        };
+        let line_start = source[..span.start()].rfind('\n').map_or(0, |offset| offset + 1);
+        if !source[line_start..span.start()]
+            .bytes()
+            .all(|byte| matches!(byte, b' ' | b'\t' | b'\r'))
+        {
+            continue;
+        }
+        let text = &source[span.range()];
+        let module = text.starts_with("##!");
+        let export = text.starts_with("##") && !module;
         if !module && !export {
             continue;
         }
-        let mut end = offset;
-        while let Some(next) = lines.peek() {
-            let next_trimmed = next.trim_start();
-            let same_kind = if module {
-                next_trimmed.starts_with("##!")
-            } else {
-                next_trimmed.starts_with("##") && !next_trimmed.starts_with("##!")
-            };
-            if !same_kind {
-                break;
-            }
-            let next = lines.next().expect("peeked doc line");
-            offset += next.len();
-            end = offset;
+        let end = source[span.end()..]
+            .find('\n')
+            .map_or(source.len(), |offset| span.end() + offset + 1);
+        comments.push((module, Span::new(source_id, line_start, end)));
+    }
+
+    let mut blocks: Vec<(bool, Span)> = Vec::new();
+    for (module, span) in comments {
+        if let Some((last_module, last)) = blocks.last_mut()
+            && *last_module == module
+            && last.end() == span.start()
+        {
+            last.set_end(span.end());
+        } else {
+            blocks.push((module, span));
         }
-        blocks.push((module, Span::new(source_id, line_start, end)));
     }
     blocks
 }
