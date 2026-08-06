@@ -174,6 +174,11 @@ pub struct LintConfig {
 }
 
 #[derive(Clone, Debug, Default)]
+pub struct CoverageConfig {
+    pub exclude: Vec<String>,
+}
+
+#[derive(Clone, Debug, Default)]
 pub struct CheckConfig {
     pub annotate: Option<Vec<String>>,
 }
@@ -203,6 +208,7 @@ pub struct XshConfig {
     pub check: CheckConfig,
     pub format: FormatConfig,
     pub lint: LintConfig,
+    pub coverage: CoverageConfig,
 }
 
 fn default_module_path() -> Vec<String> {
@@ -219,6 +225,7 @@ impl Default for XshConfig {
             check: CheckConfig::default(),
             format: FormatConfig::default(),
             lint: LintConfig::default(),
+            coverage: CoverageConfig::default(),
         }
     }
 }
@@ -289,6 +296,7 @@ fn parse_config_ini(value: &xsh::runtime::value::Value) -> Result<XshConfig, Str
         check: parse_check_ini(fields),
         format: parse_format_ini(fields)?,
         lint: parse_lint_ini(fields),
+        coverage: parse_coverage_ini(fields),
     })
 }
 
@@ -307,6 +315,15 @@ fn parse_lint_ini(fields: &xsh::runtime::value::RecordMap) -> LintConfig {
     };
     LintConfig {
         runless_except: ini_string_list(lint, "runless-except").unwrap_or_default(),
+    }
+}
+
+fn parse_coverage_ini(fields: &xsh::runtime::value::RecordMap) -> CoverageConfig {
+    let Some(xsh::runtime::value::Value::Record(coverage)) = fields.get("coverage") else {
+        return CoverageConfig::default();
+    };
+    CoverageConfig {
+        exclude: ini_string_list(coverage, "exclude").unwrap_or_default(),
     }
 }
 
@@ -382,7 +399,9 @@ fn seg_match(pat: &[u8], seg: &[u8]) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use crate::xsht::cli::files::{XshConfig, collect_configured_xsh_files, collect_xsh_files};
+    use crate::xsht::cli::files::{
+        XshConfig, collect_configured_xsh_files, collect_xsh_files, load_config_from,
+    };
     use std::fs;
     use std::path::{Path, PathBuf};
 
@@ -415,6 +434,27 @@ mod tests {
         let files = discover(&root, &excludes);
 
         assert_eq!(relative_paths(&root, &files), vec!["keep.xsh"]);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn config_parses_coverage_excludes_separately() {
+        let root = temp_root("coverage-config");
+        fs::create_dir_all(&root).expect("create root");
+        let config_path = root.join("xsht-config.ini");
+        fs::write(
+            &config_path,
+            "exclude = generated/**\n\n[coverage]\nexclude = evals/**/*.xsh\n  fixtures/**/*.xsh\n",
+        )
+        .expect("write config");
+
+        let config = load_config_from(&config_path).expect("load config");
+
+        assert_eq!(config.exclude, vec!["generated/**"]);
+        assert_eq!(
+            config.coverage.exclude,
+            vec!["evals/**/*.xsh", "fixtures/**/*.xsh"]
+        );
         let _ = fs::remove_dir_all(root);
     }
 

@@ -14,6 +14,7 @@ use xsh::syntax::arena::{ArenaProgram, ArenaStmtKind, BlockId, ExprId, FunctionD
 #[derive(Clone, Debug, Default)]
 pub struct CoverageCollector {
     include_api: bool,
+    exclude: Vec<String>,
     api_hits: BTreeMap<String, CoverageHits>,
     source_hits: BTreeMap<String, SourceCoverage>,
     source_metadata: BTreeMap<String, SourceMetadata>,
@@ -55,8 +56,13 @@ impl CoverageCollector {
     }
 
     pub fn with_api(include_api: bool) -> Self {
+        Self::with_api_and_excludes(include_api, &[])
+    }
+
+    pub fn with_api_and_excludes(include_api: bool, exclude: &[String]) -> Self {
         Self {
             include_api,
+            exclude: exclude.to_vec(),
             root: std::env::current_dir().ok(),
             ..Self::default()
         }
@@ -301,6 +307,11 @@ impl CoverageCollector {
             return false;
         }
         let path = Path::new(file);
+        if let Some(root) = &self.root
+            && super::is_path_excluded(root, path, &self.exclude)
+        {
+            return false;
+        }
         let Some(root) = &self.root else {
             return true;
         };
@@ -1067,6 +1078,34 @@ mod tests {
         assert!(collector
             .render()
             .contains("scope: 2 source files (1 observed)"));
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn coverage_excludes_source_families_without_affecting_source_loading() {
+        let root = std::env::temp_dir().join(format!(
+            "xsh-source-coverage-exclude-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(root.join("evals")).expect("create evals");
+        let kept = root.join("kept.xsh");
+        let excluded = root.join("evals/task.xsh");
+        fs::write(&kept, "proc kept() {\n  print \"kept\"\n}\n").expect("write kept");
+        fs::write(&excluded, "proc excluded() {\n  print \"excluded\"\n}\n")
+            .expect("write excluded");
+
+        let excludes = vec!["evals/**/*.xsh".to_string()];
+        let mut collector = CoverageCollector {
+            root: Some(root.clone()),
+            exclude: excludes,
+            ..CoverageCollector::default()
+        };
+        collector.register_source_files(&[kept.clone(), excluded.clone()], &[]);
+
+        let files = collector.source_file_coverages();
+        assert!(files.iter().any(|file| file.file == "kept.xsh"));
+        assert!(!files.iter().any(|file| file.file == "evals/task.xsh"));
         let _ = fs::remove_dir_all(root);
     }
 }

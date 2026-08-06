@@ -106,6 +106,12 @@ Relative paths from a config file are resolved from that config file's
 directory. Invalid config is a command error, not a silent fallback, except that
 a missing config file means defaults.
 
+The optional `[coverage]` section accepts `exclude` patterns for files omitted
+from `xsht test --cov` source coverage. These patterns affect coverage
+registration only; they do not change `xsht check`, `xsht fmt`, or `xsht lint`
+discovery. The ordinary top-level `exclude` remains the shared discovery filter
+for path-oriented commands.
+
 The default `module_path` is `.` (the current working directory). A config file
 may set `module_path` explicitly to replace that default for projects whose
 modules live in another directory.

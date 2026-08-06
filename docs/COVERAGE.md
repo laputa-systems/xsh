@@ -12,6 +12,10 @@ executable statements rather than counting every nonblank physical line. The
 source-line numerator is still based on runtime source spans, so it is a useful
 diagnostic rather than precise statement or branch coverage.
 
+Use `[coverage]` `exclude` patterns in `xsht-config.ini` to remove known source
+families from this denominator without removing them from `xsht check`, `xsht
+fmt`, or `xsht lint` discovery.
+
 The procedure metric is reported as `proc entries`: it answers whether a proc
 or pure function was entered at least once. It does not prove that every
 statement or branch in the procedure ran. Add `--api` when API-surface coverage

@@ -55,6 +55,7 @@ pub(crate) fn test_scripts(options: TestOptions) -> CliOutput {
     let mut cases = Vec::new();
     let mut coverage_source_files = Vec::new();
     let mut coverage_module_roots = Vec::new();
+    let mut coverage_exclude = Vec::new();
     let mut stdout = String::new();
     let stderr = String::new();
 
@@ -73,6 +74,7 @@ pub(crate) fn test_scripts(options: TestOptions) -> CliOutput {
         };
         let module_roots: Vec<PathBuf> = config.module_path.iter().map(PathBuf::from).collect();
         coverage_module_roots = module_roots.clone();
+        coverage_exclude = config.coverage.exclude.clone();
         if options.collect_coverage() {
             if let Err(message) =
                 collect_configured_xsh_files(Path::new("."), &config, &mut coverage_source_files)
@@ -155,7 +157,12 @@ pub(crate) fn test_scripts(options: TestOptions) -> CliOutput {
     let mut failure_details = Vec::new();
     let mut coverage = options
         .collect_coverage()
-        .then(|| CoverageCollector::with_api(options.api || options.coverage_json_out.is_some()));
+        .then(|| {
+            CoverageCollector::with_api_and_excludes(
+                options.api || options.coverage_json_out.is_some(),
+                &coverage_exclude,
+            )
+        });
     if let Some(collector) = coverage.as_mut() {
         collector.register_source_files(&coverage_source_files, &coverage_module_roots);
     }
