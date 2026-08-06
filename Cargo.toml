@@ -10,7 +10,6 @@ autotests = false
 [workspace]
 members = [
     "crates/xsh-applets",
-    "crates/xsh-multicall",
     "crates/xsh-net",
     "crates/xsh-registry",
     "crates/xshi",
@@ -121,6 +120,7 @@ xsht = { path = "crates/xsht" }
 xsh-registry = { path = "crates/xsh-registry" }
 
 [target.'cfg(target_os = "linux")'.dependencies]
+mimalloc = "0.1.52"
 syscalls = { version = "0.8.1", default-features = false, features = ["aarch64", "x86_64"] }
 xsh-applets = { path = "crates/xsh-applets" }
 

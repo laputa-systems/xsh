@@ -16,7 +16,13 @@ default = []
 benchmark = []
 
 [dev-dependencies]
+rustybench = "0.1"
 tempfile = "3"
+
+[[bench]]
+name = "bench"
+harness = false
+required-features = ["benchmark"]
 
 [lints.clippy]
 nursery = { level = "allow", priority = -2 }

@@ -3,7 +3,7 @@ target
 .zig-cache
 .out
 *.profraw
-crates/xsh-multicall/benches/*-baseline.txt
-crates/xsh-multicall/benches/*-baseline.json
-crates/xsh-multicall/benches/baseline.json
+crates/xshi/benches/*-baseline.txt
+crates/xshi/benches/*-baseline.json
+crates/xshi/benches/baseline.json
 scripts/__pycache__

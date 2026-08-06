@@ -89,13 +89,9 @@ cargo test --test integration --features "native-tests net tools" \
   runtime::interactive::xshi_pgo_profile_workload -- --ignored --exact --test-threads=1 --nocapture
 ```
 
-## Future frontend separation
+## Frontend boundary
 
-The release workflow still packages the normal `xsh-multicall` binary. The
-current PGO step validates an xshi-only candidate for the same target; it does
-not claim that `xsh` or `xsht` are profiled.
-
-The longer-term direction is to split the multicall binary into individual
-`xsh`, `xshi`, and `xsht` binaries. Once that boundary exists, each frontend
-can own its curated application workload, profile directory, profile-use build,
-and release comparison without cross-frontend profile ambiguity.
+Release packaging provides independent `xsh`, `xshi`, and `xsht` binaries.
+The current PGO step remains intentionally limited to the standalone `xshi`
+binary, and the rustybench suite in `crates/xshi/benches/` measures only
+interactive `xshi` workflows.

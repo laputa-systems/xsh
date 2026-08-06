@@ -60,13 +60,8 @@ install-Darwin: install-darwin
 install-Linux: install-linux
 
 install-darwin:
-	MACOSX_DEPLOYMENT_TARGET="$(DARWIN_DEPLOYMENT_TARGET)" RUSTFLAGS="$(strip $(DARWIN_DIST_RUSTFLAGS))" cargo build --release -p xsh-multicall --no-default-features --features "native-tests net tools"
-	cp ./target/release/xsh-multicall ~/usr/bin/xsh-multicall
-	ln -sf xsh-multicall ~/usr/bin/xsh
-	ln -sf xsh-multicall ~/usr/bin/xshi
-	ln -sf xsh-multicall ~/usr/bin/xsht
-	codesign -fs - $(DARWIN_CODESIGN_FLAGS) ~/usr/bin/xsh-multicall
-	xattr -d com.apple.quarantine ~/usr/bin/xsh-multicall 2>/dev/null || true
+	MACOSX_DEPLOYMENT_TARGET="$(DARWIN_DEPLOYMENT_TARGET)" RUSTFLAGS="$(strip $(DARWIN_DIST_RUSTFLAGS))" cargo build --release --bin xsh --bin xsht --bin xshi --no-default-features --features "native-tests net tools"
+	for bin in xsh xsht xshi; do cp "./target/release/$$bin" "$(HOME)/usr/bin/$$bin"; codesign -fs - $(DARWIN_CODESIGN_FLAGS) "$(HOME)/usr/bin/$$bin"; xattr -d com.apple.quarantine "$(HOME)/usr/bin/$$bin" 2>/dev/null || true; done
 
 LINUX_INSTALL_CRT_DIR = target/llvm-crt
 LINUX_INSTALL_CRT_OBJS = $(LINUX_INSTALL_CRT_DIR)/Scrt1.o $(LINUX_INSTALL_CRT_DIR)/crti.o $(LINUX_INSTALL_CRT_DIR)/crtn.o
@@ -74,11 +69,8 @@ LINUX_INSTALL_RUSTFLAGS ?= -C linker=clang -C link-arg=-B$(CURDIR)/$(LINUX_INSTA
 LINUX_INSTALL_ENV = PATH="$$HOME/.cargo/bin:$$PATH" CC=clang AR=llvm-ar CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=clang CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS="$(strip $(LINUX_INSTALL_RUSTFLAGS))"
 
 install-linux: $(LINUX_INSTALL_CRT_OBJS)
-	$(LINUX_INSTALL_ENV) cargo build --release -p xsh-multicall --no-default-features --features "native-tests net tools"
-	cp ./target/release/xsh-multicall ~/usr/bin/xsh-multicall
-	ln -sf xsh-multicall ~/usr/bin/xsh
-	ln -sf xsh-multicall ~/usr/bin/xshi
-	ln -sf xsh-multicall ~/usr/bin/xsht
+	$(LINUX_INSTALL_ENV) cargo build --release --bin xsh --bin xsht --bin xshi --no-default-features --features "native-tests net tools"
+	for bin in xsh xsht xshi; do cp "./target/release/$$bin" "$(HOME)/usr/bin/$$bin"; done
 
 # Debug build for native musl hosts. rust-lld can't find libc and libgcc_s in
 # /usr/lib by default; symlink them into the toolchain sysroot so it resolves.
@@ -92,7 +84,7 @@ build:
 
 # Fully-static musl dist build. Musl targets default to +crt-static, so the
 # binary embeds libc with no runtime dependency on ld-musl-*.so.1.
-DIST_BIN = xsh-multicall
+DIST_BINS = xsh xsht xshi
 DIST_MUSL_RUSTFLAGS = -C target-feature=+crt-static
 DIST_MUSL_RUSTFLAGS += -C link-arg=--defsym=__isoc23_sscanf=sscanf -C link-arg=--defsym=__isoc23_strtol=strtol
 ifeq ($(DOCKER_BUILD),1)
@@ -178,20 +170,23 @@ dist-Linux-docker:
 			ln -sf /usr/lib/libgcc_s.so.1 "$$SR/libgcc_s.so" && \
 			ln -sf /usr/lib/libgcc_s.so.1 "$$SR/libgcc_s.so.1" && \
 			ln -sf /usr/lib/libc.so "$$SR/libc.so" && \
-			$(DIST_DOCKER_ENV) cargo build -p xsh-multicall --locked --profile $(DIST_PROFILE) $(DIST_DOCKER_BUILD_STD_FLAGS) --target $(TARGET) --no-default-features --features "net tools" && \
-			mkdir -p target/$(TARGET)/dist && \
-			ln -sf xsh-multicall target/$(TARGET)/dist/xsh && \
-			ln -sf xsh-multicall target/$(TARGET)/dist/xsht \
+			$(DIST_DOCKER_ENV) cargo build --locked --profile $(DIST_PROFILE) $(DIST_DOCKER_BUILD_STD_FLAGS) --target $(TARGET) --no-default-features --features "net tools" --bin xsh --bin xsht --bin xshi && \
+			if [ "$(DIST_PROFILE_DIR)" != dist ]; then mkdir -p target/$(TARGET)/dist && for bin in $(DIST_BINS); do cp -f target/$(TARGET)/$(DIST_PROFILE_DIR)/$$bin target/$(TARGET)/dist/$$bin; done; fi && \
 		'
 
 dist-native:
-	$(DIST_ENV) cargo build -p xsh-multicall --locked --profile $(DIST_PROFILE) $(DIST_BUILD_STD_FLAGS) --target $(TARGET) --no-default-features --features "net tools"
-	ln -sf $(DIST_BIN) target/$(TARGET)/dist/xsh
-	ln -sf $(DIST_BIN) target/$(TARGET)/dist/xsht
+	$(DIST_ENV) cargo build --locked --profile $(DIST_PROFILE) $(DIST_BUILD_STD_FLAGS) --target $(TARGET) --no-default-features --features "net tools" --bin xsh --bin xsht --bin xshi
+	@if [ "$(DIST_PROFILE_DIR)" != dist ]; then mkdir -p target/$(TARGET)/dist && for bin in $(DIST_BINS); do cp -f target/$(TARGET)/$(DIST_PROFILE_DIR)/$$bin target/$(TARGET)/dist/$$bin; done; fi
+	@for bin in $(DIST_BINS); do \
+		test "$$(wc -c < target/$(TARGET)/dist/$$bin)" -ge 1024 || { echo "missing or implausibly small $$bin" >&2; exit 1; }; \
+		test -x target/$(TARGET)/dist/$$bin || { echo "$$bin is not executable" >&2; exit 1; }; \
+		case "$(TARGET)" in *-linux-*) magic="$$(od -An -t x1 -N 4 target/$(TARGET)/dist/$$bin | tr -d ' \n')"; test "$$magic" = 7f454c46 || { echo "$$bin is not an ELF executable" >&2; exit 1; };; esac; \
+		case "$(TARGET)" in *-linux-*) case "$(TARGET)" in x86_64-*) readelf -h target/$(TARGET)/dist/$$bin | grep -F "Machine:" | grep -F "Advanced Micro Devices X86-64" >/dev/null || { echo "$$bin has the wrong target architecture" >&2; exit 1; };; aarch64-*) readelf -h target/$(TARGET)/dist/$$bin | grep -F "Machine:" | grep -F "AArch64" >/dev/null || { echo "$$bin has the wrong target architecture" >&2; exit 1; };; esac;; esac; \
+	done
 
 dist-ci: dist
 	@echo "=== verifying static linkage ==="
-	@for bin in $(DIST_BIN); do \
+	@for bin in $(DIST_BINS); do \
 		if [ -f "target/$(TARGET)/$(DIST_PROFILE_DIR)/$$bin" ]; then \
 			printf "  %-10s " "$$bin:"; \
 			readelf -d "target/$(TARGET)/$(DIST_PROFILE_DIR)/$$bin" 2>/dev/null \
@@ -262,10 +257,10 @@ PGO_USE_RUSTFLAGS := -Cprofile-use=$(PGO_MERGED) -Cllvm-args=-pgo-warn-missing-f
 PGO_GENERATE_RUSTFLAGS := -Cprofile-generate=$(PGO_DIR)
 
 bench:
-	@$(RUSTYBENCH) baseline --root "$(CURDIR)" --baseline "$(CURDIR)/crates/xsh-multicall/benches/baseline.json" -- cargo bench -p xsh-multicall --bench bench --features benchmark
+	@$(RUSTYBENCH) baseline --root "$(CURDIR)" --baseline "$(CURDIR)/crates/xshi/benches/baseline.json" -- cargo bench -p xshi --bench bench --features benchmark
 
 bench-fast:
-	@$(RUSTYBENCH) baseline --root "$(CURDIR)" --baseline "$(CURDIR)/crates/xsh-multicall/benches/fast-baseline.json" --fast -- cargo bench -p xsh-multicall --bench bench --features benchmark
+	@$(RUSTYBENCH) baseline --root "$(CURDIR)" --baseline "$(CURDIR)/crates/xshi/benches/fast-baseline.json" --fast -- cargo bench -p xshi --bench bench --features benchmark
 
 bench-syscalls:
 	@$(RUSTYBENCH) syscalls --root "$(CURDIR)"

@@ -23,7 +23,6 @@ use std::mem::size_of;
 use std::path::{Path, PathBuf};
 
 pub const DEFAULT_ROOTS: &[&str] = &[
-    "crates/xsh-multicall/benches/scripts",
     "core",
     "examples",
     "showcase",

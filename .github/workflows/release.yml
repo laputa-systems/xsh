@@ -43,11 +43,13 @@ jobs:
         include:
           - package: x86_64-linux-musl
             arch: x86_64
+            elf_machine: Advanced Micro Devices X86-64
             os: linux
             target: x86_64-unknown-linux-musl
             runner: ubuntu-24.04
           - package: aarch64-linux-musl
             arch: aarch64
+            elf_machine: AArch64
             os: linux
             target: aarch64-unknown-linux-musl
             runner: ubuntu-24.04-arm
@@ -133,23 +135,39 @@ jobs:
       - name: Build optimized binary
         run: make dist TARGET=${{ matrix.target }}
 
+      - name: Smoke-test independent binaries
+        run: |
+          set -euo pipefail
+          for bin in xsh xsht xshi; do
+            path="target/${{ matrix.target }}/dist/${bin}"
+            test -f "$path"
+            test -x "$path"
+            test -s "$path"
+            if [ "${{ matrix.os }}" = linux ]; then
+              test "$(od -An -t x1 -N 4 "$path" | tr -d ' \n')" = 7f454c46
+              readelf -h "$path" | grep -F "Machine:" | grep -F "${{ matrix.elf_machine }}"
+            fi
+            "$path" --help
+          done
+          target/${{ matrix.target }}/dist/xsh --startup
+          XSHI_ALLOW_NON_TTY_FOR_TESTS=1 target/${{ matrix.target }}/dist/xshi --no-config -c 'print "ok"'
+
       - name: Test
         run: |
           ci_target=linux; case ${{ matrix.os }} in darwin) ci_target=macos;; esac
           make test-${ci_target}-ci TARGET=${{ matrix.target }}
 
-      # Disabled for now until multicall binary is separated.
-      # - name: Validate xshi-only PGO candidate
-      #   run: make release-pgo PGO_TARGET=${{ matrix.target }}
+      - name: Validate xshi-only PGO candidate
+        run: make release-pgo PGO_TARGET=${{ matrix.target }}
 
       - name: Verify static linkage
         if: matrix.os == 'linux'
         run: |
           "target/${{ matrix.target }}/dist/xsh" .github/scripts/release-verify-static.xsh -- \
             "${{ matrix.target }}" \
-            xsh-multicall
+            xsh xsht xshi
 
-      - name: Package Linux multicall binary
+      - name: Package Linux binaries
         if: matrix.os == 'linux'
         env:
           RELEASE_TAG: release-${{ github.sha }}
@@ -159,7 +177,7 @@ jobs:
             "${{ matrix.target }}" \
             "${{ matrix.arch }}"
 
-      - name: Package Darwin multicall binary
+      - name: Package Darwin binaries
         if: matrix.os == 'darwin'
         env:
           RELEASE_TAG: release-${{ github.sha }}
@@ -187,6 +205,35 @@ jobs:
         with:
           path: dist
           merge-multiple: true
+
+      - name: Validate published artifact set
+        env:
+          RELEASE_TAG: release-${{ github.sha }}
+        run: |
+          set -euo pipefail
+          test -f "dist/core-${RELEASE_TAG}.tar.xz"
+          for artifact in \
+            "xsh-${RELEASE_TAG}-x86_64-linux-musl" \
+            "xsht-${RELEASE_TAG}-x86_64-linux-musl" \
+            "xshi-${RELEASE_TAG}-x86_64-linux-musl" \
+            "xsh-${RELEASE_TAG}-aarch64-linux-musl" \
+            "xsht-${RELEASE_TAG}-aarch64-linux-musl" \
+            "xshi-${RELEASE_TAG}-aarch64-linux-musl" \
+            "xsh-${RELEASE_TAG}-aarch64-apple-darwin" \
+            "xsht-${RELEASE_TAG}-aarch64-apple-darwin" \
+            "xshi-${RELEASE_TAG}-aarch64-apple-darwin"; do
+            test -f "dist/$artifact"
+            test -x "dist/$artifact"
+            test -s "dist/$artifact"
+          done
+          if find dist -maxdepth 1 -type f -name '*.tar.xz' ! -name "core-${RELEASE_TAG}.tar.xz" -print -quit | grep -q .; then
+            echo 'unexpected compressed binary artifact' >&2
+            exit 1
+          fi
+          if find dist -maxdepth 1 -type f -name 'xsh-multicall*' -print -quit | grep -q .; then
+            echo 'legacy multicall artifact remains' >&2
+            exit 1
+          fi
 
       - name: Package core scripts
         env:

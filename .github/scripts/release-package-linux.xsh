@@ -8,7 +8,9 @@ proc main(version: Str, target: Str, arch: Str) [fs, error] {
   let bin_dir = fp"target/${target}/dist"
   let dist = p"dist"
   dist.mkdir()?
-  let multicall = fp"dist/xsh-multicall-${version}-${arch}-linux-musl"
-  fs.install(fp"${bin_dir}/xsh-multicall", multicall, 0o755, overwrite: true)?
-  fp"dist/xsh-multicall-${version}-${arch}-linux-musl.sha256".write(checksum_line(multicall)?)?
+  for bin in ["xsh", "xsht", "xshi"] {
+    let artifact = fp"dist/${bin}-${version}-${arch}-linux-musl"
+    fs.install(fp"${bin_dir}/${bin}", artifact, 0o755, overwrite: true)?
+    fp"dist/${bin}-${version}-${arch}-linux-musl.sha256".write(checksum_line(artifact)?)?
+  }
 }
