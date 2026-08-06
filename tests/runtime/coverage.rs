@@ -1062,6 +1062,47 @@ fn xsht_test_succeeds_when_current_directory_has_no_tests_dir() {
 }
 
 #[test]
+fn xsht_test_uses_current_directory_as_default_module_path() {
+    let root = temp_path("xsht-default-module-path");
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(root.join("tests")).expect("create native test dir");
+    std::fs::write(
+        root.join("helper.xsh"),
+        r#"##! Default module path helper.
+## Returns a value from the project root.
+export pure value() -> Str {
+  return "ok"
+}
+"#,
+    )
+    .expect("write helper module");
+    std::fs::write(
+        root.join("tests/main.xsh"),
+        r#"use helper
+
+proc test_imported_helper() [error] {
+  test.eq(helper.value(), "ok")?
+}
+"#,
+    )
+    .expect("write native test");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+        .arg("test")
+        .current_dir(&root)
+        .output()
+        .expect("run xsht");
+
+    assert!(output.status.success(), "{output:?}");
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("running 1 tests"));
+    assert!(stdout.contains("tests/main.xsh::test_imported_helper ... ok"));
+    assert_eq!(String::from_utf8(output.stderr).unwrap(), "");
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
 fn xsht_test_uses_cwd_config_for_excludes_and_module_path() {
     let root = temp_path("xsht-cwd-config");
     let _ = std::fs::remove_dir_all(&root);

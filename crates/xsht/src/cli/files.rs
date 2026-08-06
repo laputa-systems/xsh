@@ -191,7 +191,10 @@ impl Default for FormatConfig {
     }
 }
 
-#[derive(Clone, Debug, Default)]
+/// Tooling defaults include the current working directory as the implicit
+/// project module root. A project may replace this list with `module_path` in
+/// `xsht-config.ini` when its modules live elsewhere.
+#[derive(Clone, Debug)]
 pub struct XshConfig {
     pub include: Vec<String>,
     pub exclude: Vec<String>,
@@ -200,6 +203,24 @@ pub struct XshConfig {
     pub check: CheckConfig,
     pub format: FormatConfig,
     pub lint: LintConfig,
+}
+
+fn default_module_path() -> Vec<String> {
+    vec![".".to_string()]
+}
+
+impl Default for XshConfig {
+    fn default() -> Self {
+        Self {
+            include: Vec::new(),
+            exclude: Vec::new(),
+            module_path: default_module_path(),
+            test_roots: Vec::new(),
+            check: CheckConfig::default(),
+            format: FormatConfig::default(),
+            lint: LintConfig::default(),
+        }
+    }
 }
 
 pub fn load_config() -> Result<XshConfig, String> {
@@ -263,7 +284,7 @@ fn parse_config_ini(value: &xsh::runtime::value::Value) -> Result<XshConfig, Str
     Ok(XshConfig {
         include: ini_string_list(fields, "include").unwrap_or_default(),
         exclude: ini_string_list(fields, "exclude").unwrap_or_default(),
-        module_path: ini_string_list(fields, "module_path").unwrap_or_default(),
+        module_path: ini_string_list(fields, "module_path").unwrap_or_else(default_module_path),
         test_roots: ini_string_list(fields, "test_roots").unwrap_or_default(),
         check: parse_check_ini(fields),
         format: parse_format_ini(fields)?,

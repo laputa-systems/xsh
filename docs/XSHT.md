@@ -106,6 +106,10 @@ Relative paths from a config file are resolved from that config file's
 directory. Invalid config is a command error, not a silent fallback, except that
 a missing config file means defaults.
 
+The default `module_path` is `.` (the current working directory). A config file
+may set `module_path` explicitly to replace that default for projects whose
+modules live in another directory.
+
 ## Source Representations
 
 The AST and CST have different jobs.
