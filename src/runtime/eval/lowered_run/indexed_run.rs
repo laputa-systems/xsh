@@ -1563,18 +1563,33 @@ impl Evaluator {
             ),
         };
         let name = function.display_name();
-        self.trace_enter(enter_kind, Some(call_span), Some(&name), TracePayload::None);
+        let definition_span = view
+            .definition_span()
+            .map_err(|error| indexed_error(error, call_span))?;
+        self.trace_enter_with_definition(
+            enter_kind,
+            Some(call_span),
+            Some(definition_span),
+            Some(&name),
+            TracePayload::None,
+        );
         self.call_stack.push(TracebackFrame {
             kind: frame_kind,
             name: name.clone(),
-            definition_span: None,
+            definition_span: Some(definition_span),
             call_span: Some(call_span),
         });
         let result = with_indexed_eval_depth(call_span, || {
             self.eval_indexed_function(view, header, slots, call_span)
         });
         self.call_stack.pop();
-        self.trace_exit(exit_kind, Some(call_span), Some(&name), TracePayload::None);
+        self.trace_exit_with_definition(
+            exit_kind,
+            Some(call_span),
+            Some(definition_span),
+            Some(&name),
+            TracePayload::None,
+        );
         result
     }
 

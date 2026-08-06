@@ -82,6 +82,15 @@ impl CoverageCollector {
                     kind,
                     raw_json_get(&value, "name").and_then(raw_json_as_str),
                     span,
+                    raw_json_get(&value, "definition_span").is_none(),
+                );
+            }
+            if (kind == "proc.enter" || kind == "pure.enter")
+                && let Some(span) = raw_json_get(&value, "definition_span")
+            {
+                self.ingest_proc_definition(
+                    raw_json_get(&value, "name").and_then(raw_json_as_str),
+                    span,
                 );
             }
         }
@@ -161,7 +170,13 @@ impl CoverageCollector {
         }
     }
 
-    fn ingest_source_span(&mut self, kind: &str, _name: Option<&str>, span: &JsonValue) {
+    fn ingest_source_span(
+        &mut self,
+        kind: &str,
+        name: Option<&str>,
+        span: &JsonValue,
+        count_proc: bool,
+    ) {
         let Some(file) = raw_json_get(span, "file").and_then(raw_json_as_str) else {
             return;
         };
@@ -185,15 +200,43 @@ impl CoverageCollector {
         for line in start_line..=end_line.max(start_line) {
             entry.covered_lines.insert(line);
         }
-        if kind == "proc.enter" || kind == "pure.enter" {
+        if count_proc && (kind == "proc.enter" || kind == "pure.enter") {
             *entry.proc_hits.entry(start_line).or_default() += 1;
-            if let Some(name) = _name {
+            if let Some(name) = name {
                 *entry.proc_name_hits.entry(name.to_string()).or_default() += 1;
                 if let Some(tail) = name.rsplit('.').next()
                     && tail != name
                 {
                     *entry.proc_name_hits.entry(tail.to_string()).or_default() += 1;
                 }
+            }
+        }
+    }
+
+    fn ingest_proc_definition(&mut self, name: Option<&str>, span: &JsonValue) {
+        let Some(file) = raw_json_get(span, "file").and_then(raw_json_as_str) else {
+            return;
+        };
+        if !self.include_source_file(file) {
+            return;
+        }
+        let Some(start_line) = raw_json_get(span, "start_line")
+            .and_then(raw_json_as_u64)
+            .and_then(|line| usize::try_from(line).ok())
+        else {
+            return;
+        };
+        let entry = self
+            .source_hits
+            .entry(self.display_source_file(file))
+            .or_default();
+        *entry.proc_hits.entry(start_line).or_default() += 1;
+        if let Some(name) = name {
+            *entry.proc_name_hits.entry(name.to_string()).or_default() += 1;
+            if let Some(tail) = name.rsplit('.').next()
+                && tail != name
+            {
+                *entry.proc_name_hits.entry(tail.to_string()).or_default() += 1;
             }
         }
     }
@@ -670,6 +713,38 @@ mod tests {
         assert!(rendered.contains("lines: 0/3 (0.0%)"), "{rendered}");
         assert!(rendered.contains("procs: 0/1 (0.0%)"), "{rendered}");
         assert!(rendered.contains("pm/local.xsh"), "{rendered}");
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn proc_entries_use_definition_span_when_call_site_is_a_test() {
+        let root =
+            std::env::temp_dir().join(format!("xsh-source-coverage-definition-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(root.join("tests")).expect("create test root");
+        let source = root.join("pm.xsh");
+        let caller = root.join("tests/caller.xsh");
+        fs::write(&source, "proc covered() {\n  print \"hit\"\n}\n").expect("write source");
+        fs::write(&caller, "covered()\n").expect("write caller");
+        let mut collector = CoverageCollector {
+            root: Some(root.clone()),
+            ..CoverageCollector::default()
+        };
+        collector
+            .ingest_jsonl(
+                "tests",
+                &format!(
+                    "{{\"kind\":\"source.file\",\"file\":\"{}\",\"line_count\":3}}\n{{\"kind\":\"proc.enter\",\"name\":\"covered\",\"source_span\":{{\"file\":\"{}\",\"start_line\":1,\"end_line\":1}},\"definition_span\":{{\"file\":\"{}\",\"start_line\":1,\"end_line\":1}}}}\n",
+                    source.display(),
+                    caller.display(),
+                    source.display(),
+                ),
+            )
+            .expect("ingest");
+
+        let rendered = collector.render();
+        assert!(rendered.contains("procs: 1/1 (100.0%)"), "{rendered}");
+        assert!(rendered.contains("pm.xsh"), "{rendered}");
         let _ = fs::remove_dir_all(root);
     }
 }

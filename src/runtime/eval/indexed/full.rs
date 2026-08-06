@@ -707,6 +707,7 @@ pub(in crate::runtime::eval) struct FullProgram {
     store: FullStore,
     sources: Arc<SourceMap>,
     symbols: crate::symbol::SymbolOwner,
+    function_definition_spans: Vec<Span>,
 }
 
 #[derive(Clone, Copy)]
@@ -1143,6 +1144,14 @@ impl<'a> FullFunctionView<'a> {
         self.index
     }
 
+    pub(in crate::runtime::eval) fn definition_span(&self) -> Result<Span, IrVerifyError> {
+        self.program
+            .function_definition_spans
+            .get(self.index)
+            .copied()
+            .ok_or_else(|| IrVerifyError::new("function definition span is missing"))
+    }
+
     pub(in crate::runtime::eval) fn instruction_tags(
         &self,
     ) -> Result<&'a [FullTag], IrVerifyError> {
@@ -1397,6 +1406,7 @@ pub(in crate::runtime::eval) struct FullBuilder {
     locations: BTreeMap<(SourceId, u32, u32), IrLocationId>,
     function_ids: BTreeMap<LoweredFunctionKey, IrFunctionId>,
     payload_pool: Vec<Vec<u32>>,
+    function_definition_spans: Vec<Span>,
     current_owner: Option<u32>,
     current_slot_count: u32,
     active_scratch: Option<Rc<RefCell<BuildScratch>>>,
@@ -1501,6 +1511,7 @@ impl FullBuilder {
             store: self.store,
             sources,
             symbols,
+            function_definition_spans: self.function_definition_spans,
         };
         FullVerifier::verify(&program)
             .map_err(|_| IrBuildError::format("full_ir_verification", None, 0, 0))?;
@@ -1757,6 +1768,7 @@ impl FullBuilder {
                 } | u8::from(body.has_defers) << 1,
                 reserved: [0; 3],
             });
+            self.function_definition_spans.push(unit.definition_span());
         }
         Ok(())
     }
@@ -3523,6 +3535,7 @@ impl FullVerifier {
             || store.locations.len() != store.location_sources.len()
             || store.functions.len() != store.function_instruction_starts.len()
             || store.functions.len() != store.function_metadata.len()
+            || store.functions.len() != program.function_definition_spans.len()
         {
             return Err(IrVerifyError::new("full IR tag/data columns differ"));
         }
@@ -3531,6 +3544,17 @@ impl FullVerifier {
             .sources
             .get(store.source_id)
             .ok_or_else(|| IrVerifyError::new("full IR source is missing"))?;
+        for span in &program.function_definition_spans {
+            let source = program
+                .sources
+                .get(span.source_id)
+                .ok_or_else(|| IrVerifyError::new("function definition source is missing"))?;
+            if span.end() > source.len() {
+                return Err(IrVerifyError::new(
+                    "function definition span is out of bounds",
+                ));
+            }
+        }
         for (location, source_id) in store.locations.iter().zip(&store.location_sources) {
             let source = program
                 .sources
@@ -7853,6 +7877,7 @@ proc main() [error] {
             store: builder.store,
             sources: Arc::new(sources),
             symbols: crate::symbol::SymbolOwner::new(),
+            function_definition_spans: Vec::new(),
         };
         FullVerifier::verify(&program).unwrap();
 

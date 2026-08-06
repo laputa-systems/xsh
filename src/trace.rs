@@ -26,6 +26,7 @@ pub struct TraceEvent {
     pub depth: u32,
     pub kind: TraceKind,
     pub source_span: Option<Span>,
+    pub definition_span: Option<Span>,
     pub name: Option<String>,
     pub api_id: Option<String>,
     pub timing: TraceTiming,
@@ -40,6 +41,7 @@ impl TraceEvent {
             depth: 0,
             kind,
             source_span: None,
+            definition_span: None,
             name: None,
             api_id: None,
             timing: TraceTiming::default(),
@@ -55,6 +57,11 @@ impl TraceEvent {
 
     pub fn with_span(mut self, span: Span) -> Self {
         self.source_span = Some(span);
+        self
+    }
+
+    pub fn with_definition_span(mut self, span: Span) -> Self {
+        self.definition_span = Some(span);
         self
     }
 
@@ -940,6 +947,7 @@ struct TraceEventJson {
     depth: u32,
     kind: &'static str,
     source_span: Option<TraceSpanJson>,
+    definition_span: Option<TraceSpanJson>,
     name: Option<String>,
     api_id: Option<String>,
     start_time_us: Option<u64>,
@@ -956,6 +964,7 @@ impl TraceEventJson {
             depth: event.depth,
             kind: event.kind.as_str(),
             source_span: TraceSpanJson::from_span(event.source_span, sources),
+            definition_span: TraceSpanJson::from_span(event.definition_span, sources),
             name: event.name.clone(),
             api_id: event.api_id.clone(),
             start_time_us: event.timing.start_time_us,
@@ -1558,6 +1567,10 @@ fn trace_event_json_value(data: TraceEventJson) -> JsonValue {
         (
             "source_span".to_string(),
             option_json_value(data.source_span.map(trace_span_json_value)),
+        ),
+        (
+            "definition_span".to_string(),
+            option_json_value(data.definition_span.map(trace_span_json_value)),
         ),
         ("name".to_string(), option_string_json_value(data.name)),
         ("api_id".to_string(), option_string_json_value(data.api_id)),

@@ -1862,6 +1862,7 @@ struct CompactFunctionDef {
     id: FunctionDefId,
     pure: bool,
     namespace: Option<Name>,
+    definition_span: Span,
 }
 
 fn compact_function_call_edges(
@@ -2295,6 +2296,7 @@ fn collect_compact_function_def(
                 id: def,
                 pure: true,
                 namespace,
+                definition_span: program.arena.stmt(id).span,
             });
         }
         ArenaStmtKind::ProcDef(def) => {
@@ -2304,6 +2306,7 @@ fn collect_compact_function_def(
                 id: def,
                 pure: false,
                 namespace,
+                definition_span: program.arena.stmt(id).span,
             });
         }
         ArenaStmtKind::StreamDef(def) => {
@@ -2313,6 +2316,7 @@ fn collect_compact_function_def(
                 id: def,
                 pure: true,
                 namespace,
+                definition_span: program.arena.stmt(id).span,
             });
         }
         _ => {}
@@ -3161,6 +3165,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                     id: def,
                     pure: true,
                     namespace: self.current_namespace,
+                    definition_span: self.program.arena.stmt(id).span,
                 };
                 let dependencies = compact_function_dependency_keys(self.program, function);
                 let (scc_member_count, scc_group) =
@@ -3199,6 +3204,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                     id: def,
                     pure: false,
                     namespace: self.current_namespace,
+                    definition_span: self.program.arena.stmt(id).span,
                 };
                 let dependencies = compact_function_dependency_keys(self.program, function);
                 let (scc_member_count, scc_group) =
@@ -3237,6 +3243,7 @@ impl CompactLowerConstructProbe<'_, '_> {
             .program
             .arena
             .span(self.program.arena.block(def.body).span);
+        let definition_span = function.definition_span;
         match self.lower_function_with_blocker(function.id, function.pure) {
             Ok(body) => {
                 let param_count = body.params.len();
@@ -3250,6 +3257,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                         LoweredFunctionKind::Proc
                     },
                     source_span,
+                    definition_span,
                     owner: function.namespace,
                     param_count,
                     capture_count,
@@ -3272,6 +3280,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                         LoweredFunctionKind::Proc
                     },
                     source_span,
+                    definition_span,
                     owner: function.namespace,
                     param_count: self.program.arena.params(def.params).len(),
                     capture_count: 0,

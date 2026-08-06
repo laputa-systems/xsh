@@ -616,6 +616,7 @@ pub struct LoweredFunctionUnit {
     key: LoweredFunctionKey,
     kind: LoweredFunctionKind,
     source_span: Span,
+    definition_span: Span,
     owner: Option<Name>,
     param_count: usize,
     capture_count: usize,
@@ -639,6 +640,10 @@ impl LoweredFunctionUnit {
 
     pub fn source_span(&self) -> Span {
         self.source_span
+    }
+
+    pub fn definition_span(&self) -> Span {
+        self.definition_span
     }
 
     pub fn owner(&self) -> Option<Name> {
@@ -4574,6 +4579,17 @@ impl Evaluator {
         name: Option<&str>,
         payload: TracePayload,
     ) {
+        self.trace_enter_with_definition(kind, span, None, name, payload);
+    }
+
+    fn trace_enter_with_definition(
+        &mut self,
+        kind: TraceKind,
+        span: Option<Span>,
+        definition_span: Option<Span>,
+        name: Option<&str>,
+        payload: TracePayload,
+    ) {
         if !self.trace_enabled {
             return;
         }
@@ -4581,10 +4597,11 @@ impl Evaluator {
         let start_time_us = trace_epoch_us();
         let started_at = Instant::now();
         let event = self
-            .make_trace_event(
+            .make_trace_event_with_definition(
                 event_id,
                 kind,
                 span,
+                definition_span,
                 name,
                 payload,
                 TraceNesting {
@@ -4608,6 +4625,17 @@ impl Evaluator {
         name: Option<&str>,
         payload: TracePayload,
     ) {
+        self.trace_exit_with_definition(kind, span, None, name, payload);
+    }
+
+    fn trace_exit_with_definition(
+        &mut self,
+        kind: TraceKind,
+        span: Option<Span>,
+        definition_span: Option<Span>,
+        name: Option<&str>,
+        payload: TracePayload,
+    ) {
         if !self.trace_enabled {
             return;
         }
@@ -4626,10 +4654,11 @@ impl Evaluator {
             },
         );
         let event = self
-            .make_trace_event(
+            .make_trace_event_with_definition(
                 event_id,
                 kind,
                 span,
+                definition_span,
                 name,
                 payload,
                 TraceNesting {
@@ -4677,11 +4706,27 @@ impl Evaluator {
         payload: TracePayload,
         nesting: TraceNesting,
     ) -> TraceEvent {
+        self.make_trace_event_with_definition(event_id, kind, span, None, name, payload, nesting)
+    }
+
+    fn make_trace_event_with_definition(
+        &self,
+        event_id: u64,
+        kind: TraceKind,
+        span: Option<Span>,
+        definition_span: Option<Span>,
+        name: Option<&str>,
+        payload: TracePayload,
+        nesting: TraceNesting,
+    ) -> TraceEvent {
         let mut event = TraceEvent::new(event_id, kind);
         event.depth = nesting.depth;
         event.parent_event_id = nesting.parent_event_id;
         if let Some(span) = span {
             event = event.with_span(span);
+        }
+        if let Some(span) = definition_span {
+            event = event.with_definition_span(span);
         }
         if let Some(name) = name {
             event = event.with_name(name);

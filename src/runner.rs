@@ -489,6 +489,39 @@ pub fn render_coverage_trace_jsonl(events: &[TraceEvent], sources: &SourceMap) -
             ));
         }
 
+        if let Some(span) = event.definition_span
+            && let (Some(start), Some(end)) = (
+                sources.location(span.source_id, span.start()),
+                sources.location(span.source_id, span.end()),
+            )
+        {
+            fields.push((
+                "definition_span".to_string(),
+                crate::modules::json::raw_json_object([
+                    (
+                        "file".to_string(),
+                        crate::modules::json::raw_json_string(start.file),
+                    ),
+                    (
+                        "start_line".to_string(),
+                        crate::modules::json::raw_json_usize(start.line),
+                    ),
+                    (
+                        "end_line".to_string(),
+                        crate::modules::json::raw_json_usize(end.line),
+                    ),
+                    (
+                        "start_offset".to_string(),
+                        crate::modules::json::raw_json_usize(span.start()),
+                    ),
+                    (
+                        "end_offset".to_string(),
+                        crate::modules::json::raw_json_usize(span.end()),
+                    ),
+                ]),
+            ));
+        }
+
         let value = crate::modules::json::raw_json_object(fields);
         output.push_str(&crate::modules::json::compact_raw_json(&value));
         output.push('\n');
@@ -543,6 +576,44 @@ add_one(4)
         if let Some(parent) = path.parent() {
             let _ = fs::remove_dir(parent);
         }
+    }
+
+    #[test]
+    fn compact_indexed_coverage_trace_preserves_function_definition_span() {
+        let path = temp_script(
+            "compact-definition-span",
+            "pure double(n: Int) -> Int {\n  return n * 2\n}\n\nproc main() [error] {\n  test.eq(double(4), 8)?\n}\n",
+        );
+        let trace_dir = path
+            .parent()
+            .expect("temporary script parent")
+            .join("coverage-traces");
+        let output = try_run_compact_indexed_script(&RunOptions {
+            script: path.to_string_lossy().into_owned(),
+            args: Vec::new(),
+            coverage_trace_dir: Some(trace_dir.clone()),
+        })
+        .expect("compact runner attempt")
+        .expect("definition-span script should run");
+        assert_eq!(output.status, 0);
+
+        let trace_path = fs::read_dir(&trace_dir)
+            .expect("coverage trace directory")
+            .map(|entry| entry.expect("coverage trace entry").path())
+            .find(|path| path.extension().is_some_and(|extension| extension == "jsonl"))
+            .expect("coverage trace file");
+        let trace = fs::read_to_string(trace_path).expect("read coverage trace");
+        let pure_enter = trace
+            .lines()
+            .find(|line| line.contains("\"kind\":\"pure.enter\""))
+            .expect("pure enter event");
+        assert!(
+            pure_enter.contains("\"definition_span\":")
+                && pure_enter.contains("\"start_line\":1"),
+            "{pure_enter}"
+        );
+
+        let _ = fs::remove_dir_all(path.parent().expect("temporary script parent"));
     }
 
     #[test]

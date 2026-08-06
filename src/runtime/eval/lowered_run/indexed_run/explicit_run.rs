@@ -253,6 +253,7 @@ struct CallFrame<'p> {
     execution: FullExecution<'p>,
     slots: Vec<LoweredValue>,
     call_span: Span,
+    definition_span: Span,
     name: String,
     work: Vec<FrameWork>,
     defers: Vec<u32>,
@@ -387,9 +388,10 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 LoweredFunctionKind::Pure => TraceKind::PureExit,
                 LoweredFunctionKind::Proc => TraceKind::ProcExit,
             };
-            self.evaluator.trace_exit(
+            self.evaluator.trace_exit_with_definition(
                 exit_kind,
                 Some(call.call_span),
+                Some(call.definition_span),
                 Some(&call.name),
                 TracePayload::None,
             );
@@ -467,12 +469,21 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             LoweredFunctionKind::Proc => (TracebackFrameKind::Proc, TraceKind::ProcEnter),
         };
         let name = function.display_name();
+        let definition_span = view
+            .definition_span()
+            .map_err(|error| indexed_error(error, call_span))?;
         self.evaluator
-            .trace_enter(enter_kind, Some(call_span), Some(&name), TracePayload::None);
+            .trace_enter_with_definition(
+                enter_kind,
+                Some(call_span),
+                Some(definition_span),
+                Some(&name),
+                TracePayload::None,
+            );
         self.evaluator.call_stack.push(TracebackFrame {
             kind: frame_kind,
             name: name.clone(),
-            definition_span: None,
+            definition_span: Some(definition_span),
             call_span: Some(call_span),
         });
         self.calls.push(CallFrame {
@@ -481,6 +492,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             execution,
             slots,
             call_span,
+            definition_span,
             name,
             work: vec![FrameWork::Statements {
                 statements,
@@ -2141,9 +2153,10 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             LoweredFunctionKind::Pure => TraceKind::PureExit,
             LoweredFunctionKind::Proc => TraceKind::ProcExit,
         };
-        self.evaluator.trace_exit(
+        self.evaluator.trace_exit_with_definition(
             exit_kind,
             Some(call.call_span),
+            Some(call.definition_span),
             Some(&call.name),
             TracePayload::None,
         );
