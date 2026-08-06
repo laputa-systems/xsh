@@ -4,8 +4,6 @@ use std::process::ExitCode;
 #[global_allocator]
 static ALLOC: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
-mod xsht;
-
 fn main() -> ExitCode {
-    xsht::app::main()
+    xsh::app::main()
 }

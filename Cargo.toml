@@ -132,7 +132,7 @@ test = false
 
 [[bin]]
 name = "xsh"
-path = "src/entrypoints/xsh.rs"
+path = "src/entrypoints/xsh_main.rs"
 test = false
 
 [[bin]]

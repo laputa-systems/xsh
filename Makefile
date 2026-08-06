@@ -115,6 +115,16 @@ ifeq ($(TARGET),aarch64-unknown-linux-musl)
 DIST_DOCKER_ENV = RUSTFLAGS="-L native=/usr/lib" CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_RUSTFLAGS="$(strip $(DIST_FULL_RUSTFLAGS) -L native=/usr/lib)"
 endif
 
+TEST_DOCKER_RUSTFLAGS = -C target-feature=+crt-static
+TEST_DOCKER_RUSTFLAGS += -C link-arg=--defsym=__isoc23_sscanf=sscanf -C link-arg=--defsym=__isoc23_strtol=strtol
+TEST_DOCKER_ENV =
+ifeq ($(TARGET),x86_64-unknown-linux-musl)
+TEST_DOCKER_ENV = RUSTFLAGS="-L native=/usr/lib" CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS="$(strip $(TEST_DOCKER_RUSTFLAGS) -L native=/usr/lib)"
+endif
+ifeq ($(TARGET),aarch64-unknown-linux-musl)
+TEST_DOCKER_ENV = RUSTFLAGS="-L native=/usr/lib" CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_RUSTFLAGS="$(strip $(TEST_DOCKER_RUSTFLAGS) -L native=/usr/lib)"
+endif
+
 # Dockerfile.test provides rust-src for the toolchain, but its CI-like musl
 # setup follows the existing macOS distribution recipe and does not rebuild
 # the standard library here.
@@ -245,7 +255,25 @@ test-linux:
 	        env CARGO_BIN_EXE_xsh-test-sleeper=/work/target/debug/xsh-test-sleeper target/debug/xsht test'
 
 test-linux-ci:
-	cargo test --locked --profile $(DIST_PROFILE) --features "linux-priv-tests net tools" --target $(TARGET) -- --nocapture
+	if [ "$(XSH_TEST_IMAGE_BUILD)" = "1" ]; then docker build --platform=$(DOCKER_PLATFORM) -t $(XSH_TEST_IMAGE) -f Dockerfile.test .; else docker image inspect $(XSH_TEST_IMAGE) >/dev/null; fi
+	mkdir -p target
+	docker run --rm --privileged \
+		--platform=$(DOCKER_PLATFORM) \
+		-v $(CURDIR):/work \
+		-v $(CURDIR)/target:/work/target \
+		-v xsh-cargo-registry:/root/.cargo/registry \
+		-w /work \
+		-e TARGET=$(TARGET) \
+		-e CARGO_TARGET_DIR=/work/target \
+		-e CARGO_BUILD_WARNINGS=$(CARGO_BUILD_WARNINGS) \
+		-e HOST_UID=$$(id -u) \
+		-e HOST_GID=$$(id -g) \
+		$(XSH_TEST_IMAGE) \
+		sh -c ' \
+			chown_target() { chown -R "$${HOST_UID}:$${HOST_GID}" /work/target; } && \
+			trap chown_target EXIT && \
+			$(TEST_DOCKER_ENV) cargo test --locked --profile $(DIST_PROFILE) --features "linux-priv-tests net tools" --target $(TARGET) -- --nocapture \
+		'
 
 test-macos-ci:
 	MACOSX_DEPLOYMENT_TARGET="$(DARWIN_DEPLOYMENT_TARGET)" cargo test --locked --profile $(DIST_PROFILE) --features "net tools" --target $(TARGET) -- --nocapture

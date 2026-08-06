@@ -2404,6 +2404,7 @@ name = "xshi"
 version = "0.0.1"
 dependencies = [
  "libc",
+ "mimalloc",
  "rustc-hash",
  "rustix",
  "rustybench",
@@ -2419,6 +2420,7 @@ dependencies = [
  "crossbeam-channel",
  "ignore",
  "libc",
+ "mimalloc",
  "miniserde",
  "rustc-hash",
  "rustix",

@@ -1,9 +1,5 @@
 extern crate self as xsh;
 
-#[cfg(target_os = "linux")]
-#[global_allocator]
-static ALLOC: mimalloc::MiMalloc = mimalloc::MiMalloc;
-
 #[path = "entrypoints/xsh.rs"]
 pub mod app;
 pub mod diagnostic;
