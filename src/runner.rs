@@ -600,7 +600,10 @@ add_one(4)
         let trace_path = fs::read_dir(&trace_dir)
             .expect("coverage trace directory")
             .map(|entry| entry.expect("coverage trace entry").path())
-            .find(|path| path.extension().is_some_and(|extension| extension == "jsonl"))
+            .find(|path| {
+                path.extension()
+                    .is_some_and(|extension| extension == "jsonl")
+            })
             .expect("coverage trace file");
         let trace = fs::read_to_string(trace_path).expect("read coverage trace");
         let pure_enter = trace
@@ -608,8 +611,7 @@ add_one(4)
             .find(|line| line.contains("\"kind\":\"pure.enter\""))
             .expect("pure enter event");
         assert!(
-            pure_enter.contains("\"definition_span\":")
-                && pure_enter.contains("\"start_line\":1"),
+            pure_enter.contains("\"definition_span\":") && pure_enter.contains("\"start_line\":1"),
             "{pure_enter}"
         );
 

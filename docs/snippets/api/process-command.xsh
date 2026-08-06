@@ -1,1 +1,3 @@
-let command = process.command { run true }
+let command = process.command {
+  run true
+}

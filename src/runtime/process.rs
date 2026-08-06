@@ -1907,7 +1907,10 @@ mod tests {
         assert!(output.end.status.expect("process status").success);
         assert!(output.stdout.is_empty());
         assert_eq!(output.stderr, b"captured");
-        assert_eq!(std::fs::read(&output_path).expect("read redirected output"), b"redirected");
+        assert_eq!(
+            std::fs::read(&output_path).expect("read redirected output"),
+            b"redirected"
+        );
         std::fs::remove_file(output_path).expect("remove redirected output");
     }
 

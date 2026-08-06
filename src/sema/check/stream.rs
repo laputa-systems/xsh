@@ -564,17 +564,15 @@ impl Checker {
         let branch_list = arena.arena.if_branches(branches);
         let mut inferred = None;
         for branch in branch_list {
-            let condition = self.check_expr_arena(
-                arena,
-                source,
-                branch.condition,
-                Some(&Type::Bool),
-            );
+            let condition =
+                self.check_expr_arena(arena, source, branch.condition, Some(&Type::Bool));
             let condition_span = arena.arena.expr(branch.condition).span;
             self.expect_type(&Type::Bool, &condition, condition_span);
             self.push_scope();
             let branch_ty = match else_block {
-                Some(_) => self.check_tail_block_arena(arena, source, branch.block, inferred.as_ref()),
+                Some(_) => {
+                    self.check_tail_block_arena(arena, source, branch.block, inferred.as_ref())
+                }
                 None => {
                     self.check_block_arena(arena, source, branch.block);
                     Type::Unit

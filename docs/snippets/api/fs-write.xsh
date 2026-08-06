@@ -1,1 +1,5 @@
-fs.write(p"output.txt", "done\n")?
+fs.write(
+  p"output.txt",
+  """done
+""",
+)?

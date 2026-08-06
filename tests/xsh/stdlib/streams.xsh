@@ -200,15 +200,33 @@ beta
 
 proc test_if_else_is_a_stream_stage_tail_value() [error] {
   let mapped = [1, 2, 3]
-    |> map { |n| if n % 2 == 0 { "even" } else { "odd" } }
+    |> map { |n|
+      if n % 2 == 0 {
+        "even"
+      } else {
+        "odd"
+      }
+    }
   test.eq(mapped, ["odd", "even", "odd"])?
 
   let filtered = [1, 2, 3]
-    |> where { |n| if n > 1 { true } else { false } }
+    |> where { |n|
+      if n > 1 {
+        true
+      } else {
+        false
+      }
+    }
   test.eq(filtered, [2, 3])?
 
   let _ = [1, 2]
-    |> each { |n| if n > 1 { let _ = n } else { let _ = n } }
+    |> each { |n|
+      if n > 1 {
+        let _ = n
+      } else {
+        let _ = n
+      }
+    }
 }
 
 proc test_predicate_stage_blocks_bind_local_lets() [error] {

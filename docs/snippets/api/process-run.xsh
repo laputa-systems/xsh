@@ -1,1 +1,5 @@
-let status = process.run(process.command { run true })?
+let status = process.run(
+  process.command {
+    run true
+  },
+)?

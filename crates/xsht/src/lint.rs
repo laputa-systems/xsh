@@ -2905,16 +2905,15 @@ impl<'a> Linter<'a> {
         if receiver_text.contains('#') || needle_text.contains('#') {
             return;
         }
-        let (fix_span, replacement) = if let Some(negation_start) =
-            directly_negated_start(self.source, span)
-        {
-            (
-                Span::new(span.source_id, negation_start, span.end()),
-                format!("{needle_text} not in {receiver_text}"),
-            )
-        } else {
-            (span, format!("{needle_text} in {receiver_text}"))
-        };
+        let (fix_span, replacement) =
+            if let Some(negation_start) = directly_negated_start(self.source, span) {
+                (
+                    Span::new(span.source_id, negation_start, span.end()),
+                    format!("{needle_text} not in {receiver_text}"),
+                )
+            } else {
+                (span, format!("{needle_text} in {receiver_text}"))
+            };
         self.diagnostics.push(
             Diagnostic::new(Severity::Warning, "prefer `in` over `.contains(...)`")
                 .with_code("lint.prefer-in")

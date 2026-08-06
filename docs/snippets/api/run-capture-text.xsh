@@ -1,1 +1,1 @@
-let result = run.capture --text command?
+let result = run.capture --text command ?

@@ -1,1 +1,1 @@
-let output = run.text command?
+let output = run.text command ?

@@ -472,14 +472,13 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         let definition_span = view
             .definition_span()
             .map_err(|error| indexed_error(error, call_span))?;
-        self.evaluator
-            .trace_enter_with_definition(
-                enter_kind,
-                Some(call_span),
-                Some(definition_span),
-                Some(&name),
-                TracePayload::None,
-            );
+        self.evaluator.trace_enter_with_definition(
+            enter_kind,
+            Some(call_span),
+            Some(definition_span),
+            Some(&name),
+            TracePayload::None,
+        );
         self.evaluator.call_stack.push(TracebackFrame {
             kind: frame_kind,
             name: name.clone(),

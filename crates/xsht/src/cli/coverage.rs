@@ -83,14 +83,15 @@ impl CoverageCollector {
                 executable_lines: executable_line_numbers(&file_text),
                 proc_decls: proc_decl_lines(&file_text),
             };
-            let metadata = parse_source_metadata(&file, module_roots)
-                .unwrap_or_else(|| {
-                    BTreeMap::from([(file.to_string_lossy().into_owned(), fallback)])
-                });
+            let metadata = parse_source_metadata(&file, module_roots).unwrap_or_else(|| {
+                BTreeMap::from([(file.to_string_lossy().into_owned(), fallback)])
+            });
             for (source_file, metadata) in metadata {
                 if self.include_source_file(&source_file) {
                     let display = self.display_source_file(&source_file);
-                    self.source_metadata.entry(display.clone()).or_insert(metadata);
+                    self.source_metadata
+                        .entry(display.clone())
+                        .or_insert(metadata);
                     self.source_hits.entry(display).or_default();
                 }
             }
@@ -225,9 +226,7 @@ impl CoverageCollector {
         if self.include_source_file(file) {
             let display = self.display_source_file(file);
             self.observed_source_files.insert(display.clone());
-            self.source_hits
-                .entry(display)
-                .or_default();
+            self.source_hits.entry(display).or_default();
         }
     }
 
@@ -642,10 +641,20 @@ fn collect_statement(
             add_proc_definition(program, sources, statement.span, def, by_source);
         }
         ArenaStmtKind::StreamDef(def) => {
-            collect_block(program, sources, program.arena.function_def(def).body, by_source);
+            collect_block(
+                program,
+                sources,
+                program.arena.function_def(def).body,
+                by_source,
+            );
         }
         ArenaStmtKind::SignalHook(hook) => {
-            collect_block(program, sources, program.arena.signal_hook(hook).body, by_source);
+            collect_block(
+                program,
+                sources,
+                program.arena.signal_hook(hook).body,
+                by_source,
+            );
         }
         ArenaStmtKind::If {
             branches,
@@ -681,10 +690,7 @@ fn collect_statement(
             collect_block(program, sources, else_block, by_source);
         }
         ArenaStmtKind::Loop { block } => collect_block(program, sources, block, by_source),
-        ArenaStmtKind::Guard {
-            else_block,
-            ..
-        } => {
+        ArenaStmtKind::Guard { else_block, .. } => {
             add_span(sources, statement.span, by_source);
             collect_block(program, sources, else_block, by_source);
         }
@@ -725,7 +731,9 @@ fn collect_block(
     block: BlockId,
     by_source: &mut BTreeMap<SourceId, SourceMetadata>,
 ) {
-    let statements = program.arena.stmt_ids(program.arena.block(block).statements);
+    let statements = program
+        .arena
+        .stmt_ids(program.arena.block(block).statements);
     collect_statements(program, sources, statements, by_source);
 }
 
@@ -737,16 +745,19 @@ fn add_proc_definition(
     by_source: &mut BTreeMap<SourceId, SourceMetadata>,
 ) {
     if let Some(metadata) = by_source.get_mut(&span.source_id) {
-        metadata
-            .proc_decls
-            .insert(
-                program.arena.function_def(def).name.to_string(),
-                sources
-                    .location(span.source_id, span.start())
-                    .map_or(0, |location| location.line),
-            );
+        metadata.proc_decls.insert(
+            program.arena.function_def(def).name.to_string(),
+            sources
+                .location(span.source_id, span.start())
+                .map_or(0, |location| location.line),
+        );
     }
-    collect_block(program, sources, program.arena.function_def(def).body, by_source);
+    collect_block(
+        program,
+        sources,
+        program.arena.function_def(def).body,
+        by_source,
+    );
 }
 
 fn add_expr(
@@ -758,11 +769,7 @@ fn add_expr(
     add_span(sources, program.arena.expr(expr).span, by_source);
 }
 
-fn add_span(
-    sources: &SourceMap,
-    span: Span,
-    by_source: &mut BTreeMap<SourceId, SourceMetadata>,
-) {
+fn add_span(sources: &SourceMap, span: Span, by_source: &mut BTreeMap<SourceId, SourceMetadata>) {
     let Some(start) = sources.location(span.source_id, span.start()) else {
         return;
     };
@@ -964,7 +971,10 @@ mod tests {
             .expect("ingest");
 
         let rendered = collector.render();
-        assert!(rendered.contains("scope: 1 source files (0 observed)"), "{rendered}");
+        assert!(
+            rendered.contains("scope: 1 source files (0 observed)"),
+            "{rendered}"
+        );
         assert!(rendered.contains("source lines: 2/6 (33.3%)"), "{rendered}");
         assert!(rendered.contains("proc entries: 1/2 (50.0%)"), "{rendered}");
         assert!(rendered.contains("pm.xsh"), "{rendered}");
@@ -995,7 +1005,10 @@ mod tests {
             .expect("ingest");
 
         let rendered = collector.render();
-        assert!(rendered.contains("scope: 1 source files (1 observed)"), "{rendered}");
+        assert!(
+            rendered.contains("scope: 1 source files (1 observed)"),
+            "{rendered}"
+        );
         assert!(rendered.contains("source lines: 0/3 (0.0%)"), "{rendered}");
         assert!(rendered.contains("proc entries: 0/1 (0.0%)"), "{rendered}");
         assert!(rendered.contains("pm/local.xsh"), "{rendered}");
@@ -1004,8 +1017,10 @@ mod tests {
 
     #[test]
     fn proc_entries_use_definition_span_when_call_site_is_a_test() {
-        let root =
-            std::env::temp_dir().join(format!("xsh-source-coverage-definition-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!(
+            "xsh-source-coverage-definition-{}",
+            std::process::id()
+        ));
         let _ = fs::remove_dir_all(&root);
         fs::create_dir_all(root.join("tests")).expect("create test root");
         let source = root.join("pm.xsh");
@@ -1029,17 +1044,18 @@ mod tests {
             .expect("ingest");
 
         let rendered = collector.render();
-        assert!(rendered.contains("proc entries: 1/1 (100.0%)"), "{rendered}");
+        assert!(
+            rendered.contains("proc entries: 1/1 (100.0%)"),
+            "{rendered}"
+        );
         assert!(rendered.contains("pm.xsh"), "{rendered}");
         let _ = fs::remove_dir_all(root);
     }
 
     #[test]
     fn registered_sources_use_ast_lines_and_include_unobserved_files() {
-        let root = std::env::temp_dir().join(format!(
-            "xsh-source-coverage-ast-{}",
-            std::process::id()
-        ));
+        let root =
+            std::env::temp_dir().join(format!("xsh-source-coverage-ast-{}", std::process::id()));
         let _ = fs::remove_dir_all(&root);
         fs::create_dir_all(&root).expect("create root");
         let covered = root.join("covered.xsh");
@@ -1049,8 +1065,7 @@ mod tests {
             "type Config = {\n  value: Int,\n}\n\nproc covered() {\n  print \"hit\"\n}\n",
         )
         .expect("write covered source");
-        fs::write(&missed, "proc missed() {\n  print \"miss\"\n}\n")
-            .expect("write missed source");
+        fs::write(&missed, "proc missed() {\n  print \"miss\"\n}\n").expect("write missed source");
 
         let mut collector = CoverageCollector {
             root: Some(root.clone()),
@@ -1069,15 +1084,20 @@ mod tests {
             .expect("ingest");
 
         let files = collector.source_file_coverages();
-        let covered_file = files.iter().find(|file| file.file == "covered.xsh").unwrap();
+        let covered_file = files
+            .iter()
+            .find(|file| file.file == "covered.xsh")
+            .unwrap();
         let missed_file = files.iter().find(|file| file.file == "missed.xsh").unwrap();
         assert!(covered_file.executable_lines < 6);
         assert_eq!(covered_file.covered_lines, 1);
         assert!(missed_file.executable_lines < 4);
         assert_eq!(missed_file.covered_lines, 0);
-        assert!(collector
-            .render()
-            .contains("scope: 2 source files (1 observed)"));
+        assert!(
+            collector
+                .render()
+                .contains("scope: 2 source files (1 observed)")
+        );
         let _ = fs::remove_dir_all(root);
     }
 

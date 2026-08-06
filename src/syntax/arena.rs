@@ -1,11 +1,11 @@
 use crate::source::{SourceId, Span};
 use crate::symbol::{Name, Symbol};
+use crate::syntax::lexer::Lexer;
 use crate::syntax::node::{
     AssignOp, BinaryOp, BlockParam, CoreCommand, DurationLiteral, Effect, EnvGetKind, FloatLiteral,
     FormatSpec, FormatSpecKind, IntLiteral, RedirectionKind, RunKind, SignalHookOptions,
     StreamStageKind, UnaryOp,
 };
-use crate::syntax::lexer::Lexer;
 use crate::syntax::token::{TokenTable, TokenTag};
 use std::mem::size_of;
 use std::num::NonZeroU32;
@@ -681,7 +681,9 @@ fn doc_comment_blocks(
         let Some(span) = token_table.span_at(index, source_id, source) else {
             continue;
         };
-        let line_start = source[..span.start()].rfind('\n').map_or(0, |offset| offset + 1);
+        let line_start = source[..span.start()]
+            .rfind('\n')
+            .map_or(0, |offset| offset + 1);
         if !source[line_start..span.start()]
             .bytes()
             .all(|byte| matches!(byte, b' ' | b'\t' | b'\r'))

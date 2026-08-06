@@ -486,10 +486,7 @@ fn lint_one_file_with_fixes(
         );
         return LintResult {
             index,
-            kind: LintResultKind::FixDiagnostics {
-                status,
-                stderr,
-            },
+            kind: LintResultKind::FixDiagnostics { status, stderr },
         };
     }
 
@@ -512,20 +509,16 @@ fn lint_one_file_with_fixes(
             };
         }
     };
-    let remaining_check_stderr = match validate_fixed_text(
-        file,
-        &final_text,
-        config,
-        &checked.diagnostics,
-    ) {
-        Ok(stderr) => stderr,
-        Err(stderr) => {
-            return LintResult {
-                index,
-                kind: LintResultKind::FixDiagnostics { status: 2, stderr },
-            };
-        }
-    };
+    let remaining_check_stderr =
+        match validate_fixed_text(file, &final_text, config, &checked.diagnostics) {
+            Ok(stderr) => stderr,
+            Err(stderr) => {
+                return LintResult {
+                    index,
+                    kind: LintResultKind::FixDiagnostics { status: 2, stderr },
+                };
+            }
+        };
 
     if final_text == text {
         if remaining_check_stderr.is_empty() {
@@ -548,7 +541,11 @@ fn lint_one_file_with_fixes(
             kind: LintResultKind::Write {
                 file: file.to_string(),
                 text: final_text,
-                status: if remaining_check_stderr.is_empty() { 0 } else { 2 },
+                status: if remaining_check_stderr.is_empty() {
+                    0
+                } else {
+                    2
+                },
                 stderr: remaining_check_stderr,
             },
         }
@@ -674,10 +671,7 @@ fn check_diagnostic_signature(diagnostic: &Diagnostic) -> String {
     )
 }
 
-fn check_diagnostics_are_preserved(
-    original: &[Diagnostic],
-    current: &[Diagnostic],
-) -> bool {
+fn check_diagnostics_are_preserved(original: &[Diagnostic], current: &[Diagnostic]) -> bool {
     let mut remaining = FxHashMap::default();
     for diagnostic in original {
         *remaining
