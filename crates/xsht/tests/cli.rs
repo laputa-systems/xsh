@@ -49,6 +49,7 @@ fn xsht_test_help_lists_parallelism_option() {
     let stdout = String::from_utf8(output.stdout).unwrap();
     assert!(stdout.contains("xsht test [OPTIONS] [FILTER]"));
     assert!(stdout.contains("--jobs N"));
+    assert!(stdout.contains("--api"));
 }
 
 #[test]

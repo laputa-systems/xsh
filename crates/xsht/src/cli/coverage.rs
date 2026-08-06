@@ -10,6 +10,7 @@ use xsh::modules::{MethodReceiver, api_spec};
 
 #[derive(Clone, Debug, Default)]
 pub struct CoverageCollector {
+    include_api: bool,
     api_hits: BTreeMap<String, CoverageHits>,
     source_hits: BTreeMap<String, SourceCoverage>,
     root: Option<PathBuf>,
@@ -39,7 +40,12 @@ struct SourceFileCoverage {
 
 impl CoverageCollector {
     pub fn new() -> Self {
+        Self::with_api(false)
+    }
+
+    pub fn with_api(include_api: bool) -> Self {
         Self {
+            include_api,
             root: std::env::current_dir().ok(),
             ..Self::default()
         }
@@ -59,10 +65,11 @@ impl CoverageCollector {
                 self.ingest_source_file(&value);
                 continue;
             }
-            if (kind.ends_with(".call")
-                || kind.ends_with(".start")
-                || kind.ends_with(".enter")
-                || kind == "cwd.enter")
+            if self.include_api
+                && (kind.ends_with(".call")
+                    || kind.ends_with(".start")
+                    || kind.ends_with(".enter")
+                    || kind == "cwd.enter")
                 && let Some(api_id) = raw_json_get(&value, "api_id").and_then(raw_json_as_str)
             {
                 self.api_hits
@@ -89,15 +96,17 @@ impl CoverageCollector {
         output.push('\n');
         output.push_str("least covered source files\n");
         self.render_least_covered_source_files(&mut output);
-        output.push('\n');
-        output.push_str("API coverage\n");
-        self.render_api_totals(&mut output);
-        output.push('\n');
-        output.push_str("uncovered standard APIs\n");
-        self.render_uncovered_apis(&mut output);
-        output.push('\n');
-        output.push_str("APIs covered by examples/tests\n");
-        self.render_covered_apis(&mut output);
+        if self.include_api {
+            output.push('\n');
+            output.push_str("API coverage\n");
+            self.render_api_totals(&mut output);
+            output.push('\n');
+            output.push_str("uncovered standard APIs\n");
+            self.render_uncovered_apis(&mut output);
+            output.push('\n');
+            output.push_str("APIs covered by examples/tests\n");
+            self.render_covered_apis(&mut output);
+        }
         output
     }
 

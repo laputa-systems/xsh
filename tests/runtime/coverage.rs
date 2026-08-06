@@ -1232,6 +1232,21 @@ fn xsht_test_cov_list_does_not_execute_tests() {
 }
 
 #[test]
+fn xsht_test_api_requires_coverage_report() {
+    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+        .args(["test", "--api", "--list", "tests/xsh/basic.xsh::test_pass"])
+        .output()
+        .expect("run xsht");
+
+    assert_eq!(output.status.code(), Some(2));
+    assert_eq!(String::from_utf8(output.stdout).unwrap(), "");
+    assert_eq!(
+        String::from_utf8(output.stderr).unwrap(),
+        "xsht: `--api` requires `--cov`\n"
+    );
+}
+
+#[test]
 fn xsht_test_cov_exact_prints_coverage_sections() {
     let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
         .args(["test", "--cov", "--exact", "tests/xsh/basic.xsh::test_pass"])
@@ -1243,8 +1258,29 @@ fn xsht_test_cov_exact_prints_coverage_sections() {
     assert!(stdout.contains("running 1 tests"));
     assert!(stdout.contains("tests/xsh/basic.xsh::test_pass ... ok"));
     assert!(stdout.contains("coverage report"));
+    assert!(stdout.contains("Source coverage"));
+    assert!(!stdout.contains("API coverage"));
+    assert!(!stdout.contains("uncovered standard APIs"));
+}
+
+#[test]
+fn xsht_test_cov_api_opt_in_prints_api_sections() {
+    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+        .args([
+            "test",
+            "--cov",
+            "--api",
+            "--exact",
+            "tests/xsh/basic.xsh::test_pass",
+        ])
+        .output()
+        .expect("run xsht");
+
+    assert!(output.status.success(), "{:?}", output);
+    let stdout = String::from_utf8(output.stdout).unwrap();
     assert!(stdout.contains("API coverage"));
     assert!(stdout.contains("uncovered standard APIs"));
+    assert!(stdout.contains("APIs covered by examples/tests"));
 }
 
 #[test]

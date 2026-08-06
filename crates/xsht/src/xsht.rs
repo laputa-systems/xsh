@@ -35,6 +35,7 @@ pub(crate) mod test {
         pub(crate) keep_temp: bool,
         pub(crate) jobs: Option<usize>,
         pub(crate) coverage: bool,
+        pub(crate) api: bool,
         pub(crate) coverage_json_out: Option<String>,
     }
 

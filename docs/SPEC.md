@@ -211,7 +211,8 @@ The implemented v1 surface includes:
   `Interactive Use`.
 - Native XSH tests under the current directory's `tests/**/*.xsh` and
   `showcase/tests/**/*.xsh`, the `test` standard module, opt-in example
-  integration tests, and API coverage reports through `xsht test --cov`.
+  integration tests, and source coverage reports through `xsht test --cov`.
+  API coverage is an explicit `xsht test --cov --api` report section.
 - ELF file inspection through `elf.inspect(path)`, including non-error
   `type: "not-elf"` results for ordinary non-ELF files and dynamic dependency
   metadata for ELF files.

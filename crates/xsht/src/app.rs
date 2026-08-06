@@ -125,7 +125,8 @@ Options:
   --all                   Run native tests and cataloged example integration tests
   --list                  List matching tests without running them
   --exact                 Match FILTER exactly
-  --cov                   Run matching tests and print XSH source/API coverage
+  --cov                   Run matching tests and print XSH source line coverage
+  --api                   Include XSH API coverage in the --cov report
   --jobs N                Run up to N tests concurrently
   --nocapture             Print test stdout and stderr while tests run
   --fail-fast             Stop after the first failure
@@ -348,6 +349,7 @@ fn parse_test(args: &[String]) -> Result<Command, String> {
     let mut fail_fast = false;
     let mut keep_temp = false;
     let mut coverage_json_out = None;
+    let mut api = false;
     let mut iter = args.iter();
 
     while let Some(arg) = iter.next() {
@@ -358,6 +360,7 @@ fn parse_test(args: &[String]) -> Result<Command, String> {
             "--list" => list = true,
             "--exact" => exact = true,
             "--cov" => coverage = true,
+            "--api" => api = true,
             "--jobs" | "-j" => {
                 let value = iter
                     .next()
@@ -396,6 +399,10 @@ fn parse_test(args: &[String]) -> Result<Command, String> {
         return Err("`xsht test` accepts only one of `--examples` or `--all`".to_string());
     }
 
+    if api && !coverage {
+        return Err("`--api` requires `--cov`".to_string());
+    }
+
     Ok(Command::Test {
         options: TestOptions {
             filter,
@@ -408,6 +415,7 @@ fn parse_test(args: &[String]) -> Result<Command, String> {
             keep_temp,
             jobs,
             coverage,
+            api,
             coverage_json_out,
         },
     })

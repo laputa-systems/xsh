@@ -37,6 +37,7 @@ pub(crate) struct TestOptions {
     pub(crate) keep_temp: bool,
     pub(crate) jobs: Option<usize>,
     pub(crate) coverage: bool,
+    pub(crate) api: bool,
     pub(crate) coverage_json_out: Option<String>,
 }
 
@@ -135,7 +136,9 @@ pub(crate) fn test_scripts(options: TestOptions) -> CliOutput {
     let mut failed = 0usize;
     let mut skipped = 0usize;
     let mut failure_details = Vec::new();
-    let mut coverage = options.collect_coverage().then(CoverageCollector::new);
+    let mut coverage = options
+        .collect_coverage()
+        .then(|| CoverageCollector::with_api(options.api || options.coverage_json_out.is_some()));
     let mut interrupted = None;
     run_test_cases(cases, &run_id, &options, |id, outcome| {
         if let Some(output) = cancellation_output() {

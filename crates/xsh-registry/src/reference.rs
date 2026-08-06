@@ -198,7 +198,7 @@ pub const CLI_FORMS: &[&str] = &[
     "xsht lint [--fix] [--runless] [FILE...]",
     "xsht ast SCRIPT",
     "xsht trace [--raw] [--trace-format text|jsonl|flamegraph] [--trace-file FILE] [--syscalls] [--trace-top-syscalls N] SCRIPT [ARGS...]",
-    "xsht test [--cov] [OPTIONS] [FILTER]",
+    "xsht test [--cov] [--api] [OPTIONS] [FILTER]",
     "xsht api [OPTIONS] [QUERY...]",
 ];
 
@@ -723,7 +723,7 @@ fn cli_doc(form: &str) -> ReferenceDoc {
                 "Trace output and syscall collection are explicit diagnostics; the traced script still receives its own argv and status contract.",
             )
         }
-        "xsht test [--cov] [OPTIONS] [FILTER]" => (
+        "xsht test [--cov] [--api] [OPTIONS] [FILTER]" => (
             "Discovers and runs native XSH tests.",
             "Test filtering, coverage, parallelism, and retained temporary roots are harness policy rather than script runtime behavior.",
         ),

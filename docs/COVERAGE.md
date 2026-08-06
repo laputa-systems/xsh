@@ -5,6 +5,11 @@ coverage. Coverage work should stay behavior-oriented: prefer tests that prove
 real workflows, host contracts, and safety boundaries over tests that exist only
 to execute a branch.
 
+For a focused XSH line-coverage report, run `xsht test --cov`. It reports source
+lines and procedure coverage by default. Add `--api` when API-surface coverage is
+the question; `--cov-json` remains the machine-readable input used by the
+combined coverage tool and includes API hit data for that purpose.
+
 The standard XSH API surface is currently covered by the native suites. The
 remaining meaningful LLVM gap is concentrated in two areas that need larger
 harnesses, not scattered microtests.
