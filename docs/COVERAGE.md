@@ -5,10 +5,20 @@ coverage. Coverage work should stay behavior-oriented: prefer tests that prove
 real workflows, host contracts, and safety boundaries over tests that exist only
 to execute a branch.
 
-For a focused XSH line-coverage report, run `xsht test --cov`. It reports source
-lines and procedure coverage by default. Add `--api` when API-surface coverage is
-the question; `--cov-json` remains the machine-readable input used by the
-combined coverage tool and includes API hit data for that purpose.
+For a focused XSH source-coverage report, run `xsht test --cov`. The report
+registers source files discovered by the active `xsht-config.ini`, including
+files that no test loads, and derives its source-line denominator from parsed
+executable statements rather than counting every nonblank physical line. The
+source-line numerator is still based on runtime source spans, so it is a useful
+diagnostic rather than precise statement or branch coverage.
+
+The procedure metric is reported as `proc entries`: it answers whether a proc
+or pure function was entered at least once. It does not prove that every
+statement or branch in the procedure ran. Add `--api` when API-surface coverage
+is the question; `--cov-json` remains the machine-readable input used by the
+combined coverage tool and includes API hit data for that purpose. JSON reports
+also include `source_scope.files` and `source_scope.observed_files` so a result
+cannot silently be mistaken for whole-repository coverage.
 
 The standard XSH API surface is currently covered by the native suites. The
 remaining meaningful LLVM gap is concentrated in two areas that need larger

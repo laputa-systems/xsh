@@ -1,7 +1,8 @@
 #![allow(clippy::single_call_fn)]
 
 use crate::xsht::cli::{
-    CliOutput, CoverageCollector, cancellation_output, collect_xsh_files, load_config,
+    CliOutput, CoverageCollector, cancellation_output, collect_configured_xsh_files,
+    collect_xsh_files, load_config,
 };
 use crate::xsht::examples::{OutputPolicy, load_catalog, test_name, validate_catalog};
 use std::fs;
@@ -52,6 +53,8 @@ pub(crate) fn test_scripts(options: TestOptions) -> CliOutput {
     }
 
     let mut cases = Vec::new();
+    let mut coverage_source_files = Vec::new();
+    let mut coverage_module_roots = Vec::new();
     let mut stdout = String::new();
     let stderr = String::new();
 
@@ -69,6 +72,20 @@ pub(crate) fn test_scripts(options: TestOptions) -> CliOutput {
             }
         };
         let module_roots: Vec<PathBuf> = config.module_path.iter().map(PathBuf::from).collect();
+        coverage_module_roots = module_roots.clone();
+        if options.collect_coverage() {
+            if let Err(message) =
+                collect_configured_xsh_files(Path::new("."), &config, &mut coverage_source_files)
+            {
+                return CliOutput {
+                    status: 2,
+                    stdout: stdout.into_bytes(),
+                    stderr: text_bytes(format!("xsht: {message}\n")),
+                    trace_text: String::new(),
+                    syscall_summary: None,
+                };
+            }
+        }
         let test_roots: Vec<PathBuf> = if config.test_roots.is_empty() {
             vec![PathBuf::from("tests")]
         } else {
@@ -139,6 +156,9 @@ pub(crate) fn test_scripts(options: TestOptions) -> CliOutput {
     let mut coverage = options
         .collect_coverage()
         .then(|| CoverageCollector::with_api(options.api || options.coverage_json_out.is_some()));
+    if let Some(collector) = coverage.as_mut() {
+        collector.register_source_files(&coverage_source_files, &coverage_module_roots);
+    }
     let mut interrupted = None;
     run_test_cases(cases, &run_id, &options, |id, outcome| {
         if let Some(output) = cancellation_output() {

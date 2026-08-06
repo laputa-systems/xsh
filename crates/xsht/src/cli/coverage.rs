@@ -2,17 +2,22 @@ use miniserde::json::Value as JsonValue;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
+use xsh::loader::parse_script_with_module_roots;
 use xsh::modules::json::{
     parse_raw_json, pretty_raw_json, raw_json_array, raw_json_as_str, raw_json_as_u64,
     raw_json_get, raw_json_object, raw_json_string, raw_json_u64, raw_json_usize,
 };
 use xsh::modules::{MethodReceiver, api_spec};
+use xsh::source::{SourceId, SourceMap, Span};
+use xsh::syntax::arena::{ArenaProgram, ArenaStmtKind, BlockId, ExprId, FunctionDefId, StmtId};
 
 #[derive(Clone, Debug, Default)]
 pub struct CoverageCollector {
     include_api: bool,
     api_hits: BTreeMap<String, CoverageHits>,
     source_hits: BTreeMap<String, SourceCoverage>,
+    source_metadata: BTreeMap<String, SourceMetadata>,
+    observed_source_files: BTreeSet<String>,
     root: Option<PathBuf>,
 }
 
@@ -27,6 +32,12 @@ struct SourceCoverage {
     covered_lines: BTreeSet<usize>,
     proc_hits: BTreeMap<usize, u64>,
     proc_name_hits: BTreeMap<String, u64>,
+}
+
+#[derive(Clone, Debug, Default)]
+struct SourceMetadata {
+    executable_lines: BTreeSet<usize>,
+    proc_decls: BTreeMap<String, usize>,
 }
 
 #[derive(Clone, Debug)]
@@ -48,6 +59,35 @@ impl CoverageCollector {
             include_api,
             root: std::env::current_dir().ok(),
             ..Self::default()
+        }
+    }
+
+    pub fn register_source_files(&mut self, files: &[PathBuf], module_roots: &[PathBuf]) {
+        for file in files {
+            let file = absolute_path(file);
+            let file_text = match fs::read_to_string(&file) {
+                Ok(text) => text,
+                Err(_) => continue,
+            };
+            if !self.include_source_file(&file.to_string_lossy()) {
+                continue;
+            }
+
+            let fallback = SourceMetadata {
+                executable_lines: executable_line_numbers(&file_text),
+                proc_decls: proc_decl_lines(&file_text),
+            };
+            let metadata = parse_source_metadata(&file, module_roots)
+                .unwrap_or_else(|| {
+                    BTreeMap::from([(file.to_string_lossy().into_owned(), fallback)])
+                });
+            for (source_file, metadata) in metadata {
+                if self.include_source_file(&source_file) {
+                    let display = self.display_source_file(&source_file);
+                    self.source_metadata.entry(display.clone()).or_insert(metadata);
+                    self.source_hits.entry(display).or_default();
+                }
+            }
         }
     }
 
@@ -131,6 +171,19 @@ impl CoverageCollector {
                 ),
             ),
             (
+                "source_scope".to_string(),
+                raw_json_object([
+                    (
+                        "files".to_string(),
+                        raw_json_usize(self.source_file_coverages().len()),
+                    ),
+                    (
+                        "observed_files".to_string(),
+                        raw_json_usize(self.observed_source_files.len()),
+                    ),
+                ]),
+            ),
+            (
                 "standard_apis".to_string(),
                 raw_json_array(standard_api_ids().into_iter().map(raw_json_string)),
             ),
@@ -164,8 +217,10 @@ impl CoverageCollector {
             return;
         };
         if self.include_source_file(file) {
+            let display = self.display_source_file(file);
+            self.observed_source_files.insert(display.clone());
             self.source_hits
-                .entry(self.display_source_file(file))
+                .entry(display)
                 .or_default();
         }
     }
@@ -271,18 +326,29 @@ impl CoverageCollector {
 
     fn source_file_coverages(&self) -> Vec<SourceFileCoverage> {
         let mut files = Vec::new();
-        for (file, hits) in &self.source_hits {
-            let Some(text) = self.read_source_text(file) else {
+        let source_files = self
+            .source_hits
+            .keys()
+            .chain(self.source_metadata.keys())
+            .cloned()
+            .collect::<BTreeSet<_>>();
+        for file in source_files {
+            let hits = self.source_hits.get(&file).cloned().unwrap_or_default();
+            let Some(text) = self.read_source_text(&file) else {
                 continue;
             };
-            let executable_lines = executable_line_numbers(&text);
-            let proc_decls = proc_decl_lines(&text);
+            let fallback = SourceMetadata {
+                executable_lines: executable_line_numbers(&text),
+                proc_decls: proc_decl_lines(&text),
+            };
+            let metadata = self.source_metadata.get(&file).unwrap_or(&fallback);
             let covered_lines = hits
                 .covered_lines
                 .iter()
-                .filter(|line| executable_lines.contains(line))
+                .filter(|line| metadata.executable_lines.contains(line))
                 .count();
-            let covered_procs = proc_decls
+            let covered_procs = metadata
+                .proc_decls
                 .iter()
                 .filter(|(name, line)| {
                     hits.proc_hits.contains_key(line) || hits.proc_name_hits.contains_key(*name)
@@ -290,9 +356,9 @@ impl CoverageCollector {
                 .count();
             files.push(SourceFileCoverage {
                 file: file.clone(),
-                executable_lines: executable_lines.len(),
+                executable_lines: metadata.executable_lines.len(),
                 covered_lines,
-                total_procs: proc_decls.len(),
+                total_procs: metadata.proc_decls.len(),
                 covered_procs,
             });
         }
@@ -317,11 +383,16 @@ impl CoverageCollector {
         let total_procs: usize = files.iter().map(|file| file.total_procs).sum();
         let covered_procs: usize = files.iter().map(|file| file.covered_procs).sum();
         output.push_str(&format!(
-            "lines: {covered_lines}/{executable_lines} ({})\n",
+            "scope: {} source files ({} observed)\n",
+            files.len(),
+            self.observed_source_files.len()
+        ));
+        output.push_str(&format!(
+            "source lines: {covered_lines}/{executable_lines} ({})\n",
             percent_text(covered_lines, executable_lines)
         ));
         output.push_str(&format!(
-            "procs: {covered_procs}/{total_procs} ({})\n",
+            "proc entries: {covered_procs}/{total_procs} ({})\n",
             percent_text(covered_procs, total_procs)
         ));
     }
@@ -490,6 +561,208 @@ fn source_file_json(file: SourceFileCoverage) -> JsonValue {
             raw_json_usize(file.covered_procs),
         ),
     ])
+}
+
+fn absolute_path(path: &Path) -> PathBuf {
+    std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf())
+}
+
+fn parse_source_metadata(
+    path: &Path,
+    module_roots: &[PathBuf],
+) -> Option<BTreeMap<String, SourceMetadata>> {
+    let path_text = path.to_string_lossy().into_owned();
+    let (sources, parsed) = parse_script_with_module_roots(&path_text, module_roots).ok()?;
+    let mut by_source = BTreeMap::<SourceId, SourceMetadata>::new();
+    for file in sources.files() {
+        by_source.insert(file.id(), SourceMetadata::default());
+    }
+
+    collect_statements(
+        &parsed.arena,
+        &sources,
+        parsed.arena.statement_ids(),
+        &mut by_source,
+    );
+    for module in &parsed.arena.modules {
+        collect_statements(
+            &parsed.arena,
+            &sources,
+            parsed.arena.module_statements(module),
+            &mut by_source,
+        );
+    }
+
+    Some(
+        sources
+            .files()
+            .iter()
+            .filter_map(|file| {
+                by_source
+                    .remove(&file.id())
+                    .map(|metadata| (file.name().to_string(), metadata))
+            })
+            .collect(),
+    )
+}
+
+fn collect_statements(
+    program: &ArenaProgram,
+    sources: &SourceMap,
+    statements: impl IntoIterator<Item = StmtId>,
+    by_source: &mut BTreeMap<SourceId, SourceMetadata>,
+) {
+    for statement in statements {
+        collect_statement(program, sources, statement, by_source);
+    }
+}
+
+fn collect_statement(
+    program: &ArenaProgram,
+    sources: &SourceMap,
+    statement: StmtId,
+    by_source: &mut BTreeMap<SourceId, SourceMetadata>,
+) {
+    let statement = program.arena.stmt(statement);
+    match statement.kind {
+        ArenaStmtKind::Use(_) | ArenaStmtKind::TypeDef(_) | ArenaStmtKind::ErrorDef(_) => {}
+        ArenaStmtKind::Export(inner) => collect_statement(program, sources, inner, by_source),
+        ArenaStmtKind::ProcDef(def) | ArenaStmtKind::PureDef(def) => {
+            add_proc_definition(program, sources, statement.span, def, by_source);
+        }
+        ArenaStmtKind::StreamDef(def) => {
+            collect_block(program, sources, program.arena.function_def(def).body, by_source);
+        }
+        ArenaStmtKind::SignalHook(hook) => {
+            collect_block(program, sources, program.arena.signal_hook(hook).body, by_source);
+        }
+        ArenaStmtKind::If {
+            branches,
+            else_block,
+        } => {
+            for branch in program.arena.if_branches(branches) {
+                add_expr(program, sources, branch.condition, by_source);
+                collect_block(program, sources, branch.block, by_source);
+            }
+            if let Some(block) = else_block {
+                collect_block(program, sources, block, by_source);
+            }
+        }
+        ArenaStmtKind::While { condition, block }
+        | ArenaStmtKind::For {
+            iter: condition,
+            block,
+            ..
+        } => {
+            add_expr(program, sources, condition, by_source);
+            collect_block(program, sources, block, by_source);
+        }
+        ArenaStmtKind::With {
+            bindings,
+            body,
+            else_block,
+            ..
+        } => {
+            for binding in program.arena.with_bindings(bindings) {
+                add_span(sources, program.arena.span(binding.span), by_source);
+            }
+            collect_block(program, sources, body, by_source);
+            collect_block(program, sources, else_block, by_source);
+        }
+        ArenaStmtKind::Loop { block } => collect_block(program, sources, block, by_source),
+        ArenaStmtKind::Guard {
+            else_block,
+            ..
+        } => {
+            add_span(sources, statement.span, by_source);
+            collect_block(program, sources, else_block, by_source);
+        }
+        ArenaStmtKind::GuardedStmt {
+            stmt: inner,
+            condition,
+            ..
+        } => {
+            add_expr(program, sources, condition, by_source);
+            collect_statement(program, sources, inner, by_source);
+        }
+        ArenaStmtKind::Match { value, arms } => {
+            add_expr(program, sources, value, by_source);
+            for arm in program.arena.match_arms(arms) {
+                if let Some(guard) = arm.guard {
+                    add_expr(program, sources, guard, by_source);
+                }
+                collect_block(program, sources, arm.block, by_source);
+            }
+        }
+        ArenaStmtKind::Let { .. }
+        | ArenaStmtKind::Var { .. }
+        | ArenaStmtKind::Assign { .. }
+        | ArenaStmtKind::Return(_)
+        | ArenaStmtKind::Yield(_)
+        | ArenaStmtKind::Defer(_)
+        | ArenaStmtKind::Break { .. }
+        | ArenaStmtKind::Continue
+        | ArenaStmtKind::Command(_)
+        | ArenaStmtKind::TailBareIdent(_)
+        | ArenaStmtKind::Expr(_) => add_span(sources, statement.span, by_source),
+    }
+}
+
+fn collect_block(
+    program: &ArenaProgram,
+    sources: &SourceMap,
+    block: BlockId,
+    by_source: &mut BTreeMap<SourceId, SourceMetadata>,
+) {
+    let statements = program.arena.stmt_ids(program.arena.block(block).statements);
+    collect_statements(program, sources, statements, by_source);
+}
+
+fn add_proc_definition(
+    program: &ArenaProgram,
+    sources: &SourceMap,
+    span: Span,
+    def: FunctionDefId,
+    by_source: &mut BTreeMap<SourceId, SourceMetadata>,
+) {
+    if let Some(metadata) = by_source.get_mut(&span.source_id) {
+        metadata
+            .proc_decls
+            .insert(
+                program.arena.function_def(def).name.to_string(),
+                sources
+                    .location(span.source_id, span.start())
+                    .map_or(0, |location| location.line),
+            );
+    }
+    collect_block(program, sources, program.arena.function_def(def).body, by_source);
+}
+
+fn add_expr(
+    program: &ArenaProgram,
+    sources: &SourceMap,
+    expr: ExprId,
+    by_source: &mut BTreeMap<SourceId, SourceMetadata>,
+) {
+    add_span(sources, program.arena.expr(expr).span, by_source);
+}
+
+fn add_span(
+    sources: &SourceMap,
+    span: Span,
+    by_source: &mut BTreeMap<SourceId, SourceMetadata>,
+) {
+    let Some(start) = sources.location(span.source_id, span.start()) else {
+        return;
+    };
+    let Some(end) = sources.location(span.source_id, span.end()) else {
+        return;
+    };
+    if let Some(metadata) = by_source.get_mut(&span.source_id) {
+        metadata
+            .executable_lines
+            .extend(start.line..=end.line.max(start.line));
+    }
 }
 
 fn executable_line_numbers(text: &str) -> BTreeSet<usize> {
@@ -680,8 +953,9 @@ mod tests {
             .expect("ingest");
 
         let rendered = collector.render();
-        assert!(rendered.contains("lines: 2/6 (33.3%)"), "{rendered}");
-        assert!(rendered.contains("procs: 1/2 (50.0%)"), "{rendered}");
+        assert!(rendered.contains("scope: 1 source files (0 observed)"), "{rendered}");
+        assert!(rendered.contains("source lines: 2/6 (33.3%)"), "{rendered}");
+        assert!(rendered.contains("proc entries: 1/2 (50.0%)"), "{rendered}");
         assert!(rendered.contains("pm.xsh"), "{rendered}");
         let _ = fs::remove_dir_all(root);
     }
@@ -710,8 +984,9 @@ mod tests {
             .expect("ingest");
 
         let rendered = collector.render();
-        assert!(rendered.contains("lines: 0/3 (0.0%)"), "{rendered}");
-        assert!(rendered.contains("procs: 0/1 (0.0%)"), "{rendered}");
+        assert!(rendered.contains("scope: 1 source files (1 observed)"), "{rendered}");
+        assert!(rendered.contains("source lines: 0/3 (0.0%)"), "{rendered}");
+        assert!(rendered.contains("proc entries: 0/1 (0.0%)"), "{rendered}");
         assert!(rendered.contains("pm/local.xsh"), "{rendered}");
         let _ = fs::remove_dir_all(root);
     }
@@ -743,8 +1018,55 @@ mod tests {
             .expect("ingest");
 
         let rendered = collector.render();
-        assert!(rendered.contains("procs: 1/1 (100.0%)"), "{rendered}");
+        assert!(rendered.contains("proc entries: 1/1 (100.0%)"), "{rendered}");
         assert!(rendered.contains("pm.xsh"), "{rendered}");
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn registered_sources_use_ast_lines_and_include_unobserved_files() {
+        let root = std::env::temp_dir().join(format!(
+            "xsh-source-coverage-ast-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).expect("create root");
+        let covered = root.join("covered.xsh");
+        let missed = root.join("missed.xsh");
+        fs::write(
+            &covered,
+            "type Config = {\n  value: Int,\n}\n\nproc covered() {\n  print \"hit\"\n}\n",
+        )
+        .expect("write covered source");
+        fs::write(&missed, "proc missed() {\n  print \"miss\"\n}\n")
+            .expect("write missed source");
+
+        let mut collector = CoverageCollector {
+            root: Some(root.clone()),
+            ..CoverageCollector::default()
+        };
+        collector.register_source_files(&[covered.clone(), missed.clone()], &[]);
+        collector
+            .ingest_jsonl(
+                "tests",
+                &format!(
+                    "{{\"kind\":\"source.file\",\"file\":\"{}\",\"line_count\":7}}\n{{\"kind\":\"core.call\",\"source_span\":{{\"file\":\"{}\",\"start_line\":6,\"end_line\":6}}}}\n",
+                    covered.display(),
+                    covered.display(),
+                ),
+            )
+            .expect("ingest");
+
+        let files = collector.source_file_coverages();
+        let covered_file = files.iter().find(|file| file.file == "covered.xsh").unwrap();
+        let missed_file = files.iter().find(|file| file.file == "missed.xsh").unwrap();
+        assert!(covered_file.executable_lines < 6);
+        assert_eq!(covered_file.covered_lines, 1);
+        assert!(missed_file.executable_lines < 4);
+        assert_eq!(missed_file.covered_lines, 0);
+        assert!(collector
+            .render()
+            .contains("scope: 2 source files (1 observed)"));
         let _ = fs::remove_dir_all(root);
     }
 }
