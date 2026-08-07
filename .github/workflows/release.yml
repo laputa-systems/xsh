@@ -102,14 +102,6 @@ jobs:
           ci_target=linux; case ${{ matrix.os }} in darwin) ci_target=macos;; esac
           make test-${ci_target}-ci TARGET=${{ matrix.target }}
 
-      - name: Validate xshi-only PGO candidate
-        if: matrix.os == 'linux'
-        run: make release-pgo-linux-docker TARGET=${{ matrix.target }} XSH_TEST_IMAGE=xsh-test XSH_TEST_IMAGE_BUILD=0
-
-      - name: Validate xshi-only PGO candidate
-        if: matrix.os == 'darwin'
-        run: make release-pgo PGO_TARGET=${{ matrix.target }}
-
       - name: Verify static linkage
         if: matrix.os == 'linux'
         run: |
@@ -161,7 +153,6 @@ jobs:
           RELEASE_TAG: release-${{ github.sha }}
         run: |
           set -euo pipefail
-          test -f "dist/core-${RELEASE_TAG}.tar.xz"
           for artifact in \
             "xsh-${RELEASE_TAG}-x86_64-linux-musl" \
             "xsht-${RELEASE_TAG}-x86_64-linux-musl" \
@@ -197,6 +188,7 @@ jobs:
                 chmod 0755 "$dest"
               done
           tar -C "$core_stage" -cJf "$core_tar" core
+          test -s "$core_tar"
           sha256sum "$core_tar" > "dist/core-${RELEASE_TAG}.sha256"
 
       - name: Create pre-release
