@@ -242,6 +242,7 @@ test-linux:
 	    -w /work \
 	    xsh-test \
 	    sh -c 'set -eu; \
+	        git config --global --add safe.directory /work; \
 	        cargo build --bin xsh --bin xsh-test-sleeper; \
 	        ln -sf /work/target/debug/xsh /bin/xsh; \
 	        cargo test --features linux-priv-tests; \
@@ -263,6 +264,7 @@ test-linux-ci:
 		-e HOST_GID=$$(id -g) \
 		$(XSH_TEST_IMAGE) \
 		sh -c ' \
+			git config --global --add safe.directory /work && \
 			chown_target() { chown -R "$${HOST_UID}:$${HOST_GID}" /work/target; } && \
 			trap chown_target EXIT && \
 			$(TEST_DOCKER_ENV) cargo test --locked --profile $(DIST_PROFILE) --features "linux-priv-tests net tools" --target $(TARGET) -- --nocapture \
