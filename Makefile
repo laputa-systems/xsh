@@ -312,6 +312,13 @@ PGO_USE_BINARY := $(PGO_USE_TARGET_DIR)/$(PGO_TARGET)/release/xshi
 PGO_USE_RUSTFLAGS := -Cprofile-use=$(PGO_MERGED) -Cllvm-args=-pgo-warn-missing-function
 PGO_GENERATE_RUSTFLAGS := -Cprofile-generate=$(PGO_DIR)
 PGO_BUILD_STD_FLAGS ?=
+PGO_DRIVER_ENV =
+ifeq ($(PGO_TARGET),x86_64-unknown-linux-musl)
+PGO_DRIVER_ENV = -u CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS
+endif
+ifeq ($(PGO_TARGET),aarch64-unknown-linux-musl)
+PGO_DRIVER_ENV = -u CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_RUSTFLAGS
+endif
 
 bench:
 	@$(RUSTYBENCH) baseline --root "$(CURDIR)" --baseline "$(CURDIR)/crates/xshi/benches/baseline.json" -- cargo bench -p xshi --bench bench --features benchmark
@@ -328,8 +335,8 @@ pgo-instrument:
 	env -u RUSTFLAGS -u CARGO_ENCODED_RUSTFLAGS cargo rustc --locked -p xshi --bin xshi --release $(PGO_BUILD_STD_FLAGS) --target $(PGO_TARGET) --target-dir $(PGO_INSTRUMENT_TARGET_DIR) -- $(PGO_GENERATE_RUSTFLAGS)
 
 pgo-profile: pgo-instrument
-	env -u RUSTFLAGS -u CARGO_ENCODED_RUSTFLAGS cargo test --locked --test integration --no-run $(PGO_BUILD_STD_FLAGS) --features "native-tests net tools" --target-dir $(PGO_DRIVER_TARGET_DIR)
-	env -u RUSTFLAGS -u CARGO_ENCODED_RUSTFLAGS LLVM_PROFILE_FILE="$(PGO_DIR)/xshi-%p.profraw" XSH_PGO_BINARY="$(PGO_INSTRUMENT_BINARY)" CARGO_TARGET_DIR="$(PGO_DRIVER_TARGET_DIR)" cargo test --locked --test integration $(PGO_BUILD_STD_FLAGS) --features "native-tests net tools" runtime::interactive::xshi_pgo_profile_workload -- --ignored --exact --test-threads=1
+	env -u RUSTFLAGS -u CARGO_ENCODED_RUSTFLAGS $(PGO_DRIVER_ENV) cargo test --locked --test integration --no-run --features "native-tests net tools" --target-dir $(PGO_DRIVER_TARGET_DIR)
+	env -u RUSTFLAGS -u CARGO_ENCODED_RUSTFLAGS $(PGO_DRIVER_ENV) LLVM_PROFILE_FILE="$(PGO_DIR)/xshi-%p.profraw" XSH_PGO_BINARY="$(PGO_INSTRUMENT_BINARY)" CARGO_TARGET_DIR="$(PGO_DRIVER_TARGET_DIR)" cargo test --locked --test integration --features "native-tests net tools" runtime::interactive::xshi_pgo_profile_workload -- --ignored --exact --test-threads=1
 	@raw_profiles="$$(find "$(PGO_DIR)" -type f -name '*.profraw' -print)"; \
 		test -n "$$raw_profiles"; \
 		$(LLVM_BIN)/llvm-profdata merge -o "$(PGO_MERGED)" $$raw_profiles; \
