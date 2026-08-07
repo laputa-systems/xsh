@@ -88,20 +88,14 @@ build:
 DIST_BINS = xsh xsht xshi
 DIST_MUSL_RUSTFLAGS = -C target-feature=+crt-static
 DIST_MUSL_RUSTFLAGS += -C link-arg=--defsym=__isoc23_sscanf=sscanf -C link-arg=--defsym=__isoc23_strtol=strtol
-ifeq ($(DOCKER_BUILD),1)
-DIST_MUSL_RUSTFLAGS += -L native=/usr/lib
-DIST_RUSTFLAGS_ENV = RUSTFLAGS="-L native=/usr/lib"
-else
-DIST_RUSTFLAGS_ENV =
-endif
 # Both musl targets use rust-lld and the self-contained musl CRT from rustc.
 DIST_FULL_RUSTFLAGS ?= $(RUSTFLAGS) $(DIST_RUSTFLAGS) $(DIST_TARGET_RUSTFLAGS) $(DIST_MUSL_RUSTFLAGS)
 DIST_ENV =
 ifeq ($(TARGET),x86_64-unknown-linux-musl)
-DIST_ENV = $(DIST_RUSTFLAGS_ENV) CFLAGS_x86_64_unknown_linux_musl="$(strip $(CFLAGS_x86_64_unknown_linux_musl) $(DIST_TARGET_CFLAGS))" AWS_LC_SYS_CFLAGS_x86_64_unknown_linux_musl="$(strip $(AWS_LC_SYS_CFLAGS_x86_64_unknown_linux_musl) $(DIST_TARGET_CFLAGS))" AWS_LC_SYS_NO_JITTER_ENTROPY=1 CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS="$(strip $(DIST_FULL_RUSTFLAGS))"
+DIST_ENV = CFLAGS_x86_64_unknown_linux_musl="$(strip $(CFLAGS_x86_64_unknown_linux_musl) $(DIST_TARGET_CFLAGS))" AWS_LC_SYS_CFLAGS_x86_64_unknown_linux_musl="$(strip $(AWS_LC_SYS_CFLAGS_x86_64_unknown_linux_musl) $(DIST_TARGET_CFLAGS))" AWS_LC_SYS_NO_JITTER_ENTROPY=1 CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS="$(strip $(DIST_FULL_RUSTFLAGS))"
 endif
 ifeq ($(TARGET),aarch64-unknown-linux-musl)
-DIST_ENV = $(DIST_RUSTFLAGS_ENV) CFLAGS_aarch64_unknown_linux_musl="$(strip $(CFLAGS_aarch64_unknown_linux_musl) $(DIST_TARGET_CFLAGS))" AWS_LC_SYS_CFLAGS_aarch64_unknown_linux_musl="$(strip $(AWS_LC_SYS_CFLAGS_aarch64_unknown_linux_musl) $(DIST_TARGET_CFLAGS))" AWS_LC_SYS_NO_JITTER_ENTROPY=1 CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_RUSTFLAGS="$(strip $(DIST_FULL_RUSTFLAGS))"
+DIST_ENV = CFLAGS_aarch64_unknown_linux_musl="$(strip $(CFLAGS_aarch64_unknown_linux_musl) $(DIST_TARGET_CFLAGS))" AWS_LC_SYS_CFLAGS_aarch64_unknown_linux_musl="$(strip $(AWS_LC_SYS_CFLAGS_aarch64_unknown_linux_musl) $(DIST_TARGET_CFLAGS))" AWS_LC_SYS_NO_JITTER_ENTROPY=1 CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_RUSTFLAGS="$(strip $(DIST_FULL_RUSTFLAGS))"
 endif
 
 # Dockerfile.test already supplies the compiler, C library, target CFLAGS, and
@@ -109,20 +103,20 @@ endif
 # Docker path can invoke Cargo directly without replacing that environment.
 DIST_DOCKER_ENV =
 ifeq ($(TARGET),x86_64-unknown-linux-musl)
-DIST_DOCKER_ENV = RUSTFLAGS="-L native=/usr/lib" CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS="$(strip $(DIST_FULL_RUSTFLAGS) -L native=/usr/lib)"
+DIST_DOCKER_ENV = CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS="$(strip $(DIST_FULL_RUSTFLAGS))"
 endif
 ifeq ($(TARGET),aarch64-unknown-linux-musl)
-DIST_DOCKER_ENV = RUSTFLAGS="-L native=/usr/lib" CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_RUSTFLAGS="$(strip $(DIST_FULL_RUSTFLAGS) -L native=/usr/lib)"
+DIST_DOCKER_ENV = CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_RUSTFLAGS="$(strip $(DIST_FULL_RUSTFLAGS))"
 endif
 
 TEST_DOCKER_RUSTFLAGS = -C target-feature=+crt-static
 TEST_DOCKER_RUSTFLAGS += -C link-arg=--defsym=__isoc23_sscanf=sscanf -C link-arg=--defsym=__isoc23_strtol=strtol
 TEST_DOCKER_ENV =
 ifeq ($(TARGET),x86_64-unknown-linux-musl)
-TEST_DOCKER_ENV = RUSTFLAGS="-L native=/usr/lib" CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS="$(strip $(TEST_DOCKER_RUSTFLAGS) -L native=/usr/lib)"
+TEST_DOCKER_ENV = CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS="$(strip $(TEST_DOCKER_RUSTFLAGS))"
 endif
 ifeq ($(TARGET),aarch64-unknown-linux-musl)
-TEST_DOCKER_ENV = RUSTFLAGS="-L native=/usr/lib" CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_RUSTFLAGS="$(strip $(TEST_DOCKER_RUSTFLAGS) -L native=/usr/lib)"
+TEST_DOCKER_ENV = CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_RUSTFLAGS="$(strip $(TEST_DOCKER_RUSTFLAGS))"
 endif
 
 # Dockerfile.test provides rust-src for the toolchain, but its CI-like musl
