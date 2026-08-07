@@ -167,10 +167,6 @@ jobs:
             test -x "dist/$artifact"
             test -s "dist/$artifact"
           done
-          if find dist -maxdepth 1 -type f -name '*.tar.xz' ! -name "core-${RELEASE_TAG}.tar.xz" -print -quit | grep -q .; then
-            echo 'unexpected compressed binary artifact' >&2
-            exit 1
-          fi
       - name: Package core scripts
         env:
           RELEASE_TAG: release-${{ github.sha }}
@@ -190,6 +186,12 @@ jobs:
           tar -C "$core_stage" -cJf "$core_tar" core
           test -s "$core_tar"
           sha256sum "$core_tar" > "dist/core-${RELEASE_TAG}.sha256"
+          for archive in dist/*.tar.xz; do
+            if test "$archive" != "$core_tar"; then
+              echo "unexpected compressed artifact: $archive" >&2
+              exit 1
+            fi
+          done
 
       - name: Create pre-release
         env:
