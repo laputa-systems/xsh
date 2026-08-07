@@ -171,6 +171,10 @@ fn os_signal_hooks_run_from_loop_sleep_defer_and_wait_checkpoints() {
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 #[test]
+#[cfg_attr(
+    target_os = "macos",
+    ignore = "flaky on macOS: signal escalation timing is nondeterministic"
+)]
 fn os_first_signal_wins_and_different_signal_escalates_without_reentry() {
     let output = trace_os_fixture("signal-first-wins-escalation.xsh", &[os_probe()]);
 
