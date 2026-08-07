@@ -119,10 +119,9 @@ ifeq ($(TARGET),aarch64-unknown-linux-musl)
 TEST_DOCKER_ENV = CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_RUSTFLAGS="$(strip $(TEST_DOCKER_RUSTFLAGS))"
 endif
 
-# Dockerfile.test provides rust-src for the toolchain, but its CI-like musl
-# setup follows the existing macOS distribution recipe and does not rebuild
-# the standard library here.
-DIST_DOCKER_BUILD_STD_FLAGS ?=
+# Dockerfile.test provides rust-src so the dist profile's immediate-abort
+# panic strategy can be applied consistently to the musl standard library.
+DIST_DOCKER_BUILD_STD_FLAGS ?= -Z build-std=std
 
 ifeq ($(TARGET),aarch64-apple-darwin)
 DIST_ENV = MACOSX_DEPLOYMENT_TARGET="$(DARWIN_DEPLOYMENT_TARGET)" CFLAGS_aarch64_apple_darwin="$(strip $(DIST_TARGET_CFLAGS))" CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS="$(strip $(DIST_DARWIN_RUSTFLAGS))"
