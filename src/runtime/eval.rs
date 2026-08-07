@@ -2553,7 +2553,10 @@ const LOWERED_METHOD_NAMES: &[&str] = &[
     "signal_number",
     "display",
     "name",
+    "basename",
+    "dirname",
     "ext",
+    "ext_or",
     "with_ext",
     "normalize",
     "parent",
@@ -5285,7 +5288,7 @@ impl Evaluator {
     }
 }
 
-fn path_parent(path: &PathValue) -> Result<PathValue, RuntimeError> {
+pub(super) fn path_parent(path: &PathValue) -> Result<PathValue, RuntimeError> {
     let pathbuf = pathbuf_from_path_value(path);
     let parent = pathbuf.parent().unwrap_or_else(|| {
         if path.bytes.starts_with(b"/") {
@@ -5301,13 +5304,32 @@ fn path_parent(path: &PathValue) -> Result<PathValue, RuntimeError> {
     }
 }
 
-fn path_text_field(path: &PathValue, name: &str) -> Result<String, RuntimeError> {
+fn path_component_bytes(path: &PathValue) -> &[u8] {
+    let mut end = path.bytes.len();
+    while end > 1 && path.bytes[end - 1] == b'/' {
+        end -= 1;
+    }
+    let component_start = path.bytes[..end]
+        .iter()
+        .rposition(|byte| *byte == b'/')
+        .map_or(0, |index| index + 1);
+    &path.bytes[component_start..end]
+}
+
+pub(super) fn path_text_field(path: &PathValue, name: &str) -> Result<String, RuntimeError> {
     let pathbuf = pathbuf_from_path_value(path);
     Ok(match name {
         "name" => pathbuf
             .file_name()
             .map(|name| name.to_string_lossy().into_owned())
             .unwrap_or_default(),
+        "basename" => {
+            if path.bytes.iter().all(|byte| *byte == b'/') && !path.bytes.is_empty() {
+                "/".to_string()
+            } else {
+                String::from_utf8_lossy(path_component_bytes(path)).into_owned()
+            }
+        }
         "ext" => pathbuf
             .extension()
             .map(|extension| extension.to_string_lossy().into_owned())
@@ -5316,7 +5338,43 @@ fn path_text_field(path: &PathValue, name: &str) -> Result<String, RuntimeError>
     })
 }
 
-fn path_with_ext(path: &PathValue, ext: &str) -> Result<PathValue, RuntimeError> {
+pub(super) fn path_posix_dirname(path: &PathValue) -> Result<PathValue, RuntimeError> {
+    if path.bytes.is_empty() {
+        return PathValue::from_text(".");
+    }
+
+    let mut end = path.bytes.len();
+    while end > 1 && path.bytes[end - 1] == b'/' {
+        end -= 1;
+    }
+    if path.bytes[..end].iter().all(|byte| *byte == b'/') {
+        return PathValue::from_text("/");
+    }
+
+    let Some(slash) = path.bytes[..end].iter().rposition(|byte| *byte == b'/') else {
+        return PathValue::from_text(".");
+    };
+    let mut parent_end = slash;
+    while parent_end > 1 && path.bytes[parent_end - 1] == b'/' {
+        parent_end -= 1;
+    }
+    if parent_end == 0 {
+        PathValue::from_text("/")
+    } else {
+        PathValue::new(path.bytes[..parent_end].to_vec())
+    }
+}
+
+pub(super) fn path_posix_extension(path: &PathValue) -> Option<String> {
+    let name = path_component_bytes(path);
+    if name.len() < 2 {
+        return None;
+    }
+    let dot = name[1..].iter().rposition(|byte| *byte == b'.')? + 1;
+    Some(String::from_utf8_lossy(&name[dot + 1..]).into_owned())
+}
+
+pub(super) fn path_with_ext(path: &PathValue, ext: &str) -> Result<PathValue, RuntimeError> {
     let mut pathbuf = pathbuf_from_path_value(path);
     pathbuf.set_extension(ext);
     path_value_from_pathbuf(pathbuf)

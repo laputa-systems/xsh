@@ -12356,9 +12356,11 @@ fn lowered_method_supported_for_type(ty: &Type, name: Name, arg_count: usize) ->
             _ => false,
         },
         Type::Path => match name.as_str().as_str() {
-            "display" | "name" | "ext" | "normalize" | "parent" | "lines" | "bytes_lines"
-            | "read_text" | "read_bytes" | "exists" | "executable" | "du" | "metadata"
-            | "readlink" | "resolve" | "remove_dir" | "unlink" => arg_count == 0,
+            "display" | "name" | "basename" | "dirname" | "ext" | "normalize" | "parent"
+            | "lines" | "bytes_lines" | "read_text" | "read_bytes" | "exists"
+            | "executable" | "du" | "metadata" | "readlink" | "resolve" | "remove_dir"
+            | "unlink" => arg_count == 0,
+            "ext_or" => arg_count == 1,
             "with_ext" | "strip_prefix" | "relative_to" | "touch_from" | "truncate" | "chmod"
             | "hardlink" | "write" | "write_atomic" => arg_count == 1,
             "copy" | "rename" | "mkdir" | "remove" => arg_count == 1 || arg_count == 2,

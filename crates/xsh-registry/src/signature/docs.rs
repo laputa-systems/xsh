@@ -1243,13 +1243,28 @@ fn method_doc(receiver: &str, method: &str) -> Option<DocRow> {
             &["path", "display"],
         )),
         ("Path", "name") => Some((
-            "Returns the final path component.",
-            "The result is text derived from the path spelling and may be empty for a root-like path.",
+            "Returns the final path component using native path semantics.",
+            "The result is text derived from the path spelling and may be empty for a root-like path; use basename for POSIX basename semantics.",
             &["path", "component"],
+        )),
+        ("Path", "basename") => Some((
+            "Returns the final component using POSIX basename semantics.",
+            "Trailing slashes are ignored, and a root-only path returns `/`.",
+            &["path", "component", "posix"],
+        )),
+        ("Path", "dirname") => Some((
+            "Returns the directory component using POSIX dirname semantics.",
+            "Trailing slashes are ignored and the result is a Path; this is lexical and does not inspect the filesystem.",
+            &["path", "component", "posix"],
         )),
         ("Path", "ext") => Some((
             "Returns the path extension.",
-            "Extension parsing follows the path component rules and does not inspect file contents.",
+            "Extension parsing follows native path component rules and returns an empty string when no extension is present; use ext_or to distinguish no extension from an empty trailing-dot extension.",
+            &["path", "component"],
+        )),
+        ("Path", "ext_or") => Some((
+            "Returns the path extension, or a fallback when there is no extension.",
+            "Unlike ext(), this distinguishes a missing extension from an empty extension after a trailing dot; a leading dot alone is not an extension.",
             &["path", "component"],
         )),
         ("Path", "normalize") => Some((
