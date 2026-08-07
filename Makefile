@@ -207,7 +207,7 @@ release-pgo-linux-docker:
 			ln -sf /usr/lib/libgcc_s.so.1 "$$SR/libgcc_s.so" && \
 			ln -sf /usr/lib/libgcc_s.so.1 "$$SR/libgcc_s.so.1" && \
 			ln -sf /usr/lib/libc.so "$$SR/libc.so" && \
-			$(DIST_DOCKER_ENV) make release-pgo PGO_TARGET=$(TARGET) PGO_BUILD_STD_FLAGS="$(DIST_DOCKER_BUILD_STD_FLAGS)" \
+			$(DIST_DOCKER_ENV) make release-pgo PGO_TARGET=$(TARGET) PGO_BUILD_STD_FLAGS="$(DIST_DOCKER_BUILD_STD_FLAGS)" PGO_RUNTIME_RUSTFLAGS="-C link-arg=/opt/llvm-musl/lib/clang/22/lib/linux/libclang_rt.builtins-$(if $(filter x86_64-unknown-linux-musl,$(TARGET)),x86_64,aarch64).a" \
 		'
 
 dist-native:
@@ -312,6 +312,7 @@ PGO_USE_BINARY := $(PGO_USE_TARGET_DIR)/$(PGO_TARGET)/release/xshi
 PGO_USE_RUSTFLAGS := -Cprofile-use=$(PGO_MERGED) -Cllvm-args=-pgo-warn-missing-function
 PGO_GENERATE_RUSTFLAGS := -Cprofile-generate=$(PGO_DIR)
 PGO_BUILD_STD_FLAGS ?=
+PGO_RUNTIME_RUSTFLAGS ?=
 PGO_DRIVER_ENV =
 ifeq ($(PGO_TARGET),x86_64-unknown-linux-musl)
 PGO_DRIVER_ENV = -u CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS
@@ -332,7 +333,7 @@ bench-syscalls:
 pgo-instrument:
 	rm -rf $(PGO_DIR) $(PGO_INSTRUMENT_TARGET_DIR) $(PGO_DRIVER_TARGET_DIR) $(PGO_USE_TARGET_DIR)
 	mkdir -p $(PGO_DIR)
-	env -u RUSTFLAGS -u CARGO_ENCODED_RUSTFLAGS cargo rustc --locked -p xshi --bin xshi --release $(PGO_BUILD_STD_FLAGS) --target $(PGO_TARGET) --target-dir $(PGO_INSTRUMENT_TARGET_DIR) -- $(PGO_GENERATE_RUSTFLAGS)
+	env -u RUSTFLAGS -u CARGO_ENCODED_RUSTFLAGS cargo rustc --locked -p xshi --bin xshi --release $(PGO_BUILD_STD_FLAGS) --target $(PGO_TARGET) --target-dir $(PGO_INSTRUMENT_TARGET_DIR) -- $(PGO_GENERATE_RUSTFLAGS) $(PGO_RUNTIME_RUSTFLAGS)
 
 pgo-profile: pgo-instrument
 	env -u RUSTFLAGS -u CARGO_ENCODED_RUSTFLAGS $(PGO_DRIVER_ENV) cargo test --locked --test integration --no-run --features "native-tests net tools" --target-dir $(PGO_DRIVER_TARGET_DIR)
