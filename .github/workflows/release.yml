@@ -103,6 +103,11 @@ jobs:
           make test-${ci_target}-ci TARGET=${{ matrix.target }}
 
       - name: Validate xshi-only PGO candidate
+        if: matrix.os == 'linux'
+        run: make release-pgo-linux-docker TARGET=${{ matrix.target }} XSH_TEST_IMAGE=xsh-test XSH_TEST_IMAGE_BUILD=0
+
+      - name: Validate xshi-only PGO candidate
+        if: matrix.os == 'darwin'
         run: make release-pgo PGO_TARGET=${{ matrix.target }}
 
       - name: Verify static linkage

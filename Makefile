@@ -1,6 +1,6 @@
 RUSTYBENCH ?= cargo run --quiet --manifest-path ../../rustybench/Cargo.toml --
 
-.PHONY: build lint docs test cov test-linux test-linux-ci test-macos-ci bench bench-fast bench-pgo bench-syscalls pgo-instrument pgo-profile release-pgo install-darwin install-linux dist dist-native dist-Linux-docker dist-ci
+.PHONY: build lint docs test cov test-linux test-linux-ci test-macos-ci bench bench-fast bench-pgo bench-syscalls pgo-instrument pgo-profile release-pgo release-pgo-linux-docker install-darwin install-linux dist dist-native dist-Linux-docker dist-ci
 
 DARWIN_CODESIGN_FLAGS ?=
 ifneq ($(DARWIN_CODESIGN_ENTITLEMENTS),)
@@ -182,6 +182,32 @@ dist-Linux-docker:
 			ln -sf /usr/lib/libc.so "$$SR/libc.so" && \
 			$(DIST_DOCKER_ENV) cargo build --locked --profile $(DIST_PROFILE) $(DIST_DOCKER_BUILD_STD_FLAGS) --target $(TARGET) --no-default-features --features "net tools" --bin xsh --bin xsht --bin xshi && \
 			if [ "$(DIST_PROFILE_DIR)" != dist ]; then mkdir -p target/$(TARGET)/dist && for bin in $(DIST_BINS); do cp -f target/$(TARGET)/$(DIST_PROFILE_DIR)/$$bin target/$(TARGET)/dist/$$bin; done; fi \
+		'
+
+release-pgo-linux-docker:
+	if [ "$(XSH_TEST_IMAGE_BUILD)" = "1" ]; then docker build --platform=$(DOCKER_PLATFORM) -t $(XSH_TEST_IMAGE) -f Dockerfile.test .; else docker image inspect $(XSH_TEST_IMAGE) >/dev/null; fi
+	mkdir -p target
+	docker run --rm --privileged \
+		--platform=$(DOCKER_PLATFORM) \
+		-v $(CURDIR):/work \
+		-v $(CURDIR)/target:/work/target \
+		-v xsh-cargo-registry:/root/.cargo/registry \
+		-w /work \
+		-e TARGET=$(TARGET) \
+		-e CARGO_TARGET_DIR=/work/target \
+		-e CARGO_BUILD_WARNINGS=$(CARGO_BUILD_WARNINGS) \
+		-e HOST_UID=$$(id -u) \
+		-e HOST_GID=$$(id -g) \
+		$(XSH_TEST_IMAGE) \
+		sh -c ' \
+			git config --global --add safe.directory /work && \
+			chown_target() { chown -R "$${HOST_UID}:$${HOST_GID}" /work/target; } && \
+			trap chown_target EXIT && \
+			SR=$$(rustc --target $(TARGET) --print sysroot)/lib/rustlib/$(TARGET)/lib && \
+			ln -sf /usr/lib/libgcc_s.so.1 "$$SR/libgcc_s.so" && \
+			ln -sf /usr/lib/libgcc_s.so.1 "$$SR/libgcc_s.so.1" && \
+			ln -sf /usr/lib/libc.so "$$SR/libc.so" && \
+			$(DIST_DOCKER_ENV) make release-pgo PGO_TARGET=$(TARGET) \
 		'
 
 dist-native:
