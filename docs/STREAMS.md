@@ -68,7 +68,10 @@ eager vec handlers and the lazy sinks.
   `fold(init)`/`reduce(init)` use an explicit accumulator block that binds the
   accumulator (typed by the initial value) first and the stream item second:
   `|> fold(0) { |acc, item| acc + item }`. It is a sequential user combine with
-  no merge function and returns that accumulator.
+  no merge function and returns that accumulator. Fold/reduce blocks are pure
+  reductions: output belongs in a following `each { |item| print $item }`
+  stage. `xsht check` reports this constraint directly when a block contains
+  `print` or `eprint`.
 - **Explicit materialization** (`collect()`): drain to a `List[T]`, equivalent
   to the automatic collection that happens when a non-terminal pipeline reaches
   an expression boundary.

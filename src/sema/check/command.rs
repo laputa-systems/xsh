@@ -19,6 +19,19 @@ fn btree_map<K: Into<Name>, V>(entries: Vec<(K, V)>) -> BTreeMap<Name, V> {
         .collect()
 }
 
+pub(super) fn command_is_print_arena(
+    arena: &ArenaProgram,
+    command_id: CommandStmtId,
+) -> bool {
+    matches!(
+        arena.arena.command_stmt(command_id).command,
+        ArenaCommand::Core {
+            name: CoreCommand::Print | CoreCommand::Eprint,
+            ..
+        }
+    )
+}
+
 pub(super) fn command_ty_auto_propagates(ty: &Type) -> bool {
     ty.is_result_unit()
 }
@@ -164,6 +177,21 @@ impl Checker {
     ) {
         let stmt = arena.arena.command_stmt(id);
         let span = arena.arena.span(stmt.span);
+        if self.in_pure_fold
+            && matches!(
+                stmt.command,
+                ArenaCommand::Core {
+                    name: CoreCommand::Print | CoreCommand::Eprint,
+                    ..
+                }
+            )
+        {
+            self.error(
+                span,
+                "fold/reduce blocks must be pure reductions; emit output in a separate `each { |item| print $item }` stage",
+                "check.fold-effect",
+            );
+        }
         if self.in_pure {
             self.error(
                 span,

@@ -1,6 +1,6 @@
 use super::{
     Binding, Checker, Name, call_arg_expr_id_arena, call_arg_span_arena,
-    command_stmt_asserts_success_arena, command_ty_auto_propagates,
+    command_is_print_arena, command_stmt_asserts_success_arena, command_ty_auto_propagates,
 };
 use crate::sema::types::Type;
 use crate::syntax::arena::{
@@ -498,14 +498,18 @@ impl Checker {
             );
             return Type::Unknown;
         };
-        self.check_stream_block_params_arena(
+        let previous_pure_fold = self.in_pure_fold;
+        self.in_pure_fold = true;
+        let result = self.check_stream_block_params_arena(
             arena,
             source,
             block,
             &[acc_ty.clone(), item_ty.clone()],
             2,
             item_ty,
-        )
+        );
+        self.in_pure_fold = previous_pure_fold;
+        result
     }
 
     fn check_stream_block_params_arena(
@@ -611,6 +615,13 @@ impl Checker {
                 else_block,
             } => self.check_stream_tail_if_arena(arena, source, branches, else_block),
             crate::syntax::arena::ArenaStmtKind::Command(command_id) => {
+                if self.in_pure_fold && command_is_print_arena(arena, command_id) {
+                    self.error(
+                        stmt.span,
+                        "fold/reduce blocks must be pure reductions; emit output in a separate `each { |item| print $item }` stage",
+                        "check.fold-effect",
+                    );
+                }
                 if self.in_pure {
                     self.error(
                         stmt.span,

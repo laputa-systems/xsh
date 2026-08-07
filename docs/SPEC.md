@@ -2772,7 +2772,9 @@ one-expression and multi-statement stage blocks. `fold`/`reduce` additionally
 accept a two-parameter block `{ |acc, item| ... }` whose first parameter is the
 accumulated value (typed by the initial value) and whose second is the stream
 item; the block's tail must produce the accumulator's type, and the stage
-returns that accumulated value.
+returns that accumulated value. Fold and reduce blocks are pure reductions and
+must not print; use a following `each { |item| print $item }` stage for output.
+`xsht check` reports this constraint as `check.fold-effect`.
 
 A tail proc call with `?` unwraps the `Ok` value and propagates errors: if
 any item fails, the entire stage short-circuits with that error. Without

@@ -667,6 +667,26 @@ let counted = ["a", "b", "a"] |> fold(map.empty()) { |acc, it| acc.set(it, acc.g
 }
 
 #[test]
+fn checker_rejects_fold_output_with_actionable_diagnostic() {
+    let messages = check_messages(
+        r#"
+let total = [1, 2, 3] |> fold(0) { |acc, item|
+  let next = acc + item
+  print $next
+  next
+}
+"#,
+    );
+    assert!(
+        messages.iter().any(|message| {
+            message.contains("fold/reduce blocks must be pure reductions")
+                && message.contains("each")
+        }),
+        "expected actionable fold diagnostic, got {messages:?}"
+    );
+}
+
+#[test]
 fn checker_handles_user_stream_producers() {
     let ok = check(
         r#"
