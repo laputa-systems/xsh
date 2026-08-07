@@ -1172,9 +1172,10 @@ failure diagnostic and the runtime-failure CLI exit code. A final top-level
 `Int` or `UInt` value exits with that status code. Status values must be in the
 range `0..=255`.
 
-`abort(status: Int, force: Bool = false)` exits the script with `status`.
-Deferred cleanup runs while unwinding by default. `abort(status, force: true)`
-skips deferred cleanup.
+`abort(status: Int, force: Bool = false)` exits the script with `status` as an
+explicit deliberate process termination. It does not use Result propagation and
+therefore emits no runtime traceback on stderr. Deferred cleanup runs while
+unwinding by default. `abort(status, force: true)` skips deferred cleanup.
 
 `left ?? fallback` operates on `Result` and `Optional` values. For `Result`:
 `Ok(value)` evaluates to `value`; `Err(error)` evaluates the fallback. For

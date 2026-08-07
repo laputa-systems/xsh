@@ -407,6 +407,23 @@ main()?
   test.eq(forced.status, 11)?
   test.eq(forced.stdout, "")?
   test.eq(forced.stderr, "")?
+
+  let quiet_validation_failure = test.run_script(
+    ctx,
+    """
+print "escape"
+abort(17)
+print "unreachable"
+""",
+  )?
+
+  test.eq(quiet_validation_failure.status, 17)?
+  test.eq(
+    quiet_validation_failure.stdout,
+    """escape
+""",
+  )?
+  test.eq(quiet_validation_failure.stderr, "")?
 }
 
 proc test_whole_script_cli_usage_and_auto_main_errors(ctx: TestContext) [error] {

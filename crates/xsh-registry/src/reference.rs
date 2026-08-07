@@ -222,6 +222,7 @@ pub const CORE_LANGUAGE_ITEMS: &[&str] = &[
     "glob-literals",
     "display-strings",
     "print",
+    "abort",
 ];
 use crate::api_docs::ApiDocs;
 
@@ -816,6 +817,15 @@ fn core_doc(item: &str) -> ReferenceDoc {
                 "`print` writes its arguments separated by a single space and appends a newline to stdout; `eprint` does the same on stderr. `--flush` is recognized only as the first argument and writes to the inherited stream immediately instead of the captured script-output buffer. Both return Unit and require no declared effect. Accepted values are human-facing scalars: Str, Int, Bool, and Path; Path uses display conversion without canonicalizing. Command-word position interpolates with `$name` or `${expr}`, while expression string literals such as `\"$name\"` never interpolate; use `f\"${expr}\"` for expression-string interpolation.",
                 &["language", "print", "output", "builtin"],
                 "print [--flush] ARG...",
+                &[],
+            );
+        }
+        "abort" => {
+            return reference_doc_full(
+                "Terminates the script with an explicit exit status.",
+                "`abort(status)` is a deliberate process exit, not Result error propagation: it produces the requested status without a runtime traceback on stderr. Deferred cleanup runs unless `force: true` is supplied.",
+                &["language", "abort", "exit-status", "validation", "builtin"],
+                "abort(status: Int, force: Bool = false)",
                 &[],
             );
         }
