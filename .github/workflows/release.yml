@@ -80,7 +80,7 @@ jobs:
         if: matrix.os == 'darwin'
         run: make dist TARGET=${{ matrix.target }}
 
-      - name: Smoke-test independent binaries
+      - name: Smoke-test product binaries
         run: |
           set -euo pipefail
           for bin in xsh xsht xshi; do

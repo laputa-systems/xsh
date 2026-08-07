@@ -1,5 +1,5 @@
 use xsh::diagnostic::{Diagnostic, DiagnosticRenderer, Label};
-use xsh::source::{SourceMap, Span};
+use xsh::frontend::source::{SourceMap, Span};
 
 fn resolved_fixture_path() -> String {
     std::path::absolute("fixtures/diagnostics/synthetic.xsh")

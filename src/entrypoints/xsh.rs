@@ -1,6 +1,6 @@
 use std::process::ExitCode;
-use xsh::runner::{RunOptions, ScriptOutput, run_script, run_startup};
-use xsh::runtime::process::{clear_cancellation_request, install_cancellation_signal_handlers};
+use xsh::execution::script::{RunOptions, ScriptOutput, run_script, run_startup};
+use xsh::process::{clear_cancellation_request, install_cancellation_signal_handlers};
 
 const HELP: &str = "\
 xsh 0.0.1

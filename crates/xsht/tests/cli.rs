@@ -1123,14 +1123,14 @@ fn check_rejects_main_without_spread_parameter_but_accepts_spread() {
 #[test]
 fn lint_returns_interrupted_status_for_pending_sigint() {
     let _lock = SIGNAL_TEST_LOCK.lock().unwrap();
-    let _guard = xsh::runtime::process::install_cancellation_signal_handlers()
+    let _guard = xsh::process::install_cancellation_signal_handlers()
         .expect("install cancellation signal handlers");
-    xsh::runtime::process::clear_cancellation_request();
+    xsh::process::clear_cancellation_request();
     let kill_result = unsafe { libc::kill(libc::getpid(), libc::SIGINT) };
     assert_eq!(kill_result, 0);
 
     let output = xsht::cli::lint_files(&["unused.xsh".to_string()], false, false);
-    xsh::runtime::process::clear_cancellation_request();
+    xsh::process::clear_cancellation_request();
 
     assert_eq!(output.status, 130);
     assert_eq!(String::from_utf8(output.stdout).unwrap(), "");

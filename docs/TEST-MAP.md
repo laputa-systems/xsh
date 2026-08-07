@@ -29,13 +29,15 @@ area touched. Do not run formatter or autofix commands for agent work.
 ## API Gate
 
 ```sh
-cargo build --bin xsh
-cargo build --bin xsht
+cargo build -p xsh -p xshi -p xsht --bin xsh --bin xshi --bin xsht
+cargo metadata --no-deps --format-version 1
+cargo test --test integration libxsh_api
 cargo test -p xsh-registry --lib
 cargo test -p xsh --lib modules::signature
 cargo test -p xsht --test api
 target/debug/xsht api
 target/debug/xsht api summary --format jsonl
+bash scripts/check-libxsh-imports.sh
 git diff --check
 ```
 

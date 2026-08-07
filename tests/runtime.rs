@@ -1,3 +1,15 @@
+macro_rules! env {
+    ("CARGO_BIN_EXE_xsht") => {
+        crate::runtime::common::workspace_binary("xsht")
+    };
+    ("CARGO_BIN_EXE_xshi") => {
+        crate::runtime::common::workspace_binary("xshi")
+    };
+    ($name:literal) => {
+        option_env!($name).expect(concat!("missing Cargo test binary: ", $name))
+    };
+}
+
 #[path = "runtime/collections.rs"]
 mod collections;
 #[path = "runtime/common.rs"]

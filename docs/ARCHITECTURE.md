@@ -20,6 +20,41 @@ method named in this document, then open its owner file and nearest test. For
 the complete frontend vocabulary, see `docs/FRONTEND.md`; use the routing
 policy in `AGENTS.md` for task-specific reading and verification.
 
+## `libxsh` Rust façade
+
+The root `xsh` package also provides the shared Rust library consumed by the
+`xsh`, `xshi`, and `xsht` products. Its canonical first-party import paths are
+the façade modules below:
+
+| Concern | Canonical path | Owner |
+|---|---|---|
+| source loading, syntax, checking | `xsh::frontend::{load, syntax, check, source}` | `src/frontend.rs`, backed by `src/loader.rs`, `src/syntax`, `src/sema`, and `src/source.rs` |
+| diagnostics | `xsh::diagnostic` | `src/diagnostic.rs` |
+| ordinary script execution | `xsh::execution::script` | `src/execution.rs`, backed by `src/runner.rs` |
+| evaluator/session and runtime values | `xsh::execution::{evaluator, value}` | `src/runtime/eval.rs` and `src/runtime/value.rs` |
+| process lifecycle and cancellation | `xsh::process` | `src/process.rs`, backed by `src/runtime/process.rs` |
+| structured trace data | `xsh::trace::model` | `src/trace.rs` |
+| narrow reusable host adapters | `xsh::host` | `src/lib.rs`, backed by the host adapter implementation |
+
+Frontend AST/CST, checker, evaluator/session, value, and process-group types
+are currently first-party tooling APIs: `xshi` and `xsht` need them, but their
+representation and lifecycle are still coupled to the compiler/runtime. The
+script execution, source/diagnostic, and structured trace contracts are the
+initial supported library tier. The former `xsh::runtime`, `xsh::modules`,
+`xsh::sema`, `xsh::syntax`, and `xsh::runner` roots are private implementation
+owners; new consumers must use the façade instead. The `xsh::app` CLI entrypoint
+is owned by the binary target and is not part of the library façade.
+
+This Rust boundary is separate from the XSH language API. Standard module
+signatures, records, docs, examples, and runtime operation IDs remain owned by
+`crates/xsh-registry` and its language-facing adapters.
+
+Cargo target ownership follows the product boundary: the root `xsh` package
+owns the `libxsh` library and `xsh` binary, while `crates/xshi` and
+`crates/xsht` own the `xshi` and `xsht` binaries. The root integration harness
+resolves those package-owned binaries from the active Cargo profile so the
+cross-product runtime tests do not require duplicate root targets.
+
 The workspace is split where a subsystem can have a stable Rust boundary
 without depending on XSH source spans, runtime values, diagnostics, or evaluator
 state. `crates/xsh-net` owns DNS resolution, HTTP/HTTPS transport, TLS

@@ -2,14 +2,16 @@ use miniserde::json::Value as JsonValue;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
-use xsh::loader::parse_script_with_module_roots;
-use xsh::modules::json::{
+use xsh::api::{MethodReceiver, api_spec};
+use xsh::frontend::load::parse_script_with_module_roots;
+use xsh::frontend::source::{SourceId, SourceMap, Span};
+use xsh::frontend::syntax::arena::{
+    ArenaProgram, ArenaStmtKind, BlockId, ExprId, FunctionDefId, StmtId,
+};
+use xsh::host::json::{
     parse_raw_json, pretty_raw_json, raw_json_array, raw_json_as_str, raw_json_as_u64,
     raw_json_get, raw_json_object, raw_json_string, raw_json_u64, raw_json_usize,
 };
-use xsh::modules::{MethodReceiver, api_spec};
-use xsh::source::{SourceId, SourceMap, Span};
-use xsh::syntax::arena::{ArenaProgram, ArenaStmtKind, BlockId, ExprId, FunctionDefId, StmtId};
 
 #[derive(Clone, Debug, Default)]
 pub struct CoverageCollector {

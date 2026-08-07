@@ -2,7 +2,7 @@ use crate::xsht::format::Formatter;
 use std::collections::BTreeSet;
 use std::fs;
 use std::path::Path;
-use xsh::source::SourceMap;
+use xsh::frontend::source::SourceMap;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ExampleCatalog {
@@ -132,7 +132,7 @@ pub fn test_name(path: &str) -> String {
 }
 
 fn parse_catalog(text: &str) -> Result<ExampleCatalog, String> {
-    let value = xsh::modules::json::parse_raw_json(text)?;
+    let value = xsh::host::json::parse_raw_json(text)?;
     let examples = json_array_field(&value, "examples")?
         .iter()
         .map(parse_case)
@@ -174,18 +174,17 @@ fn json_field<'a>(
     value: &'a miniserde::json::Value,
     key: &str,
 ) -> Result<&'a miniserde::json::Value, String> {
-    xsh::modules::json::raw_json_get(value, key).ok_or_else(|| format!("missing field '{key}'"))
+    xsh::host::json::raw_json_get(value, key).ok_or_else(|| format!("missing field '{key}'"))
 }
 
 fn json_string_field<'a>(value: &'a miniserde::json::Value, key: &str) -> Result<&'a str, String> {
     let value = json_field(value, key)?;
-    xsh::modules::json::raw_json_as_str(value)
-        .ok_or_else(|| format!("field '{key}' must be a string"))
+    xsh::host::json::raw_json_as_str(value).ok_or_else(|| format!("field '{key}' must be a string"))
 }
 
 fn json_u64_field(value: &miniserde::json::Value, key: &str) -> Result<u64, String> {
     let value = json_field(value, key)?;
-    xsh::modules::json::raw_json_as_u64(value)
+    xsh::host::json::raw_json_as_u64(value)
         .ok_or_else(|| format!("field '{key}' must be a non-negative integer"))
 }
 
@@ -203,10 +202,10 @@ fn json_optional_bool_field(
     value: &miniserde::json::Value,
     key: &str,
 ) -> Result<Option<bool>, String> {
-    let Some(value) = xsh::modules::json::raw_json_get(value, key) else {
+    let Some(value) = xsh::host::json::raw_json_get(value, key) else {
         return Ok(None);
     };
-    xsh::modules::json::raw_json_as_bool(value)
+    xsh::host::json::raw_json_as_bool(value)
         .map(Some)
         .ok_or_else(|| format!("field '{key}' must be a boolean"))
 }
@@ -215,13 +214,13 @@ fn json_optional_string_list_field(
     value: &miniserde::json::Value,
     key: &str,
 ) -> Result<Option<Vec<String>>, String> {
-    let Some(miniserde::json::Value::Array(items)) = xsh::modules::json::raw_json_get(value, key)
+    let Some(miniserde::json::Value::Array(items)) = xsh::host::json::raw_json_get(value, key)
     else {
         return Ok(None);
     };
     let mut values = Vec::with_capacity(items.len());
     for item in items {
-        let Some(value) = xsh::modules::json::raw_json_as_str(item) else {
+        let Some(value) = xsh::host::json::raw_json_as_str(item) else {
             return Err(format!("field '{key}' must contain only strings"));
         };
         values.push(value.to_string());

@@ -10,6 +10,8 @@ mod core;
 mod diagnostics;
 #[path = "libc_hygiene.rs"]
 mod libc_hygiene;
+#[path = "libxsh_api.rs"]
+mod libxsh_api;
 #[path = "runtime.rs"]
 mod runtime;
 #[path = "sema.rs"]

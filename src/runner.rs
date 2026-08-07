@@ -1,4 +1,5 @@
 use crate::diagnostic::{DiagnosticRenderer, Severity};
+use crate::execution::script::{RunOptions, ScriptOutput, XSH_COVERAGE_TRACE_DIR};
 use crate::loader::{
     EntrySource, entry_source_from_bytes, parse_load_check_entry_source_with_token_table,
     parse_load_entry_source_arena_only,
@@ -15,8 +16,6 @@ use std::path::PathBuf;
 #[cfg(test)]
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
-
-pub const XSH_COVERAGE_TRACE_DIR: &str = "XSH_COVERAGE_TRACE_DIR";
 
 #[cfg(test)]
 static COMPACT_RUNNER_SUCCESSES: AtomicUsize = AtomicUsize::new(0);
@@ -46,20 +45,6 @@ impl PreparedRun {
         };
         RunAttempt::Output(script_output_from_eval(output, self.coverage_trace_dir))
     }
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct RunOptions {
-    pub script: String,
-    pub args: Vec<String>,
-    pub coverage_trace_dir: Option<PathBuf>,
-}
-
-#[derive(Clone, Debug)]
-pub struct ScriptOutput {
-    pub status: u8,
-    pub stdout: Vec<u8>,
-    pub stderr: Vec<u8>,
 }
 
 #[cfg(feature = "native-tests")]
@@ -416,7 +401,7 @@ pub(crate) fn write_nested_coverage_trace(
     ))
 }
 
-pub fn render_coverage_trace_jsonl(events: &[TraceEvent], sources: &SourceMap) -> String {
+fn render_coverage_trace_jsonl(events: &[TraceEvent], sources: &SourceMap) -> String {
     let mut output = String::new();
     for file in sources.files() {
         let value = crate::modules::json::raw_json_object([

@@ -12,10 +12,10 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::thread;
 use xsh::diagnostic::{Diagnostic, DiagnosticRenderer, Label};
-use xsh::loader::{parse_load_check_bytes, parse_load_check_text};
-use xsh::sema::check::CheckOptions;
-use xsh::source::SourceMap;
-use xsh::symbol::SymbolOwner;
+use xsh::frontend::check::CheckOptions;
+use xsh::frontend::load::{parse_load_check_bytes, parse_load_check_text};
+use xsh::frontend::source::SourceMap;
+use xsh::frontend::symbols::SymbolOwner;
 pub fn lint_files(files: &[String], fix: bool, runless: bool) -> CliOutput {
     if let Some(output) = cancellation_output() {
         return output;
@@ -337,7 +337,7 @@ fn lint_one_file(
                 let text = String::from_utf8_lossy(&bytes).into_owned();
                 let source_id = sources.add_file(file, text.clone());
                 let offset = error.offset.min(text.len());
-                let span = xsh::source::Span::new(source_id, offset, offset);
+                let span = xsh::frontend::source::Span::new(source_id, offset, offset);
                 let diagnostics = vec![
                     Diagnostic::error("source file is not valid UTF-8")
                         .with_code("source.invalid-utf8")
@@ -733,8 +733,8 @@ mod tests {
     use std::path::PathBuf;
     use tempfile::TempDir;
     use xsh::diagnostic::{Diagnostic, FixHint, Severity};
-    use xsh::source::{SourceId, Span};
-    use xsh::symbol::SymbolOwner;
+    use xsh::frontend::source::{SourceId, Span};
+    use xsh::frontend::symbols::SymbolOwner;
 
     fn config() -> ResolvedLintConfig {
         ResolvedLintConfig {

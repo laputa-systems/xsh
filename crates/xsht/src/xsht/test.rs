@@ -5,6 +5,7 @@ use crate::xsht::cli::{
     collect_xsh_files, load_config,
 };
 use crate::xsht::examples::{OutputPolicy, load_catalog, test_name, validate_catalog};
+use crate::xsht::trace::{CoverageTraceRenderer, TracebackRenderer};
 use std::fs;
 use std::io::{IsTerminal, Write};
 use std::os::unix::ffi::OsStringExt;
@@ -14,17 +15,16 @@ use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex, mpsc};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use xsh::diagnostic::{Diagnostic, DiagnosticRenderer, Label};
-use xsh::parse_script_with_module_roots;
-use xsh::runner::{RunOptions, XSH_COVERAGE_TRACE_DIR, render_coverage_trace_jsonl, run_script};
-use xsh::runtime::eval::{Evaluator, NativeTestRunKind, NativeTestRunRequest, PreparedTestProgram};
-use xsh::runtime::process::{
-    cancellation_escalated_signal, cancellation_requested_signal, path_bytes,
+use xsh::execution::evaluator::{
+    Evaluator, NativeTestRunKind, NativeTestRunRequest, PreparedTestProgram,
 };
-use xsh::runtime::value::{PathValue, RecordMap, ResultValue, RuntimeError, Value};
-use xsh::sema::check::Checker;
-use xsh::sema::types::Type;
-use xsh::syntax::arena::{ArenaProgram, ArenaStmtKind, FunctionDefId, StmtId};
-use xsh::trace::TracebackRenderer;
+use xsh::execution::script::{RunOptions, XSH_COVERAGE_TRACE_DIR, run_script};
+use xsh::execution::value::{PathValue, RecordMap, ResultValue, RuntimeError, Value};
+use xsh::frontend::check::Checker;
+use xsh::frontend::check::Type;
+use xsh::frontend::load::parse_script_with_module_roots;
+use xsh::frontend::syntax::arena::{ArenaProgram, ArenaStmtKind, FunctionDefId, StmtId};
+use xsh::process::{cancellation_escalated_signal, cancellation_requested_signal, path_bytes};
 
 #[derive(Clone, Debug)]
 pub(crate) struct TestOptions {
@@ -78,15 +78,15 @@ pub(crate) fn test_scripts(options: TestOptions) -> CliOutput {
         if options.collect_coverage()
             && let Err(message) =
                 collect_configured_xsh_files(Path::new("."), &config, &mut coverage_source_files)
-            {
-                return CliOutput {
-                    status: 2,
-                    stdout: stdout.into_bytes(),
-                    stderr: text_bytes(format!("xsht: {message}\n")),
-                    trace_text: String::new(),
-                    syscall_summary: None,
-                };
-            }
+        {
+            return CliOutput {
+                status: 2,
+                stdout: stdout.into_bytes(),
+                stderr: text_bytes(format!("xsht: {message}\n")),
+                trace_text: String::new(),
+                syscall_summary: None,
+            };
+        }
         let test_roots: Vec<PathBuf> = if config.test_roots.is_empty() {
             vec![PathBuf::from("tests")]
         } else {
@@ -556,8 +556,8 @@ fn discover_native_tests(
         let source_id = sources
             .files()
             .first()
-            .map(xsh::source::SourceFile::id)
-            .unwrap_or_else(|| xsh::source::SourceId::new(0));
+            .map(xsh::frontend::source::SourceFile::id)
+            .unwrap_or_else(|| xsh::frontend::source::SourceId::new(0));
         let entry_text = sources
             .get(source_id)
             .map(|source| source.text().to_string())
@@ -724,8 +724,8 @@ fn run_native_test(
     }
 
     let coverage_trace = if options.collect_coverage() {
-        let mut trace =
-            render_coverage_trace_jsonl(&evaluated.output.trace_events, &evaluated.output.sources);
+        let mut trace = CoverageTraceRenderer::new()
+            .render_events(&evaluated.output.trace_events, &evaluated.output.sources);
         if let Some(dir) = &nested_coverage_dir {
             match read_nested_coverage_traces(dir) {
                 Ok(nested) => trace.push_str(&nested),

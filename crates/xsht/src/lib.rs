@@ -6,6 +6,6 @@ pub use xsht::cli::{
     collect_configured_xsh_files, collect_xsh_files, format_files, grep_scripts, lint_files,
     load_config, refactor_scripts, trace_script,
 };
-pub use xsht::{api, app, cli, format, grep, lint};
 #[cfg(feature = "native-tests")]
 pub use xsht::examples;
+pub use xsht::{api, app, cli, format, grep, lint, trace};

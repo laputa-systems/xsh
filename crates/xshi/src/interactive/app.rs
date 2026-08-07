@@ -23,20 +23,20 @@ use std::io::{self, BufRead, Write};
 use std::os::unix::ffi::OsStringExt;
 use std::path::{Path, PathBuf};
 use xsh::diagnostic::DiagnosticRenderer;
-use xsh::runtime::eval::Evaluator;
-use xsh::runtime::process::{
+use xsh::execution::evaluator::Evaluator;
+use xsh::execution::value::RunError;
+use xsh::frontend::check::Checker;
+use xsh::frontend::source::{SourceId, SourceMap, Span};
+use xsh::frontend::syntax::arena::ArenaProgram;
+use xsh::frontend::syntax::node::RunKind;
+use xsh::frontend::syntax::parser::Parser;
+use xsh::process::{
     CancellationDecision, CancellationPolicy, ChildWaitOutcome, FileRedirectionMode,
     ForegroundTerminal, ManagedStdio, ProcessGroup, ProcessGroupConfig, ProcessInvocation,
     ProcessRedirection, ProcessSegmentStatus, ProcessSegmentStatusKind, ProcessStatus,
     ProcessStatusKind, RedirectionStream, SpawnManagedOptions, WaitMode,
     initialize_interactive_process_group, poll_managed, spawn_managed, wait_managed,
 };
-use xsh::runtime::value::RunError;
-use xsh::sema::check::Checker;
-use xsh::source::{SourceId, SourceMap, Span};
-use xsh::syntax::arena::ArenaProgram;
-use xsh::syntax::node::RunKind;
-use xsh::syntax::parser::Parser;
 
 fn text_bytes(text: impl Into<String>) -> Vec<u8> {
     text.into().into_bytes()
@@ -2476,17 +2476,16 @@ mod tests {
 
     #[test]
     fn maps_exec_statuses_to_shell_codes() {
-        let mut status =
-            ProcessStatus::from_segments(vec![xsh::runtime::process::ProcessSegmentStatus {
-                index: 0,
-                target: b"missing".to_vec(),
-                pid: None,
-                success: false,
-                kind: xsh::runtime::process::ProcessSegmentStatusKind::Exec,
-                code: None,
-                error_kind: Some("not-found".to_string()),
-                error_message: Some("executable not found".to_string()),
-            }]);
+        let mut status = ProcessStatus::from_segments(vec![xsh::process::ProcessSegmentStatus {
+            index: 0,
+            target: b"missing".to_vec(),
+            pid: None,
+            success: false,
+            kind: xsh::process::ProcessSegmentStatusKind::Exec,
+            code: None,
+            error_kind: Some("not-found".to_string()),
+            error_message: Some("executable not found".to_string()),
+        }]);
         assert_eq!(shell_status(&status), 127);
         status.segments[0].error_kind = Some("permission-denied".to_string());
         assert_eq!(shell_status(&status), 126);

@@ -6,8 +6,8 @@ use std::env;
 use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
-use xsh::runtime::value::Value;
-use xsh::source::{SourceId, Span};
+use xsh::execution::value::Value;
+use xsh::frontend::source::{SourceId, Span};
 
 const CONFIG_PATH: &str = ".config/xshi/config.ini";
 const PROFILE_PATH: &str = "/etc/profile";
@@ -103,7 +103,7 @@ pub(super) fn load_config(session: &mut Session, stderr: &mut dyn Write) {
         }
     };
     let span = Span::new(SourceId::new(0), 0, 0);
-    let value = match xsh::modules::ini::decode(&text, span) {
+    let value = match xsh::host::ini::decode(&text, span) {
         Ok(value) => value,
         Err(err) => {
             writeln!(stderr, "xshi: failed to parse config: {}", err.message).ok();
@@ -119,7 +119,7 @@ pub(super) fn load_config(session: &mut Session, stderr: &mut dyn Write) {
 
 fn apply_config_record(
     session: &mut Session,
-    fields: &xsh::runtime::value::RecordMap,
+    fields: &xsh::execution::value::RecordMap,
     stderr: &mut dyn Write,
 ) {
     for (name, value) in fields {
@@ -215,7 +215,7 @@ mod tests {
     use super::super::session::set_env_bytes;
     use super::*;
     use std::sync::Arc;
-    use xsh::runtime::value::RecordMap;
+    use xsh::execution::value::RecordMap;
 
     #[test]
     fn apply_config_env_uppercases_lowered_ini_keys() {

@@ -6,7 +6,7 @@ use crate::xsht::cli::{
 };
 use crate::xsht::test::{TestOptions, test_scripts};
 use std::process::ExitCode;
-use xsh::runtime::process::{
+use xsh::process::{
     clear_cancellation_request, install_cancellation_signal_handlers,
     install_immediate_cancellation_signal_handlers,
 };

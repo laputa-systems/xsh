@@ -61,7 +61,7 @@ install-Darwin: install-darwin
 install-Linux: install-linux
 
 install-darwin:
-	MACOSX_DEPLOYMENT_TARGET="$(DARWIN_DEPLOYMENT_TARGET)" RUSTFLAGS="$(strip $(DARWIN_DIST_RUSTFLAGS))" cargo build --release --bin xsh --bin xsht --bin xshi --no-default-features --features "native-tests net tools"
+	MACOSX_DEPLOYMENT_TARGET="$(DARWIN_DEPLOYMENT_TARGET)" RUSTFLAGS="$(strip $(DARWIN_DIST_RUSTFLAGS))" cargo build --release -p xsh -p xsht -p xshi --bin xsh --bin xsht --bin xshi --no-default-features --features "xsh/native-tests xsh/net xsh/tools xsht/native-tests"
 	for bin in xsh xsht xshi; do cp "./target/release/$$bin" "$(HOME)/usr/bin/$$bin"; codesign -fs - $(DARWIN_CODESIGN_FLAGS) "$(HOME)/usr/bin/$$bin"; xattr -d com.apple.quarantine "$(HOME)/usr/bin/$$bin" 2>/dev/null || true; done
 
 LINUX_INSTALL_CRT_DIR = target/llvm-crt
@@ -70,7 +70,7 @@ LINUX_INSTALL_RUSTFLAGS ?= -C linker=clang -C link-arg=-B$(CURDIR)/$(LINUX_INSTA
 LINUX_INSTALL_ENV = PATH="$$HOME/.cargo/bin:$$PATH" CC=clang AR=llvm-ar CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=clang CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS="$(strip $(LINUX_INSTALL_RUSTFLAGS))"
 
 install-linux: $(LINUX_INSTALL_CRT_OBJS)
-	$(LINUX_INSTALL_ENV) cargo build --release --bin xsh --bin xsht --bin xshi --no-default-features --features "native-tests net tools"
+	$(LINUX_INSTALL_ENV) cargo build --release -p xsh -p xsht -p xshi --bin xsh --bin xsht --bin xshi --no-default-features --features "xsh/native-tests xsh/net xsh/tools xsht/native-tests"
 	for bin in xsh xsht xshi; do cp "./target/release/$$bin" "$(HOME)/usr/bin/$$bin"; done
 
 # Debug build for native musl hosts. rust-lld can't find libc and libgcc_s in
@@ -180,7 +180,7 @@ dist-Linux-docker:
 			ln -sf /usr/lib/libgcc_s.so.1 "$$SR/libgcc_s.so" && \
 			ln -sf /usr/lib/libgcc_s.so.1 "$$SR/libgcc_s.so.1" && \
 			ln -sf /usr/lib/libc.so "$$SR/libc.so" && \
-			$(DIST_DOCKER_ENV) cargo build --locked --profile $(DIST_PROFILE) $(DIST_DOCKER_BUILD_STD_FLAGS) --target $(TARGET) --no-default-features --features "net tools" --bin xsh --bin xsht --bin xshi && \
+			$(DIST_DOCKER_ENV) cargo build --locked --profile $(DIST_PROFILE) $(DIST_DOCKER_BUILD_STD_FLAGS) --target $(TARGET) -p xsh -p xsht -p xshi --no-default-features --features "xsh/net xsh/tools xsht/native-tests" --bin xsh --bin xsht --bin xshi && \
 			if [ "$(DIST_PROFILE_DIR)" != dist ]; then mkdir -p target/$(TARGET)/dist && for bin in $(DIST_BINS); do cp -f target/$(TARGET)/$(DIST_PROFILE_DIR)/$$bin target/$(TARGET)/dist/$$bin; done; fi \
 		'
 
@@ -211,7 +211,7 @@ release-pgo-linux-docker:
 		'
 
 dist-native:
-	$(DIST_ENV) cargo build --locked --profile $(DIST_PROFILE) $(DIST_BUILD_STD_FLAGS) --target $(TARGET) --no-default-features --features "net tools" --bin xsh --bin xsht --bin xshi
+	$(DIST_ENV) cargo build --locked --profile $(DIST_PROFILE) $(DIST_BUILD_STD_FLAGS) --target $(TARGET) -p xsh -p xsht -p xshi --no-default-features --features "xsh/net xsh/tools xsht/native-tests" --bin xsh --bin xsht --bin xshi
 	@if [ "$(DIST_PROFILE_DIR)" != dist ]; then mkdir -p target/$(TARGET)/dist && for bin in $(DIST_BINS); do cp -f target/$(TARGET)/$(DIST_PROFILE_DIR)/$$bin target/$(TARGET)/dist/$$bin; done; fi
 	@for bin in $(DIST_BINS); do \
 		test "$$(wc -c < target/$(TARGET)/dist/$$bin)" -ge 1024 || { echo "missing or implausibly small $$bin" >&2; exit 1; }; \
@@ -269,7 +269,7 @@ test-linux:
 	    xsh-test \
 	    sh -c 'set -eu; \
 	        git config --global --add safe.directory /work; \
-	        cargo build --bin xsh --bin xsh-test-sleeper; \
+	        cargo build -p xsh -p xsht --bin xsh --bin xsh-test-sleeper --bin xsht; \
 	        ln -sf /work/target/debug/xsh /bin/xsh; \
 	        cargo test --features linux-priv-tests; \
 	        env CARGO_BIN_EXE_xsh-test-sleeper=/work/target/debug/xsh-test-sleeper target/debug/xsht test'

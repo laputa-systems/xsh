@@ -1,7 +1,4 @@
-#![allow(clippy::single_call_fn)]
-
-#[cfg(unix)]
-use rustix::{stdio as rstdio, termios};
+#![allow(clippy::single_call_fn, dead_code)]
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum TableAlign {
@@ -110,11 +107,11 @@ fn render_table_border(
         for _ in 0..(*width + 2) {
             output.push('─');
         }
-        if index + 1 == widths.len() {
-            output.push(right);
+        output.push(if index + 1 == widths.len() {
+            right
         } else {
-            output.push(separator);
-        }
+            separator
+        });
     }
     output.push('\n');
 }
@@ -147,9 +144,9 @@ fn render_table_row(
                 for _ in 0..padding {
                     output.push(' ');
                 }
-                output.push_str(cell);
-            } else {
-                output.push_str(cell);
+            }
+            output.push_str(cell);
+            if columns[index].align == TableAlign::Left {
                 for _ in 0..padding {
                     output.push(' ');
                 }
@@ -211,31 +208,11 @@ pub(crate) fn sanitize_table_text(text: &str) -> String {
     output
 }
 
-pub(crate) fn terminal_table_width_for_stdout(min_width: usize, default_width: usize) -> usize {
-    terminal_columns()
-        .or_else(|| columns_env(min_width))
-        .unwrap_or(default_width)
-        .max(min_width)
-}
-
-#[cfg(unix)]
-fn terminal_columns() -> Option<usize> {
-    let size = termios::tcgetwinsize(rstdio::stdout()).ok()?;
-    if size.ws_col == 0 {
-        None
-    } else {
-        Some(size.ws_col as usize)
-    }
-}
-
-#[cfg(not(unix))]
-fn terminal_columns() -> Option<usize> {
-    None
-}
-
-fn columns_env(min_width: usize) -> Option<usize> {
+pub(crate) fn terminal_table_width_for_stderr(min_width: usize, default_width: usize) -> usize {
     std::env::var("COLUMNS")
         .ok()
         .and_then(|value| value.parse::<usize>().ok())
         .filter(|width| *width >= min_width)
+        .unwrap_or(default_width)
+        .max(min_width)
 }

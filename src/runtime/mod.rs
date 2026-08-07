@@ -1,5 +1,4 @@
 pub(crate) mod cgroup;
-pub mod cwd;
 pub mod eval;
 pub mod process;
 pub mod run;

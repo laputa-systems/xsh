@@ -7,10 +7,10 @@ use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use xsh::diagnostic::DiagnosticRenderer;
-use xsh::runtime::eval::Evaluator;
-use xsh::sema::check::Checker;
-use xsh::source::SourceMap;
-use xsh::syntax::parser::Parser;
+use xsh::execution::evaluator::Evaluator;
+use xsh::frontend::check::Checker;
+use xsh::frontend::source::SourceMap;
+use xsh::frontend::syntax::parser::Parser;
 
 #[derive(Clone, Debug, Default)]
 pub(super) struct DenvState {

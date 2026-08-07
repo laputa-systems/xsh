@@ -3,11 +3,11 @@
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::collections::BTreeMap;
 use xsh::diagnostic::{Diagnostic, FixHint, Label, Severity};
-use xsh::sema::types::Type;
-use xsh::source::Span;
-use xsh::symbol::Name;
-use xsh::symbol::Symbol;
-use xsh::syntax::arena::{
+use xsh::frontend::check::Type;
+use xsh::frontend::source::Span;
+use xsh::frontend::symbols::Name;
+use xsh::frontend::symbols::Symbol;
+use xsh::frontend::syntax::arena::{
     ArenaAssignTargetKind, ArenaBindingTargetKind, ArenaBuilderEntryKind, ArenaCallArg,
     ArenaCallArgKind, ArenaCommand, ArenaCommandArg, ArenaCommandArgKind, ArenaEnvAssignment,
     ArenaEnvAssignmentValue, ArenaExpr, ArenaExprKind, ArenaExprOrRun, ArenaFmtPart,
@@ -18,7 +18,7 @@ use xsh::syntax::arena::{
     AssignTargetId, AstArena, BindingTargetId, BlockId, BuilderBlockId, CommandStmtId, ExprId,
     FunctionDefId, PatternId, RunFormId, StmtId, TypeExprId,
 };
-use xsh::syntax::node::{
+use xsh::frontend::syntax::node::{
     AssignOp, BinaryOp, CoreCommand, Effect, RunKind, StreamStageKind, UnaryOp,
     parse_command_word_reference,
 };
@@ -142,12 +142,12 @@ impl<'a> Linter<'a> {
         };
         linter.define(
             "args",
-            Span::new(xsh::source::SourceId::new(0), 0, 0),
+            Span::new(xsh::frontend::source::SourceId::new(0), 0, 0),
             false,
         );
         linter.define(
             "ARGV",
-            Span::new(xsh::source::SourceId::new(0), 0, 0),
+            Span::new(xsh::frontend::source::SourceId::new(0), 0, 0),
             false,
         );
         let statements: Vec<StmtId> = program.statement_ids().collect();
@@ -3284,8 +3284,8 @@ fn return_list_type_expr(arena: &AstArena, ty: TypeExprId) -> bool {
 
 #[derive(Clone, Debug)]
 struct StreamProducerCandidate {
-    function_name: xsh::symbol::Name,
-    accumulator_name: xsh::symbol::Name,
+    function_name: xsh::frontend::symbols::Name,
+    accumulator_name: xsh::frontend::symbols::Name,
     span: Span,
 }
 
@@ -3317,14 +3317,18 @@ fn collect_stream_producer_candidates(
 fn collect_lazy_consumed_calls(
     arena: &AstArena,
     stmts: &[StmtId],
-    out: &mut FxHashSet<xsh::symbol::Name>,
+    out: &mut FxHashSet<xsh::frontend::symbols::Name>,
 ) {
     for &stmt_id in stmts {
         lazy_visit_stmt(arena, stmt_id, out);
     }
 }
 
-fn lazy_visit_stmt(arena: &AstArena, stmt_id: StmtId, out: &mut FxHashSet<xsh::symbol::Name>) {
+fn lazy_visit_stmt(
+    arena: &AstArena,
+    stmt_id: StmtId,
+    out: &mut FxHashSet<xsh::frontend::symbols::Name>,
+) {
     match arena.stmt(stmt_id).kind {
         ArenaStmtKind::Use(_)
         | ArenaStmtKind::TypeDef(_)
@@ -3408,7 +3412,7 @@ fn lazy_visit_stmt(arena: &AstArena, stmt_id: StmtId, out: &mut FxHashSet<xsh::s
 fn lazy_visit_assign_target(
     arena: &AstArena,
     target: AssignTargetId,
-    out: &mut FxHashSet<xsh::symbol::Name>,
+    out: &mut FxHashSet<xsh::frontend::symbols::Name>,
 ) {
     match arena.assign_target(target).kind.clone() {
         ArenaAssignTargetKind::Name(_) => {}
@@ -3423,7 +3427,7 @@ fn lazy_visit_assign_target(
 fn lazy_visit_command(
     arena: &AstArena,
     cmd_id: CommandStmtId,
-    out: &mut FxHashSet<xsh::symbol::Name>,
+    out: &mut FxHashSet<xsh::frontend::symbols::Name>,
 ) {
     match arena.command_stmt(cmd_id).command.clone() {
         ArenaCommand::Proc { args, .. } => {
@@ -3453,7 +3457,11 @@ fn lazy_visit_command(
     }
 }
 
-fn lazy_visit_run(arena: &AstArena, run: RunFormId, out: &mut FxHashSet<xsh::symbol::Name>) {
+fn lazy_visit_run(
+    arena: &AstArena,
+    run: RunFormId,
+    out: &mut FxHashSet<xsh::frontend::symbols::Name>,
+) {
     let segments = arena.run_form(run).segments;
     for segment in arena.run_segments(segments).to_vec() {
         if let Some(timeout) = segment.timeout {
@@ -3487,7 +3495,7 @@ fn lazy_visit_run(arena: &AstArena, run: RunFormId, out: &mut FxHashSet<xsh::sym
 fn lazy_visit_command_arg(
     arena: &AstArena,
     arg: &ArenaCommandArg,
-    out: &mut FxHashSet<xsh::symbol::Name>,
+    out: &mut FxHashSet<xsh::frontend::symbols::Name>,
 ) {
     match arg.kind {
         ArenaCommandArgKind::Word(parts) => {
@@ -3504,7 +3512,11 @@ fn lazy_visit_command_arg(
     }
 }
 
-fn lazy_visit_block(arena: &AstArena, block: BlockId, out: &mut FxHashSet<xsh::symbol::Name>) {
+fn lazy_visit_block(
+    arena: &AstArena,
+    block: BlockId,
+    out: &mut FxHashSet<xsh::frontend::symbols::Name>,
+) {
     for stmt in arena
         .stmt_ids(arena.block(block).statements)
         .collect::<Vec<_>>()
@@ -3516,14 +3528,18 @@ fn lazy_visit_block(arena: &AstArena, block: BlockId, out: &mut FxHashSet<xsh::s
 fn lazy_visit_expr_or_run(
     arena: &AstArena,
     value: &ArenaExprOrRun,
-    out: &mut FxHashSet<xsh::symbol::Name>,
+    out: &mut FxHashSet<xsh::frontend::symbols::Name>,
 ) {
     if let ArenaExprOrRun::Expr(expr) = value {
         lazy_visit_expr(arena, *expr, out);
     }
 }
 
-fn lazy_visit_expr(arena: &AstArena, expr: ExprId, out: &mut FxHashSet<xsh::symbol::Name>) {
+fn lazy_visit_expr(
+    arena: &AstArena,
+    expr: ExprId,
+    out: &mut FxHashSet<xsh::frontend::symbols::Name>,
+) {
     match arena.expr(expr).kind {
         ArenaExprKind::StructuredPipeline { input, .. } => {
             if let Some(name) = direct_call_name(arena, input) {
@@ -3552,7 +3568,7 @@ fn lazy_visit_expr(arena: &AstArena, expr: ExprId, out: &mut FxHashSet<xsh::symb
 fn lazy_visit_builder_block(
     arena: &AstArena,
     block: BuilderBlockId,
-    out: &mut FxHashSet<xsh::symbol::Name>,
+    out: &mut FxHashSet<xsh::frontend::symbols::Name>,
 ) {
     for entry in arena
         .builder_entries(arena.builder_block(block).entries)
@@ -3749,7 +3765,7 @@ fn expr_child_blocks(arena: &AstArena, expr: ExprId) -> Vec<BlockId> {
     out
 }
 
-fn direct_call_name(arena: &AstArena, expr: ExprId) -> Option<xsh::symbol::Name> {
+fn direct_call_name(arena: &AstArena, expr: ExprId) -> Option<xsh::frontend::symbols::Name> {
     let expr = match arena.expr(expr).kind {
         ArenaExprKind::Try(inner) => inner,
         _ => expr,
@@ -3776,7 +3792,10 @@ fn expr_is_dynamic_require_boundary(arena: &AstArena, expr: ExprId) -> bool {
         || is_module_call(arena, callee, "json", "read")
 }
 
-fn stream_producer_candidate(arena: &AstArena, body: BlockId) -> Option<(xsh::symbol::Name, Span)> {
+fn stream_producer_candidate(
+    arena: &AstArena,
+    body: BlockId,
+) -> Option<(xsh::frontend::symbols::Name, Span)> {
     let stmts: Vec<StmtId> = arena.stmt_ids(arena.block(body).statements).collect();
     let &final_stmt = stmts.last()?;
     stmts.iter().enumerate().find_map(|(index, &stmt)| {
@@ -3798,7 +3817,7 @@ fn stream_producer_candidate(arena: &AstArena, body: BlockId) -> Option<(xsh::sy
     })
 }
 
-fn empty_list_var(arena: &AstArena, stmt: StmtId) -> Option<(xsh::symbol::Name, Span)> {
+fn empty_list_var(arena: &AstArena, stmt: StmtId) -> Option<(xsh::frontend::symbols::Name, Span)> {
     let arena_stmt = arena.stmt(stmt);
     let ArenaStmtKind::Var {
         target,
@@ -3821,7 +3840,7 @@ fn empty_list_var(arena: &AstArena, stmt: StmtId) -> Option<(xsh::symbol::Name, 
     }
 }
 
-fn stmt_pushes_to(arena: &AstArena, stmt: StmtId, name: xsh::symbol::Name) -> bool {
+fn stmt_pushes_to(arena: &AstArena, stmt: StmtId, name: xsh::frontend::symbols::Name) -> bool {
     if stmt_is_push_assignment(arena, stmt, name) {
         return true;
     }
@@ -3854,13 +3873,17 @@ fn stmt_pushes_to(arena: &AstArena, stmt: StmtId, name: xsh::symbol::Name) -> bo
     }
 }
 
-fn block_pushes_to(arena: &AstArena, block: BlockId, name: xsh::symbol::Name) -> bool {
+fn block_pushes_to(arena: &AstArena, block: BlockId, name: xsh::frontend::symbols::Name) -> bool {
     arena
         .stmt_ids(arena.block(block).statements)
         .any(|stmt| stmt_pushes_to(arena, stmt, name))
 }
 
-fn stmt_assigns_non_push_to(arena: &AstArena, stmt: StmtId, name: xsh::symbol::Name) -> bool {
+fn stmt_assigns_non_push_to(
+    arena: &AstArena,
+    stmt: StmtId,
+    name: xsh::frontend::symbols::Name,
+) -> bool {
     match arena.stmt(stmt).kind {
         ArenaStmtKind::Assign { target, .. } if assign_target_root_name(arena, target) == name => {
             !stmt_is_push_assignment(arena, stmt, name)
@@ -3898,7 +3921,10 @@ fn stmt_assigns_non_push_to(arena: &AstArena, stmt: StmtId, name: xsh::symbol::N
     }
 }
 
-fn assign_target_root_name(arena: &AstArena, target: AssignTargetId) -> xsh::symbol::Name {
+fn assign_target_root_name(
+    arena: &AstArena,
+    target: AssignTargetId,
+) -> xsh::frontend::symbols::Name {
     match arena.assign_target(target).kind.clone() {
         ArenaAssignTargetKind::Name(name) => name,
         ArenaAssignTargetKind::Field { base, .. } | ArenaAssignTargetKind::Index { base, .. } => {
@@ -3907,13 +3933,21 @@ fn assign_target_root_name(arena: &AstArena, target: AssignTargetId) -> xsh::sym
     }
 }
 
-fn block_assigns_non_push_to(arena: &AstArena, block: BlockId, name: xsh::symbol::Name) -> bool {
+fn block_assigns_non_push_to(
+    arena: &AstArena,
+    block: BlockId,
+    name: xsh::frontend::symbols::Name,
+) -> bool {
     arena
         .stmt_ids(arena.block(block).statements)
         .any(|stmt| stmt_assigns_non_push_to(arena, stmt, name))
 }
 
-fn stmt_is_push_assignment(arena: &AstArena, stmt: StmtId, name: xsh::symbol::Name) -> bool {
+fn stmt_is_push_assignment(
+    arena: &AstArena,
+    stmt: StmtId,
+    name: xsh::frontend::symbols::Name,
+) -> bool {
     let ArenaStmtKind::Assign {
         target,
         op: AssignOp::Set,
@@ -3944,7 +3978,11 @@ fn stmt_is_push_assignment(arena: &AstArena, stmt: StmtId, name: xsh::symbol::Na
     matches!(arena.expr(base).kind, ArenaExprKind::Ident(base_name) if base_name == name)
 }
 
-fn stmt_returns_value_from(arena: &AstArena, stmt: StmtId, name: xsh::symbol::Name) -> bool {
+fn stmt_returns_value_from(
+    arena: &AstArena,
+    stmt: StmtId,
+    name: xsh::frontend::symbols::Name,
+) -> bool {
     match arena.stmt(stmt).kind {
         ArenaStmtKind::Return(Some(ArenaExprOrRun::Expr(expr))) => {
             expr_is_ident_or_pipeline_from(arena, expr, name)
@@ -3954,7 +3992,11 @@ fn stmt_returns_value_from(arena: &AstArena, stmt: StmtId, name: xsh::symbol::Na
     }
 }
 
-fn expr_is_ident_or_pipeline_from(arena: &AstArena, expr: ExprId, name: xsh::symbol::Name) -> bool {
+fn expr_is_ident_or_pipeline_from(
+    arena: &AstArena,
+    expr: ExprId,
+    name: xsh::frontend::symbols::Name,
+) -> bool {
     match arena.expr(expr).kind {
         ArenaExprKind::Ident(ident) => ident == name,
         ArenaExprKind::StructuredPipeline { input, .. } | ArenaExprKind::Pipeline { input, .. } => {

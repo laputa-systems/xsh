@@ -7,8 +7,8 @@ use crate::xsht::grep::{
 };
 use std::fs;
 use std::path::Path;
-use xsh::source::SourceMap;
-use xsh::syntax::parser::Parser;
+use xsh::frontend::source::SourceMap;
+use xsh::frontend::syntax::parser::Parser;
 
 pub fn grep_scripts(pattern_str: &str, paths: &[String]) -> CliOutput {
     if let Some(output) = cancellation_output() {

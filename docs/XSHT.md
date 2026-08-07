@@ -44,6 +44,14 @@ lexes, parses, and builds both the semantic AST and the lossless CST.
 `src/sema` and `src/sema/check.rs` own checking. Runtime evaluation
 stays in `src/runtime`.
 
+Tooling imports these representations through the `xsh::frontend` façade:
+`frontend::load` owns loading/checking entry sources, `frontend::syntax` owns
+AST/CST and parser types, and `frontend::check` owns checker facts and semantic
+types. These are first-party tooling APIs rather than a general-purpose host
+SDK. Structured trace events and traceback data come from
+`xsh::trace::model`; text, JSONL, flamegraph, syscall, and terminal-table
+presentation are owned by `xsht::trace`.
+
 ## Shared Substrate
 
 Shared `xsht` infrastructure is split between the runtime crate and the CLI

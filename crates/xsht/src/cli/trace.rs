@@ -1,12 +1,12 @@
 use crate::xsht::cli::{CliOutput, TraceFormat, TraceOptions, push_text, text_bytes};
-use std::fs;
-use xsh::diagnostic::DiagnosticRenderer;
-use xsh::loader::{entry_source_from_bytes, parse_load_entry_source_arena_only};
-use xsh::runtime::eval::Evaluator;
-use xsh::trace::{
+use crate::xsht::trace::{
     TraceFlamegraphRenderer, TraceJsonlRenderer, TraceSummaryRenderer, TraceTextRenderer,
     TracebackRenderer,
 };
+use std::fs;
+use xsh::diagnostic::DiagnosticRenderer;
+use xsh::execution::evaluator::Evaluator;
+use xsh::frontend::load::{entry_source_from_bytes, parse_load_entry_source_arena_only};
 
 mod syscall_trace;
 

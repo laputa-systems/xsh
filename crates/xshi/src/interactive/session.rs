@@ -12,9 +12,9 @@ use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::SystemTime;
-use xsh::modules::fs::gitroot;
-use xsh::runtime::process::{ManagedChild, ProcessStatus};
-use xsh::source::{SourceId, Span};
+use xsh::frontend::source::{SourceId, Span};
+use xsh::host::fs::gitroot;
+use xsh::process::{ManagedChild, ProcessStatus};
 
 const HISTORY_PATH: &str = ".local/share/xshi/history";
 const DENV_TRUST_PATH: &str = ".local/share/xshi/denv-trust";
@@ -415,7 +415,7 @@ fn path_command_cache(env: &BTreeMap<Vec<u8>, Vec<u8>>) -> Vec<PathCommand> {
 fn git_prompt(cwd: &Path) -> Option<String> {
     let root = gitroot(
         cwd.to_path_buf(),
-        Span::new(xsh::source::SourceId::new(0), 0, 0),
+        Span::new(xsh::frontend::source::SourceId::new(0), 0, 0),
     )
     .ok()?;
     let git_path = root.join(".git");

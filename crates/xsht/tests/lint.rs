@@ -3,11 +3,11 @@
 use std::sync::Arc;
 
 use xsh::diagnostic::Diagnostic;
-use xsh::sema::check::Checker;
-use xsh::source::SourceId;
-use xsh::symbol::{Name, SymbolOwner};
-use xsh::syntax::arena::{ArenaProgram, ArenaProgramBuilder};
-use xsh::syntax::parser::{ArenaParseOutput, Parser};
+use xsh::frontend::check::Checker;
+use xsh::frontend::source::SourceId;
+use xsh::frontend::symbols::{Name, SymbolOwner};
+use xsh::frontend::syntax::arena::{ArenaProgram, ArenaProgramBuilder};
+use xsh::frontend::syntax::parser::{ArenaParseOutput, Parser};
 use xsht::format::Formatter;
 use xsht::lint::{LintOptions, Linter};
 

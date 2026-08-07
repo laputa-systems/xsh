@@ -8,8 +8,8 @@ use crate::xsht::grep::{
 use std::cmp::Reverse;
 use std::fs;
 use std::path::Path;
-use xsh::source::SourceMap;
-use xsh::syntax::parser::Parser;
+use xsh::frontend::source::SourceMap;
+use xsh::frontend::syntax::parser::Parser;
 
 pub fn refactor_scripts(
     pattern_str: &str,

@@ -1,8 +1,8 @@
 #![allow(clippy::single_call_fn)]
 
-use xsh::sema::check::{AnnotationFactKind, CheckOptions, Checker};
-use xsh::source::SourceId;
-use xsh::syntax::parser::Parser;
+use xsh::frontend::check::{AnnotationFactKind, CheckOptions, Checker};
+use xsh::frontend::source::SourceId;
+use xsh::frontend::syntax::parser::Parser;
 
 #[test]
 fn checker_accepts_result_unit_proc_expression_calls() {

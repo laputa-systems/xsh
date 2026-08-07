@@ -1,7 +1,7 @@
 use crate::xsht::format::Formatter;
 use xsh::diagnostic::DiagnosticRenderer;
-use xsh::source::{SourceMap, Span};
-use xsh::syntax::parser::Parser;
+use xsh::frontend::source::{SourceMap, Span};
+use xsh::frontend::syntax::parser::Parser;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct SourceEdit {

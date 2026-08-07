@@ -16,9 +16,13 @@ pub mod format;
 pub mod grep;
 #[path = "lint.rs"]
 pub mod lint;
+#[path = "table.rs"]
+pub(crate) mod table;
 #[cfg(feature = "native-tests")]
 #[path = "xsht/test.rs"]
 pub(crate) mod test;
+#[path = "trace.rs"]
+pub mod trace;
 #[cfg(not(feature = "native-tests"))]
 pub(crate) mod test {
     use crate::xsht::cli::CliOutput;

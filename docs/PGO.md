@@ -91,7 +91,8 @@ cargo test --test integration --features "native-tests net tools" \
 
 ## Frontend boundary
 
-Release packaging provides independent `xsh`, `xshi`, and `xsht` binaries.
+Release packaging provides separate `xsh`, `xshi`, and `xsht` product binaries
+from their owning packages.
 The current PGO step remains intentionally limited to the standalone `xshi`
 binary, and the rustybench suite in `crates/xshi/benches/` measures only
 interactive `xshi` workflows.

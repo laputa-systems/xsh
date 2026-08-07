@@ -9,8 +9,8 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::thread;
 use xsh::diagnostic::DiagnosticRenderer;
-use xsh::loader::parse_load_check_file;
-use xsh::sema::check::CheckOptions;
+use xsh::frontend::check::CheckOptions;
+use xsh::frontend::load::parse_load_check_file;
 
 pub fn format_files(files: &[String], check: bool) -> CliOutput {
     if let Some(output) = cancellation_output() {

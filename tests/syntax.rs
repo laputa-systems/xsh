@@ -1,16 +1,18 @@
-use xsh::sema::check::Checker;
-use xsh::source::SourceId;
-use xsh::syntax::arena::{
+use xsh::frontend::check::Checker;
+use xsh::frontend::source::SourceId;
+use xsh::frontend::syntax::arena::{
     ArenaAssignTargetKind, ArenaBindingTargetKind, ArenaBuilderEntryKind, ArenaCommand,
     ArenaCommandArgKind, ArenaEnvAssignmentValue, ArenaExprKind, ArenaExprOrRun, ArenaFmtPart,
     ArenaPatternKind, ArenaPipeStageKind, ArenaSpawnTarget, ArenaStmtKind, ArenaTypeDefBody,
     ArenaWordPart, ExprId, StmtId,
 };
-use xsh::syntax::cst::{SyntaxElement, SyntaxGroupKind, SyntaxKind, TriviaKind};
-use xsh::syntax::lexer::Lexer;
-use xsh::syntax::node::{AssignOp, BinaryOp, Effect, RedirectionKind, RunKind, StreamStageKind};
-use xsh::syntax::parser::{ArenaParseOutput, Parser};
-use xsh::syntax::token::TokenTag;
+use xsh::frontend::syntax::cst::{SyntaxElement, SyntaxGroupKind, SyntaxKind, TriviaKind};
+use xsh::frontend::syntax::lexer::Lexer;
+use xsh::frontend::syntax::node::{
+    AssignOp, BinaryOp, Effect, RedirectionKind, RunKind, StreamStageKind,
+};
+use xsh::frontend::syntax::parser::{ArenaParseOutput, Parser};
+use xsh::frontend::syntax::token::TokenTag;
 use xsht::format::Formatter;
 
 fn assert_parse_and_check(source_id: SourceId, source: &str) {
@@ -2728,7 +2730,7 @@ fn parser_formatter_roundtrip_property_over_baseline_snippets() {
 
 #[test]
 fn formatter_is_idempotent_on_example_catalog() {
-    use xsh::source::SourceId;
+    use xsh::frontend::source::SourceId;
     use xsht::examples::load_catalog;
 
     let catalog = load_catalog(".").expect("load examples/catalog.json");

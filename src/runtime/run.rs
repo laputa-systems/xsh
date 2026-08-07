@@ -1,9 +1,8 @@
 #![allow(clippy::single_call_fn)]
 
 use crate::runtime::process::{
-    CancellationPolicy, ProcessEnd, ProcessInvocation, ProcessStatus, run_capture,
-    run_capture_with_policy, run_capture_with_stderr, run_capture_with_stderr_policy,
-    run_pipeline_inherit, run_pipeline_inherit_with_policy,
+    CancellationPolicy, ProcessEnd, ProcessInvocation, ProcessStatus, run_capture_with_policy,
+    run_capture_with_stderr_policy, run_pipeline_inherit_with_policy,
 };
 use crate::runtime::value::{RecordMap, RunError, RuntimeError, StreamValue, Value};
 use crate::source::Span;
@@ -14,23 +13,6 @@ use std::sync::Arc;
 pub struct RunExecution {
     pub value: Result<Value, RuntimeError>,
     pub end: ProcessEnd,
-}
-
-pub fn execute_run(
-    kind: RunKind,
-    invocations: &[ProcessInvocation],
-    span: Span,
-    assert_success: bool,
-) -> RunExecution {
-    match kind {
-        RunKind::Plain | RunKind::Status => run_status_form(invocations, span, assert_success),
-        RunKind::CaptureText
-        | RunKind::CaptureBytes
-        | RunKind::CaptureTextRecord
-        | RunKind::CaptureBytesRecord
-        | RunKind::StreamText
-        | RunKind::StreamBytes => run_capture_form(kind, &invocations[0], span),
-    }
 }
 
 pub(crate) fn execute_run_with_policy(
@@ -50,39 +32,6 @@ pub(crate) fn execute_run_with_policy(
         | RunKind::CaptureBytesRecord
         | RunKind::StreamText
         | RunKind::StreamBytes => run_capture_form_with_policy(kind, &invocations[0], span, policy),
-    }
-}
-
-fn run_status_form(
-    invocations: &[ProcessInvocation],
-    span: Span,
-    assert_success: bool,
-) -> RunExecution {
-    match run_pipeline_inherit(invocations) {
-        Ok(mut end) => {
-            let status = end.status.clone().expect("completed process has status");
-            if assert_success {
-                if status.success {
-                    RunExecution {
-                        value: Ok(Value::ok(Value::Status(status))),
-                        end,
-                    }
-                } else {
-                    let error = run_error_from_status(status, invocations).with_span(span);
-                    end.error = Some(error.clone());
-                    RunExecution {
-                        value: Ok(Value::err(Value::RunError(Box::new(error)))),
-                        end,
-                    }
-                }
-            } else {
-                RunExecution {
-                    value: Ok(Value::Status(status)),
-                    end,
-                }
-            }
-        }
-        Err(error) => run_error_value(error, span),
     }
 }
 
@@ -114,102 +63,6 @@ fn run_status_form_with_policy(
                     value: Ok(Value::Status(status)),
                     end,
                 }
-            }
-        }
-        Err(error) => run_error_value(error, span),
-    }
-}
-
-fn run_capture_form(kind: RunKind, invocation: &ProcessInvocation, span: Span) -> RunExecution {
-    let capture_stderr = matches!(
-        kind,
-        RunKind::CaptureTextRecord | RunKind::CaptureBytesRecord
-    );
-    let captured = if capture_stderr {
-        run_capture_with_stderr(invocation)
-    } else {
-        run_capture(invocation)
-    };
-    match captured {
-        Ok(mut output) => {
-            let status = output
-                .end
-                .status
-                .clone()
-                .expect("completed process has status");
-            if !status.success
-                && !matches!(
-                    kind,
-                    RunKind::CaptureTextRecord | RunKind::CaptureBytesRecord
-                )
-            {
-                let error =
-                    run_error_from_status(status, std::slice::from_ref(invocation)).with_span(span);
-                output.end.error = Some(error.clone());
-                return RunExecution {
-                    value: Ok(Value::err(Value::RunError(Box::new(error)))),
-                    end: output.end,
-                };
-            }
-
-            let value = match kind {
-                RunKind::CaptureText => match String::from_utf8(output.stdout) {
-                    Ok(text) => Value::ok(Value::Str(text.into())),
-                    Err(_) => {
-                        let error =
-                            RunError::new("invalid-utf8", "captured stdout was not valid UTF-8")
-                                .with_span(span);
-                        output.end.error = Some(error.clone());
-                        Value::err(Value::RunError(Box::new(error)))
-                    }
-                },
-                RunKind::CaptureBytes => Value::ok(Value::Bytes(output.stdout)),
-                RunKind::CaptureTextRecord => match (
-                    String::from_utf8(output.stdout),
-                    String::from_utf8(output.stderr),
-                ) {
-                    (Ok(stdout), Ok(stderr)) => Value::ok(capture_record(
-                        status,
-                        Value::Str(stdout.into()),
-                        Value::Str(stderr.into()),
-                    )),
-                    _ => {
-                        let error = RunError::new(
-                            "invalid-utf8",
-                            "captured stdout or stderr was not valid UTF-8",
-                        )
-                        .with_span(span);
-                        output.end.error = Some(error.clone());
-                        Value::err(Value::RunError(Box::new(error)))
-                    }
-                },
-                RunKind::CaptureBytesRecord => Value::ok(capture_record(
-                    status,
-                    Value::Bytes(output.stdout),
-                    Value::Bytes(output.stderr),
-                )),
-                RunKind::StreamText => match String::from_utf8(output.stdout) {
-                    Ok(text) => Value::ok(Value::stream(StreamValue::from_values(
-                        text.lines().map(|line| Value::Str(line.into())).collect(),
-                    ))),
-                    Err(_) => {
-                        let error =
-                            RunError::new("invalid-utf8", "streamed stdout was not valid UTF-8")
-                                .with_span(span);
-                        output.end.error = Some(error.clone());
-                        Value::err(Value::RunError(Box::new(error)))
-                    }
-                },
-                RunKind::StreamBytes => {
-                    Value::ok(Value::stream(StreamValue::from_values(vec![Value::Bytes(
-                        output.stdout,
-                    )])))
-                }
-                RunKind::Plain | RunKind::Status => unreachable!("capture form expected"),
-            };
-            RunExecution {
-                value: Ok(value),
-                end: output.end,
             }
         }
         Err(error) => run_error_value(error, span),
@@ -400,11 +253,21 @@ fn run_error_value(error: RunError, span: Span) -> RunExecution {
 
 #[cfg(test)]
 mod tests {
-    use super::{RunKind, Value, execute_run};
-    use crate::runtime::process::ProcessInvocation;
+    use super::{RunKind, Value, execute_run_with_policy};
+    use crate::runtime::process::{
+        CancellationDecision, CancellationPolicy, ProcessGroup, ProcessInvocation,
+    };
     use crate::runtime::value::ResultValue;
     use crate::source::{SourceId, Span};
     use std::path::PathBuf;
+
+    struct ContinuePolicy;
+
+    impl CancellationPolicy for ContinuePolicy {
+        fn check_process_group(&mut self, _group: ProcessGroup) -> CancellationDecision {
+            CancellationDecision::Continue
+        }
+    }
 
     #[test]
     fn missing_target_returns_run_error_value_and_process_end() {
@@ -430,7 +293,13 @@ mod tests {
             cpu_max: None,
         };
 
-        let execution = execute_run(RunKind::Plain, &[invocation], span, true);
+        let execution = execute_run_with_policy(
+            RunKind::Plain,
+            &[invocation],
+            span,
+            true,
+            &mut ContinuePolicy,
+        );
 
         let Value::Result(ResultValue::Err(error)) = execution.value.unwrap() else {
             panic!("expected Err result");

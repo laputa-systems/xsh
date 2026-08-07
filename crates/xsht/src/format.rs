@@ -3,9 +3,9 @@
 use std::fmt::Write as _;
 use std::sync::Arc;
 use xsh::diagnostic::Diagnostic;
-use xsh::source::{SourceId, Span};
-use xsh::symbol::{Name, Symbol};
-use xsh::syntax::arena::{
+use xsh::frontend::source::{SourceId, Span};
+use xsh::frontend::symbols::{Name, Symbol};
+use xsh::frontend::syntax::arena::{
     ArenaBindingTargetKind, ArenaBuilderEntryKind, ArenaCommand, ArenaCommandArg,
     ArenaCommandArgKind, ArenaEnvAssignment, ArenaEnvAssignmentValue, ArenaExprKind,
     ArenaExprOrRun, ArenaFmtPart, ArenaModuleContractEntryKind, ArenaPatternKind,
@@ -14,13 +14,13 @@ use xsh::syntax::arena::{
     ArenaText, ArenaTypeExprTag, ArenaWordPart, AstArena, BindingTargetId, BlockId, ExprId,
     FunctionDefId, PatternId, StmtId, TypeExprId,
 };
-use xsh::syntax::cst::SyntaxTree;
-use xsh::syntax::literal;
-use xsh::syntax::node::{
+use xsh::frontend::syntax::cst::SyntaxTree;
+use xsh::frontend::syntax::literal;
+use xsh::frontend::syntax::node::{
     AssignOp, BinaryOp, CoreCommand, Effect, EnvGetKind, FormatSpecKind, RedirectionKind, RunKind,
     StreamStageKind, UnaryOp,
 };
-use xsh::syntax::parser::{ArenaParseOutput, Parser};
+use xsh::frontend::syntax::parser::{ArenaParseOutput, Parser};
 
 pub const DEFAULT_LINE_WIDTH: usize = 120;
 const MULTILINE_LIST_ITEM_THRESHOLD: usize = 8;
@@ -188,7 +188,7 @@ struct Writer<'a> {
 #[derive(Clone, Copy, Debug)]
 struct CallChainSegment {
     name: Name,
-    args: xsh::syntax::arena::ArenaRange,
+    args: xsh::frontend::syntax::arena::ArenaRange,
 }
 
 /// A decoded type expression node, mirroring the arena's compact type-expr
@@ -563,7 +563,7 @@ impl<'a> Writer<'a> {
 
     fn write_signal_hook(
         &mut self,
-        hook_id: xsh::syntax::arena::SignalHookId,
+        hook_id: xsh::frontend::syntax::arena::SignalHookId,
         indent: usize,
         output: &mut String,
     ) {
@@ -591,11 +591,11 @@ impl<'a> Writer<'a> {
 
     fn write_type_def(
         &mut self,
-        def_id: xsh::syntax::arena::TypeDefId,
+        def_id: xsh::frontend::syntax::arena::TypeDefId,
         indent: usize,
         output: &mut String,
     ) {
-        use xsh::syntax::arena::ArenaTypeDefBody;
+        use xsh::frontend::syntax::arena::ArenaTypeDefBody;
         let def = self.arena.type_def(def_id).clone();
         output.push_str("type ");
         output.push_str(def.name.as_str().as_str());
@@ -656,7 +656,11 @@ impl<'a> Writer<'a> {
         }
     }
 
-    fn write_error_def(&mut self, def_id: xsh::syntax::arena::ErrorDefId, output: &mut String) {
+    fn write_error_def(
+        &mut self,
+        def_id: xsh::frontend::syntax::arena::ErrorDefId,
+        output: &mut String,
+    ) {
         let def = self.arena.error_def(def_id).clone();
         output.push_str("error ");
         output.push_str(def.name.as_str().as_str());
@@ -781,7 +785,11 @@ impl<'a> Writer<'a> {
         }
     }
 
-    fn write_param(&mut self, param: &xsh::syntax::arena::ArenaParam, output: &mut String) {
+    fn write_param(
+        &mut self,
+        param: &xsh::frontend::syntax::arena::ArenaParam,
+        output: &mut String,
+    ) {
         if param.rest {
             output.push_str("...");
         }
@@ -796,7 +804,11 @@ impl<'a> Writer<'a> {
         }
     }
 
-    fn write_params(&mut self, params: xsh::syntax::arena::ArenaRange, output: &mut String) {
+    fn write_params(
+        &mut self,
+        params: xsh::frontend::syntax::arena::ArenaRange,
+        output: &mut String,
+    ) {
         let params = self.arena.params(params).to_vec();
         output.push('(');
         for (index, param) in params.iter().enumerate() {
@@ -821,7 +833,7 @@ impl<'a> Writer<'a> {
 
     fn write_if(
         &mut self,
-        branches: xsh::syntax::arena::ArenaRange,
+        branches: xsh::frontend::syntax::arena::ArenaRange,
         else_block: Option<BlockId>,
         indent: usize,
         output: &mut String,
@@ -848,7 +860,7 @@ impl<'a> Writer<'a> {
     fn write_match(
         &mut self,
         value: ExprId,
-        arms: xsh::syntax::arena::ArenaRange,
+        arms: xsh::frontend::syntax::arena::ArenaRange,
         indent: usize,
         output: &mut String,
     ) {
@@ -1090,10 +1102,10 @@ impl<'a> Writer<'a> {
 
     fn write_assign_target(
         &mut self,
-        target_id: xsh::syntax::arena::AssignTargetId,
+        target_id: xsh::frontend::syntax::arena::AssignTargetId,
         output: &mut String,
     ) {
-        use xsh::syntax::arena::ArenaAssignTargetKind;
+        use xsh::frontend::syntax::arena::ArenaAssignTargetKind;
         let kind = self.arena.assign_target(target_id).kind.clone();
         match &kind {
             ArenaAssignTargetKind::Name(name) => output.push_str(name.as_str().as_str()),
@@ -1159,7 +1171,7 @@ impl<'a> Writer<'a> {
 
     fn write_command_stmt(
         &mut self,
-        stmt_id: xsh::syntax::arena::CommandStmtId,
+        stmt_id: xsh::frontend::syntax::arena::CommandStmtId,
         indent: usize,
         output: &mut String,
     ) {
@@ -1226,10 +1238,10 @@ impl<'a> Writer<'a> {
         }
     }
 
-    fn write_run(&mut self, run_id: xsh::syntax::arena::RunFormId, output: &mut String) {
+    fn write_run(&mut self, run_id: xsh::frontend::syntax::arena::RunFormId, output: &mut String) {
         let run = self.arena.run_form(run_id).clone();
         let indent = indent_for_expr(output);
-        let segments: Vec<xsh::syntax::arena::ArenaRunSegment> =
+        let segments: Vec<xsh::frontend::syntax::arena::ArenaRunSegment> =
             self.arena.run_segments(run.segments).to_vec();
         for (index, segment) in segments.iter().enumerate() {
             if index > 0 {
@@ -1244,7 +1256,7 @@ impl<'a> Writer<'a> {
 
     fn write_run_segment(
         &mut self,
-        segment: &xsh::syntax::arena::ArenaRunSegment,
+        segment: &xsh::frontend::syntax::arena::ArenaRunSegment,
         indent: usize,
         output: &mut String,
     ) {
@@ -1333,7 +1345,7 @@ impl<'a> Writer<'a> {
 
     fn write_redirection(
         &mut self,
-        redirection: &xsh::syntax::arena::ArenaRedirection,
+        redirection: &xsh::frontend::syntax::arena::ArenaRedirection,
         output: &mut String,
     ) {
         output.push_str(match redirection.kind {
@@ -1353,7 +1365,11 @@ impl<'a> Writer<'a> {
         }
     }
 
-    fn write_command_args(&mut self, args: xsh::syntax::arena::ArenaRange, output: &mut String) {
+    fn write_command_args(
+        &mut self,
+        args: xsh::frontend::syntax::arena::ArenaRange,
+        output: &mut String,
+    ) {
         let args: Vec<ArenaCommandArg> = self.arena.command_args(args).to_vec();
         for arg in &args {
             output.push(' ');
@@ -1684,7 +1700,7 @@ impl<'a> Writer<'a> {
 
     fn write_pipe_stage(
         &mut self,
-        stage: &xsh::syntax::arena::ArenaPipeStage,
+        stage: &xsh::frontend::syntax::arena::ArenaPipeStage,
         indent: usize,
         output: &mut String,
     ) {
@@ -1696,7 +1712,7 @@ impl<'a> Writer<'a> {
 
     fn write_pipe_stages(
         &mut self,
-        stages: xsh::syntax::arena::ArenaRange,
+        stages: xsh::frontend::syntax::arena::ArenaRange,
         indent: usize,
         output: &mut String,
     ) {
@@ -1722,7 +1738,7 @@ impl<'a> Writer<'a> {
     fn write_list(
         &mut self,
         expr_id: ExprId,
-        items: xsh::syntax::arena::ArenaRange,
+        items: xsh::frontend::syntax::arena::ArenaRange,
         output: &mut String,
     ) {
         let item_count = items.len();
@@ -1753,7 +1769,11 @@ impl<'a> Writer<'a> {
         output.push(']');
     }
 
-    fn write_list_inline(&mut self, items: xsh::syntax::arena::ArenaRange, output: &mut String) {
+    fn write_list_inline(
+        &mut self,
+        items: xsh::frontend::syntax::arena::ArenaRange,
+        output: &mut String,
+    ) {
         output.push('[');
         for index in 0..items.len() {
             if index > 0 {
@@ -1765,7 +1785,11 @@ impl<'a> Writer<'a> {
         output.push(']');
     }
 
-    fn write_record(&mut self, fields: xsh::syntax::arena::ArenaRange, output: &mut String) {
+    fn write_record(
+        &mut self,
+        fields: xsh::frontend::syntax::arena::ArenaRange,
+        output: &mut String,
+    ) {
         let field_count = fields.len();
         let original_multiline = record_fields_original_multiline(
             self.arena,
@@ -1799,7 +1823,11 @@ impl<'a> Writer<'a> {
         output.push('}');
     }
 
-    fn write_record_inline(&mut self, fields: xsh::syntax::arena::ArenaRange, output: &mut String) {
+    fn write_record_inline(
+        &mut self,
+        fields: xsh::frontend::syntax::arena::ArenaRange,
+        output: &mut String,
+    ) {
         output.push('{');
         for index in 0..fields.len() {
             if index > 0 {
@@ -1828,7 +1856,7 @@ impl<'a> Writer<'a> {
 
     fn write_if_expr(
         &mut self,
-        branches: xsh::syntax::arena::ArenaRange,
+        branches: xsh::frontend::syntax::arena::ArenaRange,
         else_value: ExprId,
         output: &mut String,
     ) {
@@ -1854,7 +1882,7 @@ impl<'a> Writer<'a> {
 
     fn write_if_expr_multiline(
         &mut self,
-        branches: xsh::syntax::arena::ArenaRange,
+        branches: xsh::frontend::syntax::arena::ArenaRange,
         else_value: ExprId,
         output: &mut String,
     ) {
@@ -1891,7 +1919,7 @@ impl<'a> Writer<'a> {
     fn write_match_expr(
         &mut self,
         value: ExprId,
-        arms: xsh::syntax::arena::ArenaRange,
+        arms: xsh::frontend::syntax::arena::ArenaRange,
         output: &mut String,
     ) {
         output.push_str("match ");
@@ -1921,7 +1949,7 @@ impl<'a> Writer<'a> {
     fn write_match_expr_multiline(
         &mut self,
         value: ExprId,
-        arms: xsh::syntax::arena::ArenaRange,
+        arms: xsh::frontend::syntax::arena::ArenaRange,
         output: &mut String,
     ) {
         let indent = indent_for_expr(output);
@@ -1976,7 +2004,7 @@ impl<'a> Writer<'a> {
 
     fn write_stream_stages(
         &mut self,
-        stages: xsh::syntax::arena::ArenaRange,
+        stages: xsh::frontend::syntax::arena::ArenaRange,
         indent: usize,
         output: &mut String,
     ) {
@@ -1999,13 +2027,17 @@ impl<'a> Writer<'a> {
         }
     }
 
-    fn write_fmt_string(&mut self, parts: xsh::syntax::arena::ArenaRange, output: &mut String) {
+    fn write_fmt_string(
+        &mut self,
+        parts: xsh::frontend::syntax::arena::ArenaRange,
+        output: &mut String,
+    ) {
         self.write_fmt_string_with_prefix("f", parts, output);
     }
 
     fn write_path_fmt_string(
         &mut self,
-        parts: xsh::syntax::arena::ArenaRange,
+        parts: xsh::frontend::syntax::arena::ArenaRange,
         output: &mut String,
     ) {
         self.write_fmt_string_with_prefix("fp", parts, output);
@@ -2014,7 +2046,7 @@ impl<'a> Writer<'a> {
     fn write_fmt_string_with_prefix(
         &mut self,
         prefix: &str,
-        parts: xsh::syntax::arena::ArenaRange,
+        parts: xsh::frontend::syntax::arena::ArenaRange,
         output: &mut String,
     ) {
         let parts: Vec<ArenaFmtPart> = self.arena.fmt_parts(parts).collect();
@@ -2064,12 +2096,12 @@ impl<'a> Writer<'a> {
 
     fn write_builder_block(
         &mut self,
-        block_id: xsh::syntax::arena::BuilderBlockId,
+        block_id: xsh::frontend::syntax::arena::BuilderBlockId,
         indent: usize,
         output: &mut String,
     ) {
         let block = self.arena.builder_block(block_id).clone();
-        let entries: Vec<xsh::syntax::arena::ArenaBuilderEntry> =
+        let entries: Vec<xsh::frontend::syntax::arena::ArenaBuilderEntry> =
             self.arena.builder_entries(block.entries).to_vec();
         output.push('{');
         if entries.is_empty() {
@@ -2090,7 +2122,7 @@ impl<'a> Writer<'a> {
 
     fn write_builder_entry(
         &mut self,
-        entry: &xsh::syntax::arena::ArenaBuilderEntry,
+        entry: &xsh::frontend::syntax::arena::ArenaBuilderEntry,
         indent: usize,
         output: &mut String,
     ) {
@@ -2170,7 +2202,11 @@ impl<'a> Writer<'a> {
         }
     }
 
-    fn write_record_schema(&mut self, fields: xsh::syntax::arena::ArenaRange, output: &mut String) {
+    fn write_record_schema(
+        &mut self,
+        fields: xsh::frontend::syntax::arena::ArenaRange,
+        output: &mut String,
+    ) {
         let schema_fields = self.arena.schema_fields(fields).to_vec();
         let field_ids: Vec<(Name, TypeExprId)> =
             schema_fields.iter().map(|f| (f.name, f.ty)).collect();
@@ -2207,7 +2243,7 @@ impl<'a> Writer<'a> {
 
     fn write_record_schema_inline(
         &mut self,
-        fields: xsh::syntax::arena::ArenaRange,
+        fields: xsh::frontend::syntax::arena::ArenaRange,
         output: &mut String,
     ) {
         let field_ids: Vec<(Name, TypeExprId)> = self
@@ -2234,7 +2270,7 @@ impl<'a> Writer<'a> {
 
     fn write_module_contract(
         &mut self,
-        entries: xsh::syntax::arena::ArenaRange,
+        entries: xsh::frontend::syntax::arena::ArenaRange,
         output: &mut String,
     ) {
         let indent = indent_for_expr(output);
@@ -2251,7 +2287,7 @@ impl<'a> Writer<'a> {
 
     fn write_module_contract_entry(
         &mut self,
-        entry: &xsh::syntax::arena::ArenaModuleContractEntry,
+        entry: &xsh::frontend::syntax::arena::ArenaModuleContractEntry,
         output: &mut String,
     ) {
         output.push_str("export ");
@@ -2293,7 +2329,7 @@ impl<'a> Writer<'a> {
 
     fn write_call_args(
         &mut self,
-        args: xsh::syntax::arena::ArenaRange,
+        args: xsh::frontend::syntax::arena::ArenaRange,
         original_multiline: bool,
         output: &mut String,
     ) {
@@ -2317,7 +2353,7 @@ impl<'a> Writer<'a> {
             }
         }
 
-        let arg_kinds: Vec<xsh::syntax::arena::ArenaCallArgKind> = self
+        let arg_kinds: Vec<xsh::frontend::syntax::arena::ArenaCallArgKind> = self
             .arena
             .call_args(args)
             .iter()
@@ -2335,7 +2371,7 @@ impl<'a> Writer<'a> {
 
     fn render_broken_call_args_doc(
         &mut self,
-        args: &[xsh::syntax::arena::ArenaCallArgKind],
+        args: &[xsh::frontend::syntax::arena::ArenaCallArgKind],
         indent: usize,
     ) -> Doc {
         let mut body = vec![Doc::Line];
@@ -2368,18 +2404,18 @@ impl<'a> Writer<'a> {
 
     fn call_args_original_multiline(
         &self,
-        args: xsh::syntax::arena::ArenaRange,
+        args: xsh::frontend::syntax::arena::ArenaRange,
         callee_end: usize,
         call_end: usize,
     ) -> bool {
         let mut previous_end = callee_end;
         for arg in self.arena.call_args(args) {
             let span = match &arg.kind {
-                xsh::syntax::arena::ArenaCallArgKind::Positional(expr) => {
+                xsh::frontend::syntax::arena::ArenaCallArgKind::Positional(expr) => {
                     self.arena.expr(*expr).span
                 }
-                xsh::syntax::arena::ArenaCallArgKind::Splice { span, .. }
-                | xsh::syntax::arena::ArenaCallArgKind::Named { span, .. } => {
+                xsh::frontend::syntax::arena::ArenaCallArgKind::Splice { span, .. }
+                | xsh::frontend::syntax::arena::ArenaCallArgKind::Named { span, .. } => {
                     self.arena.span(*span)
                 }
             };
@@ -2440,7 +2476,7 @@ impl<'a> Writer<'a> {
 
     fn write_call_args_inline(
         &mut self,
-        args: xsh::syntax::arena::ArenaRange,
+        args: xsh::frontend::syntax::arena::ArenaRange,
         output: &mut String,
     ) {
         output.push('(');
@@ -2465,8 +2501,12 @@ impl<'a> Writer<'a> {
         }
     }
 
-    fn write_call_arg(&mut self, arg: &xsh::syntax::arena::ArenaCallArgKind, output: &mut String) {
-        use xsh::syntax::arena::ArenaCallArgKind;
+    fn write_call_arg(
+        &mut self,
+        arg: &xsh::frontend::syntax::arena::ArenaCallArgKind,
+        output: &mut String,
+    ) {
+        use xsh::frontend::syntax::arena::ArenaCallArgKind;
         match arg {
             ArenaCallArgKind::Positional(expr) => self.write_expr_safe(*expr, output),
             ArenaCallArgKind::Splice { value, .. } => {
@@ -2489,10 +2529,10 @@ impl<'a> Writer<'a> {
 
     fn write_call_arg_multiline(
         &mut self,
-        arg: &xsh::syntax::arena::ArenaCallArgKind,
+        arg: &xsh::frontend::syntax::arena::ArenaCallArgKind,
         output: &mut String,
     ) {
-        use xsh::syntax::arena::ArenaCallArgKind;
+        use xsh::frontend::syntax::arena::ArenaCallArgKind;
         match arg {
             ArenaCallArgKind::Positional(expr) => {
                 self.write_expr_safe_multiline_preferred(*expr, output)
@@ -2781,7 +2821,11 @@ impl<'a> Writer<'a> {
         self.arena.text_value(text, &self.source).unwrap_or("")
     }
 
-    fn join_name_range(&self, range: xsh::syntax::arena::ArenaRange, separator: &str) -> String {
+    fn join_name_range(
+        &self,
+        range: xsh::frontend::syntax::arena::ArenaRange,
+        separator: &str,
+    ) -> String {
         self.arena
             .names(range)
             .map(|name| name.as_str())
@@ -2818,8 +2862,11 @@ impl<'a> Writer<'a> {
         Some(expr)
     }
 
-    fn call_arg_is_multiline_literal(&self, arg: &xsh::syntax::arena::ArenaCallArgKind) -> bool {
-        use xsh::syntax::arena::ArenaCallArgKind;
+    fn call_arg_is_multiline_literal(
+        &self,
+        arg: &xsh::frontend::syntax::arena::ArenaCallArgKind,
+    ) -> bool {
+        use xsh::frontend::syntax::arena::ArenaCallArgKind;
         match arg {
             ArenaCallArgKind::Positional(expr) | ArenaCallArgKind::Named { value: expr, .. } => {
                 self.expr_is_multiline_literal(*expr)
@@ -2828,8 +2875,11 @@ impl<'a> Writer<'a> {
         }
     }
 
-    fn call_arg_is_multiline_record(&self, arg: &xsh::syntax::arena::ArenaCallArgKind) -> bool {
-        use xsh::syntax::arena::ArenaCallArgKind;
+    fn call_arg_is_multiline_record(
+        &self,
+        arg: &xsh::frontend::syntax::arena::ArenaCallArgKind,
+    ) -> bool {
+        use xsh::frontend::syntax::arena::ArenaCallArgKind;
         match arg {
             ArenaCallArgKind::Positional(expr) | ArenaCallArgKind::Named { value: expr, .. } => {
                 matches!(self.arena.expr(*expr).kind, ArenaExprKind::Record(_))

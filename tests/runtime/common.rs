@@ -7,12 +7,74 @@ pub(crate) use std::os::unix::ffi::{OsStrExt, OsStringExt};
 pub(crate) use std::os::unix::fs::{MetadataExt, PermissionsExt};
 pub(crate) use std::path::{Path, PathBuf};
 pub(crate) use std::process::{Child, Command, Stdio};
+pub(crate) use std::sync::OnceLock;
 pub(crate) use std::sync::{
     Arc, Mutex,
     atomic::{AtomicUsize, Ordering},
 };
 pub(crate) use std::time::{Duration, Instant};
 pub(crate) static PTY_TEST_LOCK: Mutex<()> = Mutex::new(());
+
+struct WorkspaceBinaries {
+    xshi: String,
+    xsht: String,
+}
+
+static WORKSPACE_BINARIES: OnceLock<WorkspaceBinaries> = OnceLock::new();
+
+// The root integration suite exercises all three products. Their binaries are
+// package-owned, so build and resolve them from the active Cargo profile rather
+// than depending on duplicate root-package targets.
+pub(crate) fn workspace_binary(name: &str) -> &'static str {
+    let binaries = WORKSPACE_BINARIES.get_or_init(build_workspace_binaries);
+    match name {
+        "xshi" => binaries.xshi.as_str(),
+        "xsht" => binaries.xsht.as_str(),
+        _ => panic!("unsupported workspace binary '{name}'"),
+    }
+}
+
+fn build_workspace_binaries() -> WorkspaceBinaries {
+    let profile_dir = std::env::current_exe()
+        .expect("locate integration test executable")
+        .parent()
+        .and_then(Path::parent)
+        .expect("locate Cargo profile directory")
+        .to_path_buf();
+    let profile = profile_dir
+        .file_name()
+        .and_then(|name| name.to_str())
+        .expect("Cargo profile directory name");
+
+    let mut command = Command::new("cargo");
+    command
+        .current_dir(env!("CARGO_MANIFEST_DIR"))
+        .args(["build", "-p", "xshi", "-p", "xsht", "--bins"]);
+    if profile != "debug" {
+        command.args(["--profile", profile]);
+    }
+    let status = command.status().expect("build workspace product binaries");
+    assert!(
+        status.success(),
+        "building workspace product binaries failed: {status}"
+    );
+
+    let binary = |name: &str| {
+        let path = profile_dir.join(name);
+        assert!(
+            path.is_file(),
+            "workspace binary is missing: {}",
+            path.display()
+        );
+        path.to_str()
+            .expect("workspace binary path is UTF-8")
+            .to_owned()
+    };
+    WorkspaceBinaries {
+        xshi: binary("xshi"),
+        xsht: binary("xsht"),
+    }
+}
 
 pub(crate) type JsonValue = miniserde::json::Value;
 
@@ -29,7 +91,7 @@ pub(crate) fn xsh<const N: usize>(args: [&str; N]) -> std::process::Output {
 }
 
 pub(crate) fn xsht<const N: usize>(args: [&str; N]) -> std::process::Output {
-    let mut cmd = Command::new(env!("CARGO_BIN_EXE_xsht"));
+    let mut cmd = Command::new(workspace_binary("xsht"));
     cmd.args(args);
     cmd.output().expect("run xsht")
 }
@@ -223,7 +285,7 @@ fn command_for_script_with_leading_args(path: &Path, leading_args: &[&str]) -> C
     let trace_args = translated_trace_args(leading_args);
 
     if let Some(args) = trace_args {
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_xsht"));
+        let mut cmd = Command::new(workspace_binary("xsht"));
         cmd.arg("trace").args(args).arg(path);
         cmd
     } else {

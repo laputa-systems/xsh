@@ -1,3 +1,8 @@
+//! Supported diagnostic values and renderers for `libxsh` consumers.
+//!
+//! Diagnostics are part of the supported library tier; their labels and source
+//! spans are intended to remain usable across the frontend and tooling.
+
 use crate::source::{SourceMap, Span};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

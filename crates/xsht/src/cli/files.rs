@@ -3,7 +3,7 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::thread;
-use xsh::runtime::process::cancellation_requested_signal;
+use xsh::process::cancellation_requested_signal;
 
 pub const CONFIG_FILE_NAME: &str = "xsht-config.ini";
 
@@ -246,8 +246,8 @@ pub fn load_config_from(path: &Path) -> Result<XshConfig, String> {
             ));
         }
     };
-    let span = xsh::source::Span::new(xsh::source::SourceId::new(0), 0, 0);
-    let value = xsh::modules::ini::decode(&text, span).map_err(|error| {
+    let span = xsh::frontend::source::Span::new(xsh::frontend::source::SourceId::new(0), 0, 0);
+    let value = xsh::host::ini::decode(&text, span).map_err(|error| {
         format!(
             "invalid {} '{}': {}",
             CONFIG_FILE_NAME,
@@ -283,9 +283,9 @@ pub(crate) fn resolve_config_path(config_dir: &Path, raw: String) -> PathBuf {
     }
 }
 
-fn parse_config_ini(value: &xsh::runtime::value::Value) -> Result<XshConfig, String> {
+fn parse_config_ini(value: &xsh::execution::value::Value) -> Result<XshConfig, String> {
     let fields = match value {
-        xsh::runtime::value::Value::Record(fields) => fields,
+        xsh::execution::value::Value::Record(fields) => fields,
         _ => return Err(format!("{CONFIG_FILE_NAME} must decode to a record")),
     };
     Ok(XshConfig {
@@ -300,8 +300,8 @@ fn parse_config_ini(value: &xsh::runtime::value::Value) -> Result<XshConfig, Str
     })
 }
 
-fn parse_check_ini(fields: &xsh::runtime::value::RecordMap) -> CheckConfig {
-    let Some(xsh::runtime::value::Value::Record(check)) = fields.get("check") else {
+fn parse_check_ini(fields: &xsh::execution::value::RecordMap) -> CheckConfig {
+    let Some(xsh::execution::value::Value::Record(check)) = fields.get("check") else {
         return CheckConfig::default();
     };
     CheckConfig {
@@ -309,8 +309,8 @@ fn parse_check_ini(fields: &xsh::runtime::value::RecordMap) -> CheckConfig {
     }
 }
 
-fn parse_lint_ini(fields: &xsh::runtime::value::RecordMap) -> LintConfig {
-    let Some(xsh::runtime::value::Value::Record(lint)) = fields.get("lint") else {
+fn parse_lint_ini(fields: &xsh::execution::value::RecordMap) -> LintConfig {
+    let Some(xsh::execution::value::Value::Record(lint)) = fields.get("lint") else {
         return LintConfig::default();
     };
     LintConfig {
@@ -318,8 +318,8 @@ fn parse_lint_ini(fields: &xsh::runtime::value::RecordMap) -> LintConfig {
     }
 }
 
-fn parse_coverage_ini(fields: &xsh::runtime::value::RecordMap) -> CoverageConfig {
-    let Some(xsh::runtime::value::Value::Record(coverage)) = fields.get("coverage") else {
+fn parse_coverage_ini(fields: &xsh::execution::value::RecordMap) -> CoverageConfig {
+    let Some(xsh::execution::value::Value::Record(coverage)) = fields.get("coverage") else {
         return CoverageConfig::default();
     };
     CoverageConfig {
@@ -327,11 +327,11 @@ fn parse_coverage_ini(fields: &xsh::runtime::value::RecordMap) -> CoverageConfig
     }
 }
 
-fn parse_format_ini(fields: &xsh::runtime::value::RecordMap) -> Result<FormatConfig, String> {
+fn parse_format_ini(fields: &xsh::execution::value::RecordMap) -> Result<FormatConfig, String> {
     let Some(value) = fields.get("format") else {
         return Ok(FormatConfig::default());
     };
-    let xsh::runtime::value::Value::Record(format) = value else {
+    let xsh::execution::value::Value::Record(format) = value else {
         return Err(format!("{CONFIG_FILE_NAME} [format] must be a section"));
     };
     let Some(raw_line_width) = ini_string(format, "line-width") else {
@@ -351,14 +351,14 @@ fn parse_format_ini(fields: &xsh::runtime::value::RecordMap) -> Result<FormatCon
     Ok(FormatConfig { line_width })
 }
 
-fn ini_string<'a>(fields: &'a xsh::runtime::value::RecordMap, key: &str) -> Option<&'a str> {
-    let xsh::runtime::value::Value::Str(value) = fields.get(key)? else {
+fn ini_string<'a>(fields: &'a xsh::execution::value::RecordMap, key: &str) -> Option<&'a str> {
+    let xsh::execution::value::Value::Str(value) = fields.get(key)? else {
         return None;
     };
     Some(value)
 }
 
-fn ini_string_list(fields: &xsh::runtime::value::RecordMap, key: &str) -> Option<Vec<String>> {
+fn ini_string_list(fields: &xsh::execution::value::RecordMap, key: &str) -> Option<Vec<String>> {
     let value = ini_string(fields, key)?;
     Some(value.split('\n').map(|s| s.to_string()).collect())
 }

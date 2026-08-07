@@ -1,8 +1,10 @@
 #![allow(clippy::single_call_fn)]
 
 use rustc_hash::FxHashMap;
-use xsh::source::Span;
-use xsh::syntax::arena::{ArenaCallArgKind, ArenaExprKind, ArenaProgram, AstArena, ExprId};
+use xsh::frontend::source::Span;
+use xsh::frontend::syntax::arena::{
+    ArenaCallArgKind, ArenaExprKind, ArenaProgram, AstArena, ExprId,
+};
 
 /// A structural grep match from `xsht::grep::find_matches_in_program`: the
 /// source span and bindings for each metavariable.
@@ -183,9 +185,9 @@ fn match_expr_structural(
 
 fn match_args(
     p: &AstArena,
-    pattern_args: xsh::syntax::arena::ArenaRange,
+    pattern_args: xsh::frontend::syntax::arena::ArenaRange,
     t: &AstArena,
-    target_args: xsh::syntax::arena::ArenaRange,
+    target_args: xsh::frontend::syntax::arena::ArenaRange,
     source: &str,
     bindings: &mut FxHashMap<String, Span>,
 ) -> bool {
@@ -208,7 +210,7 @@ fn match_args(
     true
 }
 
-fn call_arg_expr(arg: &xsh::syntax::arena::ArenaCallArg) -> ExprId {
+fn call_arg_expr(arg: &xsh::frontend::syntax::arena::ArenaCallArg) -> ExprId {
     match &arg.kind {
         ArenaCallArgKind::Positional(expr) => *expr,
         ArenaCallArgKind::Named { value, .. } => *value,
@@ -323,9 +325,9 @@ pub fn line_at_offset(source: &str, offset: usize) -> &str {
 /// Parse a bare expression from a string by wrapping it as `let _x = <expr>`.
 /// Returns the extracted expression on success.
 pub fn parse_pattern_expr(pattern: &str) -> Result<PatternExpr, String> {
-    use xsh::source::SourceId;
-    use xsh::syntax::arena::{ArenaExprOrRun, ArenaStmtKind};
-    use xsh::syntax::parser::Parser;
+    use xsh::frontend::source::SourceId;
+    use xsh::frontend::syntax::arena::{ArenaExprOrRun, ArenaStmtKind};
+    use xsh::frontend::syntax::parser::Parser;
 
     let wrapped = format!("let _x = {pattern}");
     let parsed = Parser::parse_source_arena_only(SourceId::new(0), &wrapped);

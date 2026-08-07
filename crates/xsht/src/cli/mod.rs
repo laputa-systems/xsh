@@ -1,8 +1,8 @@
 #![allow(dead_code, unused_imports)]
 
-use xsh::runner::ScriptOutput;
-use xsh::runtime::process::cancellation_requested_signal;
-use xsh::trace::SyscallSummary;
+use crate::xsht::trace::SyscallSummary;
+use xsh::execution::script::ScriptOutput;
+use xsh::process::cancellation_requested_signal;
 
 /// Result contract shared by `xsht::cli` command adapters.
 #[derive(Clone, Debug)]
@@ -128,4 +128,4 @@ pub use refactor::refactor_scripts;
 pub use syntax_tree::ast_script;
 pub use trace::trace_script;
 
-use xsh::loader::{parse_script, parse_script_with_module_roots};
+use xsh::frontend::load::{parse_script, parse_script_with_module_roots};

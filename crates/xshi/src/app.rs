@@ -2,7 +2,7 @@ use std::os::unix::ffi::OsStrExt;
 use std::process::ExitCode;
 
 use crate::xshi::interactive;
-use xsh::runtime::process::{
+use xsh::process::{
     clear_cancellation_request, install_cancellation_signal_handlers,
     install_interactive_signal_handlers,
 };

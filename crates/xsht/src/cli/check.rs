@@ -9,13 +9,13 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use xsh::diagnostic::{Diagnostic, DiagnosticRenderer, Label, LabelStyle};
-use xsh::loader::{self, parse_load_check_file};
-use xsh::runtime::eval::Evaluator;
-use xsh::sema::check::{
+use xsh::execution::evaluator::Evaluator;
+use xsh::frontend::check::{
     AnnotationFact, AnnotationFactKind, CheckOptions, Checker, CompactBodyProbeOutput,
 };
-use xsh::source::{SourceId, SourceMap, Span};
-use xsh::syntax::parser::Parser;
+use xsh::frontend::load::{self as loader, parse_load_check_file};
+use xsh::frontend::source::{SourceId, SourceMap, Span};
+use xsh::frontend::syntax::parser::Parser;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct AnnotationPolicy {
@@ -389,7 +389,7 @@ pub fn check_paths_with_summary_options(
                     declarations,
                     bodies,
                     Vec::new(),
-                    xsh::runner::script_command_name(&path_str),
+                    xsh::execution::script::script_command_name(&path_str),
                 );
                 if !diagnostics.is_empty() {
                     let new_diags: Vec<_> = diagnostics
@@ -406,7 +406,7 @@ pub fn check_paths_with_summary_options(
                 }
             } else {
                 let source_snapshot = sources.clone();
-                let command_name = xsh::runner::script_command_name(&path_str);
+                let command_name = xsh::execution::script::script_command_name(&path_str);
                 job_tx
                     .send((
                         file_index,
@@ -691,7 +691,7 @@ fn check_one_script(
         declarations,
         bodies,
         Vec::new(),
-        xsh::runner::script_command_name(script),
+        xsh::execution::script::script_command_name(script),
     );
     if !diagnostics.is_empty() {
         return CliOutput {
@@ -828,7 +828,7 @@ fn annotation_edits(
         if matches!(
             fact.kind,
             AnnotationFactKind::Binding { .. } | AnnotationFactKind::DefaultedParam { .. }
-        ) && matches!(fact.ty, xsh::sema::types::Type::Unit)
+        ) && matches!(fact.ty, xsh::frontend::check::Type::Unit)
         {
             continue;
         }

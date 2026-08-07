@@ -8,13 +8,13 @@ use crate::xshi::interactive::app::{
 };
 use crate::xshi::interactive::session::Session;
 use std::sync::Arc;
-use xsh::source::Span;
-use xsh::symbol::Name;
-use xsh::syntax::arena::{
+use xsh::frontend::source::Span;
+use xsh::frontend::symbols::Name;
+use xsh::frontend::syntax::arena::{
     ArenaCommandArg, ArenaEnvAssignmentValue, ArenaProgram, ArenaProgramBuilder,
     ArenaRedirectionTarget,
 };
-use xsh::syntax::node::{RedirectionKind, RunKind};
+use xsh::frontend::syntax::node::{RedirectionKind, RunKind};
 
 /// Lower an expanded shell pipeline into a single-statement arena program
 /// containing a `run` command. Shell word/variable expansion happens here; the

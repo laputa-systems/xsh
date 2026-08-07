@@ -7,6 +7,7 @@ use crate::xsht::cli::{CliOutput, TraceOptions};
 mod platform {
     use crate::xsht::cli::TraceFormat;
     use crate::xsht::cli::{CliOutput, TraceOptions};
+    use crate::xsht::trace::{SyscallSummary, SyscallSummaryRenderer, SyscallTraceRecord};
     use rustix::io::Errno;
     use rustix::process::{Pid, WaitOptions, WaitStatus, waitpid};
     use std::collections::BTreeMap;
@@ -18,7 +19,6 @@ mod platform {
     use std::process::{Command, Stdio};
     use std::thread;
     use std::time::{Instant, SystemTime, UNIX_EPOCH};
-    use xsh::trace::{SyscallSummary, SyscallSummaryRenderer, SyscallTraceRecord};
 
     pub(crate) fn run(options: TraceOptions) -> CliOutput {
         match Supervisor::new(options).run() {

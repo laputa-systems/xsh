@@ -1,10 +1,10 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::io::Read;
-use xsh::modules::api_spec;
-use xsh::modules::signature::{MethodReceiver, MethodReturn, ModuleFnSig};
-use xsh::sema::records::record_schemas;
-use xsh::sema::types::Type;
+use xsh::api::api_spec;
+use xsh::api::{MethodReceiver, MethodReturn, ModuleFnSig};
+use xsh::frontend::check::Type;
+use xsh::frontend::check::record_schemas;
 use xsh_registry::reference::language_references;
 use xsh_registry::signature::{method_api_id, module_api_id, receiver_name, record_docs};
 
@@ -604,7 +604,7 @@ fn catalog() -> Vec<ApiItem> {
 fn item_from_docs(
     id: String,
     kind: &'static str,
-    docs: &xsh::modules::signature::ApiDocs,
+    docs: &xsh::api::ApiDocs,
     signatures: Vec<String>,
     effects: Vec<String>,
 ) -> ApiItem {
@@ -661,7 +661,7 @@ fn language_items() -> Vec<ApiItem> {
         .collect()
 }
 
-fn module_effects(signature: &xsh::modules::signature::ModuleSig) -> Vec<String> {
+fn module_effects(signature: &xsh::api::ModuleSig) -> Vec<String> {
     let mut effects = BTreeSet::new();
     for function in &signature.functions {
         for effect in module_function_effects(&function.overloads) {
@@ -684,7 +684,7 @@ fn module_function_effects(overloads: &[ModuleFnSig]) -> Vec<String> {
     effects.into_iter().collect()
 }
 
-fn method_effects(overloads: &[xsh::modules::signature::MethodSig]) -> Vec<String> {
+fn method_effects(overloads: &[xsh::api::MethodSig]) -> Vec<String> {
     let mut effects = BTreeSet::new();
     for overload in overloads {
         if let Some(effect) = &overload.sig.effect {
@@ -708,7 +708,7 @@ fn module_signature(module: &str, function: &str, signature: &ModuleFnSig) -> St
 fn method_signature(
     receiver: MethodReceiver,
     method: &str,
-    signature: &xsh::modules::signature::MethodSig,
+    signature: &xsh::api::MethodSig,
 ) -> String {
     let return_type = match &signature.return_ty {
         MethodReturn::Type(ty) => render_type(ty),
@@ -721,7 +721,7 @@ fn method_signature(
     )
 }
 
-fn render_params(params: &[xsh::modules::signature::ParamSig]) -> String {
+fn render_params(params: &[xsh::api::ParamSig]) -> String {
     params
         .iter()
         .map(|param| {

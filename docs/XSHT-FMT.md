@@ -223,7 +223,7 @@ Formatter changes preserve these invariants:
 The narrow Rust gate is `cargo test --test integration syntax::`. The CLI corpus
 gate is
 `target/debug/xsht test --exact tests/xsh/formatter.xsh::test_fmt_fixture`
-after `cargo build --bin xsht`; the broader native-test command is `xsht test`.
+after `cargo build -p xsht --bin xsht`; the broader native-test command is `xsht test`.
 
 ## Deferred Work
 
