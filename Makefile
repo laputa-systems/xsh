@@ -207,7 +207,7 @@ release-pgo-linux-docker:
 			ln -sf /usr/lib/libgcc_s.so.1 "$$SR/libgcc_s.so" && \
 			ln -sf /usr/lib/libgcc_s.so.1 "$$SR/libgcc_s.so.1" && \
 			ln -sf /usr/lib/libc.so "$$SR/libc.so" && \
-			$(DIST_DOCKER_ENV) make release-pgo PGO_TARGET=$(TARGET) \
+			$(DIST_DOCKER_ENV) make release-pgo PGO_TARGET=$(TARGET) PGO_BUILD_STD_FLAGS="$(DIST_DOCKER_BUILD_STD_FLAGS)" \
 		'
 
 dist-native:
@@ -311,6 +311,7 @@ PGO_INSTRUMENT_BINARY := $(PGO_INSTRUMENT_TARGET_DIR)/$(PGO_TARGET)/release/xshi
 PGO_USE_BINARY := $(PGO_USE_TARGET_DIR)/$(PGO_TARGET)/release/xshi
 PGO_USE_RUSTFLAGS := -Cprofile-use=$(PGO_MERGED) -Cllvm-args=-pgo-warn-missing-function
 PGO_GENERATE_RUSTFLAGS := -Cprofile-generate=$(PGO_DIR)
+PGO_BUILD_STD_FLAGS ?=
 
 bench:
 	@$(RUSTYBENCH) baseline --root "$(CURDIR)" --baseline "$(CURDIR)/crates/xshi/benches/baseline.json" -- cargo bench -p xshi --bench bench --features benchmark
@@ -324,11 +325,11 @@ bench-syscalls:
 pgo-instrument:
 	rm -rf $(PGO_DIR) $(PGO_INSTRUMENT_TARGET_DIR) $(PGO_DRIVER_TARGET_DIR) $(PGO_USE_TARGET_DIR)
 	mkdir -p $(PGO_DIR)
-	env -u RUSTFLAGS -u CARGO_ENCODED_RUSTFLAGS cargo rustc --locked -p xshi --bin xshi --release --target $(PGO_TARGET) --target-dir $(PGO_INSTRUMENT_TARGET_DIR) -- $(PGO_GENERATE_RUSTFLAGS)
+	env -u RUSTFLAGS -u CARGO_ENCODED_RUSTFLAGS cargo rustc --locked -p xshi --bin xshi --release $(PGO_BUILD_STD_FLAGS) --target $(PGO_TARGET) --target-dir $(PGO_INSTRUMENT_TARGET_DIR) -- $(PGO_GENERATE_RUSTFLAGS)
 
 pgo-profile: pgo-instrument
-	env -u RUSTFLAGS -u CARGO_ENCODED_RUSTFLAGS cargo test --locked --test integration --no-run --features "native-tests net tools" --target-dir $(PGO_DRIVER_TARGET_DIR)
-	env -u RUSTFLAGS -u CARGO_ENCODED_RUSTFLAGS LLVM_PROFILE_FILE="$(PGO_DIR)/xshi-%p.profraw" XSH_PGO_BINARY="$(PGO_INSTRUMENT_BINARY)" CARGO_TARGET_DIR="$(PGO_DRIVER_TARGET_DIR)" cargo test --locked --test integration --features "native-tests net tools" runtime::interactive::xshi_pgo_profile_workload -- --ignored --exact --test-threads=1
+	env -u RUSTFLAGS -u CARGO_ENCODED_RUSTFLAGS cargo test --locked --test integration --no-run $(PGO_BUILD_STD_FLAGS) --features "native-tests net tools" --target-dir $(PGO_DRIVER_TARGET_DIR)
+	env -u RUSTFLAGS -u CARGO_ENCODED_RUSTFLAGS LLVM_PROFILE_FILE="$(PGO_DIR)/xshi-%p.profraw" XSH_PGO_BINARY="$(PGO_INSTRUMENT_BINARY)" CARGO_TARGET_DIR="$(PGO_DRIVER_TARGET_DIR)" cargo test --locked --test integration $(PGO_BUILD_STD_FLAGS) --features "native-tests net tools" runtime::interactive::xshi_pgo_profile_workload -- --ignored --exact --test-threads=1
 	@raw_profiles="$$(find "$(PGO_DIR)" -type f -name '*.profraw' -print)"; \
 		test -n "$$raw_profiles"; \
 		$(LLVM_BIN)/llvm-profdata merge -o "$(PGO_MERGED)" $$raw_profiles; \
@@ -342,7 +343,7 @@ bench-pgo:
 	@:
 
 release-pgo: $(PGO_MERGED)
-	env -u RUSTFLAGS -u CARGO_ENCODED_RUSTFLAGS cargo rustc --locked -p xshi --bin xshi --release --target $(PGO_TARGET) --target-dir $(PGO_USE_TARGET_DIR) -- $(PGO_USE_RUSTFLAGS)
+	env -u RUSTFLAGS -u CARGO_ENCODED_RUSTFLAGS cargo rustc --locked -p xshi --bin xshi --release $(PGO_BUILD_STD_FLAGS) --target $(PGO_TARGET) --target-dir $(PGO_USE_TARGET_DIR) -- $(PGO_USE_RUSTFLAGS)
 	@! $(LLVM_BIN)/llvm-nm "$(PGO_USE_BINARY)" 2>/dev/null | grep -Eq '(__llvm_profile|llvm_profile)'
 	@! $(LLVM_BIN)/llvm-objdump -h "$(PGO_USE_BINARY)" 2>/dev/null | grep -Eiq '(__llvm_prf|llvm_prf)'
 
