@@ -164,6 +164,7 @@ jobs:
             "xsht-${RELEASE_TAG}-aarch64-apple-darwin" \
             "xshi-${RELEASE_TAG}-aarch64-apple-darwin"; do
             test -f "dist/$artifact"
+            chmod 0755 "dist/$artifact"
             test -x "dist/$artifact"
             test -s "dist/$artifact"
           done
