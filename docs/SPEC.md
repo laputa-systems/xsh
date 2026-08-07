@@ -996,6 +996,10 @@ is immediately returned, and autofixes it to the initializer as the final tail
 expression when doing so would not remove intervening comments. Annotated
 bindings are autofixed only when checked types show the initializer already has
 the annotated type, so the edit does not remove a binding-level conversion.
+Record-schema annotations are not suggested for removal: a record literal may
+rely on the binding annotation for its field types, and the corresponding
+postfix `: Type` tail expression is not valid XSH syntax. This applies inside
+ordinary function bodies and record-producing block/map helpers.
 This also covers typed empty-list temporaries such as
 `let empty: List[T] = []; return empty` when the function tail type provides
 the needed context. `lint.redundant-ok-tail` flags final `return Ok(value)` in

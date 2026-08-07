@@ -541,6 +541,34 @@ pure values(items: List[Str]) -> List[Str] {
 }
 
 #[test]
+fn linter_does_not_suggest_unparseable_tail_return_for_typed_records() {
+    let source = "\
+type Item = {name: Str, active: Bool, count: Int}
+
+proc convert(value: Str) -> Item {
+  let item: Item = {name: value, active: true, count: 1}
+  return item
+}
+
+proc convert_all(values: List[Str]) -> List[Item] {
+  return values |> map { |value|
+    let item: Item = {name: value, active: true, count: 1}
+    item
+  } |> collect()
+}
+";
+    let parsed = parse_lint_source(source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let diagnostics = lint_and_assert_fmt_stable(&parsed.arena, source, LintOptions::default());
+    assert!(!diagnostics.iter().any(|diagnostic| {
+        diagnostic.code.as_deref() == Some("lint.redundant-tail-return-binding")
+    }));
+}
+
+#[test]
 fn linter_autofixes_single_newline_triple_string() {
     let source = "\
 let newline = \"\"\"

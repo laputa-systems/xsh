@@ -70,6 +70,7 @@ pub struct Linter<'a> {
     function_effects: FxHashMap<String, Option<Vec<Effect>>>,
     tag_variants: FxHashSet<String>,
     type_declarations: FxHashMap<String, Span>,
+    record_type_names: FxHashSet<String>,
     used_type_names: FxHashSet<String>,
     assigned_names: FxHashSet<Name>,
 }
@@ -137,6 +138,7 @@ impl<'a> Linter<'a> {
             function_effects: options.callable_effects,
             tag_variants: FxHashSet::default(),
             type_declarations: FxHashMap::default(),
+            record_type_names: FxHashSet::default(),
             used_type_names: FxHashSet::default(),
             assigned_names: FxHashSet::default(),
         };
@@ -175,6 +177,9 @@ impl<'a> Linter<'a> {
                     if !def.name.as_str().starts_with('_') && !is_exported {
                         self.type_declarations
                             .insert(def.name.to_string(), stmt.span);
+                    }
+                    if let ArenaTypeDefBody::RecordSchema(_) = &def.body {
+                        self.record_type_names.insert(def.name.to_string());
                     }
                     if let ArenaTypeDefBody::TagUnion(variants) = &def.body {
                         self.lint_single_line_tag_union(
@@ -1787,6 +1792,9 @@ impl<'a> Linter<'a> {
         {
             return;
         }
+        if self.annotation_is_record_type(ty) {
+            return;
+        }
         let initializer_span = self.arena.expr(initializer).span;
         let replacement = match self.source.get(initializer_span.range()) {
             Some(source) => format!("{source}\n"),
@@ -1815,6 +1823,18 @@ impl<'a> Linter<'a> {
             ));
         }
         self.diagnostics.push(diagnostic);
+    }
+
+    fn annotation_is_record_type(&self, annotation: Option<TypeExprId>) -> bool {
+        let Some(annotation) = annotation else {
+            return false;
+        };
+        match type_expr_kind(self.arena, annotation) {
+            ArenaTypeExprKind::Named(name) => self
+                .record_type_names
+                .contains(name.as_str().as_str()),
+            _ => false,
+        }
     }
 
     fn tail_return_binding_autofix_safe(
