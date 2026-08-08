@@ -2,7 +2,8 @@
 
 use super::Span;
 use super::{
-    BinaryOp, Diagnostic, DurationLiteral, FloatLiteral, IntLiteral, Keyword, Label, Name, Parser,
+    BinaryOp, Diagnostic, DurationLiteral, FixHint, FloatLiteral, IntLiteral, Keyword, Label, Name,
+    Parser,
     StreamStageKind, TokenKindMatch, TokenTag, UnaryOp, decode_bytes_literal_for, literal,
 };
 use crate::syntax::arena::{
@@ -319,6 +320,43 @@ impl<'a> Parser<'a> {
         );
     }
 
+    /// Report the unsupported integer-division spellings while retaining a
+    /// division-shaped AST for parser recovery. Int `/` is the documented
+    /// truncating integer-division spelling; `//` and `div` are not operators.
+    fn report_unsupported_integer_division(&mut self) -> Option<usize> {
+        let (span, replacement, tokens) = if self.current_tag() == TokenTag::Slash
+            && self.peek_tag(1) == Some(TokenTag::Slash)
+            && self.peek_start(1) == Some(self.current_end())
+        {
+            (
+                self.span(self.current_start(), self.peek_end(1).unwrap()),
+                "//",
+                2,
+            )
+        } else if self.current_tag() == TokenTag::Ident && self.at_ident("div") {
+            (self.current_span(), "div", 1)
+        } else {
+            return None;
+        };
+
+        self.diagnostics.push(
+            Diagnostic::error(format!(
+                "unsupported integer-division operator '{replacement}': use `/` on Int operands"
+            ))
+            .with_code("parse.unsupported-integer-division")
+            .with_label(Label::primary(
+                span,
+                "use `/` on Int operands; it truncates the result",
+            ))
+            .with_fix_hint(FixHint::replacement(
+                span,
+                "replace with integer `/`",
+                "/",
+            )),
+        );
+        Some(tokens)
+    }
+
     fn parse_precedence_arena_only(
         &mut self,
         min_prec: u8,
@@ -497,7 +535,13 @@ impl<'a> Parser<'a> {
                 if self.current_binary_op().is_none() && self.continuation_binary_op().is_some() {
                     self.skip_newlines();
                 }
-                let Some((op, prec, tokens)) = self.current_binary_op() else {
+                let unsupported_integer_division =
+                    self.report_unsupported_integer_division();
+                let (op, prec, tokens) = if let Some(tokens) = unsupported_integer_division {
+                    (BinaryOp::Div, 6, tokens)
+                } else if let Some((op, prec, tokens)) = self.current_binary_op() {
+                    (op, prec, tokens)
+                } else {
                     self.report_unsupported_boolean_operator();
                     break;
                 };
