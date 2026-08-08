@@ -36,6 +36,65 @@ proc middle(value: Int) [error] -> Result[Int] {
   leaf(value)?
 }
 
+proc parse_uint(s: Str, min: Int) [error] -> Int {
+  let value = s.parse_int()?
+  if value < min {
+    return min
+  }
+
+  return value
+}
+
+proc test_value_returning_error_helper(ctx: TestContext) [fs, error] {
+  let output = test.run_script(
+    ctx,
+    """
+proc parse_uint(s: Str, min: Int) [error] -> Int {
+  let value = s.parse_int()?
+  if value < min {
+    return min
+  }
+  return value
+}
+
+print parse_uint("42", 10)
+""",
+    [],
+    {},
+    b"",
+    "parse-uint.xsh",
+  )?
+
+  test.ok(output.success, output.stderr)?
+  test.eq(
+    output.stdout,
+    """42
+""",
+  )?
+
+  let invalid = test.run_script(
+    ctx,
+    """
+proc parse_uint(s: Str, min: Int) [error] -> Int {
+  let value = s.parse_int()?
+  if value < min {
+    return min
+  }
+  return value
+}
+
+print parse_uint("not-a-number", 10)
+""",
+    [],
+    {},
+    b"",
+    "parse-uint-invalid.xsh",
+  )?
+
+  test.ok(invalid.status != 0, invalid.stderr)?
+  test.contains(invalid.stderr, "parse-int: invalid integer")?
+}
+
 proc test_implicit_result_return_in_par_map() [error] {
   let values = [1, 2]
     |> par-map --jobs=2 { |_|
