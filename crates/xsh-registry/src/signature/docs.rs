@@ -305,7 +305,12 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
             "Use rooted operations when a workflow must not escape its destination tree.",
             &["filesystem", "rooted", "capability"],
         )),
-        ("fs", "files" | "dirs" | "walk") => Some((
+        ("fs", "files" | "walk") => Some((
+            "Produces lazy structured filesystem entries.",
+            "Order and traversal behavior are explicit in the options; hidden: false by default omits dot-prefixed files and directories, while hidden: true includes them. Use stream terminals to choose materialization.",
+            &["filesystem", "streaming", "walk"],
+        )),
+        ("fs", "dirs") => Some((
             "Produces lazy structured filesystem entries.",
             "Order and traversal behavior are explicit in the options; use stream terminals to choose materialization.",
             &["filesystem", "streaming", "walk"],
