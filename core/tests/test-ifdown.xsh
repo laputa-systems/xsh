@@ -8,9 +8,9 @@ iface eth0 inet static
     address 10.0.1.42
     netmask 255.255.255.0
     gateway 10.0.1.1
-    pre-down echo "pre-down:$IFACE:$LOGICAL:$ADDRFAM:$METHOD" >> ${hook_log.display()}
-    down echo "down:$IFACE:$IF_ADDRESS" >> ${hook_log.display()}
-    post-down echo "post-down:$PHASE" >> ${hook_log.display()}
+    pre-down echo "pre-down:\$IFACE:\$LOGICAL:\$ADDRFAM:\$METHOD" >> ${hook_log.display()}
+    down echo "down:\$IFACE:\$IF_ADDRESS" >> ${hook_log.display()}
+    post-down echo "post-down:\$PHASE" >> ${hook_log.display()}
 """,
   )?
 }

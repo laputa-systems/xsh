@@ -8,9 +8,9 @@ iface eth0 inet static
     address 10.0.1.42
     netmask 255.255.255.0
     gateway 10.0.1.1
-    pre-up echo "pre:$IFACE:$LOGICAL:$ADDRFAM:$METHOD" >> ${hook_log.display()}
-    up echo "up:$IFACE:$IF_ADDRESS:$IF_GATEWAY" >> ${hook_log.display()}
-    post-up echo "post:$PHASE" >> ${hook_log.display()}
+    pre-up echo "pre:\$IFACE:\$LOGICAL:\$ADDRFAM:\$METHOD" >> ${hook_log.display()}
+    up echo "up:\$IFACE:\$IF_ADDRESS:\$IF_GATEWAY" >> ${hook_log.display()}
+    post-up echo "post:\$PHASE" >> ${hook_log.display()}
 """,
   )?
 }

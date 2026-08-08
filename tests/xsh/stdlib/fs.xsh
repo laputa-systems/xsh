@@ -50,7 +50,7 @@ proc test_fs_tree_metadata_install_and_locking(ctx: TestContext) [fs, error] {
     ctx,
     f"""
 let entry = (fs.children(fp"${nested}", stat: false, ordered: false)? |> first())?
-print $entry.size
+print \$entry.size
 """,
   )?
   test.eq(unstat_children.status, 3)?
@@ -414,7 +414,7 @@ proc test_fs_files_recurses_with_raw_walk_and_preserves_entry_ext(ctx: TestConte
     ctx,
     f"""
 let entry = (fs.files(fp"${root}", false, false, [], true) |> first())?
-print $entry.size
+print \$entry.size
 """,
   )?
   test.eq(unstat_files.status, 3)?
