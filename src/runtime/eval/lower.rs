@@ -5920,8 +5920,10 @@ impl CompactLowerConstructProbe<'_, '_> {
                         item_slot,
                     )?
                 };
+                let binding_is_int = matches!(binding_ty, Some(Type::Int));
                 let slot = slots.declare_with_type(name, binding_ty);
-                if let Some(value) = self.lower_int_expr_candidate(&value)
+                if binding_is_int
+                    && let Some(value) = self.lower_int_expr_candidate(&value)
                     && !self.lowered_int_expr_needs_type_context(&value)
                 {
                     Some(push_build_row!(
@@ -6028,6 +6030,13 @@ impl CompactLowerConstructProbe<'_, '_> {
                         ));
                     }
                 };
+                let value_is_int = match value {
+                    ArenaExprOrRun::Expr(expr) => matches!(
+                        self.infer_checked_expr_type_with_slots(expr, slots),
+                        Some(Type::Int)
+                    ),
+                    ArenaExprOrRun::Run(_) => false,
+                };
                 let value = match value {
                     ArenaExprOrRun::Expr(expr) => {
                         self.lower_expr(expr, slots, current_function, item_slot)?
@@ -6046,7 +6055,8 @@ impl CompactLowerConstructProbe<'_, '_> {
                                 stmt,
                                 BuildStmtRow::AssignBool { slot, value }
                             ))
-                        } else if let Some(value) = self.lower_int_expr_candidate(&value)
+                        } else if value_is_int
+                            && let Some(value) = self.lower_int_expr_candidate(&value)
                             && !self.lowered_int_expr_needs_type_context(&value)
                         {
                             Some(push_build_row!(
@@ -6088,7 +6098,8 @@ impl CompactLowerConstructProbe<'_, '_> {
                             ArenaAssignTargetKind::Name(_)
                         ) =>
                     {
-                        if let Some(value) = self.lower_int_expr_candidate(&value)
+                        if value_is_int
+                            && let Some(value) = self.lower_int_expr_candidate(&value)
                             && !self.lowered_int_expr_needs_type_context(&value)
                         {
                             Some(push_build_row!(

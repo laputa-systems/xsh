@@ -1,6 +1,24 @@
 use super::common::*;
 
 #[test]
+fn mutable_string_accumulator_uses_string_addition_in_loop() {
+    let path = write_temp_script(
+        "mutable-string-accumulator",
+        "proc main() {\n  var stack = \"\"\n  for segment in [\"a\", \"b\", \"c\"] {\n    stack = stack + segment\n  }\n  print $stack\n}\n",
+    );
+    let output = Command::new(env!("CARGO_BIN_EXE_xsh"))
+        .arg(&path)
+        .output()
+        .expect("run xsh");
+
+    assert_ok(&output);
+    assert_eq!(stdout_text(&output), "abc\n");
+    assert_eq!(stderr_text(&output), "");
+
+    std::fs::remove_file(path).expect("remove temp script");
+}
+
+#[test]
 fn reassigning_let_is_check_error() {
     let path = write_temp_script("reassign-let-check-error", "let x = 1\nx = 2\n");
     let output = Command::new(env!("CARGO_BIN_EXE_xsh"))
