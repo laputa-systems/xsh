@@ -207,7 +207,7 @@ release-pgo-linux-docker:
 			ln -sf /usr/lib/libgcc_s.so.1 "$$SR/libgcc_s.so" && \
 			ln -sf /usr/lib/libgcc_s.so.1 "$$SR/libgcc_s.so.1" && \
 			ln -sf /usr/lib/libc.so "$$SR/libc.so" && \
-			$(DIST_DOCKER_ENV) make release-pgo PGO_TARGET=$(TARGET) PGO_BUILD_STD_FLAGS="$(DIST_DOCKER_BUILD_STD_FLAGS)" PGO_RUNTIME_RUSTFLAGS="-C link-arg=/opt/llvm-musl/lib/clang/22/lib/linux/libclang_rt.builtins-$(if $(filter x86_64-unknown-linux-musl,$(TARGET)),x86_64,aarch64).a" \
+			$(DIST_DOCKER_ENV) make release-pgo PGO_TARGET=$(TARGET) PGO_BUILD_STD_FLAGS="$(DIST_DOCKER_BUILD_STD_FLAGS)" PGO_RUNTIME_RUSTFLAGS="-C link-arg=/opt/llvm-musl/lib/clang/23/lib/linux/libclang_rt.builtins-$(if $(filter x86_64-unknown-linux-musl,$(TARGET)),x86_64,aarch64).a" \
 		'
 
 dist-native:

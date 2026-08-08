@@ -1,18 +1,22 @@
 FROM alpine:3.24.1
 ARG TARGETARCH
-ARG LLVM_VERSION=22.1.8
+ARG LLVM_VERSION=23.1.0-rc2
+ARG LLVM_RELEASE_SHA=6eb5fb9
 RUN apk add --no-cache musl-dev libgcc git make binutils tzdata zip strace
 # Keep Dockerfile.test on the same compiler family as release.yml. The release
 # workflow restores this tarball from the GitHub cache or downloads the same URL,
 # then points CC/target flags at its clang.
-ADD https://github.com/laputa-systems/llvm-prebuilt-musl/releases/download/llvm-musl-22.1.8/clang+llvm-22.1.8-x86_64-linux-musl.tar.xz /tmp/llvm-x86_64.tar.xz
-ADD https://github.com/laputa-systems/llvm-prebuilt-musl/releases/download/llvm-musl-22.1.8/clang+llvm-22.1.8-aarch64-linux-musl.tar.xz /tmp/llvm-aarch64.tar.xz
+ADD https://github.com/laputa-systems/llvm-prebuilt-musl/releases/download/llvm-musl-${LLVM_VERSION}-${LLVM_RELEASE_SHA}/clang+llvm-${LLVM_VERSION}-x86_64-linux-musl.tar.xz /tmp/llvm-x86_64.tar.xz
+ADD https://github.com/laputa-systems/llvm-prebuilt-musl/releases/download/llvm-musl-${LLVM_VERSION}-${LLVM_RELEASE_SHA}/clang+llvm-${LLVM_VERSION}-aarch64-linux-musl.tar.xz /tmp/llvm-aarch64.tar.xz
 RUN case "$TARGETARCH" in \
         amd64) f=/tmp/llvm-x86_64.tar.xz ;; \
         arm64) f=/tmp/llvm-aarch64.tar.xz ;; \
     esac \
+    && echo '36647cca0bf57d206a6ce757d07a9d8489ef6ccf283a2cc7f740d1cba99a088b  /tmp/llvm-x86_64.tar.xz' | sha256sum -c - \
+    && echo '0c9bd6f0fefa26dbdb7d6ed568f3799b558428b1ce1264656aa328fc6fd9e32d  /tmp/llvm-aarch64.tar.xz' | sha256sum -c - \
     && mkdir -p /opt/llvm-musl \
     && tar xf "$f" -C /opt/llvm-musl --strip-components=1 \
+    && test -f /opt/llvm-musl/lib/libclang.so \
     && rm /tmp/llvm-x86_64.tar.xz /tmp/llvm-aarch64.tar.xz
 ENV PATH="/opt/llvm-musl/bin:$PATH"
 # The prebuilt LLVM tree does not ship GNU crtbegin/crtend objects. aws-lc-sys
@@ -45,6 +49,7 @@ ENV PATH="/opt/llvm-musl/bin:/root/.cargo/bin:$PATH" \
     CC="/opt/llvm-musl/bin/clang" \
     AR="/opt/llvm-musl/bin/llvm-ar" \
     RANLIB="/opt/llvm-musl/bin/llvm-ranlib" \
+    LIBCLANG_PATH="/opt/llvm-musl/lib" \
     CC_AARCH64_UNKNOWN_LINUX_MUSL="/opt/llvm-musl/bin/clang" \
     CC_X86_64_UNKNOWN_LINUX_MUSL="/opt/llvm-musl/bin/clang" \
     CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER="rust-lld" \
