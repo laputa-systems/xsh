@@ -738,6 +738,23 @@ proc test_sort_by_compound_record_keys_and_stability() [error] {
   test.eq(whole, direct)?
 }
 
+proc test_sort_by_rejects_non_orderable_keys_at_runtime(ctx: TestContext) [error] {
+  let failed = test.run_script(
+    ctx,
+    """
+let rows = [{name: "b"}, {name: "a"}]
+let values = map.empty().set("key", ["not-orderable"])
+let key = values.get("key", 0)
+let out = (rows) |> sort-by { |_| key } |> collect()
+for r in out { print \${r.name} }
+""",
+  )?
+
+  test.ok(! failed.success, failed.stdout)?
+  test.contains(failed.stderr, "sort-by", failed.stderr)?
+  test.contains(failed.stderr, "List", failed.stderr)?
+}
+
 proc test_sort_by_map_accumulator_any_typed_fields() [error] {
   # Map.empty() is Map[Any], so Map.get(k, 0) yields an Any-typed field. A
   # sort-by over such a field must checker-accept the same way the runtime does
