@@ -373,7 +373,8 @@ fn parser_rejects_bracketed_map_comprehension_keys() {
 
 #[test]
 fn parser_reports_reserved_record_fields_by_name_without_cascade() {
-    let source = "type Accum = {run: Int, lines: List[Str]}\nlet rec: Accum = {run: 0, lines: []}\n";
+    let source =
+        "type Accum = {run: Int, lines: List[Str]}\nlet rec: Accum = {run: 0, lines: []}\n";
     let output = Parser::parse_source_arena_only(SourceId::new(0), source);
 
     assert_eq!(output.diagnostics.len(), 2, "{:?}", output.diagnostics);

@@ -46,8 +46,8 @@ use self::args::{
     module_sig_accepts_names_arena,
 };
 use self::command::{
-    command_arg_can_be_path_like_arena, command_bool_flag_name_arena,
-    command_is_print_arena, command_stmt_asserts_success_arena, command_ty_auto_propagates,
+    command_arg_can_be_path_like_arena, command_bool_flag_name_arena, command_is_print_arena,
+    command_stmt_asserts_success_arena, command_ty_auto_propagates,
 };
 pub use self::compact::{
     CompactBodyProbeOutput, CompactDeclOutput, CompactFunctionSig, CompactTypeDefInfo,

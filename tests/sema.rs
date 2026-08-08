@@ -1140,9 +1140,8 @@ proc main() [fs, error] -> Result[Str] {
 "#,
     );
     assert!(
-        messages.iter().any(|message| message.contains(
-            "if it is side-effect-free, declare it with an empty effect list `[]`"
-        )),
+        messages.iter().any(|message| message
+            .contains("if it is side-effect-free, declare it with an empty effect list `[]`")),
         "expected actionable unrestricted-proc diagnostic, got {messages:?}"
     );
 

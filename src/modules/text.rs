@@ -171,8 +171,9 @@ pub(crate) fn parse_int_decimal_text(text: &str, span: Span) -> Result<i64, Runt
         && text.bytes().all(|byte| byte.is_ascii_digit())
         && (text == "0" || !text.starts_with('0'));
     if !valid_digits {
-        return Err(RuntimeError::new("parse-int", format!("invalid integer `{text}`"))
-            .with_span(span));
+        return Err(
+            RuntimeError::new("parse-int", format!("invalid integer `{text}`")).with_span(span),
+        );
     }
     text.parse::<i64>().map_err(|_| {
         RuntimeError::new("parse-int", format!("invalid integer `{text}`")).with_span(span)
@@ -182,13 +183,11 @@ pub(crate) fn parse_int_decimal_text(text: &str, span: Span) -> Result<i64, Runt
 pub(crate) fn parse_uint_positive_text(text: &str, span: Span) -> Result<i64, RuntimeError> {
     let trimmed = text.trim();
     if trimmed.is_empty() || !trimmed.bytes().all(|byte| byte.is_ascii_digit()) {
-        return Err(
-            RuntimeError::new(
-                "parse-uint-positive",
-                format!("invalid positive integer `{text}`"),
-            )
-            .with_span(span),
-        );
+        return Err(RuntimeError::new(
+            "parse-uint-positive",
+            format!("invalid positive integer `{text}`"),
+        )
+        .with_span(span));
     }
     let value = trimmed.parse::<i64>().map_err(|_| {
         RuntimeError::new(
@@ -198,11 +197,9 @@ pub(crate) fn parse_uint_positive_text(text: &str, span: Span) -> Result<i64, Ru
         .with_span(span)
     })?;
     if value == 0 {
-        return Err(RuntimeError::new(
-            "parse-uint-positive",
-            "expected positive integer",
-        )
-        .with_span(span));
+        return Err(
+            RuntimeError::new("parse-uint-positive", "expected positive integer").with_span(span),
+        );
     }
     Ok(value)
 }
@@ -219,7 +216,8 @@ pub(crate) fn parse_uint_text(text: &str, span: Span) -> Result<i64, RuntimeErro
         );
     }
     trimmed.parse::<i64>().map_err(|_| {
-        RuntimeError::new("parse-uint", format!("invalid unsigned integer `{text}`")).with_span(span)
+        RuntimeError::new("parse-uint", format!("invalid unsigned integer `{text}`"))
+            .with_span(span)
     })
 }
 

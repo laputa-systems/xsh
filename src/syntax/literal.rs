@@ -217,9 +217,7 @@ fn shorthand_end(bytes: &[u8], start: usize) -> usize {
         end += 1;
     }
     while bytes.get(end) == Some(&b'.')
-        && bytes
-            .get(end + 1)
-            .is_some_and(|byte| is_ident_start(*byte))
+        && bytes.get(end + 1).is_some_and(|byte| is_ident_start(*byte))
     {
         end += 1;
         while bytes.get(end).is_some_and(|byte| is_ident_continue(*byte)) {

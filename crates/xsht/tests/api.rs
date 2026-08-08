@@ -131,7 +131,11 @@ fn api_filesystem_walk_contract_documents_hidden_default() {
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).expect("utf8 stdout");
     assert_eq!(stdout.matches("hidden: false").count(), 2, "{stdout}");
-    assert_eq!(stdout.matches("dot-prefixed files and directories").count(), 2, "{stdout}");
+    assert_eq!(
+        stdout.matches("dot-prefixed files and directories").count(),
+        2,
+        "{stdout}"
+    );
     assert!(stdout.contains("query: api:fs.files"), "{stdout}");
     assert!(stdout.contains("query: api:fs.walk"), "{stdout}");
     assert_eq!(String::from_utf8(output.stderr).unwrap(), "");
@@ -449,7 +453,10 @@ fn api_stream_sort_by_shows_options_before_block() {
         stdout.contains("|> sort-by --desc { |e| e.size }"),
         "{stdout}"
     );
-    assert!(!stdout.contains("sort-by(--desc, { |e| e.size })"), "{stdout}");
+    assert!(
+        !stdout.contains("sort-by(--desc, { |e| e.size })"),
+        "{stdout}"
+    );
     assert_eq!(String::from_utf8(output.stderr).unwrap(), "");
 }
 

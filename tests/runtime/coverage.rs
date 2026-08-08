@@ -715,8 +715,7 @@ fn xsht_fmt_check_reports_discovered_files_in_stable_order() {
 #[test]
 fn xsht_lint_accepts_documented_path_constructor_warning() {
     let path = temp_xsh_path("lint-path-constructor-advisory");
-    std::fs::write(&path, "let root = Path(args[0])\nprint $root\n")
-        .expect("write temp script");
+    std::fs::write(&path, "let root = Path(args[0])\nprint $root\n").expect("write temp script");
 
     let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
         .args(["lint", path.to_str().unwrap()])

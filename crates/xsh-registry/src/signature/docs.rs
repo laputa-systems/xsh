@@ -11,7 +11,9 @@ pub fn method_api_id(receiver: MethodReceiver, method: &str) -> String {
 
 /// Returns module functions that construct or initialize values of a type.
 /// These associations enrich API discovery only; runtime dispatch is unchanged.
-pub fn associated_module_functions(receiver: MethodReceiver) -> &'static [(&'static str, &'static str)] {
+pub fn associated_module_functions(
+    receiver: MethodReceiver,
+) -> &'static [(&'static str, &'static str)] {
     match receiver {
         MethodReceiver::Map => &[("map", "empty")],
         _ => &[],

@@ -1,6 +1,6 @@
 use super::{
-    Binding, Checker, Name, call_arg_expr_id_arena, call_arg_span_arena,
-    command_is_print_arena, command_stmt_asserts_success_arena, command_ty_auto_propagates,
+    Binding, Checker, Name, call_arg_expr_id_arena, call_arg_span_arena, command_is_print_arena,
+    command_stmt_asserts_success_arena, command_ty_auto_propagates,
 };
 use crate::sema::types::Type;
 use crate::syntax::arena::{

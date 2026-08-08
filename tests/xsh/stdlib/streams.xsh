@@ -610,10 +610,19 @@ y
 }
 
 proc test_terminal_newline_does_not_add_empty_line_for_round_trip() [error] {
-  let lines = "a\nb\n".lines().collect()
+  let lines = """a
+b
+""".lines()
+  .collect()
 
   test.eq(lines, ["a", "b"])?
-  test.eq(f"${lines.join("\n")}\n", "a\nb\n")?
+  test.eq(
+    f"""${lines.join("\n")}
+""",
+    """a
+b
+""",
+  )?
 }
 
 proc test_flat_map_consumes_live_streams_returned_by_blocks(ctx: TestContext) [fs, error] {

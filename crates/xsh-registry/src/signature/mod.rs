@@ -29,9 +29,7 @@ mod modules;
 mod streams;
 
 pub(in crate::signature) use builders::command_callable;
-pub use docs::{
-    associated_module_functions, method_api_id, module_api_id, receiver_name,
-};
+pub use docs::{associated_module_functions, method_api_id, module_api_id, receiver_name};
 pub(in crate::signature) use methods::value_methods;
 pub(in crate::signature) use modules::build_api_spec;
 pub use modules::record_docs;

@@ -1830,9 +1830,9 @@ impl<'a> Linter<'a> {
             return false;
         };
         match type_expr_kind(self.arena, annotation) {
-            ArenaTypeExprKind::Named(name) => self
-                .record_type_names
-                .contains(name.as_str().as_str()),
+            ArenaTypeExprKind::Named(name) => {
+                self.record_type_names.contains(name.as_str().as_str())
+            }
             _ => false,
         }
     }

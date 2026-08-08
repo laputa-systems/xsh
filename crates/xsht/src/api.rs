@@ -221,15 +221,12 @@ fn summary(options: &ApiOptions) -> Result<ApiOutput, ApiError> {
         .collect::<Vec<_>>();
     method_receivers_tree.sort_by(|left, right| left.name.cmp(&right.name));
     for receiver in &mut method_receivers_tree {
-        receiver.methods.extend(
-            receiver
-                .references
-                .iter()
-                .map(|reference| ApiCallableTree {
-                    name: format!("constructor -> {reference}"),
-                    overloads: 1,
-                }),
-        );
+        receiver
+            .methods
+            .extend(receiver.references.iter().map(|reference| ApiCallableTree {
+                name: format!("constructor -> {reference}"),
+                overloads: 1,
+            }));
         receiver
             .methods
             .sort_by(|left, right| left.name.cmp(&right.name));
@@ -497,7 +494,11 @@ fn default_details(selector: &Selector, matches: &[ApiItem]) -> ApiDetails {
             ApiDetails::Full
         }
         Selector::Module(_) | Selector::Search(_) => ApiDetails::Basic,
-        Selector::MethodReceiver(_) if matches.iter().any(|item| item.kind == "constructor-reference") => {
+        Selector::MethodReceiver(_)
+            if matches
+                .iter()
+                .any(|item| item.kind == "constructor-reference") =>
+        {
             ApiDetails::Full
         }
         Selector::MethodReceiver(_) => ApiDetails::Basic,
@@ -663,10 +664,12 @@ fn item_from_docs(
 }
 
 fn contract_with_calling_convention(contract: &str, signatures: &[String]) -> String {
-    const POSITIONAL_ONLY_NOTE: &str =
-        "Function arguments are positional-only; parameters marked `= default` may be omitted, but cannot be supplied as `name = value`.";
+    const POSITIONAL_ONLY_NOTE: &str = "Function arguments are positional-only; parameters marked `= default` may be omitted, but cannot be supplied as `name = value`.";
 
-    if !signatures.iter().any(|signature| signature.contains(" = default")) {
+    if !signatures
+        .iter()
+        .any(|signature| signature.contains(" = default"))
+    {
         return contract.to_string();
     }
 

@@ -4560,9 +4560,11 @@ impl CompactLowerConstructProbe<'_, '_> {
                     .into_iter()
                     .reduce(|acc, ty| if acc == ty { acc } else { Type::Any })
                     .unwrap_or(Type::Any);
-                Some(Type::List(Box::new(
-                    if unified == first { first } else { unified },
-                )))
+                Some(Type::List(Box::new(if unified == first {
+                    first
+                } else {
+                    unified
+                })))
             }
             ArenaExprKind::ListComp {
                 expr: value_expr,
@@ -10922,44 +10924,97 @@ impl CompactLowerConstructProbe<'_, '_> {
     ) -> bool {
         match self.program.arena.stmt(stmt).kind {
             ArenaStmtKind::Expr(expr) => {
-                let Some(value) = self.lower_expr(expr, slots, current_function, Some(item_slot)) else {
+                let Some(value) = self.lower_expr(expr, slots, current_function, Some(item_slot))
+                else {
                     return false;
                 };
-                body.push(push_build_row!(self, stmt, BuildStmtRow::Assign {
-                    slot: result_slot,
-                    op: AssignOp::Set,
-                    value,
-                    span: self.program.arena.stmt(stmt).span,
-                }));
+                body.push(push_build_row!(
+                    self,
+                    stmt,
+                    BuildStmtRow::Assign {
+                        slot: result_slot,
+                        op: AssignOp::Set,
+                        value,
+                        span: self.program.arena.stmt(stmt).span,
+                    }
+                ));
                 true
             }
             ArenaStmtKind::TailBareIdent(name) => {
-                let Some(value) = self.lower_bare_ident(name, slots) else { return false; };
-                body.push(push_build_row!(self, stmt, BuildStmtRow::Assign {
-                    slot: result_slot,
-                    op: AssignOp::Set,
-                    value,
-                    span: self.program.arena.stmt(stmt).span,
-                }));
+                let Some(value) = self.lower_bare_ident(name, slots) else {
+                    return false;
+                };
+                body.push(push_build_row!(
+                    self,
+                    stmt,
+                    BuildStmtRow::Assign {
+                        slot: result_slot,
+                        op: AssignOp::Set,
+                        value,
+                        span: self.program.arena.stmt(stmt).span,
+                    }
+                ));
                 true
             }
-            ArenaStmtKind::If { branches, else_block } => {
+            ArenaStmtKind::If {
+                branches,
+                else_block,
+            } => {
                 let mut lowered = Vec::new();
                 for branch in self.program.arena.if_branches(branches) {
                     let mut branch_body = Vec::new();
-                    if !self.lower_fold_value_block(branch.block, result_slot, slots, current_function, item_slot).is_some_and(|values| { branch_body.extend(values); true }) { return false; }
-                    let Some(condition) = self.lower_expr(branch.condition, slots, current_function, Some(item_slot)) else { return false; };
+                    if !self
+                        .lower_fold_value_block(
+                            branch.block,
+                            result_slot,
+                            slots,
+                            current_function,
+                            item_slot,
+                        )
+                        .is_some_and(|values| {
+                            branch_body.extend(values);
+                            true
+                        })
+                    {
+                        return false;
+                    }
+                    let Some(condition) =
+                        self.lower_expr(branch.condition, slots, current_function, Some(item_slot))
+                    else {
+                        return false;
+                    };
                     lowered.push((condition, branch_body));
                 }
                 let else_body = match else_block {
                     Some(block) => {
                         let mut branch_body = Vec::new();
-                        if !self.lower_fold_value_block(block, result_slot, slots, current_function, item_slot).is_some_and(|values| { branch_body.extend(values); true }) { return false; }
+                        if !self
+                            .lower_fold_value_block(
+                                block,
+                                result_slot,
+                                slots,
+                                current_function,
+                                item_slot,
+                            )
+                            .is_some_and(|values| {
+                                branch_body.extend(values);
+                                true
+                            })
+                        {
+                            return false;
+                        }
                         Some(branch_body)
                     }
                     None => None,
                 };
-                body.push(push_build_row!(self, stmt, BuildStmtRow::If { branches: lowered, else_body }));
+                body.push(push_build_row!(
+                    self,
+                    stmt,
+                    BuildStmtRow::If {
+                        branches: lowered,
+                        else_body
+                    }
+                ));
                 true
             }
             _ => false,
@@ -12472,12 +12527,24 @@ fn lowered_method_supported_for_type(ty: &Type, name: Name, arg_count: usize) ->
             _ => false,
         },
         Type::Str => match name.as_str().as_str() {
-            "trim" | "lower" | "upper" | "reverse" | "lines" | "words" | "parse_int"
-            | "parse_int_decimal" | "parse_uint" | "parse_uint_positive" | "parse_float"
-            | "base64_decode" | "base32_decode"
-            | "count_lines" | "count_words" | "count_chars" | "count_bytes" | "byte_len" => {
-                arg_count == 0
-            },
+            "trim"
+            | "lower"
+            | "upper"
+            | "reverse"
+            | "lines"
+            | "words"
+            | "parse_int"
+            | "parse_int_decimal"
+            | "parse_uint"
+            | "parse_uint_positive"
+            | "parse_float"
+            | "base64_decode"
+            | "base32_decode"
+            | "count_lines"
+            | "count_words"
+            | "count_chars"
+            | "count_bytes"
+            | "byte_len" => arg_count == 0,
             "fields" | "squeeze" => arg_count <= 1,
             "split" => arg_count == 1 || arg_count == 2,
             "wrap" | "delete" | "starts_with" | "ends_with" | "contains" => arg_count == 1,
@@ -12506,9 +12573,10 @@ fn lowered_method_supported_for_type(ty: &Type, name: Name, arg_count: usize) ->
         },
         Type::Path => match name.as_str().as_str() {
             "display" | "name" | "basename" | "dirname" | "ext" | "normalize" | "parent"
-            | "lines" | "bytes_lines" | "read_text" | "read_bytes" | "exists"
-            | "executable" | "du" | "metadata" | "readlink" | "resolve" | "remove_dir"
-            | "unlink" => arg_count == 0,
+            | "lines" | "bytes_lines" | "read_text" | "read_bytes" | "exists" | "executable"
+            | "du" | "metadata" | "readlink" | "resolve" | "remove_dir" | "unlink" => {
+                arg_count == 0
+            }
             "ext_or" => arg_count == 1,
             "with_ext" | "strip_prefix" | "relative_to" | "touch_from" | "truncate" | "chmod"
             | "hardlink" | "write" | "write_atomic" => arg_count == 1,

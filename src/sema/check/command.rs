@@ -19,10 +19,7 @@ fn btree_map<K: Into<Name>, V>(entries: Vec<(K, V)>) -> BTreeMap<Name, V> {
         .collect()
 }
 
-pub(super) fn command_is_print_arena(
-    arena: &ArenaProgram,
-    command_id: CommandStmtId,
-) -> bool {
+pub(super) fn command_is_print_arena(arena: &ArenaProgram, command_id: CommandStmtId) -> bool {
     matches!(
         arena.arena.command_stmt(command_id).command,
         ArenaCommand::Core {
