@@ -1466,7 +1466,7 @@ impl FullBuilder {
             let body = unit.lowered_body().ok_or_else(|| {
                 IrBuildError::format(
                     "full_ir_function_blocker",
-                    Some(unit.source_span()),
+                    unit.blocker_detail.as_ref().map(|(span, _)| *span),
                     0,
                     builder.store.tags.len(),
                 )
@@ -1588,7 +1588,7 @@ impl FullBuilder {
                 let body = unit.take_lowered_body().ok_or_else(|| {
                     IrBuildError::format(
                         "full_ir_function_blocker",
-                        Some(unit.source_span()),
+                        unit.blocker_detail.as_ref().map(|(span, _)| *span),
                         0,
                         builder.store.tags.len(),
                     )
@@ -1662,7 +1662,7 @@ impl FullBuilder {
             let body = unit.lowered_body().ok_or_else(|| {
                 IrBuildError::format(
                     "full_ir_function_blocker",
-                    Some(unit.source_span()),
+                    unit.blocker_detail.as_ref().map(|(span, _)| *span),
                     0,
                     self.store.tags.len(),
                 )

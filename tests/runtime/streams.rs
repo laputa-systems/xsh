@@ -1,6 +1,35 @@
 use super::common::*;
 
 #[test]
+fn fold_block_can_compose_pipeline_over_accumulator_field() {
+    let source = r#"
+let result = [0] |> fold({parts: ["first", "last"]}) { |acc, _item|
+  let popped = acc.parts |> take(acc.parts.len() - 1) |> collect()
+  {parts: popped}
+}
+print result.parts.join(",")
+"#;
+    let path = write_temp_script("fold-accumulator-pipeline", source);
+    let path_str = path.to_str().unwrap();
+
+    let check = xsht(["check", path_str]);
+    assert!(
+        check.status.success(),
+        "xsht check rejected a pipeline in a fold block: {}",
+        String::from_utf8_lossy(&check.stderr)
+    );
+
+    let run = xsh([path_str]);
+    assert!(
+        run.status.success(),
+        "xsh failed on a pipeline in a fold block: {}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert_eq!(String::from_utf8(run.stdout).unwrap(), "first\n");
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
 fn live_stream_par_map_flat_map_reduce_by_matches_collected_rows() {
     let root = temp_path("live-stream-flat-map-reduce-root");
     let nested = root.join("nested");

@@ -4553,14 +4553,16 @@ impl CompactLowerConstructProbe<'_, '_> {
                     .filter_map(|item| self.infer_checked_expr_type_with_slots(item, slots))
                     .map(|ty| ty.result_ok().cloned().unwrap_or(ty))
                     .collect();
-                let first = item_types.first().cloned();
+                let Some(first) = item_types.first().cloned() else {
+                    return Some(Type::List(Box::new(Type::Any)));
+                };
                 let unified = item_types
                     .into_iter()
-                    .reduce(|acc, ty| if acc == ty { acc } else { Type::Any })?;
-                first
-                    .filter(|first| unified == *first)
-                    .or(Some(unified))
-                    .map(|item_ty| Type::List(Box::new(item_ty)))
+                    .reduce(|acc, ty| if acc == ty { acc } else { Type::Any })
+                    .unwrap_or(Type::Any);
+                Some(Type::List(Box::new(
+                    if unified == first { first } else { unified },
+                )))
             }
             ArenaExprKind::ListComp {
                 expr: value_expr,
@@ -4585,6 +4587,28 @@ impl CompactLowerConstructProbe<'_, '_> {
                     .or_else(|| Some(Type::List(Box::new(Type::Any))))
             }
             ArenaExprKind::MapComp { .. } => Some(Type::Map(Box::new(Type::Any))),
+            ArenaExprKind::Record(fields) => {
+                let mut record = BTreeMap::new();
+                for field in self.program.arena.record_fields(fields) {
+                    let (name, value_ty) = match field.kind {
+                        ArenaRecordFieldKind::Named { name, value, .. } => {
+                            let value_ty = self
+                                .infer_checked_expr_type_with_slots(value, slots)
+                                .or_else(|| {
+                                    self.infer_checked_expr_type(value, &self.top_level_known)
+                                })
+                                .unwrap_or(Type::Any);
+                            (name, value_ty)
+                        }
+                        ArenaRecordFieldKind::Shorthand { name, .. } => {
+                            (name, slots.binding_type(name).cloned().unwrap_or(Type::Any))
+                        }
+                        ArenaRecordFieldKind::Spread { .. } => continue,
+                    };
+                    record.insert(name, value_ty);
+                }
+                Some(Type::Record(record))
+            }
             ArenaExprKind::Try(expr) => self
                 .infer_checked_expr_type_with_slots(expr, slots)
                 .and_then(|ty| ty.result_ok().cloned()),
@@ -10787,6 +10811,15 @@ impl CompactLowerConstructProbe<'_, '_> {
         let statements = self.program.arena.block(block).statements;
         let ids = self.program.arena.stmt_ids(statements).collect::<Vec<_>>();
         let (&tail, prefix) = ids.split_last()?;
+        // Preserve the accumulator's checked type while lowering the block.
+        // Nested pipelines, especially in a tail `if`, use slot types to
+        // resolve fields and stage arguments. Losing this type makes a valid
+        // composition look like an unsupported function body and eventually
+        // surfaces as the opaque indexed-IR blocker.
+        let acc_ty = self
+            .infer_checked_expr_type(initial, &self.top_level_known)
+            .or_else(|| self.infer_checked_expr_type_with_slots(initial, slots));
+        self.last_blocker_detail = None;
         let initial = self.lower_expr(initial, slots, current_function, None)?;
         let saved = slots.enter();
         let params = self
@@ -10800,7 +10833,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                     slots.exit(saved);
                     return None;
                 }
-                slots.declare(acc.name)
+                slots.declare_with_type(acc.name, acc_ty)
             }
             _ => {
                 slots.exit(saved);
@@ -10817,7 +10850,7 @@ impl CompactLowerConstructProbe<'_, '_> {
             }
             _ => slots.reserve("pipeline.item"),
         };
-        let mut body = Vec::with_capacity(prefix.len());
+        let mut body = Vec::with_capacity(prefix.len() + 1);
         for stmt in prefix {
             let Some(lowered) =
                 self.lower_stmt_with_blocker_guard(*stmt, slots, current_function, Some(item_slot))
@@ -10841,14 +10874,20 @@ impl CompactLowerConstructProbe<'_, '_> {
             }
             body.push(lowered);
         }
-        let value =
-            match self.lower_tail_stmt_as_expr(tail, slots, current_function, Some(item_slot)) {
-                Some(value) => value,
-                None => {
-                    slots.exit(saved);
-                    return None;
-                }
-            };
+        let result_slot = slots.reserve("pipeline.fold.result");
+        let value = if self.lower_fold_value_stmt(
+            tail,
+            result_slot,
+            &mut body,
+            slots,
+            current_function,
+            item_slot,
+        ) {
+            push_build_row!(self, expr, BuildExprRow::Param(result_slot))
+        } else {
+            slots.exit(saved);
+            return None;
+        };
         slots.exit(saved);
         Some(LoweredPipelineStage::Fold {
             acc_slot,
@@ -10857,6 +10896,109 @@ impl CompactLowerConstructProbe<'_, '_> {
             body,
             value,
         })
+    }
+
+    fn lower_fold_value_stmt(
+        &mut self,
+        stmt: StmtId,
+        result_slot: usize,
+        body: &mut Vec<BuildStmtId>,
+        slots: &mut SlotScope,
+        current_function: Option<Name>,
+        item_slot: usize,
+    ) -> bool {
+        match self.program.arena.stmt(stmt).kind {
+            ArenaStmtKind::Expr(expr) => {
+                let Some(value) = self.lower_expr(expr, slots, current_function, Some(item_slot)) else {
+                    return false;
+                };
+                body.push(push_build_row!(self, stmt, BuildStmtRow::Assign {
+                    slot: result_slot,
+                    op: AssignOp::Set,
+                    value,
+                    span: self.program.arena.stmt(stmt).span,
+                }));
+                true
+            }
+            ArenaStmtKind::TailBareIdent(name) => {
+                let Some(value) = self.lower_bare_ident(name, slots) else { return false; };
+                body.push(push_build_row!(self, stmt, BuildStmtRow::Assign {
+                    slot: result_slot,
+                    op: AssignOp::Set,
+                    value,
+                    span: self.program.arena.stmt(stmt).span,
+                }));
+                true
+            }
+            ArenaStmtKind::If { branches, else_block } => {
+                let mut lowered = Vec::new();
+                for branch in self.program.arena.if_branches(branches) {
+                    let mut branch_body = Vec::new();
+                    if !self.lower_fold_value_block(branch.block, result_slot, slots, current_function, item_slot).is_some_and(|values| { branch_body.extend(values); true }) { return false; }
+                    let Some(condition) = self.lower_expr(branch.condition, slots, current_function, Some(item_slot)) else { return false; };
+                    lowered.push((condition, branch_body));
+                }
+                let else_body = match else_block {
+                    Some(block) => {
+                        let mut branch_body = Vec::new();
+                        if !self.lower_fold_value_block(block, result_slot, slots, current_function, item_slot).is_some_and(|values| { branch_body.extend(values); true }) { return false; }
+                        Some(branch_body)
+                    }
+                    None => None,
+                };
+                body.push(push_build_row!(self, stmt, BuildStmtRow::If { branches: lowered, else_body }));
+                true
+            }
+            _ => false,
+        }
+    }
+
+    fn lower_fold_value_block(
+        &mut self,
+        block: BlockId,
+        result_slot: usize,
+        slots: &mut SlotScope,
+        current_function: Option<Name>,
+        item_slot: usize,
+    ) -> Option<Vec<BuildStmtId>> {
+        let saved = slots.enter();
+        let ids = self
+            .program
+            .arena
+            .stmt_ids(self.program.arena.block(block).statements)
+            .collect::<Vec<_>>();
+        let (&tail, prefix) = ids.split_last()?;
+        let mut body = Vec::with_capacity(ids.len());
+        for stmt in prefix {
+            body.push(self.lower_stmt_with_blocker_guard(
+                *stmt,
+                slots,
+                current_function,
+                Some(item_slot),
+            )?);
+        }
+        let value = match self.program.arena.stmt(tail).kind {
+            ArenaStmtKind::Expr(expr) => {
+                self.lower_expr(expr, slots, current_function, Some(item_slot))?
+            }
+            ArenaStmtKind::TailBareIdent(name) => self.lower_bare_ident(name, slots)?,
+            _ => {
+                slots.exit(saved);
+                return None;
+            }
+        };
+        body.push(push_build_row!(
+            self,
+            stmt,
+            BuildStmtRow::Assign {
+                slot: result_slot,
+                op: AssignOp::Set,
+                value,
+                span: self.program.arena.stmt(tail).span,
+            }
+        ));
+        slots.exit(saved);
+        Some(body.clone())
     }
 
     fn lower_pipeline_stage_reduce_by(
