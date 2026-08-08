@@ -446,7 +446,7 @@ fn stream_doc(stage: &str) -> ReferenceDoc {
         ),
         "sort-by" => (
             "Sorts stream items by a projected key.",
-            "The key projection controls ordering and the stage materializes the input before emitting results. Supported key types are Int, Str, Bool, Path, and Records whose fields are themselves supported keys; records compare field by field in sorted field-name order. The default order is ascending and --desc reverses it. The sort is stable, so items with equal keys keep their source order and the two-pass idiom (sort by the secondary key first, then by the primary key) produces a reliable compound ordering. Other key types are rejected at check time and fail with a runtime diagnostic that names the stage and key type.",
+            "The key projection controls ordering and the stage materializes the input before emitting results. Supported key types are Int, Str, Bool, Path, and Records whose fields are themselves supported keys; records compare field by field in sorted field-name order. The default order is ascending and --desc reverses it. The sort is stable, so items with equal keys keep their source order and the two-pass idiom (sort by the secondary key first, then by the primary key) produces a reliable compound ordering. Other key types are rejected at check time and fail with a runtime diagnostic that names the stage and key type. A block is supplied as a command argument, so put the named flag before the block without parentheses: `|> sort-by --desc { |e| e.size }`.",
             &["stream", "sorting", "projection", "stable"],
             "sort-by(--desc: Bool = false, block) -> Stream[T]",
         ),

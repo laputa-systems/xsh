@@ -419,6 +419,11 @@ fn api_stream_sort_by_shows_options_before_block() {
         stdout.contains("signature: sort-by(--desc: Bool = false, block) -> Stream[T]"),
         "{stdout}"
     );
+    assert!(
+        stdout.contains("|> sort-by --desc { |e| e.size }"),
+        "{stdout}"
+    );
+    assert!(!stdout.contains("sort-by(--desc, { |e| e.size })"), "{stdout}");
     assert_eq!(String::from_utf8(output.stderr).unwrap(), "");
 }
 
