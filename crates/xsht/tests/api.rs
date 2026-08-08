@@ -536,6 +536,30 @@ fn api_method_receiver_query_lists_every_method_of_a_type() {
 }
 
 #[test]
+fn api_map_receiver_query_discloses_its_constructor() {
+    let output = xsht(&["api", "method:Map"]);
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("utf8 stdout");
+    assert!(stdout.contains("api: method.Map.constructor\n"), "{stdout}");
+    assert!(stdout.contains("map.empty()"), "{stdout}");
+    assert!(stdout.contains("`{}` is an empty Record"), "{stdout}");
+    assert_eq!(String::from_utf8(output.stderr).unwrap(), "");
+}
+
+#[test]
+fn api_map_summary_discloses_its_constructor() {
+    let output = xsht(&["api", "summary"]);
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("utf8 stdout");
+    let map = stdout.find("── Map (").expect("Map receiver in summary");
+    let tail = &stdout[map..];
+    assert!(tail.contains("module.map.empty"), "{stdout}");
+    assert_eq!(String::from_utf8(output.stderr).unwrap(), "");
+}
+
+#[test]
 fn api_method_receiver_query_keeps_exact_member_lookup() {
     let output = xsht(&["api", "method:Str.lower"]);
 

@@ -9,6 +9,15 @@ pub fn method_api_id(receiver: MethodReceiver, method: &str) -> String {
     format!("method.{}.{}", receiver_name(receiver), method)
 }
 
+/// Returns module functions that construct or initialize values of a type.
+/// These associations enrich API discovery only; runtime dispatch is unchanged.
+pub fn associated_module_functions(receiver: MethodReceiver) -> &'static [(&'static str, &'static str)] {
+    match receiver {
+        MethodReceiver::Map => &[("map", "empty")],
+        _ => &[],
+    }
+}
+
 pub fn receiver_name(receiver: MethodReceiver) -> &'static str {
     match receiver {
         MethodReceiver::PathConstructor => "Path",
@@ -885,9 +894,9 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
             &["linux", "shutdown", "privileged", "host-global"],
         )),
         ("map", "empty") => Some((
-            "Creates an empty string-keyed map.",
-            "The new map owns its entries and has no inherited process or module state.",
-            &["map", "collection"],
+            "Creates an empty string-keyed Map with `map.empty()`; grow it with Map methods.",
+            "The new map owns its entries and has no inherited process or module state. `{}` is an empty Record unless a Map type is expected.",
+            &["map", "collection", "constructor"],
         )),
         ("mime", "lookup_ext") => Some((
             "Looks up a MIME type by file extension.",

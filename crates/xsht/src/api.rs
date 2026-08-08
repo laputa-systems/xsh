@@ -6,7 +6,9 @@ use xsh::api::{MethodReceiver, MethodReturn, ModuleFnSig};
 use xsh::frontend::check::Type;
 use xsh::frontend::check::record_schemas;
 use xsh_registry::reference::language_references;
-use xsh_registry::signature::{method_api_id, module_api_id, receiver_name, record_docs};
+use xsh_registry::signature::{
+    associated_module_functions, method_api_id, module_api_id, receiver_name, record_docs,
+};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ApiFormat {
@@ -91,6 +93,7 @@ struct ApiModuleTree {
 struct ApiMethodReceiverTree {
     name: String,
     methods: Vec<ApiCallableTree>,
+    references: Vec<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -210,10 +213,23 @@ fn summary(options: &ApiOptions) -> Result<ApiOutput, ApiError> {
                     overloads: method.overloads.len(),
                 })
                 .collect(),
+            references: associated_module_functions(receiver)
+                .iter()
+                .map(|(module, function)| format!("module.{module}.{function}"))
+                .collect(),
         })
         .collect::<Vec<_>>();
     method_receivers_tree.sort_by(|left, right| left.name.cmp(&right.name));
     for receiver in &mut method_receivers_tree {
+        receiver.methods.extend(
+            receiver
+                .references
+                .iter()
+                .map(|reference| ApiCallableTree {
+                    name: format!("constructor -> {reference}"),
+                    overloads: 1,
+                }),
+        );
         receiver
             .methods
             .sort_by(|left, right| left.name.cmp(&right.name));
@@ -447,7 +463,8 @@ fn select(catalog: &[ApiItem], selector: &Selector) -> Vec<ApiItem> {
         Selector::MethodReceiver(receiver) => catalog
             .iter()
             .filter(|item| {
-                item.kind == "method" && item.id.starts_with(&format!("method.{receiver}."))
+                (item.kind == "method" || item.kind == "constructor-reference")
+                    && item.id.starts_with(&format!("method.{receiver}."))
             })
             .cloned()
             .collect(),
@@ -479,9 +496,11 @@ fn default_details(selector: &Selector, matches: &[ApiItem]) -> ApiDetails {
         Selector::Module(_) if matches.len() == 1 && matches[0].kind == "module-function" => {
             ApiDetails::Full
         }
-        Selector::Module(_) | Selector::MethodReceiver(_) | Selector::Search(_) => {
-            ApiDetails::Basic
+        Selector::Module(_) | Selector::Search(_) => ApiDetails::Basic,
+        Selector::MethodReceiver(_) if matches.iter().any(|item| item.kind == "constructor-reference") => {
+            ApiDetails::Full
         }
+        Selector::MethodReceiver(_) => ApiDetails::Basic,
         Selector::Language(_) => ApiDetails::Full,
         Selector::Api(_, _) | Selector::Method(_, _) | Selector::Record(_) => ApiDetails::Full,
     }
@@ -589,6 +608,29 @@ fn catalog() -> Vec<ApiItem> {
                         .collect(),
                     method_effects(&method.overloads),
                 ));
+            }
+        }
+        for (module, function) in associated_module_functions(receiver) {
+            let module_id = module_api_id(module, function);
+            if let Some(docs) = spec.docs(&module_id) {
+                let mut item = item_from_docs(
+                    format!("method.{}.constructor", receiver_name(receiver)),
+                    "constructor-reference",
+                    docs,
+                    spec.module_overloads(module, function)
+                        .into_iter()
+                        .flatten()
+                        .map(|overload| module_signature(module, function, overload))
+                        .collect(),
+                    spec.module_overloads(module, function)
+                        .map(module_function_effects)
+                        .unwrap_or_else(|| vec!["none".to_string()]),
+                );
+                item.contract = format!(
+                    "{} This constructor is indexed from the Map type so type-first discovery finds it.",
+                    item.contract
+                );
+                items.push(item);
             }
         }
     }
@@ -850,6 +892,7 @@ documented items: {}\n\
             .iter()
             .map(|receiver| (&receiver.name, &receiver.methods)),
     );
+    append_receiver_references(&mut output, &summary.method_receivers_tree);
     append_leaf_tree(&mut output, "records", &summary.records);
     let language_groups = summary
         .language_groups
@@ -913,6 +956,19 @@ fn append_callable_tree<'a>(
             output.push_str(&overload_label(callable.overloads));
             output.push_str(")\n");
         }
+    }
+}
+
+fn append_receiver_references(output: &mut String, receivers: &[ApiMethodReceiverTree]) {
+    for receiver in receivers {
+        if receiver.references.is_empty() {
+            continue;
+        }
+        output.push_str("  ");
+        output.push_str(&receiver.name);
+        output.push_str(" constructors: ");
+        output.push_str(&receiver.references.join(", "));
+        output.push('\n');
     }
 }
 
@@ -982,6 +1038,13 @@ fn push_summary_methods_json(output: &mut String, receivers: &[ApiMethodReceiver
         push_json_string(output, &receiver.name);
         output.push_str(",\"methods\":[");
         push_callable_tree_json(output, &receiver.methods);
+        output.push_str("],\"references\":[");
+        for (reference_index, reference) in receiver.references.iter().enumerate() {
+            if reference_index > 0 {
+                output.push(',');
+            }
+            push_json_string(output, reference);
+        }
         output.push_str("]}");
     }
     output.push(']');
