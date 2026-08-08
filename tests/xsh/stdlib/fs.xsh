@@ -46,6 +46,15 @@ proc test_fs_tree_metadata_install_and_locking(ctx: TestContext) [fs, error] {
   let listed = fs.ls(nested)? |> sort-by .name
   test.eq(children.len(), listed.len())?
   test.ok(fs.children(nested, stat: false, ordered: false)? |> any .name == "data.txt")?
+  let unstat_children = test.run_script(
+    ctx,
+    f"""
+let entry = (fs.children(fp"${nested}", stat: false, ordered: false)? |> first())?
+print $entry.size
+""",
+  )?
+  test.eq(unstat_children.status, 3)?
+  test.contains(unstat_children.stderr, "metadata-unavailable")?
   test.ok(fs.walk(src)? |> any .name == "data.txt")?
   test.ok(fs.files(src)? |> any .name == "data.txt")?
   test.ok(fs.dirs(src)? |> any .name == "nested")?
@@ -401,9 +410,15 @@ proc test_fs_files_recurses_with_raw_walk_and_preserves_entry_ext(ctx: TestConte
   test.eq(cheap_c.name, "main.c")?
   test.eq(cheap_c.ext, "c")?
   test.eq(cheap_c.kind, "file")?
-  test.eq(cheap_c.size, 0)?
-  test.eq(cheap_c.mode, 0)?
-  test.eq(cheap_c.executable, false)?
+  let unstat_files = test.run_script(
+    ctx,
+    f"""
+let entry = (fs.files(fp"${root}", false, false, [], true) |> first())?
+print $entry.size
+""",
+  )?
+  test.eq(unstat_files.status, 3)?
+  test.contains(unstat_files.stderr, "metadata-unavailable")?
   test.eq(cheap_c.path.strip_prefix(root)?.display(), "src/main.c")?
 }
 

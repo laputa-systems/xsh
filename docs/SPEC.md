@@ -1872,8 +1872,9 @@ files are written through a temporary file in the destination directory.
 - `fs.walk(path: Path, gitignore: Bool = true, stat: Bool = true, hidden: Bool = false) -> Result[Stream[Record]]`.
   The walk is **parallel and unordered** (entries arrive in traversal completion
   order, not sorted) using one worker per CPU. Use `|> sort-by .path` when a
-  deterministic order matters. `stat: false` skips the per-entry `stat` (zeroes
-  the size/mode/time fields) for a cheaper traversal. Hidden entries are skipped
+  deterministic order matters. `stat: false` skips the per-entry `stat` for a
+  cheaper traversal; stat-derived fields are unavailable and reading them
+  returns a `metadata-unavailable` runtime error. Hidden entries are skipped
   by default; pass `hidden: true` to include dot-prefixed files and directories.
 - `fs.files(path: Path, gitignore: Bool = true, stat: Bool = true, exts: List[Str] = [], hidden: Bool = false) -> Result[Stream[Record]]` —
   equivalent to `fs.walk |> where .kind == "file"`. Preferred over the full
@@ -1888,8 +1889,8 @@ files are written through a temporary file in the destination directory.
   enumerates only the entries directly under `path`; it never recurses. With
   `ordered: false`, the stream reads directory entries lazily in host order.
   `ordered: true` materializes and sorts the entries by path before yielding
-  them. `stat: false` uses the directory entry type and leaves stat-derived
-  fields at their zero values.
+  them. `stat: false` uses the directory entry type; stat-derived fields are
+  unavailable and reading them returns a `metadata-unavailable` runtime error.
 - `fs.children(path: Path, stat: Bool = true, ordered: Bool = true) -> Result[Stream[Record]]` —
   an alias of `fs.ls` for scripts that want to emphasize direct children.
 - `fs.metadata(path: Path) -> Result[Record]`.
@@ -1970,9 +1971,10 @@ Filesystem entry records have `path: Path`, `name: Str`, `kind: Str`,
 `other_executable: Bool`. `fs.walk` skips hidden entries and `.git` directories
 and honors `.gitignore` files by default; pass `hidden: true` to include hidden
 entries and `gitignore: false` to disable ignore-file rules. `ext` is the file
-extension without a leading dot. When `stat: false`, stat-derived numeric and
-permission fields are zero or false; `path`, `name`, `kind`, and `ext` remain
-populated.
+extension without a leading dot. When `stat: false`, stat-derived fields are
+unavailable: reading a numeric or permission field returns a
+`metadata-unavailable` runtime error rather than a zero or false placeholder.
+`path`, `name`, `kind`, and `ext` remain populated.
 Filesystem stats records have `blocks_1k: Int`, `used_1k: Int`,
 `available_1k: Int`, and `capacity_percent: Int`.
 Filesystem mount records have `filesystem: Str`, `mounted_on: Path`,

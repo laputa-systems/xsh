@@ -97,7 +97,8 @@ plain reusable value; laziness only applies to consume-in-place. Live *sources*
 (`src/modules/fs.rs`). `WalkEmit::{All,Files,Dirs}` gates which records leave the
 producer; visible directories are descended by default, while dot-prefixed child
 entries are skipped unless `hidden: true` is set. `stat: false` skips the
-per-entry `stat` (zeroes size/mode/time). `fs.files(..., exts: [...])` filters
+per-entry `stat`; stat-derived fields are unavailable and reading them returns
+a `metadata-unavailable` runtime error. `fs.files(..., exts: [...])` filters
 child files by raw extension before `stat` and record construction, while still
 traversing directories so matching files deeper in the tree can be reached.
 

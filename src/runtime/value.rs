@@ -225,6 +225,14 @@ impl FsEntryValue {
 
     pub fn field_value(&self, name: &str) -> Option<Result<Value, RuntimeError>> {
         let value = match name {
+            "accessed" | "blocks_512" | "gid" | "mode" | "modified" | "size" | "uid" => {
+                return Some(Err(RuntimeError::new(
+                    "metadata-unavailable",
+                    format!(
+                        "filesystem entry field `{name}` requires stat=true; this entry was created with stat=false"
+                    ),
+                )));
+            }
             "path" => PathValue::new(self.path.as_os_str().as_bytes().to_vec()).map(Value::Path),
             "name" => Ok(Value::Str(
                 self.path
@@ -239,11 +247,15 @@ impl FsEntryValue {
                     .unwrap_or_else(|| "".into()),
             )),
             "kind" => Ok(Value::Str(Arc::from(self.kind.as_str()))),
-            "accessed" | "blocks_512" | "gid" | "mode" | "modified" | "size" | "uid" => {
-                Ok(Value::Int(0))
-            }
             "executable" | "group_executable" | "other_executable" | "owner_executable"
-            | "setgid" | "setuid" | "sticky" | "world_writable" => Ok(Value::Bool(false)),
+            | "setgid" | "setuid" | "sticky" | "world_writable" => {
+                return Some(Err(RuntimeError::new(
+                    "metadata-unavailable",
+                    format!(
+                        "filesystem entry field `{name}` requires stat=true; this entry was created with stat=false"
+                    ),
+                )));
+            }
             _ => return None,
         };
         Some(value)
