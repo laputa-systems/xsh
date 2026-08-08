@@ -180,7 +180,8 @@ pub(crate) fn parse_int_decimal_text(text: &str, span: Span) -> Result<i64, Runt
 }
 
 pub(crate) fn parse_uint_positive_text(text: &str, span: Span) -> Result<i64, RuntimeError> {
-    if text.is_empty() || !text.bytes().all(|byte| byte.is_ascii_digit()) {
+    let trimmed = text.trim();
+    if trimmed.is_empty() || !trimmed.bytes().all(|byte| byte.is_ascii_digit()) {
         return Err(
             RuntimeError::new(
                 "parse-uint-positive",
@@ -189,7 +190,7 @@ pub(crate) fn parse_uint_positive_text(text: &str, span: Span) -> Result<i64, Ru
             .with_span(span),
         );
     }
-    let value = text.parse::<i64>().map_err(|_| {
+    let value = trimmed.parse::<i64>().map_err(|_| {
         RuntimeError::new(
             "parse-uint-positive",
             format!("invalid positive integer `{text}`"),
@@ -304,7 +305,11 @@ mod tests {
                 parse_uint_positive_text("42", test_span()).expect("positive uint"),
                 42
             );
-            for input in ["0", "+5", "-1", " 5 ", "0x10", "05", ""] {
+            assert_eq!(
+                parse_uint_positive_text(" 5 ", test_span()).expect("positive uint"),
+                5
+            );
+            for input in ["0", "+5", "-1", "0x10", "", "9223372036854775808"] {
                 assert_eq!(
                     parse_uint_positive_text(input, test_span())
                         .expect_err("invalid positive uint")

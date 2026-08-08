@@ -1579,12 +1579,12 @@ fn method_doc(receiver: &str, method: &str) -> Option<DocRow> {
             &["text", "parsing", "decimal", "numeric"],
         )),
         ("Str", "parse_uint") => Some((
-            "Parses text as a non-negative decimal integer.",
+            "Parses text as a non-negative decimal integer, trimming surrounding whitespace.",
             "Signs, radix prefixes, malformed text, and out-of-range values return an error.",
             &["text", "parsing", "decimal", "numeric", "unsigned"],
         )),
         ("Str", "parse_uint_positive") => Some((
-            "Parses text as a positive decimal integer.",
+            "Parses text as a positive decimal integer, trimming surrounding whitespace.",
             "Only decimal digits representing a value greater than zero are accepted; zero, signs, malformed, and out-of-range text return an error.",
             &["text", "parsing", "decimal", "numeric", "positive"],
         )),

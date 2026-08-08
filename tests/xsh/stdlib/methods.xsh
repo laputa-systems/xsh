@@ -94,6 +94,7 @@ beta""".find("z"),
   test.error_kind("+42".parse_uint(), "parse-uint")?
   test.error_kind("-1".parse_uint(), "parse-uint")?
   test.eq("42".parse_uint_positive()?, 42)?
+  test.eq(" 42 ".parse_uint_positive()?, 42)?
   test.error_kind("0".parse_uint_positive(), "parse-uint-positive")?
   test.error_kind("+42".parse_uint_positive(), "parse-uint-positive")?
   test.error_kind("-1".parse_uint_positive(), "parse-uint-positive")?
