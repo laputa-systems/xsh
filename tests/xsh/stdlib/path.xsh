@@ -21,6 +21,15 @@ proc test_path_methods(ctx: TestContext) [fs, error] {
   test.eq(file.read_bytes()?, b"bytes")?
   test.eq(file.name(), "file.txt")?
   test.eq(file.ext(), "txt")?
+  test.eq(file.basename(), "file.txt")?
+  test.eq(file.dirname().display(), fp"${root}/dir".display())?
+  test.eq(p"/".basename(), "/")?
+  test.eq(p".".basename(), ".")?
+  test.eq(p"a/.".dirname().display(), "a")?
+  test.eq(p"a/".basename(), "a")?
+  test.eq(p".profile".ext_or("none"), "none")?
+  test.eq(p"file.".ext_or("none"), "")?
+  test.eq(p"plain".ext_or("none"), "none")?
   test.eq(file.with_ext("log").name(), "file.log")?
   test.eq(fp"${root}/dir/../dir/file.txt".normalize(), file)?
   test.eq(file.strip_prefix(root)?.display(), "dir/file.txt")?

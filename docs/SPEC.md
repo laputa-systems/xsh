@@ -2011,8 +2011,9 @@ normalizes `.` and `..` components without requiring the resulting path to
 exist. Absolute inputs are normalized in place. Use `.resolve()` when the path
 must exist and symlinks should be resolved by the host filesystem.
 
-Path values also expose `.parent`, `.name`, `.ext`, `.display()`,
-`.normalize()`, `.resolve()`, `.exists()`, `.executable()`, `.du()`,
+Path values also expose `.parent`, `.name`, `.basename()`, `.dirname()`, `.ext`,
+`.ext_or(fallback)`, `.display()`, `.normalize()`, `.resolve()`, `.exists()`,
+`.executable()`, `.du()`,
 `.metadata()`, `.read_bytes()`, `.read_text()`, `.lines()`, `.bytes_lines()`,
 `.write(data: Bytes)`, `.write(data: Str)`,
 `.write_atomic(data: Bytes)`, `.write_atomic(data: Str)`,

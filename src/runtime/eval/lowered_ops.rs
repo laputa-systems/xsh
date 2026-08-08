@@ -9,7 +9,8 @@ use super::{
     LoweredValue, add_error_context, bytes_contains, bytes_find, format_duration,
     lowered_bytes_view_value, lowered_inline_stats_field_value, lowered_record_vec_get,
     lowered_stats_field_value, lowered_str_view_value, normalize_path_value, path_parent,
-    path_text_field, path_value_from_pathbuf, path_with_ext, pathbuf_from_path_value,
+    path_posix_dirname, path_posix_extension, path_text_field, path_value_from_pathbuf,
+    path_with_ext, pathbuf_from_path_value,
 };
 use crate::runtime::process::{ProcessStatus, ProcessStatusKind};
 use crate::runtime::value::{
@@ -1692,9 +1693,23 @@ pub(super) fn lowered_path_method_value(
         "name" if args.is_empty() => path_text_field(&path, "name")
             .map(|value| LoweredValue::Str(value.into()))
             .map_err(|error| error.with_span(span)),
+        "basename" if args.is_empty() => path_text_field(&path, "basename")
+            .map(|value| LoweredValue::Str(value.into()))
+            .map_err(|error| error.with_span(span)),
+        "dirname" if args.is_empty() => path_posix_dirname(&path)
+            .map(LoweredValue::Path)
+            .map_err(|error| error.with_span(span)),
         "ext" if args.is_empty() => path_text_field(&path, "ext")
             .map(|value| LoweredValue::Str(value.into()))
             .map_err(|error| error.with_span(span)),
+        "ext_or" if args.len() == 1 => {
+            let fallback = lowered_str_arg(&args[0], "ext_or", span)?;
+            Ok(LoweredValue::Str(
+                path_posix_extension(&path)
+                    .unwrap_or_else(|| fallback.to_string())
+                    .into(),
+            ))
+        }
         "with_ext" if args.len() == 1 => {
             let ext = lowered_str_arg(&args[0], "with_ext", span)?;
             path_with_ext(&path, ext)
