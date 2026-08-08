@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::thread;
-use xsh::diagnostic::{Diagnostic, DiagnosticRenderer, Label};
+use xsh::diagnostic::{Diagnostic, DiagnosticRenderer, Label, Severity};
 use xsh::frontend::check::CheckOptions;
 use xsh::frontend::load::{parse_load_check_bytes, parse_load_check_text};
 use xsh::frontend::source::SourceMap;
@@ -416,7 +416,7 @@ fn lint_one_file(
     LintResult {
         index,
         kind: LintResultKind::Diagnostics {
-            status: 1,
+            status: lint_diagnostics_status(&linted.diagnostics),
             diagnostics: render_diagnostics_with_keys(
                 &linted.diagnostics,
                 &checked_program.sources,
@@ -476,7 +476,11 @@ fn lint_one_file_with_fixes(
             };
         }
         let mut stderr = String::new();
-        let status = if checked.diagnostics.is_empty() { 1 } else { 2 };
+        let status = if checked.diagnostics.is_empty() {
+            lint_diagnostics_status(&linted.diagnostics)
+        } else {
+            2
+        };
         if !checked.diagnostics.is_empty() {
             stderr.push_str(&checked_program.render_check_diagnostics());
             stderr.push('\n');
@@ -660,6 +664,17 @@ fn collect_fix_spans_by_code(
         non_overlapping.push(fix);
     }
     non_overlapping
+}
+
+fn lint_diagnostics_status(diagnostics: &[Diagnostic]) -> u8 {
+    if diagnostics.iter().all(|diagnostic| {
+        diagnostic.severity == Severity::Warning
+            && diagnostic.code.as_deref() == Some("lint.path-constructor")
+    }) {
+        0
+    } else {
+        1
+    }
 }
 
 fn check_diagnostic_signature(diagnostic: &Diagnostic) -> String {

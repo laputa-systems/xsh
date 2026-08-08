@@ -1,5 +1,11 @@
 # XSHT Tooling Architecture
 
+XSH tooling treats quality recommendations as guidance rather than hidden
+language restrictions. In particular, `lint.path-constructor` recommends
+path-string syntax for `Path(str)` while allowing the documented direct cast to
+remain a valid typed-`Path` boundary. The recommendation is non-fatal so a
+contract that names `Path(...)` can satisfy both lint and its own restriction.
+
 `xsht` is the tooling frontend for XSH source files. It owns checks, linting,
 formatting, source annotation, structural search, refactoring, API queries,
 native tests, and coverage reports. Script execution remains in `xsh`; `xsht`

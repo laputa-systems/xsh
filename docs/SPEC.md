@@ -680,8 +680,10 @@ match process.run(command) {
 Standard constructors:
 
 - `p"literal"` and `fp"${value}"` produce `Path` values from UTF-8 source text.
-- `Path(str) -> Path` remains a direct cast from text, but p-strings are the
-  preferred spelling.
+- `Path(str) -> Path` remains a direct cast from text for values that are
+  already known to be valid path text. `xsht lint` may recommend path-string
+  syntax for this spelling, but the recommendation is advisory because the
+  direct cast is a documented typed-`Path` boundary.
 - `Path.parse_bytes(bytes) -> Result[Path]`.
 
 Path values expose file-reading methods through the standard method surface:
