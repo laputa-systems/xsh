@@ -5,6 +5,23 @@ use xsh::frontend::source::SourceId;
 use xsh::frontend::syntax::parser::Parser;
 
 #[test]
+fn checker_accepts_error_propagation_in_value_returning_proc() {
+    let output = check(
+        r#"
+proc parse_uint(s: Str, min: Int) [error] -> Int {
+  let value = s.parse_int()?
+  if value < min {
+    return min
+  }
+  return value
+}
+"#,
+    );
+
+    assert_no_codes(&output, &["check.try-context", "check.effect-violation"]);
+}
+
+#[test]
 fn checker_accepts_result_unit_proc_expression_calls() {
     let output = check(
         r#"

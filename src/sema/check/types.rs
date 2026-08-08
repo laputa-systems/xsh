@@ -38,9 +38,13 @@ impl Checker {
             return Type::Unknown;
         };
         let allowed = self
-            .current_return
+            .current_effects
             .as_ref()
-            .is_none_or(|return_ty| return_ty.is_result())
+            .is_some_and(|effects| effects.contains(&Effect::Error))
+            || self
+                .current_return
+                .as_ref()
+                .is_none_or(|return_ty| return_ty.is_result())
             || self.current_yield.is_some();
         if !allowed {
             self.error(

@@ -643,6 +643,9 @@ pub(super) fn lowered_return_value(
     span: Span,
 ) -> Result<LoweredValue, RuntimeError> {
     match (kind, value) {
+        (LoweredReturnKind::Plain(_), LoweredValue::ResultErr(error)) => {
+            Err(super::runtime_error_from_value(*error, span))
+        }
         (LoweredReturnKind::Plain(kind), value) if lowered_value_matches(kind, &value) => Ok(value),
         (LoweredReturnKind::Result(kind), LoweredValue::ResultOk(value))
             if lowered_value_matches(kind, &value) =>

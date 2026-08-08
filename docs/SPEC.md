@@ -974,7 +974,10 @@ specific effects when a proc does not need stdin/stdout.
   `process` effect.
 - The `?` propagation operator requires the `error` effect, except inside retry
   attempt blocks where it fails the current attempt instead of propagating from
-  the enclosing proc.
+  the enclosing proc. A proc that declares `error` may use `?` regardless of
+  whether its return type is `Result`; a propagated failure exits that proc and
+  becomes the caller-visible failure, while a successful value keeps the
+  declared return type.
 - Unrestricted procs (no annotation) may call anything — no restriction.
 - Diagnostic code: `check.effect-violation`.
 
