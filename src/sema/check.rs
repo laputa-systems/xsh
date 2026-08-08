@@ -571,7 +571,9 @@ impl Checker {
             None => {
                 self.error(
                     span,
-                    &format!("proc `{callee_name}` is unrestricted — cannot call from a proc with declared effects"),
+                    &format!(
+                        "proc `{callee_name}` is unrestricted — if it is side-effect-free, declare it with an empty effect list `[]` before calling it from a proc with declared effects",
+                    ),
                     "check.effect-violation",
                 );
             }

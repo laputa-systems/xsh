@@ -964,7 +964,7 @@ specific effects when a proc does not need stdin/stdout.
 **Enforcement rules.**
 - A restricted proc (`Some([E])`) may only call procs whose declared effects are
   a subset of `E`, plus `pure` functions.
-- Calling an unrestricted proc from a restricted proc is a checker error.
+- Calling an unrestricted proc from a restricted proc is a checker error. The diagnostic points at the fix: declare the callee with an empty effect list `[]` when it is side-effect-free.
 - Direct calls to standard-module functions (e.g. `fs.read_text`) and standard
   methods (e.g. `path.read_text()`) are checked against `E`; the `io` effect
   covers `fs`, `net`, `process`, and `env` but not `time` or `error`.

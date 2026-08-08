@@ -1097,6 +1097,40 @@ fn checker_rejects_process_time_system_identity_calls_in_pure_functions() {
 }
 
 #[test]
+fn checker_suggests_empty_effect_list_for_unrestricted_callee() {
+    let messages = check_messages(
+        r#"
+proc trim_line(value: Str) -> Str {
+  return value
+}
+
+proc main() [fs, error] -> Result[Str] {
+  return Ok(trim_line("hello"))
+}
+"#,
+    );
+    assert!(
+        messages.iter().any(|message| message.contains(
+            "if it is side-effect-free, declare it with an empty effect list `[]`"
+        )),
+        "expected actionable unrestricted-proc diagnostic, got {messages:?}"
+    );
+
+    let accepted = check(
+        r#"
+proc trim_line(value: Str) [] -> Str {
+  return value
+}
+
+proc main() [fs, error] -> Result[Str] {
+  return Ok(trim_line("hello"))
+}
+"#,
+    );
+    assert_no_codes(&accepted, &["check.effect-violation"]);
+}
+
+#[test]
 fn checker_enforces_method_call_effects() {
     let missing = check(
         r#"
