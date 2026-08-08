@@ -826,6 +826,22 @@ run echo "${{name: "demo"}.name}"
 }
 
 #[test]
+fn parser_accepts_display_string_shorthand_interpolation() {
+    let source = r#"
+let name = "world"
+let label = f"hello $name"
+"#;
+    let output = Parser::parse_source_arena_only(SourceId::new(0), source);
+
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let arena = &output.arena.arena;
+    assert!(matches!(
+        arena.expr(root_let_init_expr(&output, 1)).kind,
+        ArenaExprKind::FmtString(parts) if arena.fmt_parts(parts).count() == 2
+    ));
+}
+
+#[test]
 fn parser_accepts_nested_interpolation_boundaries_from_shared_scanner() {
     let source = r#"
 let label = f"${{raw: r"}", triple: """}""", nested: f"${{brace: "}"} .brace}"}.nested}"

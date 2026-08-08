@@ -166,25 +166,40 @@ pub(crate) fn interpolation_chunks(
     let mut chunks = Vec::new();
     let mut rest_start = 0;
     let mut search_start = 0;
-    while let Some(relative) = raw[search_start..].find("${") {
-        let open = search_start + relative;
-        if is_escaped(raw.as_bytes(), open) {
-            search_start = open + 1;
+    while search_start < raw.len() {
+        let Some(relative) = raw[search_start..].find('$') else {
+            break;
+        };
+        let dollar = search_start + relative;
+        if is_escaped(raw.as_bytes(), dollar) {
+            search_start = dollar + 1;
             continue;
         }
-        if open > rest_start {
+        let bytes = raw.as_bytes();
+        let Some(next) = bytes.get(dollar + 1).copied() else {
+            break;
+        };
+        let (expr_start, close) = if next == b'{' {
+            let expr_start = dollar + 2;
+            (expr_start, interpolation_close(raw, expr_start)?)
+        } else if is_ident_start(next) {
+            let close = shorthand_end(bytes, dollar + 1);
+            (dollar + 1, close)
+        } else {
+            search_start = dollar + 1;
+            continue;
+        };
+        if dollar > rest_start {
             chunks.push(InterpolationChunk::Text {
-                source: &raw[rest_start..open],
+                source: &raw[rest_start..dollar],
                 offset: content_offset + rest_start,
             });
         }
-        let expr_start = open + 2;
-        let close = interpolation_close(raw, expr_start)?;
         chunks.push(InterpolationChunk::Expr {
             source: &raw[expr_start..close],
             offset: content_offset + expr_start,
         });
-        rest_start = close + 1;
+        rest_start = if next == b'{' { close + 1 } else { close };
         search_start = rest_start;
     }
     if rest_start < raw.len() {
@@ -194,6 +209,32 @@ pub(crate) fn interpolation_chunks(
         });
     }
     Some(chunks)
+}
+
+fn shorthand_end(bytes: &[u8], start: usize) -> usize {
+    let mut end = start;
+    while bytes.get(end).is_some_and(|byte| is_ident_continue(*byte)) {
+        end += 1;
+    }
+    while bytes.get(end) == Some(&b'.')
+        && bytes
+            .get(end + 1)
+            .is_some_and(|byte| is_ident_start(*byte))
+    {
+        end += 1;
+        while bytes.get(end).is_some_and(|byte| is_ident_continue(*byte)) {
+            end += 1;
+        }
+    }
+    end
+}
+
+fn is_ident_continue(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric() || byte == b'_'
+}
+
+fn is_ident_start(byte: u8) -> bool {
+    byte.is_ascii_alphabetic() || byte == b'_'
 }
 
 pub(crate) fn decode_string_text(

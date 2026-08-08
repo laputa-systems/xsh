@@ -314,6 +314,38 @@ main()?
 }
 
 #[test]
+fn linter_marks_display_string_interpolation_as_used() {
+    let source = "\
+proc main() {
+  let dir = \"tmp\"
+  let unused = \"never read\"
+  print f\"dir=$dir\"
+}
+";
+    let parsed = parse_lint_source(source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let diagnostics = lint_and_assert_fmt_stable(&parsed.arena, source, LintOptions::default());
+
+    assert!(
+        diagnostics.iter().any(|diagnostic| {
+            diagnostic.code.as_deref() == Some("lint.unused-local")
+                && diagnostic.message.contains("`unused`")
+        }),
+        "genuinely unused local should still be reported: {diagnostics:?}"
+    );
+    assert!(
+        !diagnostics.iter().any(|diagnostic| {
+            diagnostic.code.as_deref() == Some("lint.unused-local")
+                && diagnostic.message.contains("`dir`")
+        }),
+        "display-string interpolation should count as a use: {diagnostics:?}"
+    );
+}
+
+#[test]
 fn linter_marks_indexed_assignment_keys_as_used() {
     let source = "\
 proc main() {

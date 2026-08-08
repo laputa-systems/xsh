@@ -366,8 +366,9 @@ The runtime representation is IEEE 754 binary64.
 Duration literals are decimal integers followed immediately by `ms`, `s`, `m`,
 or `h`. They produce `Duration` values.
 
-Display strings use `f"..."` or `f"""..."""` and support `${expr}`
-interpolation with display conversion. Interpolation scans balanced braces,
+Display strings use `f"..."` or `f"""..."""` and support `$name` shorthand
+and `${expr}` interpolation with display conversion. Shorthand names may use
+field access, such as `$entry.name`. Interpolation scans balanced braces,
 brackets, parentheses, and string literals inside the expression, so nested
 record literals, `if` expressions, `match` expressions, and inner strings do
 not terminate the interpolation early. The same interpolation scanner is used by
