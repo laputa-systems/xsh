@@ -409,6 +409,19 @@ fn api_search_is_local_and_deterministic() {
 }
 
 #[test]
+fn api_defaulted_parameters_explain_positional_only_calls() {
+    let output = xsht(&["api", "api:fs.files"]);
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("utf8 stdout");
+    assert!(
+        stdout.contains("Function arguments are positional-only; parameters marked `= default` may be omitted, but cannot be supplied as `name = value`."),
+        "{stdout}"
+    );
+    assert_eq!(String::from_utf8(output.stderr).unwrap(), "");
+}
+
+#[test]
 fn api_stream_sort_by_shows_options_before_block() {
     let output = xsht(&["api", "language:stream.sort-by"]);
 

@@ -654,11 +654,26 @@ fn item_from_docs(
         id,
         kind,
         summary: docs.summary.clone(),
-        contract: docs.contract.clone(),
+        contract: contract_with_calling_convention(&docs.contract, &signatures),
         example: docs.example.clone(),
         effects,
         tags: docs.tags.clone(),
         signatures,
+    }
+}
+
+fn contract_with_calling_convention(contract: &str, signatures: &[String]) -> String {
+    const POSITIONAL_ONLY_NOTE: &str =
+        "Function arguments are positional-only; parameters marked `= default` may be omitted, but cannot be supplied as `name = value`.";
+
+    if !signatures.iter().any(|signature| signature.contains(" = default")) {
+        return contract.to_string();
+    }
+
+    if contract.is_empty() {
+        POSITIONAL_ONLY_NOTE.to_string()
+    } else {
+        format!("{contract} {POSITIONAL_ONLY_NOTE}")
     }
 }
 
