@@ -244,6 +244,19 @@ fn checker_rejects_stage_5_acceptance_cases() {
 }
 
 #[test]
+fn checker_reports_shadowing_as_the_cause_of_module_like_method_calls() {
+    let output = check(
+        r#"
+let path = Path.parse_bytes(b"/tmp/input")?
+let text = path.read_text()?
+"#,
+    );
+
+    assert!(has_code(&output, "check.standard-module-shadow"));
+    assert_no_codes(&output, &["check.unknown-module-api"]);
+}
+
+#[test]
 fn checker_rejects_standard_module_shadowing() {
     for source in [
         "let json = 1\n",

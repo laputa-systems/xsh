@@ -290,7 +290,14 @@ impl Checker {
                         "check.unknown-module-api",
                     );
                 }
-                if api_spec().module(&module.as_str()).is_some() {
+                // A local binding takes precedence over a standard module name.
+                // Without this guard, `let path = ...; path.read_text()` is
+                // checked as the module call `path.read_text`, producing a
+                // misleading unknown-module-api diagnostic instead of checking
+                // the valid Path method.
+                if self.lookup(module.clone()).is_none()
+                    && api_spec().module(&module.as_str()).is_some()
+                {
                     if let Some(caller_effs) = self.current_effects.clone()
                         && let Some(required) =
                             api_spec().module_required_effect(&module.as_str(), &name.as_str())
