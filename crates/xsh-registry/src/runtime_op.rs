@@ -368,6 +368,8 @@ pub enum RuntimeOp {
     TextFind,
     TextParseInt,
     TextParseIntDecimal,
+    TextParseUint,
+    TextParseUintPositive,
     TextParseFloat,
     #[cfg(feature = "native-tests")]
     TestOk,

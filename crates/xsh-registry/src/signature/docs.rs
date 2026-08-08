@@ -1578,6 +1578,16 @@ fn method_doc(receiver: &str, method: &str) -> Option<DocRow> {
             "Only nonempty decimal digits without leading zeros (except `0`) are accepted; malformed or out-of-range text returns an error.",
             &["text", "parsing", "decimal", "numeric"],
         )),
+        ("Str", "parse_uint") => Some((
+            "Parses text as a non-negative decimal integer.",
+            "Signs, radix prefixes, malformed text, and out-of-range values return an error.",
+            &["text", "parsing", "decimal", "numeric", "unsigned"],
+        )),
+        ("Str", "parse_uint_positive") => Some((
+            "Parses text as a positive decimal integer.",
+            "Only decimal digits representing a value greater than zero are accepted; zero, signs, malformed, and out-of-range text return an error.",
+            &["text", "parsing", "decimal", "numeric", "positive"],
+        )),
         ("Str", "parse_float") => Some((
             "Parses text as a floating-point value.",
             "Malformed or non-finite input follows the numeric parser contract and returns an error.",

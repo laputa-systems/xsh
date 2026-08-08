@@ -2261,6 +2261,11 @@ adapter `text.lines()` is available in pipelines.
 - `.parse_int_decimal() -> Result[Int]`, accepting only nonempty decimal
   digits without leading zeros (except `0`); whitespace, signs, radix
   prefixes, separators, and out-of-range values return an error.
+- `.parse_uint() -> Result[Int]`, accepting only non-negative decimal digits;
+  signs, radix prefixes, malformed, and out-of-range text return an error.
+- `.parse_uint_positive() -> Result[Int]`, accepting only positive decimal
+  digits; zero, signs, radix prefixes, malformed, and out-of-range text return
+  an error.
 
 Byte-indexed `Str` methods are intended for ASCII-oriented scanners. They count
 UTF-8 bytes, not Unicode scalar values. `.byte_slice()` rejects negative offsets

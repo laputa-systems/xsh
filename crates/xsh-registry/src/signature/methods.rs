@@ -785,6 +785,20 @@ pub(in crate::signature) fn value_methods() -> Vec<MethodReceiverSig> {
                     RuntimeOp::TextParseIntDecimal,
                 ),
                 method(
+                    "parse_uint",
+                    Vec::new(),
+                    MethodReturn::Type(result(Type::Int)),
+                    true,
+                    RuntimeOp::TextParseUint,
+                ),
+                method(
+                    "parse_uint_positive",
+                    Vec::new(),
+                    MethodReturn::Type(result(Type::Int)),
+                    true,
+                    RuntimeOp::TextParseUintPositive,
+                ),
+                method(
                     "parse_float",
                     Vec::new(),
                     MethodReturn::Type(result(Type::Float)),

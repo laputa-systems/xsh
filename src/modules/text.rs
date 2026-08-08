@@ -179,6 +179,49 @@ pub(crate) fn parse_int_decimal_text(text: &str, span: Span) -> Result<i64, Runt
     })
 }
 
+pub(crate) fn parse_uint_positive_text(text: &str, span: Span) -> Result<i64, RuntimeError> {
+    if text.is_empty() || !text.bytes().all(|byte| byte.is_ascii_digit()) {
+        return Err(
+            RuntimeError::new(
+                "parse-uint-positive",
+                format!("invalid positive integer `{text}`"),
+            )
+            .with_span(span),
+        );
+    }
+    let value = text.parse::<i64>().map_err(|_| {
+        RuntimeError::new(
+            "parse-uint-positive",
+            format!("invalid positive integer `{text}`"),
+        )
+        .with_span(span)
+    })?;
+    if value == 0 {
+        return Err(RuntimeError::new(
+            "parse-uint-positive",
+            "expected positive integer",
+        )
+        .with_span(span));
+    }
+    Ok(value)
+}
+
+pub(crate) fn parse_uint_text(text: &str, span: Span) -> Result<i64, RuntimeError> {
+    let trimmed = text.trim();
+    if trimmed.starts_with('+') || trimmed.starts_with('-') {
+        return Err(RuntimeError::new("parse-uint", "expected unsigned integer").with_span(span));
+    }
+    if trimmed.is_empty() || !trimmed.bytes().all(|byte| byte.is_ascii_digit()) {
+        return Err(
+            RuntimeError::new("parse-uint", format!("invalid unsigned integer `{text}`"))
+                .with_span(span),
+        );
+    }
+    trimmed.parse::<i64>().map_err(|_| {
+        RuntimeError::new("parse-uint", format!("invalid unsigned integer `{text}`")).with_span(span)
+    })
+}
+
 pub(crate) fn parse_float_text(text: &str, span: Span) -> Result<f64, RuntimeError> {
     let trimmed = text.trim();
     let cleaned = trimmed.replace('_', "");
@@ -257,6 +300,18 @@ mod tests {
                 parse_int_decimal_text("42", test_span()).expect("decimal parse"),
                 42
             );
+            assert_eq!(
+                parse_uint_positive_text("42", test_span()).expect("positive uint"),
+                42
+            );
+            for input in ["0", "+5", "-1", " 5 ", "0x10", "05", ""] {
+                assert_eq!(
+                    parse_uint_positive_text(input, test_span())
+                        .expect_err("invalid positive uint")
+                        .kind,
+                    "parse-uint-positive"
+                );
+            }
             for input in ["0x10", "+5", " 5 ", "05", ""] {
                 assert_eq!(
                     parse_int_decimal_text(input, test_span())
