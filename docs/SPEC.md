@@ -2206,7 +2206,11 @@ adapter `text.lines()` is available in pipelines.
 - `.starts_with(prefix: Str) -> Bool`.
 - `.ends_with(suffix: Str) -> Bool`.
 - `.contains(needle: Str) -> Bool`.
-- `.lines() -> Stream[Str]`.
+- `.lines() -> Stream[Str]`. Lines are separated by `\n`; a terminal newline
+  terminates the final line but does not produce an empty final element. To
+  reassemble a newline-terminated value with one `\n` per input line, join the
+  collected lines with `"\n"` and append one final `"\n"` (for example,
+  `f"${text.lines().collect().join("\n")}\n"`).
 - `.words() -> List[Str]`, split with Unicode whitespace semantics.
 - `.split(separator: Str, maxsplit: Int = -1) -> List[Str]`; an empty separator
   splits into Unicode scalar values. A negative `maxsplit` performs unlimited
@@ -2303,8 +2307,8 @@ destinations by default, and rejects symlink destinations.
 `Str` methods but takes and returns `Bytes`, for processing file content
 without first requiring valid UTF-8:
 
-- `.lines() -> Stream[Bytes]` splits on `\n` and drops a trailing `\r`, like
-  `Str.lines()`.
+- `.lines() -> Stream[Bytes]` splits on `\n`, drops a trailing `\r`, and does
+  not emit an empty final element for a terminal newline, like `Str.lines()`.
 - `.count_lines() -> Int` counts those lines without allocating them.
 - `.trim() -> Bytes` removes leading and trailing whitespace, matching
   `Str.trim()`'s Unicode `White_Space` semantics on valid UTF-8.

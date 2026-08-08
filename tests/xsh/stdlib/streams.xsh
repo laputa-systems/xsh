@@ -609,6 +609,13 @@ y
   test.eq(input.bytes_lines()?.collect()[1], b"beta")?
 }
 
+proc test_terminal_newline_does_not_add_empty_line_for_round_trip() [error] {
+  let lines = "a\nb\n".lines().collect()
+
+  test.eq(lines, ["a", "b"])?
+  test.eq(f"${lines.join("\n")}\n", "a\nb\n")?
+}
+
 proc test_flat_map_consumes_live_streams_returned_by_blocks(ctx: TestContext) [fs, error] {
   let root = test.temp_dir(ctx, name: "flat-map-live-stream")?
   let left = fp"${root}/left.txt"
