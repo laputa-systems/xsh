@@ -1115,7 +1115,7 @@ fn module_errors_are_structured_results() {
 
 #[test]
 fn env_get_rejects_invalid_utf8_values() {
-    let output = Command::new(env!("CARGO_BIN_EXE_xsh"))
+    let output = Command::new(cargo_env!("CARGO_BIN_EXE_xsh"))
         .arg("tests/fixtures/runtime/env-invalid-utf8.xsh")
         .env("XSH_BAD_UTF8", std::ffi::OsString::from_vec(vec![0xff]))
         .output()
@@ -1132,7 +1132,7 @@ fn env_function_rejects_invalid_utf8_values() {
         "env-function-invalid-utf8",
         "let _ = env(\"XSH_BAD_UTF8\") ?\n",
     );
-    let output = Command::new(env!("CARGO_BIN_EXE_xsh"))
+    let output = Command::new(cargo_env!("CARGO_BIN_EXE_xsh"))
         .arg(&path)
         .env("XSH_BAD_UTF8", std::ffi::OsString::from_vec(vec![0xff]))
         .output()
@@ -1152,7 +1152,7 @@ fn source_loading_reports_invalid_utf8_as_diagnostic() {
     let path = temp_xsh_path("invalid-utf8");
     std::fs::write(&path, vec![b'l', b'e', b't', b' ', 0xff]).expect("write temp script");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let output = Command::new(cargo_env!("CARGO_BIN_EXE_xsht"))
         .args(["check", path.to_str().unwrap()])
         .output()
         .expect("run xsht");
@@ -1205,10 +1205,10 @@ print ${{\"6f6e65\" in spliced}} ${{\"74776f20776f726473\" in spliced}}
 print ${{\"XSH_RAW={}\" in env_output}} ${{{} in stat}} ${{{} in globbed}}
 print ${{emitted == b\"\\0\\xffA\"}}
 ",
-        xsh_string_literal(env!("CARGO_BIN_EXE_xsh-test-show-argv")),
-        xsh_string_literal(env!("CARGO_BIN_EXE_xsh-test-show-env")),
-        xsh_string_literal(env!("CARGO_BIN_EXE_xsh-test-stat-path")),
-        xsh_string_literal(env!("CARGO_BIN_EXE_xsh-test-emit-hex")),
+        xsh_string_literal(cargo_env!("CARGO_BIN_EXE_xsh-test-show-argv")),
+        xsh_string_literal(cargo_env!("CARGO_BIN_EXE_xsh-test-show-env")),
+        xsh_string_literal(cargo_env!("CARGO_BIN_EXE_xsh-test-stat-path")),
+        xsh_string_literal(cargo_env!("CARGO_BIN_EXE_xsh-test-emit-hex")),
         xsh_string_literal(root.to_str().unwrap()),
         raw_path_expr,
         xsh_string_literal(glob_pattern.to_str().unwrap()),
@@ -1241,7 +1241,7 @@ let label = Path(\"bin/tool\")
 let output = run.text $target \"${{label}} suffix\" ?
 print ${{output.trim()}}
 ",
-        xsh_string_literal(env!("CARGO_BIN_EXE_xsh-test-show-argv")),
+        xsh_string_literal(cargo_env!("CARGO_BIN_EXE_xsh-test-show-argv")),
     );
 
     let output = run_temp_script("command-path-shorthand", &source);
@@ -1335,7 +1335,7 @@ match p.get(\"Package\") {
     )
     .expect("write b");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_xsh"))
+    let output = Command::new(cargo_env!("CARGO_BIN_EXE_xsh"))
         .arg(&main)
         .output()
         .expect("run xsh");
@@ -1350,7 +1350,7 @@ match p.get(\"Package\") {
     );
     assert_eq!(String::from_utf8(output.stderr).unwrap(), "");
 
-    let traced = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let traced = Command::new(cargo_env!("CARGO_BIN_EXE_xsht"))
         .args(["trace", "--raw"])
         .arg(&main)
         .output()
@@ -1363,7 +1363,7 @@ match p.get(\"Package\") {
     );
     assert!(trace.contains("greet"));
 
-    let cycle = Command::new(env!("CARGO_BIN_EXE_xsh"))
+    let cycle = Command::new(cargo_env!("CARGO_BIN_EXE_xsh"))
         .arg(&cycle_main)
         .output()
         .expect("run cycle xsh");
@@ -1534,7 +1534,7 @@ print ${configure.label(\"pkgconf\")}
     )
     .expect("write package script");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_xsh"))
+    let output = Command::new(cargo_env!("CARGO_BIN_EXE_xsh"))
         .env("XSH_MODULE_PATH", &lib)
         .arg(&main)
         .output()

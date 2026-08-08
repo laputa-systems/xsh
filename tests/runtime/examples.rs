@@ -36,7 +36,7 @@ fn example_corpus_runs_with_expected_output() {
         if case.skip {
             continue;
         }
-        let mut command = Command::new(env!("CARGO_BIN_EXE_xsh"));
+        let mut command = Command::new(cargo_env!("CARGO_BIN_EXE_xsh"));
         command.arg(&case.path);
         if !case.args.is_empty() {
             command.arg("--").args(&case.args);
@@ -61,7 +61,7 @@ fn examples_have_timed_trace_output() {
         .into_iter()
         .filter(|case| case.trace && (cfg!(feature = "net") || !case.requires_net))
     {
-        let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+        let output = Command::new(cargo_env!("CARGO_BIN_EXE_xsht"))
             .arg("trace")
             .arg(&case.path)
             .args(if case.args.is_empty() {
@@ -115,7 +115,7 @@ fn examples_have_timed_trace_output() {
 
 #[test]
 fn trace_error_fixture_has_timed_error_trace() {
-    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let output = Command::new(cargo_env!("CARGO_BIN_EXE_xsht"))
         .args(["trace", "tests/fixtures/runtime/cli-trace-error.xsh"])
         .output()
         .expect("run xsht");
@@ -131,7 +131,7 @@ fn trace_error_fixture_has_timed_error_trace() {
 
 #[test]
 fn example_corpus_is_formatted() {
-    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let output = Command::new(cargo_env!("CARGO_BIN_EXE_xsht"))
         .args(["fmt", "--check"])
         .args(example_paths())
         .output()
@@ -144,7 +144,7 @@ fn example_corpus_is_formatted() {
 
 #[test]
 fn example_corpus_lints_without_warnings() {
-    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let output = Command::new(cargo_env!("CARGO_BIN_EXE_xsht"))
         .arg("lint")
         .args(example_paths())
         .output()
@@ -170,7 +170,7 @@ fn example_runtime_cases_cover_every_example_script() {
 
 #[test]
 fn trace_output_includes_timing() {
-    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let output = Command::new(cargo_env!("CARGO_BIN_EXE_xsht"))
         .args(["trace", "--raw", "tests/fixtures/runtime/cli-trace.xsh"])
         .output()
         .expect("run xsht");

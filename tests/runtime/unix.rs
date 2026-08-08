@@ -114,7 +114,7 @@ match unix.set_hostname(\"xsh\") {
 
 #[test]
 fn unix_exec_replaces_child_xsh_process() {
-    let helper = env!("CARGO_BIN_EXE_xsh-test-show-argv");
+    let helper = cargo_env!("CARGO_BIN_EXE_xsh-test-show-argv");
     let source = format!(
         "\
 let command = process.command_argv(Path({}), [\"show-argv\", \"ok\"])
@@ -162,7 +162,7 @@ print ${events[0].pid == child.pid} ${events[0].status.exited_with(1)}
 fn unix_reap_child_events_reports_signal_status() {
     let marker = temp_path("unix-child-signal-ready");
     let _ = std::fs::remove_file(&marker);
-    let sleeper = env!("CARGO_BIN_EXE_xsh-test-sleeper");
+    let sleeper = cargo_env!("CARGO_BIN_EXE_xsh-test-sleeper");
     let source = format!(
         "\
 type ChildEvent = {{pid: Int, status: Status}}
@@ -208,7 +208,7 @@ print ${{events[0].pid == child.pid}} ${{events[0].status.signaled()}} ${{events
 fn unix_spawn_process_group_can_be_signaled_without_killing_parent() {
     let marker = temp_path("unix-process-group-ready");
     let _ = std::fs::remove_file(&marker);
-    let sleeper = env!("CARGO_BIN_EXE_xsh-test-sleeper");
+    let sleeper = cargo_env!("CARGO_BIN_EXE_xsh-test-sleeper");
     let source = format!(
         "\
 let marker = Path({})
@@ -297,7 +297,7 @@ fn unix_spawn_with_tty_uses_tty_dir_and_new_session() {
     let _ = std::fs::remove_dir_all(&root);
     std::fs::create_dir_all(&tty_dir).expect("create tty dir");
     std::fs::write(&tty_file, "").expect("create tty file");
-    let helper = env!("CARGO_BIN_EXE_xsh-test-session");
+    let helper = cargo_env!("CARGO_BIN_EXE_xsh-test-session");
     let source = format!(
         "\
 let tty_dir = Path({})
@@ -341,7 +341,7 @@ env XSH_UNIX_TTY_DIR=(tty_dir) {{
 fn unix_kill_all_signals_exact_process_name() {
     let marker = temp_path("unix-killall-ready");
     let _ = std::fs::remove_file(&marker);
-    let mut child = Command::new(env!("CARGO_BIN_EXE_xsh-test-sleeper"))
+    let mut child = Command::new(cargo_env!("CARGO_BIN_EXE_xsh-test-sleeper"))
         .arg(&marker)
         .spawn()
         .expect("spawn sleeper helper");
@@ -431,7 +431,7 @@ fn core_pstree_prints_spawned_parent_before_child() {
 
     let mut output = None;
     for _ in 0..40 {
-        let candidate = Command::new(env!("CARGO_BIN_EXE_xsh"))
+        let candidate = Command::new(cargo_env!("CARGO_BIN_EXE_xsh"))
             .args(["core/pstree.xsh", "--", "-p", &parent_pid_arg])
             .output()
             .expect("run core pstree");

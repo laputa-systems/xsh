@@ -2,7 +2,7 @@ use super::common::*;
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 fn os_probe() -> &'static str {
-    env!("CARGO_BIN_EXE_xsh-test-os-probe")
+    cargo_env!("CARGO_BIN_EXE_xsh-test-os-probe")
 }
 
 #[test]
@@ -21,8 +21,8 @@ let env_status = process.run(env_command)?
 let false_status = process.run(process.command_argv(\"false\", [\"false\"]))?
 print ${{status.ok}} ${{env_status.ok}} ${{false_status.exited_with(1)}}
 ",
-            xsh_string_literal(env!("CARGO_BIN_EXE_xsh-test-show-argv")),
-            xsh_string_literal(env!("CARGO_BIN_EXE_xsh-test-show-env")),
+            xsh_string_literal(cargo_env!("CARGO_BIN_EXE_xsh-test-show-argv")),
+            xsh_string_literal(cargo_env!("CARGO_BIN_EXE_xsh-test-show-env")),
         ),
     );
 
@@ -67,7 +67,7 @@ let second_status = wait second?
 print ${first_status.ok} ${second_status.ok}
 ",
     );
-    let output = Command::new(env!("CARGO_BIN_EXE_xsh"))
+    let output = Command::new(cargo_env!("CARGO_BIN_EXE_xsh"))
         .arg(&script)
         .env("XSH_CGROUP_ROOT", &root)
         .output()
@@ -283,7 +283,7 @@ if count == 0 or listener_count == 0 or pid_listener_count == 0 {{
         "true true true true true true true\n"
     );
 
-    let example = Command::new(env!("CARGO_BIN_EXE_xsh"))
+    let example = Command::new(cargo_env!("CARGO_BIN_EXE_xsh"))
         .args(["showcase/px.xsh", "--", "-p", &port.to_string()])
         .output()
         .expect("run px showcase");

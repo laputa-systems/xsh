@@ -1,4 +1,4 @@
-macro_rules! env {
+macro_rules! cargo_env {
     ("CARGO_BIN_EXE_xsht") => {
         crate::runtime::common::workspace_binary("xsht")
     };
@@ -6,7 +6,7 @@ macro_rules! env {
         crate::runtime::common::workspace_binary("xshi")
     };
     ($name:literal) => {
-        option_env!($name).expect(concat!("missing Cargo test binary: ", $name))
+        env!($name)
     };
 }
 

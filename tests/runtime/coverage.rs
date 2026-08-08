@@ -6,7 +6,7 @@ fn mutable_string_accumulator_uses_string_addition_in_loop() {
         "mutable-string-accumulator",
         "proc main() {\n  var stack = \"\"\n  for segment in [\"a\", \"b\", \"c\"] {\n    stack = stack + segment\n  }\n  print $stack\n}\n",
     );
-    let output = Command::new(env!("CARGO_BIN_EXE_xsh"))
+    let output = Command::new(cargo_env!("CARGO_BIN_EXE_xsh"))
         .arg(&path)
         .output()
         .expect("run xsh");
@@ -21,7 +21,7 @@ fn mutable_string_accumulator_uses_string_addition_in_loop() {
 #[test]
 fn reassigning_let_is_check_error() {
     let path = write_temp_script("reassign-let-check-error", "let x = 1\nx = 2\n");
-    let output = Command::new(env!("CARGO_BIN_EXE_xsh"))
+    let output = Command::new(cargo_env!("CARGO_BIN_EXE_xsh"))
         .arg(path.to_str().unwrap())
         .output()
         .expect("run xsh");
@@ -44,7 +44,7 @@ fn xsh_refuses_checker_errors_before_execution() {
         "checker-gate-before-execution",
         "print \"before\"\nlet value = \"abc\"\nprint $value.length()\n",
     );
-    let output = Command::new(env!("CARGO_BIN_EXE_xsh"))
+    let output = Command::new(cargo_env!("CARGO_BIN_EXE_xsh"))
         .arg(&path)
         .output()
         .expect("run xsh");
@@ -65,7 +65,7 @@ fn runtime_unknown_method_names_receiver_and_candidates() {
         "runtime-unknown-method-context",
         "let value: Any = \"abc\"\nprint $value.length()\n",
     );
-    let output = Command::new(env!("CARGO_BIN_EXE_xsh"))
+    let output = Command::new(cargo_env!("CARGO_BIN_EXE_xsh"))
         .arg(&path)
         .output()
         .expect("run xsh");
@@ -79,7 +79,7 @@ fn runtime_unknown_method_names_receiver_and_candidates() {
 
 #[test]
 fn xsht_check_uses_shared_pipeline() {
-    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let output = Command::new(cargo_env!("CARGO_BIN_EXE_xsht"))
         .args(["check", "tests/fixtures/runtime/cli-simple.xsh"])
         .output()
         .expect("run xsht");
@@ -97,7 +97,7 @@ fn xsht_check_defaults_to_current_directory_and_respects_excludes() {
     std::fs::write(dir.join("ignored").join("bad.xsh"), "let =\n").expect("write bad script");
     std::fs::write(dir.join("xsht-config.ini"), "exclude = ignored/**\n").expect("write config");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let output = Command::new(cargo_env!("CARGO_BIN_EXE_xsht"))
         .arg("check")
         .current_dir(&dir)
         .output()
@@ -276,7 +276,7 @@ let value = helper("OK")
     )
     .expect("write corpus script");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_xsh"))
+    let output = Command::new(cargo_env!("CARGO_BIN_EXE_xsh"))
         .args([
             "tools/xsh-ir-coverage.xsh",
             "--",
@@ -329,7 +329,7 @@ fn xsht_check_accepts_directories_and_reports_failures() {
     std::fs::write(dir.join("scripts").join("ok.xsh"), "let value = 1\n").expect("write ok script");
     std::fs::write(dir.join("scripts").join("bad.xsh"), "let =\n").expect("write bad script");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let output = Command::new(cargo_env!("CARGO_BIN_EXE_xsht"))
         .args(["check", "scripts"])
         .current_dir(&dir)
         .output()
@@ -354,14 +354,14 @@ let row: Row = json.decode("{\"name\":\"demo\"}")?
     )
     .expect("write temp script");
 
-    let strict = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let strict = Command::new(cargo_env!("CARGO_BIN_EXE_xsht"))
         .args(["check", "--strict", path.to_str().unwrap()])
         .output()
         .expect("run xsht strict");
     assert_exit(&strict, 2);
     assert_stderr_contains(&strict, "warn[check.strict-any]");
 
-    let normal = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let normal = Command::new(cargo_env!("CARGO_BIN_EXE_xsht"))
         .args(["check", path.to_str().unwrap()])
         .output()
         .expect("run xsht check");
@@ -461,7 +461,7 @@ proc local(input = Path(".")) {}
     )
     .expect("write script");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let output = Command::new(cargo_env!("CARGO_BIN_EXE_xsht"))
         .args(["check", "--annotate", "main.xsh"])
         .current_dir(&dir)
         .output()
@@ -593,7 +593,7 @@ fn xsh_rejects_reveal_type() {
 
 #[test]
 fn xsht_fmt_check_accepts_stable_examples() {
-    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let output = Command::new(cargo_env!("CARGO_BIN_EXE_xsht"))
         .args([
             "fmt",
             "--check",
@@ -626,7 +626,7 @@ fn runnable_xsh_corpus_is_formatted_and_lints_without_warnings() {
         })
         .collect::<Vec<_>>();
 
-    let formatted = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let formatted = Command::new(cargo_env!("CARGO_BIN_EXE_xsht"))
         .args(["fmt", "--check"])
         .args(&files)
         .output()
@@ -635,7 +635,7 @@ fn runnable_xsh_corpus_is_formatted_and_lints_without_warnings() {
     assert_eq!(stdout_text(&formatted), "");
     assert_eq!(stderr_text(&formatted), "");
 
-    let linted = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let linted = Command::new(cargo_env!("CARGO_BIN_EXE_xsht"))
         .arg("lint")
         .args(files)
         .output()
@@ -654,7 +654,7 @@ fn xsht_fmt_writes_canonical_source() {
     )
     .expect("write temp script");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let output = Command::new(cargo_env!("CARGO_BIN_EXE_xsht"))
         .args(["fmt", path.to_str().unwrap()])
         .output()
         .expect("run xsht");
@@ -675,7 +675,7 @@ fn xsht_fmt_check_reports_unformatted_files() {
     let path = temp_xsh_path("fmt-check");
     std::fs::write(&path, "let x=1\n").expect("write temp script");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let output = Command::new(cargo_env!("CARGO_BIN_EXE_xsht"))
         .args(["fmt", "--check", path.to_str().unwrap()])
         .output()
         .expect("run xsht");
@@ -695,7 +695,7 @@ fn xsht_fmt_check_reports_discovered_files_in_stable_order() {
     std::fs::write(dir.join("b.xsh"), "let b=1\n").expect("write b script");
     std::fs::write(dir.join("a.xsh"), "let a=1\n").expect("write a script");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let output = Command::new(cargo_env!("CARGO_BIN_EXE_xsht"))
         .args(["fmt", "--check"])
         .current_dir(&dir)
         .output()
@@ -717,7 +717,7 @@ fn xsht_lint_accepts_documented_path_constructor_warning() {
     let path = temp_xsh_path("lint-path-constructor-advisory");
     std::fs::write(&path, "let root = Path(args[0])\nprint $root\n").expect("write temp script");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let output = Command::new(cargo_env!("CARGO_BIN_EXE_xsht"))
         .args(["lint", path.to_str().unwrap()])
         .output()
         .expect("run xsht");
@@ -751,7 +751,7 @@ main(args)?
 ";
     std::fs::write(&path, source).expect("write temp script");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let output = Command::new(cargo_env!("CARGO_BIN_EXE_xsht"))
         .args(["lint", path.to_str().unwrap()])
         .output()
         .expect("run xsht");
@@ -782,7 +782,7 @@ main()?
     std::fs::write(dir.join("b.xsh"), source).expect("write b script");
     std::fs::write(dir.join("a.xsh"), source).expect("write a script");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let output = Command::new(cargo_env!("CARGO_BIN_EXE_xsht"))
         .arg("lint")
         .current_dir(&dir)
         .output()
@@ -814,7 +814,7 @@ main()?
     )
     .expect("write warning script");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let output = Command::new(cargo_env!("CARGO_BIN_EXE_xsht"))
         .arg("lint")
         .current_dir(&dir)
         .output()
@@ -852,7 +852,7 @@ fn xsht_lint_uses_nested_config_for_discovered_files() {
         .expect("write app script");
     std::fs::write(ignored.join("bad.xsh"), "let =\n").expect("write ignored script");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let output = Command::new(cargo_env!("CARGO_BIN_EXE_xsht"))
         .arg("lint")
         .current_dir(&parent)
         .output()
@@ -870,7 +870,7 @@ fn xsht_check_rejects_undefined_utility_commands() {
     let path = temp_xsh_path("check-interactive-command");
     std::fs::write(&path, "echo hi\n").expect("write temp script");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let output = Command::new(cargo_env!("CARGO_BIN_EXE_xsht"))
         .args(["check", path.to_str().unwrap()])
         .output()
         .expect("run xsht");
@@ -903,7 +903,7 @@ fn xsht_check_ignores_xshi_config_aliases() {
     let path = temp_xsh_path("check-ignores-interactive-config");
     std::fs::write(&path, "echo hi\n").expect("write temp script");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let output = Command::new(cargo_env!("CARGO_BIN_EXE_xsht"))
         .env("HOME", &home)
         .args(["check", path.to_str().unwrap()])
         .output()
@@ -922,7 +922,7 @@ fn xsht_check_ignores_xshi_config_aliases() {
 #[test]
 fn xsht_lint_reports_check_errors_with_spans() {
     let path = write_temp_script("lint-reassign-let", "let x = 1\nx = 2\n");
-    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let output = Command::new(cargo_env!("CARGO_BIN_EXE_xsht"))
         .args(["lint", path.to_str().unwrap()])
         .output()
         .expect("run xsht");
@@ -952,7 +952,7 @@ fn xsht_lint_reports_imported_check_errors_once() {
     std::fs::write(&first, "use lib.shared\nlet one = shared.bad()\n").expect("write first");
     std::fs::write(&second, "use lib.shared\nlet two = shared.bad()\n").expect("write second");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let output = Command::new(cargo_env!("CARGO_BIN_EXE_xsht"))
         .args(["lint", first.to_str().unwrap(), second.to_str().unwrap()])
         .output()
         .expect("run xsht");
@@ -982,7 +982,7 @@ print ${label}
     )
     .expect("write temp script");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let output = Command::new(cargo_env!("CARGO_BIN_EXE_xsht"))
         .args(["lint", path.to_str().unwrap()])
         .output()
         .expect("run xsht");
@@ -996,7 +996,7 @@ print ${label}
 
 #[test]
 fn xsht_ast_prints_parser_debug_output() {
-    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let output = Command::new(cargo_env!("CARGO_BIN_EXE_xsht"))
         .args(["ast", "tests/fixtures/runtime/cli-trace.xsh"])
         .output()
         .expect("run xsht");
@@ -1011,11 +1011,11 @@ fn xsht_ast_prints_parser_debug_output() {
 
 #[test]
 fn xsht_test_lists_and_filters_native_tests() {
-    let listed = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let listed = Command::new(cargo_env!("CARGO_BIN_EXE_xsht"))
         .args(["test", "--list", "test_dns"])
         .output()
         .expect("run xsht");
-    let exact = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let exact = Command::new(cargo_env!("CARGO_BIN_EXE_xsht"))
         .args(["test", "--exact", "tests/xsh/basic.xsh::test_pass"])
         .output()
         .expect("run xsht");
@@ -1050,12 +1050,12 @@ proc test_beta() [error] {
     )
     .expect("write native test");
 
-    let listed = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let listed = Command::new(cargo_env!("CARGO_BIN_EXE_xsht"))
         .args(["test", "--list"])
         .current_dir(&root)
         .output()
         .expect("run xsht");
-    let filtered = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let filtered = Command::new(cargo_env!("CARGO_BIN_EXE_xsht"))
         .args(["test", "beta"])
         .current_dir(&root)
         .output()
@@ -1080,7 +1080,7 @@ fn xsht_test_succeeds_when_current_directory_has_no_tests_dir() {
     let _ = std::fs::remove_dir_all(&root);
     std::fs::create_dir_all(&root).expect("create empty test root");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let output = Command::new(cargo_env!("CARGO_BIN_EXE_xsht"))
         .arg("test")
         .current_dir(&root)
         .output()
@@ -1122,7 +1122,7 @@ proc test_imported_helper() [error] {
     )
     .expect("write native test");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let output = Command::new(cargo_env!("CARGO_BIN_EXE_xsht"))
         .arg("test")
         .current_dir(&root)
         .output()
@@ -1175,7 +1175,7 @@ proc test_imported_helper() [error] {
     )
     .expect("write ignored test");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let output = Command::new(cargo_env!("CARGO_BIN_EXE_xsht"))
         .arg("test")
         .current_dir(&root)
         .output()
@@ -1213,7 +1213,7 @@ proc test_beta() [error] {
     )
     .expect("write failing native tests");
 
-    let fail_fast = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let fail_fast = Command::new(cargo_env!("CARGO_BIN_EXE_xsht"))
         .args(["test", "--keep-temp", "--fail-fast"])
         .current_dir(&root)
         .output()
@@ -1245,7 +1245,7 @@ proc test_beta() [error] {
     );
     std::fs::remove_dir_all(&temp_root).expect("remove retained temp root");
 
-    let nocapture = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let nocapture = Command::new(cargo_env!("CARGO_BIN_EXE_xsht"))
         .args([
             "test",
             "--nocapture",
@@ -1284,7 +1284,7 @@ proc test_process_output() [process, error] {
     )
     .expect("write process-output test");
 
-    let captured = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let captured = Command::new(cargo_env!("CARGO_BIN_EXE_xsht"))
         .arg("test")
         .current_dir(&root)
         .output()
@@ -1297,7 +1297,7 @@ proc test_process_output() [process, error] {
     assert!(!stdout.contains("process-stderr"), "{stdout}");
     assert_eq!(stderr_text(&captured), "");
 
-    let nocapture = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let nocapture = Command::new(cargo_env!("CARGO_BIN_EXE_xsht"))
         .args([
             "test",
             "--nocapture",
@@ -1317,11 +1317,11 @@ proc test_process_output() [process, error] {
 
 #[test]
 fn xsht_test_runs_catalog_examples_only_when_requested() {
-    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let output = Command::new(cargo_env!("CARGO_BIN_EXE_xsht"))
         .args(["test", "--examples", "--exact", "examples::release-package"])
         .output()
         .expect("run xsht");
-    let all = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let all = Command::new(cargo_env!("CARGO_BIN_EXE_xsht"))
         .args(["test", "--all", "--list", "release-package"])
         .output()
         .expect("run xsht");
@@ -1339,7 +1339,7 @@ fn xsht_test_runs_catalog_examples_only_when_requested() {
 
 #[test]
 fn xsht_test_cov_list_does_not_execute_tests() {
-    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let output = Command::new(cargo_env!("CARGO_BIN_EXE_xsht"))
         .args([
             "test",
             "--cov",
@@ -1359,7 +1359,7 @@ fn xsht_test_cov_list_does_not_execute_tests() {
 
 #[test]
 fn xsht_test_api_requires_coverage_report() {
-    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let output = Command::new(cargo_env!("CARGO_BIN_EXE_xsht"))
         .args(["test", "--api", "--list", "tests/xsh/basic.xsh::test_pass"])
         .output()
         .expect("run xsht");
@@ -1374,7 +1374,7 @@ fn xsht_test_api_requires_coverage_report() {
 
 #[test]
 fn xsht_test_cov_exact_prints_coverage_sections() {
-    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let output = Command::new(cargo_env!("CARGO_BIN_EXE_xsht"))
         .args(["test", "--cov", "--exact", "tests/xsh/basic.xsh::test_pass"])
         .output()
         .expect("run xsht");
@@ -1391,7 +1391,7 @@ fn xsht_test_cov_exact_prints_coverage_sections() {
 
 #[test]
 fn xsht_test_cov_api_opt_in_prints_api_sections() {
-    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let output = Command::new(cargo_env!("CARGO_BIN_EXE_xsht"))
         .args([
             "test",
             "--cov",
@@ -1414,7 +1414,7 @@ fn xsht_test_cov_json_out_writes_structured_report() {
     let path = temp_path("xsht-cov-json").with_extension("json");
     let _ = std::fs::remove_file(&path);
 
-    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let output = Command::new(cargo_env!("CARGO_BIN_EXE_xsht"))
         .args([
             "test",
             "--exact",
@@ -1465,13 +1465,13 @@ proc test_child_coverage() [process, error] {{
   test.ok(output.trim().parse_int()? > 0)?
 }}
 "#,
-            xsh_string_literal(env!("CARGO_BIN_EXE_xsh")),
+            xsh_string_literal(cargo_env!("CARGO_BIN_EXE_xsh")),
             xsh_string_literal(child.to_str().unwrap()),
         ),
     )
     .expect("write native test");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let output = Command::new(cargo_env!("CARGO_BIN_EXE_xsht"))
         .args([
             "test",
             "--exact",
@@ -1500,7 +1500,7 @@ fn xsht_test_cov_json_counts_example_runs_as_examples() {
     let path = temp_path("xsht-example-cov-json").with_extension("json");
     let _ = std::fs::remove_file(&path);
 
-    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let output = Command::new(cargo_env!("CARGO_BIN_EXE_xsht"))
         .args([
             "test",
             "--examples",
@@ -1562,13 +1562,13 @@ fn xsh_native_tests() {
         );
     }
 
-    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let output = Command::new(cargo_env!("CARGO_BIN_EXE_xsht"))
         .args(["test"])
-        .env("CARGO_BIN_EXE_xsh", env!("CARGO_BIN_EXE_xsh"))
-        .env("CARGO_BIN_EXE_xsht", env!("CARGO_BIN_EXE_xsht"))
+        .env("CARGO_BIN_EXE_xsh", cargo_env!("CARGO_BIN_EXE_xsh"))
+        .env("CARGO_BIN_EXE_xsht", cargo_env!("CARGO_BIN_EXE_xsht"))
         .env(
             "CARGO_BIN_EXE_xsh-test-sleeper",
-            env!("CARGO_BIN_EXE_xsh-test-sleeper"),
+            cargo_env!("CARGO_BIN_EXE_xsh-test-sleeper"),
         )
         .output()
         .expect("run showcase tests");

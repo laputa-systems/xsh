@@ -48,7 +48,7 @@ fn build_workspace_binaries() -> WorkspaceBinaries {
 
     let mut command = Command::new("cargo");
     command
-        .current_dir(env!("CARGO_MANIFEST_DIR"))
+        .current_dir(cargo_env!("CARGO_MANIFEST_DIR"))
         .args(["build", "-p", "xshi", "-p", "xsht", "--bins"]);
     if profile != "debug" {
         command.args(["--profile", profile]);
@@ -85,7 +85,7 @@ pub(crate) fn pty_test_guard() -> std::sync::MutexGuard<'static, ()> {
 }
 
 pub(crate) fn xsh<const N: usize>(args: [&str; N]) -> std::process::Output {
-    let mut cmd = Command::new(env!("CARGO_BIN_EXE_xsh"));
+    let mut cmd = Command::new(cargo_env!("CARGO_BIN_EXE_xsh"));
     cmd.args(args);
     cmd.output().expect("run xsh")
 }
@@ -289,7 +289,7 @@ fn command_for_script_with_leading_args(path: &Path, leading_args: &[&str]) -> C
         cmd.arg("trace").args(args).arg(path);
         cmd
     } else {
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_xsh"));
+        let mut cmd = Command::new(cargo_env!("CARGO_BIN_EXE_xsh"));
         cmd.args(leading_args).arg(path);
         cmd
     }

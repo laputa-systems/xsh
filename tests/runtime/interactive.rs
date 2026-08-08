@@ -9,7 +9,7 @@ const PTY_TIMEOUT: Duration = Duration::from_secs(15);
 
 #[test]
 fn hello_example_runs_through_cli() {
-    let output = Command::new(env!("CARGO_BIN_EXE_xsh"))
+    let output = Command::new(cargo_env!("CARGO_BIN_EXE_xsh"))
         .arg("tests/fixtures/runtime/cli-simple.xsh")
         .output()
         .expect("run xsh");
@@ -21,7 +21,7 @@ fn hello_example_runs_through_cli() {
 
 #[test]
 fn args_example_prints_script_arguments() {
-    let output = Command::new(env!("CARGO_BIN_EXE_xsh"))
+    let output = Command::new(cargo_env!("CARGO_BIN_EXE_xsh"))
         .args(["tests/fixtures/runtime/cli-args.xsh", "--", "one", "two"])
         .output()
         .expect("run xsh");
@@ -32,7 +32,7 @@ fn args_example_prints_script_arguments() {
 
 #[test]
 fn interactive_echo_runs_as_native_builtin() {
-    let output = Command::new(env!("CARGO_BIN_EXE_xshi"))
+    let output = Command::new(cargo_env!("CARGO_BIN_EXE_xshi"))
         .arg("--no-config")
         .env("XSHI_ALLOW_NON_TTY_FOR_TESTS", "1")
         .stdin(Stdio::piped())
@@ -57,7 +57,7 @@ fn interactive_echo_runs_as_native_builtin() {
 #[test]
 fn xsh_interactive_flags_point_to_xshi() {
     for flag in ["-i", "--interactive"] {
-        let output = Command::new(env!("CARGO_BIN_EXE_xsh"))
+        let output = Command::new(cargo_env!("CARGO_BIN_EXE_xsh"))
             .arg(flag)
             .output()
             .expect("run xsh");
@@ -70,7 +70,7 @@ fn xsh_interactive_flags_point_to_xshi() {
 
 #[test]
 fn xshi_help_is_interactive_specific() {
-    let output = Command::new(env!("CARGO_BIN_EXE_xshi"))
+    let output = Command::new(cargo_env!("CARGO_BIN_EXE_xshi"))
         .arg("--help")
         .output()
         .expect("run xshi");
@@ -83,7 +83,7 @@ fn xshi_help_is_interactive_specific() {
 
 #[test]
 fn xshi_c_accepts_shell_arithmetic_expansion() {
-    let output = Command::new(env!("CARGO_BIN_EXE_xshi"))
+    let output = Command::new(cargo_env!("CARGO_BIN_EXE_xshi"))
         .args(["--no-config", "-c", "echo $((1 + 2))"])
         .output()
         .expect("run xshi -c");
@@ -103,7 +103,7 @@ fn xshi_c_handles_ssh_style_redirection_from_stdin() {
         path.display(),
         path.display()
     );
-    let output = Command::new(env!("CARGO_BIN_EXE_xshi"))
+    let output = Command::new(cargo_env!("CARGO_BIN_EXE_xshi"))
         .args(["--no-config", "-c", &command])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -127,7 +127,7 @@ fn xshi_c_handles_ssh_style_redirection_from_stdin() {
 
 #[test]
 fn xshi_requires_tty_for_normal_startup() {
-    let output = Command::new(env!("CARGO_BIN_EXE_xshi"))
+    let output = Command::new(cargo_env!("CARGO_BIN_EXE_xshi"))
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -856,7 +856,7 @@ fn temp_xshi_home(label: &str) -> PathBuf {
 }
 
 fn spawn_xshi_pty_with(cwd: Option<&Path>, envs: &[(&str, &Path)]) -> PtyXshi {
-    spawn_xshi_pty_with_binary(Path::new(env!("CARGO_BIN_EXE_xshi")), cwd, envs)
+    spawn_xshi_pty_with_binary(Path::new(cargo_env!("CARGO_BIN_EXE_xshi")), cwd, envs)
 }
 
 fn spawn_xshi_pty_with_binary(
@@ -1279,7 +1279,7 @@ fn visible_terminal_width(text: &str) -> usize {
 
 #[test]
 fn xshi_rejects_script_paths_and_arguments() {
-    let output = Command::new(env!("CARGO_BIN_EXE_xshi"))
+    let output = Command::new(cargo_env!("CARGO_BIN_EXE_xshi"))
         .args(["script.xsh", "arg"])
         .output()
         .expect("run xshi");
@@ -1294,7 +1294,7 @@ fn run_xshi_input(
     input: &str,
     home: Option<&std::path::Path>,
 ) -> std::process::Output {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_xshi"));
+    let mut command = Command::new(cargo_env!("CARGO_BIN_EXE_xshi"));
     command
         .args(args)
         .env("XSHI_ALLOW_NON_TTY_FOR_TESTS", "1")
@@ -1335,7 +1335,7 @@ fn xshi_interactive_loads_profile_before_no_config() {
     let profile = root.join("profile");
     std::fs::write(&profile, format!("export PATH={}\n", bin.display())).expect("write profile");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_xshi"))
+    let output = Command::new(cargo_env!("CARGO_BIN_EXE_xshi"))
         .arg("--no-config")
         .env("XSHI_ALLOW_NON_TTY_FOR_TESTS", "1")
         .env("XSHI_PROFILE_PATH", &profile)
@@ -1358,7 +1358,7 @@ fn xshi_interactive_loads_profile_before_no_config() {
     let stdout = String::from_utf8(output.stdout).unwrap();
     assert!(stdout.contains("from-profile\n"), "{stdout}");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_xshi"))
+    let output = Command::new(cargo_env!("CARGO_BIN_EXE_xshi"))
         .args(["--no-config", "-c", "xshi-profile-probe"])
         .env("XSHI_ALLOW_NON_TTY_FOR_TESTS", "1")
         .env("XSHI_PROFILE_PATH", &profile)
@@ -1374,7 +1374,7 @@ fn xshi_interactive_loads_profile_before_no_config() {
 
 #[test]
 fn interactive_false_exit_uses_last_builtin_status() {
-    let output = Command::new(env!("CARGO_BIN_EXE_xshi"))
+    let output = Command::new(cargo_env!("CARGO_BIN_EXE_xshi"))
         .arg("--no-config")
         .env("XSHI_ALLOW_NON_TTY_FOR_TESTS", "1")
         .stdin(Stdio::piped())
@@ -1527,7 +1527,7 @@ fn interactive_cd_persists_for_later_lines() {
     let _ = std::fs::remove_dir_all(&root);
     std::fs::create_dir_all(&root).expect("create temp dir");
     let input = format!("cd {}\npwd\nexit\n", root.display());
-    let output = Command::new(env!("CARGO_BIN_EXE_xshi"))
+    let output = Command::new(cargo_env!("CARGO_BIN_EXE_xshi"))
         .arg("--no-config")
         .env("XSHI_ALLOW_NON_TTY_FOR_TESTS", "1")
         .stdin(Stdio::piped())
@@ -1576,7 +1576,7 @@ fn interactive_cd_dash_uses_oldpwd() {
 
 #[test]
 fn interactive_bare_external_uses_shell_status() {
-    let output = Command::new(env!("CARGO_BIN_EXE_xshi"))
+    let output = Command::new(cargo_env!("CARGO_BIN_EXE_xshi"))
         .arg("--no-config")
         .env("XSHI_ALLOW_NON_TTY_FOR_TESTS", "1")
         .stdin(Stdio::piped())
@@ -1645,7 +1645,7 @@ fn interactive_colon_noop_supports_shell_link_rules() {
     let _ = std::fs::remove_dir_all(&home);
     std::fs::create_dir_all(&home).expect("create home");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_xshi"))
+    let output = Command::new(cargo_env!("CARGO_BIN_EXE_xshi"))
         .args(["--no-config", "-c", ": && echo ok && :"])
         .env("HOME", &home)
         .output()
@@ -2157,7 +2157,7 @@ fn interactive_quoted_command_substitution_does_not_glob() {
 
 #[test]
 fn interactive_shell_chains_do_not_fall_back_for_xsh_reserved_input() {
-    let output = Command::new(env!("CARGO_BIN_EXE_xshi"))
+    let output = Command::new(cargo_env!("CARGO_BIN_EXE_xshi"))
         .arg("--no-config")
         .env("XSHI_ALLOW_NON_TTY_FOR_TESTS", "1")
         .stdin(Stdio::piped())
@@ -2183,7 +2183,7 @@ fn interactive_shell_chains_do_not_fall_back_for_xsh_reserved_input() {
 
 #[test]
 fn interactive_cat_without_operands_rejects_repl_stdin() {
-    let output = Command::new(env!("CARGO_BIN_EXE_xshi"))
+    let output = Command::new(cargo_env!("CARGO_BIN_EXE_xshi"))
         .arg("--no-config")
         .env("XSHI_ALLOW_NON_TTY_FOR_TESTS", "1")
         .stdin(Stdio::piped())
@@ -2203,7 +2203,7 @@ fn interactive_cat_without_operands_rejects_repl_stdin() {
     assert_eq!(output.status.code(), Some(0));
     assert_eq!(String::from_utf8(output.stderr).unwrap(), "");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_xshi"))
+    let output = Command::new(cargo_env!("CARGO_BIN_EXE_xshi"))
         .arg("--no-config")
         .env("XSHI_ALLOW_NON_TTY_FOR_TESTS", "1")
         .stdin(Stdio::piped())
@@ -2261,7 +2261,7 @@ fn xsh_ignores_xshi_config_aliases_and_history() {
     let path = temp_xsh_path("xsh-ignores-interactive-config");
     std::fs::write(&path, "echo hi\n").expect("write temp script");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_xsh"))
+    let output = Command::new(cargo_env!("CARGO_BIN_EXE_xsh"))
         .env("HOME", &home)
         .arg(path.to_str().unwrap())
         .output()

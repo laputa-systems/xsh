@@ -86,7 +86,7 @@ fn write_cgroup_control(path: &Path, content: &str) -> std::io::Result<()> {
 #[cfg(not(target_os = "linux"))]
 #[test]
 fn xsht_trace_rejects_syscalls_on_non_linux() {
-    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let output = Command::new(cargo_env!("CARGO_BIN_EXE_xsht"))
         .args([
             "trace",
             "--syscalls",
@@ -106,7 +106,7 @@ fn xsht_trace_rejects_syscalls_on_non_linux() {
 #[cfg(target_os = "linux")]
 #[test]
 fn xsht_syscall_trace_includes_summary_when_ptrace_available() {
-    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let output = Command::new(cargo_env!("CARGO_BIN_EXE_xsht"))
         .args([
             "trace",
             "--syscalls",
@@ -141,7 +141,7 @@ let out = run.text printf "%s\n" "hi" ?
 print ${out.trim()}
 "#,
     );
-    let mut child = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let mut child = Command::new(cargo_env!("CARGO_BIN_EXE_xsht"))
         .args(["trace", "--syscalls", "--trace-top-syscalls", "3"])
         .arg(&script)
         .stdout(Stdio::piped())
@@ -203,7 +203,7 @@ cat "${mount}/${cg#/}/cpu.max"
 print ${out}
 "#,
     );
-    let mut command = Command::new(env!("CARGO_BIN_EXE_xsh"));
+    let mut command = Command::new(cargo_env!("CARGO_BIN_EXE_xsh"));
     command.arg(&script);
     let mount_path = root.mount_path();
     command.env("XSH_TEST_CGROUP_MOUNT", &mount_path);
@@ -699,7 +699,7 @@ match unix.set_hostname(\"xsh\") {
 
 #[test]
 fn unix_exec_replaces_child_xsh_process() {
-    let helper = env!("CARGO_BIN_EXE_xsh-test-show-argv");
+    let helper = cargo_env!("CARGO_BIN_EXE_xsh-test-show-argv");
     let source = format!(
         "\
 let command = process.command_argv(Path({}), [\"show-argv\", \"ok\"])
@@ -747,7 +747,7 @@ print ${events[0].pid == child.pid} ${events[0].status.exited_with(1)}
 fn unix_reap_child_events_reports_signal_status() {
     let marker = temp_path("linux-unix-child-signal-ready");
     let _ = std::fs::remove_file(&marker);
-    let sleeper = env!("CARGO_BIN_EXE_xsh-test-sleeper");
+    let sleeper = cargo_env!("CARGO_BIN_EXE_xsh-test-sleeper");
     let source = format!(
         "\
 type ChildEvent = {{pid: Int, status: Status}}
@@ -793,7 +793,7 @@ print ${{events[0].pid == child.pid}} ${{events[0].status.signaled()}} ${{events
 fn unix_spawn_process_group_can_be_signaled_without_killing_parent() {
     let marker = temp_path("linux-process-group-ready");
     let _ = std::fs::remove_file(&marker);
-    let sleeper = env!("CARGO_BIN_EXE_xsh-test-sleeper");
+    let sleeper = cargo_env!("CARGO_BIN_EXE_xsh-test-sleeper");
     let source = format!(
         "\
 let marker = Path({})
@@ -882,7 +882,7 @@ fn unix_spawn_with_tty_uses_tty_dir_and_new_session() {
     let _ = std::fs::remove_dir_all(&root);
     std::fs::create_dir_all(&tty_dir).expect("create tty dir");
     std::fs::write(&tty_file, "").expect("create tty file");
-    let helper = env!("CARGO_BIN_EXE_xsh-test-session");
+    let helper = cargo_env!("CARGO_BIN_EXE_xsh-test-session");
     let source = format!(
         "\
 let tty_dir = Path({})

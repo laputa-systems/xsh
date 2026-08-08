@@ -7,11 +7,11 @@ fn os_fixture(name: &str) -> PathBuf {
 }
 
 fn os_probe() -> &'static str {
-    env!("CARGO_BIN_EXE_xsh-test-os-probe")
+    cargo_env!("CARGO_BIN_EXE_xsh-test-os-probe")
 }
 
 fn run_os_fixture(name: &str, args: &[&str]) -> std::process::Output {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_xsh"));
+    let mut command = Command::new(cargo_env!("CARGO_BIN_EXE_xsh"));
     command.arg(os_fixture(name));
     if !args.is_empty() {
         command.arg("--").args(args);
@@ -20,7 +20,7 @@ fn run_os_fixture(name: &str, args: &[&str]) -> std::process::Output {
 }
 
 fn trace_os_fixture(name: &str, args: &[&str]) -> std::process::Output {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_xsht"));
+    let mut command = Command::new(cargo_env!("CARGO_BIN_EXE_xsht"));
     command
         .args(["trace", "--raw", "--trace-format", "jsonl"])
         .arg(os_fixture(name));
@@ -31,7 +31,7 @@ fn trace_os_fixture(name: &str, args: &[&str]) -> std::process::Output {
 }
 
 fn spawn_os_fixture(name: &str, args: &[&str]) -> Child {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_xsh"));
+    let mut command = Command::new(cargo_env!("CARGO_BIN_EXE_xsh"));
     command
         .arg(os_fixture(name))
         .arg("--")

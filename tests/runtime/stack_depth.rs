@@ -175,7 +175,7 @@ fn small_stack_xsht_native_test_body_does_not_abort() {
     std::fs::write(root.join("tests/deep.xsh"), nested_native_test_source(120))
         .expect("write native test");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+    let output = Command::new(cargo_env!("CARGO_BIN_EXE_xsht"))
         .args(["test", "--exact", "tests/deep.xsh::test_nested"])
         .env("XSH_TEST_SMALL_EVAL_STACK", "1")
         .current_dir(&root)
