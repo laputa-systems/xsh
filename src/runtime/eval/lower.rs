@@ -10868,6 +10868,8 @@ impl CompactLowerConstructProbe<'_, '_> {
                     | BuildStmtRow::AssignInt { .. }
                     | BuildStmtRow::AssignIndex { .. }
                     | BuildStmtRow::AssignBool { .. }
+                    | BuildStmtRow::If { .. }
+                    | BuildStmtRow::IfBool { .. }
             ) {
                 slots.exit(saved);
                 return None;
@@ -10977,28 +10979,19 @@ impl CompactLowerConstructProbe<'_, '_> {
                 Some(item_slot),
             )?);
         }
-        let value = match self.program.arena.stmt(tail).kind {
-            ArenaStmtKind::Expr(expr) => {
-                self.lower_expr(expr, slots, current_function, Some(item_slot))?
-            }
-            ArenaStmtKind::TailBareIdent(name) => self.lower_bare_ident(name, slots)?,
-            _ => {
-                slots.exit(saved);
-                return None;
-            }
-        };
-        body.push(push_build_row!(
-            self,
-            stmt,
-            BuildStmtRow::Assign {
-                slot: result_slot,
-                op: AssignOp::Set,
-                value,
-                span: self.program.arena.stmt(tail).span,
-            }
-        ));
+        if !self.lower_fold_value_stmt(
+            tail,
+            result_slot,
+            &mut body,
+            slots,
+            current_function,
+            item_slot,
+        ) {
+            slots.exit(saved);
+            return None;
+        }
         slots.exit(saved);
-        Some(body.clone())
+        Some(body)
     }
 
     fn lower_pipeline_stage_reduce_by(

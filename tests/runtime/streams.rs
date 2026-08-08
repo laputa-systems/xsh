@@ -30,6 +30,74 @@ print result.parts.join(",")
 }
 
 #[test]
+fn fold_block_supports_nested_if_statement_with_assignment() {
+    let source = r#"
+let result = [1, 2, 3] |> fold(0) { |acc, item|
+  var next = acc
+  if item > 1 {
+    next = next + item
+  }
+  next
+}
+print $result
+"#;
+    let path = write_temp_script("fold-nested-if-statement", source);
+    let path_str = path.to_str().unwrap();
+
+    let check = xsht(["check", path_str]);
+    assert!(
+        check.status.success(),
+        "xsht check rejected a nested if statement in a fold block: {}",
+        String::from_utf8_lossy(&check.stderr)
+    );
+
+    let run = xsh([path_str]);
+    assert!(
+        run.status.success(),
+        "xsh failed on a nested if statement in a fold block: {}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert_eq!(String::from_utf8(run.stdout).unwrap(), "5\n");
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
+fn fold_block_supports_nested_if_as_branch_tail() {
+    let source = r#"
+let result = [1, 2, 3] |> fold(0) { |acc, item|
+  if item == 1 {
+    acc
+  } else {
+    if item == 2 {
+      acc + 2
+    } else {
+      acc + 3
+    }
+  }
+}
+print $result
+"#;
+    let path = write_temp_script("fold-nested-if-tail", source);
+    let path_str = path.to_str().unwrap();
+
+    let check = xsht(["check", path_str]);
+    assert!(
+        check.status.success(),
+        "xsht check rejected a nested if tail in a fold block: {}",
+        String::from_utf8_lossy(&check.stderr)
+    );
+
+    let run = xsh([path_str]);
+    assert!(
+        run.status.success(),
+        "xsh failed on a nested if tail in a fold block: {}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert_eq!(String::from_utf8(run.stdout).unwrap(), "5\n");
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
 fn live_stream_par_map_flat_map_reduce_by_matches_collected_rows() {
     let root = temp_path("live-stream-flat-map-reduce-root");
     let nested = root.join("nested");

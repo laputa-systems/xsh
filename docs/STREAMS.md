@@ -67,8 +67,10 @@ eager vec handlers and the lazy sinks.
   `fs.walk |> where … |> count()` is O(1) live memory.
   `fold(init)`/`reduce(init)` use an explicit accumulator block that binds the
   accumulator (typed by the initial value) first and the stream item second:
-  `|> fold(0) { |acc, item| acc + item }`. It is a sequential user combine with
-  no merge function and returns that accumulator. Fold/reduce blocks are pure
+  `|> fold(0) { |acc, item| acc + item }`. The block may use ordinary
+  statements and nested conditionals before producing the next accumulator. It
+  is a sequential user combine with no merge function and returns that
+  accumulator. Fold/reduce blocks are pure
   reductions: output belongs in a following `each { |item| print $item }`
   stage. `xsht check` reports this constraint directly when a block contains
   `print` or `eprint`.

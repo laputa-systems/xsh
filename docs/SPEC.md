@@ -2781,8 +2781,9 @@ parameter with `{ |item| ... }`, but the implicit `.` item is available in
 one-expression and multi-statement stage blocks. `fold`/`reduce` additionally
 accept a two-parameter block `{ |acc, item| ... }` whose first parameter is the
 accumulated value (typed by the initial value) and whose second is the stream
-item; the block's tail must produce the accumulator's type, and the stage
-returns that accumulated value. Fold and reduce blocks are pure reductions and
+item. These blocks may contain ordinary statements and nested conditionals;
+their tail must produce the accumulator's type, and the stage returns that
+accumulated value. Fold and reduce blocks are pure reductions and
 must not print; use a following `each { |item| print $item }` stage for output.
 `xsht check` reports this constraint as `check.fold-effect`.
 
