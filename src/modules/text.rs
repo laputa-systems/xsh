@@ -166,6 +166,19 @@ pub(crate) fn parse_int_text(text: &str, span: Span) -> Result<i64, RuntimeError
     Ok(if negative { -unsigned } else { unsigned })
 }
 
+pub(crate) fn parse_int_decimal_text(text: &str, span: Span) -> Result<i64, RuntimeError> {
+    let valid_digits = !text.is_empty()
+        && text.bytes().all(|byte| byte.is_ascii_digit())
+        && (text == "0" || !text.starts_with('0'));
+    if !valid_digits {
+        return Err(RuntimeError::new("parse-int", format!("invalid integer `{text}`"))
+            .with_span(span));
+    }
+    text.parse::<i64>().map_err(|_| {
+        RuntimeError::new("parse-int", format!("invalid integer `{text}`")).with_span(span)
+    })
+}
+
 pub(crate) fn parse_float_text(text: &str, span: Span) -> Result<f64, RuntimeError> {
     let trimmed = text.trim();
     let cleaned = trimmed.replace('_', "");
@@ -240,6 +253,18 @@ mod tests {
             assert_eq!(lower_text("HeLLo"), "hello");
             assert_eq!(upper_text("HeLLo"), "HELLO");
             assert_eq!(parse_int_text("0x2a", test_span()).expect("parse int"), 42);
+            assert_eq!(
+                parse_int_decimal_text("42", test_span()).expect("decimal parse"),
+                42
+            );
+            for input in ["0x10", "+5", " 5 ", "05", ""] {
+                assert_eq!(
+                    parse_int_decimal_text(input, test_span())
+                        .expect_err("invalid decimal int")
+                        .kind,
+                    "parse-int"
+                );
+            }
             assert_eq!(
                 parse_int_text("nope", test_span())
                     .expect_err("invalid int")

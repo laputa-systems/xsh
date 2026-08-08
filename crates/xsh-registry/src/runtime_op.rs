@@ -367,6 +367,7 @@ pub enum RuntimeOp {
     TextByteSlice,
     TextFind,
     TextParseInt,
+    TextParseIntDecimal,
     TextParseFloat,
     #[cfg(feature = "native-tests")]
     TestOk,

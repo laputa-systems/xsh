@@ -88,6 +88,11 @@ beta""".find("z"),
   )?
 
   test.eq("42".parse_int()?, 42)?
+  test.eq("42".parse_int_decimal()?, 42)?
+  test.error_kind("0x10".parse_int_decimal(), "parse-int")?
+  test.error_kind("+5".parse_int_decimal(), "parse-int")?
+  test.error_kind(" 5 ".parse_int_decimal(), "parse-int")?
+  test.error_kind("05".parse_int_decimal(), "parse-int")?
   test.error_kind("nope".parse_int(), "parse-int")?
   test.eq("hello" + " " + "world", "hello world")?
   let name = "Alice"

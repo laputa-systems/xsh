@@ -2250,6 +2250,9 @@ adapter `text.lines()` is available in pipelines.
   `needle` at or after byte index `start`, or `-1` when missing.
 - `.parse_int() -> Result[Int]`, accepting decimal, `0x` hexadecimal, `0o`
   octal, `0b` binary, `_` separators, and an optional leading sign.
+- `.parse_int_decimal() -> Result[Int]`, accepting only nonempty decimal
+  digits without leading zeros (except `0`); whitespace, signs, radix
+  prefixes, separators, and out-of-range values return an error.
 
 Byte-indexed `Str` methods are intended for ASCII-oriented scanners. They count
 UTF-8 bytes, not Unicode scalar values. `.byte_slice()` rejects negative offsets

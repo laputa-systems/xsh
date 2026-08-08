@@ -2531,6 +2531,7 @@ const LOWERED_METHOD_NAMES: &[&str] = &[
     "matches",
     "captures",
     "parse_int",
+    "parse_int_decimal",
     "parse_float",
     "float",
     "floor",

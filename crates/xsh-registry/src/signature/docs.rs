@@ -1573,6 +1573,11 @@ fn method_doc(receiver: &str, method: &str) -> Option<DocRow> {
             "The accepted radix and syntax are explicit; malformed or out-of-range text returns an error.",
             &["text", "parsing", "numeric"],
         )),
+        ("Str", "parse_int_decimal") => Some((
+            "Parses text as a strict decimal integer.",
+            "Only nonempty decimal digits without leading zeros (except `0`) are accepted; malformed or out-of-range text returns an error.",
+            &["text", "parsing", "decimal", "numeric"],
+        )),
         ("Str", "parse_float") => Some((
             "Parses text as a floating-point value.",
             "Malformed or non-finite input follows the numeric parser contract and returns an error.",

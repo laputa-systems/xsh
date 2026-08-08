@@ -1255,6 +1255,14 @@ pub(super) fn lowered_str_method_value(
                 ))))),
             }
         }
+        "parse_int_decimal" if args.is_empty() => {
+            match crate::modules::text::parse_int_decimal_text(text_value, span) {
+                Ok(value) => Ok(LoweredValue::ResultOk(Box::new(LoweredValue::Int(value)))),
+                Err(error) => Ok(LoweredValue::ResultErr(Box::new(Value::Error(Box::new(
+                    error,
+                ))))),
+            }
+        }
         "parse_float" if args.is_empty() => {
             match crate::modules::text::parse_float_text(text_value, span) {
                 Ok(value) => Ok(LoweredValue::ResultOk(Box::new(LoweredValue::Float(

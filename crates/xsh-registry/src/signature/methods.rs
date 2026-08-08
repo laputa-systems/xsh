@@ -778,6 +778,13 @@ pub(in crate::signature) fn value_methods() -> Vec<MethodReceiverSig> {
                     RuntimeOp::TextParseInt,
                 ),
                 method(
+                    "parse_int_decimal",
+                    Vec::new(),
+                    MethodReturn::Type(result(Type::Int)),
+                    true,
+                    RuntimeOp::TextParseIntDecimal,
+                ),
+                method(
                     "parse_float",
                     Vec::new(),
                     MethodReturn::Type(result(Type::Float)),

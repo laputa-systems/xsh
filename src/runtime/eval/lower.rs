@@ -12473,8 +12473,10 @@ fn lowered_method_supported_for_type(ty: &Type, name: Name, arg_count: usize) ->
         },
         Type::Str => match name.as_str().as_str() {
             "trim" | "lower" | "upper" | "reverse" | "lines" | "words" | "parse_int"
-            | "parse_float" | "base64_decode" | "base32_decode" | "count_lines" | "count_words"
-            | "count_chars" | "count_bytes" | "byte_len" => arg_count == 0,
+            | "parse_int_decimal" | "parse_float" | "base64_decode" | "base32_decode"
+            | "count_lines" | "count_words" | "count_chars" | "count_bytes" | "byte_len" => {
+                arg_count == 0
+            },
             "fields" | "squeeze" => arg_count <= 1,
             "split" => arg_count == 1 || arg_count == 2,
             "wrap" | "delete" | "starts_with" | "ends_with" | "contains" => arg_count == 1,
@@ -12556,7 +12558,9 @@ fn infer_checked_method_return_type(receiver: &Type, name: Name) -> Option<Type>
             "base64_decode" | "base32_decode" => {
                 Some(Type::Result(Box::new(Type::Bytes), Box::new(Type::Error)))
             }
-            "parse_int" => Some(Type::Result(Box::new(Type::Int), Box::new(Type::Error))),
+            "parse_int" | "parse_int_decimal" => {
+                Some(Type::Result(Box::new(Type::Int), Box::new(Type::Error)))
+            }
             "parse_float" => Some(Type::Result(Box::new(Type::Float), Box::new(Type::Error))),
             "count_lines" | "count_words" | "count_chars" | "count_bytes" | "byte_len"
             | "byte_at" | "find" => Some(Type::Int),
@@ -12900,7 +12904,7 @@ fn lowered_result_method_ok_type(name: Name) -> Option<LoweredType> {
     if name == "strip_prefix" {
         return Some(LoweredType::Path);
     }
-    if name == "parse_int" {
+    if name == "parse_int" || name == "parse_int_decimal" {
         return Some(LoweredType::Int);
     }
     if name == "parse_float" {
