@@ -1,8 +1,8 @@
 #![allow(clippy::single_call_fn)]
 
 use super::{
-    AssignOp, BlockParam, DurationLiteral, Effect, IntLiteral, Keyword, Name, Parser,
-    SignalHookOptions, TokenKindMatch, TokenTag, result_unit_type_expr, unknown_type_expr,
+    AssignOp, BlockParam, Diagnostic, DurationLiteral, Effect, IntLiteral, Keyword, Label, Name,
+    Parser, SignalHookOptions, TokenKindMatch, TokenTag, result_unit_type_expr, unknown_type_expr,
 };
 use crate::syntax::arena::{
     ArenaBuilderEntryKind, ArenaExprOrRun, ArenaModuleContractEntryKind, ArenaProgramBuilder,
@@ -214,7 +214,24 @@ impl<'a> Parser<'a> {
         let mut fields = Vec::new();
         while !self.at(TokenKindMatch::RBrace) && !self.at(TokenKindMatch::Eof) {
             let start = self.current_start();
-            let name = self.expect_ident("expected schema field name")?;
+            let name = if self.current_tag() == TokenTag::Keyword {
+                let name = self
+                    .current_keyword()
+                    .expect("keyword schema field token has payload")
+                    .as_str();
+                self.diagnostics.push(
+                    Diagnostic::error(format!("schema field `{name}` is reserved"))
+                        .with_code("parse.reserved-schema-field")
+                        .with_label(Label::primary(
+                            self.current_span(),
+                            "use a non-reserved field name",
+                        )),
+                );
+                self.bump();
+                Name::intern(name)
+            } else {
+                self.expect_ident("expected schema field name")?
+            };
             self.expect(TokenKindMatch::Colon, "expected `:` after schema field");
             let ty_id = self.parse_type_expr(arena)?;
             let ty_end = self.previous_end();

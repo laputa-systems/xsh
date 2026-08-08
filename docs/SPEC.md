@@ -458,6 +458,11 @@ type_def     = "type" IDENT "=" type_body terminator ;
 type_body    = type_expr | record_schema | module_contract ;
 record_schema = "{" schema_field ("," schema_field)* ","? "}" ;
 schema_field = IDENT ":" type_expr ;
+
+Record schema and literal field names are normally identifiers. A reserved word
+used as a field name is rejected with a diagnostic that names the word. Use a
+non-reserved field name in schemas; quoted string keys remain available for
+untyped record literals.
 module_contract = "module" "{" module_contract_entry* "}" ;
 module_contract_entry = "export" "optional"? module_contract_kind terminator? ","? ;
 module_contract_kind = ("let")? IDENT ":" type_expr
@@ -746,6 +751,9 @@ list_body    = (expr ("," expr)* ","?)?
              | expr "for" binding_target "in" expr ("if" expr)? ;
 record_lit   = "{" (record_field ("," record_field)* ","?)? "}" ;
 record_field = IDENT ":" expr | STRING ":" expr | IDENT ;
+
+A reserved word cannot be used as an unquoted record field name. Use a quoted
+string field name, such as `{"run": 0}`, when the record must retain that key.
 map_comp     = "{" field_path ":" expr "for" binding_target "in" expr
                ("if" expr)? "}" ;
 field_path   = IDENT ("." IDENT)* ;

@@ -573,6 +573,20 @@ pure values(items: List[Str]) -> List[Str] {
 }
 
 #[test]
+fn linter_counts_a_record_type_annotation_as_a_type_use() {
+    let source = "type Accum = {total: Int, out: List[Str]}\nlet initial: Accum = {total: 0, out: []}\n";
+    let parsed = parse_lint_source(source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let diagnostics = lint_and_assert_fmt_stable(&parsed.arena, source, LintOptions::default());
+    assert!(!diagnostics.iter().any(|diagnostic| {
+        diagnostic.code.as_deref() == Some("lint.unused-type")
+    }), "record annotation must use its declared type: {diagnostics:?}");
+}
+
+#[test]
 fn linter_does_not_suggest_unparseable_tail_return_for_typed_records() {
     let source = "\
 type Item = {name: Str, active: Bool, count: Int}

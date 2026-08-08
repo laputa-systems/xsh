@@ -964,6 +964,21 @@ impl<'a> Parser<'a> {
             }
             let name = match self.current_tag() {
                 TokenTag::Ident => self.current_name().expect("record key token has payload"),
+                TokenTag::Keyword => {
+                    let name = self
+                        .current_keyword()
+                        .expect("keyword record key token has payload")
+                        .as_str();
+                    self.diagnostics.push(
+                        Diagnostic::error(format!("record field `{name}` is reserved"))
+                            .with_code("parse.reserved-record-field")
+                            .with_label(Label::primary(
+                                self.current_span(),
+                                "use a non-reserved field name",
+                            )),
+                    );
+                    Name::intern(name)
+                }
                 TokenTag::String => {
                     let flags = self
                         .token_table
