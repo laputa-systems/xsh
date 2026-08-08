@@ -436,6 +436,24 @@ fn parser_reports_unsupported_c_style_boolean_operators_constructively() {
 }
 
 #[test]
+fn parser_reports_integer_division_spellings_with_int_division_guidance() {
+    for source in ["let quotient = 7 // 2\n", "let quotient = 7 div 2\n"] {
+        let output = Parser::parse_source_arena_only(SourceId::new(0), source);
+        let diagnostic = output
+            .diagnostics
+            .iter()
+            .find(|diagnostic| {
+                diagnostic.code.as_deref() == Some("parse.unsupported-integer-division")
+            })
+            .unwrap_or_else(|| panic!("expected integer-division diagnostic: {output:?}"));
+        assert!(diagnostic.message.contains("use `/` on Int operands"));
+        assert_eq!(diagnostic.fix_hints[0].replacement.as_deref(), Some("/"));
+    }
+
+    assert_parse_and_check(SourceId::new(0), "let quotient = 7 / 2\n");
+}
+
+#[test]
 fn parser_accepts_word_form_boolean_operators() {
     // The valid `or`/`and` word forms must parse without diagnostics so the
     // new constructive error does not change valid-program behavior.
