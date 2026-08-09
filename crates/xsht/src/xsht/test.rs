@@ -29,8 +29,6 @@ use xsh::process::{cancellation_escalated_signal, cancellation_requested_signal,
 #[derive(Clone, Debug)]
 pub(crate) struct TestOptions {
     pub(crate) filter: Option<String>,
-    pub(crate) native: bool,
-    pub(crate) examples: bool,
     pub(crate) list: bool,
     pub(crate) exact: bool,
     pub(crate) nocapture: bool,
@@ -54,31 +52,14 @@ pub(crate) fn test_scripts(options: TestOptions) -> CliOutput {
 
     let mut cases = Vec::new();
     let mut coverage_source_files = Vec::new();
-    let mut coverage_module_roots = Vec::new();
-    let mut coverage_exclude = Vec::new();
+    let coverage_module_roots;
+    let coverage_exclude;
     let mut stdout = String::new();
     let stderr = String::new();
 
-    if options.native {
-        let config = match load_config() {
-            Ok(config) => config,
-            Err(message) => {
-                return CliOutput {
-                    status: 2,
-                    stdout: stdout.into_bytes(),
-                    stderr: text_bytes(format!("xsht: {message}\n")),
-                    trace_text: String::new(),
-                    syscall_summary: None,
-                };
-            }
-        };
-        let module_roots: Vec<PathBuf> = config.module_path.iter().map(PathBuf::from).collect();
-        coverage_module_roots = module_roots.clone();
-        coverage_exclude = config.coverage.exclude.clone();
-        if options.collect_coverage()
-            && let Err(message) =
-                collect_configured_xsh_files(Path::new("."), &config, &mut coverage_source_files)
-        {
+    let config = match load_config() {
+        Ok(config) => config,
+        Err(message) => {
             return CliOutput {
                 status: 2,
                 stdout: stdout.into_bytes(),
@@ -87,30 +68,45 @@ pub(crate) fn test_scripts(options: TestOptions) -> CliOutput {
                 syscall_summary: None,
             };
         }
-        let test_roots: Vec<PathBuf> = if config.test_roots.is_empty() {
-            vec![PathBuf::from("tests")]
-        } else {
-            config.test_roots.iter().map(PathBuf::from).collect()
+    };
+    let module_roots: Vec<PathBuf> = config.module_path.iter().map(PathBuf::from).collect();
+    coverage_module_roots = module_roots.clone();
+    coverage_exclude = config.coverage.exclude.clone();
+    if options.collect_coverage()
+        && let Err(message) =
+            collect_configured_xsh_files(Path::new("."), &config, &mut coverage_source_files)
+    {
+        return CliOutput {
+            status: 2,
+            stdout: stdout.into_bytes(),
+            stderr: text_bytes(format!("xsht: {message}\n")),
+            trace_text: String::new(),
+            syscall_summary: None,
         };
-        for root in &test_roots {
-            match discover_native_tests(root, &config.exclude, &module_roots, &options) {
-                Ok(native) => cases.extend(native),
-                Err(message) => {
-                    if let Some(output) = cancellation_output() {
-                        return output;
-                    }
-                    return CliOutput {
-                        status: 2,
-                        stdout: stdout.into_bytes(),
-                        stderr: text_bytes(format!("xsht: {message}\n")),
-                        trace_text: String::new(),
-                        syscall_summary: None,
-                    };
+    }
+    let test_roots: Vec<PathBuf> = if config.test_roots.is_empty() {
+        vec![PathBuf::from("tests")]
+    } else {
+        config.test_roots.iter().map(PathBuf::from).collect()
+    };
+    for root in &test_roots {
+        match discover_native_tests(root, &config.exclude, &module_roots, &options) {
+            Ok(native) => cases.extend(native),
+            Err(message) => {
+                if let Some(output) = cancellation_output() {
+                    return output;
                 }
+                return CliOutput {
+                    status: 2,
+                    stdout: stdout.into_bytes(),
+                    stderr: text_bytes(format!("xsht: {message}\n")),
+                    trace_text: String::new(),
+                    syscall_summary: None,
+                };
             }
         }
     }
-    if options.examples {
+    if Path::new("examples/catalog.json").is_file() {
         if let Some(output) = cancellation_output() {
             return output;
         }

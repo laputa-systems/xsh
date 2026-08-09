@@ -43,7 +43,8 @@ same metadata for individual command help. Each command has a focused module und
   annotation.
 - `fmt.rs` checks the resolved program bundle through the shared program
   pipeline, then applies the formatter from `crates/xsht/src/format.rs`.
-- `lint.rs` runs lint analysis over checked programs and applies safe autofixes.
+- `lint.rs` runs lint analysis over checked programs, including the
+  `lint.dead-code` reachability detector, and applies safe autofixes.
 - `grep.rs` and `refactor.rs` use AST-aware structural matching.
 - `api.rs` renders the canonical registry for batch API queries.
 - `files.rs` owns configured file discovery and `xsht-config.ini` parsing.
@@ -131,7 +132,9 @@ for path-oriented commands.
 
 Native tests capture `process.run` stdout and stderr per test by default. `xsht
 test` shows that output for failed tests; `xsht test --nocapture` shows it while
-tests run. Normal XSH execution continues to inherit child process streams.
+tests run. When an `examples/catalog.json` exists, its cataloged examples are
+discovered by the same `xsht test` invocation. Normal XSH execution continues
+to inherit child process streams.
 
 The default `module_path` is `.` (the current working directory). A config file
 may set `module_path` explicitly to replace that default for projects whose

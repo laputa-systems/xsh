@@ -839,7 +839,6 @@ impl<'a> Linter<'a> {
             );
         }
         self.lint_block_statements(def.body);
-        self.lint_unreachable_trailing_return(def.body);
         self.result_unit_functions.pop();
         self.result_path_functions.pop();
         self.result_return_ok_types.pop();
@@ -1714,49 +1713,6 @@ impl<'a> Linter<'a> {
         );
     }
 
-    fn lint_unreachable_trailing_return(&mut self, body: BlockId) {
-        let stmts: Vec<StmtId> = self
-            .arena
-            .stmt_ids(self.arena.block(body).statements)
-            .collect();
-        if stmts.len() < 2 {
-            return;
-        }
-        let len = stmts.len();
-        let match_stmt = self.arena.stmt(stmts[len - 2]);
-        let return_stmt = self.arena.stmt(stmts[len - 1]);
-        let ArenaStmtKind::Match { arms, .. } = match_stmt.kind else {
-            return;
-        };
-        if !matches!(return_stmt.kind, ArenaStmtKind::Return(_)) {
-            return;
-        }
-        if !self
-            .arena
-            .match_arms(arms)
-            .iter()
-            .all(|arm| lint_block_always_returns(self.arena, arm.block))
-        {
-            return;
-        }
-        let deletion_span = scan_return_stmt_span(self.source, return_stmt.span);
-        self.diagnostics.push(
-            Diagnostic::new(
-                Severity::Warning,
-                "unreachable `return` after match with all-returning arms",
-            )
-            .with_code("lint.unreachable-after-match")
-            .with_label(Label::secondary(
-                return_stmt.span,
-                "every match arm already returns; this is unreachable",
-            ))
-            .with_fix_hint(FixHint::deletion(
-                deletion_span,
-                "remove unreachable trailing return",
-            )),
-        );
-    }
-
     fn lint_redundant_tail_return_binding(&mut self, body: BlockId) {
         let stmts: Vec<StmtId> = self
             .arena
@@ -2084,8 +2040,20 @@ impl<'a> Linter<'a> {
             .stmt_ids(self.arena.block(block).statements)
             .collect();
         self.lint_list_comp_suggestions(&stmts);
+        let mut reachable = true;
         for &stmt in &stmts {
+            if !reachable {
+                self.warning(
+                    self.arena.stmt(stmt).span,
+                    "unreachable code",
+                    "lint.dead-code",
+                    "this statement can never execute",
+                );
+            }
             self.lint_stmt(stmt, false);
+            if reachable && lint_stmt_ends_sequence(self.arena, stmt) {
+                reachable = false;
+            }
         }
     }
 
@@ -6181,6 +6149,29 @@ fn lint_block_always_returns(arena: &AstArena, block: BlockId) -> bool {
         .stmt_ids(arena.block(block).statements)
         .last()
         .is_some_and(|stmt| lint_stmt_always_returns(arena, stmt))
+}
+
+fn lint_stmt_ends_sequence(arena: &AstArena, stmt: StmtId) -> bool {
+    match arena.stmt(stmt).kind {
+        ArenaStmtKind::Return(_)
+        | ArenaStmtKind::Break { .. }
+        | ArenaStmtKind::Continue => true,
+        ArenaStmtKind::If {
+            branches,
+            else_block: Some(else_block),
+        } => {
+            arena
+                .if_branches(branches)
+                .iter()
+                .all(|b| lint_block_always_returns(arena, b.block))
+                && lint_block_always_returns(arena, else_block)
+        }
+        ArenaStmtKind::Match { arms, .. } => arena
+            .match_arms(arms)
+            .iter()
+            .all(|arm| lint_block_always_returns(arena, arm.block)),
+        _ => false,
+    }
 }
 
 fn lint_stmt_always_returns(arena: &AstArena, stmt: StmtId) -> bool {

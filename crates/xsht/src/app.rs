@@ -184,8 +184,6 @@ fn parse_check(args: &[String]) -> Result<Command, String> {
 
 fn parse_test(args: &[String]) -> Result<Command, String> {
     let mut filter = None;
-    let mut examples = false;
-    let mut all = false;
     let mut list = false;
     let mut exact = false;
     let mut coverage = false;
@@ -200,8 +198,6 @@ fn parse_test(args: &[String]) -> Result<Command, String> {
     while let Some(arg) = iter.next() {
         match arg.as_str() {
             "--help" | "-h" => return Ok(Command::Help(command_help_text("test"))),
-            "--examples" => examples = true,
-            "--all" => all = true,
             "--list" => list = true,
             "--exact" => exact = true,
             "--cov" => coverage = true,
@@ -240,10 +236,6 @@ fn parse_test(args: &[String]) -> Result<Command, String> {
         }
     }
 
-    if examples && all {
-        return Err("`xsht test` accepts only one of `--examples` or `--all`".to_string());
-    }
-
     if api && !coverage {
         return Err("`--api` requires `--cov`".to_string());
     }
@@ -251,8 +243,6 @@ fn parse_test(args: &[String]) -> Result<Command, String> {
     Ok(Command::Test {
         options: TestOptions {
             filter,
-            native: !examples || all,
-            examples: examples || all,
             list,
             exact,
             nocapture,

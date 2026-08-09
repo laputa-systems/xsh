@@ -3217,6 +3217,12 @@ guarded by the CST. A replacement span containing comments is skipped unless the
 specific fixer knows how to preserve or reattach them. Rewritten files must
 parse, resolve imports, and format without introducing new checker diagnostics;
 pre-existing checker diagnostics may remain.
+
+`xsht lint` reports `lint.dead-code` for statements that follow an unconditional
+`return`, `break`, or `continue`, or follow a conditional or match statement
+whose reachable branches all return. The detector continues to analyze the
+unreachable statement so other diagnostics remain visible, but it does not
+rewrite code automatically.
 It removes provably needless local binding annotations and rewrites simple
 `.contains(value)` membership or substring checks to `value in receiver` (or
 `value not in receiver` for negated calls) when the checker proves that
@@ -3308,8 +3314,10 @@ arguments. If an operation has mocks and no active mock matches, the API call
 returns a structured unmatched-mock error; operations without mocks use real
 host behavior.
 
-Cataloged examples are not run by plain `xsht test`. They run through
-`xsht test --examples`, or together with native tests through `xsht test --all`.
+When `examples/catalog.json` is present, `xsht test` discovers its cataloged
+examples alongside native tests. Projects without an example catalog run their
+native tests normally; there is no repository-specific selector for either
+kind of test.
 
 ## 21. Fixtures
 

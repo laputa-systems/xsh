@@ -1237,7 +1237,7 @@ fn linter_suggests_string_concat_over_join_empty() {
 }
 
 #[test]
-fn linter_autofixes_unreachable_return_after_all_returning_match() {
+fn linter_reports_dead_code_after_all_returning_match() {
     let source = "\
 type Tok = TOp(Str) | TEOF
 
@@ -1257,9 +1257,33 @@ pure is_op(t: Tok, name: Str) -> Bool {
         .filter_map(|d| d.code.as_deref())
         .collect();
     assert!(
-        codes.contains(&"lint.unreachable-after-match"),
-        "expected lint.unreachable-after-match in {codes:?}"
+        codes.contains(&"lint.dead-code"),
+        "expected lint.dead-code in {codes:?}"
     );
+    assert!(
+        diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.message == "unreachable code")
+    );
+}
+
+#[test]
+fn linter_reports_dead_code_after_return() {
+    let source = "\
+proc work() {
+  return
+  print \"never\"
+}
+";
+    let parsed = parse_lint_source(source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let diagnostics = lint_and_assert_fmt_stable(&parsed.arena, source, LintOptions::default());
+    let dead_code = diagnostics
+        .iter()
+        .filter(|diagnostic| diagnostic.code.as_deref() == Some("lint.dead-code"))
+        .collect::<Vec<_>>();
+    assert_eq!(dead_code.len(), 1, "diagnostics: {diagnostics:?}");
+    assert_eq!(dead_code[0].message, "unreachable code");
 }
 
 #[test]

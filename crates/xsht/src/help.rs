@@ -156,19 +156,11 @@ static COMMANDS: &[CommandHelp] = &[
     },
     CommandHelp {
         name: "test",
-        summary: "Run native and cataloged tests",
+        summary: "Run discovered tests",
         quick_label: "Run tests",
         quick_usage: "test [FILTER]",
         usage: &["xsht test [OPTIONS] [FILTER]"],
         options: &[
-            HelpOption {
-                syntax: "--examples",
-                description: "Run cataloged examples",
-            },
-            HelpOption {
-                syntax: "--all",
-                description: "Run native and cataloged tests",
-            },
             HelpOption {
                 syntax: "--list",
                 description: "List matching tests",

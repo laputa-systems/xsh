@@ -97,6 +97,8 @@ fn xsht_test_help_lists_parallelism_option() {
     assert!(stdout.contains("xsht test [OPTIONS] [FILTER]"));
     assert!(stdout.contains("--jobs N"));
     assert!(stdout.contains("--api"));
+    assert!(!stdout.contains("--examples"));
+    assert!(!stdout.contains("--all"));
 }
 
 #[test]

@@ -33,8 +33,6 @@ pub(crate) mod test {
     #[derive(Clone, Debug)]
     pub(crate) struct TestOptions {
         pub(crate) filter: Option<String>,
-        pub(crate) native: bool,
-        pub(crate) examples: bool,
         pub(crate) list: bool,
         pub(crate) exact: bool,
         pub(crate) nocapture: bool,

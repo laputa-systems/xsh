@@ -1316,13 +1316,13 @@ proc test_process_output() [process, error] {
 }
 
 #[test]
-fn xsht_test_runs_catalog_examples_only_when_requested() {
+fn xsht_test_runs_catalog_examples_with_native_tests() {
     let output = Command::new(cargo_env!("CARGO_BIN_EXE_xsht"))
-        .args(["test", "--examples", "--exact", "examples::release-package"])
+        .args(["test", "--exact", "examples::release-package"])
         .output()
         .expect("run xsht");
     let all = Command::new(cargo_env!("CARGO_BIN_EXE_xsht"))
-        .args(["test", "--all", "--list", "release-package"])
+        .args(["test", "--list", "release-package"])
         .output()
         .expect("run xsht");
 
@@ -1503,7 +1503,6 @@ fn xsht_test_cov_json_counts_example_runs_as_examples() {
     let output = Command::new(cargo_env!("CARGO_BIN_EXE_xsht"))
         .args([
             "test",
-            "--examples",
             "--exact",
             "examples::release-package",
             "--cov-json",
