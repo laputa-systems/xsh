@@ -111,6 +111,10 @@ fn module_docs(module: &str) -> ApiDocs {
             "Environment variable and PATH manipulation.",
             "Environment changes are explicit values or lexical overlays.",
         ),
+        "error" => (
+            "Expected validation failure construction.",
+            "error.fail returns validation Result data; propagating it requires the enclosing error effect.",
+        ),
         "fs" => (
             "Filesystem reads, writes, metadata, links, permissions, locking, and installation.",
             "Filesystem APIs use typed Path values and return structured records at metadata boundaries.",
@@ -501,6 +505,11 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
             "Inspects ELF headers and dynamic dependency metadata.",
             "Malformed files return structured errors; the parser does not execute or load the inspected object.",
             &["elf", "binary", "inspection"],
+        )),
+        ("error", "fail") => Some((
+            "Constructs an expected validation failure as Result data.",
+            "error.fail(message) returns Result[Unit, Error] with kind validation; propagating it requires the enclosing error effect.",
+            &["error", "validation", "failure", "result"],
         )),
         ("env", "get") => Some((
             "Reads one environment variable as text.",

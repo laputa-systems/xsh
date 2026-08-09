@@ -302,6 +302,12 @@ such as `path`.
 ordinary bindings named `args` are allowed in nested scopes; the root binding
 remains the script argument value. Qualified `cli.parse(...)` still resolves to
 the standard module.
+`error` is another compatibility exception: `error` is the conventional payload
+name in `Err(error)` bindings, and the `error.fail(...)` validation operation is
+addressed through its qualified module name. Local bindings named `error` are
+therefore legal in all ordinary binding positions; an unshadowed `error.fail`
+call continues to resolve to the standard module and requires the `error` effect.
+Other standard module names remain reserved.
 
 Command and proc identifiers additionally allow `-` after the first character:
 

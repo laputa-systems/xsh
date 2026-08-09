@@ -63,6 +63,10 @@ pub(in crate::signature) fn build_api_spec() -> ApiSpec {
                 sig: env_module(),
             },
             ModuleEntry {
+                name: "error",
+                sig: error_module(),
+            },
+            ModuleEntry {
                 name: "fs",
                 sig: fs_module(),
             },
@@ -167,6 +171,20 @@ pub(in crate::signature) fn build_api_spec() -> ApiSpec {
         value_methods(),
     )
 }
+fn error_module() -> ModuleSig {
+    module_sig(vec![
+        (
+            "fail",
+            sig(
+                vec![param("message", Type::Str)],
+                result(Type::Unit),
+                false,
+                RuntimeOp::ResultContext,
+            ),
+        ),
+    ])
+}
+
 fn applet_user_type() -> Type {
     Type::Record(btree_map(vec![
         ("name".to_string(), Type::Str),

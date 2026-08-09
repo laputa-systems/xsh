@@ -618,7 +618,7 @@ impl Checker {
             }
             return;
         }
-        if api_spec().is_standard_module(name) {
+        if name != "error" && api_spec().is_standard_module(name) {
             let message = format!("name `{name}` shadows the standard module `{name}`");
             self.error(span, &message, "check.standard-module-shadow");
         }

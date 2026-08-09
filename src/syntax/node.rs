@@ -47,6 +47,7 @@ impl Effect {
             },
             "net" | "dns" => Some(Self::Net),
             "env" => Some(Self::Env),
+            "error" => Some(Self::Error),
             "time" => match function {
                 // Pure Duration constructors: no clock access, usable anywhere.
                 "millis" | "seconds" => None,

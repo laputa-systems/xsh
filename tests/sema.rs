@@ -257,6 +257,28 @@ let text = path.read_text()?
 }
 
 #[test]
+fn checker_accepts_error_bindings_and_preserves_error_fail_effect() {
+    let bindings = check(
+        r#"
+proc keep_error() { let error = "missing value" }
+"#,
+    );
+    assert_no_codes(&bindings, &["check.standard-module-shadow"]);
+
+    let call = check(
+        r#"
+proc validate() [error] -> Result[Unit] {
+  return error.fail("missing value")?
+}
+"#,
+    );
+    assert_no_codes(
+        &call,
+        &["check.standard-module-shadow", "check.effect-violation", "check.type-mismatch"],
+    );
+}
+
+#[test]
 fn checker_rejects_standard_module_shadowing() {
     for source in [
         "let json = 1\n",
