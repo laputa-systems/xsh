@@ -2,7 +2,9 @@ FROM alpine:3.24.1
 ARG TARGETARCH
 ARG LLVM_VERSION=23.1.0-rc2
 ARG LLVM_RELEASE_SHA=6eb5fb9
-RUN apk add --no-cache musl-dev libgcc git make binutils tzdata zip strace
+# aws-lc-sys probes <linux/random.h> and links its C feature checks against
+# libunwind while building the musl targets.
+RUN apk add --no-cache musl-dev linux-headers libgcc libunwind-dev git make binutils tzdata zip strace
 # Keep Dockerfile.test on the same compiler family as release.yml. The release
 # workflow restores this tarball from the GitHub cache or downloads the same URL,
 # then points CC/target flags at its clang.
