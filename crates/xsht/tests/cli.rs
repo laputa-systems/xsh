@@ -8,7 +8,7 @@ use tempfile::TempDir;
 static SIGNAL_TEST_LOCK: Mutex<()> = Mutex::new(());
 
 #[test]
-fn xsht_top_level_help_lists_subcommands_only() {
+fn xsht_top_level_help_is_a_complete_hybrid_reference() {
     let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
         .arg("-h")
         .output()
@@ -16,11 +16,28 @@ fn xsht_top_level_help_lists_subcommands_only() {
 
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).unwrap();
-    assert!(stdout.contains("Commands:"));
-    assert!(stdout.contains("lint"));
-    assert!(stdout.contains("Run `xsht COMMAND --help`"));
-    assert!(!stdout.contains("--runless"));
-    assert!(!stdout.contains("--trace-format"));
+    assert!(stdout.contains("xsht -h | --help"));
+    assert!(stdout.contains("Start here:"));
+    assert!(stdout.contains("Command reference:"));
+    assert!(stdout.contains("lint — Run quality checks and optional fixes"));
+    assert!(stdout.contains("--runless"));
+    assert!(stdout.contains("--trace-format FORMAT"));
+    assert!(stdout.contains("--cov-json FILE"));
+    assert!(stdout.contains("xsht grep 'X.len()' ."));
+    assert!(!stdout.contains("Run `xsht COMMAND --help`"));
+
+    for command in [
+        "check", "fmt", "lint", "ast", "trace", "api", "test", "grep", "refactor",
+    ] {
+        assert!(stdout.contains(&format!("{command} —")), "missing {command} help");
+    }
+
+    let grep = stdout.find("grep —").expect("grep section");
+    let refactor = stdout.find("refactor —").expect("refactor section");
+    let grep_example = stdout
+        .find("xsht grep 'X.len()' .")
+        .expect("grep example");
+    assert!(grep < grep_example && grep_example < refactor);
 }
 
 #[test]
@@ -32,10 +49,40 @@ fn xsht_lint_help_is_subcommand_specific() {
 
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("xsht lint — Run quality checks and optional fixes"));
     assert!(stdout.contains("Usage:\n  xsht lint"));
     assert!(stdout.contains("--fix"));
     assert!(stdout.contains("--runless"));
     assert!(!stdout.contains("xsht trace"));
+}
+
+#[test]
+fn xsht_grep_help_keeps_examples_with_grep() {
+    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+        .args(["grep", "--help"])
+        .output()
+        .expect("run xsht grep help");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("xsht grep — Search scripts with AST patterns"));
+    assert!(stdout.contains("xsht grep 'X.len()' ."));
+    assert!(stdout.contains("xsht grep 'for NAME in ITER' ."));
+    assert!(!stdout.contains("xsht refactor"));
+}
+
+#[test]
+fn xsht_help_topic_uses_the_generated_command_catalog() {
+    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+        .args(["help", "grep"])
+        .output()
+        .expect("run xsht help grep");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("xsht grep — Search scripts with AST patterns"));
+    assert!(stdout.contains("xsht grep 'X.len()' ."));
+    assert!(!stdout.contains("Command reference:"));
 }
 
 #[test]

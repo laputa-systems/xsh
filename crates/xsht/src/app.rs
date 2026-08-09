@@ -4,161 +4,13 @@ use crate::xsht::cli::{
     ast_script, check_paths_with_summary_options, format_files, grep_scripts, lint_files,
     refactor_scripts, trace_script,
 };
+use crate::xsht::help::{command_help as generated_command_help, root_help};
 use crate::xsht::test::{TestOptions, test_scripts};
 use std::process::ExitCode;
 use xsh::process::{
     clear_cancellation_request, install_cancellation_signal_handlers,
     install_immediate_cancellation_signal_handlers,
 };
-
-const HELP: &str = "\
-xsht 0.0.1
-
-Usage:
-  xsht <command> [OPTIONS]
-  xsht help [COMMAND]
-  xsht --help
-
-Commands:
-  check      Parse and type-check scripts
-  fmt        Format scripts
-  lint       Run quality checks and optional fixes
-  ast        Print parser debug output
-  trace      Run a script with trace output
-  api        Query canonical language and standard-library API metadata
-  test       Run XSH tests
-  grep       Search scripts with AST patterns
-  refactor   Rewrite scripts with AST patterns
-
-Run `xsht COMMAND --help` for command-specific options.
-";
-
-const CHECK_HELP: &str = "\
-xsht check
-
-Usage:
-  xsht check [--strict] [--summary] [--annotate[=default|signatures|locals|all|CLASS,...]] [PATH...]
-
-Options:
-  --strict       Enable strict dynamic-data migration diagnostics
-  --summary      Append diagnostic counts by code after normal diagnostics
-  --annotate     Apply configured inferred annotations in place
-";
-
-const FMT_HELP: &str = "\
-xsht fmt
-
-Usage:
-  xsht fmt [--check] [FILE...]
-
-Options:
-  --check        Check formatting without rewriting files
-";
-
-const LINT_HELP: &str = "\
-xsht lint
-
-Usage:
-  xsht lint [--fix] [--runless] [FILE...]
-
-Options:
-  --fix          Apply safe autofixes (removes redundant defaults, updates stale syntax)
-  --runless      Error on any external command (run). Configure exceptions in xsht-config.ini
-                 with [lint] runless-except entries
-";
-
-const AST_HELP: &str = "\
-xsht ast
-
-Usage:
-  xsht ast SCRIPT
-";
-
-const TRACE_HELP: &str = "\
-xsht trace
-
-Usage:
-  xsht trace [--raw] [--trace-format text|jsonl|flamegraph] [--trace-file PATH] [--syscalls] [--trace-top-syscalls N] SCRIPT [ARGS...]
-
-Options:
-  --raw                   Write verbose per-event trace output
-  --trace-format FORMAT   Use text, jsonl, or flamegraph trace output
-  --trace-file PATH       Write trace output to PATH instead of stderr
-  --syscalls              Include Linux native ptrace syscall totals
-  --trace-top-syscalls N  Number of syscall rows to show. Defaults to 8
-";
-
-const API_HELP: &str = "\
-xsht api
-
-Usage:
-  xsht api [OPTIONS] [QUERY...]
-
-With no QUERY, prints a short XSH getting-started guide. Use `xsht api --help`
-for the selector grammar and `xsht api summary` for the full index.
-
-Query selectors:
-  summary
-  module:NAME
-  api:MODULE.FUNCTION
-  method:RECEIVER.METHOD
-  record:NAME
-  language:ID
-  search:TERMS
-
-Options:
-  --format text|jsonl     Output format; defaults to text
-  --strict                Exit 1 when any selector has no match
-  --details basic|full    Output detail level
-  --query-file PATH       Read one selector per UTF-8 line
-  --stdin                 Read one selector per UTF-8 line from stdin
-";
-
-const TEST_HELP: &str = "\
-xsht test
-
-Usage:
-  xsht test [OPTIONS] [FILTER]
-
-Options:
-  --examples              Run cataloged example integration tests instead of native tests
-  --all                   Run native tests and cataloged example integration tests
-  --list                  List matching tests without running them
-  --exact                 Match FILTER exactly
-  --cov                   Run matching tests and print XSH source line coverage
-  --api                   Include XSH API coverage in the --cov report
-  --jobs N                Run up to N tests concurrently
-  --nocapture             Print test stdout and stderr while tests run
-  --fail-fast             Stop after the first failure
-  --keep-temp             Preserve native test temporary directories
-  --cov-json FILE         Write XSH API coverage JSON to FILE
-";
-
-const GREP_HELP: &str = "\
-xsht grep
-
-Usage:
-  xsht grep PATTERN [FILE...]
-
-Arguments:
-  PATTERN        XSH expression pattern; uppercase identifiers are metavariables
-  FILE...        Files or directories to search (default: all .xsh files under .)
-";
-
-const REFACTOR_HELP: &str = "\
-xsht refactor
-
-Usage:
-  xsht refactor PATTERN REPLACEMENT [FILE...]
-
-Arguments:
-  PATTERN        XSH expression pattern to find
-  REPLACEMENT    XSH expression pattern to substitute (metavariables filled from match)
-  FILE...        Files or directories to rewrite (default: all .xsh files under .)
-
-Options:
-  --dry-run      Show proposed changes without modifying files
-";
 
 pub fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -214,7 +66,7 @@ pub fn main() -> ExitCode {
 }
 
 enum Command {
-    Help(&'static str),
+    Help(String),
     Check {
         paths: Vec<String>,
         strict: bool,
@@ -256,11 +108,11 @@ enum Command {
 
 fn parse_tool(args: Vec<String>) -> Result<Command, String> {
     let Some(command) = args.first().map(String::as_str) else {
-        return Ok(Command::Help(HELP));
+        return Ok(Command::Help(root_help()));
     };
 
     match command {
-        "--help" | "-h" => Ok(Command::Help(HELP)),
+        "--help" | "-h" => Ok(Command::Help(root_help())),
         "help" => parse_help(&args[1..]),
         "check" => parse_check(&args[1..]),
         "fmt" => parse_fmt(&args[1..]),
@@ -279,7 +131,7 @@ fn parse_tool(args: Vec<String>) -> Result<Command, String> {
 #[allow(clippy::single_call_fn)]
 fn parse_help(args: &[String]) -> Result<Command, String> {
     match args {
-        [] => Ok(Command::Help(HELP)),
+        [] => Ok(Command::Help(root_help())),
         [command] => help_for_command(command)
             .map(Command::Help)
             .ok_or_else(|| format!("unknown help topic '{command}'")),
@@ -288,19 +140,12 @@ fn parse_help(args: &[String]) -> Result<Command, String> {
 }
 
 #[allow(clippy::single_call_fn)]
-fn help_for_command(command: &str) -> Option<&'static str> {
-    match command {
-        "check" => Some(CHECK_HELP),
-        "fmt" => Some(FMT_HELP),
-        "lint" => Some(LINT_HELP),
-        "ast" => Some(AST_HELP),
-        "trace" => Some(TRACE_HELP),
-        "api" => Some(API_HELP),
-        "test" => Some(TEST_HELP),
-        "grep" => Some(GREP_HELP),
-        "refactor" => Some(REFACTOR_HELP),
-        _ => None,
-    }
+fn help_for_command(command: &str) -> Option<String> {
+    generated_command_help(command)
+}
+
+fn command_help_text(command: &str) -> String {
+    help_for_command(command).expect("help metadata must cover every parsed command")
 }
 
 fn parse_check(args: &[String]) -> Result<Command, String> {
@@ -313,7 +158,7 @@ fn parse_check(args: &[String]) -> Result<Command, String> {
             "--strict" => strict = true,
             "--summary" => summary = true,
             "--annotate" => annotation_selection = Some(AnnotationSelection::Configured),
-            "--help" | "-h" => return Ok(Command::Help(CHECK_HELP)),
+            "--help" | "-h" => return Ok(Command::Help(command_help_text("check"))),
             other if other.starts_with("--annotate=") => {
                 let value = other
                     .strip_prefix("--annotate=")
@@ -354,7 +199,7 @@ fn parse_test(args: &[String]) -> Result<Command, String> {
 
     while let Some(arg) = iter.next() {
         match arg.as_str() {
-            "--help" | "-h" => return Ok(Command::Help(TEST_HELP)),
+            "--help" | "-h" => return Ok(Command::Help(command_help_text("test"))),
             "--examples" => examples = true,
             "--all" => all = true,
             "--list" => list = true,
@@ -423,7 +268,7 @@ fn parse_test(args: &[String]) -> Result<Command, String> {
 
 fn parse_ast(args: &[String]) -> Result<Command, String> {
     if matches!(args.first().map(String::as_str), Some("--help" | "-h")) {
-        return Ok(Command::Help(AST_HELP));
+        return Ok(Command::Help(command_help_text("ast")));
     }
     let script = args
         .first()
@@ -448,7 +293,7 @@ fn parse_api(args: &[String]) -> Result<Command, String> {
 
     while let Some(arg) = args.get(index) {
         match arg.as_str() {
-            "--help" | "-h" => return Ok(Command::Help(API_HELP)),
+            "--help" | "-h" => return Ok(Command::Help(command_help_text("api"))),
             "summary" => {
                 if summary {
                     return Err("`xsht api` accepts `summary` at most once".to_string());
@@ -552,7 +397,7 @@ fn parse_trace(args: &[String]) -> Result<Command, String> {
 
     while let Some(arg) = args.get(index) {
         match arg.as_str() {
-            "--help" | "-h" => return Ok(Command::Help(TRACE_HELP)),
+            "--help" | "-h" => return Ok(Command::Help(command_help_text("trace"))),
             "--raw" => {
                 raw = true;
                 index += 1;
@@ -635,7 +480,7 @@ fn parse_lint(args: &[String]) -> Result<Command, String> {
 
     for arg in args {
         match arg.as_str() {
-            "--help" | "-h" => return Ok(Command::Help(LINT_HELP)),
+            "--help" | "-h" => return Ok(Command::Help(command_help_text("lint"))),
             "--fix" => fix = true,
             "--runless" => runless = true,
             other if other.starts_with('-') => {
@@ -658,7 +503,7 @@ fn parse_fmt(args: &[String]) -> Result<Command, String> {
 
     for arg in args {
         match arg.as_str() {
-            "--help" | "-h" => return Ok(Command::Help(FMT_HELP)),
+            "--help" | "-h" => return Ok(Command::Help(command_help_text("fmt"))),
             "--check" => check = true,
             other if other.starts_with('-') => {
                 return Err(format!("unknown `xsht fmt` option '{other}'"));
@@ -676,7 +521,7 @@ fn parse_grep(args: &[String]) -> Result<Command, String> {
 
     for arg in args {
         match arg.as_str() {
-            "--help" | "-h" => return Ok(Command::Help(GREP_HELP)),
+            "--help" | "-h" => return Ok(Command::Help(command_help_text("grep"))),
             other if other.starts_with('-') => {
                 return Err(format!("unknown `xsht grep` option '{other}'"));
             }
@@ -700,7 +545,7 @@ fn parse_refactor(args: &[String]) -> Result<Command, String> {
 
     for arg in args {
         match arg.as_str() {
-            "--help" | "-h" => return Ok(Command::Help(REFACTOR_HELP)),
+            "--help" | "-h" => return Ok(Command::Help(command_help_text("refactor"))),
             "--dry-run" => dry_run = true,
             other if other.starts_with('-') => {
                 return Err(format!("unknown `xsht refactor` option '{other}'"));

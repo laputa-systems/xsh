@@ -21,6 +21,7 @@ add redundant product prefixes to already-qualified symbols.
 | Concern | Canonical symbols | Owner and coverage |
 |---|---|---|
 | command entry and result contract | `xsht::app::main`, `xsht::app::finish`, `xsht::cli::CliOutput` | `crates/xsht/src/app.rs`, `crates/xsht/src/cli/mod.rs`; `crates/xsht/tests/cli.rs` |
+| generated command help | `root_help`, `command_help` | `crates/xsht/src/help.rs`; generated-output coverage in `crates/xsht/tests/cli.rs` |
 | checked command pipeline | `check_script`, `format_files`, `lint_files` | `crates/xsht/src/cli/check.rs`, `fmt.rs`, `lint.rs`; CLI and lint integration tests |
 | structural search and refactoring | `find_matches_in_program`, `PatternExpr`, `Match`, `apply_replacement` | `crates/xsht/src/grep.rs`; `crates/xsht/tests/grep.rs` |
 | command adapters | `api_command`, `grep_scripts`, `refactor_scripts`, `ast_script` | `crates/xsht/src/cli/api.rs`, `grep.rs`, `refactor.rs`, `syntax_tree.rs`; `crates/xsht/tests/api.rs`, `grep.rs`, and `cli.rs` |
@@ -33,7 +34,9 @@ qualification is intentional and sufficient.
 ## Ownership
 
 Command dispatch starts in `xsht::app::main` in `crates/xsht/src/app.rs` and
-the `xsht::cli` module in `crates/xsht/src/cli/mod.rs`. Each command has a focused module under
+the `xsht::cli` module in `crates/xsht/src/cli/mod.rs`. Generated command help is
+owned by `crates/xsht/src/help.rs`; it renders the task-oriented root index and the
+same metadata for individual command help. Each command has a focused module under
 `crates/xsht/src/cli/`:
 
 - `check.rs` runs parser, module loading, checker, and optional source

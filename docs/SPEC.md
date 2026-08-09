@@ -3127,7 +3127,7 @@ CLI commands:
 - `xsh SCRIPT -- ARGS...`.
 - `xsh -- SCRIPT ARGS...` for shebang-compatible script execution.
 - `xshi`.
-- `xsht --help`.
+- `xsht -h` or `xsht --help`.
 - `xsht help [COMMAND]`.
 - `xsht COMMAND --help`.
 - `xsht check [--strict] [--summary] [--annotate] [PATH...]`.
@@ -3143,6 +3143,12 @@ CLI commands:
 - `xsht grep PATTERN [FILE...]`.
 - `xsht refactor PATTERN REPLACEMENT [FILE...]`.
 - `xsht api [OPTIONS] QUERY...`.
+
+`xsht --help`, `xsht help`, and the no-argument form render the generated
+hybrid command reference: a task-oriented command index followed by the usage
+and options for every subcommand. `xsht COMMAND --help` and `xsht help
+COMMAND` render the same metadata for one command. Structural-search examples
+are part of the `grep` section.
 
 For `xsh`, `--` separates the interpreter's options and script path from the
 script's own arguments. Both `xsh SCRIPT -- ARGS...` and the shebang-compatible
