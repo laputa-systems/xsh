@@ -2377,8 +2377,6 @@ pure eval(ast: Jq, input: Json, scope: Env) -> Result[List[Json]] {
         Ok(vs) => return Ok(vs)
         Err(e) => return eval(b, JStr(e.message), scope)
       }
-
-      return Ok([input])
     }
     Optional(inner) => {
       match eval(inner, input, scope) {
@@ -2388,8 +2386,6 @@ pure eval(ast: Jq, input: Json, scope: Env) -> Result[List[Json]] {
           return Ok(none)
         }
       }
-
-      return Ok([input])
     }
     Alt(a, b) => {
       var kept: List[Json] = []
@@ -3083,9 +3079,6 @@ pure obj_entries_or_empty(v: Json) -> Result[List[Entry]] {
     }
     _ => return Err(jq_err("Cannot index " + type_name(v) + " with a string key"))
   }
-
-  let none: List[Entry] = []
-  none
 }
 
 pure arr_or_empty(v: Json) -> Result[List[Json]] {
@@ -3097,9 +3090,6 @@ pure arr_or_empty(v: Json) -> Result[List[Json]] {
     }
     _ => return Err(jq_err("Cannot index " + type_name(v) + " with a number"))
   }
-
-  let none: List[Json] = []
-  none
 }
 
 pure setpath_at(v: Json, pth: List[Json], idx: Int, nv: Json) -> Result[Json] {
@@ -3398,9 +3388,6 @@ pure eval_paths(ast: Jq, input: Json, scope: Env) -> Result[List[List[Json]]] {
           return Ok(none)
         }
       }
-
-      let none: List[List[Json]] = []
-      return Ok(none)
     }
     Call(name, callargs) => {
       if name == "select" and callargs.len() == 1 {
@@ -3449,9 +3436,6 @@ pure eval_paths(ast: Jq, input: Json, scope: Env) -> Result[List[List[Json]]] {
     }
     _ => return Err(jq_err("Invalid path expression"))
   }
-
-  let none: List[List[Json]] = []
-  none
 }
 
 pure json_to_path(j: Json) -> Result[List[Json]] {
@@ -3459,9 +3443,6 @@ pure json_to_path(j: Json) -> Result[List[Json]] {
     JArr(xs) => return Ok(xs)
     _ => return Err(jq_err("getpath requires an array pth"))
   }
-
-  let none: List[Json] = []
-  none
 }
 
 type Dispatch = Handled(List[Json]) | Pass
