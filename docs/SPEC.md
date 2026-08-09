@@ -3314,11 +3314,6 @@ arguments. If an operation has mocks and no active mock matches, the API call
 returns a structured unmatched-mock error; operations without mocks use real
 host behavior.
 
-When `examples/catalog.json` is present, `xsht test` discovers its cataloged
-examples alongside native tests. Projects without an example catalog run their
-native tests normally; there is no repository-specific selector for either
-kind of test.
-
 ## 21. Fixtures
 
 Every accepted feature must have at least one parser, checker, runtime, trace,

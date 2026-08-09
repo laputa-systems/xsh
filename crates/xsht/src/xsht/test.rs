@@ -4,7 +4,6 @@ use crate::xsht::cli::{
     CliOutput, CoverageCollector, cancellation_output, collect_configured_xsh_files,
     collect_xsh_files, load_config,
 };
-use crate::xsht::examples::{OutputPolicy, load_catalog, test_name, validate_catalog};
 use crate::xsht::trace::{CoverageTraceRenderer, TracebackRenderer};
 use std::fs;
 use std::io::{IsTerminal, Write};
@@ -18,7 +17,7 @@ use xsh::diagnostic::{Diagnostic, DiagnosticRenderer, Label};
 use xsh::execution::evaluator::{
     Evaluator, NativeTestRunKind, NativeTestRunRequest, PreparedTestProgram,
 };
-use xsh::execution::script::{RunOptions, XSH_COVERAGE_TRACE_DIR, run_script};
+use xsh::execution::script::XSH_COVERAGE_TRACE_DIR;
 use xsh::execution::value::{PathValue, RecordMap, ResultValue, RuntimeError, Value};
 use xsh::frontend::check::Checker;
 use xsh::frontend::check::Type;
@@ -106,24 +105,6 @@ pub(crate) fn test_scripts(options: TestOptions) -> CliOutput {
             }
         }
     }
-    if Path::new("examples/catalog.json").is_file() {
-        if let Some(output) = cancellation_output() {
-            return output;
-        }
-        match discover_example_tests(&options) {
-            Ok(examples) => cases.extend(examples),
-            Err(message) => {
-                return CliOutput {
-                    status: 2,
-                    stdout: stdout.into_bytes(),
-                    stderr: text_bytes(format!("xsht: {message}\n")),
-                    trace_text: String::new(),
-                    syscall_summary: None,
-                };
-            }
-        }
-    }
-
     cases.sort_unstable_by(|left, right| left.id().cmp(right.id()));
 
     if options.list {
@@ -151,10 +132,7 @@ pub(crate) fn test_scripts(options: TestOptions) -> CliOutput {
     let mut skipped = 0usize;
     let mut failure_details = Vec::new();
     let mut coverage = options.collect_coverage().then(|| {
-        CoverageCollector::with_api_and_excludes(
-            options.api || options.coverage_json_out.is_some(),
-            &coverage_exclude,
-        )
+        CoverageCollector::with_api_and_excludes(options.api, &coverage_exclude)
     });
     if let Some(collector) = coverage.as_mut() {
         collector.register_source_files(&coverage_source_files, &coverage_module_roots);
@@ -172,7 +150,7 @@ pub(crate) fn test_scripts(options: TestOptions) -> CliOutput {
         }
         if let Some(collector) = coverage.as_mut()
             && let Some(trace) = &outcome.coverage_trace
-            && let Err(message) = collector.ingest_jsonl(outcome.coverage_scope, trace)
+            && let Err(message) = collector.ingest_jsonl(trace)
         {
             failed += 1;
             write_test_output("test coverage ... FAILED\n");
@@ -375,7 +353,6 @@ fn run_test_cases_parallel<F>(
 
 enum TestCase {
     Native(NativeTestCase),
-    Example(ExampleTestCase),
     Invalid { id: String, message: String },
 }
 
@@ -383,7 +360,6 @@ impl TestCase {
     fn id(&self) -> &str {
         match self {
             Self::Native(case) => &case.id,
-            Self::Example(case) => &case.id,
             Self::Invalid { id, .. } => id,
         }
     }
@@ -398,23 +374,12 @@ struct NativeTestCase {
     has_ctx: bool,
 }
 
-#[derive(Clone)]
-struct ExampleTestCase {
-    id: String,
-    path: String,
-    args: Vec<String>,
-    expected_status: i32,
-    stdout: OutputPolicy,
-    stderr: OutputPolicy,
-}
-
 struct TestOutcome {
     kind: TestOutcomeKind,
     duration: Duration,
     stdout: Vec<u8>,
     stderr: Vec<u8>,
     coverage_trace: Option<String>,
-    coverage_scope: &'static str,
 }
 
 enum TestOutcomeKind {
@@ -605,39 +570,16 @@ fn discover_native_tests(
     Ok(cases)
 }
 
-fn discover_example_tests(options: &TestOptions) -> Result<Vec<TestCase>, String> {
-    let catalog = load_catalog(".")?;
-    validate_catalog(".", &catalog)?;
-    let cases = catalog
-        .examples
-        .into_iter()
-        .filter_map(|case| {
-            let id = format!("examples::{}", test_name(&case.path));
-            test_id_matches(&id, options).then_some(TestCase::Example(ExampleTestCase {
-                id,
-                path: case.path,
-                args: case.args,
-                expected_status: case.expected_status,
-                stdout: case.stdout,
-                stderr: case.stderr,
-            }))
-        })
-        .collect();
-    Ok(cases)
-}
-
 fn run_test_case(case: TestCase, index: usize, run_id: &str, options: &TestOptions) -> TestOutcome {
     let started = Instant::now();
     let mut outcome = match case {
         TestCase::Native(case) => run_native_test(case, index, run_id, options),
-        TestCase::Example(case) => run_example_test(case, index, run_id, options),
         TestCase::Invalid { message, .. } => TestOutcome {
             kind: TestOutcomeKind::Failed(message),
             duration: Duration::ZERO,
             stdout: Vec::new(),
             stderr: Vec::new(),
             coverage_trace: None,
-            coverage_scope: "tests",
         },
     };
     outcome.duration = started.elapsed();
@@ -664,7 +606,6 @@ fn run_native_test(
             stdout: Vec::new(),
             stderr: Vec::new(),
             coverage_trace: None,
-            coverage_scope: "tests",
         };
     }
 
@@ -679,7 +620,6 @@ fn run_native_test(
                     stdout: Vec::new(),
                     stderr: Vec::new(),
                     coverage_trace: None,
-                    coverage_scope: "tests",
                 };
             }
         }
@@ -749,7 +689,6 @@ fn run_native_test(
         stdout: evaluated.output.stdout,
         stderr: evaluated.output.stderr,
         coverage_trace,
-        coverage_scope: "tests",
     }
 }
 
@@ -1038,68 +977,6 @@ fn read_nested_coverage_traces(dir: &Path) -> Result<String, String> {
     Ok(output)
 }
 
-fn run_example_test(
-    case: ExampleTestCase,
-    index: usize,
-    run_id: &str,
-    options: &TestOptions,
-) -> TestOutcome {
-    let coverage_trace_dir = options.collect_coverage().then(|| {
-        std::env::temp_dir().join(format!(
-            "xsh-test-{run_id}-{index}-{}-coverage-traces",
-            sanitize_test_id(&case.id)
-        ))
-    });
-    let output: CliOutput = run_script(RunOptions {
-        script: case.path.clone(),
-        args: case.args,
-        coverage_trace_dir: coverage_trace_dir.clone(),
-    })
-    .into();
-    let mut failures = Vec::new();
-    let coverage_trace = if let Some(dir) = &coverage_trace_dir {
-        match read_nested_coverage_traces(dir) {
-            Ok(trace) => Some(trace),
-            Err(message) => {
-                failures.push(format!("coverage: {message}"));
-                None
-            }
-        }
-    } else {
-        None
-    };
-    if let Some(dir) = &coverage_trace_dir
-        && !options.keep_temp
-    {
-        let _ = fs::remove_dir_all(dir);
-    }
-    if i32::from(output.status) != case.expected_status {
-        failures.push(format!(
-            "expected status {}, found {}",
-            case.expected_status, output.status
-        ));
-    }
-    if let Err(message) = output_policy_error(&case.stdout, &output.stdout, "stdout") {
-        failures.push(message);
-    }
-    if let Err(message) = output_policy_error(&case.stderr, &output.stderr, "stderr") {
-        failures.push(message);
-    }
-    let kind = if failures.is_empty() {
-        TestOutcomeKind::Passed
-    } else {
-        TestOutcomeKind::Failed(format!("{}: {}", case.path, failures.join("; ")))
-    };
-    TestOutcome {
-        kind,
-        duration: Duration::ZERO,
-        stdout: output.stdout,
-        stderr: output.stderr,
-        coverage_trace,
-        coverage_scope: "examples",
-    }
-}
-
 fn classify_native_test_result(result: Option<Value>) -> TestOutcomeKind {
     match result {
         Some(Value::Result(ResultValue::Ok(value))) if matches!(value.as_ref(), Value::Unit) => {
@@ -1120,25 +997,6 @@ fn classify_native_test_result(result: Option<Value>) -> TestOutcomeKind {
             value.type_name()
         )),
         None => TestOutcomeKind::Failed("test proc did not return a value".to_string()),
-    }
-}
-
-fn output_policy_error(policy: &OutputPolicy, actual: &[u8], stream: &str) -> Result<(), String> {
-    let actual_text = bytes_text_lossy(actual);
-    match policy {
-        OutputPolicy::Exact(expected) if actual == expected.as_bytes() => Ok(()),
-        OutputPolicy::Contains(expected) if actual_text.contains(expected) => Ok(()),
-        OutputPolicy::Empty if actual.is_empty() => Ok(()),
-        OutputPolicy::Any => Ok(()),
-        OutputPolicy::Exact(expected) => Err(format!(
-            "{stream} did not match exactly (expected {} bytes, found {} bytes)",
-            expected.len(),
-            actual.len()
-        )),
-        OutputPolicy::Contains(expected) => Err(format!(
-            "{stream} did not contain expected text `{expected}`"
-        )),
-        OutputPolicy::Empty => Err(format!("{stream} was not empty")),
     }
 }
 

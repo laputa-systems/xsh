@@ -1075,6 +1075,27 @@ proc test_beta() [error] {
 }
 
 #[test]
+fn xsht_test_does_not_read_example_catalogs() {
+    let root = temp_path("xsht-test-no-example-catalog");
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(root.join("examples")).expect("create examples dir");
+    std::fs::write(root.join("examples/catalog.json"), "not a catalog")
+        .expect("write unrelated catalog");
+
+    let output = Command::new(cargo_env!("CARGO_BIN_EXE_xsht"))
+        .args(["test", "--list"])
+        .current_dir(&root)
+        .output()
+        .expect("run xsht");
+
+    assert!(output.status.success(), "stderr: {}", stderr_text(&output));
+    assert_eq!(stdout_text(&output), "");
+    assert_eq!(stderr_text(&output), "");
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
 fn xsht_test_succeeds_when_current_directory_has_no_tests_dir() {
     let root = temp_path("xsht-no-tests");
     let _ = std::fs::remove_dir_all(&root);
@@ -1316,28 +1337,6 @@ proc test_process_output() [process, error] {
 }
 
 #[test]
-fn xsht_test_runs_catalog_examples_with_native_tests() {
-    let output = Command::new(cargo_env!("CARGO_BIN_EXE_xsht"))
-        .args(["test", "--exact", "examples::release-package"])
-        .output()
-        .expect("run xsht");
-    let all = Command::new(cargo_env!("CARGO_BIN_EXE_xsht"))
-        .args(["test", "--list", "release-package"])
-        .output()
-        .expect("run xsht");
-
-    assert!(output.status.success());
-    let stdout = String::from_utf8(output.stdout).unwrap();
-    assert!(stdout.contains("running 1 tests"));
-    assert!(stdout.contains("examples::release-package ... ok"));
-    assert!(all.status.success());
-    assert_eq!(
-        String::from_utf8(all.stdout).unwrap(),
-        "examples::release-package\n"
-    );
-}
-
-#[test]
 fn xsht_test_cov_list_does_not_execute_tests() {
     let output = Command::new(cargo_env!("CARGO_BIN_EXE_xsht"))
         .args([
@@ -1406,7 +1405,7 @@ fn xsht_test_cov_api_opt_in_prints_api_sections() {
     let stdout = String::from_utf8(output.stdout).unwrap();
     assert!(stdout.contains("API coverage"));
     assert!(stdout.contains("uncovered standard APIs"));
-    assert!(stdout.contains("APIs covered by examples/tests"));
+    assert!(stdout.contains("APIs covered by tests"));
 }
 
 #[test]
@@ -1432,20 +1431,13 @@ fn xsht_test_cov_json_out_writes_structured_report() {
 
     let json = json_parse(&std::fs::read_to_string(&path).unwrap());
     assert!(matches!(
-        json_field(&json, "api_hits"),
-        JsonValue::Object(_)
+        json_field(&json, "source_coverage"),
+        JsonValue::Array(_)
     ));
-    assert!(
-        json_array(json_field(&json, "standard_apis"))
-            .iter()
-            .any(|value| json_str(value) == "module.test.eq")
-    );
-    assert!(
-        json_u64(json_field(
-            json_field(json_field(&json, "api_hits"), "module.test.eq"),
-            "tests"
-        )) > 0
-    );
+    match &json {
+        JsonValue::Object(fields) => assert!(!fields.contains_key("api_hits")),
+        _ => panic!("expected JSON object"),
+    }
 }
 
 #[test]
@@ -1474,6 +1466,8 @@ proc test_child_coverage() [process, error] {{
     let output = Command::new(cargo_env!("CARGO_BIN_EXE_xsht"))
         .args([
             "test",
+            "--cov",
+            "--api",
             "--exact",
             "tests/main.xsh::test_child_coverage",
             "--cov-json",
@@ -1493,29 +1487,6 @@ proc test_child_coverage() [process, error] {{
     );
 
     let _ = std::fs::remove_dir_all(root);
-}
-
-#[test]
-fn xsht_test_cov_json_counts_example_runs_as_examples() {
-    let path = temp_path("xsht-example-cov-json").with_extension("json");
-    let _ = std::fs::remove_file(&path);
-
-    let output = Command::new(cargo_env!("CARGO_BIN_EXE_xsht"))
-        .args([
-            "test",
-            "--exact",
-            "examples::release-package",
-            "--cov-json",
-            path.to_str().unwrap(),
-        ])
-        .output()
-        .expect("run xsht");
-
-    assert!(output.status.success(), "{:?}", output);
-    let json = json_parse(&std::fs::read_to_string(&path).unwrap());
-    let print_hits = json_field(json_field(&json, "api_hits"), "core.print");
-    assert_eq!(json_u64(json_field(print_hits, "tests")), 0);
-    assert!(json_u64(json_field(print_hits, "examples")) > 0);
 }
 
 #[test]

@@ -195,7 +195,7 @@ static COMMANDS: &[CommandHelp] = &[
             },
             HelpOption {
                 syntax: "--cov-json FILE",
-                description: "Write API coverage JSON",
+                description: "Write coverage JSON",
             },
         ],
         notes: &[],

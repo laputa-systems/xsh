@@ -19,10 +19,11 @@ fmt`, or `xsht lint` discovery.
 The procedure metric is reported as `proc entries`: it answers whether a proc
 or pure function was entered at least once. It does not prove that every
 statement or branch in the procedure ran. Add `--api` when API-surface coverage
-is the question; `--cov-json` remains the machine-readable input used by the
-combined coverage tool and includes API hit data for that purpose. JSON reports
-also include `source_scope.files` and `source_scope.observed_files` so a result
-cannot silently be mistaken for whole-repository coverage.
+is the question; `--cov-json` remains the machine-readable source-coverage
+output used by the combined coverage tool. Use `--api --cov-json` when the JSON
+report should also include standard API hit data. JSON reports also include
+`source_scope.files` and `source_scope.observed_files` so a result cannot
+silently be mistaken for whole-repository coverage.
 
 The standard XSH API surface is currently covered by the native suites. The
 remaining meaningful LLVM gap is concentrated in two areas that need larger

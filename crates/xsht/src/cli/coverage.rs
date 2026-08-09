@@ -27,7 +27,6 @@ pub struct CoverageCollector {
 #[derive(Clone, Copy, Debug, Default)]
 pub(super) struct CoverageHits {
     tests: u64,
-    examples: u64,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -100,7 +99,7 @@ impl CoverageCollector {
         }
     }
 
-    pub fn ingest_jsonl(&mut self, scope: &str, jsonl: &str) -> Result<(), String> {
+    pub fn ingest_jsonl(&mut self, jsonl: &str) -> Result<(), String> {
         for (index, line) in jsonl.lines().enumerate() {
             if line.trim().is_empty() {
                 continue;
@@ -124,7 +123,7 @@ impl CoverageCollector {
                 self.api_hits
                     .entry(api_id.to_string())
                     .or_default()
-                    .add(scope);
+                    .tests += 1;
             }
             if let Some(span) = raw_json_get(&value, "source_span") {
                 self.ingest_source_span(
@@ -162,29 +161,25 @@ impl CoverageCollector {
             output.push_str("uncovered standard APIs\n");
             self.render_uncovered_apis(&mut output);
             output.push('\n');
-            output.push_str("APIs covered by examples/tests\n");
+            output.push_str("APIs covered by tests\n");
             self.render_covered_apis(&mut output);
         }
         output
     }
 
     pub fn write_json(&self, path: &str) -> Result<(), String> {
-        let value = raw_json_object([
-            ("api_hits".to_string(), self.api_hits_json()),
+        let source_files = self.source_file_coverages();
+        let mut fields = vec![
             (
                 "source_coverage".to_string(),
-                raw_json_array(
-                    self.source_file_coverages()
-                        .into_iter()
-                        .map(source_file_json),
-                ),
+                raw_json_array(source_files.iter().cloned().map(source_file_json)),
             ),
             (
                 "source_scope".to_string(),
                 raw_json_object([
                     (
                         "files".to_string(),
-                        raw_json_usize(self.source_file_coverages().len()),
+                        raw_json_usize(source_files.len()),
                     ),
                     (
                         "observed_files".to_string(),
@@ -192,20 +187,26 @@ impl CoverageCollector {
                     ),
                 ]),
             ),
-            (
-                "standard_apis".to_string(),
-                raw_json_array(standard_api_ids().into_iter().map(raw_json_string)),
-            ),
-            ("totals".to_string(), raw_json_array(self.api_totals_json())),
-            (
-                "uncovered".to_string(),
-                raw_json_array(self.uncovered_apis().into_iter().map(raw_json_string)),
-            ),
-            (
-                "covered".to_string(),
-                raw_json_array(self.covered_apis_json()),
-            ),
-        ]);
+        ];
+        if self.include_api {
+            fields.extend([
+                ("api_hits".to_string(), self.api_hits_json()),
+                (
+                    "standard_apis".to_string(),
+                    raw_json_array(standard_api_ids().into_iter().map(raw_json_string)),
+                ),
+                ("totals".to_string(), raw_json_array(self.api_totals_json())),
+                (
+                    "uncovered".to_string(),
+                    raw_json_array(self.uncovered_apis().into_iter().map(raw_json_string)),
+                ),
+                (
+                    "covered".to_string(),
+                    raw_json_array(self.covered_apis_json()),
+                ),
+            ]);
+        }
+        let value = raw_json_object(fields);
         let text = pretty_raw_json(&value);
         if let Some(parent) = Path::new(path).parent()
             && !parent.as_os_str().is_empty()
@@ -316,14 +317,10 @@ impl CoverageCollector {
         let Some(root) = &self.root else {
             return true;
         };
-        let Ok(rel) = path.strip_prefix(root) else {
+        let Ok(_rel) = path.strip_prefix(root) else {
             return false;
         };
-        let rel_text = rel.to_string_lossy();
-        !(rel_text.starts_with("tests/")
-            || rel_text.starts_with("repo/")
-            || rel_text.starts_with("examples/")
-            || rel_text.contains("/tests/"))
+        true
     }
 
     fn display_source_file(&self, file: &str) -> String {
@@ -467,7 +464,6 @@ impl CoverageCollector {
                 api_id.clone(),
                 raw_json_object([
                     ("tests".to_string(), raw_json_u64(hits.tests)),
-                    ("examples".to_string(), raw_json_u64(hits.examples)),
                 ]),
             )
         }))
@@ -523,7 +519,7 @@ impl CoverageCollector {
         self.api_hits
             .iter()
             .filter_map(|(api_id, hits)| {
-                let total = hits.tests + hits.examples;
+                let total = hits.tests;
                 (total > 0).then_some((api_id.as_str(), total))
             })
             .collect()
@@ -533,26 +529,16 @@ impl CoverageCollector {
         self.api_hits
             .iter()
             .filter_map(|(api_id, hits)| {
-                let total = hits.tests + hits.examples;
+                let total = hits.tests;
                 (total > 0).then(|| {
                     raw_json_object([
                         ("api_id".to_string(), raw_json_string(api_id)),
                         ("tests".to_string(), raw_json_u64(hits.tests)),
-                        ("examples".to_string(), raw_json_u64(hits.examples)),
                         ("total".to_string(), raw_json_u64(total)),
                     ])
                 })
             })
             .collect()
-    }
-}
-
-impl CoverageHits {
-    fn add(&mut self, scope: &str) {
-        match scope {
-            "examples" => self.examples += 1,
-            _ => self.tests += 1,
-        }
     }
 }
 
@@ -962,14 +948,11 @@ mod tests {
             ..CoverageCollector::default()
         };
         collector
-            .ingest_jsonl(
-                "tests",
-                &format!(
-                    "{{\"kind\":\"proc.enter\",\"name\":\"covered\",\"source_span\":{{\"file\":\"{}\",\"start_line\":1,\"end_line\":1}}}}\n{{\"kind\":\"core.call\",\"api_id\":\"core.print\",\"source_span\":{{\"file\":\"{}\",\"start_line\":2,\"end_line\":2}}}}\n",
-                    script.display(),
-                    script.display(),
-                ),
-            )
+            .ingest_jsonl(&format!(
+                "{{\"kind\":\"proc.enter\",\"name\":\"covered\",\"source_span\":{{\"file\":\"{}\",\"start_line\":1,\"end_line\":1}}}}\n{{\"kind\":\"core.call\",\"api_id\":\"core.print\",\"source_span\":{{\"file\":\"{}\",\"start_line\":2,\"end_line\":2}}}}\n",
+                script.display(),
+                script.display(),
+            ))
             .expect("ingest");
 
         let rendered = collector.render();
@@ -997,13 +980,10 @@ mod tests {
             ..CoverageCollector::default()
         };
         collector
-            .ingest_jsonl(
-                "tests",
-                &format!(
-                    "{{\"kind\":\"source.file\",\"file\":\"{}\",\"line_count\":3}}\n",
-                    script.display(),
-                ),
-            )
+            .ingest_jsonl(&format!(
+                "{{\"kind\":\"source.file\",\"file\":\"{}\",\"line_count\":3}}\n",
+                script.display(),
+            ))
             .expect("ingest");
 
         let rendered = collector.render();
@@ -1034,15 +1014,12 @@ mod tests {
             ..CoverageCollector::default()
         };
         collector
-            .ingest_jsonl(
-                "tests",
-                &format!(
-                    "{{\"kind\":\"source.file\",\"file\":\"{}\",\"line_count\":3}}\n{{\"kind\":\"proc.enter\",\"name\":\"covered\",\"source_span\":{{\"file\":\"{}\",\"start_line\":1,\"end_line\":1}},\"definition_span\":{{\"file\":\"{}\",\"start_line\":1,\"end_line\":1}}}}\n",
-                    source.display(),
-                    caller.display(),
-                    source.display(),
-                ),
-            )
+            .ingest_jsonl(&format!(
+                "{{\"kind\":\"source.file\",\"file\":\"{}\",\"line_count\":3}}\n{{\"kind\":\"proc.enter\",\"name\":\"covered\",\"source_span\":{{\"file\":\"{}\",\"start_line\":1,\"end_line\":1}},\"definition_span\":{{\"file\":\"{}\",\"start_line\":1,\"end_line\":1}}}}\n",
+                source.display(),
+                caller.display(),
+                source.display(),
+            ))
             .expect("ingest");
 
         let rendered = collector.render();
@@ -1075,14 +1052,11 @@ mod tests {
         };
         collector.register_source_files(&[covered.clone(), missed.clone()], &[]);
         collector
-            .ingest_jsonl(
-                "tests",
-                &format!(
-                    "{{\"kind\":\"source.file\",\"file\":\"{}\",\"line_count\":7}}\n{{\"kind\":\"core.call\",\"source_span\":{{\"file\":\"{}\",\"start_line\":6,\"end_line\":6}}}}\n",
-                    covered.display(),
-                    covered.display(),
-                ),
-            )
+            .ingest_jsonl(&format!(
+                "{{\"kind\":\"source.file\",\"file\":\"{}\",\"line_count\":7}}\n{{\"kind\":\"core.call\",\"source_span\":{{\"file\":\"{}\",\"start_line\":6,\"end_line\":6}}}}\n",
+                covered.display(),
+                covered.display(),
+            ))
             .expect("ingest");
 
         let files = collector.source_file_coverages();

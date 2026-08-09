@@ -10,8 +10,6 @@ pub(crate) mod help;
 pub(crate) mod config;
 #[path = "edit.rs"]
 pub(crate) mod edit;
-#[cfg(feature = "native-tests")]
-pub mod examples;
 #[path = "format.rs"]
 pub mod format;
 #[path = "grep.rs"]
