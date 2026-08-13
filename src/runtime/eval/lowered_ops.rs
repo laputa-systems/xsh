@@ -175,6 +175,9 @@ pub(super) fn lowered_binary_value(
         (BinaryOp::Mul, LoweredValue::Int(left), LoweredValue::Int(right)) => {
             Ok(LoweredValue::Int(left * right))
         }
+        (BinaryOp::Div, LoweredValue::Int(_), LoweredValue::Int(0)) => {
+            Err(RuntimeError::new("division-by-zero", "division by zero").with_span(span))
+        }
         (BinaryOp::Div, LoweredValue::Int(left), LoweredValue::Int(right)) => {
             Ok(LoweredValue::Int(left / right))
         }

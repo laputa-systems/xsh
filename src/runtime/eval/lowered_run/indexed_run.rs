@@ -6444,8 +6444,12 @@ impl Evaluator {
                     AssignOp::Add => current + value,
                     AssignOp::Sub => current - value,
                     AssignOp::Mul => current * value,
-                    AssignOp::Div => current / value,
-                    AssignOp::Rem => current % value,
+                    AssignOp::Div if value != 0 => current / value,
+                    AssignOp::Rem if value != 0 => current % value,
+                    AssignOp::Div | AssignOp::Rem => {
+                        return Err(RuntimeError::new("division-by-zero", "division by zero")
+                            .with_span(span));
+                    }
                     AssignOp::Set => unreachable!(),
                 });
                 Ok(StmtFlow::None)

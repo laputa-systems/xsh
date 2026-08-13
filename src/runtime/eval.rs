@@ -5527,6 +5527,9 @@ fn compound_assignment_value(
         (AssignOp::Add, Value::Int(left), Value::Int(right)) => Ok(Value::Int(left + right)),
         (AssignOp::Sub, Value::Int(left), Value::Int(right)) => Ok(Value::Int(left - right)),
         (AssignOp::Mul, Value::Int(left), Value::Int(right)) => Ok(Value::Int(left * right)),
+        (AssignOp::Div, Value::Int(_), Value::Int(0)) => {
+            Err(RuntimeError::new("division-by-zero", "division by zero").with_span(span))
+        }
         (AssignOp::Div, Value::Int(left), Value::Int(right)) => Ok(Value::Int(left / right)),
         (AssignOp::Rem, Value::Int(left), Value::Int(right)) => Ok(Value::Int(left % right)),
         (AssignOp::Add, Value::Float(left), Value::Float(right)) => Ok(Value::Float(

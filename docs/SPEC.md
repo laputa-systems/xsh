@@ -787,8 +787,10 @@ Operators:
 - `==` and `!=` compare values of the same runtime type.
 - `<`, `<=`, `>`, and `>=` operate on `Int` and `Str`.
 - `+` operates on `Int` and `Str`; `-`, `*`, `/`, and `%` operate on `Int`.
-  Integer `/` truncates toward zero. `//` and `div` are not operators; the
-  parser reports the supported `/` spelling when either is used.
+  Integer `/` truncates toward zero. Division by zero produces a
+  `division-by-zero` runtime error rather than a host panic. `//` and `div`
+  are not operators; the parser reports the supported `/` spelling when either
+  is used.
 - Path composition is written with formatted path literals, such as
   `fp"${root}/child"`. The `/` operator is numeric division only.
 - `in` and `not in` test membership for `List`, substring containment for
