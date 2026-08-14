@@ -5531,6 +5531,9 @@ fn compound_assignment_value(
             Err(RuntimeError::new("division-by-zero", "division by zero").with_span(span))
         }
         (AssignOp::Div, Value::Int(left), Value::Int(right)) => Ok(Value::Int(left / right)),
+        (AssignOp::Rem, Value::Int(_), Value::Int(0)) => {
+            Err(RuntimeError::new("division-by-zero", "division by zero").with_span(span))
+        }
         (AssignOp::Rem, Value::Int(left), Value::Int(right)) => Ok(Value::Int(left % right)),
         (AssignOp::Add, Value::Float(left), Value::Float(right)) => Ok(Value::Float(
             crate::runtime::value::FloatValue::new(left.0 + right.0),
