@@ -9,8 +9,9 @@ use super::{
     RuntimeError, RuntimeOp, ScanCondition, Span, SpawnOptions, StmtFlow, StreamValue, TraceArg,
     TraceError, TraceKind, TracePayload, Traceback, TracebackFrame, TracebackFrameKind, Type,
     Value, api_spec, assign_lowered_bytes_view, assign_lowered_str_view, bind_lowered_comp_target,
-    btree_map, bytes_contains, bytes_module, check_env_name, compare_lowered_sort_keys,
-    compound_assignment_value, error_constructor, execute_run_with_policy, exit_status, fs_module,
+    btree_map, bytes_contains, bytes_module, check_env_name, checked_int_binary,
+    compare_lowered_sort_keys, compound_assignment_value, error_constructor, execute_run_with_policy,
+    exit_status, fs_module,
     fs_root_record, hash_module, json_module, lowered_assign_value, lowered_binary_value,
     lowered_bool_arg_or, lowered_bool_builder_field, lowered_bytes_or_str_owned,
     lowered_bytes_parts, lowered_bytes_value, lowered_command_plan_value,
@@ -6440,18 +6441,19 @@ impl Evaluator {
                             .with_span(span),
                     );
                 };
-                slots[slot] = LoweredValue::Int(match op {
-                    AssignOp::Add => current + value,
-                    AssignOp::Sub => current - value,
-                    AssignOp::Mul => current * value,
-                    AssignOp::Div if value != 0 => current / value,
-                    AssignOp::Rem if value != 0 => current % value,
-                    AssignOp::Div | AssignOp::Rem => {
-                        return Err(RuntimeError::new("division-by-zero", "division by zero")
-                            .with_span(span));
-                    }
-                    AssignOp::Set => unreachable!(),
-                });
+                slots[slot] = LoweredValue::Int(checked_int_binary(
+                    match op {
+                        AssignOp::Add => BinaryOp::Add,
+                        AssignOp::Sub => BinaryOp::Sub,
+                        AssignOp::Mul => BinaryOp::Mul,
+                        AssignOp::Div => BinaryOp::Div,
+                        AssignOp::Rem => BinaryOp::Rem,
+                        AssignOp::Set => unreachable!(),
+                    },
+                    current,
+                    value,
+                    span,
+                )?);
                 Ok(StmtFlow::None)
             }
             FullTag::StmtAssignBool => {
@@ -7499,18 +7501,7 @@ impl Evaluator {
                     ControlFlow::Continue(value) => value,
                     ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
                 };
-                match op {
-                    BinaryOp::Add => left + right,
-                    BinaryOp::Sub => left - right,
-                    BinaryOp::Mul => left * right,
-                    BinaryOp::Div if right != 0 => left / right,
-                    BinaryOp::Rem if right != 0 => left % right,
-                    BinaryOp::Div | BinaryOp::Rem => {
-                        return Err(RuntimeError::new("division-by-zero", "division by zero")
-                            .with_span(call_span));
-                    }
-                    _ => unreachable!("verified typed int operation"),
-                }
+                checked_int_binary(op, left, right, call_span)?
             }
             FullTag::IntStrByteLenSlot => {
                 let slot = indexed_decode::<usize>(&mut payload, execution, call_span)?;

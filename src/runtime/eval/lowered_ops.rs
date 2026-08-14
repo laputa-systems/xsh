@@ -166,27 +166,11 @@ pub(super) fn lowered_binary_value(
         (BinaryOp::Ge, LoweredValue::Int(left), LoweredValue::Int(right)) => {
             Ok(LoweredValue::Bool(left >= right))
         }
-        (BinaryOp::Add, LoweredValue::Int(left), LoweredValue::Int(right)) => {
-            Ok(LoweredValue::Int(left + right))
-        }
-        (BinaryOp::Sub, LoweredValue::Int(left), LoweredValue::Int(right)) => {
-            Ok(LoweredValue::Int(left - right))
-        }
-        (BinaryOp::Mul, LoweredValue::Int(left), LoweredValue::Int(right)) => {
-            Ok(LoweredValue::Int(left * right))
-        }
-        (BinaryOp::Div, LoweredValue::Int(_), LoweredValue::Int(0)) => {
-            Err(RuntimeError::new("division-by-zero", "division by zero").with_span(span))
-        }
-        (BinaryOp::Div, LoweredValue::Int(left), LoweredValue::Int(right)) => {
-            Ok(LoweredValue::Int(left / right))
-        }
-        (BinaryOp::Rem, LoweredValue::Int(_), LoweredValue::Int(0)) => {
-            Err(RuntimeError::new("division-by-zero", "division by zero").with_span(span))
-        }
-        (BinaryOp::Rem, LoweredValue::Int(left), LoweredValue::Int(right)) => {
-            Ok(LoweredValue::Int(left % right))
-        }
+        (
+            BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div | BinaryOp::Rem,
+            LoweredValue::Int(left),
+            LoweredValue::Int(right),
+        ) => Ok(LoweredValue::Int(checked_int_binary(op, left, right, span)?)),
         (BinaryOp::In, left, LoweredValue::List(items)) => {
             Ok(LoweredValue::Bool(items.contains(&left)))
         }
@@ -203,6 +187,33 @@ pub(super) fn lowered_binary_value(
             Err(RuntimeError::new("type-error", "invalid lowered binary operation").with_span(span))
         }
     }
+}
+
+pub(super) fn checked_int_binary(
+    op: BinaryOp,
+    left: i64,
+    right: i64,
+    span: Span,
+) -> Result<i64, RuntimeError> {
+    let result = match op {
+        BinaryOp::Add => left.checked_add(right),
+        BinaryOp::Sub => left.checked_sub(right),
+        BinaryOp::Mul => left.checked_mul(right),
+        BinaryOp::Div => {
+            if right == 0 {
+                return Err(RuntimeError::new("division-by-zero", "division by zero").with_span(span));
+            }
+            left.checked_div(right)
+        }
+        BinaryOp::Rem => {
+            if right == 0 {
+                return Err(RuntimeError::new("division-by-zero", "division by zero").with_span(span));
+            }
+            left.checked_rem(right)
+        }
+        _ => unreachable!("verified integer binary operation"),
+    };
+    result.ok_or_else(|| RuntimeError::new("integer-overflow", "integer overflow").with_span(span))
 }
 
 pub(super) fn lowered_str_value(value: &LoweredValue) -> Option<&str> {

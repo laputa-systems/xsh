@@ -49,6 +49,30 @@ fn integer_remainder_by_zero_is_a_structured_runtime_failure() {
 }
 
 #[test]
+fn signed_integer_overflow_is_a_structured_runtime_failure() {
+    let mut child = Command::new(cargo_env!("CARGO_BIN_EXE_xsh"))
+        .arg("/dev/stdin")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn xsh");
+    child
+        .stdin
+        .take()
+        .expect("xsh stdin")
+        .write_all(b"9223372036854775807 + 1")
+        .expect("write xsh stdin");
+    let output = child.wait_with_output().expect("wait for xsh");
+
+    assert_eq!(output.status.code(), Some(3));
+    assert_eq!(output.stdout, b"");
+    let stderr = String::from_utf8(output.stderr).expect("xsh stderr UTF-8");
+    assert!(stderr.contains("integer overflow"), "{stderr}");
+    assert!(!stderr.contains("panicked"), "{stderr}");
+}
+
+#[test]
 fn xsht_trace_runs_and_xsh_rejects_trace_options() {
     let trace = Command::new(cargo_env!("CARGO_BIN_EXE_xsht"))
         .args(["trace", "tests/fixtures/runtime/cli-simple.xsh"])

@@ -5524,17 +5524,35 @@ fn compound_assignment_value(
     span: Span,
 ) -> Result<Value, RuntimeError> {
     match (op, left, right) {
-        (AssignOp::Add, Value::Int(left), Value::Int(right)) => Ok(Value::Int(left + right)),
-        (AssignOp::Sub, Value::Int(left), Value::Int(right)) => Ok(Value::Int(left - right)),
-        (AssignOp::Mul, Value::Int(left), Value::Int(right)) => Ok(Value::Int(left * right)),
+        (AssignOp::Add, Value::Int(left), Value::Int(right)) => {
+            left.checked_add(right)
+                .map(Value::Int)
+                .ok_or_else(|| RuntimeError::new("integer-overflow", "integer overflow").with_span(span))
+        }
+        (AssignOp::Sub, Value::Int(left), Value::Int(right)) => {
+            left.checked_sub(right)
+                .map(Value::Int)
+                .ok_or_else(|| RuntimeError::new("integer-overflow", "integer overflow").with_span(span))
+        }
+        (AssignOp::Mul, Value::Int(left), Value::Int(right)) => {
+            left.checked_mul(right)
+                .map(Value::Int)
+                .ok_or_else(|| RuntimeError::new("integer-overflow", "integer overflow").with_span(span))
+        }
         (AssignOp::Div, Value::Int(_), Value::Int(0)) => {
             Err(RuntimeError::new("division-by-zero", "division by zero").with_span(span))
         }
-        (AssignOp::Div, Value::Int(left), Value::Int(right)) => Ok(Value::Int(left / right)),
+        (AssignOp::Div, Value::Int(left), Value::Int(right)) => left
+            .checked_div(right)
+            .map(Value::Int)
+            .ok_or_else(|| RuntimeError::new("integer-overflow", "integer overflow").with_span(span)),
         (AssignOp::Rem, Value::Int(_), Value::Int(0)) => {
             Err(RuntimeError::new("division-by-zero", "division by zero").with_span(span))
         }
-        (AssignOp::Rem, Value::Int(left), Value::Int(right)) => Ok(Value::Int(left % right)),
+        (AssignOp::Rem, Value::Int(left), Value::Int(right)) => left
+            .checked_rem(right)
+            .map(Value::Int)
+            .ok_or_else(|| RuntimeError::new("integer-overflow", "integer overflow").with_span(span)),
         (AssignOp::Add, Value::Float(left), Value::Float(right)) => Ok(Value::Float(
             crate::runtime::value::FloatValue::new(left.0 + right.0),
         )),
