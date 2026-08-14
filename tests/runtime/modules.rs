@@ -460,8 +460,8 @@ fn net_module_download_many_follows_redirects_and_keeps_atomic_destination_on_li
     let source = format!(
         r#"
 let download_items: List[Record] = [
-    {{url: "{url}/redirect", dest: Path({redirected}), overwrite: true, redirects: 1}},
-    {{url: "{url}/hello", dest: Path({limited}), overwrite: true, max_body_bytes: 4}},
+    {{url: "{url}/redirect", dest: Path({redirected}), atomic: true, overwrite: true, redirects: 1}},
+    {{url: "{url}/hello", dest: Path({limited}), atomic: true, overwrite: true, max_body_bytes: 4}},
 ]
 let responses = net.download_many({{
   downloads: download_items,
