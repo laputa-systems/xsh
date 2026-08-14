@@ -964,8 +964,9 @@ let values = [1, 2, 3] |> par-map --jobs=1 { |index| xs[index] }
     ["--trace", "--raw"],
   )?
 
-  test.eq(par_error.status, 0)?
-  test.contains(par_error.stderr, "par-map error")?
+  test.eq(par_error.status, 3)?
+  test.contains(par_error.stderr, "stream stage `par-map` item 0 failed")?
+  test.contains(par_error.stderr, "index-out-of-range")?
   test.contains(par_error.stderr, "kind=parallel.job.start")?
   test.contains(par_error.stderr, "kind=parallel.job.end")?
   test.contains(par_error.stderr, "item_index=0")?
@@ -979,8 +980,9 @@ let values = [1, 2, 3] |> par-map --jobs=8 { |index| xs[index] }
     ["--trace", "--raw"],
   )?
 
-  test.eq(idle_error.status, 0)?
-  test.contains(idle_error.stderr, "par-map error")?
+  test.eq(idle_error.status, 3)?
+  test.contains(idle_error.stderr, "stream stage `par-map` item 0 failed")?
+  test.contains(idle_error.stderr, "index-out-of-range")?
 }
 
 proc test_fs_files_lazy_folding_terminals_match_eager_results(ctx: TestContext) [fs, error] {

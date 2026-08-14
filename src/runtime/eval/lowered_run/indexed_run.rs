@@ -220,7 +220,7 @@ impl Evaluator {
         slot: usize,
         item: LoweredValue,
         span: Span,
-    ) -> LoweredValue {
+    ) -> Result<LoweredValue, RuntimeError> {
         slots[slot] = item;
         let item_result = if let Some(body) = body {
             match self.eval_indexed_statement_block(execution, body, block_header, slots, span) {
@@ -240,28 +240,13 @@ impl Evaluator {
         };
         let item_result = match item_result {
             Ok(ControlFlow::Continue(value)) => value,
-            Ok(ControlFlow::Break(value)) => {
-                self.stderr.extend_from_slice(
-                    format!("par-map error: {}\n", lowered_error_message(&value)).as_bytes(),
-                );
-                LoweredValue::List(Vec::new())
-            }
-            Err(error) => {
-                self.stderr
-                    .extend_from_slice(format!("par-map error: {error:?}\n").as_bytes());
-                LoweredValue::List(Vec::new())
-            }
+            Ok(ControlFlow::Break(value)) => value,
+            Err(error) => return Err(error),
         };
-        match item_result {
+        Ok(match item_result {
             LoweredValue::ResultOk(value) => *value,
-            value @ LoweredValue::ResultErr(_) => {
-                self.stderr.extend_from_slice(
-                    format!("par-map error: {}\n", lowered_error_message(&value)).as_bytes(),
-                );
-                LoweredValue::List(Vec::new())
-            }
             value => value,
-        }
+        })
     }
 
     fn eval_indexed_par_map_parallel(
@@ -331,7 +316,9 @@ impl Evaluator {
                 workers.push((chunk_index, worker));
             }
             drop(sender);
-            let mut completed: Vec<Option<(Vec<(usize, LoweredValue)>, Vec<u8>)>> =
+            let mut completed: Vec<
+                Option<(Vec<(usize, Result<LoweredValue, RuntimeError>)>, Vec<u8>)>,
+            > =
                 (0..workers.len()).map(|_| None).collect();
             let mut remaining = workers.len();
             while remaining > 0 {
@@ -358,7 +345,8 @@ impl Evaluator {
                     .join()
                     .expect("lowered par-map worker thread panicked");
             }
-            let mut ordered: Vec<Option<LoweredValue>> = (0..item_count).map(|_| None).collect();
+            let mut ordered: Vec<Option<Result<LoweredValue, RuntimeError>>> =
+                (0..item_count).map(|_| None).collect();
             let mut stderr = Vec::new();
             for completed in completed {
                 let (mut results, worker_stderr) = completed.expect("par-map worker missing");
@@ -369,8 +357,17 @@ impl Evaluator {
             }
             let results = ordered
                 .into_iter()
-                .map(|result| result.expect("par-map result missing"))
-                .collect();
+                .enumerate()
+                .map(|(item_index, result)| {
+                    let result = result.expect("par-map result missing");
+                    match result {
+                        Ok(value) => Ok(value),
+                        Err(error) => Err(self.stream_item_runtime_error(
+                            "par-map", item_index, error,
+                        )),
+                    }
+                })
+                .collect::<Result<Vec<_>, _>>()?;
             Ok((results, stderr))
         })?;
         self.stderr.extend(stderr);
@@ -516,7 +513,7 @@ impl Evaluator {
                                     slot,
                                     item,
                                     span,
-                                );
+                                )?;
                                 let rows = if flatten {
                                     worker.lowered_flat_map_rows(mapped, span)?
                                 } else {
@@ -3655,7 +3652,7 @@ impl Evaluator {
                                             span,
                                         );
                                     }
-                                    let mapped = self.eval_indexed_par_map_item(
+                                    let mapped = match self.eval_indexed_par_map_item(
                                         execution,
                                         body,
                                         value,
@@ -3664,7 +3661,14 @@ impl Evaluator {
                                         slot,
                                         item,
                                         span,
-                                    );
+                                    ) {
+                                        Ok(value) => value,
+                                        Err(error) => {
+                                            return Err(self.stream_item_runtime_error(
+                                                "par-map", item_index, error,
+                                            ));
+                                        }
+                                    };
                                     let rows = if flatten {
                                         self.lowered_flat_map_rows(mapped, span)?
                                     } else {
@@ -3768,7 +3772,14 @@ impl Evaluator {
                                             span,
                                         );
                                     }
-                                    results.push(result);
+                                    match result {
+                                        Ok(value) => results.push(value),
+                                        Err(error) => {
+                                            return Err(self.stream_item_runtime_error(
+                                                "par-map", item_index, error,
+                                            ));
+                                        }
+                                    }
                                 }
                                 results
                             } else {
