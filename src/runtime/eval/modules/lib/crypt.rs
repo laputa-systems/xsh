@@ -163,7 +163,6 @@ fn sha_crypt<D: Digest + OutputSizeUser>(password: &[u8], salt: &[u8], rounds: u
     let mut ctx_c = D::new();
     ctx_c.update(password);
     ctx_c.update(salt);
-    ctx_c.update(password);
 
     let mut remaining = plen;
     while remaining > 0 {
@@ -324,7 +323,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "sha-crypt algorithm needs debugging"]
     fn sha256_drepper_vector() {
         let result = try_crypt("Hello world!", "$5$saltstring$").unwrap();
         assert_eq!(
