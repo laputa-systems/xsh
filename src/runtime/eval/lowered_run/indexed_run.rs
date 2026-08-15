@@ -227,8 +227,9 @@ impl Evaluator {
                 Ok(StmtFlow::None) | Ok(StmtFlow::Continue) => {
                     self.eval_indexed_expr(execution, value, slots, span)
                 }
-                Ok(StmtFlow::Return(value)) | Ok(StmtFlow::Propagate(value)) => {
-                    Ok(ControlFlow::Break(value))
+                Ok(StmtFlow::Return(value)) => Ok(ControlFlow::Break(value)),
+                Ok(StmtFlow::Propagate(value)) => {
+                    Err(runtime_error_from_value(value.into_value(), span))
                 }
                 Ok(StmtFlow::Break(value)) => {
                     Ok(ControlFlow::Break(value.unwrap_or(LoweredValue::Unit)))
@@ -245,6 +246,9 @@ impl Evaluator {
         };
         Ok(match item_result {
             LoweredValue::ResultOk(value) => *value,
+            LoweredValue::ResultErr(error) => {
+                return Err(runtime_error_from_value(*error, span));
+            }
             value => value,
         })
     }
