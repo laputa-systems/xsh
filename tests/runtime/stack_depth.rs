@@ -113,7 +113,7 @@ fn small_stack_nested_lowered_result_calls_do_not_abort() {
         "stack-depth-nested-lowered-result",
         include_str!("../fixtures/runtime/stack-depth/nested-lowered-result.xsh"),
     );
-    assert_eq!(String::from_utf8(output.stdout).unwrap(), "2\n2\n2\n2\n");
+    assert_eq!(String::from_utf8(output.stdout).unwrap(), "2\n2\n");
 }
 
 #[test]

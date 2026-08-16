@@ -14,6 +14,18 @@ fn minimal_modules_execute_success_paths() {
 }
 
 #[test]
+fn explicit_zero_arg_main_call_prints_once() {
+    let output = run_temp_script(
+        "explicit-zero-arg-main",
+        "proc main() [error] -> Result[Unit] { print 5 }\nmain()?\n",
+    );
+
+    assert!(output.status.success());
+    assert_eq!(String::from_utf8(output.stdout).unwrap(), "5\n");
+    assert_eq!(String::from_utf8(output.stderr).unwrap(), "");
+}
+
+#[test]
 fn loaded_modules_refine_to_typed_module_contracts() {
     let output = xsh(["tests/fixtures/runtime/module-contract.xsh"]);
 

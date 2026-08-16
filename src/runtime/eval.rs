@@ -6296,10 +6296,11 @@ fn compact_is_main_at_args_expr(program: &ArenaProgram, id: ExprId) -> bool {
         ArenaExprKind::Try(inner) => compact_is_main_at_args_expr(program, inner),
         ArenaExprKind::Call { callee, args } => {
             matches!(program.arena.expr(callee).kind, ArenaExprKind::Ident(name) if name == Name::intern("main"))
-                && matches!(
-                    program.arena.call_args(args),
-                    [arg] if compact_is_args_call_arg(program, arg)
-                )
+                && (program.arena.call_args(args).is_empty()
+                    || matches!(
+                        program.arena.call_args(args),
+                        [arg] if compact_is_args_call_arg(program, arg)
+                    ))
         }
         _ => false,
     }
