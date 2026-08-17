@@ -2071,6 +2071,52 @@ proc main() {
 }
 
 #[test]
+fn linter_can_disable_dead_code_diagnostics_without_disabling_other_lints() {
+    let source = "\
+pure unused() -> Str {
+  return \"unused\"
+}
+
+proc main() {
+  let unused = 1
+}
+
+proc dead() {
+  return
+  print \"dead\"
+}
+";
+    let parsed = parse_lint_source(source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let diagnostics = lint_and_assert_fmt_stable(
+        &parsed.arena,
+        source,
+        LintOptions {
+            dead_code: false,
+            ..LintOptions::default()
+        },
+    );
+    assert!(
+        !diagnostics.iter().any(|diagnostic| {
+            matches!(
+                diagnostic.code.as_deref(),
+                Some("lint.dead-code") | Some("lint.unused-callable")
+            )
+        }),
+        "diagnostics: {diagnostics:?}"
+    );
+    assert!(
+        diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code.as_deref() == Some("lint.unused-local")),
+        "non-dead-code lint should remain active: {diagnostics:?}"
+    );
+}
+
+#[test]
 fn linter_follows_declared_callable_resolution_before_local_bindings() {
     let source = "\
 pure helper() -> Str {

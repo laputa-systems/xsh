@@ -242,6 +242,11 @@ fn lint_config_for_file(
         expr_types: Default::default(),
         callable_effects: Default::default(),
         terminating_call_spans: Default::default(),
+        dead_code: !is_path_excluded(
+            &tool_config.config_dir,
+            Path::new(file),
+            &tool_config.config.dead_code.exclude,
+        ),
     };
     Ok(ResolvedLintConfig {
         lint_options,
@@ -742,8 +747,8 @@ fn diagnostic_key(diagnostic: &Diagnostic, sources: &SourceMap) -> String {
 #[cfg(test)]
 mod tests {
     use crate::xsht::cli::lint::{
-        LintResultKind, ResolvedLintConfig, apply_cst_fixes, collect_fix_spans,
-        lint_one_file_with_fixes,
+        ConfigCache, LintResultKind, ResolvedLintConfig, apply_cst_fixes, collect_fix_spans,
+        lint_config_for_file, lint_one_file_with_fixes,
     };
     use crate::xsht::format::DEFAULT_LINE_WIDTH;
     use crate::xsht::lint::LintOptions;
@@ -760,6 +765,29 @@ mod tests {
             line_width: DEFAULT_LINE_WIDTH,
             module_roots: Vec::<PathBuf>::new(),
         }
+    }
+
+    #[test]
+    fn lint_config_disables_only_dead_code_for_matching_paths() {
+        let root = TempDir::new().expect("create config root");
+        let snippet = root.path().join("docs/snippets/api/example.xsh");
+        fs::create_dir_all(snippet.parent().expect("snippet parent")).expect("create snippet");
+        fs::write(
+            root.path().join("xsht-config.ini"),
+            "[dead-code]\nexclude = docs/snippets/**/*.xsh\n",
+        )
+        .expect("write config");
+
+        let config = lint_config_for_file(
+            snippet.to_str().expect("utf-8 snippet path"),
+            false,
+            &crate::xsht::cli::XshConfig::default(),
+            &ConfigCache::default(),
+        )
+        .expect("resolve lint config");
+
+        assert!(!config.lint_options.dead_code);
+        assert!(!config.lint_options.runless);
     }
 
     #[test]

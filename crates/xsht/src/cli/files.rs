@@ -179,6 +179,11 @@ pub struct CoverageConfig {
 }
 
 #[derive(Clone, Debug, Default)]
+pub struct DeadCodeConfig {
+    pub exclude: Vec<String>,
+}
+
+#[derive(Clone, Debug, Default)]
 pub struct CheckConfig {
     pub annotate: Option<Vec<String>>,
 }
@@ -208,6 +213,7 @@ pub struct XshConfig {
     pub check: CheckConfig,
     pub format: FormatConfig,
     pub lint: LintConfig,
+    pub dead_code: DeadCodeConfig,
     pub coverage: CoverageConfig,
 }
 
@@ -225,6 +231,7 @@ impl Default for XshConfig {
             check: CheckConfig::default(),
             format: FormatConfig::default(),
             lint: LintConfig::default(),
+            dead_code: DeadCodeConfig::default(),
             coverage: CoverageConfig::default(),
         }
     }
@@ -296,6 +303,7 @@ fn parse_config_ini(value: &xsh::execution::value::Value) -> Result<XshConfig, S
         check: parse_check_ini(fields),
         format: parse_format_ini(fields)?,
         lint: parse_lint_ini(fields),
+        dead_code: parse_dead_code_ini(fields),
         coverage: parse_coverage_ini(fields),
     })
 }
@@ -324,6 +332,15 @@ fn parse_coverage_ini(fields: &xsh::execution::value::RecordMap) -> CoverageConf
     };
     CoverageConfig {
         exclude: ini_string_list(coverage, "exclude").unwrap_or_default(),
+    }
+}
+
+fn parse_dead_code_ini(fields: &xsh::execution::value::RecordMap) -> DeadCodeConfig {
+    let Some(xsh::execution::value::Value::Record(dead_code)) = fields.get("dead-code") else {
+        return DeadCodeConfig::default();
+    };
+    DeadCodeConfig {
+        exclude: ini_string_list(dead_code, "exclude").unwrap_or_default(),
     }
 }
 
@@ -454,6 +471,27 @@ mod tests {
         assert_eq!(
             config.coverage.exclude,
             vec!["evals/**/*.xsh", "fixtures/**/*.xsh"]
+        );
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn config_parses_dead_code_excludes_separately() {
+        let root = temp_root("dead-code-config");
+        fs::create_dir_all(&root).expect("create root");
+        let config_path = root.join("xsht-config.ini");
+        fs::write(
+            &config_path,
+            "exclude = generated/**\n\n[dead-code]\nexclude = docs/snippets/**/*.xsh\n",
+        )
+        .expect("write config");
+
+        let config = load_config_from(&config_path).expect("load config");
+
+        assert_eq!(config.exclude, vec!["generated/**"]);
+        assert_eq!(
+            config.dead_code.exclude,
+            vec!["docs/snippets/**/*.xsh"]
         );
         let _ = fs::remove_dir_all(root);
     }

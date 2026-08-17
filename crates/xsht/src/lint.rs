@@ -38,7 +38,7 @@ pub struct LintOutput {
     pub diagnostics: Vec<Diagnostic>,
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct LintOptions {
     pub runless: bool,
     pub runless_except: Vec<String>,
@@ -46,6 +46,21 @@ pub struct LintOptions {
     pub expr_types: BTreeMap<Span, Type>,
     pub callable_effects: FxHashMap<String, Option<Vec<Effect>>>,
     pub terminating_call_spans: BTreeSet<Span>,
+    pub dead_code: bool,
+}
+
+impl Default for LintOptions {
+    fn default() -> Self {
+        Self {
+            runless: false,
+            runless_except: Vec::new(),
+            interactive_command_replacement: None,
+            expr_types: BTreeMap::default(),
+            callable_effects: FxHashMap::default(),
+            terminating_call_spans: BTreeSet::default(),
+            dead_code: true,
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -70,6 +85,7 @@ pub struct Linter<'a> {
     function_return_types: Vec<Type>,
     function_effects: FxHashMap<String, Option<Vec<Effect>>>,
     terminating_call_spans: BTreeSet<Span>,
+    dead_code: bool,
     tag_variants: FxHashSet<String>,
     type_declarations: FxHashMap<String, Span>,
     record_type_names: FxHashSet<String>,
@@ -139,6 +155,7 @@ impl<'a> Linter<'a> {
             function_return_types: Vec::new(),
             function_effects: options.callable_effects,
             terminating_call_spans: options.terminating_call_spans,
+            dead_code: options.dead_code,
             tag_variants: FxHashSet::default(),
             type_declarations: FxHashMap::default(),
             record_type_names: FxHashSet::default(),
@@ -216,6 +233,9 @@ impl<'a> Linter<'a> {
     }
 
     fn lint_declaration_reachability(&mut self, program: &'a ArenaProgram) {
+        if !self.dead_code {
+            return;
+        }
         self.diagnostics
             .extend(CallableReachability::new(program).diagnostics());
     }
@@ -2054,7 +2074,7 @@ impl<'a> Linter<'a> {
         let mut flow = FlowSummary::fallthrough();
         let mut reported_dead_region = false;
         for &stmt in stmts {
-            if !flow.fallthrough && !reported_dead_region {
+            if self.dead_code && !flow.fallthrough && !reported_dead_region {
                 self.warning(
                     self.arena.stmt(stmt).span,
                     "unreachable code",
