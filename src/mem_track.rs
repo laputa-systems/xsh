@@ -7,8 +7,10 @@
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Mutex, OnceLock};
 
 static TRACKING_INSTALLED: AtomicBool = AtomicBool::new(false);
+static WORKER_COLLECTION: OnceLock<Mutex<WorkerCollection>> = OnceLock::new();
 
 thread_local! {
     static ENABLED: Cell<bool> = const { Cell::new(false) };
@@ -130,8 +132,79 @@ pub struct AllocTraffic {
     pub tracking_active: bool,
 }
 
+#[derive(Default)]
+struct WorkerCollection {
+    active: bool,
+    stages: Vec<AllocTraffic>,
+}
+
+/// A per-worker allocation scope used by the dedicated runtime-stats binary.
+///
+/// Product allocators never install [`CountingAllocator`], so creating this
+/// scope is a no-op in normal execution. The collected counters remain
+/// thread-local: allocation ownership can cross worker boundaries, so callers
+/// must treat worker peaks as allocation-pressure evidence rather than process
+/// RSS or an exact concurrent-live total.
+pub struct WorkerStage {
+    active: bool,
+}
+
 pub fn tracking_installed() -> bool {
     TRACKING_INSTALLED.load(Ordering::Relaxed)
+}
+
+/// Start collecting allocation traffic from explicitly instrumented runtime
+/// workers. The caller must end the collection after joining every worker.
+pub fn begin_worker_collection() {
+    if !tracking_installed() {
+        return;
+    }
+    let mut collection = worker_collection().lock().expect("worker allocation lock poisoned");
+    collection.active = true;
+    collection.stages.clear();
+}
+
+/// Finish a worker collection and return one thread-local traffic sample per
+/// participating worker.
+pub fn end_worker_collection() -> Vec<AllocTraffic> {
+    if !tracking_installed() {
+        return Vec::new();
+    }
+    let mut collection = worker_collection().lock().expect("worker allocation lock poisoned");
+    collection.active = false;
+    std::mem::take(&mut collection.stages)
+}
+
+/// Begin tracking one explicitly instrumented worker.
+pub fn begin_worker_stage() -> WorkerStage {
+    if !tracking_installed() {
+        return WorkerStage { active: false };
+    }
+    let active = worker_collection()
+        .lock()
+        .expect("worker allocation lock poisoned")
+        .active;
+    if active {
+        begin_stage();
+    }
+    WorkerStage { active }
+}
+
+impl Drop for WorkerStage {
+    fn drop(&mut self) {
+        if !self.active {
+            return;
+        }
+        let traffic = end_stage();
+        let mut collection = worker_collection().lock().expect("worker allocation lock poisoned");
+        if collection.active {
+            collection.stages.push(traffic);
+        }
+    }
+}
+
+fn worker_collection() -> &'static Mutex<WorkerCollection> {
+    WORKER_COLLECTION.get_or_init(|| Mutex::new(WorkerCollection::default()))
 }
 
 pub fn begin_stage() {

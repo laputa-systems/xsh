@@ -4,6 +4,7 @@ use crate::loader::{
     EntrySource, entry_source_from_bytes, parse_load_check_entry_source_with_token_table,
     parse_load_entry_source_arena_only,
 };
+use crate::mem_track::{self, AllocTraffic};
 use crate::runtime::eval::Evaluator;
 use crate::runtime::process::path_bytes;
 use crate::sema::check::{CheckOptions, Checker};
@@ -30,6 +31,13 @@ struct PreparedRun {
     plan: crate::runtime::eval::CompactIndexedRunPlan,
     source_id: crate::source::SourceId,
     coverage_trace_dir: Option<PathBuf>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub(crate) struct RuntimeAllocationPhases {
+    pub construction: AllocTraffic,
+    pub controller: AllocTraffic,
+    pub worker_stages: Vec<AllocTraffic>,
 }
 
 impl PreparedRun {
@@ -94,11 +102,45 @@ pub fn run_startup() -> ScriptOutput {
 pub fn run_script(options: RunOptions) -> ScriptOutput {
     match try_run_program(&options) {
         Ok(attempt) => finish_run_attempt(&options, attempt),
-        Err(err) => ScriptOutput {
-            status: 2,
-            stdout: Vec::new(),
-            stderr: text_bytes(format!("xsh: failed to read '{}': {err}\n", options.script)),
+        Err(err) => read_error_output(&options, err),
+    }
+}
+
+/// Run one script with construction, controller, and explicitly spawned worker
+/// allocation phases. This exists solely for `xsh-runtime-stats`; ordinary
+/// script execution stays on [`run_script`].
+pub(crate) fn run_script_with_allocation_stats(
+    options: RunOptions,
+) -> (ScriptOutput, RuntimeAllocationPhases) {
+    mem_track::begin_stage();
+    let prepared = try_prepare_program(&options);
+    let construction = mem_track::end_stage();
+
+    mem_track::begin_worker_collection();
+    mem_track::begin_stage();
+    let output = match prepared {
+        Ok(Ok(prepared)) => finish_run_attempt(&options, prepared.run()),
+        Ok(Err(attempt)) => finish_run_attempt(&options, attempt),
+        Err(err) => read_error_output(&options, err),
+    };
+    let controller = mem_track::end_stage();
+    let worker_stages = mem_track::end_worker_collection();
+
+    (
+        output,
+        RuntimeAllocationPhases {
+            construction,
+            controller,
+            worker_stages,
         },
+    )
+}
+
+fn read_error_output(options: &RunOptions, err: std::io::Error) -> ScriptOutput {
+    ScriptOutput {
+        status: 2,
+        stdout: Vec::new(),
+        stderr: text_bytes(format!("xsh: failed to read '{}': {err}\n", options.script)),
     }
 }
 

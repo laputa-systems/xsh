@@ -155,6 +155,41 @@ print ${ratio.format(precision: 2)} ${adjusted.floor()?} ${encoded}
 }
 
 #[test]
+fn runtime_stats_preserves_parallel_script_output_and_reports_worker_traffic() {
+    let script = write_temp_script(
+        "runtime-stats-par-map",
+        r#"
+let values = [0] |> range(0, 100)
+let total = values |> par-map --jobs=2 { |value| value * 2 } |> sum
+print $total
+"#,
+    );
+    let report = temp_path("runtime-stats-par-map-report").with_extension("json");
+    let output = Command::new(cargo_env!("CARGO_BIN_EXE_xsh-runtime-stats"))
+        .args([
+            "--json",
+            report.to_str().unwrap(),
+            script.to_str().unwrap(),
+        ])
+        .output()
+        .expect("run xsh-runtime-stats");
+
+    assert!(output.status.success());
+    assert_eq!(output.stdout, b"9900\n");
+    assert_eq!(output.stderr, b"");
+    let report_text = std::fs::read_to_string(&report).expect("read runtime stats report");
+    let report_json = json_parse(&report_text);
+    assert!(json_bool(json_field(&report_json, "tracking_active")));
+    let workers = json_field(&report_json, "workers");
+    assert_eq!(json_u64(json_field(workers, "stage_count")), 2);
+    assert!(json_u64(json_field(workers, "alloc_count")) > 0);
+    assert!(json_u64(json_field(workers, "alloc_bytes")) > 0);
+
+    std::fs::remove_file(script).expect("remove runtime stats script");
+    std::fs::remove_file(report).expect("remove runtime stats report");
+}
+
+#[test]
 fn xsh_help_describes_script_runner() {
     let output = Command::new(cargo_env!("CARGO_BIN_EXE_xsh"))
         .arg("--help")

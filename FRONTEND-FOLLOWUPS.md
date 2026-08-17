@@ -23,22 +23,27 @@ material regression or a parity failure in the specialized paths.
 
 ### 1. Account for Worker Memory
 
-Ordinary rustybench allocation columns cover the controlling benchmark thread, while
-indexed execution and `par-map` can run on bounded workers. Add worker-aware
-allocation or RSS evidence before treating a runtime-memory claim as complete.
-The output should distinguish frontend construction, controller allocation, and
-worker allocation without changing product behavior.
+Complete: `xsh-runtime-stats` now emits construction, controller, and explicit
+indexed-worker allocation traffic without changing product allocation behavior
+or mixing the report into script output. Its worker peaks are intentionally thread-local
+allocation-pressure evidence rather than process RSS or exact concurrent-live
+memory; pair them with host RSS.
 
-Start with the affected prepared execution benchmark and a host RSS check.
-Keep the existing `xsh-frontend-stats` accounting separate: it measures
-frontend ownership, not total concurrent runtime allocation.
+On the August 17, 2026 release source-counter workload, construction allocated
+5.92 MB, the controller allocated 2.36 KB, and six worker scopes allocated
+80.55 MB across roughly 947,000 allocations. The matching ordinary `xsh`
+process used about 19.5 MiB maximum resident memory. Keep
+`xsh-frontend-stats` separate: it measures frontend ownership, not concurrent
+runtime allocation.
 
 ### 2. Reduce Construction Traffic Only When It Reaches Users
 
 The closeout retained a smaller executable program while lower-stage allocation
-traffic remained 12.68% above the pre-redesign baseline. Investigate only if repository checking,
-short-script startup, or another representative workflow shows a material
-allocation or latency cost.
+traffic remained 12.68% above the pre-redesign baseline. The August 17 release
+check found `xsht check .` at a 0.14 s median and `xsh --startup` below the
+timer's 0.01 s resolution, so that allocation signal is not currently
+user-visible. Do not optimize construction until a representative workflow
+regresses materially.
 
 Likely areas are parser/token text churn, rare `ArenaProgramBuilder` staging
 state, repeated standalone-file setup, and transient declaration/body graph
@@ -97,6 +102,12 @@ A `compact.unlowered-*` diagnostic on current real source is a completeness bug,
 not a reason to restore recursive execution. Before adding an instruction,
 reproduce the gap with `tools/xsh-ir-coverage.xsh`, locate the exact
 `Arena*` field or checked operation, and add the narrowest parity test.
+
+The August 17 repository `xsht check .` sweep produced no
+`compact.unlowered-*` diagnostic. The coverage report's unsupported forms are
+static candidates, many intentionally outside the lowered fast path because
+they use host effects or unsupported types; they are not a lowering gap. Keep
+this item reactive until a real diagnostic appears.
 
 Every new executable form needs exhaustive encoding, verifier coverage, and
 value/output/error/source-span/trace parity. If the behavior is stateful or

@@ -135,6 +135,11 @@ path = "src/entrypoints/frontend_stats.rs"
 test = false
 
 [[bin]]
+name = "xsh-runtime-stats"
+path = "src/entrypoints/runtime_stats.rs"
+test = false
+
+[[bin]]
 name = "xsh-test-show-argv"
 path = "tests/helpers/show_argv.rs"
 test = false

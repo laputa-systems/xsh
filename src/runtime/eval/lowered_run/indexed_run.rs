@@ -292,6 +292,7 @@ impl Evaluator {
                 let worker = std::thread::Builder::new()
                     .stack_size(super::super::debug_test_eval_stack_size(12 * 1024 * 1024))
                     .spawn_scoped(scope, move || {
+                        let _allocation_stage = crate::mem_track::begin_worker_stage();
                         let _symbols = symbols.enter();
                         let mut worker = Evaluator::new_lowered_worker(shared);
                         let mut worker_slots = base_slots;
@@ -500,6 +501,7 @@ impl Evaluator {
                 let worker = std::thread::Builder::new()
                     .stack_size(super::super::debug_test_eval_stack_size(12 * 1024 * 1024))
                     .spawn_scoped(scope, move || {
+                        let _allocation_stage = crate::mem_track::begin_worker_stage();
                         let _symbols = symbols.enter();
                         let mut worker = Evaluator::new_lowered_worker(shared);
                         let mut worker_slots = base_slots;
