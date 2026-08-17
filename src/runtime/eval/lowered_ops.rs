@@ -1073,6 +1073,32 @@ fn lowered_int_method_value(
         "float" if args.is_empty() => Ok(LoweredValue::Float(
             crate::runtime::value::FloatValue::new(value as f64),
         )),
+        "bit_and" | "bit_or" | "clear_bits" if args.len() == 1 => {
+            let mask = match args.into_iter().next() {
+                Some(LoweredValue::Int(mask)) => mask,
+                Some(other) => {
+                    return Err(RuntimeError::new(
+                        "type-error",
+                        format!("Int.{name} expected Int, found {}", other.type_name()),
+                    )
+                    .with_span(span));
+                }
+                None => unreachable!("one checked bitset argument"),
+            };
+            if value < 0 || mask < 0 {
+                return Err(RuntimeError::new(
+                    "integer-bitset",
+                    "bitset methods require non-negative Int operands",
+                )
+                .with_span(span));
+            }
+            Ok(LoweredValue::Int(match name {
+                "bit_and" => value & mask,
+                "bit_or" => value | mask,
+                "clear_bits" => value & !mask,
+                _ => unreachable!("matched bitset method"),
+            }))
+        }
         _ => Err(
             RuntimeError::new("unsupported-call", "unsupported lowered Int method").with_span(span),
         ),

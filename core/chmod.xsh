@@ -60,7 +60,7 @@ pure class_mask(who: Str) -> Int {
 pure perm_mask(perms: Str, who: Str, current: Int, is_dir: Bool) -> Int {
   var mask = 0
   let classes = who_classes(who)
-  let executable = is_dir or current % 512 % 2 == 1 or current % 64 >= 8 or current % 512 >= 64
+  let executable = is_dir or current.bit_and(0o111) != 0
 
   for perm in perms.split("") {
     if "u" in classes {
@@ -112,49 +112,12 @@ pure perm_mask(perms: Str, who: Str, current: Int, is_dir: Bool) -> Int {
   return mask
 }
 
-pure mode_bits() -> List[Int] {
-  return [
-    0o4000,
-    0o2000,
-    0o1000,
-    0o400,
-    0o200,
-    0o100,
-    0o40,
-    0o20,
-    0o10,
-    0o4,
-    0o2,
-    0o1,
-  ]
-}
-
-pure has_bit(mode: Int, bit: Int) -> Bool {
-  return mode / bit % 2 == 1
-}
-
 pure add_mask(mode: Int, mask: Int) -> Int {
-  var out = mode
-
-  for bit in mode_bits() {
-    if has_bit(mask, bit) and ! has_bit(out, bit) {
-      out += bit
-    }
-  }
-
-  return out
+  return mode.bit_or(mask)
 }
 
 pure remove_mask(mode: Int, mask: Int) -> Int {
-  var out = mode
-
-  for bit in mode_bits() {
-    if has_bit(mask, bit) and has_bit(out, bit) {
-      out -= bit
-    }
-  }
-
-  return out
+  return mode.clear_bits(mask)
 }
 
 pure symbolic_mode(spec: Str, current: Int, is_dir: Bool) -> Result[Int] {

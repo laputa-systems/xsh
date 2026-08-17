@@ -1422,6 +1422,11 @@ fn method_doc(receiver: &str, method: &str) -> Option<DocRow> {
             "The conversion follows the host numeric representation and does not parse display text.",
             &["numeric", "conversion"],
         )),
+        ("Int", "bit_and" | "bit_or" | "clear_bits") => Some((
+            "Combines a non-negative integer bitset with a mask.",
+            "Both operands must be non-negative; bit_and keeps shared bits, bit_or sets mask bits, and clear_bits removes mask bits.",
+            &["numeric", "bitset"],
+        )),
         ("Float", "floor" | "ceil" | "round") => Some((
             "Rounds a floating-point value to an integer.",
             "Non-finite values and values outside the integer range return an error.",

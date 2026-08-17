@@ -325,13 +325,36 @@ pub(in crate::signature) fn value_methods() -> Vec<MethodReceiverSig> {
         },
         MethodReceiverSig {
             receiver: MethodReceiver::Int,
-            methods: method_map(vec![method(
-                "float",
-                Vec::new(),
-                MethodReturn::Type(Type::Float),
-                true,
-                RuntimeOp::IntFloat,
-            )]),
+            methods: method_map(vec![
+                method(
+                    "float",
+                    Vec::new(),
+                    MethodReturn::Type(Type::Float),
+                    true,
+                    RuntimeOp::IntFloat,
+                ),
+                method(
+                    "bit_and",
+                    vec![param("mask", Type::Int)],
+                    MethodReturn::Type(Type::Int),
+                    true,
+                    RuntimeOp::IntBitAnd,
+                ),
+                method(
+                    "bit_or",
+                    vec![param("mask", Type::Int)],
+                    MethodReturn::Type(Type::Int),
+                    true,
+                    RuntimeOp::IntBitOr,
+                ),
+                method(
+                    "clear_bits",
+                    vec![param("mask", Type::Int)],
+                    MethodReturn::Type(Type::Int),
+                    true,
+                    RuntimeOp::IntClearBits,
+                ),
+            ]),
         },
         MethodReceiverSig {
             receiver: MethodReceiver::Float,

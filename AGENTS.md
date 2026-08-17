@@ -38,9 +38,6 @@ before editing.
   confirm that the behavior crosses one of those Rust-owned boundaries.
 - If language behavior changes, update `docs/SPEC.md` first or in the same
   change.
-- `LANG.md` contains only open language proposals and unresolved tickets.
-  Implemented behavior belongs in `docs/SPEC.md` and its canonical companion
-  documentation.
 
 ## Content Tiers
 

@@ -30,9 +30,8 @@
 # map { ... } |> sum`. The native XSH side-by-side examples live in this file's
 # tests and comments. The lasting value of this interpreter is the
 # forcing-function findings it surfaced: the input parser was O(n^2) until
-# rewritten to byte-indexed scanning (see the parser section), and the day-to-day
-# language friction it hit is filed as proposals in LANG.md (each references the
-# pain point here).
+# rewritten to byte-indexed scanning (see the parser section). Any lasting
+# language contract belongs in the specification and focused native tests.
 #
 # Design notes:
 # - Self-contained ordered JSON model. XSH's native records/maps are BTreeMap-backed

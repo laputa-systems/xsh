@@ -17,13 +17,6 @@ The executable examples in `examples/` and standalone programs in `showcase/`
 are part of this contract. Each `.xsh` example must be cataloged, and each
 standalone showcase script must be covered by a native test in `showcase/tests/`.
 
-`LANG.md` tracks open language design proposals and unresolved implementation
-tickets. **When a proposal is implemented:** remove its entry from `LANG.md`
-entirely — implemented behaviour belongs here in `docs/SPEC.md` and in the
-relevant canonical companion document, not in `LANG.md`. Follow the full
-proposal checklist in `LANG.md §Process` and reference the entry in the commit
-message.
-
 ## Section Map
 
 | Area | Section |
@@ -792,6 +785,11 @@ Operators:
   `division-by-zero` runtime error rather than a host panic. `//` and `div`
   are not operators; the parser reports the supported `/` spelling when either
   is used.
+- `Int` bitset methods operate on non-negative values without adding operator
+  syntax: `.bit_and(mask: Int) -> Int` retains shared bits,
+  `.bit_or(mask: Int) -> Int` sets mask bits, and
+  `.clear_bits(mask: Int) -> Int` removes mask bits. A negative receiver or
+  mask is a runtime `integer-bitset` error.
 - Path composition is written with formatted path literals, such as
   `fp"${root}/child"`. The `/` operator is numeric division only.
 - `in` and `not in` test membership for `List`, substring containment for

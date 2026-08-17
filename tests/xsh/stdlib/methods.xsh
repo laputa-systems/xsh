@@ -118,3 +118,28 @@ beta""".find("z"),
   let result: Result[Int] = Err(TestBaseError.Base(message: "base message"))
   test.error_kind(result.context("wrapped", "extra"), "TestBaseError.Base")?
 }
+
+proc test_int_bitset_methods(ctx: TestContext) [fs, error] {
+  let mode = 0o754
+  test.eq(mode.bit_and(0o070), 0o050)?
+  test.eq(mode.bit_or(0o002), 0o756)?
+  test.eq(mode.clear_bits(0o054), 0o700)?
+
+  let negative_receiver = test.run_script(
+    ctx,
+    """let value = -1
+value.bit_and(1)
+""",
+  )?
+  test.ok(! negative_receiver.success, negative_receiver.stderr)?
+  test.contains(negative_receiver.stderr, "integer-bitset")?
+
+  let negative_mask = test.run_script(
+    ctx,
+    """let mask = -1
+1.clear_bits(mask)
+""",
+  )?
+  test.ok(! negative_mask.success, negative_mask.stderr)?
+  test.contains(negative_mask.stderr, "integer-bitset")?
+}

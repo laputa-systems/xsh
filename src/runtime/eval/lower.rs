@@ -12517,7 +12517,11 @@ fn lowered_method_supported_for_type(ty: &Type, name: Name, arg_count: usize) ->
             name == "context" && (arg_count == 1 || arg_count == 2)
                 || lowered_method_supported_for_type(ok, name, arg_count)
         }
-        Type::Int => name == "float" && arg_count == 0,
+        Type::Int => {
+            (name == "float" && arg_count == 0)
+                || (matches!(name.as_str().as_str(), "bit_and" | "bit_or" | "clear_bits")
+                    && arg_count == 1)
+        }
         Type::Float => match name.as_str().as_str() {
             "floor" | "ceil" | "round" | "sqrt" | "exp" | "ln" | "sin" | "cos" | "tan" | "abs" => {
                 arg_count == 0
@@ -12618,6 +12622,11 @@ fn infer_checked_method_return_type(receiver: &Type, name: Name) -> Option<Type>
                 infer_checked_method_return_type(ok, name)
             }
         }
+        Type::Int => match name.as_str().as_str() {
+            "float" => Some(Type::Float),
+            "bit_and" | "bit_or" | "clear_bits" => Some(Type::Int),
+            _ => None,
+        },
         Type::Str => match name.as_str().as_str() {
             "trim" | "lower" | "upper" | "reverse" | "format" | "replace" | "translate"
             | "delete" | "squeeze" | "byte_slice" | "slice" => Some(Type::Str),
@@ -13010,6 +13019,9 @@ fn lowered_plain_method_type(name: Name) -> Option<LoweredType> {
         || name == "byte_at"
         || name == "len"
         || name == "find"
+        || name == "bit_and"
+        || name == "bit_or"
+        || name == "clear_bits"
     {
         return Some(LoweredType::Int);
     }
