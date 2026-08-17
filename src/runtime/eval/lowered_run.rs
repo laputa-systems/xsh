@@ -60,12 +60,12 @@ use super::lower::{
 };
 use super::lowered_ops::{
     checked_int_binary, compare_lowered_sort_keys, lowered_assign_value, lowered_binary_value,
-    lowered_bytes_arg,
-    lowered_bytes_parts, lowered_bytes_value, lowered_contains_value, lowered_index_value,
-    lowered_method_value, lowered_nonnegative_count, lowered_path_method_value,
-    lowered_return_value, lowered_slice_value, lowered_sort_key_orderable, lowered_str_arg,
-    lowered_str_byte_at_value, lowered_str_byte_len_value, lowered_str_count_lines_value,
-    lowered_str_parts, lowered_str_predicate_text, lowered_str_predicate_value, lowered_str_value,
+    lowered_bytes_arg, lowered_bytes_parts, lowered_bytes_value, lowered_contains_value,
+    lowered_index_value, lowered_method_value, lowered_nonnegative_count,
+    lowered_path_method_value, lowered_return_value, lowered_slice_value,
+    lowered_sort_key_orderable, lowered_str_arg, lowered_str_byte_at_value,
+    lowered_str_byte_len_value, lowered_str_count_lines_value, lowered_str_parts,
+    lowered_str_predicate_text, lowered_str_predicate_value, lowered_str_value,
     lowered_trim_is_empty_value, lowered_trim_str_predicate_value, lowered_type_name,
     lowered_value_from_runtime, lowered_value_from_runtime_any, lowered_value_matches,
     push_lowered_display,

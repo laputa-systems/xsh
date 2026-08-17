@@ -6153,9 +6153,7 @@ fn lint_block_always_returns(arena: &AstArena, block: BlockId) -> bool {
 
 fn lint_stmt_ends_sequence(arena: &AstArena, stmt: StmtId) -> bool {
     match arena.stmt(stmt).kind {
-        ArenaStmtKind::Return(_)
-        | ArenaStmtKind::Break { .. }
-        | ArenaStmtKind::Continue => true,
+        ArenaStmtKind::Return(_) | ArenaStmtKind::Break { .. } | ArenaStmtKind::Continue => true,
         ArenaStmtKind::If {
             branches,
             else_block: Some(else_block),

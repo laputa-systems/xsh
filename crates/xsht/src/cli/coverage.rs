@@ -120,10 +120,7 @@ impl CoverageCollector {
                     || kind == "cwd.enter")
                 && let Some(api_id) = raw_json_get(&value, "api_id").and_then(raw_json_as_str)
             {
-                self.api_hits
-                    .entry(api_id.to_string())
-                    .or_default()
-                    .tests += 1;
+                self.api_hits.entry(api_id.to_string()).or_default().tests += 1;
             }
             if let Some(span) = raw_json_get(&value, "source_span") {
                 self.ingest_source_span(
@@ -177,10 +174,7 @@ impl CoverageCollector {
             (
                 "source_scope".to_string(),
                 raw_json_object([
-                    (
-                        "files".to_string(),
-                        raw_json_usize(source_files.len()),
-                    ),
+                    ("files".to_string(), raw_json_usize(source_files.len())),
                     (
                         "observed_files".to_string(),
                         raw_json_usize(self.observed_source_files.len()),
@@ -462,9 +456,7 @@ impl CoverageCollector {
         raw_json_object(self.api_hits.iter().map(|(api_id, hits)| {
             (
                 api_id.clone(),
-                raw_json_object([
-                    ("tests".to_string(), raw_json_u64(hits.tests)),
-                ]),
+                raw_json_object([("tests".to_string(), raw_json_u64(hits.tests))]),
             )
         }))
     }

@@ -3,8 +3,7 @@
 use super::Span;
 use super::{
     BinaryOp, Diagnostic, DurationLiteral, FixHint, FloatLiteral, IntLiteral, Keyword, Label, Name,
-    Parser,
-    StreamStageKind, TokenKindMatch, TokenTag, UnaryOp, decode_bytes_literal_for, literal,
+    Parser, StreamStageKind, TokenKindMatch, TokenTag, UnaryOp, decode_bytes_literal_for, literal,
 };
 use crate::syntax::arena::{
     ArenaCallArgInput, ArenaExprKind, ArenaPipeStage, ArenaPipeStageKind, ArenaProgramBuilder,
@@ -535,8 +534,7 @@ impl<'a> Parser<'a> {
                 if self.current_binary_op().is_none() && self.continuation_binary_op().is_some() {
                     self.skip_newlines();
                 }
-                let unsupported_integer_division =
-                    self.report_unsupported_integer_division();
+                let unsupported_integer_division = self.report_unsupported_integer_division();
                 let (op, prec, tokens) = if let Some(tokens) = unsupported_integer_division {
                     (BinaryOp::Div, 6, tokens)
                 } else if let Some((op, prec, tokens)) = self.current_binary_op() {

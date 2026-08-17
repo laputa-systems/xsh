@@ -29,14 +29,15 @@ fn xsht_top_level_help_is_a_complete_hybrid_reference() {
     for command in [
         "check", "fmt", "lint", "ast", "trace", "api", "test", "grep", "refactor",
     ] {
-        assert!(stdout.contains(&format!("{command} —")), "missing {command} help");
+        assert!(
+            stdout.contains(&format!("{command} —")),
+            "missing {command} help"
+        );
     }
 
     let grep = stdout.find("grep —").expect("grep section");
     let refactor = stdout.find("refactor —").expect("refactor section");
-    let grep_example = stdout
-        .find("xsht grep 'X.len()' .")
-        .expect("grep example");
+    let grep_example = stdout.find("xsht grep 'X.len()' .").expect("grep example");
     assert!(grep < grep_example && grep_example < refactor);
 }
 

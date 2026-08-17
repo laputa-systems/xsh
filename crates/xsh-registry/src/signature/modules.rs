@@ -172,17 +172,15 @@ pub(in crate::signature) fn build_api_spec() -> ApiSpec {
     )
 }
 fn error_module() -> ModuleSig {
-    module_sig(vec![
-        (
-            "fail",
-            sig(
-                vec![param("message", Type::Str)],
-                result(Type::Unit),
-                false,
-                RuntimeOp::ResultContext,
-            ),
+    module_sig(vec![(
+        "fail",
+        sig(
+            vec![param("message", Type::Str)],
+            result(Type::Unit),
+            false,
+            RuntimeOp::ResultContext,
         ),
-    ])
+    )])
 }
 
 fn applet_user_type() -> Type {

@@ -274,7 +274,11 @@ proc validate() [error] -> Result[Unit] {
     );
     assert_no_codes(
         &call,
-        &["check.standard-module-shadow", "check.effect-violation", "check.type-mismatch"],
+        &[
+            "check.standard-module-shadow",
+            "check.effect-violation",
+            "check.type-mismatch",
+        ],
     );
 }
 

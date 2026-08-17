@@ -170,7 +170,9 @@ pub(super) fn lowered_binary_value(
             BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div | BinaryOp::Rem,
             LoweredValue::Int(left),
             LoweredValue::Int(right),
-        ) => Ok(LoweredValue::Int(checked_int_binary(op, left, right, span)?)),
+        ) => Ok(LoweredValue::Int(checked_int_binary(
+            op, left, right, span,
+        )?)),
         (BinaryOp::In, left, LoweredValue::List(items)) => {
             Ok(LoweredValue::Bool(items.contains(&left)))
         }
@@ -201,13 +203,17 @@ pub(super) fn checked_int_binary(
         BinaryOp::Mul => left.checked_mul(right),
         BinaryOp::Div => {
             if right == 0 {
-                return Err(RuntimeError::new("division-by-zero", "division by zero").with_span(span));
+                return Err(
+                    RuntimeError::new("division-by-zero", "division by zero").with_span(span)
+                );
             }
             left.checked_div(right)
         }
         BinaryOp::Rem => {
             if right == 0 {
-                return Err(RuntimeError::new("division-by-zero", "division by zero").with_span(span));
+                return Err(
+                    RuntimeError::new("division-by-zero", "division by zero").with_span(span)
+                );
             }
             left.checked_rem(right)
         }

@@ -10,16 +10,15 @@ use super::{
     TraceError, TraceKind, TracePayload, Traceback, TracebackFrame, TracebackFrameKind, Type,
     Value, api_spec, assign_lowered_bytes_view, assign_lowered_str_view, bind_lowered_comp_target,
     btree_map, bytes_contains, bytes_module, check_env_name, checked_int_binary,
-    compare_lowered_sort_keys, compound_assignment_value, error_constructor, execute_run_with_policy,
-    exit_status, fs_module,
-    fs_root_record, hash_module, json_module, lowered_assign_value, lowered_binary_value,
-    lowered_bool_arg_or, lowered_bool_builder_field, lowered_bytes_or_str_owned,
-    lowered_bytes_parts, lowered_bytes_value, lowered_command_plan_value,
-    lowered_command_redirections, lowered_contains_value, lowered_count_key, lowered_duration_arg,
-    lowered_encode_json, lowered_env_record_arg, lowered_error_message,
-    lowered_freeze_large_slot_list, lowered_fs_root_dir, lowered_index_value,
-    lowered_inline_stats_field_value, lowered_inline_stats_to_record_vec, lowered_int_arg,
-    lowered_match_no_arm, lowered_nonnegative_count, lowered_parse_command_values,
+    compare_lowered_sort_keys, compound_assignment_value, error_constructor,
+    execute_run_with_policy, exit_status, fs_module, fs_root_record, hash_module, json_module,
+    lowered_assign_value, lowered_binary_value, lowered_bool_arg_or, lowered_bool_builder_field,
+    lowered_bytes_or_str_owned, lowered_bytes_parts, lowered_bytes_value,
+    lowered_command_plan_value, lowered_command_redirections, lowered_contains_value,
+    lowered_count_key, lowered_duration_arg, lowered_encode_json, lowered_env_record_arg,
+    lowered_error_message, lowered_freeze_large_slot_list, lowered_fs_root_dir,
+    lowered_index_value, lowered_inline_stats_field_value, lowered_inline_stats_to_record_vec,
+    lowered_int_arg, lowered_match_no_arm, lowered_nonnegative_count, lowered_parse_command_values,
     lowered_path_arg, lowered_path_from_value, lowered_path_like_arg, lowered_path_list_arg,
     lowered_path_method_value, lowered_pipeline_input, lowered_pipeline_item_count,
     lowered_pipeline_record_list, lowered_process_run_error, lowered_record_field_value,
@@ -322,8 +321,7 @@ impl Evaluator {
             drop(sender);
             let mut completed: Vec<
                 Option<(Vec<(usize, Result<LoweredValue, RuntimeError>)>, Vec<u8>)>,
-            > =
-                (0..workers.len()).map(|_| None).collect();
+            > = (0..workers.len()).map(|_| None).collect();
             let mut remaining = workers.len();
             while remaining > 0 {
                 match receiver.recv_timeout(std::time::Duration::from_millis(1)) {
@@ -366,9 +364,9 @@ impl Evaluator {
                     let result = result.expect("par-map result missing");
                     match result {
                         Ok(value) => Ok(value),
-                        Err(error) => Err(self.stream_item_runtime_error(
-                            "par-map", item_index, error,
-                        )),
+                        Err(error) => {
+                            Err(self.stream_item_runtime_error("par-map", item_index, error))
+                        }
                     }
                 })
                 .collect::<Result<Vec<_>, _>>()?;

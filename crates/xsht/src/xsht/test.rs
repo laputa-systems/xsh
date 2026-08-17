@@ -131,9 +131,9 @@ pub(crate) fn test_scripts(options: TestOptions) -> CliOutput {
     let mut failed = 0usize;
     let mut skipped = 0usize;
     let mut failure_details = Vec::new();
-    let mut coverage = options.collect_coverage().then(|| {
-        CoverageCollector::with_api_and_excludes(options.api, &coverage_exclude)
-    });
+    let mut coverage = options
+        .collect_coverage()
+        .then(|| CoverageCollector::with_api_and_excludes(options.api, &coverage_exclude));
     if let Some(collector) = coverage.as_mut() {
         collector.register_source_files(&coverage_source_files, &coverage_module_roots);
     }
