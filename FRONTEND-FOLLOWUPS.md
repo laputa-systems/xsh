@@ -51,12 +51,11 @@ allocation source.
 
 ### 3. Reduce Broad Runtime Value Movement
 
-The remaining Tokei showcase gap is interpreter and dynamic-value work rather
-than a missing scanner primitive. The July 28, 2026 seven-run comparison placed
-the XSH default table at 1.189 s and JSON at 1.145 s, versus native tokei at
-0.722 s and 0.731 s on the same Apple M1 host. A single-run RSS check found
-memory at parity for those paths; treat the remaining gap as CPU work until
-worker-aware memory accounting says otherwise.
+Use XSH's own before/after workloads as the acceptance comparison. External
+tool parity is closed and is not an optimization target. Establish a stable
+XSH baseline first, then attribute any remaining evaluator or dynamic-value
+cost to the representation and execution path that owns it. Do not attribute
+remaining cost to memory until worker-aware accounting says otherwise.
 
 Prefer changes with broad value: cheaper small shaped records, fewer complete
 record clones for field/method access, ownership-preserving collection updates,
@@ -65,8 +64,8 @@ specialized instructions general and verifier-backed. Reject a change that only
 improves a synthetic showcase shape or makes general value semantics less clear.
 
 Use the prepared/execution-only diagnostic benchmark to isolate evaluator work,
-then run the ordinary workload to catch setup regressions. Preserve exact output
-fingerprints and stream/error/trace behavior.
+then run the same ordinary XSH workload to catch setup regressions. Preserve
+exact output fingerprints and stream/error/trace behavior.
 
 ### 4. Keep Indexed Execution Frames Honest
 
@@ -103,13 +102,6 @@ Every new executable form needs exhaustive encoding, verifier coverage, and
 value/output/error/source-span/trace parity. If the behavior is stateful or
 OS-facing, model it as an explicit host/runtime operation. Do not use runnable
 placeholder instructions or a per-opcode arena fallback.
-
-### 7. Maintain PGO After Regular Measurements
-
-PGO is not required for the accepted JSON result. After a regular-build change
-passes its direct behavior and benchmark gates, regenerate profiles only when a
-fresh PGO comparison is useful. Treat short benchmark deltas as noise until
-focused repetition confirms them.
 
 ## Rejected Directions
 
