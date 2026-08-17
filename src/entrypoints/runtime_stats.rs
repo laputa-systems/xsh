@@ -17,7 +17,9 @@ Usage:
 Runs one ordinary indexed script and writes thread-attributed allocation traffic
 to REPORT. Script stdout and stderr are preserved; the report is never mixed
 into stdout. Worker peaks are thread-local allocation-pressure evidence, not
-process RSS or an exact concurrent-live total.
+process RSS or an exact concurrent-live total. The report separately attributes
+worker allocation traffic to setup, result buffering, item evaluation, and
+fused reduction.
 ";
 
 struct Cli {

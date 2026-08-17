@@ -29,7 +29,7 @@ column are the first places to read.
 | executable commit | `FullBuilder::build_compact`, `FullProgram`, `FullVerifier::verify` | `src/runtime/eval/lower.rs`, `src/runtime/eval/indexed/full.rs`; verifier tests under `runtime::eval::indexed::full::tests` |
 | indexed execution | `Evaluator::prepare_compact_indexed_only`, `indexed_run`, `CallFrame` | `src/runtime/eval.rs`, `src/runtime/eval/lowered_run/indexed_run`; `tests/runtime/frontend_indexed.rs` and `tests/runtime/stack_depth.rs` |
 | dynamic symbol ownership | `SymbolOwner`, `NameText`, `dynamic_symbol_stats` | `src/symbol.rs`; symbol lifetime tests in `src/symbol.rs::tests` |
-| runtime allocation evidence | `xsh-runtime-stats`, `RuntimeAllocationStats`, `WorkerStage` | `src/runtime_stats.rs`, `src/mem_track.rs`; `runtime_stats::tests` |
+| runtime allocation evidence | `xsh-runtime-stats`, `RuntimeAllocationStats`, `WorkerStage`, `WorkerAllocationScope` | `src/runtime_stats.rs`, `src/mem_track.rs`; `runtime_stats::tests` |
 
 When adding a new implementation concept, document it in this table and in
 the nearest owner section using the same exact spelling. Do not use a broad
@@ -238,10 +238,12 @@ allocations are not represented by the ordinary controlling-thread columns.
 `xsh-runtime-stats --json REPORT SCRIPT [-- ARGS...]` uses the ordinary runner
 with `CountingAllocator` only in that profiling binary. Its report separates
 construction, controller, and explicitly instrumented indexed `par-map` worker
-traffic while preserving the script's stdout and stderr. Worker peak totals are
-thread-local allocation-pressure evidence, not process RSS or an exact
-concurrent-live total; pair them with a host RSS check before making a memory
-claim.
+traffic while preserving the script's stdout and stderr. Each worker report also
+attributes allocation count and bytes to setup, `par_map_results`,
+`par_map_item`, and `fused_reduce_item`; scoped figures intentionally omit live
+bytes because values can cross worker boundaries. Worker peak totals are thread-local
+allocation-pressure evidence, not process RSS or an exact concurrent-live total;
+pair them with a host RSS check before making a memory claim.
 
 The July 28, 2026 closeout corpus contained 287 files and 545,254 source bytes.
 Its retained/peak comparison against the pre-redesign baseline was:

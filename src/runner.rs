@@ -4,7 +4,7 @@ use crate::loader::{
     EntrySource, entry_source_from_bytes, parse_load_check_entry_source_with_token_table,
     parse_load_entry_source_arena_only,
 };
-use crate::mem_track::{self, AllocTraffic};
+use crate::mem_track::{self, AllocTraffic, WorkerStageTraffic};
 use crate::runtime::eval::Evaluator;
 use crate::runtime::process::path_bytes;
 use crate::sema::check::{CheckOptions, Checker};
@@ -37,7 +37,7 @@ struct PreparedRun {
 pub(crate) struct RuntimeAllocationPhases {
     pub construction: AllocTraffic,
     pub controller: AllocTraffic,
-    pub worker_stages: Vec<AllocTraffic>,
+    pub worker_stages: Vec<WorkerStageTraffic>,
 }
 
 impl PreparedRun {

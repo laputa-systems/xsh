@@ -1,6 +1,6 @@
 //! Optional allocation traffic tracking for frontend/IR diagnostics.
 //!
-//! Counters only move when the dedicated frontend-stats binary installs
+//! Counters only move when a dedicated diagnostics binary installs
 //! [`CountingAllocator`] as the global allocator. Library callers still run
 //! and report zero peak/traffic when tracking is inactive.
 
@@ -12,12 +12,73 @@ use std::sync::{Mutex, OnceLock};
 static TRACKING_INSTALLED: AtomicBool = AtomicBool::new(false);
 static WORKER_COLLECTION: OnceLock<Mutex<WorkerCollection>> = OnceLock::new();
 
+const WORKER_ALLOCATION_SCOPE_COUNT: usize = 4;
+
+/// A named segment within an explicitly instrumented indexed worker.
+#[repr(usize)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum WorkerAllocationScope {
+    Setup,
+    ParMapResults,
+    ParMapItem,
+    FusedReduceItem,
+}
+
+impl WorkerAllocationScope {
+    pub const ALL: [Self; WORKER_ALLOCATION_SCOPE_COUNT] = [
+        Self::Setup,
+        Self::ParMapResults,
+        Self::ParMapItem,
+        Self::FusedReduceItem,
+    ];
+
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Setup => "worker_setup",
+            Self::ParMapResults => "par_map_results",
+            Self::ParMapItem => "par_map_item",
+            Self::FusedReduceItem => "fused_reduce_item",
+        }
+    }
+
+    const fn index(self) -> usize {
+        self as usize
+    }
+}
+
+/// Allocation traffic whose ownership cannot be inferred from deallocation.
+///
+/// Worker values may cross thread boundaries, so scoped counters deliberately
+/// record allocation events and bytes only; the enclosing worker stage owns the
+/// thread-local live and peak accounting.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct ScopedAllocTraffic {
+    pub alloc_count: usize,
+    pub alloc_bytes: usize,
+}
+
+impl ScopedAllocTraffic {
+    const ZERO: Self = Self {
+        alloc_count: 0,
+        alloc_bytes: 0,
+    };
+
+    fn record(&mut self, size: usize) {
+        self.alloc_count = self.alloc_count.saturating_add(1);
+        self.alloc_bytes = self.alloc_bytes.saturating_add(size);
+    }
+}
+
 thread_local! {
     static ENABLED: Cell<bool> = const { Cell::new(false) };
     static LIVE_BYTES: Cell<usize> = const { Cell::new(0) };
     static PEAK_BYTES: Cell<usize> = const { Cell::new(0) };
     static ALLOC_COUNT: Cell<usize> = const { Cell::new(0) };
     static ALLOC_BYTES: Cell<usize> = const { Cell::new(0) };
+    static WORKER_ALLOCATION_SCOPE: Cell<Option<WorkerAllocationScope>> = const { Cell::new(None) };
+    static WORKER_SCOPE_TRAFFIC: Cell<[ScopedAllocTraffic; WORKER_ALLOCATION_SCOPE_COUNT]> = const {
+        Cell::new([ScopedAllocTraffic::ZERO; WORKER_ALLOCATION_SCOPE_COUNT])
+    };
 }
 
 /// Marker global allocator used only by the frontend-stats binary.
@@ -77,6 +138,7 @@ fn record_alloc(size: usize) {
         }
         ALLOC_COUNT.with(|count| count.set(count.get().saturating_add(1)));
         ALLOC_BYTES.with(|bytes| bytes.set(bytes.get().saturating_add(size)));
+        record_worker_scope_alloc(size);
         LIVE_BYTES.with(|live| {
             let next = live.get().saturating_add(size);
             live.set(next);
@@ -107,6 +169,7 @@ fn record_realloc(old_size: usize, new_size: usize) {
             let delta = new_size - old_size;
             ALLOC_COUNT.with(|count| count.set(count.get().saturating_add(1)));
             ALLOC_BYTES.with(|bytes| bytes.set(bytes.get().saturating_add(delta)));
+            record_worker_scope_alloc(delta);
             LIVE_BYTES.with(|live| {
                 let next = live.get().saturating_add(delta);
                 live.set(next);
@@ -123,6 +186,19 @@ fn record_realloc(old_size: usize, new_size: usize) {
     });
 }
 
+fn record_worker_scope_alloc(size: usize) {
+    WORKER_ALLOCATION_SCOPE.with(|scope| {
+        let Some(scope) = scope.get() else {
+            return;
+        };
+        WORKER_SCOPE_TRAFFIC.with(|traffic| {
+            let mut counters = traffic.get();
+            counters[scope.index()].record(size);
+            traffic.set(counters);
+        });
+    });
+}
+
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct AllocTraffic {
     pub live_bytes: usize,
@@ -135,7 +211,14 @@ pub struct AllocTraffic {
 #[derive(Default)]
 struct WorkerCollection {
     active: bool,
-    stages: Vec<AllocTraffic>,
+    stages: Vec<WorkerStageTraffic>,
+}
+
+/// Allocation counters from one explicitly instrumented worker thread.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct WorkerStageTraffic {
+    pub traffic: AllocTraffic,
+    pub scopes: [ScopedAllocTraffic; WORKER_ALLOCATION_SCOPE_COUNT],
 }
 
 /// A per-worker allocation scope used by the dedicated runtime-stats binary.
@@ -147,6 +230,12 @@ struct WorkerCollection {
 /// RSS or an exact concurrent-live total.
 pub struct WorkerStage {
     active: bool,
+}
+
+/// Restores the preceding worker allocation scope when dropped.
+pub struct WorkerAllocationScopeGuard {
+    active: bool,
+    previous: Option<WorkerAllocationScope>,
 }
 
 pub fn tracking_installed() -> bool {
@@ -166,7 +255,7 @@ pub fn begin_worker_collection() {
 
 /// Finish a worker collection and return one thread-local traffic sample per
 /// participating worker.
-pub fn end_worker_collection() -> Vec<AllocTraffic> {
+pub fn end_worker_collection() -> Vec<WorkerStageTraffic> {
     if !tracking_installed() {
         return Vec::new();
     }
@@ -186,6 +275,10 @@ pub fn begin_worker_stage() -> WorkerStage {
         .active;
     if active {
         begin_stage();
+        WORKER_ALLOCATION_SCOPE.with(|scope| scope.set(None));
+        WORKER_SCOPE_TRAFFIC.with(|traffic| {
+            traffic.set([ScopedAllocTraffic::ZERO; WORKER_ALLOCATION_SCOPE_COUNT])
+        });
     }
     WorkerStage { active }
 }
@@ -195,10 +288,41 @@ impl Drop for WorkerStage {
         if !self.active {
             return;
         }
-        let traffic = end_stage();
+        let traffic = WorkerStageTraffic {
+            traffic: end_stage(),
+            scopes: WORKER_SCOPE_TRAFFIC.with(Cell::get),
+        };
+        WORKER_ALLOCATION_SCOPE.with(|scope| scope.set(None));
         let mut collection = worker_collection().lock().expect("worker allocation lock poisoned");
         if collection.active {
             collection.stages.push(traffic);
+        }
+    }
+}
+
+impl WorkerStage {
+    /// Attribute allocations made while this guard is alive to one execution
+    /// segment. Disabled product allocators return an inert guard.
+    #[inline]
+    pub fn scope(&self, scope: WorkerAllocationScope) -> WorkerAllocationScopeGuard {
+        if !self.active {
+            return WorkerAllocationScopeGuard {
+                active: false,
+                previous: None,
+            };
+        }
+        let previous = WORKER_ALLOCATION_SCOPE.with(|current| current.replace(Some(scope)));
+        WorkerAllocationScopeGuard {
+            active: true,
+            previous,
+        }
+    }
+}
+
+impl Drop for WorkerAllocationScopeGuard {
+    fn drop(&mut self) {
+        if self.active {
+            WORKER_ALLOCATION_SCOPE.with(|scope| scope.set(self.previous));
         }
     }
 }

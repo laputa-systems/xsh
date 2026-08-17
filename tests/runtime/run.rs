@@ -184,6 +184,14 @@ print $total
     assert_eq!(json_u64(json_field(workers, "stage_count")), 2);
     assert!(json_u64(json_field(workers, "alloc_count")) > 0);
     assert!(json_u64(json_field(workers, "alloc_bytes")) > 0);
+    let attributions = json_array(json_field(workers, "attributions"));
+    assert_eq!(attributions.len(), 4);
+    let item = attributions
+        .iter()
+        .find(|attribution| json_str(json_field(attribution, "scope")) == "par_map_item")
+        .expect("par-map attribution");
+    assert!(json_u64(json_field(item, "alloc_count")) > 0);
+    assert!(json_u64(json_field(item, "alloc_bytes")) > 0);
 
     std::fs::remove_file(script).expect("remove runtime stats script");
     std::fs::remove_file(report).expect("remove runtime stats report");

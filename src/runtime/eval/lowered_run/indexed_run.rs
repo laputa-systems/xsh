@@ -292,25 +292,39 @@ impl Evaluator {
                 let worker = std::thread::Builder::new()
                     .stack_size(super::super::debug_test_eval_stack_size(12 * 1024 * 1024))
                     .spawn_scoped(scope, move || {
-                        let _allocation_stage = crate::mem_track::begin_worker_stage();
+                        let allocation_stage = crate::mem_track::begin_worker_stage();
                         let _symbols = symbols.enter();
-                        let mut worker = Evaluator::new_lowered_worker(shared);
-                        let mut worker_slots = base_slots;
-                        let mut results = Vec::with_capacity(chunk.len());
-                        for (item_index, item) in chunk {
-                            results.push((
-                                item_index,
-                                worker.eval_indexed_par_map_item(
-                                    &execution,
-                                    body,
-                                    value,
-                                    &block_header,
-                                    &mut worker_slots,
-                                    slot,
-                                    item,
-                                    span,
-                                ),
-                            ));
+                        let (mut worker, mut worker_slots) = {
+                            let _setup = allocation_stage
+                                .scope(crate::mem_track::WorkerAllocationScope::Setup);
+                            (
+                                Evaluator::new_lowered_worker(shared),
+                                base_slots,
+                            )
+                        };
+                        let mut results = {
+                            let _results = allocation_stage
+                                .scope(crate::mem_track::WorkerAllocationScope::ParMapResults);
+                            Vec::with_capacity(chunk.len())
+                        };
+                        {
+                            let _items = allocation_stage
+                                .scope(crate::mem_track::WorkerAllocationScope::ParMapItem);
+                            for (item_index, item) in chunk {
+                                results.push((
+                                    item_index,
+                                    worker.eval_indexed_par_map_item(
+                                        &execution,
+                                        body,
+                                        value,
+                                        &block_header,
+                                        &mut worker_slots,
+                                        slot,
+                                        item,
+                                        span,
+                                    ),
+                                ));
+                            }
                         }
                         sender
                             .send((chunk_index, results, worker.stderr))
@@ -501,39 +515,55 @@ impl Evaluator {
                 let worker = std::thread::Builder::new()
                     .stack_size(super::super::debug_test_eval_stack_size(12 * 1024 * 1024))
                     .spawn_scoped(scope, move || {
-                        let _allocation_stage = crate::mem_track::begin_worker_stage();
+                        let allocation_stage = crate::mem_track::begin_worker_stage();
                         let _symbols = symbols.enter();
-                        let mut worker = Evaluator::new_lowered_worker(shared);
-                        let mut worker_slots = base_slots;
-                        let mut groups = BTreeMap::new();
+                        let (mut worker, mut worker_slots, mut groups) = {
+                            let _setup = allocation_stage
+                                .scope(crate::mem_track::WorkerAllocationScope::Setup);
+                            (
+                                Evaluator::new_lowered_worker(shared),
+                                base_slots,
+                                BTreeMap::new(),
+                            )
+                        };
                         let result = (|| {
                             for item in chunk {
-                                let mapped = worker.eval_indexed_par_map_item(
-                                    &execution,
-                                    body,
-                                    value,
-                                    &map_header,
-                                    &mut worker_slots,
-                                    slot,
-                                    item,
-                                    span,
-                                )?;
-                                let rows = if flatten {
-                                    worker.lowered_flat_map_rows(mapped, span)?
-                                } else {
-                                    vec![mapped]
+                                let mapped = {
+                                    let _item = allocation_stage.scope(
+                                        crate::mem_track::WorkerAllocationScope::ParMapItem,
+                                    );
+                                    worker.eval_indexed_par_map_item(
+                                        &execution,
+                                        body,
+                                        value,
+                                        &map_header,
+                                        &mut worker_slots,
+                                        slot,
+                                        item,
+                                        span,
+                                    )?
                                 };
-                                worker.eval_indexed_reduce_rows(
-                                    &execution,
-                                    rows,
-                                    reduce_item_slot,
-                                    reduce_body,
-                                    reduce_value,
-                                    op,
-                                    &mut worker_slots,
-                                    &mut groups,
-                                    span,
-                                )?;
+                                {
+                                    let _reduce = allocation_stage.scope(
+                                        crate::mem_track::WorkerAllocationScope::FusedReduceItem,
+                                    );
+                                    let rows = if flatten {
+                                        worker.lowered_flat_map_rows(mapped, span)?
+                                    } else {
+                                        vec![mapped]
+                                    };
+                                    worker.eval_indexed_reduce_rows(
+                                        &execution,
+                                        rows,
+                                        reduce_item_slot,
+                                        reduce_body,
+                                        reduce_value,
+                                        op,
+                                        &mut worker_slots,
+                                        &mut groups,
+                                        span,
+                                    )?;
+                                }
                             }
                             Ok::<_, RuntimeError>(groups)
                         })();
