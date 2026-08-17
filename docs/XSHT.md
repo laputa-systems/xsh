@@ -83,12 +83,17 @@ stay in the individual `crates/xsht/src/cli/*.rs` modules.
 
 ## API Queries
 
-`xsht api` is the standalone first-contact reference for XSH. With no selector
-it prints a tiny valid script and the basic `xsht check`, `xsht fmt`, `xsht
-lint`, and `xsh SCRIPT` loop. It reads the canonical API registry; it does not
-parse generated Markdown or maintain a second documentation table. Batch
-selectors preserve request order and may mix exact lookups with deterministic
-search:
+`xsht api` is the standalone first-contact reference for XSH. It is a projection
+of the canonical language and standard-library metadata, not a source or test
+index and not a generated Markdown manual. With no selector it prints a compact
+onboarding guide containing a valid script, the `xsht check`, `xsht fmt`, and
+`xsht lint` loop, the `xsh SCRIPT` run command, and representative discovery
+queries. The onboarding script is part of the executable contract: the API
+tests extract it and run `xsht check` against it. JSONL mode emits one structured
+guide object for this no-selector form.
+
+Batch selectors preserve request order and may mix exact lookups with
+deterministic search:
 
 ```sh
 xsht api
@@ -97,21 +102,45 @@ xsht api --format jsonl --strict api:archive.tar_extract search:"rooted extracti
 xsht api summary
 ```
 
-`module:NAME` prints the module overview and its member index. `method:NAME` prints the receiver overview and its member index; `method:NAME.MEMBER` reads one exact item. Exact API
-queries print purpose, contract, derived effects, signatures, tags, and a short
-example when one is useful. `xsht api summary` prints the complete sorted
-module/function tree, method receiver tree, record list, and language-reference
-groups after a compact count header. `--format jsonl` returns the same
-inventory as structured arrays.
+The query forms are `summary`, `module:NAME`, `api:MODULE.FUNCTION`,
+`method:RECEIVER` or `method:RECEIVER.METHOD`, `record:NAME`, `language:ID`, and
+`search:TERMS`. A bare module or receiver query returns its overview and member
+index; an exact `api:` or member query returns the full item. `language:ID`
+accepts an exact item or a prefix such as `language:core`. Search matches IDs,
+purposes, contracts, and retrieval tags. Exact and language-reference queries
+default to full details; module groups and search default to compact purposes.
+`--details basic|full` overrides that choice. `--query-file`, `--stdin`,
+`--strict`, and `--format jsonl` are available for batch and machine-readable
+use. `summary` is exclusive of selectors and query inputs; its text and JSONL
+forms contain the complete sorted module/function tree, method receiver tree,
+record list, language-reference groups, and inventory counts.
 
-API examples are maintained as XSH snippets under docs/snippets/api/; the
-registry maps them to API IDs and xsht api returns their contents.
+Full API items expose a caller-facing purpose and, when applicable, a contract,
+derived effects, signatures, retrieval tags, and a short XSH example. Contracts
+carry only constraints needed to avoid a wrong program, such as ownership,
+cleanup, rooted boundaries, ordering, platform limits, status-versus-error
+distinctions, or text/byte boundaries. Effects come from the checked signature
+metadata (`none` means no host capability); a fallible return does not itself
+require the `error` effect. A contract may be empty when the purpose and
+signature already cover the behavior. Results do not expose Rust operation names,
+implementation paths, or test references.
+
+Examples are maintained as XSH snippets under `docs/snippets/api/`; the registry
+maps snippets to API IDs and embeds their contents in API output. Metadata stays
+beside the language surface: module and method docs live in
+`crates/xsh-registry/src/signature/`, record docs live with the record API
+definitions, language rules live in `crates/xsh-registry/src/reference.rs`, and
+`crates/xsht/src/api.rs` only selects, derives, and renders the registry. The
+registry rejects missing or empty public documentation and unknown documentation
+entries; it does not maintain a parallel table of implementation paths or tests.
 
 Use `--query-file PATH` or `--stdin` to add one selector per line to the same
 request. `crates/xsht/src/api.rs::query` renders and derives the registry;
 `crates/xsht/src/cli/api.rs::api_command` owns CLI result conversion; and
-`crates/xsht/tests/api.rs` covers onboarding, text, JSONL, strict, file, stdin,
-module, and exact-item queries.
+`crates/xsht/tests/api.rs` covers onboarding, selectors, contracts, effects,
+examples, JSONL, strict mode, query files, stdin, module and receiver indexes,
+and the exhaustive summary. Registry tests verify that the public signature
+surface and its documentation inventory agree.
 
 ## Configuration
 
@@ -129,6 +158,16 @@ from `xsht test --cov` source coverage. These patterns affect coverage
 registration only; they do not change `xsht check`, `xsht fmt`, or `xsht lint`
 discovery. The ordinary top-level `exclude` remains the shared discovery filter
 for path-oriented commands.
+
+The optional `[dead-code]` section accepts `exclude` patterns for files where
+`lint.dead-code` and `lint.unused-callable` should not be reported. These files
+still run through the other lint rules. For example, API documentation snippets
+can opt out without becoming globally invisible to `xsht lint`:
+
+```ini
+[dead-code]
+exclude = docs/snippets/**/*.xsh
+```
 
 Native tests capture `process.run` stdout and stderr per test by default. `xsht
 test` shows that output for failed tests; `xsht test --nocapture` shows it while
