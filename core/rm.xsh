@@ -1,10 +1,6 @@
 #!/bin/xsh
 error AppletError = Usage(message: Str) : Usage
 
-pure reject_unsupported(applet_name: Str, flag: Str) -> Error {
-  return AppletError.Usage(f"${applet_name}: unsupported option '${flag}'")
-}
-
 proc remove_tree(root: Path) [fs, error] {
   for entry in fs.walk(root) |> sort-by --desc .path {
     if entry.kind == "dir" {

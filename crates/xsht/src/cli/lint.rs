@@ -241,6 +241,7 @@ fn lint_config_for_file(
         interactive_command_replacement: None,
         expr_types: Default::default(),
         callable_effects: Default::default(),
+        terminating_call_spans: Default::default(),
     };
     Ok(ResolvedLintConfig {
         lint_options,
@@ -405,6 +406,7 @@ fn lint_one_file(
     let mut lint_options = config.lint_options;
     lint_options.expr_types = checked.expr_types;
     lint_options.callable_effects = checked.callable_effects;
+    lint_options.terminating_call_spans = checked.terminating_call_spans;
     let text = checked_program.entry_source_text().unwrap_or("");
     let linted = Linter::lint(&checked_program.parsed.arena, text, lint_options);
     if linted.diagnostics.is_empty() {
@@ -457,6 +459,7 @@ fn lint_one_file_with_fixes(
     let mut lint_options = config.lint_options.clone();
     lint_options.expr_types = checked.expr_types.clone();
     lint_options.callable_effects = checked.callable_effects.clone();
+    lint_options.terminating_call_spans = checked.terminating_call_spans.clone();
     let linted = Linter::lint(&checked_program.parsed.arena, &text, lint_options);
 
     let mut ast_fixes = collect_fix_spans(&linted.diagnostics);

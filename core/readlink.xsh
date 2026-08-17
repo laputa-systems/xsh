@@ -9,10 +9,6 @@ pure usage_error(applet_name: Str, summary: Str) -> Error {
   return AppletError.Usage(usage(applet_name, summary))
 }
 
-pure reject_unsupported(applet_name: Str, flag: Str) -> Error {
-  return AppletError.Usage(f"${applet_name}: unsupported option '${flag}'")
-}
-
 type ReadlinkOptions = {canonicalize: Bool, paths: List[Str]}
 
 proc main(...argv: List[Str]) [fs, error] {

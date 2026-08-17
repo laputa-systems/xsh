@@ -22,7 +22,7 @@ add redundant product prefixes to already-qualified symbols.
 |---|---|---|
 | command entry and result contract | `xsht::app::main`, `xsht::app::finish`, `xsht::cli::CliOutput` | `crates/xsht/src/app.rs`, `crates/xsht/src/cli/mod.rs`; `crates/xsht/tests/cli.rs` |
 | generated command help | `root_help`, `command_help` | `crates/xsht/src/help.rs`; generated-output coverage in `crates/xsht/tests/cli.rs` |
-| checked command pipeline | `check_script`, `format_files`, `lint_files` | `crates/xsht/src/cli/check.rs`, `fmt.rs`, `lint.rs`; CLI and lint integration tests |
+| checked command pipeline and reachability diagnostics | `check_script`, `format_files`, `lint_files`, `lint.dead-code`, `lint.unused-callable` | `crates/xsht/src/cli/check.rs`, `fmt.rs`, `lint.rs`; CLI and lint integration tests |
 | structural search and refactoring | `find_matches_in_program`, `PatternExpr`, `Match`, `apply_replacement` | `crates/xsht/src/grep.rs`; `crates/xsht/tests/grep.rs` |
 | command adapters | `api_command`, `grep_scripts`, `refactor_scripts`, `ast_script` | `crates/xsht/src/cli/api.rs`, `grep.rs`, `refactor.rs`, `syntax_tree.rs`; `crates/xsht/tests/api.rs`, `grep.rs`, and `cli.rs` |
 | source-preserving edits | `SyntaxTree`, `apply_cst_guarded_edits`, `Formatter` | `crates/xsht/src/edit.rs`, `format.rs`, `cli/fmt.rs`; formatter coverage in `crates/xsht/tests/cli.rs` |
@@ -194,6 +194,45 @@ Safe fixes must satisfy all of these:
 When a lint can report a real issue but cannot safely preserve nearby comments,
 it should report the diagnostic without a fix hint. This is better than
 silently moving comments or relying on final formatting to reconstruct intent.
+
+## Reachability Diagnostics
+
+`Linter` in `crates/xsht/src/lint.rs` owns two proof-oriented reachability
+warnings. `lint.dead-code` reports a statement with no path from the preceding
+statement in its enclosing body. `lint.unused-callable` reports an unexported
+top-level `proc`, `pure`, or `stream` that has no path from a checked-program
+bundle entry point. Neither warning has an automatic deletion fix.
+
+Statement reachability uses a flow summary with normal fall-through, `return`,
+`break`, `continue`, and guaranteed termination exits. Sequences issue one
+warning at the start of a contiguous unreachable region, while still visiting
+the remaining statements for independent diagnostics. Branches join their
+possible exits; `while` and `for` retain a zero-iteration path, whereas `loop`
+consumes its body's loop-control exits. `with`, `guard`, match arms, retry
+attempts, pipeline/task blocks, and signal-hook bodies retain their own
+control-flow boundaries.
+
+Failure alone is not termination: fallible calls, `run`, `?`, `with`, and
+dynamic dispatch retain a possible normal path. The exceptions are the
+guaranteed `match-no-arm` runtime exit and a resolved core `abort(...)` call.
+The checker records the latter in `CheckOutput::terminating_call_spans`; the
+lint CLI passes that fact through `LintOptions` rather than inferring it from a
+callee spelling or effect annotation.
+
+Callable reachability is a separate graph over `ArenaProgram`, including loaded
+modules. Resolved local calls and resolved imported calls are graph edges. A
+resolved callable used as a value is a dynamic escape edge, activated only when
+its enclosing root or callable is live. Roots are entry top-level execution,
+the entry `proc main`, root `proc test_*` native-test entry points, exports,
+root signal hooks, and module initializers. Values, imports, and type
+declarations are deliberately outside this warning: they have initialization,
+API, or type-use contracts that reachability alone cannot prove dead.
+
+Focused coverage belongs in `crates/xsht/tests/lint.rs`. It must cover both a
+proven warning and a false-positive boundary for each flow rule, plus exports,
+recursion, dynamic callable values, native tests, entry functions, and
+cross-module calls. The relevant broader gate is `cargo test -p xsht --test
+integration` from `docs/TEST-MAP.md`.
 
 ## Structural Search And Refactor
 

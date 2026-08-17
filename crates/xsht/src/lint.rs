@@ -1,7 +1,7 @@
 #![allow(clippy::single_call_fn)]
 
 use rustc_hash::{FxHashMap, FxHashSet};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use xsh::diagnostic::{Diagnostic, FixHint, Label, Severity};
 use xsh::frontend::check::Type;
 use xsh::frontend::source::Span;
@@ -45,6 +45,7 @@ pub struct LintOptions {
     pub interactive_command_replacement: Option<fn(&str) -> Option<&'static str>>,
     pub expr_types: BTreeMap<Span, Type>,
     pub callable_effects: FxHashMap<String, Option<Vec<Effect>>>,
+    pub terminating_call_spans: BTreeSet<Span>,
 }
 
 #[derive(Clone, Debug)]
@@ -68,6 +69,7 @@ pub struct Linter<'a> {
     result_return_ok_types: Vec<Option<Type>>,
     function_return_types: Vec<Type>,
     function_effects: FxHashMap<String, Option<Vec<Effect>>>,
+    terminating_call_spans: BTreeSet<Span>,
     tag_variants: FxHashSet<String>,
     type_declarations: FxHashMap<String, Span>,
     record_type_names: FxHashSet<String>,
@@ -136,6 +138,7 @@ impl<'a> Linter<'a> {
             result_return_ok_types: Vec::new(),
             function_return_types: Vec::new(),
             function_effects: options.callable_effects,
+            terminating_call_spans: options.terminating_call_spans,
             tag_variants: FxHashSet::default(),
             type_declarations: FxHashMap::default(),
             record_type_names: FxHashSet::default(),
@@ -154,6 +157,7 @@ impl<'a> Linter<'a> {
         );
         let statements: Vec<StmtId> = program.statement_ids().collect();
         linter.lint_program(&statements);
+        linter.lint_declaration_reachability(program);
         LintOutput {
             diagnostics: linter.diagnostics,
         }
@@ -206,11 +210,14 @@ impl<'a> Linter<'a> {
         }
         self.lint_list_comp_suggestions(statements);
         self.lint_stream_producer_suggestions(statements);
-        for &stmt_id in statements {
-            self.lint_stmt(stmt_id, false);
-        }
+        self.lint_statement_sequence(statements);
         self.lint_implicit_main(statements);
         self.lint_unused_types();
+    }
+
+    fn lint_declaration_reachability(&mut self, program: &'a ArenaProgram) {
+        self.diagnostics
+            .extend(CallableReachability::new(program).diagnostics());
     }
 
     fn collect_assigned_names(&mut self, statements: &[StmtId]) {
@@ -2040,19 +2047,25 @@ impl<'a> Linter<'a> {
             .stmt_ids(self.arena.block(block).statements)
             .collect();
         self.lint_list_comp_suggestions(&stmts);
-        let mut reachable = true;
-        for &stmt in &stmts {
-            if !reachable {
+        self.lint_statement_sequence(&stmts);
+    }
+
+    fn lint_statement_sequence(&mut self, stmts: &[StmtId]) {
+        let mut flow = FlowSummary::fallthrough();
+        let mut reported_dead_region = false;
+        for &stmt in stmts {
+            if !flow.fallthrough && !reported_dead_region {
                 self.warning(
                     self.arena.stmt(stmt).span,
                     "unreachable code",
                     "lint.dead-code",
                     "this statement can never execute",
                 );
+                reported_dead_region = true;
             }
             self.lint_stmt(stmt, false);
-            if reachable && lint_stmt_ends_sequence(self.arena, stmt) {
-                reachable = false;
+            if flow.fallthrough {
+                flow = flow.then(stmt_flow(self.arena, stmt, &self.terminating_call_spans));
             }
         }
     }
@@ -6144,51 +6157,1540 @@ fn map_comp_key_can_be_bare(arena: &AstArena, expr: ExprId) -> bool {
     }
 }
 
-fn lint_block_always_returns(arena: &AstArena, block: BlockId) -> bool {
-    arena
-        .stmt_ids(arena.block(block).statements)
-        .last()
-        .is_some_and(|stmt| lint_stmt_always_returns(arena, stmt))
+/// The bundle-level namespace and import table used by callable reachability.
+/// Namespace zero is the entry source; every other namespace is one loaded user
+/// module. This deliberately follows the loader's resolved module keys instead
+/// of trying to recover paths from source spelling.
+struct CallableReachabilityModule {
+    statements: ArenaRange,
+    imports: FxHashMap<Name, usize>,
 }
 
-fn lint_stmt_ends_sequence(arena: &AstArena, stmt: StmtId) -> bool {
-    match arena.stmt(stmt).kind {
-        ArenaStmtKind::Return(_) | ArenaStmtKind::Break { .. } | ArenaStmtKind::Continue => true,
-        ArenaStmtKind::If {
-            branches,
-            else_block: Some(else_block),
-        } => {
-            arena
-                .if_branches(branches)
-                .iter()
-                .all(|b| lint_block_always_returns(arena, b.block))
-                && lint_block_always_returns(arena, else_block)
-        }
-        ArenaStmtKind::Match { arms, .. } => arena
-            .match_arms(arms)
-            .iter()
-            .all(|arm| lint_block_always_returns(arena, arm.block)),
-        _ => false,
+#[derive(Clone, Copy)]
+struct ReachableCallable {
+    definition: FunctionDefId,
+    namespace: usize,
+    name: Name,
+    span: Span,
+    exported: bool,
+    proc_entry: bool,
+}
+
+#[derive(Default)]
+struct CallableEdges {
+    direct: FxHashSet<usize>,
+    dynamic: FxHashSet<usize>,
+}
+
+impl CallableEdges {
+    fn all_targets(&self) -> impl Iterator<Item = usize> + '_ {
+        self.direct.iter().chain(&self.dynamic).copied()
     }
 }
 
-fn lint_stmt_always_returns(arena: &AstArena, stmt: StmtId) -> bool {
+/// A closed-world graph over the checked program bundle's callable
+/// declarations. Direct calls are resolved from the AST's already-resolved
+/// module imports; function identities used as values are separate dynamic
+/// escape edges. The latter are only activated when their enclosing owner is
+/// reachable, which avoids keeping a callee alive merely because an unused
+/// callable refers to it.
+struct CallableReachability<'a> {
+    arena: &'a AstArena,
+    modules: Vec<CallableReachabilityModule>,
+    callables: Vec<ReachableCallable>,
+    callable_by_name: FxHashMap<(usize, Name), usize>,
+}
+
+impl<'a> CallableReachability<'a> {
+    fn new(program: &'a ArenaProgram) -> Self {
+        let arena = &program.arena;
+        let mut module_keys = FxHashMap::default();
+        for (offset, module) in program.modules.iter().enumerate() {
+            module_keys.insert(module.key.clone(), offset + 1);
+        }
+
+        let mut modules = Vec::with_capacity(program.modules.len() + 1);
+        modules.push(CallableReachabilityModule {
+            statements: program.statements,
+            imports: FxHashMap::default(),
+        });
+        modules.extend(
+            program
+                .modules
+                .iter()
+                .map(|module| CallableReachabilityModule {
+                    statements: module.statements,
+                    imports: FxHashMap::default(),
+                }),
+        );
+
+        for module in &mut modules {
+            for stmt in arena.stmt_ids(module.statements) {
+                let ArenaStmtKind::Use(use_id) = arena.stmt(stmt).kind else {
+                    continue;
+                };
+                let use_stmt = arena.use_stmt(use_id);
+                let Some(target) = use_stmt
+                    .resolved
+                    .as_deref()
+                    .and_then(|key| module_keys.get(key))
+                    .copied()
+                else {
+                    continue;
+                };
+                let alias = use_stmt.alias.or_else(|| arena.names(use_stmt.path).last());
+                if let Some(alias) = alias {
+                    module.imports.insert(alias, target);
+                }
+            }
+        }
+
+        let mut reachability = Self {
+            arena,
+            modules,
+            callables: Vec::new(),
+            callable_by_name: FxHashMap::default(),
+        };
+        reachability.collect_callable_declarations();
+        reachability
+    }
+
+    fn collect_callable_declarations(&mut self) {
+        let module_statements = self
+            .modules
+            .iter()
+            .enumerate()
+            .map(|(namespace, module)| {
+                (
+                    namespace,
+                    self.arena.stmt_ids(module.statements).collect::<Vec<_>>(),
+                )
+            })
+            .collect::<Vec<_>>();
+        for (namespace, statements) in module_statements {
+            for stmt in statements {
+                let Some((definition, exported, proc_entry)) =
+                    callable_statement_info(self.arena, stmt)
+                else {
+                    continue;
+                };
+                let callable = ReachableCallable {
+                    definition,
+                    namespace,
+                    name: self.arena.function_def(definition).name,
+                    span: self.arena.stmt(stmt).span,
+                    exported,
+                    proc_entry,
+                };
+                let index = self.callables.len();
+                self.callable_by_name
+                    .insert((namespace, callable.name), index);
+                self.callables.push(callable);
+            }
+        }
+    }
+
+    fn diagnostics(&self) -> Vec<Diagnostic> {
+        let mut root_targets = FxHashSet::default();
+        for (index, callable) in self.callables.iter().enumerate() {
+            if callable.exported
+                || (callable.namespace == 0
+                    && callable.proc_entry
+                    && (callable.name == "main" || callable.name.as_str().starts_with("test_")))
+            {
+                root_targets.insert(index);
+            }
+        }
+
+        for namespace in 0..self.modules.len() {
+            let mut scanner = CallableEdgeScanner::new(self, namespace);
+            scanner.scan_top_level_initializers();
+            root_targets.extend(scanner.edges.all_targets());
+            if namespace == 0 {
+                scanner.scan_root_signal_hooks();
+                root_targets.extend(scanner.edges.all_targets());
+            }
+        }
+
+        let edges = self
+            .callables
+            .iter()
+            .map(|callable| {
+                let mut scanner = CallableEdgeScanner::new(self, callable.namespace);
+                scanner.scan_callable(callable.definition);
+                scanner.edges
+            })
+            .collect::<Vec<_>>();
+        let mut reachable = vec![false; self.callables.len()];
+        let mut pending = root_targets.into_iter().collect::<Vec<_>>();
+        while let Some(index) = pending.pop() {
+            if reachable[index] {
+                continue;
+            }
+            reachable[index] = true;
+            pending.extend(edges[index].all_targets());
+        }
+
+        let mut candidates = self
+            .callables
+            .iter()
+            .enumerate()
+            .filter(|(index, callable)| !callable.exported && !reachable[*index])
+            .collect::<Vec<_>>();
+        candidates.sort_by_key(|(_, callable)| callable.span);
+        candidates
+            .into_iter()
+            .map(|(_, callable)| {
+                Diagnostic::new(
+                    Severity::Warning,
+                    format!("unused callable `{}`", callable.name.as_str()),
+                )
+                .with_code("lint.unused-callable")
+                .with_label(Label::secondary(
+                    callable.span,
+                    "this unexported callable is not reachable from a bundle entry point",
+                ))
+            })
+            .collect()
+    }
+
+    fn resolve_unqualified(&self, namespace: usize, name: Name) -> Option<usize> {
+        self.callable_by_name.get(&(namespace, name)).copied()
+    }
+
+    fn resolve_qualified(&self, namespace: usize, alias: Name, name: Name) -> Option<usize> {
+        let target_namespace = self.modules[namespace].imports.get(&alias)?;
+        self.resolve_unqualified(*target_namespace, name)
+    }
+}
+
+fn callable_statement_info(arena: &AstArena, stmt: StmtId) -> Option<(FunctionDefId, bool, bool)> {
+    let mut current = stmt;
+    let mut exported = false;
+    loop {
+        match arena.stmt(current).kind {
+            ArenaStmtKind::Export(inner) => {
+                exported = true;
+                current = inner;
+            }
+            ArenaStmtKind::ProcDef(definition) => return Some((definition, exported, true)),
+            ArenaStmtKind::PureDef(definition) | ArenaStmtKind::StreamDef(definition) => {
+                return Some((definition, exported, false));
+            }
+            _ => return None,
+        }
+    }
+}
+
+struct CallableEdgeScanner<'analysis, 'arena> {
+    analysis: &'analysis CallableReachability<'arena>,
+    namespace: usize,
+    scopes: Vec<FxHashSet<Name>>,
+    edges: CallableEdges,
+}
+
+impl<'analysis, 'arena> CallableEdgeScanner<'analysis, 'arena> {
+    fn new(analysis: &'analysis CallableReachability<'arena>, namespace: usize) -> Self {
+        Self {
+            analysis,
+            namespace,
+            scopes: vec![FxHashSet::default()],
+            edges: CallableEdges::default(),
+        }
+    }
+
+    fn arena(&self) -> &AstArena {
+        self.analysis.arena
+    }
+
+    fn scan_top_level_initializers(&mut self) {
+        let statements = self
+            .arena()
+            .stmt_ids(self.analysis.modules[self.namespace].statements)
+            .collect::<Vec<_>>();
+        self.scan_sequence(&statements);
+    }
+
+    fn scan_root_signal_hooks(&mut self) {
+        let statements = self
+            .arena()
+            .stmt_ids(self.analysis.modules[0].statements)
+            .collect::<Vec<_>>();
+        for stmt in statements {
+            let ArenaStmtKind::SignalHook(hook) = self.arena().stmt(stmt).kind else {
+                continue;
+            };
+            self.scan_block(self.arena().signal_hook(hook).body);
+        }
+    }
+
+    fn scan_callable(&mut self, definition: FunctionDefId) {
+        let definition = self.arena().function_def(definition).clone();
+        for param in self.arena().params(definition.params).to_vec() {
+            if let Some(default) = param.default {
+                self.scan_expr(default);
+            }
+            self.define(param.name);
+        }
+        self.scan_block(definition.body);
+    }
+
+    fn scan_sequence(&mut self, statements: &[StmtId]) {
+        for &stmt in statements {
+            self.scan_stmt(stmt);
+        }
+    }
+
+    fn scan_stmt(&mut self, stmt: StmtId) {
+        match self.arena().stmt(stmt).kind {
+            ArenaStmtKind::Export(inner) => self.scan_stmt(inner),
+            ArenaStmtKind::Let {
+                target,
+                initializer,
+                ..
+            }
+            | ArenaStmtKind::Var {
+                target,
+                initializer,
+                ..
+            } => {
+                self.scan_expr_or_run(initializer);
+                self.define_binding_target(target);
+            }
+            ArenaStmtKind::Assign { target, value, .. } => {
+                self.scan_assign_target(target);
+                self.scan_expr_or_run(value);
+            }
+            ArenaStmtKind::Return(Some(value))
+            | ArenaStmtKind::Yield(value)
+            | ArenaStmtKind::Defer(value) => self.scan_expr_or_run(value),
+            ArenaStmtKind::If {
+                branches,
+                else_block,
+            } => {
+                for branch in self.arena().if_branches(branches).to_vec() {
+                    self.scan_expr(branch.condition);
+                    self.scan_block(branch.block);
+                }
+                if let Some(block) = else_block {
+                    self.scan_block(block);
+                }
+            }
+            ArenaStmtKind::While { condition, block } => {
+                self.scan_expr(condition);
+                self.scan_block(block);
+            }
+            ArenaStmtKind::For {
+                target,
+                iter,
+                block,
+                ..
+            } => {
+                self.scan_expr(iter);
+                self.push_scope();
+                self.define_binding_target(target);
+                self.scan_block(block);
+                self.pop_scope();
+            }
+            ArenaStmtKind::With {
+                bindings,
+                body,
+                else_param,
+                else_block,
+            } => {
+                let bindings = self.arena().with_bindings(bindings).to_vec();
+                for binding in &bindings {
+                    self.scan_expr(binding.initializer);
+                }
+                self.push_scope();
+                for binding in &bindings {
+                    self.define(binding.name);
+                }
+                self.scan_block(body);
+                self.pop_scope();
+                self.push_scope();
+                if let Some(name) = else_param {
+                    self.define(name);
+                }
+                self.scan_block(else_block);
+                self.pop_scope();
+            }
+            ArenaStmtKind::Loop { block } => self.scan_block(block),
+            ArenaStmtKind::Guard {
+                target,
+                initializer,
+                else_param,
+                else_block,
+                ..
+            } => {
+                self.scan_expr_or_run(initializer);
+                self.push_scope();
+                if let Some(name) = else_param {
+                    self.define(name);
+                }
+                self.scan_block(else_block);
+                self.pop_scope();
+                self.define_binding_target(target);
+            }
+            ArenaStmtKind::GuardedStmt {
+                stmt, condition, ..
+            } => {
+                self.scan_expr(condition);
+                self.scan_stmt(stmt);
+            }
+            ArenaStmtKind::Match { value, arms } => {
+                self.scan_expr(value);
+                for arm in self.arena().match_arms(arms).to_vec() {
+                    self.push_scope();
+                    self.define_pattern(arm.pattern);
+                    if let Some(guard) = arm.guard {
+                        self.scan_expr(guard);
+                    }
+                    self.scan_block(arm.block);
+                    self.pop_scope();
+                }
+            }
+            ArenaStmtKind::Command(command) => self.scan_command(command),
+            ArenaStmtKind::TailBareIdent(name) => self.add_direct_unqualified(name),
+            ArenaStmtKind::Expr(expr) => self.scan_expr(expr),
+            // Callable bodies and hooks have their own entry conditions. A
+            // declaration is never executed while its containing initializer
+            // runs, so only roots and graph edges scan those bodies.
+            ArenaStmtKind::Use(_)
+            | ArenaStmtKind::TypeDef(_)
+            | ArenaStmtKind::ErrorDef(_)
+            | ArenaStmtKind::ProcDef(_)
+            | ArenaStmtKind::PureDef(_)
+            | ArenaStmtKind::StreamDef(_)
+            | ArenaStmtKind::SignalHook(_)
+            | ArenaStmtKind::Return(None)
+            | ArenaStmtKind::Break { value: None }
+            | ArenaStmtKind::Continue => {}
+            ArenaStmtKind::Break { value: Some(value) } => self.scan_expr(value),
+        }
+    }
+
+    fn scan_block(&mut self, block: BlockId) {
+        let block = self.arena().block(block).clone();
+        self.push_scope();
+        for param in self.arena().block_params(block.params).to_vec() {
+            self.define(param.name);
+        }
+        let statements = self.arena().stmt_ids(block.statements).collect::<Vec<_>>();
+        self.scan_sequence(&statements);
+        self.pop_scope();
+    }
+
+    fn scan_expr_or_run(&mut self, value: ArenaExprOrRun) {
+        match value {
+            ArenaExprOrRun::Expr(expr) => self.scan_expr(expr),
+            ArenaExprOrRun::Run(run) => self.scan_run(run),
+        }
+    }
+
+    fn scan_expr(&mut self, expr: ExprId) {
+        match self.arena().expr(expr).kind {
+            ArenaExprKind::FmtString(parts) | ArenaExprKind::PathFmtString(parts) => {
+                for part in self.arena().fmt_parts(parts).collect::<Vec<_>>() {
+                    if let ArenaFmtPart::Expr(expr, _) = part {
+                        self.scan_expr(expr);
+                    }
+                }
+            }
+            ArenaExprKind::Ident(name) => self.add_dynamic_unqualified(name),
+            ArenaExprKind::List(items) => {
+                for item in self.arena().expr_ids(items).collect::<Vec<_>>() {
+                    self.scan_expr(item);
+                }
+            }
+            ArenaExprKind::ListComp {
+                expr,
+                target,
+                iter,
+                condition,
+            } => {
+                self.scan_expr(iter);
+                self.push_scope();
+                self.define_binding_target(target);
+                if let Some(condition) = condition {
+                    self.scan_expr(condition);
+                }
+                self.scan_expr(expr);
+                self.pop_scope();
+            }
+            ArenaExprKind::MapComp {
+                key,
+                value,
+                target,
+                iter,
+                condition,
+            } => {
+                self.scan_expr(iter);
+                self.push_scope();
+                self.define_binding_target(target);
+                if let Some(condition) = condition {
+                    self.scan_expr(condition);
+                }
+                self.scan_expr(key);
+                self.scan_expr(value);
+                self.pop_scope();
+            }
+            ArenaExprKind::Record(fields) => {
+                for field in self.arena().record_fields(fields).to_vec() {
+                    match field.kind {
+                        ArenaRecordFieldKind::Named { value, .. }
+                        | ArenaRecordFieldKind::Spread { expr: value, .. } => self.scan_expr(value),
+                        ArenaRecordFieldKind::Shorthand { name, .. } => {
+                            self.add_dynamic_unqualified(name)
+                        }
+                    }
+                }
+            }
+            ArenaExprKind::If {
+                branches,
+                else_value,
+            } => {
+                for branch in self.arena().if_expr_branches(branches).to_vec() {
+                    self.scan_expr(branch.condition);
+                    self.scan_expr(branch.value);
+                }
+                self.scan_expr(else_value);
+            }
+            ArenaExprKind::Match { value, arms } => {
+                self.scan_expr(value);
+                for arm in self.arena().match_expr_arms(arms).to_vec() {
+                    self.push_scope();
+                    self.define_pattern(arm.pattern);
+                    if let Some(guard) = arm.guard {
+                        self.scan_expr(guard);
+                    }
+                    self.scan_expr(arm.value);
+                    self.pop_scope();
+                }
+            }
+            ArenaExprKind::Unary { expr, .. }
+            | ArenaExprKind::Try(expr)
+            | ArenaExprKind::Require { value: expr, .. } => self.scan_expr(expr),
+            ArenaExprKind::Binary { left, right, .. }
+            | ArenaExprKind::Index {
+                base: left,
+                index: right,
+            } => {
+                self.scan_expr(left);
+                self.scan_expr(right);
+            }
+            ArenaExprKind::Call { callee, args } => {
+                if self.add_direct_callee(callee).is_none() {
+                    self.scan_expr(callee);
+                }
+                for arg in self.arena().call_args(args).to_vec() {
+                    self.scan_call_arg(&arg);
+                }
+            }
+            ArenaExprKind::Field { base, name } | ArenaExprKind::NullSafeField { base, name } => {
+                if self.add_dynamic_qualified_field(base, name).is_none() {
+                    self.scan_expr(base);
+                }
+            }
+            ArenaExprKind::Slice { base, start, end } => {
+                self.scan_expr(base);
+                if let Some(start) = start {
+                    self.scan_expr(start);
+                }
+                if let Some(end) = end {
+                    self.scan_expr(end);
+                }
+            }
+            ArenaExprKind::Pipeline { input, stages } => {
+                self.scan_expr(input);
+                for stage in self.arena().pipe_stages(stages).to_vec() {
+                    self.scan_pipe_stage(&stage);
+                }
+            }
+            ArenaExprKind::StructuredPipeline { input, stages } => {
+                self.scan_expr(input);
+                for stage in self.arena().stream_stages(stages).to_vec() {
+                    self.scan_stream_stage(&stage);
+                }
+            }
+            ArenaExprKind::Run(run) => self.scan_run(run),
+            ArenaExprKind::Spawn(form) => match form.target {
+                ArenaSpawnTarget::Run(run) => self.scan_run(run),
+                ArenaSpawnTarget::Command(command) => self.scan_expr(command),
+            },
+            ArenaExprKind::Wait(form) => self.scan_expr(form.target),
+            ArenaExprKind::BuilderCall { call, block } => {
+                self.scan_expr(call);
+                self.scan_builder_block(block);
+            }
+            ArenaExprKind::Loop { block } => self.scan_block(block),
+            ArenaExprKind::Retry { delays, block } => {
+                for delay in self.arena().expr_ids(delays).collect::<Vec<_>>() {
+                    self.scan_expr(delay);
+                }
+                self.scan_block(block);
+            }
+            ArenaExprKind::Null
+            | ArenaExprKind::Bool(_)
+            | ArenaExprKind::Int(_)
+            | ArenaExprKind::Float(_)
+            | ArenaExprKind::Duration(_)
+            | ArenaExprKind::Str(_)
+            | ArenaExprKind::PathStr(_)
+            | ArenaExprKind::GlobStr(_)
+            | ArenaExprKind::Bytes(_)
+            | ArenaExprKind::Item
+            | ArenaExprKind::LastStatus
+            | ArenaExprKind::EnvGet { .. }
+            | ArenaExprKind::EnvPathList => {}
+        }
+    }
+
+    fn scan_call_arg(&mut self, arg: &ArenaCallArg) {
+        match arg.kind {
+            ArenaCallArgKind::Positional(expr)
+            | ArenaCallArgKind::Named { value: expr, .. }
+            | ArenaCallArgKind::Splice { value: expr, .. } => self.scan_expr(expr),
+        }
+    }
+
+    fn scan_pipe_stage(&mut self, stage: &ArenaPipeStage) {
+        match &stage.kind {
+            ArenaPipeStageKind::Expr(expr) => self.scan_expr(*expr),
+            ArenaPipeStageKind::Stream(stage) => self.scan_stream_stage(stage),
+        }
+    }
+
+    fn scan_stream_stage(&mut self, stage: &ArenaStreamStage) {
+        for option in self.arena().stream_options(stage.options).to_vec() {
+            if let Some(value) = option.value {
+                self.scan_expr(value);
+            }
+        }
+        for arg in self.arena().call_args(stage.args).to_vec() {
+            self.scan_call_arg(&arg);
+        }
+        if let Some(block) = stage.block {
+            self.scan_block(block);
+        }
+    }
+
+    fn scan_builder_block(&mut self, block: BuilderBlockId) {
+        let entries = self
+            .arena()
+            .builder_entries(self.arena().builder_block(block).entries)
+            .to_vec();
+        for entry in entries {
+            match entry.kind {
+                ArenaBuilderEntryKind::Field { value, .. } => self.scan_expr(value),
+                ArenaBuilderEntryKind::Entry { args, block, .. } => {
+                    for arg in self.arena().command_args(args).to_vec() {
+                        self.scan_command_arg(&arg);
+                    }
+                    if let Some(block) = block {
+                        self.scan_builder_block(block);
+                    }
+                }
+                ArenaBuilderEntryKind::Task { block, .. } => self.scan_block(block),
+                ArenaBuilderEntryKind::Stmt(stmt) => self.scan_stmt(stmt),
+            }
+        }
+    }
+
+    fn scan_command(&mut self, command: CommandStmtId) {
+        match self.arena().command_stmt(command).command.clone() {
+            ArenaCommand::Proc { name, args } => {
+                self.add_direct_unqualified(name);
+                for arg in self.arena().command_args(args).to_vec() {
+                    self.scan_command_arg(&arg);
+                }
+            }
+            ArenaCommand::Core {
+                args, env, block, ..
+            } => {
+                for arg in self.arena().command_args(args).to_vec() {
+                    self.scan_command_arg(&arg);
+                }
+                self.scan_env_assignments(env);
+                if let Some(block) = block {
+                    self.scan_block(block);
+                }
+            }
+            ArenaCommand::Run(run) => self.scan_run(run),
+        }
+    }
+
+    fn scan_run(&mut self, run: RunFormId) {
+        let segments = self
+            .arena()
+            .run_segments(self.arena().run_form(run).segments)
+            .to_vec();
+        for segment in segments {
+            if let Some(timeout) = segment.timeout {
+                self.scan_expr(timeout);
+            }
+            if let Some(cpu_max) = segment.cpu_max {
+                self.scan_expr(cpu_max);
+            }
+            self.scan_env_assignments(segment.env);
+            self.scan_command_arg(&segment.target);
+            for arg in self.arena().command_args(segment.args).to_vec() {
+                self.scan_command_arg(&arg);
+            }
+            for redirection in self.arena().redirections(segment.redirections).to_vec() {
+                match redirection.target {
+                    ArenaRedirectionTarget::Path(arg) | ArenaRedirectionTarget::Fd(arg) => {
+                        self.scan_command_arg(&arg)
+                    }
+                }
+            }
+        }
+    }
+
+    fn scan_env_assignments(&mut self, assignments: ArenaRange) {
+        for assignment in self.arena().env_assignments(assignments).to_vec() {
+            match assignment.value {
+                ArenaEnvAssignmentValue::CommandArg(arg) => self.scan_command_arg(&arg),
+                ArenaEnvAssignmentValue::Expr(expr) => self.scan_expr(expr),
+            }
+        }
+    }
+
+    fn scan_command_arg(&mut self, arg: &ArenaCommandArg) {
+        match &arg.kind {
+            ArenaCommandArgKind::Word(parts) => {
+                for part in self.arena().word_parts(*parts).collect::<Vec<_>>() {
+                    match part {
+                        ArenaWordPart::Interpolation(expr) | ArenaWordPart::Shorthand(expr) => {
+                            self.scan_expr(expr)
+                        }
+                        ArenaWordPart::Bare(_) | ArenaWordPart::Quoted(_) => {}
+                    }
+                }
+            }
+            ArenaCommandArgKind::SpliceName(name) => self.add_dynamic_unqualified(*name),
+            ArenaCommandArgKind::SpliceExpr(expr) | ArenaCommandArgKind::Typed(expr) => {
+                self.scan_expr(*expr)
+            }
+        }
+    }
+
+    fn scan_assign_target(&mut self, target: AssignTargetId) {
+        match self.arena().assign_target(target).kind {
+            ArenaAssignTargetKind::Name(_) => {}
+            ArenaAssignTargetKind::Field { base, .. } => self.scan_assign_target(base),
+            ArenaAssignTargetKind::Index { base, index } => {
+                self.scan_assign_target(base);
+                self.scan_expr(index);
+            }
+        }
+    }
+
+    fn define_binding_target(&mut self, target: BindingTargetId) {
+        match self.arena().binding_target(target).kind.clone() {
+            ArenaBindingTargetKind::Name(name) => self.define(name),
+            ArenaBindingTargetKind::Record { fields, .. } => {
+                for field in self.arena().destructure_fields(fields).to_vec() {
+                    self.define(field.name);
+                }
+            }
+        }
+    }
+
+    fn define_pattern(&mut self, pattern: PatternId) {
+        match self.arena().pattern(pattern).kind.clone() {
+            ArenaPatternKind::Binding(name) => self.define(name),
+            ArenaPatternKind::Type {
+                binding: Some(name),
+                ..
+            } => self.define(name),
+            ArenaPatternKind::Record { fields, .. } => {
+                for field in self.arena().pattern_fields(fields).to_vec() {
+                    self.define_pattern(field.pattern);
+                }
+            }
+            ArenaPatternKind::Alternation(patterns) | ArenaPatternKind::Tuple(patterns) => {
+                for pattern in self.arena().pattern_ids(patterns).collect::<Vec<_>>() {
+                    self.define_pattern(pattern);
+                }
+            }
+            ArenaPatternKind::Constructor { arg: Some(arg), .. } => self.define_pattern(arg),
+            ArenaPatternKind::ErrorVariant { fields, .. } => {
+                for field in self.arena().pattern_fields(fields).to_vec() {
+                    self.define_pattern(field.pattern);
+                }
+            }
+            ArenaPatternKind::Literal(_)
+            | ArenaPatternKind::Wildcard
+            | ArenaPatternKind::Type { binding: None, .. }
+            | ArenaPatternKind::Constructor { arg: None, .. }
+            | ArenaPatternKind::Facet(_) => {}
+        }
+    }
+
+    fn add_direct_callee(&mut self, callee: ExprId) -> Option<usize> {
+        let target = match self.arena().expr(callee).kind {
+            // `Checker::check_call_arena` resolves declared callables before
+            // ordinary bindings. Match that resolution order here; scopes only
+            // matter when an identity is used as a value rather than called.
+            ArenaExprKind::Ident(name) => self.analysis.resolve_unqualified(self.namespace, name),
+            ArenaExprKind::Field { base, name } => match self.arena().expr(base).kind {
+                ArenaExprKind::Ident(alias) => {
+                    self.analysis.resolve_qualified(self.namespace, alias, name)
+                }
+                _ => None,
+            },
+            ArenaExprKind::NullSafeField { .. } => None,
+            _ => None,
+        };
+        if let Some(target) = target {
+            self.edges.direct.insert(target);
+        }
+        target
+    }
+
+    fn add_direct_unqualified(&mut self, name: Name) {
+        if let Some(target) = self.analysis.resolve_unqualified(self.namespace, name) {
+            self.edges.direct.insert(target);
+        }
+    }
+
+    fn add_dynamic_unqualified(&mut self, name: Name) {
+        if let Some(target) = self.resolve_unqualified(name) {
+            self.edges.dynamic.insert(target);
+        }
+    }
+
+    fn add_dynamic_qualified_field(&mut self, base: ExprId, name: Name) -> Option<usize> {
+        let ArenaExprKind::Ident(alias) = self.arena().expr(base).kind else {
+            return None;
+        };
+        let target = self.resolve_qualified(alias, name)?;
+        self.edges.dynamic.insert(target);
+        Some(target)
+    }
+
+    fn resolve_unqualified(&self, name: Name) -> Option<usize> {
+        if self.is_bound(name) {
+            return None;
+        }
+        self.analysis.resolve_unqualified(self.namespace, name)
+    }
+
+    fn resolve_qualified(&self, alias: Name, name: Name) -> Option<usize> {
+        if self.is_bound(alias) {
+            return None;
+        }
+        self.analysis.resolve_qualified(self.namespace, alias, name)
+    }
+
+    fn push_scope(&mut self) {
+        self.scopes.push(FxHashSet::default());
+    }
+
+    fn pop_scope(&mut self) {
+        self.scopes.pop().expect("scanner scope underflow");
+    }
+
+    fn define(&mut self, name: Name) {
+        self.scopes
+            .last_mut()
+            .expect("scanner always has a scope")
+            .insert(name);
+    }
+
+    fn is_bound(&self, name: Name) -> bool {
+        self.scopes.iter().rev().any(|scope| scope.contains(&name))
+    }
+}
+
+/// The normal and abrupt exits reachable from a statement or expression.
+///
+/// `fallthrough` alone decides whether the next source statement can run. The
+/// other bits are retained until the enclosing construct consumes them: a loop
+/// consumes its body's `break` and `continue`, while a function boundary
+/// consumes `return`. `terminates` denotes a proven path with no normal
+/// successor, such as `match-no-arm`, `abort`, or a looping path.
+#[derive(Clone, Copy, Debug, Default)]
+struct FlowSummary {
+    fallthrough: bool,
+    returns: bool,
+    breaks: bool,
+    continues: bool,
+    terminates: bool,
+}
+
+impl FlowSummary {
+    const fn fallthrough() -> Self {
+        Self {
+            fallthrough: true,
+            returns: false,
+            breaks: false,
+            continues: false,
+            terminates: false,
+        }
+    }
+
+    const fn returning() -> Self {
+        Self {
+            fallthrough: false,
+            returns: true,
+            breaks: false,
+            continues: false,
+            terminates: false,
+        }
+    }
+
+    const fn breaking() -> Self {
+        Self {
+            fallthrough: false,
+            returns: false,
+            breaks: true,
+            continues: false,
+            terminates: false,
+        }
+    }
+
+    const fn continuing() -> Self {
+        Self {
+            fallthrough: false,
+            returns: false,
+            breaks: false,
+            continues: true,
+            terminates: false,
+        }
+    }
+
+    const fn terminating() -> Self {
+        Self {
+            fallthrough: false,
+            returns: false,
+            breaks: false,
+            continues: false,
+            terminates: true,
+        }
+    }
+
+    fn union(mut self, other: Self) -> Self {
+        self.fallthrough |= other.fallthrough;
+        self.returns |= other.returns;
+        self.breaks |= other.breaks;
+        self.continues |= other.continues;
+        self.terminates |= other.terminates;
+        self
+    }
+
+    /// Compose `next` after the normal path in `self`, retaining every abrupt
+    /// exit that escaped earlier statements in the sequence.
+    fn then(mut self, next: Self) -> Self {
+        if self.fallthrough {
+            self.fallthrough = next.fallthrough;
+            self.returns |= next.returns;
+            self.breaks |= next.breaks;
+            self.continues |= next.continues;
+            self.terminates |= next.terminates;
+        }
+        self
+    }
+}
+
+fn block_flow(
+    arena: &AstArena,
+    block: BlockId,
+    terminating_call_spans: &BTreeSet<Span>,
+) -> FlowSummary {
+    let mut flow = FlowSummary::fallthrough();
+    for stmt in arena.stmt_ids(arena.block(block).statements) {
+        if !flow.fallthrough {
+            break;
+        }
+        flow = flow.then(stmt_flow(arena, stmt, terminating_call_spans));
+    }
+    flow
+}
+
+fn stmt_flow(
+    arena: &AstArena,
+    stmt: StmtId,
+    terminating_call_spans: &BTreeSet<Span>,
+) -> FlowSummary {
     match arena.stmt(stmt).kind {
-        ArenaStmtKind::Return(_) => true,
+        ArenaStmtKind::Export(inner) => stmt_flow(arena, inner, terminating_call_spans),
+        ArenaStmtKind::Let { initializer, .. } | ArenaStmtKind::Var { initializer, .. } => {
+            expr_or_run_flow(arena, &initializer, terminating_call_spans)
+        }
+        ArenaStmtKind::Assign { target, value, .. } => assign_target_flow(
+            arena,
+            target,
+            terminating_call_spans,
+        )
+        .then(expr_or_run_flow(arena, &value, terminating_call_spans)),
+        ArenaStmtKind::Return(value) => value
+            .as_ref()
+            .map(|value| expr_or_run_flow(arena, value, terminating_call_spans))
+            .unwrap_or_else(FlowSummary::fallthrough)
+            .then(FlowSummary::returning()),
+        // A deferred expression is registered now and runs only during unwind.
+        // It must still be linted, but it cannot make following source dead.
+        ArenaStmtKind::Defer(_) => FlowSummary::fallthrough(),
+        ArenaStmtKind::Yield(value) => expr_or_run_flow(arena, &value, terminating_call_spans),
         ArenaStmtKind::If {
             branches,
-            else_block: Some(else_block),
-        } => {
-            arena
-                .if_branches(branches)
-                .iter()
-                .all(|b| lint_block_always_returns(arena, b.block))
-                && lint_block_always_returns(arena, else_block)
+            else_block,
+        } => if_stmt_flow(arena, branches, else_block, terminating_call_spans),
+        ArenaStmtKind::While { condition, block } => {
+            let condition = expr_flow(arena, condition, terminating_call_spans);
+            let body = block_flow(arena, block, terminating_call_spans);
+            // The condition may be false before the first iteration.
+            FlowSummary {
+                fallthrough: condition.fallthrough,
+                returns: condition.returns | body.returns,
+                breaks: false,
+                continues: false,
+                terminates: condition.terminates | body.terminates,
+            }
         }
-        ArenaStmtKind::Match { arms, .. } => arena
-            .match_arms(arms)
+        ArenaStmtKind::For { iter, block, .. } => {
+            let iter = expr_flow(arena, iter, terminating_call_spans);
+            let body = block_flow(arena, block, terminating_call_spans);
+            // A successful iterator may be empty.
+            FlowSummary {
+                fallthrough: iter.fallthrough,
+                returns: iter.returns | body.returns,
+                breaks: false,
+                continues: false,
+                terminates: iter.terminates | body.terminates,
+            }
+        }
+        ArenaStmtKind::With {
+            bindings,
+            body,
+            else_block,
+            ..
+        } => with_stmt_flow(arena, bindings, body, else_block, terminating_call_spans),
+        ArenaStmtKind::Loop { block } => loop_flow(arena, block, terminating_call_spans),
+        ArenaStmtKind::Guard {
+            initializer,
+            else_block,
+            ..
+        } => {
+            let initializer = expr_or_run_flow(arena, &initializer, terminating_call_spans);
+            let else_flow = block_flow(arena, else_block, terminating_call_spans);
+            // A successful guard always continues after the statement.
+            initializer.then(FlowSummary::fallthrough().union(else_flow))
+        }
+        ArenaStmtKind::GuardedStmt { stmt, .. } => {
+            // When the guard is false, the inner statement is skipped.
+            FlowSummary::fallthrough().union(stmt_flow(arena, stmt, terminating_call_spans))
+        }
+        ArenaStmtKind::Break { value } => value
+            .map(|value| expr_flow(arena, value, terminating_call_spans))
+            .unwrap_or_else(FlowSummary::fallthrough)
+            .then(FlowSummary::breaking()),
+        ArenaStmtKind::Continue => FlowSummary::continuing(),
+        ArenaStmtKind::Match { value, arms } => {
+            let value = expr_flow(arena, value, terminating_call_spans);
+            if !value.fallthrough {
+                return value;
+            }
+            // Every unmatched or guard-rejected path produces the guaranteed
+            // `match-no-arm` runtime error rather than falling through.
+            let mut arms_flow = FlowSummary::terminating();
+            for arm in arena.match_arms(arms) {
+                arms_flow = arms_flow.union(block_flow(arena, arm.block, terminating_call_spans));
+            }
+            value.then(arms_flow)
+        }
+        ArenaStmtKind::Command(command) => command_flow(arena, command, terminating_call_spans),
+        ArenaStmtKind::TailBareIdent(_) => FlowSummary::fallthrough(),
+        ArenaStmtKind::Expr(expr) => expr_flow(arena, expr, terminating_call_spans),
+        ArenaStmtKind::Use(_)
+        | ArenaStmtKind::TypeDef(_)
+        | ArenaStmtKind::ErrorDef(_)
+        | ArenaStmtKind::ProcDef(_)
+        | ArenaStmtKind::PureDef(_)
+        | ArenaStmtKind::StreamDef(_)
+        | ArenaStmtKind::SignalHook(_) => FlowSummary::fallthrough(),
+    }
+}
+
+fn if_stmt_flow(
+    arena: &AstArena,
+    branches: ArenaRange,
+    else_block: Option<BlockId>,
+    terminating_call_spans: &BTreeSet<Span>,
+) -> FlowSummary {
+    let mut flow = FlowSummary::default();
+    let mut next_condition_reachable = true;
+    for branch in arena.if_branches(branches) {
+        if !next_condition_reachable {
+            break;
+        }
+        let condition = expr_flow(arena, branch.condition, terminating_call_spans);
+        flow = flow.union(FlowSummary {
+            fallthrough: false,
+            returns: condition.returns,
+            breaks: condition.breaks,
+            continues: condition.continues,
+            terminates: condition.terminates,
+        });
+        if condition.fallthrough {
+            flow = flow.union(block_flow(arena, branch.block, terminating_call_spans));
+        }
+        next_condition_reachable = condition.fallthrough;
+    }
+    if next_condition_reachable {
+        flow = flow.union(match else_block {
+            Some(block) => block_flow(arena, block, terminating_call_spans),
+            None => FlowSummary::fallthrough(),
+        });
+    }
+    flow
+}
+
+fn with_stmt_flow(
+    arena: &AstArena,
+    bindings: ArenaRange,
+    body: BlockId,
+    else_block: BlockId,
+    terminating_call_spans: &BTreeSet<Span>,
+) -> FlowSummary {
+    let mut bindings_flow = FlowSummary::fallthrough();
+    for binding in arena.with_bindings(bindings) {
+        bindings_flow = bindings_flow.then(expr_flow(
+            arena,
+            binding.initializer,
+            terminating_call_spans,
+        ));
+    }
+    bindings_flow.then(
+        block_flow(arena, body, terminating_call_spans).union(block_flow(
+            arena,
+            else_block,
+            terminating_call_spans,
+        )),
+    )
+}
+
+fn loop_flow(
+    arena: &AstArena,
+    block: BlockId,
+    terminating_call_spans: &BTreeSet<Span>,
+) -> FlowSummary {
+    let body = block_flow(arena, block, terminating_call_spans);
+    FlowSummary {
+        fallthrough: body.breaks,
+        returns: body.returns,
+        breaks: false,
+        continues: false,
+        terminates: body.terminates || (!body.breaks && (body.fallthrough || body.continues)),
+    }
+}
+
+fn expr_or_run_flow(
+    arena: &AstArena,
+    value: &ArenaExprOrRun,
+    terminating_call_spans: &BTreeSet<Span>,
+) -> FlowSummary {
+    match value {
+        ArenaExprOrRun::Expr(expr) => expr_flow(arena, *expr, terminating_call_spans),
+        ArenaExprOrRun::Run(run) => run_flow(arena, *run, terminating_call_spans),
+    }
+}
+
+fn expr_flow(
+    arena: &AstArena,
+    expr: ExprId,
+    terminating_call_spans: &BTreeSet<Span>,
+) -> FlowSummary {
+    let arena_expr = arena.expr(expr);
+    match arena_expr.kind {
+        ArenaExprKind::FmtString(parts) | ArenaExprKind::PathFmtString(parts) => arena
+            .fmt_parts(parts)
+            .fold(FlowSummary::fallthrough(), |flow, part| match part {
+                ArenaFmtPart::Expr(expr, _) => {
+                    flow.then(expr_flow(arena, expr, terminating_call_spans))
+                }
+                ArenaFmtPart::Text(_) => flow,
+            }),
+        ArenaExprKind::List(items) => arena
+            .expr_ids(items)
+            .fold(FlowSummary::fallthrough(), |flow, item| {
+                flow.then(expr_flow(arena, item, terminating_call_spans))
+            }),
+        ArenaExprKind::ListComp {
+            expr,
+            iter,
+            condition,
+            ..
+        } => expr_flow(arena, iter, terminating_call_spans)
+            .then(
+                condition
+                    .map(|condition| expr_flow(arena, condition, terminating_call_spans))
+                    .unwrap_or_else(FlowSummary::fallthrough),
+            )
+            .then(expr_flow(arena, expr, terminating_call_spans)),
+        ArenaExprKind::MapComp {
+            key,
+            value,
+            iter,
+            condition,
+            ..
+        } => expr_flow(arena, iter, terminating_call_spans)
+            .then(
+                condition
+                    .map(|condition| expr_flow(arena, condition, terminating_call_spans))
+                    .unwrap_or_else(FlowSummary::fallthrough),
+            )
+            .then(expr_flow(arena, key, terminating_call_spans))
+            .then(expr_flow(arena, value, terminating_call_spans)),
+        ArenaExprKind::Record(fields) => {
+            arena
+                .record_fields(fields)
+                .iter()
+                .fold(FlowSummary::fallthrough(), |flow, field| match field.kind {
+                    ArenaRecordFieldKind::Named { value, .. } => {
+                        flow.then(expr_flow(arena, value, terminating_call_spans))
+                    }
+                    ArenaRecordFieldKind::Spread { expr, .. } => {
+                        flow.then(expr_flow(arena, expr, terminating_call_spans))
+                    }
+                    ArenaRecordFieldKind::Shorthand { .. } => flow,
+                })
+        }
+        ArenaExprKind::If {
+            branches,
+            else_value,
+        } => if_expr_flow(arena, branches, else_value, terminating_call_spans),
+        ArenaExprKind::Match { value, arms } => {
+            let value = expr_flow(arena, value, terminating_call_spans);
+            if !value.fallthrough {
+                return value;
+            }
+            let mut arms_flow = FlowSummary::terminating();
+            for arm in arena.match_expr_arms(arms) {
+                let arm_flow = arm
+                    .guard
+                    .map(|guard| expr_flow(arena, guard, terminating_call_spans))
+                    .unwrap_or_else(FlowSummary::fallthrough)
+                    .then(expr_flow(arena, arm.value, terminating_call_spans));
+                arms_flow = arms_flow.union(arm_flow);
+            }
+            value.then(arms_flow)
+        }
+        ArenaExprKind::Unary { expr, .. } | ArenaExprKind::Try(expr) => {
+            expr_flow(arena, expr, terminating_call_spans)
+        }
+        ArenaExprKind::Binary { left, right, .. } => expr_flow(arena, left, terminating_call_spans)
+            .then(expr_flow(arena, right, terminating_call_spans)),
+        ArenaExprKind::Call { callee, args } => {
+            let mut flow = expr_flow(arena, callee, terminating_call_spans);
+            for arg in arena.call_args(args) {
+                flow = flow.then(call_arg_flow(arena, arg, terminating_call_spans));
+            }
+            if terminating_call_spans.contains(&arena_expr.span) {
+                flow.then(FlowSummary::terminating())
+            } else {
+                flow
+            }
+        }
+        ArenaExprKind::Field { base, .. } | ArenaExprKind::NullSafeField { base, .. } => {
+            expr_flow(arena, base, terminating_call_spans)
+        }
+        ArenaExprKind::Index { base, index } => expr_flow(arena, base, terminating_call_spans)
+            .then(expr_flow(arena, index, terminating_call_spans)),
+        ArenaExprKind::Slice { base, start, end } => expr_flow(arena, base, terminating_call_spans)
+            .then(
+                start
+                    .map(|start| expr_flow(arena, start, terminating_call_spans))
+                    .unwrap_or_else(FlowSummary::fallthrough),
+            )
+            .then(
+                end.map(|end| expr_flow(arena, end, terminating_call_spans))
+                    .unwrap_or_else(FlowSummary::fallthrough),
+            ),
+        ArenaExprKind::Pipeline { input, stages } => {
+            let mut flow = expr_flow(arena, input, terminating_call_spans);
+            for stage in arena.pipe_stages(stages) {
+                flow = flow.then(pipe_stage_flow(arena, stage, terminating_call_spans));
+            }
+            flow
+        }
+        ArenaExprKind::StructuredPipeline { input, stages } => {
+            let mut flow = expr_flow(arena, input, terminating_call_spans);
+            for stage in arena.stream_stages(stages) {
+                flow = flow.then(stream_stage_flow(arena, stage, terminating_call_spans));
+            }
+            flow
+        }
+        ArenaExprKind::Run(run) => run_flow(arena, run, terminating_call_spans),
+        ArenaExprKind::Spawn(form) => match form.target {
+            ArenaSpawnTarget::Run(run) => run_flow(arena, run, terminating_call_spans),
+            ArenaSpawnTarget::Command(command) => expr_flow(arena, command, terminating_call_spans),
+        },
+        ArenaExprKind::Wait(form) => expr_flow(arena, form.target, terminating_call_spans),
+        ArenaExprKind::BuilderCall { call, block } => {
+            expr_flow(arena, call, terminating_call_spans).then(builder_block_setup_flow(
+                arena,
+                block,
+                terminating_call_spans,
+            ))
+        }
+        ArenaExprKind::Require { value, .. } => expr_flow(arena, value, terminating_call_spans),
+        ArenaExprKind::Loop { block } => loop_flow(arena, block, terminating_call_spans),
+        // A retry retries failed attempts, but a normally-completing attempt
+        // produces the expression's `Result`; it is not an infinite loop.
+        ArenaExprKind::Retry { delays, block } => arena
+            .expr_ids(delays)
+            .fold(FlowSummary::fallthrough(), |flow, delay| {
+                flow.then(expr_flow(arena, delay, terminating_call_spans))
+            })
+            .then(block_flow(arena, block, terminating_call_spans)),
+        ArenaExprKind::Null
+        | ArenaExprKind::Bool(_)
+        | ArenaExprKind::Int(_)
+        | ArenaExprKind::Float(_)
+        | ArenaExprKind::Duration(_)
+        | ArenaExprKind::Str(_)
+        | ArenaExprKind::PathStr(_)
+        | ArenaExprKind::GlobStr(_)
+        | ArenaExprKind::Bytes(_)
+        | ArenaExprKind::Ident(_)
+        | ArenaExprKind::Item
+        | ArenaExprKind::LastStatus
+        | ArenaExprKind::EnvGet { .. }
+        | ArenaExprKind::EnvPathList => FlowSummary::fallthrough(),
+    }
+}
+
+fn if_expr_flow(
+    arena: &AstArena,
+    branches: ArenaRange,
+    else_value: ExprId,
+    terminating_call_spans: &BTreeSet<Span>,
+) -> FlowSummary {
+    let mut flow = FlowSummary::default();
+    let mut next_condition_reachable = true;
+    for branch in arena.if_expr_branches(branches) {
+        if !next_condition_reachable {
+            break;
+        }
+        let condition = expr_flow(arena, branch.condition, terminating_call_spans);
+        flow = flow.union(FlowSummary {
+            fallthrough: false,
+            returns: condition.returns,
+            breaks: condition.breaks,
+            continues: condition.continues,
+            terminates: condition.terminates,
+        });
+        if condition.fallthrough {
+            flow = flow.union(expr_flow(arena, branch.value, terminating_call_spans));
+        }
+        next_condition_reachable = condition.fallthrough;
+    }
+    if next_condition_reachable {
+        flow = flow.union(expr_flow(arena, else_value, terminating_call_spans));
+    }
+    flow
+}
+
+fn call_arg_flow(
+    arena: &AstArena,
+    arg: &ArenaCallArg,
+    terminating_call_spans: &BTreeSet<Span>,
+) -> FlowSummary {
+    match arg.kind {
+        ArenaCallArgKind::Positional(expr)
+        | ArenaCallArgKind::Named { value: expr, .. }
+        | ArenaCallArgKind::Splice { value: expr, .. } => {
+            expr_flow(arena, expr, terminating_call_spans)
+        }
+    }
+}
+
+fn pipe_stage_flow(
+    arena: &AstArena,
+    stage: &ArenaPipeStage,
+    terminating_call_spans: &BTreeSet<Span>,
+) -> FlowSummary {
+    match &stage.kind {
+        ArenaPipeStageKind::Expr(expr) => expr_flow(arena, *expr, terminating_call_spans),
+        ArenaPipeStageKind::Stream(stage) => {
+            stream_stage_flow(arena, stage, terminating_call_spans)
+        }
+    }
+}
+
+fn stream_stage_flow(
+    arena: &AstArena,
+    stage: &ArenaStreamStage,
+    terminating_call_spans: &BTreeSet<Span>,
+) -> FlowSummary {
+    let mut flow = FlowSummary::fallthrough();
+    for option in arena.stream_options(stage.options) {
+        if let Some(value) = option.value {
+            flow = flow.then(expr_flow(arena, value, terminating_call_spans));
+        }
+    }
+    for arg in arena.call_args(stage.args) {
+        flow = flow.then(call_arg_flow(arena, arg, terminating_call_spans));
+    }
+    // Stream-stage blocks execute in their own item region. Their flow does
+    // not determine whether the enclosing pipeline expression returns.
+    flow
+}
+
+fn builder_block_setup_flow(
+    arena: &AstArena,
+    block: BuilderBlockId,
+    terminating_call_spans: &BTreeSet<Span>,
+) -> FlowSummary {
+    let mut flow = FlowSummary::fallthrough();
+    for entry in arena.builder_entries(arena.builder_block(block).entries) {
+        match &entry.kind {
+            ArenaBuilderEntryKind::Field { value, .. } => {
+                flow = flow.then(expr_flow(arena, *value, terminating_call_spans));
+            }
+            ArenaBuilderEntryKind::Entry { args, block, .. } => {
+                for arg in arena.command_args(*args) {
+                    flow = flow.then(command_arg_flow(arena, arg, terminating_call_spans));
+                }
+                if let Some(block) = block {
+                    flow = flow.then(builder_block_setup_flow(
+                        arena,
+                        *block,
+                        terminating_call_spans,
+                    ));
+                }
+            }
+            // Task blocks are independent regions. They are analyzed for their
+            // own diagnostics by the linter, not as eager builder setup.
+            ArenaBuilderEntryKind::Task { .. } | ArenaBuilderEntryKind::Stmt(_) => {}
+        }
+    }
+    flow
+}
+
+fn assign_target_flow(
+    arena: &AstArena,
+    target: AssignTargetId,
+    terminating_call_spans: &BTreeSet<Span>,
+) -> FlowSummary {
+    match arena.assign_target(target).kind {
+        ArenaAssignTargetKind::Name(_) => FlowSummary::fallthrough(),
+        ArenaAssignTargetKind::Field { base, .. } => {
+            assign_target_flow(arena, base, terminating_call_spans)
+        }
+        ArenaAssignTargetKind::Index { base, index } => assign_target_flow(
+            arena,
+            base,
+            terminating_call_spans,
+        )
+        .then(expr_flow(arena, index, terminating_call_spans)),
+    }
+}
+
+fn command_flow(
+    arena: &AstArena,
+    command: CommandStmtId,
+    terminating_call_spans: &BTreeSet<Span>,
+) -> FlowSummary {
+    match arena.command_stmt(command).command.clone() {
+        ArenaCommand::Proc { args, .. } => arena
+            .command_args(args)
             .iter()
-            .all(|arm| lint_block_always_returns(arena, arm.block)),
-        _ => false,
+            .fold(FlowSummary::fallthrough(), |flow, arg| {
+                flow.then(command_arg_flow(arena, arg, terminating_call_spans))
+            }),
+        ArenaCommand::Core {
+            args, env, block, ..
+        } => {
+            let mut flow = FlowSummary::fallthrough();
+            for arg in arena.command_args(args) {
+                flow = flow.then(command_arg_flow(arena, arg, terminating_call_spans));
+            }
+            for assignment in arena.env_assignments(env) {
+                let assignment_flow = match &assignment.value {
+                    ArenaEnvAssignmentValue::CommandArg(arg) => {
+                        command_arg_flow(arena, arg, terminating_call_spans)
+                    }
+                    ArenaEnvAssignmentValue::Expr(expr) => {
+                        expr_flow(arena, *expr, terminating_call_spans)
+                    }
+                };
+                flow = flow.then(assignment_flow);
+            }
+            if let Some(block) = block {
+                flow.then(block_flow(arena, block, terminating_call_spans))
+            } else {
+                flow
+            }
+        }
+        ArenaCommand::Run(run) => run_flow(arena, run, terminating_call_spans),
+    }
+}
+
+fn run_flow(
+    arena: &AstArena,
+    run: RunFormId,
+    terminating_call_spans: &BTreeSet<Span>,
+) -> FlowSummary {
+    let mut flow = FlowSummary::fallthrough();
+    for segment in arena.run_segments(arena.run_form(run).segments) {
+        if let Some(timeout) = segment.timeout {
+            flow = flow.then(expr_flow(arena, timeout, terminating_call_spans));
+        }
+        if let Some(cpu_max) = segment.cpu_max {
+            flow = flow.then(expr_flow(arena, cpu_max, terminating_call_spans));
+        }
+        for assignment in arena.env_assignments(segment.env) {
+            let assignment_flow = match &assignment.value {
+                ArenaEnvAssignmentValue::CommandArg(arg) => {
+                    command_arg_flow(arena, arg, terminating_call_spans)
+                }
+                ArenaEnvAssignmentValue::Expr(expr) => {
+                    expr_flow(arena, *expr, terminating_call_spans)
+                }
+            };
+            flow = flow.then(assignment_flow);
+        }
+        flow = flow.then(command_arg_flow(
+            arena,
+            &segment.target,
+            terminating_call_spans,
+        ));
+        for arg in arena.command_args(segment.args) {
+            flow = flow.then(command_arg_flow(arena, arg, terminating_call_spans));
+        }
+        for redirection in arena.redirections(segment.redirections) {
+            let target = match &redirection.target {
+                ArenaRedirectionTarget::Path(arg) | ArenaRedirectionTarget::Fd(arg) => arg,
+            };
+            flow = flow.then(command_arg_flow(arena, target, terminating_call_spans));
+        }
+    }
+    flow
+}
+
+fn command_arg_flow(
+    arena: &AstArena,
+    arg: &ArenaCommandArg,
+    terminating_call_spans: &BTreeSet<Span>,
+) -> FlowSummary {
+    match &arg.kind {
+        ArenaCommandArgKind::Word(parts) => {
+            arena
+                .word_parts(*parts)
+                .fold(FlowSummary::fallthrough(), |flow, part| match part {
+                    ArenaWordPart::Interpolation(expr) | ArenaWordPart::Shorthand(expr) => {
+                        flow.then(expr_flow(arena, expr, terminating_call_spans))
+                    }
+                    ArenaWordPart::Bare(_) | ArenaWordPart::Quoted(_) => flow,
+                })
+        }
+        ArenaCommandArgKind::SpliceExpr(expr) | ArenaCommandArgKind::Typed(expr) => {
+            expr_flow(arena, *expr, terminating_call_spans)
+        }
+        ArenaCommandArgKind::SpliceName(_) => FlowSummary::fallthrough(),
     }
 }

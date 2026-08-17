@@ -1,9 +1,12 @@
 #![allow(clippy::single_call_fn)]
 
+use std::fs;
 use std::sync::Arc;
 
+use tempfile::TempDir;
 use xsh::diagnostic::Diagnostic;
 use xsh::frontend::check::Checker;
+use xsh::frontend::load::parse_load_check_text;
 use xsh::frontend::source::SourceId;
 use xsh::frontend::symbols::{Name, SymbolOwner};
 use xsh::frontend::syntax::arena::{ArenaProgram, ArenaProgramBuilder};
@@ -398,6 +401,7 @@ export proc public() -> Result[Unit] {
             "lint.redundant-result-unit",
             "lint.redundant-ok-return",
             "lint.redundant-ok-return",
+            "lint.unused-callable",
         ]
     );
 }
@@ -1862,4 +1866,325 @@ print (\"tags: $body\") $block
             .iter()
             .all(|d| d.message.contains("`$body` is literal text"))
     );
+}
+
+#[test]
+fn linter_reports_one_dead_region_after_loop_branches_exit() {
+    let source = "\
+proc work(stop: Bool) {
+  loop {
+    if stop {
+      break
+    } else {
+      return
+    }
+    print \"unreachable\"
+    print \"also unreachable\"
+  }
+  print \"reachable\"
+}
+";
+    let parsed = parse_lint_source(source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let diagnostics = lint_and_assert_fmt_stable(&parsed.arena, source, LintOptions::default());
+    let dead_code = diagnostics
+        .iter()
+        .filter(|diagnostic| diagnostic.code.as_deref() == Some("lint.dead-code"))
+        .collect::<Vec<_>>();
+    assert_eq!(dead_code.len(), 1, "diagnostics: {diagnostics:?}");
+    assert_eq!(
+        dead_code[0].labels[0].span.start(),
+        source.find("print \"unreachable\"").unwrap()
+    );
+}
+
+#[test]
+fn linter_keeps_following_code_reachable_after_conditional_exit_and_zero_iteration_loop() {
+    let source = "\
+proc work(stop: Bool) {
+  return when stop
+  while stop {
+    return
+  }
+  print \"reachable\"
+}
+";
+    let parsed = parse_lint_source(source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let diagnostics = lint_and_assert_fmt_stable(&parsed.arena, source, LintOptions::default());
+    assert!(
+        !diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code.as_deref() == Some("lint.dead-code")),
+        "diagnostics: {diagnostics:?}"
+    );
+}
+
+#[test]
+fn linter_keeps_code_after_loop_break_reachable_but_reports_dead_loop_body() {
+    let source = "\
+proc main(stop: Bool) {
+  loop {
+    if stop {
+      break
+    } else {
+      continue
+    }
+    print \"dead in loop body\"
+  }
+  print \"reachable after break\"
+}
+";
+    let parsed = parse_lint_source(source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let diagnostics = lint_and_assert_fmt_stable(&parsed.arena, source, LintOptions::default());
+    let dead_code = diagnostics
+        .iter()
+        .filter(|diagnostic| diagnostic.code.as_deref() == Some("lint.dead-code"))
+        .collect::<Vec<_>>();
+    assert_eq!(dead_code.len(), 1, "diagnostics: {diagnostics:?}");
+    assert!(dead_code.iter().any(|diagnostic| {
+        diagnostic.labels[0].span.start() == source.find("print \"dead in loop body\"").unwrap()
+    }));
+}
+
+#[test]
+fn linter_reports_dead_code_after_match_without_a_normal_no_arm_path() {
+    let source = "\
+proc main(choice: Int) {
+  match choice {
+    1 => return
+  }
+  print \"unreachable\"
+}
+";
+    let parsed = parse_lint_source(source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let diagnostics = lint_and_assert_fmt_stable(&parsed.arena, source, LintOptions::default());
+    assert!(
+        diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code.as_deref() == Some("lint.dead-code")),
+        "diagnostics: {diagnostics:?}"
+    );
+}
+
+#[test]
+fn linter_reports_dead_code_after_all_with_paths_exit() {
+    let source = "\
+proc work() {
+  with value = Ok(1) {
+    return
+  } else {
+    return
+  }
+  print \"unreachable\"
+}
+";
+    let parsed = parse_lint_source(source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let diagnostics = lint_and_assert_fmt_stable(&parsed.arena, source, LintOptions::default());
+    assert!(
+        diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code.as_deref() == Some("lint.dead-code")),
+        "diagnostics: {diagnostics:?}"
+    );
+}
+
+#[test]
+fn linter_reports_dead_code_after_checker_proven_abort() {
+    let source = "\
+proc main() {
+  abort(0)
+  print \"unreachable\"
+}
+";
+    let parsed = parse_lint_source(source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let diagnostics = lint_and_assert_fmt_stable(
+        &parsed.arena,
+        source,
+        LintOptions {
+            terminating_call_spans: checked.terminating_call_spans,
+            ..LintOptions::default()
+        },
+    );
+    assert!(
+        diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code.as_deref() == Some("lint.dead-code")),
+        "diagnostics: {diagnostics:?}"
+    );
+}
+
+#[test]
+fn linter_reports_unused_callable_but_keeps_main_calls_and_dynamic_references_live() {
+    let source = "\
+pure direct() -> Str {
+  return \"direct\"
+}
+
+pure dynamic() -> Str {
+  return \"dynamic\"
+}
+
+pure unused() -> Str {
+  return \"unused\"
+}
+
+proc main() {
+  let callback = dynamic
+  print direct() callback.call()
+}
+";
+    let parsed = parse_lint_source(source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let diagnostics = lint_and_assert_fmt_stable(&parsed.arena, source, LintOptions::default());
+    let unused: Vec<_> = diagnostics
+        .iter()
+        .filter(|diagnostic| diagnostic.code.as_deref() == Some("lint.unused-callable"))
+        .collect();
+    assert_eq!(unused.len(), 1, "diagnostics: {diagnostics:?}");
+    assert!(unused[0].message.contains("`unused`"));
+}
+
+#[test]
+fn linter_follows_declared_callable_resolution_before_local_bindings() {
+    let source = "\
+pure helper() -> Str {
+  return \"callable\"
+}
+
+proc main() {
+  let helper = 1
+  print helper()
+}
+";
+    let parsed = parse_lint_source(source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let diagnostics = lint_and_assert_fmt_stable(&parsed.arena, source, LintOptions::default());
+    assert!(
+        !diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code.as_deref() == Some("lint.unused-callable")),
+        "diagnostics: {diagnostics:?}"
+    );
+}
+
+#[test]
+fn linter_keeps_native_tests_exports_and_recursive_callables_live() {
+    let source = "\
+export pure public_api() -> Int {
+  return helper()
+}
+
+pure helper() -> Int {
+  return recursive_a()
+}
+
+pure recursive_a() -> Int {
+  return recursive_b()
+}
+
+pure recursive_b() -> Int {
+  return 1
+}
+
+proc test_callable_roots() {
+  print public_api()
+}
+";
+    let parsed = parse_lint_source(source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let diagnostics = lint_and_assert_fmt_stable(&parsed.arena, source, LintOptions::default());
+    assert!(
+        !diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code.as_deref() == Some("lint.unused-callable")),
+        "diagnostics: {diagnostics:?}"
+    );
+}
+
+#[test]
+fn linter_reports_unused_module_callable_without_reporting_exported_module_api() {
+    let root = TempDir::new().expect("create temp project");
+    let entry = root.path().join("main.xsh");
+    let helper = root.path().join("helper.xsh");
+    fs::write(
+        &helper,
+        "\
+##! Helper reachability fixture module.
+## Exposes the reachable public API.
+export pure public_api() -> Int {
+  return private_helper()
+}
+
+pure private_helper() -> Int {
+  return 1
+}
+
+pure unused_helper() -> Int {
+  return 2
+}
+",
+    )
+    .expect("write helper module");
+    let source = "\
+use helper
+
+proc main() {
+  print helper.public_api()
+}
+";
+    let checked_entry = parse_load_check_text(
+        entry.to_str().expect("utf-8 entry path"),
+        source.to_string(),
+        Vec::new(),
+        Default::default(),
+    );
+    assert!(
+        checked_entry.parsed.diagnostics.is_empty(),
+        "{:?}",
+        checked_entry.parsed.diagnostics
+    );
+    let checked = checked_entry.checked.expect("checked program");
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let diagnostics =
+        Linter::lint(&checked_entry.parsed.arena, source, LintOptions::default()).diagnostics;
+    let unused: Vec<_> = diagnostics
+        .iter()
+        .filter(|diagnostic| diagnostic.code.as_deref() == Some("lint.unused-callable"))
+        .collect();
+    assert_eq!(unused.len(), 1, "diagnostics: {diagnostics:?}");
+    assert!(unused[0].message.contains("`unused_helper`"));
+    assert_eq!(unused[0].labels[0].span.source_id, SourceId::new(1));
 }

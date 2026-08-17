@@ -20,10 +20,6 @@ pure usage_error(applet_name: Str, summary: Str) -> Error {
   return AppletError.Usage(usage(applet_name, summary))
 }
 
-pure reject_unsupported(applet_name: Str, flag: Str) -> Error {
-  return AppletError.Usage(f"${applet_name}: unsupported option '${flag}'")
-}
-
 pure dest_for(source: Path, target: Path, target_is_dir: Bool) -> Path {
   if target_is_dir {
     return fp"${target}/${source.name()}"

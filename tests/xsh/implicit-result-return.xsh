@@ -36,15 +36,6 @@ proc middle(value: Int) [error] -> Result[Int] {
   leaf(value)?
 }
 
-proc parse_uint(s: Str, min: Int) [error] -> Int {
-  let value = s.parse_int()?
-  if value < min {
-    return min
-  }
-
-  return value
-}
-
 proc test_value_returning_error_helper(ctx: TestContext) [fs, error] {
   let output = test.run_script(
     ctx,

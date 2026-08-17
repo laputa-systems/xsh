@@ -771,11 +771,6 @@ pure is_op(t: Tok, name: Str) -> Bool {
   }
 }
 
-# parse_expr: full expression (lowest precedence = pipe).
-pure parse_expr(toks: List[Tok], pos: Int) -> Result[PJq] {
-  return parse_pipe(toks, pos)
-}
-
 pure is_ident_tok(t: Tok, name: Str) -> Bool {
   match t {
     TIdent(s) => s == name
@@ -3281,10 +3276,6 @@ pure paths_from(v: Json, prefix: List[Json]) -> List[List[Json]] {
   }
 
   return out
-}
-
-pure path_to_json(p: List[Json]) -> Json {
-  return JArr(p)
 }
 
 # Evaluate `ast` as a path expression against the current value `input`.

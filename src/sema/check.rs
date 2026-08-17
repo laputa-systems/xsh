@@ -12,7 +12,7 @@ use crate::syntax::arena::{ArenaProgram, ArenaStmtKind, TypeExprId};
 pub(crate) use crate::syntax::node::{BinaryOp, CoreCommand, Effect, RunKind, UnaryOp};
 
 pub(crate) use rustc_hash::{FxHashMap, FxHashSet};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 #[path = "check/args.rs"]
@@ -66,6 +66,7 @@ pub struct CheckOutput {
     pub reveal_types: Vec<Diagnostic>,
     pub expr_types: BTreeMap<Span, Type>,
     pub callable_effects: FxHashMap<String, Option<Vec<Effect>>>,
+    pub terminating_call_spans: BTreeSet<Span>,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -251,6 +252,7 @@ pub struct Checker {
     annotation_facts: Vec<AnnotationFact>,
     reveal_types: Vec<Diagnostic>,
     expr_types: BTreeMap<Span, Type>,
+    terminating_call_spans: BTreeSet<Span>,
     options: CheckOptions,
     current_return: Option<Type>,
     current_yield: Option<Type>,
@@ -288,6 +290,7 @@ impl Checker {
                 reveal_types: checker.reveal_types,
                 expr_types: checker.expr_types,
                 callable_effects,
+                terminating_call_spans: checker.terminating_call_spans,
             }
         })
     }
@@ -365,6 +368,7 @@ impl Checker {
                 reveal_types: checker.reveal_types,
                 expr_types: checker.expr_types,
                 callable_effects,
+                terminating_call_spans: checker.terminating_call_spans,
             }
         })
     }
@@ -389,6 +393,7 @@ impl Checker {
             annotation_facts: Vec::new(),
             reveal_types: Vec::new(),
             expr_types: BTreeMap::new(),
+            terminating_call_spans: BTreeSet::new(),
             options,
             current_return: None,
             current_yield: None,

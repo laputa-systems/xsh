@@ -1,6 +1,4 @@
 #!/bin/xsh
-error AppletError = Usage(message: Str) : Usage
-
 type SortOptions = {
   reverse: Bool,
   unique: Bool,
@@ -11,10 +9,6 @@ type SortOptions = {
   delimiter: Str,
   output: Str,
   paths: List[Str],
-}
-
-pure reject_unsupported(applet_name: Str, flag: Str) -> Error {
-  return AppletError.Usage(f"${applet_name}: unsupported option '${flag}'")
 }
 
 pure numeric_key(line: Str) -> Int {

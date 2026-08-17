@@ -196,10 +196,6 @@ pure lowered_method_names(source: Str) -> List[Str] {
   return methods |> sort
 }
 
-pure triple_quote_count(line: Str) -> Int {
-  return line.split("\"\"\"").len() - 1
-}
-
 pure code_delimiter_scan(line: Str, start_in_triple_string: Bool) -> CodeDelimiterScan {
   var brace = 0
   var delimiter = 0
@@ -1228,15 +1224,6 @@ pure script_region_reasons(
   }
 
   return reasons
-}
-
-pure script_line_reasons(
-  line: Str,
-  lowered_methods: List[Str],
-  error_variants: List[Str],
-  pure_functions: List[Str],
-) -> List[Str] {
-  return script_region_reasons(script_shape(line), line, lowered_methods, error_variants, pure_functions)
 }
 
 pure script_report(roots: List[Str], scans: List[ScriptScan]) -> ScriptReport {

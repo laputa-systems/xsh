@@ -603,6 +603,7 @@ impl Checker {
         args: &[ArenaCallArg],
         span: Span,
     ) {
+        self.terminating_call_spans.insert(span);
         if args.is_empty() || args.len() > 2 {
             self.error(
                 span,
