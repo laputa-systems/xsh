@@ -531,6 +531,13 @@ are not fields in the runtime alias record. Imported modules may contain
 top-level `use`, `let`, `proc`, `pure`, `stream`, `type`, and `error`
 declarations, but not top-level mutation, commands, or control flow.
 
+An exported named type is resolved in its declaring module before import. Its
+record fields may therefore refer to other types local to that module, and an
+importing module may embed the exported type in another record or pass it to an
+effectful exported procedure without rebinding those field annotations in the
+importer's scope. For example, `type Context = {target: policy.Target}` keeps
+the complete `policy.Target` schema when `Context` is imported elsewhere.
+
 Surface-only conveniences are lowered before checking and evaluation. The core
 lowering includes path literals and p-strings, typed environment fields to an
 environment lookup node, value pipeline calls to ordinary calls with the

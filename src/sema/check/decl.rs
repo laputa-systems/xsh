@@ -330,6 +330,9 @@ impl Checker {
                                 def.name,
                                 type_def_body_arena(type_program.clone(), def_id),
                             );
+                            exports
+                                .resolved_types
+                                .insert(def.name, self.type_from_name(def.name, inner.span));
                         }
                         ArenaStmtKind::ErrorDef(def_id) => {
                             self.check_error_def_arena(program, source, def_id);
@@ -553,10 +556,20 @@ impl Checker {
                     );
                 }
             }
-            self.type_namespaces.insert(alias, module.types.clone());
+            self.type_namespaces
+                .insert(alias, module.resolved_types.clone());
             return;
         }
+        let resolved_types = module.resolved_types.clone();
         for (name, body) in module.types {
+            let body = match body {
+                TypeDefBody::TagUnion(_) => body,
+                _ => resolved_types
+                    .get(&name)
+                    .cloned()
+                    .map(TypeDefBody::Resolved)
+                    .unwrap_or(body),
+            };
             if diagnose {
                 if is_builtin_or_standard_record_type_name(name.as_str())
                     || self.type_defs.contains_key(&name)

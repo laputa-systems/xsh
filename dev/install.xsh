@@ -16,21 +16,21 @@ export proc darwin(ctx: Context) [fs, process, env, error, io] -> Result[Unit] {
   let inherited_rustflags = env.get_or("RUSTFLAGS", "")?
   let inherited_cflags = env.get_or("CFLAGS_aarch64_apple_darwin", "")?
   let command_env = targets.distribution_env(
-    ctx.target_triple,
+    ctx.target.triple,
     inherited_rustflags,
     inherited_cflags,
     ctx.darwin_deployment_target,
   )?
   context.run_stage(
     "install-darwin-build",
-    ctx.target_triple,
+    ctx.target.triple,
     "cargo",
     [
       "cargo",
       "build",
       "--release",
       "--target",
-      ctx.target_triple,
+      ctx.target.triple,
       "-p",
       "xsh",
       "-p",
@@ -60,18 +60,18 @@ export proc darwin(ctx: Context) [fs, process, env, error, io] -> Result[Unit] {
   }
 
   for product in targets.products {
-    let source = fp"${ctx.target_dir}/${ctx.target_triple}/release/${product}"
+    let source = fp"${ctx.target_dir}/${ctx.target.triple}/release/${product}"
     let destination = fp"${destination_dir}/${product}"
     fs.install(source, destination, 0o755, parents: true, overwrite: true)?
     let codesign_argv = ["codesign", "-fs", "-"].extend(signing_flags).push(destination.display())
-    context.run_stage("install-darwin-codesign", ctx.target_triple, "codesign", codesign_argv, ctx.root, {})?
+    context.run_stage("install-darwin-codesign", ctx.target.triple, "codesign", codesign_argv, ctx.root, {})?
     let xattr = run.capture --text xattr -d com.apple.quarantine $destination ?
 
     if ! xattr.status.ok and "No such xattr" not in xattr.stderr {
       return Err(
         context.ContextError.StageFailed(
           stage: "install-darwin-xattr",
-          target: ctx.target_triple,
+          target: ctx.target.triple,
           detail: f"failed to remove quarantine from ${destination.display()}",
         ),
       )
@@ -85,7 +85,7 @@ export proc linux_crt_object(ctx: Context, name: Str) [fs, process, error, io] -
   context.ensure_dir(crt_dir)?
   context.run_stage(
     "install-linux-crt",
-    ctx.target_triple,
+    ctx.target.triple,
     "llvm-objcopy",
     ["llvm-objcopy", "--strip-debug", f"/usr/lib/${name}", fp"${crt_dir}/${name}".display()],
     ctx.root,
@@ -95,11 +95,11 @@ export proc linux_crt_object(ctx: Context, name: Str) [fs, process, error, io] -
 
 ## Installs Linux products with the existing clang, llvm-ar, and lld contract.
 export proc linux_install(ctx: Context) [fs, process, env, error, io] -> Result[Unit] {
-  if ctx.target_triple != "x86_64-unknown-linux-musl" {
+  if ctx.target.triple != "x86_64-unknown-linux-musl" {
     return Err(
       context.ContextError.StageFailed(
         stage: "install-linux",
-        target: ctx.target_triple,
+        target: ctx.target.triple,
         detail: "Linux installation supports x86_64-unknown-linux-musl",
       ),
     )
@@ -116,7 +116,7 @@ export proc linux_install(ctx: Context) [fs, process, env, error, io] -> Result[
   )?
   context.run_stage(
     "install-linux-build",
-    ctx.target_triple,
+    ctx.target.triple,
     "cargo",
     [
       "cargo",
@@ -173,7 +173,7 @@ export proc install(ctx: Context) [fs, process, env, error, io] -> Result[Unit] 
   return Err(
     context.ContextError.StageFailed(
       stage: "install",
-      target: ctx.target_triple,
+      target: ctx.target.triple,
       detail: f"unsupported host ${ctx.host_os}",
     ),
   )

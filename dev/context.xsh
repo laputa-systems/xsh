@@ -1,5 +1,5 @@
 ##! Repository and host context shared by development lifecycle commands.
-use targets
+use targets as target_policy
 
 ## Paths and typed policy inherited by each development command.
 export type Context = {
@@ -9,15 +9,7 @@ export type Context = {
   artifact_dir: Path,
   host_os: Str,
   host_arch: Str,
-  target_triple: Str,
-  target_os: Str,
-  target_arch: Str,
-  docker_platform: Str,
-  executable_format: Str,
-  elf_machine: Str,
-  target_cpu_rustflags: List[Str],
-  target_cpu_cflags: List[Str],
-  static_musl: Bool,
+  target: target_policy.Target,
   profile: Str,
   darwin_deployment_target: Str,
 }
@@ -52,11 +44,11 @@ export proc require_root() [fs, error] -> Result[Path] {
 export proc create() [fs, env, error] -> Result[Context] {
   let root = require_root()?
   let uname = system.uname()?
-  let host_os = targets.host_os(uname.sysname)?
-  let host_arch = targets.host_arch(uname.machine)?
+  let host_os = target_policy.host_os(uname.sysname)?
+  let host_arch = target_policy.host_arch(uname.machine)?
   let requested_target = env.get_or("TARGET", "")?.trim()
-  let target_name = if requested_target == "" { targets.default_triple } else { requested_target }
-  let target = targets.resolve(target_name)?
+  let target_name = if requested_target == "" { target_policy.default_triple } else { requested_target }
+  let target = target_policy.resolve(target_name)?
   let target_value = env.get_or("CARGO_TARGET_DIR", "")?.trim()
   let target_dir = if target_value == "" { fp"${root}/target" } else { repo_path(root, target_value) }
   let profile = env.get_or("DIST_PROFILE", "dist")?.trim()
@@ -68,15 +60,7 @@ export proc create() [fs, env, error] -> Result[Context] {
     artifact_dir: fp"${root}/dist",
     host_os: host_os,
     host_arch: host_arch,
-    target_triple: target.triple,
-    target_os: target.os,
-    target_arch: target.arch,
-    docker_platform: target.docker_platform,
-    executable_format: target.executable_format,
-    elf_machine: target.elf_machine,
-    target_cpu_rustflags: target.cpu_rustflags,
-    target_cpu_cflags: target.cpu_cflags,
-    static_musl: target.static_musl,
+    target: target,
     profile: if profile == "" { "dist" } else { profile },
     darwin_deployment_target: env.get_or("DARWIN_DEPLOYMENT_TARGET", "26.0")?.trim(),
   }

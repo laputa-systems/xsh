@@ -2068,10 +2068,26 @@ export pure label(pkg: Package) -> Str {
     );
     assert_no_codes(&typed_alias, &["check.unknown-type", "check.type-mismatch"]);
 
+    let nested_typed_alias = check_with_module(
+        r#"
+use helper as h
+let pkg: h.Package = {leaf: {name: "demo"}}
+"#,
+        r#"
+export type Leaf = {name: Str}
+export type Package = {leaf: Leaf}
+"#,
+    );
+    assert_no_codes(
+        &nested_typed_alias,
+        &["check.unknown-type", "check.type-mismatch"],
+    );
+
     let typed_bare = check_with_module(
         r#"
 use helper
 let pkg: Package = {name: "demo", root: Path("src")}
+let qualified_pkg: helper.Package = {name: "demo", root: Path("src")}
 "#,
         r#"
 export type Package = {name: Str, root: Path}

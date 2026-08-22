@@ -13,16 +13,16 @@ export proc checksum_line(artifact_path: Path, root: Path) [fs, error] -> Result
 export proc package_binaries(ctx: Context, tag: Str) [fs, process, error, io] -> Result[Unit] {
   if tag.trim() == "" {
     return Err(
-      context.ContextError.StageFailed(stage: "release-package", target: ctx.target_triple, detail: "missing release tag"),
+      context.ContextError.StageFailed(stage: "release-package", target: ctx.target.triple, detail: "missing release tag"),
     )
   }
 
   verify.verify_all(ctx, false)?
-  let suffix = targets.release_suffix(ctx.target_triple)?
+  let suffix = targets.release_suffix(ctx.target.triple)?
   context.ensure_dir(ctx.artifact_dir)?
 
   for product in targets.products {
-    let source = fp"${ctx.target_dir}/${ctx.target_triple}/dist/${product}"
+    let source = fp"${ctx.target_dir}/${ctx.target.triple}/dist/${product}"
     let artifact = fp"${ctx.artifact_dir}/${product}-${tag}-${suffix}"
     fs.install(source, artifact, 0o755, parents: true, overwrite: true)?
     fp"${artifact.display()}.sha256".write(checksum_line(artifact, ctx.root)?)?
@@ -32,12 +32,12 @@ export proc package_binaries(ctx: Context, tag: Str) [fs, process, error, io] ->
 ## Runs the release product smoke contract after the distribution build is complete.
 export proc smoke(ctx: Context) [fs, process, error, io] -> Result[Unit] {
   verify.verify_all(ctx, true)?
-  let xsh = fp"${ctx.target_dir}/${ctx.target_triple}/dist/xsh"
-  let xshi = fp"${ctx.target_dir}/${ctx.target_triple}/dist/xshi"
-  context.run_stage("release-xsh-startup", ctx.target_triple, xsh.display(), [xsh.display(), "--startup"], ctx.root, {})?
+  let xsh = fp"${ctx.target_dir}/${ctx.target.triple}/dist/xsh"
+  let xshi = fp"${ctx.target_dir}/${ctx.target.triple}/dist/xshi"
+  context.run_stage("release-xsh-startup", ctx.target.triple, xsh.display(), [xsh.display(), "--startup"], ctx.root, {})?
   context.run_stage(
     "release-xshi-smoke",
-    ctx.target_triple,
+    ctx.target.triple,
     xshi.display(),
     [xshi.display(), "--no-config", "-c", "print \"ok\""],
     ctx.root,
@@ -72,7 +72,7 @@ export proc core_sources(ctx: Context) [fs, error] -> Result[List[Path]] {
 export proc package_core(ctx: Context, tag: Str) [fs, error] -> Result[Unit] {
   if tag.trim() == "" {
     return Err(
-      context.ContextError.StageFailed(stage: "release-core", target: ctx.target_triple, detail: "missing release tag"),
+      context.ContextError.StageFailed(stage: "release-core", target: ctx.target.triple, detail: "missing release tag"),
     )
   }
 
@@ -101,7 +101,7 @@ export proc package_core(ctx: Context, tag: Str) [fs, error] -> Result[Unit] {
 
   if core_archive.metadata()?.size == 0 {
     return Err(
-      context.ContextError.StageFailed(stage: "release-core", target: ctx.target_triple, detail: "core archive is empty"),
+      context.ContextError.StageFailed(stage: "release-core", target: ctx.target.triple, detail: "core archive is empty"),
     )
   }
 
@@ -112,7 +112,7 @@ export proc package_core(ctx: Context, tag: Str) [fs, error] -> Result[Unit] {
       return Err(
         context.ContextError.StageFailed(
           stage: "release-core",
-          target: ctx.target_triple,
+          target: ctx.target.triple,
           detail: f"unexpected compressed artifact ${entry.path.display()}",
         ),
       )
@@ -124,7 +124,7 @@ export proc package_core(ctx: Context, tag: Str) [fs, error] -> Result[Unit] {
 export proc validate_artifacts(ctx: Context, tag: Str) [fs, error] -> Result[Unit] {
   if tag.trim() == "" {
     return Err(
-      context.ContextError.StageFailed(stage: "release-validate", target: ctx.target_triple, detail: "missing release tag"),
+      context.ContextError.StageFailed(stage: "release-validate", target: ctx.target.triple, detail: "missing release tag"),
     )
   }
 
@@ -178,7 +178,7 @@ export proc validate_artifacts(ctx: Context, tag: Str) [fs, error] -> Result[Uni
       return Err(
         context.ContextError.StageFailed(
           stage: "release-validate",
-          target: ctx.target_triple,
+          target: ctx.target.triple,
           detail: f"unexpected artifact ${entry.path.display()}",
         ),
       )

@@ -26,7 +26,7 @@ export pure distribution_product_path(target_dir: Path, triple: Str, product: St
 ## Copies non-dist profile output into the stable distribution artifact directory.
 export proc normalize(ctx: Context) [fs, error] -> Result[Unit] {
   let profile_dir = targets.profile_directory(ctx.profile)
-  let dist_dir = fp"${ctx.target_dir}/${ctx.target_triple}/dist"
+  let dist_dir = fp"${ctx.target_dir}/${ctx.target.triple}/dist"
 
   if profile_dir == "dist" {
     return
@@ -35,8 +35,8 @@ export proc normalize(ctx: Context) [fs, error] -> Result[Unit] {
   context.ensure_dir(dist_dir)?
 
   for product in targets.products {
-    let source = profile_product_path(ctx.target_dir, ctx.target_triple, profile_dir, product)
-    let destination = distribution_product_path(ctx.target_dir, ctx.target_triple, product)
+    let source = profile_product_path(ctx.target_dir, ctx.target.triple, profile_dir, product)
+    let destination = distribution_product_path(ctx.target_dir, ctx.target.triple, product)
     fs.install(source, destination, 0o755, parents: true, overwrite: true)?
   }
 }
@@ -44,10 +44,10 @@ export proc normalize(ctx: Context) [fs, error] -> Result[Unit] {
 ## Executes the native Cargo distribution build with scoped target-specific environment.
 export proc native_dist(ctx: Context, build_std_variable: Str) [fs, process, env, error, io] -> Result[Unit] {
   let inherited_rustflags = env.get_or("RUSTFLAGS", "")?
-  let cflags_name = targets.cflags_variable(ctx.target_triple)?
+  let cflags_name = targets.cflags_variable(ctx.target.triple)?
   let inherited_cflags = env.get_or(cflags_name, "")?
   let command_env = targets.distribution_env(
-    ctx.target_triple,
+    ctx.target.triple,
     inherited_rustflags,
     inherited_cflags,
     ctx.darwin_deployment_target,
@@ -63,7 +63,7 @@ export proc native_dist(ctx: Context, build_std_variable: Str) [fs, process, env
     .extend(
       [
         "--target",
-        ctx.target_triple,
+        ctx.target.triple,
         "-p",
         "xsh",
         "-p",
@@ -81,9 +81,9 @@ export proc native_dist(ctx: Context, build_std_variable: Str) [fs, process, env
         "xshi",
       ],
     )
-  context.run_stage("dist-build", ctx.target_triple, "cargo", argv, ctx.root, command_env)?
+  context.run_stage("dist-build", ctx.target.triple, "cargo", argv, ctx.root, command_env)?
   normalize(ctx)?
-  verify.verify_all(ctx, targets.native_execution(ctx.target_triple, ctx.host_os, ctx.host_arch)?)?
+  verify.verify_all(ctx, targets.native_execution(ctx.target.triple, ctx.host_os, ctx.host_arch)?)?
 }
 
 ## Selects native or Docker distribution execution from the public policy value.
@@ -92,12 +92,12 @@ export proc build_distribution(
   docker_policy: Str,
   ci: Bool,
 ) [fs, process, env, error, io] -> Result[Unit] {
-  let native_possible = targets.native_execution(ctx.target_triple, ctx.host_os, ctx.host_arch)?
+  let native_possible = targets.native_execution(ctx.target.triple, ctx.host_os, ctx.host_arch)?
   if docker_policy != "always" and docker_policy != "never" and docker_policy != "auto" {
     return Err(
       context.ContextError.StageFailed(
         stage: "dist",
-        target: ctx.target_triple,
+        target: ctx.target.triple,
         detail: f"unsupported Docker policy ${docker_policy}",
       ),
     )

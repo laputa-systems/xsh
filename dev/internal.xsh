@@ -15,7 +15,7 @@ export proc repair_target(ctx: Context) [process, env, error, io] -> Result[Unit
 
   context.run_stage(
     "container-ownership-repair",
-    ctx.target_triple,
+    ctx.target.triple,
     "chown",
     ["chown", "-R", f"${uid}:${gid}", ctx.target_dir.display()],
     ctx.root,
@@ -35,7 +35,7 @@ export proc container_dist(ctx: Context) [fs, process, env, error, io] -> Result
 export proc linux_developer_test(ctx: Context) [fs, process, env, error, io] -> Result[Unit] {
   context.run_stage(
     "linux-git-safe-directory",
-    ctx.target_triple,
+    ctx.target.triple,
     "git",
     ["git", "config", "--global", "--add", "safe.directory", "/work"],
     ctx.root,
@@ -43,7 +43,7 @@ export proc linux_developer_test(ctx: Context) [fs, process, env, error, io] -> 
   )?
   context.run_stage(
     "linux-build-test-tools",
-    ctx.target_triple,
+    ctx.target.triple,
     "cargo",
     [
       "cargo",
@@ -67,7 +67,7 @@ export proc linux_developer_test(ctx: Context) [fs, process, env, error, io] -> 
   let stress_repeat = env.get_or("XSH_OS_STRESS_REPEAT", "25")?.trim()
   context.run_stage(
     "linux-rust-tests",
-    ctx.target_triple,
+    ctx.target.triple,
     "cargo",
     ["cargo", "test", "--features", "linux-priv-tests"],
     ctx.root,
@@ -76,7 +76,7 @@ export proc linux_developer_test(ctx: Context) [fs, process, env, error, io] -> 
   let xsht = fp"${ctx.target_dir}/debug/xsht"
   context.run_stage(
     "linux-native-tests",
-    ctx.target_triple,
+    ctx.target.triple,
     xsht.display(),
     [xsht.display(), "test"],
     ctx.root,
@@ -90,16 +90,16 @@ export proc linux_ci_test(ctx: Context) [fs, process, env, error, io] -> Result[
   defer repair_target(ctx)?
   context.run_stage(
     "linux-git-safe-directory",
-    ctx.target_triple,
+    ctx.target.triple,
     "git",
     ["git", "config", "--global", "--add", "safe.directory", "/work"],
     ctx.root,
     {},
   )?
-  let command_env = targets.docker_test_env(ctx.target_triple)?
+  let command_env = targets.docker_test_env(ctx.target.triple)?
   context.run_stage(
     "linux-ci-tests",
-    ctx.target_triple,
+    ctx.target.triple,
     "cargo",
     [
       "cargo",
@@ -110,7 +110,7 @@ export proc linux_ci_test(ctx: Context) [fs, process, env, error, io] -> Result[
       "--features",
       "linux-priv-tests net tools",
       "--target",
-      ctx.target_triple,
+      ctx.target.triple,
       "--",
       "--nocapture",
     ],
@@ -130,7 +130,7 @@ export proc repair_coverage(ctx: Context) [process, env, error, io] -> Result[Un
 
   context.run_stage(
     "coverage-ownership-repair",
-    ctx.target_triple,
+    ctx.target.triple,
     "chown",
     ["chown", "-R", f"${uid}:${gid}", ctx.coverage_dir.display()],
     ctx.root,
@@ -143,7 +143,7 @@ export proc container_coverage(ctx: Context) [process, env, error, io] -> Result
   defer repair_coverage(ctx)?
   context.run_stage(
     "coverage-container",
-    ctx.target_triple,
+    ctx.target.triple,
     "cargo",
     [
       "cargo",

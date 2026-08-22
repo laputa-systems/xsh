@@ -6,7 +6,7 @@ use docker
 export proc rust(ctx: Context) [process, error, io] -> Result[Unit] {
   context.run_stage(
     "test-rust",
-    ctx.target_triple,
+    ctx.target.triple,
     "cargo",
     ["cargo", "test", "--release", "--", "-Zunstable-options", "--report-time"],
     ctx.root,
@@ -18,7 +18,7 @@ export proc rust(ctx: Context) [process, error, io] -> Result[Unit] {
 export proc xsh(ctx: Context) [process, error, io] -> Result[Unit] {
   context.run_stage(
     "test-xsh",
-    ctx.target_triple,
+    ctx.target.triple,
     "cargo",
     [
       "cargo",
@@ -49,7 +49,7 @@ export proc linux_test(ctx: Context, ci: Bool) [process, env, error, io] -> Resu
 export proc macos_ci(ctx: Context) [process, error, io] -> Result[Unit] {
   context.run_stage(
     "test-macos-ci",
-    ctx.target_triple,
+    ctx.target.triple,
     "cargo",
     [
       "cargo",
@@ -60,7 +60,7 @@ export proc macos_ci(ctx: Context) [process, error, io] -> Result[Unit] {
       "--features",
       "net tools",
       "--target",
-      ctx.target_triple,
+      ctx.target.triple,
       "--",
       "--nocapture",
     ],

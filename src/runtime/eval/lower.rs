@@ -9218,7 +9218,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                             }
                         ));
                     }
-                    let qualified = QualifiedName::new(module, name);
+                    let qualified = self.compact_qualified_function_key(module, name);
                     if self.compact_qualified_function_available(qualified) {
                         let params = self
                             .compact_qualified_function_sig(module, name)
@@ -10070,12 +10070,59 @@ impl CompactLowerConstructProbe<'_, '_> {
         module: Name,
         name: Name,
     ) -> Option<&crate::sema::check::CompactFunctionSig> {
-        let qualified = QualifiedName::new(module, name);
+        let qualified = self.compact_qualified_function_key(module, name);
         self.declarations
             .qualified_pures
             .get(&qualified)
             .or_else(|| self.declarations.qualified_procs.get(&qualified))
             .or_else(|| self.declarations.qualified_streams.get(&qualified))
+    }
+
+    fn compact_qualified_function_key(&self, module: Name, name: Name) -> QualifiedName {
+        QualifiedName::new(
+            self.compact_imported_module_owner(module).unwrap_or(module),
+            name,
+        )
+    }
+
+    fn compact_imported_module_owner(&self, alias: Name) -> Option<Name> {
+        let module_owner = |use_id| {
+            let use_stmt = self.program.arena.use_stmt(use_id);
+            let imported_as = use_stmt
+                .alias
+                .or_else(|| self.program.arena.names(use_stmt.path).last());
+            if imported_as != Some(alias) {
+                return None;
+            }
+            let key = use_stmt.resolved.as_deref()?;
+            self.program
+                .modules
+                .iter()
+                .find(|module| module.key.as_str() == key)
+                .map(|module| module.name)
+        };
+
+        if let Some(namespace) = self.current_namespace {
+            let module = self
+                .program
+                .modules
+                .iter()
+                .find(|module| module.name == namespace)?;
+            return self
+                .program
+                .module_statements(module)
+                .find_map(|statement| match self.program.arena.stmt(statement).kind {
+                    ArenaStmtKind::Use(use_id) => module_owner(use_id),
+                    _ => None,
+                });
+        }
+
+        self.program.statement_ids().find_map(|statement| {
+            match self.program.arena.stmt(statement).kind {
+                ArenaStmtKind::Use(use_id) => module_owner(use_id),
+                _ => None,
+            }
+        })
     }
 
     fn lower_bare_ident(&self, name: Name, slots: &SlotScope) -> Option<BuildExprId> {

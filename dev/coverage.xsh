@@ -65,7 +65,7 @@ export proc native_coverage(ctx: Context) [fs, process, env, error, io] -> Resul
   let linker = native_linker()?
   context.run_stage(
     "coverage-native",
-    ctx.target_triple,
+    ctx.target.triple,
     cargo,
     [
       cargo,
@@ -105,7 +105,7 @@ export proc docker_backend(ctx: Context) [fs, process, env, error, io] -> Result
     "-w",
     "/work",
     "-e",
-    f"TARGET=${ctx.target_triple}",
+    f"TARGET=${ctx.target.triple}",
     "-e",
     "CARGO_TARGET_DIR=/work/target",
     "-e",
@@ -126,7 +126,7 @@ export proc docker_backend(ctx: Context) [fs, process, env, error, io] -> Result
     "internal",
     "coverage",
   ]
-  context.run_stage("coverage-docker", ctx.target_triple, "docker", argv, ctx.root, {})?
+  context.run_stage("coverage-docker", ctx.target.triple, "docker", argv, ctx.root, {})?
 }
 
 ## Dispatches the public coverage backend policy.
@@ -144,7 +144,7 @@ export proc coverage(ctx: Context, requested_backend: Str) [fs, process, env, er
   return Err(
     context.ContextError.StageFailed(
       stage: "coverage",
-      target: ctx.target_triple,
+      target: ctx.target.triple,
       detail: f"unsupported backend ${backend}",
     ),
   )

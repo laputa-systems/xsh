@@ -34,12 +34,12 @@ export proc benchmark(ctx: Context, fast: Bool) [process, env, error, io] -> Res
   }
 
   argv = argv.extend(["--", "cargo", "bench", "-p", "xshi", "--bench", "bench", "--features", "benchmark"])
-  context.run_stage(if fast { "bench-fast" } else { "bench" }, ctx.target_triple, prefix[0], argv, ctx.root, {})?
+  context.run_stage(if fast { "bench-fast" } else { "bench" }, ctx.target.triple, prefix[0], argv, ctx.root, {})?
 }
 
 ## Runs rustybench's syscall diagnostic workflow.
 export proc syscalls(ctx: Context) [process, env, error, io] -> Result[Unit] {
   let prefix = command_prefix(ctx)?
   let argv = prefix.extend(["syscalls", "--root", ctx.root.display()])
-  context.run_stage("bench-syscalls", ctx.target_triple, prefix[0], argv, ctx.root, {})?
+  context.run_stage("bench-syscalls", ctx.target.triple, prefix[0], argv, ctx.root, {})?
 }

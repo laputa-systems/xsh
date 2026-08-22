@@ -160,6 +160,7 @@ impl TypeAnnRef {
 
 #[derive(Clone, Debug)]
 pub(super) enum TypeDefBody {
+    Resolved(Type),
     Alias(TypeAnnRef),
     RecordSchema(Vec<SchemaField>),
     ModuleContract(Vec<ModuleContractEntry>),
@@ -230,6 +231,7 @@ pub(super) struct UserModuleSig {
     pures: FxHashMap<Name, FunctionSig>,
     streams: FxHashMap<Name, FunctionSig>,
     types: BTreeMap<Name, TypeDefBody>,
+    resolved_types: BTreeMap<Name, Type>,
     error_families: BTreeMap<Name, ErrorFamilyInfo>,
 }
 
@@ -242,7 +244,7 @@ pub struct Checker {
     qualified_pures: FxHashMap<QualifiedName, FunctionSig>,
     qualified_streams: FxHashMap<QualifiedName, FunctionSig>,
     type_defs: FxHashMap<Name, TypeDefBody>,
-    type_namespaces: FxHashMap<Name, BTreeMap<Name, TypeDefBody>>,
+    type_namespaces: FxHashMap<Name, BTreeMap<Name, Type>>,
     tag_variants: FxHashMap<Name, TagVariantInfo>,
     error_families: FxHashMap<Name, ErrorFamilyInfo>,
     error_facets: FxHashSet<Name>,

@@ -3,7 +3,7 @@ use context
 
 ## Prepares the native musl sysroot only on the Linux host/target combination that needs it.
 export proc prepare_native_musl(ctx: Context) [fs, process, error] -> Result[Unit] {
-  if ctx.host_os != "linux" or ! ctx.static_musl {
+  if ctx.host_os != "linux" or ! ctx.target.static_musl {
     return
   }
 
@@ -15,7 +15,7 @@ export proc prepare_native_musl(ctx: Context) [fs, process, error] -> Result[Uni
   }
 
   let sysroot_text: Str = run.text rustc --print sysroot ?
-  let sysroot = fp"${sysroot_text.trim()}/lib/rustlib/${ctx.target_triple}/lib"
+  let sysroot = fp"${sysroot_text.trim()}/lib/rustlib/${ctx.target.triple}/lib"
   fs.remove(fp"${sysroot}/libgcc_s.so", missing_ok: true)?
   fs.remove(fp"${sysroot}/libgcc_s.so.1", missing_ok: true)?
   fs.remove(fp"${sysroot}/libc.so", missing_ok: true)?
@@ -27,7 +27,7 @@ export proc prepare_native_musl(ctx: Context) [fs, process, error] -> Result[Uni
 ## Builds the repository with the current development Cargo profile.
 export proc build(ctx: Context) [fs, process, error, io] -> Result[Unit] {
   prepare_native_musl(ctx)?
-  context.run_stage("build", ctx.target_triple, "cargo", ["cargo", "build"], ctx.root, {})?
+  context.run_stage("build", ctx.target.triple, "cargo", ["cargo", "build"], ctx.root, {})?
 }
 
 ## Runs the repository's non-mutating deprecated-import contract.
@@ -39,7 +39,7 @@ export proc check_libxsh_imports(ctx: Context) [process, error] -> Result[Unit] 
     return Err(
       context.ContextError.StageFailed(
         stage: "check-libxsh-imports",
-        target: ctx.target_triple,
+        target: ctx.target.triple,
         detail: "deprecated libxsh implementation import found",
       ),
     )
@@ -52,7 +52,7 @@ export proc check_libxsh_imports(ctx: Context) [process, error] -> Result[Unit] 
   return Err(
     context.ContextError.StageFailed(
       stage: "check-libxsh-imports",
-      target: ctx.target_triple,
+      target: ctx.target.triple,
       detail: f"rg exited ${result.status.exit_code()?}",
     ),
   )
@@ -62,7 +62,7 @@ export proc check_libxsh_imports(ctx: Context) [process, error] -> Result[Unit] 
 export proc check(ctx: Context) [fs, process, error, io] -> Result[Unit] {
   context.run_stage(
     "check-build",
-    ctx.target_triple,
+    ctx.target.triple,
     "cargo",
     [
       "cargo",
@@ -85,7 +85,7 @@ export proc check(ctx: Context) [fs, process, error, io] -> Result[Unit] {
   )?
   context.run_stage(
     "check-rustfmt",
-    ctx.target_triple,
+    ctx.target.triple,
     "cargo",
     ["cargo", "fmt", "--all", "--", "--check"],
     ctx.root,
@@ -93,7 +93,7 @@ export proc check(ctx: Context) [fs, process, error, io] -> Result[Unit] {
   )?
   context.run_stage(
     "check-clippy",
-    ctx.target_triple,
+    ctx.target.triple,
     "cargo",
     [
       "cargo",
@@ -109,19 +109,19 @@ export proc check(ctx: Context) [fs, process, error, io] -> Result[Unit] {
     {},
   )?
   let xsht = fp"${ctx.target_dir}/debug/xsht"
-  context.run_stage("check-xsh", ctx.target_triple, xsht.display(), [xsht.display(), "check"], ctx.root, {})?
+  context.run_stage("check-xsh", ctx.target.triple, xsht.display(), [xsht.display(), "check"], ctx.root, {})?
   context.run_stage(
     "check-xsh-fmt",
-    ctx.target_triple,
+    ctx.target.triple,
     xsht.display(),
     [xsht.display(), "fmt", "--check"],
     ctx.root,
     {},
   )?
-  context.run_stage("check-xsh-lint", ctx.target_triple, xsht.display(), [xsht.display(), "lint"], ctx.root, {})?
+  context.run_stage("check-xsh-lint", ctx.target.triple, xsht.display(), [xsht.display(), "lint"], ctx.root, {})?
   context.run_stage(
     "check-runnable-corpus",
-    ctx.target_triple,
+    ctx.target.triple,
     "cargo",
     [
       "cargo",
@@ -134,15 +134,15 @@ export proc check(ctx: Context) [fs, process, error, io] -> Result[Unit] {
     {},
   )?
   check_libxsh_imports(ctx)?
-  context.run_stage("check-diff", ctx.target_triple, "git", ["git", "diff", "--check"], ctx.root, {})?
+  context.run_stage("check-diff", ctx.target.triple, "git", ["git", "diff", "--check"], ctx.root, {})?
 }
 
 ## Runs the repository-owner-only formatting and autofix workflow.
 export proc lint_fix(ctx: Context) [process, error, io] -> Result[Unit] {
-  context.run_stage("lint-rustfmt", ctx.target_triple, "cargo", ["cargo", "fmt", "--all"], ctx.root, {})?
+  context.run_stage("lint-rustfmt", ctx.target.triple, "cargo", ["cargo", "fmt", "--all"], ctx.root, {})?
   context.run_stage(
     "lint-clippy",
-    ctx.target_triple,
+    ctx.target.triple,
     "cargo",
     ["cargo", "clippy", "--fix", "--allow-dirty", "--all-targets", "--all-features", "--quiet"],
     ctx.root,
@@ -150,13 +150,13 @@ export proc lint_fix(ctx: Context) [process, error, io] -> Result[Unit] {
   )?
   context.run_stage(
     "lint-build-xsht",
-    ctx.target_triple,
+    ctx.target.triple,
     "cargo",
     ["cargo", "build", "-p", "xsht", "--bin", "xsht"],
     ctx.root,
     {},
   )?
   let xsht = fp"${ctx.target_dir}/debug/xsht"
-  context.run_stage("lint-xsh", ctx.target_triple, xsht.display(), [xsht.display(), "lint", "--fix"], ctx.root, {})?
-  context.run_stage("format-xsh", ctx.target_triple, xsht.display(), [xsht.display(), "fmt"], ctx.root, {})?
+  context.run_stage("lint-xsh", ctx.target.triple, xsht.display(), [xsht.display(), "lint", "--fix"], ctx.root, {})?
+  context.run_stage("format-xsh", ctx.target.triple, xsht.display(), [xsht.display(), "fmt"], ctx.root, {})?
 }

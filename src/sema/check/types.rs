@@ -220,11 +220,11 @@ impl Checker {
             self.error(span, "unknown type namespace", "check.unknown-type");
             return Type::Invalid;
         };
-        let Some(body) = types.get(&name).cloned() else {
+        let Some(ty) = types.get(&name).cloned() else {
             self.error(span, "unknown exported type", "check.unknown-type");
             return Type::Invalid;
         };
-        self.type_from_body(name, body, span)
+        ty
     }
 
     pub(super) fn type_from_body(&mut self, key: Name, body: TypeDefBody, span: Span) -> Type {
@@ -238,6 +238,7 @@ impl Checker {
         }
         self.resolving_types.push(key);
         let ty = match body {
+            TypeDefBody::Resolved(ty) => ty,
             TypeDefBody::Alias(alias) => self.type_from_ann(&alias),
             TypeDefBody::RecordSchema(fields) => {
                 let mut record = BTreeMap::new();

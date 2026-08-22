@@ -1848,6 +1848,76 @@ shower.call(pkg)?
 }
 
 #[test]
+fn effectful_user_module_calls_accept_records_with_qualified_record_fields() {
+    let root = temp_path("module-qualified-record-fields-root");
+    std::fs::create_dir_all(&root).expect("create module root");
+    let target = root.join("target.xsh");
+    let lifecycle = root.join("lifecycle.xsh");
+    let main = root.join("main.xsh");
+
+    std::fs::write(
+        &target,
+        "\
+##! Target fixture module.
+## Defines the target policy record used by lifecycle contexts.
+## CPU feature policy nested in a target.
+export type Cpu = {feature: Str}
+
+## Public target policy.
+export type Target = {triple: Str, cpu: Cpu}
+
+## Selects the fixture target policy.
+export pure select() -> Target {
+  return {triple: \"x86_64-unknown-linux-musl\", cpu: {feature: \"crt-static\"}}
+}
+",
+    )
+    .expect("write target");
+    std::fs::write(
+        &lifecycle,
+        "\
+##! Lifecycle fixture module consuming contexts composed from the target policy record.
+use target as targets
+
+## Public lifecycle context.
+export type Context = {root: Path, target: targets.Target}
+
+## Normalizes the selected target policy.
+export proc normalize(context: Context) [io] -> Result[Unit] {
+  print ${context.root} ${context.target.triple} ${context.target.cpu.feature}
+}
+",
+    )
+    .expect("write lifecycle");
+    std::fs::write(
+        &main,
+        "\
+use lifecycle as l
+use target as targets
+
+let target: targets.Target = targets.select()
+let context: l.Context = {root: Path(\"workspace\"), target}
+l.normalize(context)?
+",
+    )
+    .expect("write main");
+
+    let output = xsh([main.to_str().unwrap()]);
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        String::from_utf8(output.stdout).unwrap(),
+        "workspace x86_64-unknown-linux-musl crt-static\n"
+    );
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
 fn proc_call_from_module_preserves_runtime_cwd() {
     let root = temp_path("module-proc-call-cwd-root");
     let src = root.join("src");

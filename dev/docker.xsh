@@ -10,7 +10,7 @@ export proc image_name() [env, error] -> Result[Str] {
 ## Computes the Docker platform while allowing the explicit environment override.
 export proc platform(ctx: Context) [env, error] -> Result[Str] {
   let override_value = env.get_or("DOCKER_PLATFORM", "")?.trim()
-  return if override_value == "" { ctx.docker_platform } else { override_value }
+  return if override_value == "" { ctx.target.docker_platform } else { override_value }
 }
 
 ## Builds or verifies the configured test image according to `XSH_TEST_IMAGE_BUILD`.
@@ -22,7 +22,7 @@ export proc ensure_image(ctx: Context) [process, env, error, io] -> Result[Str] 
   if build_image == "0" {
     context.run_stage(
       "docker-image-inspect",
-      ctx.target_triple,
+      ctx.target.triple,
       "docker",
       ["docker", "image", "inspect", image],
       ctx.root,
@@ -31,7 +31,7 @@ export proc ensure_image(ctx: Context) [process, env, error, io] -> Result[Str] 
   } else {
     context.run_stage(
       "docker-image-build",
-      ctx.target_triple,
+      ctx.target.triple,
       "docker",
       [
         "docker",
@@ -85,7 +85,7 @@ export pure internal_argv(
       "-w",
       "/work",
       "-e",
-      f"TARGET=${ctx.target_triple}",
+      f"TARGET=${ctx.target.triple}",
       "-e",
       "CARGO_TARGET_DIR=/work/target",
       "-e",
@@ -134,5 +134,5 @@ export proc run_internal(
     stress_repeat,
     extra,
   )
-  context.run_stage(f"docker-${operation}", ctx.target_triple, "docker", argv, ctx.root, {})?
+  context.run_stage(f"docker-${operation}", ctx.target.triple, "docker", argv, ctx.root, {})?
 }

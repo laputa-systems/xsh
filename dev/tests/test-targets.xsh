@@ -48,15 +48,17 @@ proc test_target_flags_native_selection_and_coverage_backend_policy() [error] {
     artifact_dir: /repo/dist,
     host_os: "linux",
     host_arch: "x86_64",
-    target_triple: "x86_64-unknown-linux-musl",
-    target_os: "linux",
-    target_arch: "x86_64",
-    docker_platform: "linux/amd64",
-    executable_format: "ELF",
-    elf_machine: "Advanced Micro Devices X86-64",
-    target_cpu_rustflags: [],
-    target_cpu_cflags: [],
-    static_musl: true,
+    target: {
+      triple: "x86_64-unknown-linux-musl",
+      os: "linux",
+      arch: "x86_64",
+      docker_platform: "linux/amd64",
+      executable_format: "ELF",
+      elf_machine: "Advanced Micro Devices X86-64",
+      cpu_rustflags: [],
+      cpu_cflags: [],
+      static_musl: true,
+    },
     profile: "dist",
     darwin_deployment_target: "26.0",
   }
@@ -74,20 +76,22 @@ proc test_docker_argv_is_direct_and_carries_mount_environment_policy() [error] {
     artifact_dir: /repo/dist,
     host_os: "darwin",
     host_arch: "aarch64",
-    target_triple: "aarch64-unknown-linux-musl",
-    target_os: "linux",
-    target_arch: "aarch64",
-    docker_platform: "linux/arm64",
-    executable_format: "ELF",
-    elf_machine: "AArch64",
-    target_cpu_rustflags: [
-      "-C",
-      "target-cpu=neoverse-n2",
-    ],
-    target_cpu_cflags: [
-      "-mcpu=neoverse-n2+nosve+nosve2",
-    ],
-    static_musl: true,
+    target: {
+      triple: "aarch64-unknown-linux-musl",
+      os: "linux",
+      arch: "aarch64",
+      docker_platform: "linux/arm64",
+      executable_format: "ELF",
+      elf_machine: "AArch64",
+      cpu_rustflags: [
+        "-C",
+        "target-cpu=neoverse-n2",
+      ],
+      cpu_cflags: [
+        "-mcpu=neoverse-n2+nosve+nosve2",
+      ],
+      static_musl: true,
+    },
     profile: "dist",
     darwin_deployment_target: "26.0",
   }
@@ -136,15 +140,17 @@ proc test_release_validation_requires_exactly_the_nine_expected_products(ctx: Te
     artifact_dir: artifact_dir,
     host_os: "linux",
     host_arch: "x86_64",
-    target_triple: "x86_64-unknown-linux-musl",
-    target_os: "linux",
-    target_arch: "x86_64",
-    docker_platform: "linux/amd64",
-    executable_format: "ELF",
-    elf_machine: "Advanced Micro Devices X86-64",
-    target_cpu_rustflags: [],
-    target_cpu_cflags: [],
-    static_musl: true,
+    target: {
+      triple: "x86_64-unknown-linux-musl",
+      os: "linux",
+      arch: "x86_64",
+      docker_platform: "linux/amd64",
+      executable_format: "ELF",
+      elf_machine: "Advanced Micro Devices X86-64",
+      cpu_rustflags: [],
+      cpu_cflags: [],
+      static_musl: true,
+    },
     profile: "dist",
     darwin_deployment_target: "26.0",
   }
@@ -229,7 +235,7 @@ proc test_context_target_and_docker_platform_overrides(ctx: TestContext) [fs, er
 use context
 
 proc main() [fs, env, error] -> Result[Unit] {
-  print \${(context.create()?).target_triple}
+  print \${(context.create()?).target.triple}
 }
 
 main()?
@@ -243,7 +249,7 @@ main()?
 use context
 
 proc main() [fs, env, error] -> Result[Unit] {
-  print \${(context.create()?).target_triple}
+  print \${(context.create()?).target.triple}
 }
 
 main()?
@@ -268,15 +274,17 @@ let ctx = {
   artifact_dir: p"/repo/dist",
   host_os: "linux",
   host_arch: "x86_64",
-  target_triple: "x86_64-unknown-linux-musl",
-  target_os: "linux",
-  target_arch: "x86_64",
-  docker_platform: "linux/amd64",
-  executable_format: "ELF",
-  elf_machine: "Advanced Micro Devices X86-64",
-  target_cpu_rustflags: [],
-  target_cpu_cflags: [],
-  static_musl: true,
+  target: {
+    triple: "x86_64-unknown-linux-musl",
+    os: "linux",
+    arch: "x86_64",
+    docker_platform: "linux/amd64",
+    executable_format: "ELF",
+    elf_machine: "Advanced Micro Devices X86-64",
+    cpu_rustflags: [],
+    cpu_cflags: [],
+    static_musl: true,
+  },
   profile: "dist",
   darwin_deployment_target: "26.0",
 }
@@ -309,15 +317,17 @@ let ctx = {
   artifact_dir: p"/repo/dist",
   host_os: "linux",
   host_arch: "x86_64",
-  target_triple: "x86_64-unknown-linux-musl",
-  target_os: "linux",
-  target_arch: "x86_64",
-  docker_platform: "linux/amd64",
-  executable_format: "ELF",
-  elf_machine: "Advanced Micro Devices X86-64",
-  target_cpu_rustflags: [],
-  target_cpu_cflags: [],
-  static_musl: true,
+  target: {
+    triple: "x86_64-unknown-linux-musl",
+    os: "linux",
+    arch: "x86_64",
+    docker_platform: "linux/amd64",
+    executable_format: "ELF",
+    elf_machine: "Advanced Micro Devices X86-64",
+    cpu_rustflags: [],
+    cpu_cflags: [],
+    static_musl: true,
+  },
   profile: "dist",
   darwin_deployment_target: "26.0",
 }
