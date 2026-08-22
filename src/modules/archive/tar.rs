@@ -4,24 +4,21 @@ use crate::modules::archive::policy::{
     validate_link_target,
 };
 use crate::modules::compression::{
-    ArchiveWriter, BlockingAsyncIo, archive_reader, for_create as compression_for_create,
-    parse as parse_compression,
+    ArchiveWriter, archive_reader, for_create as compression_for_create, parse as parse_compression,
 };
 use crate::runtime::process::path_bytes;
 use crate::runtime::value::{LiveStream, PathValue, RuntimeError, StreamValue, Value};
 use crate::source::Span;
-use async_tar::{Archive, Builder, Entry, EntryType, Header};
-use futures_lite::StreamExt;
-use futures_lite::io::{AsyncRead, AsyncWrite, Cursor, copy, empty};
 use std::collections::BTreeMap;
 use std::fs::{self, File};
-use std::io::{Read, Write};
+use std::io::{self, Cursor, Read, Write};
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::{FileTypeExt, MetadataExt, PermissionsExt, symlink};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use super::{archive_error, block_on_archive};
+use super::archive_error;
+use tar::{Archive, Builder, Entry, EntryType, Header};
 
 pub(crate) fn tar_list(
     path: PathBuf,
@@ -30,78 +27,49 @@ pub(crate) fn tar_list(
     span: Span,
 ) -> Result<StreamValue, RuntimeError> {
     let reader = archive_reader(&path, parse_compression(compression, span)?, span)?;
-    let archive = Archive::new(BlockingAsyncIo::new(reader));
+    let mut archive = Archive::new(reader);
     let entries = archive
         .entries()
         .map_err(|error| archive_error("archive-list", error, span))?;
     let filters = archive_member_filters(members, span)?;
+
+    // `tar::Entries` borrows its archive, while `LiveStream` owns its source.
+    // Buffer metadata only so listing stays safe without a self-referential adapter.
+    let mut records = Vec::new();
+    for entry in entries {
+        let entry = entry.map_err(|error| archive_error("archive-list", error, span))?;
+        if entry.header().entry_type().is_pax_global_extensions() {
+            continue;
+        }
+        let raw_path: PathBuf = entry
+            .path()
+            .map_err(|error| archive_error("archive-list", error, span))?
+            .into_owned()
+            .into();
+        if archive_member_selected(&raw_path, &filters) {
+            records.push(archive_entry_record(&entry, span)?);
+        }
+    }
+
     Ok(StreamValue::from_live(
         "archive.tar_list",
         TarListStream {
-            entries,
-            filters,
-            span,
+            records: records.into_iter(),
         },
     ))
 }
 
-type TarEntries = async_tar::Entries<BlockingAsyncIo<Box<dyn Read + Send>>>;
-
 struct TarListStream {
-    entries: TarEntries,
-    filters: Vec<PathBuf>,
-    span: Span,
+    records: std::vec::IntoIter<Value>,
 }
 
 impl LiveStream for TarListStream {
-    fn next(&mut self, span: Span) -> Result<Option<Value>, RuntimeError> {
-        loop {
-            let entry = futures_lite::future::block_on(self.entries.next())
-                .transpose()
-                .map_err(|error| archive_error("archive-list", error, self.span))?;
-            let Some(entry) = entry else {
-                return Ok(None);
-            };
-            if entry.header().entry_type().is_pax_global_extensions() {
-                continue;
-            }
-            let raw_path: PathBuf = entry
-                .path()
-                .map_err(|error| archive_error("archive-list", error, span))?
-                .into_owned()
-                .into();
-            if !archive_member_selected(&raw_path, &self.filters) {
-                continue;
-            }
-            return archive_entry_record(&entry, span).map(Some);
-        }
+    fn next(&mut self, _span: Span) -> Result<Option<Value>, RuntimeError> {
+        Ok(self.records.next())
     }
 }
 
 pub(crate) fn tar_extract(
-    path: PathBuf,
-    dest: PathBuf,
-    strip_components: i64,
-    compression: &str,
-    overwrite: bool,
-    members: Vec<PathValue>,
-    span: Span,
-) -> Result<(), RuntimeError> {
-    block_on_archive(
-        span,
-        tar_extract_async(
-            path,
-            dest,
-            strip_components,
-            compression,
-            overwrite,
-            members,
-            span,
-        ),
-    )
-}
-
-async fn tar_extract_async(
     path: PathBuf,
     dest: PathBuf,
     strip_components: i64,
@@ -117,13 +85,13 @@ async fn tar_extract_async(
         );
     }
     let reader = archive_reader(&path, parse_compression(compression, span)?, span)?;
-    let archive = Archive::new(BlockingAsyncIo::new(reader));
+    let mut archive = Archive::new(reader);
     let filters = archive_member_filters(members, span)?;
     let mut entries = archive
         .entries()
         .map_err(|error| archive_error("archive-extract", error, span))?;
     fs::create_dir_all(&dest).map_err(|error| archive_error("archive-extract", error, span))?;
-    while let Some(entry) = entries.next().await {
+    while let Some(entry) = entries.next() {
         let mut entry = entry.map_err(|error| archive_error("archive-extract", error, span))?;
         let raw_path: PathBuf = entry
             .path()
@@ -136,26 +104,12 @@ async fn tar_extract_async(
         let Some(path) = strip_archive_path(&raw_path, strip_components as usize, span)? else {
             continue;
         };
-        extract_entry(&mut entry, &dest, &path, overwrite, span).await?;
+        extract_entry(&mut entry, &dest, &path, overwrite, span)?;
     }
     Ok(())
 }
 
 pub(crate) fn tar_create(
-    path: PathBuf,
-    root: PathBuf,
-    entries: Vec<PathValue>,
-    compression: &str,
-    overwrite: bool,
-    span: Span,
-) -> Result<(), RuntimeError> {
-    block_on_archive(
-        span,
-        tar_create_async(path, root, entries, compression, overwrite, span),
-    )
-}
-
-async fn tar_create_async(
     path: PathBuf,
     root: PathBuf,
     entries: Vec<PathValue>,
@@ -171,7 +125,7 @@ async fn tar_create_async(
     }
     let compression = compression_for_create(&path, parse_compression(compression, span)?);
     let writer = ArchiveWriter::create(&path, compression, overwrite, span)?;
-    let mut builder = Builder::new(BlockingAsyncIo::new(writer));
+    let mut builder = Builder::new(writer);
     builder.follow_symlinks(false);
     let mut create_entries = Vec::new();
     for entry in entries {
@@ -184,13 +138,11 @@ async fn tar_create_async(
         collect_create_entry(&source, &archive_name, span, &mut create_entries)?;
     }
     for entry in create_entries {
-        append_create_entry(&mut builder, &entry, span).await?;
+        append_create_entry(&mut builder, &entry, span)?;
     }
     let writer = builder
         .into_inner()
-        .await
         .map_err(|error| archive_error("archive-create", error, span))?;
-    let writer = writer.into_inner();
     writer.finish(span)
 }
 
@@ -269,7 +221,7 @@ fn collect_create_entry_with_meta(
     Ok(())
 }
 
-async fn append_create_entry<W: AsyncWrite + Unpin + Send + Sync>(
+fn append_create_entry<W: Write>(
     builder: &mut Builder<W>,
     entry: &CreateEntry,
     span: Span,
@@ -305,16 +257,14 @@ async fn append_create_entry<W: AsyncWrite + Unpin + Send + Sync>(
         let file = File::open(&entry.source)
             .map_err(|error| archive_error("archive-create", error, span))?;
         builder
-            .append_data(&mut header, &entry.archive_name, BlockingAsyncIo::new(file))
-            .await
+            .append_data(&mut header, &entry.archive_name, file)
             .map_err(|error| archive_error("archive-create", error, span))?;
         return Ok(());
     }
 
     if file_type.is_dir() {
         builder
-            .append_data(&mut header, &entry.archive_name, empty())
-            .await
+            .append_data(&mut header, &entry.archive_name, io::empty())
             .map_err(|error| archive_error("archive-create", error, span))?;
         return Ok(());
     }
@@ -322,10 +272,9 @@ async fn append_create_entry<W: AsyncWrite + Unpin + Send + Sync>(
     if file_type.is_symlink() {
         let target = fs::read_link(&entry.source)
             .map_err(|error| archive_error("archive-create", error, span))?;
-        append_link_name(builder, &mut header, &target, span).await?;
+        append_link_name(builder, &mut header, &target, span)?;
         builder
-            .append_data(&mut header, &entry.archive_name, empty())
-            .await
+            .append_data(&mut header, &entry.archive_name, io::empty())
             .map_err(|error| archive_error("archive-create", error, span))?;
         return Ok(());
     }
@@ -338,10 +287,9 @@ async fn append_create_entry<W: AsyncWrite + Unpin + Send + Sync>(
         header,
         span,
     )
-    .await
 }
 
-async fn append_link_name<W: AsyncWrite + Unpin + Send + Sync>(
+fn append_link_name<W: Write>(
     builder: &mut Builder<W>,
     header: &mut Header,
     target: &Path,
@@ -367,11 +315,10 @@ async fn append_link_name<W: AsyncWrite + Unpin + Send + Sync>(
     data.push(0);
     builder
         .append(&long_link, Cursor::new(data))
-        .await
         .map_err(|error| archive_error("archive-create", error, span))
 }
 
-async fn append_special_create_entry<W: AsyncWrite + Unpin + Send + Sync>(
+fn append_special_create_entry<W: Write>(
     builder: &mut Builder<W>,
     source: &Path,
     archive_name: &Path,
@@ -403,12 +350,11 @@ async fn append_special_create_entry<W: AsyncWrite + Unpin + Send + Sync>(
         .with_span(span));
     }
     builder
-        .append_data(&mut header, archive_name, empty())
-        .await
+        .append_data(&mut header, archive_name, io::empty())
         .map_err(|error| archive_error("archive-create", error, span))
 }
 
-async fn extract_entry<R: AsyncRead + Unpin>(
+fn extract_entry<R: Read>(
     entry: &mut Entry<R>,
     dest: &Path,
     path: &Path,
@@ -465,11 +411,8 @@ async fn extract_entry<R: AsyncRead + Unpin>(
             .truncate(overwrite)
             .open(&output)
             .map_err(|error| archive_error("archive-extract", error, span))?;
-        let mut async_output = BlockingAsyncIo::new(file);
-        copy(&mut *entry, &mut async_output)
-            .await
+        io::copy(&mut *entry, &mut file)
             .map_err(|error| archive_error("archive-extract", error, span))?;
-        file = async_output.into_inner();
         file.flush()
             .map_err(|error| archive_error("archive-extract", error, span))?;
         set_entry_mode(&output, entry, span)?;
@@ -477,7 +420,7 @@ async fn extract_entry<R: AsyncRead + Unpin>(
     Ok(())
 }
 
-fn set_entry_mode<R: AsyncRead + Unpin>(
+fn set_entry_mode<R: Read>(
     output: &Path,
     entry: &Entry<R>,
     span: Span,
@@ -490,7 +433,7 @@ fn set_entry_mode<R: AsyncRead + Unpin>(
         .map_err(|error| archive_error("archive-extract", error, span))
 }
 
-fn archive_entry_record<R: AsyncRead + Unpin>(
+fn archive_entry_record<R: Read>(
     entry: &Entry<R>,
     span: Span,
 ) -> Result<Value, RuntimeError> {

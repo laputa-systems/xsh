@@ -1981,6 +1981,56 @@ match archive.tar_extract(tarball, fp\"${{out}}/negative\", -1) {{
 }
 
 #[test]
+fn archive_module_roundtrips_long_tar_paths_and_link_targets() {
+    let root = temp_path("archive-long-paths");
+    let _ = std::fs::remove_dir_all(&root);
+    let src = root.join("src");
+    let out = root.join("out");
+    let long_dir = "d".repeat(101);
+    let long_path = format!("{long_dir}/note.txt");
+    let long_target = format!("target/{}", vec!["part"; 30].join("/"));
+    std::fs::create_dir_all(src.join(&long_dir)).expect("create long source path");
+    std::fs::create_dir_all(&out).expect("create output root");
+    std::fs::write(src.join(&long_path), "long path\n").expect("write source file");
+    std::os::unix::fs::symlink(&long_target, src.join("long-link"))
+        .expect("create long symlink");
+
+    let script = format!(
+        "\
+let src = Path({})
+let out = Path({})
+let tarball = fp\"${{out}}/pkg.tar\"
+archive.tar_create(tarball, src, [p\".\"])?
+let path_entries = archive.tar_list(tarball, \"\", [Path({})])?.collect()
+let link_entries = archive.tar_list(tarball, \"\", [p\"long-link\"])?.collect()
+print path_entries[0].path.display()
+print link_entries[0].link_name
+let dest = fp\"${{out}}/dest\"
+archive.tar_extract(tarball, dest)?
+print fp\"${{dest}}/long-link\".readlink()?.display()
+",
+        xsh_string_literal(src.to_str().unwrap()),
+        xsh_string_literal(out.to_str().unwrap()),
+        xsh_string_literal(&long_path),
+    );
+
+    let output = run_temp_script("archive-long-paths", &script);
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        String::from_utf8(output.stdout).unwrap(),
+        format!("{long_path}\n{long_target}\n{long_target}\n")
+    );
+    assert_eq!(String::from_utf8(output.stderr).unwrap(), "");
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
 fn archive_module_omits_pax_global_headers_from_tar_listing() {
     let root = temp_path("archive-pax-global");
     let _ = std::fs::remove_dir_all(&root);
@@ -2003,7 +2053,7 @@ fn archive_module_omits_pax_global_headers_from_tar_listing() {
 }
 
 #[test]
-fn archive_module_streams_tar_listing_in_archive_order() {
+fn archive_module_lists_tar_entries_in_archive_order() {
     let root = temp_path("archive-list");
     let _ = std::fs::remove_dir_all(&root);
     std::fs::create_dir_all(&root).expect("create archive root");

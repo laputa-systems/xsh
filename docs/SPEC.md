@@ -1715,9 +1715,9 @@ uid/gid changes, cwd/env setup, and process status.
 `archive`:
 
 - `archive.tar_list(path: Path, compression: Str = "auto",
-  members: List[Path] = []) -> Result[Stream[Record]]`. The stream opens the
-  archive when created and yields selected entries in archive order as they
-  are consumed. Use `.collect()` when a materialized list is needed.
+  members: List[Path] = []) -> Result[Stream[Record]]`. Creating the stream
+  validates and buffers selected entry records in archive order; file contents
+  are not materialized. Consume it directly or use `.collect()` for a list.
 - `archive.tar_extract(path: Path, dest: Path, strip_components: Int = 0,
   compression: Str = "auto", overwrite: Bool = false,
   members: List[Path] = []) -> Result[Unit]`.

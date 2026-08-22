@@ -16,18 +16,10 @@ use crate::modules::compression::{
 use crate::runtime::value::RuntimeError;
 use crate::source::Span;
 use std::fs::{self, File};
-use std::future::Future;
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 
 const BUFFER_SIZE: usize = 64 * 1024;
-
-fn block_on_archive<T>(
-    _span: Span,
-    future: impl Future<Output = Result<T, RuntimeError>>,
-) -> Result<T, RuntimeError> {
-    futures_lite::future::block_on(future)
-}
 
 pub(crate) fn compress_file(
     source: PathBuf,

@@ -71,8 +71,8 @@ net = [
 tools = []
 
 [dependencies]
-async-tar = { git = "https://github.com/dignifiedquire/async-tar.git", rev = "109365969684b9cfdbe2696d5185b4ebcfb29b4c", default-features = false, features = ["runtime-async-std"] }
 rawzip = "0.5.1"
+tar = { version = "0.4.46", default-features = false }
 bzip2 = "0.6.1"
 cap-directories = "4.0.2"
 cap-fs-ext = "4.0.2"

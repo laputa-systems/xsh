@@ -6,15 +6,12 @@ use bzip2::write::BzEncoder;
 use flate2::Compression as GzipCompression;
 use flate2::bufread::MultiGzDecoder;
 use flate2::write::GzEncoder;
-use futures_lite::io::{AsyncRead, AsyncWrite};
 #[cfg(any(target_os = "linux", test))]
 use lzma_rust2::XzReader;
 use lzma_rust2::{LzmaOptions, LzmaReader, LzmaWriter, XzOptions, XzReaderMt, XzWriter};
 use std::fs::{self, File};
 use std::io::{self, BufRead, BufReader, BufWriter, Read, Write};
 use std::path::Path;
-use std::pin::Pin;
-use std::task::{Context, Poll};
 
 const BUFFER_SIZE: usize = 64 * 1024;
 const DEFAULT_LEVEL: u32 = 6;
@@ -31,48 +28,6 @@ pub(crate) enum Compression {
     Bz2,
     Xz,
     Lzma,
-}
-
-pub(crate) struct BlockingAsyncIo<T> {
-    inner: T,
-}
-
-impl<T> BlockingAsyncIo<T> {
-    pub(crate) fn new(inner: T) -> Self {
-        Self { inner }
-    }
-
-    pub(crate) fn into_inner(self) -> T {
-        self.inner
-    }
-}
-
-impl<T: Read + Unpin> AsyncRead for BlockingAsyncIo<T> {
-    fn poll_read(
-        mut self: Pin<&mut Self>,
-        _cx: &mut Context<'_>,
-        buf: &mut [u8],
-    ) -> Poll<io::Result<usize>> {
-        Poll::Ready(self.inner.read(buf))
-    }
-}
-
-impl<T: Write + Unpin> AsyncWrite for BlockingAsyncIo<T> {
-    fn poll_write(
-        mut self: Pin<&mut Self>,
-        _cx: &mut Context<'_>,
-        buf: &[u8],
-    ) -> Poll<io::Result<usize>> {
-        Poll::Ready(self.inner.write(buf))
-    }
-
-    fn poll_flush(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        Poll::Ready(self.inner.flush())
-    }
-
-    fn poll_close(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        Poll::Ready(self.inner.flush())
-    }
 }
 
 pub(crate) fn parse(value: &str, span: Span) -> Result<Compression, RuntimeError> {
