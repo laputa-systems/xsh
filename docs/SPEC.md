@@ -2142,8 +2142,17 @@ when the field is absent.
 
 `net` supports HTTP and HTTPS only. `net.request`, `net.download`, and
 `net.upload` use XSH's blocking HTTP/1.1 transport; `net.request_many` and
-`net.download_many` use an internal nonblocking transport. Both use Rustls and the `aws-lc-rs`
-crypto provider, keyed by caller-visible pool name and TLS configuration.
+`net.download_many` use an internal nonblocking transport. Both use Rustls with
+the Rust-only Graviola `CryptoProvider`, keyed by caller-visible pool name and
+TLS configuration. On Linux, certificate validation reads the `SSL_CERT_FILE`
+and `SSL_CERT_DIR` overrides when set; otherwise it loads PEM roots from
+standard locations including `/etc/ssl/certs`. On macOS, the platform verifier
+remains a target-specific dependency so Keychain trust evaluation is preserved;
+it is not the TLS `CryptoProvider` and does not add a C/C++ build dependency.
+`Cargo.lock` retains upstream target- or feature-conditional `ring` and
+`openssl-probe` entries, but Cargo does not select or build either for XSH's
+normal Linux or macOS graphs. Removing those lockfile-only records would require
+an upstream manifest change rather than a project TLS dependency.
 Hostnames are resolved by the XSH DNS helper layer. The blocking transport opens
 TCP sockets through `cap-net-ext` using a `cap-std` network pool; the batch
 transport owns its nonblocking sockets for the duration of its call. TLS

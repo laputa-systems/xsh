@@ -15,6 +15,8 @@ use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, Server
 use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
 use rustls::{ClientConfig, DigitallySignedStruct, RootCertStore, SignatureScheme};
 use rustls::{ClientConnection, StreamOwned};
+use rustls_graviola::default_provider;
+#[cfg(target_os = "macos")]
 use rustls_platform_verifier::BuilderVerifierExt;
 use std::ffi::{CStr, CString};
 use std::fs::{self, File, OpenOptions};
@@ -1672,6 +1674,96 @@ fn load_ca_certs(path: &Path) -> NetResult<Vec<CertificateDer<'static>>> {
     Ok(certs)
 }
 
+// These are standard Linux CA locations. Keeping the list here avoids a TLS
+// backend dependency while retaining distribution coverage.
+#[cfg(not(target_os = "macos"))]
+const SYSTEM_CERTIFICATE_FILES: &[&str] = &[
+    "/etc/ssl/certs/ca-certificates.crt",
+    "/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem",
+    "/etc/pki/tls/certs/ca-bundle.crt",
+    "/etc/ssl/ca-bundle.pem",
+    "/etc/pki/tls/cacert.pem",
+    "/etc/ssl/cert.pem",
+    "/opt/etc/ssl/certs/ca-certificates.crt",
+    "/etc/ssl/certs/cacert.pem",
+];
+
+#[cfg(not(target_os = "macos"))]
+const SYSTEM_CERTIFICATE_DIRECTORIES: &[&str] = &[
+    "/etc/ssl/certs",
+    "/etc/pki/tls/certs",
+    "/etc/security/certificates",
+];
+
+#[cfg(not(target_os = "macos"))]
+fn system_root_certificates() -> NetResult<RootCertStore> {
+    let certificate_file = std::env::var_os("SSL_CERT_FILE").map(PathBuf::from);
+    let certificate_directories = std::env::var_os("SSL_CERT_DIR")
+        .map(|directories| std::env::split_paths(&directories).collect::<Vec<_>>())
+        .unwrap_or_default();
+    let (certificate_file, certificate_directories) =
+        if certificate_file.is_some() || !certificate_directories.is_empty() {
+            (certificate_file, certificate_directories)
+        } else {
+            (
+                SYSTEM_CERTIFICATE_FILES
+                    .iter()
+                    .map(PathBuf::from)
+                    .find(|path| path.is_file()),
+                SYSTEM_CERTIFICATE_DIRECTORIES
+                    .iter()
+                    .map(PathBuf::from)
+                    .filter(|path| path.is_dir())
+                    .collect(),
+            )
+        };
+
+    let mut certificates = Vec::new();
+    if let Some(path) = certificate_file {
+        collect_system_certificates(&path, &mut certificates);
+    }
+    for directory in certificate_directories {
+        collect_system_certificates_from_dir(&directory, &mut certificates);
+    }
+    certificates.sort_unstable_by(|left, right| left.as_ref().cmp(right.as_ref()));
+    certificates.dedup_by(|left, right| left.as_ref() == right.as_ref());
+
+    let mut roots = RootCertStore::empty();
+    roots.add_parsable_certificates(certificates);
+    if roots.is_empty() {
+        return Err(NetError::new(
+            "net-tls",
+            "no CA certificates were loaded from the system",
+        ));
+    }
+    Ok(roots)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn collect_system_certificates(path: &Path, certificates: &mut Vec<CertificateDer<'static>>) {
+    let Ok(pem) = fs::read(path) else {
+        return;
+    };
+    let mut reader = io::Cursor::new(pem);
+    certificates.extend(rustls_pemfile::certs(&mut reader).filter_map(Result::ok));
+}
+
+#[cfg(not(target_os = "macos"))]
+fn collect_system_certificates_from_dir(
+    directory: &Path,
+    certificates: &mut Vec<CertificateDer<'static>>,
+) {
+    let Ok(entries) = fs::read_dir(directory) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_file() {
+            collect_system_certificates(&path, certificates);
+        }
+    }
+}
+
 fn net_transport_error(error: io::Error) -> NetError {
     let message = error.to_string();
     let kind = if message.contains("dns-not-found") {
@@ -1694,7 +1786,7 @@ fn net_transport_error(error: io::Error) -> NetError {
 }
 
 fn tls_config_for_key(key: &NetAgentKey) -> NetResult<ClientConfig> {
-    let provider = Arc::new(rustls::crypto::aws_lc_rs::default_provider());
+    let provider = Arc::new(default_provider());
     let builder = ClientConfig::builder_with_provider(provider)
         .with_safe_default_protocol_versions()
         .map_err(|error| NetError::new("net-tls", error.to_string()))?;
@@ -1712,12 +1804,26 @@ fn tls_config_for_key(key: &NetAgentKey) -> NetResult<ClientConfig> {
         }
         builder.with_root_certificates(roots).with_no_client_auth()
     } else {
-        builder
-            .with_platform_verifier()
-            .map_err(|error| NetError::new("net-tls", error.to_string()))?
-            .with_no_client_auth()
+        default_tls_client_config(builder)?
     };
     Ok(config)
+}
+
+fn default_tls_client_config(
+    builder: rustls::ConfigBuilder<ClientConfig, rustls::WantsVerifier>,
+) -> NetResult<ClientConfig> {
+    #[cfg(target_os = "macos")]
+    {
+        return builder
+            .with_platform_verifier()
+            .map_err(|error| NetError::new("net-tls", error.to_string()))
+            .map(|builder| builder.with_no_client_auth());
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    Ok(builder
+        .with_root_certificates(system_root_certificates()?)
+        .with_no_client_auth())
 }
 
 #[derive(Clone, Debug)]

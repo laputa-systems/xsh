@@ -514,8 +514,8 @@ match responses[1] {{
 
 #[cfg(feature = "net")]
 #[test]
-fn net_module_request_many_verifies_local_https() {
-    let server = LocalHttpsServer::spawn(2);
+fn net_module_request_many_verifies_local_https_over_tls13() {
+    let server = LocalHttpsServer::spawn_with_protocol_versions(2, &[&rustls::version::TLS13]);
     let ca = temp_path("net-request-many-ca.pem");
     let _ = std::fs::remove_file(&ca);
     std::fs::write(&ca, LOCAL_HTTPS_CA).expect("write local HTTPS CA");
@@ -626,8 +626,8 @@ print ${{responses[0]?.bytes}}
 
 #[cfg(feature = "net")]
 #[test]
-fn net_module_verifies_local_https_with_custom_ca() {
-    let server = LocalHttpsServer::spawn(2);
+fn net_module_verifies_local_https_with_custom_ca_over_tls12() {
+    let server = LocalHttpsServer::spawn_with_protocol_versions(2, &[&rustls::version::TLS12]);
     let ca = temp_path("net-local-https-ca.pem");
     let dest = temp_path("net-local-https-download.txt");
     let _ = std::fs::remove_file(&ca);
@@ -2459,14 +2459,17 @@ struct LocalHttpsSummary {
 
 #[cfg(feature = "net")]
 impl LocalHttpsServer {
-    fn spawn(expected: usize) -> Self {
+    fn spawn_with_protocol_versions(
+        expected: usize,
+        versions: &[&'static rustls::SupportedProtocolVersion],
+    ) -> Self {
         let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind HTTPS listener");
         listener
             .set_nonblocking(true)
             .expect("set HTTPS listener nonblocking");
         let addr = listener.local_addr().expect("HTTPS listener addr");
         let url = format!("https://{addr}");
-        let config = Arc::new(local_https_config());
+        let config = Arc::new(local_https_config_with_protocol_versions(versions));
         let handle = std::thread::spawn(move || {
             let deadline = Instant::now() + Duration::from_secs(30);
             let mut handled = 0;
@@ -2563,6 +2566,13 @@ impl LocalHttpsHttp2Server {
 
 #[cfg(feature = "net")]
 fn local_https_config() -> rustls::ServerConfig {
+    local_https_config_with_protocol_versions(rustls::ALL_VERSIONS)
+}
+
+#[cfg(feature = "net")]
+fn local_https_config_with_protocol_versions(
+    versions: &[&'static rustls::SupportedProtocolVersion],
+) -> rustls::ServerConfig {
     use rustls::pki_types::pem::PemObject;
     use rustls::pki_types::{CertificateDer, PrivateKeyDer};
 
@@ -2570,10 +2580,8 @@ fn local_https_config() -> rustls::ServerConfig {
         .expect("parse local HTTPS cert");
     let key =
         PrivateKeyDer::from_pem_slice(LOCAL_HTTPS_KEY.as_bytes()).expect("parse local HTTPS key");
-    rustls::ServerConfig::builder_with_provider(Arc::new(
-        rustls::crypto::aws_lc_rs::default_provider(),
-    ))
-    .with_safe_default_protocol_versions()
+    rustls::ServerConfig::builder_with_provider(Arc::new(rustls_graviola::default_provider()))
+    .with_protocol_versions(versions)
     .expect("HTTPS protocol versions")
     .with_no_client_auth()
     .with_single_cert(vec![cert], key)

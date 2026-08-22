@@ -6,9 +6,7 @@ DARWIN_CODESIGN_FLAGS ?=
 ifneq ($(DARWIN_CODESIGN_ENTITLEMENTS),)
 DARWIN_CODESIGN_FLAGS += --entitlements $(DARWIN_CODESIGN_ENTITLEMENTS)
 endif
-# Keep Rust and native dependencies on the same minimum macOS version. Without
-# this, the current SDK can stamp aws-lc-sys objects with a newer deployment
-# target than the Rust linker target.
+# Keep Rust and native dependencies on the same minimum macOS version.
 DARWIN_DEPLOYMENT_TARGET ?= 26.0
 TARGET ?= x86_64-unknown-linux-musl
 COV_BACKEND ?= $(shell if [ "$$(uname -s)" = Linux ] && [ "$$(uname -m)" = x86_64 ] && [ -f /etc/alpine-release ]; then echo native; else echo docker; fi)
@@ -92,14 +90,14 @@ DIST_MUSL_RUSTFLAGS += -C link-arg=--defsym=__isoc23_sscanf=sscanf -C link-arg=-
 DIST_FULL_RUSTFLAGS ?= $(RUSTFLAGS) $(DIST_RUSTFLAGS) $(DIST_TARGET_RUSTFLAGS) $(DIST_MUSL_RUSTFLAGS)
 DIST_ENV =
 ifeq ($(TARGET),x86_64-unknown-linux-musl)
-DIST_ENV = CFLAGS_x86_64_unknown_linux_musl="$(strip $(CFLAGS_x86_64_unknown_linux_musl) $(DIST_TARGET_CFLAGS))" AWS_LC_SYS_CFLAGS_x86_64_unknown_linux_musl="$(strip $(AWS_LC_SYS_CFLAGS_x86_64_unknown_linux_musl) $(DIST_TARGET_CFLAGS))" AWS_LC_SYS_NO_JITTER_ENTROPY=1 CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS="$(strip $(DIST_FULL_RUSTFLAGS))"
+DIST_ENV = CFLAGS_x86_64_unknown_linux_musl="$(strip $(CFLAGS_x86_64_unknown_linux_musl) $(DIST_TARGET_CFLAGS))" CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS="$(strip $(DIST_FULL_RUSTFLAGS))"
 endif
 ifeq ($(TARGET),aarch64-unknown-linux-musl)
-DIST_ENV = CFLAGS_aarch64_unknown_linux_musl="$(strip $(CFLAGS_aarch64_unknown_linux_musl) $(DIST_TARGET_CFLAGS))" AWS_LC_SYS_CFLAGS_aarch64_unknown_linux_musl="$(strip $(AWS_LC_SYS_CFLAGS_aarch64_unknown_linux_musl) $(DIST_TARGET_CFLAGS))" AWS_LC_SYS_NO_JITTER_ENTROPY=1 CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_RUSTFLAGS="$(strip $(DIST_FULL_RUSTFLAGS))"
+DIST_ENV = CFLAGS_aarch64_unknown_linux_musl="$(strip $(CFLAGS_aarch64_unknown_linux_musl) $(DIST_TARGET_CFLAGS))" CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_RUSTFLAGS="$(strip $(DIST_FULL_RUSTFLAGS))"
 endif
 
-# Dockerfile.test already supplies the compiler, C library, target CFLAGS, and
-# aws-lc environment. Pass only the Rust flags needed by the dist build so the
+# Dockerfile.test already supplies the compiler, C library, and target CFLAGS.
+# Pass only the Rust flags needed by the dist build so the
 # Docker path can invoke Cargo directly without replacing that environment.
 DIST_DOCKER_ENV =
 ifeq ($(TARGET),x86_64-unknown-linux-musl)

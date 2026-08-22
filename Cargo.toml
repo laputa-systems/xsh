@@ -65,7 +65,6 @@ benchmark = []
 linux-priv-tests = []
 native-tests = ["xsh-registry/native-tests"]
 net = [
-    "dep:rustls",
     "dep:xsh-net",
 ]
 tools = []
@@ -96,7 +95,6 @@ rustix = { version = "1.1.4", features = [
     "event", "fs", "linux_5_11", "mount", "net", "param", "pipe", "process", "stdio", "system",
     "termios", "time",
 ] }
-rustls = { version = "0.23.41", optional = true, default-features = false, features = ["aws_lc_rs", "std", "tls12"] }
 sha1 = "0.11"
 sha2 = "0.11"
 smallvec = "1.15.2"
@@ -107,13 +105,15 @@ xsh-registry = { path = "crates/xsh-registry" }
 [dev-dependencies]
 async-io = "2"
 bytes = "1"
-futures-rustls = "0.26"
+futures-rustls = { version = "0.26", default-features = false, features = ["logging", "tls12"] }
 h2 = { package = "h2-futures", git = "https://github.com/joshuarli/h2-futures-lite", rev = "732e8770cc6bbf998c573844f62e0afaccec3192" }
 http = "1"
 proc-macro2 = { version = "1", features = ["span-locations"] }
 syn = { version = "2", features = ["full", "visit"] }
 walkdir = "2"
 xsht = { path = "crates/xsht" }
+rustls = { version = "0.23.41", default-features = false, features = ["std", "tls12"] }
+rustls-graviola = "0.4.0"
 
 [build-dependencies]
 xsh-registry = { path = "crates/xsh-registry" }
