@@ -146,11 +146,7 @@ pub(crate) fn open_root(path: PathBuf, span: Span) -> Result<Root, RuntimeError>
         .map_err(|error| RuntimeError::new("fs-root", error.to_string()).with_span(span))
 }
 
-pub(crate) fn rooted_open_root(
-    root: &Root,
-    path: &Path,
-    span: Span,
-) -> Result<Root, RuntimeError> {
+pub(crate) fn rooted_open_root(root: &Root, path: &Path, span: Span) -> Result<Root, RuntimeError> {
     root.open_dir(path)
         .map_err(|error| RuntimeError::new("fs-root", error.to_string()).with_span(span))
 }
@@ -228,11 +224,7 @@ pub(crate) fn rooted_write_atomic(
     })
 }
 
-pub(crate) fn rooted_metadata(
-    root: &Root,
-    path: &Path,
-    span: Span,
-) -> Result<Value, RuntimeError> {
+pub(crate) fn rooted_metadata(root: &Root, path: &Path, span: Span) -> Result<Value, RuntimeError> {
     let file = rooted_open_file(root, path, RootedOpenMode::Read, "fs-root-stat", span)?;
     let metadata = file
         .metadata()
@@ -371,11 +363,10 @@ pub(crate) fn rooted_install_file(
         let _ = rooted_remove(dest_root, dest, false, span);
         return Err(RuntimeError::new("fs-root-install", error.to_string()).with_span(span));
     }
-    rooted_set_mode_file(&output, mode as u32)
-        .map_err(|error| {
-            let _ = rooted_remove(dest_root, dest, false, span);
-            RuntimeError::new("fs-root-install", error.to_string()).with_span(span)
-        })
+    rooted_set_mode_file(&output, mode as u32).map_err(|error| {
+        let _ = rooted_remove(dest_root, dest, false, span);
+        RuntimeError::new("fs-root-install", error.to_string()).with_span(span)
+    })
 }
 
 pub(crate) fn rooted_remove(
@@ -483,7 +474,9 @@ fn rooted_create_dir_all(
         let parent = root
             .open_dir(parent_path)
             .map_err(|error| RuntimeError::new(kind, error.to_string()).with_span(span))?;
-        let leaf = prefix.file_name().expect("normal component has a file name");
+        let leaf = prefix
+            .file_name()
+            .expect("normal component has a file name");
         rooted_mkdir_at(&parent, leaf, mode)
             .map_err(|error| RuntimeError::new(kind, error.to_string()).with_span(span))?;
         let created = parent
@@ -528,13 +521,11 @@ fn rooted_symlink_at(parent: &Root, target: &Path, leaf: &std::ffi::OsStr) -> st
 }
 
 fn rooted_set_mode(root: &Root, mode: u32) -> std::io::Result<()> {
-    rfs::fchmod(root, rfs::Mode::from_raw_mode(mode as rfs::RawMode))
-        .map_err(std::io::Error::from)
+    rfs::fchmod(root, rfs::Mode::from_raw_mode(mode as rfs::RawMode)).map_err(std::io::Error::from)
 }
 
 fn rooted_set_mode_file(file: &std::fs::File, mode: u32) -> std::io::Result<()> {
-    rfs::fchmod(file, rfs::Mode::from_raw_mode(mode as rfs::RawMode))
-        .map_err(std::io::Error::from)
+    rfs::fchmod(file, rfs::Mode::from_raw_mode(mode as rfs::RawMode)).map_err(std::io::Error::from)
 }
 
 fn unix_time_nanos() -> u128 {

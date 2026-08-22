@@ -2801,7 +2801,10 @@ impl PreparedTestProgram {
 
 pub(in crate::runtime::eval) enum FsRootHandle {
     Dir(Root),
-    TempDir { root: Root, _temp: tempfile::TempDir },
+    TempDir {
+        root: Root,
+        _temp: tempfile::TempDir,
+    },
 }
 
 impl FsRootHandle {

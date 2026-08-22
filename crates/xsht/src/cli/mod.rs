@@ -115,8 +115,7 @@ pub use check::{
 pub use coverage::CoverageCollector;
 pub use files::{
     CONFIG_FILE_NAME, CoverageConfig, DeadCodeConfig, FormatConfig, XshConfig,
-    collect_configured_xsh_files,
-    collect_xsh_files, load_config,
+    collect_configured_xsh_files, collect_xsh_files, load_config,
 };
 pub(crate) use files::{
     collect_configured_or_explicit_xsh_files, is_path_excluded, load_config_from,

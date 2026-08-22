@@ -179,7 +179,10 @@ fn module_docs(module: &str) -> ApiDocs {
             "Text splitting, joining, replacement, counting, and character transforms.",
             "Text APIs operate on UTF-8 Str values.",
         ),
-        "time" => ("Clock, sleep, command measurement, and duration display.", ""),
+        "time" => (
+            "Clock, sleep, command measurement, and duration display.",
+            "",
+        ),
         "tui" => (
             "Terminal styling, control sequences, and width-aware text padding.",
             "",

@@ -55,8 +55,10 @@ impl WorkerAllocationStats {
                 .zip(&mut total.attributions)
             {
                 let scoped = stage.scopes[scope as usize];
-                attribution.alloc_count = attribution.alloc_count.saturating_add(scoped.alloc_count);
-                attribution.alloc_bytes = attribution.alloc_bytes.saturating_add(scoped.alloc_bytes);
+                attribution.alloc_count =
+                    attribution.alloc_count.saturating_add(scoped.alloc_count);
+                attribution.alloc_bytes =
+                    attribution.alloc_bytes.saturating_add(scoped.alloc_bytes);
             }
         }
         total

@@ -4,8 +4,8 @@ use std::io::{self, Read, Write};
 use std::os::unix::ffi::OsStringExt;
 use std::os::unix::fs::symlink;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::thread;
 use std::time::{SystemTime, UNIX_EPOCH};
 use xsh_root::{OpenOptions, Root};
@@ -23,10 +23,8 @@ impl TempTree {
             .duration_since(UNIX_EPOCH)
             .expect("system time is after the Unix epoch")
             .as_nanos();
-        let path = std::env::temp_dir().join(format!(
-            "xsh-root-{}-{nanos}-{id}",
-            std::process::id()
-        ));
+        let path =
+            std::env::temp_dir().join(format!("xsh-root-{}-{nanos}-{id}", std::process::id()));
         fs::create_dir(&path)?;
         Ok(Self { path })
     }
@@ -149,7 +147,10 @@ fn root_descriptor_survives_rename() -> io::Result<()> {
 fn embedded_nul_is_an_input_error() -> io::Result<()> {
     let tree = Tree::new()?;
     let path = PathBuf::from(OsString::from_vec(b"nul\0path".to_vec()));
-    let error = tree.root.open_file(path).expect_err("embedded NUL must fail");
+    let error = tree
+        .root
+        .open_file(path)
+        .expect_err("embedded NUL must fail");
     assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
     Ok(())
 }
@@ -184,6 +185,9 @@ fn concurrent_rename_and_symlink_switch_never_returns_outside_sentinel() -> io::
     }
     done.store(true, Ordering::Release);
     reader.join().expect("reader thread panicked")?;
-    assert_eq!(fs::read_to_string(&tree.outside_sentinel)?, "outside secret");
+    assert_eq!(
+        fs::read_to_string(&tree.outside_sentinel)?,
+        "outside secret"
+    );
     Ok(())
 }

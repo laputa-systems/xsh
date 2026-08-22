@@ -35,8 +35,8 @@ use super::{
     lowered_trace_error_from_value, lowered_trim_is_empty_value, lowered_trim_str_predicate_value,
     lowered_type_name, lowered_unit_result, lowered_value_argv_len, lowered_value_from_runtime,
     lowered_value_from_runtime_any, lowered_value_matches_static_type,
-    lowered_value_satisfies_require, path_bytes, push_lowered_display, push_lowered_fmt_value,
-    new_temp_fs_root, read_host_path_bytes, read_host_path_bytes_vec, root_path_from_dir,
+    lowered_value_satisfies_require, new_temp_fs_root, path_bytes, push_lowered_display,
+    push_lowered_fmt_value, read_host_path_bytes, read_host_path_bytes_vec, root_path_from_dir,
     run_pipeline_inherit_with_policy, runtime_error_from_value, splice_to_argv,
     structured_error_constructor, value_matches_static_type, value_to_argv_bytes,
     with_indexed_eval_depth,
@@ -297,10 +297,7 @@ impl Evaluator {
                         let (mut worker, mut worker_slots) = {
                             let _setup = allocation_stage
                                 .scope(crate::mem_track::WorkerAllocationScope::Setup);
-                            (
-                                Evaluator::new_lowered_worker(shared),
-                                base_slots,
-                            )
+                            (Evaluator::new_lowered_worker(shared), base_slots)
                         };
                         let mut results = {
                             let _results = allocation_stage
@@ -529,9 +526,8 @@ impl Evaluator {
                         let result = (|| {
                             for item in chunk {
                                 let mapped = {
-                                    let _item = allocation_stage.scope(
-                                        crate::mem_track::WorkerAllocationScope::ParMapItem,
-                                    );
+                                    let _item = allocation_stage
+                                        .scope(crate::mem_track::WorkerAllocationScope::ParMapItem);
                                     worker.eval_indexed_par_map_item(
                                         &execution,
                                         body,
@@ -4643,16 +4639,14 @@ impl Evaluator {
             FullTag::ExprFsTempDir => {
                 let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
                 indexed_finish(payload, call_span)?;
-                ControlFlow::Continue(
-                    match new_temp_fs_root("fs-temp-dir", span) {
-                        Ok(root) => {
-                            let id = self.fs_roots.len() as i64 + 1;
-                            self.fs_roots.push(Some(root));
-                            lowered_result_ok(fs_root_record(id))
-                        }
-                        Err(error) => lowered_result_err_value(error),
-                    },
-                )
+                ControlFlow::Continue(match new_temp_fs_root("fs-temp-dir", span) {
+                    Ok(root) => {
+                        let id = self.fs_roots.len() as i64 + 1;
+                        self.fs_roots.push(Some(root));
+                        lowered_result_ok(fs_root_record(id))
+                    }
+                    Err(error) => lowered_result_err_value(error),
+                })
             }
             FullTag::ExprFsWrite | FullTag::ExprPathWrite => {
                 let path = indexed_raw(&mut payload, call_span)?;

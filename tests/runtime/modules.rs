@@ -749,7 +749,10 @@ fn native_xsh_net_uses_ssl_cert_dir_for_linux_trust() {
         "tests/xsh/stdlib/net.xsh::test_net_transport_linux_system_ca_dir",
         &[
             ("XSH_NET_TEST_TLS_URL", &server.url),
-            ("SSL_CERT_DIR", cert_dir.to_str().expect("CA directory path is UTF-8")),
+            (
+                "SSL_CERT_DIR",
+                cert_dir.to_str().expect("CA directory path is UTF-8"),
+            ),
         ],
         true,
     );
@@ -2095,7 +2098,10 @@ print ${{entries.len()}}
         String::from_utf8_lossy(&output.stderr)
     );
     assert_eq!(String::from_utf8(output.stdout).unwrap(), "1\n");
-    assert_eq!(std::fs::read(out.join("nested").join("note.txt")).unwrap(), payload);
+    assert_eq!(
+        std::fs::read(out.join("nested").join("note.txt")).unwrap(),
+        payload
+    );
 
     let _ = std::fs::remove_dir_all(root);
 }
@@ -2240,8 +2246,7 @@ fn archive_module_roundtrips_long_tar_paths_and_link_targets() {
     std::fs::create_dir_all(src.join(&long_dir)).expect("create long source path");
     std::fs::create_dir_all(&out).expect("create output root");
     std::fs::write(src.join(&long_path), "long path\n").expect("write source file");
-    std::os::unix::fs::symlink(&long_target, src.join("long-link"))
-        .expect("create long symlink");
+    std::os::unix::fs::symlink(&long_target, src.join("long-link")).expect("create long symlink");
 
     let script = format!(
         "\
@@ -2618,9 +2623,12 @@ fn local_http_response(request: &LocalHttpRequest) -> String {
             ("GET", "/hello") => ("200", "OK", Vec::new(), b"hello".to_vec()),
             ("GET", "/redirect") => ("302", "Found", vec![("Location", "/hello")], Vec::new()),
             ("GET", "/redirect-missing") => ("302", "Found", Vec::new(), Vec::new()),
-            ("GET", "/redirect-loop") => {
-                ("302", "Found", vec![("Location", "/redirect-loop")], Vec::new())
-            }
+            ("GET", "/redirect-loop") => (
+                "302",
+                "Found",
+                vec![("Location", "/redirect-loop")],
+                Vec::new(),
+            ),
             ("GET", "/slow") => ("200", "OK", Vec::new(), b"slow".to_vec()),
             ("POST", "/echo") => {
                 let mut body = b"echo:".to_vec();
@@ -2632,9 +2640,12 @@ fn local_http_response(request: &LocalHttpRequest) -> String {
             ("GET", "/header-file") if request.header("x-download") == Some("yes") => {
                 ("200", "OK", Vec::new(), b"downloaded\n".to_vec())
             }
-            ("GET", "/header-file") => {
-                ("400", "Bad Request", Vec::new(), b"missing X-Download".to_vec())
-            }
+            ("GET", "/header-file") => (
+                "400",
+                "Bad Request",
+                Vec::new(),
+                b"missing X-Download".to_vec(),
+            ),
             ("PUT", "/upload")
                 if request.header("authorization") == Some("Bearer secret-token") =>
             {
@@ -2642,9 +2653,12 @@ fn local_http_response(request: &LocalHttpRequest) -> String {
                 body.extend_from_slice(&request.body);
                 ("201", "Created", Vec::new(), body)
             }
-            ("PUT", "/upload") => {
-                ("401", "Unauthorized", Vec::new(), b"missing authorization".to_vec())
-            }
+            ("PUT", "/upload") => (
+                "401",
+                "Unauthorized",
+                Vec::new(),
+                b"missing authorization".to_vec(),
+            ),
             ("HEAD", "/hello") => ("200", "OK", Vec::new(), Vec::new()),
             _ => ("404", "Not Found", Vec::new(), b"missing".to_vec()),
         };
@@ -2758,7 +2772,10 @@ impl LocalHttpsServer {
         expected: usize,
         versions: &[&'static rustls::SupportedProtocolVersion],
     ) -> Self {
-        Self::spawn(expected, local_https_config_with_protocol_versions(versions))
+        Self::spawn(
+            expected,
+            local_https_config_with_protocol_versions(versions),
+        )
     }
 
     fn spawn_with_h2_offer(
@@ -2896,11 +2913,11 @@ fn local_https_config_with_protocol_versions(
     let key =
         PrivateKeyDer::from_pem_slice(LOCAL_HTTPS_KEY.as_bytes()).expect("parse local HTTPS key");
     rustls::ServerConfig::builder_with_provider(Arc::new(rustls_graviola::default_provider()))
-    .with_protocol_versions(versions)
-    .expect("HTTPS protocol versions")
-    .with_no_client_auth()
-    .with_single_cert(vec![cert], key)
-    .expect("local HTTPS certificate")
+        .with_protocol_versions(versions)
+        .expect("HTTPS protocol versions")
+        .with_no_client_auth()
+        .with_single_cert(vec![cert], key)
+        .expect("local HTTPS certificate")
 }
 
 #[cfg(feature = "net")]

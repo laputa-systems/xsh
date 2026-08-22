@@ -507,10 +507,7 @@ fn compact_named_function_call_arg_exprs(
 }
 
 fn lowered_module_sig_type(sig: &ModuleFnSig) -> Option<LoweredType> {
-    if matches!(
-        sig.op,
-        RuntimeOp::TimeSleep | RuntimeOp::TimeMeasure
-    ) {
+    if matches!(sig.op, RuntimeOp::TimeSleep | RuntimeOp::TimeMeasure) {
         return lowered_module_op_supported(sig.op).then_some(LoweredType::Result);
     }
     lowered_module_op_supported(sig.op).then(|| lowered_checked_type(&sig.return_ty))?

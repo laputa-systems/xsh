@@ -5,10 +5,8 @@ use std::time::Instant;
 use xsh_root::Root;
 
 fn main() -> io::Result<()> {
-    let root_path = std::env::temp_dir().join(format!(
-        "xsh-root-open-bench-{}",
-        std::process::id()
-    ));
+    let root_path =
+        std::env::temp_dir().join(format!("xsh-root-open-bench-{}", std::process::id()));
     let shallow = root_path.join("shallow");
     let deep = root_path.join("a/b/c/d/e/file");
     fs::create_dir_all(deep.parent().expect("deep path has a parent"))?;

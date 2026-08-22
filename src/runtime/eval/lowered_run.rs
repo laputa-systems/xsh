@@ -3203,7 +3203,9 @@ impl Evaluator {
         root.root()
             .create("file")
             .and_then(|mut file| file.flush())
-            .map_err(|error| RuntimeError::new("fs-temp-file", error.to_string()).with_span(span))?;
+            .map_err(|error| {
+                RuntimeError::new("fs-temp-file", error.to_string()).with_span(span)
+            })?;
         let root = self.push_lowered_fs_root(root);
         let path = PathValue::new(b"file".to_vec()).map_err(|error| error.with_span(span))?;
         Ok(LoweredValue::Record(BTreeMap::from([
@@ -4587,11 +4589,12 @@ impl Evaluator {
                     Err(error) => lowered_result_err_value(error),
                 }
             }
-            RuntimeOp::FsTempDir if values.is_empty() => match new_temp_fs_root("fs-temp-dir", span)
-            {
-                Ok(root) => lowered_result_ok(self.push_lowered_fs_root(root)),
-                Err(error) => lowered_result_err_value(error),
-            },
+            RuntimeOp::FsTempDir if values.is_empty() => {
+                match new_temp_fs_root("fs-temp-dir", span) {
+                    Ok(root) => lowered_result_ok(self.push_lowered_fs_root(root)),
+                    Err(error) => lowered_result_err_value(error),
+                }
+            }
             RuntimeOp::FsProjectRoot if values.len() == 4 => {
                 let application =
                     lowered_str_arg_owned(values.get(3).cloned(), "", "fs.project_root", span)?;

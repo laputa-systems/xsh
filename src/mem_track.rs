@@ -248,7 +248,9 @@ pub fn begin_worker_collection() {
     if !tracking_installed() {
         return;
     }
-    let mut collection = worker_collection().lock().expect("worker allocation lock poisoned");
+    let mut collection = worker_collection()
+        .lock()
+        .expect("worker allocation lock poisoned");
     collection.active = true;
     collection.stages.clear();
 }
@@ -259,7 +261,9 @@ pub fn end_worker_collection() -> Vec<WorkerStageTraffic> {
     if !tracking_installed() {
         return Vec::new();
     }
-    let mut collection = worker_collection().lock().expect("worker allocation lock poisoned");
+    let mut collection = worker_collection()
+        .lock()
+        .expect("worker allocation lock poisoned");
     collection.active = false;
     std::mem::take(&mut collection.stages)
 }
@@ -276,9 +280,8 @@ pub fn begin_worker_stage() -> WorkerStage {
     if active {
         begin_stage();
         WORKER_ALLOCATION_SCOPE.with(|scope| scope.set(None));
-        WORKER_SCOPE_TRAFFIC.with(|traffic| {
-            traffic.set([ScopedAllocTraffic::ZERO; WORKER_ALLOCATION_SCOPE_COUNT])
-        });
+        WORKER_SCOPE_TRAFFIC
+            .with(|traffic| traffic.set([ScopedAllocTraffic::ZERO; WORKER_ALLOCATION_SCOPE_COUNT]));
     }
     WorkerStage { active }
 }
@@ -293,7 +296,9 @@ impl Drop for WorkerStage {
             scopes: WORKER_SCOPE_TRAFFIC.with(Cell::get),
         };
         WORKER_ALLOCATION_SCOPE.with(|scope| scope.set(None));
-        let mut collection = worker_collection().lock().expect("worker allocation lock poisoned");
+        let mut collection = worker_collection()
+            .lock()
+            .expect("worker allocation lock poisoned");
         if collection.active {
             collection.stages.push(traffic);
         }

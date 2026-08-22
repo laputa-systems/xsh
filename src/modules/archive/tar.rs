@@ -44,8 +44,7 @@ pub(crate) fn tar_list(
         let raw_path: PathBuf = entry
             .path()
             .map_err(|error| archive_error("archive-list", error, span))?
-            .into_owned()
-            .into();
+            .into_owned();
         if archive_member_selected(&raw_path, &filters) {
             records.push(archive_entry_record(&entry, span)?);
         }
@@ -87,17 +86,16 @@ pub(crate) fn tar_extract(
     let reader = archive_reader(&path, parse_compression(compression, span)?, span)?;
     let mut archive = Archive::new(reader);
     let filters = archive_member_filters(members, span)?;
-    let mut entries = archive
+    let entries = archive
         .entries()
         .map_err(|error| archive_error("archive-extract", error, span))?;
     fs::create_dir_all(&dest).map_err(|error| archive_error("archive-extract", error, span))?;
-    while let Some(entry) = entries.next() {
+    for entry in entries {
         let mut entry = entry.map_err(|error| archive_error("archive-extract", error, span))?;
         let raw_path: PathBuf = entry
             .path()
             .map_err(|error| archive_error("archive-extract", error, span))?
-            .into_owned()
-            .into();
+            .into_owned();
         if !archive_member_selected(&raw_path, &filters) {
             continue;
         }
@@ -378,8 +376,7 @@ fn extract_entry<R: Read>(
             .ok_or_else(|| {
                 RuntimeError::new("archive-extract", "missing symlink target").with_span(span)
             })?
-            .into_owned()
-            .into();
+            .into_owned();
         validate_link_target(path, &target, span)?;
         symlink(&target, &output).map_err(|error| archive_error("archive-extract", error, span))?;
         return Ok(());
@@ -393,8 +390,7 @@ fn extract_entry<R: Read>(
             .ok_or_else(|| {
                 RuntimeError::new("archive-extract", "missing hardlink target").with_span(span)
             })?
-            .into_owned()
-            .into();
+            .into_owned();
         let target = clean_archive_path(&target, span)?;
         let target_output = archive_path_in(dest, &target, span)?;
         fs::hard_link(target_output, output)
@@ -433,16 +429,12 @@ fn set_entry_mode<R: Read>(
         .map_err(|error| archive_error("archive-extract", error, span))
 }
 
-fn archive_entry_record<R: Read>(
-    entry: &Entry<R>,
-    span: Span,
-) -> Result<Value, RuntimeError> {
+fn archive_entry_record<R: Read>(entry: &Entry<R>, span: Span) -> Result<Value, RuntimeError> {
     let header = entry.header();
     let path: PathBuf = entry
         .path()
         .map_err(|error| archive_error("archive-list", error, span))?
-        .into_owned()
-        .into();
+        .into_owned();
     let link_name = entry
         .link_name()
         .map_err(|error| archive_error("archive-list", error, span))?

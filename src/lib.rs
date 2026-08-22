@@ -41,12 +41,12 @@ pub mod frontend;
 pub(crate) mod loader;
 /// Tooling-only allocation counters used by `xsh-frontend-stats`.
 pub mod mem_track;
-/// Tooling-only runtime allocation accounting used by `xsh-runtime-stats`.
-pub mod runtime_stats;
 pub(crate) mod modules;
 pub mod process;
 pub(crate) mod runner;
 pub(crate) mod runtime;
+/// Tooling-only runtime allocation accounting used by `xsh-runtime-stats`.
+pub mod runtime_stats;
 pub(crate) mod sema;
 pub(crate) mod source;
 pub(crate) mod symbol;

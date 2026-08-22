@@ -489,10 +489,7 @@ mod tests {
         let config = load_config_from(&config_path).expect("load config");
 
         assert_eq!(config.exclude, vec!["generated/**"]);
-        assert_eq!(
-            config.dead_code.exclude,
-            vec!["docs/snippets/**/*.xsh"]
-        );
+        assert_eq!(config.dead_code.exclude, vec!["docs/snippets/**/*.xsh"]);
         let _ = fs::remove_dir_all(root);
     }
 

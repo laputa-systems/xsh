@@ -123,15 +123,10 @@ fn copy_entry(
     .map_err(|error| archive_error(ZIP_EXTRACT_KIND, error, span))
 }
 
-fn zip_reader(
-    path: &Path,
-    kind: &str,
-    span: Span,
-) -> Result<ZipArchive<FileReader>, RuntimeError> {
+fn zip_reader(path: &Path, kind: &str, span: Span) -> Result<ZipArchive<FileReader>, RuntimeError> {
     let input = fs::File::open(path).map_err(|error| archive_error(kind, error, span))?;
     let mut buffer = vec![0_u8; BUFFER_SIZE];
-    ZipArchive::from_file(input, &mut buffer)
-        .map_err(|error| zip_runtime_error(kind, error, span))
+    ZipArchive::from_file(input, &mut buffer).map_err(|error| zip_runtime_error(kind, error, span))
 }
 
 fn zip_entries(
@@ -150,7 +145,9 @@ fn zip_entries(
         output.push(zip_entry(&entry, kind, span)?);
     }
     if output.len() as u64 != expected {
-        return Err(RuntimeError::new(kind, "zip central directory entry count mismatch").with_span(span));
+        return Err(
+            RuntimeError::new(kind, "zip central directory entry count mismatch").with_span(span),
+        );
     }
     Ok(output)
 }
@@ -165,7 +162,11 @@ struct ZipEntry {
     compression: CompressionMethod,
 }
 
-fn zip_entry(entry: &ZipFileHeaderRecord<'_>, kind: &str, span: Span) -> Result<ZipEntry, RuntimeError> {
+fn zip_entry(
+    entry: &ZipFileHeaderRecord<'_>,
+    kind: &str,
+    span: Span,
+) -> Result<ZipEntry, RuntimeError> {
     Ok(ZipEntry {
         path: zip_entry_path(entry, kind, span)?,
         kind: zip_entry_kind(entry),
@@ -207,8 +208,13 @@ fn extraction_plan(
                 dirs.push(output);
             }
             "file" => {
-                let output =
-                    prepare_output_path_with_kind(dest, &entry.path, false, ZIP_EXTRACT_KIND, span)?;
+                let output = prepare_output_path_with_kind(
+                    dest,
+                    &entry.path,
+                    false,
+                    ZIP_EXTRACT_KIND,
+                    span,
+                )?;
                 refuse_existing_with_kind(&output, overwrite, ZIP_EXTRACT_KIND, span)?;
                 files.push(ZipFilePlan {
                     wayfinder: entry.wayfinder,
@@ -233,14 +239,8 @@ fn zip_entry_record(entry: &ZipEntry, span: Span) -> Result<Value, RuntimeError>
                 PathValue::new(path_bytes(&entry.path)).map_err(|error| error.with_span(span))?,
             ),
         ),
-        (
-            Arc::from("kind"),
-            Value::Str(entry.kind.into()),
-        ),
-        (
-            Arc::from("size"),
-            Value::Int(entry.size as i64),
-        ),
+        (Arc::from("kind"), Value::Str(entry.kind.into())),
+        (Arc::from("size"), Value::Int(entry.size as i64)),
         (Arc::from("mode"), Value::Int(mode)),
         (Arc::from("modified"), Value::Int(0)),
         (Arc::from("link_name"), Value::Str("".into())),

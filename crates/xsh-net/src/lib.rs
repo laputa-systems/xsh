@@ -4,8 +4,8 @@ use async_executor::Executor;
 use async_io::Async;
 use crossbeam_channel::RecvTimeoutError;
 use h12tiny_client::{
-    Client as H12Client, Connector as H12Connector, Error as H12Error,
-    ErrorKind as H12ErrorKind, TcpConnected, TcpDialFuture, TcpDialer,
+    Client as H12Client, Connector as H12Connector, Error as H12Error, ErrorKind as H12ErrorKind,
+    TcpConnected, TcpDialFuture, TcpDialer,
 };
 use http::{Request, Response};
 use http_body_util::{BodyExt, Full};
@@ -842,19 +842,16 @@ impl TcpDialer for ResolvedTcpDialer {
                     )) as _);
                 }
                 None => {
-                    return Err(Box::new(NetError::new(
-                        "net-url",
-                        "URL must include a scheme",
-                    )) as _);
+                    return Err(
+                        Box::new(NetError::new("net-url", "URL must include a scheme")) as _,
+                    );
                 }
             };
             let addresses = resolve_socket_addrs(&host, port, AddressFamily::Any, None)
                 .map_err(|error| -> h12tiny_client::DialError { Box::new(error) })?;
-            let stream = async_connect_resolved_tcp(addresses)
-                .await
-                .map_err(|error| -> h12tiny_client::DialError {
-                    Box::new(net_transport_error(error))
-                })?;
+            let stream = async_connect_resolved_tcp(addresses).await.map_err(
+                |error| -> h12tiny_client::DialError { Box::new(net_transport_error(error)) },
+            )?;
             let local_addr = stream.get_ref().local_addr().ok();
             let peer_addr = stream.get_ref().peer_addr().ok();
             Ok(TcpConnected::new(stream).with_addresses(local_addr, peer_addr))
@@ -871,12 +868,7 @@ async fn async_connect_resolved_tcp(
             SocketAddr::V4(_) => rnet::AddressFamily::INET,
             SocketAddr::V6(_) => rnet::AddressFamily::INET6,
         };
-        let socket = rnet::socket_with(
-            family,
-            rnet::SocketType::STREAM,
-            tcp_socket_flags(),
-            None,
-        )?;
+        let socket = rnet::socket_with(family, rnet::SocketType::STREAM, tcp_socket_flags(), None)?;
         configure_tcp_socket(&socket)?;
         match rnet::connect(&socket, &addr) {
             Ok(()) => match Async::new(std::net::TcpStream::from(socket)) {
@@ -933,10 +925,7 @@ fn connect_is_pending(error: &io::Error) -> bool {
         )
 }
 
-fn h12_block_on<T>(
-    agent: &NetAgent,
-    future: impl Future<Output = NetResult<T>>,
-) -> NetResult<T> {
+fn h12_block_on<T>(agent: &NetAgent, future: impl Future<Output = NetResult<T>>) -> NetResult<T> {
     futures_lite::future::block_on(agent.executor.run(future))
 }
 
@@ -986,7 +975,10 @@ async fn h12_send(
     client: &H12Client<Full<Bytes>>,
     request: &HttpRequest,
 ) -> NetResult<Response<Incoming>> {
-    client.request(h12_request(request)?).await.map_err(h12_error)
+    client
+        .request(h12_request(request)?)
+        .await
+        .map_err(h12_error)
 }
 
 async fn h12_collect_response(
@@ -1240,13 +1232,10 @@ async fn h12_request_worker(
         let config = request_config(&request);
         let max_body_bytes = request.max_body_bytes;
         let url = request.url.clone();
-        let result = async_with_timeout(
-            config.timeout.or(config.connect_timeout),
-            async {
-                let request = request_builder(&request)?;
-                h12_response_record(&client, request, &config, max_body_bytes, &url, true).await
-            },
-        )
+        let result = async_with_timeout(config.timeout.or(config.connect_timeout), async {
+            let request = request_builder(&request)?;
+            h12_response_record(&client, request, &config, max_body_bytes, &url, true).await
+        })
         .await;
         responses.push((index, result));
     }
@@ -1271,13 +1260,10 @@ async fn h12_download_worker(
             max_body_bytes: download.max_body_bytes.unwrap_or(u64::MAX),
         };
         let config = request_config(&request);
-        let result = async_with_timeout(
-            config.timeout.or(config.connect_timeout),
-            async {
-                let request = request_builder(&request)?;
-                h12_download_with_redirects(&client, request, &config, &download).await
-            },
-        )
+        let result = async_with_timeout(config.timeout.or(config.connect_timeout), async {
+            let request = request_builder(&request)?;
+            h12_download_with_redirects(&client, request, &config, &download).await
+        })
         .await;
         responses.push((index, result));
     }
@@ -1422,7 +1408,6 @@ pub fn download_many(
     })
 }
 
-
 pub fn download(agent: &NetAgent, download: NetDownload) -> NetResult<NetResponse> {
     validate_url(&download.url)?;
     let request = NetRequest {
@@ -1439,13 +1424,10 @@ pub fn download(agent: &NetAgent, download: NetDownload) -> NetResult<NetRespons
     let config = request_config(&request);
     h12_block_on(
         agent,
-        async_with_timeout(
-            config.timeout.or(config.connect_timeout),
-            async {
-                let request = request_builder(&request)?;
-                h12_download_with_redirects(&agent.h1_client, request, &config, &download).await
-            },
-        ),
+        async_with_timeout(config.timeout.or(config.connect_timeout), async {
+            let request = request_builder(&request)?;
+            h12_download_with_redirects(&agent.h1_client, request, &config, &download).await
+        }),
     )
 }
 
@@ -1482,21 +1464,18 @@ pub fn upload(agent: &NetAgent, upload: NetUpload) -> NetResult<NetResponse> {
     let url = request.url.clone();
     h12_block_on(
         agent,
-        async_with_timeout(
-            config.timeout.or(config.connect_timeout),
-            async {
-                let request = request_builder(&request)?;
-                h12_response_record(
-                    &agent.h1_client,
-                    request,
-                    &config,
-                    max_body_bytes,
-                    &url,
-                    false,
-                )
-                .await
-            },
-        ),
+        async_with_timeout(config.timeout.or(config.connect_timeout), async {
+            let request = request_builder(&request)?;
+            h12_response_record(
+                &agent.h1_client,
+                request,
+                &config,
+                max_body_bytes,
+                &url,
+                false,
+            )
+            .await
+        }),
     )
 }
 
@@ -1539,7 +1518,6 @@ fn request_config(request: &NetRequest) -> RequestConfig {
     }
 }
 
-
 fn response_record(
     response: HttpResponse,
     max_body_bytes: u64,
@@ -1560,7 +1538,6 @@ fn response_record(
         body: include_body.then_some(body),
     })
 }
-
 
 fn limited_body(body: Vec<u8>, limit: u64) -> NetResult<Vec<u8>> {
     if body.len() as u64 > limit {
@@ -1791,7 +1768,6 @@ struct HttpResponse {
     body: Vec<u8>,
 }
 
-
 #[derive(Clone, Debug)]
 struct UrlParts {
     scheme: String,
@@ -1827,7 +1803,6 @@ impl UrlParts {
             path: path.to_string(),
         })
     }
-
 
     fn authority(&self) -> String {
         let default_port = if self.scheme == "https" { 443 } else { 80 };
