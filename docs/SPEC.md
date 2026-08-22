@@ -1742,9 +1742,8 @@ file extensions including `.lzma`, and chooses gzip, bzip2, xz, lzma, or plain
 tar from the output filename when creating. Tar and cpio creation accept only
 relative entry paths under `root`; `p"."`
 archives root contents without adding a leading root directory entry. Cpio uses
-the portable `newc` format. Zip support lists and extracts existing archives,
-including Stored, Deflate, bzip2, LZMA, zstd, xz, and deflate64 entries where
-the ZIP reader supports them.
+the portable `newc` format. Zip support lists and extracts existing Stored and
+Deflate archives. Extraction verifies each file's decompressed size and CRC.
 
 Extraction rejects absolute paths, parent traversal, existing destination files
 unless `overwrite` is true, symlink destinations, symlink ancestors, and symlink

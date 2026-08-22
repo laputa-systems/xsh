@@ -1820,6 +1820,84 @@ match archive.zip_extract(not_zip, fp\"${{out}}/bad-open\") {{
 }
 
 #[test]
+fn archive_module_zip_extracts_deflated_files() {
+    let root = temp_path("archive-zip-deflated");
+    let _ = std::fs::remove_dir_all(&root);
+    let zip = root.join("deflated.zip");
+    let out = root.join("out");
+    let payload = b"deflated payload\n".repeat(128);
+    write_test_deflated_zip(&zip, &[("nested/note.txt", &payload)]);
+
+    let script = format!(
+        "\
+let zip = Path({})
+let out = Path({})
+let entries = archive.zip_list(zip)?.collect()
+archive.zip_extract(zip, out)?
+print ${{entries.len()}}
+",
+        xsh_string_literal(zip.to_str().unwrap()),
+        xsh_string_literal(out.to_str().unwrap()),
+    );
+    let output = run_temp_script("archive-zip-deflated", &script);
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(String::from_utf8(output.stdout).unwrap(), "1\n");
+    assert_eq!(std::fs::read(out.join("nested").join("note.txt")).unwrap(), payload);
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn archive_module_zip_rejects_crc_mismatches() {
+    let root = temp_path("archive-zip-crc");
+    let _ = std::fs::remove_dir_all(&root);
+    let zip = root.join("bad-crc.zip");
+    write_test_deflated_zip(&zip, &[("note.txt", b"deflated payload\n")]);
+    corrupt_zip_crc(&zip);
+
+    let script = format!(
+        r#"
+match archive.zip_extract(Path({}), Path({})) {{
+  Err(error) => {{
+    test.error_kind(error, "archive-zip-extract")?
+    print "archive-zip-extract"
+  }}
+}}
+"#,
+        xsh_string_literal(zip.to_str().unwrap()),
+        xsh_string_literal(root.join("out").to_str().unwrap()),
+    );
+    let output = run_temp_script("archive-zip-crc", &script);
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        String::from_utf8(output.stdout).unwrap(),
+        "archive-zip-extract\n"
+    );
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+fn corrupt_zip_crc(path: &std::path::Path) {
+    let mut data = std::fs::read(path).expect("read zip fixture");
+    let offset = data
+        .windows(4)
+        .rposition(|window| window == b"PK\x01\x02")
+        .expect("zip fixture central directory");
+    data[offset + 16] ^= 1;
+    std::fs::write(path, data).expect("write corrupt zip fixture");
+}
+
+#[test]
 fn archive_module_preserves_tar_metadata_filters_and_overwrites() {
     let root = temp_path("archive-metadata");
     let _ = std::fs::remove_dir_all(&root);

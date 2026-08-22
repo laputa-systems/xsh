@@ -426,6 +426,18 @@ pub(crate) fn write_test_tar_global_header(path: &std::path::Path) {
 }
 
 pub(crate) fn write_test_zip(path: &std::path::Path, entries: &[(&str, &[u8])]) {
+    write_test_zip_with_compression(path, entries, true);
+}
+
+pub(crate) fn write_test_deflated_zip(path: &std::path::Path, entries: &[(&str, &[u8])]) {
+    write_test_zip_with_compression(path, entries, false);
+}
+
+fn write_test_zip_with_compression(
+    path: &std::path::Path,
+    entries: &[(&str, &[u8])],
+    stored: bool,
+) {
     assert_info_zip_30();
     let _ = std::fs::remove_file(path);
     let staging = path.with_extension("zip-src");
@@ -443,7 +455,7 @@ pub(crate) fn write_test_zip(path: &std::path::Path, entries: &[(&str, &[u8])]) 
     let output = Command::new("/usr/bin/zip")
         .current_dir(&base)
         .arg("-q")
-        .arg("-0")
+        .args(stored.then_some("-0"))
         .arg(path)
         .args(names)
         .output()
