@@ -72,9 +72,9 @@ by a persistent HTTP/1.1 h12 client in each evaluator-owned named pool.
 `net.request_many` and `net.download_many` are bounded transport capabilities:
 the former buffers response bodies, while the latter streams directly to caller
 destinations. Each batch owns a fresh h12 client and can select HTTP/2 only when
-HTTPS ALPN negotiates `h2`; otherwise it uses HTTP/1.1. XSH supplies its
-nonblocking streams for already-resolved addresses through h12tiny's TCP dialer hook, then
-drives the client on the host-call executor without exposing futures, callbacks,
+HTTPS ALPN negotiates `h2`; otherwise it uses HTTP/1.1. The HTTP dialer resolves
+hostnames asynchronously, supplies its nonblocking streams through h12tiny's TCP
+dialer hook, then drives the client on the host-call executor without exposing futures, callbacks,
 `await`, a process-wide event loop, or evaluator worker threads. Tokio,
 `hyper-util`, and `hyper-rustls` are intentionally absent from this boundary.
 The relevant grep targets are `request_many`, `download_many`, `h12_client`,

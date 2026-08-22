@@ -1744,7 +1744,6 @@ dependencies = [
  "diffy",
  "directories",
  "flate2",
- "futures-lite",
  "futures-rustls",
  "http",
  "ignore",
@@ -1792,6 +1791,7 @@ version = "0.0.1"
 dependencies = [
  "async-executor",
  "async-io",
+ "async-net",
  "crossbeam-channel",
  "futures-lite",
  "h12tiny-client",

@@ -546,6 +546,34 @@ fn resolve_with_timeout(host: String, port: u16, timeout: Duration) -> NetResult
     }
 }
 
+async fn async_resolve_socket_addrs(
+    host: String,
+    port: u16,
+    family: AddressFamily,
+) -> NetResult<Vec<SocketAddr>> {
+    validate_name(&host)?;
+    if let Ok(ip) = host.parse::<IpAddr>() {
+        return if family.keeps(ip) {
+            Ok(vec![SocketAddr::new(ip, port)])
+        } else {
+            Err(NetError::new("dns-not-found", "no addresses found"))
+        };
+    }
+
+    let resolved = async_net::resolve((host, port))
+        .await
+        .map_err(dns_io_error)?;
+    let addrs = resolved
+        .into_iter()
+        .filter(|addr| family.keeps(addr.ip()))
+        .collect::<Vec<_>>();
+    if addrs.is_empty() {
+        Err(NetError::new("dns-not-found", "no addresses found"))
+    } else {
+        Ok(addrs)
+    }
+}
+
 fn reverse_lookup(ip: IpAddr) -> NetResult<String> {
     let mut host = vec![0 as libc::c_char; 1025];
     let flags = libc::NI_NAMEREQD;
@@ -847,7 +875,8 @@ impl TcpDialer for ResolvedTcpDialer {
                     );
                 }
             };
-            let addresses = resolve_socket_addrs(&host, port, AddressFamily::Any, None)
+            let addresses = async_resolve_socket_addrs(host, port, AddressFamily::Any)
+                .await
                 .map_err(|error| -> h12tiny_client::DialError { Box::new(error) })?;
             let stream = async_connect_resolved_tcp(addresses).await.map_err(
                 |error| -> h12tiny_client::DialError { Box::new(net_transport_error(error)) },

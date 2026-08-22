@@ -2840,7 +2840,7 @@ impl LocalHttpsHttp2Server {
         config.alpn_protocols = vec![b"h2".to_vec()];
         let config = Arc::new(config);
         let handle = std::thread::spawn(move || {
-            futures_lite::future::block_on(async move {
+            async_io::block_on(async move {
                 let (stream, _) = listener.accept().expect("accept HTTPS H2 connection");
                 let stream = async_io::Async::new(stream).expect("make HTTPS H2 stream async");
                 let acceptor = futures_rustls::TlsAcceptor::from(config);
@@ -2870,7 +2870,7 @@ impl LocalHttpsHttp2Server {
                 }
                 connection.graceful_shutdown();
                 let close_result =
-                    futures_lite::future::poll_fn(|cx| connection.poll_closed(cx)).await;
+                    std::future::poll_fn(|cx| connection.poll_closed(cx)).await;
                 if let Err(error) = close_result {
                     let peer_closed = error.get_io().is_some_and(|io| {
                         matches!(

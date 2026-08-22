@@ -2162,9 +2162,11 @@ it is not the TLS `CryptoProvider` and does not add a C/C++ build dependency.
 `openssl-probe` entries, but Cargo does not select or build either for XSH's
 normal Linux or macOS graphs. Removing those lockfile-only records would require
 an upstream manifest change rather than a project TLS dependency.
-Hostnames are resolved by the XSH DNS helper layer. XSH supplies h12tiny's TCP
-dialer hook with explicitly resolved nonblocking
-sockets; h12tiny retains TLS, ALPN, protocol selection, handshakes, and pooling.
+HTTP hostnames are resolved asynchronously by the XSH network dialer through the
+platform resolver. XSH supplies h12tiny's TCP dialer hook with explicitly
+resolved nonblocking sockets; h12tiny retains TLS, ALPN, protocol selection,
+handshakes, and pooling. The `dns` module's explicit lookup APIs retain their
+separate resolver and timeout behavior.
 TLS verification is enabled by default with platform verification, honors
 `SSL_CERT_FILE`, accepts an explicit `ca_certificate: Path`, and allows
 `tls_verify: false` only through an explicit request field.
