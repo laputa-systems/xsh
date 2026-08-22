@@ -57,25 +57,28 @@ cross-product runtime tests do not require duplicate root targets.
 
 The workspace is split where a subsystem can have a stable Rust boundary
 without depending on XSH source spans, runtime values, diagnostics, or evaluator
-state. `crates/xsh-net` owns DNS resolution, HTTP/HTTPS transport, TLS
-configuration, connection pools, redirects, and network error classification.
-The main `xsh` crate keeps the language-facing adapters in `src/modules/dns.rs`,
+state. `crates/xsh-net` owns DNS resolution, XSH's capability-resolved TCP
+dialer, TLS configuration, redirects, body limits, and network error
+classification. `h12tiny-client` owns HTTP framing, TLS handshakes, ALPN,
+protocol selection, and its bounded connection pools. The main `xsh` crate keeps
+the language-facing adapters in `src/modules/dns.rs`,
 `src/modules/net.rs`, and `src/runtime/eval/modules/net.rs`: those adapters
 translate records and paths into plain Rust request structs, convert crate
 results back into `Value`/`RuntimeError`, preserve source spans, honor test
 mocks, and manage evaluator-owned pool state.
 
-`net.request`, `net.download`, and `net.upload` are blocking host calls.
+`net.request`, `net.download`, and `net.upload` are blocking host calls backed
+by a persistent HTTP/1.1 h12 client in each evaluator-owned named pool.
 `net.request_many` and `net.download_many` are bounded transport capabilities:
 the former buffers response bodies, while the latter streams directly to caller
-destinations. They drive the local `hyper-futures-lite`, `async-io`, and
-`futures-rustls` stack inside one host call, without exposing futures,
-callbacks, `await`, a process-wide event loop, or evaluator worker threads.
-Their connections are reused by origin only while the batch runs; HTTPS selects
-HTTP/2 only after ALPN negotiates `h2`, otherwise it uses HTTP/1.1. Tokio,
+destinations. Each batch owns a fresh h12 client and can select HTTP/2 only when
+HTTPS ALPN negotiates `h2`; otherwise it uses HTTP/1.1. XSH supplies its
+nonblocking capability-resolved streams through h12tiny's TCP dialer hook, then
+drives the client on the host-call executor without exposing futures, callbacks,
+`await`, a process-wide event loop, or evaluator worker threads. Tokio,
 `hyper-util`, and `hyper-rustls` are intentionally absent from this boundary.
-The relevant grep targets are `request_many`, `download_many`,
-`AsyncHttpConnection`, `AsyncHttpExecutor`, and
+The relevant grep targets are `request_many`, `download_many`, `h12_client`,
+`CapTcpDialer`, `native_xsh_net_single_calls_force_https_http1`, and
 `net_module_request_many_negotiates_local_https_http2`.
 
 There is no JIT, green-thread scheduler, or async task runtime in the execution

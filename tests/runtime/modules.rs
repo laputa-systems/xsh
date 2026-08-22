@@ -349,7 +349,6 @@ match failed {{
 
 #[cfg(feature = "net")]
 #[test]
-#[ignore = "documents that immediate same-pool calls must not open an extra TCP connection"]
 fn net_module_reuses_tcp_connection_within_pool() {
     let server = LocalHttpServer::spawn(2);
     let source = format!(
@@ -655,6 +654,29 @@ fn run_native_xsh_tls_contracts(versions: &[&'static rustls::SupportedProtocolVe
 
     assert_native_xsh_test("test_net_transport_tls_contracts", output);
     assert_eq!(summary.handled, 3);
+    let _ = std::fs::remove_file(ca);
+}
+
+#[cfg(feature = "net")]
+#[test]
+fn native_xsh_net_single_calls_force_https_http1() {
+    let server = LocalHttpsServer::spawn_with_h2_offer(1, rustls::ALL_VERSIONS);
+    let ca = temp_path("native-xsh-net-h1-ca.pem");
+    let _ = std::fs::remove_file(&ca);
+    std::fs::write(&ca, LOCAL_HTTPS_CA).expect("write local HTTPS CA");
+    let output = run_native_xsh_test(
+        "tests/xsh/stdlib/net.xsh::test_net_transport_https_http1_contract",
+        &[
+            ("XSH_NET_TEST_H1_URL", &server.url),
+            ("XSH_NET_TEST_CA", ca.to_str().expect("CA path is UTF-8")),
+        ],
+        false,
+    );
+    let summary = server.join();
+
+    assert_native_xsh_test("test_net_transport_https_http1_contract", output);
+    assert_eq!(summary.handled, 1);
+    assert_eq!(summary.alpn_protocols, vec![Some(b"http/1.1".to_vec())]);
     let _ = std::fs::remove_file(ca);
 }
 
@@ -2705,6 +2727,7 @@ struct LocalHttpsServer {
 #[derive(Debug)]
 struct LocalHttpsSummary {
     handled: usize,
+    alpn_protocols: Vec<Option<Vec<u8>>>,
 }
 
 #[cfg(feature = "net")]
@@ -2713,20 +2736,34 @@ impl LocalHttpsServer {
         expected: usize,
         versions: &[&'static rustls::SupportedProtocolVersion],
     ) -> Self {
+        Self::spawn(expected, local_https_config_with_protocol_versions(versions))
+    }
+
+    fn spawn_with_h2_offer(
+        expected: usize,
+        versions: &[&'static rustls::SupportedProtocolVersion],
+    ) -> Self {
+        let mut config = local_https_config_with_protocol_versions(versions);
+        config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
+        Self::spawn(expected, config)
+    }
+
+    fn spawn(expected: usize, config: rustls::ServerConfig) -> Self {
         let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind HTTPS listener");
         listener
             .set_nonblocking(true)
             .expect("set HTTPS listener nonblocking");
         let addr = listener.local_addr().expect("HTTPS listener addr");
         let url = format!("https://{addr}");
-        let config = Arc::new(local_https_config_with_protocol_versions(versions));
+        let config = Arc::new(config);
         let handle = std::thread::spawn(move || {
             let deadline = Instant::now() + Duration::from_secs(30);
             let mut handled = 0;
+            let mut alpn_protocols = Vec::new();
             while handled < expected && Instant::now() < deadline {
                 match listener.accept() {
                     Ok((stream, _)) => {
-                        handle_local_https_connection(stream, config.clone());
+                        alpn_protocols.push(handle_local_https_connection(stream, config.clone()));
                         handled += 1;
                     }
                     Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
@@ -2735,7 +2772,10 @@ impl LocalHttpsServer {
                     Err(error) => panic!("accept HTTPS connection: {error}"),
                 }
             }
-            LocalHttpsSummary { handled }
+            LocalHttpsSummary {
+                handled,
+                alpn_protocols,
+            }
         });
         Self { url, handle }
     }
@@ -2804,7 +2844,10 @@ impl LocalHttpsHttp2Server {
                     assert!(peer_closed, "close HTTPS H2 connection: {error:?}");
                 }
             });
-            LocalHttpsSummary { handled: expected }
+            LocalHttpsSummary {
+                handled: expected,
+                alpn_protocols: vec![Some(b"h2".to_vec())],
+            }
         });
         Self { url, handle }
     }
@@ -2839,7 +2882,10 @@ fn local_https_config_with_protocol_versions(
 }
 
 #[cfg(feature = "net")]
-fn handle_local_https_connection(stream: std::net::TcpStream, config: Arc<rustls::ServerConfig>) {
+fn handle_local_https_connection(
+    stream: std::net::TcpStream,
+    config: Arc<rustls::ServerConfig>,
+) -> Option<Vec<u8>> {
     stream
         .set_nonblocking(false)
         .expect("set HTTPS stream blocking");
@@ -2865,7 +2911,7 @@ fn handle_local_https_connection(stream: std::net::TcpStream, config: Arc<rustls
                         | std::io::ErrorKind::ConnectionReset
                 ) =>
             {
-                return;
+                return stream.conn.alpn_protocol().map(ToOwned::to_owned);
             }
             Err(error) => panic!("read HTTPS request: {error}"),
         }
@@ -2878,4 +2924,5 @@ fn handle_local_https_connection(stream: std::net::TcpStream, config: Arc<rustls
         .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 6\r\nConnection: close\r\n\r\nsecure")
         .expect("write HTTPS response");
     stream.flush().expect("flush HTTPS response");
+    stream.conn.alpn_protocol().map(ToOwned::to_owned)
 }

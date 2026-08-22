@@ -4,17 +4,17 @@ use async_executor::Executor;
 use async_io::Async;
 use cap_net_ext::{Blocking, PoolExt, TcpListenerExt};
 use crossbeam_channel::RecvTimeoutError;
-use futures_lite::io::{AsyncRead, AsyncWrite};
-use futures_rustls::TlsConnector;
+use h12tiny_client::{
+    Client as H12Client, Connector as H12Connector, Error as H12Error,
+    ErrorKind as H12ErrorKind, TcpConnected, TcpDialFuture, TcpDialer,
+};
 use http::{Request, Response};
 use http_body_util::{BodyExt, Full};
 use hyper::body::{Bytes, Incoming};
-use hyper::client::conn::{http1, http2};
-use rustc_hash::{FxHashMap, FxHashSet};
+use rustc_hash::FxHashSet;
 use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
 use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
 use rustls::{ClientConfig, DigitallySignedStruct, RootCertStore, SignatureScheme};
-use rustls::{ClientConnection, StreamOwned};
 use rustls_graviola::default_provider;
 #[cfg(target_os = "macos")]
 use rustls_platform_verifier::BuilderVerifierExt;
@@ -30,8 +30,7 @@ use std::os::fd::{FromRawFd, IntoRawFd};
 use std::os::windows::io::{FromRawSocket, IntoRawSocket};
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
-use std::sync::{Arc, Mutex};
-use std::task::{Context, Poll};
+use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -53,6 +52,14 @@ impl NetError {
         Self::new(prefix, error.to_string())
     }
 }
+
+impl std::fmt::Display for NetError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "{}: {}", self.kind, self.message)
+    }
+}
+
+impl std::error::Error for NetError {}
 
 pub type NetResult<T> = Result<T, NetError>;
 
@@ -649,9 +656,10 @@ fn dns_io_error(error: io::Error) -> NetError {
 #[derive(Clone)]
 pub struct NetAgent {
     tls_config: Arc<ClientConfig>,
-    pool: Arc<Mutex<FxHashMap<Origin, Vec<PooledConnection>>>>,
     max_idle_per_host: usize,
     idle_timeout: Duration,
+    executor: Arc<Executor<'static>>,
+    h1_client: H12Client<Full<Bytes>>,
 }
 
 impl std::fmt::Debug for NetAgent {
@@ -756,478 +764,198 @@ pub struct NetResponse {
 
 pub fn make_agent(key: &NetAgentKey) -> NetResult<NetAgent> {
     let tls_config = tls_config_for_key(key)?;
+    let executor = Arc::new(Executor::new());
+    let h1_client = h12_client(
+        Arc::clone(&executor),
+        tls_config.clone(),
+        key.max_idle_per_host,
+        key.idle_timeout,
+        true,
+    );
     Ok(NetAgent {
         tls_config: Arc::new(tls_config),
-        pool: Arc::new(Mutex::new(FxHashMap::default())),
         max_idle_per_host: key.max_idle_per_host,
         idle_timeout: key.idle_timeout,
+        executor,
+        h1_client,
     })
 }
 
-pub fn request(agent: &NetAgent, request: NetRequest) -> NetResult<NetResponse> {
-    validate_url(&request.url)?;
-    let config = request_config(&request);
-    let max_body_bytes = request.max_body_bytes;
-    let url = request.url.clone();
-    let http_request = request_builder(&request)?;
-    let response = run_request(agent, http_request, &config)?;
-    response_record(response, max_body_bytes, &url, true)
-}
-
-pub fn request_many(
-    agent: &NetAgent,
-    requests: Vec<NetRequest>,
-    concurrency: usize,
-) -> NetResult<Vec<NetResult<NetResponse>>> {
-    if concurrency == 0 {
-        return Err(NetError::new(
-            "net-concurrency",
-            "concurrency must be at least one",
-        ));
-    }
-    let request_count = requests.len();
-    let mut partitions: Vec<Vec<(usize, NetRequest)>> = (0..concurrency.min(requests.len()).max(1))
-        .map(|_| Vec::new())
-        .collect();
-    let worker_count = partitions.len();
-    for (index, request) in requests.into_iter().enumerate() {
-        partitions[index % worker_count].push((index, request));
-    }
-    let executor = Arc::new(Executor::new());
-    let runner = Arc::clone(&executor);
-    futures_lite::future::block_on(executor.run(async move {
-        let mut tasks = Vec::with_capacity(partitions.len());
-        for partition in partitions {
-            let task_executor = Arc::clone(&runner);
-            let worker_executor = Arc::clone(&runner);
-            let agent = agent.clone();
-            tasks.push(task_executor.spawn(async move {
-                async_request_worker(agent, worker_executor, partition).await
-            }));
-        }
-        let mut ordered: Vec<Option<NetResult<NetResponse>>> =
-            (0..request_count).map(|_| None).collect();
-        for task in tasks {
-            for (index, response) in task.await {
-                if index >= ordered.len() {
-                    ordered.resize_with(index + 1, || None);
-                }
-                ordered[index] = Some(response);
-            }
-        }
-        ordered
-            .into_iter()
-            .map(|response| Ok(response.expect("async request result missing")))
-            .collect()
-    }))
-}
-
-pub fn download_many(
-    agent: &NetAgent,
-    downloads: Vec<NetDownload>,
-    concurrency: usize,
-) -> NetResult<Vec<NetResult<NetResponse>>> {
-    if concurrency == 0 {
-        return Err(NetError::new(
-            "net-concurrency",
-            "concurrency must be at least one",
-        ));
-    }
-    let download_count = downloads.len();
-    let mut partitions: Vec<Vec<(usize, NetDownload)>> =
-        (0..concurrency.min(downloads.len()).max(1))
-            .map(|_| Vec::new())
-            .collect();
-    let worker_count = partitions.len();
-    for (index, download) in downloads.into_iter().enumerate() {
-        partitions[index % worker_count].push((index, download));
-    }
-    let executor = Arc::new(Executor::new());
-    let runner = Arc::clone(&executor);
-    futures_lite::future::block_on(executor.run(async move {
-        let mut tasks = Vec::with_capacity(partitions.len());
-        for partition in partitions {
-            let task_executor = Arc::clone(&runner);
-            let worker_executor = Arc::clone(&runner);
-            let agent = agent.clone();
-            tasks.push(task_executor.spawn(async move {
-                async_download_worker(agent, worker_executor, partition).await
-            }));
-        }
-        let mut ordered: Vec<Option<NetResult<NetResponse>>> =
-            (0..download_count).map(|_| None).collect();
-        for task in tasks {
-            for (index, response) in task.await {
-                ordered[index] = Some(response);
-            }
-        }
-        ordered
-            .into_iter()
-            .map(|response| Ok(response.expect("async download result missing")))
-            .collect()
-    }))
-}
-
-async fn async_request_worker(
-    agent: NetAgent,
+fn h12_client(
     executor: Arc<Executor<'static>>,
-    requests: Vec<(usize, NetRequest)>,
-) -> Vec<(usize, NetResult<NetResponse>)> {
-    let mut connections = FxHashMap::default();
-    let mut responses = Vec::with_capacity(requests.len());
-    for (index, request) in requests {
-        let config = request_config(&request);
-        let max_body_bytes = request.max_body_bytes;
-        let url = request.url.clone();
-        let origin = UrlParts::parse(&url).map(|url| url.origin());
-        let result = async_with_timeout(
-            config.timeout.or(config.connect_timeout),
-            async_request_with_redirects(
-                &agent,
-                &executor,
-                &mut connections,
-                request_builder(&request),
-                &config,
-                max_body_bytes,
-                &url,
-            ),
-        )
-        .await;
-        if result.is_err()
-            && let Ok(origin) = origin
-        {
-            connections.remove(&origin);
-        }
-        responses.push((index, result));
-    }
-    responses
-}
-
-async fn async_download_worker(
-    agent: NetAgent,
-    executor: Arc<Executor<'static>>,
-    downloads: Vec<(usize, NetDownload)>,
-) -> Vec<(usize, NetResult<NetResponse>)> {
-    let mut connections = FxHashMap::default();
-    let mut responses = Vec::with_capacity(downloads.len());
-    for (index, download) in downloads {
-        let request = NetRequest {
-            method: "GET".to_string(),
-            url: download.url.clone(),
-            headers: download.headers.clone(),
-            body: NetBody::Empty,
-            timeout: download.timeout,
-            connect_timeout: download.connect_timeout,
-            redirects: download.redirects,
-            fail_status: download.fail_status,
-            max_body_bytes: download.max_body_bytes.unwrap_or(u64::MAX),
-        };
-        let config = request_config(&request);
-        let origin = UrlParts::parse(&download.url).map(|url| url.origin());
-        let result = async_with_timeout(
-            config.timeout.or(config.connect_timeout),
-            async_download_with_redirects(
-                &agent,
-                &executor,
-                &mut connections,
-                request_builder(&request),
-                &config,
-                &download,
-            ),
-        )
-        .await;
-        if result.is_err()
-            && let Ok(origin) = origin
-        {
-            connections.remove(&origin);
-        }
-        responses.push((index, result));
-    }
-    responses
-}
-
-async fn async_request_with_redirects(
-    agent: &NetAgent,
-    executor: &Arc<Executor<'static>>,
-    connections: &mut FxHashMap<Origin, AsyncHttpConnection>,
-    request: NetResult<HttpRequest>,
-    config: &RequestConfig,
-    max_body_bytes: u64,
-    url: &str,
-) -> NetResult<NetResponse> {
-    let mut request = request?;
-    for _ in 0..=config.redirects {
-        let response = async_send_response(agent, executor, connections, &request).await?;
-        let status = response.status().as_u16();
-        if !is_redirect(status) {
-            let response = async_response(response, max_body_bytes).await?;
-            if config.fail_status && !(200..300).contains(&response.status) {
-                return Err(NetError::new(
-                    "net-status",
-                    format!("HTTP status {}", response.status),
-                ));
-            }
-            return response_record(response, max_body_bytes, url, true);
-        }
-        let location = response
-            .headers()
-            .get("location")
-            .and_then(|value| value.to_str().ok())
-            .map(str::to_string);
-        let Some(location) = location else {
-            return Err(NetError::new(
-                "net-redirect",
-                "redirect missing Location header",
-            ));
-        };
-        async_discard_response(response).await?;
-        request.url = redirect_url(&request.url, &location)?;
-    }
-    Err(NetError::new("net-redirect", "too many redirects"))
-}
-
-async fn async_download_with_redirects(
-    agent: &NetAgent,
-    executor: &Arc<Executor<'static>>,
-    connections: &mut FxHashMap<Origin, AsyncHttpConnection>,
-    request: NetResult<HttpRequest>,
-    config: &RequestConfig,
-    download: &NetDownload,
-) -> NetResult<NetResponse> {
-    if !download.overwrite && download.dest.exists() {
-        return Err(NetError::new("net-dest", "destination exists"));
-    }
-    if let Some(parent) = download.dest.parent()
-        && !parent.as_os_str().is_empty()
-    {
-        fs::create_dir_all(parent).map_err(|error| NetError::from_io("net-dest", error))?;
-    }
-    let output = if download.atomic {
-        temp_download_path(&download.dest)
-    } else {
-        download.dest.clone()
-    };
-    let mut request = request?;
-    for _ in 0..=config.redirects {
-        let response = async_send_response(agent, executor, connections, &request).await?;
-        let status = response.status().as_u16();
-        if is_redirect(status) {
-            let location = response
-                .headers()
-                .get("location")
-                .and_then(|value| value.to_str().ok())
-                .map(str::to_string);
-            let Some(location) = location else {
-                let _ = fs::remove_file(&output);
-                return Err(NetError::new(
-                    "net-redirect",
-                    "redirect missing Location header",
-                ));
-            };
-            async_discard_response(response).await?;
-            request.url = redirect_url(&request.url, &location)?;
-            continue;
-        }
-        if config.fail_status && !(200..300).contains(&status) {
-            async_discard_response(response).await?;
-            return Err(NetError::new("net-status", format!("HTTP status {status}")));
-        }
-        let result = async_write_download_response(
-            response,
-            &output,
-            download.max_body_bytes.unwrap_or(u64::MAX),
-            download.overwrite,
-        )
-        .await;
-        let response = match result {
-            Ok(response) => response,
-            Err(error) => {
-                let _ = fs::remove_file(&output);
-                return Err(error);
-            }
-        };
-        if download.atomic {
-            if download.overwrite && download.dest.exists() {
-                fs::remove_file(&download.dest).map_err(|error| {
-                    let _ = fs::remove_file(&output);
-                    NetError::from_io("net-rename", error)
-                })?;
-            }
-            fs::rename(&output, &download.dest).map_err(|error| {
-                let _ = fs::remove_file(&output);
-                NetError::from_io("net-rename", error)
-            })?;
-        }
-        return Ok(NetResponse {
-            url: download.url.clone(),
-            ..response
-        });
-    }
-    let _ = fs::remove_file(&output);
-    Err(NetError::new("net-redirect", "too many redirects"))
-}
-
-async fn async_send_response(
-    agent: &NetAgent,
-    executor: &Arc<Executor<'static>>,
-    connections: &mut FxHashMap<Origin, AsyncHttpConnection>,
-    request: &HttpRequest,
-) -> NetResult<Response<Incoming>> {
-    let origin = request.url.origin();
-    for attempt in 0..2 {
-        if !connections.contains_key(&origin) {
-            let connection = async_connection(agent, executor, &request.url).await?;
-            connections.insert(origin.clone(), connection);
-        }
-        let Some(connection) = connections.get_mut(&origin) else {
-            return Err(NetError::new("net-io", "connection disappeared"));
-        };
-        match connection.send_request(hyper_request(request)?).await {
-            Ok(response) => return Ok(response),
-            Err(_) if attempt == 0 => {
-                connections.remove(&origin);
-            }
-            Err(error) => {
-                connections.remove(&origin);
-                return Err(NetError::new("net-io", error.to_string()));
-            }
-        }
-    }
-    unreachable!("two async request attempts always return")
-}
-
-async fn async_with_timeout<T>(
-    timeout: Option<Duration>,
-    request: impl Future<Output = NetResult<T>>,
-) -> NetResult<T> {
-    match timeout {
-        Some(timeout) => {
-            futures_lite::future::race(request, async move {
-                async_io::Timer::after(timeout).await;
-                Err(NetError::new("net-timeout", "request timed out"))
-            })
-            .await
-        }
-        None => request.await,
-    }
-}
-
-async fn async_connection(
-    agent: &NetAgent,
-    executor: &Arc<Executor<'static>>,
-    url: &UrlParts,
-) -> NetResult<AsyncHttpConnection> {
-    let stream = async_connect_tcp(url).await?;
-    if url.scheme == "https" {
-        let server_name = ServerName::try_from(url.host.clone())
-            .map_err(|error| NetError::new("net-tls", error.to_string()))?;
-        let mut tls_config = agent.tls_config.as_ref().clone();
+    mut tls_config: ClientConfig,
+    max_idle_per_host: usize,
+    idle_timeout: Duration,
+    http1_only: bool,
+) -> H12Client<Full<Bytes>> {
+    if !http1_only {
         tls_config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
-        let connector = TlsConnector::from(Arc::new(tls_config));
-        let stream = connector
-            .connect(server_name, stream)
-            .await
-            .map_err(|error| NetError::new("net-tls", error.to_string()))?;
-        if stream.get_ref().1.alpn_protocol() == Some(b"h2") {
-            async_http2_handshake(executor, HyperIo(stream)).await
-        } else {
-            async_http1_handshake(executor, HyperIo(stream)).await
-        }
-    } else {
-        async_http1_handshake(executor, HyperIo(stream)).await
     }
-}
-
-async fn async_connect_tcp(url: &UrlParts) -> NetResult<Async<std::net::TcpStream>> {
-    let addresses = resolve_url_socket_addrs(url).map_err(net_transport_error)?;
-    let mut last_error = None;
-    for address in addresses {
-        match Async::<std::net::TcpStream>::connect(address).await {
-            Ok(stream) => return Ok(stream),
-            Err(error) => last_error = Some(error),
-        }
+    let connector = H12Connector::builder()
+        .tcp_dialer(CapTcpDialer)
+        .tls_config(tls_config)
+        .build();
+    let mut builder = H12Client::builder(h12_executor(executor));
+    builder
+        .connector(connector)
+        .pool_max_idle_per_host(max_idle_per_host)
+        .pool_idle_timeout(idle_timeout);
+    if http1_only {
+        builder.http1_only();
     }
-    Err(last_error.map_or_else(
-        || NetError::new("dns-not-found", "no addresses found"),
-        net_transport_error,
-    ))
+    builder.build()
 }
 
-async fn async_http1_handshake<T>(
-    executor: &Arc<Executor<'static>>,
-    io: HyperIo<T>,
-) -> NetResult<AsyncHttpConnection>
-where
-    T: AsyncRead + AsyncWrite + Unpin + Send + 'static,
-{
-    let (sender, connection) = http1::handshake(io)
-        .await
-        .map_err(|error| NetError::new("net-io", error.to_string()))?;
-    executor
-        .spawn(async move {
-            let _ = connection.await;
-        })
-        .detach();
-    Ok(AsyncHttpConnection::Http1(sender))
-}
-
-async fn async_http2_handshake<T>(
-    executor: &Arc<Executor<'static>>,
-    io: HyperIo<T>,
-) -> NetResult<AsyncHttpConnection>
-where
-    T: AsyncRead + AsyncWrite + Unpin + Send + 'static,
-{
-    let (sender, connection) = http2::Builder::new(AsyncHttpExecutor(Arc::clone(executor)))
-        .handshake(io)
-        .await
-        .map_err(|error| NetError::new("net-io", error.to_string()))?;
-    executor
-        .spawn(async move {
-            let _ = connection.await;
-        })
-        .detach();
-    Ok(AsyncHttpConnection::Http2(sender))
-}
-
-enum AsyncHttpConnection {
-    Http1(http1::SendRequest<Full<Bytes>>),
-    Http2(http2::SendRequest<Full<Bytes>>),
-}
-
-impl AsyncHttpConnection {
-    async fn send_request(
-        &mut self,
-        request: Request<Full<Bytes>>,
-    ) -> Result<Response<Incoming>, hyper::Error> {
-        match self {
-            Self::Http1(sender) => sender.send_request(request).await,
-            Self::Http2(sender) => {
-                sender.ready().await?;
-                sender.send_request(request).await
-            }
-        }
-    }
-}
+type H12Task = Pin<Box<dyn Future<Output = ()> + Send + 'static>>;
 
 #[derive(Clone)]
-struct AsyncHttpExecutor(Arc<Executor<'static>>);
+struct H12Executor(Arc<Executor<'static>>);
 
-impl<F> hyper::rt::Executor<F> for AsyncHttpExecutor
-where
-    F: Future + Send + 'static,
-    F::Output: Send + 'static,
-{
-    fn execute(&self, future: F) {
+impl hyper::rt::Executor<H12Task> for H12Executor {
+    fn execute(&self, future: H12Task) {
         self.0.spawn(future).detach();
     }
 }
 
-fn hyper_request(request: &HttpRequest) -> NetResult<Request<Full<Bytes>>> {
+fn h12_executor(executor: Arc<Executor<'static>>) -> H12Executor {
+    H12Executor(executor)
+}
+
+struct CapTcpDialer;
+
+impl TcpDialer for CapTcpDialer {
+    fn connect(&self, origin: http::Uri) -> TcpDialFuture {
+        Box::pin(async move {
+            let host = origin
+                .host()
+                .ok_or_else(|| -> h12tiny_client::DialError {
+                    Box::new(NetError::new("net-url", "URL must include a host"))
+                })?
+                .strip_prefix('[')
+                .and_then(|host| host.strip_suffix(']'))
+                .unwrap_or_else(|| origin.host().expect("host was checked above"))
+                .to_string();
+            let port = match origin.scheme_str() {
+                Some("http") => origin.port_u16().unwrap_or(80),
+                Some("https") => origin.port_u16().unwrap_or(443),
+                Some(_) => {
+                    return Err(Box::new(NetError::new(
+                        "net-scheme",
+                        "URL scheme must be http or https",
+                    )) as _);
+                }
+                None => {
+                    return Err(Box::new(NetError::new(
+                        "net-url",
+                        "URL must include a scheme",
+                    )) as _);
+                }
+            };
+            let addresses = resolve_socket_addrs(&host, port, AddressFamily::Any, None)
+                .map_err(|error| -> h12tiny_client::DialError { Box::new(error) })?;
+            let stream = async_connect_cap_tcp(addresses)
+                .await
+                .map_err(|error| -> h12tiny_client::DialError {
+                    Box::new(net_transport_error(error))
+                })?;
+            let local_addr = stream.get_ref().local_addr().ok();
+            let peer_addr = stream.get_ref().peer_addr().ok();
+            Ok(TcpConnected::new(stream).with_addresses(local_addr, peer_addr))
+        })
+    }
+}
+
+async fn async_connect_cap_tcp(addrs: Vec<SocketAddr>) -> io::Result<Async<std::net::TcpStream>> {
+    let mut last_error = None;
+    for addr in addrs {
+        let family = match addr {
+            SocketAddr::V4(_) => cap_net_ext::AddressFamily::Ipv4,
+            SocketAddr::V6(_) => cap_net_ext::AddressFamily::Ipv6,
+        };
+        let socket = cap_std::net::TcpListener::new(family, Blocking::No)?;
+        let mut pool = cap_std::net::Pool::new();
+        pool.insert_socket_addr(addr, cap_std::ambient_authority());
+        match pool.connect_existing_tcp_listener(&socket, addr) {
+            Ok(()) => match Async::new(cap_listener_into_std_tcp(socket)) {
+                Ok(stream) => return Ok(stream),
+                Err(error) => last_error = Some(error),
+            },
+            Err(error) if connect_is_pending(&error) => {
+                let stream = match Async::new(cap_listener_into_std_tcp(socket)) {
+                    Ok(stream) => stream,
+                    Err(error) => {
+                        last_error = Some(error);
+                        continue;
+                    }
+                };
+                stream.writable().await?;
+                match stream.get_ref().take_error()? {
+                    Some(error) => last_error = Some(error),
+                    None => return Ok(stream),
+                }
+            }
+            Err(error) => last_error = Some(error),
+        }
+    }
+    Err(last_error.unwrap_or_else(|| io::Error::other("dns-not-found: no addresses found")))
+}
+
+fn connect_is_pending(error: &io::Error) -> bool {
+    error.kind() == io::ErrorKind::WouldBlock
+        || matches!(
+            error.raw_os_error(),
+            Some(libc::EINPROGRESS | libc::EALREADY | libc::EWOULDBLOCK)
+        )
+}
+
+#[cfg(not(windows))]
+fn cap_listener_into_std_tcp(listener: cap_std::net::TcpListener) -> std::net::TcpStream {
+    let fd = listener.into_raw_fd();
+    // `into_raw_fd` transfers ownership of the connected socket to the std stream.
+    unsafe { std::net::TcpStream::from_raw_fd(fd) }
+}
+
+#[cfg(windows)]
+fn cap_listener_into_std_tcp(listener: cap_std::net::TcpListener) -> std::net::TcpStream {
+    let socket = listener.into_raw_socket();
+    // `into_raw_socket` transfers ownership of the connected socket to the std stream.
+    unsafe { std::net::TcpStream::from_raw_socket(socket) }
+}
+
+fn h12_block_on<T>(
+    agent: &NetAgent,
+    future: impl Future<Output = NetResult<T>>,
+) -> NetResult<T> {
+    futures_lite::future::block_on(agent.executor.run(future))
+}
+
+fn h12_error(error: H12Error) -> NetError {
+    let mut source: Option<&(dyn std::error::Error + 'static)> = Some(&error);
+    while let Some(error) = source {
+        if let Some(error) = error.downcast_ref::<NetError>() {
+            return error.clone();
+        }
+        source = error.source();
+    }
+    let kind = match error.kind() {
+        H12ErrorKind::UnsupportedScheme => "net-scheme",
+        H12ErrorKind::AbsoluteUriRequired => "net-url",
+        H12ErrorKind::Tls | H12ErrorKind::Alpn => "net-tls",
+        H12ErrorKind::Connect
+        | H12ErrorKind::Handshake
+        | H12ErrorKind::SendRequest
+        | H12ErrorKind::Canceled => "net-io",
+        H12ErrorKind::UnsupportedMethod | H12ErrorKind::UnsupportedVersion => "net-request",
+        H12ErrorKind::ProtocolUnavailable => "net-protocol",
+        _ => "net-io",
+    };
+    NetError::new(kind, error.to_string())
+}
+
+fn h12_request(request: &HttpRequest) -> NetResult<Request<Full<Bytes>>> {
     let mut builder = Request::builder()
         .method(request.method.as_str())
-        .uri(&request.url.path)
-        .header("Host", request.url.authority());
+        .uri(request.url.absolute());
     let mut has_content_length = false;
     for header in &request.headers {
         if header.name.eq_ignore_ascii_case("content-length") {
@@ -1243,7 +971,14 @@ fn hyper_request(request: &HttpRequest) -> NetResult<Request<Full<Bytes>>> {
         .map_err(|error| NetError::new("net-request", error.to_string()))
 }
 
-async fn async_response(
+async fn h12_send(
+    client: &H12Client<Full<Bytes>>,
+    request: &HttpRequest,
+) -> NetResult<Response<Incoming>> {
+    client.request(h12_request(request)?).await.map_err(h12_error)
+}
+
+async fn h12_collect_response(
     response: Response<Incoming>,
     max_body_bytes: u64,
 ) -> NetResult<HttpResponse> {
@@ -1257,7 +992,7 @@ async fn async_response(
         .headers()
         .iter()
         .map(|(name, value)| NetHeader {
-            name: name.to_string(),
+            name: response_header_name(name.as_str()),
             value: value.to_str().unwrap_or_default().to_string(),
         })
         .collect();
@@ -1284,7 +1019,7 @@ async fn async_response(
     })
 }
 
-async fn async_discard_response(response: Response<Incoming>) -> NetResult<()> {
+async fn h12_discard_response(response: Response<Incoming>) -> NetResult<()> {
     let mut body = response.into_body();
     while let Some(frame) = body.frame().await {
         frame.map_err(|error| NetError::new("net-io", error.to_string()))?;
@@ -1292,7 +1027,68 @@ async fn async_discard_response(response: Response<Incoming>) -> NetResult<()> {
     Ok(())
 }
 
-async fn async_write_download_response(
+fn response_header_name(name: &str) -> String {
+    name.split('-')
+        .map(|part| {
+            let mut characters = part.chars();
+            let Some(first) = characters.next() else {
+                return String::new();
+            };
+            format!("{}{}", first.to_ascii_uppercase(), characters.as_str())
+        })
+        .collect::<Vec<_>>()
+        .join("-")
+}
+
+async fn h12_request_with_redirects(
+    client: &H12Client<Full<Bytes>>,
+    mut request: HttpRequest,
+    config: &RequestConfig,
+    max_body_bytes: u64,
+) -> NetResult<HttpResponse> {
+    for _ in 0..=config.redirects {
+        let response = h12_send(client, &request).await?;
+        let status = response.status().as_u16();
+        if !is_redirect(status) {
+            let response = h12_collect_response(response, max_body_bytes).await?;
+            if config.fail_status && !(200..300).contains(&response.status) {
+                return Err(NetError::new(
+                    "net-status",
+                    format!("HTTP status {}", response.status),
+                ));
+            }
+            return Ok(response);
+        }
+        let location = response
+            .headers()
+            .get("location")
+            .and_then(|value| value.to_str().ok())
+            .map(str::to_string);
+        let Some(location) = location else {
+            return Err(NetError::new(
+                "net-redirect",
+                "redirect missing Location header",
+            ));
+        };
+        h12_discard_response(response).await?;
+        request.url = redirect_url(&request.url, &location)?;
+    }
+    Err(NetError::new("net-redirect", "too many redirects"))
+}
+
+async fn h12_response_record(
+    client: &H12Client<Full<Bytes>>,
+    request: HttpRequest,
+    config: &RequestConfig,
+    max_body_bytes: u64,
+    url: &str,
+    include_body: bool,
+) -> NetResult<NetResponse> {
+    let response = h12_request_with_redirects(client, request, config, max_body_bytes).await?;
+    response_record(response, max_body_bytes, url, include_body)
+}
+
+async fn h12_write_download_response(
     response: Response<Incoming>,
     path: &Path,
     limit: u64,
@@ -1308,7 +1104,7 @@ async fn async_write_download_response(
         .headers()
         .iter()
         .map(|(name, value)| NetHeader {
-            name: name.to_string(),
+            name: response_header_name(name.as_str()),
             value: value.to_str().unwrap_or_default().to_string(),
         })
         .collect();
@@ -1345,52 +1141,12 @@ async fn async_write_download_response(
     })
 }
 
-struct HyperIo<T>(T);
-
-impl<T> hyper::rt::Read for HyperIo<T>
-where
-    T: AsyncRead + Unpin,
-{
-    fn poll_read(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        mut buffer: hyper::rt::ReadBufCursor<'_>,
-    ) -> Poll<io::Result<()>> {
-        let mut bytes = vec![0; buffer.remaining()];
-        match Pin::new(&mut self.0).poll_read(cx, &mut bytes) {
-            Poll::Ready(Ok(count)) => {
-                buffer.put_slice(&bytes[..count]);
-                Poll::Ready(Ok(()))
-            }
-            Poll::Ready(Err(error)) => Poll::Ready(Err(error)),
-            Poll::Pending => Poll::Pending,
-        }
-    }
-}
-
-impl<T> hyper::rt::Write for HyperIo<T>
-where
-    T: AsyncWrite + Unpin,
-{
-    fn poll_write(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        buffer: &[u8],
-    ) -> Poll<io::Result<usize>> {
-        Pin::new(&mut self.0).poll_write(cx, buffer)
-    }
-
-    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        Pin::new(&mut self.0).poll_flush(cx)
-    }
-
-    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        Pin::new(&mut self.0).poll_close(cx)
-    }
-}
-
-pub fn download(agent: &NetAgent, download: NetDownload) -> NetResult<NetResponse> {
-    validate_url(&download.url)?;
+async fn h12_download_with_redirects(
+    client: &H12Client<Full<Bytes>>,
+    request: HttpRequest,
+    config: &RequestConfig,
+    download: &NetDownload,
+) -> NetResult<NetResponse> {
     if !download.overwrite && download.dest.exists() {
         return Err(NetError::new("net-dest", "destination exists"));
     }
@@ -1399,6 +1155,265 @@ pub fn download(agent: &NetAgent, download: NetDownload) -> NetResult<NetRespons
     {
         fs::create_dir_all(parent).map_err(|error| NetError::from_io("net-dest", error))?;
     }
+    let output = if download.atomic {
+        temp_download_path(&download.dest)
+    } else {
+        download.dest.clone()
+    };
+    let mut request = request;
+    for _ in 0..=config.redirects {
+        let response = h12_send(client, &request).await?;
+        let status = response.status().as_u16();
+        if is_redirect(status) {
+            let location = response
+                .headers()
+                .get("location")
+                .and_then(|value| value.to_str().ok())
+                .map(str::to_string);
+            let Some(location) = location else {
+                let _ = fs::remove_file(&output);
+                return Err(NetError::new(
+                    "net-redirect",
+                    "redirect missing Location header",
+                ));
+            };
+            h12_discard_response(response).await?;
+            request.url = redirect_url(&request.url, &location)?;
+            continue;
+        }
+        if config.fail_status && !(200..300).contains(&status) {
+            h12_discard_response(response).await?;
+            return Err(NetError::new("net-status", format!("HTTP status {status}")));
+        }
+        let result = h12_write_download_response(
+            response,
+            &output,
+            download.max_body_bytes.unwrap_or(u64::MAX),
+            download.overwrite,
+        )
+        .await;
+        let response = match result {
+            Ok(response) => response,
+            Err(error) => {
+                let _ = fs::remove_file(&output);
+                return Err(error);
+            }
+        };
+        if download.atomic {
+            if download.overwrite && download.dest.exists() {
+                fs::remove_file(&download.dest).map_err(|error| {
+                    let _ = fs::remove_file(&output);
+                    NetError::from_io("net-rename", error)
+                })?;
+            }
+            fs::rename(&output, &download.dest).map_err(|error| {
+                let _ = fs::remove_file(&output);
+                NetError::from_io("net-rename", error)
+            })?;
+        }
+        return Ok(NetResponse {
+            url: download.url.clone(),
+            ..response
+        });
+    }
+    let _ = fs::remove_file(&output);
+    Err(NetError::new("net-redirect", "too many redirects"))
+}
+
+async fn h12_request_worker(
+    client: H12Client<Full<Bytes>>,
+    requests: Vec<(usize, NetRequest)>,
+) -> Vec<(usize, NetResult<NetResponse>)> {
+    let mut responses = Vec::with_capacity(requests.len());
+    for (index, request) in requests {
+        let config = request_config(&request);
+        let max_body_bytes = request.max_body_bytes;
+        let url = request.url.clone();
+        let result = async_with_timeout(
+            config.timeout.or(config.connect_timeout),
+            async {
+                let request = request_builder(&request)?;
+                h12_response_record(&client, request, &config, max_body_bytes, &url, true).await
+            },
+        )
+        .await;
+        responses.push((index, result));
+    }
+    responses
+}
+
+async fn h12_download_worker(
+    client: H12Client<Full<Bytes>>,
+    downloads: Vec<(usize, NetDownload)>,
+) -> Vec<(usize, NetResult<NetResponse>)> {
+    let mut responses = Vec::with_capacity(downloads.len());
+    for (index, download) in downloads {
+        let request = NetRequest {
+            method: "GET".to_string(),
+            url: download.url.clone(),
+            headers: download.headers.clone(),
+            body: NetBody::Empty,
+            timeout: download.timeout,
+            connect_timeout: download.connect_timeout,
+            redirects: download.redirects,
+            fail_status: download.fail_status,
+            max_body_bytes: download.max_body_bytes.unwrap_or(u64::MAX),
+        };
+        let config = request_config(&request);
+        let result = async_with_timeout(
+            config.timeout.or(config.connect_timeout),
+            async {
+                let request = request_builder(&request)?;
+                h12_download_with_redirects(&client, request, &config, &download).await
+            },
+        )
+        .await;
+        responses.push((index, result));
+    }
+    responses
+}
+
+async fn async_with_timeout<T>(
+    timeout: Option<Duration>,
+    request: impl Future<Output = NetResult<T>>,
+) -> NetResult<T> {
+    match timeout {
+        Some(timeout) => {
+            futures_lite::future::race(request, async move {
+                async_io::Timer::after(timeout).await;
+                Err(NetError::new("net-timeout", "request timed out"))
+            })
+            .await
+        }
+        None => request.await,
+    }
+}
+
+pub fn request(agent: &NetAgent, request: NetRequest) -> NetResult<NetResponse> {
+    validate_url(&request.url)?;
+    let config = request_config(&request);
+    let max_body_bytes = request.max_body_bytes;
+    let url = request.url.clone();
+    let http_request = request_builder(&request)?;
+    h12_block_on(
+        agent,
+        async_with_timeout(
+            config.timeout.or(config.connect_timeout),
+            h12_response_record(
+                &agent.h1_client,
+                http_request,
+                &config,
+                max_body_bytes,
+                &url,
+                true,
+            ),
+        ),
+    )
+}
+
+pub fn request_many(
+    agent: &NetAgent,
+    requests: Vec<NetRequest>,
+    concurrency: usize,
+) -> NetResult<Vec<NetResult<NetResponse>>> {
+    if concurrency == 0 {
+        return Err(NetError::new(
+            "net-concurrency",
+            "concurrency must be at least one",
+        ));
+    }
+    let request_count = requests.len();
+    let mut partitions: Vec<Vec<(usize, NetRequest)>> = (0..concurrency.min(request_count).max(1))
+        .map(|_| Vec::new())
+        .collect();
+    let worker_count = partitions.len();
+    for (index, request) in requests.into_iter().enumerate() {
+        partitions[index % worker_count].push((index, request));
+    }
+    let client = h12_client(
+        Arc::clone(&agent.executor),
+        agent.tls_config.as_ref().clone(),
+        agent.max_idle_per_host,
+        agent.idle_timeout,
+        false,
+    );
+    let executor = Arc::clone(&agent.executor);
+    h12_block_on(agent, async move {
+        let mut tasks = Vec::with_capacity(partitions.len());
+        for partition in partitions {
+            let task_executor = Arc::clone(&executor);
+            let client = client.clone();
+            tasks.push(task_executor.spawn(h12_request_worker(client, partition)));
+        }
+        let mut ordered: Vec<Option<NetResult<NetResponse>>> =
+            (0..request_count).map(|_| None).collect();
+        for task in tasks {
+            for (index, response) in task.await {
+                if index >= ordered.len() {
+                    ordered.resize_with(index + 1, || None);
+                }
+                ordered[index] = Some(response);
+            }
+        }
+        ordered
+            .into_iter()
+            .map(|response| Ok(response.expect("async request result missing")))
+            .collect()
+    })
+}
+
+pub fn download_many(
+    agent: &NetAgent,
+    downloads: Vec<NetDownload>,
+    concurrency: usize,
+) -> NetResult<Vec<NetResult<NetResponse>>> {
+    if concurrency == 0 {
+        return Err(NetError::new(
+            "net-concurrency",
+            "concurrency must be at least one",
+        ));
+    }
+    let download_count = downloads.len();
+    let mut partitions: Vec<Vec<(usize, NetDownload)>> =
+        (0..concurrency.min(download_count).max(1))
+            .map(|_| Vec::new())
+            .collect();
+    let worker_count = partitions.len();
+    for (index, download) in downloads.into_iter().enumerate() {
+        partitions[index % worker_count].push((index, download));
+    }
+    let client = h12_client(
+        Arc::clone(&agent.executor),
+        agent.tls_config.as_ref().clone(),
+        agent.max_idle_per_host,
+        agent.idle_timeout,
+        false,
+    );
+    let executor = Arc::clone(&agent.executor);
+    h12_block_on(agent, async move {
+        let mut tasks = Vec::with_capacity(partitions.len());
+        for partition in partitions {
+            let task_executor = Arc::clone(&executor);
+            let client = client.clone();
+            tasks.push(task_executor.spawn(h12_download_worker(client, partition)));
+        }
+        let mut ordered: Vec<Option<NetResult<NetResponse>>> =
+            (0..download_count).map(|_| None).collect();
+        for task in tasks {
+            for (index, response) in task.await {
+                ordered[index] = Some(response);
+            }
+        }
+        ordered
+            .into_iter()
+            .map(|response| Ok(response.expect("async download result missing")))
+            .collect()
+    })
+}
+
+
+pub fn download(agent: &NetAgent, download: NetDownload) -> NetResult<NetResponse> {
+    validate_url(&download.url)?;
     let request = NetRequest {
         method: "GET".to_string(),
         url: download.url.clone(),
@@ -1410,47 +1425,17 @@ pub fn download(agent: &NetAgent, download: NetDownload) -> NetResult<NetRespons
         fail_status: download.fail_status,
         max_body_bytes: download.max_body_bytes.unwrap_or(u64::MAX),
     };
-    let http_request = request_builder(&request)?;
-    let response = run_request(agent, http_request, &request_config(&request))?;
-    let status = response.status as i64;
-    let reason = response.reason.clone();
-    let headers = response.headers.clone();
-    let output = if download.atomic {
-        temp_download_path(&download.dest)
-    } else {
-        download.dest.clone()
-    };
-    let result = write_response_body(
-        response,
-        &output,
-        request.max_body_bytes,
-        download.overwrite,
-    );
-    if let Err(error) = result {
-        let _ = fs::remove_file(&output);
-        return Err(error);
-    }
-    let bytes = result.unwrap();
-    if download.atomic {
-        if download.overwrite && download.dest.exists() {
-            fs::remove_file(&download.dest).map_err(|error| {
-                let _ = fs::remove_file(&output);
-                NetError::from_io("net-rename", error)
-            })?;
-        }
-        fs::rename(&output, &download.dest).map_err(|error| {
-            let _ = fs::remove_file(&output);
-            NetError::from_io("net-rename", error)
-        })?;
-    }
-    Ok(NetResponse {
-        status,
-        reason,
-        bytes,
-        headers,
-        url: download.url,
-        body: None,
-    })
+    let config = request_config(&request);
+    h12_block_on(
+        agent,
+        async_with_timeout(
+            config.timeout.or(config.connect_timeout),
+            async {
+                let request = request_builder(&request)?;
+                h12_download_with_redirects(&agent.h1_client, request, &config, &download).await
+            },
+        ),
+    )
 }
 
 pub fn upload(agent: &NetAgent, upload: NetUpload) -> NetResult<NetResponse> {
@@ -1481,9 +1466,27 @@ pub fn upload(agent: &NetAgent, upload: NetUpload) -> NetResult<NetResponse> {
         });
     }
     drop(file);
-    let http_request = request_builder(&request)?;
-    let response = run_request(agent, http_request, &request_config(&request))?;
-    response_record(response, request.max_body_bytes, &request.url, false)
+    let config = request_config(&request);
+    let max_body_bytes = request.max_body_bytes;
+    let url = request.url.clone();
+    h12_block_on(
+        agent,
+        async_with_timeout(
+            config.timeout.or(config.connect_timeout),
+            async {
+                let request = request_builder(&request)?;
+                h12_response_record(
+                    &agent.h1_client,
+                    request,
+                    &config,
+                    max_body_bytes,
+                    &url,
+                    false,
+                )
+                .await
+            },
+        ),
+    )
 }
 
 fn request_builder(request: &NetRequest) -> NetResult<HttpRequest> {
@@ -1525,66 +1528,6 @@ fn request_config(request: &NetRequest) -> RequestConfig {
     }
 }
 
-fn run_request(
-    agent: &NetAgent,
-    request: HttpRequest,
-    config: &RequestConfig,
-) -> NetResult<HttpResponse> {
-    let response = request_with_redirects(agent, request, config)?;
-    if config.fail_status && !(200..300).contains(&response.status) {
-        return Err(NetError::new(
-            "net-status",
-            format!("HTTP status {}", response.status),
-        ));
-    }
-    Ok(response)
-}
-
-fn request_with_redirects(
-    agent: &NetAgent,
-    mut request: HttpRequest,
-    config: &RequestConfig,
-) -> NetResult<HttpResponse> {
-    for _ in 0..=config.redirects {
-        let response = send_once(agent, &request, config)?;
-        if !is_redirect(response.status) {
-            return Ok(response);
-        }
-        let Some(location) = response
-            .headers
-            .iter()
-            .find(|header| header.name.eq_ignore_ascii_case("location"))
-            .map(|header| header.value.clone())
-        else {
-            return Err(NetError::new(
-                "net-redirect",
-                "redirect missing Location header",
-            ));
-        };
-        request.url = redirect_url(&request.url, &location)?;
-    }
-    Err(NetError::new("net-redirect", "too many redirects"))
-}
-
-fn send_once(
-    agent: &NetAgent,
-    request: &HttpRequest,
-    config: &RequestConfig,
-) -> NetResult<HttpResponse> {
-    let timeout = config.timeout.or(config.connect_timeout);
-    let deadline = timeout.and_then(|duration| SystemTime::now().checked_add(duration));
-    let mut connection = agent.connection(&request.url, timeout)?;
-    let result = connection.send(request, deadline);
-    match result {
-        Ok((response, reusable)) => {
-            if reusable {
-                agent.recycle(request.url.origin(), connection);
-            }
-            Ok(response)
-        }
-        Err(error) => Err(error),
-    }
-}
 
 fn response_record(
     response: HttpResponse,
@@ -1607,24 +1550,6 @@ fn response_record(
     })
 }
 
-fn write_response_body(
-    response: HttpResponse,
-    path: &Path,
-    limit: u64,
-    overwrite: bool,
-) -> NetResult<i64> {
-    let bytes = limited_body(response.body, limit)?;
-    let mut file = OpenOptions::new()
-        .write(true)
-        .create(true)
-        .create_new(!overwrite)
-        .truncate(overwrite)
-        .open(path)
-        .map_err(|error| NetError::from_io("net-write", error))?;
-    file.write_all(&bytes)
-        .map_err(|error| NetError::from_io("net-write", error))?;
-    Ok(bytes.len() as i64)
-}
 
 fn limited_body(body: Vec<u8>, limit: u64) -> NetResult<Vec<u8>> {
     if body.len() as u64 > limit {
@@ -1855,12 +1780,6 @@ struct HttpResponse {
     body: Vec<u8>,
 }
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
-struct Origin {
-    scheme: String,
-    host: String,
-    port: u16,
-}
 
 #[derive(Clone, Debug)]
 struct UrlParts {
@@ -1898,13 +1817,6 @@ impl UrlParts {
         })
     }
 
-    fn origin(&self) -> Origin {
-        Origin {
-            scheme: self.scheme.clone(),
-            host: self.host.clone(),
-            port: self.port,
-        }
-    }
 
     fn authority(&self) -> String {
         let default_port = if self.scheme == "https" { 443 } else { 80 };
@@ -1918,6 +1830,10 @@ impl UrlParts {
         } else {
             format!("{host}:{}", self.port)
         }
+    }
+
+    fn absolute(&self) -> String {
+        format!("{}://{}{}", self.scheme, self.authority(), self.path)
     }
 }
 
@@ -1949,408 +1865,6 @@ fn parse_authority(authority: &str, default_port: u16) -> NetResult<(String, u16
         return Err(NetError::new("net-url", "URL must include a host"));
     }
     Ok((host.to_string(), port))
-}
-
-struct PooledConnection {
-    connection: HttpConnection,
-    idle_since: SystemTime,
-}
-
-enum HttpConnection {
-    Plain(std::net::TcpStream),
-    Tls(Box<StreamOwned<ClientConnection, std::net::TcpStream>>),
-}
-
-impl NetAgent {
-    fn connection(&self, url: &UrlParts, timeout: Option<Duration>) -> NetResult<HttpConnection> {
-        let origin = url.origin();
-        if let Some(connection) = self.take_idle(&origin) {
-            connection.set_timeouts(timeout)?;
-            return Ok(connection);
-        }
-        let addrs = resolve_url_socket_addrs(url).map_err(net_transport_error)?;
-        let stream = connect_cap_tcp_stream(addrs).map_err(net_transport_error)?;
-        stream
-            .set_read_timeout(timeout)
-            .map_err(|error| NetError::from_io("net-io", error))?;
-        stream
-            .set_write_timeout(timeout)
-            .map_err(|error| NetError::from_io("net-io", error))?;
-        if url.scheme == "https" {
-            let server_name = ServerName::try_from(url.host.clone())
-                .map_err(|error| NetError::new("net-tls", error.to_string()))?;
-            let connection = ClientConnection::new(self.tls_config.clone(), server_name)
-                .map_err(|error| NetError::new("net-tls", error.to_string()))?;
-            Ok(HttpConnection::Tls(Box::new(StreamOwned::new(
-                connection, stream,
-            ))))
-        } else {
-            Ok(HttpConnection::Plain(stream))
-        }
-    }
-
-    fn take_idle(&self, origin: &Origin) -> Option<HttpConnection> {
-        let mut pool = self.pool.lock().ok()?;
-        let entries = pool.get_mut(origin)?;
-        let now = SystemTime::now();
-        while let Some(entry) = entries.pop() {
-            let fresh = now
-                .duration_since(entry.idle_since)
-                .map(|idle| idle <= self.idle_timeout)
-                .unwrap_or(true);
-            if fresh {
-                return Some(entry.connection);
-            }
-        }
-        None
-    }
-
-    fn recycle(&self, origin: Origin, connection: HttpConnection) {
-        let Ok(mut pool) = self.pool.lock() else {
-            return;
-        };
-        let entries = pool.entry(origin).or_default();
-        if entries.len() >= self.max_idle_per_host {
-            return;
-        }
-        entries.push(PooledConnection {
-            connection,
-            idle_since: SystemTime::now(),
-        });
-    }
-}
-
-impl HttpConnection {
-    fn set_timeouts(&self, timeout: Option<Duration>) -> NetResult<()> {
-        match self {
-            Self::Plain(stream) => set_stream_timeouts(stream, timeout),
-            Self::Tls(stream) => set_stream_timeouts(stream.get_ref(), timeout),
-        }
-    }
-
-    fn send(
-        &mut self,
-        request: &HttpRequest,
-        _deadline: Option<SystemTime>,
-    ) -> NetResult<(HttpResponse, bool)> {
-        self.write_request(request)?;
-        self.flush().map_err(net_transport_error)?;
-        let (response, reusable) = self.read_response(&request.method)?;
-        Ok((response, reusable))
-    }
-
-    fn write_request(&mut self, request: &HttpRequest) -> NetResult<()> {
-        let mut head = format!(
-            "{} {} HTTP/1.1\r\nHost: {}\r\nConnection: keep-alive\r\n",
-            request.method,
-            request.url.path,
-            request.url.authority()
-        );
-        let mut has_content_length = false;
-        for header in &request.headers {
-            if header.name.eq_ignore_ascii_case("content-length") {
-                has_content_length = true;
-            }
-            head.push_str(&header.name);
-            head.push_str(": ");
-            head.push_str(&header.value);
-            head.push_str("\r\n");
-        }
-        if !has_content_length {
-            head.push_str("Content-Length: ");
-            head.push_str(&request.body.len().to_string());
-            head.push_str("\r\n");
-        }
-        head.push_str("\r\n");
-        self.write_all(head.as_bytes())
-            .map_err(net_transport_error)?;
-        if !request.body.is_empty() {
-            self.write_all(&request.body).map_err(net_transport_error)?;
-        }
-        Ok(())
-    }
-
-    fn read_response(&mut self, method: &str) -> NetResult<(HttpResponse, bool)> {
-        let header_bytes = self.read_header_block()?;
-        let header_text = String::from_utf8_lossy(&header_bytes);
-        let mut lines = header_text.split("\r\n");
-        let status_line = lines
-            .next()
-            .ok_or_else(|| NetError::new("net-protocol", "missing HTTP status line"))?;
-        let parts = status_line.splitn(3, ' ').collect::<Vec<_>>();
-        if parts.len() < 2 || !parts[0].starts_with("HTTP/") {
-            return Err(NetError::new("net-protocol", "invalid HTTP status line"));
-        }
-        let status = parts[1]
-            .parse::<u16>()
-            .map_err(|error| NetError::new("net-protocol", error.to_string()))?;
-        let reason = parts.get(2).copied().unwrap_or("").to_string();
-        let mut headers = Vec::new();
-        let mut content_length = None;
-        let mut chunked = false;
-        let mut connection_close = false;
-        for line in lines {
-            if line.is_empty() {
-                continue;
-            }
-            let Some((name, value)) = line.split_once(':') else {
-                continue;
-            };
-            let name = name.trim().to_string();
-            let value = value.trim().to_string();
-            if name.eq_ignore_ascii_case("content-length") {
-                content_length = value.parse::<usize>().ok();
-            }
-            if name.eq_ignore_ascii_case("transfer-encoding")
-                && value.to_ascii_lowercase().contains("chunked")
-            {
-                chunked = true;
-            }
-            if name.eq_ignore_ascii_case("connection")
-                && value.to_ascii_lowercase().contains("close")
-            {
-                connection_close = true;
-            }
-            headers.push(NetHeader { name, value });
-        }
-        let (body, framed) = if method == "HEAD" || matches!(status, 100..=199 | 204 | 304) {
-            (Vec::new(), true)
-        } else if chunked {
-            (self.read_chunked_body()?, true)
-        } else if let Some(length) = content_length {
-            (self.read_exact_vec(length)?, true)
-        } else {
-            (self.read_to_end_vec()?, false)
-        };
-        Ok((
-            HttpResponse {
-                status,
-                reason,
-                headers,
-                body,
-            },
-            framed && !connection_close,
-        ))
-    }
-
-    fn read_header_block(&mut self) -> NetResult<Vec<u8>> {
-        let mut bytes = Vec::new();
-        let mut byte = [0_u8; 1];
-        while !bytes.ends_with(b"\r\n\r\n") {
-            self.read_exact(&mut byte).map_err(net_transport_error)?;
-            bytes.push(byte[0]);
-            if bytes.len() > 64 * 1024 {
-                return Err(NetError::new("net-protocol", "HTTP headers too large"));
-            }
-        }
-        Ok(bytes)
-    }
-
-    fn read_line(&mut self) -> NetResult<String> {
-        let mut bytes = Vec::new();
-        let mut byte = [0_u8; 1];
-        while !bytes.ends_with(b"\r\n") {
-            self.read_exact(&mut byte).map_err(net_transport_error)?;
-            bytes.push(byte[0]);
-            if bytes.len() > 8192 {
-                return Err(NetError::new("net-protocol", "HTTP line too large"));
-            }
-        }
-        Ok(String::from_utf8_lossy(&bytes).trim_end().to_string())
-    }
-
-    fn read_chunked_body(&mut self) -> NetResult<Vec<u8>> {
-        let mut body = Vec::new();
-        loop {
-            let line = self.read_line()?;
-            let size_text = line.split(';').next().unwrap_or("").trim();
-            let size = usize::from_str_radix(size_text, 16)
-                .map_err(|error| NetError::new("net-protocol", error.to_string()))?;
-            if size == 0 {
-                loop {
-                    let trailer = self.read_line()?;
-                    if trailer.is_empty() {
-                        break;
-                    }
-                }
-                return Ok(body);
-            }
-            body.extend_from_slice(&self.read_exact_vec(size)?);
-            let mut crlf = [0_u8; 2];
-            self.read_exact(&mut crlf).map_err(net_transport_error)?;
-            if crlf != *b"\r\n" {
-                return Err(NetError::new("net-protocol", "invalid chunk terminator"));
-            }
-        }
-    }
-
-    fn read_exact_vec(&mut self, length: usize) -> NetResult<Vec<u8>> {
-        let mut body = vec![0_u8; length];
-        if length > 0 {
-            self.read_exact(&mut body).map_err(net_transport_error)?;
-        }
-        Ok(body)
-    }
-
-    fn read_to_end_vec(&mut self) -> NetResult<Vec<u8>> {
-        let mut body = Vec::new();
-        self.read_to_end(&mut body).map_err(net_transport_error)?;
-        Ok(body)
-    }
-}
-
-impl Read for HttpConnection {
-    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        match self {
-            Self::Plain(stream) => stream.read(buf),
-            Self::Tls(stream) => stream.read(buf),
-        }
-    }
-}
-
-impl Write for HttpConnection {
-    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        match self {
-            Self::Plain(stream) => stream.write(buf),
-            Self::Tls(stream) => stream.write(buf),
-        }
-    }
-
-    fn flush(&mut self) -> io::Result<()> {
-        match self {
-            Self::Plain(stream) => stream.flush(),
-            Self::Tls(stream) => stream.flush(),
-        }
-    }
-}
-
-fn set_stream_timeouts(stream: &std::net::TcpStream, timeout: Option<Duration>) -> NetResult<()> {
-    stream
-        .set_read_timeout(timeout)
-        .map_err(|error| NetError::from_io("net-io", error))?;
-    stream
-        .set_write_timeout(timeout)
-        .map_err(|error| NetError::from_io("net-io", error))
-}
-
-fn resolve_url_socket_addrs(url: &UrlParts) -> io::Result<Vec<SocketAddr>> {
-    let host = &url.host;
-    let port = url.port;
-    let addrs =
-        resolve_socket_addrs(host, port, AddressFamily::Any, None).map_err(net_error_to_io)?;
-    let addrs = addrs.into_iter().take(16).collect::<Vec<_>>();
-    if addrs.is_empty() {
-        Err(io::Error::other("dns-not-found: no records found"))
-    } else {
-        Ok(addrs)
-    }
-}
-
-fn connect_cap_tcp_stream(addrs: Vec<SocketAddr>) -> io::Result<std::net::TcpStream> {
-    let mut last_err = None;
-    for addr in addrs {
-        match connect_cap_tcp_addr(addr) {
-            Ok(stream) => return Ok(stream),
-            Err(error) => last_err = Some(error),
-        }
-    }
-    Err(last_err.unwrap_or_else(|| io::Error::other("dns-not-found: no records found")))
-}
-
-fn connect_cap_tcp_addr(addr: SocketAddr) -> io::Result<std::net::TcpStream> {
-    let family = match addr {
-        SocketAddr::V4(_) => cap_net_ext::AddressFamily::Ipv4,
-        SocketAddr::V6(_) => cap_net_ext::AddressFamily::Ipv6,
-    };
-    let socket = cap_std::net::TcpListener::new(family, Blocking::Yes)?;
-    let mut pool = cap_std::net::Pool::new();
-    pool.insert_socket_addr(addr, cap_std::ambient_authority());
-    let stream = pool.connect_into_tcp_stream(socket, addr)?;
-    stream.set_nonblocking(false)?;
-    Ok(cap_tcp_stream_into_std(stream))
-}
-
-#[cfg(not(windows))]
-fn cap_tcp_stream_into_std(stream: cap_std::net::TcpStream) -> std::net::TcpStream {
-    let fd = stream.into_raw_fd();
-    // `into_raw_fd` transfers ownership of the socket to the returned std stream.
-    unsafe { std::net::TcpStream::from_raw_fd(fd) }
-}
-
-#[cfg(windows)]
-fn cap_tcp_stream_into_std(stream: cap_std::net::TcpStream) -> std::net::TcpStream {
-    let socket = stream.into_raw_socket();
-    // `into_raw_socket` transfers ownership of the socket to the returned std stream.
-    unsafe { std::net::TcpStream::from_raw_socket(socket) }
-}
-
-fn net_error_to_io(error: NetError) -> io::Error {
-    io::Error::other(format!("{}: {}", error.kind, error.message))
-}
-
-#[cfg(test)]
-mod async_http2_tests {
-    use super::*;
-    use h2::server;
-
-    #[test]
-    fn async_http2_handshake_sends_request() {
-        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind H2 listener");
-        let address = listener.local_addr().expect("H2 listener address");
-        let server = std::thread::spawn(move || {
-            futures_lite::future::block_on(async move {
-                let (stream, _) = listener.accept().expect("accept H2 connection");
-                let stream = Async::new(stream).expect("make H2 stream async");
-                let mut connection = server::handshake(stream).await.expect("H2 handshake");
-                let (request, mut respond) = connection
-                    .accept()
-                    .await
-                    .expect("H2 request result")
-                    .expect("H2 request");
-                assert_eq!(request.method(), "GET");
-                assert_eq!(request.uri().path(), "/proof");
-                let mut body = respond
-                    .send_response(
-                        Response::builder()
-                            .status(200)
-                            .body(())
-                            .expect("H2 response"),
-                        false,
-                    )
-                    .expect("send H2 response");
-                body.send_data(Bytes::from_static(b"h2"), true)
-                    .expect("send H2 body");
-                connection.graceful_shutdown();
-                futures_lite::future::poll_fn(|cx| connection.poll_closed(cx))
-                    .await
-                    .expect("close H2 connection");
-            });
-        });
-
-        let executor = Arc::new(Executor::new());
-        let runner = Arc::clone(&executor);
-        let response = futures_lite::future::block_on(executor.run(async move {
-            let url = UrlParts::parse(&format!("http://{address}/proof")).expect("H2 URL");
-            let stream = async_connect_tcp(&url).await.expect("connect H2 server");
-            let mut connection = async_http2_handshake(&runner, HyperIo(stream))
-                .await
-                .expect("H2 client handshake");
-            let request = HttpRequest {
-                method: "GET".to_string(),
-                url,
-                headers: Vec::new(),
-                body: Vec::new(),
-            };
-            let response = connection
-                .send_request(hyper_request(&request).expect("build H2 request"))
-                .await
-                .map_err(|error| NetError::new("net-io", error.to_string()))?;
-            async_response(response, 16).await
-        }));
-
-        server.join().expect("H2 server");
-        assert_eq!(response.expect("H2 response").body, b"h2");
-    }
 }
 
 fn is_redirect(status: u16) -> bool {

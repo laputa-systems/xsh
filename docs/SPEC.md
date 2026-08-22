@@ -2140,11 +2140,16 @@ when the field is absent.
 - `net.download_many(batch: Record) -> Result[List[Result[Record]]]`.
 - `net.upload(request: Record) -> Result[Record]`.
 
-`net` supports HTTP and HTTPS only. `net.request`, `net.download`, and
-`net.upload` use XSH's blocking HTTP/1.1 transport; `net.request_many` and
-`net.download_many` use an internal nonblocking transport. Both use Rustls with
-the Rust-only Graviola `CryptoProvider`, keyed by caller-visible pool name and
-TLS configuration. On Linux, certificate validation reads the `SSL_CERT_FILE`
+`net` supports HTTP and HTTPS only. XSH keeps its record adapters, redirect and
+body-limit policy, and evaluator-owned named pools, while `h12tiny-client`
+owns HTTP framing, handshakes, ALPN, and connection reuse. Each named pool has
+a persistent HTTP/1.1 h12 client for `net.request`, `net.download`, and
+`net.upload`, with at most eight idle connections per origin and a 90-second
+idle timeout by default. `net.request_many` and `net.download_many` create a
+fresh bounded h12 client for each batch, which offers HTTP/2 and HTTP/1.1 over
+HTTPS and falls back to HTTP/1.1 when ALPN does not select `h2`. Both use Rustls
+with the Rust-only Graviola `CryptoProvider`, keyed by caller-visible pool name
+and TLS configuration. On Linux, certificate validation reads the `SSL_CERT_FILE`
 and `SSL_CERT_DIR` overrides when set; otherwise it loads PEM roots from
 standard locations including `/etc/ssl/certs`. On macOS, the platform verifier
 remains a target-specific dependency so Keychain trust evaluation is preserved;
@@ -2153,10 +2158,10 @@ it is not the TLS `CryptoProvider` and does not add a C/C++ build dependency.
 `openssl-probe` entries, but Cargo does not select or build either for XSH's
 normal Linux or macOS graphs. Removing those lockfile-only records would require
 an upstream manifest change rather than a project TLS dependency.
-Hostnames are resolved by the XSH DNS helper layer. The blocking transport opens
-TCP sockets through `cap-net-ext` using a `cap-std` network pool; the batch
-transport owns its nonblocking sockets for the duration of its call. TLS
-verification is enabled by default with platform verification, honors
+Hostnames are resolved by the XSH DNS helper layer. XSH supplies h12tiny's TCP
+dialer hook with capability-resolved `cap-net-ext`/`cap-std` nonblocking
+sockets; h12tiny retains TLS, ALPN, protocol selection, handshakes, and pooling.
+TLS verification is enabled by default with platform verification, honors
 `SSL_CERT_FILE`, accepts an explicit `ca_certificate: Path`, and allows
 `tls_verify: false` only through an explicit request field.
 

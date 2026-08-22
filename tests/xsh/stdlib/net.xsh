@@ -450,6 +450,24 @@ proc test_net_transport_tls_contracts() [net, env, error] {
   test.eq(verified.body.utf8()?, "secure")?
 }
 
+proc test_net_transport_https_http1_contract() [net, env, error] {
+  let url = env.get_or("XSH_NET_TEST_H1_URL", "")?
+  let ca = env.get_or("XSH_NET_TEST_CA", "")?
+  if url == "" or ca == "" {
+    test.skip("requires HTTPS H1 fixture")
+    return
+  }
+
+  let response = net.request({
+    method: "GET",
+    url: f"${url}/secure",
+    ca_certificate: fp"${ca}",
+    pool: "h1-alpn",
+  })?
+
+  test.eq(response.body.utf8()?, "secure")?
+}
+
 proc test_net_transport_request_many_https_h2_contract() [net, env, error] {
   let url = env.get_or("XSH_NET_TEST_H2_URL", "")?
   let ca = env.get_or("XSH_NET_TEST_CA", "")?
