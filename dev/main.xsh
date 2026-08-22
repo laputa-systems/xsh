@@ -1,7 +1,6 @@
 #!/usr/bin/env -S xsh --
 # XSH owns the repository's development lifecycle. Cargo only bootstraps this
 # script; each lifecycle operation below uses typed policy and direct argv.
-
 use bench as benchmarks
 use build as builds
 use context as lifecycle
@@ -47,7 +46,9 @@ internal container commands are intentionally omitted from public help.
 }
 
 pure usage(message: Str) -> Error {
-  return DevUsage.Invalid(message: f"${message}\n\n${help_text()}")
+  return DevUsage.Invalid(message: f"""${message}
+
+${help_text()}""")
 }
 
 pure parse_global(args: List[Str]) -> Result[GlobalOptions] {
@@ -81,7 +82,7 @@ pure parse_global(args: List[Str]) -> Result[GlobalOptions] {
   return {target: target, rest: rest}
 }
 
-proc dispatch(command: Str, args: List[Str]) [fs, env, process, error, io] -> Result[Unit] {
+proc dispatch(command: Str, args: List[Str]) [fs, process, env, error, io] {
   let ctx = lifecycle.create()?
 
   match command {
@@ -89,12 +90,14 @@ proc dispatch(command: Str, args: List[Str]) [fs, env, process, error, io] -> Re
       if args.len() != 0 {
         return Err(usage("build accepts no arguments"))
       }
+
       return builds.build(ctx)
     }
     "check" => {
       if args.len() != 0 {
         return Err(usage("check accepts no arguments"))
       }
+
       return builds.check(ctx)
     }
     "lint" => {
@@ -110,8 +113,14 @@ proc dispatch(command: Str, args: List[Str]) [fs, env, process, error, io] -> Re
       let options: TestOptions = cli.parse(
         args,
         {
-          kind: {form: "KIND", default: "rust"},
-          ci: {form: "--ci", default: false},
+          kind: {
+            form: "KIND",
+            default: "rust",
+          },
+          ci: {
+            form: "--ci",
+            default: false,
+          },
         },
       )?
 
@@ -123,6 +132,7 @@ proc dispatch(command: Str, args: List[Str]) [fs, env, process, error, io] -> Re
           if ! options.ci {
             return Err(usage("test macos is a CI-only target; pass --ci"))
           }
+
           return tests.macos_ci(ctx)
         }
         _ => return Err(usage(f"unsupported test target ${options.kind}"))
@@ -136,8 +146,16 @@ proc dispatch(command: Str, args: List[Str]) [fs, env, process, error, io] -> Re
       let options: BenchOptions = cli.parse(
         args,
         {
-          fast: {form: "--fast", default: false, conflicts: "syscalls"},
-          syscalls: {form: "--syscalls", default: false, conflicts: "fast"},
+          fast: {
+            form: "--fast",
+            default: false,
+            conflicts: "syscalls",
+          },
+          syscalls: {
+            form: "--syscalls",
+            default: false,
+            conflicts: "fast",
+          },
         },
       )?
 
@@ -151,8 +169,14 @@ proc dispatch(command: Str, args: List[Str]) [fs, env, process, error, io] -> Re
       let options: DistOptions = cli.parse(
         args,
         {
-          docker: {form: "--docker POLICY", default: "auto"},
-          ci: {form: "--ci", default: false},
+          docker: {
+            form: "--docker POLICY",
+            default: "auto",
+          },
+          ci: {
+            form: "--ci",
+            default: false,
+          },
         },
       )?
       return distributions.build_distribution(ctx, options.docker, options.ci)
@@ -161,6 +185,7 @@ proc dispatch(command: Str, args: List[Str]) [fs, env, process, error, io] -> Re
       if args.len() != 0 {
         return Err(usage("install accepts no arguments"))
       }
+
       return installations.install(ctx)
     }
     "release" => {
@@ -168,8 +193,14 @@ proc dispatch(command: Str, args: List[Str]) [fs, env, process, error, io] -> Re
       let options: ReleaseOptions = cli.parse(
         args,
         {
-          action: {form: "ACTION", required: true},
-          tag: {form: "--tag RELEASE-TAG", default: default_tag},
+          action: {
+            form: "ACTION",
+            required: true,
+          },
+          tag: {
+            form: "--tag RELEASE-TAG",
+            default: default_tag,
+          },
         },
       )?
 
@@ -182,7 +213,7 @@ proc dispatch(command: Str, args: List[Str]) [fs, env, process, error, io] -> Re
       }
     }
     "internal" => {
-      let operation: Str = cli.parse(args, {operation: {form: "OPERATION", required: true}})?.operation
+      let operation = cli.parse(args, {operation: {form: "OPERATION", required: true}})?.operation
 
       match operation {
         "dist" => return container_internal.container_dist(ctx)
@@ -196,7 +227,7 @@ proc dispatch(command: Str, args: List[Str]) [fs, env, process, error, io] -> Re
   }
 }
 
-proc main(...raw: List[Str]) [fs, env, process, error, io] -> Result[Unit] {
+proc main(...raw: List[Str]) [fs, process, env, error, io] {
   if raw.len() == 0 or raw[0] == "help" or raw[0] == "--help" or raw[0] == "-h" {
     print help_text()
     return

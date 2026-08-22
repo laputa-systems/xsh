@@ -1,5 +1,4 @@
 ##! Repository and host context shared by development lifecycle commands.
-
 use targets
 
 ## Paths and typed policy inherited by each development command.
@@ -125,6 +124,6 @@ export proc run_stage(
 ## Creates a lifecycle directory when it does not already exist.
 export proc ensure_dir(directory: Path) [fs, error] -> Result[Unit] {
   if ! directory.exists()? {
-    directory.mkdir(parents: true)?
+    directory.mkdir()?
   }
 }

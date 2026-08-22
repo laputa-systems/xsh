@@ -1,10 +1,14 @@
 ##! Native-or-Docker selection for the existing combined coverage programs.
-
 use context
 use docker
 
 ## Selects the automatic coverage backend from the preserved Alpine Linux contract.
-export pure automatic_backend_for(ctx: Context, alpine_linux: Bool, cargo_available: Bool, linker_available: Bool) -> Str {
+export pure automatic_backend_for(
+  ctx: Context,
+  alpine_linux: Bool,
+  cargo_available: Bool,
+  linker_available: Bool,
+) -> Str {
   if ctx.host_os == "linux" and ctx.host_arch == "x86_64" and alpine_linux and cargo_available and linker_available {
     return "native"
   }
@@ -16,8 +20,8 @@ export pure automatic_backend_for(ctx: Context, alpine_linux: Bool, cargo_availa
 export proc automatic_backend(ctx: Context) [fs, process, error] -> Result[Str] {
   let alpine_linux = p"/etc/alpine-release".exists()?
   let cargo_available = match process.which("cargo") {
-    Ok(_) => true
-    Err(_) => false
+    Ok(_) => true,
+    Err(_) => false,
   }
   var linker_available = false
 
@@ -34,7 +38,7 @@ export proc automatic_backend(ctx: Context) [fs, process, error] -> Result[Str] 
 }
 
 ## Resolves the native linker without hiding an unavailable tool.
-export proc native_linker() [env, process, error] -> Result[Path] {
+export proc native_linker() [process, env, error] -> Result[Path] {
   let configured = env.get_or("COV_NATIVE_LINKER", "")?.trim()
 
   if configured != "" {
@@ -52,7 +56,7 @@ export proc native_linker() [env, process, error] -> Result[Path] {
 }
 
 ## Runs the retained native combined Rust LLVM and XSH API coverage program.
-export proc native_coverage(ctx: Context) [fs, env, process, error, io] -> Result[Unit] {
+export proc native_coverage(ctx: Context) [fs, process, env, error, io] -> Result[Unit] {
   context.ensure_dir(ctx.coverage_dir)?
   let cargo_value = env.get_or("COV_CARGO", "")?.trim()
   let cargo = if cargo_value == "" { process.which("cargo")?.display() } else { cargo_value }
@@ -63,7 +67,16 @@ export proc native_coverage(ctx: Context) [fs, env, process, error, io] -> Resul
     "coverage-native",
     ctx.target_triple,
     cargo,
-    [cargo, "run", "-p", "xsh", "--bin", "xsh", "--", "tools/cov-linux.xsh"],
+    [
+      cargo,
+      "run",
+      "-p",
+      "xsh",
+      "--bin",
+      "xsh",
+      "--",
+      "tools/cov-linux.xsh",
+    ],
     ctx.root,
     {
       XSH_COV_CARGO_BIN: cargo_bin,
@@ -74,7 +87,7 @@ export proc native_coverage(ctx: Context) [fs, env, process, error, io] -> Resul
 }
 
 ## Runs retained coverage logic inside a privileged Docker boundary.
-export proc docker_backend(ctx: Context) [fs, env, process, error, io] -> Result[Unit] {
+export proc docker_backend(ctx: Context) [fs, process, env, error, io] -> Result[Unit] {
   context.ensure_dir(ctx.coverage_dir)?
   let image = docker.ensure_image(ctx)?
   let identity = unix.id()?
@@ -117,7 +130,7 @@ export proc docker_backend(ctx: Context) [fs, env, process, error, io] -> Result
 }
 
 ## Dispatches the public coverage backend policy.
-export proc coverage(ctx: Context, requested_backend: Str) [fs, env, process, error, io] -> Result[Unit] {
+export proc coverage(ctx: Context, requested_backend: Str) [fs, process, env, error, io] -> Result[Unit] {
   let backend = if requested_backend == "" { automatic_backend(ctx)? } else { requested_backend }
 
   if backend == "native" {
@@ -128,5 +141,11 @@ export proc coverage(ctx: Context, requested_backend: Str) [fs, env, process, er
     return docker_backend(ctx)
   }
 
-  return Err(context.ContextError.StageFailed(stage: "coverage", target: ctx.target_triple, detail: f"unsupported backend ${backend}"))
+  return Err(
+    context.ContextError.StageFailed(
+      stage: "coverage",
+      target: ctx.target_triple,
+      detail: f"unsupported backend ${backend}",
+    ),
+  )
 }

@@ -1,5 +1,4 @@
 ##! Distribution build selection, target environment, normalization, and verification.
-
 use context
 use docker
 use targets
@@ -43,11 +42,16 @@ export proc normalize(ctx: Context) [fs, error] -> Result[Unit] {
 }
 
 ## Executes the native Cargo distribution build with scoped target-specific environment.
-export proc native_dist(ctx: Context, build_std_variable: Str) [fs, env, process, error, io] -> Result[Unit] {
+export proc native_dist(ctx: Context, build_std_variable: Str) [fs, process, env, error, io] -> Result[Unit] {
   let inherited_rustflags = env.get_or("RUSTFLAGS", "")?
   let cflags_name = targets.cflags_variable(ctx.target_triple)?
   let inherited_cflags = env.get_or(cflags_name, "")?
-  let command_env = targets.distribution_env(ctx.target_triple, inherited_rustflags, inherited_cflags, ctx.darwin_deployment_target)?
+  let command_env = targets.distribution_env(
+    ctx.target_triple,
+    inherited_rustflags,
+    inherited_cflags,
+    ctx.darwin_deployment_target,
+  )?
   let build_std = cargo_words(env.get_or(build_std_variable, "-Z build-std=std")?)?
   let argv = [
     "cargo",
@@ -55,8 +59,7 @@ export proc native_dist(ctx: Context, build_std_variable: Str) [fs, env, process
     "--locked",
     "--profile",
     ctx.profile,
-  ]
-    .extend(build_std)
+  ].extend(build_std)
     .extend(
       [
         "--target",
@@ -84,12 +87,29 @@ export proc native_dist(ctx: Context, build_std_variable: Str) [fs, env, process
 }
 
 ## Selects native or Docker distribution execution from the public policy value.
-export proc build_distribution(ctx: Context, docker_policy: Str, ci: Bool) [fs, env, process, error, io] -> Result[Unit] {
+export proc build_distribution(
+  ctx: Context,
+  docker_policy: Str,
+  ci: Bool,
+) [fs, process, env, error, io] -> Result[Unit] {
   let native_possible = targets.native_execution(ctx.target_triple, ctx.host_os, ctx.host_arch)?
   if docker_policy != "always" and docker_policy != "never" and docker_policy != "auto" {
-    return Err(context.ContextError.StageFailed(stage: "dist", target: ctx.target_triple, detail: f"unsupported Docker policy ${docker_policy}"))
+    return Err(
+      context.ContextError.StageFailed(
+        stage: "dist",
+        target: ctx.target_triple,
+        detail: f"unsupported Docker policy ${docker_policy}",
+      ),
+    )
   }
-  let use_docker = if docker_policy == "always" { true } else if docker_policy == "never" { false } else { ! native_possible }
+
+  let use_docker = if docker_policy == "always" {
+    true
+  } else if docker_policy == "never" {
+    false
+  } else {
+    ! native_possible
+  }
 
   if use_docker {
     docker.run_internal(ctx, "dist", false, [])?

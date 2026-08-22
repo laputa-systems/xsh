@@ -1,5 +1,4 @@
 ##! Closed target policy for XSH's development lifecycle. Keep architecture, toolchain, Docker, and verification properties here.
-
 ## All properties used by build, container, and verification policy.
 export type Target = {
   triple: Str,
@@ -17,13 +16,13 @@ export type Target = {
 export error TargetError = Unsupported(target: Str)
 
 ## The ordinary local distribution target.
-export let default_triple: Str = "x86_64-unknown-linux-musl"
+export let default_triple = "x86_64-unknown-linux-musl"
 
 ## Product binaries that belong in every distribution.
-export let products: List[Str] = ["xsh", "xsht", "xshi"]
+export let products = ["xsh", "xsht", "xshi"]
 
 ## Cargo features used by release-like distribution builds.
-export let distribution_features: Str = "xsh/net xsh/tools xsht/native-tests"
+export let distribution_features = "xsh/net xsh/tools xsht/native-tests"
 
 ## Classifies the host operating system reported by `system.uname`.
 export pure host_os(sysname: Str) -> Result[Str] {
@@ -55,8 +54,13 @@ export pure resolve(triple: Str) -> Result[Target] {
       docker_platform: "linux/amd64",
       executable_format: "ELF",
       elf_machine: "Advanced Micro Devices X86-64",
-      cpu_rustflags: ["-C", "target-cpu=x86-64-v3"],
-      cpu_cflags: ["-march=x86-64-v3"],
+      cpu_rustflags: [
+        "-C",
+        "target-cpu=x86-64-v3",
+      ],
+      cpu_cflags: [
+        "-march=x86-64-v3",
+      ],
       static_musl: true,
     }
     "aarch64-unknown-linux-musl" => return {
@@ -66,8 +70,15 @@ export pure resolve(triple: Str) -> Result[Target] {
       docker_platform: "linux/arm64",
       executable_format: "ELF",
       elf_machine: "AArch64",
-      cpu_rustflags: ["-C", "target-cpu=neoverse-n2", "-C", "target-feature=-sve,-sve2"],
-      cpu_cflags: ["-mcpu=neoverse-n2+nosve+nosve2"],
+      cpu_rustflags: [
+        "-C",
+        "target-cpu=neoverse-n2",
+        "-C",
+        "target-feature=-sve,-sve2",
+      ],
+      cpu_cflags: [
+        "-mcpu=neoverse-n2+nosve+nosve2",
+      ],
       static_musl: true,
     }
     "aarch64-apple-darwin" => return {
@@ -77,8 +88,13 @@ export pure resolve(triple: Str) -> Result[Target] {
       docker_platform: "linux/arm64",
       executable_format: "Mach-O",
       elf_machine: "",
-      cpu_rustflags: ["-C", "target-cpu=apple-m1"],
-      cpu_cflags: ["-mcpu=apple-m1"],
+      cpu_rustflags: [
+        "-C",
+        "target-cpu=apple-m1",
+      ],
+      cpu_cflags: [
+        "-mcpu=apple-m1",
+      ],
       static_musl: false,
     }
     _ => return Err(TargetError.Unsupported(target: triple))
@@ -146,27 +162,41 @@ export pure darwin_rustflags(target: Target, inherited: Str) -> Str {
     flags = flags.push(inherited.trim())
   }
 
-  return flags
-    .extend(["-C", "linker=rust-lld", "-C", "linker-flavor=ld64.lld", "-C", "link-arg=--icf=safe"])
+  return flags.extend(["-C", "linker=rust-lld", "-C", "linker-flavor=ld64.lld", "-C", "link-arg=--icf=safe"])
     .extend(["-Zlocation-detail=none", "-Zunstable-options", "-Cpanic=immediate-abort"])
     .extend(target.cpu_rustflags)
     .join(" ")
 }
 
 ## Produces target-specific Cargo environment overrides without mutating the parent environment.
-export pure distribution_env(triple: Str, inherited_rustflags: Str, inherited_cflags: Str, deployment_target: Str) -> Result[Record] {
+export pure distribution_env(
+  triple: Str,
+  inherited_rustflags: Str,
+  inherited_cflags: Str,
+  deployment_target: Str,
+) -> Result[Record] {
   let target = resolve(triple)?
 
   if target.os == "linux" and target.arch == "x86_64" {
     return {
-      CFLAGS_x86_64_unknown_linux_musl: [inherited_cflags.trim(), target.cpu_cflags.join(" ")] |> where . != "" |> collect().join(" "),
+      CFLAGS_x86_64_unknown_linux_musl: ([
+        inherited_cflags.trim(),
+        target.cpu_cflags.join(" "),
+      ]
+        |> where . != ""
+        |> collect()).join(" "),
       CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS: target_rustflags(target, inherited_rustflags),
     }
   }
 
   if target.os == "linux" and target.arch == "aarch64" {
     return {
-      CFLAGS_aarch64_unknown_linux_musl: [inherited_cflags.trim(), target.cpu_cflags.join(" ")] |> where . != "" |> collect().join(" "),
+      CFLAGS_aarch64_unknown_linux_musl: ([
+        inherited_cflags.trim(),
+        target.cpu_cflags.join(" "),
+      ]
+        |> where . != ""
+        |> collect()).join(" "),
       CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_RUSTFLAGS: target_rustflags(target, inherited_rustflags),
     }
   }
@@ -174,7 +204,12 @@ export pure distribution_env(triple: Str, inherited_rustflags: Str, inherited_cf
   if target.os == "darwin" and target.arch == "aarch64" {
     return {
       MACOSX_DEPLOYMENT_TARGET: deployment_target,
-      CFLAGS_aarch64_apple_darwin: [inherited_cflags.trim(), target.cpu_cflags.join(" ")] |> where . != "" |> collect().join(" "),
+      CFLAGS_aarch64_apple_darwin: ([
+        inherited_cflags.trim(),
+        target.cpu_cflags.join(" "),
+      ]
+        |> where . != ""
+        |> collect()).join(" "),
       CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS: darwin_rustflags(target, inherited_rustflags),
     }
   }

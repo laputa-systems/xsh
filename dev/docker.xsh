@@ -1,5 +1,4 @@
 ##! Docker image, mount, platform, and direct internal-XSH invocation policy.
-
 use context
 
 ## Computes the Docker image name from the supported environment override.
@@ -15,19 +14,36 @@ export proc platform(ctx: Context) [env, error] -> Result[Str] {
 }
 
 ## Builds or verifies the configured test image according to `XSH_TEST_IMAGE_BUILD`.
-export proc ensure_image(ctx: Context) [env, process, error, io] -> Result[Str] {
+export proc ensure_image(ctx: Context) [process, env, error, io] -> Result[Str] {
   let image = image_name()?
   let selected_platform = platform(ctx)?
   let build_image = env.get_or("XSH_TEST_IMAGE_BUILD", "1")?.trim()
 
   if build_image == "0" {
-    context.run_stage("docker-image-inspect", ctx.target_triple, "docker", ["docker", "image", "inspect", image], ctx.root, {})?
+    context.run_stage(
+      "docker-image-inspect",
+      ctx.target_triple,
+      "docker",
+      ["docker", "image", "inspect", image],
+      ctx.root,
+      {},
+    )?
   } else {
     context.run_stage(
       "docker-image-build",
       ctx.target_triple,
       "docker",
-      ["docker", "build", "--platform", selected_platform, "-t", image, "-f", "Dockerfile.test", "."],
+      [
+        "docker",
+        "build",
+        "--platform",
+        selected_platform,
+        "-t",
+        image,
+        "-f",
+        "Dockerfile.test",
+        ".",
+      ],
       ctx.root,
       {},
     )?
@@ -97,11 +113,26 @@ export pure internal_argv(
 }
 
 ## Runs one container-internal lifecycle operation without a shell intermediary.
-export proc run_internal(ctx: Context, operation: Str, privileged: Bool, extra: List[Str]) [env, process, error, io] -> Result[Unit] {
+export proc run_internal(
+  ctx: Context,
+  operation: Str,
+  privileged: Bool,
+  extra: List[Str],
+) [process, env, error, io] -> Result[Unit] {
   let image = ensure_image(ctx)?
   let selected_platform = platform(ctx)?
   let identity = unix.id()?
   let stress_repeat = if operation == "test-linux" { env.get_or("XSH_OS_STRESS_REPEAT", "")? } else { "" }
-  let argv = internal_argv(ctx, image, selected_platform, operation, privileged, identity.uid, identity.gid, stress_repeat, extra)
+  let argv = internal_argv(
+    ctx,
+    image,
+    selected_platform,
+    operation,
+    privileged,
+    identity.uid,
+    identity.gid,
+    stress_repeat,
+    extra,
+  )
   context.run_stage(f"docker-${operation}", ctx.target_triple, "docker", argv, ctx.root, {})?
 }

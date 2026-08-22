@@ -1,5 +1,4 @@
 ##! Container-internal lifecycle commands invoked directly by Docker through XSH.
-
 use build
 use context
 use dist
@@ -14,11 +13,18 @@ export proc repair_target(ctx: Context) [process, env, error, io] -> Result[Unit
     return
   }
 
-  context.run_stage("container-ownership-repair", ctx.target_triple, "chown", ["chown", "-R", f"${uid}:${gid}", ctx.target_dir.display()], ctx.root, {})?
+  context.run_stage(
+    "container-ownership-repair",
+    ctx.target_triple,
+    "chown",
+    ["chown", "-R", f"${uid}:${gid}", ctx.target_dir.display()],
+    ctx.root,
+    {},
+  )?
 }
 
 ## Builds and verifies distribution products inside the selected Linux container.
-export proc container_dist(ctx: Context) [fs, env, process, error, io] -> Result[Unit] {
+export proc container_dist(ctx: Context) [fs, process, env, error, io] -> Result[Unit] {
   context.ensure_dir(ctx.target_dir)?
   defer repair_target(ctx)?
   build.prepare_native_musl(ctx)?
@@ -26,18 +32,38 @@ export proc container_dist(ctx: Context) [fs, env, process, error, io] -> Result
 }
 
 ## Runs the privileged developer Linux test sequence inside the container.
-export proc linux_developer_test(ctx: Context) [fs, env, process, error, io] -> Result[Unit] {
-  context.run_stage("linux-git-safe-directory", ctx.target_triple, "git", ["git", "config", "--global", "--add", "safe.directory", "/work"], ctx.root, {})?
+export proc linux_developer_test(ctx: Context) [fs, process, env, error, io] -> Result[Unit] {
+  context.run_stage(
+    "linux-git-safe-directory",
+    ctx.target_triple,
+    "git",
+    ["git", "config", "--global", "--add", "safe.directory", "/work"],
+    ctx.root,
+    {},
+  )?
   context.run_stage(
     "linux-build-test-tools",
     ctx.target_triple,
     "cargo",
-    ["cargo", "build", "-p", "xsh", "-p", "xsht", "--bin", "xsh", "--bin", "xsh-test-sleeper", "--bin", "xsht"],
+    [
+      "cargo",
+      "build",
+      "-p",
+      "xsh",
+      "-p",
+      "xsht",
+      "--bin",
+      "xsh",
+      "--bin",
+      "xsh-test-sleeper",
+      "--bin",
+      "xsht",
+    ],
     ctx.root,
     {},
   )?
-  fs.remove(p"/bin/xsh", missing_ok: true)?
-  fs.symlink(fp"${ctx.target_dir}/debug/xsh", p"/bin/xsh")?
+  fs.remove(/bin/xsh, missing_ok: true)?
+  fs.symlink(fp"${ctx.target_dir}/debug/xsh", /bin/xsh)?
   let stress_repeat = env.get_or("XSH_OS_STRESS_REPEAT", "25")?.trim()
   context.run_stage(
     "linux-rust-tests",
@@ -59,10 +85,17 @@ export proc linux_developer_test(ctx: Context) [fs, env, process, error, io] -> 
 }
 
 ## Runs the selected Linux CI test contract and always repairs mounted output ownership.
-export proc linux_ci_test(ctx: Context) [fs, env, process, error, io] -> Result[Unit] {
+export proc linux_ci_test(ctx: Context) [fs, process, env, error, io] -> Result[Unit] {
   context.ensure_dir(ctx.target_dir)?
   defer repair_target(ctx)?
-  context.run_stage("linux-git-safe-directory", ctx.target_triple, "git", ["git", "config", "--global", "--add", "safe.directory", "/work"], ctx.root, {})?
+  context.run_stage(
+    "linux-git-safe-directory",
+    ctx.target_triple,
+    "git",
+    ["git", "config", "--global", "--add", "safe.directory", "/work"],
+    ctx.root,
+    {},
+  )?
   let command_env = targets.docker_test_env(ctx.target_triple)?
   context.run_stage(
     "linux-ci-tests",
@@ -95,11 +128,35 @@ export proc repair_coverage(ctx: Context) [process, env, error, io] -> Result[Un
     return
   }
 
-  context.run_stage("coverage-ownership-repair", ctx.target_triple, "chown", ["chown", "-R", f"${uid}:${gid}", ctx.coverage_dir.display()], ctx.root, {})?
+  context.run_stage(
+    "coverage-ownership-repair",
+    ctx.target_triple,
+    "chown",
+    ["chown", "-R", f"${uid}:${gid}", ctx.coverage_dir.display()],
+    ctx.root,
+    {},
+  )?
 }
 
 ## Runs the existing coverage program from the privileged coverage container.
 export proc container_coverage(ctx: Context) [process, env, error, io] -> Result[Unit] {
   defer repair_coverage(ctx)?
-  context.run_stage("coverage-container", ctx.target_triple, "cargo", ["cargo", "run", "--quiet", "-p", "xsh", "--bin", "xsh", "--", "tools/cov-linux.xsh"], ctx.root, {})?
+  context.run_stage(
+    "coverage-container",
+    ctx.target_triple,
+    "cargo",
+    [
+      "cargo",
+      "run",
+      "--quiet",
+      "-p",
+      "xsh",
+      "--bin",
+      "xsh",
+      "--",
+      "tools/cov-linux.xsh",
+    ],
+    ctx.root,
+    {},
+  )?
 }

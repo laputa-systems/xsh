@@ -43,19 +43,25 @@ pure darwin_context_source(root: Path) -> Str {
 }
 
 proc write_fake_tool(tool_path: Path, xsh: Path, body: Str) [fs, error] {
-  tool_path.write(f"#!${xsh.display()}\n${body}\n")?
+  tool_path.write(f"""#!${xsh.display()}
+${body}
+""")?
   fs.chmod(tool_path, 0o755)?
 }
 
 proc test_build_failure_stops_at_the_cargo_boundary(ctx: TestContext) [fs, error] {
   let root = test.temp_dir(ctx, name: "build-failure")?
   let tools = fp"${root}/tools"
-  tools.mkdir(parents: true)?
+  tools.mkdir()?
   let cargo_marker = fp"${root}/cargo-marker"
   let repository = fs.cwd()?
   let xsh = fp"${repository}/target/debug/xsh"
-  write_fake_tool(fp"${tools}/cargo", xsh, f"""p"${cargo_marker.display()}".write("cargo")?
-abort(23)""")?
+  write_fake_tool(
+    fp"${tools}/cargo",
+    xsh,
+    f"""p"${cargo_marker.display()}".write("cargo")?
+abort(23)""",
+  )?
   let result = test.run_script(
     ctx,
     f"""
@@ -79,14 +85,18 @@ match build.build(ctx) {
 proc test_docker_container_failure_runs_target_ownership_cleanup(ctx: TestContext) [fs, error] {
   let root = test.temp_dir(ctx, name: "container-cleanup")?
   let tools = fp"${root}/tools"
-  tools.mkdir(parents: true)?
+  tools.mkdir()?
   let repository = fs.cwd()?
   let xsh = fp"${repository}/target/debug/xsh"
   let cargo_marker = fp"${root}/cargo-marker"
   let cleanup_marker = fp"${root}/cleanup-marker"
   write_fake_tool(fp"${tools}/git", xsh, "let configured = true")?
-  write_fake_tool(fp"${tools}/cargo", xsh, f"""p"${cargo_marker.display()}".write("cargo")?
-abort(23)""")?
+  write_fake_tool(
+    fp"${tools}/cargo",
+    xsh,
+    f"""p"${cargo_marker.display()}".write("cargo")?
+abort(23)""",
+  )?
   write_fake_tool(fp"${tools}/chown", xsh, f"""p"${cleanup_marker.display()}".write("cleanup")?""")?
   let result = test.run_script(
     ctx,
@@ -117,7 +127,7 @@ match internal.linux_ci_test(ctx) {
 proc test_docker_image_and_container_failures_are_staged(ctx: TestContext) [fs, error] {
   let root = test.temp_dir(ctx, name: "docker-failures")?
   let tools = fp"${root}/tools"
-  tools.mkdir(parents: true)?
+  tools.mkdir()?
   let repository = fs.cwd()?
   let xsh = fp"${repository}/target/debug/xsh"
   let docker_marker = fp"${root}/docker-marker"
@@ -154,12 +164,16 @@ match docker.run_internal(ctx, "dist", false, []) {
 proc test_docker_image_build_failure_prevents_the_container_stage(ctx: TestContext) [fs, error] {
   let root = test.temp_dir(ctx, name: "docker-image-failure")?
   let tools = fp"${root}/tools"
-  tools.mkdir(parents: true)?
+  tools.mkdir()?
   let repository = fs.cwd()?
   let xsh = fp"${repository}/target/debug/xsh"
   let docker_marker = fp"${root}/docker-marker"
-  write_fake_tool(fp"${tools}/docker", xsh, f"""p"${docker_marker.display()}".write(ARGV.join("|"))?
-abort(24)""")?
+  write_fake_tool(
+    fp"${tools}/docker",
+    xsh,
+    f"""p"${docker_marker.display()}".write(ARGV.join("|"))?
+abort(24)""",
+  )?
   let result = test.run_script(
     ctx,
     f"""
@@ -218,17 +232,21 @@ proc test_make_facade_only_delegates_to_the_development_entrypoint() [fs, error]
 proc test_codesign_failure_stops_darwin_installation(ctx: TestContext) [fs, error] {
   let root = test.temp_dir(ctx, name: "codesign-failure")?
   let tools = fp"${root}/tools"
-  tools.mkdir(parents: true)?
+  tools.mkdir()?
   let release_dir = fp"${root}/target/aarch64-apple-darwin/release"
-  release_dir.mkdir(parents: true)?
+  release_dir.mkdir()?
   fp"${release_dir}/xsh".write("binary")?
   fs.chmod(fp"${release_dir}/xsh", 0o755)?
   let repository = fs.cwd()?
   let xsh = fp"${repository}/target/debug/xsh"
   let codesign_marker = fp"${root}/codesign-marker"
   write_fake_tool(fp"${tools}/cargo", xsh, "let built = true")?
-  write_fake_tool(fp"${tools}/codesign", xsh, f"""p"${codesign_marker.display()}".write("codesign")?
-abort(25)""")?
+  write_fake_tool(
+    fp"${tools}/codesign",
+    xsh,
+    f"""p"${codesign_marker.display()}".write("codesign")?
+abort(25)""",
+  )?
   let result = test.run_script(
     ctx,
     f"""

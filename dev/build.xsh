@@ -1,5 +1,4 @@
 ##! Build and non-mutating repository checks for the development lifecycle.
-
 use context
 
 ## Prepares the native musl sysroot only on the Linux host/target combination that needs it.
@@ -8,8 +7,8 @@ export proc prepare_native_musl(ctx: Context) [fs, process, error] -> Result[Uni
     return
   }
 
-  let libc = p"/usr/lib/libc.so"
-  let libgcc = p"/usr/lib/libgcc_s.so.1"
+  let libc = /usr/lib/libc.so
+  let libgcc = /usr/lib/libgcc_s.so.1
 
   if ! libc.exists()? or ! libgcc.exists()? {
     return
@@ -37,14 +36,26 @@ export proc check_libxsh_imports(ctx: Context) [process, error] -> Result[Unit] 
   let result = run.capture --text rg -n $pattern crates/xshi/src crates/xsht/src crates/xsht/tests tests src/entrypoints --glob "*.rs" ?
 
   if result.stdout.trim() != "" {
-    return Err(context.ContextError.StageFailed(stage: "check-libxsh-imports", target: ctx.target_triple, detail: "deprecated libxsh implementation import found"))
+    return Err(
+      context.ContextError.StageFailed(
+        stage: "check-libxsh-imports",
+        target: ctx.target_triple,
+        detail: "deprecated libxsh implementation import found",
+      ),
+    )
   }
 
   if result.status.ok or result.status.exited_with(1) {
     return
   }
 
-  return Err(context.ContextError.StageFailed(stage: "check-libxsh-imports", target: ctx.target_triple, detail: f"rg exited ${result.status.exit_code()?}"))
+  return Err(
+    context.ContextError.StageFailed(
+      stage: "check-libxsh-imports",
+      target: ctx.target_triple,
+      detail: f"rg exited ${result.status.exit_code()?}",
+    ),
+  )
 }
 
 ## Runs the focused, source-non-mutating development check suite.
@@ -53,22 +64,60 @@ export proc check(ctx: Context) [fs, process, error, io] -> Result[Unit] {
     "check-build",
     ctx.target_triple,
     "cargo",
-    ["cargo", "build", "-p", "xsh", "-p", "xshi", "-p", "xsht", "--bin", "xsh", "--bin", "xshi", "--bin", "xsht"],
+    [
+      "cargo",
+      "build",
+      "-p",
+      "xsh",
+      "-p",
+      "xshi",
+      "-p",
+      "xsht",
+      "--bin",
+      "xsh",
+      "--bin",
+      "xshi",
+      "--bin",
+      "xsht",
+    ],
     ctx.root,
     {},
   )?
-  context.run_stage("check-rustfmt", ctx.target_triple, "cargo", ["cargo", "fmt", "--all", "--", "--check"], ctx.root, {})?
+  context.run_stage(
+    "check-rustfmt",
+    ctx.target_triple,
+    "cargo",
+    ["cargo", "fmt", "--all", "--", "--check"],
+    ctx.root,
+    {},
+  )?
   context.run_stage(
     "check-clippy",
     ctx.target_triple,
     "cargo",
-    ["cargo", "clippy", "--all-targets", "--all-features", "--quiet", "--", "-D", "warnings"],
+    [
+      "cargo",
+      "clippy",
+      "--all-targets",
+      "--all-features",
+      "--quiet",
+      "--",
+      "-D",
+      "warnings",
+    ],
     ctx.root,
     {},
   )?
   let xsht = fp"${ctx.target_dir}/debug/xsht"
   context.run_stage("check-xsh", ctx.target_triple, xsht.display(), [xsht.display(), "check"], ctx.root, {})?
-  context.run_stage("check-xsh-fmt", ctx.target_triple, xsht.display(), [xsht.display(), "fmt", "--check"], ctx.root, {})?
+  context.run_stage(
+    "check-xsh-fmt",
+    ctx.target_triple,
+    xsht.display(),
+    [xsht.display(), "fmt", "--check"],
+    ctx.root,
+    {},
+  )?
   context.run_stage("check-xsh-lint", ctx.target_triple, xsht.display(), [xsht.display(), "lint"], ctx.root, {})?
   context.run_stage(
     "check-runnable-corpus",
@@ -99,7 +148,14 @@ export proc lint_fix(ctx: Context) [process, error, io] -> Result[Unit] {
     ctx.root,
     {},
   )?
-  context.run_stage("lint-build-xsht", ctx.target_triple, "cargo", ["cargo", "build", "-p", "xsht", "--bin", "xsht"], ctx.root, {})?
+  context.run_stage(
+    "lint-build-xsht",
+    ctx.target_triple,
+    "cargo",
+    ["cargo", "build", "-p", "xsht", "--bin", "xsht"],
+    ctx.root,
+    {},
+  )?
   let xsht = fp"${ctx.target_dir}/debug/xsht"
   context.run_stage("lint-xsh", ctx.target_triple, xsht.display(), [xsht.display(), "lint", "--fix"], ctx.root, {})?
   context.run_stage("format-xsh", ctx.target_triple, xsht.display(), [xsht.display(), "fmt"], ctx.root, {})?

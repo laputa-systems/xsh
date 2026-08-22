@@ -1,6 +1,6 @@
-use docker as docker_workflows
 use context as lifecycle
 use coverage as coverage_workflow
+use docker as docker_workflows
 use release as releases
 use targets as target_policy
 
@@ -14,7 +14,7 @@ proc test_supported_target_records_and_default() [error] {
   test.eq(arm.docker_platform, "linux/arm64")?
   test.eq(arm.elf_machine, "AArch64")?
   test.eq(darwin.executable_format, "Mach-O")?
-  test.ok(darwin.cpu_rustflags.contains("target-cpu=apple-m1"))?
+  test.ok("target-cpu=apple-m1" in darwin.cpu_rustflags)?
 }
 
 proc test_host_classification() [error] {
@@ -42,10 +42,10 @@ proc test_target_flags_native_selection_and_coverage_backend_policy() [error] {
   test.ok(! target_policy.native_execution("x86_64-unknown-linux-musl", "darwin", "x86_64")?)?
   test.ok(! target_policy.native_execution("aarch64-apple-darwin", "linux", "aarch64")?)?
   let alpine_x86 = {
-    root: p"/repo",
-    target_dir: p"/repo/target",
-    coverage_dir: p"/repo/target/cov",
-    artifact_dir: p"/repo/dist",
+    root: /repo,
+    target_dir: /repo/target,
+    coverage_dir: /repo/target/cov,
+    artifact_dir: /repo/dist,
     host_os: "linux",
     host_arch: "x86_64",
     target_triple: "x86_64-unknown-linux-musl",
@@ -68,10 +68,10 @@ proc test_target_flags_native_selection_and_coverage_backend_policy() [error] {
 
 proc test_docker_argv_is_direct_and_carries_mount_environment_policy() [error] {
   let ctx = {
-    root: p"/repo",
-    target_dir: p"/repo/target",
-    coverage_dir: p"/repo/target/cov",
-    artifact_dir: p"/repo/dist",
+    root: /repo,
+    target_dir: /repo/target,
+    coverage_dir: /repo/target/cov,
+    artifact_dir: /repo/dist,
     host_os: "darwin",
     host_arch: "aarch64",
     target_triple: "aarch64-unknown-linux-musl",
@@ -80,22 +80,27 @@ proc test_docker_argv_is_direct_and_carries_mount_environment_policy() [error] {
     docker_platform: "linux/arm64",
     executable_format: "ELF",
     elf_machine: "AArch64",
-    target_cpu_rustflags: ["-C", "target-cpu=neoverse-n2"],
-    target_cpu_cflags: ["-mcpu=neoverse-n2+nosve+nosve2"],
+    target_cpu_rustflags: [
+      "-C",
+      "target-cpu=neoverse-n2",
+    ],
+    target_cpu_cflags: [
+      "-mcpu=neoverse-n2+nosve+nosve2",
+    ],
     static_musl: true,
     profile: "dist",
     darwin_deployment_target: "26.0",
   }
   let argv = docker_workflows.internal_argv(ctx, "xsh-test", "linux/arm64", "dist", true, 501, 20, "25", [])
   test.eq(argv[0], "docker")?
-  test.ok(argv.contains("--privileged"))?
-  test.ok(argv.contains("/repo:/work"))?
-  test.ok(argv.contains("/repo/target:/work/target"))?
-  test.ok(argv.contains("TARGET=aarch64-unknown-linux-musl"))?
-  test.ok(argv.contains("XSH_OS_STRESS_REPEAT=25"))?
-  test.ok(argv.contains("dev/main.xsh"))?
-  test.ok(! argv.contains("sh"))?
-  test.ok(! argv.contains("-c"))?
+  test.ok("--privileged" in argv)?
+  test.ok("/repo:/work" in argv)?
+  test.ok("/repo/target:/work/target" in argv)?
+  test.ok("TARGET=aarch64-unknown-linux-musl" in argv)?
+  test.ok("XSH_OS_STRESS_REPEAT=25" in argv)?
+  test.ok("dev/main.xsh" in argv)?
+  test.ok("sh" not in argv)?
+  test.ok("-c" not in argv)?
 }
 
 proc test_release_names_and_core_paths_are_deterministic() [error] {
@@ -109,16 +114,21 @@ proc test_release_names_and_core_paths_are_deterministic() [error] {
 proc test_release_checksum_sidecars_keep_a_relative_artifact_name(ctx: TestContext) [fs, error] {
   let root = test.temp_dir(ctx, name: "release-checksum")?
   let artifact = fp"${root}/dist/xsh-release-x86_64-linux-musl"
-  artifact.parent().mkdir(parents: true)?
+  artifact.parent().mkdir()?
   artifact.write("release artifact")?
   let checksum = releases.checksum_line(artifact, root)?
-  test.contains(checksum, "  dist/xsh-release-x86_64-linux-musl\n", checksum)?
+  test.contains(
+    checksum,
+    """  dist/xsh-release-x86_64-linux-musl
+""",
+    checksum,
+  )?
 }
 
 proc test_release_validation_requires_exactly_the_nine_expected_products(ctx: TestContext) [fs, error] {
   let root = test.temp_dir(ctx, name: "release-validation")?
   let artifact_dir = fp"${root}/dist"
-  artifact_dir.mkdir(parents: true)?
+  artifact_dir.mkdir()?
   let release_ctx = {
     root: root,
     target_dir: fp"${root}/target",
@@ -168,8 +178,8 @@ proc test_unsupported_target_remains_a_structured_error() [error] {
 }
 
 proc test_context_paths_and_missing_tools_have_named_failures() [process, error] {
-  test.eq(lifecycle.repo_path(p"/repo", "target/custom").display(), "/repo/target/custom")?
-  test.eq(lifecycle.repo_path(p"/repo", "/tmp/custom").display(), "/tmp/custom")?
+  test.eq(lifecycle.repo_path(/repo, "target/custom").display(), "/repo/target/custom")?
+  test.eq(lifecycle.repo_path(/repo, "/tmp/custom").display(), "/tmp/custom")?
 
   match lifecycle.require_tool("xsh-selfhost-test-tool-that-does-not-exist") {
     Ok(_) => test.fail("missing tool unexpectedly resolved")?
@@ -180,9 +190,7 @@ proc test_context_paths_and_missing_tools_have_named_failures() [process, error]
 proc test_failed_stage_reports_its_stage_and_target() [process, error, io] {
   match lifecycle.run_stage("selfhost-stage", "selfhost-target", "false", ["false"], p".", {}) {
     Ok(_) => test.fail("failing command unexpectedly succeeded")?
-    Err(error) => {
-      test.eq(error.message, "ContextError.StageFailed")?
-    }
+    Err(error) => test.eq(error.message, "ContextError.StageFailed")?
   }
 }
 
@@ -204,7 +212,11 @@ cd p"/" {
     [],
     {XSH_MODULE_PATH: module_path},
   )?
-  test.ok(wrong_directory.success, f"${wrong_directory.stdout}\n${wrong_directory.stderr}")?
+  test.ok(
+    wrong_directory.success,
+    f"""${wrong_directory.stdout}
+${wrong_directory.stderr}""",
+  )?
   test.contains(wrong_directory.stdout, "ContextError.WrongDirectory", wrong_directory.stdout)?
 }
 
@@ -317,6 +329,14 @@ print \${(bench.command_prefix(ctx)?).join("|")}
       RUSTYBENCH: "cargo run --quiet --manifest-path /tmp/rustybench/Cargo.toml --",
     },
   )?
-  test.ok(rustybench.success, f"${rustybench.stdout}\n${rustybench.stderr}")?
-  test.eq(rustybench.stdout.trim(), "cargo|run|--quiet|--manifest-path|/tmp/rustybench/Cargo.toml|--", rustybench.stdout)?
+  test.ok(
+    rustybench.success,
+    f"""${rustybench.stdout}
+${rustybench.stderr}""",
+  )?
+  test.eq(
+    rustybench.stdout.trim(),
+    "cargo|run|--quiet|--manifest-path|/tmp/rustybench/Cargo.toml|--",
+    rustybench.stdout,
+  )?
 }

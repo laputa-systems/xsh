@@ -46,7 +46,9 @@ pure verification_context_source(root: Path) -> Str {
 }
 
 proc write_fake_tool(tool_path: Path, xsh: Path, body: Str) [fs, error] {
-  tool_path.write(f"#!${xsh.display()}\n${body}\n")?
+  tool_path.write(f"""#!${xsh.display()}
+${body}
+""")?
   fs.chmod(tool_path, 0o755)?
 }
 
@@ -60,8 +62,10 @@ proc test_binary_verification_rejects_missing_and_non_elf_products(ctx: TestCont
   }
 
   let product = fp"${root}/target/x86_64-unknown-linux-musl/dist/xsh"
-  product.parent().mkdir(parents: true)?
-  let padding = ["x"] |> repeat(1024) |> collect().join("")
+  product.parent().mkdir()?
+  let padding = (["x"]
+    |> repeat(1024)
+    |> collect()).join("")
   product.write(padding)?
   fs.chmod(product, 0o755)?
 
@@ -72,7 +76,7 @@ proc test_binary_verification_rejects_missing_and_non_elf_products(ctx: TestCont
 }
 
 proc test_distribution_product_paths_are_stable() [error] {
-  let target_dir = p"/repo/target"
+  let target_dir = /repo/target
   test.eq(
     distributions.profile_product_path(target_dir, "x86_64-unknown-linux-musl", "release", "xsh").display(),
     "/repo/target/x86_64-unknown-linux-musl/release/xsh",
@@ -86,21 +90,27 @@ proc test_distribution_product_paths_are_stable() [error] {
 proc test_linux_verification_rejects_wrong_machine_and_dynamic_binaries(ctx: TestContext) [fs, error] {
   let root = test.temp_dir(ctx, name: "verify-linux")?
   let product = fp"${root}/target/x86_64-unknown-linux-musl/dist/xsh"
-  product.parent().mkdir(parents: true)?
-  let padding = ["x"] |> repeat(1020) |> collect().join("")
-  product.write("\x7fELF" + padding)?
+  product.parent().mkdir()?
+  let padding = (["x"]
+    |> repeat(1020)
+    |> collect()).join("")
+  product.write("\u{7f}ELF" + padding)?
   fs.chmod(product, 0o755)?
   let tools = fp"${root}/tools"
-  tools.mkdir(parents: true)?
+  tools.mkdir()?
   let repository = fs.cwd()?
   let xsh = fp"${repository}/target/debug/xsh"
   let module_path = fp"${repository}/dev".display()
 
-  write_fake_tool(fp"${tools}/readelf", xsh, """if "-h" in ARGV {
+  write_fake_tool(
+    fp"${tools}/readelf",
+    xsh,
+    """if "-h" in ARGV {
   print "Machine: AArch64"
 } else {
   print ""
-}""")?
+}""",
+  )?
   let wrong_machine = test.run_script(
     ctx,
     f"""
@@ -122,11 +132,15 @@ main()?
   test.ok(wrong_machine.success, wrong_machine.stderr)?
   test.contains(wrong_machine.stdout, "ContextError.StageFailed", wrong_machine.stdout)?
 
-  write_fake_tool(fp"${tools}/readelf", xsh, """if "-h" in ARGV {
+  write_fake_tool(
+    fp"${tools}/readelf",
+    xsh,
+    """if "-h" in ARGV {
   print "Machine: Advanced Micro Devices X86-64"
 } else {
   print "NEEDED"
-}""")?
+}""",
+  )?
   let dynamic = test.run_script(
     ctx,
     f"""
