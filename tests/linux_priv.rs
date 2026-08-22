@@ -1,7 +1,7 @@
 #![cfg(target_os = "linux")]
 
 // Tests for Linux-specific XSH module functions that require elevated capabilities.
-// Run with: make test-linux-priv
+// Run with: cargo dev test linux
 //
 // Tests call is_root() at the top and return early when not root, so the suite
 // still passes under the unprivileged test-linux target.

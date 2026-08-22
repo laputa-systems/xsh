@@ -1,3 +1,6 @@
+[alias]
+dev = "run --quiet -p xsh --bin xsh -- dev/main.xsh --"
+
 [target.aarch64-unknown-linux-musl]
 linker = "rust-lld"
 

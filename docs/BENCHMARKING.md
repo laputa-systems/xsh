@@ -28,13 +28,13 @@ experience.
 Run the normal latency suite with:
 
 ```sh
-make bench
+cargo dev bench
 ```
 
 Run a fast allocation iteration with:
 
 ```sh
-make bench-fast
+cargo dev bench --fast
 ```
 
 The direct focused form is:
@@ -44,7 +44,7 @@ cargo bench -p xshi --bench bench --features benchmark xshi_prompt_render_long_c
   --sample-count 1 --sample-size 1
 ```
 
-`make bench` and `make bench-fast` compare against ignored machine-local
+`cargo dev bench` and `cargo dev bench --fast` compare against ignored machine-local
 baselines under `crates/xshi/benches/`. Keep the command, profile, host,
 allocator, and sample settings paired when comparing changes. Fast runs are
 allocation iteration signals, not reliable latency measurements.
@@ -59,7 +59,7 @@ settings before acting on them.
 Run:
 
 ```sh
-make bench-syscalls
+cargo dev bench --syscalls
 ```
 
 This is a separate diagnostic path for detecting unexpected subprocesses,

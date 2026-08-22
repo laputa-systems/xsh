@@ -622,7 +622,12 @@ fn runnable_xsh_corpus_is_formatted_and_lints_without_warnings() {
             // Fixtures and API snippets are intentionally non-runnable source:
             // the former exercise parser/runtime edge cases, while the latter
             // may use illustrative placeholders.
-            !path.starts_with("tests/fixtures/") && !path.starts_with("docs/snippets/")
+            !path.starts_with("tests/fixtures/")
+                && !path.starts_with("docs/snippets/")
+                // `git ls-files` deliberately retains unstaged deletions. The
+                // runnable corpus must represent files available to `xsht` in
+                // this worktree, including while a migration removes scripts.
+                && std::path::Path::new(path).is_file()
         })
         .collect::<Vec<_>>();
 

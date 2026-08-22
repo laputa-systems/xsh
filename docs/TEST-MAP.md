@@ -14,15 +14,15 @@ area touched. Do not run formatter or autofix commands for agent work.
 | native XSH module behavior | `target/debug/xsht test --exact --jobs 1 PATH::TEST_NAME` | `target/debug/xsht test --jobs 1 tests/xsh/stdlib` |
 | One runtime fixture | `cargo test --test integration runtime::TEST_NAME` | `cargo test --test integration runtime::` |
 | `xsht::cli::CliOutput`, `xsht::grep::find_matches_in_program`, or CLI/tooling | targeted `cargo test -p xsht --test integration cli::TEST_NAME` or `cargo test -p xsht --test integration grep::TEST_NAME` | `cargo test -p xsht --test integration` |
-| Benchmark workload | `cargo bench -p xshi --bench bench --features benchmark BENCHMARK -- --sample-count 1 --sample-size 1` | `make bench-fast` (memory/regression) or `make bench` (latency) |
+| Benchmark workload | `cargo bench -p xshi --bench bench --features benchmark BENCHMARK -- --sample-count 1 --sample-size 1` | `cargo dev bench --fast` (memory/regression) or `cargo dev bench` (latency) |
 | Non-Tokio archive/network dependency update | `cargo tree -i tokio` and `cargo tree -p xsh-net -e features` | focused archive or network runtime gate |
 | Arena or indexed-IR layout | `scripts/ir-layout.py` (or `--only TYPE` for a focused report) | focused rustybench workload plus the applicable behavior tests |
-| Frontend retained/peak accounting | `cargo test -p xsh --lib frontend_stats::tests` and `cargo run --bin xsh-frontend-stats -- --json tests/fixtures/frontend-indexed` | `make bench-fast` after the applicable syntax/checker gate |
+| Frontend retained/peak accounting | `cargo test -p xsh --lib frontend_stats::tests` and `cargo run --bin xsh-frontend-stats -- --json tests/fixtures/frontend-indexed` | `cargo dev bench --fast` after the applicable syntax/checker gate |
 | Runtime controller/worker allocation accounting | `cargo test -p xsh --lib runtime_stats::tests` and `cargo build -p xsh --bin xsh-runtime-stats` | `xsh-runtime-stats --json REPORT SCRIPT [-- ARGS...]` with matching output fingerprint, scoped worker attribution, and paired release host RSS |
 | `FullBuilder::build_compact`, `FullVerifier::verify`, or executable IR | targeted `cargo test -p xsh --lib runtime::eval::indexed::full::tests::` | `cargo test -p xsh runtime::eval::indexed::full::tests --lib --features native-tests` |
 | Explicit execution frames | targeted `cargo test --test integration runtime::stack_depth -- --test-threads=1` | `cargo test -p xsh runner::tests --lib --features native-tests` plus the runtime gate |
-| Production executable runtime | targeted `cargo test --test integration runtime::TEST_NAME` | `cargo test -p xsh --test integration runtime:: --features native-tests -- --test-threads=1` plus `cargo test -p xsh --test integration runtime::coverage::xsh_native_tests --features native-tests -- --exact` and `make bench-fast` |
-| Syscall diagnostics | benchmark smoke test on the host | `make bench-syscalls` on Linux/Docker |
+| Production executable runtime | targeted `cargo test --test integration runtime::TEST_NAME` | `cargo test -p xsh --test integration runtime:: --features native-tests -- --test-threads=1` plus `cargo test -p xsh --test integration runtime::coverage::xsh_native_tests --features native-tests -- --exact` and `cargo dev bench --fast` |
+| Syscall diagnostics | benchmark smoke test on the host | `cargo dev bench --syscalls` on Linux/Docker |
 | LLVM IR size | `tools/llvm-lines-repeat-offenders.xsh` over an existing capture | fresh `cargo llvm-lines` capture plus the applicable behavior/benchmark gate |
 | API registry/reference/examples | see `API Gate` below | same |
 | Broad cross-cutting work | closest targeted tests | `cargo test` |
@@ -52,7 +52,7 @@ cargo test -p xsh --lib modules::signature
 cargo test -p xsht --test api
 target/debug/xsht api
 target/debug/xsht api summary --format jsonl
-bash scripts/check-libxsh-imports.sh
+cargo dev check
 git diff --check
 ```
 
@@ -104,7 +104,7 @@ cargo test --test integration runtime::coverage::runnable_xsh_corpus_is_formatte
 
 ## Commands To Avoid
 
-- `make lint`, `cargo fmt`, `cargo fmt --all`, `cargo clippy --fix`, `xsht fmt`,
+- `cargo dev lint --fix`, `cargo fmt`, `cargo fmt --all`, `cargo clippy --fix`, `xsht fmt`,
   and `xsht lint --fix` rewrite files and are left to the user.
 - The `dist` profile is reserved for release packaging, not local agent
   verification.

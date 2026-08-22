@@ -693,7 +693,7 @@ Verification gates for broad interactive changes:
 ```sh
 cargo test --lib interactive
 cargo test --test runtime xshi
-make docs
+cargo dev check
 cargo test
 ```
 

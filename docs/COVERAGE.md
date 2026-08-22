@@ -1,6 +1,6 @@
 # Coverage Plan
 
-`make cov` is the source of truth for combined Rust LLVM coverage and XSH API
+`cargo dev coverage` is the source of truth for combined Rust LLVM coverage and XSH API
 coverage. Coverage work should stay behavior-oriented: prefer tests that prove
 real workflows, host contracts, and safety boundaries over tests that exist only
 to execute a branch.

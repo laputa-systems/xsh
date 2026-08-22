@@ -46,8 +46,8 @@ coverage presentation, and syscall reporting belong to `xsht`. The `xsh` CLI
 entrypoint is a binary concern and is not part of the library API.
 
 The façade boundary is guarded by API smoke tests, package and integration
-tests, `cargo metadata`, and `scripts/check-libxsh-imports.sh`, which rejects
-new first-party imports from deprecated implementation paths.
+tests, `cargo metadata`, and the deprecated-import stage in `cargo dev check`,
+which rejects new first-party imports from deprecated implementation paths.
 
 ## Future direction
 

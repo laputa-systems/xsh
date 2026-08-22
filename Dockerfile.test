@@ -2,7 +2,7 @@ FROM alpine:3.24.1
 ARG TARGETARCH
 ARG LLVM_VERSION=23.1.0-rc2
 ARG LLVM_RELEASE_SHA=6eb5fb9
-RUN apk add --no-cache musl-dev linux-headers libgcc libunwind-dev git make binutils tzdata zip strace
+RUN apk add --no-cache musl-dev linux-headers libgcc libunwind-dev git binutils tzdata zip strace
 # Keep Dockerfile.test on the same compiler family as release.yml. The release
 # workflow restores this tarball from the GitHub cache or downloads the same URL,
 # then points CC/target flags at its clang.
@@ -55,17 +55,17 @@ ENV PATH="/opt/llvm-musl/bin:/root/.cargo/bin:$PATH" \
     CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER="rust-lld" \
     CFLAGS_aarch64_unknown_linux_musl="--target=aarch64-unknown-linux-musl -B/usr/lib/xsh-crt/aarch64-unknown-linux-musl -I/usr/include" \
     CFLAGS_x86_64_unknown_linux_musl="--target=x86_64-unknown-linux-musl -B/usr/lib/xsh-crt/x86_64-unknown-linux-musl -I/usr/include"
-# The dist Makefile owns the musl target Rust flags, including the
+# `dev/targets.xsh` owns the musl target Rust flags, including the
 # __isoc23_sscanf=sscanf and __isoc23_strtol=strtol aliases. Those aliases keep
 # newer C objects linkable against the older musl symbols available in rustc's
 # self-contained musl target while still letting dist builds use build-std and
 # fat LTO. Keep Dockerfile.test focused on providing the CI-like toolchain; do
 # not duplicate those target Rust flags here or local repros can drift from
-# `make dist`.
+# `cargo dev dist`.
 # Some CI/container hosts expose only partial loop-device behavior. An
 # unprivileged container may allow `mknod /dev/loop0 b 7 0` but still reject real
 # loop setup without SYS_ADMIN or a usable /dev/loop-control. Use the dedicated
-# privileged Makefile targets for real loop/mount coverage, and use an
+# privileged `cargo dev test linux` target for real loop/mount coverage, and use an
 # unprivileged run only to reproduce graceful handling of read-only or denied
 # loop-device surfaces.
 RUN rustup toolchain install nightly-2026-07-24 \

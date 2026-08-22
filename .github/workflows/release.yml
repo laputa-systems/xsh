@@ -71,59 +71,27 @@ jobs:
 
       - name: Build optimized binary
         if: matrix.os == 'linux'
-        run: make dist-Linux-docker TARGET=${{ matrix.target }} XSH_TEST_IMAGE=xsh-test XSH_TEST_IMAGE_BUILD=1
+        run: cargo dev dist --target ${{ matrix.target }} --docker always --ci
 
       - name: Build optimized Darwin binaries
         if: matrix.os == 'darwin'
-        run: make dist TARGET=${{ matrix.target }}
-
-      - name: Smoke-test product binaries
-        run: |
-          set -euo pipefail
-          for bin in xsh xsht xshi; do
-            path="target/${{ matrix.target }}/dist/${bin}"
-            test -f "$path"
-            test -x "$path"
-            test -s "$path"
-            if [ "${{ matrix.os }}" = linux ]; then
-              test "$(od -An -t x1 -N 4 "$path" | tr -d ' \n')" = 7f454c46
-              readelf -h "$path" | grep -F "Machine:" | grep -F "${{ matrix.elf_machine }}"
-            fi
-            "$path" --help
-          done
-          target/${{ matrix.target }}/dist/xsh --startup
-          XSHI_ALLOW_NON_TTY_FOR_TESTS=1 target/${{ matrix.target }}/dist/xshi --no-config -c 'print "ok"'
+        run: cargo dev dist --target ${{ matrix.target }} --docker never --ci
 
       - name: Test
-        run: |
-          ci_target=linux; case ${{ matrix.os }} in darwin) ci_target=macos;; esac
-          make test-${ci_target}-ci TARGET=${{ matrix.target }}
-
-      - name: Verify static linkage
         if: matrix.os == 'linux'
-        run: |
-          "target/${{ matrix.target }}/dist/xsh" .github/scripts/release-verify-static.xsh -- \
-            "${{ matrix.target }}" \
-            xsh xsht xshi
+        run: cargo dev test linux --ci --target ${{ matrix.target }}
 
-      - name: Package Linux binaries
-        if: matrix.os == 'linux'
-        env:
-          RELEASE_TAG: release-${{ github.sha }}
-        run: |
-          "target/${{ matrix.target }}/dist/xsh" .github/scripts/release-package-linux.xsh -- \
-            "$RELEASE_TAG" \
-            "${{ matrix.target }}" \
-            "${{ matrix.arch }}"
-
-      - name: Package Darwin binaries
+      - name: Test Darwin target
         if: matrix.os == 'darwin'
+        run: cargo dev test macos --ci --target ${{ matrix.target }}
+
+      - name: Smoke-test product binaries
+        run: cargo dev release smoke --target ${{ matrix.target }}
+
+      - name: Package product binaries
         env:
           RELEASE_TAG: release-${{ github.sha }}
-        run: |
-          "target/${{ matrix.target }}/dist/xsh" .github/scripts/release-package-darwin.xsh -- \
-            "$RELEASE_TAG" \
-            "${{ matrix.target }}"
+        run: cargo dev release package --target ${{ matrix.target }}
 
       - name: Upload package artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -139,6 +107,13 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      - name: Install pinned Rust toolchain
+        run: |
+          toolchain="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
+          test -n "$toolchain"
+          rustup toolchain install "$toolchain" --profile minimal
+          rustup default "$toolchain"
+
       - name: Download package artifacts
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -148,48 +123,11 @@ jobs:
       - name: Validate published artifact set
         env:
           RELEASE_TAG: release-${{ github.sha }}
-        run: |
-          set -euo pipefail
-          for artifact in \
-            "xsh-${RELEASE_TAG}-x86_64-linux-musl" \
-            "xsht-${RELEASE_TAG}-x86_64-linux-musl" \
-            "xshi-${RELEASE_TAG}-x86_64-linux-musl" \
-            "xsh-${RELEASE_TAG}-aarch64-linux-musl" \
-            "xsht-${RELEASE_TAG}-aarch64-linux-musl" \
-            "xshi-${RELEASE_TAG}-aarch64-linux-musl" \
-            "xsh-${RELEASE_TAG}-aarch64-apple-darwin" \
-            "xsht-${RELEASE_TAG}-aarch64-apple-darwin" \
-            "xshi-${RELEASE_TAG}-aarch64-apple-darwin"; do
-            test -f "dist/$artifact"
-            chmod 0755 "dist/$artifact"
-            test -x "dist/$artifact"
-            test -s "dist/$artifact"
-          done
+        run: cargo dev release validate
       - name: Package core scripts
         env:
           RELEASE_TAG: release-${{ github.sha }}
-        run: |
-          set -euo pipefail
-          core_tar="dist/core-${RELEASE_TAG}.tar.xz"
-          core_stage="$(mktemp -d)"
-          trap 'rm -rf "$core_stage"' EXIT
-          find core -path core/tests -prune -o -type f -name '*.xsh' -print \
-            | sort \
-            | while IFS= read -r source; do
-                dest="$core_stage/${source%.xsh}"
-                mkdir -p "$(dirname "$dest")"
-                cp "$source" "$dest"
-                chmod 0755 "$dest"
-              done
-          tar -C "$core_stage" -cJf "$core_tar" core
-          test -s "$core_tar"
-          sha256sum "$core_tar" > "dist/core-${RELEASE_TAG}.sha256"
-          for archive in dist/*.tar.xz; do
-            if test "$archive" != "$core_tar"; then
-              echo "unexpected compressed artifact: $archive" >&2
-              exit 1
-            fi
-          done
+        run: cargo dev release core
 
       - name: Create pre-release
         env:

@@ -77,9 +77,9 @@ Use release builds only when working on profiling or benchmarking. Do not use
 the `dist` profile for agent work;
 it is reserved for CI release packaging.
 
-Do not run formatters or autofixers — `make lint`, `cargo fmt`, `cargo clippy
---fix`, `xsht fmt`, or `xsht lint --fix`. `make lint` runs `clippy --fix
---all-features` and `cargo fmt --all`, which rewrite files unrelated to your
-change and create large, noisy churn. Formatting and linting are the user's
-responsibility; leave them to the user. To verify your own work, build and test
-instead.
+Do not run formatters or autofixers — `cargo dev lint --fix`, `cargo fmt`,
+`cargo clippy --fix`, `xsht fmt`, or `xsht lint --fix`. `cargo dev lint --fix`
+runs `clippy --fix --all-features` and `cargo fmt --all`, which rewrite files
+unrelated to your change and create large, noisy churn. Formatting and linting
+are the user's responsibility; leave them to the user. To verify your own work,
+build and test instead.

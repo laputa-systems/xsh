@@ -301,7 +301,7 @@ explicit runtime boundaries rather than reasons to retain a source executor.
 | indexed execution or frames | `src/runtime/eval/lowered_run/indexed_run.rs`, `explicit_run.rs` | targeted runtime parity test; `runtime::stack_depth` for frame changes |
 | retained frontend accounting | `src/frontend_stats.rs`, `tests/fixtures/frontend-indexed` | `cargo test -p xsh --lib frontend_stats::tests` and `cargo run --bin xsh-frontend-stats -- --json tests/fixtures/frontend-indexed` |
 | runtime worker allocation accounting | `src/runtime_stats.rs`, `src/mem_track.rs`, `indexed_run.rs` | `cargo test -p xsh --lib runtime_stats::tests`, then `xsh-runtime-stats --json REPORT SCRIPT [-- ARGS...]` plus a paired release RSS check |
-| user-visible performance | `docs/BENCHMARKING.md`, `docs/TEST-MAP.md` | focused benchmark first, then the applicable `make bench-fast` or `make bench` gate |
+| user-visible performance | `docs/BENCHMARKING.md`, `docs/TEST-MAP.md` | focused benchmark first, then the applicable `cargo dev bench --fast` or `cargo dev bench` gate |
 
 `tests/runtime/frontend_indexed.rs` keeps the frozen indexed fixtures on the
 standard execution path. `tests/fixtures/frontend-indexed/README.md` documents
