@@ -12,10 +12,10 @@ async-executor = "1"
 async-io = "2"
 crossbeam-channel = "0.5"
 futures-lite = { version = "2", default-features = false, features = ["race", "std"] }
-h12tiny-client = { git = "https://github.com/laputa-systems/h12tiny", rev = "282aae5a33244a4dc7fac58d8453bc4abfd24d4c", default-features = false, features = ["http1", "http2", "tls"] }
+h12tiny-client = { version = "0.1", default-features = false, features = ["http1", "http2", "tls"] }
 http = "1"
 http-body-util = "0.1"
-hyper = { package = "laputa-hyper-futures-lite", version = "1.11.0", default-features = false, features = ["client", "http1", "http2"] }
+hyper = { package = "laputa-hyper-futures-lite", version = "=1.11.0-beta.0", default-features = false, features = ["client", "http1", "http2"] }
 libc = "0.2"
 rustix = { version = "1.1.4", features = ["net"] }
 rustc-hash = "2.1.3"

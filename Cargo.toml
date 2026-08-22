@@ -105,7 +105,7 @@ xsh-root = { path = "crates/xsh-root" }
 async-io = "2"
 bytes = "1"
 futures-rustls = { version = "0.26", default-features = false, features = ["logging", "tls12"] }
-h2 = { package = "h2-futures", git = "https://github.com/joshuarli/h2-futures-lite", rev = "732e8770cc6bbf998c573844f62e0afaccec3192" }
+laputa-h2-futures-lite = { version = "=0.4.16-beta.0", default-features = false }
 http = "1"
 proc-macro2 = { version = "1", features = ["span-locations"] }
 syn = { version = "2", features = ["full", "visit"] }
