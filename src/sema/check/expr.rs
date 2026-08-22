@@ -337,7 +337,10 @@ impl Checker {
         {
             return Type::Map(item.clone());
         }
-        if matches!(expected, Some(Type::Status | Type::ProcessHandle)) {
+        if matches!(
+            expected,
+            Some(Type::Status | Type::ProcessHandle | Type::NetJob)
+        ) {
             for field in fields {
                 match &field.kind {
                     ArenaRecordFieldKind::Spread { expr, .. }
@@ -354,6 +357,14 @@ impl Checker {
                 self.error(
                     span,
                     "`ProcessHandle` is a runtime-only type and cannot be constructed with a record literal; obtain it from `spawn`",
+                    "check.type-mismatch",
+                );
+                return Type::Unknown;
+            }
+            if matches!(expected, Some(Type::NetJob)) {
+                self.error(
+                    span,
+                    "`NetJob` is a runtime-only type and cannot be constructed with a record literal; obtain it from `net.start`",
                     "check.type-mismatch",
                 );
                 return Type::Unknown;

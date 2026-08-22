@@ -187,6 +187,18 @@ impl Checker {
                 "check.unknown-method",
             );
         }
+        if base_ty == Type::NetJob {
+            return self.check_registered_method_arena(
+                arena,
+                source,
+                MethodReceiver::NetJob,
+                name,
+                args,
+                span,
+                &base_ty,
+                "check.unknown-method",
+            );
+        }
         if base_ty == Type::Digest {
             return self.check_registered_method_arena(
                 arena,

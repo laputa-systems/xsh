@@ -2642,6 +2642,7 @@ fn lowered_type_to_type(ty: LoweredType) -> Result<Type, IrBuildError> {
         LoweredType::Path => Type::Path,
         LoweredType::Command => Type::Command,
         LoweredType::ProcessHandle => Type::ProcessHandle,
+        LoweredType::NetJob => Type::NetJob,
         LoweredType::Stream => Type::Stream(Box::new(Type::Any)),
         LoweredType::Pure => Type::Pure,
         LoweredType::Proc => Type::Proc,
@@ -2734,6 +2735,7 @@ fn lowered_type_from_type(ty: &Type) -> Result<LoweredType, IrVerifyError> {
         Type::Path => LoweredType::Path,
         Type::Command => LoweredType::Command,
         Type::ProcessHandle => LoweredType::ProcessHandle,
+        Type::NetJob => LoweredType::NetJob,
         Type::Stream(_) => LoweredType::Stream,
         Type::Pure => LoweredType::Pure,
         Type::Proc => LoweredType::Proc,
@@ -4831,6 +4833,7 @@ impl FullCodec for LoweredValue {
             | Self::FsEntry(_)
             | Self::Command(_)
             | Self::ProcessHandle(_)
+            | Self::NetJob(_)
             | Self::Stream(_)
             | Self::Pure(_)
             | Self::Proc(_)
@@ -7488,7 +7491,7 @@ proc main() [error] {
             .expect("full indexed proc is installed");
         (
             result,
-            evaluator.stdout,
+            std::mem::take(&mut evaluator.stdout),
             normalize_traces(&evaluator.trace_events),
         )
     }

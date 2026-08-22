@@ -685,6 +685,7 @@ fn lowered_module_op_supported(op: RuntimeOp) -> bool {
             | RuntimeOp::NetPool
             | RuntimeOp::NetClosePool
             | RuntimeOp::NetCloseAllPools
+            | RuntimeOp::NetStart
             | RuntimeOp::NetRequest
             | RuntimeOp::NetRequestMany
             | RuntimeOp::NetDownloadMany
@@ -12489,6 +12490,7 @@ fn lowered_checked_type(ty: &Type) -> Option<LoweredType> {
         Type::Path => Some(LoweredType::Path),
         Type::Command => Some(LoweredType::Command),
         Type::ProcessHandle => Some(LoweredType::ProcessHandle),
+        Type::NetJob => Some(LoweredType::NetJob),
         Type::Pure => Some(LoweredType::Pure),
         Type::Proc => Some(LoweredType::Proc),
         Type::Error | Type::ErrorFamily(_) | Type::ErrorVariant { .. } => Some(LoweredType::Error),
@@ -12603,6 +12605,7 @@ fn lowered_method_supported_for_type(ty: &Type, name: Name, arg_count: usize) ->
             _ => false,
         },
         Type::ProcessHandle => name == "cancel" && arg_count <= 2,
+        Type::NetJob => matches!(name.as_str().as_str(), "wait" | "cancel") && arg_count == 0,
         Type::Stream(_) => name == "collect" && arg_count == 0,
         _ => false,
     }
@@ -12731,6 +12734,11 @@ fn infer_checked_method_return_type(receiver: &Type, name: Name) -> Option<Type>
         Type::ProcessHandle if name == "cancel" => {
             Some(Type::Result(Box::new(Type::Unit), Box::new(Type::Error)))
         }
+        Type::NetJob if name == "wait" => standard_record_type("NetResponse")
+            .map(|response| Type::Result(Box::new(response), Box::new(Type::Error))),
+        Type::NetJob if name == "cancel" => {
+            Some(Type::Result(Box::new(Type::Unit), Box::new(Type::Error)))
+        }
         _ => None,
     }
 }
@@ -12769,6 +12777,7 @@ fn lowered_builtin_type_name(name: &str) -> Option<LoweredType> {
         BuiltinTypeName::Path => Some(LoweredType::Path),
         BuiltinTypeName::Command => Some(LoweredType::Command),
         BuiltinTypeName::ProcessHandle => Some(LoweredType::ProcessHandle),
+        BuiltinTypeName::NetJob => Some(LoweredType::NetJob),
         BuiltinTypeName::Pure => Some(LoweredType::Pure),
         BuiltinTypeName::Proc => Some(LoweredType::Proc),
         BuiltinTypeName::Error => Some(LoweredType::Error),
@@ -12833,6 +12842,7 @@ fn type_for_lowered_type(kind: LoweredType) -> Option<Type> {
         LoweredType::Path => Some(Type::Path),
         LoweredType::Command => Some(Type::Command),
         LoweredType::ProcessHandle => Some(Type::ProcessHandle),
+        LoweredType::NetJob => Some(Type::NetJob),
         LoweredType::Pure => Some(Type::Pure),
         LoweredType::Proc => Some(Type::Proc),
         LoweredType::Error => Some(Type::Error),
@@ -12893,6 +12903,7 @@ fn lowerable_top_level_annotation(ty: LoweredType) -> bool {
             | LoweredType::Path
             | LoweredType::Command
             | LoweredType::ProcessHandle
+            | LoweredType::NetJob
             | LoweredType::Stream
             | LoweredType::Pure
             | LoweredType::Proc

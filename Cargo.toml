@@ -171,6 +171,11 @@ name = "xsh-test-os-probe"
 path = "tests/helpers/os_probe.rs"
 test = false
 
+[[bin]]
+name = "xsh-test-show-fds"
+path = "tests/helpers/show_fds.rs"
+test = false
+
 [[test]]
 # The individual files are included as modules by this single test binary.
 name = "integration"

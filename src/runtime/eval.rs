@@ -3,7 +3,7 @@
 use crate::diagnostic::Diagnostic;
 use crate::modules::RuntimeOp;
 use crate::modules::api_spec;
-use crate::modules::net::{NetAgent, NetAgentKey, NetPoolOptions};
+use crate::modules::net::{NetAgent, NetAgentKey, NetPoolOptions, NetRuntimeOwner};
 use crate::runtime::process::{
     CancellationDecision, CancellationPolicy, ManagedChild, ProcessGroup, ProcessSegmentStatus,
     ProcessSegmentStatusKind, ProcessStatus, ProcessStatusKind, SignalHandlerGuard, cancel_managed,
@@ -14,8 +14,8 @@ use crate::runtime::signal::{
 };
 use crate::runtime::value::{
     AbortSignal, CommandPlan, DigestValue, DurationValue, ErrorContext, FloatValue, FunctionName,
-    PathValue, ProcessHandleValue, RecordMap, RegexValue, ResultValue, RuntimeError, StreamValue,
-    Value,
+    NetJobValue, PathValue, ProcessHandleValue, RecordMap, RegexValue, ResultValue, RuntimeError,
+    StreamValue, Value,
 };
 use crate::sema::check::{Checker, CompactBodyProbeOutput, CompactDeclOutput};
 use crate::sema::types::{CallableType, Type};
@@ -49,6 +49,7 @@ mod lowered_ops;
 use lowered_ops::{lowered_value_from_runtime, lowered_value_from_runtime_any};
 mod lowered_run;
 mod modules;
+mod net_job;
 mod process_handle;
 mod stream;
 
@@ -415,6 +416,8 @@ struct LiveProcessHandle {
     child: ManagedChild,
     span: Span,
 }
+
+use net_job::LiveNetJob;
 
 #[derive(Clone, Debug, Default)]
 struct EvaluatorSignalState {
@@ -894,6 +897,7 @@ enum LoweredType {
     Path,
     Command,
     ProcessHandle,
+    NetJob,
     Stream,
     Pure,
     Proc,
@@ -2053,6 +2057,7 @@ enum LoweredValue {
     FsEntry(crate::runtime::value::FsEntryValue),
     Command(Box<CommandPlan>),
     ProcessHandle(Box<ProcessHandleValue>),
+    NetJob(Box<NetJobValue>),
     Stream(Box<StreamValue>),
     Pure(FunctionName),
     Proc(FunctionName),
@@ -2336,6 +2341,7 @@ impl PartialEq for LoweredValue {
             (Self::FsEntry(left), Self::FsEntry(right)) => left == right,
             (Self::Command(left), Self::Command(right)) => left == right,
             (Self::ProcessHandle(left), Self::ProcessHandle(right)) => left == right,
+            (Self::NetJob(left), Self::NetJob(right)) => left == right,
             (Self::Stream(left), Self::Stream(right)) => left == right,
             (Self::Pure(left), Self::Pure(right)) => left == right,
             (Self::Proc(left), Self::Proc(right)) => left == right,
@@ -2407,6 +2413,7 @@ impl LoweredValue {
             Self::FsEntry(value) => Value::FsEntry(value),
             Self::Command(value) => Value::Command(value),
             Self::ProcessHandle(value) => Value::ProcessHandle(value),
+            Self::NetJob(value) => Value::NetJob(value),
             Self::Stream(value) => Value::Stream(value),
             Self::Pure(value) => Value::Pure(value),
             Self::Proc(value) => Value::Proc(value),
@@ -2482,6 +2489,7 @@ impl LoweredValue {
             Self::FsEntry(_) => "Record",
             Self::Command(_) => "Command",
             Self::ProcessHandle(_) => "ProcessHandle",
+            Self::NetJob(_) => "NetJob",
             Self::Stream(_) => "Stream",
             Self::Pure(_) => "Pure",
             Self::Proc(_) => "Proc",
@@ -2594,6 +2602,7 @@ const LOWERED_METHOD_NAMES: &[&str] = &[
     "starts_with",
     "ends_with",
     "contains",
+    "wait",
     "cancel",
     "context",
     "collect",
@@ -2717,6 +2726,7 @@ pub struct Evaluator {
     unix_next_pid: i64,
     fs_locks: Vec<Option<std::fs::File>>,
     fs_roots: Vec<Option<FsRootHandle>>,
+    net_runtime: Option<NetRuntimeOwner>,
     net_agents: FxHashMap<NetAgentKey, NetAgent>,
     net_pool_options: FxHashMap<String, NetPoolOptions>,
     utils_cache: FxHashMap<String, Value>,
@@ -2725,7 +2735,12 @@ pub struct Evaluator {
     active_process_groups: Vec<ActiveProcessGroup>,
     next_process_handle_id: u64,
     process_handles: BTreeMap<u64, LiveProcessHandle>,
+    next_net_job_id: u64,
+    net_jobs: BTreeMap<u64, LiveNetJob>,
+    net_job_reserved_response_bytes: u64,
+    network_wait_depth: u32,
     scope_ids: Vec<u64>,
+    next_runtime_scope_id: u64,
     signal_state: EvaluatorSignalState,
     #[cfg(feature = "native-tests")]
     pub(super) test_mocks: FxHashMap<String, Vec<TestMock>>,
@@ -2735,6 +2750,20 @@ pub struct Evaluator {
     pub(super) native_test_host: Option<NativeTestHost>,
     #[cfg(feature = "native-tests")]
     test_temp_counter: u64,
+}
+
+impl Drop for Evaluator {
+    fn drop(&mut self) {
+        // Evaluation paths normally clean lexical scopes before producing an
+        // output. This fallback covers root-owned jobs in early returns and
+        // worker evaluators, and it deliberately ignores cleanup diagnostics:
+        // destructors must not panic or replace a primary evaluation result.
+        let _ = self.cancel_net_jobs_for_signal(zero_span());
+        self.net_agents.clear();
+        if let Some(mut runtime) = self.net_runtime.take() {
+            runtime.shutdown();
+        }
+    }
 }
 
 struct LoweredSharedState {
@@ -2913,6 +2942,7 @@ impl Evaluator {
             unix_next_pid: 1000,
             fs_locks: Vec::new(),
             fs_roots: Vec::new(),
+            net_runtime: None,
             net_agents: FxHashMap::default(),
             net_pool_options: FxHashMap::default(),
             utils_cache: FxHashMap::default(),
@@ -2921,7 +2951,12 @@ impl Evaluator {
             active_process_groups: Vec::new(),
             next_process_handle_id: 1,
             process_handles: BTreeMap::new(),
+            next_net_job_id: 1,
+            net_jobs: BTreeMap::new(),
+            net_job_reserved_response_bytes: 0,
+            network_wait_depth: 0,
             scope_ids: vec![0],
+            next_runtime_scope_id: 1,
             signal_state: EvaluatorSignalState::default(),
             #[cfg(feature = "native-tests")]
             test_mocks: FxHashMap::default(),
@@ -2951,7 +2986,7 @@ impl Evaluator {
     }
 
     pub fn into_sources(self) -> SourceMap {
-        Arc::try_unwrap(self.sources).unwrap_or_else(|sources| (*sources).clone())
+        Arc::try_unwrap(Arc::clone(&self.sources)).unwrap_or_else(|sources| (*sources).clone())
     }
 
     pub fn with_tracing(mut self) -> Self {
@@ -3069,6 +3104,7 @@ impl Evaluator {
             unix_next_pid: 1000,
             fs_locks: Vec::new(),
             fs_roots: Vec::new(),
+            net_runtime: None,
             net_agents: FxHashMap::default(),
             net_pool_options: FxHashMap::default(),
             utils_cache: FxHashMap::default(),
@@ -3077,7 +3113,12 @@ impl Evaluator {
             active_process_groups: Vec::new(),
             next_process_handle_id: 1,
             process_handles: BTreeMap::new(),
+            next_net_job_id: 1,
+            net_jobs: BTreeMap::new(),
+            net_job_reserved_response_bytes: 0,
+            network_wait_depth: 0,
             scope_ids: (0..shared.scopes.len() as u64).collect(),
+            next_runtime_scope_id: shared.scopes.len() as u64,
             signal_state: EvaluatorSignalState::default(),
             #[cfg(feature = "native-tests")]
             test_mocks: FxHashMap::default(),
@@ -3091,6 +3132,8 @@ impl Evaluator {
     pub(super) fn service_pending_signal(&mut self, span: Span) -> Result<(), RuntimeError> {
         if self.signal_hooks.is_empty()
             && self.process_handles.is_empty()
+            && self.net_jobs.is_empty()
+            && self.network_wait_depth == 0
             && !self.signal_state.hook_running
             && !self.signal_state.hook_started
             && !self.signal_state.shutdown_complete
@@ -3106,6 +3149,7 @@ impl Evaluator {
             let escalation = hook_signal_from_number(escalation_number);
             self.trace_signal_escalate(&primary, &escalation, span);
             self.kill_active_process_groups();
+            let _ = self.cancel_net_jobs_for_signal(span);
             self.signal_state.shutdown_status = Some(default_signal_status(&primary));
             self.signal_state.shutdown_complete = true;
             return Ok(());
@@ -3123,8 +3167,14 @@ impl Evaluator {
             return Ok(());
         }
         let Some(hook) = self.signal_hooks.get(&primary.name).cloned() else {
-            if !self.process_handles.is_empty() {
-                self.cancel_process_handles_for_signal(primary_number, span)?;
+            if !self.process_handles.is_empty()
+                || !self.net_jobs.is_empty()
+                || self.network_wait_depth != 0
+            {
+                if !self.process_handles.is_empty() {
+                    self.cancel_process_handles_for_signal(primary_number, span)?;
+                }
+                self.cancel_net_jobs_for_signal(span)?;
                 self.signal_state.shutdown_complete = true;
                 self.signal_state.shutdown_status = Some(default_signal_status(&primary));
                 return Err(RuntimeError::new(
@@ -3164,6 +3214,7 @@ impl Evaluator {
         if !self.process_handles.is_empty() {
             self.cancel_process_handles_for_signal(primary_number, span)?;
         }
+        self.cancel_net_jobs_for_signal(span)?;
 
         match hook_result {
             Ok(Flow::Continue(Value::Result(ResultValue::Err(error)))) => {
@@ -3400,16 +3451,16 @@ impl Evaluator {
                     Ok(plan) => plan,
                     Err(diagnostic) => {
                         return EvalOutput {
-                            stdout: self.stdout,
-                            stderr: self.stderr,
-                            trace_events: self.trace_events,
+                            stdout: std::mem::take(&mut self.stdout),
+                            stderr: std::mem::take(&mut self.stderr),
+                            trace_events: std::mem::take(&mut self.trace_events),
                             diagnostics: vec![diagnostic],
                             traceback: None,
-                            sources: self.sources,
+                            sources: Arc::clone(&self.sources),
                             status: 1,
-                            cwd: self.cwd,
-                            env: self.env.into_snapshot(),
-                            last_status: self.last_status,
+                            cwd: std::mem::take(&mut self.cwd),
+                            env: self.env.clone().into_snapshot(),
+                            last_status: self.last_status.take(),
                         };
                     }
                 };
@@ -3740,16 +3791,16 @@ impl Evaluator {
                 ))),
             ));
             return Ok(EvalOutput {
-                stdout: self.stdout,
-                stderr: self.stderr,
-                trace_events: self.trace_events,
+                stdout: std::mem::take(&mut self.stdout),
+                stderr: std::mem::take(&mut self.stderr),
+                trace_events: std::mem::take(&mut self.trace_events),
                 diagnostics,
                 traceback,
-                sources: self.sources,
+                sources: Arc::clone(&self.sources),
                 status: 0,
-                cwd: self.cwd,
-                env: self.env.into_snapshot(),
-                last_status: self.last_status,
+                cwd: std::mem::take(&mut self.cwd),
+                env: self.env.clone().into_snapshot(),
+                last_status: self.last_status.take(),
             });
         }
         crate::runtime::process::clear_cancellation_request();
@@ -4138,16 +4189,16 @@ impl Evaluator {
         );
 
         Ok(EvalOutput {
-            stdout: self.stdout,
-            stderr: self.stderr,
-            trace_events: self.trace_events,
+            stdout: std::mem::take(&mut self.stdout),
+            stderr: std::mem::take(&mut self.stderr),
+            trace_events: std::mem::take(&mut self.trace_events),
             diagnostics,
             traceback,
-            sources: self.sources,
+            sources: Arc::clone(&self.sources),
             status,
-            cwd: self.cwd,
-            env: self.env.into_snapshot(),
-            last_status: self.last_status,
+            cwd: std::mem::take(&mut self.cwd),
+            env: self.env.clone().into_snapshot(),
+            last_status: self.last_status.take(),
         })
     }
 
@@ -4475,7 +4526,7 @@ impl Evaluator {
 
     #[cfg(feature = "native-tests")]
     fn finish_test_output(
-        self,
+        mut self,
         diagnostics: Vec<Diagnostic>,
         traceback: Option<Traceback>,
         result: Option<Value>,
@@ -4483,16 +4534,16 @@ impl Evaluator {
         let status = if traceback.is_some() { 3 } else { 0 };
         TestEvalOutput {
             output: EvalOutput {
-                stdout: self.stdout,
-                stderr: self.stderr,
-                trace_events: self.trace_events,
+                stdout: std::mem::take(&mut self.stdout),
+                stderr: std::mem::take(&mut self.stderr),
+                trace_events: std::mem::take(&mut self.trace_events),
                 diagnostics,
                 traceback,
-                sources: self.sources,
+                sources: Arc::clone(&self.sources),
                 status,
-                cwd: self.cwd,
-                env: self.env.into_snapshot(),
-                last_status: self.last_status,
+                cwd: std::mem::take(&mut self.cwd),
+                env: self.env.clone().into_snapshot(),
+                last_status: self.last_status.take(),
             },
             result,
         }
@@ -4715,6 +4766,36 @@ impl Evaluator {
         self.trace_events.push(event);
     }
 
+    /// Materializes a driver-recorded leaf event without replacing its actual
+    /// transport timestamp with the later evaluator observation time.
+    pub(super) fn trace_leaf_with_timing(
+        &mut self,
+        kind: TraceKind,
+        span: Option<Span>,
+        name: Option<&str>,
+        payload: TracePayload,
+        timing: TraceTiming,
+    ) {
+        if !self.trace_enabled {
+            return;
+        }
+        let event_id = next_event_id(&self.trace_events);
+        let event = self
+            .make_trace_event(
+                event_id,
+                kind,
+                span,
+                name,
+                payload,
+                TraceNesting {
+                    parent_event_id: self.event_stack.last().map(|frame| frame.event_id),
+                    depth: self.event_stack.len() as u32,
+                },
+            )
+            .with_timing(timing);
+        self.trace_events.push(event);
+    }
+
     fn make_trace_event(
         &self,
         event_id: u64,
@@ -4773,7 +4854,7 @@ impl Evaluator {
             if self.scopes[index].contains_key(&interned) {
                 let target_scope = self.scope_ids[index];
                 let source_scope = self.current_scope_id();
-                self.transfer_process_handles_in_value(&value, source_scope, target_scope);
+                self.transfer_owned_host_resources_in_value(&value, source_scope, target_scope);
                 let binding = self.scopes[index]
                     .get_mut(&interned)
                     .expect("binding existence checked");
@@ -4795,7 +4876,42 @@ impl Evaluator {
         *self.scope_ids.last().expect("evaluator has a scope id")
     }
 
-    fn transfer_process_handles_in_value(
+    /// Indexed execution keeps lexical values in slots rather than nested
+    /// binding maps, so host-resource ownership needs its own scope stack.
+    /// Every evaluated statement block receives a fresh ID; escaping values
+    /// are explicitly transferred before this ID is cleaned up.
+    pub(super) fn enter_owned_host_scope(&mut self) -> u64 {
+        let scope_id = self.next_runtime_scope_id;
+        self.next_runtime_scope_id = self.next_runtime_scope_id.wrapping_add(1);
+        self.scope_ids.push(scope_id);
+        scope_id
+    }
+
+    pub(super) fn parent_owned_host_scope(&self) -> u64 {
+        self.scope_ids
+            .iter()
+            .rev()
+            .nth(1)
+            .copied()
+            .expect("owned host scope has a parent")
+    }
+
+    pub(super) fn exit_owned_host_scope(&mut self, scope_id: u64) -> Result<(), RuntimeError> {
+        debug_assert_eq!(self.current_scope_id(), scope_id);
+        let cleanup = self.cleanup_scope_process_handles(scope_id, Ok(Flow::Continue(Value::Unit)));
+        let popped = self.scope_ids.pop();
+        debug_assert_eq!(popped, Some(scope_id));
+        match cleanup {
+            Ok(Flow::Continue(_)) => Ok(()),
+            Ok(_) => Err(RuntimeError::new(
+                "host-resource-cleanup",
+                "host-resource cleanup produced invalid control flow",
+            )),
+            Err(error) => Err(error),
+        }
+    }
+
+    fn transfer_owned_host_resources_in_value(
         &mut self,
         value: &Value,
         source_scope: u64,
@@ -4812,27 +4928,34 @@ impl Evaluator {
                     live.owner_scope = target_scope;
                 }
             }
+            Value::NetJob(handle) => {
+                if let Some(live) = self.net_jobs.get_mut(&handle.id)
+                    && live.owner_scope == source_scope
+                {
+                    live.owner_scope = target_scope;
+                }
+            }
             Value::List(values) => {
                 for value in values {
-                    self.transfer_process_handles_in_value(value, source_scope, target_scope);
+                    self.transfer_owned_host_resources_in_value(value, source_scope, target_scope);
                 }
             }
             Value::Map(values) => {
                 for value in values.values() {
-                    self.transfer_process_handles_in_value(value, source_scope, target_scope);
+                    self.transfer_owned_host_resources_in_value(value, source_scope, target_scope);
                 }
             }
             Value::Record(fields) | Value::Module(fields) => {
                 for (_, value) in fields {
-                    self.transfer_process_handles_in_value(value, source_scope, target_scope);
+                    self.transfer_owned_host_resources_in_value(value, source_scope, target_scope);
                 }
             }
             Value::Result(ResultValue::Ok(value)) | Value::Result(ResultValue::Err(value)) => {
-                self.transfer_process_handles_in_value(value, source_scope, target_scope);
+                self.transfer_owned_host_resources_in_value(value, source_scope, target_scope);
             }
             Value::Tag { fields, .. } => {
                 for value in fields {
-                    self.transfer_process_handles_in_value(value, source_scope, target_scope);
+                    self.transfer_owned_host_resources_in_value(value, source_scope, target_scope);
                 }
             }
             _ => {}
@@ -4871,7 +4994,7 @@ impl Evaluator {
                 primary_failed = true;
             }
         }
-        result
+        self.cleanup_net_jobs(scope_id, result)
     }
 
     fn cancel_process_handles_for_signal(
@@ -4991,6 +5114,15 @@ fn trace_api_id(kind: TraceKind, name: Option<&str>, payload: &TracePayload) -> 
         TraceKind::SpawnStart | TraceKind::SpawnReady => Some("spawn".to_string()),
         TraceKind::WaitStart | TraceKind::WaitEnd => Some("wait".to_string()),
         TraceKind::SpawnCancel => Some("spawn.cancel".to_string()),
+        TraceKind::NetJobAccepted => Some("module.net.start".to_string()),
+        TraceKind::NetJobWait => Some("method.NetJob.wait".to_string()),
+        TraceKind::NetJobCancel => Some("method.NetJob.cancel".to_string()),
+        TraceKind::NetJobScheduled
+        | TraceKind::NetTransportStarted
+        | TraceKind::NetTransportCompleted
+        | TraceKind::NetJobCleanup
+        | TraceKind::NetJobShutdownCancel
+        | TraceKind::NetRuntimeFailure => None,
         TraceKind::PipelineEnter
         | TraceKind::PipelineExit
         | TraceKind::PipelineSegmentStart
@@ -5926,6 +6058,7 @@ pub(super) fn value_matches_static_type(value: &Value, ty: &Type) -> bool {
         Type::Proc => matches!(value, Value::Proc(_)),
         Type::Command => matches!(value, Value::Command(_)),
         Type::ProcessHandle => matches!(value, Value::ProcessHandle(_)),
+        Type::NetJob => matches!(value, Value::NetJob(_)),
         Type::Unit => matches!(value, Value::Unit),
         Type::Tag(_) => matches!(value, Value::Tag { .. }),
         Type::Optional(inner) => {
@@ -6037,6 +6170,7 @@ fn lowered_value_matches_static_type(value: &LoweredValue, ty: &Type) -> bool {
         }
         Type::Command => matches!(value, LoweredValue::Command(_)),
         Type::ProcessHandle => matches!(value, LoweredValue::ProcessHandle(_)),
+        Type::NetJob => matches!(value, LoweredValue::NetJob(_)),
         Type::ProcessError => false,
         Type::Pure => matches!(value, LoweredValue::Pure(_)),
         Type::Proc => matches!(value, LoweredValue::Proc(_)),

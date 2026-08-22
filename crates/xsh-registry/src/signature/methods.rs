@@ -2,8 +2,8 @@
 
 use super::{
     ApiArgCheck, MethodReceiver, MethodReceiverSig, MethodReturn, MethodSig, NamedMethodSigs,
-    ParamSig, RuntimeOp, Type, btree_map, default_param, fs_entry_type, param, regex_match_type,
-    result, sig_with_arg_check,
+    ParamSig, RuntimeOp, Type, btree_map, default_param, fs_entry_type, net_response_type, param,
+    regex_match_type, result, sig_with_arg_check,
 };
 pub(in crate::signature) fn value_methods() -> Vec<MethodReceiverSig> {
     vec![
@@ -1057,6 +1057,25 @@ pub(in crate::signature) fn value_methods() -> Vec<MethodReceiverSig> {
                 false,
                 RuntimeOp::ProcessHandleCancel,
             )]),
+        },
+        MethodReceiverSig {
+            receiver: MethodReceiver::NetJob,
+            methods: method_map(vec![
+                method(
+                    "wait",
+                    Vec::new(),
+                    MethodReturn::Type(result(net_response_type(true))),
+                    false,
+                    RuntimeOp::NetJobWait,
+                ),
+                method(
+                    "cancel",
+                    Vec::new(),
+                    MethodReturn::Type(result(Type::Unit)),
+                    false,
+                    RuntimeOp::NetJobCancel,
+                ),
+            ]),
         },
         MethodReceiverSig {
             receiver: MethodReceiver::Digest,

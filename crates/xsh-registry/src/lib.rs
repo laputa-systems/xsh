@@ -42,6 +42,7 @@ pub const CORE_BUILTIN_SYMBOLS: &[&str] = &[
     "Proc",
     "Command",
     "ProcessHandle",
+    "NetJob",
     "Result",
 ];
 

@@ -619,6 +619,53 @@ fn render_payload_text(payload: &TracePayload, output: &mut String) {
                 );
             }
         }
+        TracePayload::NetJob {
+            job_id,
+            reserved_response_bytes,
+            completed_response_bytes,
+            accepted_at_us,
+            transport_started_at_us,
+            completed_at_us,
+            queue_duration_us,
+            transport_duration_us,
+            status,
+            terminal_error_kind,
+            error,
+        } => {
+            let _ = write!(
+                output,
+                " job_id={job_id} reserved_response_bytes={reserved_response_bytes} completed_response_bytes={completed_response_bytes}"
+            );
+            if let Some(accepted_at_us) = accepted_at_us {
+                let _ = write!(output, " accepted_at_us={accepted_at_us}");
+            }
+            if let Some(transport_started_at_us) = transport_started_at_us {
+                let _ = write!(output, " transport_started_at_us={transport_started_at_us}");
+            }
+            if let Some(completed_at_us) = completed_at_us {
+                let _ = write!(output, " completed_at_us={completed_at_us}");
+            }
+            if let Some(queue_duration_us) = queue_duration_us {
+                let _ = write!(output, " queue_duration_us={queue_duration_us}");
+            }
+            if let Some(transport_duration_us) = transport_duration_us {
+                let _ = write!(output, " transport_duration_us={transport_duration_us}");
+            }
+            if let Some(status) = status {
+                let _ = write!(output, " status={status}");
+            }
+            if let Some(kind) = terminal_error_kind {
+                let _ = write!(output, " terminal_error_kind={}", quote_text(kind));
+            }
+            if let Some(error) = error {
+                let _ = write!(
+                    output,
+                    " error={{kind:{} message:{}}}",
+                    quote_text(&error.kind),
+                    quote_text(&error.message)
+                );
+            }
+        }
         TracePayload::PipelineEnd { status, error } => {
             if let Some(status) = status {
                 let _ = write!(
@@ -1091,6 +1138,19 @@ enum TracePayloadJson {
         kill_after_ms: u64,
         error: Option<TraceErrorJson>,
     },
+    NetJob {
+        job_id: u64,
+        reserved_response_bytes: u64,
+        completed_response_bytes: usize,
+        accepted_at_us: Option<u64>,
+        transport_started_at_us: Option<u64>,
+        completed_at_us: Option<u64>,
+        queue_duration_us: Option<u64>,
+        transport_duration_us: Option<u64>,
+        status: Option<i64>,
+        terminal_error_kind: Option<String>,
+        error: Option<TraceErrorJson>,
+    },
     PipelineEnd {
         status: Option<TraceStatusJson>,
         error: Option<TraceErrorJson>,
@@ -1225,6 +1285,31 @@ impl TracePayloadJson {
                 pid: *pid,
                 signal: signal.clone(),
                 kill_after_ms: *kill_after_ms,
+                error: error.as_ref().map(TraceErrorJson::from_error),
+            },
+            TracePayload::NetJob {
+                job_id,
+                reserved_response_bytes,
+                completed_response_bytes,
+                accepted_at_us,
+                transport_started_at_us,
+                completed_at_us,
+                queue_duration_us,
+                transport_duration_us,
+                status,
+                terminal_error_kind,
+                error,
+            } => Self::NetJob {
+                job_id: *job_id,
+                reserved_response_bytes: *reserved_response_bytes,
+                completed_response_bytes: *completed_response_bytes,
+                accepted_at_us: *accepted_at_us,
+                transport_started_at_us: *transport_started_at_us,
+                completed_at_us: *completed_at_us,
+                queue_duration_us: *queue_duration_us,
+                transport_duration_us: *transport_duration_us,
+                status: *status,
+                terminal_error_kind: terminal_error_kind.clone(),
                 error: error.as_ref().map(TraceErrorJson::from_error),
             },
             TracePayload::PipelineEnd { status, error } => Self::PipelineEnd {
@@ -1732,6 +1817,65 @@ fn trace_payload_json_value(data: TracePayloadJson) -> JsonValue {
                 ),
             ],
         ),
+        TracePayloadJson::NetJob {
+            job_id,
+            reserved_response_bytes,
+            completed_response_bytes,
+            accepted_at_us,
+            transport_started_at_us,
+            completed_at_us,
+            queue_duration_us,
+            transport_duration_us,
+            status,
+            terminal_error_kind,
+            error,
+        } => typed_payload_json_value(
+            "net.job",
+            vec![
+                ("job_id".to_string(), raw_json_u64(job_id)),
+                (
+                    "reserved_response_bytes".to_string(),
+                    raw_json_u64(reserved_response_bytes),
+                ),
+                (
+                    "completed_response_bytes".to_string(),
+                    raw_json_usize(completed_response_bytes),
+                ),
+                (
+                    "accepted_at_us".to_string(),
+                    option_u64_json_value(accepted_at_us),
+                ),
+                (
+                    "transport_started_at_us".to_string(),
+                    option_u64_json_value(transport_started_at_us),
+                ),
+                (
+                    "completed_at_us".to_string(),
+                    option_u64_json_value(completed_at_us),
+                ),
+                (
+                    "queue_duration_us".to_string(),
+                    option_u64_json_value(queue_duration_us),
+                ),
+                (
+                    "transport_duration_us".to_string(),
+                    option_u64_json_value(transport_duration_us),
+                ),
+                ("status".to_string(), option_i64_json_value(status)),
+                (
+                    "terminal_error_kind".to_string(),
+                    option_json_value(
+                        terminal_error_kind
+                            .as_ref()
+                            .map(|kind| raw_json_string(kind)),
+                    ),
+                ),
+                (
+                    "error".to_string(),
+                    option_json_value(error.map(trace_error_json_value)),
+                ),
+            ],
+        ),
         TracePayloadJson::PipelineEnd { status, error } => typed_payload_json_value(
             "pipeline.end",
             vec![
@@ -2143,6 +2287,10 @@ fn option_usize_json_value(value: Option<usize>) -> JsonValue {
 
 fn option_i32_json_value(value: Option<i32>) -> JsonValue {
     option_json_value(value.map(|value| raw_json_i64(i64::from(value))))
+}
+
+fn option_i64_json_value(value: Option<i64>) -> JsonValue {
+    option_json_value(value.map(raw_json_i64))
 }
 
 fn args_json(args: &[TraceArg]) -> Vec<TraceArgJson> {

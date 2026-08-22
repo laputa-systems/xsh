@@ -104,7 +104,7 @@ pub const EFFECT_REFERENCES: &[EffectReference] = &[
     },
     EffectReference {
         name: "net",
-        covers: &["net.*", "dns.*"],
+        covers: &["net.*", "NetJob.wait", "NetJob.cancel", "dns.*"],
     },
     EffectReference {
         name: "process",

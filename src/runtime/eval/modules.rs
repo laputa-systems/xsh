@@ -14,6 +14,8 @@ use crate::runtime::value::{
     CommandPlan, CommandRedirection, CommandRedirectionMode, CommandRedirectionStream, PathValue,
     RecordMap, ResultValue, RunError, RuntimeError, Value,
 };
+#[cfg(feature = "native-tests")]
+use crate::sema::records::standard_record_type;
 use crate::sema::types::Type;
 use crate::source::Span;
 use rustc_hash::FxHashMap;
@@ -210,6 +212,10 @@ pub(super) fn test_value_matches(expected: &Value, actual: &Value) -> bool {
 
 #[cfg(feature = "native-tests")]
 pub(super) fn test_mock_expected_return_type(op: &str) -> Option<Type> {
+    if op == "net.start" {
+        return standard_record_type("NetResponse")
+            .map(|response| Type::Result(Box::new(response), Box::new(Type::Error)));
+    }
     let (module, name) = op.split_once('.')?;
     if !matches!(module, "dns" | "net") {
         return None;
@@ -285,6 +291,7 @@ pub(super) fn test_value_matches_type(value: &Value, ty: &Type) -> bool {
         Type::Proc => matches!(value, Value::Proc(_)),
         Type::Command => matches!(value, Value::Command(_)),
         Type::ProcessHandle => matches!(value, Value::ProcessHandle(_)),
+        Type::NetJob => matches!(value, Value::NetJob(_)),
         Type::Unit => matches!(value, Value::Unit),
         Type::Tag(name) => {
             matches!(value, Value::Tag { name: tag_name, .. } if tag_name.as_ref() == name)
@@ -685,6 +692,7 @@ fn module_value_matches_builtin_type(value: &Value, builtin: BuiltinTypeName) ->
         BuiltinTypeName::Proc => matches!(value, Value::Proc(_)),
         BuiltinTypeName::Command => matches!(value, Value::Command(_)),
         BuiltinTypeName::ProcessHandle => matches!(value, Value::ProcessHandle(_)),
+        BuiltinTypeName::NetJob => matches!(value, Value::NetJob(_)),
         BuiltinTypeName::Result => matches!(value, Value::Result(_)),
         BuiltinTypeName::Unit => matches!(value, Value::Unit),
     }
@@ -920,6 +928,7 @@ pub(super) fn encode_cache_key_value(value: &Value) -> Result<String, &'static s
         Value::Proc(_) => return Err("Proc"),
         Value::Command(_) => return Err("Command"),
         Value::ProcessHandle(_) => return Err("ProcessHandle"),
+        Value::NetJob(_) => return Err("NetJob"),
         Value::Unit => return Err("Unit"),
     })
 }

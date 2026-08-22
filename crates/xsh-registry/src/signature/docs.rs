@@ -38,6 +38,7 @@ pub fn receiver_name(receiver: MethodReceiver) -> &'static str {
         MethodReceiver::Digest => "Digest",
         MethodReceiver::Regex => "Regex",
         MethodReceiver::ProcessHandle => "ProcessHandle",
+        MethodReceiver::NetJob => "NetJob",
     }
 }
 
@@ -370,6 +371,11 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
             "Performs one structured HTTP request.",
             "Network, timeout, and response failures remain typed error data; do not collapse them into booleans.",
             &["net", "http", "status-data"],
+        )),
+        ("net", "start") => Some((
+            "Starts an owned HTTP request and returns its NetJob handle.",
+            "The handle is evaluator-owned and must be consumed with wait or cancel; transport work never executes XSH code.",
+            &["net", "http", "ownership", "job"],
         )),
         ("net", "request_many" | "download_many") => Some((
             "Executes a bounded batch of network operations with ordered results.",
@@ -1733,6 +1739,16 @@ fn method_doc(receiver: &str, method: &str) -> Option<DocRow> {
             "Requests cancellation of an owned process handle.",
             "Cancellation changes handle lifecycle and process state; wait or detach remains the caller's responsibility.",
             &["process", "ownership", "cancellation"],
+        )),
+        ("NetJob", "wait") => Some((
+            "Consumes an owned network job and returns its buffered response.",
+            "A wait consumes every terminal result, including an error, so aliases cannot observe it again.",
+            &["net", "http", "ownership", "wait"],
+        )),
+        ("NetJob", "cancel") => Some((
+            "Cancels and consumes an owned network job.",
+            "Cancel waits for a terminal transport state before releasing the job's evaluator-owned capacity.",
+            &["net", "http", "ownership", "cancel"],
         )),
         _ => None,
     };

@@ -178,6 +178,7 @@ pub enum MethodReceiver {
     Digest,
     Regex,
     ProcessHandle,
+    NetJob,
 }
 
 #[derive(Clone, Debug)]

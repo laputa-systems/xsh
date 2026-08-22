@@ -370,6 +370,7 @@ pub(crate) fn convert_type(ty: &xsh_registry::types::Type) -> Type {
         xsh_registry::types::Type::Proc => Type::Proc,
         xsh_registry::types::Type::Command => Type::Command,
         xsh_registry::types::Type::ProcessHandle => Type::ProcessHandle,
+        xsh_registry::types::Type::NetJob => Type::NetJob,
         xsh_registry::types::Type::Unit => Type::Unit,
         xsh_registry::types::Type::Optional(inner) => Type::Optional(Box::new(convert_type(inner))),
     }
@@ -401,6 +402,7 @@ fn method_required_effect(receiver: MethodReceiver, op: RuntimeOp) -> Option<Eff
             _ => None,
         },
         MethodReceiver::ProcessHandle => Some(Effect::Process),
+        MethodReceiver::NetJob => Some(Effect::Net),
         _ => None,
     }
 }

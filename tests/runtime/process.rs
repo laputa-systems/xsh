@@ -184,6 +184,237 @@ while true {{
     let _ = std::fs::remove_dir_all(root);
 }
 
+#[cfg(all(feature = "net", any(target_os = "linux", target_os = "macos")))]
+#[test]
+fn sigterm_cancels_live_net_jobs_without_a_signal_hook() {
+    let root = temp_path("net-job-signal-cancel-root");
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).expect("create net signal test root");
+    let request_started = root.join("request-started");
+    let ready = root.join("ready");
+    let server = SignalNetServer::spawn(request_started.clone(), None);
+    let source = format!(
+        "\
+let request_started = Path({})
+let ready = Path({})
+let job = net.start({{
+  method: \"GET\",
+  url: {},
+}})?
+while ! request_started.exists()? {{
+  time.sleep(1ms)?
+}}
+fs.write(ready, \"ready\")?
+while true {{
+  time.sleep(20ms)?
+}}
+",
+        xsh_string_literal(request_started.to_str().expect("UTF-8 request marker")),
+        xsh_string_literal(ready.to_str().expect("UTF-8 ready marker")),
+        xsh_string_literal(&server.url),
+    );
+
+    let output = run_cancelable_temp_script(
+        "cancel-live-net-job-no-hook",
+        &source,
+        [],
+        &ready,
+        libc::SIGTERM,
+    );
+
+    assert_eq!(output.status.code(), Some(3));
+    let stderr = String::from_utf8(output.stderr).expect("UTF-8 stderr");
+    assert!(stderr.contains("canceled"), "{stderr}");
+    server.join();
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[cfg(all(feature = "net", any(target_os = "linux", target_os = "macos")))]
+#[test]
+fn signal_hook_finishes_before_canceling_a_net_job_that_completed_during_the_hook() {
+    let root = temp_path("net-job-signal-hook-root");
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).expect("create net hook test root");
+    let request_started = root.join("request-started");
+    let hook_started = root.join("hook-started");
+    let hook_ran = root.join("hook-ran");
+    let ready = root.join("ready");
+    let server = SignalNetServer::spawn(request_started.clone(), Some(hook_started.clone()));
+    let source = format!(
+        "\
+let request_started = Path({})
+let hook_started = Path({})
+let hook_ran = Path({})
+let ready = Path({})
+on TERM [fs, time, error] {{
+  fs.write(hook_started, \"started\")?
+  fs.write(hook_ran, \"ran\")?
+  time.sleep(100ms)?
+}}
+let job = net.start({{
+  method: \"GET\",
+  url: {},
+}})?
+while ! request_started.exists()? {{
+  time.sleep(1ms)?
+}}
+fs.write(ready, \"ready\")?
+while true {{
+  time.sleep(20ms)?
+}}
+",
+        xsh_string_literal(request_started.to_str().expect("UTF-8 request marker")),
+        xsh_string_literal(hook_started.to_str().expect("UTF-8 hook marker")),
+        xsh_string_literal(hook_ran.to_str().expect("UTF-8 hook result marker")),
+        xsh_string_literal(ready.to_str().expect("UTF-8 ready marker")),
+        xsh_string_literal(&server.url),
+    );
+
+    let output = run_cancelable_temp_script(
+        "cancel-live-net-job-hook",
+        &source,
+        ["--trace", "--raw"],
+        &ready,
+        libc::SIGTERM,
+    );
+
+    assert_eq!(output.status.code(), Some(3));
+    assert!(hook_ran.exists(), "signal hook did not run");
+    let stderr = String::from_utf8(output.stderr).expect("UTF-8 stderr");
+    let hook_exit = stderr
+        .find("kind=signal.hook.exit")
+        .expect("signal hook exit trace");
+    let net_cancel = stderr
+        .find("kind=net.job.shutdown_cancel")
+        .expect("net shutdown cancellation trace");
+    assert!(
+        hook_exit < net_cancel,
+        "net job canceled before hook exited:\n{stderr}"
+    );
+    server.join();
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[cfg(all(feature = "net", any(target_os = "linux", target_os = "macos")))]
+#[test]
+fn active_networking_does_not_block_process_spawn_boundaries() {
+    let root = temp_path("net-process-spawn-boundaries-root");
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).expect("create net process test root");
+    let request_started = root.join("request-started");
+    let ready = root.join("ready");
+    let server = SignalNetServer::spawn(request_started.clone(), None);
+    let source = format!(
+        "\
+let request_started = Path({})
+let ready = Path({})
+let job = net.start({{
+  method: \"GET\",
+  url: {},
+}})?
+while ! request_started.exists()? {{
+  time.sleep(1ms)?
+}}
+var attempts = 0
+while attempts < 8 {{
+  process.run(process.command_argv(\"true\", [\"true\"]))?
+  let spawned = spawn process.command_argv(\"true\", [\"true\"]) ?
+  wait spawned?
+  run true | run true ?
+  process.run(process.command_argv(\"true\", [\"true\"], new_session: true))?
+  attempts += 1
+}}
+fs.write(ready, \"ready\")?
+while true {{
+  time.sleep(20ms)?
+}}
+",
+        xsh_string_literal(request_started.to_str().expect("UTF-8 request marker")),
+        xsh_string_literal(ready.to_str().expect("UTF-8 ready marker")),
+        xsh_string_literal(&server.url),
+    );
+
+    let output = run_cancelable_temp_script(
+        "active-net-process-spawn-boundaries",
+        &source,
+        [],
+        &ready,
+        libc::SIGTERM,
+    );
+
+    assert_eq!(output.status.code(), Some(3));
+    let stderr = String::from_utf8(output.stderr).expect("UTF-8 stderr");
+    assert!(stderr.contains("canceled"), "{stderr}");
+    server.join();
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[cfg(all(feature = "net", any(target_os = "linux", target_os = "macos")))]
+struct SignalNetServer {
+    url: String,
+    handle: std::thread::JoinHandle<()>,
+}
+
+#[cfg(all(feature = "net", any(target_os = "linux", target_os = "macos")))]
+impl SignalNetServer {
+    fn spawn(request_started: PathBuf, release_response: Option<PathBuf>) -> Self {
+        let listener =
+            std::net::TcpListener::bind("127.0.0.1:0").expect("bind signal HTTP listener");
+        let addr = listener.local_addr().expect("signal HTTP listener address");
+        let handle = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept signal HTTP request");
+            stream
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .expect("set signal HTTP read timeout");
+            let reader_stream = stream.try_clone().expect("clone signal HTTP stream");
+            let mut reader = BufReader::new(reader_stream);
+            let mut request_line = String::new();
+            reader
+                .read_line(&mut request_line)
+                .expect("read signal HTTP request line");
+            assert!(request_line.starts_with("GET "), "{request_line:?}");
+            loop {
+                let mut line = String::new();
+                reader
+                    .read_line(&mut line)
+                    .expect("read signal HTTP header");
+                if line == "\r\n" || line == "\n" || line.is_empty() {
+                    break;
+                }
+            }
+            std::fs::write(&request_started, "started").expect("write signal request marker");
+
+            if let Some(release_response) = release_response {
+                let deadline = Instant::now() + Duration::from_secs(3);
+                while !release_response.exists() && Instant::now() < deadline {
+                    std::thread::sleep(Duration::from_millis(2));
+                }
+                assert!(
+                    release_response.exists(),
+                    "signal hook did not release HTTP response"
+                );
+                stream
+                    .write_all(
+                        b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok",
+                    )
+                    .expect("write signal HTTP response");
+                stream.flush().expect("flush signal HTTP response");
+            }
+
+            let mut byte = [0_u8; 1];
+            let _ = stream.read(&mut byte);
+        });
+        Self {
+            url: format!("http://{addr}"),
+            handle,
+        }
+    }
+
+    fn join(self) {
+        self.handle.join().expect("join signal HTTP server");
+    }
+}
+
 #[test]
 fn dropped_detached_process_is_released_to_reaper() {
     let marker = temp_path("spawn-detached-marker");

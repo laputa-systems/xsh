@@ -420,6 +420,65 @@ match responses[1] {{
 
 #[cfg(feature = "net")]
 #[test]
+fn net_module_request_many_refills_the_window_on_first_completion() {
+    let server = BatchBarrierServer::spawn();
+    let source = format!(
+        r#"
+let responses = net.request_many({{
+  requests: [
+    {{method: "GET", url: "{url}/gate-a", headers: [{{name: "Connection", value: "close"}}]}},
+    {{method: "GET", url: "{url}/gate-b", headers: [{{name: "Connection", value: "close"}}]}},
+    {{method: "GET", url: "{url}/gate-c", headers: [{{name: "Connection", value: "close"}}]}},
+  ],
+  concurrency: 2,
+  pool: "completion-window",
+}})?
+print ${{responses[0]?.body.utf8()?}} ${{responses[1]?.body.utf8()?}} ${{responses[2]?.body.utf8()?}}
+"#,
+        url = server.url,
+    );
+    let script = std::thread::spawn(move || run_temp_script("net-completion-window", &source));
+
+    let mut received = Vec::new();
+    let deadline = Instant::now() + Duration::from_secs(3);
+    let third_started_before_a_completed = loop {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            break false;
+        }
+        match server.events.recv_timeout(remaining) {
+            Ok(path) => {
+                received.push(path);
+                if received.last().is_some_and(|path| path == "/gate-c") {
+                    break true;
+                }
+            }
+            Err(crossbeam_channel::RecvTimeoutError::Timeout) => break false,
+            Err(crossbeam_channel::RecvTimeoutError::Disconnected) => break false,
+        }
+    };
+
+    server.release_a();
+    let output = script.join().expect("batch script thread");
+    server.join();
+
+    assert!(
+        third_started_before_a_completed,
+        "the third request did not start after B completed while A was gated; received {received:?}"
+    );
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        String::from_utf8(output.stdout).unwrap(),
+        "gate-a gate-b gate-c\n"
+    );
+}
+
+#[cfg(feature = "net")]
+#[test]
 fn net_module_download_many_streams_ordered_files() {
     let server = LocalHttpServer::spawn(2);
     let first = temp_path("net-download-many-first.txt");
@@ -573,6 +632,66 @@ fn native_xsh_net_http_contracts() {
 
 #[cfg(feature = "net")]
 #[test]
+fn native_xsh_net_job_progresses_while_synchronous_request_waits() {
+    let server = ConcurrentProgressServer::spawn();
+    let output = run_native_xsh_test(
+        "tests/xsh/stdlib/net.xsh::test_net_job_progresses_while_synchronous_request_waits",
+        &[("XSH_NET_TEST_CONCURRENT_URL", &server.url)],
+        false,
+    );
+    server.join();
+
+    assert_native_xsh_test(
+        "test_net_job_progresses_while_synchronous_request_waits",
+        output,
+    );
+}
+
+#[cfg(feature = "net")]
+#[test]
+fn native_xsh_net_job_trace_contract() {
+    let server = LocalHttpServer::spawn(1);
+    let output = run_native_xsh_test(
+        "tests/xsh/stdlib/net.xsh::test_net_job_trace_is_correlated_and_redacts_request_secrets",
+        &[("XSH_NET_TEST_URL", &server.url)],
+        false,
+    );
+    let summary = server.join();
+
+    assert_native_xsh_test(
+        "test_net_job_trace_is_correlated_and_redacts_request_secrets",
+        output,
+    );
+    assert_eq!(summary.handled, 1);
+    assert_eq!(summary.requests[0].method, "POST");
+    assert_eq!(
+        summary.requests[0].header("authorization"),
+        Some("Bearer trace-secret")
+    );
+    assert_eq!(summary.requests[0].body, b"trace-secret");
+}
+
+#[cfg(feature = "net")]
+#[test]
+fn native_xsh_net_runtime_descriptors_do_not_survive_exec() {
+    let server = LocalHttpServer::spawn(1);
+    let helper = cargo_env!("CARGO_BIN_EXE_xsh-test-show-fds");
+    let output = run_native_xsh_test(
+        "tests/xsh/stdlib/net.xsh::test_net_runtime_descriptors_do_not_survive_exec",
+        &[
+            ("XSH_NET_TEST_URL", &server.url),
+            ("XSH_NET_FD_HELPER", helper),
+        ],
+        false,
+    );
+    let summary = server.join();
+
+    assert_native_xsh_test("test_net_runtime_descriptors_do_not_survive_exec", output);
+    assert_eq!(summary.handled, 1);
+}
+
+#[cfg(feature = "net")]
+#[test]
 fn native_xsh_net_error_contracts() {
     let server = LocalHttpServer::spawn(8);
     let output = run_native_xsh_test(
@@ -589,22 +708,27 @@ fn native_xsh_net_error_contracts() {
 #[cfg(feature = "net")]
 #[test]
 fn native_xsh_net_timeout_contracts() {
-    let server = LocalHttpServer::spawn(2);
+    let server = LocalHttpServer::spawn(5);
+    let tls_stall = LocalTlsStallServer::spawn();
     let output = run_native_xsh_test(
         "tests/xsh/stdlib/net.xsh::test_net_transport_timeout_contracts",
-        &[("XSH_NET_TEST_URL", &server.url)],
+        &[
+            ("XSH_NET_TEST_URL", &server.url),
+            ("XSH_NET_TEST_TLS_STALL_URL", &tls_stall.url),
+        ],
         false,
     );
     let summary = server.join();
+    tls_stall.join();
 
     assert_native_xsh_test("test_net_transport_timeout_contracts", output);
-    assert_eq!(summary.handled, 2);
+    assert_eq!(summary.handled, 5);
 }
 
 #[cfg(feature = "net")]
 #[test]
 fn native_xsh_net_batch_contracts() {
-    let server = LocalHttpServer::spawn(5);
+    let server = LocalHttpServer::spawn(7);
     let output = run_native_xsh_test(
         "tests/xsh/stdlib/net.xsh::test_net_transport_batch_contracts",
         &[("XSH_NET_TEST_URL", &server.url)],
@@ -613,7 +737,7 @@ fn native_xsh_net_batch_contracts() {
     let summary = server.join();
 
     assert_native_xsh_test("test_net_transport_batch_contracts", output);
-    assert_eq!(summary.handled, 5);
+    assert_eq!(summary.handled, 7);
 }
 
 #[cfg(feature = "net")]
@@ -711,6 +835,31 @@ fn native_xsh_net_request_many_over_https_http2() {
 
     assert_native_xsh_test("test_net_transport_request_many_https_h2_contract", output);
     assert_eq!(summary.handled, 2);
+    let _ = std::fs::remove_file(ca);
+}
+
+#[cfg(feature = "net")]
+#[test]
+fn native_xsh_net_job_cancel_keeps_https_http2_pool_healthy() {
+    let server = LocalHttpsHttp2CancellationServer::spawn();
+    let ca = temp_path("native-xsh-net-h2-cancel-ca.pem");
+    let _ = std::fs::remove_file(&ca);
+    std::fs::write(&ca, LOCAL_HTTPS_CA).expect("write local HTTPS CA");
+    let output = run_native_xsh_test(
+        "tests/xsh/stdlib/net.xsh::test_net_job_cancel_keeps_h2_siblings_and_pool_healthy",
+        &[
+            ("XSH_NET_TEST_H2_CANCEL_URL", &server.url),
+            ("XSH_NET_TEST_CA", ca.to_str().expect("CA path is UTF-8")),
+        ],
+        false,
+    );
+    let summary = server.join();
+
+    assert_native_xsh_test(
+        "test_net_job_cancel_keeps_h2_siblings_and_pool_healthy",
+        output,
+    );
+    assert_eq!(summary.handled, 4);
     let _ = std::fs::remove_file(ca);
 }
 
@@ -2438,6 +2587,267 @@ fn local_dns_response(request: &[u8]) -> Vec<u8> {
     response
 }
 
+/// Coordinates two separate connections so the `/sync` response can only be
+/// written after the independently submitted `/job` transport has progressed.
+/// This tests driver progress while the evaluator checkpoint-waits in a normal
+/// synchronous network call without using elapsed-time guesses.
+#[cfg(feature = "net")]
+struct ConcurrentProgressServer {
+    url: String,
+    handle: std::thread::JoinHandle<()>,
+}
+
+#[cfg(feature = "net")]
+impl ConcurrentProgressServer {
+    fn spawn() -> Self {
+        let listener =
+            std::net::TcpListener::bind("127.0.0.1:0").expect("bind concurrent-progress listener");
+        listener
+            .set_nonblocking(true)
+            .expect("set concurrent-progress listener nonblocking");
+        let addr = listener
+            .local_addr()
+            .expect("concurrent-progress listener address");
+        let (job_started_tx, job_started_rx) = crossbeam_channel::bounded(1);
+        let (sync_started_tx, sync_started_rx) = crossbeam_channel::bounded(1);
+        let (job_response_sent_tx, job_response_sent_rx) = crossbeam_channel::bounded(1);
+        let handle = std::thread::spawn(move || {
+            let deadline = Instant::now() + Duration::from_secs(10);
+            let mut workers = Vec::new();
+            while workers.len() < 2 && Instant::now() < deadline {
+                match listener.accept() {
+                    Ok((stream, _)) => {
+                        let job_started_tx = job_started_tx.clone();
+                        let job_started_rx = job_started_rx.clone();
+                        let sync_started_tx = sync_started_tx.clone();
+                        let sync_started_rx = sync_started_rx.clone();
+                        let job_response_sent_tx = job_response_sent_tx.clone();
+                        let job_response_sent_rx = job_response_sent_rx.clone();
+                        workers.push(std::thread::spawn(move || {
+                            handle_concurrent_progress_connection(
+                                stream,
+                                job_started_tx,
+                                job_started_rx,
+                                sync_started_tx,
+                                sync_started_rx,
+                                job_response_sent_tx,
+                                job_response_sent_rx,
+                            );
+                        }));
+                    }
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        std::thread::sleep(Duration::from_millis(5));
+                    }
+                    Err(error) => panic!("accept concurrent-progress connection: {error}"),
+                }
+            }
+            assert_eq!(
+                workers.len(),
+                2,
+                "concurrent-progress fixture did not receive both requests"
+            );
+            for worker in workers {
+                worker.join().expect("concurrent-progress worker");
+            }
+        });
+        Self {
+            url: format!("http://{addr}"),
+            handle,
+        }
+    }
+
+    fn join(self) {
+        self.handle.join().expect("concurrent-progress server");
+    }
+}
+
+#[cfg(feature = "net")]
+fn handle_concurrent_progress_connection(
+    mut stream: std::net::TcpStream,
+    job_started_tx: crossbeam_channel::Sender<()>,
+    job_started_rx: crossbeam_channel::Receiver<()>,
+    sync_started_tx: crossbeam_channel::Sender<()>,
+    sync_started_rx: crossbeam_channel::Receiver<()>,
+    job_response_sent_tx: crossbeam_channel::Sender<()>,
+    job_response_sent_rx: crossbeam_channel::Receiver<()>,
+) {
+    stream
+        .set_read_timeout(Some(Duration::from_secs(10)))
+        .expect("set concurrent-progress read timeout");
+    let reader_stream = stream
+        .try_clone()
+        .expect("clone concurrent-progress stream");
+    let mut reader = BufReader::new(reader_stream);
+    let mut request_line = String::new();
+    reader
+        .read_line(&mut request_line)
+        .expect("read concurrent-progress request line");
+    let path = request_line
+        .split_whitespace()
+        .nth(1)
+        .expect("concurrent-progress request path");
+    loop {
+        let mut header = String::new();
+        reader
+            .read_line(&mut header)
+            .expect("read concurrent-progress request header");
+        if header == "\r\n" || header == "\n" || header.is_empty() {
+            break;
+        }
+    }
+
+    match path {
+        "/job" => {
+            job_started_tx
+                .send(())
+                .expect("signal concurrent job request");
+            sync_started_rx
+                .recv_timeout(Duration::from_secs(5))
+                .expect("synchronous request starts before job response");
+            write_concurrent_progress_response(&mut stream, "job");
+            job_response_sent_tx
+                .send(())
+                .expect("signal concurrent job response");
+        }
+        "/sync" => {
+            sync_started_tx
+                .send(())
+                .expect("signal concurrent synchronous request");
+            job_started_rx
+                .recv_timeout(Duration::from_secs(5))
+                .expect("background job starts while synchronous request waits");
+            job_response_sent_rx
+                .recv_timeout(Duration::from_secs(5))
+                .expect("background job response is released before synchronous response");
+            write_concurrent_progress_response(&mut stream, "sync");
+        }
+        path => panic!("unexpected concurrent-progress path {path}"),
+    }
+}
+
+#[cfg(feature = "net")]
+fn write_concurrent_progress_response(stream: &mut std::net::TcpStream, body: &str) {
+    let response = format!(
+        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+        body.len()
+    );
+    stream
+        .write_all(response.as_bytes())
+        .expect("write concurrent-progress response");
+    stream.flush().expect("flush concurrent-progress response");
+}
+
+#[cfg(feature = "net")]
+struct BatchBarrierServer {
+    url: String,
+    events: crossbeam_channel::Receiver<String>,
+    release_a_tx: crossbeam_channel::Sender<()>,
+    handle: std::thread::JoinHandle<()>,
+}
+
+#[cfg(feature = "net")]
+impl BatchBarrierServer {
+    fn spawn() -> Self {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind batch barrier");
+        listener
+            .set_nonblocking(true)
+            .expect("set batch barrier nonblocking");
+        let addr = listener.local_addr().expect("batch barrier address");
+        let (event_tx, events) = crossbeam_channel::unbounded();
+        let (release_a_tx, release_a_rx) = crossbeam_channel::bounded(1);
+        let handle = std::thread::spawn(move || {
+            let deadline = Instant::now() + Duration::from_secs(10);
+            let mut workers = Vec::new();
+            while workers.len() < 3 && Instant::now() < deadline {
+                match listener.accept() {
+                    Ok((stream, _)) => {
+                        let event_tx = event_tx.clone();
+                        let release_a_rx = release_a_rx.clone();
+                        workers.push(std::thread::spawn(move || {
+                            handle_batch_barrier_connection(stream, event_tx, release_a_rx);
+                        }));
+                    }
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        std::thread::sleep(Duration::from_millis(5));
+                    }
+                    Err(error) => panic!("accept batch barrier connection: {error}"),
+                }
+            }
+            assert_eq!(
+                workers.len(),
+                3,
+                "batch barrier did not receive all connections"
+            );
+            for worker in workers {
+                worker.join().expect("batch barrier worker");
+            }
+        });
+        Self {
+            url: format!("http://{addr}"),
+            events,
+            release_a_tx,
+            handle,
+        }
+    }
+
+    fn release_a(&self) {
+        self.release_a_tx.send(()).expect("release gated request A");
+    }
+
+    fn join(self) {
+        self.handle.join().expect("batch barrier server");
+    }
+}
+
+#[cfg(feature = "net")]
+fn handle_batch_barrier_connection(
+    mut stream: std::net::TcpStream,
+    event_tx: crossbeam_channel::Sender<String>,
+    release_a_rx: crossbeam_channel::Receiver<()>,
+) {
+    stream
+        .set_read_timeout(Some(Duration::from_secs(10)))
+        .expect("set batch barrier read timeout");
+    let reader_stream = stream.try_clone().expect("clone batch barrier stream");
+    let mut reader = BufReader::new(reader_stream);
+    let mut request_line = String::new();
+    reader
+        .read_line(&mut request_line)
+        .expect("read batch barrier request line");
+    let path = request_line
+        .split_whitespace()
+        .nth(1)
+        .expect("batch barrier request path")
+        .to_string();
+    loop {
+        let mut header = String::new();
+        reader
+            .read_line(&mut header)
+            .expect("read batch barrier header");
+        if header == "\r\n" || header == "\n" || header.is_empty() {
+            break;
+        }
+    }
+    event_tx
+        .send(path.clone())
+        .expect("send batch barrier event");
+    if path == "/gate-a" {
+        release_a_rx
+            .recv_timeout(Duration::from_secs(10))
+            .expect("release gated request A");
+    }
+    let body = path.trim_start_matches('/').as_bytes();
+    let response = format!(
+        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+        body.len(),
+        path.trim_start_matches('/'),
+    );
+    stream
+        .write_all(response.as_bytes())
+        .expect("write batch barrier response");
+    stream.flush().expect("flush batch barrier response");
+}
+
 #[cfg(feature = "net")]
 struct LocalHttpServer {
     url: String,
@@ -2587,6 +2997,23 @@ fn handle_local_http_connection(
         let response = local_http_response(&request);
         request_tx.send(request).expect("send HTTP request");
         handled.fetch_add(1, Ordering::SeqCst);
+        if path == "/slow-body" {
+            stream
+                .write_all(
+                    b"HTTP/1.1 200 OK\r\nContent-Length: 11\r\nConnection: close\r\n\r\nfirst",
+                )
+                .expect("write first slow body frame");
+            stream.flush().expect("flush first slow body frame");
+            std::thread::sleep(Duration::from_millis(200));
+            if let Err(error) = stream.write_all(b"second") {
+                if local_http_connection_closed(&error) {
+                    break;
+                }
+                panic!("write second slow body frame: {error}");
+            }
+            let _ = stream.flush();
+            continue;
+        }
         if path == "/slow" {
             std::thread::sleep(Duration::from_millis(200));
         }
@@ -2675,6 +3102,37 @@ fn local_http_response(request: &LocalHttpRequest) -> String {
     response.push_str("\r\n");
     response.push_str(&String::from_utf8_lossy(&body));
     response
+}
+
+#[cfg(feature = "net")]
+struct LocalTlsStallServer {
+    url: String,
+    handle: std::thread::JoinHandle<()>,
+}
+
+#[cfg(feature = "net")]
+impl LocalTlsStallServer {
+    fn spawn() -> Self {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind TLS stall listener");
+        let address = listener.local_addr().expect("TLS stall listener address");
+        let handle = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept TLS stall connection");
+            stream
+                .set_read_timeout(Some(Duration::from_secs(1)))
+                .expect("set TLS stall read timeout");
+            let mut client_hello = [0_u8; 1];
+            let _ = stream.read(&mut client_hello);
+            std::thread::sleep(Duration::from_millis(150));
+        });
+        Self {
+            url: format!("https://{address}"),
+            handle,
+        }
+    }
+
+    fn join(self) {
+        self.handle.join().expect("join TLS stall server");
+    }
 }
 
 #[cfg(feature = "net")]
@@ -2869,8 +3327,7 @@ impl LocalHttpsHttp2Server {
                         .expect("send HTTPS H2 body");
                 }
                 connection.graceful_shutdown();
-                let close_result =
-                    std::future::poll_fn(|cx| connection.poll_closed(cx)).await;
+                let close_result = std::future::poll_fn(|cx| connection.poll_closed(cx)).await;
                 if let Err(error) = close_result {
                     let peer_closed = error.get_io().is_some_and(|io| {
                         matches!(
@@ -2893,6 +3350,153 @@ impl LocalHttpsHttp2Server {
 
     fn join(self) -> LocalHttpsSummary {
         self.handle.join().expect("HTTPS H2 server")
+    }
+}
+
+#[cfg(feature = "net")]
+struct LocalHttpsHttp2CancellationServer {
+    url: String,
+    handle: std::thread::JoinHandle<LocalHttpsSummary>,
+}
+
+#[cfg(feature = "net")]
+impl LocalHttpsHttp2CancellationServer {
+    fn spawn() -> Self {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0")
+            .expect("bind HTTPS H2 cancellation listener");
+        let addr = listener
+            .local_addr()
+            .expect("HTTPS H2 cancellation listener addr");
+        let url = format!("https://{addr}");
+        let mut config = local_https_config();
+        config.alpn_protocols = vec![b"h2".to_vec()];
+        let config = Arc::new(config);
+        let handle = std::thread::spawn(move || {
+            async_io::block_on(async move {
+                let (stream, _) = listener
+                    .accept()
+                    .expect("accept HTTPS H2 cancellation connection");
+                let stream =
+                    async_io::Async::new(stream).expect("make HTTPS H2 cancellation stream async");
+                let acceptor = futures_rustls::TlsAcceptor::from(config);
+                let stream = acceptor
+                    .accept(stream)
+                    .await
+                    .expect("accept HTTPS H2 cancellation TLS");
+                let mut connection = h2::server::handshake(stream)
+                    .await
+                    .expect("HTTPS H2 cancellation handshake");
+
+                let (warm, mut respond) = connection
+                    .accept()
+                    .await
+                    .expect("HTTPS H2 warm request result")
+                    .expect("HTTPS H2 warm request");
+                assert_eq!(warm.version(), http::Version::HTTP_2);
+                assert_eq!(warm.uri().path(), "/warm");
+                let mut warm_body = respond
+                    .send_response(
+                        http::Response::builder()
+                            .status(200)
+                            .body(())
+                            .expect("HTTPS H2 warm response"),
+                        false,
+                    )
+                    .expect("send HTTPS H2 warm response");
+                warm_body
+                    .send_data(bytes::Bytes::from_static(b"warm"), true)
+                    .expect("send HTTPS H2 warm body");
+
+                let mut slow_body = None;
+                let mut fast_respond = None;
+                for _ in 0..2 {
+                    let (request, mut respond) = connection
+                        .accept()
+                        .await
+                        .expect("HTTPS H2 sibling request result")
+                        .expect("HTTPS H2 sibling request");
+                    assert_eq!(request.version(), http::Version::HTTP_2);
+                    match request.uri().path() {
+                        "/slow" => {
+                            slow_body = Some(
+                                respond
+                                    .send_response(
+                                        http::Response::builder()
+                                            .status(200)
+                                            .body(())
+                                            .expect("HTTPS H2 slow response"),
+                                        false,
+                                    )
+                                    .expect("send HTTPS H2 slow response"),
+                            );
+                        }
+                        "/fast" => fast_respond = Some(respond),
+                        path => panic!("unexpected HTTPS H2 sibling path {path}"),
+                    }
+                }
+                assert!(slow_body.is_some(), "missing stalled HTTPS H2 stream");
+                let mut fast_body = fast_respond
+                    .expect("missing fast HTTPS H2 stream")
+                    .send_response(
+                        http::Response::builder()
+                            .status(200)
+                            .body(())
+                            .expect("HTTPS H2 fast response"),
+                        false,
+                    )
+                    .expect("send HTTPS H2 fast response");
+                fast_body
+                    .send_data(bytes::Bytes::from_static(b"fast"), true)
+                    .expect("send HTTPS H2 fast body");
+
+                let (later, mut respond) = connection
+                    .accept()
+                    .await
+                    .expect("HTTPS H2 later request result")
+                    .expect("HTTPS H2 later request");
+                assert_eq!(later.version(), http::Version::HTTP_2);
+                assert_eq!(later.uri().path(), "/later");
+                let mut later_body = respond
+                    .send_response(
+                        http::Response::builder()
+                            .status(200)
+                            .body(())
+                            .expect("HTTPS H2 later response"),
+                        false,
+                    )
+                    .expect("send HTTPS H2 later response");
+                later_body
+                    .send_data(bytes::Bytes::from_static(b"later"), true)
+                    .expect("send HTTPS H2 later body");
+
+                drop(slow_body);
+                connection.graceful_shutdown();
+                let close_result = std::future::poll_fn(|cx| connection.poll_closed(cx)).await;
+                if let Err(error) = close_result {
+                    let peer_closed = error.get_io().is_some_and(|io| {
+                        matches!(
+                            io.kind(),
+                            std::io::ErrorKind::BrokenPipe
+                                | std::io::ErrorKind::ConnectionReset
+                                | std::io::ErrorKind::UnexpectedEof
+                        )
+                    });
+                    assert!(
+                        peer_closed,
+                        "close HTTPS H2 cancellation connection: {error:?}"
+                    );
+                }
+            });
+            LocalHttpsSummary {
+                handled: 4,
+                alpn_protocols: vec![Some(b"h2".to_vec())],
+            }
+        });
+        Self { url, handle }
+    }
+
+    fn join(self) -> LocalHttpsSummary {
+        self.handle.join().expect("HTTPS H2 cancellation server")
     }
 }
 

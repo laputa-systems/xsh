@@ -324,7 +324,7 @@ impl Evaluator {
                             }
                         }
                         sender
-                            .send((chunk_index, results, worker.stderr))
+                            .send((chunk_index, results, std::mem::take(&mut worker.stderr)))
                             .expect("lowered par-map receiver dropped");
                     })
                     .expect("failed to spawn lowered par-map worker");
@@ -563,7 +563,7 @@ impl Evaluator {
                             }
                             Ok::<_, RuntimeError>(groups)
                         })();
-                        (chunk_index, result, worker.stderr)
+                        (chunk_index, result, std::mem::take(&mut worker.stderr))
                     })
                     .expect("failed to spawn fused par-map worker");
                 workers.push(worker);
@@ -6218,7 +6218,37 @@ impl Evaluator {
         let (_, statements) = execution
             .block_id(block, BLOCK_STATEMENTS)
             .map_err(|error| indexed_error(error, call_span))?;
-        self.eval_indexed_stmts(execution, statements, header, slots, call_span)
+        let scope_id = self.enter_owned_host_scope();
+        let parent_scope = self.parent_owned_host_scope();
+        let result = self.eval_indexed_stmts(execution, statements, header, slots, call_span);
+
+        // A returned or value-carrying break can cross this lexical block. Its
+        // opaque host resources must survive the block cleanup with the parent.
+        if let Ok(flow) = &result {
+            match flow {
+                StmtFlow::Return(value) => self.transfer_owned_host_resources_in_value(
+                    &value.clone().into_value(),
+                    scope_id,
+                    parent_scope,
+                ),
+                StmtFlow::Break(Some(value)) => self.transfer_owned_host_resources_in_value(
+                    &value.clone().into_value(),
+                    scope_id,
+                    parent_scope,
+                ),
+                StmtFlow::None
+                | StmtFlow::Propagate(_)
+                | StmtFlow::Break(None)
+                | StmtFlow::Continue => {}
+            }
+        }
+
+        let cleanup = self.exit_owned_host_scope(scope_id);
+        match (result, cleanup) {
+            (Err(error), _) => Err(error),
+            (Ok(_), Err(error)) => Err(error),
+            (Ok(flow), Ok(())) => Ok(flow),
+        }
     }
 
     fn eval_indexed_optional_statement_block(

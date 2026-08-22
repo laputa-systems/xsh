@@ -881,6 +881,7 @@ fn coverage_receiver_name(receiver: MethodReceiver) -> &'static str {
         MethodReceiver::Digest => "Digest",
         MethodReceiver::Regex => "Regex",
         MethodReceiver::ProcessHandle => "ProcessHandle",
+        MethodReceiver::NetJob => "NetJob",
     }
 }
 

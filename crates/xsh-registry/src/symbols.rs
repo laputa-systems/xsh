@@ -119,6 +119,7 @@ fn collect_type_symbols(ty: &Type, output: &mut BTreeSet<String>) {
         | Type::Proc
         | Type::Command
         | Type::ProcessHandle
+        | Type::NetJob
         | Type::Unit => {}
     }
 }
@@ -278,6 +279,7 @@ mod tests {
             | Type::Proc
             | Type::Command
             | Type::ProcessHandle
+            | Type::NetJob
             | Type::Unit => {}
         }
     }

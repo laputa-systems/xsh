@@ -82,6 +82,7 @@ use super::modules::{
     test_contains_value, test_error_kind, test_failure, test_mock_expected_return_type,
     test_temp_path, test_value_matches_type,
 };
+use super::net_job::NetJobTask;
 use super::{
     Binding, DynamicFunction, Evaluator, Flow, FsRootHandle, FunctionHeader, LoweredCompTarget,
     LoweredFunctionKey, LoweredFunctionKind, LoweredModuleExportKind, LoweredReturnKind,
@@ -5921,6 +5922,89 @@ impl Evaluator {
                 self.net_agents.clear();
                 lowered_result_ok(LoweredValue::Unit)
             }
+            RuntimeOp::NetStart if values.len() == 1 => {
+                let record = lowered_record_arg(values.pop(), "net.start", span)?;
+                let request = self.net_request_from_record(record.clone(), span)?;
+                if let Err(error) = net_module::validate_request(&request, span) {
+                    return Ok(ControlFlow::Continue(lowered_result_err_value(error)));
+                }
+                let reservation = request.max_body_bytes;
+                if let Some(value) =
+                    intercept_test_host_call(self, "net.start", record.clone(), span)
+                {
+                    match value {
+                        Value::Result(crate::runtime::value::ResultValue::Ok(response)) => {
+                            match self.admit_net_job(reservation, span) {
+                                Ok(()) => {
+                                    let handle = self.net_job_value(
+                                        NetJobTask::Completed(Ok(*response)),
+                                        span,
+                                        reservation,
+                                    );
+                                    lowered_result_ok(LoweredValue::NetJob(Box::new(handle)))
+                                }
+                                Err(error) => lowered_result_err_value(error),
+                            }
+                        }
+                        Value::Result(crate::runtime::value::ResultValue::Err(error)) => {
+                            lowered_result_err_value(runtime_error_from_value(*error, span))
+                        }
+                        _ => lowered_result_err_value(
+                            RuntimeError::new(
+                                "test-mock",
+                                "net.start mock must return Result[NetResponse]",
+                            )
+                            .with_span(span),
+                        ),
+                    }
+                } else {
+                    #[cfg(feature = "net")]
+                    {
+                        let options = self.net_call_options(&record, span)?;
+                        match self.net_agent(&options, span) {
+                            Ok(agent) => {
+                                if let Err(error) = self.admit_net_job(reservation, span) {
+                                    return Ok(ControlFlow::Continue(lowered_result_err_value(
+                                        error,
+                                    )));
+                                }
+                                let runtime = self
+                                    .net_runtime
+                                    .as_mut()
+                                    .expect("net agent initializes runtime");
+                                match net_module::submit_request(
+                                    runtime,
+                                    agent,
+                                    request,
+                                    net_module::NetProtocol::Auto,
+                                    span,
+                                ) {
+                                    Ok(operation) => {
+                                        let handle = self.net_job_value(
+                                            NetJobTask::Transport(operation),
+                                            span,
+                                            reservation,
+                                        );
+                                        lowered_result_ok(LoweredValue::NetJob(Box::new(handle)))
+                                    }
+                                    Err(error) => {
+                                        self.release_net_job_admission(reservation);
+                                        lowered_result_err_value(error)
+                                    }
+                                }
+                            }
+                            Err(error) => lowered_result_err_value(error),
+                        }
+                    }
+                    #[cfg(not(feature = "net"))]
+                    {
+                        lowered_result_err_value(
+                            RuntimeError::new("net-disabled", "net feature is disabled")
+                                .with_span(span),
+                        )
+                    }
+                }
+            }
             RuntimeOp::NetRequest if values.len() == 1 => {
                 let record = lowered_record_arg(values.pop(), "net.request", span)?;
                 if let Some(value) =
@@ -5930,11 +6014,33 @@ impl Evaluator {
                 } else {
                     let options = self.net_call_options(&record, span)?;
                     let request = self.net_request_from_record(record, span)?;
+                    if let Err(error) = net_module::validate_request(&request, span) {
+                        return Ok(ControlFlow::Continue(lowered_result_err_value(error)));
+                    }
                     match self.net_agent(&options, span) {
-                        Ok(agent) => match net_module::request(&agent, request, span) {
-                            Ok(value) => lowered_runtime_value(value, span)?,
-                            Err(error) => lowered_result_err_value(error),
-                        },
+                        Ok(agent) => {
+                            let runtime = self
+                                .net_runtime
+                                .as_mut()
+                                .expect("net agent initializes runtime");
+                            match net_module::submit_request(
+                                runtime,
+                                agent,
+                                request,
+                                net_module::NetProtocol::Http1,
+                                span,
+                            ) {
+                                Ok(operation) => match self
+                                    .wait_transport_operation(&operation, span, span, true)
+                                {
+                                    Ok(response) => {
+                                        lowered_runtime_value(Value::ok(response), span)?
+                                    }
+                                    Err(error) => lowered_result_err_value(error),
+                                },
+                                Err(error) => lowered_result_err_value(error),
+                            }
+                        }
                         Err(error) => lowered_result_err_value(error),
                     }
                 }
@@ -6002,7 +6108,8 @@ impl Evaluator {
                     let options = self.net_call_options(&batch, span)?;
                     match self.net_agent(&options, span) {
                         Ok(agent) => {
-                            match net_module::request_many(&agent, requests, concurrency, span) {
+                            match self.request_many_with_runtime(agent, requests, concurrency, span)
+                            {
                                 Ok(value) => lowered_runtime_value(value, span)?,
                                 Err(error) => lowered_result_err_value(error),
                             }
@@ -6073,12 +6180,15 @@ impl Evaluator {
                     }
                     let options = self.net_call_options(&batch, span)?;
                     match self.net_agent(&options, span) {
-                        Ok(agent) => {
-                            match net_module::download_many(&agent, downloads, concurrency, span) {
-                                Ok(value) => lowered_runtime_value(value, span)?,
-                                Err(error) => lowered_result_err_value(error),
-                            }
-                        }
+                        Ok(agent) => match self.download_many_with_runtime(
+                            agent,
+                            downloads,
+                            concurrency,
+                            span,
+                        ) {
+                            Ok(value) => lowered_runtime_value(value, span)?,
+                            Err(error) => lowered_result_err_value(error),
+                        },
                         Err(error) => lowered_result_err_value(error),
                     }
                 }
@@ -6092,11 +6202,33 @@ impl Evaluator {
                 } else {
                     let options = self.net_call_options(&record, span)?;
                     let download = self.net_download_from_record(record, span)?;
+                    if let Err(error) = net_module::validate_download(&download, span) {
+                        return Ok(ControlFlow::Continue(lowered_result_err_value(error)));
+                    }
                     match self.net_agent(&options, span) {
-                        Ok(agent) => match net_module::download(&agent, download, span) {
-                            Ok(value) => lowered_runtime_value(value, span)?,
-                            Err(error) => lowered_result_err_value(error),
-                        },
+                        Ok(agent) => {
+                            let runtime = self
+                                .net_runtime
+                                .as_mut()
+                                .expect("net agent initializes runtime");
+                            match net_module::submit_download(
+                                runtime,
+                                agent,
+                                download,
+                                net_module::NetProtocol::Http1,
+                                span,
+                            ) {
+                                Ok(operation) => match self
+                                    .wait_transport_operation(&operation, span, span, true)
+                                {
+                                    Ok(response) => {
+                                        lowered_runtime_value(Value::ok(response), span)?
+                                    }
+                                    Err(error) => lowered_result_err_value(error),
+                                },
+                                Err(error) => lowered_result_err_value(error),
+                            }
+                        }
                         Err(error) => lowered_result_err_value(error),
                     }
                 }
@@ -6110,11 +6242,27 @@ impl Evaluator {
                 } else {
                     let options = self.net_call_options(&record, span)?;
                     let upload = self.net_upload_from_record(record, span)?;
+                    if let Err(error) = net_module::validate_upload(&upload, span) {
+                        return Ok(ControlFlow::Continue(lowered_result_err_value(error)));
+                    }
                     match self.net_agent(&options, span) {
-                        Ok(agent) => match net_module::upload(&agent, upload, span) {
-                            Ok(value) => lowered_runtime_value(value, span)?,
-                            Err(error) => lowered_result_err_value(error),
-                        },
+                        Ok(agent) => {
+                            let runtime = self
+                                .net_runtime
+                                .as_mut()
+                                .expect("net agent initializes runtime");
+                            match net_module::submit_upload(runtime, agent, upload, span) {
+                                Ok(operation) => match self
+                                    .wait_transport_operation(&operation, span, span, true)
+                                {
+                                    Ok(response) => {
+                                        lowered_runtime_value(Value::ok(response), span)?
+                                    }
+                                    Err(error) => lowered_result_err_value(error),
+                                },
+                                Err(error) => lowered_result_err_value(error),
+                            }
+                        }
                         Err(error) => lowered_result_err_value(error),
                     }
                 }
@@ -10316,6 +10464,30 @@ impl Evaluator {
                         Some(&error),
                     );
                     lowered_result_err_value(run_error_to_runtime(error, *span))
+                }
+            };
+            return Ok(ControlFlow::Continue(value));
+        }
+        if let LoweredValue::NetJob(handle) = &receiver
+            && values.is_empty()
+        {
+            let value = match name {
+                "wait" => match self.wait_net_job((**handle).clone(), *span) {
+                    Ok(response) => lowered_runtime_value(Value::ok(response), *span)?,
+                    Err(error) => lowered_result_err_value(error),
+                },
+                "cancel" => match self.cancel_net_job((**handle).clone(), *span) {
+                    Ok(()) => lowered_result_ok(LoweredValue::Unit),
+                    Err(error) => lowered_result_err_value(error),
+                },
+                _ => {
+                    return Ok(ControlFlow::Continue(lowered_result_err_value(
+                        RuntimeError::new(
+                            "unknown-method",
+                            format!("NetJob has no method `{name}`"),
+                        )
+                        .with_span(*span),
+                    )));
                 }
             };
             return Ok(ControlFlow::Continue(value));

@@ -67,19 +67,43 @@ translate records and paths into plain Rust request structs, convert crate
 results back into `Value`/`RuntimeError`, preserve source spans, honor test
 mocks, and manage evaluator-owned pool state.
 
-`net.request`, `net.download`, and `net.upload` are blocking host calls backed
-by a persistent HTTP/1.1 h12 client in each evaluator-owned named pool.
-`net.request_many` and `net.download_many` are bounded transport capabilities:
-the former buffers response bodies, while the latter streams directly to caller
-destinations. Each batch owns a fresh h12 client and can select HTTP/2 only when
-HTTPS ALPN negotiates `h2`; otherwise it uses HTTP/1.1. The HTTP dialer resolves
-hostnames asynchronously, supplies its nonblocking streams through h12tiny's TCP
-dialer hook, then drives the client on the host-call executor without exposing futures, callbacks,
-`await`, a process-wide event loop, or evaluator worker threads. Tokio,
-`hyper-util`, and `hyper-rustls` are intentionally absent from this boundary.
-The relevant grep targets are `request_many`, `download_many`, `h12_client`,
-`ResolvedTcpDialer`, `native_xsh_net_single_calls_force_https_http1`, and
-`net_module_request_many_negotiates_local_https_http2`.
+Each evaluator owns at most one lazy `NetRuntimeOwner` in
+`src/runtime/eval.rs`. It owns one `async_executor::Executor`, a named parked
+driver thread, bounded transport admission, terminal completions, cancellation,
+and two lazy bounded network-file workers. It receives only plain Rust request,
+download, upload, client, and completion data; it never receives `Evaluator`,
+`Value`, scopes, source spans, trace buffers, or signal hooks. The networking
+driver advances transport work only; it cannot execute XSH code.
+
+`NetAgent` is a pool-policy bundle, not an executor owner. Every
+`NetAgentKey` has persistent H1-only and auto H1/H2 h12 clients sharing its
+evaluator runtime. `net.request`, `net.download`, and `net.upload` submit an
+internal H1 operation and wait through evaluator checkpoints. Batches and
+`net.start` submit auto-protocol operations; batches retain only their active
+completion-driven window and reuse the persistent auto client across calls.
+File-backed request bodies, upload sources, and download destinations complete
+their bounded file-lane preparation before entering active transport admission.
+This keeps a blocked filesystem operation admitted but out of the 32 scarce
+DNS/socket/TLS permits. `NetJob` IDs, lexical ownership, result-capacity
+reservations, trace events, and signal decisions remain in
+`src/runtime/eval/net_job.rs`, on the evaluator side of the boundary. The
+runtime records only safe timestamps, status, byte counts, and terminal error
+kinds; the evaluator materializes `net.job.*` and `net.transport.*` events, so
+the driver never mutates trace storage or retains request secrets.
+
+`h12tiny-client` receives one `RequestOptions` value per dispatch, never in a
+pool key. It owns TLS/ALPN and response-header phase races; XSH's
+`ResolvedTcpDialer` receives the same options and owns platform DNS plus the
+aggregate resolved-address TCP race. `timeout` remains an XSH driver deadline
+from admission onward, including file preparation and scheduler queueing.
+
+The runtime wake socket and file-completion sockets are nonblocking and
+close-on-exec. Owner teardown cancels remaining jobs, rejects further work,
+joins the driver and file workers, and drops agents. The relevant grep targets
+are `NetRuntimeOwner`, `NetOperation`, `request_many_with_runtime`,
+`NetJobTask`, `h12_client`, `ResolvedTcpDialer`, and
+`native_xsh_net_single_calls_force_https_http1`. Tokio, `hyper-util`, and
+`hyper-rustls` are intentionally absent from this boundary.
 
 There is no JIT, green-thread scheduler, or async task runtime in the execution
 path. The checked arena is lowered into a compact verified indexed store before

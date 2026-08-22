@@ -2143,42 +2143,82 @@ when the field is absent.
 - `net.download(request: Record) -> Result[Record]`.
 - `net.download_many(batch: Record) -> Result[List[Result[Record]]]`.
 - `net.upload(request: Record) -> Result[Record]`.
+- `net.start(request: Record) -> Result[NetJob]`.
 
 `net` supports HTTP and HTTPS only. XSH keeps its record adapters, redirect and
 body-limit policy, and evaluator-owned named pools, while `h12tiny-client`
 owns HTTP framing, handshakes, ALPN, and connection reuse. Each named pool has
 a persistent HTTP/1.1 h12 client for `net.request`, `net.download`, and
 `net.upload`, with at most eight idle connections per origin and a 90-second
-idle timeout by default. `net.request_many` and `net.download_many` create a
-fresh bounded h12 client for each batch, which offers HTTP/2 and HTTP/1.1 over
-HTTPS and falls back to HTTP/1.1 when ALPN does not select `h2`. Both use Rustls
-with the Rust-only Graviola `CryptoProvider`, keyed by caller-visible pool name
-and TLS configuration. On Linux, certificate validation reads the `SSL_CERT_FILE`
-and `SSL_CERT_DIR` overrides when set; otherwise it loads PEM roots from
-standard locations including `/etc/ssl/certs`. On macOS, the platform verifier
-remains a target-specific dependency so Keychain trust evaluation is preserved;
-it is not the TLS `CryptoProvider` and does not add a C/C++ build dependency.
-`Cargo.lock` retains upstream target- or feature-conditional `ring` and
-`openssl-probe` entries, but Cargo does not select or build either for XSH's
-normal Linux or macOS graphs. Removing those lockfile-only records would require
-an upstream manifest change rather than a project TLS dependency.
-HTTP hostnames are resolved asynchronously by the XSH network dialer through the
-platform resolver. XSH supplies h12tiny's TCP dialer hook with explicitly
-resolved nonblocking sockets; h12tiny retains TLS, ALPN, protocol selection,
-handshakes, and pooling. The `dns` module's explicit lookup APIs retain their
-separate resolver and timeout behavior.
-TLS verification is enabled by default with platform verification, honors
-`SSL_CERT_FILE`, accepts an explicit `ca_certificate: Path`, and allows
-`tls_verify: false` only through an explicit request field.
+idle timeout by default. The same agent also owns a persistent auto HTTP/1.1 or
+HTTP/2 client for `net.request_many`, `net.download_many`, and `net.start`.
+Agents are keyed by complete pool and TLS policy. Closing or reconfiguring a
+pool retires only those agent entries: accepted work retains its client clone
+and may finish, while a later call constructs a new generation.
 
-`net.request` accepts a request record with `method: Str`, `url: Str`,
+Each evaluator lazily owns one private network runtime. A real accepted
+transport operation starts its named driver; `net.pool`, pool closure, mocks,
+invalid input, and disabled-network builds do not. The driver advances only
+DNS, sockets, TLS, HTTP, timers, and its bounded network-specific file lane; it
+cannot evaluate XSH code, run signal hooks, or invoke callbacks. The runtime
+admits at most 32 active and 128 pending transport operations. Its two lazy file
+workers prepare file request bodies and upload sources and perform download
+writes, cleanup, and atomic finalization without blocking the transport driver.
+File-backed request bodies, upload sources, and download destinations are
+prepared through that lane before an active transport permit is acquired.
+
+Single calls remain synchronous XSH operations and use the H1-only client. They
+submit an internal operation then checkpoint while waiting, so pending signals
+can cancel and terminally drain the transport. Batches use the auto client and a
+completion-driven sliding window: at most `concurrency` inputs are submitted,
+the next input starts as soon as any item completes, and results remain in input
+order. Ordinary per-item transport failures remain inner `Result` values;
+malformed batch records, evaluator cancellation, and runtime failure are outer
+errors. Separate batch calls reuse the pool's auto client rather than creating a
+fresh client.
+
+`NetJob` is an opaque, evaluator-owned host resource. `NetJob.wait()` returns
+the same response record as `net.request`; `NetJob.cancel()` returns `Unit` only
+after a terminal outcome has been recorded. Both require the `net` effect. A
+handle aliases its numeric job ID, and the first wait or cancel consumes it;
+later aliases return `net-job-not-live`. Jobs transfer through ordinary returned
+or assigned composite values, and a nonescaping job is canceled and drained
+during scope cleanup. Up to 64 live jobs and 64 MiB of conservatively reserved
+response capacity are admitted per evaluator. `NetJob` cannot be serialized,
+cached, converted to a command argument, or constructed directly. Native
+`test.mock(ctx, "net.start", request, Ok(response))` creates an owned completed
+job without starting the transport driver.
+
+Structured traces correlate a network job by its opaque job ID. The evaluator
+emits `net.job.accepted`, `net.job.scheduled`, `net.transport.started`,
+`net.transport.completed`, and the consuming wait, cancel, or cleanup event.
+They contain safe timing, status, byte-count, and structured error-kind fields
+only; a consuming wait, cancel, lexical cleanup, or shutdown cancellation is
+recorded separately. Request and response bodies, headers, query strings, credentials, and
+filesystem contents are never retained for tracing.
+
+Both client policies use Rustls with the Rust-only Graviola `CryptoProvider`,
+keyed by caller-visible pool name and TLS configuration. On Linux, certificate
+validation reads the `SSL_CERT_FILE` and `SSL_CERT_DIR` overrides when set;
+otherwise it loads PEM roots from standard locations including `/etc/ssl/certs`.
+On macOS, the platform verifier remains a target-specific dependency so Keychain
+trust evaluation is preserved; it is not the TLS `CryptoProvider` and does not
+add a C/C++ build dependency. HTTP hostnames are resolved asynchronously by the
+XSH dialer through the platform resolver. XSH supplies h12tiny's TCP dialer hook
+with explicitly resolved nonblocking sockets; h12tiny retains TLS, ALPN,
+protocol selection, handshakes, and pooling. The `dns` module's explicit lookup
+APIs retain their separate resolver and timeout behavior.
+
+`net.request` and `net.start` accept a request record with `method: Str`, `url: Str`,
 `headers: List[Record]`, optional `body: Bytes`, `body_text: Str`, or
-`body_file: Path`, `pool: Str`, `timeout: Duration`, `connect_timeout:
-Duration`, `redirects: Int`, `tls_verify: Bool`, `ca_certificate: Path`,
-`fail_status: Bool`, and `max_body_bytes: Int`. Methods are `GET`, `HEAD`,
-`POST`, `PUT`, `PATCH`, and `DELETE`.
+`body_file: Path`, `pool: Str`, `timeout: Duration`, `dns_timeout: Duration`,
+`connect_timeout: Duration`, `tls_timeout: Duration`, `headers_timeout:
+Duration`, `body_idle_timeout: Duration`, `redirects: Int`, `tls_verify: Bool`,
+`ca_certificate: Path`, `fail_status: Bool`, and `max_body_bytes: Int`. The same
+deadline fields apply to `net.download`, `net.upload`, and each item in a batch.
+Methods are `GET`, `HEAD`, `POST`, `PUT`, `PATCH`, and `DELETE`.
 
-`net.request` returns `status: Int`, `reason: Str`, `bytes: Int`, `headers:
+`net.request` and `NetJob.wait()` return `status: Int`, `reason: Str`, `bytes: Int`, `headers:
 List[Record]`, `url: Str`, and `body: Bytes`. `net.download` and `net.upload`
 return the same metadata without `body`; downloads write through a temporary
 file and rename atomically by default. Unsupported schemes, invalid URLs,
@@ -2186,21 +2226,38 @@ unsupported methods, TLS failures, DNS failures, redirects, timeouts, status
 failures when `fail_status` is true, and response-size limits use structured
 error kinds.
 
-`net.request_many` executes a bounded batch of requests on the current
-evaluator thread using internal nonblocking I/O. It uses HTTP/2 when HTTPS ALPN
-negotiates `h2`, otherwise HTTP/1.1. Its batch record takes
+`net.request_many` executes a bounded batch through its evaluator runtime. It
+uses HTTP/2 when HTTPS ALPN negotiates `h2`, otherwise HTTP/1.1. Canceling one
+active HTTP/2 job resets only that stream: healthy sibling streams and the
+pooled connection remain usable. Its batch record takes
 `requests: List[Record]`, optional `concurrency: Int = 16`, and the same
 `pool`, TLS, and CA fields accepted by `net.request`; those options apply to
-every request in the batch. Connections are reused by origin within that batch,
-not retained after it returns. It preserves request order and returns one inner
-`Result` per request, allowing independent failures without starting XSH worker
-threads or exposing futures, callbacks, or `await`.
+every request in the batch. Timing fields belong to the individual request
+records, so an inactive item does not start its total deadline. Connections are
+retained by the pool across batches.
+It preserves request order and returns one inner `Result` per request, allowing
+independent failures without exposing futures, callbacks, or `await`.
 
 `net.download_many` takes `downloads: List[Record]`, optional `concurrency: Int
 = 16`, and the same outer pool, TLS, and CA fields. Each download record uses
 the `net.download` fields and streams its response directly to its atomic
 destination; it never materializes a response body in XSH memory. It preserves
 input order and returns one inner `Result` per download.
+
+`timeout` is the total deadline from runtime admission through file preparation,
+queueing, transport, redirects, response transfer, and finalization. It uses
+`net-timeout`; it wins when it expires at the same instant as a phase deadline.
+`dns_timeout` limits one DNS resolution and uses `net-dns-timeout`.
+`connect_timeout` limits aggregate TCP establishment across all resolved
+addresses and uses `net-connect-timeout`. `tls_timeout` limits TLS plus ALPN
+and uses `net-tls-timeout`. `headers_timeout` covers request dispatch through
+response headers, restarts on every redirect hop, and uses
+`net-headers-timeout`. Reused pooled connections skip DNS, TCP, and TLS phases.
+`body_idle_timeout` begins after response headers and applies to each network
+body-frame wait; it resets after each frame and uses `net-body-idle-timeout`.
+Time waiting for a local download file write is outside that idle window, while
+the total deadline continues. User and evaluator cancellation use
+`net-canceled`, never a timeout error.
 
 List values expose collection operations as methods:
 

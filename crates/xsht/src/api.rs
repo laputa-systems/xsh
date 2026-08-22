@@ -832,6 +832,7 @@ fn render_type(ty: &Type) -> String {
         Type::Proc => "Proc".to_string(),
         Type::Command => "Command".to_string(),
         Type::ProcessHandle => "ProcessHandle".to_string(),
+        Type::NetJob => "NetJob".to_string(),
         Type::Unit => "Unit".to_string(),
         Type::Tag(name) => name.to_string(),
         Type::Optional(inner) => format!("{}?", render_type(inner)),

@@ -211,6 +211,7 @@ enum FrameWork {
     Statements {
         statements: Vec<u32>,
         complete_call: bool,
+        scope_id: Option<u64>,
     },
     Statement(u32),
     Expr {
@@ -250,13 +251,16 @@ enum FrameWork {
 struct CallFrame<'p> {
     function: LoweredFunctionKey,
     kind: LoweredFunctionKind,
+    scope_id: u64,
     execution: FullExecution<'p>,
     slots: Vec<LoweredValue>,
+    slot_scopes: Vec<u64>,
     call_span: Span,
     definition_span: Span,
     name: String,
     work: Vec<FrameWork>,
     defers: Vec<u32>,
+    block_scopes: Vec<u64>,
     return_to: Option<FrameContinuation>,
 }
 
@@ -355,12 +359,15 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 .expect("pending indexed frame error")));
             return;
         };
-        self.calls[index].work.clear();
+        // An error abandons the active lexical blocks before it enters this
+        // function's defers. Their owned processes and NetJobs must observe
+        // the same lexical cleanup boundary as they do on normal completion.
+        let _ = self.discard_work_from(index, 0);
         self.calls[index].work.push(FrameWork::FinishError);
     }
 
     fn discard_calls(&mut self) {
-        while let Some(call) = self.calls.pop() {
+        while let Some(mut call) = self.calls.pop() {
             if let Ok(header) = self
                 .program
                 .function_view(call.function, call.kind)
@@ -382,6 +389,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     call.call_span,
                 );
             }
+            let _ = self.cleanup_call_scopes(&mut call);
             self.evaluator.recycle_lowered_slots(call.slots);
             self.evaluator.call_stack.pop();
             let exit_kind = match call.kind {
@@ -485,19 +493,25 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             definition_span: Some(definition_span),
             call_span: Some(call_span),
         });
+        let scope_id = self.evaluator.enter_owned_host_scope();
+        let slot_scopes = vec![scope_id; slots.len()];
         self.calls.push(CallFrame {
             function,
             kind,
+            scope_id,
             execution,
             slots,
+            slot_scopes,
             call_span,
             definition_span,
             name,
             work: vec![FrameWork::Statements {
                 statements,
                 complete_call: true,
+                scope_id: None,
             }],
             defers: Vec::new(),
+            block_scopes: Vec::new(),
             return_to,
         });
         Ok(())
@@ -508,17 +522,22 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             FrameWork::Statements {
                 mut statements,
                 complete_call,
+                scope_id,
             } => {
                 let Some(statement) = statements.pop() else {
                     return if complete_call {
                         self.complete_call(index, StmtFlow::None)
                     } else {
+                        if let Some(scope_id) = scope_id {
+                            self.exit_block_scope(index, scope_id)?;
+                        }
                         Ok(())
                     };
                 };
                 self.calls[index].work.push(FrameWork::Statements {
                     statements,
                     complete_call,
+                    scope_id,
                 });
                 self.calls[index].work.push(FrameWork::Statement(statement));
                 Ok(())
@@ -1283,7 +1302,10 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
     ) -> Result<(), RuntimeError> {
         match next {
             FrameContinuation::Store(slot) => match value {
-                FrameValue::Value(value) => self.calls[index].slots[slot] = value,
+                FrameValue::Value(value) => {
+                    self.calls[index].slots[slot] = value;
+                    self.calls[index].slot_scopes[slot] = self.evaluator.current_scope_id();
+                }
                 FrameValue::Break(value) => {
                     return self.complete_call(index, StmtFlow::Return(value));
                 }
@@ -1291,7 +1313,15 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             FrameContinuation::Assign { slot, op, span } => match value {
                 FrameValue::Value(value) => {
                     let current = self.calls[index].slots[slot].clone();
-                    self.calls[index].slots[slot] = lowered_assign_value(op, current, value, span)?;
+                    let value = lowered_assign_value(op, current, value, span)?;
+                    let owner_scope = self.calls[index].slot_scopes[slot];
+                    let source_scope = self.evaluator.current_scope_id();
+                    self.evaluator.transfer_owned_host_resources_in_value(
+                        &value.clone().into_value(),
+                        source_scope,
+                        owner_scope,
+                    );
+                    self.calls[index].slots[slot] = value;
                 }
                 FrameValue::Break(value) => {
                     return self.complete_call(index, StmtFlow::Return(value));
@@ -1949,13 +1979,44 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
     }
 
     fn complete_call(&mut self, index: usize, flow: StmtFlow) -> Result<(), RuntimeError> {
-        self.calls[index].work.clear();
+        if let StmtFlow::Return(value) | StmtFlow::Break(Some(value)) = &flow {
+            let function_scope = self.calls[index].scope_id;
+            let current_scope = self.evaluator.current_scope_id();
+            if current_scope != function_scope {
+                self.evaluator.transfer_owned_host_resources_in_value(
+                    &value.clone().into_value(),
+                    current_scope,
+                    function_scope,
+                );
+            }
+        }
+        // A return may leave nested statement blocks. Transfer an escaping
+        // resource above, then close those blocks before running this
+        // function's defers.
+        self.discard_work_from(index, 0)?;
         if self.calls[index].defers.is_empty() {
             self.finish_call(index, flow)
         } else {
             self.calls[index].work.push(FrameWork::Finish(flow));
             Ok(())
         }
+    }
+
+    fn cleanup_call_scopes(&mut self, call: &mut CallFrame<'p>) -> Result<(), RuntimeError> {
+        let mut first_error = None;
+        while let Some(scope_id) = call.block_scopes.pop() {
+            if let Err(error) = self.evaluator.exit_owned_host_scope(scope_id)
+                && first_error.is_none()
+            {
+                first_error = Some(error);
+            }
+        }
+        if let Err(error) = self.evaluator.exit_owned_host_scope(call.scope_id)
+            && first_error.is_none()
+        {
+            first_error = Some(error);
+        }
+        first_error.map_or(Ok(()), Err)
     }
 
     fn step_list_comp(
@@ -2126,7 +2187,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
 
     fn finish_error_call(&mut self, index: usize) -> Result<(), RuntimeError> {
         debug_assert_eq!(index, self.calls.len() - 1);
-        let call = self.calls.pop().expect("active indexed frame");
+        let mut call = self.calls.pop().expect("active indexed frame");
         if let Ok(header) = self
             .program
             .function_view(call.function, call.kind)
@@ -2146,6 +2207,9 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 self.evaluator
                     .write_back_lowered_captures(&header, &call.slots, call.call_span);
         }
+        // An active error remains primary; cleanup failure is intentionally
+        // secondary, but the scope still must release its owned resources.
+        let _ = self.cleanup_call_scopes(&mut call);
         self.evaluator.recycle_lowered_slots(call.slots);
         self.evaluator.call_stack.pop();
         let exit_kind = match call.kind {
@@ -2160,7 +2224,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             TracePayload::None,
         );
         if let Some(parent) = self.calls.len().checked_sub(1) {
-            self.calls[parent].work.clear();
+            let _ = self.discard_work_from(parent, 0);
             self.calls[parent].work.push(FrameWork::FinishError);
         } else {
             self.result = Some(Err(self
@@ -2173,7 +2237,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
 
     fn finish_call(&mut self, index: usize, flow: StmtFlow) -> Result<(), RuntimeError> {
         debug_assert_eq!(index, self.calls.len() - 1);
-        let call = self.calls.pop().expect("active indexed frame");
+        let mut call = self.calls.pop().expect("active indexed frame");
         let view = self
             .program
             .function_view(call.function, call.kind)
@@ -2200,6 +2264,15 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         let write_back =
             self.evaluator
                 .write_back_lowered_captures(&header, &call.slots, call.call_span);
+        if let Ok(value) = &value {
+            let parent_scope = self.evaluator.parent_owned_host_scope();
+            self.evaluator.transfer_owned_host_resources_in_value(
+                &value.clone().into_value(),
+                call.scope_id,
+                parent_scope,
+            );
+        }
+        let cleanup = self.cleanup_call_scopes(&mut call);
         self.evaluator.recycle_lowered_slots(call.slots);
         let exit_kind = match call.kind {
             LoweredFunctionKind::Pure => TraceKind::PureExit,
@@ -2214,6 +2287,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         );
         let value = value.and_then(|value| {
             write_back?;
+            cleanup?;
             Ok(value)
         });
         match (call.return_to, value) {
@@ -2446,8 +2520,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             return Err(RuntimeError::new("control-flow", "break outside loop")
                 .with_span(self.calls[index].call_span));
         };
-        self.calls[index].work.truncate(loop_index);
-        Ok(())
+        self.discard_work_from(index, loop_index)
     }
 
     fn select_expr_match_arm(
@@ -2507,8 +2580,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             return Err(RuntimeError::new("control-flow", "continue outside loop")
                 .with_span(self.calls[index].call_span));
         };
-        self.calls[index].work.truncate(loop_index + 1);
-        Ok(())
+        self.discard_work_from(index, loop_index + 1)
     }
 
     fn function_kind(
@@ -2559,10 +2631,35 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         span: Span,
     ) -> Result<(), RuntimeError> {
         let statements = decode_statement_block(&self.calls[index].execution, body, span)?;
+        let scope_id = self.evaluator.enter_owned_host_scope();
+        self.calls[index].block_scopes.push(scope_id);
         self.calls[index].work.push(FrameWork::Statements {
             statements,
             complete_call: false,
+            scope_id: Some(scope_id),
         });
+        Ok(())
+    }
+
+    fn exit_block_scope(&mut self, index: usize, scope_id: u64) -> Result<(), RuntimeError> {
+        let popped = self.calls[index].block_scopes.pop();
+        debug_assert_eq!(popped, Some(scope_id));
+        self.evaluator.exit_owned_host_scope(scope_id)
+    }
+
+    /// Drop work that cannot execute (return, error, break, or continue) and
+    /// close each lexical statement scope it carried from innermost to outer.
+    fn discard_work_from(&mut self, index: usize, keep: usize) -> Result<(), RuntimeError> {
+        let discarded = self.calls[index].work.split_off(keep);
+        for work in discarded.into_iter().rev() {
+            if let FrameWork::Statements {
+                scope_id: Some(scope_id),
+                ..
+            } = work
+            {
+                self.exit_block_scope(index, scope_id)?;
+            }
+        }
         Ok(())
     }
 }

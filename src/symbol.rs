@@ -298,7 +298,8 @@ impl Name {
     pub const PROC: Self = Self(Symbol::from_raw(22));
     pub const COMMAND: Self = Self(Symbol::from_raw(23));
     pub const PROCESS_HANDLE: Self = Self(Symbol::from_raw(24));
-    pub const RESULT: Self = Self(Symbol::from_raw(25));
+    pub const NET_JOB: Self = Self(Symbol::from_raw(25));
+    pub const RESULT: Self = Self(Symbol::from_raw(26));
 
     pub fn intern(text: impl AsRef<str>) -> Self {
         let text = text.as_ref();

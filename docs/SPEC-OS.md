@@ -125,6 +125,17 @@ and escalation keep their documented ability to skip remaining cleanup. This
 ordering lets scripts reason about temporary files and service handoff without
 leaking child processes.
 
+`NetJob` follows the same owned-host-resource rule. A live job is canceled when
+its owning scope exits unless it has been transferred into a surviving value.
+On a signal, a matching hook runs before the evaluator cancels and drains the
+live jobs that remain when the hook exits; this includes jobs started by the
+hook. Without a matching hook, the checkpoint cancels them before returning
+the cancellation failure. Jobs that finish while a hook runs are still consumed
+by that same post-hook cleanup path. Cleanup drains runtime completion so
+scheduler permits and temporary download files cannot outlive the evaluator. A job is single-consumption:
+`NetJob.wait` and `NetJob.cancel` both consume it, including aliases of the
+same value.
+
 Tracing is the evidence layer for the whole design. Runtime traces are not just
 logs; they preserve the dynamic graph that source syntax alone cannot show:
 which expression started a process, which handle id was allocated, which wait
@@ -134,6 +145,27 @@ structured argv, cwd, env, handle ids, signal numbers, process statuses, and
 errors instead of reconstructed shell strings. A trace consumer should be able
 to correlate source spans, process lifetimes, signal decisions, and shutdown
 outcomes without guessing from text.
+
+Network trace events follow the same ownership boundary. `xsh-net` records
+terminal transport facts, while the evaluator emits the correlated
+`net.job.*` and `net.transport.*` lifecycle events. The driver never receives
+trace buffers or executes trace callbacks. Network payloads include only job
+ID, queue and transport timing, status, byte count, and terminal error kind;
+they never include bodies, headers, URL queries or userinfo, credentials, or
+filesystem contents.
+
+The network runtime's wake and file-completion sockets are close-on-exec. The
+native descriptor fixture initializes a live runtime and then executes an
+independent helper to prove those internal descriptors do not cross the exec
+boundary.
+
+Once an evaluator has started networking, XSH is a multithreaded process before
+it forks a child. Post-fork setup therefore stays within the existing
+async-signal-safe process boundary: it performs only descriptor setup, signal
+reset, process-group or session setup, and `exec`, without allocation or Rust
+locking. `run`, `spawn`, pipelines, and new-session commands retain that rule
+while a live network job is stalled; signal cancellation then drains the job on
+the evaluator side rather than in the child setup path.
 
 `xshi` uses the same low-level process and terminal primitives, but its session
 policy is specified separately in `docs/SPEC-INTERACTIVE.md`. This file owns
@@ -352,6 +384,7 @@ checkpoint at these boundaries:
 - before and after deferred cleanup actions;
 - process wait polls for `run`, pipelines, captures, `process.run`, and
   `time.measure`;
+- synchronous network-operation waits and `NetJob.wait` polls;
 - chunked `time.sleep` waits;
 - parallel stream parent scheduling and result collection.
 
@@ -359,6 +392,10 @@ The runtime does not promise arbitrary interruption of CPU-bound expression
 evaluation or blocking host filesystem/network calls that do not use an
 XSH-owned poll loop. Those paths observe signals at the next checkpoint after
 they return.
+
+The network driver itself never invokes signal hooks or evaluates XSH. It only
+reports completions to an evaluator-owned wait boundary, which keeps hook
+ordering and cleanup ownership on the evaluator thread.
 
 Checkpoints must be cheap when no signal is pending.
 

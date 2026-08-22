@@ -54,6 +54,7 @@ builtin_type_names!(
     (Proc, "Proc"),
     (Command, "Command"),
     (ProcessHandle, "ProcessHandle"),
+    (NetJob, "NetJob"),
     (Result, "Result"),
 );
 
@@ -86,6 +87,7 @@ pub enum Type {
     Proc,
     Command,
     ProcessHandle,
+    NetJob,
     Unit,
     Optional(Box<Type>),
 }

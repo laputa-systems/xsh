@@ -2917,6 +2917,47 @@ proc good() [io] -> Unit {
 }
 
 #[test]
+fn checker_types_owned_net_jobs_and_requires_net_effects() {
+    let missing = check(
+        r#"
+proc bad() [error] -> Unit {
+  let job = net.start({method: "GET", url: "https://example.test/"})?
+  let _ = job.wait()?
+}
+"#,
+    );
+    assert!(
+        has_code(&missing, "check.effect-violation"),
+        "expected net effect violation in {missing:?}"
+    );
+
+    let allowed = check(
+        r#"
+proc good() [net, error] -> Unit {
+  let job = net.start({method: "GET", url: "https://example.test/"})?
+  let _ = job.wait()?
+}
+"#,
+    );
+    assert_no_codes(
+        &allowed,
+        &[
+            "check.effect-violation",
+            "check.type-mismatch",
+            "check.unknown-method",
+        ],
+    );
+
+    let opaque = check_messages("let job: NetJob = {id: 1}\n");
+    assert!(
+        opaque
+            .iter()
+            .any(|message| message.contains("NetJob") && message.contains("runtime-only type")),
+        "expected opaque NetJob diagnostic in {opaque:?}"
+    );
+}
+
+#[test]
 fn checker_requires_time_effect_for_retry_delays() {
     let output = check(
         r#"

@@ -5,7 +5,7 @@ use async_io::Async;
 use crossbeam_channel::RecvTimeoutError;
 use h12tiny_client::{
     Client as H12Client, Connector as H12Connector, Error as H12Error, ErrorKind as H12ErrorKind,
-    TcpConnected, TcpDialFuture, TcpDialer,
+    RequestOptions as H12RequestOptions, TcpConnected, TcpDialFuture, TcpDialer,
 };
 use http::{Request, Response};
 use http_body_util::{BodyExt, Full};
@@ -29,7 +29,14 @@ use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::Arc;
 use std::thread;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+mod runtime;
+
+pub use runtime::{
+    NetOperation, NetOperationMetrics, NetProtocol, NetRuntimeOwner, NetRuntimeSnapshot,
+    NetRuntimeState, receive_any,
+};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct NetError {
@@ -680,11 +687,8 @@ fn dns_io_error(error: io::Error) -> NetError {
 
 #[derive(Clone)]
 pub struct NetAgent {
-    tls_config: Arc<ClientConfig>,
-    max_idle_per_host: usize,
-    idle_timeout: Duration,
-    executor: Arc<Executor<'static>>,
     h1_client: H12Client<Full<Bytes>>,
+    auto_client: H12Client<Full<Bytes>>,
 }
 
 impl std::fmt::Debug for NetAgent {
@@ -724,7 +728,11 @@ pub struct NetRequest {
     pub headers: Vec<NetHeader>,
     pub body: NetBody,
     pub timeout: Option<Duration>,
+    pub dns_timeout: Option<Duration>,
     pub connect_timeout: Option<Duration>,
+    pub tls_timeout: Option<Duration>,
+    pub headers_timeout: Option<Duration>,
+    pub body_idle_timeout: Option<Duration>,
     pub redirects: usize,
     pub fail_status: bool,
     pub max_body_bytes: u64,
@@ -736,7 +744,11 @@ pub struct NetDownload {
     pub dest: PathBuf,
     pub headers: Vec<NetHeader>,
     pub timeout: Option<Duration>,
+    pub dns_timeout: Option<Duration>,
     pub connect_timeout: Option<Duration>,
+    pub tls_timeout: Option<Duration>,
+    pub headers_timeout: Option<Duration>,
+    pub body_idle_timeout: Option<Duration>,
     pub redirects: usize,
     pub fail_status: bool,
     pub max_body_bytes: Option<u64>,
@@ -751,7 +763,11 @@ pub struct NetUpload {
     pub source: PathBuf,
     pub headers: Vec<NetHeader>,
     pub timeout: Option<Duration>,
+    pub dns_timeout: Option<Duration>,
     pub connect_timeout: Option<Duration>,
+    pub tls_timeout: Option<Duration>,
+    pub headers_timeout: Option<Duration>,
+    pub body_idle_timeout: Option<Duration>,
     pub redirects: usize,
     pub fail_status: bool,
     pub max_body_bytes: u64,
@@ -787,9 +803,32 @@ pub struct NetResponse {
     pub body: Option<Vec<u8>>,
 }
 
-pub fn make_agent(key: &NetAgentKey) -> NetResult<NetAgent> {
+/// Validates request fields that never require transport or file I/O.
+///
+/// Evaluator adapters call this before starting the lazy network driver so a
+/// malformed request cannot allocate a thread or consume scheduler capacity.
+pub fn validate_request(request: &NetRequest) -> NetResult<()> {
+    validate_url(&request.url)?;
+    validate_method(&request.method, false)?;
+    validate_headers(&request.headers)?;
+    Ok(())
+}
+
+/// Validates a download before the transport runtime is initialized.
+pub fn validate_download(download: &NetDownload) -> NetResult<()> {
+    validate_url(&download.url)?;
+    validate_headers(&download.headers)
+}
+
+/// Validates an upload before the transport runtime is initialized.
+pub fn validate_upload(upload: &NetUpload) -> NetResult<()> {
+    validate_url(&upload.url)?;
+    validate_method(&upload.method, true)?;
+    validate_headers(&upload.headers)
+}
+
+pub fn make_agent(key: &NetAgentKey, executor: Arc<Executor<'static>>) -> NetResult<NetAgent> {
     let tls_config = tls_config_for_key(key)?;
-    let executor = Arc::new(Executor::new());
     let h1_client = h12_client(
         Arc::clone(&executor),
         tls_config.clone(),
@@ -797,12 +836,16 @@ pub fn make_agent(key: &NetAgentKey) -> NetResult<NetAgent> {
         key.idle_timeout,
         true,
     );
+    let auto_client = h12_client(
+        Arc::clone(&executor),
+        tls_config.clone(),
+        key.max_idle_per_host,
+        key.idle_timeout,
+        false,
+    );
     Ok(NetAgent {
-        tls_config: Arc::new(tls_config),
-        max_idle_per_host: key.max_idle_per_host,
-        idle_timeout: key.idle_timeout,
-        executor,
         h1_client,
+        auto_client,
     })
 }
 
@@ -849,7 +892,7 @@ fn h12_executor(executor: Arc<Executor<'static>>) -> H12Executor {
 struct ResolvedTcpDialer;
 
 impl TcpDialer for ResolvedTcpDialer {
-    fn connect(&self, origin: http::Uri) -> TcpDialFuture {
+    fn connect(&self, origin: http::Uri, options: H12RequestOptions) -> TcpDialFuture {
         Box::pin(async move {
             let host = origin
                 .host()
@@ -875,12 +918,26 @@ impl TcpDialer for ResolvedTcpDialer {
                     );
                 }
             };
-            let addresses = async_resolve_socket_addrs(host, port, AddressFamily::Any)
-                .await
-                .map_err(|error| -> h12tiny_client::DialError { Box::new(error) })?;
-            let stream = async_connect_resolved_tcp(addresses).await.map_err(
-                |error| -> h12tiny_client::DialError { Box::new(net_transport_error(error)) },
-            )?;
+            let addresses = async_with_timeout_kind(
+                options.dns_timeout(),
+                "net-dns-timeout",
+                "DNS resolution timed out",
+                async_resolve_socket_addrs(host, port, AddressFamily::Any),
+            )
+            .await
+            .map_err(|error| -> h12tiny_client::DialError { Box::new(error) })?;
+            let stream = async_with_timeout_kind(
+                options.connect_timeout(),
+                "net-connect-timeout",
+                "TCP connection establishment timed out",
+                async move {
+                    async_connect_resolved_tcp(addresses)
+                        .await
+                        .map_err(net_transport_error)
+                },
+            )
+            .await
+            .map_err(|error| -> h12tiny_client::DialError { Box::new(error) })?;
             let local_addr = stream.get_ref().local_addr().ok();
             let peer_addr = stream.get_ref().peer_addr().ok();
             Ok(TcpConnected::new(stream).with_addresses(local_addr, peer_addr))
@@ -954,10 +1011,6 @@ fn connect_is_pending(error: &io::Error) -> bool {
         )
 }
 
-fn h12_block_on<T>(agent: &NetAgent, future: impl Future<Output = NetResult<T>>) -> NetResult<T> {
-    futures_lite::future::block_on(agent.executor.run(future))
-}
-
 fn h12_error(error: H12Error) -> NetError {
     let mut source: Option<&(dyn std::error::Error + 'static)> = Some(&error);
     while let Some(error) = source {
@@ -969,6 +1022,10 @@ fn h12_error(error: H12Error) -> NetError {
     let kind = match error.kind() {
         H12ErrorKind::UnsupportedScheme => "net-scheme",
         H12ErrorKind::AbsoluteUriRequired => "net-url",
+        H12ErrorKind::DnsTimeout => "net-dns-timeout",
+        H12ErrorKind::ConnectTimeout => "net-connect-timeout",
+        H12ErrorKind::TlsTimeout => "net-tls-timeout",
+        H12ErrorKind::HeadersTimeout => "net-headers-timeout",
         H12ErrorKind::Tls | H12ErrorKind::Alpn => "net-tls",
         H12ErrorKind::Connect
         | H12ErrorKind::Handshake
@@ -1003,16 +1060,47 @@ fn h12_request(request: &HttpRequest) -> NetResult<Request<Full<Bytes>>> {
 async fn h12_send(
     client: &H12Client<Full<Bytes>>,
     request: &HttpRequest,
+    config: &RequestConfig,
 ) -> NetResult<Response<Incoming>> {
     client
-        .request(h12_request(request)?)
+        .request_with_options(h12_request(request)?, h12_request_options(config))
         .await
         .map_err(h12_error)
+}
+
+fn h12_request_options(config: &RequestConfig) -> H12RequestOptions {
+    let mut options = H12RequestOptions::new();
+    if let Some(timeout) = phase_timeout(config, config.dns_timeout) {
+        options = options.with_dns_timeout(timeout);
+    }
+    if let Some(timeout) = phase_timeout(config, config.connect_timeout) {
+        options = options.with_connect_timeout(timeout);
+    }
+    if let Some(timeout) = phase_timeout(config, config.tls_timeout) {
+        options = options.with_tls_timeout(timeout);
+    }
+    if let Some(timeout) = phase_timeout(config, config.headers_timeout) {
+        options = options.with_headers_timeout(timeout);
+    }
+    options
+}
+
+/// The XSH total deadline has deterministic precedence over a simultaneous
+/// h12tiny phase timer. Leaving a phase unset when the remaining total budget
+/// is no larger lets the outer total-deadline race report `net-timeout`.
+fn phase_timeout(config: &RequestConfig, phase_timeout: Option<Duration>) -> Option<Duration> {
+    let phase_timeout = phase_timeout?;
+    match remaining_total_timeout(config) {
+        Some(remaining) if remaining <= phase_timeout => None,
+        None if config.total_deadline.is_some() => None,
+        _ => Some(phase_timeout),
+    }
 }
 
 async fn h12_collect_response(
     response: Response<Incoming>,
     max_body_bytes: u64,
+    config: &RequestConfig,
 ) -> NetResult<HttpResponse> {
     let status = response.status().as_u16();
     let reason = response
@@ -1030,7 +1118,7 @@ async fn h12_collect_response(
         .collect();
     let mut body = response.into_body();
     let mut bytes = Vec::new();
-    while let Some(frame) = body.frame().await {
+    while let Some(frame) = next_response_frame(&mut body, config).await? {
         let frame = frame.map_err(|error| NetError::new("net-io", error.to_string()))?;
         if let Ok(data) = frame.into_data() {
             let total = (bytes.len() as u64).saturating_add(data.len() as u64);
@@ -1051,12 +1139,41 @@ async fn h12_collect_response(
     })
 }
 
-async fn h12_discard_response(response: Response<Incoming>) -> NetResult<()> {
+async fn h12_discard_response(
+    response: Response<Incoming>,
+    config: &RequestConfig,
+) -> NetResult<()> {
     let mut body = response.into_body();
-    while let Some(frame) = body.frame().await {
+    while let Some(frame) = next_response_frame(&mut body, config).await? {
         frame.map_err(|error| NetError::new("net-io", error.to_string()))?;
     }
     Ok(())
+}
+
+async fn next_response_frame(
+    body: &mut Incoming,
+    config: &RequestConfig,
+) -> NetResult<Option<Result<hyper::body::Frame<Bytes>, hyper::Error>>> {
+    let total_timeout = match remaining_total_timeout(config) {
+        Some(remaining) => Some(remaining),
+        None if config.total_deadline.is_some() => {
+            return Err(NetError::new("net-timeout", "request timed out"));
+        }
+        None => None,
+    };
+    let (timeout, kind, message) = match (total_timeout, config.body_idle_timeout) {
+        (Some(total), Some(body_idle)) if total <= body_idle => {
+            (Some(total), "net-timeout", "request timed out")
+        }
+        (_, Some(body_idle)) => (
+            Some(body_idle),
+            "net-body-idle-timeout",
+            "response body was idle for too long",
+        ),
+        (Some(total), None) => (Some(total), "net-timeout", "request timed out"),
+        (None, None) => (None, "net-timeout", "request timed out"),
+    };
+    async_with_timeout_kind(timeout, kind, message, async { Ok(body.frame().await) }).await
 }
 
 fn response_header_name(name: &str) -> String {
@@ -1079,10 +1196,10 @@ async fn h12_request_with_redirects(
     max_body_bytes: u64,
 ) -> NetResult<HttpResponse> {
     for _ in 0..=config.redirects {
-        let response = h12_send(client, &request).await?;
+        let response = h12_send(client, &request, config).await?;
         let status = response.status().as_u16();
         if !is_redirect(status) {
-            let response = h12_collect_response(response, max_body_bytes).await?;
+            let response = h12_collect_response(response, max_body_bytes, config).await?;
             if config.fail_status && !(200..300).contains(&response.status) {
                 return Err(NetError::new(
                     "net-status",
@@ -1102,7 +1219,7 @@ async fn h12_request_with_redirects(
                 "redirect missing Location header",
             ));
         };
-        h12_discard_response(response).await?;
+        h12_discard_response(response, config).await?;
         request.url = redirect_url(&request.url, &location)?;
     }
     Err(NetError::new("net-redirect", "too many redirects"))
@@ -1121,10 +1238,12 @@ async fn h12_response_record(
 }
 
 async fn h12_write_download_response(
+    runtime: &runtime::NetRuntime,
     response: Response<Incoming>,
     path: &Path,
     limit: u64,
     overwrite: bool,
+    config: &RequestConfig,
 ) -> NetResult<NetResponse> {
     let status = response.status().as_u16() as i64;
     let reason = response
@@ -1140,16 +1259,14 @@ async fn h12_write_download_response(
             value: value.to_str().unwrap_or_default().to_string(),
         })
         .collect();
-    let mut file = OpenOptions::new()
-        .write(true)
-        .create(true)
-        .create_new(!overwrite)
-        .truncate(overwrite)
-        .open(path)
-        .map_err(|error| NetError::from_io("net-write", error))?;
+    let path = path.to_path_buf();
+    let output_path = path.clone();
+    runtime
+        .run_file(move || create_download_output(&output_path, overwrite))
+        .await?;
     let mut body = response.into_body();
     let mut bytes = 0_u64;
-    while let Some(frame) = body.frame().await {
+    while let Some(frame) = next_response_frame(&mut body, config).await? {
         let frame = frame.map_err(|error| NetError::new("net-io", error.to_string()))?;
         if let Ok(data) = frame.into_data() {
             bytes = bytes.saturating_add(data.len() as u64);
@@ -1159,8 +1276,11 @@ async fn h12_write_download_response(
                     format!("response body exceeds {limit} bytes"),
                 ));
             }
-            file.write_all(&data)
-                .map_err(|error| NetError::from_io("net-write", error))?;
+            let path = path.clone();
+            let data = data.to_vec();
+            runtime
+                .run_file(move || append_download_data(&path, &data))
+                .await?;
         }
     }
     Ok(NetResponse {
@@ -1174,27 +1294,16 @@ async fn h12_write_download_response(
 }
 
 async fn h12_download_with_redirects(
+    runtime: &runtime::NetRuntime,
     client: &H12Client<Full<Bytes>>,
     request: HttpRequest,
     config: &RequestConfig,
     download: &NetDownload,
+    output: PathBuf,
 ) -> NetResult<NetResponse> {
-    if !download.overwrite && download.dest.exists() {
-        return Err(NetError::new("net-dest", "destination exists"));
-    }
-    if let Some(parent) = download.dest.parent()
-        && !parent.as_os_str().is_empty()
-    {
-        fs::create_dir_all(parent).map_err(|error| NetError::from_io("net-dest", error))?;
-    }
-    let output = if download.atomic {
-        temp_download_path(&download.dest)
-    } else {
-        download.dest.clone()
-    };
     let mut request = request;
     for _ in 0..=config.redirects {
-        let response = h12_send(client, &request).await?;
+        let response = h12_send(client, &request, config).await?;
         let status = response.status().as_u16();
         if is_redirect(status) {
             let location = response
@@ -1203,111 +1312,79 @@ async fn h12_download_with_redirects(
                 .and_then(|value| value.to_str().ok())
                 .map(str::to_string);
             let Some(location) = location else {
-                let _ = fs::remove_file(&output);
+                let output = output.clone();
+                let _ = runtime
+                    .run_file(move || remove_download_output(&output))
+                    .await;
                 return Err(NetError::new(
                     "net-redirect",
                     "redirect missing Location header",
                 ));
             };
-            h12_discard_response(response).await?;
+            h12_discard_response(response, config).await?;
             request.url = redirect_url(&request.url, &location)?;
             continue;
         }
         if config.fail_status && !(200..300).contains(&status) {
-            h12_discard_response(response).await?;
+            h12_discard_response(response, config).await?;
             return Err(NetError::new("net-status", format!("HTTP status {status}")));
         }
         let result = h12_write_download_response(
+            runtime,
             response,
             &output,
             download.max_body_bytes.unwrap_or(u64::MAX),
             download.overwrite,
+            config,
         )
         .await;
         let response = match result {
             Ok(response) => response,
             Err(error) => {
-                let _ = fs::remove_file(&output);
+                let output = output.clone();
+                let _ = runtime
+                    .run_file(move || remove_download_output(&output))
+                    .await;
                 return Err(error);
             }
         };
         if download.atomic {
-            if download.overwrite && download.dest.exists() {
-                fs::remove_file(&download.dest).map_err(|error| {
-                    let _ = fs::remove_file(&output);
-                    NetError::from_io("net-rename", error)
-                })?;
-            }
-            fs::rename(&output, &download.dest).map_err(|error| {
-                let _ = fs::remove_file(&output);
-                NetError::from_io("net-rename", error)
-            })?;
+            let output = output.clone();
+            let destination = download.dest.clone();
+            let overwrite = download.overwrite;
+            runtime
+                .run_file(move || finalize_atomic_download(&output, &destination, overwrite))
+                .await?;
         }
         return Ok(NetResponse {
             url: download.url.clone(),
             ..response
         });
     }
-    let _ = fs::remove_file(&output);
+    let _ = runtime
+        .run_file(move || remove_download_output(&output))
+        .await;
     Err(NetError::new("net-redirect", "too many redirects"))
-}
-
-async fn h12_request_worker(
-    client: H12Client<Full<Bytes>>,
-    requests: Vec<(usize, NetRequest)>,
-) -> Vec<(usize, NetResult<NetResponse>)> {
-    let mut responses = Vec::with_capacity(requests.len());
-    for (index, request) in requests {
-        let config = request_config(&request);
-        let max_body_bytes = request.max_body_bytes;
-        let url = request.url.clone();
-        let result = async_with_timeout(config.timeout.or(config.connect_timeout), async {
-            let request = request_builder(&request)?;
-            h12_response_record(&client, request, &config, max_body_bytes, &url, true).await
-        })
-        .await;
-        responses.push((index, result));
-    }
-    responses
-}
-
-async fn h12_download_worker(
-    client: H12Client<Full<Bytes>>,
-    downloads: Vec<(usize, NetDownload)>,
-) -> Vec<(usize, NetResult<NetResponse>)> {
-    let mut responses = Vec::with_capacity(downloads.len());
-    for (index, download) in downloads {
-        let request = NetRequest {
-            method: "GET".to_string(),
-            url: download.url.clone(),
-            headers: download.headers.clone(),
-            body: NetBody::Empty,
-            timeout: download.timeout,
-            connect_timeout: download.connect_timeout,
-            redirects: download.redirects,
-            fail_status: download.fail_status,
-            max_body_bytes: download.max_body_bytes.unwrap_or(u64::MAX),
-        };
-        let config = request_config(&request);
-        let result = async_with_timeout(config.timeout.or(config.connect_timeout), async {
-            let request = request_builder(&request)?;
-            h12_download_with_redirects(&client, request, &config, &download).await
-        })
-        .await;
-        responses.push((index, result));
-    }
-    responses
 }
 
 async fn async_with_timeout<T>(
     timeout: Option<Duration>,
     request: impl Future<Output = NetResult<T>>,
 ) -> NetResult<T> {
+    async_with_timeout_kind(timeout, "net-timeout", "request timed out", request).await
+}
+
+async fn async_with_timeout_kind<T>(
+    timeout: Option<Duration>,
+    kind: &'static str,
+    message: &'static str,
+    request: impl Future<Output = NetResult<T>>,
+) -> NetResult<T> {
     match timeout {
         Some(timeout) => {
             futures_lite::future::race(request, async move {
                 async_io::Timer::after(timeout).await;
-                Err(NetError::new("net-timeout", "request timed out"))
+                Err(NetError::new(kind, message))
             })
             .await
         }
@@ -1315,129 +1392,49 @@ async fn async_with_timeout<T>(
     }
 }
 
-pub fn request(agent: &NetAgent, request: NetRequest) -> NetResult<NetResponse> {
+async fn async_with_total_timeout<T>(
+    timeout: Option<Duration>,
+    accepted_at: Instant,
+    operation: impl Future<Output = NetResult<T>>,
+) -> NetResult<T> {
+    let Some(timeout) = timeout else {
+        return operation.await;
+    };
+    let Some(remaining) = timeout.checked_sub(accepted_at.elapsed()) else {
+        return Err(NetError::new("net-timeout", "request timed out"));
+    };
+    async_with_timeout(Some(remaining), operation).await
+}
+
+async fn run_request(
+    agent: &NetAgent,
+    request: NetRequest,
+    protocol: runtime::NetProtocol,
+    accepted_at: Instant,
+) -> NetResult<NetResponse> {
     validate_url(&request.url)?;
-    let config = request_config(&request);
-    let max_body_bytes = request.max_body_bytes;
-    let url = request.url.clone();
-    let http_request = request_builder(&request)?;
-    h12_block_on(
-        agent,
-        async_with_timeout(
-            config.timeout.or(config.connect_timeout),
-            h12_response_record(
-                &agent.h1_client,
-                http_request,
-                &config,
-                max_body_bytes,
-                &url,
-                true,
-            ),
-        ),
-    )
-}
-
-pub fn request_many(
-    agent: &NetAgent,
-    requests: Vec<NetRequest>,
-    concurrency: usize,
-) -> NetResult<Vec<NetResult<NetResponse>>> {
-    if concurrency == 0 {
-        return Err(NetError::new(
-            "net-concurrency",
-            "concurrency must be at least one",
-        ));
-    }
-    let request_count = requests.len();
-    let mut partitions: Vec<Vec<(usize, NetRequest)>> = (0..concurrency.min(request_count).max(1))
-        .map(|_| Vec::new())
-        .collect();
-    let worker_count = partitions.len();
-    for (index, request) in requests.into_iter().enumerate() {
-        partitions[index % worker_count].push((index, request));
-    }
-    let client = h12_client(
-        Arc::clone(&agent.executor),
-        agent.tls_config.as_ref().clone(),
-        agent.max_idle_per_host,
-        agent.idle_timeout,
-        false,
-    );
-    let executor = Arc::clone(&agent.executor);
-    h12_block_on(agent, async move {
-        let mut tasks = Vec::with_capacity(partitions.len());
-        for partition in partitions {
-            let task_executor = Arc::clone(&executor);
-            let client = client.clone();
-            tasks.push(task_executor.spawn(h12_request_worker(client, partition)));
-        }
-        let mut ordered: Vec<Option<NetResult<NetResponse>>> =
-            (0..request_count).map(|_| None).collect();
-        for task in tasks {
-            for (index, response) in task.await {
-                if index >= ordered.len() {
-                    ordered.resize_with(index + 1, || None);
-                }
-                ordered[index] = Some(response);
-            }
-        }
-        ordered
-            .into_iter()
-            .map(|response| Ok(response.expect("async request result missing")))
-            .collect()
+    let config = request_config(&request, accepted_at);
+    let client = match protocol {
+        runtime::NetProtocol::Http1 => &agent.h1_client,
+        runtime::NetProtocol::Auto => &agent.auto_client,
+    };
+    async_with_total_timeout(config.timeout, accepted_at, async {
+        let max_body_bytes = request.max_body_bytes;
+        let url = request.url.clone();
+        let http_request = request_builder(&request)?;
+        h12_response_record(client, http_request, &config, max_body_bytes, &url, true).await
     })
+    .await
 }
 
-pub fn download_many(
+async fn run_download(
+    runtime: &runtime::NetRuntime,
     agent: &NetAgent,
-    downloads: Vec<NetDownload>,
-    concurrency: usize,
-) -> NetResult<Vec<NetResult<NetResponse>>> {
-    if concurrency == 0 {
-        return Err(NetError::new(
-            "net-concurrency",
-            "concurrency must be at least one",
-        ));
-    }
-    let download_count = downloads.len();
-    let mut partitions: Vec<Vec<(usize, NetDownload)>> =
-        (0..concurrency.min(download_count).max(1))
-            .map(|_| Vec::new())
-            .collect();
-    let worker_count = partitions.len();
-    for (index, download) in downloads.into_iter().enumerate() {
-        partitions[index % worker_count].push((index, download));
-    }
-    let client = h12_client(
-        Arc::clone(&agent.executor),
-        agent.tls_config.as_ref().clone(),
-        agent.max_idle_per_host,
-        agent.idle_timeout,
-        false,
-    );
-    let executor = Arc::clone(&agent.executor);
-    h12_block_on(agent, async move {
-        let mut tasks = Vec::with_capacity(partitions.len());
-        for partition in partitions {
-            let task_executor = Arc::clone(&executor);
-            let client = client.clone();
-            tasks.push(task_executor.spawn(h12_download_worker(client, partition)));
-        }
-        let mut ordered: Vec<Option<NetResult<NetResponse>>> =
-            (0..download_count).map(|_| None).collect();
-        for task in tasks {
-            for (index, response) in task.await {
-                ordered[index] = Some(response);
-            }
-        }
-        ordered
-            .into_iter()
-            .map(|response| Ok(response.expect("async download result missing")))
-            .collect()
-    })
-}
-
-pub fn download(agent: &NetAgent, download: NetDownload) -> NetResult<NetResponse> {
+    download: NetDownload,
+    output: PathBuf,
+    protocol: runtime::NetProtocol,
+    accepted_at: Instant,
+) -> NetResult<NetResponse> {
     validate_url(&download.url)?;
     let request = NetRequest {
         method: "GET".to_string(),
@@ -1445,76 +1442,87 @@ pub fn download(agent: &NetAgent, download: NetDownload) -> NetResult<NetRespons
         headers: download.headers.clone(),
         body: NetBody::Empty,
         timeout: download.timeout,
+        dns_timeout: download.dns_timeout,
         connect_timeout: download.connect_timeout,
+        tls_timeout: download.tls_timeout,
+        headers_timeout: download.headers_timeout,
+        body_idle_timeout: download.body_idle_timeout,
         redirects: download.redirects,
         fail_status: download.fail_status,
         max_body_bytes: download.max_body_bytes.unwrap_or(u64::MAX),
     };
-    let config = request_config(&request);
-    h12_block_on(
-        agent,
-        async_with_timeout(config.timeout.or(config.connect_timeout), async {
-            let request = request_builder(&request)?;
-            h12_download_with_redirects(&agent.h1_client, request, &config, &download).await
-        }),
-    )
+    let config = request_config(&request, accepted_at);
+    let client = match protocol {
+        runtime::NetProtocol::Http1 => &agent.h1_client,
+        runtime::NetProtocol::Auto => &agent.auto_client,
+    };
+    let cleanup_output = output.clone();
+    let result = async_with_total_timeout(config.timeout, accepted_at, async {
+        let request = request_builder(&request)?;
+        h12_download_with_redirects(runtime, client, request, &config, &download, output).await
+    })
+    .await;
+    if result.is_err() && download.atomic {
+        let _ = runtime
+            .run_file(move || remove_download_output(&cleanup_output))
+            .await;
+    }
+    result
 }
 
-pub fn upload(agent: &NetAgent, upload: NetUpload) -> NetResult<NetResponse> {
+async fn run_upload(
+    agent: &NetAgent,
+    upload: NetUpload,
+    body: Vec<u8>,
+    accepted_at: Instant,
+) -> NetResult<NetResponse> {
     validate_url(&upload.url)?;
     validate_method(&upload.method, true)?;
-    let file =
-        File::open(&upload.source).map_err(|error| NetError::from_io("net-source", error))?;
-    let mut request = NetRequest {
-        method: upload.method,
-        url: upload.url.clone(),
-        headers: upload.headers,
-        body: NetBody::File(upload.source.clone()),
-        timeout: upload.timeout,
-        connect_timeout: upload.connect_timeout,
-        redirects: upload.redirects,
-        fail_status: upload.fail_status,
-        max_body_bytes: upload.max_body_bytes,
-    };
-    if !request
-        .headers
-        .iter()
-        .any(|header| header.name.eq_ignore_ascii_case("content-length"))
-        && let Ok(metadata) = upload.source.metadata()
-    {
-        request.headers.push(NetHeader {
-            name: "Content-Length".to_string(),
-            value: metadata.len().to_string(),
-        });
-    }
-    drop(file);
-    let config = request_config(&request);
-    let max_body_bytes = request.max_body_bytes;
-    let url = request.url.clone();
-    h12_block_on(
-        agent,
-        async_with_timeout(config.timeout.or(config.connect_timeout), async {
-            let request = request_builder(&request)?;
-            h12_response_record(
-                &agent.h1_client,
-                request,
-                &config,
-                max_body_bytes,
-                &url,
-                false,
-            )
-            .await
-        }),
-    )
+    async_with_total_timeout(upload.timeout, accepted_at, async {
+        let mut request = NetRequest {
+            method: upload.method,
+            url: upload.url.clone(),
+            headers: upload.headers,
+            body: NetBody::Bytes(body),
+            timeout: upload.timeout,
+            dns_timeout: upload.dns_timeout,
+            connect_timeout: upload.connect_timeout,
+            tls_timeout: upload.tls_timeout,
+            headers_timeout: upload.headers_timeout,
+            body_idle_timeout: upload.body_idle_timeout,
+            redirects: upload.redirects,
+            fail_status: upload.fail_status,
+            max_body_bytes: upload.max_body_bytes,
+        };
+        if !request
+            .headers
+            .iter()
+            .any(|header| header.name.eq_ignore_ascii_case("content-length"))
+        {
+            request.headers.push(NetHeader {
+                name: "Content-Length".to_string(),
+                value: request_body_bytes(&request.body)?.len().to_string(),
+            });
+        }
+        let config = request_config(&request, accepted_at);
+        let max_body_bytes = request.max_body_bytes;
+        let url = request.url.clone();
+        let request = request_builder(&request)?;
+        h12_response_record(
+            &agent.h1_client,
+            request,
+            &config,
+            max_body_bytes,
+            &url,
+            false,
+        )
+        .await
+    })
+    .await
 }
 
 fn request_builder(request: &NetRequest) -> NetResult<HttpRequest> {
-    validate_method(&request.method, false)?;
-    for header in &request.headers {
-        if header.name.trim().is_empty() {
-            return Err(NetError::new("net-header", "header name cannot be empty"));
-        }
-    }
+    validate_request(request)?;
     Ok(HttpRequest {
         method: request.method.clone(),
         url: UrlParts::parse(&request.url)?,
@@ -1527,21 +1535,96 @@ fn request_body_bytes(body: &NetBody) -> NetResult<Vec<u8>> {
     match body {
         NetBody::Empty => Ok(Vec::new()),
         NetBody::Bytes(bytes) => Ok(bytes.clone()),
-        NetBody::File(path) => {
-            let mut file =
-                File::open(path).map_err(|error| NetError::from_io("net-body-file", error))?;
-            let mut bytes = Vec::new();
-            file.read_to_end(&mut bytes)
-                .map_err(|error| NetError::from_io("net-body-file", error))?;
-            Ok(bytes)
-        }
+        NetBody::File(_) => Err(NetError::new(
+            "net-runtime",
+            "file-backed request body reached transport without file preparation",
+        )),
     }
 }
 
-fn request_config(request: &NetRequest) -> RequestConfig {
+fn read_request_body_file(path: &Path) -> NetResult<Vec<u8>> {
+    let mut file = File::open(path).map_err(|error| NetError::from_io("net-body-file", error))?;
+    let mut bytes = Vec::new();
+    file.read_to_end(&mut bytes)
+        .map_err(|error| NetError::from_io("net-body-file", error))?;
+    Ok(bytes)
+}
+
+fn read_upload_source(path: &Path) -> NetResult<Vec<u8>> {
+    let mut file = File::open(path).map_err(|error| NetError::from_io("net-source", error))?;
+    let mut bytes = Vec::new();
+    file.read_to_end(&mut bytes)
+        .map_err(|error| NetError::from_io("net-body-file", error))?;
+    Ok(bytes)
+}
+
+fn prepare_download_destination(download: &NetDownload) -> NetResult<PathBuf> {
+    if !download.overwrite && download.dest.exists() {
+        return Err(NetError::new("net-dest", "destination exists"));
+    }
+    if let Some(parent) = download.dest.parent()
+        && !parent.as_os_str().is_empty()
+    {
+        fs::create_dir_all(parent).map_err(|error| NetError::from_io("net-dest", error))?;
+    }
+    Ok(if download.atomic {
+        temp_download_path(&download.dest)
+    } else {
+        download.dest.clone()
+    })
+}
+
+fn create_download_output(path: &Path, overwrite: bool) -> NetResult<()> {
+    OpenOptions::new()
+        .write(true)
+        .create(true)
+        .create_new(!overwrite)
+        .truncate(overwrite)
+        .open(path)
+        .map(|_| ())
+        .map_err(|error| NetError::from_io("net-write", error))
+}
+
+fn append_download_data(path: &Path, data: &[u8]) -> NetResult<()> {
+    OpenOptions::new()
+        .append(true)
+        .open(path)
+        .and_then(|mut file| file.write_all(data))
+        .map_err(|error| NetError::from_io("net-write", error))
+}
+
+fn remove_download_output(path: &Path) -> NetResult<()> {
+    match fs::remove_file(path) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(NetError::from_io("net-write", error)),
+    }
+}
+
+fn finalize_atomic_download(output: &Path, destination: &Path, overwrite: bool) -> NetResult<()> {
+    if overwrite && destination.exists() {
+        fs::remove_file(destination).map_err(|error| {
+            let _ = fs::remove_file(output);
+            NetError::from_io("net-rename", error)
+        })?;
+    }
+    fs::rename(output, destination).map_err(|error| {
+        let _ = fs::remove_file(output);
+        NetError::from_io("net-rename", error)
+    })
+}
+
+fn request_config(request: &NetRequest, accepted_at: Instant) -> RequestConfig {
     RequestConfig {
         timeout: request.timeout,
+        total_deadline: request
+            .timeout
+            .and_then(|timeout| accepted_at.checked_add(timeout)),
+        dns_timeout: request.dns_timeout,
         connect_timeout: request.connect_timeout,
+        tls_timeout: request.tls_timeout,
+        headers_timeout: request.headers_timeout,
+        body_idle_timeout: request.body_idle_timeout,
         redirects: request.redirects,
         fail_status: request.fail_status,
     }
@@ -1593,6 +1676,15 @@ fn validate_method(method: &str, upload: bool) -> NetResult<()> {
     } else {
         Err(NetError::new("net-method", "unsupported HTTP method"))
     }
+}
+
+fn validate_headers(headers: &[NetHeader]) -> NetResult<()> {
+    for header in headers {
+        if header.name.trim().is_empty() {
+            return Err(NetError::new("net-header", "header name cannot be empty"));
+        }
+    }
+    Ok(())
 }
 
 fn temp_download_path(dest: &Path) -> PathBuf {
@@ -1776,9 +1868,20 @@ fn default_tls_client_config(
 #[derive(Clone, Debug)]
 struct RequestConfig {
     timeout: Option<Duration>,
+    total_deadline: Option<Instant>,
+    dns_timeout: Option<Duration>,
     connect_timeout: Option<Duration>,
+    tls_timeout: Option<Duration>,
+    headers_timeout: Option<Duration>,
+    body_idle_timeout: Option<Duration>,
     redirects: usize,
     fail_status: bool,
+}
+
+fn remaining_total_timeout(config: &RequestConfig) -> Option<Duration> {
+    config
+        .total_deadline
+        .and_then(|deadline| deadline.checked_duration_since(Instant::now()))
 }
 
 #[derive(Clone, Debug)]

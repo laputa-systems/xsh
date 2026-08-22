@@ -1032,6 +1032,15 @@ fn net_module() -> ModuleSig {
             ),
         ),
         (
+            "start",
+            sig(
+                vec![param("request", Type::Record(BTreeMap::new()))],
+                result(Type::NetJob),
+                false,
+                RuntimeOp::NetStart,
+            ),
+        ),
+        (
             "request_many",
             sig(
                 vec![param("batch", Type::Record(BTreeMap::new()))],

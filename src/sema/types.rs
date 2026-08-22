@@ -43,6 +43,7 @@ pub enum Type {
     Proc,
     Command,
     ProcessHandle,
+    NetJob,
     Unit,
     Tag(Name),
     Optional(Box<Type>),
@@ -226,6 +227,7 @@ impl Type {
             BuiltinTypeName::Proc => Self::Proc,
             BuiltinTypeName::Command => Self::Command,
             BuiltinTypeName::ProcessHandle => Self::ProcessHandle,
+            BuiltinTypeName::NetJob => Self::NetJob,
             BuiltinTypeName::Result => Self::Result(Box::new(Self::Unknown), Box::new(Self::Error)),
             BuiltinTypeName::Unit => Self::Unit,
         }
@@ -256,6 +258,7 @@ impl Type {
             Self::Proc => Some(BuiltinTypeName::Proc),
             Self::Command => Some(BuiltinTypeName::Command),
             Self::ProcessHandle => Some(BuiltinTypeName::ProcessHandle),
+            Self::NetJob => Some(BuiltinTypeName::NetJob),
             Self::Result(_, _) => Some(BuiltinTypeName::Result),
             Self::Unit => Some(BuiltinTypeName::Unit),
             Self::Invalid
@@ -497,6 +500,7 @@ impl Type {
             Self::Proc => Some("Proc".to_string()),
             Self::Command => Some("Command".to_string()),
             Self::ProcessHandle => Some("ProcessHandle".to_string()),
+            Self::NetJob => Some("NetJob".to_string()),
             Self::Tag(name) => Some(name.to_string()),
             Self::Optional(inner) => Some(format!("{}?", inner.annotation_source()?)),
         }
@@ -536,6 +540,7 @@ impl fmt::Display for Type {
             Self::Proc => write!(f, "Proc"),
             Self::Command => write!(f, "Command"),
             Self::ProcessHandle => write!(f, "ProcessHandle"),
+            Self::NetJob => write!(f, "NetJob"),
             Self::Unit => write!(f, "Unit"),
             Self::Tag(name) => write!(f, "{name}"),
             Self::Optional(inner) => write!(f, "{inner}?"),

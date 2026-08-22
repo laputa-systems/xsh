@@ -8,18 +8,41 @@ use crate::source::Span;
 use std::path::PathBuf;
 #[cfg(feature = "net")]
 use std::sync::Arc;
-#[cfg(not(feature = "net"))]
 use std::time::Duration;
 
 #[cfg(feature = "net")]
 pub(crate) use xsh_net::{
-    NetAgent, NetAgentKey, NetBody, NetCallOptions, NetDownload, NetHeader, NetPoolOptions,
-    NetRequest, NetUpload,
+    NetAgent, NetAgentKey, NetBody, NetCallOptions, NetDownload, NetHeader, NetOperation,
+    NetOperationMetrics, NetPoolOptions, NetProtocol, NetRequest, NetRuntimeOwner, NetUpload,
 };
 
 #[cfg(not(feature = "net"))]
 #[derive(Clone, Debug)]
 pub(crate) struct NetAgent;
+
+#[cfg(not(feature = "net"))]
+#[derive(Debug)]
+pub(crate) struct NetRuntimeOwner;
+
+#[cfg(not(feature = "net"))]
+impl NetRuntimeOwner {
+    pub(crate) fn new() -> Result<Self, &'static str> {
+        Err("net feature is disabled")
+    }
+
+    pub(crate) fn shutdown(&mut self) {}
+}
+
+#[cfg(not(feature = "net"))]
+#[derive(Debug)]
+pub(crate) struct NetOperation;
+
+#[cfg(not(feature = "net"))]
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum NetProtocol {
+    Http1,
+    Auto,
+}
 
 #[cfg(not(feature = "net"))]
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
@@ -57,7 +80,11 @@ pub(crate) struct NetRequest {
     pub(crate) headers: Vec<NetHeader>,
     pub(crate) body: NetBody,
     pub(crate) timeout: Option<Duration>,
+    pub(crate) dns_timeout: Option<Duration>,
     pub(crate) connect_timeout: Option<Duration>,
+    pub(crate) tls_timeout: Option<Duration>,
+    pub(crate) headers_timeout: Option<Duration>,
+    pub(crate) body_idle_timeout: Option<Duration>,
     pub(crate) redirects: usize,
     pub(crate) fail_status: bool,
     pub(crate) max_body_bytes: u64,
@@ -71,7 +98,11 @@ pub(crate) struct NetDownload {
     pub(crate) dest: PathBuf,
     pub(crate) headers: Vec<NetHeader>,
     pub(crate) timeout: Option<Duration>,
+    pub(crate) dns_timeout: Option<Duration>,
     pub(crate) connect_timeout: Option<Duration>,
+    pub(crate) tls_timeout: Option<Duration>,
+    pub(crate) headers_timeout: Option<Duration>,
+    pub(crate) body_idle_timeout: Option<Duration>,
     pub(crate) redirects: usize,
     pub(crate) fail_status: bool,
     pub(crate) max_body_bytes: Option<u64>,
@@ -88,7 +119,11 @@ pub(crate) struct NetUpload {
     pub(crate) source: PathBuf,
     pub(crate) headers: Vec<NetHeader>,
     pub(crate) timeout: Option<Duration>,
+    pub(crate) dns_timeout: Option<Duration>,
     pub(crate) connect_timeout: Option<Duration>,
+    pub(crate) tls_timeout: Option<Duration>,
+    pub(crate) headers_timeout: Option<Duration>,
+    pub(crate) body_idle_timeout: Option<Duration>,
     pub(crate) redirects: usize,
     pub(crate) fail_status: bool,
     pub(crate) max_body_bytes: u64,
@@ -120,145 +155,155 @@ pub(crate) struct NetCallOptions {
 }
 
 #[cfg(feature = "net")]
-pub(crate) fn make_agent(key: &NetAgentKey, span: Span) -> Result<NetAgent, RuntimeError> {
-    xsh_net::make_agent(key).map_err(|error| runtime_error(error, span))
+pub(crate) fn make_agent(
+    key: &NetAgentKey,
+    runtime: &NetRuntimeOwner,
+    span: Span,
+) -> Result<NetAgent, RuntimeError> {
+    xsh_net::make_agent(key, runtime.executor()).map_err(|error| runtime_error(error, span))
+}
+
+#[cfg(feature = "net")]
+pub(crate) fn validate_request(request: &NetRequest, span: Span) -> Result<(), RuntimeError> {
+    xsh_net::validate_request(request).map_err(|error| runtime_error(error, span))
+}
+
+#[cfg(feature = "net")]
+pub(crate) fn validate_download(download: &NetDownload, span: Span) -> Result<(), RuntimeError> {
+    xsh_net::validate_download(download).map_err(|error| runtime_error(error, span))
+}
+
+#[cfg(feature = "net")]
+pub(crate) fn validate_upload(upload: &NetUpload, span: Span) -> Result<(), RuntimeError> {
+    xsh_net::validate_upload(upload).map_err(|error| runtime_error(error, span))
 }
 
 #[cfg(not(feature = "net"))]
-pub(crate) fn make_agent(_key: &NetAgentKey, span: Span) -> Result<NetAgent, RuntimeError> {
+pub(crate) fn validate_request(_request: &NetRequest, span: Span) -> Result<(), RuntimeError> {
+    Err(net_disabled(span))
+}
+
+#[cfg(not(feature = "net"))]
+pub(crate) fn validate_download(_download: &NetDownload, span: Span) -> Result<(), RuntimeError> {
+    Err(net_disabled(span))
+}
+
+#[cfg(not(feature = "net"))]
+pub(crate) fn validate_upload(_upload: &NetUpload, span: Span) -> Result<(), RuntimeError> {
+    Err(net_disabled(span))
+}
+
+#[cfg(not(feature = "net"))]
+pub(crate) fn make_agent(
+    _key: &NetAgentKey,
+    _runtime: &NetRuntimeOwner,
+    span: Span,
+) -> Result<NetAgent, RuntimeError> {
     Err(net_disabled(span))
 }
 
 #[cfg(feature = "net")]
-pub(crate) fn request(
-    agent: &NetAgent,
+pub(crate) fn submit_request(
+    runtime: &mut NetRuntimeOwner,
+    agent: NetAgent,
     request: NetRequest,
+    protocol: NetProtocol,
     span: Span,
-) -> Result<Value, RuntimeError> {
-    xsh_net::request(agent, request)
-        .map(response_record)
+) -> Result<NetOperation, RuntimeError> {
+    runtime
+        .submit_request(agent, request, protocol)
         .map_err(|error| runtime_error(error, span))
 }
 
 #[cfg(feature = "net")]
-pub(crate) fn request_many(
-    agent: &NetAgent,
-    requests: Vec<NetRequest>,
-    concurrency: usize,
-    span: Span,
-) -> Result<Value, RuntimeError> {
-    xsh_net::request_many(agent, requests, concurrency)
-        .map(|responses| {
-            Value::ok(Value::List(
-                responses
-                    .into_iter()
-                    .map(|response| match response {
-                        Ok(response) => response_record(response),
-                        Err(error) => {
-                            Value::err(Value::Error(Box::new(runtime_error(error, span))))
-                        }
-                    })
-                    .collect(),
-            ))
-        })
-        .map_err(|error| runtime_error(error, span))
-}
-
-#[cfg(feature = "net")]
-pub(crate) fn download_many(
-    agent: &NetAgent,
-    downloads: Vec<NetDownload>,
-    concurrency: usize,
-    span: Span,
-) -> Result<Value, RuntimeError> {
-    xsh_net::download_many(agent, downloads, concurrency)
-        .map(|responses| {
-            Value::ok(Value::List(
-                responses
-                    .into_iter()
-                    .map(|response| match response {
-                        Ok(response) => response_record(response),
-                        Err(error) => {
-                            Value::err(Value::Error(Box::new(runtime_error(error, span))))
-                        }
-                    })
-                    .collect(),
-            ))
-        })
-        .map_err(|error| runtime_error(error, span))
-}
-
-#[cfg(not(feature = "net"))]
-pub(crate) fn download_many(
-    _agent: &NetAgent,
-    _downloads: Vec<NetDownload>,
-    _concurrency: usize,
-    span: Span,
-) -> Result<Value, RuntimeError> {
-    Err(net_disabled(span))
-}
-
-#[cfg(not(feature = "net"))]
-pub(crate) fn request_many(
-    _agent: &NetAgent,
-    _requests: Vec<NetRequest>,
-    _concurrency: usize,
-    span: Span,
-) -> Result<Value, RuntimeError> {
-    Err(net_disabled(span))
-}
-
-#[cfg(not(feature = "net"))]
-pub(crate) fn request(
-    _agent: &NetAgent,
-    _request: NetRequest,
-    span: Span,
-) -> Result<Value, RuntimeError> {
-    Err(net_disabled(span))
-}
-
-#[cfg(feature = "net")]
-pub(crate) fn download(
-    agent: &NetAgent,
+pub(crate) fn submit_download(
+    runtime: &mut NetRuntimeOwner,
+    agent: NetAgent,
     download: NetDownload,
+    protocol: NetProtocol,
     span: Span,
-) -> Result<Value, RuntimeError> {
-    xsh_net::download(agent, download)
-        .map(response_record)
+) -> Result<NetOperation, RuntimeError> {
+    runtime
+        .submit_download(agent, download, protocol)
         .map_err(|error| runtime_error(error, span))
 }
 
-#[cfg(not(feature = "net"))]
-pub(crate) fn download(
-    _agent: &NetAgent,
-    _download: NetDownload,
-    span: Span,
-) -> Result<Value, RuntimeError> {
-    Err(net_disabled(span))
-}
-
 #[cfg(feature = "net")]
-pub(crate) fn upload(
-    agent: &NetAgent,
+pub(crate) fn submit_upload(
+    runtime: &mut NetRuntimeOwner,
+    agent: NetAgent,
     upload: NetUpload,
     span: Span,
-) -> Result<Value, RuntimeError> {
-    xsh_net::upload(agent, upload)
-        .map(response_record)
+) -> Result<NetOperation, RuntimeError> {
+    runtime
+        .submit_upload(agent, upload)
         .map_err(|error| runtime_error(error, span))
 }
 
 #[cfg(not(feature = "net"))]
-pub(crate) fn upload(
-    _agent: &NetAgent,
+pub(crate) fn submit_request(
+    _runtime: &mut NetRuntimeOwner,
+    _agent: NetAgent,
+    _request: NetRequest,
+    _protocol: NetProtocol,
+    span: Span,
+) -> Result<NetOperation, RuntimeError> {
+    Err(net_disabled(span))
+}
+
+#[cfg(not(feature = "net"))]
+pub(crate) fn submit_download(
+    _runtime: &mut NetRuntimeOwner,
+    _agent: NetAgent,
+    _download: NetDownload,
+    _protocol: NetProtocol,
+    span: Span,
+) -> Result<NetOperation, RuntimeError> {
+    Err(net_disabled(span))
+}
+
+#[cfg(not(feature = "net"))]
+pub(crate) fn submit_upload(
+    _runtime: &mut NetRuntimeOwner,
+    _agent: NetAgent,
     _upload: NetUpload,
     span: Span,
-) -> Result<Value, RuntimeError> {
+) -> Result<NetOperation, RuntimeError> {
     Err(net_disabled(span))
 }
 
 #[cfg(feature = "net")]
-fn response_record(response: xsh_net::NetResponse) -> Value {
+pub(crate) fn receive_any(
+    operations: &[&NetOperation],
+    timeout: Duration,
+    span: Span,
+) -> Result<Option<(usize, Result<Value, RuntimeError>)>, RuntimeError> {
+    xsh_net::receive_any(operations, timeout)
+        .map(|completion| {
+            completion.map(|(index, result)| {
+                (
+                    index,
+                    result
+                        .map(response_value)
+                        .map_err(|error| runtime_error(error, span)),
+                )
+            })
+        })
+        .map_err(|error| runtime_error(error, span))
+}
+
+#[cfg(not(feature = "net"))]
+#[allow(dead_code)]
+pub(crate) fn receive_any(
+    _operations: &[&NetOperation],
+    _timeout: Duration,
+    span: Span,
+) -> Result<Option<(usize, Result<Value, RuntimeError>)>, RuntimeError> {
+    Err(net_disabled(span))
+}
+
+#[cfg(feature = "net")]
+pub(crate) fn response_value(response: xsh_net::NetResponse) -> Value {
     let headers = response
         .headers
         .into_iter()
@@ -279,7 +324,7 @@ fn response_record(response: xsh_net::NetResponse) -> Value {
     if let Some(body) = response.body {
         fields.insert(Arc::from("body"), Value::Bytes(body));
     }
-    Value::ok(Value::Record(RecordMap::from(fields)))
+    Value::Record(RecordMap::from(fields))
 }
 
 #[cfg(feature = "net")]

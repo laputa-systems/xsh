@@ -878,6 +878,7 @@ pub enum Value {
     Proc(FunctionName),
     Command(Box<CommandPlan>),
     ProcessHandle(Box<ProcessHandleValue>),
+    NetJob(Box<NetJobValue>),
     Unit,
     Tag { name: Arc<str>, fields: Vec<Value> },
 }
@@ -925,6 +926,7 @@ impl Value {
             Self::Proc(_) => "Proc",
             Self::Command(_) => "Command",
             Self::ProcessHandle(_) => "ProcessHandle",
+            Self::NetJob(_) => "NetJob",
             Self::Unit => "Unit",
             Self::Tag { .. } => "Tag",
         }
@@ -1064,6 +1066,16 @@ pub struct ProcessHandleValue {
     pub command: Arc<str>,
     pub argv: Arc<[Arc<str>]>,
     pub detached: bool,
+}
+
+/// Opaque evaluator-owned network job identity.
+///
+/// The evaluator's live-job registry owns the transport task, completion
+/// receiver, request metadata, and capacity reservation. Cloning the language
+/// value only creates another alias to this ID.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct NetJobValue {
+    pub id: u64,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
