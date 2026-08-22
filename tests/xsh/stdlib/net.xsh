@@ -222,7 +222,7 @@ proc test_net_start_scope_cleanup_releases_admission(ctx: TestContext) [net, err
 
   let should_cleanup = ctx.keys().len() > 0
   if should_cleanup {
-    var jobs = [
+    let jobs = [
       net.start({
         method: "GET",
         url: "https://example.test/cleanup",
@@ -230,6 +230,7 @@ proc test_net_start_scope_cleanup_releases_admission(ctx: TestContext) [net, err
       })?
       for _ in range(64)
     ]
+    test.eq(jobs.len(), 64)?
   }
 
   let released = net.start({
@@ -778,7 +779,7 @@ proc test_net_transport_request_many_https_h2_contract() [net, env, error] {
   test.eq(requests[1]?.body.utf8()?, "h2")?
 }
 
-proc test_net_job_cancel_keeps_h2_siblings_and_pool_healthy(ctx: TestContext) [net, env, error] {
+proc test_net_job_cancel_keeps_h2_siblings_and_pool_healthy() [net, env, error] {
   let url = env.get_or("XSH_NET_TEST_H2_CANCEL_URL", "")?
   let ca = env.get_or("XSH_NET_TEST_CA", "")?
   if url == "" or ca == "" {
