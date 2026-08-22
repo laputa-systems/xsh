@@ -143,62 +143,6 @@ fn xshi_requires_tty_for_normal_startup() {
 }
 
 #[test]
-#[ignore = "profile-only workload; run explicitly through make pgo-profile"]
-fn xshi_pgo_profile_workload() {
-    let binary = pgo_profile_binary();
-    let home = temp_xshi_home("xshi-pgo-profile");
-    let work = home.join("work");
-    std::fs::create_dir_all(&work).expect("create profile workdir");
-    write_pgo_history(&home);
-
-    let envs = [
-        ("HOME", home.as_path()),
-        ("PATH", Path::new("/usr/bin:/bin")),
-        ("USER", Path::new("pgo")),
-        ("NO_COLOR", Path::new("1")),
-        (
-            "XSHI_PROFILE_PATH",
-            Path::new("/nonexistent/xshi-pgo-profile"),
-        ),
-    ];
-    let started = Instant::now();
-    let mut pty =
-        spawn_xshi_pty_with_binary_and_temp_home(&binary, Some(&work), &envs, Some(home.clone()));
-    set_pty_window(&pty.master, 24, 100);
-
-    let mut transcript = pty.read_until("$ ", PTY_TIMEOUT);
-    let prompt_time = started.elapsed();
-    let search_started = Instant::now();
-    pty.write(b"\x12pgo-history-marker");
-    transcript.push_str(&pty.read_until("\x1b[7mecho pgo-history-marker", PTY_TIMEOUT));
-    let search_time = search_started.elapsed();
-    let navigation_started = Instant::now();
-    pty.write(b"\x1b[B\x1b[A");
-    transcript.push_str(&pty.read_until("\x1b[7mecho pgo-history-marker", PTY_TIMEOUT));
-    let navigation_time = navigation_started.elapsed();
-    let execute_started = Instant::now();
-    pty.write(b"\r\r");
-    transcript.push_str(&pty.read_until("pgo-history-marker-", PTY_TIMEOUT));
-    let execute_time = execute_started.elapsed();
-    pty.write(b"exit\r");
-    let output = pty.wait(PTY_TIMEOUT, &transcript);
-
-    assert!(output.status.success(), "{transcript}");
-    assert!(transcript.contains("pgo-history-marker-"), "{transcript}");
-    assert_eq!(String::from_utf8(output.stderr).unwrap(), "");
-    if std::env::var_os("XSH_PGO_TIMINGS").is_some() {
-        eprintln!(
-            "xshi_pgo_profile_workload prompt_us={} search_us={} navigation_us={} execute_us={} total_us={}",
-            prompt_time.as_micros(),
-            search_time.as_micros(),
-            navigation_time.as_micros(),
-            execute_time.as_micros(),
-            started.elapsed().as_micros(),
-        );
-    }
-}
-
-#[test]
 #[ignore = "flaky: PTY-driven, timing-sensitive; requires a controlling terminal"]
 fn xshi_runs_prompt_loop_on_pty() {
     let mut pty = spawn_xshi_pty();
@@ -951,50 +895,6 @@ fn spawn_xshi_pty_with_binary_and_temp_home(
         temp_home,
         _guard: guard,
     }
-}
-
-fn pgo_profile_binary() -> PathBuf {
-    let binary = std::env::var_os("XSH_PGO_BINARY")
-        .map(PathBuf::from)
-        .expect("XSH_PGO_BINARY must name the instrumented application binary");
-    assert!(
-        binary.is_file(),
-        "XSH_PGO_BINARY is not a file: {}",
-        binary.display()
-    );
-    assert!(
-        std::env::var_os("LLVM_PROFILE_FILE").is_some(),
-        "LLVM_PROFILE_FILE must be set for the profile-only workload"
-    );
-    binary
-}
-
-fn write_pgo_history(home: &Path) {
-    let path = home.join(".local/share/xshi/history");
-    std::fs::create_dir_all(path.parent().expect("history parent")).expect("create history dir");
-    let mut history = String::new();
-    for index in 0..45_000 {
-        let command = match index % 4 {
-            0 => format!("git commit -m pgo-history-{index}"),
-            1 => format!("rg pgo-history-{index} src/ --type rust"),
-            2 => format!("cd ~/projects/project-{index}/src"),
-            _ => format!("echo pgo-history-marker-{index}"),
-        };
-        history.push_str(&command);
-        history.push('\n');
-    }
-    std::fs::write(path, history).expect("write profile history");
-}
-
-fn set_pty_window(master: &std::fs::File, rows: u16, cols: u16) {
-    let size = libc::winsize {
-        ws_row: rows,
-        ws_col: cols,
-        ws_xpixel: 0,
-        ws_ypixel: 0,
-    };
-    let result = unsafe { libc::ioctl(master.as_raw_fd(), libc::TIOCSWINSZ as _, &size) };
-    assert_eq!(result, 0, "set PTY window size");
 }
 
 fn terminal_screen(transcript: &str) -> Vec<String> {

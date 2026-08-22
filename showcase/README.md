@@ -160,7 +160,6 @@ Replace Make and shell orchestration with one typed XSH entry point that owns:
 * Linux container tests;
 * coverage;
 * benchmarks and syscall diagnostics;
-* PGO instrumentation, profile collection, and optimized builds;
 * target-specific distribution builds;
 * binary verification;
 * installation;

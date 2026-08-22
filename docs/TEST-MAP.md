@@ -22,7 +22,6 @@ area touched. Do not run formatter or autofix commands for agent work.
 | `FullBuilder::build_compact`, `FullVerifier::verify`, or executable IR | targeted `cargo test -p xsh --lib runtime::eval::indexed::full::tests::` | `cargo test -p xsh runtime::eval::indexed::full::tests --lib --features native-tests` |
 | Explicit execution frames | targeted `cargo test --test integration runtime::stack_depth -- --test-threads=1` | `cargo test -p xsh runner::tests --lib --features native-tests` plus the runtime gate |
 | Production executable runtime | targeted `cargo test --test integration runtime::TEST_NAME` | `cargo test -p xsh --test integration runtime:: --features native-tests -- --test-threads=1` plus `cargo test -p xsh --test integration runtime::coverage::xsh_native_tests --features native-tests -- --exact` and `make bench-fast` |
-| Explicit PGO/release investigation after ordinary gates pass | `make pgo-profile` | `make release-pgo` |
 | Syscall diagnostics | benchmark smoke test on the host | `make bench-syscalls` on Linux/Docker |
 | LLVM IR size | `tools/llvm-lines-repeat-offenders.xsh` over an existing capture | fresh `cargo llvm-lines` capture plus the applicable behavior/benchmark gate |
 | API registry/reference/examples | see `API Gate` below | same |
@@ -109,4 +108,4 @@ cargo test --test integration runtime::coverage::runnable_xsh_corpus_is_formatte
   and `xsht lint --fix` rewrite files and are left to the user.
 - The `dist` profile is reserved for release packaging, not local agent
   verification.
-- Benchmark and PGO commands intentionally use release code generation.
+- Benchmark commands intentionally use release code generation.

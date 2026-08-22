@@ -1,6 +1,6 @@
 RUSTYBENCH ?= cargo run --quiet --manifest-path ../../rustybench/Cargo.toml --
 
-.PHONY: build lint docs test cov test-linux test-linux-ci test-macos-ci bench bench-fast bench-pgo bench-syscalls pgo-instrument pgo-profile release-pgo release-pgo-linux-docker install-darwin install-linux dist dist-native dist-Linux-docker dist-ci
+.PHONY: build lint docs test cov test-linux test-linux-ci test-macos-ci bench bench-fast bench-syscalls install-darwin install-linux dist dist-native dist-Linux-docker dist-ci
 
 DARWIN_CODESIGN_FLAGS ?=
 ifneq ($(DARWIN_CODESIGN_ENTITLEMENTS),)
@@ -182,32 +182,6 @@ dist-Linux-docker:
 			if [ "$(DIST_PROFILE_DIR)" != dist ]; then mkdir -p target/$(TARGET)/dist && for bin in $(DIST_BINS); do cp -f target/$(TARGET)/$(DIST_PROFILE_DIR)/$$bin target/$(TARGET)/dist/$$bin; done; fi \
 		'
 
-release-pgo-linux-docker:
-	if [ "$(XSH_TEST_IMAGE_BUILD)" = "1" ]; then docker build --platform=$(DOCKER_PLATFORM) -t $(XSH_TEST_IMAGE) -f Dockerfile.test .; else docker image inspect $(XSH_TEST_IMAGE) >/dev/null; fi
-	mkdir -p target
-	docker run --rm --privileged \
-		--platform=$(DOCKER_PLATFORM) \
-		-v $(CURDIR):/work \
-		-v $(CURDIR)/target:/work/target \
-		-v xsh-cargo-registry:/root/.cargo/registry \
-		-w /work \
-		-e TARGET=$(TARGET) \
-		-e CARGO_TARGET_DIR=/work/target \
-		-e CARGO_BUILD_WARNINGS=$(CARGO_BUILD_WARNINGS) \
-		-e HOST_UID=$$(id -u) \
-		-e HOST_GID=$$(id -g) \
-		$(XSH_TEST_IMAGE) \
-		sh -c ' \
-			git config --global --add safe.directory /work && \
-			chown_target() { chown -R "$${HOST_UID}:$${HOST_GID}" /work/target; } && \
-			trap chown_target EXIT && \
-			SR=$$(rustc --target $(TARGET) --print sysroot)/lib/rustlib/$(TARGET)/lib && \
-			ln -sf /usr/lib/libgcc_s.so.1 "$$SR/libgcc_s.so" && \
-			ln -sf /usr/lib/libgcc_s.so.1 "$$SR/libgcc_s.so.1" && \
-			ln -sf /usr/lib/libc.so "$$SR/libc.so" && \
-			$(DIST_DOCKER_ENV) make release-pgo PGO_TARGET=$(TARGET) PGO_BUILD_STD_FLAGS="$(DIST_DOCKER_BUILD_STD_FLAGS)" PGO_RUNTIME_RUSTFLAGS="-C link-arg=/opt/llvm-musl/lib/clang/23/lib/linux/libclang_rt.builtins-$(if $(filter x86_64-unknown-linux-musl,$(TARGET)),x86_64,aarch64).a" \
-		'
-
 dist-native:
 	$(DIST_ENV) cargo build --locked --profile $(DIST_PROFILE) $(DIST_BUILD_STD_FLAGS) --target $(TARGET) -p xsh -p xsht -p xshi --no-default-features --features "xsh/net xsh/tools xsht/native-tests" --bin xsh --bin xsht --bin xshi
 	@if [ "$(DIST_PROFILE_DIR)" != dist ]; then mkdir -p target/$(TARGET)/dist && for bin in $(DIST_BINS); do cp -f target/$(TARGET)/$(DIST_PROFILE_DIR)/$$bin target/$(TARGET)/dist/$$bin; done; fi
@@ -297,28 +271,6 @@ test-linux-ci:
 test-macos-ci:
 	MACOSX_DEPLOYMENT_TARGET="$(DARWIN_DEPLOYMENT_TARGET)" cargo test --locked --profile $(DIST_PROFILE) --features "net tools" --target $(TARGET) -- --nocapture
 
-LLVM_BIN := $(shell rustc --print sysroot)/lib/rustlib/$(shell rustc -vV | awk '/^host:/ {print $$2}')/bin
-PGO_HOST_TARGET := $(shell rustc -vV | awk '/^host:/ {print $$2}')
-PGO_TARGET ?= $(PGO_HOST_TARGET)
-PGO_DIR := $(CURDIR)/target/pgo-profiles/$(PGO_TARGET)
-PGO_MERGED := $(PGO_DIR)/merged.profdata
-PGO_INSTRUMENT_TARGET_DIR := $(CURDIR)/target/pgo-instrument
-PGO_DRIVER_TARGET_DIR := $(CURDIR)/target/pgo-driver
-PGO_USE_TARGET_DIR := $(CURDIR)/target/pgo-use
-PGO_INSTRUMENT_BINARY := $(PGO_INSTRUMENT_TARGET_DIR)/$(PGO_TARGET)/release/xshi
-PGO_USE_BINARY := $(PGO_USE_TARGET_DIR)/$(PGO_TARGET)/release/xshi
-PGO_USE_RUSTFLAGS := -Cprofile-use=$(PGO_MERGED) -Cllvm-args=-pgo-warn-missing-function
-PGO_GENERATE_RUSTFLAGS := -Cprofile-generate=$(PGO_DIR)
-PGO_BUILD_STD_FLAGS ?=
-PGO_RUNTIME_RUSTFLAGS ?=
-PGO_DRIVER_ENV =
-ifeq ($(PGO_TARGET),x86_64-unknown-linux-musl)
-PGO_DRIVER_ENV = -u CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS
-endif
-ifeq ($(PGO_TARGET),aarch64-unknown-linux-musl)
-PGO_DRIVER_ENV = -u CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_RUSTFLAGS
-endif
-
 bench:
 	@$(RUSTYBENCH) baseline --root "$(CURDIR)" --baseline "$(CURDIR)/crates/xshi/benches/baseline.json" -- cargo bench -p xshi --bench bench --features benchmark
 
@@ -327,31 +279,6 @@ bench-fast:
 
 bench-syscalls:
 	@$(RUSTYBENCH) syscalls --root "$(CURDIR)"
-
-pgo-instrument:
-	rm -rf $(PGO_DIR) $(PGO_INSTRUMENT_TARGET_DIR) $(PGO_DRIVER_TARGET_DIR) $(PGO_USE_TARGET_DIR)
-	mkdir -p $(PGO_DIR)
-	env -u RUSTFLAGS -u CARGO_ENCODED_RUSTFLAGS cargo rustc --locked -p xshi --bin xshi --release $(PGO_BUILD_STD_FLAGS) --target $(PGO_TARGET) --target-dir $(PGO_INSTRUMENT_TARGET_DIR) -- $(PGO_GENERATE_RUSTFLAGS) $(PGO_RUNTIME_RUSTFLAGS)
-
-pgo-profile: pgo-instrument
-	env -u RUSTFLAGS -u CARGO_ENCODED_RUSTFLAGS $(PGO_DRIVER_ENV) cargo test --locked --test integration --no-run --features "native-tests net tools" --target-dir $(PGO_DRIVER_TARGET_DIR)
-	env -u RUSTFLAGS -u CARGO_ENCODED_RUSTFLAGS $(PGO_DRIVER_ENV) LLVM_PROFILE_FILE="$(PGO_DIR)/xshi-%p.profraw" XSH_PGO_BINARY="$(PGO_INSTRUMENT_BINARY)" CARGO_TARGET_DIR="$(PGO_DRIVER_TARGET_DIR)" cargo test --locked --test integration --features "native-tests net tools" runtime::interactive::xshi_pgo_profile_workload -- --ignored --exact --test-threads=1
-	@raw_profiles="$$(find "$(PGO_DIR)" -type f -name '*.profraw' -print)"; \
-		test -n "$$raw_profiles"; \
-		$(LLVM_BIN)/llvm-profdata merge -o "$(PGO_MERGED)" $$raw_profiles; \
-		$(LLVM_BIN)/llvm-profdata show --all-functions "$(PGO_MERGED)" | grep -q 'xshi'; \
-		! $(LLVM_BIN)/llvm-profdata show --all-functions "$(PGO_MERGED)" | grep -Eiq 'rustybench|xshi.*interactive.*bench|(^|[[:space:]])xsh\.|(^|[[:space:]])xsht\.'
-
-$(PGO_MERGED):
-	$(MAKE) pgo-profile
-
-bench-pgo:
-	@:
-
-release-pgo: $(PGO_MERGED)
-	env -u RUSTFLAGS -u CARGO_ENCODED_RUSTFLAGS cargo rustc --locked -p xshi --bin xshi --release $(PGO_BUILD_STD_FLAGS) --target $(PGO_TARGET) --target-dir $(PGO_USE_TARGET_DIR) -- $(PGO_USE_RUSTFLAGS)
-	@! $(LLVM_BIN)/llvm-nm "$(PGO_USE_BINARY)" 2>/dev/null | grep -Eq '(__llvm_profile|llvm_profile)'
-	@! $(LLVM_BIN)/llvm-objdump -h "$(PGO_USE_BINARY)" 2>/dev/null | grep -Eiq '(__llvm_prf|llvm_prf)'
 
 $(LINUX_INSTALL_CRT_DIR)/%.o: /usr/lib/%.o
 	mkdir -p $(LINUX_INSTALL_CRT_DIR)

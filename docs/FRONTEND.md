@@ -265,7 +265,7 @@ layout.
 The JSON rollup follow-up is closed. On the Apple M1 measurement host, the regular
 `xsh_json_log_rollup_10000_rows` median was 13.58 ms on July 27, 2026, compared
 with 13.81 ms for the repeated pre-redesign measurement. The accepted path remains
-the compact indexed program and does not require PGO.
+the compact indexed program.
 
 ## Changing Indexed Execution
 
