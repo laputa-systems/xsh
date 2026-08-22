@@ -11,6 +11,7 @@ area touched. Do not run formatter or autofix commands for agent work.
 | `Lexer::lex_compact`, `Parser::parse_source_arena_only`, or formatter | targeted `cargo test --test integration syntax::TEST_NAME` | `cargo test --test integration syntax::` |
 | `Checker::check_compact_declarations`, `Checker::probe_compact_bodies`, or lint | targeted `cargo test --test integration sema::TEST_NAME` for checker or `cargo test -p xsht --test integration lint::TEST_NAME` for lint | `cargo test --test integration sema::` for checker or `cargo test -p xsht --test integration` for lint |
 | `Evaluator::prepare_compact_indexed_only`, `indexed_run`, or runtime behavior | targeted `cargo test --test integration runtime::TEST_NAME` | `cargo test --test integration runtime::` |
+| native XSH module behavior | `target/debug/xsht test --exact --jobs 1 PATH::TEST_NAME` | `target/debug/xsht test --jobs 1 tests/xsh/stdlib` |
 | One runtime fixture | `cargo test --test integration runtime::TEST_NAME` | `cargo test --test integration runtime::` |
 | `xsht::cli::CliOutput`, `xsht::grep::find_matches_in_program`, or CLI/tooling | targeted `cargo test -p xsht --test integration cli::TEST_NAME` or `cargo test -p xsht --test integration grep::TEST_NAME` | `cargo test -p xsht --test integration` |
 | Benchmark workload | `cargo bench -p xshi --bench bench --features benchmark BENCHMARK -- --sample-count 1 --sample-size 1` | `make bench-fast` (memory/regression) or `make bench` (latency) |
@@ -26,6 +27,20 @@ area touched. Do not run formatter or autofix commands for agent work.
 | LLVM IR size | `tools/llvm-lines-repeat-offenders.xsh` over an existing capture | fresh `cargo llvm-lines` capture plus the applicable behavior/benchmark gate |
 | API registry/reference/examples | see `API Gate` below | same |
 | Broad cross-cutting work | closest targeted tests | `cargo test` |
+
+## Native XSH Test Rule
+
+Language behavior **must** be specified in the native XSH corpus, normally in
+`tests/xsh/stdlib/` or the nearest `tests/xsh/*.xsh` module. Do not embed new
+XSH source strings in Rust tests merely to exercise language behavior.
+
+Rust integration tests are reserved for boundaries that native XSH cannot own:
+fixture servers, exact process/byte lifecycles, PTYs, privileges, and platform
+behavior. A Rust-owned boundary harness must invoke the relevant disk-backed
+native XSH test and provide only its fixture inputs (for example URLs,
+certificate paths, or temporary roots). Keep the assertions about the language
+contract in XSH. Any exception requires an adjacent comment explaining why a
+disk-backed native test cannot express the behavior.
 
 ## API Gate
 

@@ -513,6 +513,232 @@ match responses[1] {{
 }
 
 #[cfg(feature = "net")]
+fn run_native_xsh_test(
+    test_name: &str,
+    environment: &[(&str, &str)],
+    clear_ssl_cert_file: bool,
+) -> std::process::Output {
+    let mut command = Command::new(cargo_env!("CARGO_BIN_EXE_xsht"));
+    command
+        .current_dir(cargo_env!("CARGO_MANIFEST_DIR"))
+        .args(["test", "--exact", "--jobs", "1", test_name]);
+    if clear_ssl_cert_file {
+        command.env_remove("SSL_CERT_FILE");
+    }
+    for (key, value) in environment {
+        command.env(key, value);
+    }
+    command.output().expect("run native XSH test")
+}
+
+#[cfg(feature = "net")]
+fn assert_native_xsh_test(test_name: &str, output: std::process::Output) {
+    assert!(
+        output.status.success(),
+        "native XSH test {test_name} failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr),
+    );
+}
+
+#[cfg(feature = "net")]
+#[test]
+fn native_xsh_dns_explicit_server_transport() {
+    let server = LocalDnsServer::spawn(2);
+    let output = run_native_xsh_test(
+        "tests/xsh/stdlib/dns.xsh::test_dns_explicit_server_transport",
+        &[("XSH_DNS_TEST_SERVER", &server.addr)],
+        false,
+    );
+    let summary = server.join();
+
+    assert_native_xsh_test("test_dns_explicit_server_transport", output);
+    assert_eq!(summary.handled, 2);
+}
+
+#[cfg(feature = "net")]
+#[test]
+fn native_xsh_net_http_contracts() {
+    let server = LocalHttpServer::spawn(11);
+    let output = run_native_xsh_test(
+        "tests/xsh/stdlib/net.xsh::test_net_transport_http_contracts",
+        &[("XSH_NET_TEST_URL", &server.url)],
+        false,
+    );
+    let summary = server.join();
+
+    assert_native_xsh_test("test_net_transport_http_contracts", output);
+    assert_eq!(summary.handled, 11);
+    assert_eq!(summary.connections, 1, "{:?}", summary.requests);
+}
+
+#[cfg(feature = "net")]
+#[test]
+fn native_xsh_net_error_contracts() {
+    let server = LocalHttpServer::spawn(8);
+    let output = run_native_xsh_test(
+        "tests/xsh/stdlib/net.xsh::test_net_transport_error_contracts",
+        &[("XSH_NET_TEST_URL", &server.url)],
+        false,
+    );
+    let summary = server.join();
+
+    assert_native_xsh_test("test_net_transport_error_contracts", output);
+    assert_eq!(summary.handled, 8);
+}
+
+#[cfg(feature = "net")]
+#[test]
+fn native_xsh_net_timeout_contracts() {
+    let server = LocalHttpServer::spawn(2);
+    let output = run_native_xsh_test(
+        "tests/xsh/stdlib/net.xsh::test_net_transport_timeout_contracts",
+        &[("XSH_NET_TEST_URL", &server.url)],
+        false,
+    );
+    let summary = server.join();
+
+    assert_native_xsh_test("test_net_transport_timeout_contracts", output);
+    assert_eq!(summary.handled, 2);
+}
+
+#[cfg(feature = "net")]
+#[test]
+fn native_xsh_net_batch_contracts() {
+    let server = LocalHttpServer::spawn(5);
+    let output = run_native_xsh_test(
+        "tests/xsh/stdlib/net.xsh::test_net_transport_batch_contracts",
+        &[("XSH_NET_TEST_URL", &server.url)],
+        false,
+    );
+    let summary = server.join();
+
+    assert_native_xsh_test("test_net_transport_batch_contracts", output);
+    assert_eq!(summary.handled, 5);
+}
+
+#[cfg(feature = "net")]
+#[test]
+fn native_xsh_net_batch_download_error_contract() {
+    let server = LocalHttpServer::spawn(3);
+    let output = run_native_xsh_test(
+        "tests/xsh/stdlib/net.xsh::test_net_transport_batch_download_error_contract",
+        &[("XSH_NET_TEST_URL", &server.url)],
+        false,
+    );
+    let summary = server.join();
+
+    assert_native_xsh_test("test_net_transport_batch_download_error_contract", output);
+    assert_eq!(summary.handled, 3);
+}
+
+#[cfg(feature = "net")]
+fn run_native_xsh_tls_contracts(versions: &[&'static rustls::SupportedProtocolVersion]) {
+    static NEXT_CA_FILE: AtomicUsize = AtomicUsize::new(0);
+
+    let server = LocalHttpsServer::spawn_with_protocol_versions(3, versions);
+    let ca = temp_path(&format!(
+        "native-xsh-net-ca-{}.pem",
+        NEXT_CA_FILE.fetch_add(1, Ordering::Relaxed)
+    ));
+    let _ = std::fs::remove_file(&ca);
+    std::fs::write(&ca, LOCAL_HTTPS_CA).expect("write local HTTPS CA");
+    let output = run_native_xsh_test(
+        "tests/xsh/stdlib/net.xsh::test_net_transport_tls_contracts",
+        &[
+            ("XSH_NET_TEST_TLS_URL", &server.url),
+            ("XSH_NET_TEST_CA", ca.to_str().expect("CA path is UTF-8")),
+        ],
+        false,
+    );
+    let summary = server.join();
+
+    assert_native_xsh_test("test_net_transport_tls_contracts", output);
+    assert_eq!(summary.handled, 3);
+    let _ = std::fs::remove_file(ca);
+}
+
+#[cfg(feature = "net")]
+#[test]
+fn native_xsh_net_tls_contracts_over_tls12() {
+    run_native_xsh_tls_contracts(&[&rustls::version::TLS12]);
+}
+
+#[cfg(feature = "net")]
+#[test]
+fn native_xsh_net_tls_contracts_over_tls13() {
+    run_native_xsh_tls_contracts(&[&rustls::version::TLS13]);
+}
+
+#[cfg(feature = "net")]
+#[test]
+fn native_xsh_net_request_many_over_https_http2() {
+    let server = LocalHttpsHttp2Server::spawn(2);
+    let ca = temp_path("native-xsh-net-h2-ca.pem");
+    let _ = std::fs::remove_file(&ca);
+    std::fs::write(&ca, LOCAL_HTTPS_CA).expect("write local HTTPS CA");
+    let output = run_native_xsh_test(
+        "tests/xsh/stdlib/net.xsh::test_net_transport_request_many_https_h2_contract",
+        &[
+            ("XSH_NET_TEST_H2_URL", &server.url),
+            ("XSH_NET_TEST_CA", ca.to_str().expect("CA path is UTF-8")),
+        ],
+        false,
+    );
+    let summary = server.join();
+
+    assert_native_xsh_test("test_net_transport_request_many_https_h2_contract", output);
+    assert_eq!(summary.handled, 2);
+    let _ = std::fs::remove_file(ca);
+}
+
+#[cfg(feature = "net")]
+#[test]
+fn native_xsh_net_download_many_over_https_http2() {
+    let server = LocalHttpsHttp2Server::spawn(1);
+    let ca = temp_path("native-xsh-net-h2-download-ca.pem");
+    let _ = std::fs::remove_file(&ca);
+    std::fs::write(&ca, LOCAL_HTTPS_CA).expect("write local HTTPS CA");
+    let output = run_native_xsh_test(
+        "tests/xsh/stdlib/net.xsh::test_net_transport_download_many_https_h2_contract",
+        &[
+            ("XSH_NET_TEST_H2_URL", &server.url),
+            ("XSH_NET_TEST_CA", ca.to_str().expect("CA path is UTF-8")),
+        ],
+        false,
+    );
+    let summary = server.join();
+
+    assert_native_xsh_test("test_net_transport_download_many_https_h2_contract", output);
+    assert_eq!(summary.handled, 1);
+    let _ = std::fs::remove_file(ca);
+}
+
+#[cfg(all(feature = "net", target_os = "linux"))]
+#[test]
+fn native_xsh_net_uses_ssl_cert_dir_for_linux_trust() {
+    let server = LocalHttpsServer::spawn_with_protocol_versions(1, rustls::ALL_VERSIONS);
+    let cert_dir = temp_path("native-xsh-net-system-ca-dir");
+    let cert = cert_dir.join("local-ca.pem");
+    let _ = std::fs::remove_dir_all(&cert_dir);
+    std::fs::create_dir_all(&cert_dir).expect("create CA directory");
+    std::fs::write(&cert, LOCAL_HTTPS_CA).expect("write local HTTPS CA");
+    let output = run_native_xsh_test(
+        "tests/xsh/stdlib/net.xsh::test_net_transport_linux_system_ca_dir",
+        &[
+            ("XSH_NET_TEST_TLS_URL", &server.url),
+            ("SSL_CERT_DIR", cert_dir.to_str().expect("CA directory path is UTF-8")),
+        ],
+        true,
+    );
+    let summary = server.join();
+
+    assert_native_xsh_test("test_net_transport_linux_system_ca_dir", output);
+    assert_eq!(summary.handled, 1);
+    let _ = std::fs::remove_dir_all(cert_dir);
+}
+
+#[cfg(feature = "net")]
 #[test]
 fn net_module_request_many_verifies_local_https_over_tls13() {
     let server = LocalHttpsServer::spawn_with_protocol_versions(2, &[&rustls::version::TLS13]);
@@ -2283,12 +2509,13 @@ fn handle_local_http_connection(
         match reader.read_line(&mut request_line) {
             Ok(0) => break,
             Ok(_) => {}
-            Err(error)
-                if matches!(
-                    error.kind(),
-                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
-                ) =>
-            {
+            // A live keep-alive connection can temporarily report WouldBlock
+            // between client requests; only a real read timeout ends the worker.
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                std::thread::sleep(Duration::from_millis(1));
+                continue;
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::TimedOut => {
                 break;
             }
             Err(error) => panic!("read HTTP request line: {error}"),
@@ -2330,6 +2557,9 @@ fn handle_local_http_connection(
         let response = local_http_response(&request);
         request_tx.send(request).expect("send HTTP request");
         handled.fetch_add(1, Ordering::SeqCst);
+        if path == "/slow" {
+            std::thread::sleep(Duration::from_millis(200));
+        }
         stream
             .write_all(response.as_bytes())
             .expect("write HTTP response");
@@ -2343,6 +2573,11 @@ fn local_http_response(request: &LocalHttpRequest) -> String {
         match (request.method.as_str(), request.path.as_str()) {
             ("GET", "/hello") => ("200", "OK", Vec::new(), b"hello".to_vec()),
             ("GET", "/redirect") => ("302", "Found", vec![("Location", "/hello")], Vec::new()),
+            ("GET", "/redirect-missing") => ("302", "Found", Vec::new(), Vec::new()),
+            ("GET", "/redirect-loop") => {
+                ("302", "Found", vec![("Location", "/redirect-loop")], Vec::new())
+            }
+            ("GET", "/slow") => ("200", "OK", Vec::new(), b"slow".to_vec()),
             ("POST", "/echo") => {
                 let mut body = b"echo:".to_vec();
                 body.extend_from_slice(&request.body);
@@ -2350,7 +2585,22 @@ fn local_http_response(request: &LocalHttpRequest) -> String {
             }
             ("GET", "/status") => ("404", "Not Found", Vec::new(), b"missing".to_vec()),
             ("GET", "/file") => ("200", "OK", Vec::new(), b"downloaded\n".to_vec()),
-            ("PUT", "/upload") => ("201", "Created", Vec::new(), b"uploaded".to_vec()),
+            ("GET", "/header-file") if request.header("x-download") == Some("yes") => {
+                ("200", "OK", Vec::new(), b"downloaded\n".to_vec())
+            }
+            ("GET", "/header-file") => {
+                ("400", "Bad Request", Vec::new(), b"missing X-Download".to_vec())
+            }
+            ("PUT", "/upload")
+                if request.header("authorization") == Some("Bearer secret-token") =>
+            {
+                let mut body = b"uploaded:".to_vec();
+                body.extend_from_slice(&request.body);
+                ("201", "Created", Vec::new(), body)
+            }
+            ("PUT", "/upload") => {
+                ("401", "Unauthorized", Vec::new(), b"missing authorization".to_vec())
+            }
             ("HEAD", "/hello") => ("200", "OK", Vec::new(), Vec::new()),
             _ => ("404", "Not Found", Vec::new(), b"missing".to_vec()),
         };
@@ -2604,7 +2854,21 @@ fn handle_local_https_connection(stream: std::net::TcpStream, config: Arc<rustls
     let mut request = Vec::new();
     let mut byte = [0_u8; 1];
     while !request.ends_with(b"\r\n\r\n") {
-        stream.read_exact(&mut byte).expect("read HTTPS request");
+        match stream.read_exact(&mut byte) {
+            Ok(()) => {}
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::InvalidData
+                        | std::io::ErrorKind::UnexpectedEof
+                        | std::io::ErrorKind::ConnectionAborted
+                        | std::io::ErrorKind::ConnectionReset
+                ) =>
+            {
+                return;
+            }
+            Err(error) => panic!("read HTTPS request: {error}"),
+        }
         request.push(byte[0]);
         if request.len() > 8192 {
             panic!("HTTPS request header too large");

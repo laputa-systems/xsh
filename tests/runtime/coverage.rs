@@ -1023,7 +1023,7 @@ fn xsht_test_lists_and_filters_native_tests() {
     assert!(listed.status.success());
     assert_eq!(
         String::from_utf8(listed.stdout).unwrap(),
-        "tests/xsh/basic.xsh::test_dns_mock\ntests/xsh/stdlib/dns.xsh::test_dns_module_with_mocks\n"
+        "tests/xsh/basic.xsh::test_dns_mock\ntests/xsh/stdlib/dns.xsh::test_dns_explicit_server_transport\ntests/xsh/stdlib/dns.xsh::test_dns_module_rejects_invalid_arguments\ntests/xsh/stdlib/dns.xsh::test_dns_module_with_mocks\n"
     );
     assert!(exact.status.success());
     let stdout = String::from_utf8(exact.stdout).unwrap();

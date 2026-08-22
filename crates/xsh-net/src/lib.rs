@@ -1766,7 +1766,12 @@ fn collect_system_certificates_from_dir(
 
 fn net_transport_error(error: io::Error) -> NetError {
     let message = error.to_string();
-    let kind = if message.contains("dns-not-found") {
+    let kind = if matches!(
+        error.kind(),
+        io::ErrorKind::TimedOut | io::ErrorKind::WouldBlock
+    ) {
+        "net-timeout"
+    } else if message.contains("dns-not-found") {
         "dns-not-found"
     } else if message.contains("dns-timeout") {
         "dns-timeout"

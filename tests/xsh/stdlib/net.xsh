@@ -89,3 +89,427 @@ proc test_net_module_with_mocks(ctx: TestContext) [fs, net, error] {
   test.eq(test.calls(ctx, "net.download_many")[0].args.downloads[0].url, "https://example.test/file")?
   test.eq(test.calls(ctx, "net.upload")[0].args.source.display(), "in")?
 }
+
+proc test_net_transport_http_contracts(ctx: TestContext) [fs, net, env, error] {
+  let url = env.get_or("XSH_NET_TEST_URL", "")?
+  if url == "" {
+    test.skip("requires XSH_NET_TEST_URL fixture")
+    return
+  }
+
+  let root = test.temp_dir(ctx, name: "net-http")?
+  let upload_source = fp"${root}/upload.txt"
+  let download_dest = fp"${root}/download.txt"
+  let missing_ca = fp"${root}/missing-ca.pem"
+  fs.write(upload_source, "upload-body")?
+
+  let pool = net.pool("fixture", 4, 1s)?
+  let first = net.request({method: "GET", url: f"${url}/hello", pool: "fixture"})?
+  let second = net.request({method: "GET", url: f"${url}/hello", pool: "fixture"})?
+  let headed = net.request({method: "HEAD", url: f"${url}/hello", pool: "fixture"})?
+  let redirected = net.request({method: "GET", url: f"${url}/redirect", redirects: 1, pool: "fixture"})?
+  let posted = net.request({
+    method: "POST",
+    url: f"${url}/echo",
+    headers: [{name: "X-Test", value: "one"}],
+    body_text: "payload",
+    pool: "fixture",
+  })?
+  let posted_file = net.request({
+    method: "POST",
+    url: f"${url}/echo",
+    body_file: upload_source,
+    pool: "fixture",
+  })?
+  let posted_bytes = net.request({
+    method: "POST",
+    url: f"${url}/echo",
+    body: b"bytes",
+    pool: "fixture",
+  })?
+  let status = net.request({method: "GET", url: f"${url}/status", pool: "fixture"})?
+  let downloaded = net.download({
+    url: f"${url}/header-file",
+    dest: download_dest,
+    headers: [{name: "X-Download", value: "yes"}],
+    overwrite: true,
+    pool: "fixture",
+  })?
+  let uploaded = net.upload({
+    url: f"${url}/upload",
+    source: upload_source,
+    headers: [{name: "Authorization", value: "Bearer secret-token"}],
+    pool: "fixture",
+  })?
+
+  test.eq(pool.max_idle_per_host, 4)?
+  test.eq(pool.idle_timeout_ms, 1000)?
+  test.eq(first.reason, "OK")?
+  test.eq(first.url, f"${url}/hello")?
+  test.eq(first.body.utf8()?, "hello")?
+  test.eq(second.body.utf8()?, "hello")?
+  test.eq(headed.status, 200)?
+  test.eq(headed.bytes, 0)?
+  test.eq(redirected.body.utf8()?, "hello")?
+  test.eq(posted.body.utf8()?, "echo:payload")?
+  test.eq(posted_file.body.utf8()?, "echo:upload-body")?
+  test.eq(posted_bytes.body.utf8()?, "echo:bytes")?
+  test.eq(status.status, 404)?
+  test.eq(downloaded.status, 200)?
+  test.eq(downloaded.bytes, 11)?
+  test.eq(
+    download_dest.read_text()?,
+    """downloaded
+""",
+  )?
+  test.eq(uploaded.status, 201)?
+  test.eq(uploaded.reason, "Created")?
+  test.eq(uploaded.bytes, 20)?
+  test.eq(uploaded.url, f"${url}/upload")?
+  test.eq(first.headers[0].name, "Date")?
+  test.eq(first.headers[1].value, "5")?
+  test.error_kind(net.request({method: "GET", url: "ftp://example.invalid/file"}), "net-scheme")?
+  test.error_kind(
+    net.request({method: "GET", url: f"${url}/hello", ca_certificate: missing_ca}),
+    "net-ca-certificate",
+  )?
+  net.close_pool("fixture")?
+  net.close_all_pools()?
+}
+
+proc test_net_transport_error_contracts(ctx: TestContext) [fs, net, env, error] {
+  let url = env.get_or("XSH_NET_TEST_URL", "")?
+  if url == "" {
+    test.skip("requires XSH_NET_TEST_URL fixture")
+    return
+  }
+
+  let root = test.temp_dir(ctx, name: "net-errors")?
+  let existing = fp"${root}/existing.txt"
+  let limited = fp"${root}/limited.txt"
+  let in_place = fp"${root}/in-place.txt"
+  fs.write(existing, "previous")?
+  fs.write(limited, "limited before")?
+  fs.write(in_place, "old")?
+
+  let redirect_limit = net.request({method: "GET", url: f"${url}/redirect", redirects: 0})
+  let missing_location = net.request({method: "GET", url: f"${url}/redirect-missing", redirects: 1})
+  let redirect_loop = net.request({method: "GET", url: f"${url}/redirect-loop", redirects: 1})
+  let body_limit = net.request({method: "GET", url: f"${url}/hello", max_body_bytes: 4})
+  let status = net.request({method: "GET", url: f"${url}/status", fail_status: true})
+  let existing_result = net.download({url: f"${url}/file", dest: existing})
+  let limited_result = net.download({
+    url: f"${url}/hello",
+    dest: limited,
+    atomic: true,
+    overwrite: true,
+    max_body_bytes: 4,
+  })
+  let in_place_result = net.download({
+    url: f"${url}/file",
+    dest: in_place,
+    atomic: false,
+    overwrite: true,
+  })?
+
+  test.error_kind(redirect_limit, "net-redirect")?
+  test.error_kind(missing_location, "net-redirect")?
+  test.error_kind(redirect_loop, "net-redirect")?
+  test.error_kind(body_limit, "net-body-limit")?
+  test.error_kind(status, "net-status")?
+  test.error_kind(existing_result, "net-dest")?
+  test.error_kind(limited_result, "net-body-limit")?
+  test.eq(existing.read_text()?, "previous")?
+  test.eq(limited.read_text()?, "limited before")?
+  test.eq(in_place_result.bytes, 11)?
+  test.eq(
+    in_place.read_text()?,
+    """downloaded
+""",
+  )?
+}
+
+proc assert_invalid_net_input(ctx: TestContext, source: Str, kind: Str) [error] {
+  let output = test.run_script(ctx, source)?
+  test.eq(output.status, 3)?
+  test.contains(output.stderr, kind)?
+}
+
+proc test_net_transport_rejects_invalid_shapes(ctx: TestContext) [fs, net, error] {
+  let root = test.temp_dir(ctx, name: "net-invalid")?
+  let missing_source = fp"${root}/missing.txt"
+
+  test.error_kind(net.request({method: "TRACE", url: "http://127.0.0.1:9/"}), "net-method")?
+  test.error_kind(net.request({method: "GET", url: "ftp://example.test/"}), "net-scheme")?
+  test.error_kind(
+    net.request({
+      method: "GET",
+      url: "http://127.0.0.1:9/",
+      headers: [{name: "", value: "bad"}],
+    }),
+    "net-header",
+  )?
+  test.error_kind(
+    net.request({method: "POST", url: "http://127.0.0.1:9/", body_file: missing_source}),
+    "net-body-file",
+  )?
+  test.error_kind(
+    net.upload({url: "http://127.0.0.1:9/", source: missing_source}),
+    "net-source",
+  )?
+  test.error_kind(net.request_many({requests: [], concurrency: 0}), "net-concurrency")?
+  test.error_kind(net.download_many({downloads: [], concurrency: -1}), "net-concurrency")?
+  test.error_kind(net.pool("invalid", -1), "net-pool")?
+  assert_invalid_net_input(
+    ctx,
+    """let _ = net.request({
+  method: "POST",
+  url: "http://127.0.0.1:9/",
+  body: b"one",
+  body_text: "two",
+})
+""",
+    "net-body",
+  )?
+  assert_invalid_net_input(
+    ctx,
+    """let _ = net.request({method: "GET", url: "http://127.0.0.1:9/", redirects: -1})
+""",
+    "range-error",
+  )?
+  assert_invalid_net_input(
+    ctx,
+    """let _ = net.download({url: "http://127.0.0.1:9/", dest: p"missing", max_body_bytes: -1})
+""",
+    "range-error",
+  )?
+  test.error_kind(net.request({method: "GET", url: "http://"}), "net-url")?
+  test.error_kind(
+    net.upload({method: "TRACE", url: "http://127.0.0.1:9/", source: missing_source}),
+    "net-method",
+  )?
+}
+
+proc test_net_transport_timeout_contracts() [net, env, error] {
+  let url = env.get_or("XSH_NET_TEST_URL", "")?
+  if url == "" {
+    test.skip("requires XSH_NET_TEST_URL fixture")
+    return
+  }
+
+  test.error_kind(net.request({method: "GET", url: f"${url}/slow", timeout: 50ms}), "net-timeout")?
+  test.error_kind(
+    net.request({method: "GET", url: f"${url}/slow", connect_timeout: 50ms}),
+    "net-timeout",
+  )?
+}
+
+proc test_net_transport_batch_contracts(ctx: TestContext) [fs, net, env, error] {
+  let url = env.get_or("XSH_NET_TEST_URL", "")?
+  if url == "" {
+    test.skip("requires XSH_NET_TEST_URL fixture")
+    return
+  }
+
+  let root = test.temp_dir(ctx, name: "net-batch")?
+  let first = fp"${root}/first.txt"
+  let second = fp"${root}/second.txt"
+  let request_items = [
+    {
+      method: "GET",
+      url: f"${url}/hello",
+      headers: [
+        {
+          name: "Connection",
+          value: "close",
+        },
+      ],
+    },
+    {
+      method: "GET",
+      url: "ftp://example.test/",
+    },
+    {
+      method: "GET",
+      url: f"${url}/status",
+      headers: [
+        {
+          name: "Connection",
+          value: "close",
+        },
+      ],
+      fail_status: true,
+    },
+    {
+      method: "GET",
+      url: f"${url}/hello",
+      headers: [
+        {
+          name: "Connection",
+          value: "close",
+        },
+      ],
+    },
+  ]
+  let download_items = [
+    {
+      url: f"${url}/hello",
+      dest: first,
+      overwrite: true,
+    },
+    {
+      url: f"${url}/hello",
+      dest: second,
+      overwrite: true,
+    },
+  ]
+  let requests = net.request_many({
+    requests: request_items,
+    concurrency: 2,
+    pool: "batch",
+  })?
+  let downloads = net.download_many({
+    downloads: download_items,
+    concurrency: 2,
+    pool: "batch-downloads",
+  })?
+
+  test.eq(requests[0]?.body.utf8()?, "hello")?
+  test.error_kind(requests[1], "net-scheme")?
+  test.error_kind(requests[2], "net-status")?
+  test.eq(requests[3]?.body.utf8()?, "hello")?
+  test.eq(downloads[0]?.bytes, 5)?
+  test.eq(downloads[1]?.bytes, 5)?
+  test.eq(first.read_text()?, "hello")?
+  test.eq(second.read_text()?, "hello")?
+}
+
+proc test_net_transport_batch_download_error_contract(ctx: TestContext) [fs, net, env, error] {
+  let url = env.get_or("XSH_NET_TEST_URL", "")?
+  if url == "" {
+    test.skip("requires XSH_NET_TEST_URL fixture")
+    return
+  }
+
+  let root = test.temp_dir(ctx, name: "net-batch-errors")?
+  let redirected = fp"${root}/redirected.txt"
+  let limited = fp"${root}/limited.txt"
+  fs.write(limited, "previous")?
+  let download_items = [
+    {
+      url: f"${url}/redirect",
+      dest: redirected,
+      atomic: true,
+      overwrite: true,
+      redirects: 1,
+      max_body_bytes: 1024,
+    },
+    {
+      url: f"${url}/hello",
+      dest: limited,
+      atomic: true,
+      overwrite: true,
+      redirects: 1,
+      max_body_bytes: 4,
+    },
+  ]
+  let responses = net.download_many({
+    downloads: download_items,
+    concurrency: 2,
+    pool: "batch-errors",
+  })?
+
+  test.eq(responses[0]?.bytes, 5)?
+  test.error_kind(responses[1], "net-body-limit")?
+  test.eq(redirected.read_text()?, "hello")?
+  test.eq(limited.read_text()?, "previous")?
+}
+
+proc test_net_transport_tls_contracts() [net, env, error] {
+  let url = env.get_or("XSH_NET_TEST_TLS_URL", "")?
+  let ca = env.get_or("XSH_NET_TEST_CA", "")?
+  if url == "" or ca == "" {
+    test.skip("requires TLS fixture")
+    return
+  }
+
+  let rejected = net.request({method: "GET", url: f"${url}/secure"})
+  let unverified = net.request({
+    method: "GET",
+    url: f"${url}/secure",
+    tls_verify: false,
+  })?
+  let verified = net.request({
+    method: "GET",
+    url: f"${url}/secure",
+    ca_certificate: fp"${ca}",
+  })?
+
+  test.error_kind(rejected, "net-tls")?
+  test.eq(unverified.body.utf8()?, "secure")?
+  test.eq(verified.body.utf8()?, "secure")?
+}
+
+proc test_net_transport_request_many_https_h2_contract() [net, env, error] {
+  let url = env.get_or("XSH_NET_TEST_H2_URL", "")?
+  let ca = env.get_or("XSH_NET_TEST_CA", "")?
+  if url == "" or ca == "" {
+    test.skip("requires HTTPS H2 fixture")
+    return
+  }
+
+  let request_items = [
+    {
+      method: "GET",
+      url: f"${url}/h2",
+    },
+    {
+      method: "GET",
+      url: f"${url}/h2",
+    },
+  ]
+  let batch = {
+    requests: request_items,
+    concurrency: 1,
+    ca_certificate: fp"${ca}",
+    pool: "h2",
+  }
+  let requests = net.request_many(batch)?
+
+  test.eq(requests[0]?.body.utf8()?, "h2")?
+  test.eq(requests[1]?.body.utf8()?, "h2")?
+}
+
+proc test_net_transport_download_many_https_h2_contract(ctx: TestContext) [fs, net, env, error] {
+  let url = env.get_or("XSH_NET_TEST_H2_URL", "")?
+  let ca = env.get_or("XSH_NET_TEST_CA", "")?
+  if url == "" or ca == "" {
+    test.skip("requires HTTPS H2 fixture")
+    return
+  }
+
+  let root = test.temp_dir(ctx, name: "net-h2")?
+  let dest = fp"${root}/h2.txt"
+  let download_items = [{url: f"${url}/h2", dest: dest, overwrite: true}]
+  let batch = {
+    downloads: download_items,
+    ca_certificate: fp"${ca}",
+    pool: "h2-download",
+  }
+  let downloads = net.download_many(batch)?
+
+  test.eq(downloads[0]?.bytes, 2)?
+  test.eq(dest.read_text()?, "h2")?
+}
+
+proc test_net_transport_linux_system_ca_dir() [net, env, error] {
+  let url = env.get_or("XSH_NET_TEST_TLS_URL", "")?
+  if url == "" {
+    test.skip("requires Linux TLS fixture")
+    return
+  }
+
+  let response = net.request({method: "GET", url: f"${url}/secure"})?
+  test.eq(response.status, 200)?
+  test.eq(response.body.utf8()?, "secure")?
+}
