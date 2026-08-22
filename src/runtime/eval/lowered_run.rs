@@ -4945,16 +4945,6 @@ impl Evaluator {
                 };
                 LoweredValue::Duration(DurationValue { millis })
             }
-            RuntimeOp::TimeFormat if values.len() == 2 || values.len() == 3 => {
-                let utc = lowered_bool_arg_or(values.get(2).cloned(), false, "time.format", span)?;
-                let format =
-                    lowered_str_arg_owned(values.get(1).cloned(), "", "time.format", span)?;
-                let epoch_ms = lowered_int_arg(values.first().cloned(), "time.format", span)?;
-                match time_module::format_epoch_ms(epoch_ms, &format, utc, span) {
-                    Ok(formatted) => lowered_result_ok(LoweredValue::Str(formatted.into())),
-                    Err(error) => lowered_result_err_value(error),
-                }
-            }
             RuntimeOp::TimeMeasure if values.len() == 1 || values.len() == 2 => {
                 let quiet =
                     lowered_bool_arg_or(values.get(1).cloned(), false, "time.measure", span)?;

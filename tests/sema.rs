@@ -837,7 +837,6 @@ pure parse_command(text: Str) -> Result[Command] {
   let words = process.argv_words(text)?
   process.command_argv("true", words)
 }
-let year = time.format(0, "%Y", utc: true)?
 let now_ms = time.now()
 let slept = time.sleep(1ms)?
 let host = system.hostname()?
@@ -1075,6 +1074,10 @@ fn checker_rejects_removed_verbose_apis() {
             "let _ = regex.matches(\"WARN\", \"WARN\")?\n",
             "check.unknown-module-api",
         ),
+        (
+            "let _ = time.format(0, \"%Y\", utc: true)?\n",
+            "check.unknown-module-api",
+        ),
         ("let _ = [1] |> collect(1)\n", "check.arity"),
         (
             "let _ = [1] |> collect --jobs=1\n",
@@ -1139,7 +1142,6 @@ fn checker_rejects_process_time_system_identity_calls_in_pure_functions() {
         "pure bad() -> Int {\n  let _ = process.which(\"sh\")?\n  return 0\n}\n",
         "pure bad(command: Command) -> Int {\n  let _ = process.run(command)?\n  return 0\n}\n",
         "pure bad() -> Int {\n  let _ = time.now()\n  return 0\n}\n",
-        "pure bad() -> Int {\n  let _ = time.format(0, \"%Y\")?\n  return 0\n}\n",
         "pure bad() -> Int {\n  let _ = system.hostname()?\n  return 0\n}\n",
         "pure bad() -> Int {\n  let _ = user.current()?\n  return 0\n}\n",
         "pure bad() -> Int {\n  let _ = group.current()?\n  return 0\n}\n",

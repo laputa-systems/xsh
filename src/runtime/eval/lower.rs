@@ -509,7 +509,7 @@ fn compact_named_function_call_arg_exprs(
 fn lowered_module_sig_type(sig: &ModuleFnSig) -> Option<LoweredType> {
     if matches!(
         sig.op,
-        RuntimeOp::TimeSleep | RuntimeOp::TimeFormat | RuntimeOp::TimeMeasure
+        RuntimeOp::TimeSleep | RuntimeOp::TimeMeasure
     ) {
         return lowered_module_op_supported(sig.op).then_some(LoweredType::Result);
     }
@@ -728,7 +728,6 @@ fn lowered_module_op_supported(op: RuntimeOp) -> bool {
             | RuntimeOp::TimeSleep
             | RuntimeOp::TimeMillis
             | RuntimeOp::TimeSeconds
-            | RuntimeOp::TimeFormat
             | RuntimeOp::TimeMeasure
             | RuntimeOp::TimeDurationCompact
             | RuntimeOp::TuiReset

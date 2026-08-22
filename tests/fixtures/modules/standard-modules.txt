@@ -336,7 +336,6 @@ module test
 
 module time
   duration_compact(seconds: Int) -> Str pure
-  format(epoch_ms: Int, format: Str, utc: Bool = default) -> Result[Str, Error] effect
   measure(command: Command, quiet: Bool = default) -> Result[{duration_ms: Int, status: Status, system_ns: Int, user_ns: Int, wall_ns: Int}, Error] effect
   millis(ms: Int) -> Duration pure
   now() -> Int effect

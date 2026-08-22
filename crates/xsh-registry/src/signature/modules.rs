@@ -3571,19 +3571,6 @@ fn time_module() -> ModuleSig {
             ),
         ),
         (
-            "format",
-            sig(
-                vec![
-                    param("epoch_ms", Type::Int),
-                    param("format", Type::Str),
-                    default_param("utc", Type::Bool),
-                ],
-                result(Type::Str),
-                false,
-                RuntimeOp::TimeFormat,
-            ),
-        ),
-        (
             "duration_compact",
             sig(
                 vec![param("seconds", Type::Int)],

@@ -1,6 +1,6 @@
 #![allow(clippy::single_call_fn)]
 
-use crate::modules::time::{format_epoch_ms, now_epoch_ms};
+use crate::modules::time::{format_epoch_ms_utc, now_epoch_ms};
 use crate::modules::user::name_for_uid;
 use crate::runtime::value::{LiveStream, RecordMap, RecordShape, RuntimeError, StreamValue, Value};
 use crate::source::Span;
@@ -105,7 +105,7 @@ struct LinuxProcessStream {
 
 #[cfg(target_os = "linux")]
 impl LiveStream for LinuxProcessStream {
-    fn next(&mut self, span: Span) -> Result<Option<Value>, RuntimeError> {
+    fn next(&mut self, _span: Span) -> Result<Option<Value>, RuntimeError> {
         loop {
             let Some((pid, path, uid)) = self.entries.next() else {
                 return Ok(None);
@@ -115,7 +115,7 @@ impl LiveStream for LinuxProcessStream {
             else {
                 continue;
             };
-            return Ok(Some(process_record_value(record, self.now_ms, span)));
+            return Ok(Some(process_record_value(record, self.now_ms)));
         }
     }
 }
@@ -140,11 +140,11 @@ struct MacProcessStream {
 
 #[cfg(target_os = "macos")]
 impl LiveStream for MacProcessStream {
-    fn next(&mut self, span: Span) -> Result<Option<Value>, RuntimeError> {
+    fn next(&mut self, _span: Span) -> Result<Option<Value>, RuntimeError> {
         Ok(self
             .records
             .next()
-            .map(|record| process_record_value(record, self.now_ms, span)))
+            .map(|record| process_record_value(record, self.now_ms)))
     }
 }
 
@@ -231,7 +231,7 @@ struct LinuxThreadStream {
 
 #[cfg(target_os = "linux")]
 impl LiveStream for LinuxThreadStream {
-    fn next(&mut self, span: Span) -> Result<Option<Value>, RuntimeError> {
+    fn next(&mut self, _span: Span) -> Result<Option<Value>, RuntimeError> {
         loop {
             if let Some(cursor) = &mut self.current {
                 for (thread_id, path) in cursor.tasks.by_ref() {
@@ -250,7 +250,6 @@ impl LiveStream for LinuxThreadStream {
                             status: parsed.status,
                         },
                         self.now_ms,
-                        span,
                     )));
                 }
                 self.current = None;
@@ -321,7 +320,7 @@ struct MacThreadStream {
 
 #[cfg(target_os = "macos")]
 impl LiveStream for MacThreadStream {
-    fn next(&mut self, span: Span) -> Result<Option<Value>, RuntimeError> {
+    fn next(&mut self, _span: Span) -> Result<Option<Value>, RuntimeError> {
         loop {
             if let Some(cursor) = &mut self.current {
                 for thread_id in cursor.threads.by_ref() {
@@ -337,7 +336,6 @@ impl LiveStream for MacThreadStream {
                             status: macos_thread_status(info.pth_run_state),
                         },
                         self.now_ms,
-                        span,
                     )));
                 }
                 self.current = None;
@@ -790,14 +788,14 @@ struct SocketRecord {
     inode: Option<u64>,
 }
 
-fn process_record_value(record: ProcessRecord, now_ms: i64, span: Span) -> Value {
+fn process_record_value(record: ProcessRecord, now_ms: i64) -> Value {
     let runtime_seconds = if record.start_time_ms > 0 {
         (now_ms.saturating_sub(record.start_time_ms) / 1000).max(0)
     } else {
         0
     };
     let start_time = if record.start_time_ms > 0 {
-        format_epoch_ms(record.start_time_ms, "%Y-%m-%dT%H:%M:%SZ", true, span).unwrap_or_default()
+        format_epoch_ms_utc(record.start_time_ms)
     } else {
         String::new()
     };
@@ -819,20 +817,14 @@ fn process_record_value(record: ProcessRecord, now_ms: i64, span: Span) -> Value
     ))
 }
 
-fn thread_record_value(record: ThreadRecord, now_ms: i64, span: Span) -> Value {
+fn thread_record_value(record: ThreadRecord, now_ms: i64) -> Value {
     let runtime_seconds = if record.process.start_time_ms > 0 {
         (now_ms.saturating_sub(record.process.start_time_ms) / 1000).max(0)
     } else {
         0
     };
     let start_time = if record.process.start_time_ms > 0 {
-        format_epoch_ms(
-            record.process.start_time_ms,
-            "%Y-%m-%dT%H:%M:%SZ",
-            true,
-            span,
-        )
-        .unwrap_or_default()
+        format_epoch_ms_utc(record.process.start_time_ms)
     } else {
         String::new()
     };

@@ -179,10 +179,7 @@ fn module_docs(module: &str) -> ApiDocs {
             "Text splitting, joining, replacement, counting, and character transforms.",
             "Text APIs operate on UTF-8 Str values.",
         ),
-        "time" => (
-            "Clock, sleep, command measurement, and Jiff strtime formatting.",
-            "",
-        ),
+        "time" => ("Clock, sleep, command measurement, and duration display.", ""),
         "tui" => (
             "Terminal styling, control sequences, and width-aware text padding.",
             "",
@@ -1109,14 +1106,9 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
             "The measured operation still owns its normal status and error contract; timing is additional data.",
             &["time", "measurement", "process"],
         )),
-        ("time", "format") => Some((
-            "Formats a timestamp with an explicit strtime pattern.",
-            "Formatting is presentation only and does not change the underlying clock value.",
-            &["time", "formatting"],
-        )),
         ("time", "duration_compact") => Some((
-            "Formats a duration using compact Jiff units.",
-            "The result is display text and preserves the sign and magnitude of the duration.",
+            "Formats a duration using compact fixed-width units.",
+            "Negative inputs clamp to zero before display.",
             &["time", "duration", "display"],
         )),
         (

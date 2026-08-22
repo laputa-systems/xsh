@@ -2675,15 +2675,8 @@ are omitted rather than reported with partial process data.
   `wall_ns` is nanosecond wall-clock time; `user_ns`/`system_ns` are the child's
   user/system CPU time; `duration_ms` is `wall_ns / 1_000_000` (kept for
   compatibility). With `quiet: true` the child's stdout/stderr go to `/dev/null`.
-- `time.format(epoch_ms: Int, format: Str, utc: Bool = false) -> Result[Str]`,
-  converting epoch milliseconds with Jiff, using UTC when `utc` is true and the
-  system local timezone when `utc` is false, and formatting with Jiff's strict
-  `fmt::strtime` percent grammar. Invalid formats, unsupported directives,
-  local timezone lookup failures, and timestamps outside Jiff's supported range
-  return `Err(time-format)`. This API is not byte-for-byte compatible with host
-  libc `strftime`; XSH owns the Jiff-based output contract, including timestamp
-  range, timezone lookup behavior, locale-independent directive output, and
-  error messages.
+- XSH deliberately has no general civil-timestamp formatter. Invoke the host
+  `date` command when locale or timezone formatting is required.
 - `time.duration_compact(seconds: Int) -> Str`, formatting seconds as a compact
   fixed-width duration label.
 

@@ -411,7 +411,6 @@ pub enum RuntimeOp {
     TimeMillis,
     TimeSeconds,
     TimeMeasure,
-    TimeFormat,
     TimeDurationCompact,
     TuiReset,
     TuiBold,

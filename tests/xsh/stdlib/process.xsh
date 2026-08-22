@@ -4,14 +4,14 @@ proc test_process_module() [fs, process, error] {
   test.ok(process.list()? |> any .pid == current_pid, "process list should contain current pid")?
   test.ok(
     (process.list()?
-      |> where .pid > 0 and .parent_pid >= 0 and .argv0 != "" and .uid >= 0 and .start_time_ms > 0 and .runtime_seconds >= 0
+      |> where .pid > 0 and .parent_pid >= 0 and .argv0 != "" and .uid >= 0 and .start_time.count_chars() == 20 and .start_time_ms > 0 and .runtime_seconds >= 0
       |> count()) > 0,
     "process list should contain typed fields",
   )?
   test.ok(process.threads(current_pid)? |> any .owner_pid == current_pid, "process threads should accept a pid")?
   test.ok(
     (process.threads()?
-      |> where .pid > 0 and .owner_pid > 0 and .thread_id > 0 and .parent_pid >= 0 and .argv0 != "" and .uid >= 0 and .start_time_ms > 0 and .runtime_seconds >= 0
+      |> where .pid > 0 and .owner_pid > 0 and .thread_id > 0 and .parent_pid >= 0 and .argv0 != "" and .uid >= 0 and .start_time.count_chars() == 20 and .start_time_ms > 0 and .runtime_seconds >= 0
       |> count()) > 0,
     "process threads should contain typed fields",
   )?
