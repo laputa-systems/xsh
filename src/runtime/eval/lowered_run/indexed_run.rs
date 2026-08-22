@@ -1,6 +1,6 @@
 use super::{
     Arc, AssignOp, BTreeMap, BinaryOp, Binding, CommandPlan, ControlFlow, Duration, DurationValue,
-    Evaluator, FileRedirectionMode, Flow, FormatSpec, FsRootHandle, FunctionHeader, FunctionName,
+    Evaluator, FileRedirectionMode, Flow, FormatSpec, FunctionHeader, FunctionName,
     LoweredCompTarget, LoweredFunctionKey, LoweredFunctionKind, LoweredModuleExportKind,
     LoweredProjectedReduceState, LoweredReduceProjection, LoweredRetryAttemptValue,
     LoweredReturnKind, LoweredStrPredicate, LoweredTagValue, LoweredType, LoweredValue, Name,
@@ -36,7 +36,7 @@ use super::{
     lowered_type_name, lowered_unit_result, lowered_value_argv_len, lowered_value_from_runtime,
     lowered_value_from_runtime_any, lowered_value_matches_static_type,
     lowered_value_satisfies_require, path_bytes, push_lowered_display, push_lowered_fmt_value,
-    read_host_path_bytes, read_host_path_bytes_vec, root_path_from_dir,
+    new_temp_fs_root, read_host_path_bytes, read_host_path_bytes_vec, root_path_from_dir,
     run_pipeline_inherit_with_policy, runtime_error_from_value, splice_to_argv,
     structured_error_constructor, value_matches_static_type, value_to_argv_bytes,
     with_indexed_eval_depth,
@@ -4644,15 +4644,13 @@ impl Evaluator {
                 let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
                 indexed_finish(payload, call_span)?;
                 ControlFlow::Continue(
-                    match cap_tempfile::TempDir::new(cap_tempfile::ambient_authority()) {
-                        Ok(dir) => {
+                    match new_temp_fs_root("fs-temp-dir", span) {
+                        Ok(root) => {
                             let id = self.fs_roots.len() as i64 + 1;
-                            self.fs_roots.push(Some(FsRootHandle::TempDir(dir)));
+                            self.fs_roots.push(Some(root));
                             lowered_result_ok(fs_root_record(id))
                         }
-                        Err(error) => lowered_result_err_value(
-                            RuntimeError::new("fs-temp-dir", error.to_string()).with_span(span),
-                        ),
+                        Err(error) => lowered_result_err_value(error),
                     },
                 )
             }
@@ -7026,9 +7024,9 @@ impl Evaluator {
                 };
                 let previous = self.cwd.clone();
                 let next = self.host_path(&target);
-                match cap_std::fs::Dir::open_ambient_dir(&next, cap_std::ambient_authority()) {
-                    Ok(_) => {}
-                    Err(error) if error.kind() == std::io::ErrorKind::NotADirectory => {
+                match std::fs::metadata(&next) {
+                    Ok(metadata) if metadata.is_dir() => {}
+                    Ok(_) => {
                         return Ok(StmtFlow::Propagate(LoweredValue::ResultErr(Box::new(
                             Value::Error(Box::new(
                                 RuntimeError::new(

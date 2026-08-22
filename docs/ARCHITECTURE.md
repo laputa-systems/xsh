@@ -57,7 +57,7 @@ cross-product runtime tests do not require duplicate root targets.
 
 The workspace is split where a subsystem can have a stable Rust boundary
 without depending on XSH source spans, runtime values, diagnostics, or evaluator
-state. `crates/xsh-net` owns DNS resolution, XSH's capability-resolved TCP
+state. `crates/xsh-net` owns DNS resolution and XSH's explicitly resolved TCP
 dialer, TLS configuration, redirects, body limits, and network error
 classification. `h12tiny-client` owns HTTP framing, TLS handshakes, ALPN,
 protocol selection, and its bounded connection pools. The main `xsh` crate keeps
@@ -73,12 +73,12 @@ by a persistent HTTP/1.1 h12 client in each evaluator-owned named pool.
 the former buffers response bodies, while the latter streams directly to caller
 destinations. Each batch owns a fresh h12 client and can select HTTP/2 only when
 HTTPS ALPN negotiates `h2`; otherwise it uses HTTP/1.1. XSH supplies its
-nonblocking capability-resolved streams through h12tiny's TCP dialer hook, then
+nonblocking streams for already-resolved addresses through h12tiny's TCP dialer hook, then
 drives the client on the host-call executor without exposing futures, callbacks,
 `await`, a process-wide event loop, or evaluator worker threads. Tokio,
 `hyper-util`, and `hyper-rustls` are intentionally absent from this boundary.
 The relevant grep targets are `request_many`, `download_many`, `h12_client`,
-`CapTcpDialer`, `native_xsh_net_single_calls_force_https_http1`, and
+`ResolvedTcpDialer`, `native_xsh_net_single_calls_force_https_http1`, and
 `net_module_request_many_negotiates_local_https_http2`.
 
 There is no JIT, green-thread scheduler, or async task runtime in the execution

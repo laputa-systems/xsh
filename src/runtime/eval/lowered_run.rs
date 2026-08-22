@@ -34,6 +34,7 @@ use crate::syntax::node::{
 use crate::trace::{
     TraceArg, TraceError, TraceKind, TracePayload, Traceback, TracebackFrame, TracebackFrameKind,
 };
+use directories::{ProjectDirs, UserDirs};
 use rustc_hash::FxHashMap;
 use std::cell::Cell;
 use std::collections::BTreeMap;
@@ -43,12 +44,14 @@ use std::ffi::OsString;
 use std::fmt::Write as _;
 use std::io::{ErrorKind, Read, Write};
 use std::ops::ControlFlow;
-use std::os::fd::AsRawFd;
+use std::os::fd::{AsFd, AsRawFd};
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use tempfile::TempDir;
+use xsh_root::Root;
 
 mod indexed_run;
 
@@ -94,9 +97,6 @@ use super::{
 };
 #[cfg(feature = "native-tests")]
 use super::{NativeTestRunKind, NativeTestRunRequest, TestMock};
-use cap_directories::{ProjectDirs, UserDirs, ambient_authority as directories_authority};
-use cap_tempfile::{TempDir, TempFile, ambient_authority as tempfile_authority};
-
 const LOWERED_SHARED_LIST_THRESHOLD: usize = 16;
 const INDEXED_EVAL_DEPTH_LIMIT: usize = 2048;
 const INDEXED_SMALL_STACK_EVAL_DEPTH_LIMIT: usize = 128;
@@ -1323,17 +1323,7 @@ fn lowered_to_json(
 }
 
 fn read_host_path_string(path: &Path, operation: &str, span: Span) -> Result<String, RuntimeError> {
-    let parent = path.parent().unwrap_or_else(|| Path::new("."));
-    let name = path
-        .file_name()
-        .ok_or_else(|| RuntimeError::new(operation, "path has no file name").with_span(span))?;
-    let dir = cap_std::fs::Dir::open_ambient_dir(parent, cap_std::ambient_authority())
-        .map_err(|error| RuntimeError::new(operation, error.to_string()).with_span(span))?;
-    let mut file = dir
-        .open(Path::new(name))
-        .map_err(|error| RuntimeError::new(operation, error.to_string()).with_span(span))?;
-    let mut bytes = Vec::new();
-    file.read_to_end(&mut bytes)
+    let bytes = std::fs::read(path)
         .map_err(|error| RuntimeError::new(operation, error.to_string()).with_span(span))?;
     String::from_utf8(bytes)
         .map_err(|error| RuntimeError::new(operation, error.to_string()).with_span(span))
@@ -1341,14 +1331,7 @@ fn read_host_path_string(path: &Path, operation: &str, span: Span) -> Result<Str
 
 #[cfg(feature = "native-tests")]
 fn create_host_dir_all(path: &Path, operation: &str, span: Span) -> Result<(), RuntimeError> {
-    let (root, rel) = if path.is_absolute() {
-        (Path::new("/"), path.strip_prefix("/").unwrap_or(path))
-    } else {
-        (Path::new("."), path)
-    };
-    let dir = cap_std::fs::Dir::open_ambient_dir(root, cap_std::ambient_authority())
-        .map_err(|error| RuntimeError::new(operation, error.to_string()).with_span(span))?;
-    dir.create_dir_all(rel)
+    std::fs::create_dir_all(path)
         .map_err(|error| RuntimeError::new(operation, error.to_string()).with_span(span))
 }
 
@@ -2925,7 +2908,7 @@ fn lowered_fs_root_dir<'a>(
     roots: &'a [Option<FsRootHandle>],
     root: &LoweredValue,
     span: Span,
-) -> Result<&'a cap_std::fs::Dir, RuntimeError> {
+) -> Result<&'a Root, RuntimeError> {
     let id = lowered_root_id(root, span)?;
     let Some(slot) = id
         .checked_sub(1)
@@ -2935,7 +2918,7 @@ fn lowered_fs_root_dir<'a>(
         return Err(RuntimeError::new("fs-root", "root handle is not active").with_span(span));
     };
     slot.as_ref()
-        .map(FsRootHandle::dir)
+        .map(FsRootHandle::root)
         .ok_or_else(|| RuntimeError::new("fs-root", "root handle is not active").with_span(span))
 }
 
@@ -2945,8 +2928,8 @@ fn read_link_path(path: &Path) -> std::io::Result<PathBuf> {
         .map_err(std::io::Error::from)
 }
 
-fn root_path_from_dir(dir: &cap_std::fs::Dir, span: Span) -> Result<PathValue, RuntimeError> {
-    let fd = dir.as_raw_fd();
+fn root_path_from_dir(dir: &Root, span: Span) -> Result<PathValue, RuntimeError> {
+    let fd = dir.as_fd().as_raw_fd();
     #[cfg(target_os = "macos")]
     {
         let mut buffer = [0 as libc::c_char; libc::PATH_MAX as usize];
@@ -2982,6 +2965,17 @@ fn root_path_from_dir(dir: &cap_std::fs::Dir, span: Span) -> Result<PathValue, R
         last_error.unwrap_or_else(|| "root path is unavailable on this platform".to_string()),
     )
     .with_span(span))
+}
+
+pub(super) fn new_temp_fs_root(
+    operation: &'static str,
+    span: Span,
+) -> Result<FsRootHandle, RuntimeError> {
+    let temp = TempDir::new()
+        .map_err(|error| RuntimeError::new(operation, error.to_string()).with_span(span))?;
+    let root = Root::open(temp.path())
+        .map_err(|error| RuntimeError::new(operation, error.to_string()).with_span(span))?;
+    Ok(FsRootHandle::TempDir { root, _temp: temp })
 }
 
 fn lowered_count_key(value: &LoweredValue, span: Span) -> Result<String, RuntimeError> {
@@ -3205,19 +3199,12 @@ impl Evaluator {
     }
 
     fn lowered_create_temp_file_root(&mut self, span: Span) -> Result<LoweredValue, RuntimeError> {
-        let dir = TempDir::new(tempfile_authority()).map_err(|error| {
-            RuntimeError::new("fs-temp-file", error.to_string()).with_span(span)
-        })?;
-        let mut file = TempFile::new(&dir).map_err(|error| {
-            RuntimeError::new("fs-temp-file", error.to_string()).with_span(span)
-        })?;
-        file.flush().map_err(|error| {
-            RuntimeError::new("fs-temp-file", error.to_string()).with_span(span)
-        })?;
-        file.replace("file").map_err(|error| {
-            RuntimeError::new("fs-temp-file", error.to_string()).with_span(span)
-        })?;
-        let root = self.push_lowered_fs_root(FsRootHandle::TempDir(dir));
+        let root = new_temp_fs_root("fs-temp-file", span)?;
+        root.root()
+            .create("file")
+            .and_then(|mut file| file.flush())
+            .map_err(|error| RuntimeError::new("fs-temp-file", error.to_string()).with_span(span))?;
+        let root = self.push_lowered_fs_root(root);
         let path = PathValue::new(b"file".to_vec()).map_err(|error| error.with_span(span))?;
         Ok(LoweredValue::Record(BTreeMap::from([
             (Arc::from("root"), root),
@@ -3233,29 +3220,20 @@ impl Evaluator {
         application: &str,
         span: Span,
     ) -> Result<LoweredValue, RuntimeError> {
-        let dirs = ProjectDirs::from(
-            qualifier,
-            organization,
-            application,
-            directories_authority(),
-        )
-        .ok_or_else(|| {
+        let dirs = ProjectDirs::from(qualifier, organization, application).ok_or_else(|| {
             RuntimeError::new("fs-dir", "project directories are unavailable").with_span(span)
         })?;
-        let dir = match kind {
+        let path = match kind {
             "cache" => dirs.cache_dir(),
             "config" => dirs.config_dir(),
             "data" => dirs.data_dir(),
             "data_local" => dirs.data_local_dir(),
-            "runtime" => dirs.runtime_dir(),
-            "state" => dirs.state_dir().and_then(|dir| {
-                dir.ok_or_else(|| {
-                    std::io::Error::new(
-                        std::io::ErrorKind::NotFound,
-                        "state directory is unavailable",
-                    )
-                })
-            }),
+            "runtime" => dirs.runtime_dir().ok_or_else(|| {
+                RuntimeError::new("fs-dir", "runtime directory is unavailable").with_span(span)
+            })?,
+            "state" => dirs.state_dir().ok_or_else(|| {
+                RuntimeError::new("fs-dir", "state directory is unavailable").with_span(span)
+            })?,
             _ => {
                 return Err(RuntimeError::new(
                     "fs-dir",
@@ -3263,27 +3241,29 @@ impl Evaluator {
                 )
                 .with_span(span));
             }
-        }
-        .map_err(|error| RuntimeError::new("fs-dir", error.to_string()).with_span(span))?;
-        Ok(self.push_lowered_fs_root(FsRootHandle::Dir(dir)))
+        };
+        std::fs::create_dir_all(path)
+            .map_err(|error| RuntimeError::new("fs-dir", error.to_string()).with_span(span))?;
+        let root = Root::open(path)
+            .map_err(|error| RuntimeError::new("fs-dir", error.to_string()).with_span(span))?;
+        Ok(self.push_lowered_fs_root(FsRootHandle::Dir(root)))
     }
 
     fn lowered_user_root(&mut self, kind: &str, span: Span) -> Result<LoweredValue, RuntimeError> {
         let dirs = UserDirs::new().ok_or_else(|| {
             RuntimeError::new("fs-dir", "user directories are unavailable").with_span(span)
         })?;
-        let authority = directories_authority();
-        let dir = match kind {
-            "home" => dirs.home_dir(authority),
-            "audio" => dirs.audio_dir(authority),
-            "desktop" => dirs.desktop_dir(authority),
-            "documents" => dirs.document_dir(authority),
-            "downloads" => dirs.download_dir(authority),
-            "fonts" => dirs.font_dir(authority),
-            "pictures" => dirs.picture_dir(authority),
-            "public" => dirs.public_dir(authority),
-            "templates" => dirs.template_dir(authority),
-            "videos" => dirs.video_dir(authority),
+        let path = match kind {
+            "home" => Some(dirs.home_dir()),
+            "audio" => dirs.audio_dir(),
+            "desktop" => dirs.desktop_dir(),
+            "documents" => dirs.document_dir(),
+            "downloads" => dirs.download_dir(),
+            "fonts" => dirs.font_dir(),
+            "pictures" => dirs.picture_dir(),
+            "public" => dirs.public_dir(),
+            "templates" => dirs.template_dir(),
+            "videos" => dirs.video_dir(),
             _ => {
                 return Err(RuntimeError::new(
                     "fs-dir",
@@ -3292,8 +3272,12 @@ impl Evaluator {
                 .with_span(span));
             }
         }
-        .map_err(|error| RuntimeError::new("fs-dir", error.to_string()).with_span(span))?;
-        Ok(self.push_lowered_fs_root(FsRootHandle::Dir(dir)))
+        .ok_or_else(|| {
+            RuntimeError::new("fs-dir", "user directory is unavailable").with_span(span)
+        })?;
+        let root = Root::open(path)
+            .map_err(|error| RuntimeError::new("fs-dir", error.to_string()).with_span(span))?;
+        Ok(self.push_lowered_fs_root(FsRootHandle::Dir(root)))
     }
 
     fn eval_lowered_module_call_values(
@@ -4603,11 +4587,10 @@ impl Evaluator {
                     Err(error) => lowered_result_err_value(error),
                 }
             }
-            RuntimeOp::FsTempDir if values.is_empty() => match TempDir::new(tempfile_authority()) {
-                Ok(dir) => lowered_result_ok(self.push_lowered_fs_root(FsRootHandle::TempDir(dir))),
-                Err(error) => lowered_result_err_value(
-                    RuntimeError::new("fs-temp-dir", error.to_string()).with_span(span),
-                ),
+            RuntimeOp::FsTempDir if values.is_empty() => match new_temp_fs_root("fs-temp-dir", span)
+            {
+                Ok(root) => lowered_result_ok(self.push_lowered_fs_root(root)),
+                Err(error) => lowered_result_err_value(error),
             },
             RuntimeOp::FsProjectRoot if values.len() == 4 => {
                 let application =

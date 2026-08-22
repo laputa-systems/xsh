@@ -12,6 +12,7 @@ members = [
     "crates/xsh-applets",
     "crates/xsh-net",
     "crates/xsh-registry",
+    "crates/xsh-root",
     "crates/xshi",
     "crates/xsht",
 ]
@@ -73,13 +74,10 @@ tools = []
 rawzip = "0.5.1"
 tar = { version = "0.4.46", default-features = false }
 bzip2 = "0.6.1"
-cap-directories = "4.0.2"
-cap-fs-ext = "4.0.2"
-cap-std = "4.0.2"
-cap-tempfile = "4.0.2"
 crossbeam-channel = "0.5"
 libc = "0.2"
 data-encoding = "2"
+directories = "6.0.0"
 bstr = { version = "1", default-features = false, features = ["std", "unicode"] }
 diffy = { version = "0.5.0", default-features = false, features = ["std"] }
 flate2 = { version = "1.1.9", default-features = false, features = ["zlib-rs"] }
@@ -101,6 +99,7 @@ smallvec = "1.15.2"
 tempfile = "3"
 xsh-net = { path = "crates/xsh-net", optional = true }
 xsh-registry = { path = "crates/xsh-registry" }
+xsh-root = { path = "crates/xsh-root" }
 
 [dev-dependencies]
 async-io = "2"

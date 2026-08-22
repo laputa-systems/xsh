@@ -130,9 +130,9 @@ print \$entry.size
   test.ok(fs.root_exists(home, p".")?)
   fs.close_root(home)?
   let project = fs.project_root("cache", "dev", "LaputaSystems", "xsh-test")?
-  fs.root_mkdir(project, p"cap-directories-check", parents: true)?
-  test.ok(fs.root_exists(project, p"cap-directories-check")?)
-  fs.root_remove(project, p"cap-directories-check", dir: true)?
+  fs.root_mkdir(project, p"project-directories-check", parents: true)?
+  test.ok(fs.root_exists(project, p"project-directories-check")?)
+  fs.root_remove(project, p"project-directories-check", dir: true)?
   fs.close_root(project)?
   test.error_kind(fs.user_root("bogus"), "fs-dir")?
   test.error_kind(fs.project_root("bogus", "dev", "LaputaSystems", "xsh-test"), "fs-dir")?
@@ -161,7 +161,8 @@ proc test_fs_root_operations_reject_traversal(ctx: TestContext) [fs, error] {
   test.eq(fs.root_read_text(nested_root, p"data.txt")?, "atomic")?
   fs.root_symlink(root, p"data.txt", p"nested/internal-link")?
   test.eq(fs.root_readlink(root, p"nested/internal-link")?.display(), "data.txt")?
-  test.error_kind(fs.root_read_text(root, p"nested/internal-link"), "fs-root-read")?
+  test.eq(fs.root_read_text(root, p"nested/internal-link")?, "atomic")?
+  test.eq(fs.root_read_text(root, p"nested/../nested/data.txt")?, "atomic")?
   let source_root = fs.open_root(outside)?
   fs.root_install_file(source_root, p"secret.txt", root, p"installed/secret.txt", 0o600)?
   test.eq(fs.root_read_text(root, p"installed/secret.txt")?, "secret")?

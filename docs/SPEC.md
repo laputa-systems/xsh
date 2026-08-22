@@ -2020,11 +2020,15 @@ the evaluator. `fs.tempfile` returns `{root: FsRoot, path: Path}` where `path`
 is relative to the returned root. `fs.root_path` is an explicit escape hatch for
 APIs or subprocesses that still require host paths; it returns `Err` when the
 root is closed or the platform cannot expose the path. `fs.root_*` operations
-resolve relative paths from the handle rather than by joining strings; they
-reject absolute paths, `..`, and symlink traversal. `fs.root_readlink` and
-`fs.root_symlink` operate on symlink target text without traversing it. This
-makes the rooted APIs the preferred surface when a trusted root directory is
-combined with untrusted relative names.
+resolve relative paths from the handle rather than by joining strings. Their
+filesystem opens are kernel-confined below the root: absolute paths, `..`
+traversal that escapes the root, symlinks that escape the root, and concurrent
+pathname manipulation fail. Relative symlinks whose final resolution remains
+below the root work normally. `fs.root_readlink` and `fs.root_symlink` operate
+on symlink target text without traversing it. This makes the rooted APIs the
+preferred surface when a trusted root directory is combined with untrusted
+relative names. `FsRoot` confines pathname resolution; it is not a process
+sandbox and does not restrict mounts or device nodes below the root.
 
 `path`:
 
@@ -2159,7 +2163,7 @@ it is not the TLS `CryptoProvider` and does not add a C/C++ build dependency.
 normal Linux or macOS graphs. Removing those lockfile-only records would require
 an upstream manifest change rather than a project TLS dependency.
 Hostnames are resolved by the XSH DNS helper layer. XSH supplies h12tiny's TCP
-dialer hook with capability-resolved `cap-net-ext`/`cap-std` nonblocking
+dialer hook with explicitly resolved nonblocking
 sockets; h12tiny retains TLS, ALPN, protocol selection, handshakes, and pooling.
 TLS verification is enabled by default with platform verification, honors
 `SSL_CERT_FILE`, accepts an explicit `ca_certificate: Path`, and allows

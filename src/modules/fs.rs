@@ -6,12 +6,6 @@ use crate::runtime::value::{
     StreamValue, Value,
 };
 use crate::source::Span;
-use cap_fs_ext::{FollowSymlinks, OpenOptionsFollowExt};
-use cap_std::ambient_authority;
-use cap_std::fs::{
-    Dir as CapDir, File as CapFile, OpenOptions as CapOpenOptions, Permissions as CapPermissions,
-};
-use cap_tempfile::TempFile;
 use rustc_hash::FxHashSet;
 use rustix::fs::{
     self as rfs, AtFlags, CWD, FlockOperation, Gid, StatVfs, StatVfsMountFlags, Timespec,
@@ -70,6 +64,7 @@ use std::io::{ErrorKind, Read, Write};
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::{Component, Path, PathBuf};
+use xsh_root::{OpenOptions as RootOpenOptions, Root};
 
 #[derive(Default)]
 pub(crate) struct CopyTreeStats {
@@ -146,29 +141,21 @@ pub(crate) fn mode_other_executable(mode: i64) -> bool {
     mode & 0o001 != 0
 }
 
-pub(crate) fn open_root(path: PathBuf, span: Span) -> Result<CapDir, RuntimeError> {
-    let dir = CapDir::open_ambient_dir(&path, ambient_authority())
-        .map_err(|error| RuntimeError::new("fs-root", error.to_string()).with_span(span))?;
-    let metadata = dir
-        .dir_metadata()
-        .map_err(|error| RuntimeError::new("fs-root", error.to_string()).with_span(span))?;
-    if !metadata.is_dir() {
-        return Err(RuntimeError::new("fs-root", "root path is not a directory").with_span(span));
-    }
-    Ok(dir)
+pub(crate) fn open_root(path: PathBuf, span: Span) -> Result<Root, RuntimeError> {
+    Root::open(&path)
+        .map_err(|error| RuntimeError::new("fs-root", error.to_string()).with_span(span))
 }
 
 pub(crate) fn rooted_open_root(
-    root: &CapDir,
+    root: &Root,
     path: &Path,
     span: Span,
-) -> Result<CapDir, RuntimeError> {
-    rooted_check_path(path, "fs-root", span)?;
+) -> Result<Root, RuntimeError> {
     root.open_dir(path)
         .map_err(|error| RuntimeError::new("fs-root", error.to_string()).with_span(span))
 }
 
-pub(crate) fn rooted_read(root: &CapDir, path: &Path, span: Span) -> Result<Vec<u8>, RuntimeError> {
+pub(crate) fn rooted_read(root: &Root, path: &Path, span: Span) -> Result<Vec<u8>, RuntimeError> {
     let mut file = rooted_open_file(root, path, RootedOpenMode::Read, "fs-root-read", span)?;
     let mut bytes = Vec::new();
     file.read_to_end(&mut bytes)
@@ -177,7 +164,7 @@ pub(crate) fn rooted_read(root: &CapDir, path: &Path, span: Span) -> Result<Vec<
 }
 
 pub(crate) fn rooted_write(
-    root: &CapDir,
+    root: &Root,
     path: &Path,
     data: &[u8],
     span: Span,
@@ -194,30 +181,23 @@ pub(crate) fn rooted_write(
 }
 
 pub(crate) fn write_path(path: PathBuf, data: &[u8], span: Span) -> Result<(), RuntimeError> {
-    let parent = path.parent().unwrap_or_else(|| Path::new("."));
-    let name = path
-        .file_name()
-        .ok_or_else(|| RuntimeError::new("fs-write", "path has no file name").with_span(span))?;
-    let dir = CapDir::open_ambient_dir(parent, ambient_authority())
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(path)
         .map_err(|error| RuntimeError::new("fs-write", error.to_string()).with_span(span))?;
-    let mut file = rooted_open_file(
-        &dir,
-        Path::new(name),
-        RootedOpenMode::WriteTruncate,
-        "fs-write",
-        span,
-    )?;
     file.write_all(data)
         .map_err(|error| RuntimeError::new("fs-write", error.to_string()).with_span(span))
 }
 
 pub(crate) fn rooted_write_atomic(
-    root: &CapDir,
+    root: &Root,
     path: &Path,
     data: &[u8],
     span: Span,
 ) -> Result<(), RuntimeError> {
-    let (parent_path, leaf) = rooted_parent_and_leaf_path(path, "fs-root-write", span)?;
+    let (parent, leaf) = rooted_parent_root_and_leaf(root, path, "fs-root-write", span)?;
     let leaf_text = leaf.to_string_lossy();
     let temp_name = OsString::from(format!(
         ".{}.tmp.{}.{}",
@@ -225,32 +205,31 @@ pub(crate) fn rooted_write_atomic(
         std::process::id(),
         unix_time_nanos()
     ));
-    let temp_path = parent_path.join(&temp_name);
-    let dest_path = parent_path.join(&leaf);
+    let temp_path = PathBuf::from(&temp_name);
     let mut temp = rooted_open_file(
-        root,
+        &parent,
         &temp_path,
         RootedOpenMode::WriteCreateNew,
         "fs-root-write",
         span,
     )?;
     if let Err(error) = temp.write_all(data) {
-        let _ = root.remove_file(&temp_path);
+        let _ = rooted_remove_at(&parent, &temp_name, false);
         return Err(RuntimeError::new("fs-root-write", error.to_string()).with_span(span));
     }
     if let Err(error) = temp.sync_all() {
-        let _ = root.remove_file(&temp_path);
+        let _ = rooted_remove_at(&parent, &temp_name, false);
         return Err(RuntimeError::new("fs-root-write", error.to_string()).with_span(span));
     }
     drop(temp);
-    root.rename(&temp_path, root, &dest_path).map_err(|error| {
-        let _ = root.remove_file(&temp_path);
+    rooted_rename_at(&parent, &temp_name, &parent, &leaf).map_err(|error| {
+        let _ = rooted_remove_at(&parent, &temp_name, false);
         RuntimeError::new("fs-root-write", error.to_string()).with_span(span)
     })
 }
 
 pub(crate) fn rooted_metadata(
-    root: &CapDir,
+    root: &Root,
     path: &Path,
     span: Span,
 ) -> Result<Value, RuntimeError> {
@@ -261,9 +240,8 @@ pub(crate) fn rooted_metadata(
     fs_entry_record(path, &metadata).map_err(|error| error.with_span(span))
 }
 
-pub(crate) fn rooted_exists(root: &CapDir, path: &Path, span: Span) -> Result<bool, RuntimeError> {
-    rooted_check_path(path, "fs-root-exists", span)?;
-    match root.symlink_metadata(path) {
+pub(crate) fn rooted_exists(root: &Root, path: &Path, span: Span) -> Result<bool, RuntimeError> {
+    match root.open_file(path) {
         Ok(_) => Ok(true),
         Err(error) if error.kind() == ErrorKind::NotFound => Ok(false),
         Err(error) => Err(RuntimeError::new("fs-root-exists", error.to_string()).with_span(span)),
@@ -271,7 +249,7 @@ pub(crate) fn rooted_exists(root: &CapDir, path: &Path, span: Span) -> Result<bo
 }
 
 pub(crate) fn rooted_mkdir(
-    root: &CapDir,
+    root: &Root,
     path: &Path,
     mode: i64,
     parents: bool,
@@ -281,52 +259,46 @@ pub(crate) fn rooted_mkdir(
         return Err(RuntimeError::new("fs-root-mkdir", "mode is out of range").with_span(span));
     }
     if parents {
-        rooted_check_path(path, "fs-root-mkdir", span)?;
-        root.create_dir_all(path).map_err(|error| {
-            RuntimeError::new("fs-root-mkdir", error.to_string()).with_span(span)
-        })?;
-    } else {
-        rooted_check_path(path, "fs-root-mkdir", span)?;
-        root.create_dir(path).map_err(|error| {
-            RuntimeError::new("fs-root-mkdir", error.to_string()).with_span(span)
-        })?;
+        let parent = rooted_parent_path(path);
+        rooted_create_dir_all(root, parent, mode as u32, "fs-root-mkdir", span)?;
     }
-    root.set_permissions(
-        path,
-        CapPermissions::from_std(std::fs::Permissions::from_mode(mode as u32)),
-    )
-    .map_err(|error| RuntimeError::new("fs-root-mkdir", error.to_string()).with_span(span))
+    let (parent, leaf) = rooted_parent_root_and_leaf(root, path, "fs-root-mkdir", span)?;
+    rooted_mkdir_at(&parent, &leaf, mode as u32)
+        .map_err(|error| RuntimeError::new("fs-root-mkdir", error.to_string()).with_span(span))?;
+    let created = parent
+        .open_dir(Path::new(&leaf))
+        .map_err(|error| RuntimeError::new("fs-root-mkdir", error.to_string()).with_span(span))?;
+    rooted_set_mode(&created, mode as u32)
+        .map_err(|error| RuntimeError::new("fs-root-mkdir", error.to_string()).with_span(span))
 }
 
 pub(crate) fn rooted_readlink(
-    root: &CapDir,
+    root: &Root,
     path: &Path,
     span: Span,
 ) -> Result<PathBuf, RuntimeError> {
-    rooted_check_path(path, "fs-root-readlink", span)?;
-    root.read_link_contents(path)
+    let (parent, leaf) = rooted_parent_root_and_leaf(root, path, "fs-root-readlink", span)?;
+    rooted_readlink_at(&parent, &leaf)
         .map_err(|error| RuntimeError::new("fs-root-readlink", error.to_string()).with_span(span))
 }
 
 pub(crate) fn rooted_symlink(
-    root: &CapDir,
+    root: &Root,
     target: &Path,
     path: &Path,
     parents: bool,
     overwrite: bool,
     span: Span,
 ) -> Result<(), RuntimeError> {
-    rooted_check_path(path, "fs-root-symlink", span)?;
-    let (parent_path, _) = rooted_parent_and_leaf_path(path, "fs-root-symlink", span)?;
+    let parent_path = rooted_parent_path(path);
     if parents {
-        root.create_dir_all(&parent_path).map_err(|error| {
-            RuntimeError::new("fs-root-symlink", error.to_string()).with_span(span)
-        })?;
+        rooted_create_dir_all(root, parent_path, 0o777, "fs-root-symlink", span)?;
     }
+    let (parent, leaf) = rooted_parent_root_and_leaf(root, path, "fs-root-symlink", span)?;
     if overwrite {
-        let _ = root.remove_file(path);
+        let _ = rooted_remove_at(&parent, &leaf, false);
     }
-    match root.symlink(target, path) {
+    match rooted_symlink_at(&parent, target, &leaf) {
         Ok(()) => Ok(()),
         Err(error) => {
             // Idempotent re-install: a prior install already created this
@@ -335,7 +307,7 @@ pub(crate) fn rooted_symlink(
             // symlink. Any other EEXIST (different target, or a non-symlink
             // entry) still surfaces as the original error below.
             if error.kind() == std::io::ErrorKind::AlreadyExists
-                && root.read_link_contents(path).ok() == Some(target.to_path_buf())
+                && rooted_readlink_at(&parent, &leaf).ok() == Some(target.to_path_buf())
             {
                 Ok(())
             } else {
@@ -346,7 +318,7 @@ pub(crate) fn rooted_symlink(
 }
 
 pub(crate) fn rooted_chmod(
-    root: &CapDir,
+    root: &Root,
     path: &Path,
     mode: i64,
     span: Span,
@@ -355,14 +327,14 @@ pub(crate) fn rooted_chmod(
         return Err(RuntimeError::new("fs-root-chmod", "mode is out of range").with_span(span));
     }
     let file = rooted_open_file(root, path, RootedOpenMode::Read, "fs-root-chmod", span)?;
-    file.set_permissions(std::fs::Permissions::from_mode(mode as u32))
+    rooted_set_mode_file(&file, mode as u32)
         .map_err(|error| RuntimeError::new("fs-root-chmod", error.to_string()).with_span(span))
 }
 
 pub(crate) fn rooted_install_file(
-    source_root: &CapDir,
+    source_root: &Root,
     source: &Path,
-    dest_root: &CapDir,
+    dest_root: &Root,
     dest: &Path,
     options: RootedInstallOptions,
 ) -> Result<(), RuntimeError> {
@@ -382,14 +354,12 @@ pub(crate) fn rooted_install_file(
         "fs-root-install",
         span,
     )?;
-    let (parent_path, _) = rooted_parent_and_leaf_path(dest, "fs-root-install", span)?;
+    let parent_path = rooted_parent_path(dest);
     if parents {
-        dest_root.create_dir_all(&parent_path).map_err(|error| {
-            RuntimeError::new("fs-root-install", error.to_string()).with_span(span)
-        })?;
+        rooted_create_dir_all(dest_root, parent_path, 0o777, "fs-root-install", span)?;
     }
     if overwrite {
-        let _ = dest_root.remove_file(dest);
+        let _ = rooted_remove(dest_root, dest, false, span);
     }
     let open_mode = if overwrite {
         RootedOpenMode::WriteTruncate
@@ -398,30 +368,25 @@ pub(crate) fn rooted_install_file(
     };
     let mut output = rooted_open_file(dest_root, dest, open_mode, "fs-root-install", span)?;
     if let Err(error) = std::io::copy(&mut input, &mut output) {
-        let _ = dest_root.remove_file(dest);
+        let _ = rooted_remove(dest_root, dest, false, span);
         return Err(RuntimeError::new("fs-root-install", error.to_string()).with_span(span));
     }
-    output
-        .set_permissions(std::fs::Permissions::from_mode(mode as u32))
+    rooted_set_mode_file(&output, mode as u32)
         .map_err(|error| {
-            let _ = dest_root.remove_file(dest);
+            let _ = rooted_remove(dest_root, dest, false, span);
             RuntimeError::new("fs-root-install", error.to_string()).with_span(span)
         })
 }
 
 pub(crate) fn rooted_remove(
-    root: &CapDir,
+    root: &Root,
     path: &Path,
     dir: bool,
     span: Span,
 ) -> Result<(), RuntimeError> {
-    rooted_check_path(path, "fs-root-remove", span)?;
-    let result = if dir {
-        root.remove_dir(path)
-    } else {
-        root.remove_file(path)
-    };
-    result.map_err(|error| RuntimeError::new("fs-root-remove", error.to_string()).with_span(span))
+    let (parent, leaf) = rooted_parent_root_and_leaf(root, path, "fs-root-remove", span)?;
+    rooted_remove_at(&parent, &leaf, dir)
+        .map_err(|error| RuntimeError::new("fs-root-remove", error.to_string()).with_span(span))
 }
 
 enum RootedOpenMode {
@@ -431,15 +396,13 @@ enum RootedOpenMode {
 }
 
 fn rooted_open_file(
-    root: &CapDir,
+    root: &Root,
     path: &Path,
     mode: RootedOpenMode,
     kind: &'static str,
     span: Span,
 ) -> Result<std::fs::File, RuntimeError> {
-    rooted_check_path(path, kind, span)?;
-    let mut options = CapOpenOptions::new();
-    options.follow(FollowSymlinks::No);
+    let mut options = RootOpenOptions::new();
     match mode {
         RootedOpenMode::Read => {
             options.read(true);
@@ -452,60 +415,126 @@ fn rooted_open_file(
         }
     }
     root.open_with(path, &options)
-        .map(CapFile::into_std)
         .map_err(|error| RuntimeError::new(kind, error.to_string()).with_span(span))
 }
 
 fn rooted_check_path(path: &Path, kind: &'static str, span: Span) -> Result<(), RuntimeError> {
-    rooted_components(path, kind, span).map(|_| ())
+    if path.as_os_str().is_empty() {
+        return Err(RuntimeError::new(kind, "rooted path cannot be empty").with_span(span));
+    }
+    if path.is_absolute() {
+        return Err(RuntimeError::new(kind, "rooted path cannot be absolute").with_span(span));
+    }
+    CString::new(path.as_os_str().as_bytes()).map_err(|_| {
+        RuntimeError::new(kind, "rooted path cannot contain an embedded NUL byte").with_span(span)
+    })?;
+    Ok(())
 }
 
-fn rooted_parent_and_leaf_path(
+fn rooted_parent_root_and_leaf(
+    root: &Root,
     path: &Path,
     kind: &'static str,
     span: Span,
-) -> Result<(PathBuf, OsString), RuntimeError> {
-    let components = rooted_components(path, kind, span)?;
-    let Some((leaf, parent_components)) = components.split_last() else {
+) -> Result<(Root, OsString), RuntimeError> {
+    rooted_check_path(path, kind, span)?;
+    let Some(leaf) = path.file_name() else {
         return Err(
             RuntimeError::new(kind, "path must name an entry below the root").with_span(span),
         );
     };
-    Ok((path_from_components(parent_components), leaf.clone()))
+    let parent_path = rooted_parent_path(path);
+    let parent = root
+        .open_dir(parent_path)
+        .map_err(|error| RuntimeError::new(kind, error.to_string()).with_span(span))?;
+    Ok((parent, leaf.to_os_string()))
 }
 
-fn rooted_components(
+fn rooted_parent_path(path: &Path) -> &Path {
+    path.parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."))
+}
+
+fn rooted_create_dir_all(
+    root: &Root,
     path: &Path,
+    mode: u32,
     kind: &'static str,
     span: Span,
-) -> Result<Vec<OsString>, RuntimeError> {
-    if path.as_os_str().is_empty() {
-        return Err(RuntimeError::new(kind, "rooted path cannot be empty").with_span(span));
-    }
-
-    let mut components = Vec::new();
+) -> Result<(), RuntimeError> {
+    rooted_check_path(path, kind, span)?;
+    let mut prefix = PathBuf::new();
     for component in path.components() {
         match component {
-            Component::CurDir => {}
-            Component::Normal(value) => components.push(value.to_os_string()),
-            Component::ParentDir | Component::RootDir | Component::Prefix(_) => {
-                return Err(RuntimeError::new(
-                    kind,
-                    "rooted path cannot be absolute or contain `..`",
-                )
-                .with_span(span));
+            Component::CurDir => continue,
+            Component::ParentDir => prefix.push(component.as_os_str()),
+            Component::Normal(name) => prefix.push(name),
+            Component::RootDir | Component::Prefix(_) => {
+                unreachable!("absolute paths were rejected")
             }
         }
+        match root.open_dir(&prefix) {
+            Ok(_) => continue,
+            Err(error) if error.kind() == ErrorKind::NotFound => {}
+            Err(error) => return Err(RuntimeError::new(kind, error.to_string()).with_span(span)),
+        }
+        let parent_path = rooted_parent_path(&prefix);
+        let parent = root
+            .open_dir(parent_path)
+            .map_err(|error| RuntimeError::new(kind, error.to_string()).with_span(span))?;
+        let leaf = prefix.file_name().expect("normal component has a file name");
+        rooted_mkdir_at(&parent, leaf, mode)
+            .map_err(|error| RuntimeError::new(kind, error.to_string()).with_span(span))?;
+        let created = parent
+            .open_dir(leaf)
+            .map_err(|error| RuntimeError::new(kind, error.to_string()).with_span(span))?;
+        rooted_set_mode(&created, mode)
+            .map_err(|error| RuntimeError::new(kind, error.to_string()).with_span(span))?;
     }
-    Ok(components)
+    Ok(())
 }
 
-fn path_from_components(components: &[OsString]) -> PathBuf {
-    let mut path = PathBuf::new();
-    for component in components {
-        path.push(component);
-    }
-    path
+fn rooted_mkdir_at(parent: &Root, leaf: &std::ffi::OsStr, mode: u32) -> std::io::Result<()> {
+    rfs::mkdirat(parent, leaf, rfs::Mode::from_raw_mode(mode as rfs::RawMode))
+        .map_err(std::io::Error::from)
+}
+
+fn rooted_remove_at(parent: &Root, leaf: &std::ffi::OsStr, dir: bool) -> std::io::Result<()> {
+    let flags = if dir {
+        AtFlags::REMOVEDIR
+    } else {
+        AtFlags::empty()
+    };
+    rfs::unlinkat(parent, leaf, flags).map_err(std::io::Error::from)
+}
+
+fn rooted_rename_at(
+    old_parent: &Root,
+    old_leaf: &std::ffi::OsStr,
+    new_parent: &Root,
+    new_leaf: &std::ffi::OsStr,
+) -> std::io::Result<()> {
+    rfs::renameat(old_parent, old_leaf, new_parent, new_leaf).map_err(std::io::Error::from)
+}
+
+fn rooted_readlink_at(parent: &Root, leaf: &std::ffi::OsStr) -> std::io::Result<PathBuf> {
+    let target = rfs::readlinkat(parent, leaf, Vec::new()).map_err(std::io::Error::from)?;
+    Ok(PathBuf::from(OsString::from_vec(target.into_bytes())))
+}
+
+fn rooted_symlink_at(parent: &Root, target: &Path, leaf: &std::ffi::OsStr) -> std::io::Result<()> {
+    rfs::symlinkat(target, parent, leaf).map_err(std::io::Error::from)
+}
+
+fn rooted_set_mode(root: &Root, mode: u32) -> std::io::Result<()> {
+    rfs::fchmod(root, rfs::Mode::from_raw_mode(mode as rfs::RawMode))
+        .map_err(std::io::Error::from)
+}
+
+fn rooted_set_mode_file(file: &std::fs::File, mode: u32) -> std::io::Result<()> {
+    rfs::fchmod(file, rfs::Mode::from_raw_mode(mode as rfs::RawMode))
+        .map_err(std::io::Error::from)
 }
 
 fn unix_time_nanos() -> u128 {
@@ -1532,19 +1561,14 @@ pub(crate) fn unlock_file(file: &std::fs::File, span: Span) -> Result<(), Runtim
 
 pub(crate) fn write_atomic(path: PathBuf, data: &[u8], span: Span) -> Result<(), RuntimeError> {
     let parent = path.parent().unwrap_or_else(|| Path::new("."));
-    let leaf = path
-        .file_name()
-        .ok_or_else(|| RuntimeError::new("fs-write", "path must name a file").with_span(span))?;
-    let parent_dir = CapDir::open_ambient_dir(parent, ambient_authority())
-        .map_err(|error| RuntimeError::new("fs-write", error.to_string()).with_span(span))?;
-    let mut temp = TempFile::new(&parent_dir)
+    let mut temp = tempfile::NamedTempFile::new_in(parent)
         .map_err(|error| RuntimeError::new("fs-write", error.to_string()).with_span(span))?;
     temp.write_all(data)
         .map_err(|error| RuntimeError::new("fs-write", error.to_string()).with_span(span))?;
     temp.as_file()
         .sync_all()
         .map_err(|error| RuntimeError::new("fs-write", error.to_string()).with_span(span))?;
-    temp.replace(leaf)
+    std::fs::rename(temp.path(), path)
         .map_err(|error| RuntimeError::new("fs-write", error.to_string()).with_span(span))
 }
 

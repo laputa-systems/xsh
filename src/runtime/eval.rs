@@ -40,6 +40,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use xsh_root::Root;
 
 mod indexed;
 mod lower;
@@ -2799,15 +2800,14 @@ impl PreparedTestProgram {
 }
 
 pub(in crate::runtime::eval) enum FsRootHandle {
-    Dir(cap_std::fs::Dir),
-    TempDir(cap_tempfile::TempDir),
+    Dir(Root),
+    TempDir { root: Root, _temp: tempfile::TempDir },
 }
 
 impl FsRootHandle {
-    pub(in crate::runtime::eval) fn dir(&self) -> &cap_std::fs::Dir {
+    pub(in crate::runtime::eval) fn root(&self) -> &Root {
         match self {
-            Self::Dir(dir) => dir,
-            Self::TempDir(dir) => dir,
+            Self::Dir(root) | Self::TempDir { root, .. } => root,
         }
     }
 }

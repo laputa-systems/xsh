@@ -2540,6 +2540,9 @@ fn handle_local_http_connection(
             Err(error) if error.kind() == std::io::ErrorKind::TimedOut => {
                 break;
             }
+            // Timeout tests intentionally cancel a request before the server
+            // responds. Darwin reports the peer's ordinary close as reset.
+            Err(error) if local_http_connection_closed(&error) => break,
             Err(error) => panic!("read HTTP request line: {error}"),
         }
         if request_line == "\r\n" {
@@ -2582,11 +2585,30 @@ fn handle_local_http_connection(
         if path == "/slow" {
             std::thread::sleep(Duration::from_millis(200));
         }
-        stream
-            .write_all(response.as_bytes())
-            .expect("write HTTP response");
-        stream.flush().expect("flush HTTP response");
+        if let Err(error) = stream.write_all(response.as_bytes()) {
+            if local_http_connection_closed(&error) {
+                break;
+            }
+            panic!("write HTTP response: {error}");
+        }
+        if let Err(error) = stream.flush() {
+            if local_http_connection_closed(&error) {
+                break;
+            }
+            panic!("flush HTTP response: {error}");
+        }
     }
+}
+
+#[cfg(feature = "net")]
+fn local_http_connection_closed(error: &std::io::Error) -> bool {
+    matches!(
+        error.kind(),
+        std::io::ErrorKind::BrokenPipe
+            | std::io::ErrorKind::ConnectionAborted
+            | std::io::ErrorKind::ConnectionReset
+            | std::io::ErrorKind::NotConnected
+    )
 }
 
 #[cfg(feature = "net")]

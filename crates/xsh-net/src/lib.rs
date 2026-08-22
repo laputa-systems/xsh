@@ -2,7 +2,6 @@
 
 use async_executor::Executor;
 use async_io::Async;
-use cap_net_ext::{Blocking, PoolExt, TcpListenerExt};
 use crossbeam_channel::RecvTimeoutError;
 use h12tiny_client::{
     Client as H12Client, Connector as H12Connector, Error as H12Error,
@@ -12,6 +11,8 @@ use http::{Request, Response};
 use http_body_util::{BodyExt, Full};
 use hyper::body::{Bytes, Incoming};
 use rustc_hash::FxHashSet;
+use rustix::fd::OwnedFd;
+use rustix::net as rnet;
 use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
 use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
 use rustls::{ClientConfig, DigitallySignedStruct, RootCertStore, SignatureScheme};
@@ -24,10 +25,6 @@ use std::future::Future;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::io::{self, Read, Write};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, ToSocketAddrs, UdpSocket};
-#[cfg(not(windows))]
-use std::os::fd::{FromRawFd, IntoRawFd};
-#[cfg(windows)]
-use std::os::windows::io::{FromRawSocket, IntoRawSocket};
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::Arc;
@@ -792,7 +789,7 @@ fn h12_client(
         tls_config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
     }
     let connector = H12Connector::builder()
-        .tcp_dialer(CapTcpDialer)
+        .tcp_dialer(ResolvedTcpDialer)
         .tls_config(tls_config)
         .build();
     let mut builder = H12Client::builder(h12_executor(executor));
@@ -821,9 +818,9 @@ fn h12_executor(executor: Arc<Executor<'static>>) -> H12Executor {
     H12Executor(executor)
 }
 
-struct CapTcpDialer;
+struct ResolvedTcpDialer;
 
-impl TcpDialer for CapTcpDialer {
+impl TcpDialer for ResolvedTcpDialer {
     fn connect(&self, origin: http::Uri) -> TcpDialFuture {
         Box::pin(async move {
             let host = origin
@@ -853,7 +850,7 @@ impl TcpDialer for CapTcpDialer {
             };
             let addresses = resolve_socket_addrs(&host, port, AddressFamily::Any, None)
                 .map_err(|error| -> h12tiny_client::DialError { Box::new(error) })?;
-            let stream = async_connect_cap_tcp(addresses)
+            let stream = async_connect_resolved_tcp(addresses)
                 .await
                 .map_err(|error| -> h12tiny_client::DialError {
                     Box::new(net_transport_error(error))
@@ -865,23 +862,29 @@ impl TcpDialer for CapTcpDialer {
     }
 }
 
-async fn async_connect_cap_tcp(addrs: Vec<SocketAddr>) -> io::Result<Async<std::net::TcpStream>> {
+async fn async_connect_resolved_tcp(
+    addrs: Vec<SocketAddr>,
+) -> io::Result<Async<std::net::TcpStream>> {
     let mut last_error = None;
     for addr in addrs {
         let family = match addr {
-            SocketAddr::V4(_) => cap_net_ext::AddressFamily::Ipv4,
-            SocketAddr::V6(_) => cap_net_ext::AddressFamily::Ipv6,
+            SocketAddr::V4(_) => rnet::AddressFamily::INET,
+            SocketAddr::V6(_) => rnet::AddressFamily::INET6,
         };
-        let socket = cap_std::net::TcpListener::new(family, Blocking::No)?;
-        let mut pool = cap_std::net::Pool::new();
-        pool.insert_socket_addr(addr, cap_std::ambient_authority());
-        match pool.connect_existing_tcp_listener(&socket, addr) {
-            Ok(()) => match Async::new(cap_listener_into_std_tcp(socket)) {
+        let socket = rnet::socket_with(
+            family,
+            rnet::SocketType::STREAM,
+            tcp_socket_flags(),
+            None,
+        )?;
+        configure_tcp_socket(&socket)?;
+        match rnet::connect(&socket, &addr) {
+            Ok(()) => match Async::new(std::net::TcpStream::from(socket)) {
                 Ok(stream) => return Ok(stream),
                 Err(error) => last_error = Some(error),
             },
-            Err(error) if connect_is_pending(&error) => {
-                let stream = match Async::new(cap_listener_into_std_tcp(socket)) {
+            Err(error) if connect_is_pending(&error.into()) => {
+                let stream = match Async::new(std::net::TcpStream::from(socket)) {
                     Ok(stream) => stream,
                     Err(error) => {
                         last_error = Some(error);
@@ -894,10 +897,32 @@ async fn async_connect_cap_tcp(addrs: Vec<SocketAddr>) -> io::Result<Async<std::
                     None => return Ok(stream),
                 }
             }
-            Err(error) => last_error = Some(error),
+            Err(error) => last_error = Some(error.into()),
         }
     }
     Err(last_error.unwrap_or_else(|| io::Error::other("dns-not-found: no addresses found")))
+}
+
+#[cfg(not(target_vendor = "apple"))]
+fn tcp_socket_flags() -> rnet::SocketFlags {
+    rnet::SocketFlags::CLOEXEC | rnet::SocketFlags::NONBLOCK
+}
+
+#[cfg(target_vendor = "apple")]
+fn tcp_socket_flags() -> rnet::SocketFlags {
+    rnet::SocketFlags::empty()
+}
+
+#[cfg(not(target_vendor = "apple"))]
+fn configure_tcp_socket(_socket: &OwnedFd) -> io::Result<()> {
+    Ok(())
+}
+
+#[cfg(target_vendor = "apple")]
+fn configure_tcp_socket(socket: &OwnedFd) -> io::Result<()> {
+    rustix::io::ioctl_fioclex(socket)?;
+    rustix::io::ioctl_fionbio(socket, true)?;
+    Ok(())
 }
 
 fn connect_is_pending(error: &io::Error) -> bool {
@@ -906,20 +931,6 @@ fn connect_is_pending(error: &io::Error) -> bool {
             error.raw_os_error(),
             Some(libc::EINPROGRESS | libc::EALREADY | libc::EWOULDBLOCK)
         )
-}
-
-#[cfg(not(windows))]
-fn cap_listener_into_std_tcp(listener: cap_std::net::TcpListener) -> std::net::TcpStream {
-    let fd = listener.into_raw_fd();
-    // `into_raw_fd` transfers ownership of the connected socket to the std stream.
-    unsafe { std::net::TcpStream::from_raw_fd(fd) }
-}
-
-#[cfg(windows)]
-fn cap_listener_into_std_tcp(listener: cap_std::net::TcpListener) -> std::net::TcpStream {
-    let socket = listener.into_raw_socket();
-    // `into_raw_socket` transfers ownership of the connected socket to the std stream.
-    unsafe { std::net::TcpStream::from_raw_socket(socket) }
 }
 
 fn h12_block_on<T>(

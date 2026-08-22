@@ -648,7 +648,7 @@ fn ambient_filesystem_use_is_allowlisted() {
 
     assert!(
         violations.is_empty(),
-        "ambient filesystem access must be migrated to cap-std or explicitly allowlisted:\n{}",
+        "ambient filesystem access must be rooted or explicitly allowlisted:\n{}",
         violations
             .iter()
             .map(|violation| format!(
