@@ -1501,10 +1501,6 @@ fn xsh_native_tests() {
             assert!(path.is_dir(), "showcase/tests must be a directory");
             continue;
         }
-        if path.file_name().is_some_and(|name| name == "IDEAS.md") {
-            assert!(path.is_file(), "showcase/IDEAS.md must be a file");
-            continue;
-        }
         if path.is_dir() {
             panic!("showcase subdirectories are no longer part of the layout: {path:?}");
         }
