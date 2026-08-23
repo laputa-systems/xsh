@@ -24,7 +24,7 @@ export pure distribution_product_path(target_dir: Path, triple: Str, product: St
 }
 
 ## Copies non-dist profile output into the stable distribution artifact directory.
-export proc normalize(ctx: Context) [fs, error] -> Result[Unit] {
+export proc normalize(ctx: context.Context) [fs, error] -> Result[Unit] {
   let profile_dir = targets.profile_directory(ctx.profile)
   let dist_dir = fp"${ctx.target_dir}/${ctx.target.triple}/dist"
 
@@ -42,7 +42,7 @@ export proc normalize(ctx: Context) [fs, error] -> Result[Unit] {
 }
 
 ## Executes the native Cargo distribution build with scoped target-specific environment.
-export proc native_dist(ctx: Context, build_std_variable: Str) [fs, process, env, error, io] -> Result[Unit] {
+export proc native_dist(ctx: context.Context, build_std_variable: Str) [fs, process, env, error, io] -> Result[Unit] {
   let inherited_rustflags = env.get_or("RUSTFLAGS", "")?
   let cflags_name = targets.cflags_variable(ctx.target.triple)?
   let inherited_cflags = env.get_or(cflags_name, "")?
@@ -88,7 +88,7 @@ export proc native_dist(ctx: Context, build_std_variable: Str) [fs, process, env
 
 ## Selects native or Docker distribution execution from the public policy value.
 export proc build_distribution(
-  ctx: Context,
+  ctx: context.Context,
   docker_policy: Str,
   ci: Bool,
 ) [fs, process, env, error, io] -> Result[Unit] {

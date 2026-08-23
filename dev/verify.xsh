@@ -2,7 +2,7 @@
 use context
 
 ## Verifies one final distribution binary at its typed output location.
-export proc binary(ctx: Context, name: Str, run_help: Bool) [fs, process, error, io] -> Result[Unit] {
+export proc binary(ctx: context.Context, name: Str, run_help: Bool) [fs, process, error, io] -> Result[Unit] {
   let product = fp"${ctx.target_dir}/${ctx.target.triple}/dist/${name}"
 
   if ! product.exists()? {
@@ -93,7 +93,7 @@ export proc binary(ctx: Context, name: Str, run_help: Bool) [fs, process, error,
 }
 
 ## Verifies every distribution product, executing help only when the host can run the target.
-export proc verify_all(ctx: Context, run_help: Bool) [fs, process, error, io] -> Result[Unit] {
+export proc verify_all(ctx: context.Context, run_help: Bool) [fs, process, error, io] -> Result[Unit] {
   for product in ["xsh", "xsht", "xshi"] {
     binary(ctx, product, run_help)?
   }

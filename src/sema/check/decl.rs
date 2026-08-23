@@ -445,6 +445,55 @@ fn stream_item_type(ty: &Type) -> Option<Type> {
     }
 }
 
+fn callable_type_from_function_signature(sig: &FunctionSig) -> super::CallableType {
+    super::CallableType {
+        params: sig
+            .params
+            .iter()
+            .map(|param| super::CallableParamType {
+                name: param.name,
+                ty: param.ty.clone(),
+                defaulted: param.defaulted,
+                rest: param.rest,
+            })
+            .collect(),
+        return_ty: Box::new(sig.return_ty.clone()),
+        effects: sig.effects.clone(),
+    }
+}
+
+fn module_type_from_user_signature(module: &UserModuleSig) -> Type {
+    let mut exports = std::collections::BTreeMap::new();
+    for (name, ty) in &module.values {
+        exports.insert(
+            *name,
+            super::ModuleExportType::Value {
+                ty: ty.clone(),
+                optional: false,
+            },
+        );
+    }
+    for (name, sig) in &module.procs {
+        exports.insert(
+            *name,
+            super::ModuleExportType::Proc {
+                sig: callable_type_from_function_signature(sig),
+                optional: false,
+            },
+        );
+    }
+    for (name, sig) in &module.pures {
+        exports.insert(
+            *name,
+            super::ModuleExportType::Pure {
+                sig: callable_type_from_function_signature(sig),
+                optional: false,
+            },
+        );
+    }
+    Type::Module(exports)
+}
+
 #[allow(dead_code)]
 impl Checker {
     pub(super) fn import_user_module(
@@ -458,77 +507,27 @@ impl Checker {
             self.error(span, "unknown user module", "check.unknown-module");
             return;
         };
-        self.import_user_module_types(key, alias, span, false);
-        if let Some(alias) = alias {
-            let mut fields = module.values.clone();
-            fields.extend(module.pures.keys().map(|name| (*name, Type::Pure)));
-            fields.extend(module.procs.keys().map(|name| (*name, Type::Proc)));
-            fields.extend(module.streams.keys().map(|name| {
-                let item = module
-                    .streams
-                    .get(name)
-                    .and_then(|sig| stream_item_type(&sig.return_ty))
-                    .unwrap_or(Type::Unknown);
-                (*name, Type::Stream(Box::new(item)))
-            }));
-            self.define(alias, Binding::new(Type::Record(fields), false), span);
-            for (name, sig) in module.procs {
-                self.qualified_procs
-                    .insert(QualifiedName::new(alias, name), sig);
-            }
-            for (name, sig) in module.pures {
-                self.qualified_pures
-                    .insert(QualifiedName::new(alias, name), sig);
-            }
-            for (name, sig) in module.streams {
-                self.qualified_streams
-                    .insert(QualifiedName::new(alias, name), sig);
-            }
-            return;
-        }
-
-        let default_alias = path.last().copied();
-        if let Some(alias) = default_alias {
-            let mut fields = module.values.clone();
-            fields.extend(module.pures.keys().map(|name| (*name, Type::Pure)));
-            fields.extend(module.procs.keys().map(|name| (*name, Type::Proc)));
-            fields.extend(module.streams.keys().map(|name| {
-                let item = module
-                    .streams
-                    .get(name)
-                    .and_then(|sig| stream_item_type(&sig.return_ty))
-                    .unwrap_or(Type::Unknown);
-                (*name, Type::Stream(Box::new(item)))
-            }));
-            self.define(alias, Binding::new(Type::Record(fields), false), span);
-            for (name, sig) in &module.procs {
-                self.qualified_procs
-                    .insert(QualifiedName::new(alias, *name), sig.clone());
-            }
-            for (name, sig) in &module.pures {
-                self.qualified_pures
-                    .insert(QualifiedName::new(alias, *name), sig.clone());
-            }
-            for (name, sig) in &module.streams {
-                self.qualified_streams
-                    .insert(QualifiedName::new(alias, *name), sig.clone());
-            }
-        }
-
-        for (name, ty) in module.values {
-            self.define(name, Binding::new(ty, false), span);
-        }
-        for (name, sig) in module.procs {
-            self.procs.insert(name, sig);
-        }
-        for (name, sig) in module.pures {
-            self.pures.insert(name, sig);
-        }
-        for (name, sig) in module.streams {
-            self.streams.insert(name, sig);
-        }
-        if path.is_empty() {
+        let Some(namespace) = alias.or_else(|| path.last().copied()) else {
             self.error(span, "empty module path", "check.unknown-module");
+            return;
+        };
+        self.import_user_module_types(key, Some(namespace), span, false);
+        self.define(
+            namespace,
+            Binding::new(module_type_from_user_signature(&module), false),
+            span,
+        );
+        for (name, sig) in &module.procs {
+            self.qualified_procs
+                .insert(QualifiedName::new(namespace, *name), sig.clone());
+        }
+        for (name, sig) in &module.pures {
+            self.qualified_pures
+                .insert(QualifiedName::new(namespace, *name), sig.clone());
+        }
+        for (name, sig) in &module.streams {
+            self.qualified_streams
+                .insert(QualifiedName::new(namespace, *name), sig.clone());
         }
     }
 

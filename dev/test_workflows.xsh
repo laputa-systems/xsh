@@ -3,7 +3,7 @@ use context
 use docker
 
 ## Runs the repository's ordinary release Rust test contract.
-export proc rust(ctx: Context) [process, error, io] -> Result[Unit] {
+export proc rust(ctx: context.Context) [process, error, io] -> Result[Unit] {
   context.run_stage(
     "test-rust",
     ctx.target.triple,
@@ -15,7 +15,7 @@ export proc rust(ctx: Context) [process, error, io] -> Result[Unit] {
 }
 
 ## Runs only the native XSH test corpus through its owning `xsht` package and binary.
-export proc xsh(ctx: Context) [process, error, io] -> Result[Unit] {
+export proc xsh(ctx: context.Context) [process, error, io] -> Result[Unit] {
   context.run_stage(
     "test-xsh",
     ctx.target.triple,
@@ -37,7 +37,7 @@ export proc xsh(ctx: Context) [process, error, io] -> Result[Unit] {
 }
 
 ## Runs privileged Linux developer tests through a direct Docker-to-XSH command.
-export proc linux_test(ctx: Context, ci: Bool) [process, env, error, io] -> Result[Unit] {
+export proc linux_test(ctx: context.Context, ci: Bool) [process, env, error, io] -> Result[Unit] {
   if ci {
     docker.run_internal(ctx, "test-linux-ci", true, [])?
   } else {
@@ -46,7 +46,7 @@ export proc linux_test(ctx: Context, ci: Bool) [process, env, error, io] -> Resu
 }
 
 ## Runs the selected Darwin CI test contract directly on macOS.
-export proc macos_ci(ctx: Context) [process, error, io] -> Result[Unit] {
+export proc macos_ci(ctx: context.Context) [process, error, io] -> Result[Unit] {
   context.run_stage(
     "test-macos-ci",
     ctx.target.triple,

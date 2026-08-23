@@ -1723,9 +1723,9 @@ export let pkg: Package = {name: \"demo\", root: Path(\"src\")}
         "\
 use helper
 use package as p
-greet(\"world\")?
+helper.greet(\"world\")?
 helper.greet(\"namespace\")?
-show(p.pkg)?
+helper.show(p.pkg)?
 print ${p.pkg.name}
 match p.get(\"Package\") {
   Err(e) => {

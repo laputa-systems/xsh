@@ -12,7 +12,7 @@ export proc bin_dir() [fs, env, error] -> Result[Path] {
 }
 
 ## Installs signed Darwin release products and tolerates only a missing quarantine attribute.
-export proc darwin(ctx: Context) [fs, process, env, error, io] -> Result[Unit] {
+export proc darwin(ctx: context.Context) [fs, process, env, error, io] -> Result[Unit] {
   let inherited_rustflags = env.get_or("RUSTFLAGS", "")?
   let inherited_cflags = env.get_or("CFLAGS_aarch64_apple_darwin", "")?
   let command_env = targets.distribution_env(
@@ -80,7 +80,7 @@ export proc darwin(ctx: Context) [fs, process, env, error, io] -> Result[Unit] {
 }
 
 ## Stages one Linux CRT object after stripping debug metadata with LLVM tooling.
-export proc linux_crt_object(ctx: Context, name: Str) [fs, process, error, io] -> Result[Unit] {
+export proc linux_crt_object(ctx: context.Context, name: Str) [fs, process, error, io] -> Result[Unit] {
   let crt_dir = fp"${ctx.target_dir}/llvm-crt"
   context.ensure_dir(crt_dir)?
   context.run_stage(
@@ -94,7 +94,7 @@ export proc linux_crt_object(ctx: Context, name: Str) [fs, process, error, io] -
 }
 
 ## Installs Linux products with the existing clang, llvm-ar, and lld contract.
-export proc linux_install(ctx: Context) [fs, process, env, error, io] -> Result[Unit] {
+export proc linux_install(ctx: context.Context) [fs, process, env, error, io] -> Result[Unit] {
   if ctx.target.triple != "x86_64-unknown-linux-musl" {
     return Err(
       context.ContextError.StageFailed(
@@ -161,7 +161,7 @@ export proc linux_install(ctx: Context) [fs, process, env, error, io] -> Result[
 }
 
 ## Dispatches installation to the current supported host family.
-export proc install(ctx: Context) [fs, process, env, error, io] -> Result[Unit] {
+export proc install(ctx: context.Context) [fs, process, env, error, io] -> Result[Unit] {
   if ctx.host_os == "darwin" {
     return darwin(ctx)
   }

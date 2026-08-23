@@ -10,7 +10,7 @@ export proc checksum_line(artifact_path: Path, root: Path) [fs, error] -> Result
 }
 
 ## Packages all products for the selected target into stable release artifact names.
-export proc package_binaries(ctx: Context, tag: Str) [fs, process, error, io] -> Result[Unit] {
+export proc package_binaries(ctx: context.Context, tag: Str) [fs, process, error, io] -> Result[Unit] {
   if tag.trim() == "" {
     return Err(
       context.ContextError.StageFailed(stage: "release-package", target: ctx.target.triple, detail: "missing release tag"),
@@ -30,7 +30,7 @@ export proc package_binaries(ctx: Context, tag: Str) [fs, process, error, io] ->
 }
 
 ## Runs the release product smoke contract after the distribution build is complete.
-export proc smoke(ctx: Context) [fs, process, error, io] -> Result[Unit] {
+export proc smoke(ctx: context.Context) [fs, process, error, io] -> Result[Unit] {
   verify.verify_all(ctx, true)?
   let xsh = fp"${ctx.target_dir}/${ctx.target.triple}/dist/xsh"
   let xshi = fp"${ctx.target_dir}/${ctx.target.triple}/dist/xshi"
@@ -51,7 +51,7 @@ export pure core_install_path(relative_source: Path) -> Path {
 }
 
 ## Collects core script sources deterministically while excluding the native test subtree.
-export proc core_sources(ctx: Context) [fs, error] -> Result[List[Path]] {
+export proc core_sources(ctx: context.Context) [fs, error] -> Result[List[Path]] {
   let core = fp"${ctx.root}/core"
   var sources: List[Path] = []
 
@@ -69,7 +69,7 @@ export proc core_sources(ctx: Context) [fs, error] -> Result[List[Path]] {
 }
 
 ## Stages, archives, and checksums the core scripts package with stable source ordering.
-export proc package_core(ctx: Context, tag: Str) [fs, error] -> Result[Unit] {
+export proc package_core(ctx: context.Context, tag: Str) [fs, error] -> Result[Unit] {
   if tag.trim() == "" {
     return Err(
       context.ContextError.StageFailed(stage: "release-core", target: ctx.target.triple, detail: "missing release tag"),
@@ -121,7 +121,7 @@ export proc package_core(ctx: Context, tag: Str) [fs, error] -> Result[Unit] {
 }
 
 ## Validates the full nine-product release artifact set and checksum sidecars.
-export proc validate_artifacts(ctx: Context, tag: Str) [fs, error] -> Result[Unit] {
+export proc validate_artifacts(ctx: context.Context, tag: Str) [fs, error] -> Result[Unit] {
   if tag.trim() == "" {
     return Err(
       context.ContextError.StageFailed(stage: "release-validate", target: ctx.target.triple, detail: "missing release tag"),

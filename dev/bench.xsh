@@ -2,7 +2,7 @@
 use context
 
 ## Resolves a shell-free rustybench command prefix, preserving the legacy override.
-export proc command_prefix(ctx: Context) [process, env, error] -> Result[List[Str]] {
+export proc command_prefix(ctx: context.Context) [process, env, error] -> Result[List[Str]] {
   let configured = env.get_or("RUSTYBENCH", "")?.trim()
 
   if configured != "" {
@@ -20,7 +20,7 @@ export proc command_prefix(ctx: Context) [process, env, error] -> Result[List[St
 }
 
 ## Runs the latency and allocation baseline workflow, optionally in fast mode.
-export proc benchmark(ctx: Context, fast: Bool) [process, env, error, io] -> Result[Unit] {
+export proc benchmark(ctx: context.Context, fast: Bool) [process, env, error, io] -> Result[Unit] {
   let prefix = command_prefix(ctx)?
   let baseline = if fast {
     fp"${ctx.root}/crates/xshi/benches/fast-baseline.json"
@@ -38,7 +38,7 @@ export proc benchmark(ctx: Context, fast: Bool) [process, env, error, io] -> Res
 }
 
 ## Runs rustybench's syscall diagnostic workflow.
-export proc syscalls(ctx: Context) [process, env, error, io] -> Result[Unit] {
+export proc syscalls(ctx: context.Context) [process, env, error, io] -> Result[Unit] {
   let prefix = command_prefix(ctx)?
   let argv = prefix.extend(["syscalls", "--root", ctx.root.display()])
   context.run_stage("bench-syscalls", ctx.target.triple, prefix[0], argv, ctx.root, {})?

@@ -2017,7 +2017,7 @@ fn checker_rejects_stage_11_and_12_errors() {
 #[test]
 fn checker_enforces_stage_13_module_export_boundaries() {
     let ok = check_with_module(
-        "use helper\nbuild(\"demo\")?\n",
+        "use helper\nhelper.build(\"demo\")?\n",
         r#"
 export proc build(name: Str) -> Result[Unit] {
   print ${name}

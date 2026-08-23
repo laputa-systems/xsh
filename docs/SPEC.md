@@ -523,11 +523,13 @@ exist. `XSH_MODULE_PATH` uses the host platform's path-list separator. User
 modules may export `let`, `proc`, `pure`, `stream`, `type`, and `error`
 declarations.
 Non-exported module bindings, types, and error families remain local to the
-imported module. `use helper` imports exported values, types, and error
-families as bare names and also binds `helper` as a module namespace.
-`use helper as h` exposes exported values through `h` and exported types in type
-positions as `h.TypeName`; types and error families are compile-time names and
-are not fields in the runtime alias record. Imported modules may contain
+imported module. `use helper` binds exactly one namespace, `helper`; `use
+helper as h` binds exactly `h`. Exported values, procedures, pure functions,
+streams, types, and error families are accessed through that namespace, such
+as `helper.value`, `helper.call(...)`, and `helper.TypeName`; imports never
+inject exported names into the importing scope. Types and error families are
+compile-time names and are not fields in the runtime module record. Imported
+modules may contain
 top-level `use`, `let`, `proc`, `pure`, `stream`, `type`, and `error`
 declarations, but not top-level mutation, commands, or control flow.
 
@@ -573,8 +575,9 @@ type name to a set of named variants, each with zero or more payload fields.
 **Module contracts** use the `type T = module { ... }` form. Each entry names
 an exported runtime binding. Value exports use `export let name: Type` or the
 short form `export name: Type`. Exported proc and pure entries include their
-call signatures. `optional` permits the export to be absent after a dynamic
-module check.
+call signatures. Static module namespaces have inferred structural signatures
+and may satisfy these contracts directly. `optional` permits the export to be
+absent after a dynamic module check.
 
 ```xsh
 type BuildPlugin = module {

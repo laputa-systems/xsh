@@ -32,3 +32,30 @@ export proc execute(root: Path) [fs, error] -> Result[Unit] {
   plugin.execute(root)?
   test.eq(fp"${root}/out.txt".read_text()?, "demo")?
 }
+
+proc test_static_module_namespace_satisfies_the_same_contract(ctx: TestContext) [fs, error] {
+  let root = test.temp_dir(ctx, name: "static-module-contract")?
+  fp"${root}/runner.xsh".write("""
+export proc run(root: Path) [fs, error] -> Result[Unit] {
+  fp"\${root}/out.txt".write("static")?
+}
+""")?
+
+  let result = test.run_script(
+    ctx,
+    f"""
+type Runner = module {
+  export proc run(root: Path) [fs, error] -> Result[Unit]
+}
+
+use runner
+
+let checked: Runner = runner
+checked.run(p"${root}")?
+""",
+    [],
+    {XSH_MODULE_PATH: root.display()},
+  )?
+  test.ok(result.success, result.stderr)?
+  test.eq(fp"${root}/out.txt".read_text()?, "static")?
+}

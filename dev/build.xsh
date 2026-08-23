@@ -2,7 +2,7 @@
 use context
 
 ## Prepares the native musl sysroot only on the Linux host/target combination that needs it.
-export proc prepare_native_musl(ctx: Context) [fs, process, error] -> Result[Unit] {
+export proc prepare_native_musl(ctx: context.Context) [fs, process, error] -> Result[Unit] {
   if ctx.host_os != "linux" or ! ctx.target.static_musl {
     return
   }
@@ -25,13 +25,13 @@ export proc prepare_native_musl(ctx: Context) [fs, process, error] -> Result[Uni
 }
 
 ## Builds the repository with the current development Cargo profile.
-export proc build(ctx: Context) [fs, process, error, io] -> Result[Unit] {
+export proc build(ctx: context.Context) [fs, process, error, io] -> Result[Unit] {
   prepare_native_musl(ctx)?
   context.run_stage("build", ctx.target.triple, "cargo", ["cargo", "build"], ctx.root, {})?
 }
 
 ## Runs the repository's non-mutating deprecated-import contract.
-export proc check_libxsh_imports(ctx: Context) [process, error] -> Result[Unit] {
+export proc check_libxsh_imports(ctx: context.Context) [process, error] -> Result[Unit] {
   let pattern = "xsh::(source|symbol|syntax|sema|loader|runner|runtime|modules|parse_script_with_module_roots)"
   let result = run.capture --text rg -n $pattern crates/xshi/src crates/xsht/src crates/xsht/tests tests src/entrypoints --glob "*.rs" ?
 
@@ -59,7 +59,7 @@ export proc check_libxsh_imports(ctx: Context) [process, error] -> Result[Unit] 
 }
 
 ## Runs the focused, source-non-mutating development check suite.
-export proc check(ctx: Context) [fs, process, error, io] -> Result[Unit] {
+export proc check(ctx: context.Context) [fs, process, error, io] -> Result[Unit] {
   context.run_stage(
     "check-build",
     ctx.target.triple,
@@ -109,7 +109,7 @@ export proc check(ctx: Context) [fs, process, error, io] -> Result[Unit] {
     {},
   )?
   let xsht = fp"${ctx.target_dir}/debug/xsht"
-  context.run_stage("check-xsh", ctx.target.triple, xsht.display(), [xsht.display(), "check"], ctx.root, {})?
+  context.run_stage("check-xsh", ctx.target.triple, xsht.display(), [xsht.display(), "check", "--strict"], ctx.root, {})?
   context.run_stage(
     "check-xsh-fmt",
     ctx.target.triple,
@@ -138,7 +138,7 @@ export proc check(ctx: Context) [fs, process, error, io] -> Result[Unit] {
 }
 
 ## Runs the repository-owner-only formatting and autofix workflow.
-export proc lint_fix(ctx: Context) [process, error, io] -> Result[Unit] {
+export proc lint_fix(ctx: context.Context) [process, error, io] -> Result[Unit] {
   context.run_stage("lint-rustfmt", ctx.target.triple, "cargo", ["cargo", "fmt", "--all"], ctx.root, {})?
   context.run_stage(
     "lint-clippy",

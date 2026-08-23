@@ -1264,16 +1264,7 @@ impl Evaluator {
                             Value::Proc(QualifiedName::new(owner, export.name).into())
                         }
                     };
-                    record_fields.push((export.name, value.clone()));
-                    if alias.is_none() {
-                        self.define(
-                            export.name,
-                            Binding {
-                                value,
-                                mutable: false,
-                            },
-                        );
-                    }
+                    record_fields.push((export.name, value));
                 }
                 for (name, module_record) in modules_protected {
                     if let Some(binding) = self.lookup(name)

@@ -4,7 +4,7 @@ use docker
 
 ## Selects the automatic coverage backend from the preserved Alpine Linux contract.
 export pure automatic_backend_for(
-  ctx: Context,
+  ctx: context.Context,
   alpine_linux: Bool,
   cargo_available: Bool,
   linker_available: Bool,
@@ -17,7 +17,7 @@ export pure automatic_backend_for(
 }
 
 ## Selects the automatic coverage backend from the preserved Alpine Linux contract.
-export proc automatic_backend(ctx: Context) [fs, process, error] -> Result[Str] {
+export proc automatic_backend(ctx: context.Context) [fs, process, error] -> Result[Str] {
   let alpine_linux = p"/etc/alpine-release".exists()?
   let cargo_available = match process.which("cargo") {
     Ok(_) => true,
@@ -56,7 +56,7 @@ export proc native_linker() [process, env, error] -> Result[Path] {
 }
 
 ## Runs the retained native combined Rust LLVM and XSH API coverage program.
-export proc native_coverage(ctx: Context) [fs, process, env, error, io] -> Result[Unit] {
+export proc native_coverage(ctx: context.Context) [fs, process, env, error, io] -> Result[Unit] {
   context.ensure_dir(ctx.coverage_dir)?
   let cargo_value = env.get_or("COV_CARGO", "")?.trim()
   let cargo = if cargo_value == "" { process.which("cargo")?.display() } else { cargo_value }
@@ -87,7 +87,7 @@ export proc native_coverage(ctx: Context) [fs, process, env, error, io] -> Resul
 }
 
 ## Runs retained coverage logic inside a privileged Docker boundary.
-export proc docker_backend(ctx: Context) [fs, process, env, error, io] -> Result[Unit] {
+export proc docker_backend(ctx: context.Context) [fs, process, env, error, io] -> Result[Unit] {
   context.ensure_dir(ctx.coverage_dir)?
   let image = docker.ensure_image(ctx)?
   let identity = unix.id()?
@@ -130,7 +130,7 @@ export proc docker_backend(ctx: Context) [fs, process, env, error, io] -> Result
 }
 
 ## Dispatches the public coverage backend policy.
-export proc coverage(ctx: Context, requested_backend: Str) [fs, process, env, error, io] -> Result[Unit] {
+export proc coverage(ctx: context.Context, requested_backend: Str) [fs, process, env, error, io] -> Result[Unit] {
   let backend = if requested_backend == "" { automatic_backend(ctx)? } else { requested_backend }
 
   if backend == "native" {
