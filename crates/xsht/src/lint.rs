@@ -140,6 +140,28 @@ fn type_expr_kind(arena: &AstArena, id: TypeExprId) -> ArenaTypeExprKind {
 
 impl<'a> Linter<'a> {
     pub fn lint(program: &'a ArenaProgram, source: &'a str, options: LintOptions) -> LintOutput {
+        Self::lint_internal(program, source, options, true)
+    }
+
+    /// Lint one source range that belongs to a checked workspace bundle.
+    ///
+    /// Callable reachability is evaluated once for the bundle entry, so an
+    /// imported module must not independently report the same reachability
+    /// diagnostics when the workspace walks its reachable files.
+    pub fn lint_module(
+        program: &'a ArenaProgram,
+        source: &'a str,
+        options: LintOptions,
+    ) -> LintOutput {
+        Self::lint_internal(program, source, options, false)
+    }
+
+    fn lint_internal(
+        program: &'a ArenaProgram,
+        source: &'a str,
+        options: LintOptions,
+        include_reachability: bool,
+    ) -> LintOutput {
         let mut linter = Self {
             arena: &program.arena,
             source,
@@ -174,7 +196,9 @@ impl<'a> Linter<'a> {
         );
         let statements: Vec<StmtId> = program.statement_ids().collect();
         linter.lint_program(&statements);
-        linter.lint_declaration_reachability(program);
+        if include_reachability {
+            linter.lint_declaration_reachability(program);
+        }
         LintOutput {
             diagnostics: linter.diagnostics,
         }

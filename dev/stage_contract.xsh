@@ -1,5 +1,4 @@
 ##! Static contract for the repository-local process-execution seam.
-
 ## A fully resolved command with lifecycle diagnostics and no ambient execution state.
 export type CommandSpec = {
   stage: Str,

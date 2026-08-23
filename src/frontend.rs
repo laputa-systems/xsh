@@ -23,7 +23,7 @@ pub mod load {
         parse_load_check_entry_source, parse_load_check_entry_source_with_token_table,
         parse_load_check_file, parse_load_check_text, parse_load_entry_source_arena_only,
         parse_load_entry_source_compact_file_unit, parse_load_entry_source_shared_arena_only,
-        parse_script, parse_script_with_module_roots,
+        parse_script, parse_script_with_module_roots, resolve_user_module,
     };
 }
 

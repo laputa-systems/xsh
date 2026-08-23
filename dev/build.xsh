@@ -209,6 +209,16 @@ export proc lint_fix(ctx: context.Context) [process, error, io] -> Result[Unit] 
   )?
   stages.execute(
     stages.command(
+      "lint-build-xsh",
+      ctx.target.triple,
+      "cargo",
+      ["cargo", "build", "-p", "xsh", "--bin", "xsh"],
+      ctx.root,
+      {},
+    ),
+  )?
+  stages.execute(
+    stages.command(
       "lint-build-xsht",
       ctx.target.triple,
       "cargo",

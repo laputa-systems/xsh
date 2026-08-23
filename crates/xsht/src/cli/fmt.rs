@@ -4,13 +4,15 @@ use crate::xsht::cli::{
 };
 use crate::xsht::config::{config_for_dir, config_for_file};
 use crate::xsht::format::Formatter;
+use rustc_hash::FxHashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::thread;
-use xsh::diagnostic::DiagnosticRenderer;
+use xsh::diagnostic::{Diagnostic, DiagnosticRenderer};
 use xsh::frontend::check::CheckOptions;
 use xsh::frontend::load::parse_load_check_file;
+use xsh::frontend::source::SourceMap;
 
 pub fn format_files(files: &[String], check: bool) -> CliOutput {
     if let Some(output) = cancellation_output() {
@@ -20,6 +22,7 @@ pub fn format_files(files: &[String], check: bool) -> CliOutput {
     let mut stdout = String::new();
     let mut stderr = String::new();
     let mut status = 0;
+    let mut seen_diagnostics = FxHashSet::default();
 
     let config = match load_config() {
         Ok(config) => config,
@@ -69,6 +72,14 @@ pub fn format_files(files: &[String], check: bool) -> CliOutput {
             FormatResultKind::ParseError(message) => {
                 status = 2;
                 stderr.push_str(&message);
+            }
+            FormatResultKind::Diagnostics(diagnostics) => {
+                status = 2;
+                for diagnostic in diagnostics {
+                    if seen_diagnostics.insert(diagnostic.key) {
+                        stderr.push_str(&diagnostic.text);
+                    }
+                }
             }
             FormatResultKind::NeedsFormat(formatted) => {
                 if check {
@@ -129,6 +140,12 @@ enum FormatResultKind {
     ConfigError(String),
     ReadError(String),
     ParseError(String),
+    Diagnostics(Vec<RenderedDiagnostic>),
+}
+
+struct RenderedDiagnostic {
+    key: String,
+    text: String,
 }
 
 #[allow(clippy::single_call_fn)]
@@ -193,7 +210,10 @@ fn format_one_file(index: usize, file: &str) -> FormatResult {
         return FormatResult {
             index,
             file: file.to_string(),
-            kind: FormatResultKind::ParseError(checked_program.render_parse_diagnostics()),
+            kind: FormatResultKind::Diagnostics(render_diagnostics_with_keys(
+                &checked_program.parsed.diagnostics,
+                &checked_program.sources,
+            )),
         };
     }
     let checked = checked_program
@@ -204,7 +224,10 @@ fn format_one_file(index: usize, file: &str) -> FormatResult {
         return FormatResult {
             index,
             file: file.to_string(),
-            kind: FormatResultKind::ParseError(checked_program.render_check_diagnostics()),
+            kind: FormatResultKind::Diagnostics(render_diagnostics_with_keys(
+                &checked.diagnostics,
+                &checked_program.sources,
+            )),
         };
     }
     let Some(text) = checked_program.entry_source_text() else {
@@ -221,9 +244,10 @@ fn format_one_file(index: usize, file: &str) -> FormatResult {
         return FormatResult {
             index,
             file: file.to_string(),
-            kind: FormatResultKind::ParseError(
-                DiagnosticRenderer::new().render(&formatted.diagnostics, &checked_program.sources),
-            ),
+            kind: FormatResultKind::Diagnostics(render_diagnostics_with_keys(
+                &formatted.diagnostics,
+                &checked_program.sources,
+            )),
         };
     }
 
@@ -236,6 +260,49 @@ fn format_one_file(index: usize, file: &str) -> FormatResult {
         index,
         file: file.to_string(),
         kind,
+    }
+}
+
+fn render_diagnostics_with_keys(
+    diagnostics: &[Diagnostic],
+    sources: &SourceMap,
+) -> Vec<RenderedDiagnostic> {
+    diagnostics
+        .iter()
+        .map(|diagnostic| RenderedDiagnostic {
+            key: diagnostic_key(diagnostic, sources),
+            text: DiagnosticRenderer::new().render(std::slice::from_ref(diagnostic), sources),
+        })
+        .collect()
+}
+
+fn diagnostic_key(diagnostic: &Diagnostic, sources: &SourceMap) -> String {
+    let span = diagnostic
+        .labels
+        .first()
+        .map(|label| label.span)
+        .or(diagnostic.span);
+    let location = span.and_then(|span| {
+        sources
+            .location(span.source_id, span.start())
+            .map(|loc| (span, loc))
+    });
+    match location {
+        Some((span, loc)) => format!(
+            "{:?}:{}:{}:{}:{}:{}",
+            diagnostic.severity,
+            diagnostic.code.as_deref().unwrap_or(""),
+            diagnostic.message,
+            loc.file,
+            span.start(),
+            span.end(),
+        ),
+        None => format!(
+            "{:?}:{}:{}",
+            diagnostic.severity,
+            diagnostic.code.as_deref().unwrap_or(""),
+            diagnostic.message,
+        ),
     }
 }
 

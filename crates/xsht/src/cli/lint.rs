@@ -8,14 +8,18 @@ use crate::xsht::lint::{LintOptions, Linter};
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 use std::thread;
 use xsh::diagnostic::{Diagnostic, DiagnosticRenderer, Label, Severity};
 use xsh::frontend::check::CheckOptions;
-use xsh::frontend::load::{parse_load_check_bytes, parse_load_check_text};
-use xsh::frontend::source::SourceMap;
-use xsh::frontend::symbols::SymbolOwner;
+use xsh::frontend::load::{module_key, parse_load_check_text, resolve_user_module};
+use xsh::frontend::source::{SourceId, SourceMap, Span};
+use xsh::frontend::symbols::{Name, SymbolOwner};
+use xsh::frontend::syntax::arena::{
+    ArenaProgram, ArenaProgramBuilder, ArenaRange, ArenaStmtKind, StmtId, UseStmtId,
+};
+use xsh::frontend::syntax::parser::Parser;
 pub fn lint_files(files: &[String], fix: bool, runless: bool) -> CliOutput {
     if let Some(output) = cancellation_output() {
         return output;
@@ -38,7 +42,7 @@ pub fn lint_files(files: &[String], fix: bool, runless: bool) -> CliOutput {
     };
 
     let discovered = match discover_lint_files(files, &cwd_config) {
-        Ok(files) => files,
+        Ok(discovered) => discovered,
         Err(message) => {
             if let Some(output) = cancellation_output() {
                 return output;
@@ -54,12 +58,13 @@ pub fn lint_files(files: &[String], fix: bool, runless: bool) -> CliOutput {
     };
 
     let config_cache = ConfigCache::default();
-    let mut results = lint_files_parallel(&discovered, fix, runless, &cwd_config, &config_cache);
+    let mut results = lint_workspace(&discovered, fix, runless, &cwd_config, &config_cache);
     if let Some(output) = cancellation_output() {
         return output;
     }
     results.sort_unstable_by_key(|result| result.index);
     let mut seen_diagnostics = FxHashSet::default();
+    let mut written_files = FxHashSet::default();
     for result in results {
         match result.kind {
             LintResultKind::Clean => {}
@@ -69,6 +74,7 @@ pub fn lint_files(files: &[String], fix: bool, runless: bool) -> CliOutput {
             }
             LintResultKind::FixDiagnostics {
                 status: result_status,
+                diagnostics,
                 stderr: result_stderr,
             } => {
                 if result_status == 1 {
@@ -77,6 +83,11 @@ pub fn lint_files(files: &[String], fix: bool, runless: bool) -> CliOutput {
                     }
                 } else {
                     status = result_status;
+                }
+                for diagnostic in diagnostics {
+                    if seen_diagnostics.insert(diagnostic.key) {
+                        stderr.push_str(&diagnostic.text);
+                    }
                 }
                 stderr.push_str(&result_stderr);
             }
@@ -101,12 +112,21 @@ pub fn lint_files(files: &[String], fix: bool, runless: bool) -> CliOutput {
                 file,
                 text,
                 status: result_status,
+                diagnostics,
                 stderr: result_stderr,
             } => {
                 if result_status > status {
                     status = result_status;
                 }
+                for diagnostic in diagnostics {
+                    if seen_diagnostics.insert(diagnostic.key) {
+                        stderr.push_str(&diagnostic.text);
+                    }
+                }
                 stderr.push_str(&result_stderr);
+                if !written_files.insert(file.clone()) {
+                    continue;
+                }
                 if let Err(err) = fs::write(&file, &text) {
                     status = 4;
                     stderr.push_str(&format!("xsht: failed to write '{file}': {err}\n"));
@@ -124,8 +144,14 @@ pub fn lint_files(files: &[String], fix: bool, runless: bool) -> CliOutput {
     }
 }
 
-fn discover_lint_files(files: &[String], config: &XshConfig) -> Result<Vec<String>, String> {
+struct LintDiscovery {
+    files: Vec<String>,
+    explicit_roots: FxHashSet<String>,
+}
+
+fn discover_lint_files(files: &[String], config: &XshConfig) -> Result<LintDiscovery, String> {
     let mut paths = Vec::new();
+    let mut explicit_roots = FxHashSet::default();
     if files.is_empty() {
         collect_configured_xsh_files(Path::new("."), config, &mut paths)?;
         let config_cache = ConfigCache::default();
@@ -144,15 +170,20 @@ fn discover_lint_files(files: &[String], config: &XshConfig) -> Result<Vec<Strin
                 collect_configured_xsh_files(path, &dir_config, &mut paths)?;
             } else {
                 paths.push(path.to_path_buf());
+                explicit_roots.insert(module_key(path));
             }
         }
     }
     paths.sort_unstable();
     paths.dedup();
-    Ok(paths
+    let files = paths
         .into_iter()
         .map(|path| path.to_string_lossy().into_owned())
-        .collect())
+        .collect();
+    Ok(LintDiscovery {
+        files,
+        explicit_roots,
+    })
 }
 
 struct LintResult {
@@ -169,12 +200,14 @@ enum LintResultKind {
     },
     FixDiagnostics {
         status: u8,
+        diagnostics: Vec<RenderedDiagnostic>,
         stderr: String,
     },
     Write {
         file: String,
         text: String,
         status: u8,
+        diagnostics: Vec<RenderedDiagnostic>,
         stderr: String,
     },
 }
@@ -184,6 +217,13 @@ struct RenderedDiagnostic {
     text: String,
 }
 
+// Fix-mode validation can revisit imported modules; keep these failures keyed so the
+// command-level aggregation emits one diagnostic per source location.
+enum FixedTextValidationError {
+    Diagnostics(Vec<RenderedDiagnostic>),
+}
+
+#[derive(Clone)]
 struct ResolvedLintConfig {
     lint_options: LintOptions,
     line_width: usize,
@@ -220,6 +260,777 @@ impl ConfigCache {
             .expect("config cache mutex poisoned")
             .insert(key, resolved.clone());
         resolved
+    }
+}
+
+#[derive(Clone)]
+struct WorkspaceImport {
+    use_id: UseStmtId,
+    path: Vec<Name>,
+    span: Span,
+    target: Option<String>,
+}
+
+struct WorkspaceModule {
+    key: String,
+    path: PathBuf,
+    source_id: SourceId,
+    text: String,
+    statements: ArenaRange,
+    imports: Vec<WorkspaceImport>,
+    diagnostics: Vec<Diagnostic>,
+    module_roots: Vec<PathBuf>,
+    config: ResolvedLintConfig,
+}
+
+/// Parsed source files and their resolved imports for one lint command.
+///
+/// The arena is shared by every entry bundle. A bundle changes only its root
+/// statement range and reachable module list, so imports are parsed and
+/// resolved once even when several roots reach the same module.
+struct LintWorkspace {
+    sources: SourceMap,
+    program: ArenaProgram,
+    modules: FxHashMap<String, WorkspaceModule>,
+    roots: Vec<String>,
+    input_errors: Vec<String>,
+}
+
+/// Builds the workspace graph while appending every source to one arena.
+/// Dependencies are loaded recursively using the language loader's search
+/// order, including configured module roots and `XSH_MODULE_PATH`.
+struct WorkspaceLoader {
+    sources: SourceMap,
+    builder: ArenaProgramBuilder<'static>,
+    modules: FxHashMap<String, WorkspaceModule>,
+    stack: Vec<String>,
+}
+
+impl WorkspaceLoader {
+    fn new() -> Self {
+        Self {
+            sources: SourceMap::new(),
+            builder: ArenaProgramBuilder::with_token_capacity(4096),
+            modules: FxHashMap::default(),
+            stack: Vec::new(),
+        }
+    }
+
+    fn load(
+        &mut self,
+        path: PathBuf,
+        bytes: Vec<u8>,
+        module_roots: Vec<PathBuf>,
+    ) -> Result<String, String> {
+        let key = module_key(&path);
+        if self.modules.contains_key(&key) {
+            return Ok(key);
+        }
+
+        let display_path = path.to_string_lossy().into_owned();
+        let (source_id, text, mut diagnostics) = match self
+            .sources
+            .add_file_from_utf8(display_path.clone(), bytes.clone())
+        {
+            Ok(source_id) => {
+                let text = self
+                    .sources
+                    .get(source_id)
+                    .expect("source was just inserted")
+                    .text()
+                    .to_string();
+                (source_id, text, Vec::new())
+            }
+            Err(error) => {
+                let text = String::from_utf8_lossy(&bytes).into_owned();
+                let source_id = self.sources.add_file(display_path, text.clone());
+                let offset = error.offset.min(text.len());
+                let diagnostic = Diagnostic::error("source file is not valid UTF-8")
+                    .with_code("source.invalid-utf8")
+                    .with_label(Label::primary(
+                        Span::new(source_id, offset, offset),
+                        "invalid UTF-8 starts here",
+                    ));
+                (source_id, text, vec![diagnostic])
+            }
+        };
+
+        let fragment = Parser::parse_source_into_arena_builder(source_id, &text, &mut self.builder);
+        diagnostics.extend(fragment.diagnostics);
+        let imports = self
+            .builder
+            .statement_ids(fragment.statements)
+            .into_iter()
+            .filter_map(|statement| {
+                let (use_id, path, span) = self.builder.use_stmt_for_statement(statement)?;
+                Some(WorkspaceImport {
+                    use_id,
+                    path,
+                    span,
+                    target: None,
+                })
+            })
+            .collect::<Vec<_>>();
+
+        let name = self.builder.symbol_owner().clone().with_current(|| {
+            path.file_stem()
+                .and_then(|stem| stem.to_str())
+                .map(Name::intern)
+                .unwrap_or_else(|| Name::intern("module"))
+        });
+        self.builder
+            .push_arena_module(key.clone(), name, fragment.statements);
+        self.modules.insert(
+            key.clone(),
+            WorkspaceModule {
+                key: key.clone(),
+                path: path.clone(),
+                source_id,
+                text,
+                statements: fragment.statements,
+                imports,
+                diagnostics,
+                module_roots: module_roots.clone(),
+                config: ResolvedLintConfig {
+                    lint_options: LintOptions::default(),
+                    line_width: 0,
+                    module_roots,
+                },
+            },
+        );
+        self.stack.push(key.clone());
+
+        let import_count = self
+            .modules
+            .get(&key)
+            .map_or(0, |module| module.imports.len());
+        for import_index in 0..import_count {
+            let (use_id, path, span, roots, importer) = {
+                let module = self.modules.get(&key).expect("module was inserted");
+                let import = &module.imports[import_index];
+                (
+                    import.use_id,
+                    import.path.clone(),
+                    import.span,
+                    module.module_roots.clone(),
+                    module.path.clone(),
+                )
+            };
+            match resolve_user_module(&importer, &path, &roots) {
+                Ok(None) => {}
+                Ok(Some((module_path, module_bytes))) => {
+                    let target_key = module_key(&module_path);
+                    let cycle = self.stack.contains(&target_key);
+                    match self.load(module_path, module_bytes, roots) {
+                        Ok(target) => {
+                            self.builder
+                                .set_use_resolved(use_id, std::sync::Arc::from(target.as_str()));
+                            if let Some(module) = self.modules.get_mut(&key) {
+                                module.imports[import_index].target = Some(target);
+                                if cycle {
+                                    module.diagnostics.push(
+                                        Diagnostic::error("cyclic module import")
+                                            .with_code("parse.module-cycle")
+                                            .with_label(Label::primary(
+                                                span,
+                                                "module import cycle starts here",
+                                            )),
+                                    );
+                                }
+                            }
+                        }
+                        Err(message) => {
+                            if let Some(module) = self.modules.get_mut(&key) {
+                                module.diagnostics.push(
+                                    Diagnostic::error("failed to load module")
+                                        .with_code("parse.module-load")
+                                        .with_label(Label::primary(span, message)),
+                                );
+                            }
+                        }
+                    }
+                }
+                Err(message) => {
+                    if let Some(module) = self.modules.get_mut(&key) {
+                        module.diagnostics.push(
+                            Diagnostic::error("failed to read module")
+                                .with_code("parse.module-read")
+                                .with_label(Label::primary(span, message)),
+                        );
+                    }
+                }
+            }
+        }
+        self.stack.pop();
+        Ok(key)
+    }
+
+    fn finish(self) -> (SourceMap, ArenaProgram, FxHashMap<String, WorkspaceModule>) {
+        (self.sources, self.builder.finish(), self.modules)
+    }
+}
+
+fn lint_workspace(
+    discovery: &LintDiscovery,
+    fix: bool,
+    runless: bool,
+    cwd_config: &XshConfig,
+    config_cache: &ConfigCache,
+) -> Vec<LintResult> {
+    let mut loader = WorkspaceLoader::new();
+    let mut input_errors = Vec::new();
+    let mut candidate_keys = Vec::new();
+    for file in &discovery.files {
+        let path = PathBuf::from(file);
+        let config = match lint_config_for_file(file, runless, cwd_config, config_cache) {
+            Ok(config) => config,
+            Err(message) => {
+                input_errors.push(format!("xsht: {message}\n"));
+                continue;
+            }
+        };
+        let bytes = match fs::read(&path) {
+            Ok(bytes) => bytes,
+            Err(error) => {
+                input_errors.push(format!("xsht: failed to read '{file}': {error}\n"));
+                continue;
+            }
+        };
+        match loader.load(path, bytes, config.module_roots.clone()) {
+            Ok(key) => candidate_keys.push(key),
+            Err(message) => input_errors.push(format!("xsht: {message}\n")),
+        }
+    }
+    candidate_keys.sort_unstable();
+    candidate_keys.dedup();
+
+    let (sources, mut program, mut modules) = loader.finish();
+    for module in modules.values_mut() {
+        if let Ok(config) = lint_config_for_file(
+            &module.path.to_string_lossy(),
+            runless,
+            cwd_config,
+            config_cache,
+        ) {
+            module.config = config;
+        }
+    }
+    let explicit_roots = discovery
+        .explicit_roots
+        .iter()
+        .filter(|key| modules.contains_key(*key))
+        .cloned()
+        .collect::<FxHashSet<_>>();
+    let roots = select_lint_roots(&candidate_keys, &modules, &explicit_roots);
+    let mut workspace = LintWorkspace {
+        sources,
+        program: {
+            program.modules.shrink_to_fit();
+            program
+        },
+        modules,
+        roots,
+        input_errors,
+    };
+
+    let mut results = Vec::new();
+    let mut index = 0usize;
+    for error in workspace.input_errors.drain(..) {
+        results.push(LintResult {
+            index,
+            kind: LintResultKind::ReadError(error),
+        });
+        index += 1;
+    }
+    let linted_modules = Mutex::new(FxHashSet::default());
+    let next_root = AtomicUsize::new(0);
+    let (tx, rx) = crossbeam_channel::unbounded();
+    let workers = worker_count(workspace.roots.len());
+    thread::scope(|scope| {
+        for _ in 0..workers {
+            let next_root = &next_root;
+            let tx = tx.clone();
+            let linted_modules = &linted_modules;
+            let workspace = &workspace;
+            scope.spawn(move || {
+                let mut bundle = workspace.program.clone();
+                let type_program = Arc::new(bundle.clone());
+                loop {
+                    if cancellation_output().is_some() {
+                        break;
+                    }
+                    let root_index = next_root.fetch_add(1, Ordering::Relaxed);
+                    let Some(root) = workspace.roots.get(root_index) else {
+                        break;
+                    };
+                    let root_results = lint_workspace_root(
+                        &workspace,
+                        root,
+                        fix,
+                        &mut bundle,
+                        linted_modules,
+                        &type_program,
+                    );
+                    if tx.send((root_index, root_results)).is_err() {
+                        break;
+                    }
+                }
+            });
+        }
+    });
+    drop(tx);
+    let mut grouped = rx.into_iter().collect::<Vec<_>>();
+    grouped.sort_unstable_by_key(|(root_index, _)| *root_index);
+    for (_, root_results) in grouped {
+        for mut result in root_results {
+            result.index += index;
+            results.push(result);
+            index += 1;
+        }
+    }
+    results
+}
+
+fn lint_workspace_root(
+    workspace: &LintWorkspace,
+    root: &str,
+    fix: bool,
+    bundle: &mut ArenaProgram,
+    linted_modules: &Mutex<FxHashSet<String>>,
+    type_program: &Arc<ArenaProgram>,
+) -> Vec<LintResult> {
+    let reachable = workspace.reachable_modules(root);
+    let Some(root_module) = workspace.modules.get(root) else {
+        return Vec::new();
+    };
+    workspace.configure_program_for(root, &reachable, bundle);
+    let mut relevant_diagnostics = Vec::new();
+    for key in &reachable {
+        if let Some(module) = workspace.modules.get(key) {
+            relevant_diagnostics.extend(module.diagnostics.iter().cloned());
+        }
+    }
+    if !relevant_diagnostics.is_empty() {
+        return vec![LintResult {
+            index: 0,
+            kind: LintResultKind::Diagnostics {
+                status: 2,
+                diagnostics: render_diagnostics_with_keys(
+                    &relevant_diagnostics,
+                    &workspace.sources,
+                ),
+            },
+        }];
+    }
+
+    let checked = SymbolOwner::new().with_current(|| {
+        xsh::frontend::check::Checker::check_arena_with_options_and_type_program(
+            bundle,
+            &root_module.text,
+            CheckOptions::default(),
+            type_program.clone(),
+        )
+    });
+    if !fix && !checked.diagnostics.is_empty() {
+        return vec![LintResult {
+            index: 0,
+            kind: LintResultKind::Diagnostics {
+                status: 2,
+                diagnostics: render_diagnostics_with_keys(&checked.diagnostics, &workspace.sources),
+            },
+        }];
+    }
+
+    let mut keys = reachable
+        .iter()
+        .filter(|key| key.as_str() != root)
+        .cloned()
+        .collect::<Vec<_>>();
+    keys.sort_unstable();
+    let mut ordered = vec![root.to_string()];
+    ordered.extend(keys);
+    let mut results = Vec::new();
+    for key in ordered {
+        if key != root {
+            let mut linted_modules = linted_modules
+                .lock()
+                .expect("linted module set mutex poisoned");
+            if !linted_modules.insert(key.clone()) {
+                continue;
+            }
+        }
+        let Some(module) = workspace.modules.get(&key) else {
+            continue;
+        };
+        bundle.statements = module.statements;
+        if key != root {
+            bundle.modules.clear();
+        }
+        let mut options = module.config.lint_options.clone();
+        options.expr_types = checked.expr_types.clone();
+        options.callable_effects = checked.callable_effects.clone();
+        options.terminating_call_spans = checked.terminating_call_spans.clone();
+        let linted = if key == root {
+            Linter::lint(bundle, &module.text, options)
+        } else {
+            Linter::lint_module(bundle, &module.text, options)
+        };
+        let check_diagnostics = checked
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic_mentions_source(diagnostic, module.source_id))
+            .cloned()
+            .collect::<Vec<_>>();
+        let result = if fix {
+            lint_workspace_node_with_fixes(
+                results.len(),
+                module,
+                &linted.diagnostics,
+                &check_diagnostics,
+                &workspace.sources,
+            )
+        } else if linted.diagnostics.is_empty() {
+            LintResult {
+                index: results.len(),
+                kind: LintResultKind::Clean,
+            }
+        } else {
+            LintResult {
+                index: results.len(),
+                kind: LintResultKind::Diagnostics {
+                    status: lint_diagnostics_status(&linted.diagnostics),
+                    diagnostics: render_diagnostics_with_keys(
+                        &linted.diagnostics,
+                        &workspace.sources,
+                    ),
+                },
+            }
+        };
+        results.push(result);
+    }
+    results
+}
+
+fn worker_count(file_count: usize) -> usize {
+    if file_count == 0 {
+        return 0;
+    }
+    thread::available_parallelism()
+        .map(|count| count.get())
+        .unwrap_or(1)
+        .clamp(1, file_count.min(2))
+}
+
+/// Select entry roots from the candidate-file graph. Explicit file arguments
+/// are always roots; directory discovery starts at files with no inbound edge,
+/// then chooses one stable representative for each otherwise-unreachable
+/// cyclic component.
+fn select_lint_roots(
+    candidates: &[String],
+    modules: &FxHashMap<String, WorkspaceModule>,
+    explicit: &FxHashSet<String>,
+) -> Vec<String> {
+    let candidate_set = candidates.iter().cloned().collect::<FxHashSet<_>>();
+    let mut roots = explicit.iter().cloned().collect::<FxHashSet<_>>();
+    let mut incoming = FxHashMap::<String, usize>::default();
+    for key in candidates {
+        incoming.entry(key.clone()).or_insert(0);
+        if let Some(module) = modules.get(key) {
+            for target in module
+                .imports
+                .iter()
+                .filter_map(|import| import.target.as_ref())
+            {
+                if candidate_set.contains(target) {
+                    *incoming.entry(target.clone()).or_insert(0) += 1;
+                }
+            }
+        }
+    }
+    roots.extend(
+        candidates
+            .iter()
+            .filter(|key| incoming.get(*key).copied().unwrap_or(0) == 0)
+            .cloned(),
+    );
+
+    let reachable = reachable_keys(&roots, modules);
+    let mut remaining = candidates
+        .iter()
+        .filter(|key| !reachable.contains(*key))
+        .cloned()
+        .collect::<FxHashSet<_>>();
+    while let Some(start) = remaining.iter().next().cloned() {
+        let mut component = Vec::new();
+        let mut pending = vec![start];
+        while let Some(key) = pending.pop() {
+            if !remaining.remove(&key) {
+                continue;
+            }
+            component.push(key.clone());
+            if let Some(module) = modules.get(&key) {
+                for target in module
+                    .imports
+                    .iter()
+                    .filter_map(|import| import.target.as_ref())
+                {
+                    if remaining.contains(target) {
+                        pending.push(target.clone());
+                    }
+                }
+            }
+            for other in candidates {
+                let Some(module) = modules.get(other) else {
+                    continue;
+                };
+                if module
+                    .imports
+                    .iter()
+                    .filter_map(|import| import.target.as_ref())
+                    .any(|target| target == &key)
+                    && remaining.contains(other)
+                {
+                    pending.push(other.clone());
+                }
+            }
+        }
+        if let Some(root) = component.into_iter().min() {
+            roots.insert(root);
+        }
+    }
+    let mut roots = roots.into_iter().collect::<Vec<_>>();
+    roots.sort_unstable();
+    roots
+}
+
+fn reachable_keys(
+    roots: &FxHashSet<String>,
+    modules: &FxHashMap<String, WorkspaceModule>,
+) -> FxHashSet<String> {
+    let mut reachable = FxHashSet::default();
+    let mut pending = roots.iter().cloned().collect::<Vec<_>>();
+    while let Some(key) = pending.pop() {
+        if !reachable.insert(key.clone()) {
+            continue;
+        }
+        if let Some(module) = modules.get(&key) {
+            pending.extend(
+                module
+                    .imports
+                    .iter()
+                    .filter_map(|import| import.target.clone()),
+            );
+        }
+    }
+    reachable
+}
+
+impl LintWorkspace {
+    fn reachable_modules(&self, root: &str) -> FxHashSet<String> {
+        reachable_keys(&[root.to_string()].into_iter().collect(), &self.modules)
+    }
+
+    fn configure_program_for(
+        &self,
+        root: &str,
+        reachable: &FxHashSet<String>,
+        program: &mut ArenaProgram,
+    ) {
+        program.statements = self
+            .modules
+            .get(root)
+            .expect("workspace root exists")
+            .statements;
+        let mut ordered_keys = Vec::new();
+        let mut visited = FxHashSet::default();
+        order_modules_depth_first(
+            root,
+            reachable,
+            &self.modules,
+            &mut visited,
+            &mut ordered_keys,
+        );
+        let mut modules_by_key = self
+            .program
+            .modules
+            .iter()
+            .cloned()
+            .map(|module| (module.key.clone(), module))
+            .collect::<FxHashMap<_, _>>();
+        program.modules = ordered_keys
+            .into_iter()
+            .filter(|key| key != root)
+            .filter_map(|key| modules_by_key.remove(&key))
+            .collect();
+        let allowed_ranges = std::iter::once(program.statements)
+            .chain(program.modules.iter().map(|module| module.statements))
+            .collect::<Vec<_>>();
+        let allowed_statements = allowed_ranges
+            .iter()
+            .flat_map(|range| program.arena.stmt_ids(*range))
+            .collect::<FxHashSet<StmtId>>();
+        let allowed_sources = std::iter::once(root)
+            .chain(program.modules.iter().map(|module| module.key.as_str()))
+            .filter_map(|key| self.modules.get(key).map(|module| module.source_id))
+            .collect::<FxHashSet<_>>();
+        program.docs = self.program.docs.clone();
+        program
+            .docs
+            .module_ranges
+            .retain(|(range, _)| allowed_ranges.contains(range));
+        program
+            .docs
+            .exports
+            .retain(|(statement, _)| allowed_statements.contains(statement));
+        program
+            .docs
+            .orphaned
+            .retain(|span| allowed_sources.contains(&span.source_id));
+        program
+            .docs
+            .duplicate_modules
+            .retain(|span| allowed_sources.contains(&span.source_id));
+    }
+}
+
+fn order_modules_depth_first(
+    key: &str,
+    reachable: &FxHashSet<String>,
+    modules: &FxHashMap<String, WorkspaceModule>,
+    visited: &mut FxHashSet<String>,
+    ordered: &mut Vec<String>,
+) {
+    if !reachable.contains(key) || !visited.insert(key.to_string()) {
+        return;
+    }
+    if let Some(module) = modules.get(key) {
+        let mut dependencies = module
+            .imports
+            .iter()
+            .filter_map(|import| import.target.as_ref())
+            .filter(|target| reachable.contains(*target))
+            .cloned()
+            .collect::<Vec<_>>();
+        dependencies.sort_unstable();
+        for dependency in dependencies {
+            order_modules_depth_first(&dependency, reachable, modules, visited, ordered);
+        }
+    }
+    ordered.push(key.to_string());
+}
+
+fn diagnostic_mentions_source(diagnostic: &Diagnostic, source_id: SourceId) -> bool {
+    diagnostic
+        .span
+        .is_some_and(|span| span.source_id == source_id)
+        || diagnostic
+            .labels
+            .iter()
+            .any(|label| label.span.source_id == source_id)
+        || diagnostic
+            .fix_hints
+            .iter()
+            .any(|hint| hint.span.is_some_and(|span| span.source_id == source_id))
+}
+
+fn lint_workspace_node_with_fixes(
+    index: usize,
+    module: &WorkspaceModule,
+    lint_diagnostics: &[Diagnostic],
+    check_diagnostics: &[Diagnostic],
+    sources: &SourceMap,
+) -> LintResult {
+    let mut fixes = collect_fix_spans_for_source(lint_diagnostics, module.source_id);
+    fixes.extend(collect_fix_spans_for_source(
+        check_diagnostics,
+        module.source_id,
+    ));
+    if fixes.is_empty() {
+        let mut diagnostics = render_diagnostics_with_keys(check_diagnostics, sources);
+        diagnostics.extend(render_diagnostics_with_keys(lint_diagnostics, sources));
+        if diagnostics.is_empty() {
+            return LintResult {
+                index,
+                kind: LintResultKind::Clean,
+            };
+        }
+        let status = if check_diagnostics.is_empty() {
+            lint_diagnostics_status(lint_diagnostics)
+        } else {
+            2
+        };
+        return LintResult {
+            index,
+            kind: LintResultKind::FixDiagnostics {
+                status,
+                diagnostics,
+                stderr: String::new(),
+            },
+        };
+    }
+
+    let config = &module.config;
+    let final_text =
+        match apply_cst_fixes(&module.path.to_string_lossy(), &module.text, &fixes, config) {
+            Ok(Some(text)) => text,
+            Ok(None) => {
+                return LintResult {
+                    index,
+                    kind: LintResultKind::FixDiagnostics {
+                        status: 1,
+                        diagnostics: render_diagnostics_with_keys(lint_diagnostics, sources),
+                        stderr: String::new(),
+                    },
+                };
+            }
+            Err(stderr) => {
+                return LintResult {
+                    index,
+                    kind: LintResultKind::FixDiagnostics {
+                        status: 2,
+                        diagnostics: Vec::new(),
+                        stderr,
+                    },
+                };
+            }
+        };
+    let remaining = match validate_fixed_text(
+        &module.path.to_string_lossy(),
+        &final_text,
+        config,
+        check_diagnostics,
+    ) {
+        Ok(diagnostics) => diagnostics,
+        Err(FixedTextValidationError::Diagnostics(diagnostics)) => {
+            return LintResult {
+                index,
+                kind: LintResultKind::FixDiagnostics {
+                    status: 2,
+                    diagnostics,
+                    stderr: String::new(),
+                },
+            };
+        }
+    };
+    if final_text == module.text {
+        return LintResult {
+            index,
+            kind: LintResultKind::FixDiagnostics {
+                status: if remaining.is_empty() { 0 } else { 2 },
+                diagnostics: remaining,
+                stderr: String::new(),
+            },
+        };
+    }
+    LintResult {
+        index,
+        kind: LintResultKind::Write {
+            file: module.path.to_string_lossy().into_owned(),
+            text: final_text,
+            status: if remaining.is_empty() { 0 } else { 2 },
+            diagnostics: remaining,
+            stderr: String::new(),
+        },
     }
 }
 
@@ -267,172 +1078,6 @@ fn excluded_by_nearest_config(
 }
 
 #[allow(clippy::single_call_fn)]
-fn lint_files_parallel(
-    files: &[String],
-    fix: bool,
-    runless: bool,
-    cwd_config: &XshConfig,
-    config_cache: &ConfigCache,
-) -> Vec<LintResult> {
-    if files.is_empty() {
-        return Vec::new();
-    }
-    let next = AtomicUsize::new(0);
-    let (tx, rx) = crossbeam_channel::unbounded();
-    let workers = worker_count(files.len());
-
-    thread::scope(|scope| {
-        for _ in 0..workers {
-            let next = &next;
-            let tx = tx.clone();
-            scope.spawn(move || {
-                loop {
-                    if cancellation_output().is_some() {
-                        break;
-                    }
-                    let index = next.fetch_add(1, Ordering::Relaxed);
-                    let Some(file) = files.get(index) else {
-                        break;
-                    };
-                    let result = lint_one_file(index, file, fix, runless, cwd_config, config_cache);
-                    if tx.send(result).is_err() {
-                        break;
-                    }
-                }
-            });
-        }
-    });
-    drop(tx);
-    rx.into_iter().collect()
-}
-
-#[allow(clippy::single_call_fn)]
-fn lint_one_file(
-    index: usize,
-    file: &str,
-    fix: bool,
-    runless: bool,
-    cwd_config: &XshConfig,
-    config_cache: &ConfigCache,
-) -> LintResult {
-    let bytes = match fs::read(file) {
-        Ok(bytes) => bytes,
-        Err(err) => {
-            return LintResult {
-                index,
-                kind: LintResultKind::ReadError(format!("xsht: failed to read '{file}': {err}\n")),
-            };
-        }
-    };
-
-    let config = match lint_config_for_file(file, runless, cwd_config, config_cache) {
-        Ok(config) => config,
-        Err(message) => {
-            return LintResult {
-                index,
-                kind: LintResultKind::ReadError(format!("xsht: {message}\n")),
-            };
-        }
-    };
-
-    if fix {
-        let mut sources = SourceMap::new();
-        let source_id = match sources.add_file_from_utf8(file, bytes.clone()) {
-            Ok(source_id) => source_id,
-            Err(error) => {
-                let text = String::from_utf8_lossy(&bytes).into_owned();
-                let source_id = sources.add_file(file, text.clone());
-                let offset = error.offset.min(text.len());
-                let span = xsh::frontend::source::Span::new(source_id, offset, offset);
-                let diagnostics = vec![
-                    Diagnostic::error("source file is not valid UTF-8")
-                        .with_code("source.invalid-utf8")
-                        .with_label(Label::primary(span, "invalid UTF-8 starts here")),
-                ];
-                return LintResult {
-                    index,
-                    kind: LintResultKind::FixDiagnostics {
-                        status: 2,
-                        stderr: DiagnosticRenderer::new().render(&diagnostics, &sources),
-                    },
-                };
-            }
-        };
-        let text = sources
-            .get(source_id)
-            .expect("source was just inserted")
-            .text()
-            .to_string();
-        return lint_one_file_with_fixes(index, file, text, &config);
-    }
-
-    let symbols = SymbolOwner::new();
-    let mut checked_program = symbols.with_current(|| {
-        parse_load_check_bytes(
-            file,
-            bytes,
-            config.module_roots.clone(),
-            CheckOptions::default(),
-        )
-    });
-    if !checked_program.parsed.diagnostics.is_empty() {
-        return LintResult {
-            index,
-            kind: LintResultKind::Diagnostics {
-                status: 2,
-                diagnostics: render_diagnostics_with_keys(
-                    &checked_program.parsed.diagnostics,
-                    &checked_program.sources,
-                ),
-            },
-        };
-    }
-    let checked = checked_program
-        .checked
-        .as_ref()
-        .expect("checked program after clean parse");
-    if !checked.diagnostics.is_empty() {
-        return LintResult {
-            index,
-            kind: LintResultKind::Diagnostics {
-                status: 2,
-                diagnostics: render_diagnostics_with_keys(
-                    &checked.diagnostics,
-                    &checked_program.sources,
-                ),
-            },
-        };
-    }
-
-    let checked = checked_program
-        .checked
-        .take()
-        .expect("checked program after clean parse");
-    let mut lint_options = config.lint_options;
-    lint_options.expr_types = checked.expr_types;
-    lint_options.callable_effects = checked.callable_effects;
-    lint_options.terminating_call_spans = checked.terminating_call_spans;
-    let text = checked_program.entry_source_text().unwrap_or("");
-    let linted = Linter::lint(&checked_program.parsed.arena, text, lint_options);
-    if linted.diagnostics.is_empty() {
-        return LintResult {
-            index,
-            kind: LintResultKind::Clean,
-        };
-    }
-    LintResult {
-        index,
-        kind: LintResultKind::Diagnostics {
-            status: lint_diagnostics_status(&linted.diagnostics),
-            diagnostics: render_diagnostics_with_keys(
-                &linted.diagnostics,
-                &checked_program.sources,
-            ),
-        },
-    }
-}
-
-#[allow(clippy::single_call_fn)]
 fn lint_one_file_with_fixes(
     index: usize,
     file: &str,
@@ -453,7 +1098,11 @@ fn lint_one_file_with_fixes(
             index,
             kind: LintResultKind::FixDiagnostics {
                 status: 2,
-                stderr: checked_program.render_parse_diagnostics(),
+                diagnostics: render_diagnostics_with_keys(
+                    &checked_program.parsed.diagnostics,
+                    &checked_program.sources,
+                ),
+                stderr: String::new(),
             },
         };
     }
@@ -478,27 +1127,33 @@ fn lint_one_file_with_fixes(
                 } else {
                     LintResultKind::FixDiagnostics {
                         status: 2,
-                        stderr: checked_program.render_check_diagnostics(),
+                        diagnostics: render_diagnostics_with_keys(
+                            &checked.diagnostics,
+                            &checked_program.sources,
+                        ),
+                        stderr: String::new(),
                     }
                 },
             };
         }
-        let mut stderr = String::new();
         let status = if checked.diagnostics.is_empty() {
             lint_diagnostics_status(&linted.diagnostics)
         } else {
             2
         };
-        if !checked.diagnostics.is_empty() {
-            stderr.push_str(&checked_program.render_check_diagnostics());
-            stderr.push('\n');
-        }
-        stderr.push_str(
-            &DiagnosticRenderer::new().render(&linted.diagnostics, &checked_program.sources),
-        );
+        let mut diagnostics =
+            render_diagnostics_with_keys(&checked.diagnostics, &checked_program.sources);
+        diagnostics.extend(render_diagnostics_with_keys(
+            &linted.diagnostics,
+            &checked_program.sources,
+        ));
         return LintResult {
             index,
-            kind: LintResultKind::FixDiagnostics { status, stderr },
+            kind: LintResultKind::FixDiagnostics {
+                status,
+                diagnostics,
+                stderr: String::new(),
+            },
         };
     }
 
@@ -509,31 +1164,42 @@ fn lint_one_file_with_fixes(
                 index,
                 kind: LintResultKind::FixDiagnostics {
                     status: 1,
-                    stderr: DiagnosticRenderer::new()
-                        .render(&linted.diagnostics, &checked_program.sources),
+                    diagnostics: render_diagnostics_with_keys(
+                        &linted.diagnostics,
+                        &checked_program.sources,
+                    ),
+                    stderr: String::new(),
                 },
             };
         }
         Err(stderr) => {
             return LintResult {
                 index,
-                kind: LintResultKind::FixDiagnostics { status: 2, stderr },
+                kind: LintResultKind::FixDiagnostics {
+                    status: 2,
+                    diagnostics: Vec::new(),
+                    stderr,
+                },
             };
         }
     };
-    let remaining_check_stderr =
+    let remaining_check_diagnostics =
         match validate_fixed_text(file, &final_text, config, &checked.diagnostics) {
-            Ok(stderr) => stderr,
-            Err(stderr) => {
+            Ok(diagnostics) => diagnostics,
+            Err(FixedTextValidationError::Diagnostics(diagnostics)) => {
                 return LintResult {
                     index,
-                    kind: LintResultKind::FixDiagnostics { status: 2, stderr },
+                    kind: LintResultKind::FixDiagnostics {
+                        status: 2,
+                        diagnostics,
+                        stderr: String::new(),
+                    },
                 };
             }
         };
 
     if final_text == text {
-        if remaining_check_stderr.is_empty() {
+        if remaining_check_diagnostics.is_empty() {
             LintResult {
                 index,
                 kind: LintResultKind::Clean,
@@ -543,7 +1209,8 @@ fn lint_one_file_with_fixes(
                 index,
                 kind: LintResultKind::FixDiagnostics {
                     status: 2,
-                    stderr: remaining_check_stderr,
+                    diagnostics: remaining_check_diagnostics,
+                    stderr: String::new(),
                 },
             }
         }
@@ -553,12 +1220,13 @@ fn lint_one_file_with_fixes(
             kind: LintResultKind::Write {
                 file: file.to_string(),
                 text: final_text,
-                status: if remaining_check_stderr.is_empty() {
+                status: if remaining_check_diagnostics.is_empty() {
                     0
                 } else {
                     2
                 },
-                stderr: remaining_check_stderr,
+                diagnostics: remaining_check_diagnostics,
+                stderr: String::new(),
             },
         }
     }
@@ -569,7 +1237,7 @@ fn validate_fixed_text(
     text: &str,
     config: &ResolvedLintConfig,
     original_check_diagnostics: &[Diagnostic],
-) -> Result<String, String> {
+) -> Result<Vec<RenderedDiagnostic>, FixedTextValidationError> {
     let symbols = SymbolOwner::new();
     let checked_program = symbols.with_current(|| {
         parse_load_check_text(
@@ -580,20 +1248,31 @@ fn validate_fixed_text(
         )
     });
     if !checked_program.parsed.diagnostics.is_empty() {
-        return Err(checked_program.render_parse_diagnostics());
+        return Err(FixedTextValidationError::Diagnostics(
+            render_diagnostics_with_keys(
+                &checked_program.parsed.diagnostics,
+                &checked_program.sources,
+            ),
+        ));
     }
     let checked = checked_program
         .checked
         .as_ref()
         .expect("checked program after clean parse");
     if !check_diagnostics_are_preserved(original_check_diagnostics, &checked.diagnostics) {
-        return Err(checked_program.render_check_diagnostics());
+        let diagnostics = if checked.diagnostics.is_empty() {
+            original_check_diagnostics
+        } else {
+            &checked.diagnostics
+        };
+        return Err(FixedTextValidationError::Diagnostics(
+            render_diagnostics_with_keys(diagnostics, &checked_program.sources),
+        ));
     }
-    Ok(if checked.diagnostics.is_empty() {
-        String::new()
-    } else {
-        checked_program.render_check_diagnostics()
-    })
+    Ok(render_diagnostics_with_keys(
+        &checked.diagnostics,
+        &checked_program.sources,
+    ))
 }
 
 fn apply_cst_fixes(
@@ -627,26 +1306,38 @@ fn render_diagnostics_with_keys(
 }
 
 #[allow(clippy::single_call_fn)]
-fn worker_count(file_count: usize) -> usize {
-    thread::available_parallelism()
-        .map(|count| count.get())
-        .unwrap_or(1)
-        .clamp(1, file_count.min(2))
-}
-
-#[allow(clippy::single_call_fn)]
 fn collect_fix_spans(diagnostics: &[Diagnostic]) -> Vec<(usize, usize, String)> {
     collect_fix_spans_by_code(diagnostics, |_| true)
+}
+
+fn collect_fix_spans_for_source(
+    diagnostics: &[Diagnostic],
+    source_id: SourceId,
+) -> Vec<(usize, usize, String)> {
+    collect_fix_spans_filtered(
+        diagnostics,
+        |_| true,
+        |hint| hint.span.is_some_and(|span| span.source_id == source_id),
+    )
 }
 
 fn collect_fix_spans_by_code(
     diagnostics: &[Diagnostic],
     include: impl Fn(&Diagnostic) -> bool,
 ) -> Vec<(usize, usize, String)> {
+    collect_fix_spans_filtered(diagnostics, include, |_| true)
+}
+
+fn collect_fix_spans_filtered(
+    diagnostics: &[Diagnostic],
+    include: impl Fn(&Diagnostic) -> bool,
+    include_hint: impl Fn(&xsh::diagnostic::FixHint) -> bool,
+) -> Vec<(usize, usize, String)> {
     let mut fixes: Vec<_> = diagnostics
         .iter()
         .filter(|d| include(d))
         .flat_map(|d| d.fix_hints.iter())
+        .filter(|hint| include_hint(hint))
         .filter(|h| !h.dangerous)
         .filter_map(|h| {
             let span = h.span?;

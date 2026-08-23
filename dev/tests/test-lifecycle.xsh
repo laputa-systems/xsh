@@ -68,6 +68,51 @@ match build.build(ctx) {
   test.ok(cargo_marker.exists()?)?
 }
 
+proc test_lint_fix_rebuilds_the_debug_xsh_binary(ctx: TestContext) [fs, error] {
+  let root = test.temp_dir(ctx, name: "lint-build-xsh")?
+  let tools = fp"${root}/tools"
+  tools.mkdir()?
+  let target = fp"${root}/target"
+  target.mkdir()?
+  let debug = fp"${target}/debug"
+  debug.mkdir()?
+  let repository = fs.cwd()?
+  let xsh = fp"${repository}/target/debug/xsh"
+  let xsh_marker = fp"${root}/xsh-build-marker"
+  let xsht = fp"${debug}/xsht"
+
+  write_fake_tool(
+    fp"${tools}/cargo",
+    xsh,
+    f"""if "--bin" in ARGV and "xsh" in ARGV {
+  p"${xsh_marker.display()}".write(ARGV.join("|"))?
+}
+""",
+  )?
+  write_fake_tool(xsht, xsh, "")?
+
+  let result = test.run_script(
+    ctx,
+    f"""
+use build
+use context
+use targets as target_policy
+
+let ctx: context.Context = ${context_source(root)}
+build.lint_fix(ctx)?
+""",
+    [],
+    {PATH: tools.display(), XSH_MODULE_PATH: fp"${repository}/dev".display()},
+  )?
+  test.ok(
+    result.success,
+    f"""${result.stdout}
+${result.stderr}""",
+  )?
+  test.ok(xsh_marker.exists()?, "lint --fix did not rebuild the debug xsh binary")?
+  test.contains(xsh_marker.read_text()?, "--bin|xsh", xsh_marker.read_text()?)?
+}
+
 proc test_docker_container_failure_runs_target_ownership_cleanup(ctx: TestContext) [fs, error] {
   let root = test.temp_dir(ctx, name: "container-cleanup")?
   let tools = fp"${root}/tools"

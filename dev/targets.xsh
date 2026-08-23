@@ -20,7 +20,7 @@ export type HostOs = Linux | Darwin
 ## Closed internal host architecture policy.
 export type HostArch = X86_64 | Aarch64
 
-## Closed target matrix identity used by workflow policy.
+# Closed target matrix identity used by workflow policy.
 type TargetId = X86_64LinuxMusl | Aarch64LinuxMusl | Aarch64AppleDarwin
 
 ## A target or host selector outside the supported matrix.

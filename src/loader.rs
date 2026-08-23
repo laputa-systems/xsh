@@ -827,6 +827,23 @@ fn read_module_from_candidates(
     ))
 }
 
+/// Resolve a user import using the same search order as the runtime loader.
+///
+/// Tooling that builds a workspace graph must be able to discover imports
+/// without constructing a fresh arena-backed loader for every entry file.
+/// Standard-library modules are intentionally reported as absent because they
+/// do not correspond to user source files.
+pub fn resolve_user_module(
+    importer: &Path,
+    path: &[Name],
+    extra_roots: &[PathBuf],
+) -> Result<Option<(PathBuf, Vec<u8>)>, String> {
+    if path.len() == 1 && api_spec().is_standard_module(&path[0].as_str()) {
+        return Ok(None);
+    }
+    read_module_from_candidates(importer, path, extra_roots).map(Some)
+}
+
 #[allow(clippy::single_call_fn)]
 fn resolve_module_path_candidates(
     importer: &Path,

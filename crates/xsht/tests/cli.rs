@@ -219,6 +219,40 @@ fn fmt_checks_imported_modules() {
 }
 
 #[test]
+fn fmt_deduplicates_diagnostics_from_imported_modules() {
+    let root = TempDir::new().expect("create temp root");
+    fs::write(
+        root.path().join("helper.xsh"),
+        "##! Helper module.\n## This comment is not attached to an export.\nlet value = 1\n\n## Exports a value.\nexport let exported: Int = value\n",
+    )
+    .expect("write helper module");
+    fs::write(
+        root.path().join("first.xsh"),
+        "use helper\nprint helper.exported\n",
+    )
+    .expect("write first script");
+    fs::write(
+        root.path().join("second.xsh"),
+        "use helper\nprint helper.exported\n",
+    )
+    .expect("write second script");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+        .args(["fmt", "."])
+        .current_dir(root.path())
+        .output()
+        .expect("run xsht fmt");
+
+    assert_eq!(output.status.code(), Some(2));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(
+        stderr.matches("check.orphan-doc-comment").count(),
+        1,
+        "imported module diagnostic should be rendered once: {stderr}"
+    );
+}
+
+#[test]
 fn lint_explicit_directory_lints_xsh_files() {
     let root = TempDir::new().expect("create temp root");
     let project = root.path().join("project");
@@ -238,6 +272,159 @@ fn lint_explicit_directory_lints_xsh_files() {
         Some(0),
         "stderr: {}",
         String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn lint_fix_deduplicates_diagnostics_from_imported_modules() {
+    let root = TempDir::new().expect("create temp root");
+    fs::write(
+        root.path().join("helper.xsh"),
+        "##! Helper module.\n## This comment is not attached to an export.\nlet value = 1\n\n## Exports a value.\nexport let exported: Int = value\n",
+    )
+    .expect("write helper module");
+    fs::write(
+        root.path().join("first.xsh"),
+        "use helper\nprint helper.exported\n",
+    )
+    .expect("write first script");
+    fs::write(
+        root.path().join("second.xsh"),
+        "use helper\nprint helper.exported\n",
+    )
+    .expect("write second script");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+        .args(["lint", "--fix", "first.xsh", "second.xsh"])
+        .current_dir(root.path())
+        .output()
+        .expect("run xsht lint --fix");
+
+    assert_eq!(output.status.code(), Some(2));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(
+        stderr.matches("check.orphan-doc-comment").count(),
+        1,
+        "repeated imported-module diagnostic: {stderr}"
+    );
+}
+
+#[test]
+fn lint_directory_uses_import_graph_roots() {
+    let root = TempDir::new().expect("create temp root");
+    fs::write(
+        root.path().join("helper.xsh"),
+        "##! Helper module.\n## This comment is not attached to an export.\nlet value = 1\n\n## Exports a value.\nexport let exported: Int = value\n",
+    )
+    .expect("write helper module");
+    fs::write(
+        root.path().join("main.xsh"),
+        "use helper\nprint helper.exported\n",
+    )
+    .expect("write entry script");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+        .args(["lint", "."])
+        .current_dir(root.path())
+        .output()
+        .expect("run xsht lint directory");
+
+    assert_eq!(output.status.code(), Some(2));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(
+        stderr.matches("check.orphan-doc-comment").count(),
+        1,
+        "imported module should be linted through its entry root once: {stderr}"
+    );
+}
+
+#[test]
+fn lint_directory_cycle_selects_one_component_root() {
+    let root = TempDir::new().expect("create temp root");
+    fs::write(
+        root.path().join("a.xsh"),
+        "use b\n##! A module.\n## This comment is not attached to an export.\nlet a = 1\n",
+    )
+    .expect("write module a");
+    fs::write(
+        root.path().join("b.xsh"),
+        "use a\n##! B module.\n## This comment is not attached to an export.\nlet b = 1\n",
+    )
+    .expect("write module b");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+        .args(["lint", "."])
+        .current_dir(root.path())
+        .output()
+        .expect("run xsht lint cycle");
+
+    assert_eq!(output.status.code(), Some(2));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(
+        stderr.matches("parse.module-cycle").count(),
+        1,
+        "cycle should be reported once through one selected root: {stderr}"
+    );
+}
+
+#[test]
+fn lint_fix_applies_an_imported_module_edit_once() {
+    let root = TempDir::new().expect("create temp root");
+    fs::write(
+        root.path().join("helper.xsh"),
+        "##! Helper module.\n## Exports a value.\nexport let value: Int = 1\n",
+    )
+    .expect("write helper module");
+    fs::write(
+        root.path().join("main.xsh"),
+        "use helper\nprint helper.value\n",
+    )
+    .expect("write entry script");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+        .args(["lint", "--fix", "."])
+        .current_dir(root.path())
+        .output()
+        .expect("run xsht lint --fix");
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        fs::read_to_string(root.path().join("helper.xsh")).expect("read fixed helper"),
+        "##! Helper module.\n## Exports a value.\nexport let value = 1\n"
+    );
+}
+
+#[test]
+fn lint_entry_reachability_sees_imported_module_callables() {
+    let root = TempDir::new().expect("create temp root");
+    fs::write(
+        root.path().join("helper.xsh"),
+        "##! Helper module.\n## Exports a value.\nexport let value = 1\n\npure unused() -> Int {\n  return 1\n}\n",
+    )
+    .expect("write helper module");
+    fs::write(
+        root.path().join("main.xsh"),
+        "use helper\nprint helper.value\n",
+    )
+    .expect("write entry script");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+        .args(["lint", "."])
+        .current_dir(root.path())
+        .output()
+        .expect("run xsht lint");
+
+    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(
+        String::from_utf8_lossy(&output.stderr)
+            .matches("lint.unused-callable")
+            .count(),
+        1
     );
 }
 

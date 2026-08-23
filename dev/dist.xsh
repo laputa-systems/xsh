@@ -1,12 +1,12 @@
 ##! Distribution build selection, target environment, normalization, and verification.
 use context
-use stage as stages
 use docker
+use stage as stages
 use targets
 use verify
 
-## Closed Docker execution policy.
-export type DockerPolicy = Auto | Always | Never
+# Closed Docker execution policy.
+type DockerPolicy = Auto | Always | Never
 
 ## Decodes the CLI Docker policy before distribution dispatch.
 export pure parse_docker_policy(value: Str) -> Result[DockerPolicy] {
@@ -34,12 +34,7 @@ export proc cargo_words(value: Str) [process, error] -> Result[List[Str]] {
 }
 
 ## Resolves one Cargo profile product path before normalization.
-export pure profile_product_path(
-  target_dir: Path,
-  triple: Str,
-  profile: Str,
-  product: Str,
-) -> Path {
+export pure profile_product_path(target_dir: Path, triple: Str, profile: Str, product: Str) -> Path {
   return fp"${target_dir}/${triple}/${targets.profile_directory(profile)}/${product}"
 }
 
@@ -67,10 +62,7 @@ export proc normalize(ctx: context.Context) [fs, error] -> Result[Unit] {
 }
 
 ## Executes the native Cargo distribution build with scoped target-specific environment.
-export proc native_dist(
-  ctx: context.Context,
-  build_std_variable: Str,
-) [fs, process, env, error, io] -> Result[Unit] {
+export proc native_dist(ctx: context.Context, build_std_variable: Str) [fs, process, env, error, io] -> Result[Unit] {
   let inherited_rustflags = env.get_or("RUSTFLAGS", "")?
   let cflags_name = targets.cflags_variable(ctx.target.triple)?
   let inherited_cflags = env.get_or(cflags_name, "")?
@@ -131,9 +123,9 @@ export proc build_distribution(
 ) [fs, process, env, error, io] -> Result[Unit] {
   let native_possible = targets.native_execution(ctx.target, ctx.host_os, ctx.host_arch)
   let use_docker = match docker_policy {
-    Always => true
-    Never => false
-    Auto => ! native_possible
+    Always => true,
+    Never => false,
+    Auto => ! native_possible,
   }
 
   if use_docker {

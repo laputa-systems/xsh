@@ -929,6 +929,47 @@ print $root
         }
     }
 
+    #[test]
+    fn runner_renders_shared_module_diagnostics_once() {
+        let script = temp_script(
+            "shared-module-docs",
+            "use helper
+use left
+use right
+",
+        );
+        let root = script.parent().expect("temporary script parent");
+        fs::write(
+            root.join("helper.xsh"),
+            "##! Helper module.\n## This comment is not attached to an export.\nlet value = 1\n\n## Exports a value.\nexport let exported: Int = value\n",
+        )
+        .expect("write helper module");
+        fs::write(
+            root.join("left.xsh"),
+            "##! Left module.\n## Exports a value.\nexport let value: Int = 1\n",
+        )
+        .expect("write left module");
+        fs::write(
+            root.join("right.xsh"),
+            "##! Right module.\n## Exports a value.\nexport let value: Int = 2\n",
+        )
+        .expect("write right module");
+        let output = run_script(RunOptions {
+            script: script.to_string_lossy().into_owned(),
+            args: Vec::new(),
+            coverage_trace_dir: None,
+        });
+        let stderr = String::from_utf8_lossy(&output.stderr);
+
+        assert_eq!(output.status, 2);
+        assert_eq!(
+            stderr.matches("check.orphan-doc-comment").count(),
+            1,
+            "shared-module diagnostics should render once: {stderr}"
+        );
+        let _ = fs::remove_dir_all(root);
+    }
+
     #[cfg(feature = "native-tests")]
     #[test]
     fn prepared_benchmark_script_matches_normal_execution() {

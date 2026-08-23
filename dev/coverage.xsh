@@ -1,13 +1,14 @@
 ##! Native-or-Docker selection for the existing combined coverage programs.
 use context
-use stage as stages
 use docker
+use stage as stages
 use targets
 
 ## Concrete coverage execution backend.
 export type CoverageBackend = NativeBackend | DockerBackend
-## Parsed coverage request, including automatic selection.
-export type CoverageRequest = Automatic | NativeRequest | DockerRequest
+
+# Parsed coverage request, including automatic selection.
+type CoverageRequest = Automatic | NativeRequest | DockerRequest
 
 ## Decodes the CLI coverage request before workflow dispatch.
 export pure parse_request(value: Str) -> Result[CoverageRequest] {
@@ -51,9 +52,7 @@ export pure backend_name(backend: CoverageBackend) -> Str {
 }
 
 ## Selects the automatic coverage backend from the preserved Alpine Linux contract.
-export proc automatic_backend(
-  ctx: context.Context,
-) [fs, process, error] -> Result[CoverageBackend] {
+export proc automatic_backend(ctx: context.Context) [fs, process, error] -> Result[CoverageBackend] {
   let alpine_linux = p"/etc/alpine-release".exists()?
   let cargo_available = match process.which("cargo") {
     Ok(_) => true,
@@ -181,14 +180,11 @@ export proc docker_backend(ctx: context.Context) [fs, process, env, error, io] -
 }
 
 ## Dispatches the public coverage backend policy.
-export proc coverage(
-  ctx: context.Context,
-  request: CoverageRequest,
-) [fs, process, env, error, io] -> Result[Unit] {
+export proc coverage(ctx: context.Context, request: CoverageRequest) [fs, process, env, error, io] -> Result[Unit] {
   let backend = match request {
-    Automatic => automatic_backend(ctx)?
-    NativeRequest => NativeBackend
-    DockerRequest => DockerBackend
+    Automatic => automatic_backend(ctx)?,
+    NativeRequest => NativeBackend,
+    DockerRequest => DockerBackend,
   }
   match backend {
     NativeBackend => return native_coverage(ctx)

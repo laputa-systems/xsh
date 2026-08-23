@@ -28,32 +28,20 @@ export proc benchmark(ctx: context.Context, fast: Bool) [process, env, error, io
   } else {
     fp"${ctx.root}/crates/xshi/benches/baseline.json"
   }
-  var argv = prefix.extend([
-    "baseline",
-    "--root",
-    ctx.root.display(),
-    "--baseline",
-    baseline.display(),
-  ])
+  var argv = prefix.extend(["baseline", "--root", ctx.root.display(), "--baseline", baseline.display()])
 
   if fast {
     argv = argv.push("--fast")
   }
 
-  argv = argv.extend([
-    "--",
-    "cargo",
-    "bench",
-    "-p",
-    "xshi",
-    "--bench",
-    "bench",
-    "--features",
-    "benchmark",
-  ])
+  argv = argv.extend(["--", "cargo", "bench", "-p", "xshi", "--bench", "bench", "--features", "benchmark"])
   stages.execute(
     stages.command(
-      if fast { "bench-fast" } else { "bench" },
+      if fast {
+        "bench-fast"
+      } else {
+        "bench"
+      },
       ctx.target.triple,
       prefix[0],
       argv,

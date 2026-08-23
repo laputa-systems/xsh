@@ -283,9 +283,26 @@ impl Checker {
         source: &str,
         options: CheckOptions,
     ) -> CheckOutput {
+        Self::check_arena_with_options_and_type_program(
+            program,
+            source,
+            options,
+            Arc::new(program.clone()),
+        )
+    }
+
+    /// Check a mutable view of an arena-backed bundle while reusing an owned
+    /// program for type references. Tooling can change the root statement
+    /// range and module list between checks without cloning the full arena.
+    pub fn check_arena_with_options_and_type_program(
+        program: &crate::syntax::arena::ArenaProgram,
+        source: &str,
+        options: CheckOptions,
+        type_program: Arc<crate::syntax::arena::ArenaProgram>,
+    ) -> CheckOutput {
         program.symbol_owner().with_current(|| {
             let mut checker = Self::new(options);
-            checker.check_program_arena(program, source);
+            checker.check_program_arena_with_type_program(program, source, type_program);
             let callable_effects = checker.callable_effects();
             CheckOutput {
                 diagnostics: checker.diagnostics,
@@ -463,7 +480,15 @@ impl Checker {
         program: &crate::syntax::arena::ArenaProgram,
         source: &str,
     ) {
-        let type_program = Arc::new(program.clone());
+        self.check_program_arena_with_type_program(program, source, Arc::new(program.clone()));
+    }
+
+    pub(crate) fn check_program_arena_with_type_program(
+        &mut self,
+        program: &crate::syntax::arena::ArenaProgram,
+        source: &str,
+        type_program: Arc<crate::syntax::arena::ArenaProgram>,
+    ) {
         self.collect_user_modules_arena(program, type_program.clone(), source);
         self.collect_type_imports_arena(program, program.statement_ids());
         self.collect_definitions_arena(program, type_program, source, program.statement_ids());
@@ -488,6 +513,11 @@ impl Checker {
         statement_range: crate::syntax::arena::ArenaRange,
         statements: &[crate::syntax::arena::StmtId],
     ) {
+        // Arena docs are accumulated across the root and imported modules;
+        // report source-trivia diagnostics only for the module being checked.
+        let source_id = statements
+            .first()
+            .map(|statement| program.arena.stmt(*statement).span.source_id);
         let docs = &program.docs;
         let exports = statements
             .iter()
@@ -510,14 +540,22 @@ impl Checker {
                 "check.missing-module-doc",
             );
         }
-        for doc in &docs.duplicate_modules {
+        for doc in docs
+            .duplicate_modules
+            .iter()
+            .filter(|doc| Some(doc.source_id) == source_id)
+        {
             self.error(
                 *doc,
                 "modules may declare only one ##! module doc comment",
                 "check.duplicate-module-doc",
             );
         }
-        for doc in &docs.orphaned {
+        for doc in docs
+            .orphaned
+            .iter()
+            .filter(|doc| Some(doc.source_id) == source_id)
+        {
             self.error(
                 *doc,
                 "doc comments must immediately precede an export or appear as the module ##! doc",

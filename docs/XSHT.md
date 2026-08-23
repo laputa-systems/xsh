@@ -43,8 +43,11 @@ same metadata for individual command help. Each command has a focused module und
   annotation.
 - `fmt.rs` checks the resolved program bundle through the shared program
   pipeline, then applies the formatter from `crates/xsht/src/format.rs`.
-- `lint.rs` runs lint analysis over checked programs, including the
-  `lint.dead-code` reachability detector, and applies safe autofixes.
+- `lint.rs` builds one shared arena-backed import graph, selects true entry
+  roots for directory discovery (while preserving explicitly named files as
+  roots), checks each reachable program bundle, and applies safe autofixes
+  once per source. This keeps imported modules out of standalone lint passes
+  and makes `lint.dead-code` reachability operate on the complete bundle.
 - `grep.rs` and `refactor.rs` use AST-aware structural matching.
 - `api.rs` renders the canonical registry for batch API queries.
 - `files.rs` owns configured file discovery and `xsht-config.ini` parsing.
@@ -76,6 +79,18 @@ crate by ownership:
   checked-program representation rather than constructing parallel
   parser/checker pipelines.
 - `edit.rs` applies CST-guarded source edits and formats validated output.
+
+`xsht lint`'s initial analysis resolves and parses each source path once per
+command. Directory
+roots are files with no inbound import edge; strongly connected import cycles
+select one deterministic component root. An explicitly named file remains a
+root even when another named file imports it. Imported modules are linted only
+when reachable from one of those roots, and command-level diagnostic keys keep
+shared-source diagnostics unique.
+
+`xsht fmt` retains its per-file source-preserving formatting workflow, but
+deduplicates shared parse/check diagnostics at command aggregation so a module
+error is rendered once even when several formatted files import that module.
 
 CLI command modules should call these helpers for common setup and rewrite
 safety. Command-specific result aggregation, exit-code policy, and output text
@@ -233,6 +248,10 @@ Safe fixes must satisfy all of these:
 When a lint can report a real issue but cannot safely preserve nearby comments,
 it should report the diagnostic without a fix hint. This is better than
 silently moving comments or relying on final formatting to reconstruct intent.
+
+`xsht lint --fix` retains diagnostic keys while validating rewritten files, so
+an error reported by an imported module is emitted once per command even when
+several entry files reach that module.
 
 ## Reachability Diagnostics
 
