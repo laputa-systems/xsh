@@ -380,12 +380,12 @@ impl Type {
             (Self::Module(_), Self::Module(expected_exports)) if expected_exports.is_empty() => {
                 true
             }
-            (Self::Module(actual_exports), Self::Module(expected_exports)) => {
-                expected_exports.iter().all(|(name, expected)| match actual_exports.get(name) {
+            (Self::Module(actual_exports), Self::Module(expected_exports)) => expected_exports
+                .iter()
+                .all(|(name, expected)| match actual_exports.get(name) {
                     Some(actual) => module_export_matches_expected(actual, expected),
                     None => expected.optional(),
-                })
-            }
+                }),
             (Self::DynamicModule, Self::Module(_)) => false,
             (Self::Tag(a), Self::Tag(b)) => a == b,
             (Self::ErrorVariant { family, .. }, Self::ErrorFamily(expected)) => family == expected,
@@ -466,7 +466,8 @@ impl Type {
             | Self::Invalid
             | Self::EnvPathList
             | Self::Record(_)
-            | Self::Module(_) | Self::DynamicModule => None,
+            | Self::Module(_)
+            | Self::DynamicModule => None,
             Self::Unit => Some("Unit".to_string()),
             Self::Null => Some("Null".to_string()),
             Self::Bool => Some("Bool".to_string()),
@@ -691,8 +692,10 @@ mod tests {
         let name = Name::intern("run");
         let expected = Type::Module(BTreeMap::from([(name, value(Type::Str, false))]));
         assert!(!Type::Module(BTreeMap::new()).matches_expected(&expected));
-        assert!(!Type::Module(BTreeMap::from([(name, value(Type::Int, false))]))
-            .matches_expected(&expected));
+        assert!(
+            !Type::Module(BTreeMap::from([(name, value(Type::Int, false))]))
+                .matches_expected(&expected)
+        );
         assert!(!Type::Module(BTreeMap::from([(name, proc(None))])).matches_expected(&expected));
 
         let actual = Type::Module(BTreeMap::from([
@@ -756,9 +759,13 @@ mod tests {
         let name = Name::intern("description");
         let expected = Type::Module(BTreeMap::from([(name, value(Type::Str, true))]));
         assert!(Type::Module(BTreeMap::new()).matches_expected(&expected));
-        assert!(Type::Module(BTreeMap::from([(name, value(Type::Str, false))]))
-            .matches_expected(&expected));
-        assert!(!Type::Module(BTreeMap::from([(name, value(Type::Int, false))]))
-            .matches_expected(&expected));
+        assert!(
+            Type::Module(BTreeMap::from([(name, value(Type::Str, false))]))
+                .matches_expected(&expected)
+        );
+        assert!(
+            !Type::Module(BTreeMap::from([(name, value(Type::Int, false))]))
+                .matches_expected(&expected)
+        );
     }
 }

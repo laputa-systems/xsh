@@ -16,10 +16,12 @@ export type Target = {
 
 ## Closed internal host operating-system policy.
 export type HostOs = Linux | Darwin
+
 ## Closed internal host architecture policy.
 export type HostArch = X86_64 | Aarch64
+
 ## Closed target matrix identity used by workflow policy.
-export type TargetId = X86_64LinuxMusl | Aarch64LinuxMusl | Aarch64AppleDarwin
+type TargetId = X86_64LinuxMusl | Aarch64LinuxMusl | Aarch64AppleDarwin
 
 ## A target or host selector outside the supported matrix.
 export error TargetError = Unsupported(target: Str)
@@ -196,15 +198,7 @@ export pure darwin_rustflags(target: Target, inherited: Str) -> Str {
     flags = flags.push(inherited.trim())
   }
 
-  return flags
-    .extend([
-      "-C",
-      "linker=rust-lld",
-      "-C",
-      "linker-flavor=ld64.lld",
-      "-C",
-      "link-arg=--icf=safe",
-    ])
+  return flags.extend(["-C", "linker=rust-lld", "-C", "linker-flavor=ld64.lld", "-C", "link-arg=--icf=safe"])
     .extend(["-Zlocation-detail=none", "-Zunstable-options", "-Cpanic=immediate-abort"])
     .extend(target.cpu_rustflags)
     .join(" ")
@@ -299,12 +293,8 @@ export pure docker_test_env(triple: Str) -> Result[Record] {
   ].join(" ")
 
   match triple {
-    "x86_64-unknown-linux-musl" => return {
-      CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS: flags,
-    }
-    "aarch64-unknown-linux-musl" => return {
-      CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_RUSTFLAGS: flags,
-    }
+    "x86_64-unknown-linux-musl" => return {CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS: flags}
+    "aarch64-unknown-linux-musl" => return {CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_RUSTFLAGS: flags}
     _ => return Err(TargetError.Unsupported(target: triple))
   }
 }

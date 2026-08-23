@@ -16,6 +16,7 @@ error DevUsage = Invalid(message: Str)
 type GlobalOptions = {target: Str, rest: List[Str]}
 
 type TestKind = Rust | Xsh | Linux | Macos
+
 type TestOptions = {kind: TestKind, ci: Bool}
 
 type CoverageOptions = {backend: Str}
@@ -25,6 +26,7 @@ type BenchOptions = {fast: Bool, syscalls: Bool}
 type DistOptions = {docker: Str, ci: Bool}
 
 type ReleaseOperation = Smoke | Package | Core | Validate
+
 type ReleaseOptions = {action: Str, tag: Str}
 
 pure test_kind(value: Str) -> Result[TestKind] {
@@ -48,6 +50,7 @@ pure release_operation(value: Str) -> Result[ReleaseOperation] {
 }
 
 type InternalOperation = Dist | TestLinux | TestLinuxCi | Coverage
+
 pure internal_operation(value: Str) -> Result[InternalOperation] {
   match value {
     "dist" => return Dist

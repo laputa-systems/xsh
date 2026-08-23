@@ -72,7 +72,8 @@ impl<'a> Parser<'a> {
                     return Some((arena.push_pattern_facet(facet, span), span, None));
                 }
                 if self.consume(TokenKindMatch::Dot).is_some() {
-                    let family_or_variant = self.expect_ident("expected error variant after `.`")?;
+                    let family_or_variant =
+                        self.expect_ident("expected error variant after `.`")?;
                     if self.consume(TokenKindMatch::LParen).is_some() {
                         let arg = if self.at(TokenKindMatch::RParen) {
                             None
@@ -96,7 +97,10 @@ impl<'a> Parser<'a> {
                     }
                     let (family, variant) = if self.consume(TokenKindMatch::Dot).is_some() {
                         let variant = self.expect_ident("expected error variant after `.`")?;
-                        (crate::symbol::Name::intern(format!("{name}.{family_or_variant}")), variant)
+                        (
+                            crate::symbol::Name::intern(format!("{name}.{family_or_variant}")),
+                            variant,
+                        )
                     } else {
                         (name, family_or_variant)
                     };

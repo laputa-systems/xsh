@@ -1,8 +1,8 @@
 ##! Container-internal lifecycle commands invoked directly by Docker through XSH.
 use build
 use context
-use stage as stages
 use dist
+use stage as stages
 use targets
 
 ## Repairs the mounted target tree ownership after a container lifecycle operation.

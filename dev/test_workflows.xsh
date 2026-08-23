@@ -1,7 +1,7 @@
 ##! Rust, native XSH, and privileged platform test command policy.
 use context
-use stage as stages
 use docker
+use stage as stages
 
 ## Runs the repository's ordinary release Rust test contract.
 export proc rust(ctx: context.Context) [process, error, io] -> Result[Unit] {

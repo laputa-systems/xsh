@@ -333,7 +333,9 @@ impl Checker {
                                 .insert(def.name, self.type_from_name(def.name, inner.span));
                             if let ArenaTypeDefBody::TagUnion(variants) = def.body {
                                 for variant in program.arena.tag_variants(variants) {
-                                    if let Some(info) = self.tag_variants.get(&variant.name).cloned() {
+                                    if let Some(info) =
+                                        self.tag_variants.get(&variant.name).cloned()
+                                    {
                                         exports.tag_variants.insert(variant.name, info);
                                     }
                                 }

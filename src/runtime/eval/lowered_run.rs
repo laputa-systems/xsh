@@ -1375,7 +1375,7 @@ fn lowered_module_matches_contract(
             ModuleExportType::Proc { sig, .. } => match value {
                 LoweredValue::Proc(function) => evaluator
                     .lookup_module_export_signature(*function)
-                    .map_or(true, |captured| {
+                    .is_none_or(|captured| {
                         !captured.pure && lowered_signature_matches_contract(&captured.sig, sig)
                     }),
                 _ => false,
@@ -1383,7 +1383,7 @@ fn lowered_module_matches_contract(
             ModuleExportType::Pure { sig, .. } => match value {
                 LoweredValue::Pure(function) => evaluator
                     .lookup_module_export_signature(*function)
-                    .map_or(true, |captured| {
+                    .is_none_or(|captured| {
                         captured.pure && lowered_signature_matches_contract(&captured.sig, sig)
                     }),
                 _ => false,

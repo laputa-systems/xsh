@@ -40,11 +40,12 @@ export proc ensure_dir(directory: Path) [fs, error] -> Result[Unit] {
 
 ## Executes one visible direct process boundary and classifies failed status.
 export proc execute(spec: contract.CommandSpec) [process, error, io] -> Result[Unit] {
-  print f"[${spec.stage} target=${spec.target}] ${spec.argv.join(" ")}" 
+  print f"[${spec.stage} target=${spec.target}] ${spec.argv.join(" ")}"
   let status = process.run(process.command_argv(spec.executable, spec.argv, cwd: spec.cwd, env: spec.environment))?
   if status.ok {
-    return Ok()
+    return
   }
+
   let detail = if status.exited() {
     f"exit ${status.exit_code()?}"
   } else if status.signaled() {

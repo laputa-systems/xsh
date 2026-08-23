@@ -5374,7 +5374,10 @@ impl CompactLowerConstructProbe<'_, '_> {
                 let ArenaExprKind::Ident(module) = self.program.arena.expr(base).kind else {
                     return None;
                 };
-                if self.compact_qualified_tag_variant_arity(module, name).is_some() {
+                if self
+                    .compact_qualified_tag_variant_arity(module, name)
+                    .is_some()
+                {
                     return Some(LoweredType::Tag);
                 }
                 if module == "process" && name == "command_argv" {
@@ -8455,12 +8458,8 @@ impl CompactLowerConstructProbe<'_, '_> {
                         if positional.len() != arity {
                             return None;
                         }
-                        let fields = self.lower_expr_ids(
-                            &positional,
-                            slots,
-                            current_function,
-                            item_slot,
-                        )?;
+                        let fields =
+                            self.lower_expr_ids(&positional, slots, current_function, item_slot)?;
                         return Some(push_build_row!(
                             self,
                             expr,
@@ -9941,13 +9940,13 @@ impl CompactLowerConstructProbe<'_, '_> {
         };
         let family_key = match compact_error_family_key(self.program, base)? {
             CompactErrorFamilyKey::Local(name) => CompactErrorFamilyKey::Local(name),
-            CompactErrorFamilyKey::Qualified(name) => CompactErrorFamilyKey::Qualified(
-                QualifiedName::new(
+            CompactErrorFamilyKey::Qualified(name) => {
+                CompactErrorFamilyKey::Qualified(QualifiedName::new(
                     self.compact_imported_module_owner(name.namespace)
                         .unwrap_or(name.namespace),
                     name.member,
-                ),
-            ),
+                ))
+            }
         };
         let family_name = compact_error_family_display(family_key);
         let info = compact_error_family_info(self.declarations, family_key)
