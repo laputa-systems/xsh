@@ -2039,9 +2039,8 @@ let secret = "local"
 export let pkg = {name: "demo"}
 "#,
     );
-    // TODO: checker should report check.unresolved-name for non-exported
-    // bindings accessed from outside the module. Currently produces no diagnostic.
     assert!(!has_code(&leaked, "check.module-top-level"));
+    assert!(has_code(&leaked, "check.unresolved-name"));
 
     let mutation = check_with_module(
         "use helper\n",
@@ -2083,17 +2082,30 @@ export type Package = {leaf: Leaf}
         &["check.unknown-type", "check.type-mismatch"],
     );
 
-    let typed_bare = check_with_module(
+    let typed_default_namespace = check_with_module(
         r#"
 use helper
-let pkg: Package = {name: "demo", root: Path("src")}
-let qualified_pkg: helper.Package = {name: "demo", root: Path("src")}
+let pkg: helper.Package = {name: "demo", root: Path("src")}
 "#,
         r#"
 export type Package = {name: Str, root: Path}
 "#,
     );
-    assert_no_codes(&typed_bare, &["check.unknown-type", "check.type-mismatch"]);
+    assert_no_codes(
+        &typed_default_namespace,
+        &["check.unknown-type", "check.type-mismatch"],
+    );
+
+    let bare_type = check_with_module(
+        r#"
+use helper
+let pkg: Package = {name: "demo", root: Path("src")}
+"#,
+        r#"
+export type Package = {name: Str, root: Path}
+"#,
+    );
+    assert!(has_code(&bare_type, "check.unknown-type"));
 
     let private_type = check_with_module(
         r#"

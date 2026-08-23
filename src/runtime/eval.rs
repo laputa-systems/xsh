@@ -6036,6 +6036,7 @@ pub(super) fn value_matches_static_type(value: &Value, ty: &Type) -> bool {
             _ => false,
         },
         Type::Module(exports) => matches!(value, Value::Module(_)) && exports.is_empty(),
+        Type::DynamicModule => matches!(value, Value::Module(_)),
         Type::Result(ok_ty, err_ty) => match value {
             Value::Result(ResultValue::Ok(value)) => value_matches_static_type(value, ok_ty),
             Value::Result(ResultValue::Err(value)) => value_matches_static_type(value, err_ty),
@@ -6151,6 +6152,7 @@ fn lowered_value_matches_static_type(value: &LoweredValue, ty: &Type) -> bool {
             }),
             _ => false,
         },
+        Type::DynamicModule => matches!(value, LoweredValue::Module(_)),
         Type::Result(ok_ty, err_ty) => match value {
             LoweredValue::ResultOk(value) => lowered_value_matches_static_type(value, ok_ty),
             LoweredValue::ResultErr(value) => value_matches_static_type(value, err_ty),

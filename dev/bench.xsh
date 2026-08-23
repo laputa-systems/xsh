@@ -1,5 +1,6 @@
 ##! Rustybench invocation policy for XSH's interactive benchmark workflows.
 use context
+use stage as stages
 
 ## Resolves a shell-free rustybench command prefix, preserving the legacy override.
 export proc command_prefix(ctx: context.Context) [process, env, error] -> Result[List[Str]] {
@@ -27,19 +28,53 @@ export proc benchmark(ctx: context.Context, fast: Bool) [process, env, error, io
   } else {
     fp"${ctx.root}/crates/xshi/benches/baseline.json"
   }
-  var argv = prefix.extend(["baseline", "--root", ctx.root.display(), "--baseline", baseline.display()])
+  var argv = prefix.extend([
+    "baseline",
+    "--root",
+    ctx.root.display(),
+    "--baseline",
+    baseline.display(),
+  ])
 
   if fast {
     argv = argv.push("--fast")
   }
 
-  argv = argv.extend(["--", "cargo", "bench", "-p", "xshi", "--bench", "bench", "--features", "benchmark"])
-  context.run_stage(if fast { "bench-fast" } else { "bench" }, ctx.target.triple, prefix[0], argv, ctx.root, {})?
+  argv = argv.extend([
+    "--",
+    "cargo",
+    "bench",
+    "-p",
+    "xshi",
+    "--bench",
+    "bench",
+    "--features",
+    "benchmark",
+  ])
+  stages.execute(
+    stages.command(
+      if fast { "bench-fast" } else { "bench" },
+      ctx.target.triple,
+      prefix[0],
+      argv,
+      ctx.root,
+      {},
+    ),
+  )?
 }
 
 ## Runs rustybench's syscall diagnostic workflow.
 export proc syscalls(ctx: context.Context) [process, env, error, io] -> Result[Unit] {
   let prefix = command_prefix(ctx)?
   let argv = prefix.extend(["syscalls", "--root", ctx.root.display()])
-  context.run_stage("bench-syscalls", ctx.target.triple, prefix[0], argv, ctx.root, {})?
+  stages.execute(
+    stages.command(
+      "bench-syscalls",
+      ctx.target.triple,
+      prefix[0],
+      argv,
+      ctx.root,
+      {},
+    ),
+  )?
 }

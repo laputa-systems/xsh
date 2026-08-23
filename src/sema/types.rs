@@ -31,6 +31,7 @@ pub enum Type {
     Stream(Box<Type>),
     Record(BTreeMap<Name, Type>),
     Module(BTreeMap<Name, ModuleExportType>),
+    DynamicModule,
     Result(Box<Type>, Box<Type>),
     Status,
     EnvPathList,
@@ -217,7 +218,7 @@ impl Type {
             BuiltinTypeName::Regex => Self::Regex,
             BuiltinTypeName::Path => Self::Path,
             BuiltinTypeName::Map => Self::Map(Box::new(Self::Unknown)),
-            BuiltinTypeName::Module => Self::Module(BTreeMap::new()),
+            BuiltinTypeName::Module => Self::DynamicModule,
             BuiltinTypeName::Record => Self::Record(BTreeMap::new()),
             BuiltinTypeName::Status => Self::Status,
             BuiltinTypeName::EnvPathList => Self::EnvPathList,
@@ -248,7 +249,7 @@ impl Type {
             Self::Regex => Some(BuiltinTypeName::Regex),
             Self::Path => Some(BuiltinTypeName::Path),
             Self::Map(_) => Some(BuiltinTypeName::Map),
-            Self::Module(_) => Some(BuiltinTypeName::Module),
+            Self::Module(_) | Self::DynamicModule => Some(BuiltinTypeName::Module),
             Self::Record(_) => Some(BuiltinTypeName::Record),
             Self::Status => Some(BuiltinTypeName::Status),
             Self::EnvPathList => Some(BuiltinTypeName::EnvPathList),
@@ -379,15 +380,13 @@ impl Type {
             (Self::Module(_), Self::Module(expected_exports)) if expected_exports.is_empty() => {
                 true
             }
-            (Self::Module(actual_exports), Self::Module(_)) if actual_exports.is_empty() => true,
             (Self::Module(actual_exports), Self::Module(expected_exports)) => {
-                expected_exports.iter().all(|(name, expected)| {
-                    expected.optional()
-                        || actual_exports
-                            .get(name)
-                            .is_some_and(|actual| module_export_matches_expected(actual, expected))
+                expected_exports.iter().all(|(name, expected)| match actual_exports.get(name) {
+                    Some(actual) => module_export_matches_expected(actual, expected),
+                    None => expected.optional(),
                 })
             }
+            (Self::DynamicModule, Self::Module(_)) => false,
             (Self::Tag(a), Self::Tag(b)) => a == b,
             (Self::ErrorVariant { family, .. }, Self::ErrorFamily(expected)) => family == expected,
             (Self::ErrorVariant { .. }, Self::Error) => true,
@@ -467,7 +466,7 @@ impl Type {
             | Self::Invalid
             | Self::EnvPathList
             | Self::Record(_)
-            | Self::Module(_) => None,
+            | Self::Module(_) | Self::DynamicModule => None,
             Self::Unit => Some("Unit".to_string()),
             Self::Null => Some("Null".to_string()),
             Self::Bool => Some("Bool".to_string()),
@@ -528,6 +527,7 @@ impl fmt::Display for Type {
             Self::Stream(inner) => write!(f, "Stream[{inner}]"),
             Self::Record(_) => write!(f, "Record"),
             Self::Module(_) => write!(f, "Module"),
+            Self::DynamicModule => write!(f, "Module"),
             Self::Result(ok, err) => write!(f, "Result[{ok}, {err}]"),
             Self::Status => write!(f, "Status"),
             Self::EnvPathList => write!(f, "EnvPathList"),
@@ -613,7 +613,152 @@ fn callable_matches_expected(actual: &CallableType, expected: &CallableType) -> 
 fn callable_effects_match(actual: &Option<Vec<Effect>>, expected: &Option<Vec<Effect>>) -> bool {
     match (actual, expected) {
         (None, None) => true,
-        (Some(actual), Some(expected)) => expected.iter().all(|effect| actual.contains(effect)),
+        (Some(actual), Some(expected)) => {
+            actual.iter().all(|effect| expected.contains(effect))
+                && expected.iter().all(|effect| actual.contains(effect))
+        }
         _ => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{CallableParamType, CallableType, ModuleExportType, Type};
+    use crate::symbol::Name;
+    use crate::syntax::node::Effect;
+    use std::collections::BTreeMap;
+
+    fn proc(effects: Option<Vec<Effect>>) -> ModuleExportType {
+        ModuleExportType::Proc {
+            sig: CallableType {
+                params: vec![CallableParamType {
+                    name: Name::intern("value"),
+                    ty: Type::Str,
+                    defaulted: false,
+                    rest: false,
+                }],
+                return_ty: Box::new(Type::Unit),
+                effects,
+            },
+            optional: false,
+        }
+    }
+
+    fn pure() -> ModuleExportType {
+        ModuleExportType::Pure {
+            sig: CallableType {
+                params: vec![CallableParamType {
+                    name: Name::intern("value"),
+                    ty: Type::Str,
+                    defaulted: false,
+                    rest: false,
+                }],
+                return_ty: Box::new(Type::Unit),
+                effects: None,
+            },
+            optional: false,
+        }
+    }
+
+    fn value(ty: Type, optional: bool) -> ModuleExportType {
+        ModuleExportType::Value { ty, optional }
+    }
+
+    #[test]
+    fn empty_module_does_not_satisfy_concrete_contract() {
+        let expected = Type::Module(BTreeMap::from([(
+            Name::intern("run"),
+            proc(Some(vec![Effect::Error])),
+        )]));
+        assert!(!Type::Module(BTreeMap::new()).matches_expected(&expected));
+    }
+
+    #[test]
+    fn callable_effects_must_match_exactly() {
+        let expected = Type::Module(BTreeMap::from([(
+            Name::intern("run"),
+            proc(Some(vec![Effect::Error])),
+        )]));
+        let actual = Type::Module(BTreeMap::from([(
+            Name::intern("run"),
+            proc(Some(vec![Effect::Error, Effect::Fs])),
+        )]));
+        assert!(!actual.matches_expected(&expected));
+    }
+
+    #[test]
+    fn module_contract_checks_member_kind_and_value_type() {
+        let name = Name::intern("run");
+        let expected = Type::Module(BTreeMap::from([(name, value(Type::Str, false))]));
+        assert!(!Type::Module(BTreeMap::new()).matches_expected(&expected));
+        assert!(!Type::Module(BTreeMap::from([(name, value(Type::Int, false))]))
+            .matches_expected(&expected));
+        assert!(!Type::Module(BTreeMap::from([(name, proc(None))])).matches_expected(&expected));
+
+        let actual = Type::Module(BTreeMap::from([
+            (name, value(Type::Str, false)),
+            (Name::intern("value"), value(Type::Bool, false)),
+        ]));
+        assert!(actual.matches_expected(&expected));
+    }
+
+    #[test]
+    fn module_contract_checks_callable_kind_and_signature_invariantly() {
+        let name = Name::intern("run");
+        let expected = Type::Module(BTreeMap::from([(name, proc(Some(vec![Effect::Error])))]));
+        assert!(!Type::Module(BTreeMap::from([(name, pure())])).matches_expected(&expected));
+
+        let wrong_count = ModuleExportType::Proc {
+            sig: CallableType {
+                params: Vec::new(),
+                return_ty: Box::new(Type::Unit),
+                effects: Some(vec![Effect::Error]),
+            },
+            optional: false,
+        };
+        assert!(!Type::Module(BTreeMap::from([(name, wrong_count)])).matches_expected(&expected));
+
+        let wrong_parameter = ModuleExportType::Proc {
+            sig: CallableType {
+                params: vec![CallableParamType {
+                    name: Name::intern("value"),
+                    ty: Type::Int,
+                    defaulted: false,
+                    rest: false,
+                }],
+                return_ty: Box::new(Type::Unit),
+                effects: Some(vec![Effect::Error]),
+            },
+            optional: false,
+        };
+        assert!(
+            !Type::Module(BTreeMap::from([(name, wrong_parameter)])).matches_expected(&expected)
+        );
+
+        let wrong_return = ModuleExportType::Proc {
+            sig: CallableType {
+                params: vec![CallableParamType {
+                    name: Name::intern("value"),
+                    ty: Type::Str,
+                    defaulted: false,
+                    rest: false,
+                }],
+                return_ty: Box::new(Type::Str),
+                effects: Some(vec![Effect::Error]),
+            },
+            optional: false,
+        };
+        assert!(!Type::Module(BTreeMap::from([(name, wrong_return)])).matches_expected(&expected));
+    }
+
+    #[test]
+    fn optional_module_export_must_match_when_present() {
+        let name = Name::intern("description");
+        let expected = Type::Module(BTreeMap::from([(name, value(Type::Str, true))]));
+        assert!(Type::Module(BTreeMap::new()).matches_expected(&expected));
+        assert!(Type::Module(BTreeMap::from([(name, value(Type::Str, false))]))
+            .matches_expected(&expected));
+        assert!(!Type::Module(BTreeMap::from([(name, value(Type::Int, false))]))
+            .matches_expected(&expected));
     }
 }

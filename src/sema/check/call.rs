@@ -227,6 +227,24 @@ impl Checker {
 
         if let ArenaExprKind::Field { base, name } = callee_kind {
             let base_kind = arena.arena.expr(base).kind;
+            if let ArenaExprKind::Field {
+                base: family_base,
+                name: family,
+            } = base_kind
+                && let ArenaExprKind::Ident(namespace) = arena.arena.expr(family_base).kind
+            {
+                let qualified_family = Name::intern(format!("{namespace}.{family}"));
+                if self.error_families.contains_key(&qualified_family) {
+                    return self.check_error_variant_constructor_arena(
+                        arena,
+                        source,
+                        qualified_family,
+                        name,
+                        args,
+                        span,
+                    );
+                }
+            }
             if let ArenaExprKind::Ident(module) = base_kind {
                 if module.as_str() == "error" && name.as_str() == "fail" {
                     self.check_expr_arg_list_arena(arena, source, args, &[Type::Str], span);
@@ -235,6 +253,16 @@ impl Checker {
                 if self.error_families.contains_key(&module) {
                     return self.check_error_variant_constructor_arena(
                         arena, source, module, name, args, span,
+                    );
+                }
+                let qualified_tag = Name::intern(format!("{module}.{name}"));
+                if self.tag_variants.contains_key(&qualified_tag) {
+                    return self.check_constructor_call_arena(
+                        arena,
+                        source,
+                        &qualified_tag.as_str(),
+                        args,
+                        span,
                     );
                 }
                 let qualified = QualifiedName::new(module, name);

@@ -4957,6 +4957,7 @@ impl CompactLowerConstructProbe<'_, '_> {
             }
             Type::Record(fields) => fields.get(&name).cloned(),
             Type::Module(exports) => exports.get(&name).map(ModuleExportType::field_type),
+            Type::DynamicModule => Some(Type::Any),
             Type::Path => match name.as_str().as_str() {
                 "display" | "name" | "ext" => Some(Type::Str),
                 "normalize" | "parent" => Some(Type::Path),
@@ -5373,6 +5374,9 @@ impl CompactLowerConstructProbe<'_, '_> {
                 let ArenaExprKind::Ident(module) = self.program.arena.expr(base).kind else {
                     return None;
                 };
+                if self.compact_qualified_tag_variant_arity(module, name).is_some() {
+                    return Some(LoweredType::Tag);
+                }
                 if module == "process" && name == "command_argv" {
                     return Some(LoweredType::Command);
                 }
@@ -7736,6 +7740,18 @@ impl CompactLowerConstructProbe<'_, '_> {
                 if let Some(env_expr) = self.lower_env_field(base, name, span) {
                     return Some(env_expr);
                 }
+                if let ArenaExprKind::Ident(module) = self.program.arena.expr(base).kind
+                    && self.compact_qualified_tag_variant_arity(module, name) == Some(0)
+                {
+                    return Some(push_build_row!(
+                        self,
+                        expr,
+                        BuildExprRow::Tag {
+                            name: Arc::<str>::from(name.as_str().as_str()),
+                            fields: Default::default(),
+                        }
+                    ));
+                }
                 Some(push_build_row!(
                     self,
                     expr,
@@ -8434,6 +8450,26 @@ impl CompactLowerConstructProbe<'_, '_> {
                     ));
                 }
                 if let ArenaExprKind::Ident(module) = self.program.arena.expr(base).kind {
+                    if let Some(arity) = self.compact_qualified_tag_variant_arity(module, name) {
+                        let positional = positional_call_args(&args_vec)?;
+                        if positional.len() != arity {
+                            return None;
+                        }
+                        let fields = self.lower_expr_ids(
+                            &positional,
+                            slots,
+                            current_function,
+                            item_slot,
+                        )?;
+                        return Some(push_build_row!(
+                            self,
+                            expr,
+                            BuildExprRow::Tag {
+                                name: Arc::<str>::from(name.as_str().as_str()),
+                                fields,
+                            }
+                        ));
+                    }
                     if module.as_str() == "error" && name.as_str() == "fail" {
                         let [
                             ArenaCallArg {
@@ -9903,7 +9939,16 @@ impl CompactLowerConstructProbe<'_, '_> {
         else {
             return None;
         };
-        let family_key = compact_error_family_key(self.program, base)?;
+        let family_key = match compact_error_family_key(self.program, base)? {
+            CompactErrorFamilyKey::Local(name) => CompactErrorFamilyKey::Local(name),
+            CompactErrorFamilyKey::Qualified(name) => CompactErrorFamilyKey::Qualified(
+                QualifiedName::new(
+                    self.compact_imported_module_owner(name.namespace)
+                        .unwrap_or(name.namespace),
+                    name.member,
+                ),
+            ),
+        };
         let family_name = compact_error_family_display(family_key);
         let info = compact_error_family_info(self.declarations, family_key)
             .and_then(|family| family.variants.get(&variant))?;
@@ -12250,9 +12295,24 @@ impl CompactLowerConstructProbe<'_, '_> {
     }
 
     fn compact_tag_variant_arity(&self, name: Name) -> Option<usize> {
+        if let Some(namespace) = self.current_namespace
+            && let Some(variant) = self
+                .declarations
+                .qualified_tag_variants
+                .get(&QualifiedName::new(namespace, name))
+        {
+            return Some(variant.field_count);
+        }
         self.declarations
             .tag_variants_by_name
             .get(&name)
+            .map(|variant| variant.field_count)
+    }
+
+    fn compact_qualified_tag_variant_arity(&self, module: Name, name: Name) -> Option<usize> {
+        self.declarations
+            .qualified_tag_variants
+            .get(&self.compact_qualified_function_key(module, name))
             .map(|variant| variant.field_count)
     }
 }
@@ -12404,7 +12464,7 @@ fn compact_runtime_type_inner(
             declarations,
             depth,
         ))),
-        ArenaTypeExprTag::Module => Type::Module(Default::default()),
+        ArenaTypeExprTag::Module => Type::DynamicModule,
         ArenaTypeExprTag::Result => Type::Result(
             Box::new(compact_runtime_type_inner(
                 arena,
@@ -12542,7 +12602,7 @@ fn lowered_checked_type(ty: &Type) -> Option<LoweredType> {
         Type::Proc => Some(LoweredType::Proc),
         Type::Error | Type::ErrorFamily(_) | Type::ErrorVariant { .. } => Some(LoweredType::Error),
         Type::Record(_) => Some(LoweredType::Record),
-        Type::Module(_) => Some(LoweredType::Module),
+        Type::Module(_) | Type::DynamicModule => Some(LoweredType::Module),
         Type::List(_) => Some(LoweredType::List),
         Type::Stream(_) => Some(LoweredType::Stream),
         Type::Map(_) => Some(LoweredType::Map),
@@ -12633,7 +12693,7 @@ fn lowered_method_supported_for_type(ty: &Type, name: Name, arg_count: usize) ->
             "touch" => arg_count <= 1,
             _ => false,
         },
-        Type::Record(_) | Type::Module(_) => {
+        Type::Record(_) | Type::Module(_) | Type::DynamicModule => {
             matches!(name.as_str().as_str(), "has" | "get") && arg_count == 1
                 || matches!(name.as_str().as_str(), "keys" | "len") && arg_count == 0
         }
@@ -12771,7 +12831,7 @@ fn infer_checked_method_return_type(receiver: &Type, name: Name) -> Option<Type>
             ))),
             _ => None,
         },
-        Type::Module(_) => match name.as_str().as_str() {
+        Type::Module(_) | Type::DynamicModule => match name.as_str().as_str() {
             "keys" => Some(Type::List(Box::new(Type::Str))),
             "len" => Some(Type::Int),
             "has" => Some(Type::Bool),
@@ -12894,7 +12954,7 @@ fn type_for_lowered_type(kind: LoweredType) -> Option<Type> {
         LoweredType::Proc => Some(Type::Proc),
         LoweredType::Error => Some(Type::Error),
         LoweredType::Record => Some(Type::Record(Default::default())),
-        LoweredType::Module => Some(Type::Module(Default::default())),
+        LoweredType::Module => Some(Type::DynamicModule),
         LoweredType::List => Some(Type::List(Box::new(Type::Any))),
         LoweredType::Stream => Some(Type::Stream(Box::new(Type::Any))),
         LoweredType::Map => Some(Type::Map(Box::new(Type::Any))),

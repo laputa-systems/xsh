@@ -1,28 +1,10 @@
+use context
 use dist as distributions
+use fixtures
 use verify
 
-pure verification_context(root: Path, profile: Str = "dist") -> Record {
-  return {
-    root: root,
-    target_dir: fp"${root}/target",
-    coverage_dir: fp"${root}/target/cov",
-    artifact_dir: fp"${root}/dist",
-    host_os: "linux",
-    host_arch: "x86_64",
-    target: {
-      triple: "x86_64-unknown-linux-musl",
-      os: "linux",
-      arch: "x86_64",
-      docker_platform: "linux/amd64",
-      executable_format: "ELF",
-      elf_machine: "Advanced Micro Devices X86-64",
-      cpu_rustflags: [],
-      cpu_cflags: [],
-      static_musl: true,
-    },
-    profile: profile,
-    darwin_deployment_target: "26.0",
-  }
+pure verification_context(root: Path, profile: Str = "dist") -> Result[context.Context] {
+  return fixtures.linux_context(root, profile)
 }
 
 pure verification_context_source(root: Path) -> Str {
@@ -31,19 +13,9 @@ pure verification_context_source(root: Path) -> Str {
   target_dir: p"${root}/target",
   coverage_dir: p"${root}/target/cov",
   artifact_dir: p"${root}/dist",
-  host_os: "linux",
-  host_arch: "x86_64",
-  target: {
-    triple: "x86_64-unknown-linux-musl",
-    os: "linux",
-    arch: "x86_64",
-    docker_platform: "linux/amd64",
-    executable_format: "ELF",
-    elf_machine: "Advanced Micro Devices X86-64",
-    cpu_rustflags: [],
-    cpu_cflags: [],
-    static_musl: true,
-  },
+  host_os: target_policy.Linux,
+  host_arch: target_policy.X86_64,
+  target: target_policy.resolve("x86_64-unknown-linux-musl")?,
   profile: "dist",
   darwin_deployment_target: "26.0",
 }"""
@@ -58,11 +30,11 @@ ${body}
 
 proc test_binary_verification_rejects_missing_and_non_elf_products(ctx: TestContext) [fs, process, error, io] {
   let root = test.temp_dir(ctx, name: "verify-binary")?
-  let verify_ctx = verification_context(root)
+  let verify_ctx = verification_context(root)?
 
   match verify.binary(verify_ctx, "xsh", false) {
     Ok(_) => test.fail("missing product passed verification")?
-    Err(error) => test.contains(error.message, "ContextError.StageFailed", error.message)?
+    Err(error) => test.contains(error.message, "StageError.Failed", error.message)?
   }
 
   let product = fp"${root}/target/x86_64-unknown-linux-musl/dist/xsh"
@@ -75,7 +47,7 @@ proc test_binary_verification_rejects_missing_and_non_elf_products(ctx: TestCont
 
   match verify.binary(verify_ctx, "xsh", false) {
     Ok(_) => test.fail("non-ELF product passed verification")?
-    Err(error) => test.contains(error.message, "ContextError.StageFailed", error.message)?
+    Err(error) => test.contains(error.message, "StageError.Failed", error.message)?
   }
 }
 
@@ -118,10 +90,12 @@ proc test_linux_verification_rejects_wrong_machine_and_dynamic_binaries(ctx: Tes
   let wrong_machine = test.run_script(
     ctx,
     f"""
+use context
+use targets as target_policy
 use verify
 
 proc main() [fs, process, error, io] -> Result[Unit] {
-  let ctx = ${verification_context_source(root)}
+  let ctx: context.Context = ${verification_context_source(root)}
   match verify.binary(ctx, "xsh", false) {
     Ok(_) => abort(1)
     Err(error) => print \${error.message}
@@ -134,7 +108,7 @@ main()?
     {PATH: tools.display(), XSH_MODULE_PATH: module_path},
   )?
   test.ok(wrong_machine.success, wrong_machine.stderr)?
-  test.contains(wrong_machine.stdout, "ContextError.StageFailed", wrong_machine.stdout)?
+  test.contains(wrong_machine.stdout, "StageError.Failed", wrong_machine.stdout)?
 
   write_fake_tool(
     fp"${tools}/readelf",
@@ -148,10 +122,12 @@ main()?
   let dynamic = test.run_script(
     ctx,
     f"""
+use context
+use targets as target_policy
 use verify
 
 proc main() [fs, process, error, io] -> Result[Unit] {
-  let ctx = ${verification_context_source(root)}
+  let ctx: context.Context = ${verification_context_source(root)}
   match verify.binary(ctx, "xsh", false) {
     Ok(_) => abort(1)
     Err(error) => print \${error.message}
@@ -164,5 +140,5 @@ main()?
     {PATH: tools.display(), XSH_MODULE_PATH: module_path},
   )?
   test.ok(dynamic.success, dynamic.stderr)?
-  test.contains(dynamic.stdout, "ContextError.StageFailed", dynamic.stdout)?
+  test.contains(dynamic.stdout, "StageError.Failed", dynamic.stdout)?
 }

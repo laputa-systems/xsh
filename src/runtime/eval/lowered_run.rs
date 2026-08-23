@@ -1339,7 +1339,7 @@ fn create_host_dir_all(path: &Path, operation: &str, span: Span) -> Result<(), R
 /// Whether a captured module-export signature satisfies the contract `expected`:
 /// same arity, matching (bidirectional) param types and rest flags, a defaulted
 /// flag that the contract permits, compatible return type, and the contract's
-/// effects are a subset of the function's effects.
+/// effects match the function's declared effects exactly.
 fn lowered_signature_matches_contract(sig: &CallableType, expected: &CallableType) -> bool {
     sig.params.len() == expected.params.len()
         && sig
@@ -1351,7 +1351,10 @@ fn lowered_signature_matches_contract(sig: &CallableType, expected: &CallableTyp
             })
         && match (&sig.effects, &expected.effects) {
             (None, None) => true,
-            (Some(actual), Some(expected)) => expected.iter().all(|effect| actual.contains(effect)),
+            (Some(actual), Some(expected)) => {
+                actual.iter().all(|effect| expected.contains(effect))
+                    && expected.iter().all(|effect| actual.contains(effect))
+            }
             _ => false,
         }
         && sig.return_ty.matches_expected(&expected.return_ty)
@@ -1372,7 +1375,7 @@ fn lowered_module_matches_contract(
             ModuleExportType::Proc { sig, .. } => match value {
                 LoweredValue::Proc(function) => evaluator
                     .lookup_module_export_signature(*function)
-                    .is_some_and(|captured| {
+                    .map_or(true, |captured| {
                         !captured.pure && lowered_signature_matches_contract(&captured.sig, sig)
                     }),
                 _ => false,
@@ -1380,7 +1383,7 @@ fn lowered_module_matches_contract(
             ModuleExportType::Pure { sig, .. } => match value {
                 LoweredValue::Pure(function) => evaluator
                     .lookup_module_export_signature(*function)
-                    .is_some_and(|captured| {
+                    .map_or(true, |captured| {
                         captured.pure && lowered_signature_matches_contract(&captured.sig, sig)
                     }),
                 _ => false,

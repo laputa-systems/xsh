@@ -819,7 +819,7 @@ fn render_type(ty: &Type) -> String {
                 .collect::<Vec<_>>()
                 .join(", ")
         ),
-        Type::Module(_) => "Module".to_string(),
+        Type::Module(_) | Type::DynamicModule => "Module".to_string(),
         Type::Result(ok, error) => format!("Result[{}, {}]", render_type(ok), render_type(error)),
         Type::Status => "Status".to_string(),
         Type::EnvPathList => "EnvPathList".to_string(),

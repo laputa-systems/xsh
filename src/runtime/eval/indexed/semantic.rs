@@ -785,6 +785,7 @@ impl SemanticPoolBuilder {
                 let start = checked_u32(pools.type_extra.len(), "semantic_extra_overflow")?;
                 (key, IrData::new(shape.raw(), start), words)
             }
+            Type::DynamicModule => scalar(TypeTag::Module),
             Type::Result(ok, err) => {
                 let ok = self.intern_type(pools, ok)?;
                 let err = self.intern_type(pools, err)?;

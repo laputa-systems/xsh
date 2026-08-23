@@ -22,6 +22,7 @@ pub struct CompactDeclOutput {
     pub diagnostics: Vec<Diagnostic>,
     pub types: FxHashMap<Name, CompactTypeDefInfo>,
     pub tag_variants_by_name: FxHashMap<Name, TagVariantInfo>,
+    pub qualified_tag_variants: FxHashMap<QualifiedName, TagVariantInfo>,
     pub error_families_by_name: FxHashMap<Name, ErrorFamilyInfo>,
     pub qualified_error_families: FxHashMap<QualifiedName, ErrorFamilyInfo>,
     pub procs: FxHashMap<Name, CompactFunctionSig>,
@@ -148,7 +149,7 @@ impl CompactDeclCollector {
         let span = stmt.span;
         match stmt.kind {
             ArenaStmtKind::Export(inner) => self.collect_decl_stmt(program, inner, namespace),
-            ArenaStmtKind::TypeDef(def) => self.collect_type_def(program, def, span),
+            ArenaStmtKind::TypeDef(def) => self.collect_type_def(program, def, span, namespace),
             ArenaStmtKind::ErrorDef(def) => self.collect_error_def(program, def, span, namespace),
             ArenaStmtKind::ProcDef(def) => {
                 self.collect_function_def(program, def, CompactFunctionKind::Proc, span, namespace);
@@ -174,11 +175,12 @@ impl CompactDeclCollector {
         program: &ArenaProgram,
         id: TypeDefId,
         span: crate::source::Span,
+        namespace: Option<Name>,
     ) {
         let def = program.arena.type_def(id);
         self.output.type_defs += 1;
         self.check_top_level_name(def.name, span, "type name conflicts with a built-in type");
-        let info = self.collect_type_def_body(program, def);
+        let info = self.collect_type_def_body(program, def, namespace);
         self.output.types.insert(def.name, info);
     }
 
@@ -186,6 +188,7 @@ impl CompactDeclCollector {
         &mut self,
         program: &ArenaProgram,
         def: &ArenaTypeDef,
+        namespace: Option<Name>,
     ) -> CompactTypeDefInfo {
         match def.body {
             ArenaTypeDefBody::Alias(ty) => CompactTypeDefInfo::Alias(ty),
@@ -268,14 +271,18 @@ impl CompactDeclCollector {
                             crate::syntax::arena::TypeExprId::from_index(*raw as usize),
                         ));
                     }
-                    self.output.tag_variants_by_name.insert(
-                        variant.name,
-                        TagVariantInfo {
-                            type_name: def.name,
-                            field_count: field_types.len(),
-                            field_types,
-                        },
-                    );
+                    let info = TagVariantInfo {
+                        type_name: def.name,
+                        field_count: field_types.len(),
+                        field_types,
+                    };
+                    if let Some(namespace) = namespace {
+                        self.output
+                            .qualified_tag_variants
+                            .insert(QualifiedName::new(namespace, variant.name), info);
+                    } else {
+                        self.output.tag_variants_by_name.insert(variant.name, info);
+                    }
                 }
                 CompactTypeDefInfo::TagUnion
             }

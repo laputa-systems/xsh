@@ -269,6 +269,7 @@ pub(super) fn test_value_matches_type(value: &Value, ty: &Type) -> bool {
             _ => false,
         },
         Type::Module(exports) => matches!(value, Value::Module(_)) && exports.is_empty(),
+        Type::DynamicModule => matches!(value, Value::Module(_)),
         Type::Result(ok_ty, err_ty) => match value {
             Value::Result(ResultValue::Ok(value)) => test_value_matches_type(value, ok_ty),
             Value::Result(ResultValue::Err(value)) => test_value_matches_type(value, err_ty),
@@ -534,10 +535,13 @@ pub(super) fn module_contract_type_matches(
     if BuiltinTypeName::parse(expected) == Some(BuiltinTypeName::Unknown) {
         return false;
     }
-    if let Some((params, return_ty)) = module_contract_proc_signature(expected) {
+    if let Some((pure, params, return_ty)) = module_contract_callable_signature(expected) {
         return match value {
             Value::Proc(name) => {
-                module_contract_proc_matches(signatures, *name, &params, &return_ty)
+                !pure && module_contract_proc_matches(signatures, *name, &params, &return_ty)
+            }
+            Value::Pure(name) => {
+                pure && module_contract_proc_matches(signatures, *name, &params, &return_ty)
             }
             _ => false,
         };
@@ -584,8 +588,12 @@ pub(super) fn module_contract_type_matches(
         .is_some_and(|builtin| module_value_matches_builtin_type(value, builtin))
 }
 
-pub(super) fn module_contract_proc_signature(expected: &str) -> Option<(Vec<Type>, Type)> {
-    let rest = expected.strip_prefix("Proc(")?;
+fn module_contract_callable_signature(expected: &str) -> Option<(bool, Vec<Type>, Type)> {
+    let (pure, rest) = if let Some(rest) = expected.strip_prefix("Proc(") {
+        (false, rest)
+    } else {
+        (true, expected.strip_prefix("Pure(")?)
+    };
     let close = rest.find(") -> ")?;
     let params = &rest[..close];
     let return_ty = &rest[close + 5..];
@@ -596,6 +604,7 @@ pub(super) fn module_contract_proc_signature(expected: &str) -> Option<(Vec<Type
         }
     }
     Some((
+        pure,
         parsed_params,
         module_contract_type_from_str(return_ty.trim())?,
     ))

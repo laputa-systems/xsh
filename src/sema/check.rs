@@ -232,6 +232,7 @@ pub(super) struct UserModuleSig {
     streams: FxHashMap<Name, FunctionSig>,
     types: BTreeMap<Name, TypeDefBody>,
     resolved_types: BTreeMap<Name, Type>,
+    tag_variants: BTreeMap<Name, TagVariantInfo>,
     error_families: BTreeMap<Name, ErrorFamilyInfo>,
 }
 

@@ -1,5 +1,6 @@
 ##! Release artifact names, packaging, core script staging, checksums, and validation.
 use context
+use stage as stages
 use targets
 use verify
 
@@ -13,13 +14,13 @@ export proc checksum_line(artifact_path: Path, root: Path) [fs, error] -> Result
 export proc package_binaries(ctx: context.Context, tag: Str) [fs, process, error, io] -> Result[Unit] {
   if tag.trim() == "" {
     return Err(
-      context.ContextError.StageFailed(stage: "release-package", target: ctx.target.triple, detail: "missing release tag"),
+      stages.StageError.Failed(stage: "release-package", target: ctx.target.triple, detail: "missing release tag"),
     )
   }
 
   verify.verify_all(ctx, false)?
   let suffix = targets.release_suffix(ctx.target.triple)?
-  context.ensure_dir(ctx.artifact_dir)?
+  stages.ensure_dir(ctx.artifact_dir)?
 
   for product in targets.products {
     let source = fp"${ctx.target_dir}/${ctx.target.triple}/dist/${product}"
@@ -34,14 +35,25 @@ export proc smoke(ctx: context.Context) [fs, process, error, io] -> Result[Unit]
   verify.verify_all(ctx, true)?
   let xsh = fp"${ctx.target_dir}/${ctx.target.triple}/dist/xsh"
   let xshi = fp"${ctx.target_dir}/${ctx.target.triple}/dist/xshi"
-  context.run_stage("release-xsh-startup", ctx.target.triple, xsh.display(), [xsh.display(), "--startup"], ctx.root, {})?
-  context.run_stage(
-    "release-xshi-smoke",
-    ctx.target.triple,
-    xshi.display(),
-    [xshi.display(), "--no-config", "-c", "print \"ok\""],
-    ctx.root,
-    {XSHI_ALLOW_NON_TTY_FOR_TESTS: "1"},
+  stages.execute(
+    stages.command(
+      "release-xsh-startup",
+      ctx.target.triple,
+      xsh.display(),
+      [xsh.display(), "--startup"],
+      ctx.root,
+      {},
+    ),
+  )?
+  stages.execute(
+    stages.command(
+      "release-xshi-smoke",
+      ctx.target.triple,
+      xshi.display(),
+      [xshi.display(), "--no-config", "-c", "print \"ok\""],
+      ctx.root,
+      {XSHI_ALLOW_NON_TTY_FOR_TESTS: "1"},
+    ),
   )?
 }
 
@@ -72,11 +84,11 @@ export proc core_sources(ctx: context.Context) [fs, error] -> Result[List[Path]]
 export proc package_core(ctx: context.Context, tag: Str) [fs, error] -> Result[Unit] {
   if tag.trim() == "" {
     return Err(
-      context.ContextError.StageFailed(stage: "release-core", target: ctx.target.triple, detail: "missing release tag"),
+      stages.StageError.Failed(stage: "release-core", target: ctx.target.triple, detail: "missing release tag"),
     )
   }
 
-  context.ensure_dir(ctx.artifact_dir)?
+  stages.ensure_dir(ctx.artifact_dir)?
   let root_handle = fs.tempdir()?
   defer fs.close_root(root_handle)?
   let stage = fs.root_path(root_handle)?
@@ -101,7 +113,7 @@ export proc package_core(ctx: context.Context, tag: Str) [fs, error] -> Result[U
 
   if core_archive.metadata()?.size == 0 {
     return Err(
-      context.ContextError.StageFailed(stage: "release-core", target: ctx.target.triple, detail: "core archive is empty"),
+      stages.StageError.Failed(stage: "release-core", target: ctx.target.triple, detail: "core archive is empty"),
     )
   }
 
@@ -110,7 +122,7 @@ export proc package_core(ctx: context.Context, tag: Str) [fs, error] -> Result[U
   for entry in fs.files(ctx.artifact_dir, hidden: true)? {
     if entry.ext == "xz" and entry.path != core_archive {
       return Err(
-        context.ContextError.StageFailed(
+        stages.StageError.Failed(
           stage: "release-core",
           target: ctx.target.triple,
           detail: f"unexpected compressed artifact ${entry.path.display()}",
@@ -124,7 +136,7 @@ export proc package_core(ctx: context.Context, tag: Str) [fs, error] -> Result[U
 export proc validate_artifacts(ctx: context.Context, tag: Str) [fs, error] -> Result[Unit] {
   if tag.trim() == "" {
     return Err(
-      context.ContextError.StageFailed(stage: "release-validate", target: ctx.target.triple, detail: "missing release tag"),
+      stages.StageError.Failed(stage: "release-validate", target: ctx.target.triple, detail: "missing release tag"),
     )
   }
 
@@ -142,7 +154,7 @@ export proc validate_artifacts(ctx: context.Context, tag: Str) [fs, error] -> Re
 
       if ! artifact.exists()? or ! artifact.executable()? or artifact.metadata()?.size == 0 {
         return Err(
-          context.ContextError.StageFailed(
+          stages.StageError.Failed(
             stage: "release-validate",
             target: triple,
             detail: f"missing artifact ${artifact.display()}",
@@ -153,7 +165,7 @@ export proc validate_artifacts(ctx: context.Context, tag: Str) [fs, error] -> Re
       let checksum = fp"${artifact.display()}.sha256"
       if ! checksum.exists()? {
         return Err(
-          context.ContextError.StageFailed(
+          stages.StageError.Failed(
             stage: "release-validate",
             target: triple,
             detail: f"missing checksum ${artifact.display()}.sha256",
@@ -163,7 +175,7 @@ export proc validate_artifacts(ctx: context.Context, tag: Str) [fs, error] -> Re
 
       if checksum.read_text()? != checksum_line(artifact, ctx.root)? {
         return Err(
-          context.ContextError.StageFailed(
+          stages.StageError.Failed(
             stage: "release-validate",
             target: triple,
             detail: f"invalid checksum ${checksum.display()}",
@@ -176,7 +188,7 @@ export proc validate_artifacts(ctx: context.Context, tag: Str) [fs, error] -> Re
   for entry in fs.files(ctx.artifact_dir, hidden: true)? {
     if entry.kind == "file" and entry.name not in expected_files {
       return Err(
-        context.ContextError.StageFailed(
+        stages.StageError.Failed(
           stage: "release-validate",
           target: ctx.target.triple,
           detail: f"unexpected artifact ${entry.path.display()}",

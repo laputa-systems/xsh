@@ -15,7 +15,8 @@ error DevUsage = Invalid(message: Str)
 
 type GlobalOptions = {target: Str, rest: List[Str]}
 
-type TestOptions = {kind: Str, ci: Bool}
+type TestKind = Rust | Xsh | Linux | Macos
+type TestOptions = {kind: TestKind, ci: Bool}
 
 type CoverageOptions = {backend: Str}
 
@@ -23,7 +24,39 @@ type BenchOptions = {fast: Bool, syscalls: Bool}
 
 type DistOptions = {docker: Str, ci: Bool}
 
+type ReleaseOperation = Smoke | Package | Core | Validate
 type ReleaseOptions = {action: Str, tag: Str}
+
+pure test_kind(value: Str) -> Result[TestKind] {
+  match value {
+    "rust" => return Rust
+    "xsh" => return Xsh
+    "linux" => return Linux
+    "macos" => return Macos
+    _ => return Err(usage(f"unsupported test target ${value}"))
+  }
+}
+
+pure release_operation(value: Str) -> Result[ReleaseOperation] {
+  match value {
+    "smoke" => return Smoke
+    "package" => return Package
+    "core" => return Core
+    "validate" => return Validate
+    _ => return Err(usage(f"unsupported release action ${value}"))
+  }
+}
+
+type InternalOperation = Dist | TestLinux | TestLinuxCi | Coverage
+pure internal_operation(value: Str) -> Result[InternalOperation] {
+  match value {
+    "dist" => return Dist
+    "test-linux" => return TestLinux
+    "test-linux-ci" => return TestLinuxCi
+    "coverage" => return Coverage
+    _ => return Err(usage(f"unsupported internal operation ${value}"))
+  }
+}
 
 pure help_text() -> Str {
   return """XSH development lifecycle
@@ -110,7 +143,7 @@ proc dispatch(command: Str, args: List[Str]) [fs, process, env, error, io] {
       return builds.lint_fix(ctx)
     }
     "test" => {
-      let options: TestOptions = cli.parse(
+      let parsed = cli.parse(
         args,
         {
           kind: {
@@ -124,23 +157,24 @@ proc dispatch(command: Str, args: List[Str]) [fs, process, env, error, io] {
         },
       )?
 
+      let options: TestOptions = {kind: test_kind(parsed.kind)?, ci: parsed.ci}
       match options.kind {
-        "rust" => return tests.rust(ctx)
-        "xsh" => return tests.xsh(ctx)
-        "linux" => return tests.linux_test(ctx, options.ci)
-        "macos" => {
+        Rust => return tests.rust(ctx)
+        Xsh => return tests.xsh(ctx)
+        Linux => return tests.linux_test(ctx, options.ci)
+        Macos => {
           if ! options.ci {
             return Err(usage("test macos is a CI-only target; pass --ci"))
           }
 
           return tests.macos_ci(ctx)
         }
-        _ => return Err(usage(f"unsupported test target ${options.kind}"))
       }
     }
     "coverage" => {
-      let options: CoverageOptions = cli.parse(args, {backend: {form: "--backend BACKEND", default: ""}})?
-      return coverage_workflow.coverage(ctx, options.backend)
+      let parsed = cli.parse(args, {backend: {form: "--backend BACKEND", default: ""}})?
+      let options: CoverageOptions = {backend: parsed.backend}
+      return coverage_workflow.coverage(ctx, coverage_workflow.parse_request(options.backend)?)
     }
     "bench" => {
       let options: BenchOptions = cli.parse(
@@ -166,7 +200,7 @@ proc dispatch(command: Str, args: List[Str]) [fs, process, env, error, io] {
       return benchmarks.benchmark(ctx, options.fast)
     }
     "dist" => {
-      let options: DistOptions = cli.parse(
+      let parsed = cli.parse(
         args,
         {
           docker: {
@@ -179,7 +213,9 @@ proc dispatch(command: Str, args: List[Str]) [fs, process, env, error, io] {
           },
         },
       )?
-      return distributions.build_distribution(ctx, options.docker, options.ci)
+      let options: DistOptions = {docker: parsed.docker, ci: parsed.ci}
+      let docker_policy = distributions.parse_docker_policy(options.docker)?
+      return distributions.build_distribution(ctx, docker_policy, options.ci)
     }
     "install" => {
       if args.len() != 0 {
@@ -190,7 +226,7 @@ proc dispatch(command: Str, args: List[Str]) [fs, process, env, error, io] {
     }
     "release" => {
       let default_tag = env.get_or("RELEASE_TAG", "")?
-      let options: ReleaseOptions = cli.parse(
+      let parsed = cli.parse(
         args,
         {
           action: {
@@ -204,23 +240,22 @@ proc dispatch(command: Str, args: List[Str]) [fs, process, env, error, io] {
         },
       )?
 
-      match options.action {
-        "smoke" => return releases.smoke(ctx)
-        "package" => return releases.package_binaries(ctx, options.tag)
-        "core" => return releases.package_core(ctx, options.tag)
-        "validate" => return releases.validate_artifacts(ctx, options.tag)
-        _ => return Err(usage(f"unsupported release action ${options.action}"))
+      let options: ReleaseOptions = {action: parsed.action, tag: parsed.tag}
+      match release_operation(options.action)? {
+        Smoke => return releases.smoke(ctx)
+        Package => return releases.package_binaries(ctx, options.tag)
+        Core => return releases.package_core(ctx, options.tag)
+        Validate => return releases.validate_artifacts(ctx, options.tag)
       }
     }
     "internal" => {
       let operation = cli.parse(args, {operation: {form: "OPERATION", required: true}})?.operation
 
-      match operation {
-        "dist" => return container_internal.container_dist(ctx)
-        "test-linux" => return container_internal.linux_developer_test(ctx)
-        "test-linux-ci" => return container_internal.linux_ci_test(ctx)
-        "coverage" => return container_internal.container_coverage(ctx)
-        _ => return Err(usage(f"unsupported internal operation ${operation}"))
+      match internal_operation(operation)? {
+        Dist => return container_internal.container_dist(ctx)
+        TestLinux => return container_internal.linux_developer_test(ctx)
+        TestLinuxCi => return container_internal.linux_ci_test(ctx)
+        Coverage => return container_internal.container_coverage(ctx)
       }
     }
     _ => return Err(usage(f"unknown command ${command}"))

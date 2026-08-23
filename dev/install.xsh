@@ -1,5 +1,6 @@
 ##! Host-dispatched installation with explicit Darwin signing and Linux linker setup.
 use context
+use stage as stages
 use targets
 
 ## Returns the user's installation bin directory without mutating parent environment state.
@@ -7,7 +8,7 @@ export proc bin_dir() [fs, env, error] -> Result[Path] {
   let configured_home = env.get_or("HOME", "")?.trim()
   let home = if configured_home == "" { user.current()?.home } else { fp"${configured_home}" }
   let destination = fp"${home}/usr/bin"
-  context.ensure_dir(destination)?
+  stages.ensure_dir(destination)?
   return destination
 }
 
@@ -15,40 +16,42 @@ export proc bin_dir() [fs, env, error] -> Result[Path] {
 export proc darwin(ctx: context.Context) [fs, process, env, error, io] -> Result[Unit] {
   let inherited_rustflags = env.get_or("RUSTFLAGS", "")?
   let inherited_cflags = env.get_or("CFLAGS_aarch64_apple_darwin", "")?
-  let command_env = targets.distribution_env(
+  let environment = targets.distribution_env(
     ctx.target.triple,
     inherited_rustflags,
     inherited_cflags,
     ctx.darwin_deployment_target,
   )?
-  context.run_stage(
-    "install-darwin-build",
-    ctx.target.triple,
-    "cargo",
-    [
-      "cargo",
-      "build",
-      "--release",
-      "--target",
+  stages.execute(
+    stages.command(
+      "install-darwin-build",
       ctx.target.triple,
-      "-p",
-      "xsh",
-      "-p",
-      "xsht",
-      "-p",
-      "xshi",
-      "--bin",
-      "xsh",
-      "--bin",
-      "xsht",
-      "--bin",
-      "xshi",
-      "--no-default-features",
-      "--features",
-      targets.distribution_features,
-    ],
-    ctx.root,
-    command_env,
+      "cargo",
+      [
+        "cargo",
+        "build",
+        "--release",
+        "--target",
+        ctx.target.triple,
+        "-p",
+        "xsh",
+        "-p",
+        "xsht",
+        "-p",
+        "xshi",
+        "--bin",
+        "xsh",
+        "--bin",
+        "xsht",
+        "--bin",
+        "xshi",
+        "--no-default-features",
+        "--features",
+        targets.distribution_features,
+      ],
+      ctx.root,
+      environment,
+    ),
   )?
   let destination_dir = bin_dir()?
   let supplied_flags = env.get_or("DARWIN_CODESIGN_FLAGS", "")?
@@ -64,12 +67,21 @@ export proc darwin(ctx: context.Context) [fs, process, env, error, io] -> Result
     let destination = fp"${destination_dir}/${product}"
     fs.install(source, destination, 0o755, parents: true, overwrite: true)?
     let codesign_argv = ["codesign", "-fs", "-"].extend(signing_flags).push(destination.display())
-    context.run_stage("install-darwin-codesign", ctx.target.triple, "codesign", codesign_argv, ctx.root, {})?
+    stages.execute(
+      stages.command(
+        "install-darwin-codesign",
+        ctx.target.triple,
+        "codesign",
+        codesign_argv,
+        ctx.root,
+        {},
+      ),
+    )?
     let xattr = run.capture --text xattr -d com.apple.quarantine $destination ?
 
     if ! xattr.status.ok and "No such xattr" not in xattr.stderr {
       return Err(
-        context.ContextError.StageFailed(
+        stages.StageError.Failed(
           stage: "install-darwin-xattr",
           target: ctx.target.triple,
           detail: f"failed to remove quarantine from ${destination.display()}",
@@ -82,14 +94,16 @@ export proc darwin(ctx: context.Context) [fs, process, env, error, io] -> Result
 ## Stages one Linux CRT object after stripping debug metadata with LLVM tooling.
 export proc linux_crt_object(ctx: context.Context, name: Str) [fs, process, error, io] -> Result[Unit] {
   let crt_dir = fp"${ctx.target_dir}/llvm-crt"
-  context.ensure_dir(crt_dir)?
-  context.run_stage(
-    "install-linux-crt",
-    ctx.target.triple,
-    "llvm-objcopy",
-    ["llvm-objcopy", "--strip-debug", f"/usr/lib/${name}", fp"${crt_dir}/${name}".display()],
-    ctx.root,
-    {},
+  stages.ensure_dir(crt_dir)?
+  stages.execute(
+    stages.command(
+      "install-linux-crt",
+      ctx.target.triple,
+      "llvm-objcopy",
+      ["llvm-objcopy", "--strip-debug", f"/usr/lib/${name}", fp"${crt_dir}/${name}".display()],
+      ctx.root,
+      {},
+    ),
   )?
 }
 
@@ -97,7 +111,7 @@ export proc linux_crt_object(ctx: context.Context, name: Str) [fs, process, erro
 export proc linux_install(ctx: context.Context) [fs, process, env, error, io] -> Result[Unit] {
   if ctx.target.triple != "x86_64-unknown-linux-musl" {
     return Err(
-      context.ContextError.StageFailed(
+      stages.StageError.Failed(
         stage: "install-linux",
         target: ctx.target.triple,
         detail: "Linux installation supports x86_64-unknown-linux-musl",
@@ -114,38 +128,40 @@ export proc linux_install(ctx: context.Context) [fs, process, env, error, io] ->
     "LINUX_INSTALL_RUSTFLAGS",
     f"-C linker=clang -C link-arg=-B${ctx.root.display()}/target/llvm-crt -C link-arg=-B${ctx.root.display()}/tools -C link-arg=-fuse-ld=lld",
   )?
-  context.run_stage(
-    "install-linux-build",
-    ctx.target.triple,
-    "cargo",
-    [
+  stages.execute(
+    stages.command(
+      "install-linux-build",
+      ctx.target.triple,
       "cargo",
-      "build",
-      "--release",
-      "-p",
-      "xsh",
-      "-p",
-      "xsht",
-      "-p",
-      "xshi",
-      "--bin",
-      "xsh",
-      "--bin",
-      "xsht",
-      "--bin",
-      "xshi",
-      "--no-default-features",
-      "--features",
-      targets.distribution_features,
-    ],
-    ctx.root,
-    {
-      PATH: f"${env.get_or("HOME", "")?}/.cargo/bin:${path_value}",
-      CC: "clang",
-      AR: "llvm-ar",
-      CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER: "clang",
-      CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS: rustflags,
-    },
+      [
+        "cargo",
+        "build",
+        "--release",
+        "-p",
+        "xsh",
+        "-p",
+        "xsht",
+        "-p",
+        "xshi",
+        "--bin",
+        "xsh",
+        "--bin",
+        "xsht",
+        "--bin",
+        "xshi",
+        "--no-default-features",
+        "--features",
+        targets.distribution_features,
+      ],
+      ctx.root,
+      {
+        PATH: f"${env.get_or("HOME", "")?}/.cargo/bin:${path_value}",
+        CC: "clang",
+        AR: "llvm-ar",
+        CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER: "clang",
+        CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS: rustflags,
+      },
+    ),
   )?
   let destination_dir = bin_dir()?
 
@@ -162,19 +178,19 @@ export proc linux_install(ctx: context.Context) [fs, process, env, error, io] ->
 
 ## Dispatches installation to the current supported host family.
 export proc install(ctx: context.Context) [fs, process, env, error, io] -> Result[Unit] {
-  if ctx.host_os == "darwin" {
+  if ctx.host_os == targets.Darwin {
     return darwin(ctx)
   }
 
-  if ctx.host_os == "linux" {
+  if ctx.host_os == targets.Linux {
     return linux_install(ctx)
   }
 
   return Err(
-    context.ContextError.StageFailed(
+    stages.StageError.Failed(
       stage: "install",
       target: ctx.target.triple,
-      detail: f"unsupported host ${ctx.host_os}",
+      detail: "unsupported host policy",
     ),
   )
 }

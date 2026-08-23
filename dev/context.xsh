@@ -7,15 +7,15 @@ export type Context = {
   target_dir: Path,
   coverage_dir: Path,
   artifact_dir: Path,
-  host_os: Str,
-  host_arch: Str,
+  host_os: target_policy.HostOs,
+  host_arch: target_policy.HostArch,
   target: target_policy.Target,
   profile: Str,
   darwin_deployment_target: Str,
 }
 
 ## Operational failures rendered at the development command boundary.
-export error ContextError = WrongDirectory(root: Path) | MissingTool(tool: Str) | StageFailed(stage: Str, target: Str, detail: Str)
+export error ContextError = WrongDirectory(root: Path)
 
 ## Resolves a configuration path relative to the repository unless it is absolute.
 export pure repo_path(root: Path, value: Str) -> Path {
@@ -44,8 +44,8 @@ export proc require_root() [fs, error] -> Result[Path] {
 export proc create() [fs, env, error] -> Result[Context] {
   let root = require_root()?
   let uname = system.uname()?
-  let host_os = target_policy.host_os(uname.sysname)?
-  let host_arch = target_policy.host_arch(uname.machine)?
+  let host_os = target_policy.host_os_tag(uname.sysname)?
+  let host_arch = target_policy.host_arch_tag(uname.machine)?
   let requested_target = env.get_or("TARGET", "")?.trim()
   let target_name = if requested_target == "" { target_policy.default_triple } else { requested_target }
   let target = target_policy.resolve(target_name)?
@@ -63,51 +63,5 @@ export proc create() [fs, env, error] -> Result[Context] {
     target: target,
     profile: if profile == "" { "dist" } else { profile },
     darwin_deployment_target: env.get_or("DARWIN_DEPLOYMENT_TARGET", "26.0")?.trim(),
-  }
-}
-
-## Resolves a required external program with a named diagnostic on absence.
-export proc require_tool(name: Str) [process, error] -> Result[Path] {
-  match process.which(name) {
-    Ok(tool_path) => return tool_path
-    Err(_) => return Err(ContextError.MissingTool(tool: name))
-  }
-}
-
-## Renders a direct argv vector for stage reporting.
-export pure command_display(argv: List[Str]) -> Str {
-  return argv.join(" ")
-}
-
-## Executes one visible direct process boundary and classifies a failed status.
-export proc run_stage(
-  stage: Str,
-  target: Str,
-  executable: Str,
-  argv: List[Str],
-  cwd: Path,
-  command_env: Record,
-) [process, error, io] -> Result[Unit] {
-  print f"[${stage} target=${target}] ${command_display(argv)}"
-  let status = process.run(process.command_argv(executable, argv, cwd: cwd, env: command_env))?
-
-  if status.ok {
-    return
-  }
-
-  let detail = if status.exited() {
-    f"exit ${status.exit_code()?}"
-  } else if status.signaled() {
-    f"signal ${status.signal_number()?}"
-  } else {
-    "unknown process status"
-  }
-  return Err(ContextError.StageFailed(stage: stage, target: target, detail: detail))
-}
-
-## Creates a lifecycle directory when it does not already exist.
-export proc ensure_dir(directory: Path) [fs, error] -> Result[Unit] {
-  if ! directory.exists()? {
-    directory.mkdir()?
   }
 }

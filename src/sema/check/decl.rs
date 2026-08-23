@@ -41,12 +41,10 @@ impl Checker {
             };
             let use_stmt = program.arena.use_stmt(use_id);
             if let Some(key) = use_stmt.resolved.as_deref() {
-                self.import_user_module_types(key, use_stmt.alias, stmt.span, true);
-                if use_stmt.alias.is_none()
-                    && let Some(default_alias) = program.arena.names(use_stmt.path).last()
-                {
-                    self.import_user_module_types(key, Some(default_alias), stmt.span, true);
-                }
+                let namespace = use_stmt
+                    .alias
+                    .or_else(|| program.arena.names(use_stmt.path).last());
+                self.import_user_module_types(key, namespace, stmt.span, true);
             }
         }
     }
@@ -333,6 +331,13 @@ impl Checker {
                             exports
                                 .resolved_types
                                 .insert(def.name, self.type_from_name(def.name, inner.span));
+                            if let ArenaTypeDefBody::TagUnion(variants) = def.body {
+                                for variant in program.arena.tag_variants(variants) {
+                                    if let Some(info) = self.tag_variants.get(&variant.name).cloned() {
+                                        exports.tag_variants.insert(variant.name, info);
+                                    }
+                                }
+                            }
                         }
                         ArenaStmtKind::ErrorDef(def_id) => {
                             self.check_error_def_arena(program, source, def_id);
@@ -435,13 +440,6 @@ impl Checker {
                 .effects
                 .map(|effects| program.arena.effects(effects).collect()),
         }
-    }
-}
-
-fn stream_item_type(ty: &Type) -> Option<Type> {
-    match ty {
-        Type::Stream(item) => Some(item.as_ref().clone()),
-        _ => None,
     }
 }
 
@@ -557,6 +555,20 @@ impl Checker {
             }
             self.type_namespaces
                 .insert(alias, module.resolved_types.clone());
+            for (name, info) in module.tag_variants {
+                self.tag_variants
+                    .insert(Name::intern(format!("{alias}.{name}")), info);
+            }
+            for (name, family) in module.error_families {
+                let qualified = Name::intern(format!("{alias}.{name}"));
+                for variant in family.variants.values() {
+                    for facet in &variant.facets {
+                        self.error_facets
+                            .insert(Name::intern(format!("{alias}.{facet}")));
+                    }
+                }
+                self.error_families.insert(qualified, family);
+            }
             return;
         }
         let resolved_types = module.resolved_types.clone();

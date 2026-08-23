@@ -4,19 +4,9 @@ pure context_source(root: Path) -> Str {
     target_dir: p"${root}/target",
     coverage_dir: p"${root}/target/cov",
     artifact_dir: p"${root}/dist",
-    host_os: "linux",
-    host_arch: "x86_64",
-    target: {
-      triple: "x86_64-unknown-linux-musl",
-      os: "linux",
-      arch: "x86_64",
-      docker_platform: "linux/amd64",
-      executable_format: "ELF",
-      elf_machine: "Advanced Micro Devices X86-64",
-      cpu_rustflags: [],
-      cpu_cflags: [],
-      static_musl: true,
-    },
+    host_os: target_policy.Linux,
+    host_arch: target_policy.X86_64,
+    target: target_policy.resolve("x86_64-unknown-linux-musl")?,
     profile: "dist",
     darwin_deployment_target: "26.0",
   }"""
@@ -28,19 +18,9 @@ pure darwin_context_source(root: Path) -> Str {
     target_dir: p"${root}/target",
     coverage_dir: p"${root}/target/cov",
     artifact_dir: p"${root}/dist",
-    host_os: "darwin",
-    host_arch: "aarch64",
-    target: {
-      triple: "aarch64-apple-darwin",
-      os: "darwin",
-      arch: "aarch64",
-      docker_platform: "linux/arm64",
-      executable_format: "Mach-O",
-      elf_machine: "",
-      cpu_rustflags: [],
-      cpu_cflags: [],
-      static_musl: false,
-    },
+    host_os: target_policy.Darwin,
+    host_arch: target_policy.Aarch64,
+    target: target_policy.resolve("aarch64-apple-darwin")?,
     profile: "dist",
     darwin_deployment_target: "26.0",
   }"""
@@ -70,8 +50,10 @@ abort(23)""",
     ctx,
     f"""
 use build
+use context
+use targets as target_policy
 
-let ctx = ${context_source(root)}
+let ctx: context.Context = ${context_source(root)}
 match build.build(ctx) {
   Ok(_) => abort(1)
   Err(error) => print \${error.message}
@@ -82,7 +64,7 @@ match build.build(ctx) {
   )?
   test.ok(result.success, result.stderr)?
   test.contains(result.stdout, "[build target=x86_64-unknown-linux-musl] cargo build", result.stdout)?
-  test.contains(result.stdout, "ContextError.StageFailed", result.stdout)?
+  test.contains(result.stdout, "StageError.Failed", result.stdout)?
   test.ok(cargo_marker.exists()?)?
 }
 
@@ -105,9 +87,11 @@ abort(23)""",
   let result = test.run_script(
     ctx,
     f"""
+use context
 use internal
+use targets as target_policy
 
-let ctx = ${context_source(root)}
+let ctx: context.Context = ${context_source(root)}
 match internal.linux_ci_test(ctx) {
   Ok(_) => abort(1)
   Err(error) => print \${error.message}
@@ -123,7 +107,7 @@ match internal.linux_ci_test(ctx) {
   )?
   test.ok(result.success, result.stderr)?
   test.contains(result.stdout, "[linux-ci-tests target=x86_64-unknown-linux-musl] cargo test", result.stdout)?
-  test.contains(result.stdout, "ContextError.StageFailed", result.stdout)?
+  test.contains(result.stdout, "StageError.Failed", result.stdout)?
   test.ok(cargo_marker.exists()?)?
   test.ok(cleanup_marker.exists()?)?
 }
@@ -147,9 +131,11 @@ if "run" in ARGV {
   let result = test.run_script(
     ctx,
     f"""
+use context
 use docker
+use targets as target_policy
 
-let ctx = ${context_source(root)}
+let ctx: context.Context = ${context_source(root)}
 match docker.run_internal(ctx, "dist", false, []) {
   Ok(_) => abort(1)
   Err(error) => print \${error.message}
@@ -161,7 +147,7 @@ match docker.run_internal(ctx, "dist", false, []) {
   test.ok(result.success, result.stderr)?
   test.contains(result.stdout, "[docker-image-build target=x86_64-unknown-linux-musl] docker build", result.stdout)?
   test.contains(result.stdout, "[docker-dist target=x86_64-unknown-linux-musl] docker run", result.stdout)?
-  test.contains(result.stdout, "ContextError.StageFailed", result.stdout)?
+  test.contains(result.stdout, "StageError.Failed", result.stdout)?
   test.contains(docker_marker.read_text()?, "run")?
 }
 
@@ -181,9 +167,11 @@ abort(24)""",
   let result = test.run_script(
     ctx,
     f"""
+use context
 use docker
+use targets as target_policy
 
-let ctx = ${context_source(root)}
+let ctx: context.Context = ${context_source(root)}
 match docker.run_internal(ctx, "dist", false, []) {
   Ok(_) => abort(1)
   Err(error) => print \${error.message}
@@ -254,9 +242,11 @@ abort(25)""",
   let result = test.run_script(
     ctx,
     f"""
+use context
 use install
+use targets as target_policy
 
-let ctx = ${darwin_context_source(root)}
+let ctx: context.Context = ${darwin_context_source(root)}
 match install.darwin(ctx) {
   Ok(_) => abort(1)
   Err(error) => print \${error.message}
@@ -271,6 +261,6 @@ match install.darwin(ctx) {
   )?
   test.ok(result.success, result.stderr)?
   test.contains(result.stdout, "[install-darwin-codesign target=aarch64-apple-darwin] codesign", result.stdout)?
-  test.contains(result.stdout, "ContextError.StageFailed", result.stdout)?
+  test.contains(result.stdout, "StageError.Failed", result.stdout)?
   test.ok(codesign_marker.exists()?)?
 }

@@ -1034,6 +1034,14 @@ impl Checker {
         {
             return Type::EnvPathList;
         }
+        if let ArenaExprKind::Ident(namespace) = base_expr.kind {
+            let qualified = Name::intern(format!("{namespace}.{name}"));
+            if let Some(info) = self.tag_variants.get(&qualified).cloned()
+                && info.field_count == 0
+            {
+                return Type::Tag(info.type_name);
+            }
+        }
         let base_ty = self.check_expr_arena(arena, source, base, None);
         match base_ty {
             Type::Record(fields) => match fields.get(&name) {

@@ -2743,7 +2743,7 @@ fn lowered_type_from_type(ty: &Type) -> Result<LoweredType, IrVerifyError> {
             LoweredType::Error
         }
         Type::Record(_) => LoweredType::Record,
-        Type::Module(_) => LoweredType::Module,
+        Type::Module(_) | Type::DynamicModule => LoweredType::Module,
         Type::List(_) => LoweredType::List,
         Type::Map(_) => LoweredType::Map,
         Type::Tag(_) => LoweredType::Tag,

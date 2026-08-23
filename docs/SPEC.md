@@ -525,9 +525,11 @@ declarations.
 Non-exported module bindings, types, and error families remain local to the
 imported module. `use helper` binds exactly one namespace, `helper`; `use
 helper as h` binds exactly `h`. Exported values, procedures, pure functions,
-streams, types, and error families are accessed through that namespace, such
-as `helper.value`, `helper.call(...)`, and `helper.TypeName`; imports never
-inject exported names into the importing scope. Types and error families are
+streams, types, tag constructors, error families, error variants, and error
+facets are accessed through that namespace, such as `helper.value`,
+`helper.call(...)`, `helper.TypeName`, `helper.TagName(...)`, and
+`helper.ErrorName.Variant(...)`; imports never inject exported names into the
+importing scope. Types and error families are
 compile-time names and are not fields in the runtime module record. Imported
 modules may contain
 top-level `use`, `let`, `proc`, `pure`, `stream`, `type`, and `error`
@@ -576,8 +578,23 @@ type name to a set of named variants, each with zero or more payload fields.
 an exported runtime binding. Value exports use `export let name: Type` or the
 short form `export name: Type`. Exported proc and pure entries include their
 call signatures. Static module namespaces have inferred structural signatures
-and may satisfy these contracts directly. `optional` permits the export to be
-absent after a dynamic module check.
+and may satisfy these contracts directly. A concrete static module with no
+runtime exports is an empty module, not an unknown module, so it cannot satisfy
+a nonempty contract. A runtime-loaded module has a separate internal dynamic
+module representation and is checked against the contract when `.require(T)`
+executes.
+
+`optional` permits an export to be absent. When an optional export is present,
+its kind and full signature must still match. Extra actual exports are allowed.
+Value types, parameter lists, parameter types, and return types are invariant.
+An implementation may require only effects permitted by the contract; the
+current implementation uses exact declared-effect equality.
+
+Streams are compile-time namespace members, not first-class module-contract
+members. `module { ... }` contracts therefore reject stream entries. A
+stream-only static module still has a concrete empty runtime signature and
+cannot satisfy a nonempty runtime contract. Qualified stream dispatch remains
+available as `helper.stream_name(...)` without a bare fallback.
 
 ```xsh
 type BuildPlugin = module {

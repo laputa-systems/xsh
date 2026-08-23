@@ -1,7 +1,9 @@
 use context as lifecycle
 use coverage as coverage_workflow
 use docker as docker_workflows
+use fixtures
 use release as releases
+use stage as stages
 use targets as target_policy
 
 proc test_supported_target_records_and_default() [error] {
@@ -29,73 +31,67 @@ proc test_host_classification() [error] {
 }
 
 proc test_target_flags_native_selection_and_coverage_backend_policy() [error] {
-  let x86_env = target_policy.distribution_env("x86_64-unknown-linux-musl", "-C debuginfo=1", "-O2", "26.0")?
+  let x86_env = target_policy.distribution_env(
+    "x86_64-unknown-linux-musl",
+    "-C debuginfo=1",
+    "-O2",
+    "26.0",
+  )?
   let arm_env = target_policy.distribution_env("aarch64-unknown-linux-musl", "", "", "26.0")?
-  let darwin_env = target_policy.distribution_env("aarch64-apple-darwin", "-C debuginfo=1", "", "27.0")?
+  let darwin_env = target_policy.distribution_env(
+    "aarch64-apple-darwin",
+    "-C debuginfo=1",
+    "",
+    "27.0",
+  )?
+  let x86_target = target_policy.resolve("x86_64-unknown-linux-musl")?
+  let darwin_target = target_policy.resolve("aarch64-apple-darwin")?
   test.contains(x86_env.CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS, "-C debuginfo=1")?
   test.contains(x86_env.CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS, "target-cpu=x86-64-v3")?
   test.contains(x86_env.CFLAGS_x86_64_unknown_linux_musl, "-march=x86-64-v3")?
-  test.contains(arm_env.CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_RUSTFLAGS, "target-feature=-sve,-sve2")?
+  test.contains(
+    arm_env.CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_RUSTFLAGS,
+    "target-feature=-sve,-sve2",
+  )?
   test.eq(darwin_env.MACOSX_DEPLOYMENT_TARGET, "27.0")?
   test.contains(darwin_env.CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS, "linker-flavor=ld64.lld")?
-  test.ok(target_policy.native_execution("x86_64-unknown-linux-musl", "linux", "x86_64")?)?
-  test.ok(! target_policy.native_execution("x86_64-unknown-linux-musl", "darwin", "x86_64")?)?
-  test.ok(! target_policy.native_execution("aarch64-apple-darwin", "linux", "aarch64")?)?
-  let alpine_x86 = {
-    root: /repo,
-    target_dir: /repo/target,
-    coverage_dir: /repo/target/cov,
-    artifact_dir: /repo/dist,
-    host_os: "linux",
-    host_arch: "x86_64",
-    target: {
-      triple: "x86_64-unknown-linux-musl",
-      os: "linux",
-      arch: "x86_64",
-      docker_platform: "linux/amd64",
-      executable_format: "ELF",
-      elf_machine: "Advanced Micro Devices X86-64",
-      cpu_rustflags: [],
-      cpu_cflags: [],
-      static_musl: true,
-    },
-    profile: "dist",
-    darwin_deployment_target: "26.0",
-  }
-  test.eq(coverage_workflow.automatic_backend_for(alpine_x86, true, true, true), "native")?
-  test.eq(coverage_workflow.automatic_backend_for(alpine_x86, false, true, true), "docker")?
-  test.eq(coverage_workflow.automatic_backend_for(alpine_x86, true, false, true), "docker")?
-  test.eq(coverage_workflow.automatic_backend_for(alpine_x86, true, true, false), "docker")?
+  test.ok(target_policy.native_execution(x86_target, target_policy.Linux, target_policy.X86_64))?
+  test.ok(! target_policy.native_execution(x86_target, target_policy.Darwin, target_policy.X86_64))?
+  test.ok(
+    ! target_policy.native_execution(darwin_target, target_policy.Linux, target_policy.Aarch64),
+  )?
+  let alpine_x86 = fixtures.linux_context(/repo)?
+  test.eq(
+    coverage_workflow.backend_name(coverage_workflow.automatic_backend_for(alpine_x86, true, true, true)),
+    "native",
+  )?
+  test.eq(
+    coverage_workflow.backend_name(coverage_workflow.automatic_backend_for(alpine_x86, false, true, true)),
+    "docker",
+  )?
+  test.eq(
+    coverage_workflow.backend_name(coverage_workflow.automatic_backend_for(alpine_x86, true, false, true)),
+    "docker",
+  )?
+  test.eq(
+    coverage_workflow.backend_name(coverage_workflow.automatic_backend_for(alpine_x86, true, true, false)),
+    "docker",
+  )?
 }
 
 proc test_docker_argv_is_direct_and_carries_mount_environment_policy() [error] {
-  let ctx = {
-    root: /repo,
-    target_dir: /repo/target,
-    coverage_dir: /repo/target/cov,
-    artifact_dir: /repo/dist,
-    host_os: "darwin",
-    host_arch: "aarch64",
-    target: {
-      triple: "aarch64-unknown-linux-musl",
-      os: "linux",
-      arch: "aarch64",
-      docker_platform: "linux/arm64",
-      executable_format: "ELF",
-      elf_machine: "AArch64",
-      cpu_rustflags: [
-        "-C",
-        "target-cpu=neoverse-n2",
-      ],
-      cpu_cflags: [
-        "-mcpu=neoverse-n2+nosve+nosve2",
-      ],
-      static_musl: true,
-    },
-    profile: "dist",
-    darwin_deployment_target: "26.0",
-  }
-  let argv = docker_workflows.internal_argv(ctx, "xsh-test", "linux/arm64", "dist", true, 501, 20, "25", [])
+  let ctx = fixtures.linux_aarch64_context(/repo)?
+  let argv = docker_workflows.internal_argv(
+    ctx,
+    "xsh-test",
+    "linux/arm64",
+    "dist",
+    true,
+    501,
+    20,
+    "25",
+    [],
+  )
   test.eq(argv[0], "docker")?
   test.ok("--privileged" in argv)?
   test.ok("/repo:/work" in argv)?
@@ -129,34 +125,20 @@ proc test_release_checksum_sidecars_keep_a_relative_artifact_name(ctx: TestConte
   )?
 }
 
-proc test_release_validation_requires_exactly_the_nine_expected_products(ctx: TestContext) [fs, error] {
+proc test_release_validation_requires_exactly_the_nine_expected_products(
+  ctx: TestContext,
+) [fs, error] {
   let root = test.temp_dir(ctx, name: "release-validation")?
   let artifact_dir = fp"${root}/dist"
   artifact_dir.mkdir()?
-  let release_ctx = {
-    root: root,
-    target_dir: fp"${root}/target",
-    coverage_dir: fp"${root}/target/cov",
-    artifact_dir: artifact_dir,
-    host_os: "linux",
-    host_arch: "x86_64",
-    target: {
-      triple: "x86_64-unknown-linux-musl",
-      os: "linux",
-      arch: "x86_64",
-      docker_platform: "linux/amd64",
-      executable_format: "ELF",
-      elf_machine: "Advanced Micro Devices X86-64",
-      cpu_rustflags: [],
-      cpu_cflags: [],
-      static_musl: true,
-    },
-    profile: "dist",
-    darwin_deployment_target: "26.0",
-  }
+  let release_ctx = fixtures.linux_context(root)?
   let tag = "release-test"
 
-  for triple in ["x86_64-unknown-linux-musl", "aarch64-unknown-linux-musl", "aarch64-apple-darwin"] {
+  for triple in [
+    "x86_64-unknown-linux-musl",
+    "aarch64-unknown-linux-musl",
+    "aarch64-apple-darwin",
+  ] {
     let suffix = target_policy.release_suffix(triple)?
 
     for product in target_policy.products {
@@ -172,7 +154,7 @@ proc test_release_validation_requires_exactly_the_nine_expected_products(ctx: Te
 
   match releases.validate_artifacts(release_ctx, tag) {
     Ok(_) => test.fail("unexpected artifact passed validation")?
-    Err(error) => test.contains(error.message, "ContextError.StageFailed", error.message)?
+    Err(error) => test.contains(error.message, "StageError.Failed", error.message)?
   }
 }
 
@@ -187,16 +169,25 @@ proc test_context_paths_and_missing_tools_have_named_failures() [process, error]
   test.eq(lifecycle.repo_path(/repo, "target/custom").display(), "/repo/target/custom")?
   test.eq(lifecycle.repo_path(/repo, "/tmp/custom").display(), "/tmp/custom")?
 
-  match lifecycle.require_tool("xsh-selfhost-test-tool-that-does-not-exist") {
+  match stages.require_tool("xsh-selfhost-test-tool-that-does-not-exist") {
     Ok(_) => test.fail("missing tool unexpectedly resolved")?
-    Err(error) => test.eq(error.message, "ContextError.MissingTool")?
+    Err(error) => test.eq(error.message, "StageError.MissingTool")?
   }
 }
 
 proc test_failed_stage_reports_its_stage_and_target() [process, error, io] {
-  match lifecycle.run_stage("selfhost-stage", "selfhost-target", "false", ["false"], p".", {}) {
+  match stages.execute(
+    stages.command(
+      "selfhost-stage",
+      "selfhost-target",
+      "false",
+      ["false"],
+      p".",
+      {},
+    ),
+  ) {
     Ok(_) => test.fail("failing command unexpectedly succeeded")?
-    Err(error) => test.eq(error.message, "ContextError.StageFailed")?
+    Err(error) => test.eq(error.message, "StageError.Failed")?
   }
 }
 
@@ -265,26 +256,18 @@ main()?
   let platform = test.run_script(
     ctx,
     """
+use context
 use docker
+use targets as target_policy
 
-let ctx = {
+let ctx: context.Context = {
   root: p"/repo",
   target_dir: p"/repo/target",
   coverage_dir: p"/repo/target/cov",
   artifact_dir: p"/repo/dist",
-  host_os: "linux",
-  host_arch: "x86_64",
-  target: {
-    triple: "x86_64-unknown-linux-musl",
-    os: "linux",
-    arch: "x86_64",
-    docker_platform: "linux/amd64",
-    executable_format: "ELF",
-    elf_machine: "Advanced Micro Devices X86-64",
-    cpu_rustflags: [],
-    cpu_cflags: [],
-    static_musl: true,
-  },
+  host_os: target_policy.Linux,
+  host_arch: target_policy.X86_64,
+  target: target_policy.resolve("x86_64-unknown-linux-musl")?,
   profile: "dist",
   darwin_deployment_target: "26.0",
 }
@@ -309,25 +292,17 @@ proc test_rustybench_override_stays_a_direct_argv_prefix(ctx: TestContext) [fs, 
     ctx,
     """
 use bench
+use context
+use targets as target_policy
 
-let ctx = {
+let ctx: context.Context = {
   root: p"/repo",
   target_dir: p"/repo/target",
   coverage_dir: p"/repo/target/cov",
   artifact_dir: p"/repo/dist",
-  host_os: "linux",
-  host_arch: "x86_64",
-  target: {
-    triple: "x86_64-unknown-linux-musl",
-    os: "linux",
-    arch: "x86_64",
-    docker_platform: "linux/amd64",
-    executable_format: "ELF",
-    elf_machine: "Advanced Micro Devices X86-64",
-    cpu_rustflags: [],
-    cpu_cflags: [],
-    static_musl: true,
-  },
+  host_os: target_policy.Linux,
+  host_arch: target_policy.X86_64,
+  target: target_policy.resolve("x86_64-unknown-linux-musl")?,
   profile: "dist",
   darwin_deployment_target: "26.0",
 }

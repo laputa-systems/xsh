@@ -116,7 +116,7 @@ fn render_type(ty: &crate::sema::types::Type) -> String {
                 .join(", ");
             format!("{{{fields}}}")
         }
-        Type::Module(_) => "Module".to_string(),
+        Type::Module(_) | Type::DynamicModule => "Module".to_string(),
         Type::Result(ok, err) => format!("Result[{}, {}]", render_type(ok), render_type(err)),
         Type::Status => "Status".to_string(),
         Type::EnvPathList => "EnvPathList".to_string(),

@@ -216,6 +216,13 @@ impl Checker {
         name: Name,
         span: Span,
     ) -> Type {
+        let qualified = Name::intern(format!("{namespace}.{name}"));
+        if self.error_families.contains_key(&qualified) {
+            return Type::ErrorFamily(qualified);
+        }
+        if self.error_facets.contains(&qualified) {
+            return Type::ErrorFacet(qualified);
+        }
         let Some(types) = self.type_namespaces.get(&namespace) else {
             self.error(span, "unknown type namespace", "check.unknown-type");
             return Type::Invalid;

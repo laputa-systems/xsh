@@ -1,5 +1,6 @@
 ##! Docker image, mount, platform, and direct internal-XSH invocation policy.
 use context
+use stage as stages
 
 ## Computes the Docker image name from the supported environment override.
 export proc image_name() [env, error] -> Result[Str] {
@@ -20,32 +21,36 @@ export proc ensure_image(ctx: context.Context) [process, env, error, io] -> Resu
   let build_image = env.get_or("XSH_TEST_IMAGE_BUILD", "1")?.trim()
 
   if build_image == "0" {
-    context.run_stage(
-      "docker-image-inspect",
-      ctx.target.triple,
-      "docker",
-      ["docker", "image", "inspect", image],
-      ctx.root,
-      {},
+    stages.execute(
+      stages.command(
+        "docker-image-inspect",
+        ctx.target.triple,
+        "docker",
+        ["docker", "image", "inspect", image],
+        ctx.root,
+        {},
+      ),
     )?
   } else {
-    context.run_stage(
-      "docker-image-build",
-      ctx.target.triple,
-      "docker",
-      [
+    stages.execute(
+      stages.command(
+        "docker-image-build",
+        ctx.target.triple,
         "docker",
-        "build",
-        "--platform",
-        selected_platform,
-        "-t",
-        image,
-        "-f",
-        "Dockerfile.test",
-        ".",
-      ],
-      ctx.root,
-      {},
+        [
+          "docker",
+          "build",
+          "--platform",
+          selected_platform,
+          "-t",
+          image,
+          "-f",
+          "Dockerfile.test",
+          ".",
+        ],
+        ctx.root,
+        {},
+      ),
     )?
   }
 
@@ -134,5 +139,14 @@ export proc run_internal(
     stress_repeat,
     extra,
   )
-  context.run_stage(f"docker-${operation}", ctx.target.triple, "docker", argv, ctx.root, {})?
+  stages.execute(
+    stages.command(
+      f"docker-${operation}",
+      ctx.target.triple,
+      "docker",
+      argv,
+      ctx.root,
+      {},
+    ),
+  )?
 }
