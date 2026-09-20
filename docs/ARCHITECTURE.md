@@ -116,6 +116,56 @@ representation. There is no arena execution mode or compatibility interpreter.
 Runtime changes should preserve source-visible order, explicit boundaries, and
 traceable failure paths before pursuing cleverness.
 
+## Embedded Standard Library
+
+Some public standard-module entries execute embedded XSH instead of a native
+operation. The public contract is unchanged and still declared once in
+`crates/xsh-registry`; what changes is where the entry's behavior comes from.
+
+Each entry or overload carries an `ImplBinding`:
+
+- `Native` — the existing `RuntimeOp` body. This is the default and covers
+  everything not explicitly migrated.
+- `Script` — an implementation function in an embedded module.
+
+**Sources.** Maintained implementations live under `stdlib/` and are embedded
+through the compile-time catalog in `src/stdlib.rs`. `include_str!` embeds each
+file and makes Cargo rebuild tracking cover it. The catalog is a fixed table: it
+never scans a directory, reads the environment, or consults the filesystem when
+the executable runs, and no installed stdlib directory is required. Retained
+sources and diagnostics ship in normal binaries.
+
+**Preparation.** `src/loader.rs` extends ordinary preparation:
+
+1. Parse the entry and its statically loaded user-module graph.
+2. `stdlib::required_modules` selects embedded modules from the public
+   spellings the parsed arena mentions. Selection is syntactic and
+   conservative: over-selection prepares an implementation the program never
+   calls, while under-selection would be a preparation defect. A referenced
+   user-code loading route (`module.load`) selects the complete applicable set.
+3. Each selected module is parsed at most once into the same arena as an
+   *internal* module and checked with the program.
+4. `lower_script_module_call` / `lower_script_method_call` in
+   `src/runtime/eval/lower.rs` bind a script-backed public call to the prepared
+   implementation function and emit an ordinary `Call`, so execution uses the
+   normal frame engine.
+
+A dynamically loaded user module never reparses embedded source: it lowers its
+standard calls to `BuildExprRow::ExternalCall`, and the runtime resolves them
+through the evaluator's dynamic function table to the implementations the
+loading program already prepared.
+
+**Namespace integrity.** `ArenaProgram::modules` entries carry an `internal`
+flag. Internal modules use the reserved namespace `<xsh-stdlib:IDENTITY>`, a
+spelling no XSH identifier can produce, so user source, `use` paths, module
+search roots, and dynamic modules cannot name them. Their helpers are excluded
+from the unqualified declaration tables, from the global top-level name set, and
+from user-module collection. `xsh::frontend::stdlib_preparation` exposes
+test-only preparation counters behind the existing `native-tests` feature.
+
+The migration ledger, per-group dispositions, and measured results live in
+`STDLIB-PORT.md`.
+
 ## Executable IR Ownership
 
 The executable frontend has stable owners rather than a migration path:

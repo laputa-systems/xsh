@@ -17,5 +17,7 @@ mod libxsh_api;
 mod runtime;
 #[path = "sema.rs"]
 mod sema;
+#[path = "stdlib_port.rs"]
+mod stdlib_port;
 #[path = "syntax.rs"]
 mod syntax;

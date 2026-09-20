@@ -1,0 +1,23 @@
+{
+  "tooling_xsht_api": {
+    "budget_ms": 2.0,
+    "candidate_median_ms": 11.575874988920987,
+    "delta_ms": -0.5634170229313895,
+    "passed": true,
+    "reference_median_ms": 12.139292011852376
+  },
+  "tooling_xsht_check_core": {
+    "budget_ms": 2.0,
+    "candidate_median_ms": 11.157354500028305,
+    "delta_ms": -0.4469164850888774,
+    "passed": true,
+    "reference_median_ms": 11.604270985117182
+  },
+  "tooling_xsht_lint_core": {
+    "budget_ms": 2.0,
+    "candidate_median_ms": 10.84833349159453,
+    "delta_ms": -0.61570800608024,
+    "passed": true,
+    "reference_median_ms": 11.46404149767477
+  }
+}

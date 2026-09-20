@@ -470,6 +470,21 @@ pub struct ArenaProgram {
     symbols: crate::symbol::SymbolOwner,
 }
 
+impl ArenaProgram {
+    /// Whether `name` is the reserved namespace of an embedded implementation
+    /// module.
+    ///
+    /// Internal namespaces use a spelling no XSH identifier can produce, so
+    /// user source, `use` paths, and module search roots cannot name them. The
+    /// predicate keeps that spelling in one place instead of testing text at
+    /// each call site.
+    pub fn is_internal_namespace(&self, name: Name) -> bool {
+        self.modules
+            .iter()
+            .any(|module| module.internal && module.name == name)
+    }
+}
+
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct ArenaDocComments {
     pub module: Option<Span>,
@@ -755,6 +770,14 @@ pub struct ArenaProgramBuilder<'a> {
     builder_entry_input_starts: Vec<usize>,
     modules: Vec<ArenaUserModule>,
     docs: ArenaDocComments,
+    /// Depth of embedded-implementation source parsing.
+    ///
+    /// Comments in an embedded implementation module are implementation
+    /// documentation for maintainers, not user-facing API docs, so they do not
+    /// participate in the user doc-comment diagnostics. Without this the
+    /// accumulator would attribute a module with no statements to whatever
+    /// source happened to be first in the map.
+    internal_source_depth: usize,
 }
 
 impl<'a> ArenaProgramBuilder<'a> {
@@ -806,6 +829,7 @@ impl<'a> ArenaProgramBuilder<'a> {
             builder_entry_input_starts: Vec::new(),
             modules: Vec::new(),
             docs: ArenaDocComments::default(),
+            internal_source_depth: 0,
         }
     }
 
@@ -865,6 +889,7 @@ impl<'a> ArenaProgramBuilder<'a> {
             builder_entry_input_starts: Vec::new(),
             modules: Vec::new(),
             docs: ArenaDocComments::default(),
+            internal_source_depth: 0,
         }
     }
 
@@ -912,7 +937,21 @@ impl<'a> ArenaProgramBuilder<'a> {
         statements
     }
 
+    /// Parse embedded-implementation source into this arena.
+    ///
+    /// The loader nests the work so that module-level comments in the embedded
+    /// source cannot enter the user-facing doc-comment accumulator.
+    pub fn with_internal_source<R>(&mut self, work: impl FnOnce(&mut Self) -> R) -> R {
+        self.internal_source_depth += 1;
+        let result = work(self);
+        self.internal_source_depth -= 1;
+        result
+    }
+
     pub fn attach_doc_comments_for_statements(&mut self, source: &str, statements: ArenaRange) {
+        if self.internal_source_depth > 0 {
+            return;
+        }
         let statement_ids = self.lowerer.arena.stmt_ids(statements).collect::<Vec<_>>();
         let docs = doc_comments_for_statements(&self.lowerer.arena, source, &statement_ids);
         if let Some(module) = docs.module {
@@ -949,7 +988,34 @@ impl<'a> ArenaProgramBuilder<'a> {
             key,
             name,
             statements,
+            internal: false,
         });
+    }
+
+    pub fn push_internal_arena_module(
+        &mut self,
+        key: String,
+        name: Name,
+        statements: ArenaRange,
+    ) {
+        self.modules.push(ArenaUserModule {
+            key,
+            name,
+            statements,
+            internal: true,
+        });
+    }
+
+    /// The arena under construction.
+    ///
+    /// A loader that must decide what else to parse needs to inspect the
+    /// statements it has already lowered into this arena.
+    pub fn ast_arena(&self) -> &AstArena {
+        &self.lowerer.arena
+    }
+
+    pub fn name(&self, text: &str) -> Name {
+        self.symbols.intern(text)
     }
 
     pub fn begin_block(&mut self) {
@@ -4386,6 +4452,11 @@ pub struct ArenaUserModule {
     pub key: String,
     pub name: Name,
     pub statements: ArenaRange,
+    /// Whether this is an embedded standard-library implementation module
+    /// rather than a user source module. Internal modules are reachable only
+    /// through registry implementation bindings; they never participate in
+    /// user `use` resolution or public introspection.
+    pub internal: bool,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

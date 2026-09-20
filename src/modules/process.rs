@@ -553,11 +553,6 @@ fn port_process_records(
     Ok(Vec::new())
 }
 
-pub(crate) fn argv_words(text: &str, span: Span) -> Result<Vec<String>, RuntimeError> {
-    let mut parser = ArgvWordsParser::new(text, span);
-    parser.parse()
-}
-
 pub(crate) fn signal_info(signal: &str, span: Span) -> Result<SignalInfo, RuntimeError> {
     let signal = signal.trim();
     if signal.is_empty() {
@@ -634,103 +629,6 @@ fn signal_name(number: i32) -> Option<&'static str> {
         .find_map(|(name, candidate)| (*candidate == number).then_some(*name))
 }
 
-struct ArgvWordsParser<'a> {
-    chars: std::iter::Peekable<std::str::CharIndices<'a>>,
-    span: Span,
-}
-
-impl<'a> ArgvWordsParser<'a> {
-    fn new(text: &'a str, span: Span) -> Self {
-        Self {
-            chars: text.char_indices().peekable(),
-            span,
-        }
-    }
-
-    fn parse(&mut self) -> Result<Vec<String>, RuntimeError> {
-        let mut words = Vec::new();
-        loop {
-            self.skip_whitespace();
-            if self.chars.peek().is_none() {
-                break;
-            }
-            words.push(self.parse_word()?);
-        }
-        Ok(words)
-    }
-
-    fn parse_word(&mut self) -> Result<String, RuntimeError> {
-        let mut word = String::new();
-        while let Some((_, ch)) = self.chars.peek().copied() {
-            if ch.is_whitespace() {
-                break;
-            }
-            self.chars.next();
-            match ch {
-                '\'' => self.parse_single_quoted(&mut word)?,
-                '"' => self.parse_double_quoted(&mut word)?,
-                '\\' => self.parse_escape(&mut word, false)?,
-                ch if shell_syntax_char(ch) => return Err(self.shell_syntax_error(ch)),
-                ch => word.push(ch),
-            }
-        }
-        Ok(word)
-    }
-
-    fn parse_single_quoted(&mut self, word: &mut String) -> Result<(), RuntimeError> {
-        for (_, ch) in self.chars.by_ref() {
-            if ch == '\'' {
-                return Ok(());
-            }
-            word.push(ch);
-        }
-        Err(RuntimeError::new("argv-words", "unterminated single quote").with_span(self.span))
-    }
-
-    fn parse_double_quoted(&mut self, word: &mut String) -> Result<(), RuntimeError> {
-        while let Some((_, ch)) = self.chars.next() {
-            match ch {
-                '"' => return Ok(()),
-                '\\' => self.parse_escape(word, true)?,
-                '$' | '`' => return Err(self.shell_syntax_error(ch)),
-                ch => word.push(ch),
-            }
-        }
-        Err(RuntimeError::new("argv-words", "unterminated double quote").with_span(self.span))
-    }
-
-    fn parse_escape(&mut self, word: &mut String, quoted: bool) -> Result<(), RuntimeError> {
-        let Some((_, ch)) = self.chars.next() else {
-            return Err(RuntimeError::new("argv-words", "trailing escape").with_span(self.span));
-        };
-        if !quoted && shell_syntax_char(ch) {
-            return Err(self.shell_syntax_error(ch));
-        }
-        word.push(ch);
-        Ok(())
-    }
-
-    fn skip_whitespace(&mut self) {
-        while self.chars.peek().is_some_and(|(_, ch)| ch.is_whitespace()) {
-            self.chars.next();
-        }
-    }
-
-    fn shell_syntax_error(&self, ch: char) -> RuntimeError {
-        RuntimeError::new(
-            "argv-words",
-            format!("shell syntax character `{ch}` is not accepted"),
-        )
-        .with_span(self.span)
-    }
-}
-
-fn shell_syntax_char(ch: char) -> bool {
-    matches!(
-        ch,
-        '|' | '<' | '>' | ';' | '&' | '$' | '`' | '*' | '?' | '[' | ']' | '(' | ')' | '{' | '}'
-    )
-}
 
 #[derive(Clone, Debug)]
 struct ProcessRecord {
@@ -2113,50 +2011,4 @@ fn port_processes_impl(
         "process.port and process.ports are implemented on Linux and macOS",
     )
     .with_span(span))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{Span, argv_words};
-    use crate::source::SourceId;
-
-    fn span() -> Span {
-        Span::new(SourceId::new(0), 0, 0)
-    }
-
-    #[test]
-    fn argv_words_parses_quotes_and_escapes() {
-        assert_eq!(
-            argv_words(
-                "cmd 'two words' \"double quoted\" escaped\\ space 'literal *'",
-                span()
-            )
-            .unwrap(),
-            vec![
-                "cmd",
-                "two words",
-                "double quoted",
-                "escaped space",
-                "literal *"
-            ]
-        );
-    }
-
-    #[test]
-    fn argv_words_rejects_shell_syntax() {
-        crate::symbol::SymbolOwner::new().with_current(|| {
-            for text in [
-                "echo hi | wc",
-                "echo $HOME",
-                "echo *",
-                "echo $(date)",
-                "echo `date`",
-                "echo > file",
-                "unterminated 'quote",
-            ] {
-                let error = argv_words(text, span()).unwrap_err();
-                assert_eq!(error.kind, "argv-words");
-            }
-        });
-    }
 }

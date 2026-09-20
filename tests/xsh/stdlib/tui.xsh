@@ -23,6 +23,100 @@ proc test_tui_helpers() [error] {
   test.ok(tui.dim().contains("\u{1b}["))?
 }
 
+# Every sequence producer, asserted against its exact bytes rather than a shape
+# check, so a wrong or truncated selector cannot pass.
+proc test_tui_sequence_bytes() [error] {
+  test.eq(tui.reset(), "\u{1b}[0m")?
+  test.eq(tui.bold(), "\u{1b}[1m")?
+  test.eq(tui.dim(), "\u{1b}[2m")?
+  test.eq(tui.red(), "\u{1b}[31m")?
+  test.eq(tui.green(), "\u{1b}[32m")?
+  test.eq(tui.yellow(), "\u{1b}[33m")?
+  test.eq(tui.blue(), "\u{1b}[34m")?
+  test.eq(tui.magenta(), "\u{1b}[35m")?
+  test.eq(tui.cyan(), "\u{1b}[36m")?
+  test.eq(tui.white(), "\u{1b}[37m")?
+  test.eq(tui.gray(), "\u{1b}[90m")?
+  test.eq(tui.clear(), "\u{1b}[2J")?
+  test.eq(tui.home(), "\u{1b}[H")?
+  test.eq(tui.erase_line(), "\u{1b}[2K")?
+  test.eq(tui.hide_cursor(), "\u{1b}[?25l")?
+  test.eq(tui.show_cursor(), "\u{1b}[?25h")?
+}
+
+# Text that already reaches the requested width is returned byte-identical, in
+# both directions, including when it is wider than the request.
+proc test_tui_pad_already_wide_enough() [error] {
+  test.eq(tui.left_pad("abcd", 4), "abcd")?
+  test.eq(tui.right_pad("abcd", 4), "abcd")?
+  test.eq(tui.left_pad("abcde", 3), "abcde")?
+  test.eq(tui.right_pad("abcde", 3), "abcde")?
+  test.eq(tui.left_pad("a", 1), "a")?
+  test.eq(tui.right_pad("a", 1), "a")?
+}
+
+# A negative width clamps to zero, and a zero width never pads: both leave the
+# text unchanged, including empty text.
+proc test_tui_pad_zero_and_negative_width() [error] {
+  test.eq(tui.left_pad("x", 0), "x")?
+  test.eq(tui.right_pad("x", 0), "x")?
+  test.eq(tui.left_pad("x", -1), "x")?
+  test.eq(tui.right_pad("x", -1), "x")?
+  test.eq(tui.left_pad("x", -100), "x")?
+  test.eq(tui.right_pad("x", -100), "x")?
+  test.eq(tui.left_pad("", 0), "")?
+  test.eq(tui.right_pad("", 0), "")?
+  test.eq(tui.left_pad("", -5), "")?
+  test.eq(tui.right_pad("", -5), "")?
+}
+
+# Escape sequences occupy no columns, so styled text pads to its displayed
+# width and the sequences stay intact around the inserted spaces.
+proc test_tui_pad_ignores_escape_sequences() [error] {
+  let styled = f"${tui.red()}x${tui.reset()}"
+  test.eq(tui.left_pad(styled, 1), styled)?
+  test.eq(tui.left_pad(styled, 3), f"  ${styled}")?
+  test.eq(tui.right_pad(styled, 3), f"${styled}  ")?
+  test.eq(
+    tui.left_pad(f"${tui.bold()}wide${tui.reset()}", 6),
+    f"  ${tui.bold()}wide${tui.reset()}",
+  )?
+  # A value made only of escape sequences is zero columns wide.
+  test.eq(tui.left_pad(tui.reset(), 2), f"  ${tui.reset()}")?
+  test.eq(tui.right_pad(tui.clear(), 2), f"${tui.clear()}  ")?
+}
+
+# Width counts Unicode scalar values, not display cells and not graphemes: a
+# combining mark and an astral emoji each count as one.
+proc test_tui_pad_counts_unicode_scalars() [error] {
+  test.eq(tui.left_pad("héllo", 6), " héllo")?
+  test.eq(tui.right_pad("héllo", 6), "héllo ")?
+  test.eq(tui.left_pad("日本", 3), " 日本")?
+  test.eq(tui.right_pad("😀", 3), "😀  ")?
+}
+
+# CR and LF are zero-width, so text carrying line breaks pads on visible
+# characters and keeps its line breaks in place.
+proc test_tui_pad_treats_cr_and_lf_as_zero_width() [error] {
+  test.eq(tui.left_pad("a\r\nb", 4), "  a\r\nb")?
+  test.eq(tui.right_pad("a\r\nb", 4), "a\r\nb  ")?
+  test.eq(tui.left_pad("\r\n", 0), "\r\n")?
+  test.eq(tui.left_pad("\r\n", 2), "  \r\n")?
+  test.eq(tui.right_pad("\r\n", 3), "\r\n   ")?
+}
+
+# An `ESC` that does not open a CSI sequence is an ordinary character and keeps
+# its width; an unterminated CSI sequence runs to the end of the value and
+# contributes nothing.
+proc test_tui_pad_lone_and_unterminated_escapes() [error] {
+  test.eq(tui.right_pad("a\u{1b}b", 3), "a\u{1b}b")?
+  test.eq(tui.right_pad("a\u{1b}", 3), "a\u{1b} ")?
+  test.eq(tui.right_pad("a\u{1b}[3", 4), "a\u{1b}[3   ")?
+  test.eq(tui.left_pad("a\u{1b}[31", 4), "   a\u{1b}[31")?
+  test.eq(tui.left_pad("\u{1b}[", 2), "  \u{1b}[")?
+  test.eq(tui.right_pad("\u{1b}[", 2), "\u{1b}[  ")?
+}
+
 proc test_tui_read_secret_piped_lines(ctx: TestContext) [fs, process, error] {
   let script = test.temp_file(
     ctx,

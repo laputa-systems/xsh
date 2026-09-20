@@ -138,32 +138,6 @@ pub(crate) fn from_text(text: &str) -> Vec<u8> {
     text.as_bytes().to_vec()
 }
 
-pub(crate) fn human(size: i64) -> String {
-    if size < 0 {
-        return "-".to_string();
-    }
-
-    let mut amount = size as f64;
-    let mut unit_index = 0usize;
-    let units = ["", "K", "M", "G", "T", "P", "E"];
-
-    while amount >= 1024.0 && unit_index + 1 < units.len() {
-        amount /= 1024.0;
-        unit_index += 1;
-    }
-
-    let unit = units[unit_index];
-    if unit.is_empty() {
-        return format!("{amount:.0}");
-    }
-
-    if amount < 10.0 {
-        return format!("{amount:.1}{unit}");
-    }
-
-    format!("{amount:.0}{unit}")
-}
-
 pub(crate) fn concat(chunks: Vec<Vec<u8>>) -> Vec<u8> {
     let len = chunks.iter().map(Vec::len).sum();
     let mut out = Vec::with_capacity(len);

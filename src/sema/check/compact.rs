@@ -138,6 +138,17 @@ impl CompactDeclCollector {
             self.collect_decl_stmt(program, stmt, None);
         }
         for module in &program.modules {
+            if module.internal {
+                // Embedded implementations carry their own reserved namespace.
+                // Their helper spellings are private to that module, so they
+                // neither collide with nor shadow user top-level names.
+                let user_names = std::mem::take(&mut self.names);
+                for stmt in program.module_statements(module) {
+                    self.collect_decl_stmt(program, stmt, Some(module.name));
+                }
+                self.names = user_names;
+                continue;
+            }
             for stmt in program.module_statements(module) {
                 self.collect_decl_stmt(program, stmt, Some(module.name));
             }
@@ -179,9 +190,14 @@ impl CompactDeclCollector {
     ) {
         let def = program.arena.type_def(id);
         self.output.type_defs += 1;
-        self.check_top_level_name(def.name, span, "type name conflicts with a built-in type");
+        let internal = namespace.is_some_and(|namespace| program.is_internal_namespace(namespace));
+        if !internal {
+            self.check_top_level_name(def.name, span, "type name conflicts with a built-in type");
+        }
         let info = self.collect_type_def_body(program, def, namespace);
-        self.output.types.insert(def.name, info);
+        if !internal {
+            self.output.types.insert(def.name, info);
+        }
     }
 
     fn collect_type_def_body(
@@ -298,11 +314,13 @@ impl CompactDeclCollector {
     ) {
         let def = program.arena.error_def(id);
         self.output.error_families += 1;
-        self.check_top_level_name(
-            def.name,
-            span,
-            "error family name conflicts with a built-in type",
-        );
+        if !namespace.is_some_and(|namespace| program.is_internal_namespace(namespace)) {
+            self.check_top_level_name(
+                def.name,
+                span,
+                "error family name conflicts with a built-in type",
+            );
+        }
         self.collect_error_variants(program, def, namespace);
     }
 
@@ -367,15 +385,19 @@ impl CompactDeclCollector {
         namespace: Option<Name>,
     ) {
         let def = program.arena.function_def(id);
+        let internal = namespace.is_some_and(|namespace| program.is_internal_namespace(namespace));
         self.output.function_defs += 1;
-        self.check_standard_module_shadow(&def.name.as_str(), span);
-        if kind == CompactFunctionKind::Proc && CoreCommand::from_name(&def.name.as_str()).is_some()
-        {
-            self.error(
-                span,
-                "proc name conflicts with a core command",
-                "check.core-command-shadow",
-            );
+        if !internal {
+            self.check_standard_module_shadow(&def.name.as_str(), span);
+            if kind == CompactFunctionKind::Proc
+                && CoreCommand::from_name(&def.name.as_str()).is_some()
+            {
+                self.error(
+                    span,
+                    "proc name conflicts with a core command",
+                    "check.core-command-shadow",
+                );
+            }
         }
         if !self.names.insert(def.name) {
             self.error(span, "duplicate top-level name", "check.duplicate-name");
@@ -394,6 +416,12 @@ impl CompactDeclCollector {
                     self.output.qualified_streams.insert(qualified, sig.clone());
                 }
             }
+        }
+        if internal {
+            // An embedded helper is callable only through its owning
+            // implementation namespace, so it must not join the unqualified
+            // tables that serve ordinary top-level calls.
+            return;
         }
         match kind {
             CompactFunctionKind::Proc => {

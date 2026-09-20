@@ -191,6 +191,7 @@ pub(in crate::runtime::eval) enum FullTag {
     ExprTry,
     ExprCall,
     ExprDirectPureCall,
+    ExprExternalCall,
     ExprDynamicCall,
     ExprSelfCall,
     StmtLet,
@@ -1518,6 +1519,28 @@ impl FullBuilder {
         Ok(program)
     }
 
+    /// Build a program whose standard-library calls resolve to implementations
+    /// a loading program already prepared.
+    pub(in crate::runtime::eval) fn build_compact_external_stdlib(
+        program: &ArenaProgram,
+        declarations: &CompactDeclOutput,
+        bodies: &CompactBodyProbeOutput,
+        source: &str,
+        sources: Arc<SourceMap>,
+        source_id: SourceId,
+    ) -> Result<FullProgram, IrBuildError> {
+        Self::build_compact_with_options(
+            program,
+            declarations,
+            bodies,
+            source,
+            sources,
+            source_id,
+            false,
+            super::super::lower::StdlibLowerLinkage::External,
+        )
+    }
+
     pub(in crate::runtime::eval) fn build_compact(
         program: &ArenaProgram,
         declarations: &CompactDeclOutput,
@@ -1534,6 +1557,7 @@ impl FullBuilder {
             sources,
             source_id,
             false,
+            super::super::lower::StdlibLowerLinkage::Local,
         )
     }
 
@@ -1545,6 +1569,7 @@ impl FullBuilder {
         sources: Arc<SourceMap>,
         source_id: SourceId,
         allow_checker_only: bool,
+        stdlib_linkage: super::super::lower::StdlibLowerLinkage,
     ) -> Result<FullProgram, IrBuildError> {
         let symbols = program.symbol_owner().clone();
         symbols.clone().with_current(|| {
@@ -1556,6 +1581,7 @@ impl FullBuilder {
                 sources,
                 source_id,
                 allow_checker_only,
+                stdlib_linkage,
                 symbols,
             )
         })
@@ -1569,6 +1595,7 @@ impl FullBuilder {
         sources: Arc<SourceMap>,
         source_id: SourceId,
         allow_checker_only: bool,
+        stdlib_linkage: super::super::lower::StdlibLowerLinkage,
         symbols: crate::symbol::SymbolOwner,
     ) -> Result<FullProgram, IrBuildError> {
         let mut builder = Self::new(source_id);
@@ -1583,6 +1610,7 @@ impl FullBuilder {
             bodies,
             source,
             &sources,
+            stdlib_linkage,
             |mut unit| {
                 builder.predeclare(&[&unit])?;
                 let body = unit.take_lowered_body().ok_or_else(|| {
@@ -2581,9 +2609,10 @@ fn instruction_effects(tags: &[FullTag]) -> u32 {
                 }
                 FullTag::ExprAbort | FullTag::ExprFail => EFFECT_PROPAGATE | EFFECT_TRACE,
                 FullTag::ExprDynamicCall => EFFECT_DYNAMIC_CALL | EFFECT_TRACE,
-                FullTag::ExprCall | FullTag::ExprSelfCall | FullTag::ExprDirectPureCall => {
-                    EFFECT_TRACE
-                }
+                FullTag::ExprCall
+                | FullTag::ExprSelfCall
+                | FullTag::ExprDirectPureCall
+                | FullTag::ExprExternalCall => EFFECT_TRACE,
                 FullTag::ExprModuleCall | FullTag::StmtProc => EFFECT_HOST | EFFECT_TRACE,
                 FullTag::StmtPrint => EFFECT_HOST | EFFECT_TRACE,
                 FullTag::ExprFsFiles
@@ -3527,6 +3556,63 @@ fn indexed_stmt_can_return(store: &FullStore, instruction: usize) -> Result<bool
 }
 
 impl FullVerifier {
+    /// Private representation operations are reachable only from the embedded
+    /// implementation module that declares them.
+    ///
+    /// Lowering already rewrites a bridge call only inside its own module, but
+    /// an executable could still carry the operation from anywhere. The owner
+    /// recorded on the enclosing function is the authority: it comes from the
+    /// checked implementation identity, not from a callsite span or a display
+    /// label. Instructions outside every function are driver statements, where
+    /// no bridge call can be legitimate.
+    fn verify_bridge_ownership(store: &FullStore) -> Result<(), IrVerifyError> {
+        let mut covered = 0usize;
+        for (index, _function) in store.functions.iter().enumerate() {
+            let instructions = store.function_instruction_range(index)?;
+            covered = covered.max(instructions.end);
+            let owner = store.function_metadata[index].owner;
+            let module = if owner == IR_NONE {
+                None
+            } else {
+                crate::stdlib::find_by_namespace(store.string(owner)?)
+            };
+            Self::verify_bridge_instructions(store, instructions.start, instructions.end, module)?;
+        }
+        Self::verify_bridge_instructions(store, covered, store.tags.len(), None)
+    }
+
+    /// Reject a private representation operation carried by an instruction the
+    /// owner is not permitted to reach.
+    fn verify_bridge_instructions(
+        store: &FullStore,
+        start: usize,
+        end: usize,
+        owner: Option<&'static crate::stdlib::StdlibModule>,
+    ) -> Result<(), IrVerifyError> {
+        for instruction in start..end {
+            if store.tags[instruction] != FullTag::ExprModuleCall {
+                continue;
+            }
+            let payload = store.payload(store.data[instruction].range())?;
+            let Some(pool_index) = payload.first().copied() else {
+                continue;
+            };
+            let Some(op) = store.runtime_ops.get(pool_index as usize) else {
+                continue;
+            };
+            if !crate::stdlib::is_private_bridge_op(*op) {
+                continue;
+            }
+            let permitted = owner.is_some_and(|module| crate::stdlib::declares_bridge_op(module, *op));
+            if !permitted {
+                return Err(IrVerifyError::new(
+                    "private representation operation reached from outside its implementation module",
+                ));
+            }
+        }
+        Ok(())
+    }
+
     fn verify(program: &FullProgram) -> Result<(), IrVerifyError> {
         let _symbols = program.symbol_owner().enter();
         let store = &program.store;
@@ -3721,6 +3807,7 @@ impl FullVerifier {
                 )));
             }
         }
+        Self::verify_bridge_ownership(store)?;
         if store.driver_root == IR_NONE {
             if !store.driver_steps.is_empty()
                 || !store.driver_slots.is_empty()
@@ -6884,6 +6971,19 @@ impl_node_codec! {
             args,
             span,
         },
+        BuildExprRow::ExternalCall {
+            function,
+            args,
+            span,
+        } => ExprExternalCall {
+            function: QualifiedName,
+            args: Vec<LoweredCallArg>,
+            span: Span,
+        } => BuildExprRow::ExternalCall {
+            function,
+            args,
+            span,
+        },
         BuildExprRow::DirectPureCall {
             function,
             args,
@@ -7313,9 +7413,17 @@ run true
     }
 
     fn fixture(name: &str, source: &str) -> FullProgram {
-        let mut sources = SourceMap::new();
-        let source_id = sources.add_file(name, source);
-        let parsed = Parser::parse_source_arena_only(source_id, source);
+        // Prepare through the loader so embedded standard-library
+        // implementations are attached, exactly as the script runner does.
+        let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only(
+            name,
+            crate::loader::entry_source_from_text(name, source.to_string()),
+            Vec::new(),
+        );
+        let source_id = crate::source::SourceMap::files(&sources)
+            .first()
+            .map(crate::source::SourceFile::id)
+            .expect("entry source is present");
         assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
         let declarations = Checker::check_compact_declarations(&parsed.arena);
         assert!(

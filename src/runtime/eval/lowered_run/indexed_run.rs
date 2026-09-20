@@ -1660,6 +1660,47 @@ impl Evaluator {
         result
     }
 
+    /// Call an implementation a loading program published.
+    ///
+    /// A dynamically loaded module can name a standard-library implementation
+    /// its loader already prepared. That function has no identity in the loaded
+    /// module's own store, so the call resolves through the dynamic function
+    /// table and executes inside the program that prepared it.
+    fn eval_indexed_external_call(
+        &mut self,
+        qualified: QualifiedName,
+        values: &[LoweredValue],
+        call_span: Span,
+    ) -> Result<LoweredValue, RuntimeError> {
+        let key = LoweredFunctionKey::Qualified(qualified);
+        let program = Arc::clone(
+            self.indexed_program
+                .as_ref()
+                .expect("indexed caller retains its indexed program"),
+        );
+        for kind in [LoweredFunctionKind::Pure, LoweredFunctionKind::Proc] {
+            if self
+                .indexed_function_index(&program, key, kind)
+                .map_err(|error| indexed_error(error, call_span))?
+                .is_some()
+            {
+                return self.eval_indexed_named_call(key, values, call_span);
+            }
+        }
+        let dynamic = self
+            .indexed_dynamic_functions
+            .get(&qualified)
+            .cloned()
+            .ok_or_else(|| {
+                RuntimeError::new("unresolved-lowered-call", qualified.to_string())
+                    .with_span(call_span)
+            })?;
+        let previous = self.indexed_program.replace(Arc::clone(&dynamic.program));
+        let result = self.eval_indexed_named_call(dynamic.function, values, call_span);
+        self.indexed_program = previous;
+        result
+    }
+
     fn eval_indexed_direct_pure_call(
         &mut self,
         function: LoweredFunctionKey,
@@ -5818,6 +5859,40 @@ impl Evaluator {
                 indexed_finish(args, span)?;
                 return self
                     .eval_indexed_named_call(function, &values, span)
+                    .map(ControlFlow::Continue);
+            }
+            FullTag::ExprExternalCall => {
+                let qualified =
+                    indexed_decode::<QualifiedName>(&mut payload, execution, call_span)?;
+                let (_, mut args) = execution
+                    .block(&mut payload, BLOCK_LIST)
+                    .map_err(|error| indexed_error(error, call_span))?;
+                let len = indexed_raw(&mut args, call_span)? as usize;
+                let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
+                indexed_finish(payload, call_span)?;
+                let mut values = Vec::with_capacity(len);
+                for _ in 0..len {
+                    let kind = indexed_raw(&mut args, span)?;
+                    let arg = indexed_raw(&mut args, span)?;
+                    let value = match self.eval_indexed_expr(execution, arg, slots, span)? {
+                        ControlFlow::Continue(value) => value,
+                        ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+                    };
+                    match kind {
+                        0 => values.push(value),
+                        1 => values.extend(lowered_splice_arg_items(value, span)?),
+                        _ => {
+                            return Err(RuntimeError::new(
+                                "indexed-ir",
+                                "invalid indexed call argument kind",
+                            )
+                            .with_span(span));
+                        }
+                    }
+                }
+                indexed_finish(args, span)?;
+                return self
+                    .eval_indexed_external_call(qualified, &values, span)
                     .map(ControlFlow::Continue);
             }
             FullTag::ExprDirectPureCall => {

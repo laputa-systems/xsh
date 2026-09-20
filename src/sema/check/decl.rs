@@ -24,6 +24,13 @@ impl Checker {
         source: &str,
     ) {
         for module in &program.modules {
+            if module.internal {
+                // Embedded implementations are not user modules: they have no
+                // `use` path, no module contract, and no public documentation
+                // obligations. Their bodies are checked with the program and
+                // validated against the registry by `script_impls`.
+                continue;
+            }
             let sig = self.check_user_module_arena(program, type_program.clone(), source, module);
             self.user_modules.insert(module.key.clone(), sig);
         }

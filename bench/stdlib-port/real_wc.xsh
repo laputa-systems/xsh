@@ -1,0 +1,1 @@
+run core/wc.xsh

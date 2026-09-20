@@ -41,33 +41,7 @@ pub(crate) fn split_text(text: &str, separator: &str, maxsplit: Option<i64>) -> 
         .collect()
 }
 
-pub(crate) fn fields_text(text: &str, delimiter: &str) -> Vec<Value> {
-    if delimiter.is_empty() {
-        text.split_whitespace()
-            .map(|field| Value::Str(field.into()))
-            .collect()
-    } else {
-        text.split(delimiter)
-            .filter(|field| !field.is_empty())
-            .map(|field| Value::Str(field.into()))
-            .collect()
-    }
-}
 
-pub(crate) fn wrap_text(text: &str, width: i64, span: Span) -> Result<Vec<Value>, RuntimeError> {
-    if width <= 0 {
-        return Err(RuntimeError::new("text-wrap", "width must be positive").with_span(span));
-    }
-    let width = width as usize;
-    let mut output = Vec::new();
-    for line in text.lines() {
-        wrap_line(line, width, &mut output);
-    }
-    if text.ends_with('\n') {
-        output.push(Value::Str("".into()));
-    }
-    Ok(output)
-}
 
 pub(crate) fn translate_text(text: &str, from: &str, to: &str) -> String {
     // ASCII fast path (e.g. case folding): scan the byte slices directly. Same
@@ -232,38 +206,7 @@ pub(crate) fn parse_float_text(text: &str, span: Span) -> Result<f64, RuntimeErr
     })
 }
 
-fn wrap_line(line: &str, width: usize, output: &mut Vec<Value>) {
-    let mut current = String::new();
-    for word in line.split_whitespace() {
-        for chunk in wrap_word(word, width) {
-            if current.is_empty() {
-                current.push_str(&chunk);
-            } else if current.chars().count() + 1 + chunk.chars().count() <= width {
-                current.push(' ');
-                current.push_str(&chunk);
-            } else {
-                output.push(Value::Str(std::mem::take(&mut current).into()));
-                current.push_str(&chunk);
-            }
-        }
-    }
-    output.push(Value::Str(current.into()));
-}
 
-fn wrap_word(word: &str, width: usize) -> Vec<String> {
-    let mut chunks = Vec::new();
-    let mut current = String::new();
-    for ch in word.chars() {
-        if current.chars().count() == width {
-            chunks.push(std::mem::take(&mut current));
-        }
-        current.push(ch);
-    }
-    if !current.is_empty() {
-        chunks.push(current);
-    }
-    chunks
-}
 
 #[cfg(test)]
 mod tests {

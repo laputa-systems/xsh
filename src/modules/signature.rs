@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 use std::sync::OnceLock;
 use xsh_registry::signature as registry;
 
-pub use registry::{ApiArgCheck, ApiDocs, MethodReceiver};
+pub use registry::{ApiArgCheck, ApiDocs, ImplBinding, MethodReceiver, ScriptImpl};
 pub use xsh_registry::RuntimeOp;
 
 #[derive(Clone, Debug)]
@@ -21,6 +21,64 @@ pub struct ApiSpec {
 }
 
 impl ApiSpec {
+    /// The embedded implementation bound to a script-backed method spelling.
+    ///
+    /// Lowering sees a method by name only — the receiver's runtime kind is not
+    /// known when the call is encoded — so a spelling that two receivers bind
+    /// to different implementations cannot be routed unambiguously. The
+    /// registry test below rejects that case rather than letting lowering pick
+    /// one arbitrarily.
+    pub fn script_method_impl(&self, method: &str) -> Option<ScriptImpl> {
+        static BY_METHOD: OnceLock<BTreeMap<&'static str, ScriptImpl>> = OnceLock::new();
+        BY_METHOD
+            .get_or_init(|| {
+                let mut by_method = BTreeMap::new();
+                for receiver in &self.methods {
+                    for named in &receiver.methods {
+                        for overload in &named.overloads {
+                            if let Some(script) = overload.sig.script_impl() {
+                                by_method.insert(named.name, script);
+                            }
+                        }
+                    }
+                }
+                by_method
+            })
+            .get(method)
+            .copied()
+    }
+
+    /// Every embedded implementation binding, as `(public owner, entry, impl)`.
+    ///
+    /// `owner` is a module name for module functions and a receiver name for
+    /// methods. `entry` is the public spelling the binding serves.
+    pub fn script_impls(&self) -> Vec<(&'static str, &'static str, ScriptImpl)> {
+        let mut impls = Vec::new();
+        for module in &self.modules {
+            for function in &module.sig.functions {
+                for overload in &function.overloads {
+                    if let Some(script) = overload.script_impl() {
+                        impls.push((module.name, function.name, script));
+                    }
+                }
+            }
+        }
+        for receiver in &self.methods {
+            for method in &receiver.methods {
+                for overload in &method.overloads {
+                    if let Some(script) = overload.sig.script_impl() {
+                        impls.push((
+                            registry::receiver_name(receiver.receiver),
+                            method.name,
+                            script,
+                        ));
+                    }
+                }
+            }
+        }
+        impls
+    }
+
     fn from_registry(spec: &registry::ApiSpec) -> Self {
         Self::new(
             spec.modules.iter().map(convert_module_entry).collect(),
@@ -180,9 +238,23 @@ pub struct ModuleFnSig {
     pub command: bool,
     pub arg_check: ApiArgCheck,
     pub op: RuntimeOp,
+    /// Implementation routing adapted from the canonical signature. `Native`
+    /// entries keep their `op` dispatch; `Script` entries resolve to the named
+    /// embedded implementation function at preparation time.
+    pub binding: ImplBinding,
     /// Host capability inferred while adapting the canonical module or method
     /// signature. The checker and `xsht api` consume the same value.
     pub effect: Option<Effect>,
+}
+
+impl ModuleFnSig {
+    /// The embedded implementation this entry routes to, if any.
+    pub fn script_impl(&self) -> Option<ScriptImpl> {
+        match self.binding {
+            ImplBinding::Native => None,
+            ImplBinding::Script(script) => Some(script),
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -266,6 +338,7 @@ fn convert_module_fn_sig(module: &str, function: &str, sig: &registry::ModuleFnS
         command: sig.command,
         arg_check: sig.arg_check,
         op: sig.op,
+        binding: sig.binding,
         effect: Effect::from_module_call(module, function),
     }
 }
@@ -312,6 +385,7 @@ fn convert_method_sig(receiver: MethodReceiver, sig: &registry::MethodSig) -> Me
             command: sig.sig.command,
             arg_check: sig.sig.arg_check,
             op: sig.sig.op,
+            binding: sig.sig.binding,
             effect: method_required_effect(receiver, sig.sig.op),
         },
         return_ty: match &sig.return_ty {
@@ -505,5 +579,6 @@ mod tests {
         assert_eq!(main.command, registry.command);
         assert_eq!(main.arg_check, registry.arg_check);
         assert_eq!(main.op, registry.op);
+        assert_eq!(main.binding, registry.binding);
     }
 }

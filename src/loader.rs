@@ -590,10 +590,39 @@ pub fn parse_load_entry_source_compact_file_unit(
     (sources, CompactFileUnit::new(file, entry_source_id, parsed))
 }
 
+/// How an entry source links standard-library implementation modules.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum StdlibLinkage {
+    /// Attach every embedded implementation module the program can reach, and
+    /// lower its standard calls to those prepared functions.
+    Prepare,
+    /// Leave embedded sources out of this program and lower its standard calls
+    /// to implementations a loading program already prepared.
+    ///
+    /// Used for dynamically loaded user modules: the loading program prepared
+    /// the complete applicable set before execution, so the loaded module must
+    /// not reparse standard-library source to reach the same functions.
+    LinkToPrepared,
+}
+
 pub fn parse_load_entry_source_arena_only(
     file: &str,
     entry_source: EntrySource,
     module_roots: Vec<PathBuf>,
+) -> (SourceMap, ArenaParseOutput) {
+    parse_load_entry_source_arena_only_with_linkage(
+        file,
+        entry_source,
+        module_roots,
+        StdlibLinkage::Prepare,
+    )
+}
+
+pub fn parse_load_entry_source_arena_only_with_linkage(
+    file: &str,
+    entry_source: EntrySource,
+    module_roots: Vec<PathBuf>,
+    linkage: StdlibLinkage,
 ) -> (SourceMap, ArenaParseOutput) {
     let EntrySource {
         mut sources,
@@ -624,6 +653,9 @@ pub fn parse_load_entry_source_arena_only(
         let mut loader =
             ArenaModuleLoader::new(&mut sources, &mut builder).with_module_roots(module_roots);
         loader.load_uses(Path::new(file), root_statements);
+        if linkage == StdlibLinkage::Prepare {
+            loader.load_stdlib_modules(source_id);
+        }
         diagnostics.extend(loader.diagnostics);
     }
     (
@@ -658,6 +690,10 @@ pub fn parse_load_entry_source_shared_arena_only(
         let mut loader =
             ArenaModuleLoader::new(sources, &mut builder).with_module_roots(module_roots);
         loader.load_uses(Path::new(file), root_statements);
+        // Tooling that checks or lints a workspace must see the same standard
+        // implementations the runner would prepare, or a script-backed call
+        // would look unlowerable to the checker while running fine.
+        loader.load_stdlib_modules(source_id);
         diagnostics.extend(loader.diagnostics);
     }
     ArenaParseOutput {
@@ -674,6 +710,7 @@ struct ArenaModuleLoader<'a, 'b> {
     stack: Vec<String>,
     diagnostics: Vec<Diagnostic>,
     module_roots: Vec<PathBuf>,
+    loaded_stdlib: FxHashSet<&'static str>,
 }
 
 impl<'a, 'b> ArenaModuleLoader<'a, 'b> {
@@ -685,6 +722,7 @@ impl<'a, 'b> ArenaModuleLoader<'a, 'b> {
             stack: Vec::new(),
             diagnostics: Vec::new(),
             module_roots: Vec::new(),
+            loaded_stdlib: FxHashSet::default(),
         }
     }
 
@@ -706,6 +744,77 @@ impl<'a, 'b> ArenaModuleLoader<'a, 'b> {
                 self.arena.set_use_resolved(use_id, Arc::from(key.as_str()));
             }
         }
+    }
+
+    /// Parse and attach every embedded implementation module the program can
+    /// reach.
+    ///
+    /// Runs once per preparation, after the entry and its static user-module
+    /// graph are parsed, so the decision sees every reference the program
+    /// contains. Embedded sources never import user or project source, so
+    /// attaching them here cannot pull in a file.
+    fn load_stdlib_modules(&mut self, entry_source_id: SourceId) {
+        let span = Span::new(entry_source_id, 0, 0);
+        for identity in crate::stdlib::required_modules(self.arena.ast_arena()) {
+            self.load_stdlib_module(identity, span);
+        }
+    }
+
+    fn load_stdlib_module(&mut self, identity: &'static str, span: Span) {
+        if !self.loaded_stdlib.insert(identity) {
+            return;
+        }
+        #[cfg(feature = "native-tests")]
+        crate::stdlib::counters::record_parsed_module();
+        let Some(module) = crate::stdlib::find(identity) else {
+            self.diagnostics.push(
+                Diagnostic::error("embedded standard-library module is missing")
+                    .with_code("parse.stdlib-catalog")
+                    .with_label(Label::primary(
+                        span,
+                        format!("the implementation catalog has no `{identity}` module"),
+                    )),
+            );
+            return;
+        };
+        let source_name = module.label.to_string();
+        let source_id = match self
+            .sources
+            .add_file_from_utf8(source_name.clone(), module.source.as_bytes().to_vec())
+        {
+            Ok(source_id) => source_id,
+            Err(error) => {
+                self.diagnostics.push(
+                    Diagnostic::error("embedded standard-library source is not valid UTF-8")
+                        .with_code("source.invalid-utf8")
+                        .with_label(Label::primary(
+                            Span::new(span.source_id, error.offset, error.offset),
+                            module.label,
+                        )),
+                );
+                return;
+            }
+        };
+        let namespace = self
+            .arena
+            .name(&crate::stdlib::namespace_text(identity));
+        let text = self
+            .sources
+            .get(source_id)
+            .expect("embedded source was just inserted")
+            .text();
+        let parsed = self
+            .arena
+            .with_internal_source(|arena| Parser::parse_source_into_arena_builder(source_id, text, arena));
+        if !parsed.diagnostics.is_empty() {
+            self.diagnostics.extend(parsed.diagnostics);
+            return;
+        }
+        self.arena.push_internal_arena_module(
+            module.label.to_string(),
+            namespace,
+            parsed.statements,
+        );
     }
 
     fn load_module(&mut self, importer: &Path, path: &[Name], span: Span) -> Option<String> {
@@ -798,6 +907,36 @@ impl<'a, 'b> ArenaModuleLoader<'a, 'b> {
             .push_arena_module(key.clone(), name, parsed.statements);
         Some(key)
     }
+}
+
+/// Prepare one embedded implementation module for catalog validation.
+///
+/// The module is parsed exactly as preparation parses it — as an internal
+/// implementation module attached to an otherwise empty program, never as a
+/// user entry — so the catalog gate validates the bytes the runtime will see.
+/// A module that references another embedded module's entry pulls that one in
+/// through the same selection the ordinary preparation uses.
+pub fn prepare_stdlib_catalog_module(identity: &str) -> Option<(SourceMap, ArenaParseOutput)> {
+    let module = crate::stdlib::find(identity)?;
+    let mut sources = SourceMap::new();
+    let entry_source_id = sources.add_file("<catalog-validation>", String::new());
+    let mut builder = ArenaProgramBuilder::with_token_capacity(0);
+    let mut diagnostics = Vec::new();
+    {
+        let mut loader = ArenaModuleLoader::new(&mut sources, &mut builder);
+        loader.load_stdlib_module(module.identity, Span::new(entry_source_id, 0, 0));
+        loader.load_stdlib_modules(entry_source_id);
+        diagnostics.extend(loader.diagnostics);
+    }
+    let arena = builder.finish();
+    Some((
+        sources,
+        ArenaParseOutput {
+            arena,
+            cst: LazyCst::empty(entry_source_id),
+            diagnostics,
+        },
+    ))
 }
 
 pub fn module_key(path: &Path) -> String {

@@ -21,9 +21,11 @@ pub mod load {
         CompactFileUnit, CompactModuleGraph, CompactModuleImportEdge, EntrySource,
         entry_source_from_bytes, entry_source_from_text, module_key, parse_load_check_bytes,
         parse_load_check_entry_source, parse_load_check_entry_source_with_token_table,
-        parse_load_check_file, parse_load_check_text, parse_load_entry_source_arena_only,
+        StdlibLinkage, parse_load_check_file, parse_load_check_text,
+        parse_load_entry_source_arena_only, parse_load_entry_source_arena_only_with_linkage,
         parse_load_entry_source_compact_file_unit, parse_load_entry_source_shared_arena_only,
-        parse_script, parse_script_with_module_roots, resolve_user_module,
+        parse_script, parse_script_with_module_roots, prepare_stdlib_catalog_module,
+        resolve_user_module,
     };
 }
 
@@ -44,4 +46,10 @@ pub mod syntax {
     // façade makes their ownership explicit without promising arena-layout
     // stability to arbitrary host applications.
     pub use crate::syntax::{arena, cst, lexer, literal, node, parser, token};
+}
+
+/// Embedded standard-library preparation hooks used by the architecture tests.
+#[cfg(feature = "native-tests")]
+pub mod stdlib_preparation {
+    pub use crate::stdlib::counters::{parsed_modules, reset};
 }

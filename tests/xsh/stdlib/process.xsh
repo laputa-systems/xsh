@@ -52,6 +52,156 @@ proc test_process_module() [fs, process, error] {
   handle.cancel(signal: "TERM", kill_after: 10ms)?
 }
 
+# The message of a rejected argument string, or the empty string when the
+# string parsed. `test.error_kind` compares kinds only, so message parity is
+# asserted through this.
+pure argv_words_message(result: Result[List[Str]]) -> Str {
+  match result {
+    Ok(_) => return ""
+    Err(error) => return error.message
+  }
+}
+
+# Every case the native `argv_words` unit test covered, plus whitespace runs,
+# empty quoted arguments, and quote concatenation.
+proc test_process_argv_words_parses_quotes_and_escapes() [process, error] {
+  test.eq(
+    process.argv_words("cmd 'two words' \"double quoted\" escaped\\ space 'literal *'")?,
+    ["cmd", "two words", "double quoted", "escaped space", "literal *"],
+  )?
+
+  # Whitespace, including runs and leading or trailing whitespace, separates
+  # words.
+  test.eq(process.argv_words("one")?, ["one"])?
+  test.eq(process.argv_words("plain words")?, ["plain", "words"])?
+  test.eq(process.argv_words("  spaced \t out \n lines  ")?, ["spaced", "out", "lines"])?
+
+  # Input with no words at all.
+  let no_words: List[Str] = []
+  test.eq(process.argv_words("")?, no_words)?
+  test.eq(process.argv_words(" \t\r\n\x0b\x0c ")?, no_words)?
+
+  # Explicit empty quotes keep an empty word.
+  test.eq(process.argv_words("''")?, [""])?
+  test.eq(process.argv_words("\"\"")?, [""])?
+  test.eq(process.argv_words("''''")?, [""])?
+  test.eq(process.argv_words("a '' b")?, ["a", "", "b"])?
+
+  # Quote forms concatenate into one word.
+  test.eq(process.argv_words("'a'b\"c\"")?, ["abc"])?
+  test.eq(process.argv_words("'a b'c")?, ["a bc"])?
+  test.eq(process.argv_words("\"a\"'b'")?, ["ab"])?
+
+  # `\` escapes the next character outside quotes and inside double quotes.
+  test.eq(process.argv_words("escaped\\ space")?, ["escaped space"])?
+  test.eq(process.argv_words("quote\\'inside")?, ["quote'inside"])?
+  test.eq(process.argv_words("\"a\\\"b\"")?, ["a\"b"])?
+  test.eq(process.argv_words("\"a\\\\b\"")?, ["a\\b"])?
+  test.eq(process.argv_words("\"\\$HOME\"")?, ["$HOME"])?
+  test.eq(process.argv_words("'$HOME'")?, ["$HOME"])?
+
+  # A quoted shell syntax character keeps its literal meaning.
+  test.eq(process.argv_words("'*'")?, ["*"])?
+  test.eq(process.argv_words("\"\\*\"")?, ["*"])?
+  test.eq(process.argv_words("'|'")?, ["|"])?
+  test.eq(process.argv_words("'`date`'")?, ["`date`"])?
+
+  # Every ASCII byte outside the rejected set and the quote forms is an
+  # ordinary word byte.
+  test.eq(
+    process.argv_words("!#%+,-./0123456789:=@ABCDEFGHIJKLMNOPQRSTUVWXYZ^_abcdefghijklmnopqrstuvwxyz~")?,
+    ["!#%+,-./0123456789:=@ABCDEFGHIJKLMNOPQRSTUVWXYZ^_abcdefghijklmnopqrstuvwxyz~"],
+  )?
+}
+
+# Every case the native `argv_words` unit test covered, plus each shell syntax
+# character, the rejection messages, and unterminated input.
+proc test_process_argv_words_rejects_shell_syntax() [process, error] {
+  for text in [
+    "echo hi | wc",
+    "echo $HOME",
+    "echo *",
+    "echo $(date)",
+    "echo `date`",
+    "echo > file",
+    "unterminated 'quote",
+  ] {
+    test.error_kind(process.argv_words(text), "argv-words")?
+  }
+
+  # Every member of the rejected set, as its own word and inside a word.
+  for character in ["|", "<", ">", ";", "&", "$", "`", "*", "?", "[", "]", "(", ")", "{", "}"] {
+    test.error_kind(process.argv_words(f"echo ${character}"), "argv-words")?
+    test.error_kind(process.argv_words(f"before${character}after"), "argv-words")?
+  }
+
+  # Escaping a shell syntax character outside quotes is rejected like an
+  # unquoted one; inside double quotes `\` escapes it.
+  test.error_kind(process.argv_words("echo \\*"), "argv-words")?
+  test.error_kind(process.argv_words("a\\|b"), "argv-words")?
+  test.error_kind(process.argv_words("echo \\$HOME"), "argv-words")?
+
+  # `$` and `` ` `` are rejected inside double quotes too.
+  test.error_kind(process.argv_words("\"$HOME\""), "argv-words")?
+  test.error_kind(process.argv_words("\"`date`\""), "argv-words")?
+
+  # Unterminated quotes and a trailing escape.
+  test.error_kind(process.argv_words("unterminated 'quote"), "argv-words")?
+  test.error_kind(process.argv_words("unterminated \"quote"), "argv-words")?
+  test.error_kind(process.argv_words("'unterminated \""), "argv-words")?
+  test.error_kind(process.argv_words("trailing\\"), "argv-words")?
+  test.error_kind(process.argv_words("\"trailing\\"), "argv-words")?
+
+  # The rejection messages name the offending character, and a multi-byte word
+  # before it is sliced cleanly.
+  test.eq(
+    argv_words_message(process.argv_words("echo hi | wc")),
+    "shell syntax character `|` is not accepted",
+  )?
+  test.eq(
+    argv_words_message(process.argv_words("echo $HOME")),
+    "shell syntax character `$` is not accepted",
+  )?
+  test.eq(
+    argv_words_message(process.argv_words("echo `date`")),
+    "shell syntax character ``` is not accepted",
+  )?
+  test.eq(
+    argv_words_message(process.argv_words("café|thé")),
+    "shell syntax character `|` is not accepted",
+  )?
+  test.eq(
+    argv_words_message(process.argv_words("unterminated 'quote")),
+    "unterminated single quote",
+  )?
+  test.eq(
+    argv_words_message(process.argv_words("unterminated \"quote")),
+    "unterminated double quote",
+  )?
+  test.eq(
+    argv_words_message(process.argv_words("trailing\\")),
+    "trailing escape",
+  )?
+}
+
+# Unicode text: multi-byte characters stay inside a word, and every character
+# the baseline treats as whitespace separates words.
+proc test_process_argv_words_reads_unicode_text() [process, error] {
+  test.eq(process.argv_words("héllo wörld")?, ["héllo", "wörld"])?
+  test.eq(process.argv_words("'héllo wörld'")?, ["héllo wörld"])?
+  test.eq(process.argv_words("日本 語")?, ["日本", "語"])?
+  test.eq(process.argv_words("aé—b")?, ["aé—b"])?
+
+  for space in ["\u{0085}", "\u{00a0}", "\u{1680}", "\u{2000}", "\u{2003}", "\u{200a}", "\u{2028}", "\u{2029}", "\u{202f}", "\u{205f}", "\u{3000}"] {
+    test.eq(process.argv_words(f"a${space}b")?, ["a", "b"])?
+  }
+  let only_space = process.argv_words("\u{2003}\u{205f}")?
+  test.eq(only_space.len(), 0)?
+
+  # A multi-byte word and a multi-byte whitespace run together.
+  test.eq(process.argv_words("α\u{3000}β γ")?, ["α", "β", "γ"])?
+}
+
 proc test_process_command_redirections(ctx: TestContext) [fs, process, error] {
   let root = test.temp_dir(ctx, name: "process-redirections")?
   let input = fp"${root}/input.txt"

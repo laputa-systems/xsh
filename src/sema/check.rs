@@ -357,6 +357,7 @@ impl Checker {
                     key: (*key).to_string(),
                     name: Name::intern(name),
                     statements: arena.statements,
+                    internal: false,
                 };
                 let sig = checker.check_user_module_arena(arena, module_program, source, &module);
                 checker.user_modules.insert((*key).to_string(), sig);

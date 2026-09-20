@@ -88,3 +88,137 @@ proc test_linux_dry_run_covers_module_surface(ctx: TestContext) [fs, process, en
   test.contains(log_text, "\"op\":\"poweroff\"")?
   test.contains(log_text, "\"op\":\"reboot\"")?
 }
+
+# The message a failed `linux.meminfo` call reports.
+#
+# The kind is asserted with `test.error_kind`; this exposes the text naming the
+# field the failure is about. The result type is spelled out because the entry
+# reports a record on success.
+pure meminfo_failure(result: Result[LinuxMemInfo]) -> Str {
+  match result {
+    Ok(_) => {
+      return ""
+    }
+    Err(failure) => {
+      return failure.message
+    }
+  }
+}
+
+proc test_linux_text_entries_require_a_gate() [process, env, error] {
+  # Both variables are emptied here so the test does not depend on the
+  # environment it runs in. Neither empties to an accepted true value, so both
+  # text-backed entries refuse before they open any host file, and the refusal
+  # names the variables that would open a gate. On a platform where the entries
+  # are still native the dispatch refuses first, so this covers both.
+  env XSH_LINUX_DRY_RUN="" XSH_LINUX_REAL="" {
+    test.error_kind(linux.meminfo(), "linux-unimplemented")?
+    test.error_kind(linux.modules(), "linux-unimplemented")?
+    test.contains(meminfo_failure(linux.meminfo()), "XSH_LINUX_REAL=1")?
+  } ?
+}
+
+proc test_linux_text_dry_run_values_and_log(ctx: TestContext) [fs, process, env, error] {
+  let root = test.temp_dir(ctx, name: "linux-text-dry-run")?
+  let log = fp"${root}/linux.jsonl"
+
+  # The text-backed entries report fixed values while the dry-run gate is open —
+  # even with the real gate also open — and each call appends one line naming
+  # its operation to the log file.
+  env XSH_LINUX_DRY_RUN=1 XSH_LINUX_REAL=1 XSH_LINUX_DRY_RUN_LOG=$log {
+    let memory = linux.meminfo()?
+    test.eq(memory.total, 1024 * 1024 * 1024)?
+    test.eq(memory.free, 256 * 1024 * 1024)?
+    test.eq(memory.available, 512 * 1024 * 1024)?
+    test.eq(memory.buffers, 64 * 1024 * 1024)?
+    test.eq(memory.cached, 128 * 1024 * 1024)?
+    test.eq(memory.swap_total, 512 * 1024 * 1024)?
+    test.eq(memory.swap_free, 384 * 1024 * 1024)?
+
+    let modules = linux.modules()?.collect()
+    test.eq(modules.len(), 1)?
+    test.eq(modules[0].name, "xsh_demo")?
+    test.eq(modules[0].size, 4096)?
+    test.eq(modules[0].used_by, ["xsh_dep"])?
+  } ?
+
+  test.eq(log.read_text()?, "{\"op\":\"meminfo\"}\n{\"op\":\"modules\"}\n")?
+}
+
+proc test_linux_text_log_failure_kind(ctx: TestContext) [fs, process, env, error] {
+  if system.uname()?.sysname != "Linux" {
+    # The script-backed entry reports a log failure as the call's `Err`, while
+    # the native dry-run arm raises it, so the failure is only a value on the
+    # platform that uses this implementation.
+    test.skip("a log failure is the call's Err on Linux only")
+    return
+  }
+
+  let root = test.temp_dir(ctx, name: "linux-text-log")?
+  let blocked = fp"${root}/file"
+  fs.write(blocked, "not a directory")?
+  let blocked_log = fp"${blocked}/linux.jsonl"
+  env XSH_LINUX_DRY_RUN=1 XSH_LINUX_DRY_RUN_LOG=$blocked_log {
+    test.error_kind(linux.meminfo(), "linux-dry-run-log")?
+    test.error_kind(linux.modules(), "linux-dry-run-log")?
+  } ?
+}
+
+proc test_linux_meminfo_reads_the_host_text() [process, env, error] {
+  if system.uname()?.sysname != "Linux" {
+    # The entry reads `/proc/meminfo` on Linux only; on other platforms the
+    # binding is still native, so there is nothing to add here.
+    test.skip("linux.meminfo reads /proc/meminfo on Linux only")
+    return
+  }
+
+  # The host text is read-only, so the test states the invariants of the reading
+  # policy rather than values a host could change: every reported count is a
+  # kilobyte count scaled to bytes, and a free or available count is part of the
+  # total it is reported next to.
+  env XSH_LINUX_REAL=1 {
+    let memory = linux.meminfo()?
+    test.ok(memory.total > 0)?
+    test.eq(memory.total % 1024, 0)?
+    test.ok(memory.free >= 0 and memory.free <= memory.total)?
+    test.ok(memory.available >= 0 and memory.available <= memory.total)?
+    test.ok(memory.buffers >= 0 and memory.cached >= 0)?
+    test.ok(memory.swap_free >= 0 and memory.swap_free <= memory.swap_total)?
+  } ?
+}
+
+proc test_linux_modules_streams_the_host_text() [process, env, error] {
+  if system.uname()?.sysname != "Linux" {
+    # The entry reads `/proc/modules` on Linux only; on other platforms the
+    # binding is still native, so there is nothing to add here.
+    test.skip("linux.modules reads /proc/modules on Linux only")
+    return
+  }
+
+  # The host text is read-only, so the test states the invariants of the reading
+  # policy rather than the modules a host could load. A consumer that stops
+  # after one record reads only that record; a host that reports no module
+  # leaves the loop empty rather than failing.
+  env XSH_LINUX_REAL=1 {
+    let records = linux.modules()?
+    for entry in records {
+      test.ok(entry.name != "")?
+      test.ok(entry.size >= 0)?
+      for dependent in entry.used_by {
+        test.ok(dependent != "")?
+      }
+      break
+    }
+  } ?
+
+  # The whole text interprets into records with the same shape.
+  env XSH_LINUX_REAL=1 {
+    for entry in linux.modules()?.collect() {
+      test.ok(entry.name != "")?
+      test.ok(entry.size >= 0)?
+      for dependent in entry.used_by {
+        test.ok(dependent != "")?
+      }
+    }
+  } ?
+}

@@ -58,6 +58,34 @@ impl ApiSpec {
         self.docs.get(id)
     }
 
+    /// Every embedded implementation module identity named by a binding.
+    ///
+    /// Used to check the embedded catalog against the registry in both
+    /// directions: no binding may name an identity the catalog lacks, and no
+    /// catalog entry may be unreachable from the registry.
+    pub fn script_impls(&self) -> Vec<(&'static str, &'static str, &'static str)> {
+        let mut impls = Vec::new();
+        for module in &self.modules {
+            for function in &module.sig.functions {
+                for overload in &function.overloads {
+                    if let ImplBinding::Script(script) = overload.binding {
+                        impls.push((module.name, function.name, script.module));
+                    }
+                }
+            }
+        }
+        for receiver in &self.methods {
+            for method in &receiver.methods {
+                for overload in &method.overloads {
+                    if let ImplBinding::Script(script) = overload.sig.binding {
+                        impls.push((receiver_name(receiver.receiver), method.name, script.module));
+                    }
+                }
+            }
+        }
+        impls
+    }
+
     pub fn docs_entries(&self) -> impl Iterator<Item = (&str, &ApiDocs)> {
         self.docs.iter().map(|(id, docs)| (id.as_str(), docs))
     }
@@ -122,6 +150,27 @@ pub struct NamedModuleFns {
     pub overloads: Vec<ModuleFnSig>,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ScriptImpl {
+    /// Internal identity of the embedded implementation module.
+    pub module: &'static str,
+    /// Implementation function identity inside that module.
+    pub function: &'static str,
+}
+
+/// Where a public callable entry or overload gets its behavior.
+///
+/// The binding is closed: an entry either keeps its native operation or is
+/// served by one embedded implementation function. It carries implementation
+/// routing only — the public signature stays the single declaration of record.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ImplBinding {
+    /// The existing native `RuntimeOp` body.
+    Native,
+    /// An embedded XSH implementation function.
+    Script(ScriptImpl),
+}
+
 #[derive(Clone, Debug)]
 pub struct ModuleFnSig {
     pub params: Vec<ParamSig>,
@@ -130,6 +179,17 @@ pub struct ModuleFnSig {
     pub command: bool,
     pub arg_check: ApiArgCheck,
     pub op: RuntimeOp,
+    pub binding: ImplBinding,
+}
+
+impl ModuleFnSig {
+    /// The embedded implementation this entry routes to, if any.
+    pub fn script_impl(&self) -> Option<ScriptImpl> {
+        match self.binding {
+            ImplBinding::Native => None,
+            ImplBinding::Script(script) => Some(script),
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -231,6 +291,52 @@ pub fn sig(params: Vec<ParamSig>, return_ty: Type, pure: bool, op: RuntimeOp) ->
         command,
         arg_check: ApiArgCheck::Standard,
         op,
+        binding: ImplBinding::Native,
+    }
+}
+
+/// Declare a public entry whose implementation is an embedded XSH function.
+///
+/// The parameters are the public contract; the embedded implementation
+/// function mirrors them positionally and by name, so the call boundary can
+/// bind caller arguments against either description interchangeably.
+pub fn script_sig(
+    params: Vec<ParamSig>,
+    return_ty: Type,
+    pure: bool,
+    op: RuntimeOp,
+    module: &'static str,
+    function: &'static str,
+) -> ModuleFnSig {
+    ModuleFnSig {
+        command: command_callable(&params, &return_ty, pure),
+        params,
+        return_ty,
+        pure,
+        arg_check: ApiArgCheck::Standard,
+        op,
+        binding: ImplBinding::Script(ScriptImpl { module, function }),
+    }
+}
+
+/// Declare a script-backed entry with a non-default argument check.
+pub fn script_sig_with_arg_check(
+    params: Vec<ParamSig>,
+    return_ty: Type,
+    pure: bool,
+    op: RuntimeOp,
+    arg_check: ApiArgCheck,
+    module: &'static str,
+    function: &'static str,
+) -> ModuleFnSig {
+    ModuleFnSig {
+        command: command_callable(&params, &return_ty, pure),
+        params,
+        return_ty,
+        pure,
+        arg_check,
+        op,
+        binding: ImplBinding::Script(ScriptImpl { module, function }),
     }
 }
 
@@ -248,6 +354,7 @@ fn sig_with_arg_check(
         pure,
         arg_check,
         op,
+        binding: ImplBinding::Native,
     }
 }
 

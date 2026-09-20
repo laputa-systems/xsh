@@ -670,6 +670,12 @@ pub(super) fn lowered_return_value(
             Err(super::runtime_error_from_value(*error, span))
         }
         (LoweredReturnKind::Plain(kind), value) if lowered_value_matches(kind, &value) => Ok(value),
+        // The error arm comes first because a `Result[Any]` slot matches every
+        // value: without this order a returned `Err` would be wrapped back into
+        // `Ok` and the caller would never see the failure.
+        (LoweredReturnKind::Result(_), LoweredValue::ResultErr(value)) => {
+            Ok(LoweredValue::ResultErr(value))
+        }
         (LoweredReturnKind::Result(kind), LoweredValue::ResultOk(value))
             if lowered_value_matches(kind, &value) =>
         {
@@ -677,9 +683,6 @@ pub(super) fn lowered_return_value(
         }
         (LoweredReturnKind::Result(kind), value) if lowered_value_matches(kind, &value) => {
             Ok(LoweredValue::ResultOk(Box::new(value)))
-        }
-        (LoweredReturnKind::Result(_), LoweredValue::ResultErr(value)) => {
-            Ok(LoweredValue::ResultErr(value))
         }
         _ => Err(RuntimeError::new("type-error", "lowered return type mismatch").with_span(span)),
     }
@@ -1234,19 +1237,12 @@ pub(super) fn lowered_str_method_value(
                 .map(|line| LoweredValue::Str(line.into()))
                 .collect(),
         )),
-        "words" | "fields" if args.is_empty() => Ok(LoweredValue::List(
+        "words" if args.is_empty() => Ok(LoweredValue::List(
             text_value
                 .split_whitespace()
                 .map(|word| LoweredValue::Str(word.into()))
                 .collect(),
         )),
-        "fields" if args.len() == 1 => {
-            let delimiter = lowered_str_arg(&args[0], "fields", span)?;
-            lowered_runtime_list(
-                crate::modules::text::fields_text(text_value, delimiter),
-                span,
-            )
-        }
         "split" if args.len() == 1 || args.len() == 2 => {
             let separator = lowered_str_arg(&args[0], "split", span)?;
             let maxsplit = match args.get(1) {
@@ -1261,15 +1257,6 @@ pub(super) fn lowered_str_method_value(
             };
             lowered_runtime_list(
                 crate::modules::text::split_text(text_value, separator, maxsplit),
-                span,
-            )
-        }
-        "wrap" if args.len() == 1 => {
-            let LoweredValue::Int(width) = args[0] else {
-                return Err(RuntimeError::new("type-error", "wrap expected Int").with_span(span));
-            };
-            lowered_runtime_list(
-                crate::modules::text::wrap_text(text_value, width, span)?,
                 span,
             )
         }

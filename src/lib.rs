@@ -45,6 +45,7 @@ pub(crate) mod modules;
 pub mod process;
 pub(crate) mod runner;
 pub(crate) mod runtime;
+pub(crate) mod stdlib;
 /// Tooling-only runtime allocation accounting used by `xsh-runtime-stats`.
 pub mod runtime_stats;
 pub(crate) mod sema;

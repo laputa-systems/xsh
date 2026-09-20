@@ -13,8 +13,8 @@ use super::{
     linux_open_file_type, linux_partition_table_type, linux_rfkill_type, linux_route_type,
     linux_uevent_type, measured_command_type, mime_info_type, mime_parse_type, module_sig,
     net_pool_type, net_response_type, param, patch_result_type, process_entry_type,
-    process_port_type, process_stats_type, process_thread_type, process_wait_any_type, result, sig,
-    sig_with_arg_check, signal_record_type, spawn_record_type, system_memory_type,
+    process_port_type, process_stats_type, process_thread_type, process_wait_any_type, result,
+    script_sig, script_sig_with_arg_check, sig, sig_with_arg_check, signal_record_type, spawn_record_type, system_memory_type,
     system_os_release_type, uname_record_type, unix_child_event_type, unix_id_type,
     unix_kill_all_result_type, unix_logged_process_group_type, unix_pid1_event_type,
     unix_pid1_shutdown_type, unix_spawned_child_type, unix_tty_attrs_type, user_record_type,
@@ -171,6 +171,22 @@ pub(in crate::signature) fn build_api_spec() -> ApiSpec {
         value_methods(),
     )
 }
+/// Target-aware implementation bindings for the Linux text-backed entries.
+///
+/// On Linux each entry executes the embedded policy; elsewhere it keeps its
+/// native body, so macOS keeps its existing behavior and unsupported Linux
+/// entrypoints produce the same errors before any `/proc` access. Every pair
+/// declares the same public signature, so only the internal binding differs.
+#[cfg(target_os = "linux")]
+fn linux_text_entry(script: super::ModuleFnSig, _native: super::ModuleFnSig) -> super::ModuleFnSig {
+    script
+}
+
+#[cfg(not(target_os = "linux"))]
+fn linux_text_entry(_script: super::ModuleFnSig, native: super::ModuleFnSig) -> super::ModuleFnSig {
+    native
+}
+
 fn error_module() -> ModuleSig {
     module_sig(vec![(
         "fail",
@@ -437,7 +453,7 @@ fn cli_module() -> ModuleSig {
     module_sig(vec![
         (
             "parse",
-            sig(
+            script_sig(
                 vec![
                     param("argv", Type::List(Box::new(Type::Str))),
                     param("schema", Type::Record(BTreeMap::new())),
@@ -446,11 +462,13 @@ fn cli_module() -> ModuleSig {
                 result(Type::Record(BTreeMap::new())),
                 true,
                 RuntimeOp::CliParse,
+                "cli",
+                "parse",
             ),
         ),
         (
             "parse_full",
-            sig(
+            script_sig(
                 vec![
                     param("argv", Type::List(Box::new(Type::Str))),
                     param("schema", Type::Record(BTreeMap::new())),
@@ -460,11 +478,13 @@ fn cli_module() -> ModuleSig {
                 result(Type::Record(BTreeMap::new())),
                 true,
                 RuntimeOp::CliParseFull,
+                "cli",
+                "parse_full",
             ),
         ),
         (
             "applet",
-            sig(
+            script_sig(
                 vec![
                     param("argv", Type::List(Box::new(Type::Str))),
                     param("schema", Type::Record(BTreeMap::new())),
@@ -473,11 +493,13 @@ fn cli_module() -> ModuleSig {
                 result(Type::Record(BTreeMap::new())),
                 true,
                 RuntimeOp::CliApplet,
+                "cli",
+                "applet",
             ),
         ),
         (
             "usage",
-            sig(
+            script_sig(
                 vec![
                     param("schema", Type::Record(BTreeMap::new())),
                     default_param("command", Type::Str),
@@ -485,11 +507,13 @@ fn cli_module() -> ModuleSig {
                 Type::Str,
                 true,
                 RuntimeOp::CliUsage,
+                "cli",
+                "usage",
             ),
         ),
         (
             "commands",
-            sig(
+            script_sig(
                 vec![
                     param("argv", Type::List(Box::new(Type::Str))),
                     param("commands", Type::Record(BTreeMap::new())),
@@ -497,11 +521,13 @@ fn cli_module() -> ModuleSig {
                 result(Type::Record(BTreeMap::new())),
                 true,
                 RuntimeOp::CliCommands,
+                "cli",
+                "commands",
             ),
         ),
         (
             "commands",
-            sig(
+            script_sig(
                 vec![
                     param("argv", Type::List(Box::new(Type::Str))),
                     param("rootless_default", Type::Str),
@@ -511,11 +537,13 @@ fn cli_module() -> ModuleSig {
                 result(Type::Record(BTreeMap::new())),
                 true,
                 RuntimeOp::CliCommands,
+                "cli",
+                "commands_rootless",
             ),
         ),
         (
             "tokens",
-            sig(
+            script_sig(
                 vec![
                     param("argv", Type::List(Box::new(Type::Str))),
                     default_param("value_flags", Type::List(Box::new(Type::Str))),
@@ -523,6 +551,8 @@ fn cli_module() -> ModuleSig {
                 result(Type::List(Box::new(cli_token_type()))),
                 true,
                 RuntimeOp::CliTokens,
+                "cli",
+                "tokens",
             ),
         ),
     ])
@@ -591,16 +621,18 @@ fn ini_module() -> ModuleSig {
         ),
         (
             "encode",
-            sig(
+            script_sig(
                 vec![param("value", record())],
                 result(Type::Str),
                 true,
                 RuntimeOp::IniEncode,
+                "ini",
+                "encode",
             ),
         ),
         (
             "write",
-            sig(
+            script_sig(
                 vec![
                     param("path", Type::Path),
                     param("value", record()),
@@ -609,6 +641,8 @@ fn ini_module() -> ModuleSig {
                 result(Type::Unit),
                 false,
                 RuntimeOp::IniWrite,
+                "ini",
+                "write",
             ),
         ),
     ])
@@ -654,11 +688,13 @@ fn bytes_module() -> ModuleSig {
         ),
         (
             "human",
-            sig(
+            script_sig(
                 vec![param("size", Type::Int)],
                 Type::Str,
                 true,
                 RuntimeOp::BytesHuman,
+                "bytes",
+                "human",
             ),
         ),
         (
@@ -927,29 +963,35 @@ fn mime_module() -> ModuleSig {
     module_sig(vec![
         (
             "lookup_ext",
-            sig(
+            script_sig(
                 vec![param("ext", Type::Str)],
                 Type::Optional(Box::new(mime_info_type())),
                 false,
                 RuntimeOp::MimeLookupExt,
+                "mime",
+                "lookup_ext",
             ),
         ),
         (
             "lookup_path",
-            sig(
+            script_sig(
                 vec![param("path", Type::Path)],
                 Type::Optional(Box::new(mime_info_type())),
                 false,
                 RuntimeOp::MimeLookupPath,
+                "mime",
+                "lookup_path",
             ),
         ),
         (
             "parse",
-            sig(
+            script_sig(
                 vec![param("value", Type::Str)],
                 result(mime_parse_type()),
                 true,
                 RuntimeOp::MimeParse,
+                "mime",
+                "parse",
             ),
         ),
     ])
@@ -989,20 +1031,24 @@ fn shlex_module() -> ModuleSig {
     module_sig(vec![
         (
             "quote",
-            sig(
+            script_sig(
                 vec![param("value", Type::Str)],
                 Type::Str,
                 true,
                 RuntimeOp::ShlexQuote,
+                "shlex",
+                "quote",
             ),
         ),
         (
             "join",
-            sig(
+            script_sig(
                 vec![param("argv", Type::List(Box::new(Type::Str)))],
                 Type::Str,
                 true,
                 RuntimeOp::ShlexJoin,
+                "shlex",
+                "join",
             ),
         ),
     ])
@@ -1123,7 +1169,7 @@ fn env_module() -> ModuleSig {
         ),
         (
             "get_or",
-            sig(
+            script_sig(
                 vec![
                     param("name", Type::Str),
                     default_param("fallback", Type::Str),
@@ -1131,11 +1177,13 @@ fn env_module() -> ModuleSig {
                 result(Type::Str),
                 false,
                 RuntimeOp::EnvGetOr,
+                "env",
+                "get_or",
             ),
         ),
         (
             "bool",
-            sig(
+            script_sig(
                 vec![
                     param("name", Type::Str),
                     default_param("fallback", Type::Bool),
@@ -1143,6 +1191,8 @@ fn env_module() -> ModuleSig {
                 result(Type::Bool),
                 false,
                 RuntimeOp::EnvBool,
+                "env",
+                "bool",
             ),
         ),
         (
@@ -1159,7 +1209,7 @@ fn env_module() -> ModuleSig {
         ),
         (
             "int",
-            sig(
+            script_sig(
                 vec![
                     param("name", Type::Str),
                     default_param("fallback", Type::Int),
@@ -1167,6 +1217,8 @@ fn env_module() -> ModuleSig {
                 result(Type::Int),
                 false,
                 RuntimeOp::EnvInt,
+                "env",
+                "int",
             ),
         ),
         (
@@ -2044,11 +2096,13 @@ fn hash_module() -> ModuleSig {
         ),
         (
             "parse_check_line",
-            sig(
+            script_sig(
                 vec![param("line", Type::Str)],
                 result(Type::Record(Default::default())),
                 true,
                 RuntimeOp::HashParseCheckLine,
+                "hash",
+                "parse_check_line",
             ),
         ),
         (
@@ -2093,17 +2147,19 @@ fn json_module() -> ModuleSig {
         ),
         (
             "encode_lines",
-            sig_with_arg_check(
+            script_sig_with_arg_check(
                 vec![param("values", Type::List(Box::new(Type::Any)))],
                 result(Type::Str),
                 true,
                 RuntimeOp::JsonEncodeLines,
                 ApiArgCheck::JsonCompatible,
+                "json",
+                "encode_lines",
             ),
         ),
         (
             "get",
-            sig(
+            script_sig(
                 vec![
                     param("value", Type::Any),
                     param("path", Type::List(Box::new(Type::Any))),
@@ -2111,11 +2167,13 @@ fn json_module() -> ModuleSig {
                 result(Type::Any),
                 true,
                 RuntimeOp::JsonGet,
+                "json",
+                "get",
             ),
         ),
         (
             "get",
-            sig(
+            script_sig(
                 vec![
                     param("value", Type::Any),
                     param("path", Type::List(Box::new(Type::Any))),
@@ -2124,6 +2182,8 @@ fn json_module() -> ModuleSig {
                 Type::Any,
                 true,
                 RuntimeOp::JsonGet,
+                "json",
+                "get_with_fallback",
             ),
         ),
         (
@@ -2137,7 +2197,7 @@ fn json_module() -> ModuleSig {
         ),
         (
             "remove",
-            sig(
+            script_sig(
                 vec![
                     param("value", Type::Any),
                     param("path", Type::List(Box::new(Type::Any))),
@@ -2145,11 +2205,13 @@ fn json_module() -> ModuleSig {
                 result(Type::Any),
                 true,
                 RuntimeOp::JsonRemove,
+                "json",
+                "remove",
             ),
         ),
         (
             "set",
-            sig_with_arg_check(
+            script_sig_with_arg_check(
                 vec![
                     param("value", Type::Any),
                     param("path", Type::List(Box::new(Type::Any))),
@@ -2159,6 +2221,8 @@ fn json_module() -> ModuleSig {
                 true,
                 RuntimeOp::JsonSet,
                 ApiArgCheck::JsonCompatible,
+                "json",
+                "set",
             ),
         ),
         (
@@ -2406,29 +2470,59 @@ fn linux_module() -> ModuleSig {
         ),
         (
             "routes",
-            sig(
-                Vec::new(),
-                result(Type::Stream(Box::new(linux_route_type()))),
-                false,
-                RuntimeOp::LinuxRoutes,
+            linux_text_entry(
+                script_sig(
+                    Vec::new(),
+                    result(Type::Stream(Box::new(linux_route_type()))),
+                    false,
+                    RuntimeOp::LinuxRoutes,
+                    "linux_routes",
+                    "routes",
+                ),
+                sig(
+                    Vec::new(),
+                    result(Type::Stream(Box::new(linux_route_type()))),
+                    false,
+                    RuntimeOp::LinuxRoutes,
+                ),
             ),
         ),
         (
             "meminfo",
-            sig(
-                Vec::new(),
-                result(linux_meminfo_type()),
-                false,
-                RuntimeOp::LinuxMemInfo,
+            linux_text_entry(
+                script_sig(
+                    Vec::new(),
+                    result(linux_meminfo_type()),
+                    false,
+                    RuntimeOp::LinuxMemInfo,
+                    "linux_text",
+                    "meminfo",
+                ),
+                sig(
+                    Vec::new(),
+                    result(linux_meminfo_type()),
+                    false,
+                    RuntimeOp::LinuxMemInfo,
+                ),
             ),
         ),
         (
             "modules",
-            sig(
-                Vec::new(),
-                result(Type::Stream(Box::new(linux_module_type()))),
-                false,
-                RuntimeOp::LinuxModules,
+            linux_text_entry(
+                script_sig(
+                    Vec::new(),
+                    result(Type::Stream(Box::new(linux_module_type()))),
+                    false,
+                    RuntimeOp::LinuxModules,
+                    "linux_text",
+                    "modules",
+                ),
+                sig(
+                    Vec::new(),
+                    result(Type::Stream(Box::new(linux_module_type()))),
+                    false,
+                    RuntimeOp::LinuxModules,
+                ),
             ),
         ),
         (
@@ -2976,11 +3070,21 @@ fn unix_module() -> ModuleSig {
         ),
         (
             "uptime_seconds",
-            sig(
-                Vec::new(),
-                result(Type::Int),
-                false,
-                RuntimeOp::UnixUptimeSeconds,
+            linux_text_entry(
+                script_sig(
+                    Vec::new(),
+                    result(Type::Int),
+                    false,
+                    RuntimeOp::UnixUptimeSeconds,
+                    "unix",
+                    "uptime_seconds",
+                ),
+                sig(
+                    Vec::new(),
+                    result(Type::Int),
+                    false,
+                    RuntimeOp::UnixUptimeSeconds,
+                ),
             ),
         ),
         (
@@ -3127,11 +3231,13 @@ fn process_module() -> ModuleSig {
         ),
         (
             "argv_words",
-            sig(
+            script_sig(
                 vec![param("text", Type::Str)],
                 result(Type::List(Box::new(Type::Str))),
                 true,
                 RuntimeOp::ProcessArgvWords,
+                "process",
+                "argv_words",
             ),
         ),
         (
@@ -3301,20 +3407,40 @@ fn system_module() -> ModuleSig {
         ),
         (
             "memory",
-            sig(
-                Vec::new(),
-                result(system_memory_type()),
-                false,
-                RuntimeOp::SystemMemory,
+            linux_text_entry(
+                script_sig(
+                    Vec::new(),
+                    result(system_memory_type()),
+                    false,
+                    RuntimeOp::SystemMemory,
+                    "system",
+                    "memory",
+                ),
+                sig(
+                    Vec::new(),
+                    result(system_memory_type()),
+                    false,
+                    RuntimeOp::SystemMemory,
+                ),
             ),
         ),
         (
             "os_release",
-            sig(
-                Vec::new(),
-                result(system_os_release_type()),
-                false,
-                RuntimeOp::SystemOsRelease,
+            linux_text_entry(
+                script_sig(
+                    Vec::new(),
+                    result(system_os_release_type()),
+                    false,
+                    RuntimeOp::SystemOsRelease,
+                    "system",
+                    "os_release",
+                ),
+                sig(
+                    Vec::new(),
+                    result(system_os_release_type()),
+                    false,
+                    RuntimeOp::SystemOsRelease,
+                ),
             ),
         ),
     ])
@@ -3581,89 +3707,81 @@ fn time_module() -> ModuleSig {
         ),
         (
             "duration_compact",
-            sig(
+            script_sig(
                 vec![param("seconds", Type::Int)],
                 Type::Str,
                 true,
                 RuntimeOp::TimeDurationCompact,
+                "time",
+                "duration_compact",
             ),
         ),
     ])
 }
 
 fn tui_module() -> ModuleSig {
-    module_sig(vec![
-        (
-            "reset",
-            sig(Vec::new(), Type::Str, true, RuntimeOp::TuiReset),
-        ),
-        ("bold", sig(Vec::new(), Type::Str, true, RuntimeOp::TuiBold)),
-        ("dim", sig(Vec::new(), Type::Str, true, RuntimeOp::TuiDim)),
-        ("red", sig(Vec::new(), Type::Str, true, RuntimeOp::TuiRed)),
-        (
-            "green",
-            sig(Vec::new(), Type::Str, true, RuntimeOp::TuiGreen),
-        ),
-        (
-            "yellow",
-            sig(Vec::new(), Type::Str, true, RuntimeOp::TuiYellow),
-        ),
-        ("blue", sig(Vec::new(), Type::Str, true, RuntimeOp::TuiBlue)),
-        (
-            "magenta",
-            sig(Vec::new(), Type::Str, true, RuntimeOp::TuiMagenta),
-        ),
-        ("cyan", sig(Vec::new(), Type::Str, true, RuntimeOp::TuiCyan)),
-        (
-            "white",
-            sig(Vec::new(), Type::Str, true, RuntimeOp::TuiWhite),
-        ),
-        ("gray", sig(Vec::new(), Type::Str, true, RuntimeOp::TuiGray)),
-        (
-            "clear",
-            sig(Vec::new(), Type::Str, true, RuntimeOp::TuiClear),
-        ),
-        ("home", sig(Vec::new(), Type::Str, true, RuntimeOp::TuiHome)),
-        (
-            "erase_line",
-            sig(Vec::new(), Type::Str, true, RuntimeOp::TuiEraseLine),
-        ),
-        (
-            "hide_cursor",
-            sig(Vec::new(), Type::Str, true, RuntimeOp::TuiHideCursor),
-        ),
-        (
-            "show_cursor",
-            sig(Vec::new(), Type::Str, true, RuntimeOp::TuiShowCursor),
-        ),
-        (
+    // Every escape-sequence producer and both padding helpers execute as
+    // embedded XSH. `read_secret` keeps its native body because it owns raw
+    // stdin access, terminal mode changes, and descriptor lifetime.
+    let escapes = [
+        ("reset", RuntimeOp::TuiReset),
+        ("bold", RuntimeOp::TuiBold),
+        ("dim", RuntimeOp::TuiDim),
+        ("red", RuntimeOp::TuiRed),
+        ("green", RuntimeOp::TuiGreen),
+        ("yellow", RuntimeOp::TuiYellow),
+        ("blue", RuntimeOp::TuiBlue),
+        ("magenta", RuntimeOp::TuiMagenta),
+        ("cyan", RuntimeOp::TuiCyan),
+        ("white", RuntimeOp::TuiWhite),
+        ("gray", RuntimeOp::TuiGray),
+        ("clear", RuntimeOp::TuiClear),
+        ("home", RuntimeOp::TuiHome),
+        ("erase_line", RuntimeOp::TuiEraseLine),
+        ("hide_cursor", RuntimeOp::TuiHideCursor),
+        ("show_cursor", RuntimeOp::TuiShowCursor),
+    ];
+    let mut entries = escapes
+        .into_iter()
+        .map(|(name, op)| {
+            (
+                name,
+                script_sig(Vec::new(), Type::Str, true, op, "tui", name),
+            )
+        })
+        .collect::<Vec<_>>();
+    entries.push((
+        "left_pad",
+        script_sig(
+            vec![param("text", Type::Str), param("width", Type::Int)],
+            Type::Str,
+            true,
+            RuntimeOp::TuiLeftPad,
+            "tui",
             "left_pad",
-            sig(
-                vec![param("text", Type::Str), param("width", Type::Int)],
-                Type::Str,
-                true,
-                RuntimeOp::TuiLeftPad,
-            ),
         ),
-        (
+    ));
+    entries.push((
+        "right_pad",
+        script_sig(
+            vec![param("text", Type::Str), param("width", Type::Int)],
+            Type::Str,
+            true,
+            RuntimeOp::TuiRightPad,
+            "tui",
             "right_pad",
-            sig(
-                vec![param("text", Type::Str), param("width", Type::Int)],
-                Type::Str,
-                true,
-                RuntimeOp::TuiRightPad,
-            ),
         ),
-        (
-            "read_secret",
-            sig(
-                vec![param("prompt", Type::Str)],
-                result(Type::Str),
-                false,
-                RuntimeOp::TuiReadSecret,
-            ),
+    ));
+    entries.push((
+        "read_secret",
+        sig(
+            vec![param("prompt", Type::Str)],
+            result(Type::Str),
+            false,
+            RuntimeOp::TuiReadSecret,
         ),
-    ])
+    ));
+    module_sig(entries)
 }
 
 fn user_module() -> ModuleSig {

@@ -29,7 +29,7 @@ use xsh::frontend::check::Checker;
 use xsh::frontend::source::{SourceId, SourceMap, Span};
 use xsh::frontend::syntax::arena::ArenaProgram;
 use xsh::frontend::syntax::node::RunKind;
-use xsh::frontend::syntax::parser::Parser;
+use xsh::frontend::load::{entry_source_from_text, parse_load_entry_source_arena_only};
 use xsh::process::{
     CancellationDecision, CancellationPolicy, ChildWaitOutcome, FileRedirectionMode,
     ForegroundTerminal, ManagedStdio, ProcessGroup, ProcessGroupConfig, ProcessInvocation,
@@ -297,9 +297,13 @@ pub(super) fn execute_line(session: &mut Session, source: &str) -> CommandOutput
 }
 
 fn run_xsh_source(session: &Session, source_name: &str, text: &str) -> CommandOutput {
-    let mut sources = SourceMap::new();
-    let source_id = sources.add_file(source_name, text.to_string());
-    let parsed = Parser::parse_source_arena_only(source_id, text);
+    // Prepare through the loader so each submitted input carries the embedded
+    // standard-library implementations it can reach. The preparation boundary
+    // is this call: preparation happens before the input executes and never
+    // during it.
+    let entry_source = entry_source_from_text(source_name, text.to_string());
+    let source_id = entry_source.source_id;
+    let (sources, parsed) = parse_load_entry_source_arena_only(source_name, entry_source, Vec::new());
 
     if !parsed.diagnostics.is_empty() {
         return CommandOutput {

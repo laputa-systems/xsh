@@ -182,6 +182,11 @@ name = "integration"
 path = "tests/integration.rs"
 
 [[test]]
+# Samples a process-global counter, so it needs its own process.
+name = "symbol_plateau"
+path = "tests/symbol_plateau.rs"
+
+[[test]]
 name = "linux_priv"
 path = "tests/linux_priv.rs"
 required-features = ["linux-priv-tests"]

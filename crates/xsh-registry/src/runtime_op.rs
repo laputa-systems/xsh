@@ -101,6 +101,30 @@ pub enum RuntimeOp {
     RecordGet,
     RecordKeys,
     RecordRequire,
+    /// Private representation bridge: persistently update one record field.
+    ///
+    /// Not bound to any public entry. Only an embedded implementation module
+    /// listed in its owning catalog entry may lower a call to this operation.
+    RecordWithField,
+    /// Private representation bridge: persistently remove one record field.
+    ///
+    /// Not bound to any public entry. Only an embedded implementation module
+    /// listed in its owning catalog entry may lower a call to this operation.
+    RecordRemoveField,
+    /// Private invocation-context bridge: the current invocation's command name.
+    ///
+    /// The baseline's `cli.parse`, `cli.parse_full`, and `cli.applet` default
+    /// their `command` parameter to the name the interpreter was invoked as,
+    /// which no XSH-visible source provides. Not bound to any public entry;
+    /// only the embedded implementation module listed in its owning catalog
+    /// entry may lower it.
+    BridgeCommandName,
+    /// Private diagnostic bridge: the baseline's type name for a runtime value.
+    ///
+    /// A ported policy reproduces the baseline's error messages, which name the
+    /// type they found. Not bound to any public entry; only an embedded
+    /// implementation module listed in its owning catalog entry may lower it.
+    BridgeTypeName,
     RegexCompile,
     RegexMatches,
     RegexFind,

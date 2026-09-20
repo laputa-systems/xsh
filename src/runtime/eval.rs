@@ -1623,6 +1623,16 @@ enum BuildExprRow {
         args: Vec<LoweredCallArg>,
         span: Span,
     },
+    /// A call to an implementation a loading program published.
+    ///
+    /// Used only by a dynamically loaded module that links its standard-library
+    /// calls to the implementations its loader already prepared, so the callee
+    /// has no local function identity to encode.
+    ExternalCall {
+        function: crate::symbol::QualifiedName,
+        args: Vec<LoweredCallArg>,
+        span: Span,
+    },
 }
 
 #[derive(Clone, Debug)]
@@ -3498,6 +3508,35 @@ impl Evaluator {
         let _ = stderr.flush();
     }
 
+    /// Validate an embedded implementation module through the production
+    /// preparation gate: check declarations, probe bodies, lower, and verify
+    /// the whole store.
+    ///
+    /// Used by the catalog test so an unused or target-specific embedded source
+    /// is still fully checked.
+    #[cfg(test)]
+    pub(crate) fn probe_embedded_module_lowering(
+        program: &ArenaProgram,
+        declarations: &crate::sema::check::CompactDeclOutput,
+        bodies: &crate::sema::check::CompactBodyProbeOutput,
+        source: &str,
+        sources: Arc<SourceMap>,
+        source_id: SourceId,
+    ) -> Result<(), String> {
+        crate::runtime::eval::FullBuilder::build_compact_with_options(
+            program,
+            declarations,
+            bodies,
+            source,
+            sources,
+            source_id,
+            false,
+            crate::runtime::eval::lower::StdlibLowerLinkage::Local,
+        )
+        .map(|_| ())
+        .map_err(|error| format!("{:?}", error.construct))
+    }
+
     pub(crate) fn prepare_compact_indexed_only(
         &mut self,
         program: &ArenaProgram,
@@ -3557,6 +3596,7 @@ impl Evaluator {
             Arc::clone(&self.sources),
             source_id,
             allow_checker_only,
+            crate::runtime::eval::lower::StdlibLowerLinkage::Local,
         )
         .map_err(|error| {
             let span = error

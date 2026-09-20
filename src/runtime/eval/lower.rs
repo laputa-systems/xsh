@@ -552,7 +552,6 @@ fn lowered_module_op_supported(op: RuntimeOp) -> bool {
             | RuntimeOp::BytesCopyFile
             | RuntimeOp::BytesFromInts
             | RuntimeOp::BytesConcat
-            | RuntimeOp::BytesHuman
             | RuntimeOp::BytesPackLe
             | RuntimeOp::BytesPackBe
             | RuntimeOp::BytesUnpackLe
@@ -567,10 +566,7 @@ fn lowered_module_op_supported(op: RuntimeOp) -> bool {
             | RuntimeOp::DnsReverse
             | RuntimeOp::DnsNameservers
             | RuntimeOp::EnvGet
-            | RuntimeOp::EnvGetOr
-            | RuntimeOp::EnvBool
             | RuntimeOp::EnvPath
-            | RuntimeOp::EnvInt
             | RuntimeOp::EnvList
             | RuntimeOp::EnvPathList
             | RuntimeOp::EnvPathEntries
@@ -644,7 +640,6 @@ fn lowered_module_op_supported(op: RuntimeOp) -> bool {
             | RuntimeOp::HashSha512
             | RuntimeOp::HashCrc32
             | RuntimeOp::HashCrc32c
-            | RuntimeOp::HashParseCheckLine
             | RuntimeOp::HashVerifyFile
             | RuntimeOp::IoStdinBytes
             | RuntimeOp::IoStdinText
@@ -653,8 +648,6 @@ fn lowered_module_op_supported(op: RuntimeOp) -> bool {
             | RuntimeOp::IoWriteStdoutBytes
             | RuntimeOp::IniDecode
             | RuntimeOp::IniRead
-            | RuntimeOp::IniEncode
-            | RuntimeOp::IniWrite
             | RuntimeOp::JsonDecode
             | RuntimeOp::JsonEncode
             | RuntimeOp::JsonEncodeLines
@@ -678,9 +671,6 @@ fn lowered_module_op_supported(op: RuntimeOp) -> bool {
             | RuntimeOp::LinuxDhcpClose
             | RuntimeOp::LinuxDhcpSendRelease
             | RuntimeOp::MapEmpty
-            | RuntimeOp::MimeLookupExt
-            | RuntimeOp::MimeLookupPath
-            | RuntimeOp::MimeParse
             | RuntimeOp::ModuleLoad
             | RuntimeOp::NetPool
             | RuntimeOp::NetClosePool
@@ -704,7 +694,6 @@ fn lowered_module_op_supported(op: RuntimeOp) -> bool {
             | RuntimeOp::ProcessPortsForPid
             | RuntimeOp::ProcessSignal
             | RuntimeOp::ProcessKill
-            | RuntimeOp::ProcessArgvWords
             | RuntimeOp::ProcessRun
             | RuntimeOp::ProcessSpawn
             | RuntimeOp::ProcessWaitAny
@@ -716,8 +705,6 @@ fn lowered_module_op_supported(op: RuntimeOp) -> bool {
             | RuntimeOp::SetHas
             | RuntimeOp::SetAdd
             | RuntimeOp::SetRemove
-            | RuntimeOp::ShlexQuote
-            | RuntimeOp::ShlexJoin
             | RuntimeOp::SystemHostname
             | RuntimeOp::SystemUname
             | RuntimeOp::SystemMemory
@@ -727,25 +714,6 @@ fn lowered_module_op_supported(op: RuntimeOp) -> bool {
             | RuntimeOp::TimeMillis
             | RuntimeOp::TimeSeconds
             | RuntimeOp::TimeMeasure
-            | RuntimeOp::TimeDurationCompact
-            | RuntimeOp::TuiReset
-            | RuntimeOp::TuiBold
-            | RuntimeOp::TuiDim
-            | RuntimeOp::TuiRed
-            | RuntimeOp::TuiGreen
-            | RuntimeOp::TuiYellow
-            | RuntimeOp::TuiBlue
-            | RuntimeOp::TuiMagenta
-            | RuntimeOp::TuiCyan
-            | RuntimeOp::TuiWhite
-            | RuntimeOp::TuiGray
-            | RuntimeOp::TuiClear
-            | RuntimeOp::TuiHome
-            | RuntimeOp::TuiEraseLine
-            | RuntimeOp::TuiHideCursor
-            | RuntimeOp::TuiShowCursor
-            | RuntimeOp::TuiLeftPad
-            | RuntimeOp::TuiRightPad
             | RuntimeOp::TuiReadSecret
             | RuntimeOp::LinuxWriteDevice
             | RuntimeOp::LinuxReadDevice
@@ -1608,10 +1576,23 @@ pub(super) fn probe_compact_lower_constructed_bodies(
         },
         last_blocker_detail: None,
         strict_dynamic_methods: true,
+        stdlib_linkage: StdlibLowerLinkage::Local,
+        function_defs: Rc::new(RefCell::new(None)),
         scratch: Rc::new(RefCell::new(BuildScratch::default())),
     };
     probe.probe_program();
     probe.output
+}
+
+/// Where a program's standard-library implementation calls resolve.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::runtime::eval) enum StdlibLowerLinkage {
+    /// The program contains the embedded implementation modules it calls.
+    Local,
+    /// A loading program already prepared them; this program lowers its
+    /// standard calls to functions resolved through the runtime's dynamic
+    /// function table instead of reparsing embedded source.
+    External,
 }
 
 pub(super) fn lower_compact_function_units_into(
@@ -1620,83 +1601,59 @@ pub(super) fn lower_compact_function_units_into(
     bodies: &CompactBodyProbeOutput,
     source: &str,
     sources: &SourceMap,
+    stdlib_linkage: StdlibLowerLinkage,
     mut emit: impl FnMut(LoweredFunctionUnit) -> Result<(), super::indexed::IrBuildError>,
 ) -> Result<(), super::indexed::IrBuildError> {
-    let root = compact_function_defs(program);
-    let candidates = root.iter().map(|function| function.key).collect::<Vec<_>>();
-    let index_of = root
+    // Every function's body must be walked to find its call edges, and finding
+    // them once per function would make preparation quadratic in program size.
+    // One index answers the whole loop: each unit's dependencies and its
+    // component metadata come from the same walk of every body.
+    let index = Rc::new(CompactFunctionIndex::new(program));
+    let candidates = index
+        .defs
         .iter()
-        .enumerate()
-        .map(|(index, function)| (function.key, index))
-        .collect::<FxHashMap<_, _>>();
-    let adjacency = root
-        .iter()
-        .map(|function| {
-            compact_function_call_edges(program, function.id, function.namespace, &index_of)
-        })
+        .map(|function| function.key)
         .collect::<Vec<_>>();
-    let dependencies = adjacency
-        .iter()
-        .map(|edges| {
-            edges
-                .iter()
-                .map(|&index| root[index].key)
-                .collect::<Vec<_>>()
-        })
-        .collect::<Vec<_>>();
-    let mut scc_metadata = vec![(1, None); root.len()];
-    for pure in [true, false] {
-        let functions = root
-            .iter()
-            .enumerate()
-            .filter(|(_, function)| function.pure == pure)
-            .collect::<Vec<_>>();
-        let kind_index_of = functions
-            .iter()
-            .enumerate()
-            .map(|(index, (_, function))| (function.key, index))
-            .collect::<FxHashMap<_, _>>();
-        let kind_adjacency = functions
-            .iter()
-            .map(|(_, function)| {
-                compact_function_call_edges(
-                    program,
-                    function.id,
-                    function.namespace,
-                    &kind_index_of,
-                )
-            })
-            .collect::<Vec<_>>();
-        for (group, scc) in compact_tarjan_sccs(kind_adjacency).into_iter().enumerate() {
-            let member_count = scc.len();
-            let group = (member_count > 1).then_some(group);
-            for index in scc {
-                scc_metadata[functions[index].0] = (member_count, group);
-            }
-        }
-    }
-    for (index, function) in root.into_iter().enumerate() {
-        let empty_pures = FxHashSet::default();
-        let empty_procs = FxHashSet::default();
-        let empty_qualified_pures = FxHashSet::default();
-        let empty_qualified_procs = FxHashSet::default();
-        let functions = LowerableFunctions::all_with_candidates(
-            &empty_pures,
-            &empty_procs,
-            &empty_qualified_pures,
-            &empty_qualified_procs,
-            &candidates,
-        );
-        let top_level_known = compact_function_top_level_known(
-            program,
-            declarations,
-            bodies,
-            source,
-            Some(sources),
-            function.namespace,
-            function.id,
-            Some(&functions),
-        );
+    let function_defs = Rc::new(RefCell::new(Some(Rc::clone(&index))));
+    let empty_pures = FxHashSet::default();
+    let empty_procs = FxHashSet::default();
+    let empty_qualified_pures = FxHashSet::default();
+    let empty_qualified_procs = FxHashSet::default();
+    let functions = LowerableFunctions::all_with_candidates(
+        &empty_pures,
+        &empty_procs,
+        &empty_qualified_pures,
+        &empty_qualified_procs,
+        &candidates,
+    );
+    // `top_level_known` is a prefix scan of a module's statements, and the
+    // functions of one module come out of the index in statement order, so one
+    // cursor per module produces every function's prefix in a single pass. A
+    // fresh scan per function would make preparation quadratic in a module's
+    // size.
+    let recorder = CompactLowerConstructProbe {
+        program,
+        declarations,
+        bodies,
+        source,
+        sources: Some(sources),
+        current_namespace: None,
+        functions: Some(&functions),
+        top_level_known: FxHashMap::default(),
+        output: CompactLowerConstructProbeOutput::default(),
+        last_blocker_detail: None,
+        strict_dynamic_methods: true,
+        stdlib_linkage,
+        function_defs: Rc::clone(&function_defs),
+        scratch: Rc::new(RefCell::new(BuildScratch::default())),
+    };
+    let mut prefixes: FxHashMap<Option<Name>, CompactTopLevelPrefix> = FxHashMap::default();
+    for function in index.defs.iter().copied() {
+        let prefix = prefixes.entry(function.namespace).or_insert_with(|| {
+            CompactTopLevelPrefix::for_namespace(program, function.namespace)
+        });
+        prefix.advance_to_recording(&recorder, function.id);
+        let top_level_known = prefix.known.clone();
         let mut probe = CompactLowerConstructProbe {
             program,
             declarations,
@@ -1709,12 +1666,14 @@ pub(super) fn lower_compact_function_units_into(
             output: CompactLowerConstructProbeOutput::default(),
             last_blocker_detail: None,
             strict_dynamic_methods: true,
+            stdlib_linkage,
+            function_defs: Rc::clone(&function_defs),
             scratch: Rc::new(RefCell::new(BuildScratch::default())),
         };
-        let (scc_member_count, scc_group) = scc_metadata[index];
+        let (scc_member_count, scc_group) = index.scc_metadata(&function);
         let unit = probe.lower_function_unit(
             function,
-            dependencies[index].clone(),
+            compact_function_dependency_keys(&index, program, &function),
             scc_member_count,
             scc_group,
         );
@@ -1752,6 +1711,8 @@ pub(super) fn lower_compact_top_level_program_with_probe(
         output: CompactLowerConstructProbeOutput::default(),
         last_blocker_detail: None,
         strict_dynamic_methods,
+        stdlib_linkage: StdlibLowerLinkage::Local,
+        function_defs: Rc::new(RefCell::new(None)),
         scratch: Rc::new(RefCell::new(BuildScratch::default())),
     };
     let root = program.statement_ids().collect::<Vec<_>>();
@@ -1789,11 +1750,17 @@ fn compact_top_level_known(
         output: CompactLowerConstructProbeOutput::default(),
         last_blocker_detail: None,
         strict_dynamic_methods: true,
+        stdlib_linkage: StdlibLowerLinkage::Local,
+        function_defs: Rc::new(RefCell::new(None)),
         scratch: Rc::new(RefCell::new(BuildScratch::default())),
     };
     probe.collect_top_level_known(&statements)
 }
 
+/// The bindings visible to one function definition.
+///
+/// Used by the construct probe, which walks a module's statements itself and so
+/// cannot share the cursor `lower_compact_function_units_into` keeps.
 fn compact_function_top_level_known(
     program: &ArenaProgram,
     declarations: &CompactDeclOutput,
@@ -1804,15 +1771,6 @@ fn compact_function_top_level_known(
     function_id: FunctionDefId,
     functions: Option<&LowerableFunctions<'_>>,
 ) -> FxHashMap<Name, LoweredTopLevelBinding> {
-    let statements = match namespace {
-        Some(namespace) => program
-            .modules
-            .iter()
-            .find(|module| module.name == namespace)
-            .map(|module| program.module_statements(module).collect::<Vec<_>>())
-            .unwrap_or_default(),
-        None => program.statement_ids().collect::<Vec<_>>(),
-    };
     let probe = CompactLowerConstructProbe {
         program,
         declarations,
@@ -1825,16 +1783,59 @@ fn compact_function_top_level_known(
         output: CompactLowerConstructProbeOutput::default(),
         last_blocker_detail: None,
         strict_dynamic_methods: true,
+        stdlib_linkage: StdlibLowerLinkage::Local,
+        function_defs: Rc::new(RefCell::new(None)),
         scratch: Rc::new(RefCell::new(BuildScratch::default())),
     };
-    let mut known = top_level_known_with_runtime_bindings();
-    for stmt in statements {
-        if compact_stmt_contains_function_def(program, stmt, function_id) {
-            break;
+    let mut prefix = CompactTopLevelPrefix::for_namespace(program, namespace);
+    prefix.advance_to_recording(&probe, function_id);
+    prefix.known
+}
+
+/// One module's `top_level_known` prefix, advanced as its functions are lowered.
+///
+/// The bindings visible to a function are those of the statements before its own
+/// definition, so the functions of a module share one scan: the cursor stops at
+/// the definition statement it was asked about and every later function resumes
+/// from there.
+struct CompactTopLevelPrefix {
+    statements: Vec<StmtId>,
+    known: FxHashMap<Name, LoweredTopLevelBinding>,
+    position: usize,
+}
+
+impl CompactTopLevelPrefix {
+    fn for_namespace(program: &ArenaProgram, namespace: Option<Name>) -> Self {
+        let statements = match namespace {
+            Some(namespace) => program
+                .modules
+                .iter()
+                .find(|module| module.name == namespace)
+                .map(|module| program.module_statements(module).collect::<Vec<_>>())
+                .unwrap_or_default(),
+            None => program.statement_ids().collect::<Vec<_>>(),
+        };
+        Self {
+            statements,
+            known: top_level_known_with_runtime_bindings(),
+            position: 0,
         }
-        probe.record_top_level_binding(stmt, &mut known);
     }
-    known
+
+    /// Record every statement before `function_id`'s own definition.
+    fn advance_to_recording(
+        &mut self,
+        recorder: &CompactLowerConstructProbe<'_, '_>,
+        function_id: FunctionDefId,
+    ) {
+        while let Some(stmt) = self.statements.get(self.position).copied() {
+            if compact_stmt_contains_function_def(recorder.program, stmt, function_id) {
+                break;
+            }
+            recorder.record_top_level_binding(stmt, &mut self.known);
+            self.position += 1;
+        }
+    }
 }
 
 fn compact_stmt_contains_function_def(
@@ -1851,6 +1852,88 @@ fn compact_stmt_contains_function_def(
         }
         _ => false,
     }
+}
+
+/// Every function definition in a program, with its key index and the strongly
+/// connected component metadata for each purity class.
+///
+/// Building any of this walks function bodies, so it is done once per lowering
+/// pass rather than once per function.
+struct CompactFunctionIndex {
+    defs: Vec<CompactFunctionDef>,
+    index_of: FxHashMap<LoweredFunctionKey, usize>,
+    /// `[pure, proc]` component metadata keyed by function.
+    scc: [FxHashMap<LoweredFunctionKey, (usize, Option<usize>)>; 2],
+}
+
+impl CompactFunctionIndex {
+    fn new(program: &ArenaProgram) -> Self {
+        let defs = compact_function_defs(program);
+        let index_of = defs
+            .iter()
+            .enumerate()
+            .map(|(index, function)| (function.key, index))
+            .collect::<FxHashMap<_, _>>();
+        let scc = [
+            compact_scc_groups(program, &defs, true),
+            compact_scc_groups(program, &defs, false),
+        ];
+        Self {
+            defs,
+            index_of,
+            scc,
+        }
+    }
+
+    fn scc_metadata(&self, function: &CompactFunctionDef) -> (usize, Option<usize>) {
+        let class = usize::from(!function.pure);
+        self.scc[class]
+            .get(&function.key)
+            .copied()
+            .unwrap_or((1, None))
+    }
+
+    fn definition(&self, key: LoweredFunctionKey) -> Option<&CompactFunctionDef> {
+        self.index_of.get(&key).and_then(|index| self.defs.get(*index))
+    }
+}
+
+/// Component metadata for every function of one purity.
+///
+/// A recursive group is reported with its member count so the runtime can size
+/// the frame stack for it; a solitary function reports `(1, None)`.
+fn compact_scc_groups(
+    program: &ArenaProgram,
+    defs: &[CompactFunctionDef],
+    pure: bool,
+) -> FxHashMap<LoweredFunctionKey, (usize, Option<usize>)> {
+    let selected = defs
+        .iter()
+        .filter(|candidate| candidate.pure == pure)
+        .collect::<Vec<_>>();
+    let index_of = selected
+        .iter()
+        .enumerate()
+        .map(|(index, function)| (function.key, index))
+        .collect::<FxHashMap<_, _>>();
+    let adjacency = selected
+        .iter()
+        .map(|function| {
+            compact_function_call_edges(program, function.id, function.namespace, &index_of)
+        })
+        .collect::<Vec<_>>();
+    let mut groups = FxHashMap::default();
+    for (group, scc) in compact_tarjan_sccs(adjacency).into_iter().enumerate() {
+        let metadata = if scc.len() > 1 {
+            (scc.len(), Some(group))
+        } else {
+            (1, None)
+        };
+        for member in scc {
+            groups.insert(selected[member].key, metadata);
+        }
+    }
+    groups
 }
 
 #[derive(Clone, Copy)]
@@ -1882,56 +1965,14 @@ fn compact_function_call_edges(
 }
 
 fn compact_function_dependency_keys(
+    functions: &CompactFunctionIndex,
     program: &ArenaProgram,
-    function: CompactFunctionDef,
+    function: &CompactFunctionDef,
 ) -> Vec<LoweredFunctionKey> {
-    let functions = compact_function_defs(program);
-    let index_of = functions
-        .iter()
-        .enumerate()
-        .map(|(index, function)| (function.key, index))
-        .collect::<FxHashMap<_, _>>();
-    compact_function_call_edges(program, function.id, function.namespace, &index_of)
+    compact_function_call_edges(program, function.id, function.namespace, &functions.index_of)
         .into_iter()
-        .map(|index| functions[index].key)
+        .map(|index| functions.defs[index].key)
         .collect()
-}
-
-fn compact_function_scc_metadata(
-    program: &ArenaProgram,
-    function: CompactFunctionDef,
-) -> (usize, Option<usize>) {
-    let functions = compact_function_defs(program)
-        .into_iter()
-        .filter(|candidate| candidate.pure == function.pure)
-        .collect::<Vec<_>>();
-    let Some(function_index) = functions
-        .iter()
-        .position(|candidate| candidate.key == function.key)
-    else {
-        return (1, None);
-    };
-    let index_of = functions
-        .iter()
-        .enumerate()
-        .map(|(index, function)| (function.key, index))
-        .collect::<FxHashMap<_, _>>();
-    let adjacency = functions
-        .iter()
-        .map(|function| {
-            compact_function_call_edges(program, function.id, function.namespace, &index_of)
-        })
-        .collect::<Vec<_>>();
-    for (group, scc) in compact_tarjan_sccs(adjacency).into_iter().enumerate() {
-        if scc.contains(&function_index) {
-            return if scc.len() > 1 {
-                (scc.len(), Some(group))
-            } else {
-                (1, None)
-            };
-        }
-    }
-    (1, None)
 }
 
 fn compact_collect_block_call_edges(
@@ -2332,6 +2373,14 @@ struct CompactLowerConstructProbe<'a, 'defs> {
     output: CompactLowerConstructProbeOutput,
     last_blocker_detail: Option<(Span, String)>,
     strict_dynamic_methods: bool,
+    /// Where standard-library implementation calls in this program resolve.
+    stdlib_linkage: StdlibLowerLinkage,
+    /// The program's function definitions and key index, built once and shared
+    /// by every unit lowered in one pass.
+    ///
+    /// `compact_function_defs` walks every statement of every module, so
+    /// rebuilding it per function makes preparation quadratic in program size.
+    function_defs: Rc<RefCell<Option<Rc<CompactFunctionIndex>>>>,
     scratch: Rc<RefCell<BuildScratch>>,
 }
 
@@ -3164,9 +3213,10 @@ impl CompactLowerConstructProbe<'_, '_> {
                     namespace: self.current_namespace,
                     definition_span: self.program.arena.stmt(id).span,
                 };
-                let dependencies = compact_function_dependency_keys(self.program, function);
-                let (scc_member_count, scc_group) =
-                    compact_function_scc_metadata(self.program, function);
+                let definitions = self.function_index();
+                let dependencies =
+                    compact_function_dependency_keys(&definitions, self.program, &function);
+                let (scc_member_count, scc_group) = definitions.scc_metadata(&function);
                 let unit =
                     self.lower_function_unit(function, dependencies, scc_member_count, scc_group);
                 if unit.is_lowered() {
@@ -3203,9 +3253,10 @@ impl CompactLowerConstructProbe<'_, '_> {
                     namespace: self.current_namespace,
                     definition_span: self.program.arena.stmt(id).span,
                 };
-                let dependencies = compact_function_dependency_keys(self.program, function);
-                let (scc_member_count, scc_group) =
-                    compact_function_scc_metadata(self.program, function);
+                let definitions = self.function_index();
+                let dependencies =
+                    compact_function_dependency_keys(&definitions, self.program, &function);
+                let (scc_member_count, scc_group) = definitions.scc_metadata(&function);
                 let unit =
                     self.lower_function_unit(function, dependencies, scc_member_count, scc_group);
                 if unit.is_lowered() {
@@ -3687,6 +3738,8 @@ impl CompactLowerConstructProbe<'_, '_> {
                         output: CompactLowerConstructProbeOutput::default(),
                         last_blocker_detail: None,
                         strict_dynamic_methods: true,
+                        stdlib_linkage: StdlibLowerLinkage::Local,
+                        function_defs: Rc::new(RefCell::new(None)),
                         scratch: self.scratch.clone(),
                     };
                     probe.lower_program_statements(&module_statement_ids)
@@ -8384,6 +8437,200 @@ impl CompactLowerConstructProbe<'_, '_> {
         Some(lowered)
     }
 
+    /// Route a script-backed method call to its prepared implementation.
+    ///
+    /// The receiver becomes the implementation function's first argument, so
+    /// the embedded body sees exactly the parameters the method signature
+    /// declares plus the receiver it was invoked on.
+    fn lower_script_method_call(
+        &mut self,
+        base: ExprId,
+        name: Name,
+        args: &[ArenaCallArg],
+        span: Span,
+        slots: &mut SlotScope,
+        current_function: Option<Name>,
+        item_slot: Option<usize>,
+    ) -> Option<BuildExprId> {
+        let script = api_spec().script_method_impl(&name.as_str())?;
+        let namespace = self.internal_namespace(script.module)?;
+        let function = Name::intern(script.function);
+        let qualified = QualifiedName::new(namespace, function);
+        if !self.compact_qualified_function_available(qualified)
+            && self.stdlib_linkage != StdlibLowerLinkage::External
+        {
+            return None;
+        }
+        // The method signature excludes the receiver; the implementation
+        // function declares it first, so bind the declared parameters against
+        // the arguments after the leading receiver slot.
+        let params = self.compact_qualified_function_sig(namespace, function).map(|sig| {
+            sig.params
+                .iter()
+                .skip(1)
+                .cloned()
+                .collect::<Vec<CallableParamType>>()
+        });
+        let mut lowered = vec![LoweredCallArg::Single(self.lower_expr(
+            base,
+            slots,
+            current_function,
+            item_slot,
+        )?)];
+        lowered.extend(self.lower_function_call_args(
+            args,
+            params.as_deref(),
+            slots,
+            current_function,
+            item_slot,
+        )?);
+        if self.stdlib_linkage == StdlibLowerLinkage::External {
+            return Some(push_build_row!(
+                self,
+                expr,
+                BuildExprRow::ExternalCall {
+                    function: qualified,
+                    args: lowered,
+                    span,
+                }
+            ));
+        }
+        Some(push_build_row!(
+            self,
+            expr,
+            BuildExprRow::Call {
+                function: LoweredFunctionKey::Qualified(qualified),
+                args: lowered,
+                span,
+            }
+        ))
+    }
+
+    /// Route a public entry whose implementation is embedded XSH to the
+    /// prepared implementation function.
+    ///
+    /// Returns `None` for native entries, for a spelling the registry does not
+    /// bind to a script, and when the implementation module was not prepared —
+    /// the latter is a preparation defect that surfaces as a missing-target
+    /// diagnostic rather than as a silent fallback to a deleted native body.
+    fn lower_script_module_call(
+        &mut self,
+        module: Name,
+        name: Name,
+        args: &[ArenaCallArg],
+        span: Span,
+        slots: &mut SlotScope,
+        current_function: Option<Name>,
+        item_slot: Option<usize>,
+    ) -> Option<BuildExprId> {
+        // Select the overload whose parameters this call actually binds, so a
+        // public name with several overloads routes each form to its own
+        // implementation function. Falling back to the first script binding
+        // would send a three-argument call to a two-parameter implementation.
+        let script = api_spec()
+            .module_overloads(&module.as_str(), &name.as_str())?
+            .iter()
+            .find(|sig| {
+                sig.script_impl().is_some()
+                    && compact_module_bindings(args, sig).is_some()
+            })
+            .and_then(|sig| sig.script_impl())?;
+        let namespace = self.internal_namespace(script.module)?;
+        let function = Name::intern(script.function);
+        let qualified = QualifiedName::new(namespace, function);
+        if !self.compact_qualified_function_available(qualified)
+            && self.stdlib_linkage != StdlibLowerLinkage::External
+        {
+            // No prepared implementation and no loading program to provide one:
+            // this is a preparation defect, so do not quietly fall back.
+            return None;
+        }
+        let params = self
+            .compact_qualified_function_sig(namespace, function)
+            .map(|sig| sig.params.clone());
+        let args = self
+            .lower_function_call_args(args, params.as_deref(), slots, current_function, item_slot)?
+            .into_iter()
+            .collect();
+        if self.stdlib_linkage == StdlibLowerLinkage::External {
+            return Some(push_build_row!(
+                self,
+                expr,
+                BuildExprRow::ExternalCall {
+                    function: qualified,
+                    args,
+                    span,
+                }
+            ));
+        }
+        Some(push_build_row!(
+            self,
+            expr,
+            BuildExprRow::Call {
+                function: LoweredFunctionKey::Qualified(qualified),
+                args,
+                span,
+            }
+        ))
+    }
+
+    /// The program's function index, built once per lowering pass.
+    fn function_index(&self) -> Rc<CompactFunctionIndex> {
+        let uninitialised = self.function_defs.borrow().is_none();
+        if uninitialised {
+            let index = Rc::new(CompactFunctionIndex::new(self.program));
+            *self.function_defs.borrow_mut() = Some(index);
+        }
+        Rc::clone(
+            self.function_defs
+                .borrow()
+                .as_ref()
+                .expect("function index was just built"),
+        )
+    }
+
+    /// The private representation operation a declared bridge function lowers
+    /// to, when this call is inside that function's own implementation module.
+    ///
+    /// The owner test is what keeps the bridge narrow: a call is rewritten
+    /// only from the module that declares the bridge, so no other embedded
+    /// module and no user source can reach the operation even if a spelling
+    /// collides.
+    fn compact_bridge_op(&self, key: LoweredFunctionKey) -> Option<RuntimeOp> {
+        let LoweredFunctionKey::Qualified(qualified) = key else {
+            return None;
+        };
+        if self.current_namespace != Some(qualified.namespace) {
+            return None;
+        }
+        let module = crate::stdlib::find_by_namespace(&qualified.namespace.as_str())?;
+        let function = qualified.member.as_str();
+        crate::stdlib::bridge_op(module, function.as_str())
+    }
+
+    /// The interned namespace of an embedded implementation module, when this
+    /// program can reach it.
+    ///
+    /// A program that prepared the module has its functions among the checked
+    /// declarations. A program linked to a loading program's prepared modules
+    /// has none of its own, so the namespace is accepted whenever the
+    /// implementation catalog defines it.
+    fn internal_namespace(&self, identity: &str) -> Option<Name> {
+        crate::stdlib::find(identity)?;
+        let text = crate::stdlib::namespace_text(identity);
+        let namespace = Name::intern(text);
+        if self.stdlib_linkage == StdlibLowerLinkage::External {
+            return Some(namespace);
+        }
+        self.declarations
+            .qualified_pures
+            .keys()
+            .chain(self.declarations.qualified_procs.keys())
+            .chain(self.declarations.qualified_streams.keys())
+            .any(|qualified| qualified.namespace == namespace)
+            .then_some(namespace)
+    }
+
     fn lower_function_call_args(
         &mut self,
         args: &[ArenaCallArg],
@@ -8864,6 +9111,17 @@ impl CompactLowerConstructProbe<'_, '_> {
                             BuildExprRow::ProcessCommandArgv(Box::new(command))
                         ));
                     }
+                    if let Some(script_call) = self.lower_script_module_call(
+                        module,
+                        name,
+                        &args_vec,
+                        span,
+                        slots,
+                        current_function,
+                        item_slot,
+                    ) {
+                        return Some(script_call);
+                    }
                     if let Some(module_call) = lowered_module_call_args(module, name, &args_vec) {
                         return Some(push_build_row!(
                             self,
@@ -9237,6 +9495,17 @@ impl CompactLowerConstructProbe<'_, '_> {
                             }
                         ));
                     }
+                    if let Some(script_call) = self.lower_script_module_call(
+                        module,
+                        name,
+                        &args_vec,
+                        span,
+                        slots,
+                        current_function,
+                        item_slot,
+                    ) {
+                        return Some(script_call);
+                    }
                     if let Some(module_call) = lowered_module_call_args(module, name, &args_vec) {
                         return Some(push_build_row!(
                             self,
@@ -9361,6 +9630,17 @@ impl CompactLowerConstructProbe<'_, '_> {
                             span,
                         }
                     ));
+                }
+                if let Some(script_call) = self.lower_script_method_call(
+                    base,
+                    name,
+                    &args_vec,
+                    span,
+                    slots,
+                    current_function,
+                    item_slot,
+                ) {
+                    return Some(script_call);
                 }
                 let method_args = lowered_method_call_args(name, &args_vec)?;
                 if !self.lowered_method_supported_for_receiver(base, name, method_args.len(), slots)
@@ -9857,6 +10137,27 @@ impl CompactLowerConstructProbe<'_, '_> {
                     current_function,
                     item_slot,
                 )?;
+                if let Some(bridge) = function_key.and_then(|key| self.compact_bridge_op(key)) {
+                    // A declared representation bridge: the runtime provides
+                    // the body, so the call carries the operation and the
+                    // bound arguments instead of a function identity.
+                    let args = lowered_args
+                        .into_iter()
+                        .map(|arg| match arg {
+                            LoweredCallArg::Single(expr) => Some(expr),
+                            LoweredCallArg::Splice(_) => None,
+                        })
+                        .collect::<Option<Vec<_>>>()?;
+                    return Some(push_build_row!(
+                        self,
+                        expr,
+                        BuildExprRow::ModuleCall {
+                            op: bridge,
+                            args,
+                            span,
+                        }
+                    ));
+                }
                 if self_call {
                     Some(push_build_row!(
                         self,
@@ -10037,10 +10338,8 @@ impl CompactLowerConstructProbe<'_, '_> {
     }
 
     fn compact_direct_pure_call_candidate(&self, key: LoweredFunctionKey) -> bool {
-        let Some(function) = compact_function_defs(self.program)
-            .into_iter()
-            .find(|function| function.key == key)
-        else {
+        let definitions = self.function_index();
+        let Some(function) = definitions.definition(key) else {
             return false;
         };
         if !function.pure {

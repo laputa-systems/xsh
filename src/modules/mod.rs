@@ -1,6 +1,5 @@
 pub(crate) mod archive;
 pub(crate) mod bytes;
-pub(crate) mod cli;
 pub(crate) mod compression;
 pub(crate) mod cpu;
 pub(crate) mod diff;
@@ -12,12 +11,10 @@ pub(crate) mod hash;
 pub mod ini;
 pub mod json;
 pub(crate) mod linux;
-pub(crate) mod mime;
 pub(crate) mod net;
 pub(crate) mod patch;
 pub(crate) mod process;
 pub(crate) mod regex;
-pub(crate) mod shlex;
 pub mod signature;
 pub(crate) mod system;
 pub(crate) mod text;
@@ -175,7 +172,6 @@ mod tests {
         assert!(modules.contains_key("system"));
         assert!(modules.contains_key("test"));
         assert!(modules.contains_key("set"));
-        assert!(modules.contains_key("shlex"));
         assert!(modules.contains_key("user"));
         assert!(modules.contains_key("group"));
         assert!(modules["fs"].function_overloads("du").is_none());
