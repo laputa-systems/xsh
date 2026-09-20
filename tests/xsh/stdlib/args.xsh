@@ -492,3 +492,22 @@ proc test_cli_commands_accept_aliases_forms_and_options() [error] {
   test.ok(command.verbose)?
   test.eq(command.rest[0], "--dry-run")?
 }
+
+proc test_cli_parse_positional_default_is_optional() [error] {
+  let absent = cli.parse([], {kind: {form: "KIND", default: "rust"}})?
+  test.eq(absent.kind, "rust")?
+
+  let explicit = cli.parse(["xsh"], {kind: {form: "KIND", default: "rust"}})?
+  test.eq(explicit.kind, "xsh")?
+
+  let usage = cli.usage({kind: {form: "KIND", default: "rust"}}, "dev")
+  test.ok("[KIND]" in usage)?
+
+  match cli.parse([], {action: {form: "ACTION", required: true}}) {
+    Ok(_) => test.fail("required positional should fail when absent")?
+    Err(error) => test.ok("missing required argument ACTION" in error.message)?
+  }
+
+  let relaxed = cli.parse([], {file: {form: "FILE", required: false}})?
+  test.eq(relaxed.file, null)?
+}

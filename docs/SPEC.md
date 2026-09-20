@@ -1808,7 +1808,9 @@ concrete, non-required scalar fields are optional, repeated fields are
 `"-j --jobs N"`, `"--root DIR"`, `"--color[=WHEN]"`, or `"...FILE"`; option
 spellings become long and short aliases, non-option forms before any option
 mark positionals, `[=...]` marks an optional option value, and `...` marks
-repeated positionals. If `kind` is absent, the value type is inferred from
+repeated positionals. A non-repeated positional is required unless it declares
+a `default` or an explicit `required: false`; an explicit `required` field
+always wins. If `kind` is absent, the value type is inferred from
 `default`; absent defaults use `Str`, and repeated fields without a default use
 `List[Str]`. Supported option value types are `Str`, `Int`, `UInt`, `Bool`,
 `Path`, `Duration`, and `List[...]` through repeated options. `UInt` parses

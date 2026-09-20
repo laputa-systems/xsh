@@ -548,8 +548,22 @@ fn parse_descriptor(name: &str, descriptor: Value, span: Span) -> Result<OptionS
                 matches!(value_ty, ArgValueType::Bool) && !repeated && !positional,
                 span,
             )?;
-            let required = descriptor_bool(name, &fields, "required", false, span)?
-                || (positional && !repeated);
+            let default = normalize_default(
+                name,
+                fields.get("default").cloned(),
+                &value_ty,
+                repeated,
+                span,
+            )?;
+            // An explicit `required` field always wins. Otherwise a
+            // non-repeated positional is required only when no default
+            // supplies its absent value, so `form: "KIND"` with a default
+            // parses as an optional positional.
+            let required = if fields.contains_key("required") {
+                descriptor_bool(name, &fields, "required", false, span)?
+            } else {
+                positional && !repeated && default.is_none()
+            };
             let long = merge_arg_names(
                 form.long,
                 descriptor_arg_names(name, &fields, "long", span)?,
@@ -575,13 +589,6 @@ fn parse_descriptor(name: &str, descriptor: Value, span: Span) -> Result<OptionS
             let exists = descriptor_bool(name, &fields, "exists", false, span)?;
             let file = descriptor_bool(name, &fields, "file", false, span)?;
             let dir = descriptor_bool(name, &fields, "dir", false, span)?;
-            let default = normalize_default(
-                name,
-                fields.get("default").cloned(),
-                &value_ty,
-                repeated,
-                span,
-            )?;
             let optional_default = normalize_default(
                 name,
                 fields.get("optional_default").cloned(),
