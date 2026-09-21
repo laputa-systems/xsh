@@ -5,21 +5,54 @@ use crate::runtime::value::{LiveStream, RuntimeError, StreamValue, Value};
 use crate::source::Span;
 
 impl Evaluator {
+    /// The next item of a stream.
+    ///
+    /// A script producer is a suspended body, so pulling one resumes it against
+    /// this evaluator; every other stream pulls its items from its own source.
+    pub(super) fn stream_next(
+        &mut self,
+        stream: &mut StreamValue,
+        span: Span,
+    ) -> Result<Option<Value>, RuntimeError> {
+        if let Some(script) = stream.script() {
+            let mut producer = script.lock(span)?;
+            return producer.pull(self, span);
+        }
+        stream.next_live(span)
+    }
+
+    /// Stops a script stream early, without draining it.
+    ///
+    /// A consumer that takes part of a stream (`take`, `first`, a `for` loop
+    /// that breaks) leaves the producer's body suspended; this runs the defers
+    /// it registered and closes the scopes it opened, exactly once. Streams with
+    /// no script producer have nothing to stop.
+    pub(super) fn stream_cancel(
+        &mut self,
+        stream: &mut StreamValue,
+        span: Span,
+    ) -> Result<(), RuntimeError> {
+        if let Some(script) = stream.script() {
+            let mut producer = script.lock(span)?;
+            producer.cancel(self, span)?;
+        }
+        Ok(())
+    }
+
     pub(super) fn collect_stream_values(
         &mut self,
         mut stream: StreamValue,
         span: Span,
     ) -> Result<Vec<Value>, RuntimeError> {
-        // Materialized prefix items come first, then any live `source` is drained
-        // to exhaustion via `next_live`. Producer-backed streams no longer exist
-        // in the compact runtime (`StreamValue::from_producer` has no callers), so
-        // there is nothing else to pull.
+        // Materialized prefix items come first, then the stream is drained to
+        // exhaustion: a live source through `next_live`, a suspended producer by
+        // resuming it against this evaluator.
         let mut values: Vec<Value> = std::mem::take(&mut stream.items)
             .into_iter()
             .map(|item| item.value)
             .collect();
-        if stream.source.is_some() {
-            while let Some(value) = stream.next_live(span)? {
+        if stream.source.is_some() || stream.script().is_some() {
+            while let Some(value) = self.stream_next(&mut stream, span)? {
                 values.push(value);
             }
         }

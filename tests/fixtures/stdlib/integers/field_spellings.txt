@@ -1,0 +1,20 @@
+# Decimal spellings accepted by the host text parsers, and the value each
+# spelling reports. `null` means the spelling is rejected. Fields are
+# tab-separated: the spelling, then the expectation.
+# The accepted spelling is an optional leading `+` or `-`, then one or more
+# ASCII digits, and nothing else; a value outside `Int` range is rejected.
+9	9
++5	5
+007	7
+-0	0
+9223372036854775807	9223372036854775807
+9223372036854775808	null
+-9223372036854775808	-9223372036854775808
+-9223372036854775809	null
+1_000	null
+0x10	null
+5 	null
+ 5	null
+	null
++	null
+-	null

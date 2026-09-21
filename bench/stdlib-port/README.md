@@ -68,28 +68,111 @@ candidate medians in milliseconds.
 
 ## Linux workloads
 
-There are none. The four gated-Linux prototypes this runner measured
-(`linux.routes`, `linux.rfkill_list`, `linux.block_devices`, and the module
-policy) each failed the non-hot budget, so all four were reverted to their
-native bodies and their `.xsh` implementations were deleted;
-`STDLIB-PORT.md` records the measurement that removed each one, under
-`## Performance`.
+The six R12 workloads — `linux_uptime`, `linux_meminfo`, `linux_memory`,
+`linux_os_release`, `linux_modules_full`, and `linux_modules_partial` — measure
+the entries whose Linux policy lives in the embedded standard library. They are
+marked `linux_only`, so a run without `--linux` reports them as skipped and a
+run with it executes them under `XSH_LINUX_REAL=1`.
 
-The runner keeps its `--linux` flag and the per-workload `linux_only` mark for
-that measurement if a prototype is ever attempted again. A workload marked that
-way runs in the `Dockerfile.test` container — its entries read `/proc` and
-`/sys`, so it needs the trees built there — with `XSH_LINUX_REAL=1` in the
-environment, and is reported as skipped otherwise. Adding one means staging a
-fixture tree in the container first, the way the reverted round did:
+Four of them read the container's own `/proc/uptime`, `/proc/meminfo`, and
+`/etc/os-release`. The two module rows read `/proc/modules`, which the container
+stages as a 200-core fixture inside its own mount namespace: the container ships
+no modules, and a fixed row set is what makes the full-consumption row compare
+equal work between the two binaries. Both revisions then read the same text.
+The four *gated prototypes* measured earlier (`linux.routes`,
+`linux.rfkill_list`, `linux.block_devices`, and the module policy) each failed
+the non-hot budget and were reverted to their native bodies; those needed staged
+`/sys` trees and are gone, and `STDLIB-PORT.md` records the measurement that
+removed each one.
+
+Only the `Dockerfile.test` container runs these rows — it owns the compiler, the
+musl CRT objects, and the symbol aliases the tree links against. The container
+invocation the rest of this project uses, and which this section's statements
+about the container were verified with, is:
 
 ```sh
 docker run --rm --privileged --platform linux/arm64 \
-  -v "$PWD:/work" -v "$PWD/lx-target:/work/lx-target" -w /work \
-  -e CARGO_TARGET_DIR=/work/lx-target xsh-test sh -c '
-    mkdir -p /sys-fixtures && mount -t tmpfs tmpfs /sys/class &&
-    ... && cd bench/stdlib-port &&
-    python3 run.py --linux --reference /ref/xsh --candidate /work/lx-target/debug/xsh'
+  -v "$PWD:/work" -v "$PWD/target:/work/target" \
+  -v xsh-cargo-registry:/root/.cargo/registry -w /work \
+  -e TARGET=aarch64-unknown-linux-musl -e CARGO_TARGET_DIR=/work/target \
+  xsh-test sh -c 'cargo test --features linux-priv-tests --test integration'
 ```
+
+For the Linux rows of this runner, that invocation needs three more things, and
+the runner itself does not stage any of them:
+
+- a **release** build on each side — `cargo build --release -p xsh --bin xsh`
+  for the candidate, and the same build of the starting revision in a mounted
+  worktree for the reference, so both sides are matched release binaries from
+  the same image;
+- the `/proc/modules` fixture for the two module rows, staged inside the
+  container's own mount namespace (a `tmpfs` file bind-mounted over
+  `/proc/modules`, as the reverted prototype round did) and never over a shared
+  mount;
+- `--linux`, without which the six rows are reported as skipped.
+
+The image itself ships no Python, so `run.py` cannot run *inside* it: these rows
+are driven from a Linux host that has Python and the container-built binaries,
+or from a container image that adds Python. The R12 figures in `STDLIB-PORT.md`
+were taken with an in-process harness over the same entries instead (200 calls,
+three interleaved rounds, matched container release binaries), which is what
+the image can run today; the transport of those numbers through
+`run.py --linux` is therefore declared here but not yet a verified transcript.
+
+Adding a Linux workload means adding one frozen script beside the others and
+marking it `linux_only` in `WORKLOADS`. Stage a fixture only if the workload
+reads a path the container does not already have, mount it inside the
+container's own namespace, and never bind a synthetic `/proc` or `/sys` over the
+host or over a shared mount.
+
+## The public wrapper's fixed-path reads
+
+`tests/stdlib_port.rs::os_release_entry_reads_the_fixed_paths` exercises the
+public `system.os_release` entry against the two paths the entry itself reads,
+`/etc/os-release` and `/usr/lib/os-release`. The entry is never redirected: the
+route stages container-owned fixtures *at* those paths, inside the container's
+own writable layer (nothing outside the container changes, and no `/proc` or
+`/sys` path is touched). The fixture contents are committed under
+`tests/fixtures/stdlib/os_release/fixed-path/`, reachable in the container
+through the `/work` mount, and the scenario name tells the test which of the
+three readings to assert:
+
+```sh
+run() { # scenario, shell setup
+  docker run --rm --privileged --platform linux/arm64 \
+    -v "$PWD:/work" -v "$PWD/target:/work/target" \
+    -v xsh-cargo-registry:/root/.cargo/registry -w /work \
+    -e TARGET=aarch64-unknown-linux-musl -e CARGO_TARGET_DIR=/work/target \
+    -e XSH_OS_RELEASE_SCENARIO="$1" \
+    xsh-test sh -c "$2; cargo test --features linux-priv-tests --test integration \
+      stdlib_port::os_release_entry_reads_the_fixed_paths -- --exact"
+}
+
+FIX=/work/tests/fixtures/stdlib/os_release/fixed-path
+# The fixture answers from /etc/os-release.
+run etc "rm -f /etc/os-release; ln -s $FIX/etc-os-release.txt /etc/os-release"
+# /etc/os-release cannot be read; the second path answers.
+run fallback "rm -f /etc/os-release; ln -s $FIX/no-such-file.txt /etc/os-release; \
+  rm -f /usr/lib/os-release; ln -s $FIX/usr-lib-os-release.txt /usr/lib/os-release"
+# Both reads fail, differently: the call reports the second read's failure.
+run neither "rm -f /etc/os-release; ln -s $FIX/no-such-file.txt /etc/os-release; \
+  rm -f /usr/lib/os-release; ln -s $FIX/not-utf8.txt /usr/lib/os-release"
+```
+
+An ordinary container run does not set `XSH_OS_RELEASE_SCENARIO`, so the test
+reports itself as skipped there rather than passing quietly, and the container's
+real release files are never replaced in a run that does not stage fixtures.
+
+Each scenario points the two fixed paths at the committed sources with
+`ln -s` after `rm -f`, rather than with bind mounts, because the image ships
+`/etc/os-release` as a symlink to `/usr/lib/os-release`: with the link in place
+the two paths are the same file, so bind mounts cannot control them
+independently (and a directory cannot be mounted over a file). The first read
+fails by pointing `/etc/os-release` at a target that does not exist; the second
+one fails in the `neither` scenario with `not-utf8.txt`, which is `NAME=`
+followed by the bytes `\xff\xfe`, so the entry reports
+`error: system-os-release: file is not valid UTF-8 at byte 5` — the second
+read's offset, which is what proves the failure is the second read's.
 
 ## Interpreting results
 
@@ -103,7 +186,10 @@ have a cause that can be fixed.
 A budget failure says nothing about behavior, because the runner discards each
 workload's output. `parity.py` measures that separately — the same scripts, the
 same working directory, both binaries, with exit status, stdout, and stderr
-compared byte for byte:
+compared byte for byte. The six Linux rows print a duration they measured
+themselves, so that one field is masked on both sides before the comparison:
+the duration is the measurement, not the behavior, and everything else in those
+lines still has to match:
 
 ```sh
 python3 bench/stdlib-port/parity.py \

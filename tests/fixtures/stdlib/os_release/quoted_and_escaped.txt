@@ -1,0 +1,13 @@
+# A release file exercising the quoting, escaping, and line-shape policy of
+# `system.os_release`. The last line for a key wins, so `ID` is the later
+# spelling; the indented comment is still a comment, and the line without `=`
+# is ignored.
+NAME="Fixture \"Quoted\" Linux"
+PRETTY_NAME='Single quoted name'
+VERSION="1.2\\3"
+VERSION_ID=42
+  # indented comment
+NO_EQUALS_HERE
+KEY_WITH_SPACE =spaced key
+ID=fixture-os
+ID=fixture-os-last

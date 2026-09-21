@@ -4,6 +4,7 @@
 //! split out of the monolithic `eval.rs`. The IR types live in the parent
 //! module and are imported via `super::`.
 
+use super::lower::take_shared;
 use super::{
     LoweredReturnKind, LoweredStatsValue, LoweredStrPredicate, LoweredTagValue, LoweredType,
     LoweredValue, add_error_context, bytes_contains, bytes_find, format_duration,
@@ -879,7 +880,7 @@ pub(super) fn lowered_record_from_runtime(value: &RecordMap) -> Option<LoweredVa
     for (key, value) in value.owned_key_iter() {
         record.insert(key.into_arc(), lowered_value_from_runtime_any(value)?);
     }
-    Some(LoweredValue::Record(record))
+    Some(LoweredValue::Record(Arc::new(record)))
 }
 
 pub(super) fn lowered_module_from_runtime(value: &RecordMap) -> Option<LoweredValue> {
@@ -887,7 +888,7 @@ pub(super) fn lowered_module_from_runtime(value: &RecordMap) -> Option<LoweredVa
     for (key, value) in value.owned_key_iter() {
         module.insert(key.into_arc(), lowered_value_from_runtime_any(value)?);
     }
-    Some(LoweredValue::Module(module))
+    Some(LoweredValue::Module(Arc::new(module)))
 }
 
 pub(super) fn lowered_list_from_runtime(value: &[Value]) -> Option<LoweredValue> {
@@ -903,7 +904,7 @@ pub(super) fn lowered_map_from_runtime(value: &BTreeMap<String, Value>) -> Optio
     for (key, value) in value {
         map.insert(key.clone(), lowered_value_from_runtime_any(value)?);
     }
-    Some(LoweredValue::Map(map))
+    Some(LoweredValue::Map(Arc::new(map)))
 }
 
 pub(super) fn push_lowered_display(
@@ -969,7 +970,7 @@ pub(super) fn lowered_method_value(
                 .to_record_map()
                 .map_err(|error| error.with_span(span))?;
             lowered_record_method_value(
-                record
+                &record
                     .into_iter()
                     .filter_map(|(key, value)| {
                         lowered_value_from_runtime_any(&value).map(|value| (key, value))
@@ -981,7 +982,7 @@ pub(super) fn lowered_method_value(
             )
         }
         LoweredValue::Record(record) | LoweredValue::Module(record) => {
-            lowered_record_method_value(record, name, args, span)
+            lowered_record_method_value(&record, name, args, span)
         }
         LoweredValue::RecordVec(record) => {
             lowered_record_vec_method_value(&record, name, args, span)
@@ -1002,7 +1003,13 @@ pub(super) fn lowered_method_value(
                 lowered_list_method_value(items.as_ref().clone(), name, args, span)
             }
         }
-        LoweredValue::Map(map) => lowered_map_method_value(map, name, args, span),
+        LoweredValue::Map(map) => {
+            if let Some(value) = lowered_map_method_ref(&map, name, &args, span)? {
+                Ok(value)
+            } else {
+                lowered_map_method_value(take_shared(map), name, args, span)
+            }
+        }
         LoweredValue::ResultOk(value) => {
             lowered_result_method_value(LoweredValue::ResultOk(value), name, args, span)
         }
@@ -1661,11 +1668,11 @@ pub(super) fn lowered_regex_method_value(
                     .regex
                     .find_iter(text)
                     .map(|found| {
-                        LoweredValue::Record(BTreeMap::from([
+                        LoweredValue::Record(Arc::new(BTreeMap::from([
                             (Arc::from("start"), LoweredValue::Int(found.start() as i64)),
                             (Arc::from("end"), LoweredValue::Int(found.end() as i64)),
                             (Arc::from("text"), LoweredValue::Str(found.as_str().into())),
-                        ]))
+                        ])))
                     })
                     .collect(),
             ))
@@ -1838,8 +1845,13 @@ pub(super) fn lowered_path_method_value(
     }
 }
 
+/// Evaluate a read-only `Record` method against a borrowed receiver.
+///
+/// Every method a record supports here reads: `len`, `has`, `get`, and `keys`.
+/// Taking the receiver by reference is what keeps a read from copying every
+/// entry of the container it reads.
 pub(super) fn lowered_record_method_value(
-    record: BTreeMap<Arc<str>, LoweredValue>,
+    record: &BTreeMap<Arc<str>, LoweredValue>,
     name: &str,
     args: Vec<LoweredValue>,
     span: Span,
@@ -2194,6 +2206,45 @@ pub(super) fn lowered_nonnegative_count(
     }
 }
 
+/// Evaluate a read-only `Map` method against a borrowed receiver, or report that
+/// the method needs an owned map.
+///
+/// `len`, `has`, and `get` only read, so evaluating them against the receiver
+/// the caller already holds avoids copying the whole map for one lookup. The
+/// updating methods (`set`, `push`, `remove`) return a new map and take the
+/// receiver by value instead.
+fn lowered_map_method_ref(
+    map: &BTreeMap<String, LoweredValue>,
+    name: &str,
+    args: &[LoweredValue],
+    span: Span,
+) -> Result<Option<LoweredValue>, RuntimeError> {
+    match name {
+        "len" if args.is_empty() => Ok(Some(LoweredValue::Int(map.len() as i64))),
+        "has" if args.len() == 1 => {
+            let key = lowered_str_arg(&args[0], "has", span)?;
+            Ok(Some(LoweredValue::Bool(map.contains_key(key))))
+        }
+        "get" if args.len() == 1 || args.len() == 2 => {
+            let key = lowered_str_arg(&args[0], "get", span)?;
+            match map.get(key) {
+                Some(value) => Ok(Some(if args.len() == 2 {
+                    value.clone()
+                } else {
+                    LoweredValue::ResultOk(Box::new(value.clone()))
+                })),
+                None => match args.get(1) {
+                    Some(fallback) => Ok(Some(fallback.clone())),
+                    None => Ok(Some(LoweredValue::ResultErr(Box::new(Value::Error(Box::new(
+                        RuntimeError::new("map-missing", format!("map has no key `{key}`")),
+                    )))))),
+                },
+            }
+        }
+        _ => Ok(None),
+    }
+}
+
 pub(super) fn lowered_map_method_value(
     map: BTreeMap<String, LoweredValue>,
     name: &str,
@@ -2227,13 +2278,13 @@ pub(super) fn lowered_map_method_value(
             let key = lowered_str_arg(&args[0], "set", span)?;
             let mut map = map;
             map.insert(key.to_string(), args[1].clone());
-            Ok(LoweredValue::Map(map))
+            Ok(LoweredValue::Map(Arc::new(map)))
         }
         "remove" if args.len() == 1 => {
             let key = lowered_str_arg(&args[0], "remove", span)?;
             let mut map = map;
             map.remove(key);
-            Ok(LoweredValue::Map(map))
+            Ok(LoweredValue::Map(Arc::new(map)))
         }
         "push" if args.len() == 2 => {
             let key = lowered_str_arg(&args[0], "push", span)?;
@@ -2259,7 +2310,7 @@ pub(super) fn lowered_map_method_value(
                     map.insert(key.to_string(), LoweredValue::List(vec![args[1].clone()]));
                 }
             }
-            Ok(LoweredValue::Map(map))
+            Ok(LoweredValue::Map(Arc::new(map)))
         }
         "keys" if args.is_empty() => Ok(LoweredValue::List(
             map.keys()

@@ -1,7 +1,5 @@
 use crate::runtime::value::{RuntimeError, Value};
 use crate::source::Span;
-#[cfg(target_os = "linux")]
-use rustc_hash::FxHashMap;
 #[cfg(target_os = "macos")]
 use std::ffi::CString;
 use std::sync::Arc;
@@ -85,113 +83,36 @@ struct SystemOsRelease {
     id: String,
 }
 
+// Superseded Linux bodies, deliberately not kept.
+//
+// On Linux the registry binds `system.memory` and `system.os_release` to the
+// embedded `system` module, which owns the whole `/proc/meminfo` and
+// `os-release` policy: the file paths, the parsing, the defaults, and the
+// `system-memory` / `system-os-release` error kinds. The native bodies that
+// used to do that work were a second implementation of the same policy, so
+// they were removed once the embedded entries were verified on Linux.
+//
+// The entries below are what remains of the native arm. Nothing on Linux
+// reaches them — the embedded implementation is selected at lowering time, and
+// the calls in `lowered_run` exist only for the platforms that keep a native
+// body — so they report the defect of being reached at all rather than
+// answering from a retired implementation.
 #[cfg(target_os = "linux")]
 fn memory_impl(span: Span) -> Result<SystemMemory, RuntimeError> {
-    let text = std::fs::read_to_string("/proc/meminfo")
-        .map_err(|error| RuntimeError::new("system-memory", error.to_string()).with_span(span))?;
-    let mut values = FxHashMap::default();
-    for line in text.lines() {
-        let Some((key, rest)) = line.split_once(':') else {
-            continue;
-        };
-        let fields = rest.split_whitespace().collect::<Vec<_>>();
-        if fields.len() < 2 || fields[1] != "kB" {
-            continue;
-        }
-        let value = fields[0].parse::<i64>().map_err(|_| {
-            RuntimeError::new(
-                "system-memory",
-                format!("invalid numeric value for `{key}` in /proc/meminfo"),
-            )
-            .with_span(span)
-        })?;
-        values.insert(key.to_string(), value.saturating_mul(1024));
-    }
-    let get = |name: &str| {
-        values.get(name).copied().ok_or_else(|| {
-            RuntimeError::new(
-                "system-memory",
-                format!("missing `{name}` in /proc/meminfo"),
-            )
-            .with_span(span)
-        })
-    };
-    Ok(SystemMemory {
-        total: get("MemTotal")?,
-        available: get("MemAvailable")?,
-        free: get("MemFree")?,
-        swap_total: get("SwapTotal")?,
-        swap_free: get("SwapFree")?,
-    })
+    Err(RuntimeError::new(
+        "system-memory",
+        "the embedded standard-library implementation owns system.memory on Linux",
+    )
+    .with_span(span))
 }
 
 #[cfg(target_os = "linux")]
 fn os_release_impl(span: Span) -> Result<SystemOsRelease, RuntimeError> {
-    let text = std::fs::read_to_string("/etc/os-release")
-        .or_else(|_| std::fs::read_to_string("/usr/lib/os-release"))
-        .map_err(|error| {
-            RuntimeError::new("system-os-release", error.to_string()).with_span(span)
-        })?;
-    let values = parse_os_release(&text);
-    let name = values
-        .get("NAME")
-        .cloned()
-        .unwrap_or_else(|| "Linux".to_string());
-    let pretty_name = values
-        .get("PRETTY_NAME")
-        .cloned()
-        .unwrap_or_else(|| name.clone());
-    Ok(SystemOsRelease {
-        name,
-        pretty_name,
-        version: values.get("VERSION").cloned().unwrap_or_default(),
-        version_id: values.get("VERSION_ID").cloned().unwrap_or_default(),
-        id: values
-            .get("ID")
-            .cloned()
-            .unwrap_or_else(|| "linux".to_string()),
-    })
-}
-
-#[cfg(target_os = "linux")]
-fn parse_os_release(text: &str) -> FxHashMap<String, String> {
-    let mut values = FxHashMap::default();
-    for line in text.lines() {
-        let line = line.trim();
-        if line.is_empty() || line.starts_with('#') {
-            continue;
-        }
-        let Some((key, raw_value)) = line.split_once('=') else {
-            continue;
-        };
-        values.insert(key.to_string(), unquote_os_release_value(raw_value));
-    }
-    values
-}
-
-#[cfg(target_os = "linux")]
-fn unquote_os_release_value(value: &str) -> String {
-    let value = value.trim();
-    if value.len() >= 2
-        && ((value.starts_with('"') && value.ends_with('"'))
-            || (value.starts_with('\'') && value.ends_with('\'')))
-    {
-        let mut result = String::new();
-        let mut escaped = false;
-        for ch in value[1..value.len() - 1].chars() {
-            if escaped {
-                result.push(ch);
-                escaped = false;
-            } else if ch == '\\' {
-                escaped = true;
-            } else {
-                result.push(ch);
-            }
-        }
-        result
-    } else {
-        value.to_string()
-    }
+    Err(RuntimeError::new(
+        "system-os-release",
+        "the embedded standard-library implementation owns system.os_release on Linux",
+    )
+    .with_span(span))
 }
 
 #[cfg(target_os = "macos")]
@@ -323,17 +244,39 @@ mod tests {
         Span::new(SourceId::new(0), 0, 0)
     }
 
+    // The Linux entries have no native body to exercise; the embedded module
+    // owns them, and the corpus covers their behavior on Linux. These tests
+    // cover the platforms that still parse the host text natively.
+    #[cfg(not(target_os = "linux"))]
     #[test]
     fn memory_reports_total() {
         let memory = memory_impl(test_span()).expect("read memory");
         assert!(memory.total > 0);
     }
 
+    #[cfg(not(target_os = "linux"))]
     #[test]
     fn os_release_reports_name() {
         let release = os_release_impl(test_span()).expect("read os release");
         assert!(!release.name.is_empty());
         assert!(!release.pretty_name.is_empty());
         assert!(!release.id.is_empty());
+    }
+
+    // Being reached on Linux is the defect: the binding must select the
+    // embedded implementation, so this arm is only ever a stale route. The
+    // retired bodies are matched rather than unwrapped because the record types
+    // they would have returned are not `Debug`.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_native_system_bodies_report_the_retired_route() {
+        let Err(memory) = memory_impl(test_span()) else {
+            panic!("the native Linux memory body is retired");
+        };
+        assert!(memory.message.contains("embedded"), "{memory:?}");
+        let Err(release) = os_release_impl(test_span()) else {
+            panic!("the native Linux release body is retired");
+        };
+        assert!(release.message.contains("embedded"), "{release:?}");
     }
 }

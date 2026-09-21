@@ -6,8 +6,6 @@ use rustix::net::{AddressFamily, RecvFlags, SocketFlags, SocketType, bind, recv,
 use std::io;
 use std::os::fd::OwnedFd;
 
-const PROC_MEMINFO: &str = "/proc/meminfo";
-const PROC_MODULES: &str = "/proc/modules";
 const DEV_KMSG: &str = "/dev/kmsg";
 const SYSLOG_ACTION_READ_ALL: libc::c_int = 3;
 const SYSLOG_ACTION_SIZE_BUFFER: libc::c_int = 10;

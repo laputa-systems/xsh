@@ -336,6 +336,29 @@ fn worker_collection() -> &'static Mutex<WorkerCollection> {
     WORKER_COLLECTION.get_or_init(|| Mutex::new(WorkerCollection::default()))
 }
 
+static EVAL_TRAFFIC: OnceLock<Mutex<Option<AllocTraffic>>> = OnceLock::new();
+
+fn eval_traffic() -> &'static Mutex<Option<AllocTraffic>> {
+    EVAL_TRAFFIC.get_or_init(|| Mutex::new(None))
+}
+
+/// Records the allocation traffic of the thread a script's execution ran on.
+///
+/// The engine runs a script on its own thread, so the counters the caller
+/// reads describe construction only; the evaluation wrapper hands that
+/// thread's traffic here so the diagnostics report can attribute execution.
+/// Inert unless a diagnostics binary installed [`CountingAllocator`].
+pub fn record_eval_traffic(traffic: AllocTraffic) {
+    if let Ok(mut slot) = eval_traffic().lock() {
+        *slot = Some(traffic);
+    }
+}
+
+/// Takes the recorded execution traffic, if a run recorded any.
+pub fn take_eval_traffic() -> Option<AllocTraffic> {
+    eval_traffic().lock().ok().and_then(|mut slot| slot.take())
+}
+
 pub fn begin_stage() {
     ENABLED.with(|enabled| enabled.set(true));
     let live = LIVE_BYTES.with(Cell::get);

@@ -297,11 +297,11 @@ proc test_cli_commands_dispatch_names_aliases_and_forms() [fs, error] {
   # canonical name is therefore reachable neither by its own spelling nor by the
   # underscored one — the baseline's own asymmetry, preserved here.
   test.eq(
-    failure_message(cli.commands(["my-command"], {my-command: {rest: "raw"}})),
+    failure_message(cli.commands(["my-command"], {"my-command": {rest: "raw"}})),
     "unknown command `my-command`",
   )?
   test.eq(
-    failure_message(cli.commands(["my_command"], {my-command: {rest: "raw"}})),
+    failure_message(cli.commands(["my_command"], {"my-command": {rest: "raw"}})),
     "unknown command `my_command`",
   )?
   test.eq(
@@ -315,7 +315,7 @@ proc test_cli_commands_dispatch_names_aliases_and_forms() [fs, error] {
 
   # An alias is keyed by the same normalization, so a dashed alias spelling is
   # how a dashed canonical name is reached.
-  let via_alias = cli.commands(["mc", "one"], {my-command: {rest: "raw", aliases: ["mc"]}})?
+  let via_alias = cli.commands(["mc", "one"], {"my-command": {rest: "raw", aliases: ["mc"]}})?
   test.eq(via_alias.get("command") ?? null, "my-command")?
   test.eq(via_alias.get("action") ?? null, "mc")?
 

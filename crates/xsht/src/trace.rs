@@ -3029,7 +3029,8 @@ mod tests {
     };
     use xsh::frontend::source::{SourceMap, Span};
     use xsh::trace::model::{
-        TraceStatusKind, Traceback, TracebackFrame, TracebackFrameKind, TracebackRenderer,
+        TraceStatusKind, Traceback, TracebackFrame, TracebackFrameKind, TracebackName,
+        TracebackRenderer,
     };
 
     fn json_field<'a>(value: &'a miniserde::json::Value, key: &str) -> &'a miniserde::json::Value {
@@ -3256,13 +3257,13 @@ mod tests {
             frames: vec![
                 TracebackFrame {
                     kind: TracebackFrameKind::Proc,
-                    name: "main".to_string(),
+                    name: TracebackName::Rendered("main".to_string()),
                     definition_span: None,
                     call_span: Some(Span::new(id, 0, 4)),
                 },
                 TracebackFrame {
                     kind: TracebackFrameKind::Pure,
-                    name: "helper".to_string(),
+                    name: TracebackName::Rendered("helper".to_string()),
                     definition_span: None,
                     call_span: Some(Span::new(id, 5, 11)),
                 },

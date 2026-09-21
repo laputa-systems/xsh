@@ -45,12 +45,17 @@ pub(super) struct SlotScope {
     // (name, previous slot) for each block-local declaration, so `exit` can
     // restore a shadowed outer binding (or drop a freshly-introduced one).
     declared: Vec<(Name, Option<usize>, Option<Type>, bool)>,
+    // Index into `declared` where the innermost scope began: what follows
+    // belongs to the scope being lowered now, and anything older is an
+    // enclosing scope this one may shadow.
+    level_start: usize,
     high_water: usize,
 }
 
 /// Snapshot of a `SlotScope` taken on entering a nested block (see `enter`/`exit`).
 pub(super) struct SlotSnapshot {
     declared_len: usize,
+    level_start: usize,
     high_water: usize,
 }
 
@@ -327,27 +332,26 @@ fn lowered_module_call_args(
             });
         }
     }
-    if module == "mime" && name == "lookup_ext" {
-        let positional = positional_call_args(args)?;
-        if positional.len() == 1 {
-            return Some(LoweredModuleCallArgs {
-                op: RuntimeOp::MimeLookupExt,
-                args: positional,
-            });
-        }
-    }
-    if module == "mime" && name == "lookup_path" {
-        let positional = positional_call_args(args)?;
-        if positional.len() == 1 {
-            return Some(LoweredModuleCallArgs {
-                op: RuntimeOp::MimeLookupPath,
-                args: positional,
-            });
-        }
-    }
+    // `mime.lookup_ext` and `mime.lookup_path` used to be recognized here and
+    // lowered to `RuntimeOp::MimeLookupExt` / `MimeLookupPath`. Both entries
+    // are now implemented by the embedded `mime` module on every platform, and
+    // neither operation has a runtime arm or a lowering entry left, so the
+    // spelling is recognized above, by the script route, like every other
+    // embedded entry.
     let overloads = api_spec().module_overloads(&module.as_str(), &name.as_str())?;
     let mut matched = None;
     for sig in overloads {
+        // An entry whose implementation is the embedded standard library is
+        // never lowered to its own operation. On Linux the registry keeps both
+        // descriptions in one signature — the native operation for the
+        // platforms that still implement the entry, the embedded module for
+        // Linux — and lowering the operation here would run a retired native
+        // body whenever the embedded module was not prepared. The script route
+        // is tried before this one and reports an unprepared module as a
+        // missing-target diagnostic.
+        if sig.script_impl().is_some() {
+            continue;
+        }
         if lowered_module_sig_type(sig).is_none() {
             continue;
         }
@@ -1352,6 +1356,7 @@ impl SlotScope {
             types: FxHashMap::default(),
             captures: FxHashSet::default(),
             declared: Vec::new(),
+            level_start: 0,
             high_water,
         }
     }
@@ -1371,6 +1376,13 @@ impl SlotScope {
 
     fn is_bound_non_capture(&self, name: Name) -> bool {
         self.is_bound(name) && !self.captures.contains(&name)
+    }
+
+    /// Whether the innermost scope already declared `name`.
+    fn is_declared_here(&self, name: Name) -> bool {
+        self.declared[self.level_start..]
+            .iter()
+            .any(|(declared, ..)| *declared == name)
     }
 
     fn binding_type(&self, name: Name) -> Option<&Type> {
@@ -1415,11 +1427,17 @@ impl SlotScope {
     }
 
     /// Snapshot bindings on entering a nested block scope.
-    pub(super) fn enter(&self) -> SlotSnapshot {
-        SlotSnapshot {
+    ///
+    /// The snapshot restores the state `enter` observed; the scope it opens
+    /// owns every declaration made from here until `exit`.
+    pub(super) fn enter(&mut self) -> SlotSnapshot {
+        let snapshot = SlotSnapshot {
             declared_len: self.declared.len(),
+            level_start: self.level_start,
             high_water: self.high_water,
-        }
+        };
+        self.level_start = self.declared.len();
+        snapshot
     }
 
     /// Restore name resolution to the block-entry snapshot, dropping block-local
@@ -1427,6 +1445,7 @@ impl SlotScope {
     /// A block-local declaration that shadowed an outer binding restores the
     /// outer slot; a freshly-introduced one is dropped.
     pub(super) fn exit(&mut self, snapshot: SlotSnapshot) {
+        self.level_start = snapshot.level_start;
         for (name, previous, previous_ty, previous_capture) in
             self.declared[snapshot.declared_len..].iter().rev()
         {
@@ -2979,10 +2998,13 @@ fn lower_const_param_default(
                     ArenaRecordFieldKind::Spread { expr, .. } => {
                         let spread = lower_const_param_default(arena, expr, LoweredType::Any)?;
                         match spread {
-                            LoweredValue::Record(spread) => values.extend(spread),
+                            LoweredValue::Record(spread) => values.extend(spread.iter().map(|(key, value)| (key.clone(), value.clone()))),
                             LoweredValue::RecordVec(spread) => {
-                                for (name, value) in spread {
-                                    values.insert(Arc::<str>::from(name.as_str().as_str()), value);
+                                for (name, value) in spread.iter() {
+                                    values.insert(
+                                        Arc::<str>::from(name.as_str().as_str()),
+                                        value.clone(),
+                                    );
                                 }
                             }
                             _ => return None,
@@ -2991,7 +3013,7 @@ fn lower_const_param_default(
                     ArenaRecordFieldKind::Shorthand { .. } => return None,
                 }
             }
-            LoweredValue::Record(values)
+            LoweredValue::Record(Arc::new(values))
         }
         _ => return None,
     };
@@ -5954,7 +5976,12 @@ impl CompactLowerConstructProbe<'_, '_> {
                         }
                     ));
                 }
-                if slots.is_bound_non_capture(name) {
+                // A declaration may shadow a binding an enclosing scope made:
+                // the inner scope resolves the new slot and the outer binding
+                // comes back when it ends. Only a name this same scope already
+                // declared is refused, which the checker reports before
+                // lowering ever runs.
+                if slots.is_declared_here(name) {
                     {
                         self.record_lower_stmt_blocker(id);
                         self.output.constructed_statements += 1;
@@ -6041,7 +6068,12 @@ impl CompactLowerConstructProbe<'_, '_> {
                         }
                     ));
                 }
-                if slots.is_bound_non_capture(name) {
+                // A declaration may shadow a binding an enclosing scope made:
+                // the inner scope resolves the new slot and the outer binding
+                // comes back when it ends. Only a name this same scope already
+                // declared is refused, which the checker reports before
+                // lowering ever runs.
+                if slots.is_declared_here(name) {
                     {
                         self.record_lower_stmt_blocker(id);
                         self.output.constructed_statements += 1;
@@ -14979,46 +15011,78 @@ pub(super) fn lowered_record_field<'a>(
     }
 }
 
+/// Take a shared container's contents out of its `Arc`.
+///
+/// Reuses the storage when this handle is the only owner and copies otherwise,
+/// so merging a value the caller has already given up does not copy it.
+pub(super) fn take_shared<T: Clone>(shared: Arc<T>) -> T {
+    Arc::try_unwrap(shared).unwrap_or_else(|still_shared| (*still_shared).clone())
+}
+
 pub(super) fn lowered_sum_records(mut acc: LoweredValue, val: LoweredValue) -> LoweredValue {
     match (&mut acc, val) {
         (LoweredValue::Record(acc_map), LoweredValue::Record(val_map)) => {
-            for (key, value) in val_map {
-                if let Some(acc_value) = acc_map.get_mut(&key) {
-                    *acc_value =
-                        lowered_sum_values(std::mem::replace(acc_value, LoweredValue::Unit), value);
-                } else {
-                    acc_map.insert(key, value);
+            let acc_map = Arc::make_mut(acc_map);
+            for (key, value) in take_shared(val_map) {
+                match acc_map.get_mut(&key) {
+                    Some(acc_value) => {
+                        *acc_value = lowered_sum_values(
+                            std::mem::replace(acc_value, LoweredValue::Unit),
+                            value,
+                        );
+                    }
+                    None => {
+                        acc_map.insert(key, value);
+                    }
                 }
             }
         }
         (LoweredValue::RecordVec(acc_map), LoweredValue::RecordVec(val_map)) => {
-            for (key, value) in val_map {
-                if let Some(acc_value) = lowered_record_vec_get_mut(acc_map, &key.as_str()) {
-                    *acc_value =
-                        lowered_sum_values(std::mem::replace(acc_value, LoweredValue::Unit), value);
-                } else {
-                    lowered_record_vec_insert(acc_map, key, value);
+            let acc_map = Arc::make_mut(acc_map);
+            for (key, value) in take_shared(val_map) {
+                match lowered_record_vec_get_mut(acc_map, &key.as_str()) {
+                    Some(acc_value) => {
+                        *acc_value = lowered_sum_values(
+                            std::mem::replace(acc_value, LoweredValue::Unit),
+                            value,
+                        );
+                    }
+                    None => {
+                        lowered_record_vec_insert(acc_map, key, value);
+                    }
                 }
             }
         }
         (LoweredValue::Record(acc_map), LoweredValue::RecordVec(val_map)) => {
-            for (key, value) in val_map {
+            let acc_map = Arc::make_mut(acc_map);
+            for (key, value) in take_shared(val_map) {
                 let key_text = key.as_str();
-                if let Some(acc_value) = acc_map.get_mut::<str>(key_text.as_str()) {
-                    *acc_value =
-                        lowered_sum_values(std::mem::replace(acc_value, LoweredValue::Unit), value);
-                } else {
-                    acc_map.insert(Arc::<str>::from(key_text.as_str()), value);
+                match acc_map.get_mut::<str>(key_text.as_str()) {
+                    Some(acc_value) => {
+                        *acc_value = lowered_sum_values(
+                            std::mem::replace(acc_value, LoweredValue::Unit),
+                            value,
+                        );
+                    }
+                    None => {
+                        acc_map.insert(Arc::<str>::from(key_text.as_str()), value);
+                    }
                 }
             }
         }
         (LoweredValue::RecordVec(acc_map), LoweredValue::Record(val_map)) => {
-            for (key, value) in val_map {
-                if let Some(acc_value) = lowered_record_vec_get_mut(acc_map, key.as_ref()) {
-                    *acc_value =
-                        lowered_sum_values(std::mem::replace(acc_value, LoweredValue::Unit), value);
-                } else {
-                    lowered_record_vec_insert(acc_map, Name::intern(key.as_ref()), value);
+            let acc_map = Arc::make_mut(acc_map);
+            for (key, value) in take_shared(val_map) {
+                match lowered_record_vec_get_mut(acc_map, key.as_ref()) {
+                    Some(acc_value) => {
+                        *acc_value = lowered_sum_values(
+                            std::mem::replace(acc_value, LoweredValue::Unit),
+                            value,
+                        );
+                    }
+                    None => {
+                        lowered_record_vec_insert(acc_map, Name::intern(key.as_ref()), value);
+                    }
                 }
             }
         }
@@ -15051,16 +15115,22 @@ pub(super) fn lowered_sum_values(acc: LoweredValue, val: LoweredValue) -> Lowere
             acc.extend(value.iter().cloned());
             LoweredValue::List(acc)
         }
-        (LoweredValue::Record(mut acc_map), LoweredValue::Record(val_map)) => {
-            for (key, value) in val_map {
-                if let Some(acc_value) = acc_map.get_mut(&key) {
-                    *acc_value =
-                        lowered_sum_values(std::mem::replace(acc_value, LoweredValue::Unit), value);
-                } else {
-                    acc_map.insert(key, value);
+        (LoweredValue::Record(acc_map), LoweredValue::Record(val_map)) => {
+            let mut acc_map = take_shared(acc_map);
+            for (key, value) in take_shared(val_map) {
+                match acc_map.get_mut(&key) {
+                    Some(acc_value) => {
+                        *acc_value = lowered_sum_values(
+                            std::mem::replace(acc_value, LoweredValue::Unit),
+                            value,
+                        );
+                    }
+                    None => {
+                        acc_map.insert(key, value);
+                    }
                 }
             }
-            LoweredValue::Record(acc_map)
+            LoweredValue::Record(Arc::new(acc_map))
         }
         (acc @ LoweredValue::RecordVec(_), val @ LoweredValue::RecordVec(_))
         | (acc @ LoweredValue::Record(_), val @ LoweredValue::RecordVec(_))

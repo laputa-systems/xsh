@@ -14,6 +14,7 @@
 
 use crate::modules::api_spec;
 use crate::modules::signature::RuntimeOp;
+use crate::symbol::Name;
 use crate::syntax::arena::{ArenaCommand, ArenaExprKind, AstArena, CommandStmtId, ExprId};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::OnceLock;
@@ -91,7 +92,10 @@ pub(crate) const CATALOG: &[StdlibModule] = &[
     StdlibModule {
         identity: "linux_text",
         label: "<xsh-stdlib:linux_text>",
-        bridges: &[],
+        bridges: &[StdlibBridge {
+            function: "append_bytes",
+            op: RuntimeOp::BridgeAppendBytes,
+        }],
         source: include_str!("../stdlib/linux_text.xsh"),
     },
     StdlibModule {
@@ -174,6 +178,14 @@ pub(crate) fn find(identity: &str) -> Option<&'static StdlibModule> {
     CATALOG.iter().find(|module| module.identity == identity)
 }
 
+/// Fixture coverage for the host-text policy the embedded modules own.
+///
+/// Test-only: the fixtures drive the embedded helpers through
+/// `Evaluator::probe_embedded_call`, which resolves the module in the compiled
+/// catalog, so the tests observe the real bodies without exposing them.
+#[cfg(test)]
+mod embedded_fixture_tests;
+
 /// The embedded module a reserved internal namespace spelling names.
 pub(crate) fn find_by_namespace(namespace: &str) -> Option<&'static StdlibModule> {
     let identity = namespace.strip_prefix("<xsh-stdlib:")?.strip_suffix('>')?;
@@ -191,6 +203,7 @@ pub(crate) fn is_private_bridge_op(op: RuntimeOp) -> bool {
             | RuntimeOp::RecordRemoveField
             | RuntimeOp::BridgeTypeName
             | RuntimeOp::BridgeCommandName
+            | RuntimeOp::BridgeAppendBytes
     )
 }
 
@@ -263,10 +276,23 @@ pub(crate) fn required_modules(arena: &AstArena) -> Vec<&'static str> {
     if arena_uses_dynamic_module_load(arena) {
         return CATALOG.iter().map(|module| module.identity).collect();
     }
+    // An identifier that qualifies a field is resolved through that field, so
+    // it is not also a bare mention of the module: `env.get` is the native
+    // `get`, and must not select the module for its script-backed neighbours.
+    let mut qualified_bases: BTreeSet<usize> = BTreeSet::new();
     for index in 0..arena.expr_tags.len() {
-        let expr = arena.expr(ExprId::from_index(index));
+        if let ArenaExprKind::Field { base, .. } = arena.expr(ExprId::from_index(index)).kind {
+            qualified_bases.insert(base.index());
+        }
+    }
+    for index in 0..arena.expr_tags.len() {
+        let id = ExprId::from_index(index);
+        let expr = arena.expr(id);
         match expr.kind {
             ArenaExprKind::Ident(module) => {
+                if qualified_bases.contains(&index) {
+                    continue;
+                }
                 collect_module_mentions(&mut needed, &module.as_str());
             }
             ArenaExprKind::Field { base, name } => {
@@ -296,17 +322,39 @@ pub(crate) fn required_modules(arena: &AstArena) -> Vec<&'static str> {
 ///
 /// `module.load` is available both qualified and, after `use module`, as a bare
 /// `load`, so both spellings count.
+/// Whether the program can load user code after execution starts.
+///
+/// Only the `module.load` entry is a loading route, and only under a spelling
+/// that names the `module` standard module: the program's own binding for that
+/// name, whether written directly or introduced by `use module as …`. A local
+/// variable or a record field that happens to be called `load` or `module` is
+/// not a loading route, and treating one as such charges the program for the
+/// whole embedded catalog.
 fn arena_uses_dynamic_module_load(arena: &AstArena) -> bool {
+    let mut loaders: BTreeSet<Name> = BTreeSet::new();
+    loaders.insert(Name::intern("module"));
     for use_stmt in &arena.use_stmts {
-        if arena.names(use_stmt.path).any(|name| name == "module") {
-            return true;
+        // `use module as alias` binds another spelling for the same module.
+        let mut names = arena.names(use_stmt.path);
+        match names.next() {
+            Some(name) if name == "module" => {}
+            _ => continue,
+        }
+        if let Some(alias) = use_stmt.alias.as_ref() {
+            loaders.insert(*alias);
         }
     }
     for index in 0..arena.expr_tags.len() {
-        let ArenaExprKind::Ident(name) = arena.expr(ExprId::from_index(index)).kind else {
+        let ArenaExprKind::Field { base, name } = arena.expr(ExprId::from_index(index)).kind
+        else {
             continue;
         };
-        if name == "module" || name == "load" {
+        if name != "load" {
+            continue;
+        }
+        if let ArenaExprKind::Ident(module) = arena.expr(base).kind
+            && loaders.contains(&module)
+        {
             return true;
         }
     }
@@ -507,5 +555,122 @@ mod tests {
                 "embedded module labels must be unique"
             );
         }
+    }
+
+    /// Diagnostic probe: the cold-start preparation cost, split by phase.
+    ///
+    /// Temporary instrumentation for the follow-up's `§6` measurement; run it
+    /// with `cargo test --features native-tests --lib cold_start_phase_profile
+    /// -- --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn cold_start_phase_profile() {
+        use std::time::{Duration, Instant};
+
+        let reps: usize = 20;
+        let mut phases = [("parse", Duration::ZERO), ("declarations", Duration::ZERO), ("bodies", Duration::ZERO), ("lower+verify", Duration::ZERO)];
+        for identity in ["cli", "text", "json"] {
+            for entry in &mut phases {
+                entry.1 = Duration::ZERO;
+            }
+            for _ in 0..reps {
+                crate::symbol::SymbolOwner::new().with_current(|| {
+                    let start = Instant::now();
+                    let (sources, parsed) =
+                        crate::loader::prepare_stdlib_catalog_module(identity).expect("identity");
+                    phases[0].1 += start.elapsed();
+                    let start = Instant::now();
+                    let declarations =
+                        crate::sema::check::Checker::check_compact_declarations(&parsed.arena);
+                    phases[1].1 += start.elapsed();
+                    let start = Instant::now();
+                    let bodies =
+                        crate::sema::check::Checker::probe_compact_bodies(&parsed.arena, &declarations);
+                    phases[2].1 += start.elapsed();
+                    let text = sources
+                        .get(crate::source::SourceId::new(0))
+                        .map(|source| source.text().to_string())
+                        .unwrap_or_default();
+                    let start = Instant::now();
+                    crate::runtime::eval::Evaluator::probe_embedded_module_lowering(
+                        &parsed.arena,
+                        &declarations,
+                        &bodies,
+                        &text,
+                        std::sync::Arc::new(sources),
+                        crate::source::SourceId::new(0),
+                    )
+                    .expect("lowering");
+                    phases[3].1 += start.elapsed();
+                });
+            }
+            let total: Duration = phases.iter().map(|(_, duration)| *duration).sum();
+            println!(
+                "{identity}: {:.2} ms total | {}",
+                total.as_secs_f64() * 1000.0 / reps as f64,
+                phases
+                    .iter()
+                    .map(|(name, duration)| format!(
+                        "{name} {:.2} ms",
+                        duration.as_secs_f64() * 1000.0 / reps as f64
+                    ))
+                    .collect::<Vec<_>>()
+                    .join(" | ")
+            );
+        }
+
+        // The whole-program path a `module.load` reference takes: every
+        // embedded module is prepared before execution, and the program's own
+        // check and lowering cover their bodies too.
+        let source = "use module\n\nproc main() [io, error] {\n  let m = module.load(p\"nothing.xsh\")?\n  print m\n}\n";
+        let mut phases = [("load+parse", Duration::ZERO), ("declarations", Duration::ZERO), ("bodies", Duration::ZERO), ("lower+verify", Duration::ZERO)];
+        for _ in 0..reps {
+            crate::symbol::SymbolOwner::new().with_current(|| {
+                let start = Instant::now();
+                let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only_with_linkage(
+                    "profile.xsh",
+                    crate::loader::entry_source_from_text("profile.xsh", source.to_string()),
+                    Vec::new(),
+                    crate::loader::StdlibLinkage::Prepare,
+                );
+                phases[0].1 += start.elapsed();
+                let start = Instant::now();
+                let declarations =
+                    crate::sema::check::Checker::check_compact_declarations(&parsed.arena);
+                phases[1].1 += start.elapsed();
+                let start = Instant::now();
+                let bodies =
+                    crate::sema::check::Checker::probe_compact_bodies(&parsed.arena, &declarations);
+                phases[2].1 += start.elapsed();
+                let text = sources
+                    .get(crate::source::SourceId::new(0))
+                    .map(|entry| entry.text().to_string())
+                    .unwrap_or_default();
+                let start = Instant::now();
+                crate::runtime::eval::Evaluator::probe_embedded_module_lowering(
+                    &parsed.arena,
+                    &declarations,
+                    &bodies,
+                    &text,
+                    std::sync::Arc::new(sources),
+                    crate::source::SourceId::new(0),
+                )
+                .expect("lowering");
+                phases[3].1 += start.elapsed();
+            });
+        }
+        let total: Duration = phases.iter().map(|(_, duration)| *duration).sum();
+        println!(
+            "module.load program: {:.2} ms total | {}",
+            total.as_secs_f64() * 1000.0 / reps as f64,
+            phases
+                .iter()
+                .map(|(name, duration)| format!(
+                    "{name} {:.2} ms",
+                    duration.as_secs_f64() * 1000.0 / reps as f64
+                ))
+                .collect::<Vec<_>>()
+                .join(" | ")
+        );
     }
 }

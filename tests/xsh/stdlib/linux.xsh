@@ -146,6 +146,56 @@ proc test_linux_text_dry_run_values_and_log(ctx: TestContext) [fs, process, env,
   )?
 }
 
+proc test_linux_dry_run_log_appends_in_place(ctx: TestContext) [fs, process, env, error] {
+  if system.uname()?.sysname != "Linux" {
+    # The dry-run log is appended by the script-backed Linux entries, so the
+    # boundary only exists on the platform that uses this implementation.
+    test.skip("the dry-run log is appended on Linux only")
+    return
+  }
+
+  let root = test.temp_dir(ctx, name: "linux-log-append")?
+  let log = fp"${root}/linux.jsonl"
+
+  # The log already holds bytes that are not valid UTF-8, with no trailing
+  # newline. The baseline appends to the open file, so those bytes have to
+  # survive; a read-concatenate-rewrite log would lose or replace them.
+  let seeded = bytes.from_ints([255, 254, 10])?
+  fs.write(log, seeded)?
+
+  env XSH_LINUX_DRY_RUN=1 XSH_LINUX_DRY_RUN_LOG=$log {
+    let _ = linux.meminfo()?
+  } ?
+  let once = log.read_bytes()?
+  test.ok(once.starts_with(seeded))?
+  test.ok(once.len() > seeded.len())?
+
+  # A second call appends exactly one more record: the file grows by the same
+  # number of bytes again and nothing before it is truncated.
+  env XSH_LINUX_DRY_RUN=1 XSH_LINUX_DRY_RUN_LOG=$log {
+    let _ = linux.meminfo()?
+  } ?
+  let twice = log.read_bytes()?
+  test.ok(twice.starts_with(seeded))?
+  test.eq(twice.len() - once.len(), once.len() - seeded.len())?
+
+  # A destination whose parent directories do not exist yet is created.
+  let fresh = fp"${root}/missing/deeper/linux.jsonl"
+  env XSH_LINUX_DRY_RUN=1 XSH_LINUX_DRY_RUN_LOG=$fresh {
+    let _ = linux.meminfo()?
+  } ?
+  test.ok(fresh.exists()?)?
+  test.contains(fresh.read_text() ?? "", "\"op\":\"meminfo\"")?
+
+  # A destination that is a directory is the call's `Err`, not a silent no-op.
+  let blocked = fp"${root}/a-directory"
+  fs.mkdir(blocked)?
+  env XSH_LINUX_DRY_RUN=1 XSH_LINUX_DRY_RUN_LOG=$blocked {
+    test.error_kind(linux.meminfo(), "linux-dry-run-log")?
+  } ?
+  test.eq(blocked.metadata()?.kind, "dir")?
+}
+
 proc test_linux_text_log_failure_kind(ctx: TestContext) [fs, process, env, error] {
   if system.uname()?.sysname != "Linux" {
     # The script-backed entry reports a log failure as the call's `Err`, while

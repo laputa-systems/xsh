@@ -1,0 +1,19 @@
+# Mount source for the container's `/etc/os-release`.
+#
+# The Linux verification route in `bench/stdlib-port/README.md` bind-mounts this
+# file over `/etc/os-release` inside the container's own mount namespace and runs
+# `tests/stdlib_port.rs::os_release_entry_reads_the_fixed_paths`. Every field
+# differs from the `/usr/lib/os-release` fixture beside it, so the assertion says
+# which of the two reads answered; the quoting, escaping, comment, and
+# duplicate-key shapes are the ones the helper fixtures under the parent
+# directory pin separately.
+#
+# Expected values: NAME `Fixture Etc`, PRETTY_NAME `Fixture Etc "quoted"`,
+# VERSION `1.0` (the backslash escape resolves inside the quotes), VERSION_ID
+# `7`, ID `fixture-etc-last` (the last line wins).
+NAME="Fixture Etc"
+PRETTY_NAME='Fixture Etc "quoted"'
+VERSION="1\.0"
+VERSION_ID="7"
+ID=fixture-etc
+ID=fixture-etc-last

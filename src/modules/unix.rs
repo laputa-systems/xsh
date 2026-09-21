@@ -1142,19 +1142,19 @@ fn os_string_from_bytes(bytes: &[u8]) -> OsString {
     OsString::from_vec(bytes.to_vec())
 }
 
+// The Linux body of `unix.uptime_seconds` is retired.
+//
+// On Linux the registry binds the entry to the embedded `unix` module, which
+// owns the `/proc/uptime` reading policy and reports read failures with the
+// `unix-uptime` kind. Reaching this arm means binding selection regressed, so
+// it reports that instead of reading `/proc/uptime` a second way.
 #[cfg(target_os = "linux")]
 fn uptime_seconds_impl(span: Span) -> Result<Value, RuntimeError> {
-    let text = match std::fs::read_to_string("/proc/uptime") {
-        Ok(text) => text,
-        Err(error) => return Ok(io_error("unix-uptime", error, span)),
-    };
-    let seconds = text
-        .split_whitespace()
-        .next()
-        .and_then(|field| field.split('.').next())
-        .and_then(|field| field.parse::<i64>().ok())
-        .unwrap_or(0);
-    Ok(Value::ok(Value::Int(seconds)))
+    Ok(error_value(
+        "unix-uptime",
+        "the embedded standard-library implementation owns unix.uptime_seconds on Linux",
+        span,
+    ))
 }
 
 #[cfg(target_os = "macos")]

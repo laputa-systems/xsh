@@ -21,7 +21,10 @@ export type HostOs = Linux | Darwin
 export type HostArch = X86_64 | Aarch64
 
 # Closed target matrix identity used by workflow policy.
-type TargetId = X86_64LinuxMusl | Aarch64LinuxMusl | Aarch64AppleDarwin
+type TargetId =
+    X86_64LinuxMusl
+  | Aarch64LinuxMusl
+  | Aarch64AppleDarwin
 
 ## A target or host selector outside the supported matrix.
 export error TargetError = Unsupported(target: Str)
@@ -260,8 +263,8 @@ export pure distribution_env(
 }
 
 ## Reports whether selected tagged target and host policies can execute directly.
-export pure native_execution(target: Target, host_os: HostOs, host_arch: HostArch) -> Bool {
-  return can_execute_natively(target, host_os, host_arch)
+export pure native_execution(target: Target, os: HostOs, arch: HostArch) -> Bool {
+  return can_execute_natively(target, os, arch)
 }
 
 ## Maps a target triple to the stable release artifact suffix.

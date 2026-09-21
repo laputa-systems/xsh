@@ -10,7 +10,8 @@ use super::{
     lowered_freeze_large_slot_list, lowered_match_no_arm,
     lowered_record_vec_append_or_replace_unsorted, lowered_record_vec_or_stats,
     lowered_result_err_value, lowered_result_ok, lowered_return_value, lowered_splice_arg_items,
-    lowered_str_parts, lowered_value_satisfies_require, push_lowered_fmt_value,
+    lowered_str_parts, lowered_value_from_runtime_any, lowered_value_satisfies_require,
+    push_lowered_fmt_value, StreamValue,
 };
 
 enum FrameValue {
@@ -129,6 +130,9 @@ enum FrameContinuation {
     },
     BreakLoop,
     Defer,
+    /// A `yield` statement's value: the frame suspends here and hands the value
+    /// to whoever pulled the producer.
+    Yield,
     CallArguments {
         function: LoweredFunctionKey,
         kind: LoweredFunctionKind,
@@ -153,12 +157,17 @@ enum FrameContinuation {
         name: Arc<str>,
         args: Vec<u32>,
         span: Span,
+        // The slot this call's result overwrites, when the call is the value of
+        // a plain assignment to the same slot the receiver is read from. The
+        // call may then take the value out of that slot instead of copying it.
+        consume: Option<usize>,
         next: Box<FrameContinuation>,
     },
     MethodArg {
         name: Arc<str>,
         args: Vec<u32>,
         receiver: LoweredValue,
+        consume: Option<usize>,
         index: usize,
         values: Vec<LoweredValue>,
         span: Span,
@@ -230,6 +239,14 @@ enum FrameWork {
         body: u32,
         span: Span,
     },
+    /// A loop over a script producer: each step pulls one item and re-arms
+    /// itself, so the loop never holds the whole stream.
+    ForStream {
+        slot: usize,
+        stream: StreamValue,
+        body: u32,
+        span: Span,
+    },
     ForStrLines {
         slot: usize,
         text: LoweredValue,
@@ -248,28 +265,33 @@ enum FrameWork {
     FinishError,
 }
 
-struct CallFrame<'p> {
-    function: LoweredFunctionKey,
-    kind: LoweredFunctionKind,
-    scope_id: u64,
-    execution: FullExecution<'p>,
-    slots: Vec<LoweredValue>,
-    slot_scopes: Vec<u64>,
-    call_span: Span,
-    definition_span: Span,
-    name: String,
+pub(super) struct CallFrame<'p> {
+    pub(super) function: LoweredFunctionKey,
+    pub(super) kind: LoweredFunctionKind,
+    /// Whether this frame is a stream producer, whose body ends by falling off
+    /// the end of its statements rather than by returning.
+    pub(super) producer: bool,
+    pub(super) scope_id: u64,
+    pub(super) execution: FullExecution<'p>,
+    pub(super) slots: Vec<LoweredValue>,
+    pub(super) slot_scopes: Vec<u64>,
+    pub(super) call_span: Span,
+    pub(super) definition_span: Span,
     work: Vec<FrameWork>,
-    defers: Vec<u32>,
-    block_scopes: Vec<u64>,
+    pub(super) defers: Vec<u32>,
+    pub(super) block_scopes: Vec<u64>,
     return_to: Option<FrameContinuation>,
 }
 
-struct ExplicitFrames<'a, 'p> {
+pub(super) struct ExplicitFrames<'a, 'p> {
     evaluator: &'a mut Evaluator,
     program: &'p FullProgram,
     calls: Vec<CallFrame<'p>>,
     result: Option<Result<LoweredValue, RuntimeError>>,
     pending_error: Option<RuntimeError>,
+    /// Set when a producer frame executes a `yield`: the value the puller
+    /// receives, with the frame's remaining work left on its stack.
+    suspended: Option<LoweredValue>,
 }
 
 impl Evaluator {
@@ -293,13 +315,7 @@ impl Evaluator {
         values: &[LoweredValue],
         call_span: Span,
     ) -> Result<LoweredValue, RuntimeError> {
-        let mut frames = ExplicitFrames {
-            evaluator: self,
-            program,
-            calls: Vec::new(),
-            result: None,
-            pending_error: None,
-        };
+        let mut frames = ExplicitFrames::new(self, program);
         frames.push_call(function, kind, values.to_vec(), call_span, None)?;
         frames.run()
     }
@@ -312,21 +328,284 @@ impl Evaluator {
         slots: Vec<LoweredValue>,
         call_span: Span,
     ) -> Result<LoweredValue, RuntimeError> {
-        let mut frames = ExplicitFrames {
-            evaluator: self,
-            program,
-            calls: Vec::new(),
-            result: None,
-            pending_error: None,
-        };
+        let mut frames = ExplicitFrames::new(self, program);
         frames.push_call_with_slots(function, kind, slots, call_span, None)?;
         frames.run()
     }
 }
 
+/// The slot a receiver instruction reads, when it reads exactly one.
+fn indexed_slot_read(
+    execution: &FullExecution<'_>,
+    instruction: u32,
+    span: Span,
+) -> Result<Option<usize>, RuntimeError> {
+    let (tag, mut payload) = indexed_value(execution.instruction_id(instruction), span)?;
+    match tag {
+        FullTag::ExprParam => Ok(Some(indexed_decode::<usize>(&mut payload, execution, span)?)),
+        _ => Ok(None),
+    }
+}
+
+/// Take a receiver out of the slot it was read from, when that slot still holds
+/// the same container and nothing else has replaced it.
+///
+/// The receiver was evaluated before the arguments, and an argument may have
+/// assigned to that slot in the meantime; the slot's current value is what the
+/// statement stores, so the take only happens while the slot still holds the
+/// very value the receiver came from.
+fn take_consumed_receiver(
+    slots: &mut [LoweredValue],
+    consume: Option<usize>,
+    receiver: LoweredValue,
+) -> LoweredValue {
+    let Some(slot) = consume else {
+        return receiver;
+    };
+    let Some(current) = slots.get_mut(slot) else {
+        return receiver;
+    };
+    if super::lowered_shares_backing(current, &receiver) {
+        std::mem::replace(current, LoweredValue::Unit)
+    } else {
+        receiver
+    }
+}
+
+/// What one pull of a producer did.
+pub(super) enum ProducerStep {
+    /// The body reached a `yield`; the value is the pulled item and the frame
+    /// state is the continuation.
+    Yielded {
+        value: LoweredValue,
+        state: ProducerFrameState,
+    },
+    /// The body ended, propagated an error, or returned a stream.
+    Finished(Result<LoweredValue, RuntimeError>),
+}
+
+/// Pools of the vectors a frame allocates on every call.
+///
+/// Every call allocates its work stack, its slot-scope list, and the statement
+/// list of the body it runs; every return frees them. A bounded pool turns
+/// those allocations into reuse, the same way `lowered_slot_pool` does for
+/// slots.
+#[derive(Default)]
+pub(in crate::runtime::eval) struct FrameScratch {
+    work: Vec<Vec<FrameWork>>,
+    slot_scopes: Vec<Vec<u64>>,
+    statements: Vec<Vec<u32>>,
+    /// How many statement lists were handed out fresh, and how many came back
+    /// from the pool. A loop that reuses its body's list moves only the second:
+    /// that is the claim `loop_iterations_reuse_their_statement_list` reads, and
+    /// it is not visible from a run's values.
+    pub(in crate::runtime::eval) fresh_statements: usize,
+    pub(in crate::runtime::eval) reused_statements: usize,
+}
+
+impl FrameScratch {
+    const POOL_CAP: usize = 32;
+
+    fn take_work(&mut self) -> Vec<FrameWork> {
+        self.work.pop().unwrap_or_default()
+    }
+
+    fn take_slot_scopes(&mut self, len: usize, fill: u64) -> Vec<u64> {
+        let mut scopes = self.slot_scopes.pop().unwrap_or_default();
+        scopes.clear();
+        scopes.resize(len, fill);
+        scopes
+    }
+
+    fn take_statements(&mut self) -> Vec<u32> {
+        match self.statements.pop() {
+            Some(statements) => {
+                self.reused_statements += 1;
+                statements
+            }
+            None => {
+                self.fresh_statements += 1;
+                Vec::new()
+            }
+        }
+    }
+
+    /// Returns a statement list whose entries have all run.
+    ///
+    /// A `Statements` work item owns its list, so the list is dropped when the
+    /// item is exhausted — on every loop iteration, unless it comes back here.
+    fn recycle_statements(&mut self, mut statements: Vec<u32>) {
+        if self.statements.len() >= Self::POOL_CAP {
+            return;
+        }
+        statements.clear();
+        self.statements.push(statements);
+    }
+
+    /// Returns a finished frame's vectors to the pools, cleared for reuse.
+    pub(super) fn recycle(&mut self, call: &mut CallFrame<'_>) {
+        for work in call.work.drain(..) {
+            let FrameWork::Statements {
+                mut statements, ..
+            } = work
+            else {
+                continue;
+            };
+            statements.clear();
+            if self.statements.len() < Self::POOL_CAP {
+                self.statements.push(statements);
+            }
+        }
+        call.work.clear();
+        if self.work.len() < Self::POOL_CAP {
+            self.work.push(std::mem::take(&mut call.work));
+        }
+        call.slot_scopes.clear();
+        if self.slot_scopes.len() < Self::POOL_CAP {
+            self.slot_scopes.push(std::mem::take(&mut call.slot_scopes));
+        }
+    }
+}
+
+/// A suspended producer frame, without the borrow that ties it to a program.
+///
+/// The fields stay private to the frame engine: the producer module starts a
+/// body's scope, discards a body's remaining work, and moves the state between
+/// pulls, but never reaches into the machine's own bookkeeping.
+pub(super) struct ProducerFrameState {
+    work: Vec<FrameWork>,
+    slots: Vec<LoweredValue>,
+    slot_scopes: Vec<u64>,
+    defers: Vec<u32>,
+    block_scopes: Vec<u64>,
+    scope_id: u64,
+}
+
+impl ProducerFrameState {
+    /// The state of a producer whose body has not run yet.
+    pub(super) fn begin_body(statements: Vec<u32>, slots: Vec<LoweredValue>) -> Self {
+        Self {
+            work: vec![FrameWork::Statements {
+                statements,
+                complete_call: true,
+                scope_id: None,
+            }],
+            slots,
+            slot_scopes: Vec::new(),
+            defers: Vec::new(),
+            block_scopes: Vec::new(),
+            scope_id: 0,
+        }
+    }
+
+    /// The scopes the body has open: its call scope, then its live blocks.
+    ///
+    /// A suspended producer's scopes are detached from the evaluator's stack
+    /// while the consumer runs and reattached for each pull, which keeps the
+    /// stack in the order the frame engine expects: a block may only be closed
+    /// while it is innermost.
+    pub(super) fn open_scopes(&self) -> Vec<u64> {
+        let mut scopes = Vec::with_capacity(1 + self.block_scopes.len());
+        scopes.push(self.scope_id);
+        scopes.extend(self.block_scopes.iter().copied());
+        scopes
+    }
+
+    /// Enters the body's call scope, so its slots belong to a live scope.
+    pub(super) fn start(&mut self, scope_id: u64) {
+        self.scope_id = scope_id;
+        self.slot_scopes = vec![scope_id; self.slots.len()];
+    }
+
+}
+
+impl<'p> CallFrame<'p> {
+    /// Drops the body's remaining work, keeping its registered defers.
+    pub(super) fn discard_body(&mut self) {
+        self.work.clear();
+        self.work.push(FrameWork::Statements {
+            statements: Vec::new(),
+            complete_call: true,
+            scope_id: None,
+        });
+    }
+
+    pub(super) fn into_state(self) -> ProducerFrameState {
+        ProducerFrameState {
+            work: self.work,
+            slots: self.slots,
+            slot_scopes: self.slot_scopes,
+            defers: self.defers,
+            block_scopes: self.block_scopes,
+            scope_id: self.scope_id,
+        }
+    }
+}
+
+/// The frame state a producer resumes from.
+impl<'p> CallFrame<'p> {
+    /// Rebuilds a frame from the state a previous pull suspended.
+    pub(super) fn from_state(
+        program: &'p super::FullProgram,
+        function: LoweredFunctionKey,
+        kind: LoweredFunctionKind,
+        call_span: Span,
+        definition_span: Span,
+        state: ProducerFrameState,
+    ) -> Result<Option<Self>, super::IrVerifyError> {
+        let Some(view) = program.function_view(function, kind)? else {
+            return Ok(None);
+        };
+        let execution = view.execution()?;
+        Ok(Some(CallFrame {
+            function,
+            kind,
+            producer: true,
+            scope_id: state.scope_id,
+            execution,
+            slots: state.slots,
+            slot_scopes: state.slot_scopes,
+            call_span,
+            definition_span,
+            work: state.work,
+            defers: state.defers,
+            block_scopes: state.block_scopes,
+            return_to: None,
+        }))
+    }
+}
+
+
 impl<'a, 'p> ExplicitFrames<'a, 'p> {
+    /// A machine over one program, with no frames of its own yet.
+    pub(super) fn new(evaluator: &'a mut Evaluator, program: &'p FullProgram) -> Self {
+        Self {
+            evaluator,
+            program,
+            calls: Vec::new(),
+            result: None,
+            pending_error: None,
+            suspended: None,
+        }
+    }
+
     fn run(&mut self) -> Result<LoweredValue, RuntimeError> {
         while self.result.is_none() {
+            if self.suspended.take().is_some() {
+                // Only a producer frame may suspend, and producers run through
+                // `run_producer`; reaching this in an ordinary call means a
+                // `yield` executed outside a producer.
+                let span = self
+                    .calls
+                    .last()
+                    .map(|call| call.call_span)
+                    .unwrap_or_else(crate::runtime::eval::zero_span);
+                return Err(RuntimeError::new(
+                    "control-flow",
+                    "yield outside stream producer",
+                )
+                .with_span(span));
+            }
             let index = self
                 .calls
                 .len()
@@ -340,6 +619,32 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             }
         }
         self.result.take().expect("indexed frame result")
+    }
+
+    /// Runs a producer frame until it yields or finishes.
+    pub(super) fn run_producer(&mut self, call: CallFrame<'p>) -> ProducerStep {
+        self.calls.push(call);
+        while self.result.is_none() && self.suspended.is_none() {
+            let index = self
+                .calls
+                .len()
+                .checked_sub(1)
+                .expect("active indexed frame");
+            let work = self.calls[index].work.pop().expect("indexed frame work");
+            if let Err(error) = self.step(index, work)
+                && self.pending_error.is_none()
+            {
+                self.begin_error_unwind(error);
+            }
+        }
+        if let Some(value) = self.suspended.take() {
+            let frame = self.calls.pop().expect("suspended producer frame");
+            return ProducerStep::Yielded {
+                value,
+                state: frame.into_state(),
+            };
+        }
+        ProducerStep::Finished(self.result.take().expect("indexed frame result"))
     }
 
     fn begin_error_unwind(&mut self, error: RuntimeError) {
@@ -393,14 +698,55 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 LoweredFunctionKind::Pure => TraceKind::PureExit,
                 LoweredFunctionKind::Proc => TraceKind::ProcExit,
             };
+            let name = call.function.display_name();
             self.evaluator.trace_exit_with_definition(
                 exit_kind,
                 Some(call.call_span),
                 Some(call.definition_span),
-                Some(&call.name),
+                Some(&name),
                 TracePayload::None,
             );
         }
+    }
+
+    /// Resolves a fully evaluated call: a stream producer runs to completion
+    /// and hands its stream back, and every other callee becomes a frame.
+    ///
+    /// The frame engine reaches this decision from its argument-walking
+    /// continuation and, for a call with no arguments, directly; both go
+    /// through here so a producer is never pushed as an ordinary frame, which
+    /// would run its body with nowhere for `yield` to report and then fail the
+    /// call as a function that did not return.
+    fn push_resolved_call(
+        &mut self,
+        index: usize,
+        function: LoweredFunctionKey,
+        kind: LoweredFunctionKind,
+        values: Vec<LoweredValue>,
+        span: Span,
+        next: FrameContinuation,
+    ) -> Result<(), RuntimeError> {
+        let stream_call = match self
+            .program
+            .function_view(function, kind)
+            .map_err(|error| indexed_error(error, span))?
+        {
+            Some(view) => matches!(
+                view.header()
+                    .map_err(|error| indexed_error(error, span))?
+                    .return_kind,
+                LoweredReturnKind::Plain(LoweredType::Stream)
+            ),
+            None => false,
+        };
+        if stream_call {
+            let value = self
+                .evaluator
+                .eval_indexed_named_call(function, &values, span)?;
+            self.push_value(index, FrameValue::Value(value), next);
+            return Ok(());
+        }
+        self.push_call(function, kind, values, span, Some(next))
     }
 
     fn push_call(
@@ -455,7 +801,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         function: LoweredFunctionKey,
         kind: LoweredFunctionKind,
         view: FullFunctionView<'p>,
-        header: FunctionHeader,
+        header: Arc<FunctionHeader>,
         mut slots: Vec<LoweredValue>,
         call_span: Span,
         return_to: Option<FrameContinuation>,
@@ -468,45 +814,57 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         let (_, body) = view
             .body(&execution)
             .map_err(|error| indexed_error(error, call_span))?;
-        let statements = decode_statements(body, call_span)?;
+        let mut statements = self.evaluator.frame_scratch.take_statements();
+        decode_statements_into(body, call_span, &mut statements)?;
         let (frame_kind, enter_kind) = match kind {
             LoweredFunctionKind::Pure => (TracebackFrameKind::Pure, TraceKind::PureEnter),
             LoweredFunctionKind::Proc => (TracebackFrameKind::Proc, TraceKind::ProcEnter),
         };
-        let name = function.display_name();
         let definition_span = view
             .definition_span()
             .map_err(|error| indexed_error(error, call_span))?;
-        self.evaluator.trace_enter_with_definition(
-            enter_kind,
-            Some(call_span),
-            Some(definition_span),
-            Some(&name),
-            TracePayload::None,
-        );
+        // Tracing is off unless a tool turned it on, and rendering a function's
+        // display name allocates; only do it when an event will use it.
+        if self.evaluator.trace_enabled {
+            let name = function.display_name();
+            self.evaluator.trace_enter_with_definition(
+                enter_kind,
+                Some(call_span),
+                Some(definition_span),
+                Some(&name),
+                TracePayload::None,
+            );
+        }
         self.evaluator.call_stack.push(TracebackFrame {
             kind: frame_kind,
-            name: name.clone(),
+            name: function.traceback_name(),
             definition_span: Some(definition_span),
             call_span: Some(call_span),
         });
         let scope_id = self.evaluator.enter_owned_host_scope();
-        let slot_scopes = vec![scope_id; slots.len()];
+        let slot_scopes = self
+            .evaluator
+            .frame_scratch
+            .take_slot_scopes(slots.len(), scope_id);
         self.calls.push(CallFrame {
             function,
             kind,
+            producer: false,
             scope_id,
             execution,
             slots,
             slot_scopes,
             call_span,
             definition_span,
-            name,
-            work: vec![FrameWork::Statements {
-                statements,
-                complete_call: true,
-                scope_id: None,
-            }],
+            work: {
+                let mut work = self.evaluator.frame_scratch.take_work();
+                work.push(FrameWork::Statements {
+                    statements,
+                    complete_call: true,
+                    scope_id: None,
+                });
+                work
+            },
             defers: Vec::new(),
             block_scopes: Vec::new(),
             return_to,
@@ -522,6 +880,10 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 scope_id,
             } => {
                 let Some(statement) = statements.pop() else {
+                    // A list that ran to its end goes back to the pool here:
+                    // its entries are done with, and a loop body would
+                    // otherwise allocate a fresh list on every iteration.
+                    self.evaluator.frame_scratch.recycle_statements(statements);
                     return if complete_call {
                         self.complete_call(index, StmtFlow::None)
                     } else {
@@ -553,6 +915,12 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 body,
                 span,
             } => self.step_for_items(index, slot, items, item_index, body, span),
+            FrameWork::ForStream {
+                slot,
+                stream,
+                body,
+                span,
+            } => self.step_for_stream(index, slot, stream, body, span),
             FrameWork::ForStrLines {
                 slot,
                 text,
@@ -813,6 +1181,18 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             FullTag::StmtContinue => {
                 indexed_finish(payload, span)?;
                 self.continue_loop(index)
+            }
+            FullTag::StmtYield => {
+                let value = indexed_raw(&mut payload, span)?;
+                indexed_finish(payload, span)?;
+                if !self.calls[index].producer {
+                    return Err(
+                        RuntimeError::new("control-flow", "yield outside stream producer")
+                            .with_span(span),
+                    );
+                }
+                self.push_expr(index, value, span, FrameContinuation::Yield);
+                Ok(())
             }
             FullTag::StmtDefer => {
                 let value = indexed_raw(&mut payload, span)?;
@@ -1226,6 +1606,23 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     decoded_args.push(indexed_raw(&mut args, value_span)?);
                 }
                 indexed_finish(args, value_span)?;
+                // `x = x.set(..)` and its shape: the call's result overwrites
+                // the very slot the receiver reads, so the receiver can be
+                // taken out of the slot rather than copied. Anything else — a
+                // nested call, a different destination — keeps the plain copy.
+                let consume = match &next {
+                    FrameContinuation::Assign { slot, op, .. }
+                        if *op == AssignOp::Set
+                            && indexed_slot_read(
+                                &self.calls[index].execution,
+                                receiver,
+                                value_span,
+                            )? == Some(*slot) =>
+                    {
+                        Some(*slot)
+                    }
+                    _ => None,
+                };
                 self.push_expr(
                     index,
                     receiver,
@@ -1234,6 +1631,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                         name: Arc::from(name),
                         args: decoded_args,
                         span: value_span,
+                        consume,
                         next: Box::new(next),
                     },
                 );
@@ -1268,7 +1666,11 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                         },
                     );
                 } else {
-                    self.push_call(function, kind, Vec::new(), value_span, Some(next))?;
+                    // A zero-argument call has no argument list to walk, so it
+                    // reaches the call decision here instead of through
+                    // `FrameContinuation::CallArguments`. Both paths resolve
+                    // the callee the same way.
+                    self.push_resolved_call(index, function, kind, Vec::new(), value_span, next)?;
                 }
             }
             _ => {
@@ -1313,11 +1715,12 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     let value = lowered_assign_value(op, current, value, span)?;
                     let owner_scope = self.calls[index].slot_scopes[slot];
                     let source_scope = self.evaluator.current_scope_id();
-                    self.evaluator.transfer_owned_host_resources_in_value(
-                        &value.clone().into_value(),
-                        source_scope,
-                        owner_scope,
-                    );
+                    self.evaluator
+                        .transfer_owned_host_resources_in_lowered_value(
+                            &value,
+                            source_scope,
+                            owner_scope,
+                        );
                     self.calls[index].slots[slot] = value;
                 }
                 FrameValue::Break(value) => {
@@ -1469,6 +1872,22 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             },
             FrameContinuation::ForItems { slot, body, span } => match value {
                 FrameValue::Value(value) => {
+                    let script_stream = match &value {
+                        LoweredValue::Stream(stream) => stream.script().is_some(),
+                        _ => false,
+                    };
+                    if script_stream {
+                        let LoweredValue::Stream(stream) = value else {
+                            unreachable!("checked above")
+                        };
+                        self.calls[index].work.push(FrameWork::ForStream {
+                            slot,
+                            stream: *stream,
+                            body,
+                            span,
+                        });
+                        return Ok(());
+                    }
                     let items = self.evaluator.lowered_list_items(
                         value,
                         span,
@@ -1644,27 +2063,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                             },
                         );
                     } else {
-                        let stream_call = match self
-                            .program
-                            .function_view(function, kind)
-                            .map_err(|error| indexed_error(error, span))?
-                        {
-                            Some(view) => matches!(
-                                view.header()
-                                    .map_err(|error| indexed_error(error, span))?
-                                    .return_kind,
-                                LoweredReturnKind::Plain(LoweredType::Stream)
-                            ),
-                            None => false,
-                        };
-                        if stream_call {
-                            let value = self
-                                .evaluator
-                                .eval_indexed_named_call(function, &values, span)?;
-                            self.push_value(index, FrameValue::Value(value), *next);
-                        } else {
-                            self.push_call(function, kind, values, span, Some(*next))?;
-                        }
+                        self.push_resolved_call(index, function, kind, values, span, *next)?;
                     }
                 }
                 FrameValue::Break(value) => {
@@ -1735,6 +2134,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 name,
                 args,
                 span,
+                consume,
                 next,
                 ..
             } => match value {
@@ -1748,6 +2148,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                                 name,
                                 args,
                                 receiver,
+                                consume,
                                 index: 0,
                                 values: Vec::new(),
                                 span,
@@ -1755,6 +2156,8 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                             },
                         );
                     } else {
+                        let receiver =
+                            take_consumed_receiver(&mut self.calls[index].slots, consume, receiver);
                         self.push_method_result(index, receiver, name, Vec::new(), span, *next)?;
                     }
                 }
@@ -1766,6 +2169,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 name,
                 args,
                 receiver,
+                consume,
                 index: argument,
                 mut values,
                 span,
@@ -1783,6 +2187,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                                 name,
                                 args,
                                 receiver,
+                                consume,
                                 index: next_index,
                                 values,
                                 span,
@@ -1790,6 +2195,8 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                             },
                         );
                     } else {
+                        let receiver =
+                            take_consumed_receiver(&mut self.calls[index].slots, consume, receiver);
                         self.push_method_result(index, receiver, name, values, span, *next)?;
                     }
                 }
@@ -1951,6 +2358,17 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     return self.complete_call(index, StmtFlow::Return(value));
                 }
             },
+            FrameContinuation::Yield => match value {
+                FrameValue::Value(value) => {
+                    // The frame keeps everything after this statement on its
+                    // work stack; the puller receives the value.
+                    self.suspended = Some(value);
+                    return Ok(());
+                }
+                FrameValue::Break(value) => {
+                    return self.complete_call(index, StmtFlow::Return(value));
+                }
+            },
             FrameContinuation::ListCompValue {
                 mut state,
                 key,
@@ -1980,11 +2398,12 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             let function_scope = self.calls[index].scope_id;
             let current_scope = self.evaluator.current_scope_id();
             if current_scope != function_scope {
-                self.evaluator.transfer_owned_host_resources_in_value(
-                    &value.clone().into_value(),
-                    current_scope,
-                    function_scope,
-                );
+                self.evaluator
+                    .transfer_owned_host_resources_in_lowered_value(
+                        value,
+                        current_scope,
+                        function_scope,
+                    );
             }
         }
         // A return may leave nested statement blocks. Transfer an escaping
@@ -2045,7 +2464,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             return self.push_list_comp_projection(index, state, next);
         }
         let value = if state.map {
-            LoweredValue::Map(state.map_values)
+            LoweredValue::Map(Arc::new(state.map_values))
         } else {
             LoweredValue::List(state.values)
         };
@@ -2213,13 +2632,16 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             LoweredFunctionKind::Pure => TraceKind::PureExit,
             LoweredFunctionKind::Proc => TraceKind::ProcExit,
         };
-        self.evaluator.trace_exit_with_definition(
-            exit_kind,
-            Some(call.call_span),
-            Some(call.definition_span),
-            Some(&call.name),
-            TracePayload::None,
-        );
+        if self.evaluator.trace_enabled {
+            let name = call.function.display_name();
+            self.evaluator.trace_exit_with_definition(
+                exit_kind,
+                Some(call.call_span),
+                Some(call.definition_span),
+                Some(&name),
+                TracePayload::None,
+            );
+        }
         if let Some(parent) = self.calls.len().checked_sub(1) {
             let _ = self.discard_work_from(parent, 0);
             self.calls[parent].work.push(FrameWork::FinishError);
@@ -2235,6 +2657,9 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
     fn finish_call(&mut self, index: usize, flow: StmtFlow) -> Result<(), RuntimeError> {
         debug_assert_eq!(index, self.calls.len() - 1);
         let mut call = self.calls.pop().expect("active indexed frame");
+        // The frame's own vectors are done with; the returned value has already
+        // been taken out of `slots`.
+        self.evaluator.frame_scratch.recycle(&mut call);
         let view = self
             .program
             .function_view(call.function, call.kind)
@@ -2247,6 +2672,9 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             StmtFlow::Return(value) | StmtFlow::Propagate(value) => {
                 lowered_return_value(header.return_kind, value, call.call_span)
             }
+            // A producer ends by running out of statements; that is the end of
+            // the stream, not a function that failed to return.
+            StmtFlow::None if call.producer => Ok(LoweredValue::Unit),
             StmtFlow::None => Err(
                 RuntimeError::new("return", "lowered function did not return")
                     .with_span(call.call_span),
@@ -2276,12 +2704,15 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             LoweredFunctionKind::Proc => TraceKind::ProcExit,
         };
         self.evaluator.call_stack.pop();
-        self.evaluator.trace_exit(
-            exit_kind,
-            Some(call.call_span),
-            Some(&call.name),
-            TracePayload::None,
-        );
+        if self.evaluator.trace_enabled {
+            let name = call.function.display_name();
+            self.evaluator.trace_exit(
+                exit_kind,
+                Some(call.call_span),
+                Some(&name),
+                TracePayload::None,
+            );
+        }
         let value = value.and_then(|value| {
             write_back?;
             cleanup?;
@@ -2298,7 +2729,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         Ok(())
     }
 
-    fn call_header(&self, index: usize) -> Result<FunctionHeader, RuntimeError> {
+    fn call_header(&self, index: usize) -> Result<Arc<FunctionHeader>, RuntimeError> {
         let call = &self.calls[index];
         self.program
             .function_view(call.function, call.kind)
@@ -2510,6 +2941,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             matches!(
                 work,
                 FrameWork::ForItems { .. }
+                    | FrameWork::ForStream { .. }
                     | FrameWork::ForStrLines { .. }
                     | FrameWork::While { .. }
             )
@@ -2518,6 +2950,42 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 .with_span(self.calls[index].call_span));
         };
         self.discard_work_from(index, loop_index)
+    }
+
+    fn step_for_stream(
+        &mut self,
+        index: usize,
+        slot: usize,
+        mut stream: StreamValue,
+        body: u32,
+        span: Span,
+    ) -> Result<(), RuntimeError> {
+        self.evaluator.service_pending_signal(span)?;
+        if self.evaluator.shutting_down() {
+            self.evaluator.stream_cancel(&mut stream, span)?;
+            return Ok(());
+        }
+        let Some(value) = self.evaluator.stream_next(&mut stream, span)? else {
+            return Ok(());
+        };
+        let Some(item) = lowered_value_from_runtime_any(&value) else {
+            return Err(RuntimeError::new(
+                "type-error",
+                format!("stream produced unsupported {}", value.type_name()),
+            )
+            .with_span(span));
+        };
+        self.calls[index].slots[slot] = item;
+        // Re-arm before running the body, so a `continue` reaches the next item
+        // and a `break` discards this item and stops the producer.
+        self.calls[index].work.push(FrameWork::ForStream {
+            slot,
+            stream,
+            body,
+            span,
+        });
+        self.push_statement_block(index, body, span)?;
+        Ok(())
     }
 
     fn select_expr_match_arm(
@@ -2627,7 +3095,8 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         body: u32,
         span: Span,
     ) -> Result<(), RuntimeError> {
-        let statements = decode_statement_block(&self.calls[index].execution, body, span)?;
+        let mut statements = self.evaluator.frame_scratch.take_statements();
+        decode_statement_block_into(&self.calls[index].execution, body, span, &mut statements)?;
         let scope_id = self.evaluator.enter_owned_host_scope();
         self.calls[index].block_scopes.push(scope_id);
         self.calls[index].work.push(FrameWork::Statements {
@@ -2649,12 +3118,17 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
     fn discard_work_from(&mut self, index: usize, keep: usize) -> Result<(), RuntimeError> {
         let discarded = self.calls[index].work.split_off(keep);
         for work in discarded.into_iter().rev() {
-            if let FrameWork::Statements {
-                scope_id: Some(scope_id),
-                ..
-            } = work
-            {
-                self.exit_block_scope(index, scope_id)?;
+            match work {
+                FrameWork::Statements {
+                    scope_id: Some(scope_id),
+                    ..
+                } => self.exit_block_scope(index, scope_id)?,
+                // A loop that is being discarded holds a producer nothing will
+                // pull again: stopping it runs its defers.
+                FrameWork::ForStream {
+                    mut stream, span, ..
+                } => self.evaluator.stream_cancel(&mut stream, span)?,
+                _ => {}
             }
         }
         Ok(())
@@ -2683,17 +3157,17 @@ fn append_record_entry(
         }
         FrameRecordEntry::Spread(_) => match value {
             LoweredValue::Record(record) | LoweredValue::Module(record) => {
-                for (key, value) in record {
+                for (key, value) in record.iter() {
                     lowered_record_vec_append_or_replace_unsorted(
                         fields,
                         Name::intern(key.as_ref()),
-                        value,
+                        value.clone(),
                     );
                 }
             }
             LoweredValue::RecordVec(record) => {
-                for (key, value) in record {
-                    lowered_record_vec_append_or_replace_unsorted(fields, key, value);
+                for (key, value) in record.iter() {
+                    lowered_record_vec_append_or_replace_unsorted(fields, *key, value.clone());
                 }
             }
             LoweredValue::Stats {
@@ -2704,12 +3178,12 @@ fn append_record_entry(
                 for (key, value) in
                     super::lowered_inline_stats_to_record_vec(blanks, code, comments)
                 {
-                    lowered_record_vec_append_or_replace_unsorted(fields, key, value);
+                    lowered_record_vec_append_or_replace_unsorted(fields, key, value.clone());
                 }
             }
             LoweredValue::StatsBlob(stats) => {
                 for (key, value) in stats.to_record_vec() {
-                    lowered_record_vec_append_or_replace_unsorted(fields, key, value);
+                    lowered_record_vec_append_or_replace_unsorted(fields, key, value.clone());
                 }
             }
             value => {
@@ -2724,26 +3198,51 @@ fn append_record_entry(
     Ok(())
 }
 
-fn decode_statements(mut payload: FullPayload<'_>, span: Span) -> Result<Vec<u32>, RuntimeError> {
+/// The instructions of a statement block, reversed so a frame can pop them.
+///
+/// The payload spells the block's statements in the order they run, and a frame
+/// pops from the end of this list, so the list is reversed here: the last
+/// element is the block's first statement.
+pub(super) fn decode_statements(
+    payload: FullPayload<'_>,
+    span: Span,
+) -> Result<Vec<u32>, RuntimeError> {
+    let mut statements = Vec::new();
+    decode_statements_into(payload, span, &mut statements)?;
+    Ok(statements)
+}
+
+/// Fills `statements` with a block's instructions, reversed so a frame pops
+/// them in the order they run.
+///
+/// Taking the vector from a pool is what keeps a loop iteration from allocating
+/// one; the caller hands it back through `FrameScratch::recycle`.
+pub(super) fn decode_statements_into(
+    mut payload: FullPayload<'_>,
+    span: Span,
+    statements: &mut Vec<u32>,
+) -> Result<(), RuntimeError> {
     let len = indexed_raw(&mut payload, span)? as usize;
-    let mut statements = Vec::with_capacity(len);
+    statements.clear();
+    statements.reserve(len);
     for _ in 0..len {
         statements.push(indexed_raw(&mut payload, span)?);
     }
     indexed_finish(payload, span)?;
     statements.reverse();
-    Ok(statements)
+    Ok(())
 }
 
-fn decode_statement_block(
+fn decode_statement_block_into(
     execution: &FullExecution<'_>,
     block: u32,
     span: Span,
-) -> Result<Vec<u32>, RuntimeError> {
+    statements: &mut Vec<u32>,
+) -> Result<(), RuntimeError> {
     let (_, payload) = execution
         .block_id(block, BLOCK_STATEMENTS)
         .map_err(|error| indexed_error(error, span))?;
-    decode_statements(payload, span)
+    decode_statements_into(payload, span, statements)
 }
 
 fn decode_call_args<'a>(

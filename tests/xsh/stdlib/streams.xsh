@@ -462,26 +462,92 @@ print f"x=\${g.x}"
 
 proc test_stream_producers_are_lazy_and_run_defers_on_stop(ctx: TestContext) [fs, error] {
   let marker = test.temp_path(ctx, name: "stream-marker")
+  let rows = test.temp_path(ctx, name: "stream-rows")
   let output = test.run_script(
     ctx,
     f"""
-stream nums(marker: Path) [fs, error] -> Stream[Int] {
+stream nums(marker: Path, rows: Path) [fs, error] -> Stream[Int] {
   defer marker.write("closed")?
   for n in range(5) {
+    rows.write(f"row \${n}")?
     yield n
   }
 }
 
-let first = nums(Path("${marker.display()}")) |> first()?
+let numbers = nums(Path("${marker.display()}"), Path("${rows.display()}"))
+# The call did not run the body, so no row has been written yet, and the first
+# pull stops at the first row: the defer runs and the later rows never do.
+print \${Path("${rows.display()}").exists() ?}
+let first = numbers |> first()?
 print \${first}
+print \${Path("${rows.display()}").read_text() ?}
 print \${Path("${marker.display()}").read_text() ?}
 """,
   )?
   test.ok(output.success, output.stderr)?
   test.eq(
     output.stdout,
-    """0
+    """false
+0
+row 0
 closed
+""",
+  )?
+}
+
+proc test_zero_argument_stream_producers_run_from_every_call_position(ctx: TestContext) [error] {
+  # A call with no arguments reaches the frame engine's call decision without
+  # walking an argument list, so a producer spelled that way has to be
+  # recognized there too: a producer pushed as an ordinary frame runs its body
+  # with nowhere for `yield` to report and fails as a function that did not
+  # return.
+  let output = test.run_script(
+    ctx,
+    f"""
+stream once() [] -> Stream[Int] {
+  yield 1
+  yield 2
+}
+
+stream twice() [] -> Stream[Int] {
+  for item in once() {
+    yield item * 2
+  }
+}
+
+proc total() [error] -> Int {
+  var sum = 0
+  for item in once() {
+    sum = sum + item
+  }
+  return sum
+}
+
+var direct = 0
+for item in once() {
+  direct = direct + item
+}
+print f"direct=\${direct}"
+let bound = once().collect()
+print f"bound=\${bound.len()}"
+print f"total=\${total()}"
+let doubled = twice().collect()
+print f"doubled=\${doubled.len()}"
+let mapped = once() |> map { |item| item + 1 } |> collect()
+print f"mapped=\${mapped.len()}"
+let first = once() |> first()
+print f"first=\${first ?? -1}"
+""",
+  )?
+  test.ok(output.success, output.stderr)?
+  test.eq(
+    output.stdout,
+    """direct=3
+bound=2
+total=3
+doubled=2
+mapped=2
+first=1
 """,
   )?
 }

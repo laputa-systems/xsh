@@ -78,7 +78,69 @@ fn preparation_is_proportional_to_referenced_standard_entries() {
     );
 }
 
-/// A03 — repeated references to one embedded module parse it once, including
+/// A01 — selection follows resolved spellings, not names that merely look like
+/// one: a local binding called `load`, a record field called `load`, and a
+/// native call in a mixed standard module are not references to an embedded
+/// implementation, while the script-backed entry beside them is.
+#[test]
+fn selection_ignores_names_that_are_not_script_backed_references() {
+    // A local variable and a record field named `load` are not a loading route.
+    assert_eq!(
+        prepared_module_count(
+            "local-load.xsh",
+            "proc main() [io] {\n  let load = 3\n  let record = {load: load}\n  print record.load + load\n}\n"
+        ),
+        0,
+        "a binding named `load` must not prepare the whole catalog"
+    );
+
+    // A native entry of a module that also has script-backed entries: `env.get`
+    // is native, `env.get_or` is not, so only the latter selects the module.
+    assert_eq!(
+        prepared_module_count(
+            "native-mixed.xsh",
+            "proc main() [io] {\n  print env.get(\"PATH\") ?? \"\"\n}\n"
+        ),
+        0,
+        "a native entry in a mixed module must not select its embedded module"
+    );
+    assert_eq!(
+        prepared_module_count(
+            "script-mixed.xsh",
+            "proc main() [io] {\n  print env.get_or(\"XSH_UNSET_PATH\", \"\")\n}\n"
+        ),
+        1,
+        "the script-backed entry beside it selects its module"
+    );
+
+    // A module mentioned only as a `use` of that module's own name is not a
+    // dynamic loading route either.
+    assert_eq!(
+        prepared_module_count(
+            "plain-use.xsh",
+            "use module\n\nproc main() [io] {\n  print \"ok\"\n}\n"
+        ),
+        0,
+        "importing the `module` standard module is not calling `module.load`"
+    );
+}
+
+/// A05 — the complete set is prepared for a resolved `module.load`, including
+/// one reached through a `use` alias.
+#[test]
+fn a_resolved_dynamic_loading_route_prepares_the_complete_set() {
+    let catalog = stdlib_catalog_size();
+    assert_eq!(
+        prepared_module_count(
+            "aliased-load.xsh",
+            "use module as mods\n\nproc main() [io, error] {\n  let m = mods.load(p\"nothing.xsh\")?\n  print m\n}\n"
+        ),
+        catalog,
+        "a resolved loading route through an alias prepares the complete set"
+    );
+}
+
+/// A03 — repeated references to one embedded module parse it once, including/// A03 — repeated references to one embedded module parse it once, including
 /// references that arrive through separately loaded user modules.
 #[test]
 fn repeated_references_parse_an_embedded_module_once() {
@@ -723,5 +785,193 @@ fn module_dependencies_resolve_and_cycles_are_diagnosed() {
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// R12 — on Linux the registry binds the ported Linux text entries to the
+/// embedded implementations, so the native operations kept for the other
+/// platforms are unreachable there.
+///
+/// This is the invariant that makes the removed Linux bodies dead code rather
+/// than a second implementation: a regression in binding selection would send
+/// these calls to an operation whose body now reports the retirement instead of
+/// answering.
+#[cfg(target_os = "linux")]
+#[test]
+fn linux_text_entries_bind_the_embedded_implementations() {
+    // Each pair is an entry whose Linux policy lives in the embedded standard
+    // library: `system.memory` and `system.os_release` in `stdlib/system.xsh`,
+    // `unix.uptime_seconds` in `stdlib/unix.xsh`, and `linux.meminfo` and
+    // `linux.modules` in `stdlib/linux_text.xsh`.
+    for (module, name) in [
+        ("system", "memory"),
+        ("system", "os_release"),
+        ("unix", "uptime_seconds"),
+        ("linux", "meminfo"),
+        ("linux", "modules"),
+    ] {
+        let overloads = xsh::api::api_spec()
+            .module_overloads(module, name)
+            .unwrap_or_else(|| panic!("{module}.{name} is in the standard API"));
+        assert!(
+            overloads.iter().all(|sig| sig.script_impl().is_some()),
+            "{module}.{name} must be implemented by the embedded standard library on Linux"
+        );
+    }
+}
+
+/// R12 — the Linux entries answer from the embedded implementations, and their
+/// host text is read at call time.
+///
+/// Reaching a retired native body would fail the call with a message that names
+/// the retirement, so the calls succeeding *is* the evidence that the embedded
+/// route ran; the values themselves are checked against the host.
+#[cfg(target_os = "linux")]
+#[test]
+fn linux_entries_answer_from_the_embedded_implementations() {
+    let dir = temp_dir("linux-embedded-entries");
+    let script = write_script(
+        &dir,
+        "entries.xsh",
+        concat!(
+            "use system\n",
+            "use unix\n",
+            "use linux\n",
+            "\n",
+            "proc main() [io, env, fs, error] {\n",
+            "  let memory = system.memory()?\n",
+            "  if memory.total <= 0 {\n",
+            "    return error.fail(\"system.memory reported no total\")\n",
+            "  }\n",
+            "  print \"memory\"\n",
+            "  let release = system.os_release()?\n",
+            "  if release.name == \"\" {\n",
+            "    return error.fail(\"system.os_release reported no name\")\n",
+            "  }\n",
+            "  print \"release\"\n",
+            "  let uptime = unix.uptime_seconds()?\n",
+            "  if uptime < 0 {\n",
+            "    return error.fail(\"unix.uptime_seconds reported a negative uptime\")\n",
+            "  }\n",
+            "  print \"uptime\"\n",
+            "  let meminfo = linux.meminfo()?\n",
+            "  if meminfo.total <= 0 {\n",
+            "    return error.fail(\"linux.meminfo reported no total\")\n",
+            "  }\n",
+            "  print \"meminfo\"\n",
+            "  let modules = linux.modules()?.collect()\n",
+            "  for row in modules {\n",
+            "    if row.name == \"\" {\n",
+            "      return error.fail(\"linux.modules yielded an unnamed module\")\n",
+            "    }\n",
+            "  }\n",
+            "  print \"modules\"\n",
+            "}\n",
+        ),
+    );
+
+    // `linux.meminfo` and `linux.modules` read the host only under the real
+    // gate; the dry-run gate is a separate entry the corpus covers.
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_xsh"))
+        .arg(&script)
+        .current_dir(&dir)
+        .env("XSH_LINUX_REAL", "1")
+        .env_remove("XSH_LINUX_DRY_RUN")
+        .output()
+        .expect("run the embedded-entry fixture");
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        "memory\nrelease\nuptime\nmeminfo\nmodules\n"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// R12/§3.3 — the public `system.os_release` entry against the fixed paths
+/// `/etc/os-release` and `/usr/lib/os-release`.
+///
+/// The entry is not redirected for this test: it reads the two paths it always
+/// reads. The Linux verification route in `bench/stdlib-port/README.md` stages
+/// container-owned fixtures there — inside the container's own writable layer,
+/// over no shared mount and over no `/proc` or `/sys` path — and names the
+/// scenario in `XSH_OS_RELEASE_SCENARIO`. The fixture contents are committed
+/// under `tests/fixtures/stdlib/os_release/fixed-path/`:
+///
+/// - `etc` — the file is at both paths, so the first read answers;
+/// - `fallback` — `/etc/os-release` is a directory, which is the first read's
+///   failure, so the second path answers;
+/// - `neither` — `/etc/os-release` is a directory and `/usr/lib/os-release` is
+///   a file that is not valid UTF-8, so the failure the whole call reports is
+///   the *second* read's, carried under the entry's own kind. Asserting the
+///   second read's message is what proves the first read failed and the second
+///   was attempted, rather than the first failure being reported.
+///
+/// Without the variable the test reports a skip rather than passing quietly,
+/// which is how A17 treats an unavailable binary. That is also why the default
+/// container run is unaffected: an ordinary run does not set it, and the
+/// fixtures are never mounted over the container's real files.
+#[cfg(target_os = "linux")]
+#[test]
+fn os_release_entry_reads_the_fixed_paths() {
+    let Ok(scenario) = std::env::var("XSH_OS_RELEASE_SCENARIO") else {
+        eprintln!(
+            "skipped: XSH_OS_RELEASE_SCENARIO is not set, so the fixed-path fixtures are not \
+             staged; run the container route recorded in bench/stdlib-port/README.md"
+        );
+        return;
+    };
+
+    // The script reads the entry the way any program does; it takes no path and
+    // no override, so the paths it reads are the entry's own.
+    let dir = temp_dir("os-release-fixed-path");
+    let script = write_script(
+        &dir,
+        "release.xsh",
+        concat!(
+            "use system\n",
+            "\n",
+            "proc main() [io, env, fs, error] {\n",
+            "  let release = system.os_release()?\n",
+            "  print f\"${release.name}|${release.pretty_name}|${release.version}|${release.version_id}|${release.id}\"\n",
+            "}\n",
+        ),
+    );
+
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_xsh"))
+        .arg(&script)
+        .current_dir(&dir)
+        .env("XSH_LINUX_REAL", "1")
+        .env_remove("XSH_LINUX_DRY_RUN")
+        .output()
+        .expect("run the fixed-path release fixture");
+    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+    let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+
+    match scenario.as_str() {
+        "etc" => {
+            assert_eq!(output.status.code(), Some(0), "{stderr}");
+            assert_eq!(stdout, "Fixture Etc|Fixture Etc \"quoted\"|1.0|7|fixture-etc-last\n");
+        }
+        "fallback" => {
+            assert_eq!(output.status.code(), Some(0), "{stderr}");
+            assert_eq!(stdout, "Fixture Usr|Fixture Usr|2.0|8|fixture-usr\n");
+        }
+        "neither" => {
+            // The second read's failure, under the entry's kind: the message is
+            // the one only `/usr/lib/os-release` can produce, including the
+            // offset of the invalid byte in that fixture.
+            assert_ne!(output.status.code(), Some(0), "{stdout}");
+            assert!(
+                stderr.contains("error: system-os-release: file is not valid UTF-8 at byte 5\n"),
+                "{stderr}"
+            );
+        }
+        other => panic!("unknown XSH_OS_RELEASE_SCENARIO `{other}`"),
+    }
     let _ = std::fs::remove_dir_all(&dir);
 }

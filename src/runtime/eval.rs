@@ -563,6 +563,25 @@ pub enum LoweredFunctionKey {
 }
 
 impl LoweredFunctionKey {
+    /// The traceback frame name for this function.
+    ///
+    /// The name *text* is captured here, while the call is running: a symbol's
+    /// text is only available while it is still interned, and the handle itself
+    /// is cheap to copy, so this costs two interner reads instead of the string
+    /// the display name would allocate.
+    pub(crate) fn traceback_name(self) -> crate::trace::TracebackName {
+        match self {
+            Self::Name(name) => crate::trace::TracebackName::Function {
+                module: None,
+                name: name.as_str(),
+            },
+            Self::Qualified(qualified) => crate::trace::TracebackName::Function {
+                module: Some(qualified.namespace.as_str()),
+                name: qualified.member.as_str(),
+            },
+        }
+    }
+
     pub fn display_name(self) -> String {
         match self {
             Self::Name(name) => name.to_string(),
@@ -2066,18 +2085,22 @@ enum LoweredValue {
     Pure(FunctionName),
     Proc(FunctionName),
     Error(Box<Value>),
-    Record(BTreeMap<Arc<str>, LoweredValue>),
-    RecordVec(Vec<(Name, LoweredValue)>),
+    // Container payloads are shareable: reading a slot is a pointer bump
+    // rather than a copy of every entry, and a mutation copies only when the
+    // value is still shared (`Arc::make_mut`), which is what keeps value
+    // semantics. `List`/`SharedList` already work this way.
+    Record(Arc<BTreeMap<Arc<str>, LoweredValue>>),
+    RecordVec(Arc<Vec<(Name, LoweredValue)>>),
     Stats {
         blanks: i64,
         code: i64,
         comments: i64,
     },
     StatsBlob(Box<LoweredStatsValue>),
-    Module(BTreeMap<Arc<str>, LoweredValue>),
+    Module(Arc<BTreeMap<Arc<str>, LoweredValue>>),
     List(Vec<LoweredValue>),
     SharedList(Arc<Vec<LoweredValue>>),
-    Map(BTreeMap<String, LoweredValue>),
+    Map(Arc<BTreeMap<String, LoweredValue>>),
     Tag(Box<LoweredTagValue>),
     ResultOk(Box<LoweredValue>),
     ResultErr(Box<Value>),
@@ -2101,7 +2124,7 @@ impl LoweredStatsValue {
     fn field_value(&self, field: &str) -> Option<LoweredValue> {
         Some(match field {
             "blanks" => LoweredValue::Int(self.blanks),
-            "blobs" => LoweredValue::Map(self.blobs.clone()),
+            "blobs" => LoweredValue::Map(Arc::new(self.blobs.clone())),
             "code" => LoweredValue::Int(self.code),
             "comments" => LoweredValue::Int(self.comments),
             _ => return None,
@@ -2111,7 +2134,7 @@ impl LoweredStatsValue {
     pub(in crate::runtime::eval) fn to_record_vec(&self) -> Vec<(Name, LoweredValue)> {
         vec![
             (Name::intern("blanks"), LoweredValue::Int(self.blanks)),
-            (Name::intern("blobs"), LoweredValue::Map(self.blobs.clone())),
+            (Name::intern("blobs"), LoweredValue::Map(Arc::new(self.blobs.clone()))),
             (Name::intern("code"), LoweredValue::Int(self.code)),
             (Name::intern("comments"), LoweredValue::Int(self.comments)),
         ]
@@ -2150,7 +2173,7 @@ pub(in crate::runtime::eval) fn lowered_inline_stats_field_value(
 ) -> Option<LoweredValue> {
     Some(match field {
         "blanks" => LoweredValue::Int(blanks),
-        "blobs" => LoweredValue::Map(BTreeMap::new()),
+        "blobs" => LoweredValue::Map(Arc::new(BTreeMap::new())),
         "code" => LoweredValue::Int(code),
         "comments" => LoweredValue::Int(comments),
         _ => return None,
@@ -2164,7 +2187,7 @@ pub(in crate::runtime::eval) fn lowered_inline_stats_to_record_vec(
 ) -> Vec<(Name, LoweredValue)> {
     vec![
         (Name::intern("blanks"), LoweredValue::Int(blanks)),
-        (Name::intern("blobs"), LoweredValue::Map(BTreeMap::new())),
+        (Name::intern("blobs"), LoweredValue::Map(Arc::new(BTreeMap::new()))),
         (Name::intern("code"), LoweredValue::Int(code)),
         (Name::intern("comments"), LoweredValue::Int(comments)),
     ]
@@ -2196,7 +2219,7 @@ pub(in crate::runtime::eval) fn lowered_record_vec_or_stats(
         }
         return LoweredValue::StatsBlob(Box::new(stats));
     }
-    LoweredValue::RecordVec(record)
+    LoweredValue::RecordVec(Arc::new(record))
 }
 
 fn lowered_stats_from_record_vec(record: &[(Name, LoweredValue)]) -> Option<LoweredStatsValue> {
@@ -2222,7 +2245,7 @@ fn lowered_stats_from_record_vec(record: &[(Name, LoweredValue)]) -> Option<Lowe
     };
     Some(LoweredStatsValue {
         blanks,
-        blobs: blobs.clone(),
+        blobs: crate::runtime::eval::lower::take_shared(blobs.clone()),
         code,
         comments,
     })
@@ -2423,13 +2446,13 @@ impl LoweredValue {
             Self::Proc(value) => Value::Proc(value),
             Self::Error(value) => *value,
             Self::Record(value) => Value::Record(RecordMap::from_name_values(
-                value
+                crate::runtime::eval::lower::take_shared(value)
                     .into_iter()
                     .map(|(key, value)| (Name::intern(key.as_ref()), value.into_value()))
                     .collect(),
             )),
             Self::RecordVec(value) => Value::Record(RecordMap::from_name_values(
-                value
+                crate::runtime::eval::lower::take_shared(value)
                     .into_iter()
                     .map(|(key, value)| (key, value.into_value()))
                     .collect(),
@@ -2441,7 +2464,7 @@ impl LoweredValue {
             } => Value::Record(lowered_inline_stats_to_record_map(blanks, code, comments)),
             Self::StatsBlob(value) => Value::Record(value.to_record_map()),
             Self::Module(value) => Value::Module(RecordMap::from_name_values(
-                value
+                crate::runtime::eval::lower::take_shared(value)
                     .into_iter()
                     .map(|(key, value)| (Name::intern(key.as_ref()), value.into_value()))
                     .collect(),
@@ -2458,8 +2481,8 @@ impl LoweredValue {
             ),
             Self::Map(value) => {
                 let mut map = BTreeMap::new();
-                for (key, value) in value {
-                    map.insert(key, value.into_value());
+                for (key, value) in value.iter() {
+                    map.insert(key.clone(), value.clone().into_value());
                 }
                 Value::Map(map)
             }
@@ -2730,11 +2753,15 @@ pub struct Evaluator {
     interactive_command_dispatcher: Option<InteractiveCommandDispatcher>,
     last_status: Option<ProcessStatus>,
     trace_enabled: bool,
+    // The slot a `var`/assignment statement is about to overwrite, visible only
+    // to that statement's outermost expression: a method call on the slot can
+    // then consume the value instead of copying it. Cleared for nested
+    // expressions, whose arguments and operands may still read the old value.
+    consuming_receiver: Option<usize>,
     trace_events: Vec<TraceEvent>,
     event_stack: Vec<TraceFrame>,
     call_stack: Vec<TracebackFrame>,
     pending_traceback: Option<Traceback>,
-    stream_items: Vec<Value>,
     unix_next_pid: i64,
     fs_locks: Vec<Option<std::fs::File>>,
     fs_roots: Vec<Option<FsRootHandle>>,
@@ -2754,6 +2781,15 @@ pub struct Evaluator {
     scope_ids: Vec<u64>,
     next_runtime_scope_id: u64,
     signal_state: EvaluatorSignalState,
+    /// The frame engine's reusable scratch vectors.
+    frame_scratch: crate::runtime::eval::lowered_run::indexed_run::explicit_run::FrameScratch,
+    /// Producers that have been created and not yet finished or stopped.
+    ///
+    /// A producer's body runs only while something is consuming it, so the
+    /// evaluator also has to notice the other case: a producer the program can
+    /// no longer reach. The sweep at `sweep_script_producers` stops those, which
+    /// is what runs their `defer` and closes their scopes exactly once.
+    script_producers: Vec<crate::runtime::value::ScriptStreamState>,
     #[cfg(feature = "native-tests")]
     pub(super) test_mocks: FxHashMap<String, Vec<TestMock>>,
     #[cfg(feature = "native-tests")]
@@ -2946,11 +2982,11 @@ impl Evaluator {
             interactive_command_dispatcher: None,
             last_status: None,
             trace_enabled: false,
+            consuming_receiver: None,
             trace_events: Vec::new(),
             event_stack: Vec::new(),
             call_stack: Vec::new(),
             pending_traceback: None,
-            stream_items: Vec::new(),
             unix_next_pid: 1000,
             fs_locks: Vec::new(),
             fs_roots: Vec::new(),
@@ -2970,6 +3006,8 @@ impl Evaluator {
             scope_ids: vec![0],
             next_runtime_scope_id: 1,
             signal_state: EvaluatorSignalState::default(),
+            frame_scratch: crate::runtime::eval::lowered_run::indexed_run::explicit_run::FrameScratch::default(),
+            script_producers: Vec::new(),
             #[cfg(feature = "native-tests")]
             test_mocks: FxHashMap::default(),
             #[cfg(feature = "native-tests")]
@@ -3108,11 +3146,11 @@ impl Evaluator {
             interactive_command_dispatcher: None,
             last_status: None,
             trace_enabled: false,
+            consuming_receiver: None,
             trace_events: Vec::new(),
             event_stack: Vec::new(),
             call_stack: Vec::new(),
             pending_traceback: None,
-            stream_items: Vec::new(),
             unix_next_pid: 1000,
             fs_locks: Vec::new(),
             fs_roots: Vec::new(),
@@ -3132,6 +3170,8 @@ impl Evaluator {
             scope_ids: (0..shared.scopes.len() as u64).collect(),
             next_runtime_scope_id: shared.scopes.len() as u64,
             signal_state: EvaluatorSignalState::default(),
+            frame_scratch: crate::runtime::eval::lowered_run::indexed_run::explicit_run::FrameScratch::default(),
+            script_producers: Vec::new(),
             #[cfg(feature = "native-tests")]
             test_mocks: FxHashMap::default(),
             #[cfg(feature = "native-tests")]
@@ -3139,6 +3179,12 @@ impl Evaluator {
             #[cfg(feature = "native-tests")]
             test_temp_counter: 0,
         }
+    }
+
+    /// Whether the evaluator has been asked to shut down and has no time left
+    /// for more items; loops check this between iterations.
+    pub(super) fn shutting_down(&self) -> bool {
+        self.signal_state.shutdown_complete
     }
 
     pub(super) fn service_pending_signal(&mut self, span: Span) -> Result<(), RuntimeError> {
@@ -3545,6 +3591,115 @@ impl Evaluator {
             ),
             None => error.construct.to_string(),
         })
+    }
+
+    /// Call one helper of an embedded implementation module with literal
+    /// arguments.
+    ///
+    /// Test-only companion to [`Self::probe_embedded_module_lowering`]. The
+    /// module identity is resolved in the compiled catalog, the module goes
+    /// through the same preparation and verification the runtime performs, and
+    /// the call enters through the same indexed entry point a prepared function
+    /// uses, so a fixture test observes the real embedded body and the ordinary
+    /// verifier instead of a copy of the algorithm. The compiled catalog is the
+    /// only provenance: no path, environment value, or user parameter selects
+    /// the module or its source, and the route is not reachable from production
+    /// or user module loading. Arguments are ordinary values, so a helper that
+    /// reads a fixture path reads the path the test names.
+    #[cfg(test)]
+    pub(crate) fn probe_embedded_call(
+        identity: &str,
+        function: &str,
+        kind: LoweredFunctionKind,
+        args: &[Value],
+    ) -> Result<Value, RuntimeError> {
+        // The interpreter recurses per statement and expression, so the probe
+        // runs on the same evaluation stack the ordinary entry point uses
+        // rather than on the test harness's smaller thread stack.
+        std::thread::scope(|scope| {
+            std::thread::Builder::new()
+                .stack_size(debug_test_eval_stack_size(12 * 1024 * 1024))
+                .spawn_scoped(scope, || {
+                    Self::probe_embedded_call_on_this_stack(identity, function, kind, args)
+                })
+                .expect("spawn the embedded probe thread")
+                .join()
+                .unwrap_or_else(|payload| std::panic::resume_unwind(payload))
+        })
+    }
+
+    #[cfg(test)]
+    fn probe_embedded_call_on_this_stack(
+        identity: &str,
+        function: &str,
+        kind: LoweredFunctionKind,
+        args: &[Value],
+    ) -> Result<Value, RuntimeError> {
+        let module = crate::stdlib::find(identity)
+            .unwrap_or_else(|| panic!("`{identity}` is not an embedded catalog identity"));
+        let owner = crate::symbol::SymbolOwner::new();
+        owner.with_current(|| {
+            let (sources, parsed) = crate::loader::prepare_stdlib_catalog_module(module.identity)
+                .expect("catalog identity resolves");
+            assert!(
+                parsed.diagnostics.is_empty(),
+                "{}: {:?}",
+                module.label,
+                parsed.diagnostics
+            );
+            let declarations = Checker::check_compact_declarations(&parsed.arena);
+            assert!(
+                declarations.diagnostics.is_empty(),
+                "{}: {:?}",
+                module.label,
+                declarations.diagnostics
+            );
+            let bodies = Checker::probe_compact_bodies(&parsed.arena, &declarations);
+            assert!(
+                bodies.diagnostics.is_empty(),
+                "{}: {:?}",
+                module.label,
+                bodies.diagnostics
+            );
+            let source_id = parsed
+                .arena
+                .arena
+                .span_source_id
+                .unwrap_or_else(|| SourceId::new(0));
+            let source = sources
+                .get(source_id)
+                .map(|source| source.text().to_string())
+                .unwrap_or_default();
+            let sources = Arc::new(sources);
+            let program = FullBuilder::build_compact(
+                &parsed.arena,
+                &declarations,
+                &bodies,
+                &source,
+                Arc::clone(&sources),
+                source_id,
+            )
+            .expect("embedded module lowers");
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*sources).clone());
+            evaluator.install_compact_runtime_declarations(&declarations);
+            evaluator.indexed_program = Some(Arc::new(program));
+            let namespace = Name::intern(crate::stdlib::namespace_text(module.identity));
+            let name = Name::intern(function);
+            let key = LoweredFunctionKey::Qualified(QualifiedName::new(namespace, name));
+            evaluator
+                .call_indexed_direct(key, kind, args, zero_span())
+                .expect("the prepared embedded function is directly callable")
+        })
+    }
+
+    /// Call one pure helper of an embedded implementation module.
+    #[cfg(test)]
+    pub(crate) fn probe_embedded_pure_call(
+        identity: &str,
+        function: &str,
+        args: &[Value],
+    ) -> Result<Value, RuntimeError> {
+        Self::probe_embedded_call(identity, function, LoweredFunctionKind::Pure, args)
     }
 
     pub(crate) fn prepare_compact_indexed_only(
@@ -4937,6 +5092,22 @@ impl Evaluator {
         scope_id
     }
 
+    /// Takes a suspended producer's scopes off the evaluator's stack.
+    ///
+    /// While nothing is pulling it, the producer's body is not running, and the
+    /// consumer's own scopes must be able to open and close above whatever the
+    /// consumer is doing. Detaching keeps the stack valid for both.
+    pub(super) fn detach_owned_host_scopes(&mut self, count: usize) {
+        for _ in 0..count {
+            self.scope_ids.pop();
+        }
+    }
+
+    /// Puts a producer's scopes back for a pull, in the order they opened.
+    pub(super) fn reattach_owned_host_scopes(&mut self, scopes: &[u64]) {
+        self.scope_ids.extend_from_slice(scopes);
+    }
+
     pub(super) fn parent_owned_host_scope(&self) -> u64 {
         self.scope_ids
             .iter()
@@ -4958,6 +5129,103 @@ impl Evaluator {
                 "host-resource cleanup produced invalid control flow",
             )),
             Err(error) => Err(error),
+        }
+    }
+
+    /// Transfer ownership of host resources through a lowered value.
+    ///
+    /// The lowered form is walked directly. Converting it to a `Value` first
+    /// copies every container it holds, which turns an assignment of a large
+    /// container into a copy of that container.
+    fn transfer_owned_host_resources_in_lowered_value(
+        &mut self,
+        value: &LoweredValue,
+        source_scope: u64,
+        target_scope: u64,
+    ) {
+        if source_scope == target_scope {
+            return;
+        }
+        match value {
+            LoweredValue::ProcessHandle(handle) => {
+                if let Some(live) = self.process_handles.get_mut(&handle.id)
+                    && live.owner_scope == source_scope
+                {
+                    live.owner_scope = target_scope;
+                }
+            }
+            LoweredValue::NetJob(handle) => {
+                if let Some(live) = self.net_jobs.get_mut(&handle.id)
+                    && live.owner_scope == source_scope
+                {
+                    live.owner_scope = target_scope;
+                }
+            }
+            LoweredValue::List(values) => {
+                for value in values {
+                    self.transfer_owned_host_resources_in_lowered_value(
+                        value,
+                        source_scope,
+                        target_scope,
+                    );
+                }
+            }
+            LoweredValue::SharedList(values) => {
+                for value in values.iter() {
+                    self.transfer_owned_host_resources_in_lowered_value(
+                        value,
+                        source_scope,
+                        target_scope,
+                    );
+                }
+            }
+            LoweredValue::Map(values) => {
+                for value in values.values() {
+                    self.transfer_owned_host_resources_in_lowered_value(
+                        value,
+                        source_scope,
+                        target_scope,
+                    );
+                }
+            }
+            LoweredValue::Record(fields) | LoweredValue::Module(fields) => {
+                for value in fields.values() {
+                    self.transfer_owned_host_resources_in_lowered_value(
+                        value,
+                        source_scope,
+                        target_scope,
+                    );
+                }
+            }
+            LoweredValue::RecordVec(fields) => {
+                for (_, value) in fields.iter() {
+                    self.transfer_owned_host_resources_in_lowered_value(
+                        value,
+                        source_scope,
+                        target_scope,
+                    );
+                }
+            }
+            LoweredValue::Tag(tag) => {
+                for value in &tag.fields {
+                    self.transfer_owned_host_resources_in_lowered_value(
+                        value,
+                        source_scope,
+                        target_scope,
+                    );
+                }
+            }
+            LoweredValue::ResultOk(value) => {
+                self.transfer_owned_host_resources_in_lowered_value(
+                    value,
+                    source_scope,
+                    target_scope,
+                );
+            }
+            LoweredValue::ResultErr(value) | LoweredValue::Error(value) => {
+                self.transfer_owned_host_resources_in_value(value, source_scope, target_scope);
+            }
+            _ => {}
         }
     }
 
@@ -6538,7 +6806,16 @@ fn run_eval<R: Send>(f: impl FnOnce() -> R + Send) -> R {
     std::thread::scope(|scope| {
         std::thread::Builder::new()
             .stack_size(debug_test_eval_stack_size(EVAL_STACK_SIZE))
-            .spawn_scoped(scope, f)
+            .spawn_scoped(scope, || {
+                // The script's execution happens on this thread, so its
+                // allocation traffic is measured here; the diagnostics report
+                // reads it through `mem_track`. Both calls are inert unless a
+                // diagnostics binary installed the counting allocator.
+                crate::mem_track::begin_stage();
+                let result = f();
+                crate::mem_track::record_eval_traffic(crate::mem_track::end_stage());
+                result
+            })
             .expect("spawn evaluation worker thread")
             .join()
             .unwrap_or_else(|payload| std::panic::resume_unwind(payload))

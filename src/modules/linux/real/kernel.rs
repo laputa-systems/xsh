@@ -1,55 +1,39 @@
 use super::SYSLOG_ACTION_SIZE_BUFFER;
 use super::common::io_error;
-use super::{DEV_KMSG, PROC_MEMINFO, PROC_MODULES, SYSLOG_ACTION_READ_ALL};
+use super::{DEV_KMSG, SYSLOG_ACTION_READ_ALL};
 use crate::modules::linux::str_value;
 use crate::runtime::value::{LiveStream, RuntimeError, StreamValue, Value};
 use crate::source::Span;
-use rustc_hash::FxHashMap;
-use std::fs::{self, OpenOptions};
+use std::fs::OpenOptions;
 use std::io::{self, Read};
 use std::os::unix::fs::OpenOptionsExt;
-use std::sync::Arc;
+
+// Superseded Linux bodies, deliberately not kept.
+//
+// On Linux the registry binds `linux.meminfo` and `linux.modules` to the
+// embedded `linux_text` module, which owns both policies: the `/proc/meminfo`
+// and `/proc/modules` paths, the parsing, the dry-run gate, and the
+// `linux-meminfo` / `linux-modules` error kinds. The native bodies that used to
+// do that work were a second implementation of the same policy, so they were
+// removed once the embedded entries were verified on Linux.
+//
+// Nothing on Linux reaches these arms — the embedded implementation is
+// selected at lowering time — so they report the defect of being reached at
+// all rather than answering from a retired implementation.
+fn retired_text_entry(name: &str, span: Span) -> RuntimeError {
+    RuntimeError::new(
+        "linux-retired-native-body",
+        format!("the embedded standard-library implementation owns {name} on Linux"),
+    )
+    .with_span(span)
+}
 
 pub(crate) fn meminfo(span: Span) -> Result<Value, RuntimeError> {
-    let text = match fs::read_to_string(PROC_MEMINFO) {
-        Ok(text) => text,
-        Err(error) => return Ok(io_error("linux-meminfo", error, span)),
-    };
-    match parse_meminfo(&text, span) {
-        Ok(value) => Ok(Value::ok(value)),
-        Err(error) => Ok(Value::err(Value::Error(Box::new(error)))),
-    }
+    Err(retired_text_entry("linux.meminfo", span))
 }
 
 pub(crate) fn modules(span: Span) -> Result<Value, RuntimeError> {
-    let text = match fs::read_to_string(PROC_MODULES) {
-        Ok(text) => text,
-        Err(error) => return Ok(io_error("linux-modules", error, span)),
-    };
-    Ok(Value::ok(Value::stream(StreamValue::from_live(
-        "linux.modules",
-        ModuleStream {
-            lines: text
-                .lines()
-                .filter(|line| !line.trim().is_empty())
-                .map(str::to_owned)
-                .collect::<Vec<_>>()
-                .into_iter(),
-        },
-    ))))
-}
-
-struct ModuleStream {
-    lines: std::vec::IntoIter<String>,
-}
-
-impl LiveStream for ModuleStream {
-    fn next(&mut self, span: Span) -> Result<Option<Value>, RuntimeError> {
-        self.lines
-            .next()
-            .map(|line| parse_module_line(&line, span))
-            .transpose()
-    }
+    Err(retired_text_entry("linux.modules", span))
 }
 
 pub(crate) fn dmesg(span: Span) -> Result<Value, RuntimeError> {
@@ -92,140 +76,6 @@ impl LiveStream for KernelMessageStream {
     fn next(&mut self, _span: Span) -> Result<Option<Value>, RuntimeError> {
         Ok(self.messages.next().map(str_value))
     }
-}
-
-fn parse_meminfo(text: &str, span: Span) -> Result<Value, RuntimeError> {
-    let mut values = FxHashMap::default();
-    for line in text.lines() {
-        let Some((key, value)) = parse_meminfo_line(line, span)? else {
-            continue;
-        };
-        values.insert(key, value);
-    }
-
-    Ok(Value::Record(crate::runtime::value::RecordMap::from([
-        (
-            Arc::from("total"),
-            Value::Int(required_meminfo_value(&values, "MemTotal", span)?),
-        ),
-        (
-            Arc::from("free"),
-            Value::Int(required_meminfo_value(&values, "MemFree", span)?),
-        ),
-        (
-            Arc::from("available"),
-            Value::Int(required_meminfo_value(&values, "MemAvailable", span)?),
-        ),
-        (
-            Arc::from("buffers"),
-            Value::Int(required_meminfo_value(&values, "Buffers", span)?),
-        ),
-        (
-            Arc::from("cached"),
-            Value::Int(required_meminfo_value(&values, "Cached", span)?),
-        ),
-        (
-            Arc::from("swap_total"),
-            Value::Int(required_meminfo_value(&values, "SwapTotal", span)?),
-        ),
-        (
-            Arc::from("swap_free"),
-            Value::Int(required_meminfo_value(&values, "SwapFree", span)?),
-        ),
-    ])))
-}
-
-fn parse_meminfo_line(line: &str, span: Span) -> Result<Option<(String, i64)>, RuntimeError> {
-    let Some((key, rest)) = line.split_once(':') else {
-        return Ok(None);
-    };
-    let mut fields = rest.split_whitespace();
-    let Some(value) = fields.next() else {
-        return Ok(None);
-    };
-    let Some(unit) = fields.next() else {
-        return Ok(None);
-    };
-    if unit != "kB" {
-        return Ok(None);
-    }
-    let value = value.parse::<i64>().map_err(|_| {
-        RuntimeError::new(
-            "linux-meminfo",
-            format!("invalid numeric value for `{key}` in {PROC_MEMINFO}"),
-        )
-        .with_span(span)
-    })?;
-    Ok(Some((key.to_string(), value.saturating_mul(1024))))
-}
-
-fn required_meminfo_value(
-    values: &FxHashMap<String, i64>,
-    name: &str,
-    span: Span,
-) -> Result<i64, RuntimeError> {
-    values.get(name).copied().ok_or_else(|| {
-        RuntimeError::new(
-            "linux-meminfo",
-            format!("missing `{name}` in {PROC_MEMINFO}"),
-        )
-        .with_span(span)
-    })
-}
-
-fn parse_module_line(line: &str, span: Span) -> Result<Value, RuntimeError> {
-    let mut fields = line.split_whitespace();
-    let name = fields
-        .next()
-        .ok_or_else(|| malformed_modules_line(span))?
-        .to_string();
-    let size = parse_i64_field(fields.next(), "size", PROC_MODULES, "linux-modules", span)?;
-    let _used_by_count = parse_i64_field(
-        fields.next(),
-        "use count",
-        PROC_MODULES,
-        "linux-modules",
-        span,
-    )?;
-    let used_by = fields.next().ok_or_else(|| malformed_modules_line(span))?;
-    if fields.next().is_none() || fields.next().is_none() {
-        return Err(malformed_modules_line(span));
-    }
-
-    Ok(Value::Record(crate::runtime::value::RecordMap::from([
-        (Arc::from("name"), str_value(name)),
-        (Arc::from("size"), Value::Int(size)),
-        (
-            Arc::from("used_by"),
-            Value::List(
-                used_by
-                    .trim_end_matches(',')
-                    .split(',')
-                    .filter(|item| !item.is_empty() && *item != "-")
-                    .map(|item| str_value(item.to_string()))
-                    .collect(),
-            ),
-        ),
-    ])))
-}
-
-fn malformed_modules_line(span: Span) -> RuntimeError {
-    RuntimeError::new("linux-modules", format!("malformed line in {PROC_MODULES}")).with_span(span)
-}
-
-fn parse_i64_field(
-    field: Option<&str>,
-    name: &str,
-    source: &str,
-    kind: &str,
-    span: Span,
-) -> Result<i64, RuntimeError> {
-    let value = field.ok_or_else(|| {
-        RuntimeError::new(kind, format!("missing {name} in {source}")).with_span(span)
-    })?;
-    value.parse::<i64>().map_err(|_| {
-        RuntimeError::new(kind, format!("invalid {name} `{value}` in {source}")).with_span(span)
-    })
 }
 
 fn read_kmsg() -> io::Result<Vec<String>> {

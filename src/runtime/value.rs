@@ -1082,13 +1082,102 @@ pub struct NetJobValue {
 pub struct StreamValue {
     pub items: Vec<StreamItem>,
     pub(crate) source: Option<StreamSource>,
+    /// A producer whose body is suspended until an item is pulled.
+    ///
+    /// Unlike `source`, whose pulls are plain host reads, this one resumes
+    /// script work: it needs the evaluator that is consuming the stream, so the
+    /// runtime pulls it through [`ScriptStream::pull`] rather than through
+    /// `LiveStream::next`, and a pull from anywhere that has no evaluator
+    /// reports that instead of quietly reporting an empty stream.
+    pub(crate) script: Option<ScriptStreamState>,
 }
+
+/// A script producer as a stream value sees it.
+pub(crate) trait ScriptStream: Send {
+    /// Whether the producer has already finished or been stopped.
+    fn finished(&self) -> bool;
+
+    /// Resumes the producer until it yields, finishes, or fails.
+    fn pull(
+        &mut self,
+        evaluator: &mut crate::runtime::eval::Evaluator,
+        span: Span,
+    ) -> Result<Option<Value>, RuntimeError>;
+
+    /// Stops a producer early, running the defers its body registered.
+    fn cancel(
+        &mut self,
+        evaluator: &mut crate::runtime::eval::Evaluator,
+        span: Span,
+    ) -> Result<(), RuntimeError>;
+}
+
+/// The shared, resumable state of one script producer.
+#[derive(Clone)]
+pub(crate) struct ScriptStreamState {
+    producer: Arc<Mutex<Box<dyn ScriptStream>>>,
+}
+
+impl ScriptStreamState {
+    pub(crate) fn new(producer: impl ScriptStream + 'static) -> Self {
+        Self {
+            producer: Arc::new(Mutex::new(Box::new(producer))),
+        }
+    }
+
+    pub(crate) fn lock(
+        &self,
+        span: Span,
+    ) -> Result<std::sync::MutexGuard<'_, Box<dyn ScriptStream>>, RuntimeError> {
+        self.producer.lock().map_err(|_| {
+            RuntimeError::new("stream-state", "stream producer state is poisoned").with_span(span)
+        })
+    }
+
+    pub(crate) fn same_as(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.producer, &other.producer)
+    }
+
+    /// Whether this registry entry is the only handle left.
+    ///
+    /// Callers that hold a handle count as reachable, so this is only true once
+    /// every value, slot, and container that referred to the producer is gone.
+    pub(crate) fn only_registry_holds(&self) -> bool {
+        Arc::strong_count(&self.producer) == 1
+    }
+
+    /// Whether the producer has already finished or been stopped.
+    ///
+    /// `None` means a pull is running it right now, so its state cannot be read
+    /// or stopped from here; callers leave it alone until the pull is done.
+    pub(crate) fn try_finished(&self) -> Option<bool> {
+        self.producer
+            .try_lock()
+            .ok()
+            .map(|producer| producer.finished())
+    }
+}
+
+impl fmt::Debug for ScriptStreamState {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ScriptStreamState").finish_non_exhaustive()
+    }
+}
+
+impl PartialEq for ScriptStreamState {
+    fn eq(&self, other: &Self) -> bool {
+        self.same_as(other)
+    }
+}
+
+impl Eq for ScriptStreamState {}
 
 impl StreamValue {
     pub fn from_items(items: Vec<StreamItem>) -> Self {
         Self {
             items,
             source: None,
+            script: None,
         }
     }
 
@@ -1104,7 +1193,22 @@ impl StreamValue {
                 })
                 .collect(),
             source: None,
+            script: None,
         }
+    }
+
+    /// A stream whose items come from a suspended script producer.
+    pub(crate) fn from_script(producer: ScriptStreamState) -> Self {
+        Self {
+            items: Vec::new(),
+            source: None,
+            script: Some(producer),
+        }
+    }
+
+    /// Whether this stream is a script producer that has not been exhausted.
+    pub(crate) fn script(&self) -> Option<&ScriptStreamState> {
+        self.script.as_ref()
     }
 
     pub(crate) fn from_values_live(name: &'static str, values: Vec<Value>) -> Self {
@@ -1120,6 +1224,7 @@ impl StreamValue {
         Self {
             items: Vec::new(),
             source: Some(StreamSource::new(name, source)),
+            script: None,
         }
     }
 

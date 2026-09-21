@@ -7,6 +7,7 @@ values are medians of per-sample wall-clock durations.
 """
 
 import argparse
+import hashlib
 import json
 import os
 import statistics
@@ -52,6 +53,16 @@ WORKLOADS = [
     ("checksum_batch", "end_to_end", 30, False),
     # Real commands and tooling (project-wide check/lint run outside the runner).
     ("core_command", "end_to_end", 30, False),
+    # R12's required Linux entries: eager acquisition plus row interpretation,
+    # measured separately from stream creation and from how much of the stream
+    # a consumer takes. They read fixed host paths, so they run in the
+    # Dockerfile.test container against the fixtures the README stages there.
+    ("linux_uptime", "end_to_end", 30, True),
+    ("linux_meminfo", "end_to_end", 30, True),
+    ("linux_memory", "end_to_end", 30, True),
+    ("linux_os_release", "end_to_end", 30, True),
+    ("linux_modules_full", "end_to_end", 30, True),
+    ("linux_modules_partial", "end_to_end", 30, True),
     # Native controls: paths the port must not slow down.
     ("native_control", "end_to_end", 30, False),
     ("native_hash_control", "end_to_end", 30, False),
@@ -61,13 +72,24 @@ WORKLOADS = [
 ]
 
 
+def sha256_file(path):
+    digest = hashlib.sha256()
+    with open(path, "rb") as handle:
+        for chunk in iter(lambda: handle.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def ensure_fixtures():
     """Write the fixed inputs the workloads read.
 
     They are generated rather than committed: the specification asks for frozen
     inputs, not for large blobs in the repository, and every generator here is
-    deterministic.
+    deterministic. A generator that produces different bytes than the recorded
+    digest means the fixture changed, so the file is rewritten and the new
+    digest is reported rather than silently measured.
     """
+    digests = {}
     directory = os.path.join(HERE, "fixtures")
     os.makedirs(directory, exist_ok=True)
     unicode_path = os.path.join(directory, "unicode.txt")
@@ -93,6 +115,7 @@ def ensure_fixtures():
             index += 1
         with open(unicode_path, "w", encoding="utf-8") as handle:
             handle.write("".join(chunks))
+    return {"fixtures/unicode.txt": sha256_file(unicode_path)}
 
 
 def run_once(binary, script, env=None):
@@ -114,18 +137,55 @@ def run_once(binary, script, env=None):
 
 
 def measure(reference, candidate, name, samples, env=None):
+    """Measure one workload with the two sides interleaved.
+
+    Within one round the side that runs first alternates sample by sample, so a
+    slow period of the machine cannot land on one side only; the reported value
+    is the median of each side's samples.
+    """
     script = os.path.join(HERE, name + ".xsh")
     run_once(reference, script, env)
     run_once(candidate, script, env)
     ref, cand = [], []
-    for _ in range(samples):
-        ref.append(run_once(reference, script, env))
-        cand.append(run_once(candidate, script, env))
+    for index in range(samples):
+        if index % 2 == 0:
+            ref.append(run_once(reference, script, env))
+            cand.append(run_once(candidate, script, env))
+        else:
+            cand.append(run_once(candidate, script, env))
+            ref.append(run_once(reference, script, env))
     return statistics.median(ref), statistics.median(cand), ref, cand
 
 
+def self_test():
+    """Validate the budget arithmetic on a known synthetic set.
+
+    The floors are the interesting part: a reference under 20 ms takes the
+    absolute floor, and a reference above it takes the proportional allowance.
+    """
+    cases = [
+        # (kind, reference_ms, delta_ms, expected_budget_ms, expected_pass)
+        ("end_to_end", 94.0, 0.0, 9.4, True),
+        ("end_to_end", 115.0, 0.0, 11.5, True),
+        ("cold", 10.0, 1.0, 1.0, True),
+        ("cold", 10.0, 1.001, 1.0, False),
+        ("end_to_end", 15.0, 2.0, 2.0, True),
+        ("end_to_end", 15.0, 2.001, 2.0, False),
+        ("end_to_end", 25.0, 2.5, 2.5, True),
+        ("end_to_end", 25.0, 2.501, 2.5, False),
+    ]
+    for kind, ref, delta, expected_budget, expected_pass in cases:
+        budget = max(0.05 * ref, 1.0) if kind == "cold" else max(0.10 * ref, 2.0)
+        passed = delta <= budget
+        assert abs(budget - expected_budget) < 1e-9, (kind, ref, budget, expected_budget)
+        assert passed == expected_pass, (kind, ref, delta, budget, expected_pass)
+    print(f"self-test: {len(cases)} budget cases match")
+    return 0
+
+
 def main():
-    ensure_fixtures()
+    if "--self-test" in sys.argv:
+        return self_test()
     parser = argparse.ArgumentParser()
     parser.add_argument("--reference", required=True)
     parser.add_argument("--candidate", required=True)
@@ -138,7 +198,29 @@ def main():
     )
     args = parser.parse_args()
 
-    results = {"reference": args.reference, "candidate": args.candidate, "workloads": {}}
+    fixtures = ensure_fixtures()
+    # Each workload is one frozen script; recording its digest with the result
+    # makes "the same workload" checkable after the fact rather than assumed.
+    workload_scripts = {
+        name: sha256_file(os.path.join(HERE, name + ".xsh"))
+        for name, _, _, _ in WORKLOADS
+        if os.path.isfile(os.path.join(HERE, name + ".xsh"))
+    }
+    results = {
+        "reference": args.reference,
+        "candidate": args.candidate,
+        "reference_sha256": sha256_file(args.reference),
+        "candidate_sha256": sha256_file(args.candidate),
+        "fixtures": fixtures,
+        "workload_scripts": workload_scripts,
+        "rounds": args.rounds,
+        "units": "milliseconds, median of per-sample wall-clock durations",
+        "budget_formula": (
+            "cold: C - B <= max(0.05 * B, 1.0 ms); "
+            "end_to_end: C - B <= max(0.10 * B, 2.0 ms)"
+        ),
+        "workloads": {},
+    }
     worst = []
     skipped = []
     for round_index in range(args.rounds):
@@ -159,16 +241,41 @@ def main():
             budget = max(0.05 * ref, 1.0) if kind == "cold" else max(0.10 * ref, 2.0)
             delta = cand - ref
             passed = delta <= budget
-            entry = {
-                "kind": kind,
-                "reference_median_ms": ref,
-                "candidate_median_ms": cand,
-                "delta_ms": delta,
-                "budget_ms": budget,
-                "passed": passed,
-                "reference_samples": ref_raw,
-                "candidate_samples": cand_raw,
-            }
+            entry = results["workloads"].setdefault(
+                name,
+                {
+                    "kind": kind,
+                    "reference_rounds": [],
+                    "candidate_rounds": [],
+                    "reference_samples": [],
+                    "candidate_samples": [],
+                },
+            )
+            entry["reference_rounds"].append(ref)
+            entry["candidate_rounds"].append(cand)
+            entry["reference_samples"].extend(ref_raw)
+            entry["candidate_samples"].extend(cand_raw)
+            ref = statistics.median(entry["reference_rounds"])
+            cand = statistics.median(entry["candidate_rounds"])
+            delta = cand - ref
+            entry.update(
+                {
+                    "reference_median_ms": ref,
+                    "candidate_median_ms": cand,
+                    "delta_ms": delta,
+                    "budget_ms": max(0.05 * ref, 1.0)
+                    if kind == "cold"
+                    else max(0.10 * ref, 2.0),
+                    "passed": delta
+                    <= (
+                        max(0.05 * ref, 1.0)
+                        if kind == "cold"
+                        else max(0.10 * ref, 2.0)
+                    ),
+                    "reference_sample_ms": entry["reference_samples"],
+                    "candidate_sample_ms": entry["candidate_samples"],
+                }
+            )
             results["workloads"][name] = entry
             if not passed:
                 worst.append(name)
@@ -180,6 +287,7 @@ def main():
             )
 
     results["failed"] = worst
+    results["skipped"] = sorted(set(skipped))
     with open(args.out, "w") as handle:
         json.dump(results, handle, indent=2, sort_keys=True)
     print(f"\n{'all workloads within budget' if not worst else 'failures: ' + ', '.join(worst)}")

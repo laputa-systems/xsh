@@ -6,7 +6,10 @@ use targets
 use verify
 
 # Closed Docker execution policy.
-type DockerPolicy = Auto | Always | Never
+type DockerPolicy =
+    Auto
+  | Always
+  | Never
 
 ## Decodes the CLI Docker policy before distribution dispatch.
 export pure parse_docker_policy(value: Str) -> Result[DockerPolicy] {

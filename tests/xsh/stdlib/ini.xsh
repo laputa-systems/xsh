@@ -171,7 +171,7 @@ z = 1
 
   # Keys outside the ASCII letter range are part of the key, not separators.
   test.eq(
-    ini.encode({s: {a b: "1", k=v: "2"}})?,
+    ini.encode({s: {"a b": "1", "k=v": "2"}})?,
     """[s]
 a b = 1
 k=v = 2
@@ -182,62 +182,56 @@ k=v = 2
 proc test_ini_encode_rejects_invalid_names() [fs, error] {
   # A global key is validated exactly as written; an empty key and a key
   # holding NUL, newline, `[`, or `]` are rejected.
-  test.error_kind(ini.encode({a[b: "1"}), "ini-key")?
-  test.eq(encode_message(ini.encode({a[b: "1"})), "invalid INI key")?
-  test.error_kind(ini.encode({: "1"}), "ini-key")?
-  test.eq(encode_message(ini.encode({: "1"})), "invalid INI key")?
-  test.error_kind(ini.encode({a]b: "1"}), "ini-key")?
+  test.error_kind(ini.encode({"a[b": "1"}), "ini-key")?
+  test.eq(encode_message(ini.encode({"a[b": "1"})), "invalid INI key")?
+  test.error_kind(ini.encode({"": "1"}), "ini-key")?
+  test.eq(encode_message(ini.encode({"": "1"})), "invalid INI key")?
+  test.error_kind(ini.encode({"a]b": "1"}), "ini-key")?
   test.error_kind(
-    ini.encode(
-      {
-        a
-      b: "1",
-      },
-    ),
+    ini.encode({
+  """a
+b""": "1",
+}),
     "ini-key",
   )?
 
   # A section key is validated after normalization, so a rejected key reports
   # the lowercase spelling under the `ini-key` kind.
-  test.error_kind(ini.encode({s: {a[b: "1"}}), "ini-key")?
-  test.eq(encode_message(ini.encode({s: {a[b: "1"}})), "invalid INI key")?
-  test.error_kind(ini.encode({s: {: "1"}}), "ini-key")?
-  test.error_kind(ini.encode({s: {a]b: "1"}}), "ini-key")?
+  test.error_kind(ini.encode({s: {"a[b": "1"}}), "ini-key")?
+  test.eq(encode_message(ini.encode({s: {"a[b": "1"}})), "invalid INI key")?
+  test.error_kind(ini.encode({s: {"": "1"}}), "ini-key")?
+  test.error_kind(ini.encode({s: {"a]b": "1"}}), "ini-key")?
   test.error_kind(
-    ini.encode(
-      {
-        s: {
-          a
-      b: "1",
-        },
-      },
-    ),
+    ini.encode({
+  s: {
+    """a
+b""": "1",
+  },
+}),
     "ini-key",
   )?
 
   # Section names keep their spelling and carry their own kind.
-  test.error_kind(ini.encode({a[b: {h: "1"}}), "ini-section")?
-  test.eq(encode_message(ini.encode({a[b: {h: "1"}})), "invalid INI section")?
-  test.error_kind(ini.encode({: {h: "1"}}), "ini-section")?
-  test.error_kind(ini.encode({a]b: {h: "1"}}), "ini-section")?
+  test.error_kind(ini.encode({"a[b": {h: "1"}}), "ini-section")?
+  test.eq(encode_message(ini.encode({"a[b": {h: "1"}})), "invalid INI section")?
+  test.error_kind(ini.encode({"": {h: "1"}}), "ini-section")?
+  test.error_kind(ini.encode({"a]b": {h: "1"}}), "ini-section")?
   test.error_kind(
-    ini.encode(
-      {
-        a
-      b: {
-        h: "1",
-      },
-      },
-    ),
+    ini.encode({
+  """a
+b""": {
+  h: "1",
+},
+}),
     "ini-section",
   )?
 
   # The whole record is collected before any global key is validated, so a
   # section-field rejection outranks a global-key rejection even when the
   # offending global key sorts first.
-  test.error_kind(ini.encode({a[b: "1", s: {c: 2}}), "ini-encode")?
+  test.error_kind(ini.encode({"a[b": "1", s: {c: 2}}), "ini-encode")?
   test.eq(
-    encode_message(ini.encode({a[b: "1", s: {c: 2}})),
+    encode_message(ini.encode({"a[b": "1", s: {c: 2}})),
     "INI section values must be strings",
   )?
 }
@@ -267,46 +261,44 @@ proc test_ini_encode_rejects_non_string_values() [fs, error] {
   test.error_kind(ini.encode({s: {a: null}}), "ini-encode")?
   test.error_kind(ini.encode({s: {a: [1]}}), "ini-encode")?
 
-  # The check runs in the section's key order, so `a` is judged before `c`.
-  test.error_kind(ini.encode({s: {c]d: "2", a: 1}}), "ini-encode")?
+  # The check runs in the section's key order, so `a` is judged before `c`:
+  # the rejected value is reported, and the invalid key beside it is not
+  # reached. The key is a string field because `c]d` is not an identifier —
+  # which is exactly why the encoder has to validate it.
+  test.error_kind(ini.encode({s: {"c]d": "2", a: 1}}), "ini-encode")?
+  test.eq(encode_message(ini.encode({s: {"c]d": "2", a: 1}})), "INI section values must be strings")?
 }
 
 proc test_ini_encode_writes_multiline_values() [fs, error] {
   # Embedded newlines become two-space continuation lines, so the value reads
   # back as the same string.
   test.eq(
-    ini.encode(
-  {
+    ini.encode({
   a: """hello
 world""",
-},
-)?,
+})?,
     """a = hello
   world
 """,
   )?
   test.eq(
-    ini.encode(
-  {
+    ini.encode({
   s: {
     message: """hello
 world""",
   },
-},
-)?,
+})?,
     """[s]
 message = hello
   world
 """,
   )?
   test.eq(
-    ini.encode(
-  {
+    ini.encode({
   a: """x
 
 y""",
-},
-)?,
+})?,
     """a = x
   
   y
@@ -316,12 +308,10 @@ y""",
   # A value that ends in a newline emits a continuation line holding only the
   # indent, and an empty value keeps the key line with an empty right side.
   test.eq(
-    ini.encode(
-  {
+    ini.encode({
   a: """x
 """,
-},
-)?,
+})?,
     """a = x
   
 """,
@@ -346,15 +336,13 @@ y""",
     false,
   )?
   let round_trip = ini.decode(
-    ini.encode(
-  {
+    ini.encode({
   global: "root",
   server: {
     message: """hello
 world""",
   },
-},
-)?,
+})?,
   )?
   test.eq(round_trip.global, "root")?
   test.eq(

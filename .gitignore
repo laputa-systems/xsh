@@ -7,3 +7,4 @@ crates/xshi/benches/*-baseline.txt
 crates/xshi/benches/*-baseline.json
 crates/xshi/benches/baseline.json
 scripts/__pycache__
+lx-*

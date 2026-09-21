@@ -1,0 +1,15 @@
+# Mount source for the container's `/usr/lib/os-release`.
+#
+# The Linux verification route in `bench/stdlib-port/README.md` bind-mounts this
+# file over `/usr/lib/os-release` inside the container's own mount namespace and
+# runs `tests/stdlib_port.rs::os_release_entry_reads_the_fixed_paths`. It is the
+# fallback the public entry reads when `/etc/os-release` cannot be read at all,
+# so its values differ from the fixture beside it in every field.
+#
+# Expected values: NAME `Fixture Usr`, PRETTY_NAME `Fixture Usr`, VERSION `2.0`,
+# VERSION_ID `8`, ID `fixture-usr`.
+NAME=Fixture Usr
+PRETTY_NAME=Fixture Usr
+VERSION=2.0
+VERSION_ID=8
+ID=fixture-usr

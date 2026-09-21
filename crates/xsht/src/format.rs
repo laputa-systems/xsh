@@ -613,7 +613,8 @@ impl<'a> Writer<'a> {
                 self.write_module_contract(*entries, output);
             }
             ArenaTypeDefBody::TagUnion(variants) => {
-                let variants = self.arena.tag_variants(*variants).to_vec();
+                let variant_range = *variants;
+                let variants = self.arena.tag_variants(variant_range).to_vec();
                 let mut parts = Vec::new();
                 for v in &variants {
                     let mut part = v.name.as_str().to_string();
@@ -638,7 +639,13 @@ impl<'a> Writer<'a> {
                 }
                 let use_multiline = variants.len() >= 5
                     || (variants.len() >= 3
-                        && parts.iter().map(|p| p.len() + 3).sum::<usize>() > 60);
+                        && parts.iter().map(|p| p.len() + 3).sum::<usize>() > 60)
+                    // A union the author already wrote across lines stays that
+                    // way for three or more variants: `lint.multiline-tag-union`
+                    // asks for exactly that shape, so collapsing it would make
+                    // the two tools contradict each other.
+                    || (variants.len() >= 3
+                        && tag_variants_original_multiline(self.arena, &self.source, variant_range));
                 if use_multiline {
                     output.push_str(" =\n");
                     let variant_indent = " ".repeat(indent + 4);
@@ -1841,8 +1848,8 @@ impl<'a> Writer<'a> {
 
     fn write_record_field(&mut self, field: &ArenaRecordFieldKind, output: &mut String) {
         match field {
-            ArenaRecordFieldKind::Named { name, value, .. } => {
-                output.push_str(name.as_str().as_str());
+            ArenaRecordFieldKind::Named { name, value, span } => {
+                self.write_record_key(name, *span, output);
                 output.push_str(": ");
                 self.write_expr_safe(*value, output);
             }
@@ -1851,6 +1858,32 @@ impl<'a> Writer<'a> {
                 output.push_str("...");
                 self.write_expr_safe(*expr, output);
             }
+        }
+    }
+
+    /// Write a record key in a spelling that parses.
+    ///
+    /// The arena stores an identifier key and a string-literal key as the same
+    /// `Name`, so the field's own source text decides which spelling to print.
+    /// A string key keeps its quotes: printed bare, a key that is not an
+    /// identifier produces source that does not parse at all, which is what
+    /// this printer used to do.
+    fn write_record_key(
+        &mut self,
+        name: &Name,
+        span: xsh::frontend::syntax::arena::SpanId,
+        output: &mut String,
+    ) {
+        let name = name.as_str();
+        let text = name.as_str();
+        let quoted = self
+            .source
+            .get(self.arena.span(span).range())
+            .is_some_and(|field| field.starts_with('"'));
+        if quoted {
+            write_str_literal(text, output);
+        } else {
+            output.push_str(text);
         }
     }
 
@@ -3039,6 +3072,25 @@ fn original_preserved_string_literal(source: &str, span: Span) -> Option<&str> {
 fn original_multiline_string_literal(source: &str, span: Span) -> Option<&str> {
     let original = source.get(span.range())?;
     original.contains("\"\"\"").then_some(original)
+}
+
+/// Whether the source wrote this union's variants across more than one line.
+fn tag_variants_original_multiline(
+    arena: &AstArena,
+    source: &str,
+    variants: xsh::frontend::syntax::arena::ArenaRange,
+) -> bool {
+    let spans: Vec<Span> = arena
+        .tag_variants(variants)
+        .iter()
+        .map(|variant| arena.span(variant.span))
+        .collect();
+    let (Some(first), Some(last)) = (spans.first(), spans.last()) else {
+        return false;
+    };
+    source
+        .get(first.start()..last.end())
+        .is_some_and(|source| source.contains('\n'))
 }
 
 fn record_fields_original_multiline(

@@ -70,7 +70,12 @@ impl WorkerAllocationStats {
 pub struct RuntimeAllocationStats {
     pub tracking_active: bool,
     pub construction: AllocTraffic,
+    /// The caller thread's controller stage: what the run did outside the
+    /// evaluation thread.
     pub controller: AllocTraffic,
+    /// The evaluation thread: where the script's statements actually run, and
+    /// therefore where a script's own allocation traffic lands.
+    pub execution: AllocTraffic,
     pub workers: WorkerAllocationStats,
 }
 
@@ -97,6 +102,7 @@ impl RuntimeAllocationStats {
             tracking_active: mem_track::tracking_installed(),
             construction: phases.construction,
             controller: phases.controller,
+            execution: mem_track::take_eval_traffic().unwrap_or_default(),
             workers: WorkerAllocationStats::from_stages(&phases.worker_stages),
         }
     }
@@ -106,13 +112,14 @@ impl MeasuredScriptRun {
     /// Serialize the measurement without mixing it into the script's stdout.
     pub fn to_json(&self) -> String {
         format!(
-            "{{\"tracking_active\":{},\"status\":{},\"stdout_bytes\":{},\"stderr_bytes\":{},\"construction\":{},\"controller\":{},\"workers\":{}}}\n",
+            "{{\"tracking_active\":{},\"status\":{},\"stdout_bytes\":{},\"stderr_bytes\":{},\"construction\":{},\"controller\":{},\"execution\":{},\"workers\":{}}}\n",
             self.allocation.tracking_active,
             self.output.status,
             self.output.stdout.len(),
             self.output.stderr.len(),
             traffic_json(&self.allocation.construction),
             traffic_json(&self.allocation.controller),
+            traffic_json(&self.allocation.execution),
             worker_json(&self.allocation.workers),
         )
     }
@@ -228,7 +235,7 @@ mod tests {
 
         assert_eq!(
             measured.to_json(),
-            "{\"tracking_active\":true,\"status\":0,\"stdout_bytes\":3,\"stderr_bytes\":0,\"construction\":{\"live_bytes\":0,\"peak_bytes\":0,\"alloc_count\":0,\"alloc_bytes\":0},\"controller\":{\"live_bytes\":0,\"peak_bytes\":0,\"alloc_count\":0,\"alloc_bytes\":0},\"workers\":{\"stage_count\":2,\"alloc_count\":0,\"alloc_bytes\":0,\"peak_thread_bytes\":0,\"attributions\":[]}}\n"
+            "{\"tracking_active\":true,\"status\":0,\"stdout_bytes\":3,\"stderr_bytes\":0,\"construction\":{\"live_bytes\":0,\"peak_bytes\":0,\"alloc_count\":0,\"alloc_bytes\":0},\"controller\":{\"live_bytes\":0,\"peak_bytes\":0,\"alloc_count\":0,\"alloc_bytes\":0},\"execution\":{\"live_bytes\":0,\"peak_bytes\":0,\"alloc_count\":0,\"alloc_bytes\":0},\"workers\":{\"stage_count\":2,\"alloc_count\":0,\"alloc_bytes\":0,\"peak_thread_bytes\":0,\"attributions\":[]}}\n"
         );
     }
 }

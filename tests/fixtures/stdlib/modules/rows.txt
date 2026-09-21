@@ -1,0 +1,4 @@
+core 4096 2 dep_a,dep_b, Live 0x0000000000000000
+dep_a 2048 0 - Live 0x0000000000000000
+
+dep_b 512 1 core, Live 0x0000000000000000 extra fields are ignored

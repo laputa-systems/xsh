@@ -7,6 +7,7 @@
 #![allow(clippy::single_call_fn)]
 
 use crate::source::{SourceMap, Span};
+use crate::symbol::NameText;
 use std::fmt::Write as _;
 
 /// Structured trace and traceback data exposed by `libxsh`.
@@ -15,7 +16,7 @@ use std::fmt::Write as _;
 pub mod model {
     pub use super::{
         TraceArg, TraceEnv, TraceError, TraceEvent, TraceKind, TracePayload, TraceStatus,
-        TraceStatusKind, TraceTiming, Traceback, TracebackFrame, TracebackFrameKind,
+        TraceStatusKind, TraceTiming, Traceback, TracebackFrame, TracebackFrameKind, TracebackName,
         TracebackRenderer,
     };
 }
@@ -420,9 +421,42 @@ pub struct Traceback {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TracebackFrame {
     pub kind: TracebackFrameKind,
-    pub name: String,
+    pub name: TracebackName,
     pub definition_span: Option<Span>,
     pub call_span: Option<Span>,
+}
+
+/// How a traceback frame names the function it is running.
+///
+/// A call is far more common than a traceback, so the frame keeps the function's
+/// symbol handles and renders the display name only when a traceback is built or
+/// printed; storing a `String` here would allocate on every call.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum TracebackName {
+    /// A program function: a qualified name when it was called qualified. The
+    /// text handles are captured while the call runs, because a symbol's text is
+    /// only available while it is still interned, and rendering them costs
+    /// nothing until a traceback asks for the display name.
+    Function {
+        module: Option<NameText>,
+        name: NameText,
+    },
+    /// A name that is not a program function (a host callback, an applet).
+    Rendered(String),
+}
+
+impl TracebackName {
+    /// The display name, rendered the way the runtime spells functions.
+    pub fn text(&self) -> String {
+        match self {
+            Self::Function {
+                module: Some(module),
+                name,
+            } => format!("{module}.{name}"),
+            Self::Function { module: None, name } => name.to_string(),
+            Self::Rendered(text) => text.clone(),
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -477,7 +511,7 @@ impl TracebackRenderer {
                     "  {}. {} {}",
                     index + 1,
                     frame.kind.as_str(),
-                    frame.name
+                    frame.name.text()
                 );
                 if let Some(span) = frame.call_span.or(frame.definition_span) {
                     output.push_str(" at ");

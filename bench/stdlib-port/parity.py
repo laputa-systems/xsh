@@ -26,6 +26,27 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 
+# Workloads that print a duration they measured themselves. Their stdout is a
+# timing, so it is compared with the value masked: everything else about the
+# line still has to match byte for byte.
+SELF_TIMED = {
+    "linux_uptime",
+    "linux_meminfo",
+    "linux_memory",
+    "linux_modules_full",
+    "linux_modules_partial",
+    "linux_os_release",
+}
+SELF_TIMED_FIELD = re.compile(rb"\b\d+ ms\b")
+
+
+def mask_self_timed(name, run_result):
+    if name not in SELF_TIMED:
+        return run_result
+    status, stdout, stderr = run_result
+    return status, SELF_TIMED_FIELD.sub(b"<ms>", stdout), stderr
+
+
 def workload_names():
     """The workload names `run.py` declares, in declaration order."""
     source = open(os.path.join(HERE, "run.py")).read()
@@ -60,8 +81,8 @@ def main():
             print(f"{name:22} missing script")
             differing.append((name, None, None))
             continue
-        reference = run(args.reference, script)
-        candidate = run(args.candidate, script)
+        reference = mask_self_timed(name, run(args.reference, script))
+        candidate = mask_self_timed(name, run(args.candidate, script))
         same = reference == candidate
         print(f"{name:22} {'identical' if same else 'DIFFERS'}")
         if not same:

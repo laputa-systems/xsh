@@ -621,9 +621,17 @@ fn runnable_xsh_corpus_is_formatted_and_lints_without_warnings() {
         .filter(|path| {
             // Fixtures and API snippets are intentionally non-runnable source:
             // the former exercise parser/runtime edge cases, while the latter
-            // may use illustrative placeholders.
+            // may use illustrative placeholders. The catalog-owned embedded
+            // implementations are not user programs either: user-source rules
+            // reject their helper spellings on purpose, and the catalog gate in
+            // `src/stdlib.rs` validates them against implementation rules
+            // instead. Benchmark scripts are host tooling for measurement, not
+            // part of the language corpus. Both are excluded from discovery by
+            // the same policy in `xsht-config.ini`.
             !path.starts_with("tests/fixtures/")
                 && !path.starts_with("docs/snippets/")
+                && !path.starts_with("stdlib/")
+                && !path.starts_with("bench/")
                 // `git ls-files` deliberately retains unstaged deletions. The
                 // runnable corpus must represent files available to `xsht` in
                 // this worktree, including while a migration removes scripts.

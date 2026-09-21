@@ -35,36 +35,80 @@ pub(crate) fn workspace_binary(name: &str) -> &'static str {
 }
 
 fn build_workspace_binaries() -> WorkspaceBinaries {
-    let profile_dir = std::env::current_exe()
-        .expect("locate integration test executable")
-        .parent()
-        .and_then(Path::parent)
-        .expect("locate Cargo profile directory")
-        .to_path_buf();
-    let profile = profile_dir
-        .file_name()
-        .and_then(|name| name.to_str())
-        .expect("Cargo profile directory name");
+    let (target_dir, profile_dir) = build_locations();
+    let profile = match profile_dir.file_name().and_then(|name| name.to_str()) {
+        // Cargo's dev profile owns the `debug` directory and rejects
+        // `--profile debug`; every other profile directory is its own name.
+        Some("debug") => "dev",
+        Some(name) => name,
+        None => panic!(
+            "Cargo profile directory is not a name: {}",
+            profile_dir.display()
+        ),
+    };
 
     let mut command = Command::new("cargo");
     command
         .current_dir(cargo_env!("CARGO_MANIFEST_DIR"))
-        .args(["build", "-p", "xshi", "-p", "xsht", "--bins"]);
-    if profile != "debug" {
+        .args([
+            "build",
+            "-p",
+            "xshi",
+            "-p",
+            "xsht",
+            "--bins",
+            "--message-format=json",
+        ]);
+    if profile != "dev" {
         command.args(["--profile", profile]);
     }
-    let status = command.status().expect("build workspace product binaries");
+    if let Some(triple) = explicit_target(&target_dir, &profile_dir) {
+        command.args(["--target", &triple]);
+    }
+    let output = command.output().expect("build workspace product binaries");
     assert!(
-        status.success(),
-        "building workspace product binaries failed: {status}"
+        output.status.success(),
+        "building workspace product binaries failed: {}\n{}",
+        output.status,
+        String::from_utf8_lossy(&output.stderr)
     );
 
+    // Cargo reports where it put each artifact, so take the path from its own
+    // metadata rather than reconstructing one; the profile directory is the
+    // fallback for an artifact Cargo reported without an executable.
+    let mut built: BTreeMap<String, PathBuf> = BTreeMap::new();
+    for line in String::from_utf8_lossy(&output.stdout).lines() {
+        let Ok(JsonValue::Object(message)) = miniserde::json::from_str::<JsonValue>(line) else {
+            continue;
+        };
+        if !matches!(message.get("reason"), Some(JsonValue::String(reason)) if reason == "compiler-artifact")
+        {
+            continue;
+        }
+        let Some(JsonValue::Object(target)) = message.get("target") else {
+            continue;
+        };
+        let Some(JsonValue::String(name)) = target.get("name") else {
+            continue;
+        };
+        if name != "xshi" && name != "xsht" {
+            continue;
+        }
+        if let Some(JsonValue::String(executable)) = message.get("executable") {
+            built.insert(name.clone(), PathBuf::from(executable));
+        }
+    }
+
     let binary = |name: &str| {
-        let path = profile_dir.join(name);
+        let path = built
+            .get(name)
+            .cloned()
+            .unwrap_or_else(|| profile_dir.join(name));
         assert!(
             path.is_file(),
-            "workspace binary is missing: {}",
-            path.display()
+            "workspace binary is missing: {} (profile directory {})",
+            path.display(),
+            profile_dir.display()
         );
         path.to_str()
             .expect("workspace binary path is UTF-8")
@@ -74,6 +118,48 @@ fn build_workspace_binaries() -> WorkspaceBinaries {
         xshi: binary("xshi"),
         xsht: binary("xsht"),
     }
+}
+
+/// The target directory and the profile directory the running test was built for.
+///
+/// Cargo emits the `xsh` product binary at `<profile-directory>/xsh` for the
+/// package this suite belongs to, so `CARGO_BIN_EXE_xsh` names the directory the
+/// workspace products are built into — exactly for a default or custom
+/// `CARGO_TARGET_DIR`, for an explicit target triple, and for any profile. The
+/// integration test executable's own directory cannot be used instead: this
+/// toolchain emits test and helper targets into a per-unit
+/// `build/<package>/<hash>/out` directory rather than into the profile directory.
+fn build_locations() -> (PathBuf, PathBuf) {
+    let manifest = Path::new(cargo_env!("CARGO_MANIFEST_DIR"));
+    let target_dir = match std::env::var_os("CARGO_TARGET_DIR") {
+        Some(dir) => {
+            let dir = PathBuf::from(dir);
+            if dir.is_absolute() {
+                dir
+            } else {
+                manifest.join(dir)
+            }
+        }
+        None => manifest.join("target"),
+    };
+    let profile_dir = Path::new(cargo_env!("CARGO_BIN_EXE_xsh"))
+        .parent()
+        .expect("profile directory above the xsh product binary")
+        .to_path_buf();
+    (target_dir, profile_dir)
+}
+
+/// The explicit `--target` triple the test was built for, when there is one.
+///
+/// Cargo's target directory holds `<profile>/` for a host build and
+/// `<triple>/<profile>/` for an explicit target, so the profile directory's
+/// position under it reports the triple without guessing at the triple's shape.
+fn explicit_target(target_dir: &Path, profile_dir: &Path) -> Option<String> {
+    let relative = profile_dir.strip_prefix(target_dir).ok()?;
+    let mut components = relative.components();
+    let triple = components.next()?;
+    components.next()?;
+    Some(triple.as_os_str().to_string_lossy().into_owned())
 }
 
 pub(crate) type JsonValue = miniserde::json::Value;

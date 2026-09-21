@@ -51,14 +51,13 @@ use std::time::{Duration, Instant};
 use tempfile::TempDir;
 use xsh_root::Root;
 
-mod indexed_run;
+pub(in crate::runtime::eval) mod indexed_run;
 
 #[cfg(feature = "native-tests")]
 use super::display_value;
 use super::lower::{
     lowered_match_no_arm, lowered_record_field, lowered_stmt_flow_to_flow, lowered_str_key,
-    lowered_sum_records, lowered_sum_values, lowered_tag_key,
-};
+    lowered_sum_records, lowered_sum_values, lowered_tag_key, take_shared,};
 use super::lowered_ops::{
     checked_int_binary, compare_lowered_sort_keys, lowered_assign_value, lowered_binary_value,
     lowered_bytes_arg, lowered_bytes_parts, lowered_bytes_value, lowered_contains_value,
@@ -205,7 +204,7 @@ impl Evaluator {
             span,
         })?;
         match lowered_runtime_value(value, span)? {
-            LoweredValue::Record(record) => Ok(record),
+            LoweredValue::Record(record) => Ok(take_shared(record)),
             other => Err(RuntimeError::new(
                 error_kind,
                 format!(
@@ -374,7 +373,8 @@ fn lowered_reduce_fields_owned(
     span: Span,
 ) -> Result<(LoweredValue, LoweredValue), RuntimeError> {
     match output {
-        LoweredValue::Record(mut entries) => {
+        LoweredValue::Record(entries) => {
+            let mut entries = take_shared(entries);
             let key = entries.remove(key_field).ok_or_else(|| {
                 RuntimeError::new("reduce-by-key", "reduce-by record is missing field `key`")
                     .with_span(span)
@@ -388,7 +388,8 @@ fn lowered_reduce_fields_owned(
             })?;
             Ok((key, value))
         }
-        LoweredValue::RecordVec(mut entries) => {
+        LoweredValue::RecordVec(entries) => {
+            let mut entries = take_shared(entries);
             let key_index =
                 lowered_record_vec_field_index(&entries, key_field).ok_or_else(|| {
                     RuntimeError::new("reduce-by-key", "reduce-by record is missing field `key`")
@@ -699,7 +700,7 @@ fn lowered_trace_error_from_value(value: &Value) -> TraceError {
 }
 
 fn lowered_elf_info_value(path: PathValue, info: elf_module::ElfInfo) -> LoweredValue {
-    LoweredValue::Record(BTreeMap::from([
+    LoweredValue::Record(Arc::new(BTreeMap::from([
         (Arc::from("path"), LoweredValue::Path(path)),
         (Arc::from("class"), LoweredValue::Str(info.class.into())),
         (Arc::from("endian"), LoweredValue::Str(info.endian.into())),
@@ -737,15 +738,15 @@ fn lowered_elf_info_value(path: PathValue, info: elf_module::ElfInfo) -> Lowered
                 info.dynamic_tags
                     .into_iter()
                     .map(|entry| {
-                        LoweredValue::Record(BTreeMap::from([
+                        LoweredValue::Record(Arc::new(BTreeMap::from([
                             (Arc::from("tag"), LoweredValue::Str(entry.tag.into())),
                             (Arc::from("value"), LoweredValue::Int(entry.value)),
-                        ]))
+                        ])))
                     })
                     .collect(),
             ),
         ),
-    ]))
+    ])))
 }
 
 fn child_cpu_ns() -> (i64, i64) {
@@ -777,7 +778,7 @@ fn lowered_measured_command_record(
     user_ns: i64,
     system_ns: i64,
 ) -> LoweredValue {
-    LoweredValue::Record(BTreeMap::from([
+    LoweredValue::Record(Arc::new(BTreeMap::from([
         (Arc::from("status"), LoweredValue::Status(Box::new(status))),
         (
             Arc::from("duration_ms"),
@@ -786,7 +787,7 @@ fn lowered_measured_command_record(
         (Arc::from("wall_ns"), LoweredValue::Int(wall_ns)),
         (Arc::from("user_ns"), LoweredValue::Int(user_ns)),
         (Arc::from("system_ns"), LoweredValue::Int(system_ns)),
-    ]))
+    ])))
 }
 
 fn read_host_path_bytes_vec(path: &Path, span: Span) -> Result<Vec<u8>, RuntimeError> {
@@ -1236,14 +1237,14 @@ fn lowered_to_json(
         }
         LoweredValue::Map(fields) => {
             let mut values = Vec::with_capacity(fields.len());
-            for (key, item) in fields {
+            for (key, item) in fields.iter() {
                 values.push((key.clone(), lowered_to_json(item, span)?));
             }
             Ok(json_module::raw_json_object(values))
         }
         LoweredValue::Record(fields) => {
             let mut values = Vec::with_capacity(fields.len());
-            for (key, item) in fields {
+            for (key, item) in fields.iter() {
                 values.push((key.to_string(), lowered_to_json(item, span)?));
             }
             Ok(json_module::raw_json_object(values))
@@ -1266,7 +1267,7 @@ fn lowered_to_json(
             ),
             (
                 "blobs".to_string(),
-                lowered_to_json(&LoweredValue::Map(BTreeMap::new()), span)?,
+                lowered_to_json(&LoweredValue::Map(Arc::new(BTreeMap::new())), span)?,
             ),
             (
                 "code".to_string(),
@@ -1284,7 +1285,7 @@ fn lowered_to_json(
             ),
             (
                 "blobs".to_string(),
-                lowered_to_json(&LoweredValue::Map(stats.blobs.clone()), span)?,
+                lowered_to_json(&LoweredValue::Map(Arc::new(stats.blobs.clone())), span)?,
             ),
             (
                 "code".to_string(),
@@ -1807,7 +1808,7 @@ fn lowered_bool_map_arg(
     value: Option<LoweredValue>,
     operation: &str,
     span: Span,
-) -> Result<BTreeMap<String, LoweredValue>, RuntimeError> {
+) -> Result<Arc<BTreeMap<String, LoweredValue>>, RuntimeError> {
     let Some(LoweredValue::Map(items)) = value else {
         return Err(
             RuntimeError::new("type-error", format!("{operation} expected Map[Bool]"))
@@ -1837,38 +1838,42 @@ fn lowered_bool_map_arg(
 /// returns that same shape, so it never silently converts a caller's
 /// container.
 enum LoweredRecordContainer {
-    Fields(BTreeMap<Arc<str>, LoweredValue>),
-    Named(Vec<(Name, LoweredValue)>),
+    Fields(Arc<BTreeMap<Arc<str>, LoweredValue>>),
+    Named(Arc<Vec<(Name, LoweredValue)>>),
 }
 
 impl LoweredRecordContainer {
     fn with_field(self, field: &str, value: LoweredValue) -> LoweredValue {
         match self {
-            Self::Fields(mut fields) => {
+            Self::Fields(fields) => {
+                let mut fields = take_shared(fields);
                 fields.insert(Arc::from(field), value);
-                LoweredValue::Record(fields)
+                LoweredValue::Record(Arc::new(fields))
             }
-            Self::Named(mut fields) => {
+            Self::Named(fields) => {
+                let mut fields = take_shared(fields);
                 let name = Name::intern(field);
                 match fields.iter_mut().find(|(key, _)| *key == name) {
                     Some(slot) => slot.1 = value,
                     None => fields.push((name, value)),
                 }
-                LoweredValue::RecordVec(fields)
+                LoweredValue::RecordVec(Arc::new(fields))
             }
         }
     }
 
     fn without_field(self, field: &str) -> LoweredValue {
         match self {
-            Self::Fields(mut fields) => {
+            Self::Fields(fields) => {
+                let mut fields = take_shared(fields);
                 fields.remove(field);
-                LoweredValue::Record(fields)
+                LoweredValue::Record(Arc::new(fields))
             }
-            Self::Named(mut fields) => {
+            Self::Named(fields) => {
+                let mut fields = take_shared(fields);
                 let name = Name::intern(field);
                 fields.retain(|(key, _)| *key != name);
-                LoweredValue::RecordVec(fields)
+                LoweredValue::RecordVec(Arc::new(fields))
             }
         }
     }
@@ -1908,14 +1913,14 @@ fn lowered_record_arg(
         }
         Some(LoweredValue::Record(fields) | LoweredValue::Module(fields)) => {
             Ok(RecordMap::from_name_values(
-                fields
+                take_shared(fields)
                     .into_iter()
                     .map(|(key, value)| (Name::intern(key.as_ref()), value.into_value()))
                     .collect(),
             ))
         }
         Some(LoweredValue::RecordVec(fields)) => Ok(RecordMap::from_name_values(
-            fields
+            take_shared(fields)
                 .into_iter()
                 .map(|(key, value)| (key, value.into_value()))
                 .collect(),
@@ -1950,10 +1955,12 @@ fn lowered_optional_str_record(
     };
     let fields = match value {
         LoweredValue::Record(fields) | LoweredValue::Module(fields) => fields,
-        LoweredValue::RecordVec(fields) => fields
-            .into_iter()
-            .map(|(name, value)| (Arc::<str>::from(name.as_str().as_str()), value))
-            .collect(),
+        LoweredValue::RecordVec(fields) => Arc::new(
+            take_shared(fields)
+                .into_iter()
+                .map(|(name, value)| (Arc::<str>::from(name.as_str().as_str()), value))
+                .collect::<BTreeMap<_, _>>(),
+        ),
         other => {
             return Err(RuntimeError::new(
                 "type-error",
@@ -1964,7 +1971,7 @@ fn lowered_optional_str_record(
     };
 
     let mut env = BTreeMap::new();
-    for (key, value) in fields {
+    for (key, value) in fields.iter() {
         let Some(text) = lowered_str_value(&value) else {
             return Err(RuntimeError::new(
                 "type-error",
@@ -1980,7 +1987,6 @@ fn lowered_optional_str_record(
     Ok(env)
 }
 
-#[cfg(feature = "native-tests")]
 fn lowered_bytes_arg_or_empty(
     value: Option<LoweredValue>,
     operation: &str,
@@ -2051,7 +2057,7 @@ fn lowered_env_record_arg(
     let mut env = BTreeMap::new();
     match value {
         LoweredValue::Record(fields) => {
-            for (name, value) in fields {
+            for (name, value) in fields.iter() {
                 let mut text = String::new();
                 push_lowered_display(&mut text, &value, span)?;
                 env.insert(name.to_string(), text);
@@ -2636,11 +2642,11 @@ fn lowered_process_handle_list_arg(
 }
 
 fn lowered_process_wait_any_record(index: usize, pid: u32, status: ProcessStatus) -> LoweredValue {
-    LoweredValue::Record(BTreeMap::from([
+    LoweredValue::Record(Arc::new(BTreeMap::from([
         (Arc::from("index"), LoweredValue::Int(index as i64)),
         (Arc::from("pid"), LoweredValue::Int(pid as i64)),
         (Arc::from("status"), LoweredValue::Status(Box::new(status))),
-    ]))
+    ])))
 }
 
 fn lowered_process_run_error(error: RunError) -> LoweredValue {
@@ -2676,20 +2682,23 @@ fn lowered_error_message(value: &LoweredValue) -> String {
 fn lowered_pipeline_record_list(
     value: &LoweredValue,
     span: Span,
-) -> Result<Vec<BTreeMap<Arc<str>, LoweredValue>>, RuntimeError> {
+) -> Result<Vec<Arc<BTreeMap<Arc<str>, LoweredValue>>>, RuntimeError> {
     match value {
         LoweredValue::List(items) => items
             .iter()
             .map(|item| match item {
-                LoweredValue::Record(record) => Ok(record.clone()),
-                LoweredValue::RecordVec(record) => Ok(record
-                    .iter()
-                    .map(|(key, value)| (Arc::<str>::from(key.as_str().as_str()), value.clone()))
-                    .collect()),
-                LoweredValue::Map(map) => Ok(map
-                    .iter()
-                    .map(|(k, v)| (Arc::from(k.as_str()), v.clone()))
-                    .collect()),
+                LoweredValue::Record(record) => Ok(Arc::clone(record)),
+                LoweredValue::RecordVec(record) => Ok(Arc::new(
+                    record
+                        .iter()
+                        .map(|(key, value)| (Arc::<str>::from(key.as_str().as_str()), value.clone()))
+                        .collect::<BTreeMap<_, _>>(),
+                )),
+                LoweredValue::Map(map) => Ok(Arc::new(
+                    map.iter()
+                        .map(|(k, v)| (Arc::from(k.as_str()), v.clone()))
+                        .collect::<BTreeMap<_, _>>(),
+                )),
                 other => Err(RuntimeError::new(
                     "type-error",
                     format!("table.print expected Record, found {}", other.type_name()),
@@ -2822,11 +2831,11 @@ fn lowered_root_id(root: &LoweredValue, span: Span) -> Result<i64, RuntimeError>
 }
 
 fn fs_root_record(id: i64) -> LoweredValue {
-    LoweredValue::Record(BTreeMap::from([(Arc::from("id"), LoweredValue::Int(id))]))
+    LoweredValue::Record(Arc::new(BTreeMap::from([(Arc::from("id"), LoweredValue::Int(id))])))
 }
 
 fn lowered_filesystem_stats_record(stats: fs_module::FilesystemStats) -> LoweredValue {
-    LoweredValue::Record(BTreeMap::from([
+    LoweredValue::Record(Arc::new(BTreeMap::from([
         (
             Arc::from("blocks_1k"),
             LoweredValue::Int(stats.blocks_1k as i64),
@@ -2843,12 +2852,12 @@ fn lowered_filesystem_stats_record(stats: fs_module::FilesystemStats) -> Lowered
             Arc::from("capacity_percent"),
             LoweredValue::Int(stats.capacity_percent as i64),
         ),
-    ]))
+    ])))
 }
 
 fn lowered_fs_mount_record(mount: fs_module::FsMount) -> Result<LoweredValue, RuntimeError> {
     let mounted_on = path_value_from_pathbuf(mount.mounted_on)?;
-    Ok(LoweredValue::Record(BTreeMap::from([
+    Ok(LoweredValue::Record(Arc::new(BTreeMap::from([
         (
             Arc::from("filesystem"),
             LoweredValue::Str(mount.filesystem.into()),
@@ -2885,11 +2894,11 @@ fn lowered_fs_mount_record(mount: fs_module::FsMount) -> Result<LoweredValue, Ru
             LoweredValue::Int(mount.files_capacity_percent as i64),
         ),
         (Arc::from("readonly"), LoweredValue::Bool(mount.readonly)),
-    ])))
+    ]))))
 }
 
 fn lowered_status_segment_record(segment: &ProcessSegmentStatus) -> LoweredValue {
-    LoweredValue::Record(BTreeMap::from([
+    LoweredValue::Record(Arc::new(BTreeMap::from([
         (Arc::from("index"), LoweredValue::Int(segment.index as i64)),
         (
             Arc::from("target"),
@@ -2925,7 +2934,7 @@ fn lowered_status_segment_record(segment: &ProcessSegmentStatus) -> LoweredValue
                     LoweredValue::Str(message.as_str().into())
                 }),
         ),
-    ]))
+    ])))
 }
 
 fn lowered_fs_root_dir<'a>(
@@ -3166,8 +3175,8 @@ impl Evaluator {
             .map(|item| item.value)
             .filter_map(|v| lowered_value_from_runtime_any(&v))
             .collect();
-        if stream.source.is_some() {
-            while let Some(value) = stream.next_live(span)? {
+        if stream.source.is_some() || stream.script().is_some() {
+            while let Some(value) = self.stream_next(&mut stream, span)? {
                 let Some(item) = lowered_value_from_runtime_any(&value) else {
                     return Err(RuntimeError::new(
                         "type-error",
@@ -3232,10 +3241,10 @@ impl Evaluator {
             })?;
         let root = self.push_lowered_fs_root(root);
         let path = PathValue::new(b"file".to_vec()).map_err(|error| error.with_span(span))?;
-        Ok(LoweredValue::Record(BTreeMap::from([
+        Ok(LoweredValue::Record(Arc::new(BTreeMap::from([
             (Arc::from("root"), root),
             (Arc::from("path"), LoweredValue::Path(path)),
-        ])))
+        ]))))
     }
 
     fn lowered_project_root(
@@ -4558,11 +4567,11 @@ impl Evaluator {
                     Ok(file) => {
                         let id = self.fs_locks.len() as i64 + 1;
                         self.fs_locks.push(Some(file));
-                        lowered_result_ok(LoweredValue::Record(BTreeMap::from([
+                        lowered_result_ok(LoweredValue::Record(Arc::new(BTreeMap::from([
                             (Arc::from("id"), LoweredValue::Int(id)),
                             (Arc::from("path"), LoweredValue::Path(path)),
                             (Arc::from("shared"), LoweredValue::Bool(shared)),
-                        ])))
+                        ]))))
                     }
                     Err(error) => lowered_result_err_value(error),
                 }
@@ -4694,6 +4703,15 @@ impl Evaluator {
                 let name = values[0].type_name().to_string();
                 LoweredValue::Str(name.into())
             }
+            RuntimeOp::BridgeAppendBytes if values.len() == 2 => {
+                let bytes = lowered_bytes_arg_or_empty(values.pop(), "append_bytes", span)?;
+                let path = lowered_path_arg(
+                    values.pop().expect("checked value length"),
+                    "append_bytes",
+                    span,
+                )?;
+                lowered_unit_result(fs_module::append_bytes(self.host_path(&path), &bytes, span))
+            }
             RuntimeOp::RecordRemoveField if values.len() == 2 => {
                 let field = lowered_str_arg_owned(values.pop(), "", "record.remove_field", span)?;
                 let record = lowered_record_container(values.pop(), "record.remove_field", span)?;
@@ -4774,7 +4792,7 @@ impl Evaluator {
                 self.stdout.extend_from_slice(data);
                 lowered_result_ok(LoweredValue::Unit)
             }
-            RuntimeOp::MapEmpty if values.is_empty() => LoweredValue::Map(BTreeMap::new()),
+            RuntimeOp::MapEmpty if values.is_empty() => LoweredValue::Map(Arc::new(BTreeMap::new())),
             RuntimeOp::TimeNow if values.is_empty() => {
                 LoweredValue::Int(crate::modules::time::now_epoch_ms())
             }
@@ -5088,10 +5106,10 @@ impl Evaluator {
                             )));
                         }
                     };
-                    items.push(LoweredValue::Record(BTreeMap::from([
+                    items.push(LoweredValue::Record(Arc::new(BTreeMap::from([
                         (Arc::from("name"), LoweredValue::Str(name.into())),
                         (Arc::from("value"), LoweredValue::Str(value.into())),
-                    ])));
+                    ]))));
                 }
                 lowered_result_ok(LoweredValue::List(items))
             }
@@ -5181,12 +5199,12 @@ impl Evaluator {
                     } else {
                         PathValue::from_text(raw).map_err(|error| error.with_span(span))?
                     };
-                    entries.push(LoweredValue::Record(BTreeMap::from([
+                    entries.push(LoweredValue::Record(Arc::new(BTreeMap::from([
                         (Arc::from("index"), LoweredValue::Int(index as i64)),
                         (Arc::from("raw"), LoweredValue::Str(raw.into())),
                         (Arc::from("path"), LoweredValue::Path(path)),
                         (Arc::from("empty"), LoweredValue::Bool(raw.is_empty())),
-                    ])));
+                    ]))));
                 }
                 lowered_result_ok(LoweredValue::List(entries))
             }
@@ -5256,7 +5274,7 @@ impl Evaluator {
                     lowered_runtime_result(linux_module::interfaces(span), span)?
                 } else {
                     self.linux_dry_run_log("interfaces", &[], span)?;
-                    lowered_result_ok(lowered_stream_from_values(vec![LoweredValue::Record(
+                    lowered_result_ok(lowered_stream_from_values(vec![LoweredValue::Record(Arc::new(
                         BTreeMap::from([
                             (Arc::from("name"), LoweredValue::Str("eth0".into())),
                             (
@@ -5274,14 +5292,14 @@ impl Evaluator {
                             ),
                             (
                                 Arc::from("addresses"),
-                                LoweredValue::List(vec![LoweredValue::Record(BTreeMap::from([
+                                LoweredValue::List(vec![LoweredValue::Record(Arc::new(BTreeMap::from([
                                     (Arc::from("family"), LoweredValue::Str("inet".into())),
                                     (Arc::from("addr"), LoweredValue::Str("192.0.2.10".into())),
                                     (Arc::from("prefix_len"), LoweredValue::Int(24)),
-                                ]))]),
+                                ])))]),
                             ),
                         ]),
-                    )]))
+                    ))]))
                 }
             }
             RuntimeOp::LinuxRoutes if values.is_empty() => {
@@ -5294,7 +5312,7 @@ impl Evaluator {
                     lowered_runtime_result(linux_module::routes(span), span)?
                 } else {
                     self.linux_dry_run_log("routes", &[], span)?;
-                    lowered_result_ok(lowered_stream_from_values(vec![LoweredValue::Record(
+                    lowered_result_ok(lowered_stream_from_values(vec![LoweredValue::Record(Arc::new(
                         BTreeMap::from([
                             (Arc::from("family"), LoweredValue::Str("inet".into())),
                             (Arc::from("dst"), LoweredValue::Str("default".into())),
@@ -5310,7 +5328,7 @@ impl Evaluator {
                                 ]),
                             ),
                         ]),
-                    )]))
+                    ))]))
                 }
             }
             RuntimeOp::LinuxLinkUp if values.len() == 1 => {
@@ -5617,7 +5635,7 @@ impl Evaluator {
                         },
                     );
                     self.net_agents.retain(|key, _| key.pool != name);
-                    lowered_result_ok(LoweredValue::Record(BTreeMap::from([
+                    lowered_result_ok(LoweredValue::Record(Arc::new(BTreeMap::from([
                         (Arc::from("name"), LoweredValue::Str(name.into())),
                         (
                             Arc::from("max_idle_per_host"),
@@ -5627,7 +5645,7 @@ impl Evaluator {
                             Arc::from("idle_timeout_ms"),
                             LoweredValue::Int(idle_timeout.millis as i64),
                         ),
-                    ])))
+                    ]))))
                 }
             }
             RuntimeOp::NetClosePool if values.len() <= 1 => {
@@ -6189,7 +6207,7 @@ impl Evaluator {
                     ignore_hup: plan.ignore_hup,
                 };
                 match spawn_command(&invocation, options) {
-                    Ok(started) => lowered_result_ok(LoweredValue::Record(BTreeMap::from([
+                    Ok(started) => lowered_result_ok(LoweredValue::Record(Arc::new(BTreeMap::from([
                         (Arc::from("pid"), LoweredValue::Int(started.pid as i64)),
                         (
                             Arc::from("command"),
@@ -6215,7 +6233,7 @@ impl Evaluator {
                             Arc::from("ignore_hup"),
                             LoweredValue::Bool(started.options.ignore_hup),
                         ),
-                    ]))),
+                    ])))),
                     Err(error) => lowered_result_err_value(run_error_to_runtime(error, span)),
                 }
             }
@@ -6406,14 +6424,14 @@ impl Evaluator {
                     Err(error) => lowered_result_err_value(error),
                 }
             }
-            RuntimeOp::SetEmpty if values.is_empty() => LoweredValue::Map(BTreeMap::new()),
+            RuntimeOp::SetEmpty if values.is_empty() => LoweredValue::Map(Arc::new(BTreeMap::new())),
             RuntimeOp::SetFrom if values.len() == 1 => {
                 let items = lowered_str_list_arg(values.pop(), "set.from", span)?;
                 let mut set = BTreeMap::new();
                 for item in items {
                     set.insert(item, LoweredValue::Bool(true));
                 }
-                LoweredValue::Map(set)
+                LoweredValue::Map(Arc::new(set))
             }
             RuntimeOp::SetHas if values.len() == 2 => {
                 let item = lowered_str_arg_owned(values.pop(), "", "set.has", span)?;
@@ -6422,15 +6440,17 @@ impl Evaluator {
             }
             RuntimeOp::SetAdd if values.len() == 2 => {
                 let item = lowered_str_arg_owned(values.pop(), "", "set.add", span)?;
-                let mut set = lowered_bool_map_arg(values.pop(), "set.add", span)?;
+                let set = lowered_bool_map_arg(values.pop(), "set.add", span)?;
+                let mut set = take_shared(set);
                 set.insert(item, LoweredValue::Bool(true));
-                LoweredValue::Map(set)
+                LoweredValue::Map(Arc::new(set))
             }
             RuntimeOp::SetRemove if values.len() == 2 => {
                 let item = lowered_str_arg_owned(values.pop(), "", "set.remove", span)?;
-                let mut set = lowered_bool_map_arg(values.pop(), "set.remove", span)?;
+                let set = lowered_bool_map_arg(values.pop(), "set.remove", span)?;
+                let mut set = take_shared(set);
                 set.remove(&item);
-                LoweredValue::Map(set)
+                LoweredValue::Map(Arc::new(set))
             }
             RuntimeOp::SystemHostname if values.is_empty() => lowered_runtime_result(
                 system::hostname(span).map(|hostname| Value::Str(hostname.into())),
@@ -6663,10 +6683,10 @@ impl Evaluator {
                     .filter(|call| op.is_empty() || call.op == op)
                 {
                     let args = lowered_runtime_value(Value::Record(call.args.clone()), span)?;
-                    calls.push(LoweredValue::Record(BTreeMap::from([
+                    calls.push(LoweredValue::Record(Arc::new(BTreeMap::from([
                         (Arc::from("op"), LoweredValue::Str(call.op.as_str().into())),
                         (Arc::from("args"), args),
-                    ])));
+                    ]))));
                 }
                 LoweredValue::List(calls)
             }
@@ -6689,7 +6709,7 @@ impl Evaluator {
                 )?;
                 match self.lowered_test_run_script(&ctx, &source, &args, &env, &stdin, &name, span)
                 {
-                    Ok(record) => lowered_result_ok(LoweredValue::Record(record)),
+                    Ok(record) => lowered_result_ok(LoweredValue::Record(Arc::new(record))),
                     Err(error) => lowered_result_err_value(error),
                 }
             }
@@ -6722,7 +6742,7 @@ impl Evaluator {
                     &name,
                     span,
                 ) {
-                    Ok(record) => lowered_result_ok(LoweredValue::Record(record)),
+                    Ok(record) => lowered_result_ok(LoweredValue::Record(Arc::new(record))),
                     Err(error) => lowered_result_err_value(error),
                 }
             }
@@ -6761,7 +6781,7 @@ impl Evaluator {
                     &name,
                     span,
                 ) {
-                    Ok(record) => lowered_result_ok(LoweredValue::Record(record)),
+                    Ok(record) => lowered_result_ok(LoweredValue::Record(Arc::new(record))),
                     Err(error) => lowered_result_err_value(error),
                 }
             }
@@ -9241,6 +9261,9 @@ impl Evaluator {
             slots.clear();
             self.lowered_slot_pool.push(slots);
         }
+        // Dropping the slots is what makes an unconsumed producer unreachable,
+        // so this is where its defers are run.
+        self.sweep_script_producers_at_rest();
     }
 
     fn lowered_question_propagation_value(
@@ -10236,12 +10259,12 @@ impl Evaluator {
         let key = lowered_reduce_key_value(&key, span)?;
         match groups.entry(key) {
             std::collections::btree_map::Entry::Vacant(slot) => {
-                slot.insert(LoweredValue::RecordVec(lowered_projected_record_value(
+                slot.insert(LoweredValue::RecordVec(Arc::new(lowered_projected_record_value(
                     &state.projection,
                     &item,
                     indices.as_ref(),
                     span,
-                )?));
+                )?)));
             }
             std::collections::btree_map::Entry::Occupied(mut slot) => {
                 if let LoweredValue::RecordVec(acc) = slot.get_mut() {
@@ -10264,7 +10287,7 @@ impl Evaluator {
                                         },
                                     )?
                                 };
-                            let acc_value = &mut acc[index].1;
+                            let acc_value = &mut Arc::make_mut(acc)[index].1;
                             *acc_value = lowered_sum_values(
                                 std::mem::replace(acc_value, LoweredValue::Unit),
                                 field_value,
@@ -10277,14 +10300,16 @@ impl Evaluator {
                                     RuntimeError::new("missing-field", *source_field)
                                         .with_span(span)
                                 })?;
-                            if let Some(acc_value) = lowered_record_vec_get_mut(acc, &name.as_str())
-                            {
+                            if let Some(acc_value) = lowered_record_vec_get_mut(
+                                Arc::make_mut(acc).as_mut_slice(),
+                                &name.as_str(),
+                            ) {
                                 *acc_value = lowered_sum_values(
                                     std::mem::replace(acc_value, LoweredValue::Unit),
                                     field_value,
                                 );
                             } else {
-                                lowered_record_vec_insert(acc, *name, field_value);
+                                lowered_record_vec_insert(Arc::make_mut(acc), *name, field_value);
                             }
                         }
                     }
@@ -10293,12 +10318,12 @@ impl Evaluator {
                     *slot.get_mut() = lowered_reduce_combine(
                         ReduceByOp::Sum,
                         prev,
-                        LoweredValue::RecordVec(lowered_projected_record_value(
+                        LoweredValue::RecordVec(Arc::new(lowered_projected_record_value(
                             &state.projection,
                             &item,
                             indices.as_ref(),
                             span,
-                        )?),
+                        )?)),
                         span,
                     )?;
                 }

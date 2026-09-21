@@ -708,6 +708,18 @@ pub(in crate::runtime::eval) struct FullProgram {
     sources: Arc<SourceMap>,
     symbols: crate::symbol::SymbolOwner,
     function_definition_spans: Vec<Span>,
+    /// The decoded headers, one slot per function, filled on first call.
+    ///
+    /// A header is immutable once the store is verified: it is decoded from the
+    /// function's parameter and capture rows, which nothing mutates afterwards.
+    /// It is also several allocations wide — interned names, lowered types, and
+    /// decoded default values — so decoding it on every call charged the call
+    /// path for metadata preparation already resolved. The slot lives in the
+    /// program, so the cache's identity and lifetime are the owning program's:
+    /// it is indexed by function and dies with the program, and the names it
+    /// holds stay valid because the program owns the symbol owner that
+    /// interned them.
+    headers: Vec<std::sync::OnceLock<Arc<FunctionHeader>>>,
 }
 
 #[derive(Clone, Copy)]
@@ -1166,7 +1178,35 @@ impl<'a> FullFunctionView<'a> {
             .pipeline_stage_tags(self.program.store.function_instruction_range(self.index)?)
     }
 
-    pub(in crate::runtime::eval) fn header(&self) -> Result<FunctionHeader, IrVerifyError> {
+    /// The function's header, decoded once and retained with this program.
+    ///
+    /// The first call for a function decodes it and stores it in the program's
+    /// slot; every later call — from any evaluator, including worker
+    /// evaluators, which share the program — reads the same `Arc`. The store is
+    /// immutable once verified, so there is nothing to invalidate.
+    pub(in crate::runtime::eval) fn header(
+        &self,
+    ) -> Result<Arc<FunctionHeader>, IrVerifyError> {
+        // A program built without slots — the verifier fixtures construct one
+        // directly — decodes without caching rather than failing.
+        let Some(slot) = self.program.headers.get(self.index) else {
+            return Ok(Arc::new(self.decode_header()?));
+        };
+        if let Some(header) = slot.get() {
+            return Ok(Arc::clone(header));
+        }
+        let decoded = Arc::new(self.decode_header()?);
+        // A concurrent worker may have filled the slot first; either value is
+        // the same header, so the stored one wins.
+        match slot.set(Arc::clone(&decoded)) {
+            Ok(()) => Ok(decoded),
+            Err(_) => Ok(Arc::clone(
+                slot.get().expect("a losing `set` means the slot is filled"),
+            )),
+        }
+    }
+
+    fn decode_header(&self) -> Result<FunctionHeader, IrVerifyError> {
         let function = self.program.store.functions[self.index];
         let decoder = self.execution()?.decoder;
         let params = function
@@ -1507,11 +1547,15 @@ impl FullBuilder {
         symbols: crate::symbol::SymbolOwner,
     ) -> Result<FullProgram, IrBuildError> {
         self.store.shrink_to_fit();
+        let headers = (0..self.store.functions.len())
+            .map(|_| std::sync::OnceLock::new())
+            .collect();
         let program = FullProgram {
             store: self.store,
             sources,
             symbols,
             function_definition_spans: self.function_definition_spans,
+            headers,
         };
         FullVerifier::verify(&program)
             .map_err(|_| IrBuildError::format("full_ir_verification", None, 0, 0))?;
@@ -4963,12 +5007,11 @@ impl FullCodec for LoweredValue {
             FullValueTag::Str => Self::Str(Arc::<str>::decode(decoder, &mut payload)?),
             FullValueTag::Bytes => Self::Bytes(Arc::<[u8]>::decode(decoder, &mut payload)?),
             FullValueTag::Path => Self::Path(PathValue::decode(decoder, &mut payload)?),
-            FullValueTag::Record => Self::Record(BTreeMap::<Arc<str>, LoweredValue>::decode(
-                decoder,
-                &mut payload,
-            )?),
+            FullValueTag::Record => Self::Record(Arc::new(BTreeMap::<Arc<str>, LoweredValue>::decode(
+                decoder, &mut payload,
+            )?)),
             FullValueTag::RecordVec => {
-                Self::RecordVec(Vec::<(Name, LoweredValue)>::decode(decoder, &mut payload)?)
+                Self::RecordVec(Arc::new(Vec::<(Name, LoweredValue)>::decode(decoder, &mut payload)?))
             }
             FullValueTag::Stats => Self::Stats {
                 blanks: i64::decode(decoder, &mut payload)?,
@@ -4981,15 +5024,13 @@ impl FullCodec for LoweredValue {
                 code: i64::decode(decoder, &mut payload)?,
                 comments: i64::decode(decoder, &mut payload)?,
             })),
-            FullValueTag::Module => Self::Module(BTreeMap::<Arc<str>, LoweredValue>::decode(
-                decoder,
-                &mut payload,
-            )?),
+            FullValueTag::Module => Self::Module(Arc::new(BTreeMap::<Arc<str>, LoweredValue>::decode(
+                decoder, &mut payload,
+            )?)),
             FullValueTag::List => Self::List(Vec::<LoweredValue>::decode(decoder, &mut payload)?),
-            FullValueTag::Map => Self::Map(BTreeMap::<String, LoweredValue>::decode(
-                decoder,
-                &mut payload,
-            )?),
+            FullValueTag::Map => Self::Map(Arc::new(BTreeMap::<String, LoweredValue>::decode(
+                decoder, &mut payload,
+            )?)),
             FullValueTag::Tag => Self::Tag(Box::new(LoweredTagValue {
                 name: Arc::<str>::decode(decoder, &mut payload)?,
                 fields: Vec::<LoweredValue>::decode(decoder, &mut payload)?,
@@ -7432,6 +7473,91 @@ run true
         program.symbol_owner().with_current(|| Name::intern(text))
     }
 
+    /// §5's control-state claim, proved rather than timed: a loop body's
+    /// statement list is reused, not allocated once per iteration.
+    ///
+    /// The pool's two counters are the evidence: two hundred iterations take
+    /// their list from the pool two hundred times minus the one that fills it,
+    /// and a loop's values are identical either way.
+    #[test]
+    fn loop_iterations_reuse_their_statement_list() {
+        run_with_large_stack(|| {
+            let program = Arc::new(fixture(
+                "indexed-list-reuse.xsh",
+                "proc main() [io] {\n  var index = 0\n  while index < 200 {\n    index = index + 1\n  }\n  print f\"index=${index}\"\n}\n",
+            ));
+            let mut evaluator =
+                Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            evaluator
+                .call_indexed_direct(
+                    LoweredFunctionKey::Name(program_name(&program, "main")),
+                    LoweredFunctionKind::Proc,
+                    &[],
+                    Span::new(program.store.source_id, 0, 0),
+                )
+                .expect("main runs");
+            assert_eq!(evaluator.stdout, b"index=200\n");
+            let scratch = &evaluator.frame_scratch;
+            // The first iteration fills the pool, so one of the two hundred
+            // takes is the fresh one.
+            assert!(
+                scratch.reused_statements >= 199,
+                "each iteration takes its statement list back from the pool (reused {})",
+                scratch.reused_statements
+            );
+            assert!(
+                scratch.fresh_statements <= 8,
+                "a 200-iteration loop must not build a list per iteration (fresh {})",
+                scratch.fresh_statements
+            );
+        });
+    }
+
+    /// The per-program header cache: one decode per function, shared by every
+    /// later call, and a program built without slots still decodes.
+    ///
+    /// The header is what the call path binds arguments, hydrates captures, and
+    /// checks returns against, so `Arc::ptr_eq` here is the evidence that a
+    /// second call does not re-resolve preparation metadata; a call's behavior
+    /// cannot show that, which is why this test compares value identity rather
+    /// than timing.
+    #[test]
+    fn function_headers_are_decoded_once_per_program() {
+        let program = fixture(
+            "indexed-header-cache.xsh",
+            "pure plus(value: Int) -> Int {\n  return value + 1\n}\n",
+        );
+        let header = |program: &FullProgram| {
+            program.symbol_owner().with_current(|| {
+                program
+                    .function_view(
+                        LoweredFunctionKey::Name(Name::intern("plus")),
+                        LoweredFunctionKind::Pure,
+                    )
+                    .expect("function view resolves")
+                    .expect("the fixture declares `plus`")
+                    .header()
+                    .expect("the header decodes")
+            })
+        };
+        let first = header(&program);
+        let second = header(&program);
+        assert!(
+            Arc::ptr_eq(&first, &second),
+            "a second call must reuse the decoded header"
+        );
+        assert_eq!(first.params.len(), second.params.len());
+        assert_eq!(first.slot_count, second.slot_count);
+
+        // A program that carries no slots — the verifier fixtures build one
+        // directly — decodes without caching instead of failing.
+        let mut unslotted = program.clone();
+        unslotted.headers.clear();
+        let decoded = header(&unslotted);
+        assert_eq!(decoded.params.len(), first.params.len());
+    }
+
     #[test]
     fn full_indexed_program_represents_every_indexed_fixture_function() {
         let program = fixture("indexed-execution.xsh", INDEXED_EXECUTION);
@@ -7973,6 +8099,7 @@ proc main() [error] {
             sources: Arc::new(sources),
             symbols: crate::symbol::SymbolOwner::new(),
             function_definition_spans: Vec::new(),
+            headers: Vec::new(),
         };
         FullVerifier::verify(&program).unwrap();
 

@@ -36,6 +36,18 @@
 # `linux-dry-run-log` visible to callers.
 error LinuxTextError = Failure(kind: Str, message: Str)
 
+## Append bytes to a file in place, creating the file and its missing parents.
+##
+## Host-mechanism bridge: lowering replaces every call with the private
+## operation, which performs the baseline's create/open/append/write. Nothing in
+## XSH can append without reading the file first, and the baseline appends to
+## the open file, so a log that holds bytes which are not valid UTF-8 has to
+## survive an append here too. The body below is unreachable and raises if it is
+## ever reached.
+export proc append_bytes(target: Path, payload: Bytes) [fs, error] -> Result[Unit] {
+  return [Ok()][1]
+}
+
 # Whether `text` spells one of the accepted true values.
 #
 # The baseline compares the raw value without trimming or case folding, so only
@@ -101,16 +113,14 @@ proc dry_run_log(name: Str, op: Str) [env, fs, error] -> Result[Unit] {
 
 # Append one line to `target`, creating missing parent directories first.
 #
-# There is no append primitive, so the existing text is re-read and rewritten
-# with the new line added. The baseline appends to the open file in place, so a
-# file that is not valid UTF-8 is rewritten here instead of appended to.
+# The line is composed here and appended through the private operation, which
+# performs the baseline's own create/open/append/write: the prior bytes are
+# never read, so an existing log that is not valid UTF-8 keeps its bytes, an
+# unreadable file is an append error rather than an empty prior file, and two
+# appenders cannot drop each other's lines.
 proc append_line(target: Path, line: Str) [fs, error] -> Result[Unit] {
-  let parent = target.parent()
-  if parent.display() != "" {
-    fs.mkdir(parent, parents: true)?
-  }
-  let existing = fs.read_text(target) ?? ""
-  return fs.write(target, existing + line + "\n")
+  let payload = bytes.from_text(line + "\n")
+  return append_bytes(target, payload)
 }
 
 # Saturating `value * 1024`.

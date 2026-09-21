@@ -93,6 +93,64 @@ proc test_hash_verify_file_policy(ctx: TestContext) [fs, error] {
     "No such file or directory (os error 2)",
   )?
   test.error_kind(hash.verify_file(missing, sha256: "00"), "hash-read")?
+
+  # The smallest input: an empty file has the algorithm's canonical digest and
+  # verifies like any other.
+  let empty = test.temp_path(ctx, name: "hash-verify-empty.txt")
+  fs.write(empty, "")?
+  test.eq(
+    hash.sha256(empty)?.hex(),
+    "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  )?
+  test.eq(verify_message(hash.verify_file(empty, sha256: hash.sha256(empty)?.hex())), "")?
+
+  # One byte, and a file spanning several digest blocks: the same call reads
+  # the whole input, and the digest it compares is the one the reader produced.
+  let one_byte = test.temp_path(ctx, name: "hash-verify-byte.bin")
+  fs.write(one_byte, "x")?
+  test.eq(verify_message(hash.verify_file(one_byte, sha256: hash.sha256(one_byte)?.hex())), "")?
+
+  let large = test.temp_path(ctx, name: "hash-verify-large.bin")
+  var filler = ""
+  var round = 0
+  while round < 2048 {
+    filler = filler + "0123456789abcdef"
+    round = round + 1
+  }
+
+  fs.write(large, filler)?
+  let large_digest = hash.sha256(large)?.hex()
+  test.eq(verify_message(hash.verify_file(large, sha256: large_digest)), "")?
+  test.eq(
+    verify_message(hash.verify_file(large, sha256: large_digest.upper())),
+    "",
+  )?
+
+  # A batch of small files: the policy is per call, so every file in the batch
+  # verifies against its own digest and none of them against the digest of the
+  # file the batch wrote before it.
+  var previous_digest = ""
+  var index = 0
+  while index < 32 {
+    let batch_path = test.temp_path(ctx, name: f"hash-verify-batch-${index}.txt")
+    fs.write(batch_path, f"batch ${index}")?
+    let batch_digest = hash.sha256(batch_path)?.hex()
+    test.eq(verify_message(hash.verify_file(batch_path, sha256: batch_digest)), "")?
+    if index > 0 {
+      test.error_kind(
+        hash.verify_file(batch_path, sha256: previous_digest),
+        "checksum-mismatch",
+      )?
+    }
+
+    previous_digest = batch_digest
+    index = index + 1
+  }
+
+  # A destination that cannot be read at all — a directory — is the same read
+  # failure, not a checksum one.
+  let directory = test.temp_dir(ctx, name: "hash-verify-dir")?
+  test.error_kind(hash.verify_file(directory, sha256: zeros64), "hash-read")?
 }
 
 # The message of a rejected checksum line, or the empty string when the line

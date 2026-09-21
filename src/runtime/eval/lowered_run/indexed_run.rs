@@ -53,7 +53,8 @@ use crate::runtime::eval::{
 };
 use smallvec::SmallVec;
 
-mod explicit_run;
+pub(in crate::runtime::eval) mod explicit_run;
+mod producer;
 
 const DEFAULT_PAR_MAP_WORKERS: usize = 6;
 
@@ -618,7 +619,7 @@ impl Evaluator {
                 lowered_reduce_group_insert(&mut groups, key, value, op, span)?;
             }
         }
-        Ok(LoweredValue::Map(groups))
+        Ok(LoweredValue::Map(Arc::new(groups)))
     }
 
     fn decode_indexed_run_arg<'a>(
@@ -1140,7 +1141,14 @@ impl Evaluator {
         ) {
             return None;
         }
-        Some(self.eval_indexed_driver_step_inner(view, call_span))
+        let outcome = self.eval_indexed_driver_step_inner(view, call_span);
+        // A top-level statement is a boundary at which nothing can still reach a
+        // producer it built and dropped.
+        let swept = self.sweep_script_producers(call_span);
+        Some(match (outcome, swept) {
+            (Ok(flow), Ok(())) => Ok(flow),
+            (Err(error), _) | (Ok(_), Err(error)) => Err(error),
+        })
     }
 
     fn eval_indexed_driver_step_inner(
@@ -1591,20 +1599,24 @@ impl Evaluator {
                 TraceKind::ProcExit,
             ),
         };
-        let name = function.display_name();
         let definition_span = view
             .definition_span()
             .map_err(|error| indexed_error(error, call_span))?;
-        self.trace_enter_with_definition(
-            enter_kind,
-            Some(call_span),
-            Some(definition_span),
-            Some(&name),
-            TracePayload::None,
-        );
+        // Rendering a display name allocates, so it happens only when a trace
+        // event will use it; the traceback keeps the symbol handles instead.
+        if self.trace_enabled {
+            let name = function.display_name();
+            self.trace_enter_with_definition(
+                enter_kind,
+                Some(call_span),
+                Some(definition_span),
+                Some(&name),
+                TracePayload::None,
+            );
+        }
         self.call_stack.push(TracebackFrame {
             kind: frame_kind,
-            name: name.clone(),
+            name: function.traceback_name(),
             definition_span: Some(definition_span),
             call_span: Some(call_span),
         });
@@ -1612,13 +1624,16 @@ impl Evaluator {
             self.eval_indexed_function(view, header, slots, call_span)
         });
         self.call_stack.pop();
-        self.trace_exit_with_definition(
-            exit_kind,
-            Some(call_span),
-            Some(definition_span),
-            Some(&name),
-            TracePayload::None,
-        );
+        if self.trace_enabled {
+            let name = function.display_name();
+            self.trace_exit_with_definition(
+                exit_kind,
+                Some(call_span),
+                Some(definition_span),
+                Some(&name),
+                TracePayload::None,
+            );
+        }
         result
     }
 
@@ -1749,10 +1764,9 @@ impl Evaluator {
             });
         }
         let mut next_slots = self.bind_lowered_values(&header, values, call_span)?;
-        let name = function.display_name();
         self.call_stack.push(TracebackFrame {
             kind: TracebackFrameKind::Pure,
-            name,
+            name: function.traceback_name(),
             definition_span: None,
             call_span: Some(call_span),
         });
@@ -1833,36 +1847,20 @@ impl Evaluator {
             header.return_kind,
             LoweredReturnKind::Plain(LoweredType::Stream)
         ) {
-            let previous_items = std::mem::take(&mut self.stream_items);
-            let result = self.eval_indexed_stmts(&execution, body, header, slots, call_span);
-            let write_back = self.write_back_lowered_captures(header, slots, call_span);
-            let items = std::mem::take(&mut self.stream_items);
-            self.stream_items = previous_items;
-            let flow = result?;
-            write_back?;
-            return match flow {
-                StmtFlow::None => Ok(LoweredValue::Stream(Box::new(StreamValue::from_values(
-                    items,
-                )))),
-                StmtFlow::Return(value) if matches!(value, LoweredValue::Stream(_)) => Ok(value),
-                StmtFlow::Return(LoweredValue::Unit) => Ok(LoweredValue::Stream(Box::new(
-                    StreamValue::from_values(items),
-                ))),
-                StmtFlow::Return(value) => Err(RuntimeError::new(
-                    "type-error",
-                    format!("stream producer returned {}", value.type_name()),
-                )
-                .with_span(call_span)),
-                StmtFlow::Propagate(value) => Ok(value),
-                StmtFlow::Break(_) => {
-                    Err(RuntimeError::new("control-flow", "break outside loop")
-                        .with_span(call_span))
-                }
-                StmtFlow::Continue => {
-                    Err(RuntimeError::new("control-flow", "continue outside loop")
-                        .with_span(call_span))
-                }
-            };
+            // A producer call does not run the body: the bound slots become a
+            // suspended continuation that consuming the stream resumes, one
+            // `yield` at a time.
+            let (function, kind) = execution
+                .function_identity()
+                .map_err(|error| indexed_error(error, call_span))?;
+            let state = self.start_script_producer(
+                function,
+                kind,
+                view,
+                slots.to_vec(),
+                call_span,
+            )?;
+            return Ok(LoweredValue::Stream(Box::new(StreamValue::from_script(state))));
         }
         let result = self.eval_indexed_stmts(&execution, body, header, slots, call_span);
         let write_back = self.write_back_lowered_captures(header, slots, call_span);
@@ -2198,12 +2196,51 @@ impl Evaluator {
             }))
     }
 
+    /// The slot a receiver instruction reads, when it reads exactly one.
+    ///
+    /// A consuming call needs the receiver to be the plain slot read itself: any
+    /// other expression (a field access, a call) has already derived a value of
+    /// its own and owns whatever it produced.
+    fn indexed_slot_read(
+        execution: &FullExecution<'_>,
+        instruction: u32,
+        span: Span,
+    ) -> Result<Option<usize>, RuntimeError> {
+        let (tag, mut payload) = indexed_value(execution.instruction_id(instruction), span)?;
+        match tag {
+            FullTag::ExprParam => Ok(Some(indexed_decode::<usize>(
+                &mut payload,
+                execution,
+                span,
+            )?)),
+            _ => Ok(None),
+        }
+    }
+
     pub(super) fn eval_indexed_expr(
         &mut self,
         execution: &FullExecution<'_>,
         instruction: u32,
         slots: &mut [LoweredValue],
         call_span: Span,
+    ) -> Result<ControlFlow<LoweredValue, LoweredValue>, RuntimeError> {
+        // A statement that is about to overwrite a slot offers that slot to its
+        // outermost expression; nested expressions (operands, arguments) must
+        // see the slot as it is, because they may read it before the store.
+        let consuming = self.consuming_receiver.take();
+        let result =
+            self.eval_indexed_expr_inner(execution, instruction, slots, call_span, consuming);
+        self.consuming_receiver = consuming;
+        result
+    }
+
+    fn eval_indexed_expr_inner(
+        &mut self,
+        execution: &FullExecution<'_>,
+        instruction: u32,
+        slots: &mut [LoweredValue],
+        call_span: Span,
+        consuming: Option<usize>,
     ) -> Result<ControlFlow<LoweredValue, LoweredValue>, RuntimeError> {
         let (tag, mut payload) = indexed_value(execution.instruction_id(instruction), call_span)?;
         let result = match tag {
@@ -2529,20 +2566,20 @@ impl Evaluator {
                                 };
                             match value {
                                 LoweredValue::Record(fields) | LoweredValue::Module(fields) => {
-                                    for (key, value) in fields {
+                                    for (key, value) in fields.iter() {
                                         lowered_record_vec_append_or_replace_unsorted(
                                             &mut record,
                                             Name::intern(key.as_ref()),
-                                            value,
+                                            value.clone(),
                                         );
                                     }
                                 }
                                 LoweredValue::RecordVec(fields) => {
-                                    for (key, value) in fields {
+                                    for (key, value) in fields.iter() {
                                         lowered_record_vec_append_or_replace_unsorted(
                                             &mut record,
-                                            key,
-                                            value,
+                                            *key,
+                                            value.clone(),
                                         );
                                     }
                                 }
@@ -2614,7 +2651,7 @@ impl Evaluator {
             }
             FullTag::ExprEmptyMap => {
                 indexed_finish(payload, call_span)?;
-                ControlFlow::Continue(LoweredValue::Map(BTreeMap::new()))
+                ControlFlow::Continue(LoweredValue::Map(Arc::new(BTreeMap::new())))
             }
             FullTag::ExprBytesConcat => {
                 let arg = indexed_raw(&mut payload, call_span)?;
@@ -2771,7 +2808,7 @@ impl Evaluator {
                         };
                         values.insert(key.to_string(), value);
                     }
-                    ControlFlow::Continue(LoweredValue::Map(values))
+                    ControlFlow::Continue(LoweredValue::Map(Arc::new(values)))
                 } else {
                     let mut values = Vec::new();
                     for item in items {
@@ -2897,10 +2934,10 @@ impl Evaluator {
                                     .into_iter()
                                     .enumerate()
                                     .map(|(index, value)| {
-                                        LoweredValue::Record(btree_map(vec![
+                                        LoweredValue::Record(Arc::new(btree_map(vec![
                                             (Arc::from("index"), LoweredValue::Int(index as i64)),
                                             (Arc::from("value"), value),
-                                        ]))
+                                        ])))
                                     })
                                     .collect(),
                             )
@@ -2922,10 +2959,10 @@ impl Evaluator {
                                 left.into_iter()
                                     .zip(right)
                                     .map(|(left, right)| {
-                                        LoweredValue::Record(btree_map(vec![
+                                        LoweredValue::Record(Arc::new(btree_map(vec![
                                             (Arc::from("left"), left),
                                             (Arc::from("right"), right),
-                                        ]))
+                                        ])))
                                     })
                                     .collect(),
                             )
@@ -3037,10 +3074,10 @@ impl Evaluator {
                                 groups
                                     .into_iter()
                                     .map(|(key, items)| {
-                                        LoweredValue::Record(btree_map(vec![
+                                        LoweredValue::Record(Arc::new(btree_map(vec![
                                             (Arc::from("items"), LoweredValue::List(items)),
                                             (Arc::from("key"), key),
-                                        ]))
+                                        ])))
                                     })
                                     .collect(),
                             )
@@ -3069,7 +3106,7 @@ impl Evaluator {
                                 };
                                 *count += 1;
                             }
-                            LoweredValue::Map(counts)
+                            LoweredValue::Map(Arc::new(counts))
                         }
                         FullStageTag::UniqueBy => {
                             let slot =
@@ -3679,7 +3716,7 @@ impl Evaluator {
                                 lowered_reduce_group_insert(&mut groups, key, value, op, span)?;
                             }
                             slots[item_slot] = LoweredValue::Unit;
-                            LoweredValue::Map(groups.into_iter().collect())
+                            LoweredValue::Map(Arc::new(groups))
                         }
                         FullStageTag::ParMapFlatMapReduceBy => {
                             let slot =
@@ -3767,7 +3804,7 @@ impl Evaluator {
                                         );
                                     }
                                 }
-                                LoweredValue::Map(groups)
+                                LoweredValue::Map(Arc::new(groups))
                             } else {
                                 self.eval_indexed_par_map_flat_map_reduce_by(
                                     execution,
@@ -4051,9 +4088,9 @@ impl Evaluator {
                         }
                         FullStageTag::Count => {
                             indexed_finish(stage_payload, span)?;
-                            if let LoweredValue::Stream(stream) = current {
+                            if let LoweredValue::Stream(mut stream) = current {
                                 let mut count = stream.items.len() as i64;
-                                while stream.next_live(span)?.is_some() {
+                                while self.stream_next(&mut stream, span)?.is_some() {
                                     count += 1;
                                 }
                                 LoweredValue::Int(count)
@@ -4083,6 +4120,38 @@ impl Evaluator {
                         | FullStageTag::Min
                         | FullStageTag::Max => {
                             indexed_finish(stage_payload, span)?;
+                            // A bounded terminal over a producer pulls one item
+                            // and stops there: the rest of the body is never
+                            // run, and its defers run once.
+                            if tag == FullStageTag::First
+                                && let LoweredValue::Stream(stream) = &current
+                                && stream.script().is_some()
+                            {
+                                let LoweredValue::Stream(mut stream) = current else {
+                                    unreachable!("checked above")
+                                };
+                                let item = self.stream_next(&mut stream, span)?;
+                                self.stream_cancel(&mut stream, span)?;
+                                match item {
+                                    Some(value) => match lowered_value_from_runtime_any(&value) {
+                                        Some(item) => lowered_result_ok(item),
+                                        None => lowered_result_err_value(
+                                            RuntimeError::new(
+                                                "type-error",
+                                                format!(
+                                                    "stream produced unsupported {}",
+                                                    value.type_name()
+                                                ),
+                                            )
+                                            .with_span(span),
+                                        ),
+                                    },
+                                    None => lowered_result_err_value(
+                                        RuntimeError::new("empty-stream", "stream was empty")
+                                            .with_span(span),
+                                    ),
+                                }
+                            } else {
                             let items = self.lowered_pipeline_input_items(current, span)?;
                             let item = match tag {
                                 FullStageTag::First => items.into_iter().next(),
@@ -4101,6 +4170,7 @@ impl Evaluator {
                                     RuntimeError::new("empty-stream", "stream was empty")
                                         .with_span(span),
                                 ),
+                            }
                             }
                         }
                         FullStageTag::Collect => {
@@ -4147,11 +4217,44 @@ impl Evaluator {
                                         return Ok(ControlFlow::Break(value));
                                     }
                                 };
+                            // `take` over a producer pulls only what it keeps
+                            // and then stops the producer; `drop` has to read
+                            // past the dropped items, so it drains the stream.
+                            if tag == FullStageTag::Take
+                                && let LoweredValue::Stream(stream) = &current
+                                && stream.script().is_some()
+                            {
+                                let LoweredValue::Stream(mut stream) = current else {
+                                    unreachable!("checked above")
+                                };
+                                let mut kept = Vec::new();
+                                while kept.len() < count {
+                                    match self.stream_next(&mut stream, span)? {
+                                        Some(value) => match lowered_value_from_runtime_any(&value) {
+                                            Some(item) => kept.push(item),
+                                            None => {
+                                                return Err(RuntimeError::new(
+                                                    "type-error",
+                                                    format!(
+                                                        "stream produced unsupported {}",
+                                                        value.type_name()
+                                                    ),
+                                                )
+                                                .with_span(span));
+                                            }
+                                        },
+                                        None => break,
+                                    }
+                                }
+                                self.stream_cancel(&mut stream, span)?;
+                                LoweredValue::List(kept)
+                            } else {
                             let items = self.lowered_pipeline_input_items(current, span)?;
                             if tag == FullStageTag::Take {
                                 LoweredValue::List(items.into_iter().take(count).collect())
                             } else {
                                 LoweredValue::List(items.into_iter().skip(count).collect())
+                            }
                             }
                         }
                         FullStageTag::Repeat => {
@@ -4297,6 +4400,18 @@ impl Evaluator {
                 let len = indexed_raw(&mut args, call_span)? as usize;
                 let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
                 indexed_finish(payload, call_span)?;
+                // A statement that overwrites a slot may hand this call the
+                // value that slot holds, but only when the receiver is exactly a
+                // read of that slot and the arguments have not replaced it.
+                let consumes = match consuming {
+                    Some(target)
+                        if Self::indexed_slot_read(execution, receiver, call_span)?
+                            == Some(target) =>
+                    {
+                        Some(target)
+                    }
+                    _ => None,
+                };
                 let receiver = match self.eval_indexed_expr(execution, receiver, slots, span)? {
                     ControlFlow::Continue(value) => value,
                     ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
@@ -4310,6 +4425,12 @@ impl Evaluator {
                     }
                 }
                 indexed_finish(args, span)?;
+                let receiver = match consumes {
+                    Some(target) if lowered_shares_backing(&slots[target], &receiver) => {
+                        std::mem::replace(&mut slots[target], LoweredValue::Unit)
+                    }
+                    _ => receiver,
+                };
                 if !self.trace_enabled {
                     return self.eval_lowered_method_dispatch(receiver, name, values, &span);
                 }
@@ -6427,11 +6548,22 @@ impl Evaluator {
                 let value = indexed_raw(&mut payload, call_span)?;
                 let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
                 indexed_finish(payload, call_span)?;
-                let value = match self.eval_indexed_expr(execution, value, slots, call_span)? {
+                // A plain overwrite offers the slot to the value expression, so
+                // an accumulating call like `m = m.set(k, v)` can update the map
+                // in place instead of copying it into a second map.
+                let saved = self.consuming_receiver;
+                self.consuming_receiver =
+                    (op == AssignOp::Set).then_some(slot);
+                let evaluated = self.eval_indexed_expr(execution, value, slots, call_span);
+                self.consuming_receiver = saved;
+                let value = match evaluated? {
                     ControlFlow::Continue(value) => value,
                     ControlFlow::Break(value) => return Ok(StmtFlow::Return(value)),
                 };
-                slots[slot] = lowered_assign_value(op, slots[slot].clone(), value, span)?;
+                slots[slot] = match op {
+                    AssignOp::Set => value,
+                    _ => lowered_assign_value(op, slots[slot].clone(), value, span)?,
+                };
                 Ok(StmtFlow::None)
             }
             FullTag::StmtAssignField | FullTag::StmtAssignFieldInt => {
@@ -6467,8 +6599,8 @@ impl Evaluator {
                             blanks,
                             code,
                             comments,
-                        } => lowered_inline_stats_to_record_vec(blanks, code, comments),
-                        LoweredValue::StatsBlob(stats) => stats.to_record_vec(),
+                        } => Arc::new(lowered_inline_stats_to_record_vec(blanks, code, comments)),
+                        LoweredValue::StatsBlob(stats) => Arc::new(stats.to_record_vec()),
                         _ => unreachable!("checked indexed stats assignment target"),
                     });
                 }
@@ -6491,10 +6623,14 @@ impl Evaluator {
                 let value = lowered_assign_value(op, current, value, span)?;
                 match &mut slots[slot] {
                     LoweredValue::Record(record) => {
-                        record.insert(field.clone(), value);
+                        Arc::make_mut(record).insert(field.clone(), value);
                     }
                     LoweredValue::RecordVec(record) => {
-                        lowered_record_vec_insert(record, Name::intern(field.as_ref()), value);
+                        lowered_record_vec_insert(
+                            Arc::make_mut(record),
+                            Name::intern(field.as_ref()),
+                            value,
+                        );
                     }
                     _ => unreachable!("checked indexed record assignment target"),
                 }
@@ -6526,6 +6662,7 @@ impl Evaluator {
                     )
                     .with_span(span));
                 };
+                let map = Arc::make_mut(map);
                 if op == AssignOp::Set {
                     map.insert(key, value);
                     return Ok(StmtFlow::None);
@@ -6768,6 +6905,48 @@ impl Evaluator {
                     ControlFlow::Continue(value) => value,
                     ControlFlow::Break(value) => return Ok(StmtFlow::Return(value)),
                 };
+                // A producer's items arrive one pull at a time: the loop never
+                // holds the whole stream, and stopping it early runs the
+                // producer's defers instead of the rest of its body.
+                let script_stream = match &iter {
+                    LoweredValue::Stream(stream) if stream.script().is_some() => true,
+                    _ => false,
+                };
+                if script_stream {
+                    let LoweredValue::Stream(mut stream) = iter else {
+                        unreachable!("checked above")
+                    };
+                    loop {
+                        self.service_pending_signal(span)?;
+                        if self.signal_state.shutdown_complete {
+                            self.stream_cancel(&mut stream, span)?;
+                            return Ok(StmtFlow::None);
+                        }
+                        let Some(value) = self.stream_next(&mut stream, span)? else {
+                            return Ok(StmtFlow::None);
+                        };
+                        let Some(item) = lowered_value_from_runtime_any(&value) else {
+                            return Err(RuntimeError::new(
+                                "type-error",
+                                format!("stream produced unsupported {}", value.type_name()),
+                            )
+                            .with_span(span));
+                        };
+                        slots[slot] = item;
+                        match self
+                            .eval_indexed_statement_block(execution, body, header, slots, call_span)?
+                        {
+                            StmtFlow::None | StmtFlow::Continue => {}
+                            flow => {
+                                self.stream_cancel(&mut stream, span)?;
+                                return Ok(match flow {
+                                    StmtFlow::Break(_) => StmtFlow::None,
+                                    other => other,
+                                });
+                            }
+                        }
+                    }
+                }
                 let items = self.lowered_list_items(iter, span, "lowered for expected List")?;
                 for item in items {
                     self.service_pending_signal(span)?;
@@ -7433,22 +7612,16 @@ impl Evaluator {
                 Ok(StmtFlow::Return(value))
             }
             FullTag::StmtYield => {
-                let value = indexed_raw(&mut payload, call_span)?;
+                // Producers run on the frame engine, which suspends at a
+                // `yield`; the recursive statement evaluator never runs a
+                // producer body, so reaching this means a producer ran outside
+                // the machine that can stop it.
                 indexed_finish(payload, call_span)?;
-                if !matches!(
-                    header.return_kind,
-                    LoweredReturnKind::Plain(LoweredType::Stream)
-                ) {
-                    return Err(
-                        RuntimeError::new("control-flow", "yield outside stream producer")
-                            .with_span(call_span),
-                    );
-                }
-                let value = match self.eval_indexed_expr(execution, value, slots, call_span)? {
-                    ControlFlow::Continue(value) | ControlFlow::Break(value) => value,
-                };
-                self.stream_items.push(value.into_value());
-                Ok(StmtFlow::None)
+                Err(RuntimeError::new(
+                    "control-flow",
+                    "yield reached the recursive evaluator, which cannot suspend",
+                )
+                .with_span(call_span))
             }
             FullTag::StmtBreak => {
                 indexed_finish(payload, call_span)?;
@@ -7824,6 +7997,25 @@ impl Evaluator {
         }
     }
 }
+
+/// Whether two values are the same container through shared backing.
+    ///
+    /// A consuming call only takes the value out of its slot when the slot still
+    /// holds the very container the receiver was read from: an argument may have
+    /// replaced it, and that replacement must be what the slot ends up with.
+    pub(super) fn lowered_shares_backing(left: &LoweredValue, right: &LoweredValue) -> bool {
+    match (left, right) {
+        (LoweredValue::Record(left), LoweredValue::Record(right))
+        | (LoweredValue::Module(left), LoweredValue::Module(right)) => Arc::ptr_eq(left, right),
+        (LoweredValue::RecordVec(left), LoweredValue::RecordVec(right)) => Arc::ptr_eq(left, right),
+        (LoweredValue::Map(left), LoweredValue::Map(right)) => Arc::ptr_eq(left, right),
+        (LoweredValue::SharedList(left), LoweredValue::SharedList(right)) => {
+            Arc::ptr_eq(left, right)
+        }
+        _ => false,
+    }
+    }
+
 
 #[cfg(test)]
 mod tests {

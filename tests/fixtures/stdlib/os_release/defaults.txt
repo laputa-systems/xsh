@@ -1,0 +1,3 @@
+# Only `ID` is present, so `NAME`, `VERSION`, and `VERSION_ID` take their
+# documented defaults and `PRETTY_NAME` defaults to the resolved name.
+ID=defaults-fixture

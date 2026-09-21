@@ -1,0 +1,4 @@
+# A release file that names the system without a pretty name: `PRETTY_NAME`
+# defaults to the resolved `NAME`, not to the raw text.
+NAME=Fixture Linux
+VERSION_ID=9
