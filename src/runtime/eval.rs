@@ -5288,6 +5288,14 @@ impl Evaluator {
         if self.signal_state.shutdown_force {
             return primary;
         }
+        // Every scope exit asks this question, and almost every scope owns no
+        // host resource at all: an ordinary loop body or block pays for a walk
+        // of both live-handle tables that can only find nothing. An empty table
+        // has no handle to match, so the answer is the primary flow the
+        // non-empty walk would also return.
+        if self.process_handles.is_empty() && self.net_jobs.is_empty() {
+            return primary;
+        }
         let mut primary_failed = matches!(primary, Err(_) | Ok(Flow::Propagate(_)));
         let mut result = primary;
         let ids = self

@@ -220,6 +220,8 @@ impl Evaluator {
 thread_local! {
     static INDEXED_EVAL_DEPTH: Cell<usize> = const { Cell::new(0) };
     static INDEXED_EXPLICIT_FRAMES: Cell<bool> = const { Cell::new(false) };
+    #[cfg(test)]
+    static FORCE_RECURSIVE_FAST_PATH: Cell<bool> = const { Cell::new(false) };
 }
 
 pub(super) fn indexed_explicit_frames_active() -> bool {
@@ -232,11 +234,40 @@ pub(super) fn indexed_recursive_fast_path_allowed(return_kind: LoweredReturnKind
     if matches!(return_kind, LoweredReturnKind::Result(_)) {
         return false;
     }
-    if cfg!(debug_assertions) {
+    if cfg!(debug_assertions) && !recursive_fast_path_forced() {
         return false;
     }
     !indexed_explicit_frames_active()
         && INDEXED_EVAL_DEPTH.with(|depth| depth.get() < (indexed_eval_depth_limit() / 16).max(1))
+}
+
+/// Whether a test has forced the shallow recursive call route on.
+///
+/// The route is selected for a release build's plain shallow calls; a debug
+/// build leaves every call on the heap-backed frame path. Forcing it lets a
+/// test run the same program through both routes and compare them, which is
+/// test configuration: it is absent from a product build, it selects between
+/// the two existing routes rather than adding a third, and the depth guard
+/// above still sends a deep call to the frames.
+#[cfg(test)]
+pub(in crate::runtime::eval) fn recursive_fast_path_forced() -> bool {
+    FORCE_RECURSIVE_FAST_PATH.with(Cell::get)
+}
+
+#[cfg(not(test))]
+fn recursive_fast_path_forced() -> bool {
+    false
+}
+
+/// Runs `work` with the recursive call route forced on for this thread.
+#[cfg(test)]
+pub(in crate::runtime::eval) fn with_forced_recursive_fast_path<R>(work: impl FnOnce() -> R) -> R {
+    FORCE_RECURSIVE_FAST_PATH.with(|forced| {
+        let previous = forced.replace(true);
+        let result = work();
+        forced.set(previous);
+        result
+    })
 }
 
 pub(super) fn with_indexed_explicit_frames<R>(f: impl FnOnce() -> R) -> R {

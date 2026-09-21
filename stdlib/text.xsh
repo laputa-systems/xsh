@@ -113,10 +113,10 @@ pure wrap_piece(norm: Str, start: Int, width: Int) -> Str {
 ## span identical to the baseline's native route.
 ##
 ## Wrapped lines are collected per page and each finished page becomes one
-## string in the page list. `List.push` copies the whole list, so a push per
-## wrapped line would be quadratic in the number of lines; a page bounds every
-## copy by the page size, and the page list stays short enough that growing it
-## is bounded too.
+## string in the page list. A piece is one output line, so a list holding every
+## piece would be as long as the text has lines; a page keeps the intermediate
+## list bounded and the pieces it holds are joined once, into a single entry of
+## the (short) page list.
 export pure wrap(text: Str, width: Int) -> Any {
   if width <= 0 {
     return Err(wrap_error("width must be positive"))

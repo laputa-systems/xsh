@@ -1000,7 +1000,12 @@ pub(super) fn lowered_method_value(
             {
                 Ok(value)
             } else {
-                lowered_list_method_value(items.as_ref().clone(), name, args, span)
+                // The updating methods (`push`, `extend`) consume their
+                // receiver, and the caller has already given this value up:
+                // taking the vector out of its `Arc` keeps repeated
+                // accumulation linear, where cloning it on every update copies
+                // the whole list per element added.
+                lowered_list_method_value(take_shared(items), name, args, span)
             }
         }
         LoweredValue::Map(map) => {
@@ -2295,7 +2300,7 @@ pub(super) fn lowered_map_method_value(
                     map.insert(key.to_string(), LoweredValue::List(items));
                 }
                 Some(LoweredValue::SharedList(items)) => {
-                    let mut items = items.as_ref().clone();
+                    let mut items = take_shared(items);
                     items.push(args[1].clone());
                     map.insert(key.to_string(), LoweredValue::List(items));
                 }

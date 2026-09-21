@@ -86,7 +86,7 @@ global top-level name set, and from user-module collection.
 | G02 file-checksum policy | ported | `hash.verify_file` | `stdlib/hash.xsh` | `verify_hex`, `validate_expected_hex`, the `HashVerifyFile` build row, the `ExprHashVerifyFile` tag and its decoder, and both native dispatch arms removed. What stays native is digest acquisition and representation (`hash.md5`/`sha1`/`sha256`/`sha512` and `Digest`), which the implementation selects by the algorithm name. The algorithm travels as a third argument, because the public form carries it in the checksum argument's *name* and a name is not a value |
 | G03 JSON/INI file-IO composition | retained-boundary (INI write ported) | `ini.write`, `json.read`, `json.write`, `json.write_lines` | `stdlib/ini.xsh` | the INI write composition moved with R09. The JSON file wrappers are the smallest useful host adapters: each is an open/read/decode or encode/open/write sequence whose only non-host step is a single call into the retained codec, so a script shim would add an interpreter boundary and an equal-sized Rust adapter instead of deleting policy |
 | G04 read-only route interpretation | retained-performance | `linux.routes` | — | ported, measured, and removed under §12.3: the embedded parser measured 11.9 ms per call against 0.02 ms across a real 6-row route table, 2379 ms against a 2 ms budget over 200 calls, and 15 ms against 5 ms for a single call in a fresh process. The native parser is restored and the prototype is deleted; `## Performance` records the measurement |
-| G05 rfkill inventory | retained-performance | `linux.rfkill_list` | — | ported and removed with the block-device inventory beside it, which is the same code shape and measured 120 ms against a 2 ms budget. The implementation reads one attribute per device through the interpreter; it was not timed on its own before the group was settled, which is recorded as a limit of this evidence. The native body is restored |
+| G05 rfkill inventory | retained-performance, **unmeasured on its own** | `linux.rfkill_list` | — | ported and removed with the block-device inventory beside it, which is the same code shape. `linux.rfkill_list` was **never timed**: the group was settled on the block-device row's +120 ms, and that row is a proxy for this one rather than this one's measurement, so the `retained-performance` label here is unqualified and no gate result is claimed for it. The implementation reads one attribute per device through the interpreter; §8 of the follow-up requires its own correct fixture and timing before any claim, and this ledger makes none. The native body is restored |
 | G05 block-device inventory | retained-performance | `linux.block_devices` | — | ported, measured, and removed under §12.3: 125 ms against 5 ms over 200 collections of a 3-device tree, a +120 ms delta against a 2 ms budget. The native body is restored and the prototype deleted |
 | G05 interface inventory | retained-boundary | `linux.interfaces` | — | the record's `addresses` field comes from `libc::getifaddrs` (`src/modules/linux/real/net.rs:824`) and its `mtu` prefers the `SIOCGIFMTU` ioctl. Neither is reachable from script code and no public entry exposes interface addresses, so a port would have to add two acquisition bridges and a new record shape to move ~70 lines that sit beside them. §7 keeps platform address acquisition native |
 | G06 read-only disk-usage presentation | retained-boundary | `linux.disk_usage` | — | the numbers the entry reports are not reachable from script code. `disk_usage_record` reads `f_bsize`, `f_blocks`, `f_bfree`, and `f_bavail` through `fs_module::statvfs` and reports bytes (`blocks * f_bsize`, saturating); the nearest public surfaces are lossy in two ways at once — `fs.filesystem_stats`, `fs.mount_for`, and `fs.mounts` use `f_frsize` falling back to `f_bsize` and truncate to 1K units, so `blocks_1k * 1024` is not `blocks * f_bsize`. A faithful port therefore needs a new private statvfs bridge, i.e. new Rust to move ~40 lines of policy that sit directly beside it, which the mandate's net-reduction objective does not support. the exact call graph is above. The design is available if the owner wants it |
@@ -147,6 +147,14 @@ row, or privilege boundary changed. Those mechanisms, with their owners:
 | Lazy traceback names — `TracebackName` | `src/trace.rs` | none — traceback and trace-event rendering only |
 | Shared container backing and the consuming call — `Arc` payloads, borrowed read-only receivers, the proven last-use transfer | `src/runtime/eval.rs`, `src/runtime/eval/lowered_run.rs`, `src/runtime/value.rs` | none — the same values and the same result, with the copies removed |
 | Test-only catalog probe — `probe_embedded_call`, `probe_embedded_pure_call` | `src/runtime/eval.rs`, gated `#[cfg(test)]` | none — absent from every product build |
+| Per-program identity index — `FullProgram::identities`, `resolve_identities` | `src/runtime/eval/indexed/full.rs` | none — the same decoded identities `function_view` already computed on every call, retained with the program instead of recomputed; no key becomes resolvable that was not |
+| Forced call-route test mode — `with_forced_recursive_fast_path`, `recursive_fast_path_forced` | `src/runtime/eval/lowered_run.rs`, gated `#[cfg(test)]` | none — absent from every product build, and it selects between the two existing call routes rather than adding one |
+
+No new XSH-visible operation, effect, or privilege boundary was introduced by
+the follow-up round: the identity index and the call-route mode are runtime
+internals with no spelling in the language, and the only new XSH source is the
+fixture's procedure in `tests/`. The fifth bridge (`append_bytes`) and its
+owner list are the previous phase's.
 
 ## Architecture tests
 
@@ -185,7 +193,9 @@ case, profile, and feature dimensions are the one test above.
 
 Incomplete. All twelve required groups are ported; the gated groups resolve as
 one `ported` (G02), four `retained-boundary`, and three `retained-performance`
-that were measured, failed, and reverted. R02 (CLI policy) and R10
+that were measured, failed, and reverted — one of those (`linux.rfkill_list`)
+recorded after the fact as reverted *without* its own measurement, which is what
+`## Dispositions` and `### Gated groups` now say. R02 (CLI policy) and R10
 (JSON path policy) use the four private representation bridges —
 `RecordWithField` and `BridgeTypeName` in both, `BridgeCommandName` in the CLI
 and `RecordRemoveField` in JSON — that the CLI's schema-shaped record
@@ -234,15 +244,27 @@ What is not finished:
   runtime is reported under `### Call and stage overhead: profiled, with the
   copy and allocation removals measured`, which now includes the per-call
   header cache: it removed 27% of the three-million-call probe and 7–18% of
-  twelve complete workloads without reaching their gates. The smallest
-  remaining change is a bounded specialization over the bodies the workloads
-  actually run, or an instruction cache. Both were tried in the form the fixed
-  decisions permit: the single-return body shape was implemented and measured at
-  -6.2% on the call-heavy probe and within noise on every designated workload
-  (removed), and decoding statement lists once was measured identical (removed);
-  the allocation route is closed by measurement too — the engine now allocates
-  2.00 times per loop iteration and 14.00 per `Result`-returning call, and
-  `xsh-runtime-stats` reports those figures directly. What remains for the gate
+  twelve complete workloads without reaching their gates.
+
+  The follow-up round above removed two more of the costs that profile named.
+  The per-call function lookup is gone (`### Function identities resolve once
+  per program`): it moves every call-heavy row by 27–71% against B1, which
+  takes `cli_small_schema` from 250× over its budget to 78×, `core_command`
+  from 35× to 12×, and `json_path_ops` from 27× to 10×. The `List` update path
+  is linear instead of quadratic (`### Growing containers update in place`).
+  Neither moves a single row's pass/fail against B0, and the acceptance table
+  in `## Performance` names exactly which rows remain and by how much.
+  The smallest remaining change is a bounded specialization over the bodies the
+  workloads actually run, or an instruction cache. Both were tried in the form
+  the fixed decisions permit: the single-return body shape was implemented and
+  measured at -6.2% on the call-heavy probe and within noise on every designated
+  workload (removed), and decoding statement lists once was measured identical
+  (removed); a word-based `Str.wrap` was implemented, verified byte-identical
+  over 400 randomized cases, measured 3.5× slower, and removed
+  (`### What was measured and put back`); the allocation route is closed by
+  measurement too — the engine now allocates 2.00 times per loop iteration and
+  14.00 per `Result`-returning call, and `xsh-runtime-stats` reports those
+  figures directly. What remains for the gate
   is the per-step dispatch of the workloads' large bodies, which is what a
   second execution graph would have to replace and what §5 does not authorize.
   All of this is recorded under `### Call and stage overhead`. The four cold rows carry one
@@ -264,6 +286,15 @@ What is not finished:
   their call graphs. **G04**, **G05**'s rfkill and block-device inventories, and
   **G07** were ported, measured per group, failed their gates, and were removed
   and retained natively under §12.3, with the measurements in `## Performance`.
+  One of those results is not a measurement: `linux.rfkill_list` was reverted on
+  the *block-device* row's number, and the `## Dispositions` row and
+  `### Gated groups` entry both say so now. Reopening it needs its own fixture,
+  timing, and deletion accounting, which is what the follow-up asks for and what
+  this ledger does not claim.
+- **G07's budgets were mis-stated and are corrected.** The gated-group table
+  listed the 2 ms floor for both G07 rows; the gate's formula gives 9.4 ms for
+  the 94 ms reference and 11.5 ms for the 115 ms one. Both rows still fail, by
+  7×, and `bench/stdlib-port/run.py --self-test` is what pins the arithmetic.
 - **Production Rust is net additive in this phase and net deleting overall.**
   The port deleted 5,089 lines and added 4,749 (net **-340**); this phase alone
   added 2,264 and deleted 717 (net +1,547), because it added the suspending
@@ -401,6 +432,77 @@ route for re-running it is in `bench/stdlib-port/README.md`.
 | `native_control` | control | 25.160 ms | 24.726 ms | 24.453 ms | -0.707 ms | 2.516 ms | pass |
 | `native_hash_control` | control | 133.508 ms | 133.110 ms | 133.328 ms | -0.180 ms | 13.351 ms | pass |
 
+### The follow-up round, measured against both baselines
+
+The call-path and container work recorded under `### Function identities resolve
+once per program` and `### Growing containers update in place` was measured in
+one session against **both** baselines, with each baseline running interleaved
+against the same candidate binary. §2 asks for exactly this: `C - B0` decides
+whether the migration passes, and `C - B1` attributes the improvement to this
+round rather than to the phase before it.
+
+| | Identity |
+| --- | --- |
+| B0 | revision `37e1502`, binary sha256 `1b2ba6c98463b539…` |
+| B1 | revision `d0bbc6e`, binary sha256 `955bade6a2b0904b…` |
+| Candidate | this tree, binary sha256 `afc56e5e28c76b2c…` |
+
+Both runs are one interleaved round of the runner's own per-workload sample
+counts (60 samples a side on the cold rows, 30 on the rest), on
+`aarch64-apple-darwin`, release, `lto = "thin"`, from a quiet machine. The B1
+column of the table above is the *previous* round's readback; the B1 column
+below is measured in this session, so the two baselines and the candidate are
+comparable row by row. Every round and every raw sample is preserved in
+`bench/stdlib-port/results-followup-b0.json` and
+`results-followup-b1.json`, which carry the two binaries' hashes, the fixture
+digests, the workload-script digests, and each side's per-sample milliseconds —
+the same shape `results-final.json` has.
+
+| Workload | Class | B0 | B1 | Candidate | Δ vs B0 | Δ vs B1 | Budget | Result |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `cold_trivial` | cold | 9.493 ms | 9.568 ms | 8.980 ms | -0.513 ms | -0.589 ms | 1.000 ms | pass |
+| `cold_quote` | cold | 10.792 ms | 11.214 ms | 10.668 ms | -0.124 ms | -0.547 ms | 1.000 ms | pass |
+| `cold_pad` | cold | 10.792 ms | 11.454 ms | 10.747 ms | -0.045 ms | -0.707 ms | 1.000 ms | pass |
+| `cold_cli_parse` | cold | 11.190 ms | 20.555 ms | 18.332 ms | **+7.141 ms** | -2.223 ms | 1.000 ms | **fail** |
+| `cold_cli_usage` | cold | 11.335 ms | 19.224 ms | 17.838 ms | **+6.502 ms** | -1.386 ms | 1.000 ms | **fail** |
+| `cold_cli_error` | cold | 11.109 ms | 18.957 ms | 17.652 ms | **+6.543 ms** | -1.305 ms | 1.000 ms | **fail** |
+| `cold_dynamic_ref` | cold | 11.595 ms | 24.741 ms | 23.733 ms | **+12.138 ms** | -1.008 ms | 1.000 ms | **fail** |
+| `cli_small_schema` | CLI | 13.684 ms | 514.279 ms | 170.355 ms | **+156.671 ms** | -343.924 ms | 2.000 ms | **fail** |
+| `cli_wide_schema` | CLI | 15.502 ms | 932.784 ms | 367.878 ms | **+352.377 ms** | -564.905 ms | 2.000 ms | **fail** |
+| `cli_repeated_parse` | CLI | 12.585 ms | 580.572 ms | 166.812 ms | **+154.228 ms** | -413.760 ms | 2.000 ms | **fail** |
+| `text_wrap_unicode` | text | 166.176 ms | 1255.199 ms | 902.799 ms | **+736.623 ms** | -352.400 ms | 16.618 ms | **fail** |
+| `text_pad_batch` | text | 27.061 ms | 73.407 ms | 52.467 ms | **+25.405 ms** | -20.940 ms | 2.706 ms | **fail** |
+| `fmt_batch` | text | 13.790 ms | 34.354 ms | 29.540 ms | **+15.749 ms** | -4.814 ms | 2.000 ms | **fail** |
+| `quote_batch` | quoting | 13.535 ms | 38.524 ms | 28.168 ms | **+14.632 ms** | -10.356 ms | 2.000 ms | **fail** |
+| `quote_edge_cases` | quoting | 15.031 ms | 48.129 ms | 37.938 ms | **+22.907 ms** | -10.191 ms | 2.000 ms | **fail** |
+| `mime_batch` | MIME | 36.924 ms | 116.880 ms | 85.530 ms | **+48.606 ms** | -31.350 ms | 3.692 ms | **fail** |
+| `ini_large_record` | INI | 15.191 ms | 285.131 ms | 176.290 ms | **+161.099 ms** | -108.840 ms | 2.000 ms | **fail** |
+| `json_path_ops` | JSON | 17.093 ms | 70.585 ms | 38.107 ms | **+21.014 ms** | -32.478 ms | 2.000 ms | **fail** |
+| `json_lines_batch` | JSON | 15801.709 ms | 15617.103 ms | 785.511 ms | -15016.198 ms | -14831.592 ms | 1580.171 ms | pass |
+| `env_typed_lookups` | env | 12.554 ms | 23.750 ms | 17.085 ms | **+4.531 ms** | -6.665 ms | 2.000 ms | **fail** |
+| `checksum_batch` | checksum | 11.847 ms | 19.238 ms | 15.694 ms | **+3.848 ms** | -3.544 ms | 2.000 ms | **fail** |
+| `core_command` | tooling | 12.208 ms | 81.385 ms | 36.479 ms | **+24.271 ms** | -44.906 ms | 2.000 ms | **fail** |
+| `native_control` | control | 26.220 ms | 26.796 ms | 25.796 ms | -0.424 ms | -1.000 ms | 2.622 ms | pass |
+| `native_hash_control` | control | 135.299 ms | 140.865 ms | 134.646 ms | -0.653 ms | -6.219 ms | 13.530 ms | pass |
+
+**The attribution is unambiguous and the acceptance is unchanged.** Every
+call-heavy row moved against B1 — 61–71% on the CLI batch rows, 55% on
+`core_command`, 46% on `json_path_ops`, 38% on `ini_large_record`, 27–29% on
+`mime_batch`, `text_pad_batch`, and `text_wrap_unicode`, and 95% on
+`json_lines_batch` — and the two control rows moved by -0.4 ms and -0.7 ms
+against B0, so the runtime changes are not paid for by the paths the port must
+not slow down. Against B0, the acceptance set is **exactly the same eighteen
+rows as before**: this round is a large improvement in the ported
+implementations' cost and no change at all in which gates pass. The relative
+distance to each budget moved by the same factors as the row: `cli_small_schema`
+is 78× over its budget where it was 250×, `core_command` 12× where it was 35×,
+`json_path_ops` 10× where it was 27×, `checksum_batch` 1.9× where it was 3.7×.
+
+`json_lines_batch` is still the only end-to-end row inside its budget, and the
+two controls pass; everything else remains the interpreted per-call cost
+recorded under `### What the failures are`, now at roughly a third of what that
+section measured.
+
 **One row moved, by 14×.** `json_lines_batch` builds 10,000 small records in an
 interpreted loop and encodes them once. The loop's `records = records.push(...)`
 copied the growing list on every iteration, so the row was Θ(n²) in the
@@ -426,6 +528,10 @@ this work: `xsht api summary`, `xsht check`, and `xsht lint` (see
 
 **Parity status of the failing rows.** The runner times each workload and
 discards its output, so it cannot say whether a failing row *behaves* the same.
+Re-run for the follow-up round against the B0/candidate pair below and unchanged:
+**twenty-seven of the thirty identities byte-identical, the same three Linux
+refusals differing only in the executable path their traceback names**, with no
+workload's stdout, status, or side effects moved by this round's runtime changes.
 Measured separately with `bench/stdlib-port/parity.py` against the same final
 pair of binaries: each of the runner's thirty declared workloads runs under both,
 from the runner's own working directory, and **twenty-seven of them produce
@@ -525,18 +631,29 @@ process, over the fixture trees recorded under `## Linux verification`:
 
 | Group | Workload | Reference | Candidate | Delta | Budget | Result |
 | --- | --- | --- | --- | --- | --- | --- |
-| G04 routes | 200 × `linux.routes()?.collect()` over 6 rows | 4 ms | 2383 ms | **+2379 ms** | 2 ms | **fail** |
-| G05 block devices | 200 × `linux.block_devices()?.collect()` over 3 devices | 5 ms | 125 ms | **+120 ms** | 2 ms | **fail** |
-| G07 modinfo | 200 × `linux.modinfo("mod_a")` over a 3-module tree | 94 ms | 163 ms | **+69 ms** | 2 ms | **fail** |
-| G07 depmod | 200 × `linux.depmod("")` over the same tree | 115 ms | 235 ms | **+120 ms** | 2 ms | **fail** |
+| G04 routes | 200 × `linux.routes()?.collect()` over 6 rows | 4 ms | 2383 ms | **+2379 ms** | 2.0 ms | **fail** |
+| G05 block devices | 200 × `linux.block_devices()?.collect()` over 3 devices | 5 ms | 125 ms | **+120 ms** | 2.0 ms | **fail** |
+| G07 modinfo | 200 × `linux.modinfo("mod_a")` over a 3-module tree | 94 ms | 163 ms | **+69 ms** | **9.4 ms** | **fail** |
+| G07 depmod | 200 × `linux.depmod("")` over the same tree | 115 ms | 235 ms | **+120 ms** | **11.5 ms** | **fail** |
+
+Each budget is the gate's own formula applied to that row's reference —
+`max(0.10 × reference, 2 ms)` for a non-hot row — not the 2 ms floor: a 94 ms
+reference allows 9.4 ms and a 115 ms reference allows 11.5 ms. Both G07 rows
+still fail, by 7× rather than by the 34× the floor would have implied, and the
+formula is what `bench/stdlib-port/run.py --self-test` asserts over exactly
+these two references (`self_test` in that file computes `9.4` and `11.5` for
+the 94 ms and 115 ms synthetic rows).
 
 The routes row is the clearest: 11.9 ms per call against 0.02 ms, because the
 parser walks every hexadecimal character in the route table through the
 interpreter. `linux.rfkill_list` was not timed before the others settled its
 fate; its implementation has the same shape (a per-attribute interpreted read
-per device) and the block-device row beside it is the same code pattern. Cold
-start agrees: `linux_routes.xsh` as a whole measured 15 ms (release) against the
-reference's 5 ms.
+per device) and the block-device row beside it is the same code pattern, but
+"same shape" is an argument, not a measurement. The group's rfkill result is
+therefore recorded as **unmeasured** rather than borrow the block-device row's
+number, and a future reopening of that prototype needs its own fixture, timing,
+and deletion accounting. Cold start agrees: `linux_routes.xsh` as a whole
+measured 15 ms (release) against the reference's 5 ms.
 
 All four prototypes were therefore removed and their native bodies restored, and
 `stdlib/linux_routes.xsh`, `stdlib/linux_rfkill.xsh`,
@@ -687,6 +804,15 @@ why this table stands as measured.
   — §5's control-state claim as a test rather than a timing: two hundred loop
   iterations take their body's statement list back from the pool instead of
   building one each time.
+- `src/runtime/eval/lowered_run/indexed_run.rs::both_call_routes_agree_on_the_same_public_program`
+  — §5's differential requirement: one disk-free but complete public program
+  through both call routes, compared byte for byte. See
+  `### The differential call-route test`.
+- `tests/runtime/collections.rs::record_reads_do_not_copy_the_container` — §4's
+  read-complexity claim as a counter assertion over
+  `tests/fixtures/runtime/record-read-scaling.xsh`, at two container sizes and
+  two read counts, with construction separated from traversal. See
+  `### Read-complexity evidence for containers`.
 - `src/stdlib.rs` unit tests — catalog/registry agreement in both directions;
   `cold_start_phase_profile` (an `#[ignore]`d diagnostic, not part of the
   default run) is the §6 phase measurement recorded under
@@ -728,6 +854,9 @@ landed:
 | Production Rust added, `d0bbc6e` → this tree (this phase) | 2,264 |
 | Production Rust deleted, `d0bbc6e` → this tree (this phase) | 717 |
 | Net production Rust change, this phase | **+1,547** |
+| Production Rust added, the follow-up round above (`297f9ed` → this tree) | 225 |
+| Production Rust deleted, the same range | 3 |
+| Net production Rust change, the same range | **+222** |
 | XSH implementation (`stdlib/*.xsh`, 16 modules) | 6,484 |
 | Deleted native owner files | `src/modules/cli.rs` (2,263), `src/modules/mime.rs` (283), `src/modules/shlex.rs` (77), the Linux text bodies in `src/modules/system.rs`, `src/modules/unix.rs`, and `src/modules/linux/real/kernel.rs` |
 | Test, doc, and bench churn (`tests/`, `docs/`, `bench/`, `AGENTS.md`, this ledger, `37e1502` → this tree) | +39,103 / -19 |
@@ -760,6 +889,20 @@ for the *stdlib* surface: every ported group moved policy out of Rust and into
 the embedded library, and the remaining native boundary is documented group by
 group. The whole-port line count now agrees with it; the phase's does not, and
 the table above is the measure of both.
+
+**The follow-up round is +222 and all of it is runtime or test.** Of the 225
+added lines, 92 are the runtime changes this round is measured on — the identity
+index (`src/runtime/eval/indexed/full.rs`, 45), the container-update fix
+(`lowered_ops.rs`, 9), the scope-exit guard (`eval.rs`, 8), and the crate-private
+call-route test mode (`lowered_run.rs`, 32) — and 133 are the differential
+call-route test inside `src/runtime/eval/lowered_run/indexed_run.rs`, which the
+counting method includes because it counts `src/`. The three deleted lines are
+the two clone-based `SharedList` updates and one signature. No stdlib policy
+moved between Rust and XSH in this round: the only XSH change is four lines of
+a corrected comment in `stdlib/text.xsh`, and the new fixture lives under
+`tests/`. That is the shape the follow-up asked for — "a general runtime
+improvement may add Rust in this phase" — and it is recorded rather than folded
+into the port's total, which is why the table separates the range.
 
 The required Linux entries (R12) bind per target: the Linux overload is the
 script binding and the macOS overload is the native one, so a Linux build has
@@ -834,6 +977,9 @@ mounts and `CARGO_TARGET_DIR=/work/target`):
 | the same suite, after the fixed-path fixture test was added | **529 passed, 1 failed, 26 ignored**, the same single failure (the corpus runner and its four environment cases) |
 | the same suite, after the per-call header cache | **529 passed, 1 failed, 26 ignored**, the same single failure |
 | the same suite, after statement-list recycling | **529 passed, 1 failed, 26 ignored**, the same single failure |
+| the same suite, after the identity index, the container-update fix, and the call-route work | **530 passed, 1 failed, 26 ignored**, the same single failure (the corpus runner; the extra pass is the new container-read test) |
+| the corpus through that suite's runner (`runtime::coverage::xsh_native_tests`), same tree | **443 passed, 4 failed, 18 skipped** — the same four environment failures |
+| the reference build's `fs.xsh` in the same image, same mounts | **7 passed, 3 failed** — the identical three `Bad file descriptor (os error 9)` cases, which is what makes them environmental rather than a property of the port or of the common execution machinery |
 | that test under the three staged scenarios (`XSH_OS_RELEASE_SCENARIO=etc`, `fallback`, `neither`) | **1 passed** in each, the assertions in the fixture table above |
 | the corpus through that suite's runner (`runtime::coverage::xsh_native_tests`) | **442 passed, 4 failed, 19 skipped** |
 | `cargo test --features linux-priv-tests` (every target) | **did not terminate**: ten minutes with no progress, the last observed state being an idle `xsh-test-sleeper` process holding no CPU time |
@@ -1528,6 +1674,142 @@ dispatch first (it dominates the eighteen rows), then the lowering and
 verification passes for the four cold rows, and the measurement above is the
 baseline either change starts from.
 
+### Function identities resolve once per program
+
+§5 lists "per-call function lookup" and "repeated decoding/checking of immutable
+function metadata that preparation already knows" as costs to remove.
+`FullProgram::function_view` was both: every call, and every block that resolves
+a function, walked the whole function table and compared each entry's identity —
+and computing one identity decodes the function's name and owner text from the
+store, interns both, and builds the key, so a lookup of a program with *n*
+functions did *n* interning operations and *n* UTF-8 validations of stored name
+bytes.
+
+A release profile of the 3,000-parse CLI probe (`sample`, one process) put the
+leaf samples there: `core::str::converts::from_utf8` 650 of 2,348 work-thread
+samples, `Name::intern` 353, `Interner::get` 231, `FullProgram::function_identity`
+112, with `function_view` itself above them at every call site. More than half
+the workload's samples were identity resolution.
+
+`FullProgram` now keeps an identity index beside `headers`: a
+`OnceLock<Option<FxHashMap<(key, kind), index>>>` that is filled on the first
+lookup and then answered in one hash probe. The names it holds are interned into
+the program's own symbol owner, so the index has exactly the identity and
+lifetime the header cache has — indexed by function, dropped with the program —
+and a program that cannot resolve an identity stores `None` and keeps the
+original scan, so the error still reaches the caller instead of being reported
+as a missing function. A repeated identity keeps the first function, which is
+what the scan returned.
+
+This is the largest single call-path change of the follow-up: measured against
+B1 in the same session it moves the CLI batch rows by 61–71%, `core_command` by
+55%, and every other call-heavy row by 14–46% (the per-row numbers are in
+`## Performance`), and it is what makes `core_command` (which resolves a
+standard entry per invocation) and the CLI batch rows visible improvements
+rather than regressions. The per-step and per-call calibration recorded under
+`### What the failures are` was taken before this change and is a property of
+that build, not of the current one.
+
+### Growing containers update in place
+
+§4 requires that "repeated local accumulation should not thaw/refreeze a growing
+container on every iteration". Record, map, and record-vector payloads became
+`Arc`-backed in the previous phase, and the `Map` update arm takes its payload
+out of the `Arc` when it is the only owner. The `List` arm did not: for a
+`SharedList` receiver — which is what a slot read hands out once a list reaches
+`LOWERED_SHARED_LIST_THRESHOLD` — every updating method (`.push`, `.extend`, and
+`Map.push`'s nested list) cloned the whole vector first.
+
+The cost was quadratic, measured with `xsh-runtime-stats` over
+`values = values.push(index)` in a loop (execution-phase allocation bytes):
+
+| Elements | Before | After |
+| --- | --- | --- |
+| 1,000 | 32.7 MB | 0.78 MB |
+| 4,000 | 514.6 MB | 2.94 MB |
+| 16,000 | 8,209.0 MB | 11.6 MB |
+
+The before column is 16× per 4× of size; the after column is 4× per 4×, linear
+with a bounded constant per element. The fix is the same `take_shared` the
+`Map` arm already used: the method call consumes its receiver, so a uniquely
+owned payload is moved out of its `Arc`, and a genuinely shared one is still
+copied, which is what keeps value semantics. Allocation counts per element also
+fell (10,517 → 8,555 at 1,000 elements), because the clone that the copy-on-write
+path then had to re-freeze is gone too.
+
+### Read-complexity evidence for containers
+
+§4 asks for deterministic counters rather than "a linear number of reads
+performs quadratic copying" asserted in prose, and §10 asks for a test that
+proves "no n-sized clone per Record read". `xsh-runtime-stats` already owns the
+counting allocator, so no new counter was needed; what was missing was a
+disk-backed program that separates construction from traversal.
+`tests/fixtures/runtime/record-read-scaling.xsh` builds a map of
+`XSH_RECORD_READ_FIELDS` entries, takes its keys once, and then reads every key
+`XSH_RECORD_READ_PASSES` times.
+
+`tests/runtime/collections.rs::record_reads_do_not_copy_the_container` runs it at
+two sizes and two pass counts through that binary and asserts:
+
+- per-read execution allocations are bounded (under 8) at both 64 and 1,024
+  keys, and the 1,024-key figure is not larger than the 64-key one — a read that
+  copied the container would cost in proportion to its size, sixteen times more
+  at the larger size;
+- constructing a 16× larger map costs well under 40× the allocations, which is
+  the same assertion for the build path (`Map.set` in a loop) that the element
+  sweep above makes for `List.push`.
+
+The numbers are deterministic across runs, so the test is a gate rather than a
+timing measurement: it fails if either path regains an n-proportional copy.
+
+### The differential call-route test
+
+§5 asks for a crate-private test mode that forces the generic and optimized
+routes through the same public programs. Two call routes exist: the recursive
+route, which a release build selects for a plain shallow call
+(`indexed_recursive_fast_path_allowed`), and the heap-backed explicit-frame
+route, which everything else takes. A debug build leaves *every* call on the
+frames, so the recursive route had no coverage in ordinary test runs.
+
+`with_forced_recursive_fast_path` is that mode: a `#[cfg(test)]` thread-local
+that the same predicate consults, absent from every product build, selecting
+between the two existing routes rather than adding a third, and leaving the
+depth guard in place so a deep call still goes to the frames.
+`both_call_routes_agree_on_the_same_public_program` runs one ordinary script
+through both routes and compares status, stdout, and stderr byte for byte,
+covering scalars, nested compound expressions, `Result` success and `?`
+propagation failure, defaults and a rest parameter, self and mutual recursion, a
+top-level capture read and written from a proc, a pipeline, and a stream
+producer consumed by the driver.
+
+### What was measured and put back
+
+Two further changes were implemented, measured, and removed, in the same
+discipline the previous phase used:
+
+- **A word-based `Str.wrap`.** The ported wrapper finds each piece's end through
+  a scalar-position lookup that splits a `width + 1`-column window into one
+  string per scalar. Rewriting it as the greedy fill over the line's words
+  removes most of those allocations, and the rewrite is *correct*: over 400
+  randomized cases (Unicode words, overlong words, whitespace runs, tabs,
+  leading and trailing newlines, empty text, widths 1–12) its output is
+  byte-identical to the reference build's native wrapper, and all 400 cases
+  complete. It is also slower: `text_wrap_unicode` measured **3.202 s against
+  0.903 s** (seven interleaved samples a side, no overlap between the two
+  sets), because the per-word loop runs fifteen-odd interpreted statements per
+  word where the scalar window is one interpreted call and a native split. The
+  replacement the profile asks for is the interpreter, not the allocation
+  count, so the change was reverted and `stdlib/text.xsh` keeps its window-based
+  wrapper. The parity harness and the case generator are recorded here rather
+  than committed, because they test a wrapper that no longer exists.
+- **A guard for scope exits that own no host resource.**
+  `cleanup_scope_process_handles` walks both live-handle tables on every scope
+  exit; an early return when both are empty measured 2.839 s against 2.864 s on
+  the 3,000-parse probe (six interleaved samples a side, every "with" sample
+  below every "without"). It is kept — it is a bounded, obviously correct
+  shortcut on a path every block exit takes — and recorded as ~0.9% of that
+  probe and below noise on every designated workload.
+
 ## Defects found and fixed during the port
 - **The `no-default-features` build stopped compiling.** `lowered_bytes_arg_or_empty`
   in `src/runtime/eval/lowered_run.rs` was gated behind `native-tests`, and the
@@ -1698,15 +1980,38 @@ harness or a bind mount over `/proc/net/route` inside the test container.
 
 ## Open items for the repository owner
 
-- Ten files need the repository formatter, reported by `xsht fmt --check`:
-  `tests/xsh/stdlib/cli.xsh`, `env.xsh`, `ini.xsh`, `json.xsh`, `linux.xsh`,
-  `mime.xsh`, `process.xsh`, `text.xsh`, `tui.xsh`, and `unix.xsh`. This change
-  ran no formatter on any of them; three earlier files were formatted by hand
-  to the tool's own output, and the rest are left to the owner as
-  `AGENTS.md` requires. The repository's pre-existing unformatted file is
-  `dev/tests/test-targets.xsh`, unchanged. `stdlib/**/*.xsh` and
-  `bench/**/*.xsh` are excluded in `xsht-config.ini`, which is why the
-  embedded sources and the workload scripts are not in that list.
+- **Closed.** This entry listed ten files that needed the repository formatter
+  (`tests/xsh/stdlib/cli.xsh`, `env.xsh`, `ini.xsh`, `json.xsh`, `linux.xsh`,
+  `mime.xsh`, `process.xsh`, `text.xsh`, `tui.xsh`, and `unix.xsh`). The
+  follow-up round verified them one by one and repo-wide: `xsht fmt --check`
+  now exits 0 over the whole tree and over the ten names explicitly, with a
+  deliberately misformatted control file still reported as needing formatting,
+  which is what makes the check itself trustworthy. The previous entry was
+  written before the formatter state it describes was committed; the ten files
+  as committed at `297f9ed` are already formatted. Nothing in this tree is
+  pending formatting, and `stdlib/**/*.xsh` and `bench/**/*.xsh` stay excluded
+  in `xsht-config.ini` for the reasons recorded there.
+- The one file the follow-up round did format is the new fixture it added,
+  `tests/fixtures/runtime/record-read-scaling.xsh`: `xsht fmt` was run on that
+  single path, it rewrote only that file, and it is the only file it touched.
+- **Twelve Rust files need `cargo fmt`, and this predates the follow-up round.**
+  `cargo fmt --all -- --check` reports differences in
+  `src/runtime/eval.rs`, `src/runtime/eval/indexed/full.rs`,
+  `src/runtime/eval/lower.rs`, `src/runtime/eval/lowered_ops.rs`,
+  `src/runtime/eval/lowered_run.rs`,
+  `src/runtime/eval/lowered_run/indexed_run.rs`,
+  `.../indexed_run/explicit_run.rs`, `.../indexed_run/producer.rs`,
+  `src/stdlib.rs`, `src/stdlib/embedded_fixture_tests.rs`,
+  `tests/runtime/common.rs`, and `tests/stdlib_port.rs`. Running the same check
+  in an immutable `37e1502` worktree and in a `d0bbc6e` one reports **no**
+  differences, and in a `297f9ed` one reports the same twelve, so every hunk is
+  the previous phase's and none is this round's: the follow-up round's additions
+  were checked against rustfmt by hand and are formatted (two hunks in the new
+  collections test and one in the call-route test were applied from the tool's
+  own output, and the tool was not run over the tree). This is why
+  `cargo dev check`'s `check-rustfmt` stage fails on the current tree; it is
+  recorded here rather than fixed, because formatting the tree is the owner's
+  call and `AGENTS.md` leaves formatters to them.
 - `xsht check` and `xsht lint` over the whole repository produce output
   identical to the reference (compared as sorted line sets with the two
   checkout paths normalized) and exit 0 and 1 respectively; the lint exit is
@@ -1745,6 +2050,16 @@ harness or a bind mount over `/proc/net/route` inside the test container.
 - After the harness repair (`### The integration suite executes again`) the
   candidate's `cargo test --test integration` reports **519 passed, 0 failed,
   27 ignored**, and the whole workspace **1,039 passed, 0 failed, 29 ignored**.
+  The follow-up round's tree adds
+  `collections::record_reads_do_not_copy_the_container` to that target, and its
+  final quiet-machine runs report **1,041 passed, 0 failed, 29 ignored** for the
+  workspace and **520 passed, 0 failed, 27 ignored** for `--test integration`.
+  Its three *loaded* full-suite runs reported 518–519 passed and one or two
+  failures, all from the documented flaky classes below — the two `net` timing
+  cases and, in one run, `runtime::os::os_nested_proc_scopes_cleanup_multiple_live_handles`,
+  which waits 2.3 s for a killed child to stay dead. Every one of them passed
+  when re-run: the process case six times in a row and four times concurrently,
+  the `net` cases in isolation, and none of them reproduces consistently.
   Nothing in either set is skipped for being unavailable: the ignored cases are
   the suite's own `#[ignore]` declarations — 27 of them in `tests/` and two in
   `src/` (this phase's cold-start phase-profile diagnostic is one), all

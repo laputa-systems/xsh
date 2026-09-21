@@ -8020,6 +8020,7 @@ impl Evaluator {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::sema::check::Checker;
     use crate::source::SourceMap;
     use crate::syntax::parser::Parser;
 
@@ -8111,5 +8112,136 @@ pure pipeline(values: List[Int]) -> List[Int] {
             .expect("collection pipeline uses only direct indexed opcodes")
             .unwrap();
         assert_eq!(piped, Value::List(vec![Value::Int(4), Value::Int(6)]));
+    }
+    /// The two call routes must agree on the same public program.
+    ///
+    /// A plain shallow call takes the recursive route in a release build and the
+    /// heap-backed frame route otherwise, and `Result`-returning calls and deep
+    /// recursion always take the frames. This runs one ordinary script
+    /// (`##` program below) through both routes and compares status, stdout, and
+    /// stderr byte for byte: scalars, nested compound expressions, `Result`
+    /// success and failure, defaults and a rest parameter, self and mutual
+    /// recursion, a top-level capture read and written from a proc, a pipeline,
+    /// and a stream producer consumed by the driver.
+    ///
+    /// The route is forced through the crate-private test hook
+    /// `with_forced_recursive_fast_path`, which is absent from every product
+    /// build; nothing here is a user-facing switch or a second backend.
+    #[test]
+    fn both_call_routes_agree_on_the_same_public_program() {
+        crate::runtime::eval::run_eval(both_call_routes_agree_on_the_same_public_program_inner);
+    }
+
+    fn both_call_routes_agree_on_the_same_public_program_inner() {
+        let source = r#"
+    let factor: Int = 3
+    var total: Int = 0
+
+    pure nested(a: Int, b: Int) -> Int {
+      return (a + b) * (a - b) + factor
+    }
+
+    pure with_defaults(a: Int, b: Int = 7, ...rest: List[Int]) -> Int {
+      var sum = a + b
+      for value in rest {
+        sum = sum + value
+      }
+      return sum
+    }
+
+    pure is_even(n: Int) -> Bool {
+      if n == 0 {
+        return true
+      }
+      return is_odd(n - 1)
+    }
+
+    pure is_odd(n: Int) -> Bool {
+      if n == 0 {
+        return false
+      }
+      return is_even(n - 1)
+    }
+
+    pure scaled(text: Str) -> Result[Int] {
+      let value = text.parse_int()?
+      return Ok(value * factor)
+    }
+
+    proc add_to_total(value: Int) -> Int {
+      total = total + value
+      return total
+    }
+
+    stream rows(limit: Int) -> Stream[Int] {
+      var index = 0
+      while index < limit {
+        yield index * factor
+        index = index + 1
+      }
+    }
+
+    for row in rows(3) {
+      print f"row ${row}"
+    }
+    print f"${nested(-5, 2)} ${with_defaults(1)} ${with_defaults(1, 7, 4, 5)}"
+    print f"${is_even(7)} ${is_odd(7)} ${is_even(8)}"
+    print f"${scaled("41")?}"
+    print f"${add_to_total(5)} ${add_to_total(6)} ${total}"
+    match scaled("nope") {
+      Ok(value) => print f"ok ${value}"
+      Err(error) => print f"rejected ${error}"
+    }
+    let values: List[Int] = [1, 2, 3, 4]
+    print f"${values |> where . > 1 |> map . * factor |> sum}"
+    "#;
+        let frames = run_program_through_route(source, false);
+        let recursive = run_program_through_route(source, true);
+        assert_eq!(frames, recursive, "the two call routes disagree");
+        assert!(
+            frames.contains(concat!(
+                "status 0\n",
+                "stdout:\n",
+                "row 0\nrow 3\nrow 6\n",
+                "24 8 17\n",
+                "false true true\n",
+                "123\n",
+                "5 11 0\n",
+                "rejected invalid integer `nope`\n",
+                "27\n",
+            )),
+            "the driver consumed the producer: {frames:?}"
+        );
+    }
+
+    /// One script's observable result, through one call route.
+    fn run_program_through_route(source: &str, force_recursive: bool) -> String {
+        let mut sources = SourceMap::new();
+        let source_id = sources.add_file("call-routes.xsh", source);
+        let parsed = Parser::parse_source_arena_only(source_id, source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        Checker::check_compact_declarations(&parsed.arena);
+        let mut evaluator = Evaluator::new_with_sources(Vec::new(), sources);
+        let plan = evaluator
+            .prepare_compact_indexed_only(&parsed.arena, source_id)
+            .expect("the call-route program prepares");
+        let output = if force_recursive {
+            crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(|| {
+                evaluator.eval_installed_compact_indexed_only(plan)
+            })
+        } else {
+            evaluator.eval_installed_compact_indexed_only(plan)
+        };
+        let output = match output {
+            Ok(output) => output,
+            // The error arm hands the evaluator back, which has no `Debug`.
+            Err(_) => panic!("the call-route program installs and runs"),
+        };
+        format!(
+            "status {}\nstdout:\n{}\nstderr:\n{}",
+            output.status,
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr),
+        )
     }
 }
