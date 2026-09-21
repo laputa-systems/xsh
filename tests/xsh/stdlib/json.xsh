@@ -116,14 +116,14 @@ pure rejection_message(outcome: Result[Any]) -> Result[Str] {
 
 # An update must rebuild the container it walked into: a `Map` stays a `Map`
 # and a `Record` stays a `Record`, with no conversion and no JSON round-trip.
-proc expect_map(label: Str, value: Any) [error] -> Result[Unit] {
+proc expect_map(label: Str, value: Any) [error] {
   match value {
     _ is Map[Any] => return test.ok(true, label)
     _ => return test.fail(f"${label}: a Map came back as another container")
   }
 }
 
-proc expect_record(label: Str, value: Any) [error] -> Result[Unit] {
+proc expect_record(label: Str, value: Any) [error] {
   match value {
     _ is Record => return test.ok(true, label)
     _ => return test.fail(f"${label}: a Record came back as another container")

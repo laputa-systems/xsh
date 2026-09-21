@@ -77,32 +77,6 @@ pub(crate) fn crc32c(bytes: &[u8]) -> i64 {
     crc32_with_polynomial(bytes, 0x82f6_3b78) as i64
 }
 
-pub(crate) fn verify_hex(
-    actual: &DigestValue,
-    expected: &str,
-    span: Span,
-) -> Result<(), RuntimeError> {
-    validate_expected_hex(
-        actual.algorithm.as_str(),
-        expected,
-        actual.bytes.len(),
-        span,
-    )?;
-    let actual_hex = digest_hex(actual);
-    if actual_hex.eq_ignore_ascii_case(expected) {
-        Ok(())
-    } else {
-        Err(RuntimeError::new(
-            "checksum-mismatch",
-            format!(
-                "{} digest mismatch: expected {}, got {}",
-                actual.algorithm, expected, actual_hex
-            ),
-        )
-        .with_span(span))
-    }
-}
-
 fn digest_reader(
     algorithm: HashAlgorithm,
     reader: &mut dyn Read,
@@ -132,31 +106,6 @@ fn crc32_with_polynomial(bytes: &[u8], polynomial: u32) -> u32 {
         }
     }
     !crc
-}
-
-fn validate_expected_hex(
-    algorithm: &str,
-    expected: &str,
-    digest_len: usize,
-    span: Span,
-) -> Result<(), RuntimeError> {
-    if expected.len() != digest_len * 2 {
-        return Err(RuntimeError::new(
-            "checksum-format",
-            format!(
-                "{} checksum must be {} hex characters",
-                algorithm,
-                digest_len * 2
-            ),
-        )
-        .with_span(span));
-    }
-    if !expected.chars().all(|ch| ch.is_ascii_hexdigit()) {
-        return Err(
-            RuntimeError::new("checksum-format", "checksum must be hexadecimal").with_span(span),
-        );
-    }
-    Ok(())
 }
 
 fn hex(bytes: &[u8]) -> String {

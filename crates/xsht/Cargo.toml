@@ -36,6 +36,11 @@ path = "tests/integration.rs"
 name = "api"
 path = "tests/api.rs"
 
+[[test]]
+# Needs both the debug and the release `xsh` binary, so it is its own target.
+name = "profile_parity"
+path = "tests/profile_parity.rs"
+
 [lints.clippy]
 nursery = { level = "allow", priority = -2 }
 pedantic = { level = "allow", priority = -2 }

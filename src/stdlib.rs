@@ -97,12 +97,6 @@ pub(crate) const CATALOG: &[StdlibModule] = &[
         source: include_str!("../stdlib/linux_text.xsh"),
     },
     StdlibModule {
-        identity: "linux_routes",
-        label: "<xsh-stdlib:linux_routes>",
-        bridges: &[],
-        source: include_str!("../stdlib/linux_routes.xsh"),
-    },
-    StdlibModule {
         identity: "ini",
         label: "<xsh-stdlib:ini>",
         bridges: &[],

@@ -4729,35 +4729,6 @@ impl Evaluator {
                     Err(error) => lowered_result_err_value(error),
                 }
             }
-            RuntimeOp::HashVerifyFile if values.len() == 1 || values.len() == 2 => {
-                let expected = if values.len() == 2 {
-                    Some(lowered_str_arg_owned(
-                        values.pop(),
-                        "",
-                        "hash.verify_file",
-                        span,
-                    )?)
-                } else {
-                    None
-                };
-                let path = lowered_path_arg(values.remove(0), "hash.verify_file", span)?;
-                let Some(expected) = expected else {
-                    let error =
-                        RuntimeError::new("checksum-format", "verify_file requires a checksum")
-                            .with_span(span);
-                    return Ok(ControlFlow::Continue(lowered_result_err_value(error)));
-                };
-                match hash_module::digest_file(
-                    hash_module::HashAlgorithm::Sha256,
-                    &self.host_path(&path),
-                    span,
-                )
-                .and_then(|digest| hash_module::verify_hex(&digest, &expected, span))
-                {
-                    Ok(()) => lowered_result_ok(LoweredValue::Unit),
-                    Err(error) => lowered_result_err_value(error),
-                }
-            }
             RuntimeOp::IoStdinBytes if values.is_empty() => {
                 let mut data = Vec::new();
                 match std::io::stdin().read_to_end(&mut data) {
@@ -7997,7 +7968,7 @@ impl Evaluator {
                         .transpose()?;
                     linux_module::open_files(pid, span)
                 }
-                RuntimeOp::LinuxBlockDevices => linux_module::block_devices(span),
+                    RuntimeOp::LinuxBlockDevices => linux_module::block_devices(span),
                 RuntimeOp::LinuxBlkid => {
                     let device = lowered_path_arg(
                         unix_require_arg(values.first().cloned(), "linux.blkid", span)?,
@@ -8007,7 +7978,7 @@ impl Evaluator {
                     let host_path = self.host_path(&device);
                     linux_module::blkid(&host_path, span)
                 }
-                RuntimeOp::LinuxModinfo => {
+                    RuntimeOp::LinuxModinfo => {
                     let name =
                         lowered_str_arg_owned(values.first().cloned(), "", "linux.modinfo", span)?;
                     linux_module::modinfo(&name, span)
@@ -8033,7 +8004,7 @@ impl Evaluator {
                 }
                 // Boot / privileged operations are not safe in a non-privileged
                 // container; return Ok(()) so scripts can feature-gate on errors.
-                RuntimeOp::LinuxDepmod => {
+                    RuntimeOp::LinuxDepmod => {
                     let version =
                         lowered_str_arg_owned(values.first().cloned(), "", "linux.depmod", span)?;
                     linux_module::depmod(&version, span)
@@ -8166,7 +8137,7 @@ impl Evaluator {
                     let id = lowered_int_arg(values.first().cloned(), "linux.rfkill_block", span)?;
                     linux_module::rfkill_set(id, true, span)
                 }
-                RuntimeOp::LinuxRfkillList => linux_module::rfkill_list(span),
+                    RuntimeOp::LinuxRfkillList => linux_module::rfkill_list(span),
                 RuntimeOp::LinuxRfkillUnblock => {
                     let id =
                         lowered_int_arg(values.first().cloned(), "linux.rfkill_unblock", span)?;

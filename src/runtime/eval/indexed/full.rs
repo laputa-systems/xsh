@@ -179,7 +179,6 @@ pub(in crate::runtime::eval) enum FullTag {
     ExprArchiveTarCreate,
     ExprArchiveTarList,
     ExprArchiveTarExtract,
-    ExprHashVerifyFile,
     ExprModuleCall,
     ExprProcessCommandArgv,
     ExprProcessCommandBuilder,
@@ -2638,8 +2637,8 @@ fn instruction_effects(tags: &[FullTag]) -> u32 {
                 | FullTag::ExprArchiveTarCreate
                 | FullTag::ExprArchiveTarList
                 | FullTag::ExprArchiveTarExtract
-                | FullTag::ExprHashVerifyFile => EFFECT_HOST | EFFECT_TRACE,
-                FullTag::ExprTry | FullTag::StmtGuard => EFFECT_PROPAGATE | EFFECT_TRACE,
+                | FullTag::ExprTry
+                | FullTag::StmtGuard => EFFECT_PROPAGATE | EFFECT_TRACE,
                 FullTag::StmtDefer => EFFECT_DEFER | EFFECT_PROPAGATE | EFFECT_TRACE,
                 FullTag::ExprLoop
                 | FullTag::StmtLoop
@@ -6901,22 +6900,6 @@ impl_node_codec! {
             dest: BuildExprId,
             span: Span,
         } => BuildExprRow::ArchiveTarExtract { path, dest, span },
-        BuildExprRow::HashVerifyFile {
-            path,
-            algorithm,
-            expected,
-            span,
-        } => ExprHashVerifyFile {
-            path: BuildExprId,
-            algorithm: HashAlgorithm,
-            expected: BuildExprId,
-            span: Span,
-        } => BuildExprRow::HashVerifyFile {
-            path,
-            algorithm,
-            expected,
-            span,
-        },
         BuildExprRow::ModuleCall { op, args, span } => ExprModuleCall {
             op: RuntimeOp,
             args: Vec<BuildExprId>,

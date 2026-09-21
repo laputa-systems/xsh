@@ -11,7 +11,7 @@ use super::{
     Value, api_spec, assign_lowered_bytes_view, assign_lowered_str_view, bind_lowered_comp_target,
     btree_map, bytes_contains, bytes_module, check_env_name, checked_int_binary,
     compare_lowered_sort_keys, compound_assignment_value, error_constructor,
-    execute_run_with_policy, exit_status, fs_module, fs_root_record, hash_module, json_module,
+    execute_run_with_policy, exit_status, fs_module, fs_root_record, json_module,
     lowered_assign_value, lowered_binary_value, lowered_bool_arg_or, lowered_bool_builder_field,
     lowered_bytes_or_str_owned, lowered_bytes_parts, lowered_bytes_value,
     lowered_command_plan_value, lowered_command_redirections, lowered_contains_value,
@@ -41,7 +41,6 @@ use super::{
     structured_error_constructor, value_matches_static_type, value_to_argv_bytes,
     with_indexed_eval_depth,
 };
-use crate::modules::hash::HashAlgorithm;
 use crate::runtime::eval::indexed::IrVerifyError;
 use crate::runtime::eval::indexed::full::{
     BLOCK_LIST, BLOCK_STATEMENTS, FullDriverTag, FullExecution, FullFunctionView, FullPatternTag,
@@ -177,20 +176,31 @@ fn indexed_optional_raw(
 }
 
 impl Evaluator {
+    /// The index `function`/`kind` resolves to inside `program`.
+    ///
+    /// The program is part of the cache key because one evaluator resolves the
+    /// same qualified key against more than one program: a dynamically loaded
+    /// module links its standard calls to the loading program's prepared
+    /// implementations, so `<xsh-stdlib:hash> verify_file` names a function in
+    /// both. The entry keeps the program alive, so its identity cannot be
+    /// reused by a later allocation while the entry is cached.
     fn indexed_function_index(
         &mut self,
-        program: &FullProgram,
+        program: &Arc<FullProgram>,
         function: LoweredFunctionKey,
         kind: LoweredFunctionKind,
     ) -> Result<Option<usize>, IrVerifyError> {
         let cache_key = (function, kind);
-        if let Some(index) = self.indexed_function_cache.get(&cache_key).copied() {
-            return Ok(Some(index));
+        if let Some((cached_program, index)) = self.indexed_function_cache.get(&cache_key)
+            && Arc::ptr_eq(cached_program, program)
+        {
+            return Ok(Some(*index));
         }
         let view = program.function_view(function, kind)?;
         if let Some(view) = view {
             let index = view.index();
-            self.indexed_function_cache.insert(cache_key, index);
+            self.indexed_function_cache
+                .insert(cache_key, (Arc::clone(program), index));
             return Ok(Some(index));
         }
         Ok(None)
@@ -5054,34 +5064,6 @@ impl Evaluator {
                     Vec::new(),
                     span,
                 )))
-            }
-            FullTag::ExprHashVerifyFile => {
-                let path = indexed_raw(&mut payload, call_span)?;
-                let algorithm =
-                    indexed_decode::<HashAlgorithm>(&mut payload, execution, call_span)?;
-                let expected = indexed_raw(&mut payload, call_span)?;
-                let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
-                indexed_finish(payload, call_span)?;
-                let path = match self.eval_indexed_expr(execution, path, slots, span)? {
-                    ControlFlow::Continue(value) => {
-                        lowered_path_arg(value, "hash.verify_file", span)?
-                    }
-                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
-                };
-                let expected = match self.eval_indexed_expr(execution, expected, slots, span)? {
-                    ControlFlow::Continue(value) => {
-                        lowered_str_arg_owned(Some(value), "", "hash.verify_file", span)?
-                    }
-                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
-                };
-                ControlFlow::Continue(
-                    match hash_module::digest_file(algorithm, &self.host_path(&path), span)
-                        .and_then(|digest| hash_module::verify_hex(&digest, &expected, span))
-                    {
-                        Ok(()) => lowered_result_ok(LoweredValue::Unit),
-                        Err(error) => lowered_result_err_value(error),
-                    },
-                )
             }
             FullTag::ExprModuleCall => {
                 let op = indexed_decode::<RuntimeOp>(&mut payload, execution, call_span)?;

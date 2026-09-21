@@ -77,6 +77,15 @@ Use release builds only when working on profiling or benchmarking. Do not use
 the `dist` profile for agent work;
 it is reserved for CI release packaging.
 
+All Linux support goes through the `Dockerfile.test` environment. Linux builds,
+tests, and verification run in the image that file defines (`xsh-test`), driven
+by `xsh dev internal test-linux` or `xsh dev internal test-linux-ci`; the
+target is `aarch64-unknown-linux-musl` with the flags in
+`dev/targets.xsh::docker_test_env`. Do not substitute another Linux toolchain,
+image, or libc: the container pins the compiler, the musl CRT objects, and the
+`__isoc23_*` symbol aliases that this tree links against, so a build outside it
+is not evidence about Linux support.
+
 Do not run formatters or autofixers — `cargo dev lint --fix`, `cargo fmt`,
 `cargo clippy --fix`, `xsht fmt`, or `xsht lint --fix`. `cargo dev lint --fix`
 runs `clippy --fix --all-features` and `cargo fmt --all`, which rewrite files

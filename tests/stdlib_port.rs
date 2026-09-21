@@ -198,6 +198,79 @@ fn dynamic_loading_prepares_the_complete_set_before_execution() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// A05 — a dynamically loaded module calls a prepared implementation.
+///
+/// The loaded module is its own program, so its standard call is a link into
+/// the loading program's prepared functions rather than a second copy of them.
+/// Resolving the same qualified identity in two programs must not confuse the
+/// evaluator's resolved-index cache, and the call must run the prepared
+/// implementation rather than reparse or fall back.
+#[test]
+fn a_loaded_module_calls_prepared_implementations() {
+    let dir = temp_dir("dynamic-call");
+    let loaded = write_script(
+        &dir,
+        "loaded.xsh",
+        "##! A module that uses a migrated entry.\n\n\
+         ## Verify a file against an expected checksum.\n\
+         export pure check(path: Path, checksum: Str) -> Result[Unit] {\n  \
+         return hash.verify_file(path, sha256: checksum)\n}\n\n\
+         ## The checksum of a file.\n\
+         export pure digest_of(path: Path) -> Result[Str] {\n  \
+         return hash.sha256(path)?.hex()\n}\n",
+    );
+    let data = dir.join("data.txt");
+    std::fs::write(&data, "abc").expect("write data");
+    let script = write_script(
+        &dir,
+        "loader.xsh",
+        &format!(
+            "type Loaded = module {{\n  \
+             export pure check(path: Path, checksum: Str) -> Result[Unit]\n  \
+             export pure digest_of(path: Path) -> Result[Str]\n}}\n\n\
+             proc main() [io, error] {{\n  \
+             let loaded = module.load(p\"{}\" )?.require(Loaded)?\n  \
+             let hex = loaded.digest_of(p\"{}\" )?\n  \
+             loaded.check(p\"{}\" , hex)?\n  \
+             print f\"${{hex}}\"\n  \
+             match loaded.check(p\"{}\", \"00\") {{\n    \
+             Ok(_) => {{ print \"unexpected-ok\" }}\n    \
+             Err(failure) => {{ print f\"${{failure.message}}\" }}\n  \
+             }}\n}}\n",
+            loaded.display(),
+            data.display(),
+            data.display(),
+            data.display(),
+        ),
+    );
+    stdlib_preparation::reset();
+    let output = run_script(RunOptions {
+        script: script.display().to_string(),
+        args: Vec::new(),
+        coverage_trace_dir: None,
+    });
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status, 0, "the loaded module must run: {stderr}");
+    assert!(
+        stdout.contains("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"),
+        "the loaded module must reach the prepared digest primitive: {stdout}"
+    );
+    assert!(
+        stdout.contains("sha256 checksum must be 64 hex characters"),
+        "the loaded module must reach the prepared policy: {stdout}"
+    );
+    let prepared = stdlib_preparation::parsed_modules();
+    let catalog = stdlib_catalog_size();
+    assert_eq!(
+        prepared, catalog,
+        "a dynamic user-code loading route prepares the complete set once \
+         (exit {}, stdout {stdout:?}, stderr {stderr:?})",
+        output.status
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// The number of embedded modules a build can prepare.
 fn stdlib_catalog_size() -> usize {
     // Counting through the loader keeps the expectation tied to the catalog

@@ -702,7 +702,7 @@ proc test_cli_command_option_path_constraints(ctx: TestContext) [fs, error] {
   # A descriptor that asks for none of the three constraints probes nothing, so
   # a value that does not exist is accepted.
   test.eq(
-    failure_message(cli.commands(["go", f"${missing.display()}"], {go: {positionals: ["target"]}})),
+    failure_message(cli.commands(["go", missing.display()], {go: {positionals: ["target"]}})),
     "",
   )?
 
@@ -711,28 +711,28 @@ proc test_cli_command_option_path_constraints(ctx: TestContext) [fs, error] {
   # against the first.
   test.eq(
     failure_message(cli.commands(
-      ["go", "--target", f"${missing.display()}"],
+      ["go", "--target", missing.display()],
       {go: {options: {target: {kind: "Path", exists: true}}}},
     )),
     f"option --target expects an existing path: ${missing.display()}",
   )?
   test.eq(
     failure_message(cli.commands(
-      ["go", "--target", f"${root.display()}"],
+      ["go", "--target", root.display()],
       {go: {options: {target: {kind: "Path", file: true}}}},
     )),
     f"option --target expects a file path: ${root.display()}",
   )?
   test.eq(
     failure_message(cli.commands(
-      ["go", "--target", f"${present.display()}"],
+      ["go", "--target", present.display()],
       {go: {options: {target: {kind: "Path", dir: true}}}},
     )),
     f"option --target expects a directory path: ${present.display()}",
   )?
   test.eq(
     failure_message(cli.commands(
-      ["go", "--target", f"${missing.display()}"],
+      ["go", "--target", missing.display()],
       {go: {options: {target: {kind: "Path", exists: true, file: true}}}},
     )),
     f"option --target expects an existing path: ${missing.display()}",
@@ -744,14 +744,14 @@ proc test_cli_command_option_path_constraints(ctx: TestContext) [fs, error] {
   # missing one is not an existing path.
   test.eq(
     failure_message(cli.commands(
-      ["go", "--target", f"${present.display()}"],
+      ["go", "--target", present.display()],
       {go: {options: {target: {kind: "Path", exists: true, file: true}}}},
     )),
     "",
   )?
   test.eq(
     failure_message(cli.commands(
-      ["go", "--target", f"${root.display()}"],
+      ["go", "--target", root.display()],
       {go: {options: {target: {kind: "Path", exists: true, dir: true}}}},
     )),
     "",
@@ -760,7 +760,7 @@ proc test_cli_command_option_path_constraints(ctx: TestContext) [fs, error] {
   fs.symlink(present, file_link)?
   test.eq(
     failure_message(cli.commands(
-      ["go", "--target", f"${file_link.display()}"],
+      ["go", "--target", file_link.display()],
       {go: {options: {target: {kind: "Path", exists: true, file: true}}}},
     )),
     "",
@@ -769,7 +769,7 @@ proc test_cli_command_option_path_constraints(ctx: TestContext) [fs, error] {
   fs.symlink(missing, dangling)?
   test.eq(
     failure_message(cli.commands(
-      ["go", "--target", f"${dangling.display()}"],
+      ["go", "--target", dangling.display()],
       {go: {options: {target: {kind: "Path", exists: true}}}},
     )),
     f"option --target expects an existing path: ${dangling.display()}",

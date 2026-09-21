@@ -1570,12 +1570,6 @@ enum BuildExprRow {
         dest: BuildExprId,
         span: Span,
     },
-    HashVerifyFile {
-        path: BuildExprId,
-        algorithm: crate::modules::hash::HashAlgorithm,
-        expected: BuildExprId,
-        span: Span,
-    },
     ModuleCall {
         op: RuntimeOp,
         args: Vec<BuildExprId>,
@@ -2710,7 +2704,15 @@ pub struct Evaluator {
     module_export_signatures:
         Arc<FxHashMap<crate::runtime::value::FunctionName, ModuleExportSignature>>,
     indexed_program: Option<Arc<FullProgram>>,
-    indexed_function_cache: FxHashMap<(LoweredFunctionKey, LoweredFunctionKind), usize>,
+    // Resolved indices are keyed with the program they were resolved in and
+    // hold it alive, because one evaluator resolves the same qualified key
+    // against more than one program: a dynamically loaded module links its
+    // standard calls to the loading program's prepared implementations, so
+    // `<xsh-stdlib:hash> verify_file` names a function in both. Comparing the
+    // program by pointer identity, and keeping that program alive for as long
+    // as the entry exists, is what makes the cached index valid.
+    indexed_function_cache:
+        FxHashMap<(LoweredFunctionKey, LoweredFunctionKind), (Arc<FullProgram>, usize)>,
     indexed_dynamic_functions: Arc<FxHashMap<QualifiedName, DynamicFunction>>,
     lowered_slot_pool: Vec<Vec<LoweredValue>>,
     tag_variants: FxHashMap<Name, usize>,
@@ -3534,7 +3536,15 @@ impl Evaluator {
             crate::runtime::eval::lower::StdlibLowerLinkage::Local,
         )
         .map(|_| ())
-        .map_err(|error| format!("{:?}", error.construct))
+        .map_err(|error| match error.location {
+            Some(location) => format!(
+                "{} at bytes {}..{}",
+                error.construct,
+                location.start,
+                location.start.saturating_add(location.len)
+            ),
+            None => error.construct.to_string(),
+        })
     }
 
     pub(crate) fn prepare_compact_indexed_only(

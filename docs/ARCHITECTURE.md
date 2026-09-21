@@ -155,6 +155,15 @@ standard calls to `BuildExprRow::ExternalCall`, and the runtime resolves them
 through the evaluator's dynamic function table to the implementations the
 loading program already prepared.
 
+**Platform-specific bindings.** An entry whose baseline behavior differs by
+target binds per target: `linux_text_entry` in
+`crates/xsh-registry/src/signature/modules.rs` selects the script binding on
+Linux and the existing native `sig` elsewhere. macOS therefore keeps the
+behavior it had, and the Linux-only native body it replaces stays compiled but
+unreachable there. The Linux text policy (R12) is the ported group that uses
+this path; the gated Linux prototypes that were measured and reverted use it no
+longer. Both destinations are recorded in `STDLIB-PORT.md`.
+
 **Namespace integrity.** `ArenaProgram::modules` entries carry an `internal`
 flag. Internal modules use the reserved namespace `<xsh-stdlib:IDENTITY>`, a
 spelling no XSH identifier can produce, so user source, `use` paths, module

@@ -662,3 +662,29 @@ fn api_core_bindings_names_var_and_let_immutability() {
     assert!(stdout.contains("let mut"), "{stdout}");
     assert_eq!(String::from_utf8(output.stderr).unwrap(), "");
 }
+
+/// A16 — the public API surface matches the revision the port started from.
+///
+/// The fixture is the reference build's `api summary --format jsonl` output,
+/// recorded once from the starting revision. It carries every standard
+/// module, function, overload count, method receiver, method, and record, so
+/// a port that added, removed, renamed, or re-shaped a public entry — or
+/// changed how many overloads a name has — fails here. `stdlib_port.rs` covers
+/// the behavior behind those entries; this covers the surface itself.
+#[test]
+fn api_surface_matches_the_recorded_reference() {
+    let expected = std::fs::read_to_string(
+        workspace_root().join("tests/fixtures/modules/standard-api-surface.jsonl"),
+    )
+    .expect("read recorded API surface");
+
+    let output = xsht(&["api", "summary", "--format", "jsonl"]);
+    assert!(output.status.success());
+    let actual = String::from_utf8(output.stdout).expect("utf8 stdout");
+
+    assert_eq!(
+        actual.trim_end(),
+        expected.trim_end(),
+        "the public API surface changed; regenerate the fixture only when the change is intended"
+    );
+}

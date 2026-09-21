@@ -222,3 +222,76 @@ proc test_linux_modules_streams_the_host_text() [process, env, error] {
     }
   } ?
 }
+
+# The kernel-module policy the entry now implements: the query normalizes like
+# the scan does, the presentation keeps the first value of each field and every
+# `parm` value, and `depmod` writes one line per module with the dependencies
+# the tree actually holds.
+#
+# The nested run is what makes the fixture reach the entry: `XSH_MODULES_DIR`
+# selects the tree, and it is read from the *process* environment by the
+# retained scan, so a scoped `env` block around the call would not be visible
+# to it.
+proc test_linux_module_policy_uses_the_configured_tree(ctx: TestContext) [fs, process, env, error] {
+  if system.uname()?.sysname != "Linux" {
+    # On other platforms the binding is still native, so there is nothing to
+    # add here.
+    test.skip("linux.modinfo reads a module tree on Linux only")
+    return
+  }
+
+  let root = test.temp_dir(ctx, name: "linux-modules")?
+  fs.write(
+    fp"${root}/demo-name.ko",
+    "description=Demo module\x00license=MIT\x00version=2\x00depends=dep,missing\x00parm=debug:Enable debug (bool)\x00parm=mode:Mode (charp)\x00",
+  )?
+  fs.write(
+    fp"${root}/dep.ko",
+    "description=dep module\x00license=GPL\x00version=1\x00",
+  )?
+
+  # The nested source is a template rather than an f-string: its `${...}`
+  # interpolations belong to the nested script, so the outer checker must not
+  # resolve them, and only the tree's path is substituted.
+  let template = r"""
+proc main() [io, fs, error] {
+  let info = linux.modinfo("demo-name")?
+  print f"${info.name}|${info.description}|${info.license}|${info.version}"
+  for param in info.params {
+    print f"param=${param.name}|${param.type}|${param.description}"
+  }
+  print f"explicit=${linux.modinfo(p"{root}/demo-name.ko".display())?.name}"
+  match linux.modinfo("nothing-here") {
+    Ok(_) => { print "unexpected" }
+    Err(failure) => { print f"missing=${failure.message}" }
+  }
+  linux.depmod("")?
+  print fs.read_text(p"{root}/modules.dep")?
+}
+"""
+  let source = template.replace("{root}", f"${root}")
+
+  let environment = {XSH_LINUX_REAL: "1", XSH_MODULES_DIR: f"${root}"}
+  # Arguments are positional-only, so the empty argv and stdin are spelled out.
+  let nested = test.run_script(
+    ctx,
+    source,
+    [],
+    environment,
+    b"",
+    "linux-module-policy",
+  )?
+  test.ok(nested.success, nested.stderr)?
+  test.eq(
+    nested.stdout,
+    f"""demo_name|Demo module|MIT|2
+param=debug|bool|Enable debug
+param=mode|charp|Mode
+explicit=demo_name
+missing=module not found
+demo-name.ko: dep.ko
+dep.ko:
+
+""",
+  )?
+}

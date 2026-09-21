@@ -1,4 +1,4 @@
-proc test_ini_decode_encode_and_files(ctx: TestContext) [fs, error] {
+proc test_ini_decode_encode_and_files(ctx: TestContext)  [fs, error] {
   let config = ini.decode("""global: root
 [server]
 Host = example.test
@@ -36,7 +36,7 @@ pure encode_message(result: Result[Str]) -> Str {
   }
 }
 
-proc test_ini_encode_orders_globals_then_sections(ctx: TestContext) [fs, error] {
+proc test_ini_encode_orders_globals_then_sections()  [fs, error] {
   # An empty record emits no lines at all, so there is no final newline either.
   test.eq(ini.encode({})?, "")?
 
@@ -61,7 +61,7 @@ proc test_ini_encode_orders_globals_then_sections(ctx: TestContext) [fs, error] 
   test.eq(ini.encode({a: "1", b: {c: "2"}, d: "3", e: {f: "4"}})?, "a = 1\nd = 3\n\n[b]\nc = 2\n\n[e]\nf = 4\n")?
 }
 
-proc test_ini_encode_normalizes_section_keys(ctx: TestContext) [fs, error] {
+proc test_ini_encode_normalizes_section_keys()  [fs, error] {
   # Global keys keep their spelling; section keys are lowercased. The two
   # normalizations are independent, so a global key is never lowercased.
   test.eq(ini.encode({Host: "1"})?, "Host = 1\n")?
@@ -87,7 +87,7 @@ proc test_ini_encode_normalizes_section_keys(ctx: TestContext) [fs, error] {
   test.eq(ini.encode({s: {"a b": "1", "k=v": "2"}})?, "[s]\na b = 1\nk=v = 2\n")?
 }
 
-proc test_ini_encode_rejects_invalid_names(ctx: TestContext) [fs, error] {
+proc test_ini_encode_rejects_invalid_names()  [fs, error] {
   # A global key is validated exactly as written; an empty key and a key
   # holding NUL, newline, `[`, or `]` are rejected.
   test.error_kind(ini.encode({"a[b": "1"}), "ini-key")?
@@ -122,7 +122,7 @@ proc test_ini_encode_rejects_invalid_names(ctx: TestContext) [fs, error] {
   )?
 }
 
-proc test_ini_encode_rejects_non_string_values(ctx: TestContext) [fs, error] {
+proc test_ini_encode_rejects_non_string_values()  [fs, error] {
   # A top-level field must be a global string or a section record.
   test.error_kind(ini.encode({a: 1}), "ini-encode")?
   test.eq(
@@ -151,7 +151,7 @@ proc test_ini_encode_rejects_non_string_values(ctx: TestContext) [fs, error] {
   test.error_kind(ini.encode({s: {"c]d": "2", a: 1}}), "ini-encode")?
 }
 
-proc test_ini_encode_writes_multiline_values(ctx: TestContext) [fs, error] {
+proc test_ini_encode_writes_multiline_values()  [fs, error] {
   # Embedded newlines become two-space continuation lines, so the value reads
   # back as the same string.
   test.eq(ini.encode({a: "hello\nworld"})?, "a = hello\n  world\n")?

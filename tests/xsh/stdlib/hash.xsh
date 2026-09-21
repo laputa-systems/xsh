@@ -26,6 +26,75 @@ proc test_hash_digests_checksums_and_digest_methods(ctx: TestContext) [fs, error
   )?
 }
 
+# The message of a rejected file verification, or the empty string when the
+# file verified. `test.error_kind` compares kinds only, so message parity is
+# asserted through this.
+pure verify_message(result: Result[Unit]) -> Str {
+  match result {
+    Ok(_) => return ""
+    Err(error) => return error.message
+  }
+}
+
+# Every case the removed native `verify_hex`/`validate_expected_hex` pair
+# covered, plus the algorithm selection the specialized call form carries.
+proc test_hash_verify_file_policy(ctx: TestContext) [fs, error] {
+  let data_path = test.temp_path(ctx, name: "hash-verify.txt")
+  fs.write(data_path, "abc")?
+  let digest = hash.sha256(data_path)?
+
+  # The digest verifies, and comparison is ASCII case-insensitive.
+  test.eq(verify_message(hash.verify_file(data_path, sha256: digest.hex())), "")?
+  test.eq(verify_message(hash.verify_file(data_path, sha256: digest.hex().upper())), "")?
+
+  # A checksum of the wrong byte length reports the required length for the
+  # algorithm the caller named.
+  test.eq(
+    verify_message(hash.verify_file(data_path, sha256: "00")),
+    "sha256 checksum must be 64 hex characters",
+  )?
+  test.eq(
+    verify_message(hash.verify_file(data_path, md5: "00")),
+    "md5 checksum must be 32 hex characters",
+  )?
+
+  # A checksum of the right byte length that is not hexadecimal reports the
+  # hexadecimal rejection, not a length one.
+  test.eq(
+    verify_message(
+      hash.verify_file(data_path, sha256: "zz00000000000000000000000000000000000000000000000000000000000000"),
+    ),
+    "checksum must be hexadecimal",
+  )?
+
+  # A well-formed checksum of something else reports both spellings, with the
+  # expected one as the caller wrote it.
+  let zeros64 = "0000000000000000000000000000000000000000000000000000000000000000"
+  test.eq(
+    verify_message(hash.verify_file(data_path, sha256: zeros64)),
+    f"sha256 digest mismatch: expected ${zeros64}, got ${digest.hex()}",
+  )?
+
+  # Each named algorithm selects its own digest, and the failure names it.
+  test.eq(verify_message(hash.verify_file(data_path, md5: hash.md5(data_path)?.hex())), "")?
+  test.eq(verify_message(hash.verify_file(data_path, sha1: hash.sha1(data_path)?.hex())), "")?
+  test.eq(verify_message(hash.verify_file(data_path, sha512: hash.sha512(data_path)?.hex())), "")?
+  let zeros32 = "00000000000000000000000000000000"
+  test.eq(
+    verify_message(hash.verify_file(data_path, md5: zeros32)),
+    f"md5 digest mismatch: expected ${zeros32}, got ${hash.md5(data_path)?.hex()}",
+  )?
+
+  # The file is hashed before the checksum is validated, so a path that cannot
+  # be read reports its read failure even when the checksum is malformed.
+  let missing = test.temp_path(ctx, name: "hash-verify-missing.txt")
+  test.eq(
+    verify_message(hash.verify_file(missing, sha256: "00")),
+    "No such file or directory (os error 2)",
+  )?
+  test.error_kind(hash.verify_file(missing, sha256: "00"), "hash-read")?
+}
+
 # The message of a rejected checksum line, or the empty string when the line
 # parsed. `test.error_kind` compares kinds only, so message parity is asserted
 # through this.

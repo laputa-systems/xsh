@@ -50,6 +50,6 @@ proc test_system_os_release_reads_the_host_text() [env, error] {
   test.ok(release.name != "")?
   test.ok(release.id != "")?
   test.ok(release.pretty_name != "")?
-  test.ok(! release.id.contains(" "))?
+  test.ok(" " not in release.id)?
   test.eq(release.id, release.id.trim())?
 }

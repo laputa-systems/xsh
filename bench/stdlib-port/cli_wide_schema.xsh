@@ -1,0 +1,81 @@
+proc main() [io, error] {
+  # A wide schema: 64 fields across the four descriptor kinds, parsed repeatedly
+  # so the per-flag cost is what the workload measures rather than startup.
+  var argv: List[Str] = ["--opt_0", "v0", "--opt_8", "v8", "--opt_16", "v16", "--opt_24", "v24", "--opt_32", "v32", "--opt_40", "v40", "--opt_48", "v48", "--opt_56", "v56"]
+  var sink = 0
+  var round = 0
+  while round < 30 {
+    let parsed = cli.parse(
+      argv,
+      {
+      opt_0: {kind: "Str", short: ["a0"], default: "d0"},
+      opt_1: {kind: "Int", default: 1},
+      opt_2: {kind: "Bool", short: ["C0"]},
+      opt_3: {kind: "Str", repeated: true},
+      opt_4: {kind: "Str", short: ["e0"], default: "d4"},
+      opt_5: {kind: "Int", default: 5},
+      opt_6: {kind: "Bool", short: ["G0"]},
+      opt_7: {kind: "Str", repeated: true},
+      opt_8: {kind: "Str", short: ["i0"], default: "d8"},
+      opt_9: {kind: "Int", default: 9},
+      opt_10: {kind: "Bool", short: ["K0"]},
+      opt_11: {kind: "Str", repeated: true},
+      opt_12: {kind: "Str", short: ["m0"], default: "d12"},
+      opt_13: {kind: "Int", default: 13},
+      opt_14: {kind: "Bool", short: ["O0"]},
+      opt_15: {kind: "Str", repeated: true},
+      opt_16: {kind: "Str", short: ["q0"], default: "d16"},
+      opt_17: {kind: "Int", default: 17},
+      opt_18: {kind: "Bool", short: ["S0"]},
+      opt_19: {kind: "Str", repeated: true},
+      opt_20: {kind: "Str", short: ["u0"], default: "d20"},
+      opt_21: {kind: "Int", default: 21},
+      opt_22: {kind: "Bool", short: ["W0"]},
+      opt_23: {kind: "Str", repeated: true},
+      opt_24: {kind: "Str", short: ["y0"], default: "d24"},
+      opt_25: {kind: "Int", default: 25},
+      opt_26: {kind: "Bool", short: ["A1"]},
+      opt_27: {kind: "Str", repeated: true},
+      opt_28: {kind: "Str", short: ["c1"], default: "d28"},
+      opt_29: {kind: "Int", default: 29},
+      opt_30: {kind: "Bool", short: ["E1"]},
+      opt_31: {kind: "Str", repeated: true},
+      opt_32: {kind: "Str", short: ["g1"], default: "d32"},
+      opt_33: {kind: "Int", default: 33},
+      opt_34: {kind: "Bool", short: ["I1"]},
+      opt_35: {kind: "Str", repeated: true},
+      opt_36: {kind: "Str", short: ["k1"], default: "d36"},
+      opt_37: {kind: "Int", default: 37},
+      opt_38: {kind: "Bool", short: ["M1"]},
+      opt_39: {kind: "Str", repeated: true},
+      opt_40: {kind: "Str", short: ["o1"], default: "d40"},
+      opt_41: {kind: "Int", default: 41},
+      opt_42: {kind: "Bool", short: ["Q1"]},
+      opt_43: {kind: "Str", repeated: true},
+      opt_44: {kind: "Str", short: ["s1"], default: "d44"},
+      opt_45: {kind: "Int", default: 45},
+      opt_46: {kind: "Bool", short: ["U1"]},
+      opt_47: {kind: "Str", repeated: true},
+      opt_48: {kind: "Str", short: ["w1"], default: "d48"},
+      opt_49: {kind: "Int", default: 49},
+      opt_50: {kind: "Bool", short: ["Y1"]},
+      opt_51: {kind: "Str", repeated: true},
+      opt_52: {kind: "Str", short: ["a2"], default: "d52"},
+      opt_53: {kind: "Int", default: 53},
+      opt_54: {kind: "Bool", short: ["C2"]},
+      opt_55: {kind: "Str", repeated: true},
+      opt_56: {kind: "Str", short: ["e2"], default: "d56"},
+      opt_57: {kind: "Int", default: 57},
+      opt_58: {kind: "Bool", short: ["G2"]},
+      opt_59: {kind: "Str", repeated: true},
+      opt_60: {kind: "Str", short: ["i2"], default: "d60"},
+      opt_61: {kind: "Int", default: 61},
+      opt_62: {kind: "Bool", short: ["K2"]},
+      opt_63: {kind: "Str", repeated: true},
+      },
+    )?
+    sink = sink + parsed.opt_0.byte_len() + parsed.opt_8.byte_len() + parsed.opt_16.byte_len() + parsed.opt_24.byte_len() + parsed.opt_32.byte_len() + parsed.opt_40.byte_len() + parsed.opt_48.byte_len() + parsed.opt_56.byte_len()
+    round = round + 1
+  }
+  print f"${sink}"
+}

@@ -2107,7 +2107,11 @@ fn hash_module() -> ModuleSig {
         ),
         (
             "verify_file",
-            sig_with_arg_check(
+            // The checksum argument's *name* selects the algorithm, and the
+            // lowering preserves that by calling the implementation with the
+            // name as a third argument; see `ApiArgCheck::HashVerifyFile` and
+            // `stdlib/hash.xsh`.
+            script_sig_with_arg_check(
                 vec![
                     param("path", Type::Path),
                     default_param("sha256", Type::Str),
@@ -2116,6 +2120,8 @@ fn hash_module() -> ModuleSig {
                 false,
                 RuntimeOp::HashVerifyFile,
                 ApiArgCheck::HashVerifyFile,
+                "hash",
+                "verify_file",
             ),
         ),
     ])
@@ -2470,21 +2476,11 @@ fn linux_module() -> ModuleSig {
         ),
         (
             "routes",
-            linux_text_entry(
-                script_sig(
-                    Vec::new(),
-                    result(Type::Stream(Box::new(linux_route_type()))),
-                    false,
-                    RuntimeOp::LinuxRoutes,
-                    "linux_routes",
-                    "routes",
-                ),
-                sig(
-                    Vec::new(),
-                    result(Type::Stream(Box::new(linux_route_type()))),
-                    false,
-                    RuntimeOp::LinuxRoutes,
-                ),
+            sig(
+                Vec::new(),
+                result(Type::Stream(Box::new(linux_route_type()))),
+                false,
+                RuntimeOp::LinuxRoutes,
             ),
         ),
         (

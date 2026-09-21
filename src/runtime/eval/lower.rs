@@ -110,7 +110,8 @@ struct LoweredModuleCallArgs {
 
 struct LoweredHashVerifyFileArgs {
     path: ExprId,
-    algorithm: crate::modules::hash::HashAlgorithm,
+    /// The algorithm the checksum argument's name selected.
+    algorithm: &'static str,
     expected: ExprId,
 }
 
@@ -378,11 +379,13 @@ fn lower_hash_verify_file_args(args: &[ArenaCallArg]) -> Option<LoweredHashVerif
     let ArenaCallArgKind::Named { name, value, .. } = checksum.kind else {
         return None;
     };
+    // The name is carried as text so the embedded implementation selects the
+    // algorithm; the digest primitive it then calls is chosen by that name.
     let algorithm = match name.as_str().as_str() {
-        "md5" => crate::modules::hash::HashAlgorithm::Md5,
-        "sha1" => crate::modules::hash::HashAlgorithm::Sha1,
-        "sha256" => crate::modules::hash::HashAlgorithm::Sha256,
-        "sha512" => crate::modules::hash::HashAlgorithm::Sha512,
+        "md5" => "md5",
+        "sha1" => "sha1",
+        "sha256" => "sha256",
+        "sha512" => "sha512",
         _ => return None,
     };
     Some(LoweredHashVerifyFileArgs {
@@ -640,7 +643,6 @@ fn lowered_module_op_supported(op: RuntimeOp) -> bool {
             | RuntimeOp::HashSha512
             | RuntimeOp::HashCrc32
             | RuntimeOp::HashCrc32c
-            | RuntimeOp::HashVerifyFile
             | RuntimeOp::IoStdinBytes
             | RuntimeOp::IoStdinText
             | RuntimeOp::IoStdinLine
@@ -8506,6 +8508,56 @@ impl CompactLowerConstructProbe<'_, '_> {
         ))
     }
 
+    /// Lower a specialized `hash.verify_file` call to its embedded
+    /// implementation.
+    ///
+    /// The public form carries its algorithm in the checksum argument's *name*,
+    /// and a name is not a value, so the implementation function takes the
+    /// algorithm as an explicit third argument rather than mirroring the public
+    /// parameters. The file is hashed by the retained digest primitives the
+    /// implementation selects by that name, and everything after the digest —
+    /// length and hexadecimal validation, comparison, and the failure
+    /// composition — is the embedded function's own work.
+    fn lower_hash_verify_file_call(
+        &mut self,
+        options: &LoweredHashVerifyFileArgs,
+        slots: &mut SlotScope,
+        current_function: Option<Name>,
+        item_slot: Option<usize>,
+        span: Span,
+    ) -> Option<BuildExprId> {
+        let namespace = self.internal_namespace("hash")?;
+        let function = QualifiedName::new(namespace, Name::intern("verify_file"));
+        let path = self.lower_expr(options.path, slots, current_function, item_slot)?;
+        let expected = self.lower_expr(options.expected, slots, current_function, item_slot)?;
+        let algorithm = push_build_row!(self, expr, BuildExprRow::Str(options.algorithm.into()));
+        let args = vec![
+            LoweredCallArg::Single(path),
+            LoweredCallArg::Single(expected),
+            LoweredCallArg::Single(algorithm),
+        ];
+        if self.stdlib_linkage == StdlibLowerLinkage::External {
+            return Some(push_build_row!(
+                self,
+                expr,
+                BuildExprRow::ExternalCall {
+                    function,
+                    args,
+                    span,
+                }
+            ));
+        }
+        Some(push_build_row!(
+            self,
+            expr,
+            BuildExprRow::Call {
+                function: LoweredFunctionKey::Qualified(function),
+                args,
+                span,
+            }
+        ))
+    }
+
     /// Route a public entry whose implementation is embedded XSH to the
     /// prepared implementation function.
     ///
@@ -9297,26 +9349,13 @@ impl CompactLowerConstructProbe<'_, '_> {
                     && name == "verify_file"
                     && let Some(options) = lower_hash_verify_file_args(&args_vec)
                 {
-                    return Some(push_build_row!(
-                        self,
-                        expr,
-                        BuildExprRow::HashVerifyFile {
-                            path: self.lower_expr(
-                                options.path,
-                                slots,
-                                current_function,
-                                item_slot,
-                            )?,
-                            algorithm: options.algorithm,
-                            expected: self.lower_expr(
-                                options.expected,
-                                slots,
-                                current_function,
-                                item_slot,
-                            )?,
-                            span,
-                        }
-                    ));
+                    return self.lower_hash_verify_file_call(
+                        &options,
+                        slots,
+                        current_function,
+                        item_slot,
+                        span,
+                    );
                 }
                 if let ArenaExprKind::Ident(module) = self.program.arena.expr(base).kind
                     && let Some(module_call) = lowered_module_call_args(module, name, &args_vec)
@@ -9474,26 +9513,13 @@ impl CompactLowerConstructProbe<'_, '_> {
                         && name == "verify_file"
                         && let Some(options) = lower_hash_verify_file_args(&args_vec)
                     {
-                        return Some(push_build_row!(
-                            self,
-                            expr,
-                            BuildExprRow::HashVerifyFile {
-                                path: self.lower_expr(
-                                    options.path,
-                                    slots,
-                                    current_function,
-                                    item_slot,
-                                )?,
-                                algorithm: options.algorithm,
-                                expected: self.lower_expr(
-                                    options.expected,
-                                    slots,
-                                    current_function,
-                                    item_slot,
-                                )?,
-                                span,
-                            }
-                        ));
+                        return self.lower_hash_verify_file_call(
+                            &options,
+                            slots,
+                            current_function,
+                            item_slot,
+                            span,
+                        );
                     }
                     if let Some(script_call) = self.lower_script_module_call(
                         module,
