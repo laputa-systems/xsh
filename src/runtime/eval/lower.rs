@@ -1651,9 +1651,9 @@ pub(super) fn lower_compact_function_units_into(
     };
     let mut prefixes: FxHashMap<Option<Name>, CompactTopLevelPrefix> = FxHashMap::default();
     for function in index.defs.iter().copied() {
-        let prefix = prefixes.entry(function.namespace).or_insert_with(|| {
-            CompactTopLevelPrefix::for_namespace(program, function.namespace)
-        });
+        let prefix = prefixes
+            .entry(function.namespace)
+            .or_insert_with(|| CompactTopLevelPrefix::for_namespace(program, function.namespace));
         prefix.advance_to_recording(&recorder, function.id);
         let top_level_known = prefix.known.clone();
         let mut probe = CompactLowerConstructProbe {
@@ -1896,7 +1896,9 @@ impl CompactFunctionIndex {
     }
 
     fn definition(&self, key: LoweredFunctionKey) -> Option<&CompactFunctionDef> {
-        self.index_of.get(&key).and_then(|index| self.defs.get(*index))
+        self.index_of
+            .get(&key)
+            .and_then(|index| self.defs.get(*index))
     }
 }
 
@@ -1971,10 +1973,15 @@ fn compact_function_dependency_keys(
     program: &ArenaProgram,
     function: &CompactFunctionDef,
 ) -> Vec<LoweredFunctionKey> {
-    compact_function_call_edges(program, function.id, function.namespace, &functions.index_of)
-        .into_iter()
-        .map(|index| functions.defs[index].key)
-        .collect()
+    compact_function_call_edges(
+        program,
+        function.id,
+        function.namespace,
+        &functions.index_of,
+    )
+    .into_iter()
+    .map(|index| functions.defs[index].key)
+    .collect()
 }
 
 fn compact_collect_block_call_edges(
@@ -8466,13 +8473,15 @@ impl CompactLowerConstructProbe<'_, '_> {
         // The method signature excludes the receiver; the implementation
         // function declares it first, so bind the declared parameters against
         // the arguments after the leading receiver slot.
-        let params = self.compact_qualified_function_sig(namespace, function).map(|sig| {
-            sig.params
-                .iter()
-                .skip(1)
-                .cloned()
-                .collect::<Vec<CallableParamType>>()
-        });
+        let params = self
+            .compact_qualified_function_sig(namespace, function)
+            .map(|sig| {
+                sig.params
+                    .iter()
+                    .skip(1)
+                    .cloned()
+                    .collect::<Vec<CallableParamType>>()
+            });
         let mut lowered = vec![LoweredCallArg::Single(self.lower_expr(
             base,
             slots,
@@ -8582,10 +8591,7 @@ impl CompactLowerConstructProbe<'_, '_> {
         let script = api_spec()
             .module_overloads(&module.as_str(), &name.as_str())?
             .iter()
-            .find(|sig| {
-                sig.script_impl().is_some()
-                    && compact_module_bindings(args, sig).is_some()
-            })
+            .find(|sig| sig.script_impl().is_some() && compact_module_bindings(args, sig).is_some())
             .and_then(|sig| sig.script_impl())?;
         let namespace = self.internal_namespace(script.module)?;
         let function = Name::intern(script.function);

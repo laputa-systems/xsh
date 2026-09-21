@@ -52,7 +52,11 @@ proc test_unix_uptime_seconds_dry_run_log(ctx: TestContext) [fs, process, env, e
   env XSH_UNIX_DRY_RUN=1 XSH_UNIX_UPTIME_SECONDS=17 XSH_UNIX_DRY_RUN_LOG=$log {
     test.eq(unix.uptime_seconds()?, 17)?
   } ?
-  test.eq(log.read_text()?, "{\"op\":\"uptime_seconds\",\"seconds\":\"17\"}\n")?
+  test.eq(
+    log.read_text()?,
+    """{"op":"uptime_seconds","seconds":"17"}
+""",
+  )?
 
   # An override that is not an integer reads as zero, and so does an unset one.
   env XSH_UNIX_DRY_RUN=1 XSH_UNIX_UPTIME_SECONDS=nope {

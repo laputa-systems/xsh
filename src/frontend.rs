@@ -18,14 +18,13 @@ pub mod check {
 pub mod load {
     pub use crate::loader::{
         CheckedEntry, CompactFileDeclarationSummary, CompactFileExport, CompactFileImport,
-        CompactFileUnit, CompactModuleGraph, CompactModuleImportEdge, EntrySource,
+        CompactFileUnit, CompactModuleGraph, CompactModuleImportEdge, EntrySource, StdlibLinkage,
         entry_source_from_bytes, entry_source_from_text, module_key, parse_load_check_bytes,
         parse_load_check_entry_source, parse_load_check_entry_source_with_token_table,
-        StdlibLinkage, parse_load_check_file, parse_load_check_text,
-        parse_load_entry_source_arena_only, parse_load_entry_source_arena_only_with_linkage,
-        parse_load_entry_source_compact_file_unit, parse_load_entry_source_shared_arena_only,
-        parse_script, parse_script_with_module_roots, prepare_stdlib_catalog_module,
-        resolve_user_module,
+        parse_load_check_file, parse_load_check_text, parse_load_entry_source_arena_only,
+        parse_load_entry_source_arena_only_with_linkage, parse_load_entry_source_compact_file_unit,
+        parse_load_entry_source_shared_arena_only, parse_script, parse_script_with_module_roots,
+        prepare_stdlib_catalog_module, resolve_user_module,
     };
 }
 

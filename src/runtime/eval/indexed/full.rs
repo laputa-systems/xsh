@@ -3602,7 +3602,8 @@ impl FullVerifier {
             if !crate::stdlib::is_private_bridge_op(*op) {
                 continue;
             }
-            let permitted = owner.is_some_and(|module| crate::stdlib::declares_bridge_op(module, *op));
+            let permitted =
+                owner.is_some_and(|module| crate::stdlib::declares_bridge_op(module, *op));
             if !permitted {
                 return Err(IrVerifyError::new(
                     "private representation operation reached from outside its implementation module",

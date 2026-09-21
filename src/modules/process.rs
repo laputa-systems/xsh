@@ -629,7 +629,6 @@ fn signal_name(number: i32) -> Option<&'static str> {
         .find_map(|(name, candidate)| (*candidate == number).then_some(*name))
 }
 
-
 #[derive(Clone, Debug)]
 struct ProcessRecord {
     pid: i64,

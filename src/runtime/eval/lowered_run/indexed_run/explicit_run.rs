@@ -279,13 +279,10 @@ impl Evaluator {
         span: Span,
     ) -> Result<bool, RuntimeError> {
         let header = view.header().map_err(|error| indexed_error(error, span))?;
-        if matches!(
+        Ok(!matches!(
             header.return_kind,
             LoweredReturnKind::Plain(LoweredType::Stream)
-        ) {
-            return Ok(false);
-        }
-        Ok(true)
+        ))
     }
 
     pub(super) fn eval_indexed_with_frames(

@@ -3,7 +3,6 @@ use crate::source::Span;
 use crate::symbol::Name;
 use miniserde::json::{Array, Number, Object, Value as JsonValue};
 
-
 const JSON_NUMBER_MESSAGE: &str = "JSON numbers must be i64 integers or finite Float values";
 
 #[allow(clippy::single_call_fn)]

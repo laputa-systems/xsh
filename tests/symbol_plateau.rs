@@ -55,4 +55,3 @@ fn repeated_preparation_returns_to_a_stable_symbol_plateau() {
         "twenty prepared runs left {after} live dynamic symbols against a plateau of {baseline}"
     );
 }
-

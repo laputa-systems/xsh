@@ -125,9 +125,7 @@ proc test_release_checksum_sidecars_keep_a_relative_artifact_name(ctx: TestConte
   )?
 }
 
-proc test_release_validation_requires_exactly_the_nine_expected_products(
-  ctx: TestContext,
-) [fs, error] {
+proc test_release_validation_requires_exactly_the_nine_expected_products(ctx: TestContext) [fs, error] {
   let root = test.temp_dir(ctx, name: "release-validation")?
   let artifact_dir = fp"${root}/dist"
   artifact_dir.mkdir()?

@@ -45,11 +45,7 @@ fn prepared_module_count(name: &str, source: &str) -> usize {
         Vec::new(),
         StdlibLinkage::Prepare,
     );
-    assert!(
-        parsed.diagnostics.is_empty(),
-        "{:?}",
-        parsed.diagnostics
-    );
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
     stdlib_preparation::parsed_modules()
 }
 
@@ -133,7 +129,12 @@ fn execution_does_not_prepare_embedded_modules() {
         args: Vec::new(),
         coverage_trace_dir: None,
     });
-    assert_eq!(output.status, 0, "{}", String::from_utf8_lossy(&output.stderr));
+    assert_eq!(
+        output.status,
+        0,
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     assert_eq!(
         stdlib_preparation::parsed_modules(),
         1,
@@ -278,12 +279,17 @@ fn stdlib_catalog_size() -> usize {
     let dir = temp_dir("catalog-size");
     let mut sources = String::new();
     for index in 0..64 {
-        sources.push_str(&format!("proc probe_{index}() [io] {{\n  print {index}\n}}\n"));
+        sources.push_str(&format!(
+            "proc probe_{index}() [io] {{\n  print {index}\n}}\n"
+        ));
     }
     let path = write_script(&dir, "probe.xsh", &sources);
     let count = prepared_module_count(path.to_str().expect("utf-8 path"), &sources);
     let _ = std::fs::remove_dir_all(&dir);
-    assert_eq!(count, 0, "a program with no standard calls prepares nothing");
+    assert_eq!(
+        count, 0,
+        "a program with no standard calls prepares nothing"
+    );
     dynamic_catalog_size()
 }
 
@@ -541,7 +547,8 @@ fn implementation_namespace_is_unspellable_and_reserved_names_still_work() {
             .expect("run the spelling fixture");
         let ok = output.status.code() == Some(0);
         assert_eq!(
-            ok, expect_ok,
+            ok,
+            expect_ok,
             "{name}: {}",
             String::from_utf8_lossy(&output.stderr)
         );
@@ -696,7 +703,11 @@ fn module_dependencies_resolve_and_cycles_are_diagnosed() {
         "beta.xsh",
         "##! Second half of an import cycle.\n\nuse alpha\n\n## Answer.\nexport pure b() -> Int {\n  return 2\n}\n",
     );
-    let cyclic = write_script(&dir, "cyclic.xsh", "use alpha\n\nproc main() [io] {\n  print alpha.a()\n}\n");
+    let cyclic = write_script(
+        &dir,
+        "cyclic.xsh",
+        "use alpha\n\nproc main() [io] {\n  print alpha.a()\n}\n",
+    );
     let output = std::process::Command::new(env!("CARGO_BIN_EXE_xsh"))
         .arg(&cyclic)
         .current_dir(&dir)

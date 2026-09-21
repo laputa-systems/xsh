@@ -74,12 +74,20 @@ proc test_process_argv_words_parses_quotes_and_escapes() [process, error] {
   # words.
   test.eq(process.argv_words("one")?, ["one"])?
   test.eq(process.argv_words("plain words")?, ["plain", "words"])?
-  test.eq(process.argv_words("  spaced \t out \n lines  ")?, ["spaced", "out", "lines"])?
+  test.eq(
+    process.argv_words("""  spaced 	 out 
+ lines  """)?,
+    ["spaced", "out", "lines"],
+  )?
 
   # Input with no words at all.
   let no_words: List[Str] = []
   test.eq(process.argv_words("")?, no_words)?
-  test.eq(process.argv_words(" \t\r\n\x0b\x0c ")?, no_words)?
+  test.eq(
+    process.argv_words(""" 	\r
+ """)?,
+    no_words,
+  )?
 
   # Explicit empty quotes keep an empty word.
   test.eq(process.argv_words("''")?, [""])?
@@ -130,7 +138,23 @@ proc test_process_argv_words_rejects_shell_syntax() [process, error] {
   }
 
   # Every member of the rejected set, as its own word and inside a word.
-  for character in ["|", "<", ">", ";", "&", "$", "`", "*", "?", "[", "]", "(", ")", "{", "}"] {
+  for character in [
+    "|",
+    "<",
+    ">",
+    ";",
+    "&",
+    "$",
+    "`",
+    "*",
+    "?",
+    "[",
+    "]",
+    "(",
+    ")",
+    "{",
+    "}",
+  ] {
     test.error_kind(process.argv_words(f"echo ${character}"), "argv-words")?
     test.error_kind(process.argv_words(f"before${character}after"), "argv-words")?
   }
@@ -167,7 +191,7 @@ proc test_process_argv_words_rejects_shell_syntax() [process, error] {
     "shell syntax character ``` is not accepted",
   )?
   test.eq(
-    argv_words_message(process.argv_words("café|thé")),
+    argv_words_message(process.argv_words("caf\u{e9}|th\u{e9}")),
     "shell syntax character `|` is not accepted",
   )?
   test.eq(
@@ -187,19 +211,32 @@ proc test_process_argv_words_rejects_shell_syntax() [process, error] {
 # Unicode text: multi-byte characters stay inside a word, and every character
 # the baseline treats as whitespace separates words.
 proc test_process_argv_words_reads_unicode_text() [process, error] {
-  test.eq(process.argv_words("héllo wörld")?, ["héllo", "wörld"])?
-  test.eq(process.argv_words("'héllo wörld'")?, ["héllo wörld"])?
-  test.eq(process.argv_words("日本 語")?, ["日本", "語"])?
-  test.eq(process.argv_words("aé—b")?, ["aé—b"])?
+  test.eq(process.argv_words("h\u{e9}llo w\u{f6}rld")?, ["h\u{e9}llo", "w\u{f6}rld"])?
+  test.eq(process.argv_words("'h\u{e9}llo w\u{f6}rld'")?, ["h\u{e9}llo w\u{f6}rld"])?
+  test.eq(process.argv_words("\u{65e5}\u{672c} \u{8a9e}")?, ["\u{65e5}\u{672c}", "\u{8a9e}"])?
+  test.eq(process.argv_words("a\u{e9}\u{2014}b")?, ["a\u{e9}\u{2014}b"])?
 
-  for space in ["\u{0085}", "\u{00a0}", "\u{1680}", "\u{2000}", "\u{2003}", "\u{200a}", "\u{2028}", "\u{2029}", "\u{202f}", "\u{205f}", "\u{3000}"] {
+  for space in [
+    "\u{85}",
+    "\u{a0}",
+    "\u{1680}",
+    "\u{2000}",
+    "\u{2003}",
+    "\u{200a}",
+    "\u{2028}",
+    "\u{2029}",
+    "\u{202f}",
+    "\u{205f}",
+    "\u{3000}",
+  ] {
     test.eq(process.argv_words(f"a${space}b")?, ["a", "b"])?
   }
+
   let only_space = process.argv_words("\u{2003}\u{205f}")?
   test.eq(only_space.len(), 0)?
 
   # A multi-byte word and a multi-byte whitespace run together.
-  test.eq(process.argv_words("α\u{3000}β γ")?, ["α", "β", "γ"])?
+  test.eq(process.argv_words("\u{3b1}\u{3000}\u{3b2} \u{3b3}")?, ["\u{3b1}", "\u{3b2}", "\u{3b3}"])?
 }
 
 proc test_process_command_redirections(ctx: TestContext) [fs, process, error] {

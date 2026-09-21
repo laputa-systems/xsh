@@ -795,17 +795,15 @@ impl<'a, 'b> ArenaModuleLoader<'a, 'b> {
                 return;
             }
         };
-        let namespace = self
-            .arena
-            .name(&crate::stdlib::namespace_text(identity));
+        let namespace = self.arena.name(&crate::stdlib::namespace_text(identity));
         let text = self
             .sources
             .get(source_id)
             .expect("embedded source was just inserted")
             .text();
-        let parsed = self
-            .arena
-            .with_internal_source(|arena| Parser::parse_source_into_arena_builder(source_id, text, arena));
+        let parsed = self.arena.with_internal_source(|arena| {
+            Parser::parse_source_into_arena_builder(source_id, text, arena)
+        });
         if !parsed.diagnostics.is_empty() {
             self.diagnostics.extend(parsed.diagnostics);
             return;

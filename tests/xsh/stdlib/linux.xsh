@@ -96,12 +96,8 @@ proc test_linux_dry_run_covers_module_surface(ctx: TestContext) [fs, process, en
 # reports a record on success.
 pure meminfo_failure(result: Result[LinuxMemInfo]) -> Str {
   match result {
-    Ok(_) => {
-      return ""
-    }
-    Err(failure) => {
-      return failure.message
-    }
+    Ok(_) => return ""
+    Err(failure) => return failure.message
   }
 }
 
@@ -142,7 +138,12 @@ proc test_linux_text_dry_run_values_and_log(ctx: TestContext) [fs, process, env,
     test.eq(modules[0].used_by, ["xsh_dep"])?
   } ?
 
-  test.eq(log.read_text()?, "{\"op\":\"meminfo\"}\n{\"op\":\"modules\"}\n")?
+  test.eq(
+    log.read_text()?,
+    """{"op":"meminfo"}
+{"op":"modules"}
+""",
+  )?
 }
 
 proc test_linux_text_log_failure_kind(ctx: TestContext) [fs, process, env, error] {
@@ -207,6 +208,7 @@ proc test_linux_modules_streams_the_host_text() [process, env, error] {
       for dependent in entry.used_by {
         test.ok(dependent != "")?
       }
+
       break
     }
   } ?
@@ -243,11 +245,11 @@ proc test_linux_module_policy_uses_the_configured_tree(ctx: TestContext) [fs, pr
   let root = test.temp_dir(ctx, name: "linux-modules")?
   fs.write(
     fp"${root}/demo-name.ko",
-    "description=Demo module\x00license=MIT\x00version=2\x00depends=dep,missing\x00parm=debug:Enable debug (bool)\x00parm=mode:Mode (charp)\x00",
+    "description=Demo module\0license=MIT\0version=2\0depends=dep,missing\0parm=debug:Enable debug (bool)\0parm=mode:Mode (charp)\0",
   )?
   fs.write(
     fp"${root}/dep.ko",
-    "description=dep module\x00license=GPL\x00version=1\x00",
+    "description=dep module\0license=GPL\0version=1\0",
   )?
 
   # The nested source is a template rather than an f-string: its `${...}`
@@ -272,6 +274,7 @@ proc main() [io, fs, error] {
   let source = template.replace("{root}", f"${root}")
 
   let environment = {XSH_LINUX_REAL: "1", XSH_MODULES_DIR: f"${root}"}
+
   # Arguments are positional-only, so the empty argv and stdin are spelled out.
   let nested = test.run_script(
     ctx,

@@ -10,7 +10,6 @@ pure missing_info() -> MimeInfo {
   return {mime: "missing", exts: ["missing"]}
 }
 
-
 # `lookup_path` reports its declared optional type but keeps the baseline
 # runtime boundary of `Ok`/`Err`, so `??` is the one form that observes both
 # spellings correctly.
@@ -34,6 +33,7 @@ proc test_mime_lookup_and_parse() [fs, error] {
   let info = mime.lookup_ext("tar.gz") ?? {mime: "missing", exts: ["missing"]}
   test.eq(info.mime, "application/tar+gzip")?
   test.eq(info.exts[0], "tar.gz")?
+
   # `lookup_path` keeps the baseline runtime boundary: a hit is `Ok`, a miss is
   # an error, even though the declared result type is a plain optional.
   # and a present one is read with `?.` or `??`, never with `?`.
@@ -176,9 +176,19 @@ proc test_mime_parse_reads_quoted_parameter_values() [error] {
 
 proc test_mime_parse_rejects_invalid_media_types() [error] {
   # The type field must be a non-empty `token/token` pair.
-  for value in ["", "text", "/", "/plain", "not a media type", "*/*", "text/*", "text /plain"] {
+  for value in [
+    "",
+    "text",
+    "/",
+    "/plain",
+    "not a media type",
+    "*/*",
+    "text/*",
+    "text /plain",
+  ] {
     test.eq(parsed_type(mime.parse(value)), "rejected")?
   }
+
   test.error_kind(mime.parse(""), "mime-parse")?
 }
 
@@ -199,6 +209,7 @@ proc test_mime_parse_rejects_malformed_parameters() [error] {
   ] {
     test.eq(parsed_type(mime.parse(value)), "rejected")?
   }
+
   test.error_kind(mime.parse("text/plain; bad"), "mime-parse")?
 
   # One malformed parameter rejects the whole value rather than dropping the

@@ -26,10 +26,10 @@ use xsh::diagnostic::DiagnosticRenderer;
 use xsh::execution::evaluator::Evaluator;
 use xsh::execution::value::RunError;
 use xsh::frontend::check::Checker;
+use xsh::frontend::load::{entry_source_from_text, parse_load_entry_source_arena_only};
 use xsh::frontend::source::{SourceId, SourceMap, Span};
 use xsh::frontend::syntax::arena::ArenaProgram;
 use xsh::frontend::syntax::node::RunKind;
-use xsh::frontend::load::{entry_source_from_text, parse_load_entry_source_arena_only};
 use xsh::process::{
     CancellationDecision, CancellationPolicy, ChildWaitOutcome, FileRedirectionMode,
     ForegroundTerminal, ManagedStdio, ProcessGroup, ProcessGroupConfig, ProcessInvocation,
@@ -303,7 +303,8 @@ fn run_xsh_source(session: &Session, source_name: &str, text: &str) -> CommandOu
     // during it.
     let entry_source = entry_source_from_text(source_name, text.to_string());
     let source_id = entry_source.source_id;
-    let (sources, parsed) = parse_load_entry_source_arena_only(source_name, entry_source, Vec::new());
+    let (sources, parsed) =
+        parse_load_entry_source_arena_only(source_name, entry_source, Vec::new());
 
     if !parsed.diagnostics.is_empty() {
         return CommandOutput {

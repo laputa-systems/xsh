@@ -41,8 +41,6 @@ pub(crate) fn split_text(text: &str, separator: &str, maxsplit: Option<i64>) -> 
         .collect()
 }
 
-
-
 pub(crate) fn translate_text(text: &str, from: &str, to: &str) -> String {
     // ASCII fast path (e.g. case folding): scan the byte slices directly. Same
     // O(text * from) shape as the char fallback below, but with none of its two
@@ -205,8 +203,6 @@ pub(crate) fn parse_float_text(text: &str, span: Span) -> Result<f64, RuntimeErr
         RuntimeError::new("parse-float", format!("invalid float `{text}`")).with_span(span)
     })
 }
-
-
 
 #[cfg(test)]
 mod tests {

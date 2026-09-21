@@ -160,7 +160,12 @@ fn one_case_set_behaves_identically_across_supported_builds() {
                 String::from_utf8_lossy(&candidate.2),
             )
         };
-        assert_eq!(baseline.0, candidate.0, "exit status differs / {}", context("exit status"));
+        assert_eq!(
+            baseline.0,
+            candidate.0,
+            "exit status differs / {}",
+            context("exit status")
+        );
         assert_eq!(baseline.1, candidate.1, "{}", context("stdout"));
         assert_eq!(baseline.2, candidate.2, "{}", context("stderr"));
     }

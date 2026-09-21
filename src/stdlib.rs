@@ -12,11 +12,9 @@
 //! module identities; [`CATALOG`] must contain exactly one entry per identity,
 //! which the tests below enforce.
 
-use crate::modules::signature::RuntimeOp;
 use crate::modules::api_spec;
-use crate::syntax::arena::{
-    ArenaCommand, ArenaExprKind, AstArena, CommandStmtId, ExprId,
-};
+use crate::modules::signature::RuntimeOp;
+use crate::syntax::arena::{ArenaCommand, ArenaExprKind, AstArena, CommandStmtId, ExprId};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::OnceLock;
 
@@ -178,9 +176,7 @@ pub(crate) fn find(identity: &str) -> Option<&'static StdlibModule> {
 
 /// The embedded module a reserved internal namespace spelling names.
 pub(crate) fn find_by_namespace(namespace: &str) -> Option<&'static StdlibModule> {
-    let identity = namespace
-        .strip_prefix("<xsh-stdlib:")?
-        .strip_suffix('>')?;
+    let identity = namespace.strip_prefix("<xsh-stdlib:")?.strip_suffix('>')?;
     find(identity)
 }
 
@@ -204,10 +200,7 @@ pub(crate) fn declares_bridge_op(module: &'static StdlibModule, op: RuntimeOp) -
 }
 
 /// The private operation a bridge function in `module` lowers to.
-pub(crate) fn bridge_op(
-    module: &'static StdlibModule,
-    function: &str,
-) -> Option<RuntimeOp> {
+pub(crate) fn bridge_op(module: &'static StdlibModule, function: &str) -> Option<RuntimeOp> {
     module
         .bridges
         .iter()
@@ -286,7 +279,8 @@ pub(crate) fn required_modules(arena: &AstArena) -> Vec<&'static str> {
         }
     }
     for index in 0..arena.command_stmts.len() {
-        let ArenaCommand::Proc { name, .. } = arena.command_stmt(CommandStmtId::from_index(index)).command
+        let ArenaCommand::Proc { name, .. } =
+            arena.command_stmt(CommandStmtId::from_index(index)).command
         else {
             continue;
         };
@@ -335,11 +329,7 @@ fn collect_module_mentions(needed: &mut BTreeSet<&'static str>, module: &str) {
     }
 }
 
-fn collect_qualified_mention(
-    needed: &mut BTreeSet<&'static str>,
-    module: &str,
-    function: &str,
-) {
+fn collect_qualified_mention(needed: &mut BTreeSet<&'static str>, module: &str, function: &str) {
     let Some(overloads) = api_spec().module_overloads(module, function) else {
         return;
     };
@@ -488,7 +478,10 @@ mod tests {
     fn every_binding_names_an_implementation_the_catalog_provides() {
         for (module, function, script) in api_spec().script_impls() {
             let entry = find(script.module).unwrap_or_else(|| {
-                panic!("`{module}.{function}` binds the missing module `{}`", script.module)
+                panic!(
+                    "`{module}.{function}` binds the missing module `{}`",
+                    script.module
+                )
             });
             assert!(!entry.source.trim().is_empty());
         }

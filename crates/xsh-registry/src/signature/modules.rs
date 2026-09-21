@@ -14,11 +14,11 @@ use super::{
     linux_uevent_type, measured_command_type, mime_info_type, mime_parse_type, module_sig,
     net_pool_type, net_response_type, param, patch_result_type, process_entry_type,
     process_port_type, process_stats_type, process_thread_type, process_wait_any_type, result,
-    script_sig, script_sig_with_arg_check, sig, sig_with_arg_check, signal_record_type, spawn_record_type, system_memory_type,
-    system_os_release_type, uname_record_type, unix_child_event_type, unix_id_type,
-    unix_kill_all_result_type, unix_logged_process_group_type, unix_pid1_event_type,
-    unix_pid1_shutdown_type, unix_spawned_child_type, unix_tty_attrs_type, user_record_type,
-    value_methods,
+    script_sig, script_sig_with_arg_check, sig, sig_with_arg_check, signal_record_type,
+    spawn_record_type, system_memory_type, system_os_release_type, uname_record_type,
+    unix_child_event_type, unix_id_type, unix_kill_all_result_type, unix_logged_process_group_type,
+    unix_pid1_event_type, unix_pid1_shutdown_type, unix_spawned_child_type, unix_tty_attrs_type,
+    user_record_type, value_methods,
 };
 #[cfg(feature = "native-tests")]
 use super::{test_call_type, test_context_type, test_script_output_type};

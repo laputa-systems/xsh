@@ -81,6 +81,7 @@ proc test_tui_pad_ignores_escape_sequences() [error] {
     tui.left_pad(f"${tui.bold()}wide${tui.reset()}", 6),
     f"  ${tui.bold()}wide${tui.reset()}",
   )?
+
   # A value made only of escape sequences is zero columns wide.
   test.eq(tui.left_pad(tui.reset(), 2), f"  ${tui.reset()}")?
   test.eq(tui.right_pad(tui.clear(), 2), f"${tui.clear()}  ")?
@@ -89,20 +90,60 @@ proc test_tui_pad_ignores_escape_sequences() [error] {
 # Width counts Unicode scalar values, not display cells and not graphemes: a
 # combining mark and an astral emoji each count as one.
 proc test_tui_pad_counts_unicode_scalars() [error] {
-  test.eq(tui.left_pad("héllo", 6), " héllo")?
-  test.eq(tui.right_pad("héllo", 6), "héllo ")?
-  test.eq(tui.left_pad("日本", 3), " 日本")?
-  test.eq(tui.right_pad("😀", 3), "😀  ")?
+  test.eq(tui.left_pad("h\u{e9}llo", 6), " h\u{e9}llo")?
+  test.eq(tui.right_pad("h\u{e9}llo", 6), "h\u{e9}llo ")?
+  test.eq(tui.left_pad("\u{65e5}\u{672c}", 3), " \u{65e5}\u{672c}")?
+  test.eq(tui.right_pad("\u{1f600}", 3), "\u{1f600}  ")?
 }
 
 # CR and LF are zero-width, so text carrying line breaks pads on visible
 # characters and keeps its line breaks in place.
 proc test_tui_pad_treats_cr_and_lf_as_zero_width() [error] {
-  test.eq(tui.left_pad("a\r\nb", 4), "  a\r\nb")?
-  test.eq(tui.right_pad("a\r\nb", 4), "a\r\nb  ")?
-  test.eq(tui.left_pad("\r\n", 0), "\r\n")?
-  test.eq(tui.left_pad("\r\n", 2), "  \r\n")?
-  test.eq(tui.right_pad("\r\n", 3), "\r\n   ")?
+  test.eq(
+    tui.left_pad(
+  """a\r
+b""",
+  4,
+),
+    """  a\r
+b""",
+  )?
+  test.eq(
+    tui.right_pad(
+  """a\r
+b""",
+  4,
+),
+    """a\r
+b  """,
+  )?
+  test.eq(
+    tui.left_pad(
+  """\r
+""",
+  0,
+),
+    """\r
+""",
+  )?
+  test.eq(
+    tui.left_pad(
+  """\r
+""",
+  2,
+),
+    """  \r
+""",
+  )?
+  test.eq(
+    tui.right_pad(
+  """\r
+""",
+  3,
+),
+    """\r
+   """,
+  )?
 }
 
 # An `ESC` that does not open a CSI sequence is an ordinary character and keeps

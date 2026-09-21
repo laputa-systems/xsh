@@ -3,13 +3,11 @@
 //! (`refresh_lowered_pures`, `call_lowered_pure`) stay in the parent.
 
 use crate::modules::{
-    RuntimeOp, api_spec, archive as archive_module, bytes as bytes_module,
-    diff as diff_module, dns as dns_module, elf as elf_module, fs as fs_module,
-    group as group_module, hash as hash_module, ini as ini_module, json as json_module,
-    linux as linux_module, net as net_module, patch as patch_module,
-    process as process_module, regex as regex_module, system,
-    tui,
-    unix as unix_module, user as user_module,
+    RuntimeOp, api_spec, archive as archive_module, bytes as bytes_module, diff as diff_module,
+    dns as dns_module, elf as elf_module, fs as fs_module, group as group_module,
+    hash as hash_module, ini as ini_module, json as json_module, linux as linux_module,
+    net as net_module, patch as patch_module, process as process_module, regex as regex_module,
+    system, tui, unix as unix_module, user as user_module,
 };
 use crate::runtime::process::{
     CancellationPolicy, ChildWaitOutcome, FileRedirectionMode, ManagedStdio, ProcessEnd,
@@ -1887,13 +1885,14 @@ fn lowered_record_container(
         }
         Some(LoweredValue::RecordVec(fields)) => Ok(LoweredRecordContainer::Named(fields)),
         Some(LoweredValue::FsEntry(entry)) => {
-            let fields = entry.to_record_map().map_err(|error| error.with_span(span))?;
+            let fields = entry
+                .to_record_map()
+                .map_err(|error| error.with_span(span))?;
             let lowered = lowered_runtime_value(Value::Record(fields), span)?;
             lowered_record_container(Some(lowered), operation, span)
         }
         _ => Err(
-            RuntimeError::new("type-error", format!("{operation} expected Record"))
-                .with_span(span),
+            RuntimeError::new("type-error", format!("{operation} expected Record")).with_span(span),
         ),
     }
 }
@@ -2651,8 +2650,6 @@ fn lowered_process_run_error(error: RunError) -> LoweredValue {
 fn lowered_timeout_elapsed(deadline: Option<Instant>) -> bool {
     deadline.is_some_and(|deadline| Instant::now() >= deadline)
 }
-
-
 
 fn lowered_pipeline_input(value: LoweredValue, span: Span) -> Result<LoweredValue, RuntimeError> {
     match value {
@@ -4699,8 +4696,7 @@ impl Evaluator {
             }
             RuntimeOp::RecordRemoveField if values.len() == 2 => {
                 let field = lowered_str_arg_owned(values.pop(), "", "record.remove_field", span)?;
-                let record =
-                    lowered_record_container(values.pop(), "record.remove_field", span)?;
+                let record = lowered_record_container(values.pop(), "record.remove_field", span)?;
                 record.without_field(&field)
             }
             RuntimeOp::IniDecode if values.len() == 1 => {
@@ -7968,7 +7964,7 @@ impl Evaluator {
                         .transpose()?;
                     linux_module::open_files(pid, span)
                 }
-                    RuntimeOp::LinuxBlockDevices => linux_module::block_devices(span),
+                RuntimeOp::LinuxBlockDevices => linux_module::block_devices(span),
                 RuntimeOp::LinuxBlkid => {
                     let device = lowered_path_arg(
                         unix_require_arg(values.first().cloned(), "linux.blkid", span)?,
@@ -7978,7 +7974,7 @@ impl Evaluator {
                     let host_path = self.host_path(&device);
                     linux_module::blkid(&host_path, span)
                 }
-                    RuntimeOp::LinuxModinfo => {
+                RuntimeOp::LinuxModinfo => {
                     let name =
                         lowered_str_arg_owned(values.first().cloned(), "", "linux.modinfo", span)?;
                     linux_module::modinfo(&name, span)
@@ -8004,7 +8000,7 @@ impl Evaluator {
                 }
                 // Boot / privileged operations are not safe in a non-privileged
                 // container; return Ok(()) so scripts can feature-gate on errors.
-                    RuntimeOp::LinuxDepmod => {
+                RuntimeOp::LinuxDepmod => {
                     let version =
                         lowered_str_arg_owned(values.first().cloned(), "", "linux.depmod", span)?;
                     linux_module::depmod(&version, span)
@@ -8137,7 +8133,7 @@ impl Evaluator {
                     let id = lowered_int_arg(values.first().cloned(), "linux.rfkill_block", span)?;
                     linux_module::rfkill_set(id, true, span)
                 }
-                    RuntimeOp::LinuxRfkillList => linux_module::rfkill_list(span),
+                RuntimeOp::LinuxRfkillList => linux_module::rfkill_list(span),
                 RuntimeOp::LinuxRfkillUnblock => {
                     let id =
                         lowered_int_arg(values.first().cloned(), "linux.rfkill_unblock", span)?;

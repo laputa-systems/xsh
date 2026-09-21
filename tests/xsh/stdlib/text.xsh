@@ -41,8 +41,17 @@ proc test_text_wrap_fills_lines_and_cuts_overlong_words() [error] {
   # Empty text wraps to no lines at all, while a blank input line is a line
   # like any other and a trailing newline contributes one more empty line.
   test.eq("".wrap(5), [])?
-  test.eq("a\n\nb".wrap(5), ["a", "", "b"])?
-  test.eq("a\n".wrap(5), ["a", ""])?
+  test.eq(
+    """a
+
+b""".wrap(5),
+    ["a", "", "b"],
+  )?
+  test.eq(
+    """a
+""".wrap(5),
+    ["a", ""],
+  )?
   test.eq("\n".wrap(5), ["", ""])?
 
   # A word narrower than the width is one line, a word of exactly the width is
@@ -61,12 +70,24 @@ proc test_text_wrap_fills_lines_and_cuts_overlong_words() [error] {
   test.eq("a  b".wrap(5), ["a b"])?
   test.eq("  a   b  ".wrap(5), ["a b"])?
   test.eq("  one   two  ".wrap(3), ["one", "two"])?
-  test.eq("tab\there  new\nline".wrap(4), ["tab", "here", "new", "line"])?
+  test.eq(
+    """tab	here  new
+line""".wrap(4),
+    ["tab", "here", "new", "line"],
+  )?
 
   # Each input line wraps on its own, and a carriage return before a newline
   # is part of the line break rather than a word.
-  test.eq("a\nb".wrap(5), ["a", "b"])?
-  test.eq("a\r\nb".wrap(5), ["a", "b"])?
+  test.eq(
+    """a
+b""".wrap(5),
+    ["a", "b"],
+  )?
+  test.eq(
+    """a\r
+b""".wrap(5),
+    ["a", "b"],
+  )?
 
   # Columns count Unicode scalar values rather than bytes, so a multi-byte
   # scalar is never cut in half.
@@ -82,7 +103,11 @@ proc test_text_wrap_fills_lines_and_cuts_overlong_words() [error] {
 proc test_text_fields_selects_runs_or_literal_delimiters() [error] {
   # The default delimiter selects runs of Unicode whitespace, so leading,
   # trailing, and repeated whitespace contribute no fields.
-  test.eq("  alpha \t beta \n gamma ".fields(), ["alpha", "beta", "gamma"])?
+  test.eq(
+    """  alpha 	 beta 
+ gamma """.fields(),
+    ["alpha", "beta", "gamma"],
+  )?
   test.eq("alpha  beta".fields(), ["alpha", "beta"])?
   test.eq("".fields(), [])?
   test.eq("   ".fields(), [])?
@@ -103,7 +128,12 @@ proc test_text_fields_selects_runs_or_literal_delimiters() [error] {
   # delimiter is matched as a whole.
   test.eq("a b".fields(delimiter: ""), ["a", "b"])?
   test.eq("a\u{e9}b".fields(delimiter: "\u{e9}"), ["a", "b"])?
-  test.eq("a\r\nb".fields(delimiter: "\r\n"), ["a", "b"])?
+  test.eq(
+    """a\r
+b""".fields(delimiter: """\r
+"""),
+    ["a", "b"],
+  )?
 }
 
 # A width of zero or less is a rejection rather than an empty wrap, so it is

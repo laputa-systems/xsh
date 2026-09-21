@@ -22,7 +22,6 @@
 # Command records are read field by field with `get` rather than through a
 # declared record type, because the fields present depend on the descriptor
 # under test.
-
 type TokenRecord = {kind: Str, name: Str, value: Str}
 
 # The message of a rejection, or the empty string when the call succeeded.
@@ -119,9 +118,21 @@ options:
   test.eq(
     cli.usage(
       {
-        out: {kind: "Path", short: ["o"], help: "where to write"},
-        count: {kind: "Int"},
-        mode: {kind: "Str", optional_value: true, form: "--mode[=MODE]"},
+        out: {
+          kind: "Path",
+          short: [
+            "o",
+          ],
+          help: "where to write",
+        },
+        count: {
+          kind: "Int",
+        },
+        mode: {
+          kind: "Str",
+          optional_value: true,
+          form: "--mode[=MODE]",
+        },
       },
       "demo",
     ),
@@ -205,10 +216,21 @@ proc test_cli_tokens_splits_values_clusters_and_operands() [error] {
   # `-`, and everything after `--` are operands. A token with no value records
   # the empty string rather than a null.
   test.eq(
-    token_spellings(cli.tokens(
-      ["--output=result.txt", "-I", "include", "-1", "-", "--", "-x", "-abc"],
-      ["I", "output"],
-    )),
+    token_spellings(
+      cli.tokens(
+        [
+          "--output=result.txt",
+          "-I",
+          "include",
+          "-1",
+          "-",
+          "--",
+          "-x",
+          "-abc",
+        ],
+        ["I", "output"],
+      ),
+    ),
     "long:output:result.txt,short:I:include,operand:-1:,operand:-:,operand:-x:,operand:-abc:",
   )?
 
@@ -238,12 +260,20 @@ proc test_cli_tokens_splits_values_clusters_and_operands() [error] {
 proc test_cli_commands_dispatch_names_aliases_and_forms() [fs, error] {
   let schema = {
     build: {
-      positionals: ["root"],
-      types: {root: "Path"},
+      positionals: [
+        "root",
+      ],
+      types: {
+        root: "Path",
+      },
       rest: "raw",
-      aliases: ["b"],
+      aliases: [
+        "b",
+      ],
     },
-    clean: {rest: "raw"},
+    clean: {
+      rest: "raw",
+    },
   }
 
   # A command is dispatched by its name, and the result names both the command
@@ -267,25 +297,25 @@ proc test_cli_commands_dispatch_names_aliases_and_forms() [fs, error] {
   # canonical name is therefore reachable neither by its own spelling nor by the
   # underscored one — the baseline's own asymmetry, preserved here.
   test.eq(
-    failure_message(cli.commands(["my-command"], {"my-command": {rest: "raw"}})),
+    failure_message(cli.commands(["my-command"], {my-command: {rest: "raw"}})),
     "unknown command `my-command`",
   )?
   test.eq(
-    failure_message(cli.commands(["my_command"], {"my-command": {rest: "raw"}})),
+    failure_message(cli.commands(["my_command"], {my-command: {rest: "raw"}})),
     "unknown command `my_command`",
   )?
   test.eq(
-    cli.commands(["my_command", "one"], {"my_command": {rest: "raw"}})?.get("command") ?? null,
+    cli.commands(["my_command", "one"], {my_command: {rest: "raw"}})?.get("command") ?? null,
     "my_command",
   )?
   test.eq(
-    cli.commands(["my-command"], {"my_command": {rest: "raw"}})?.get("command") ?? null,
+    cli.commands(["my-command"], {my_command: {rest: "raw"}})?.get("command") ?? null,
     "my_command",
   )?
 
   # An alias is keyed by the same normalization, so a dashed alias spelling is
   # how a dashed canonical name is reached.
-  let via_alias = cli.commands(["mc", "one"], {"my-command": {rest: "raw", aliases: ["mc"]}})?
+  let via_alias = cli.commands(["mc", "one"], {my-command: {rest: "raw", aliases: ["mc"]}})?
   test.eq(via_alias.get("command") ?? null, "my-command")?
   test.eq(via_alias.get("action") ?? null, "mc")?
 
@@ -313,10 +343,12 @@ proc test_cli_commands_dispatch_names_aliases_and_forms() [fs, error] {
   # An alias another command already claims is rejected while the schema is
   # interpreted, before any argument is read.
   test.eq(
-    failure_message(cli.commands(
-      ["b"],
-      {build: {rest: "raw", aliases: ["b"]}, bale: {rest: "raw", aliases: ["b"]}},
-    )),
+    failure_message(
+      cli.commands(
+        ["b"],
+        {build: {rest: "raw", aliases: ["b"]}, bale: {rest: "raw", aliases: ["b"]}},
+      ),
+    ),
     "duplicate command alias `b`",
   )?
 }
@@ -352,12 +384,14 @@ proc test_cli_commands_rootless_and_fallback_routing() [fs, error] {
     "unknown command `./tool`",
   )?
   test.eq(
-    failure_message(cli.commands(
-      ["./tool", "a"],
-      "",
-      schema,
-      {positionals: ["tool"], command_like: true},
-    )),
+    failure_message(
+      cli.commands(
+        ["./tool", "a"],
+        "",
+        schema,
+        {positionals: ["tool"], command_like: true},
+      ),
+    ),
     "unknown command `./tool`",
   )?
 
@@ -473,12 +507,29 @@ proc test_cli_commands_convert_positionals_and_collect_the_rest() [fs, error] {
 proc test_cli_command_options_split_values_and_defaults() [fs, error] {
   let schema = {
     go: {
-      positionals: ["root"],
+      positionals: [
+        "root",
+      ],
       options: {
-        verbose: {kind: "Bool", short: ["v"]},
-        tag: {kind: "Str", repeated: true},
-        mode: {kind: "Str", default: "slow"},
-        level: {kind: "Str", optional_value: true, default: "info"},
+        verbose: {
+          kind: "Bool",
+          short: [
+            "v",
+          ],
+        },
+        tag: {
+          kind: "Str",
+          repeated: true,
+        },
+        mode: {
+          kind: "Str",
+          default: "slow",
+        },
+        level: {
+          kind: "Str",
+          optional_value: true,
+          default: "info",
+        },
       },
     },
   }
@@ -570,92 +621,136 @@ proc test_cli_command_options_validate_values_and_relationships() [fs, error] {
   # sorted schema-name order, so the first relationship that fails is the one
   # reported.
   test.eq(
-    failure_message(cli.commands(
-      ["go", "r", "--a", "--b"],
-      {go: {positionals: ["root"], options: {a: {kind: "Bool", conflicts: ["b"]}, b: {kind: "Bool"}}}},
-    )),
+    failure_message(
+      cli.commands(
+        ["go", "r", "--a", "--b"],
+        {go: {positionals: ["root"], options: {a: {kind: "Bool", conflicts: ["b"]}, b: {kind: "Bool"}}}},
+      ),
+    ),
     "--a conflicts with --b",
   )?
   test.eq(
-    failure_message(cli.commands(
-      ["go", "r", "--a"],
-      {go: {positionals: ["root"], options: {a: {kind: "Bool", requires: ["b"]}, b: {kind: "Bool"}}}},
-    )),
+    failure_message(
+      cli.commands(
+        ["go", "r", "--a"],
+        {go: {positionals: ["root"], options: {a: {kind: "Bool", requires: ["b"]}, b: {kind: "Bool"}}}},
+      ),
+    ),
     "--a requires --b",
   )?
   test.eq(
-    failure_message(cli.commands(
-      ["go", "r"],
-      {go: {positionals: ["root"], options: {a: {kind: "Bool", required: true}}}},
-    )),
+    failure_message(
+      cli.commands(
+        ["go", "r"],
+        {go: {positionals: ["root"], options: {a: {kind: "Bool", required: true}}}},
+      ),
+    ),
     "missing required argument --a",
   )?
   test.eq(
-    failure_message(cli.commands(
-      ["go", "r"],
-      {
-        go: {
-          positionals: ["root"],
-          options: {a: {kind: "Bool", required_group: "pick"}, c: {kind: "Bool", required_group: "pick"}},
+    failure_message(
+      cli.commands(
+        ["go", "r"],
+        {
+          go: {
+            positionals: [
+              "root",
+            ],
+            options: {
+              a: {
+                kind: "Bool",
+                required_group: "pick",
+              },
+              c: {
+                kind: "Bool",
+                required_group: "pick",
+              },
+            },
+          },
         },
-      },
-    )),
+      ),
+    ),
     "one of required group `pick` is required: --a, --c",
   )?
   test.eq(
-    failure_message(cli.commands(
-      ["go", "r", "--a"],
-      {
-        go: {
-          positionals: ["root"],
-          options: {a: {kind: "Bool", required_group: "pick"}, c: {kind: "Bool", required_group: "pick"}},
+    failure_message(
+      cli.commands(
+        ["go", "r", "--a"],
+        {
+          go: {
+            positionals: [
+              "root",
+            ],
+            options: {
+              a: {
+                kind: "Bool",
+                required_group: "pick",
+              },
+              c: {
+                kind: "Bool",
+                required_group: "pick",
+              },
+            },
+          },
         },
-      },
-    )),
+      ),
+    ),
     "",
   )?
 
   # Numeric bounds, choices, and value types are the option reader's own.
   test.eq(
-    failure_message(cli.commands(
-      ["go", "r", "--mode", "quick"],
-      {go: {positionals: ["root"], options: {mode: {kind: "Str", choices: ["slow", "fast"]}}}},
-    )),
+    failure_message(
+      cli.commands(
+        ["go", "r", "--mode", "quick"],
+        {go: {positionals: ["root"], options: {mode: {kind: "Str", choices: ["slow", "fast"]}}}},
+      ),
+    ),
     "option --mode expects one of slow|fast, got `quick` at argv[0]",
   )?
   test.eq(
-    failure_message(cli.commands(
-      ["go", "r", "--n", "2"],
-      {go: {positionals: ["root"], options: {n: {kind: "Int", min: 3}}}},
-    )),
+    failure_message(
+      cli.commands(
+        ["go", "r", "--n", "2"],
+        {go: {positionals: ["root"], options: {n: {kind: "Int", min: 3}}}},
+      ),
+    ),
     "option --n expects value >= 3",
   )?
   test.eq(
-    failure_message(cli.commands(
-      ["go", "r", "--n", "9"],
-      {go: {positionals: ["root"], options: {n: {kind: "Int", max: 3}}}},
-    )),
+    failure_message(
+      cli.commands(
+        ["go", "r", "--n", "9"],
+        {go: {positionals: ["root"], options: {n: {kind: "Int", max: 3}}}},
+      ),
+    ),
     "option --n expects value <= 3",
   )?
   test.eq(
-    failure_message(cli.commands(
-      ["go", "r", "--n", "0"],
-      {go: {positionals: ["root"], options: {n: {kind: "Int", positive: true}}}},
-    )),
+    failure_message(
+      cli.commands(
+        ["go", "r", "--n", "0"],
+        {go: {positionals: ["root"], options: {n: {kind: "Int", positive: true}}}},
+      ),
+    ),
     "option --n expects a positive integer",
   )?
   test.eq(
-    failure_message(cli.commands(
-      ["go", "r", "--n", "0"],
-      {go: {positionals: ["root"], options: {n: {kind: "Int", nonzero: true}}}},
-    )),
+    failure_message(
+      cli.commands(
+        ["go", "r", "--n", "0"],
+        {go: {positionals: ["root"], options: {n: {kind: "Int", nonzero: true}}}},
+      ),
+    ),
     "option --n expects a non-zero integer",
   )?
   test.eq(
-    failure_message(cli.commands(
-      ["go", "r", "--n", "x"],
-      {go: {positionals: ["root"], options: {n: {kind: "Int"}}}},
-    )),
+    failure_message(
+      cli.commands(
+        ["go", "r", "--n", "x"],
+        {go: {positionals: ["root"], options: {n: {kind: "Int"}}}},
+      ),
+    ),
     "option --n expects Int at argv[1], got `x`",
   )?
 
@@ -710,31 +805,39 @@ proc test_cli_command_option_path_constraints(ctx: TestContext) [fs, error] {
   # file, then a directory — so a value that fails several of them is reported
   # against the first.
   test.eq(
-    failure_message(cli.commands(
-      ["go", "--target", missing.display()],
-      {go: {options: {target: {kind: "Path", exists: true}}}},
-    )),
+    failure_message(
+      cli.commands(
+        ["go", "--target", missing.display()],
+        {go: {options: {target: {kind: "Path", exists: true}}}},
+      ),
+    ),
     f"option --target expects an existing path: ${missing.display()}",
   )?
   test.eq(
-    failure_message(cli.commands(
-      ["go", "--target", root.display()],
-      {go: {options: {target: {kind: "Path", file: true}}}},
-    )),
+    failure_message(
+      cli.commands(
+        ["go", "--target", root.display()],
+        {go: {options: {target: {kind: "Path", file: true}}}},
+      ),
+    ),
     f"option --target expects a file path: ${root.display()}",
   )?
   test.eq(
-    failure_message(cli.commands(
-      ["go", "--target", present.display()],
-      {go: {options: {target: {kind: "Path", dir: true}}}},
-    )),
+    failure_message(
+      cli.commands(
+        ["go", "--target", present.display()],
+        {go: {options: {target: {kind: "Path", dir: true}}}},
+      ),
+    ),
     f"option --target expects a directory path: ${present.display()}",
   )?
   test.eq(
-    failure_message(cli.commands(
-      ["go", "--target", missing.display()],
-      {go: {options: {target: {kind: "Path", exists: true, file: true}}}},
-    )),
+    failure_message(
+      cli.commands(
+        ["go", "--target", missing.display()],
+        {go: {options: {target: {kind: "Path", exists: true, file: true}}}},
+      ),
+    ),
     f"option --target expects an existing path: ${missing.display()}",
   )?
 
@@ -743,35 +846,43 @@ proc test_cli_command_option_path_constraints(ctx: TestContext) [fs, error] {
   # it: a link to a present target answers for the target, while a link to a
   # missing one is not an existing path.
   test.eq(
-    failure_message(cli.commands(
-      ["go", "--target", present.display()],
-      {go: {options: {target: {kind: "Path", exists: true, file: true}}}},
-    )),
+    failure_message(
+      cli.commands(
+        ["go", "--target", present.display()],
+        {go: {options: {target: {kind: "Path", exists: true, file: true}}}},
+      ),
+    ),
     "",
   )?
   test.eq(
-    failure_message(cli.commands(
-      ["go", "--target", root.display()],
-      {go: {options: {target: {kind: "Path", exists: true, dir: true}}}},
-    )),
+    failure_message(
+      cli.commands(
+        ["go", "--target", root.display()],
+        {go: {options: {target: {kind: "Path", exists: true, dir: true}}}},
+      ),
+    ),
     "",
   )?
   let file_link = test.temp_path(ctx, name: "cli-file-link")
   fs.symlink(present, file_link)?
   test.eq(
-    failure_message(cli.commands(
-      ["go", "--target", file_link.display()],
-      {go: {options: {target: {kind: "Path", exists: true, file: true}}}},
-    )),
+    failure_message(
+      cli.commands(
+        ["go", "--target", file_link.display()],
+        {go: {options: {target: {kind: "Path", exists: true, file: true}}}},
+      ),
+    ),
     "",
   )?
   let dangling = test.temp_path(ctx, name: "cli-dangling")
   fs.symlink(missing, dangling)?
   test.eq(
-    failure_message(cli.commands(
-      ["go", "--target", dangling.display()],
-      {go: {options: {target: {kind: "Path", exists: true}}}},
-    )),
+    failure_message(
+      cli.commands(
+        ["go", "--target", dangling.display()],
+        {go: {options: {target: {kind: "Path", exists: true}}}},
+      ),
+    ),
     f"option --target expects an existing path: ${dangling.display()}",
   )?
 }
@@ -806,7 +917,7 @@ proc test_cli_parse_returns_values_and_asks_for_help() [fs, error] {
   )?
   test.eq(operands.get("first") ?? "", "one")?
   test.eq((operands.get("rest") ?? []).join(","), "two,three")?
-  test.eq((cli.parse(["--", "--name"], {name: {positional: true}}, "demo")?.get("name") ?? ""), "--name")?
+  test.eq(cli.parse(["--", "--name"], {name: {positional: true}}, "demo")?.get("name") ?? "", "--name")?
 
   # A rejection carries its kind and the usage text appended to its message,
   # and a duplicate is the same shape with the second spelling's argv index.
@@ -836,7 +947,10 @@ options:
   # rejection is a `cli-parse` one without the usage text; the same reading
   # reserves the `-h` short for `parse` alone.
   test.eq(failure_message(cli.parse([], {count: {kind: "Nope"}}, "demo")), "unsupported option type `Nope`")?
-  test.eq(failure_message(cli.parse(["-h"], {handle: {short: "h", kind: "Bool"}}, "demo")), "`-h` is reserved by cli.parse")?
+  test.eq(
+    failure_message(cli.parse(["-h"], {handle: {short: "h", kind: "Bool"}}, "demo")),
+    "`-h` is reserved by cli.parse",
+  )?
 
   # `--help`, `-h`, and any short cluster carrying an unclaimed `h` ask for
   # help: the rejection's kind is `cli-help` and its message is the usage text
@@ -873,12 +987,14 @@ proc test_cli_parse_full_reports_sources_and_warnings() [fs, error] {
   # appeared nowhere reports, its `false` being the descriptor's — and an entry
   # nothing supplied names `absent`.
   test.eq(
-    json.encode(cli.parse_full(
-      ["--name", "x"],
-      {name: {kind: "Str", env: "DEMO_NAME"}},
-      {DEMO_NAME: "from-env"},
-      "demo",
-    )?) ?? "",
+    json.encode(
+      cli.parse_full(
+        ["--name", "x"],
+        {name: {kind: "Str", env: "DEMO_NAME"}},
+        {DEMO_NAME: "from-env"},
+        "demo",
+      )?,
+    ) ?? "",
     """{"sources":{"name":"argv"},"values":{"name":"x"},"warnings":[]}""",
   )?
   test.eq(
@@ -890,12 +1006,14 @@ proc test_cli_parse_full_reports_sources_and_warnings() [fs, error] {
   # and it wins over a declared default; a repeated option's default is the
   # list the descriptor declares.
   test.eq(
-    json.encode(cli.parse_full(
-      [],
-      {name: {kind: "Str", env: "DEMO_NAME", default: "d"}},
-      {DEMO_NAME: "from-env"},
-      "demo",
-    )?) ?? "",
+    json.encode(
+      cli.parse_full(
+        [],
+        {name: {kind: "Str", env: "DEMO_NAME", default: "d"}},
+        {DEMO_NAME: "from-env"},
+        "demo",
+      )?,
+    ) ?? "",
     """{"sources":{"name":"env"},"values":{"name":"from-env"},"warnings":[]}""",
   )?
   test.eq(
@@ -919,7 +1037,14 @@ options:
   # A deprecated descriptor warns once when it was used, in the order the walk
   # used it, with the text the descriptor declares when it declares one.
   test.eq(
-    json.encode(cli.parse_full(["--bb", "--aa"], {aa: {kind: "Bool", deprecated: true}, bb: {kind: "Bool", deprecated: true}}, {}, "demo")?) ?? "",
+    json.encode(
+      cli.parse_full(
+        ["--bb", "--aa"],
+        {aa: {kind: "Bool", deprecated: true}, bb: {kind: "Bool", deprecated: true}},
+        {},
+        "demo",
+      )?,
+    ) ?? "",
     """{"sources":{"aa":"argv","bb":"argv"},"values":{"aa":true,"bb":true},"warnings":["option `bb` is deprecated","option `aa` is deprecated"]}""",
   )?
   test.eq(
@@ -965,7 +1090,7 @@ options:
   # own descriptor would have supplied — a declared default, or `false` for a
   # flag. The reset follows the schema entry that was just set, so a conflict
   # the other option declares is still reported by the relationship check.
-  test.eq((cli.applet(["--name", "a", "--name", "b"], {name: "Str"}, "demo")?.get("name") ?? ""), "b")?
+  test.eq(cli.applet(["--name", "a", "--name", "b"], {name: "Str"}, "demo")?.get("name") ?? "", "b")?
   test.eq(
     failure_message(cli.parse(["--name", "a", "--name", "b"], {name: "Str"}, "demo")),
     """duplicate argument at argv[2]: --name
@@ -1027,7 +1152,9 @@ options:
   -h, --help  show this help""",
   )?
   test.eq(
-    failure_message(cli.applet([], {aa: {kind: "Bool", required_group: "g"}, bb: {kind: "Bool", required_group: "g"}}, "demo")),
+    failure_message(
+      cli.applet([], {aa: {kind: "Bool", required_group: "g"}, bb: {kind: "Bool", required_group: "g"}}, "demo"),
+    ),
     """one of required group `g` is required: --aa, --bb
 
 usage: demo [OPTIONS]

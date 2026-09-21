@@ -992,12 +992,7 @@ impl<'a> ArenaProgramBuilder<'a> {
         });
     }
 
-    pub fn push_internal_arena_module(
-        &mut self,
-        key: String,
-        name: Name,
-        statements: ArenaRange,
-    ) {
+    pub fn push_internal_arena_module(&mut self, key: String, name: Name, statements: ArenaRange) {
         self.modules.push(ArenaUserModule {
             key,
             name,
