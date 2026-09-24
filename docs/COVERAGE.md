@@ -47,8 +47,13 @@ acceptance and suppressing ghost text during completion and history search.
 Useful next work:
 
 - Cover command-position completion and remote path fallbacks.
-- Keep PTY tests for true terminal integration only. Unit-level editor state
-  tests should own most branch coverage so the suite stays deterministic.
+
+The active `tests/runtime/interactive.rs` PTY gate covers prompt startup,
+terminal-mode restoration on exit, Ctrl-C, bracketed paste, and cooked-mode
+external-command handoff. The PTY helper forces `NO_COLOR` for stable prompt
+matching; the opt-in ANSI-color case removes it. The 20 retained opt-in cases
+name their controlling-terminal, scheduling, color, or signal requirement at
+each `#[ignore]`.
 
 ## Linux Boot, Mount, And Parity Surfaces
 

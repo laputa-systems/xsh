@@ -143,7 +143,6 @@ fn xshi_requires_tty_for_normal_startup() {
 }
 
 #[test]
-#[ignore = "flaky: PTY-driven, timing-sensitive; requires a controlling terminal"]
 fn xshi_runs_prompt_loop_on_pty() {
     let mut pty = spawn_xshi_pty();
 
@@ -158,11 +157,26 @@ fn xshi_runs_prompt_loop_on_pty() {
 }
 
 #[test]
-#[ignore = "flaky: PTY-driven, timing-sensitive; requires a controlling terminal"]
-fn xshi_pty_prompt_cursor_column_ignores_ansi_color() {
+fn xshi_pty_restores_terminal_mode_on_exit() {
     let mut pty = spawn_xshi_pty();
 
-    let transcript = pty.read_until("$ ", Duration::from_secs(5));
+    let transcript = pty.read_until("$ ", PTY_TIMEOUT);
+    pty.write(b"exit\r");
+    let status = wait_child_with_timeout(&mut pty.master, &mut pty.child, PTY_TIMEOUT, &transcript);
+    assert!(status.success(), "{transcript}");
+
+    let mut attrs = unsafe { std::mem::zeroed::<libc::termios>() };
+    assert_eq!(unsafe { libc::tcgetattr(pty.master.as_raw_fd(), &mut attrs) }, 0);
+    let canonical_flags = libc::ICANON | libc::ECHO | libc::ISIG;
+    assert_eq!(attrs.c_lflag & canonical_flags, pty.initial_lflag & canonical_flags);
+}
+
+#[test]
+#[ignore = "requires an ANSI-color controlling PTY; opt-in cursor integration"]
+fn xshi_pty_prompt_cursor_column_ignores_ansi_color() {
+    let mut pty = spawn_xshi_pty_colored();
+
+    let transcript = pty.read_until("\x1b[?25h", Duration::from_secs(5));
     let (visible_width, cursor_column) = prompt_cursor_measurement(&transcript);
     pty.write(b"exit\r");
     let output = pty.wait(Duration::from_secs(5), &transcript);
@@ -172,7 +186,7 @@ fn xshi_pty_prompt_cursor_column_ignores_ansi_color() {
 }
 
 #[test]
-#[ignore = "flaky: PTY-driven, timing-sensitive; requires a controlling terminal"]
+#[ignore = "requires an opt-in serial controlling PTY for terminal-level editor timing"]
 fn xshi_pty_line_editing_handles_backspace() {
     let mut pty = spawn_xshi_pty();
 
@@ -187,7 +201,7 @@ fn xshi_pty_line_editing_handles_backspace() {
 }
 
 #[test]
-#[ignore = "flaky: PTY-driven, timing-sensitive; requires a controlling terminal"]
+#[ignore = "requires an opt-in serial controlling PTY for terminal-level editor timing"]
 fn xshi_pty_space_expands_alias_in_editor() {
     let mut pty = spawn_xshi_pty();
 
@@ -204,7 +218,7 @@ fn xshi_pty_space_expands_alias_in_editor() {
 }
 
 #[test]
-#[ignore = "flaky: PTY-driven, timing-sensitive; requires a controlling terminal"]
+#[ignore = "requires an opt-in serial controlling PTY for terminal-level editor timing"]
 fn xshi_pty_up_arrow_cycles_through_history_entries() {
     let mut pty = spawn_xshi_pty();
 
@@ -228,7 +242,6 @@ fn xshi_pty_up_arrow_cycles_through_history_entries() {
 }
 
 #[test]
-#[ignore = "flaky: PTY-driven, timing-sensitive; requires a controlling terminal"]
 fn xshi_pty_ctrl_c_cancels_line_and_sets_exit_status() {
     let mut pty = spawn_xshi_pty();
 
@@ -249,7 +262,7 @@ fn xshi_pty_ctrl_c_cancels_line_and_sets_exit_status() {
 }
 
 #[test]
-#[ignore = "flaky: PTY-driven, timing-sensitive; requires a controlling terminal"]
+#[ignore = "requires an opt-in serial controlling PTY for terminal-level editor timing"]
 fn xshi_pty_tab_completion_lists_path_candidates() {
     let mut pty = spawn_xshi_pty();
 
@@ -265,7 +278,7 @@ fn xshi_pty_tab_completion_lists_path_candidates() {
 }
 
 #[test]
-#[ignore = "flaky: PTY-driven, timing-sensitive; requires a controlling terminal"]
+#[ignore = "requires an opt-in serial controlling PTY for terminal-level editor timing"]
 fn xshi_pty_cd_tilde_completion_uses_home() {
     let home = temp_xshi_home("xshi-home");
     std::fs::create_dir_all(home.join("xshi-home-dir")).expect("create home completion dir");
@@ -283,7 +296,7 @@ fn xshi_pty_cd_tilde_completion_uses_home() {
 }
 
 #[test]
-#[ignore = "flaky: PTY-driven, timing-sensitive; requires a controlling terminal"]
+#[ignore = "requires an opt-in serial controlling PTY for terminal-level editor timing"]
 fn xshi_pty_completion_clear_removes_stale_grid_rows() {
     let root = temp_xshi_home("xshi-grid-clear");
     std::fs::create_dir_all(&root).expect("create completion root");
@@ -316,7 +329,7 @@ fn xshi_pty_completion_clear_removes_stale_grid_rows() {
 }
 
 #[test]
-#[ignore = "flaky: PTY-driven, timing-sensitive; requires a controlling terminal"]
+#[ignore = "requires an opt-in serial controlling PTY for terminal-level editor timing"]
 fn xshi_pty_enter_accepts_completion_without_submitting() {
     let root = temp_xshi_home("xshi-grid-enter");
     std::fs::create_dir_all(&root).expect("create completion root");
@@ -336,7 +349,7 @@ fn xshi_pty_enter_accepts_completion_without_submitting() {
 }
 
 #[test]
-#[ignore = "flaky: PTY-driven, timing-sensitive; requires a controlling terminal"]
+#[ignore = "requires an opt-in serial controlling PTY for terminal-level editor timing"]
 fn xshi_pty_right_arrow_accepts_history_autosuggestion() {
     let mut pty = spawn_xshi_pty();
 
@@ -364,7 +377,7 @@ fn read_until_with_prompt(pty: &mut PtyXshi, transcript: &mut String, needle: &s
 }
 
 #[test]
-#[ignore = "flaky: PTY-driven, timing-sensitive; requires a controlling terminal"]
+#[ignore = "requires an opt-in serial controlling PTY for terminal-level editor timing"]
 fn xshi_pty_ctrl_r_opens_history_search_from_empty_prompt() {
     let home = temp_xshi_home("xshi-history-empty");
     let mut pty = spawn_xshi_pty_with(None, &[("HOME", home.as_path())]);
@@ -386,7 +399,7 @@ fn xshi_pty_ctrl_r_opens_history_search_from_empty_prompt() {
 }
 
 #[test]
-#[ignore = "flaky: PTY-driven, timing-sensitive; requires a controlling terminal"]
+#[ignore = "requires an opt-in serial controlling PTY for terminal-level editor timing"]
 fn xshi_pty_ctrl_r_incremental_history_search_accepts_match() {
     let home = temp_xshi_home("xshi-history-incremental");
     let mut pty = spawn_xshi_pty_with(None, &[("HOME", home.as_path())]);
@@ -410,7 +423,7 @@ fn xshi_pty_ctrl_r_incremental_history_search_accepts_match() {
 }
 
 #[test]
-#[ignore = "flaky: PTY-driven, timing-sensitive; requires a controlling terminal"]
+#[ignore = "requires a controlling PTY and reliable 25 ms split-key scheduling"]
 fn xshi_pty_ctrl_r_down_arrow_sequence_can_arrive_split() {
     let home = temp_xshi_home("xshi-history-split-down");
     let mut pty = spawn_xshi_pty_with(None, &[("HOME", home.as_path())]);
@@ -439,7 +452,7 @@ fn xshi_pty_ctrl_r_down_arrow_sequence_can_arrive_split() {
 }
 
 #[test]
-#[ignore = "flaky: PTY-driven, timing-sensitive; requires a controlling terminal"]
+#[ignore = "requires a controlling PTY and reliable 25 ms split-key scheduling"]
 fn xshi_pty_ctrl_r_down_arrow_final_byte_can_arrive_split() {
     let home = temp_xshi_home("xshi-history-split-final-down");
     let mut pty = spawn_xshi_pty_with(None, &[("HOME", home.as_path())]);
@@ -469,7 +482,7 @@ fn xshi_pty_ctrl_r_down_arrow_final_byte_can_arrive_split() {
 }
 
 #[test]
-#[ignore = "flaky: PTY-driven, timing-sensitive; requires a controlling terminal"]
+#[ignore = "requires an opt-in serial controlling PTY for terminal-level editor timing"]
 fn xshi_pty_ctrl_r_up_down_navigate_without_leaking_escape_bytes() {
     let home = temp_xshi_home("xshi-history-nav");
     let mut pty = spawn_xshi_pty_with(None, &[("HOME", home.as_path())]);
@@ -499,7 +512,7 @@ fn xshi_pty_ctrl_r_up_down_navigate_without_leaking_escape_bytes() {
 }
 
 #[test]
-#[ignore = "flaky: PTY-driven, timing-sensitive; requires a controlling terminal"]
+#[ignore = "requires an opt-in serial controlling PTY for terminal-level editor timing"]
 fn xshi_pty_ctrl_r_escape_restores_original_buffer() {
     let home = temp_xshi_home("xshi-history-cancel");
     let mut pty = spawn_xshi_pty_with(None, &[("HOME", home.as_path())]);
@@ -539,7 +552,6 @@ fn xshi_pty_ctrl_r_escape_restores_original_buffer() {
 }
 
 #[test]
-#[ignore = "flaky: PTY-driven, timing-sensitive; requires a controlling terminal"]
 fn xshi_pty_external_command_reads_terminal_in_cooked_mode() {
     let mut pty = spawn_xshi_pty();
 
@@ -556,7 +568,32 @@ fn xshi_pty_external_command_reads_terminal_in_cooked_mode() {
 }
 
 #[test]
-#[ignore = "flaky: PTY-driven, timing-sensitive; requires a controlling terminal"]
+fn xshi_pty_bracketed_paste_waits_for_enter_before_running_command() {
+    let path = temp_path("xshi-pty-paste");
+    let _ = std::fs::remove_file(&path);
+    let mut pty = spawn_xshi_pty();
+
+    let mut transcript = pty.read_until("$ ", PTY_TIMEOUT);
+    let command = format!("echo pasted > {}", path.display());
+    pty.write(b"\x1b[200~");
+    pty.write(command.as_bytes());
+    pty.write(b"\n\x1b[201~");
+    transcript.push_str(&pty.read_until_quiet(Duration::from_millis(100), PTY_TIMEOUT));
+    assert!(!path.exists(), "pasted newline submitted a command: {transcript}");
+
+    pty.write(b"\r");
+    transcript.push_str(&pty.read_until("$ ", PTY_TIMEOUT));
+    assert_eq!(std::fs::read_to_string(&path).expect("pasted command output"), "pasted\n");
+    pty.write(b"exit\r");
+    let output = pty.wait(PTY_TIMEOUT, &transcript);
+
+    assert!(output.status.success(), "{transcript}");
+    assert_eq!(String::from_utf8(output.stderr).unwrap(), "");
+    std::fs::remove_file(path).expect("remove pasted command output");
+}
+
+#[test]
+#[ignore = "requires a controlling PTY and predictable host scheduling for background reaping"]
 fn xshi_pty_background_job_reaps_before_later_prompt() {
     let mut pty = spawn_xshi_pty();
 
@@ -584,7 +621,7 @@ fn xshi_pty_background_job_reaps_before_later_prompt() {
 }
 
 #[test]
-#[ignore = "flaky: PTY-driven, timing-sensitive; requires a controlling terminal"]
+#[ignore = "requires a controlling PTY and predictable host scheduling for background reaping"]
 fn xshi_pty_rejects_second_background_job_until_first_reaps() {
     let mut pty = spawn_xshi_pty();
 
@@ -614,7 +651,7 @@ fn xshi_pty_rejects_second_background_job_until_first_reaps() {
 }
 
 #[test]
-#[ignore = "flaky: PTY-driven, timing-sensitive; requires a controlling terminal"]
+#[ignore = "requires a controlling PTY with foreground process-group and signal support"]
 fn xshi_pty_background_job_can_fg_and_ctrl_c() {
     let mut pty = spawn_xshi_pty();
 
@@ -650,7 +687,7 @@ fn xshi_pty_background_job_can_fg_and_ctrl_c() {
 }
 
 #[test]
-#[ignore = "flaky: PTY-driven, timing-sensitive; requires a controlling terminal"]
+#[ignore = "requires a controlling PTY with foreground process-group and signal support"]
 fn xshi_pty_rejects_unsupported_background_shapes() {
     let mut pty = spawn_xshi_pty();
 
@@ -687,7 +724,7 @@ fn xshi_pty_rejects_unsupported_background_shapes() {
 }
 
 #[test]
-#[ignore = "flaky: PTY-driven, timing-sensitive; requires a controlling terminal"]
+#[ignore = "requires a controlling PTY with foreground process-group and signal support"]
 fn xshi_pty_ctrl_z_auto_backgrounds_foreground_job() {
     let mut pty = spawn_xshi_pty();
 
@@ -738,6 +775,7 @@ fn xshi_pty_ctrl_z_auto_backgrounds_foreground_job() {
 struct PtyXshi {
     master: std::fs::File,
     child: Child,
+    initial_lflag: libc::tcflag_t,
     temp_home: Option<PathBuf>,
     _guard: std::sync::MutexGuard<'static, ()>,
 }
@@ -814,7 +852,18 @@ fn spawn_xshi_pty_with_binary(
     if let Some(home) = &temp_home {
         env_paths.push(("HOME", home.as_path()));
     }
-    spawn_xshi_pty_with_binary_and_temp_home(binary, cwd, &env_paths, temp_home.clone())
+    spawn_xshi_pty_with_binary_and_temp_home(binary, cwd, &env_paths, temp_home.clone(), false)
+}
+
+fn spawn_xshi_pty_colored() -> PtyXshi {
+    let home = temp_xshi_home("xshi-pty-color-home");
+    spawn_xshi_pty_with_binary_and_temp_home(
+        Path::new(cargo_env!("CARGO_BIN_EXE_xshi")),
+        None,
+        &[("HOME", home.as_path())],
+        Some(home.clone()),
+        true,
+    )
 }
 
 fn spawn_xshi_pty_with_binary_and_temp_home(
@@ -822,6 +871,7 @@ fn spawn_xshi_pty_with_binary_and_temp_home(
     cwd: Option<&Path>,
     envs: &[(&str, &Path)],
     temp_home: Option<PathBuf>,
+    colored: bool,
 ) -> PtyXshi {
     let guard = pty_test_guard();
     let mut master = 0;
@@ -870,6 +920,11 @@ fn spawn_xshi_pty_with_binary_and_temp_home(
         .stdin(Stdio::from(stdin))
         .stdout(Stdio::from(stdout))
         .stderr(Stdio::from(stderr));
+    if colored {
+        command.env_remove("NO_COLOR");
+    } else {
+        command.env("NO_COLOR", "1");
+    }
     unsafe {
         command.pre_exec(|| {
             if libc::setsid() < 0 {
@@ -892,6 +947,7 @@ fn spawn_xshi_pty_with_binary_and_temp_home(
     PtyXshi {
         master,
         child,
+        initial_lflag: attrs.c_lflag,
         temp_home,
         _guard: guard,
     }
