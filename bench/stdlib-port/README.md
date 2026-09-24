@@ -154,7 +154,8 @@ together against their original B0 products. All eight pass on each host in
 three counterbalanced rounds, with 30 raw samples per side per round, exact
 status, output, and scoped-effect parity, and binary, script, and fixture
 hashes. `core_command` passes without a separate implementation change. This
-closes B04's measured cost shapes; B01 and B11 still own the complete port gate.
+closes B04's measured cost shapes. The B11 cumulative reports below pass the
+complete frozen performance gate; B01 retains the owner-run lint row.
 
 B01's `results-b01-tooling.json` holds three paired rounds of `xsht api` and
 `xsht check core/ls.xsh` for B1 and the current candidate against B0 on macOS
@@ -401,8 +402,8 @@ alone left a macOS miss at 184.89 versus 165.86 ms; restoring `Str.fields`
 also left Linux over budget at 197.34 versus 174.94 ms. The final native
 wrapper processes word slices without per-word chunk vectors or repeated
 character recounts. It passes with exact output parity at 118.13 versus
-168.06 ms on macOS and 160.08 versus 172.57 ms on pinned Linux. The full
-cumulative gate remains the B11 closeout.
+168.06 ms on macOS and 160.08 versus 172.57 ms on pinned Linux. The cumulative
+reports below close the B0 performance gate.
 
 The first Linux cumulative B11 round exposed three R12 text readers. The
 three-round `results-b11-linux-text-prechange.json` report shows exact parity
@@ -413,24 +414,28 @@ bridge were removed. `results-b11-linux-text-native.json` repeats the same
 fixed rows with three rounds and exact parity: 24.58 versus 24.35 ms, 24.33
 versus 25.11 ms, and 12.38 versus 12.39 ms respectively. An isolated repeat
 of `linux_modules_full` passed all three rounds after a six-row control run
-missed its median budget; the full cumulative Linux gate remains the judge.
+missed its median budget. The full cumulative Linux gate passed.
 
-`results-b11-cumulative-macos.json` is the complete macOS B0 run before the
-Linux reader cleanup:
-three paired rounds, all 24 applicable workloads within budget, exact status,
-output, and scoped-effect parity, and six declared Linux-only skips. The
-Unicode wrap row is 116.63 versus 166.48 ms; dynamic cold preparation is
-11.77 versus 11.17 ms. `results-b11-cumulative-linux.json` is the matching
-three-round pinned Linux run after that cleanup: all 30 workloads pass their
+`results-b11-cumulative-linux.json` is the complete three-round pinned Linux
+run after the reader cleanup: all 30 workloads pass their
 fixed B0 budgets with exact status, output, and scoped-effect parity. The
 restored `linux_meminfo`, `linux_memory`, and `linux_os_release` rows are 24.53
 versus 24.49 ms, 24.54 versus 23.97 ms, and 12.31 versus 12.25 ms. Full
 module consumption is 138.37 versus 127.99 ms, within its 12.80 ms allowance.
-`results-b11-cumulative-macos-final.json` repeats the macOS gate against the
-final binary after the Linux cleanup: all 24 applicable workloads pass across
+`results-b11-cumulative-macos-final.json` measures the final macOS binary:
+all 24 applicable workloads pass across
 three rounds with exact parity and six declared Linux-only skips. Unicode
 wrapping is 118.68 versus 169.20 ms, and dynamic cold preparation is 12.84
 versus 12.57 ms.
+
+After the final source change, `profile_parity` passes across debug/release and
+default/no-default-feature `xsh` builds on both hosts. Copied-product reports
+`results-b11-copied-{macos,linux}.json` pass all seven checks and validate 58
+packaged core scripts. The native stdlib suites pass 237 tests with 26 skips
+on macOS and 247 tests with 16 skips on pinned Linux; the stdlib port
+integration groups pass 17 and 20 tests respectively. Registry, signature,
+façade, and all 35 `xsht api` tests pass on both hosts. The three fixed-path
+`system.os_release` Linux scenarios pass with the restored native error text.
 `results-text-pad-seed.json` does the same for `text_pad_batch`, with 30 samples
 per side per round and separate filler and ANSI allocation controls.
 `results-fmt-small-bytes.json` measures the under-1024 `bytes.human` path
@@ -500,7 +505,9 @@ Linux route mounts only the
 temporary bundle into the pinned `xsh-test` image. The macOS and Linux reports
 are `results-copied-products-macos.json` and
 `results-copied-products-linux.json`; they retain binary and archive hashes and
-the output fingerprints for all seven checks.
+the output fingerprints for all seven checks. The later
+`results-b11-copied-{macos,linux}.json` reports use the final B11 debug
+products and the same unchanged core archive.
 `release core` expects no other `.xz` artifact in `dist/`.
 
 ```sh
@@ -563,8 +570,9 @@ independently (and a directory cannot be mounted over a file). The first read
 fails by pointing `/etc/os-release` at a target that does not exist; the second
 one fails in the `neither` scenario with `not-utf8.txt`, which is `NAME=`
 followed by the bytes `\xff\xfe`, so the entry reports
-`error: system-os-release: file is not valid UTF-8 at byte 5` — the second
-read's offset, which is what proves the failure is the second read's.
+`error: system-os-release: stream did not contain valid UTF-8`. A missing
+first path would report a file-not-found error, so this message proves the
+second read was attempted and its failure was reported.
 
 ## Interpreting results
 

@@ -1003,9 +1003,9 @@ fn linux_text_entries_answer_from_the_host() {
 /// under `tests/fixtures/stdlib/os_release/fixed-path/`:
 ///
 /// - `etc` — the file is at both paths, so the first read answers;
-/// - `fallback` — `/etc/os-release` is a directory, which is the first read's
-///   failure, so the second path answers;
-/// - `neither` — `/etc/os-release` is a directory and `/usr/lib/os-release` is
+/// - `fallback` — `/etc/os-release` points at a missing file, so the second
+///   path answers;
+/// - `neither` — `/etc/os-release` points at a missing file and `/usr/lib/os-release` is
 ///   a file that is not valid UTF-8, so the failure the whole call reports is
 ///   the *second* read's, carried under the entry's own kind. Asserting the
 ///   second read's message is what proves the first read failed and the second
@@ -1063,11 +1063,10 @@ fn os_release_entry_reads_the_fixed_paths() {
         }
         "neither" => {
             // The second read's failure, under the entry's kind: the message is
-            // the one only `/usr/lib/os-release` can produce, including the
-            // offset of the invalid byte in that fixture.
+            // the one only `/usr/lib/os-release` can produce.
             assert_ne!(output.status.code(), Some(0), "{stdout}");
             assert!(
-                stderr.contains("error: system-os-release: file is not valid UTF-8 at byte 5\n"),
+                stderr.contains("error: system-os-release: stream did not contain valid UTF-8\n"),
                 "{stderr}"
             );
         }
