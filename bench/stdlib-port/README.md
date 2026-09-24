@@ -426,7 +426,11 @@ fixed B0 budgets with exact status, output, and scoped-effect parity. The
 restored `linux_meminfo`, `linux_memory`, and `linux_os_release` rows are 24.53
 versus 24.49 ms, 24.54 versus 23.97 ms, and 12.31 versus 12.25 ms. Full
 module consumption is 138.37 versus 127.99 ms, within its 12.80 ms allowance.
-The macOS gate is being repeated against the final binary.
+`results-b11-cumulative-macos-final.json` repeats the macOS gate against the
+final binary after the Linux cleanup: all 24 applicable workloads pass across
+three rounds with exact parity and six declared Linux-only skips. Unicode
+wrapping is 118.68 versus 169.20 ms, and dynamic cold preparation is 12.84
+versus 12.57 ms.
 `results-text-pad-seed.json` does the same for `text_pad_batch`, with 30 samples
 per side per round and separate filler and ANSI allocation controls.
 `results-fmt-small-bytes.json` measures the under-1024 `bytes.human` path
