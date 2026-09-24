@@ -7275,9 +7275,9 @@ impl Evaluator {
                 };
                 let previous = self.cwd.clone();
                 let next = self.host_path(&target);
-                match std::fs::metadata(&next) {
-                    Ok(metadata) if metadata.is_dir() => {}
-                    Ok(_) => {
+                match fs_module::cd_target_is_dir(&next) {
+                    Ok(true) => {}
+                    Ok(false) => {
                         return Ok(StmtFlow::Propagate(LoweredValue::ResultErr(Box::new(
                             Value::Error(Box::new(
                                 RuntimeError::new(

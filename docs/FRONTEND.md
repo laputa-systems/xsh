@@ -8,9 +8,9 @@ path never reconstructs a recursive syntax tree or installs a second executable
 program as a fallback.
 
 This document is the durable architecture and change contract for that path.
-[`FRONTEND-FOLLOWUPS.md`](../FRONTEND-FOLLOWUPS.md) records measured, non-blocking performance and memory
-work. `docs/SPEC.md`, `docs/SPEC-TYPING.md`, and `docs/SPEC-OS.md` remain the
-source-visible behavior contracts.
+[`IMPROVEMENT-BACKLOG.md`](../IMPROVEMENT-BACKLOG.md) tracks candidate
+performance and memory work. `docs/SPEC.md`, `docs/SPEC-TYPING.md`, and
+`docs/SPEC-OS.md` remain the source-visible behavior contracts.
 
 ## Greppable Frontend Vocabulary
 
@@ -312,7 +312,7 @@ autofixers as part of this workflow.
 
 ## Follow-Ups
 
-The frontend redesign is complete. Remaining work is optional and must begin
-with a measurable user-visible cost, not an attempt to recreate a previous
-representation. [`FRONTEND-FOLLOWUPS.md`](../FRONTEND-FOLLOWUPS.md) contains the current queue, rejected
-directions, and measurement rules.
+The frontend redesign is complete. Further work begins with a measurable
+user-visible cost, not an attempt to recreate a previous representation.
+[`IMPROVEMENT-BACKLOG.md`](../IMPROVEMENT-BACKLOG.md) tracks candidates;
+this document and `docs/TEST-MAP.md` own measurement and verification rules.

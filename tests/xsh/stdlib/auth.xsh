@@ -61,6 +61,15 @@ exit 17
   test.ok(password_hash != "", "hash_password returned empty string")?
   test.ok(applet.verify_password("secret", password_hash), "verify_password rejected correct password")?
   test.ok(! applet.verify_password("wrong", password_hash), "verify_password accepted wrong password")?
+  let known_sha512 = "$6$saltstring$svn8UoSVapNtMuq1ukKS4tPQd8iKwSMHWjl/O817G3uBnIFNjnQJuesI68u4OTLiBFdcbYEdFCoEOfaS35inz1"
+  test.ok(
+    applet.verify_password("Hello world!", known_sha512),
+    "verify_password rejected the SHA-512 reference hash",
+  )?
+  test.ok(
+    ! applet.verify_password("wrong", known_sha512),
+    "verify_password accepted the wrong password for the reference hash",
+  )?
   test.ok(applet.current_euid() >= 0, "current_euid is negative")?
   test.ok(applet.current_exe()?.exists()?, "current_exe path does not exist")?
   test.eq(applet.login_session(session_user, false, "")?, 17)?

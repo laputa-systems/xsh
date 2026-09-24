@@ -69,6 +69,10 @@ const ALLOWED: &[(&str, &str)] = &[
         "documentation generation operates on repository paths",
     ),
     (
+        "src/entrypoints/runtime_stats.rs",
+        "runtime stats writes the report path supplied on its command line",
+    ),
+    (
         "src/frontend_stats.rs",
         "frontend diagnostics read user-supplied corpus paths",
     ),
@@ -304,6 +308,10 @@ const ALLOWED: &[(&str, &str)] = &[
     (
         "src/runtime/eval/tests.rs",
         "runtime unit tests create host fixtures",
+    ),
+    (
+        "src/stdlib/embedded_fixture_tests.rs",
+        "embedded standard-library tests read committed fixture files",
     ),
     (
         "src/runtime/process.rs",

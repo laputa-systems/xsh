@@ -204,8 +204,8 @@ signals, cancellation, and signal hooks. The `AGENTS.md` routing policy chooses
 the smallest useful reading set for a change. `docs/FRONTEND.md` is the
 implementation guide for the compact frontend,
 indexed runtime plumbing, symbol identity, registry invariants, and benchmark
-verification. `../FRONTEND-FOLLOWUPS.md` records evidence-based performance and
-memory work that remains after the architecture closeout. `docs/COVERAGE.md`
+verification. `../IMPROVEMENT-BACKLOG.md` tracks evidence-based performance and
+memory work after the architecture closeout. `docs/COVERAGE.md`
 tracks the practical coverage plan for areas that need larger harnesses rather
 than branch-only tests.
 

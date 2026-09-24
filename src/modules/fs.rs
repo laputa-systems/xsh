@@ -737,6 +737,11 @@ pub(crate) fn metadata(path: PathBuf, span: Span) -> Result<Value, RuntimeError>
     fs_entry_record(&path, &metadata).map_err(|error| error.with_span(span))
 }
 
+/// A `cd` target follows symlinks, unlike the public `fs.metadata` entry.
+pub(crate) fn cd_target_is_dir(path: &Path) -> std::io::Result<bool> {
+    std::fs::metadata(path).map(|metadata| metadata.is_dir())
+}
+
 pub(crate) fn exists(path: PathBuf, span: Span) -> Result<bool, RuntimeError> {
     match std::fs::symlink_metadata(&path) {
         Ok(_) => Ok(true),

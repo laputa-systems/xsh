@@ -332,7 +332,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "sha-crypt algorithm needs debugging"]
     fn sha512_drepper_vector() {
         let result = try_crypt("Hello world!", "$6$saltstring$").unwrap();
         assert_eq!(

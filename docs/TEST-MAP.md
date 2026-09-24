@@ -26,6 +26,7 @@ area touched. Do not run formatter or autofix commands for agent work.
 | LLVM IR size | `tools/llvm-lines-repeat-offenders.xsh` over an existing capture | fresh `cargo llvm-lines` capture plus the applicable behavior/benchmark gate |
 | API registry/reference/examples | see `API Gate` below | same |
 | Broad cross-cutting work | closest targeted tests | `cargo test` |
+| Ambient filesystem authority policy | `cargo test --test ambient_fs_policy` | `cargo test --tests` |
 
 ## Native XSH Test Rule
 
