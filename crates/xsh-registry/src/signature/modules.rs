@@ -171,19 +171,16 @@ pub(in crate::signature) fn build_api_spec() -> ApiSpec {
         value_methods(),
     )
 }
-/// Target-aware implementation bindings for the Linux text-backed entries.
+/// Target-aware implementation binding for Linux uptime policy.
 ///
-/// On Linux each entry executes the embedded policy; elsewhere it keeps its
-/// native body, so macOS keeps its existing behavior and unsupported Linux
-/// entrypoints produce the same errors before any `/proc` access. Every pair
-/// declares the same public signature, so only the internal binding differs.
+/// The paired signatures are identical; only Linux runs embedded XSH.
 #[cfg(target_os = "linux")]
-fn linux_text_entry(script: super::ModuleFnSig, _native: super::ModuleFnSig) -> super::ModuleFnSig {
+fn linux_uptime_entry(script: super::ModuleFnSig, _native: super::ModuleFnSig) -> super::ModuleFnSig {
     script
 }
 
 #[cfg(not(target_os = "linux"))]
-fn linux_text_entry(_script: super::ModuleFnSig, native: super::ModuleFnSig) -> super::ModuleFnSig {
+fn linux_uptime_entry(_script: super::ModuleFnSig, native: super::ModuleFnSig) -> super::ModuleFnSig {
     native
 }
 
@@ -2439,21 +2436,11 @@ fn linux_module() -> ModuleSig {
         ),
         (
             "meminfo",
-            linux_text_entry(
-                script_sig(
-                    Vec::new(),
-                    result(linux_meminfo_type()),
-                    false,
-                    RuntimeOp::LinuxMemInfo,
-                    "linux_text",
-                    "meminfo",
-                ),
-                sig(
-                    Vec::new(),
-                    result(linux_meminfo_type()),
-                    false,
-                    RuntimeOp::LinuxMemInfo,
-                ),
+            sig(
+                Vec::new(),
+                result(linux_meminfo_type()),
+                false,
+                RuntimeOp::LinuxMemInfo,
             ),
         ),
         (
@@ -3010,7 +2997,7 @@ fn unix_module() -> ModuleSig {
         ),
         (
             "uptime_seconds",
-            linux_text_entry(
+            linux_uptime_entry(
                 script_sig(
                     Vec::new(),
                     result(Type::Int),
@@ -3347,40 +3334,20 @@ fn system_module() -> ModuleSig {
         ),
         (
             "memory",
-            linux_text_entry(
-                script_sig(
-                    Vec::new(),
-                    result(system_memory_type()),
-                    false,
-                    RuntimeOp::SystemMemory,
-                    "system",
-                    "memory",
-                ),
-                sig(
-                    Vec::new(),
-                    result(system_memory_type()),
-                    false,
-                    RuntimeOp::SystemMemory,
-                ),
+            sig(
+                Vec::new(),
+                result(system_memory_type()),
+                false,
+                RuntimeOp::SystemMemory,
             ),
         ),
         (
             "os_release",
-            linux_text_entry(
-                script_sig(
-                    Vec::new(),
-                    result(system_os_release_type()),
-                    false,
-                    RuntimeOp::SystemOsRelease,
-                    "system",
-                    "os_release",
-                ),
-                sig(
-                    Vec::new(),
-                    result(system_os_release_type()),
-                    false,
-                    RuntimeOp::SystemOsRelease,
-                ),
+            sig(
+                Vec::new(),
+                result(system_os_release_type()),
+                false,
+                RuntimeOp::SystemOsRelease,
             ),
         ),
     ])

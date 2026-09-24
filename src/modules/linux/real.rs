@@ -7,6 +7,7 @@ use std::io;
 use std::os::fd::OwnedFd;
 
 const DEV_KMSG: &str = "/dev/kmsg";
+const PROC_MEMINFO: &str = "/proc/meminfo";
 const SYSLOG_ACTION_READ_ALL: libc::c_int = 3;
 const SYSLOG_ACTION_SIZE_BUFFER: libc::c_int = 10;
 const FS_SECRM_FL: u32 = 0x0000_0001;

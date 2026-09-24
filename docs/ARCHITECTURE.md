@@ -202,16 +202,15 @@ standard calls to `BuildExprRow::ExternalCall`, and the runtime resolves them
 through the evaluator's dynamic function table to the implementations the
 loading program already prepared.
 
-**Platform-specific bindings.** An entry whose baseline behavior differs by
-target binds per target: `linux_text_entry` in
-`crates/xsh-registry/src/signature/modules.rs` selects the script binding on
-Linux and the existing native `sig` elsewhere. macOS keeps its native behavior;
-the superseded Linux-only policy bodies have been removed. The Linux text policy
-(R12) uses this binding for `linux.meminfo`, `unix.uptime_seconds`,
-`system.memory`, and `system.os_release`. `linux.modules` uses its retained
-native stream on every target after its script producer failed the full-scan B0
-gate. The gated Linux prototypes that were measured and reverted use the
-binding no longer; their dispositions are in
+**Platform-specific bindings.** `linux_uptime_entry` in
+`crates/xsh-registry/src/signature/modules.rs` selects the script binding for
+`unix.uptime_seconds` on Linux and the native body elsewhere. The R12 text
+readers `linux.meminfo`, `system.memory`, and `system.os_release` use native
+operations after their embedded implementations exceeded the cumulative B0
+budget. Their parsers live in `src/modules/linux/real/kernel.rs` and
+`src/modules/system.rs`. `linux.modules` retains its native stream on every
+target after its script producer failed the full-scan B0 gate. The gated Linux
+prototypes that were measured and reverted remain native; their dispositions are in
 `bench/stdlib-port/README.md`.
 
 **Namespace integrity.** `ArenaProgram::modules` entries carry an `internal`
@@ -222,9 +221,8 @@ from the unqualified declaration tables, from the global top-level name set, and
 from user-module collection. `xsh::frontend::stdlib_preparation` exposes
 test-only preparation counters behind the existing `native-tests` feature.
 
-The private bridge operations remain restricted by verifier provenance:
-`BridgeTypeName` belongs to JSON Lines; `append_bytes` belongs to Linux text
-policy. The CLI policy returned to
+The private `BridgeTypeName` operation remains restricted by verifier
+provenance and belongs to JSON Lines. The CLI policy returned to
 `src/modules/cli.rs` after the measured script path failed the B0 batch gate.
 `IMPROVEMENT-BACKLOG.md` owns remaining work;
 `bench/stdlib-port/README.md` owns measured dispositions and points to raw

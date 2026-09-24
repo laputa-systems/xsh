@@ -8,9 +8,8 @@
 //! required.
 //!
 //! `include_str!` embeds each source and makes Cargo rebuild tracking cover
-//! every embedded file. [`IDENTITIES`] is the accepted set of implementation
-//! module identities; [`CATALOG`] must contain exactly one entry per identity,
-//! which the tests below enforce.
+//! every embedded file. [`CATALOG`] contains one entry per retained identity;
+//! the tests below check binding reachability and uniqueness.
 
 use crate::modules::api_spec;
 use crate::modules::signature::RuntimeOp;
@@ -58,15 +57,6 @@ pub(crate) const CATALOG: &[StdlibModule] = &[
         source: include_str!("../stdlib/hash.xsh"),
     },
     StdlibModule {
-        identity: "linux_text",
-        label: "<xsh-stdlib:linux_text>",
-        bridges: &[StdlibBridge {
-            function: "append_bytes",
-            op: RuntimeOp::BridgeAppendBytes,
-        }],
-        source: include_str!("../stdlib/linux_text.xsh"),
-    },
-    StdlibModule {
         identity: "json",
         label: "<xsh-stdlib:json>",
         source: include_str!("../stdlib/json.xsh"),
@@ -80,12 +70,6 @@ pub(crate) const CATALOG: &[StdlibModule] = &[
         label: "<xsh-stdlib:process>",
         bridges: &[],
         source: include_str!("../stdlib/process.xsh"),
-    },
-    StdlibModule {
-        identity: "system",
-        label: "<xsh-stdlib:system>",
-        bridges: &[],
-        source: include_str!("../stdlib/system.xsh"),
     },
     StdlibModule {
         identity: "tui",
@@ -106,11 +90,9 @@ pub(crate) fn find(identity: &str) -> Option<&'static StdlibModule> {
     CATALOG.iter().find(|module| module.identity == identity)
 }
 
-/// Fixture coverage for the host-text policy the embedded modules own.
+/// Fixture coverage for the remaining embedded uptime text policy.
 ///
-/// Test-only: the fixtures drive the embedded helpers through
-/// `Evaluator::probe_embedded_call`, which resolves the module in the compiled
-/// catalog, so the tests observe the real bodies without exposing them.
+/// Test-only: the fixture drives the helper through the compiled catalog.
 #[cfg(test)]
 mod embedded_fixture_tests;
 
@@ -125,11 +107,7 @@ pub(crate) fn find_by_namespace(namespace: &str) -> Option<&'static StdlibModule
 /// These operations are not bound to any public entry; a program reaches one
 /// only through the lowering rewrite inside the module that declares it.
 pub(crate) fn is_private_bridge_op(op: RuntimeOp) -> bool {
-    matches!(
-        op,
-        RuntimeOp::BridgeTypeName
-            | RuntimeOp::BridgeAppendBytes
-    )
+    matches!(op, RuntimeOp::BridgeTypeName)
 }
 
 /// Whether `module` declares a bridge that lowers to `op`.

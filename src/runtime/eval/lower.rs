@@ -353,13 +353,9 @@ fn lowered_module_call_args(
     let overloads = api_spec().module_overloads(&module.as_str(), &name.as_str())?;
     let mut matched = None;
     for sig in overloads {
-        // An entry whose implementation is the embedded standard library is
-        // never lowered to its own operation. On Linux the registry keeps both
-        // descriptions in one signature — the native operation for the
-        // platforms that still implement the entry, the embedded module for
-        // Linux — and lowering the operation here would run a retired native
-        // body whenever the embedded module was not prepared. The script route
-        // is tried before this one and reports an unprepared module as a
+        // A script-backed entry must use its prepared implementation rather
+        // than the native operation slot carried by the same signature. The
+        // script route runs first and reports an unprepared module as a
         // missing-target diagnostic.
         if sig.script_impl().is_some() {
             continue;

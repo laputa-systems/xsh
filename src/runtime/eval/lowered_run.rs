@@ -4803,15 +4803,6 @@ impl Evaluator {
                 let name = values[0].type_name().to_string();
                 LoweredValue::Str(name.into())
             }
-            RuntimeOp::BridgeAppendBytes if values.len() == 2 => {
-                let bytes = lowered_bytes_arg_or_empty(values.pop(), "append_bytes", span)?;
-                let path = lowered_path_arg(
-                    values.pop().expect("checked value length"),
-                    "append_bytes",
-                    span,
-                )?;
-                lowered_unit_result(fs_module::append_bytes(self.host_path(&path), &bytes, span))
-            }
             RuntimeOp::HashParseCheckLine if values.len() == 1 => {
                 let line = lowered_str_arg_owned(values.pop(), "", "hash.parse_check_line", span)?;
                 match hash_module::parse_check_line(&line, span) {

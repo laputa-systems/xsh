@@ -107,16 +107,6 @@ pub enum RuntimeOp {
     /// type they found. Not bound to any public entry; only an embedded
     /// implementation module listed in its owning catalog entry may lower it.
     BridgeTypeName,
-    /// Private host-mechanism bridge: append bytes to a file in place.
-    ///
-    /// The baseline's dry-run log appends to the open file rather than
-    /// rewriting it, so bytes that are not valid UTF-8 survive in an existing
-    /// log and two writers cannot drop each other's lines. XSH owns the logging
-    /// decisions and composes the line; this operation only performs the
-    /// create/open/append/write and transports the error. Not bound to any
-    /// public entry; only the embedded implementation module listed in its
-    /// owning catalog entry may lower it.
-    BridgeAppendBytes,
     RegexCompile,
     RegexMatches,
     RegexFind,

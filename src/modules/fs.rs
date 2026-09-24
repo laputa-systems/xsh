@@ -991,74 +991,13 @@ fn mount_sources(span: Span) -> Result<Vec<MountSource>, RuntimeError> {
 
 #[cfg(test)]
 mod tests {
-    use super::{append_bytes, df_capacity_percent, list_filesystem, mount_for, mounts};
+    use super::{df_capacity_percent, list_filesystem, mount_for, mounts};
     use crate::runtime::value::Value;
     use crate::source::{SourceId, Span};
-    use std::os::unix::ffi::OsStrExt;
     use std::path::Path;
 
     fn test_span() -> Span {
         Span::new(SourceId::new(0), 0, 0)
-    }
-
-    /// A private scratch directory for the append tests.
-    fn scratch(name: &str) -> std::path::PathBuf {
-        let dir = std::env::temp_dir().join(format!(
-            "xsh-fs-append-{name}-{}-{:?}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|duration| duration.as_nanos())
-                .unwrap_or_default()
-        ));
-        std::fs::create_dir_all(&dir).expect("create scratch directory");
-        dir
-    }
-
-    #[test]
-    fn append_bytes_preserves_existing_bytes_and_appends_in_place() {
-        let dir = scratch("append");
-        let log = dir.join("nested/deeper/app.log");
-
-        // Missing parents are created, and the first record creates the file.
-        append_bytes(log.clone(), b"first\n", test_span()).expect("create and append");
-        assert_eq!(std::fs::read(&log).expect("read log"), b"first\n");
-
-        // An existing log that is not valid UTF-8 keeps its bytes: the baseline
-        // appends to the open file, so nothing it never read can be lost.
-        std::fs::write(&log, b"\xff\xfe first\n").expect("write invalid utf-8 log");
-        append_bytes(log.clone(), b"second\n", test_span()).expect("append to invalid log");
-        assert_eq!(
-            std::fs::read(&log).expect("read log"),
-            b"\xff\xfe first\nsecond\n"
-        );
-
-        // Two appenders interleave whole records: each write lands at the end
-        // of the file as it is when the write happens, and no prefix is lost.
-        append_bytes(log.clone(), b"a1\n", test_span()).expect("first appender");
-        append_bytes(log.clone(), b"a2\n", test_span()).expect("second appender");
-        append_bytes(log.clone(), b"b1\n", test_span()).expect("first appender again");
-        assert_eq!(
-            std::fs::read(&log).expect("read log"),
-            b"\xff\xfe first\nsecond\na1\na2\nb1\n"
-        );
-
-        // A directory destination reports the open failure and leaves it alone.
-        let failure = append_bytes(dir.clone(), b"x", test_span()).expect_err("directory target");
-        assert_eq!(failure.kind, "fs-append");
-        assert!(dir.is_dir(), "the rejected destination is unchanged");
-
-        // A path whose bytes are not UTF-8 is appended to like any other. The
-        // host filesystem may reject such a name outright — APFS answers
-        // `EILSEQ` — so the case runs only where the name can exist; the Linux
-        // container exercises it.
-        let odd = dir.join(std::ffi::OsStr::from_bytes(b"od\x80d.log"));
-        if std::fs::write(&odd, b"").is_ok() {
-            append_bytes(odd.clone(), b"raw\n", test_span()).expect("append to non-utf-8 path");
-            assert_eq!(std::fs::read(&odd).expect("read odd log"), b"raw\n");
-        }
-
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
@@ -1343,30 +1282,6 @@ pub(crate) fn remove_manifest(
     }
 
     Ok(remove_manifest_record(stats))
-}
-
-/// Append `bytes` to `path`, creating the file and its missing parents.
-///
-/// The host half of the private `append_bytes` bridge. The baseline's dry-run
-/// log appends to the open file rather than rewriting it, so an existing log
-/// that is not valid UTF-8 survives, a read failure is never turned into an
-/// empty prior file, and two appenders cannot drop each other's lines. XSH owns
-/// the logging policy and composes the line; this function only performs the
-/// create/open/append/write and transports the error.
-pub(crate) fn append_bytes(path: PathBuf, bytes: &[u8], span: Span) -> Result<(), RuntimeError> {
-    if let Some(parent) = path.parent()
-        && !parent.as_os_str().is_empty()
-    {
-        std::fs::create_dir_all(parent)
-            .map_err(|error| RuntimeError::new("fs-append", error.to_string()).with_span(span))?;
-    }
-    let mut file = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&path)
-        .map_err(|error| RuntimeError::new("fs-append", error.to_string()).with_span(span))?;
-    std::io::Write::write_all(&mut file, bytes)
-        .map_err(|error| RuntimeError::new("fs-append", error.to_string()).with_span(span))
 }
 
 pub(crate) fn remove_dir(path: PathBuf, span: Span) -> Result<(), RuntimeError> {

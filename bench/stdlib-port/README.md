@@ -185,16 +185,17 @@ its record-literal exception. `required_modules` still conservatively selects
 script-backed module functions and the complete current-target set for
 `module.load`.
 
-The script policies retained from R01–R11, including JSON Lines, and the Linux
-R12 text policy live under `stdlib/`. The CLI policy returned to native after
+The script policies retained from R01–R11, including JSON Lines, and Linux
+`unix.uptime_seconds` live under `stdlib/`. The CLI policy returned to native after
 B02; quoting, INI encoding, MIME, JSON paths, environment conversions, and
 checksum parsing followed after the B04
 measurements. `bytes.human`,
 `time.duration_compact`, and TUI padding returned to their native
 implementations after B03 measured their per-call regressions;
-`Str.wrap` and `Str.fields` returned to native after the B11 cumulative gate;
-`linux.modules` retains its native stream on both targets. macOS retains its
-native R12 bindings. G02 `hash.verify_file` is script-backed and
+`Str.wrap` and `Str.fields` returned to native after the B11 macOS cumulative
+gate. `linux.meminfo`, `system.memory`, and `system.os_release` returned to
+native after the Linux cumulative run exposed their R12 costs; `linux.modules`
+retains its native stream on both targets. G02 `hash.verify_file` is script-backed and
 passes B0 on tiny, large, many-small, and handled-error workloads on both
 hosts (`results-hash-verify-file-b0.json` and
 `results-hash-verify-file-linux-b0.json`). G01 `fs.gitroot`, G03 JSON file
@@ -292,8 +293,8 @@ candidate medians in milliseconds.
 
 The six R12 workloads — `linux_uptime`, `linux_meminfo`, `linux_memory`,
 `linux_os_release`, `linux_modules_full`, and `linux_modules_partial` — measure
-Linux host-text calls. The first four use embedded policy; the two module rows
-measure the retained native stream. They are marked `linux_only`, so a run
+Linux host-text calls. Only uptime uses embedded policy; the other five use
+native readers or the retained native module stream. They are marked `linux_only`, so a run
 without `--linux` reports them as skipped and a run with it executes them under
 `XSH_LINUX_REAL=1`.
 
@@ -402,6 +403,17 @@ wrapper processes word slices without per-word chunk vectors or repeated
 character recounts. It passes with exact output parity at 118.13 versus
 168.06 ms on macOS and 160.08 versus 172.57 ms on pinned Linux. The full
 cumulative gate remains the B11 closeout.
+
+The first Linux cumulative B11 round exposed three R12 text readers. The
+three-round `results-b11-linux-text-prechange.json` report shows exact parity
+but B0 misses: `linux_meminfo` 116.39 versus 24.24 ms, `linux_memory` 221.14
+versus 24.80 ms, and `linux_os_release` 46.63 versus 12.37 ms. They returned
+to their native readers, and their unused embedded modules and private append
+bridge were removed. `results-b11-linux-text-native.json` repeats the same
+fixed rows with three rounds and exact parity: 24.58 versus 24.35 ms, 24.33
+versus 25.11 ms, and 12.38 versus 12.39 ms respectively. An isolated repeat
+of `linux_modules_full` passed all three rounds after a six-row control run
+missed its median budget; the full cumulative Linux gate remains the judge.
 
 `results-b11-cumulative-macos.json` is the complete final macOS B0 run:
 three paired rounds, all 24 applicable workloads within budget, exact status,

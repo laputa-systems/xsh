@@ -894,47 +894,38 @@ fn module_dependencies_resolve_and_cycles_are_diagnosed() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// R12 — on Linux the registry binds the retained Linux text entries to the
-/// embedded implementations, while `linux.modules` uses its native stream.
-///
-/// This is the invariant that makes the removed Linux bodies dead code rather
-/// than a second implementation: a regression in binding selection would send
-/// these calls to an operation whose body now reports the retirement instead of
-/// answering.
+/// The three Linux text readers retain native bindings after their embedded
+/// implementations exceeded the cumulative B0 budget. The measured uptime
+/// entry remains embedded, and `linux.modules` keeps its native stream.
 #[cfg(target_os = "linux")]
 #[test]
 fn linux_text_entries_select_expected_bindings() {
-    // Each pair is an entry whose Linux policy lives in the embedded standard
-    // library: `system.memory` and `system.os_release` in `stdlib/system.xsh`,
-    // `unix.uptime_seconds` in `stdlib/unix.xsh`, and `linux.meminfo` in
-    // `stdlib/linux_text.xsh`.
     for (module, name) in [
         ("system", "memory"),
         ("system", "os_release"),
-        ("unix", "uptime_seconds"),
         ("linux", "meminfo"),
+        ("linux", "modules"),
     ] {
         let overloads = xsh::api::api_spec()
             .module_overloads(module, name)
             .unwrap_or_else(|| panic!("{module}.{name} is in the standard API"));
         assert!(
-            overloads.iter().all(|sig| sig.script_impl().is_some()),
-            "{module}.{name} must be implemented by the embedded standard library on Linux"
+            overloads.iter().all(|sig| sig.script_impl().is_none()),
+            "{module}.{name} must use its native Linux implementation"
         );
     }
-    let modules = xsh::api::api_spec()
-        .module_overloads("linux", "modules")
-        .expect("linux.modules is in the standard API");
+    let uptime = xsh::api::api_spec()
+        .module_overloads("unix", "uptime_seconds")
+        .expect("unix.uptime_seconds is in the standard API");
     assert!(
-        modules.iter().all(|sig| sig.script_impl().is_none()),
-        "linux.modules must retain its native stream on Linux"
+        uptime.iter().all(|sig| sig.script_impl().is_some()),
+        "unix.uptime_seconds must retain its embedded Linux implementation"
     );
 }
 
 /// R12 — Linux text entries read their host text at call time.
 ///
-/// The script-backed entries would fail if they reached a retired native body;
-/// `linux.modules` checks the retained native stream against the same host.
+/// This checks each selected binding against the same host.
 #[cfg(target_os = "linux")]
 #[test]
 fn linux_text_entries_answer_from_the_host() {

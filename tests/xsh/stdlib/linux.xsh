@@ -104,9 +104,8 @@ pure meminfo_failure(result: Result[LinuxMemInfo]) -> Str {
 proc test_linux_text_entries_require_a_gate() [process, env, error] {
   # Both variables are emptied here so the test does not depend on the
   # environment it runs in. Neither empties to an accepted true value, so both
-  # text-backed entries refuse before they open any host file, and the refusal
-  # names the variables that would open a gate. On a platform where the entries
-  # are still native the dispatch refuses first, so this covers both.
+  # entries refuse before they open any host file, and the refusal names the
+  # variables that would open a gate.
   env XSH_LINUX_DRY_RUN="" XSH_LINUX_REAL="" {
     test.error_kind(linux.meminfo(), "linux-unimplemented")?
     test.error_kind(linux.modules(), "linux-unimplemented")?
@@ -118,7 +117,7 @@ proc test_linux_text_dry_run_values_and_log(ctx: TestContext) [fs, process, env,
   let root = test.temp_dir(ctx, name: "linux-text-dry-run")?
   let log = fp"${root}/linux.jsonl"
 
-  # The text-backed entries report fixed values while the dry-run gate is open —
+  # The entries report fixed values while the dry-run gate is open —
   # even with the real gate also open — and each call appends one line naming
   # its operation to the log file.
   env XSH_LINUX_DRY_RUN=1 XSH_LINUX_REAL=1 XSH_LINUX_DRY_RUN_LOG=$log {
@@ -148,8 +147,7 @@ proc test_linux_text_dry_run_values_and_log(ctx: TestContext) [fs, process, env,
 
 proc test_linux_dry_run_log_appends_in_place(ctx: TestContext) [fs, process, env, error] {
   if system.uname()?.sysname != "Linux" {
-    # The dry-run log is appended by the script-backed Linux entries, so the
-    # boundary only exists on the platform that uses this implementation.
+    # This checks Linux's in-place append behavior.
     test.skip("the dry-run log is appended on Linux only")
     return
   }
@@ -187,20 +185,26 @@ proc test_linux_dry_run_log_appends_in_place(ctx: TestContext) [fs, process, env
   test.ok(fresh.exists()?)?
   test.contains(fresh.read_text() ?? "", "\"op\":\"meminfo\"")?
 
-  # A destination that is a directory is the call's `Err`, not a silent no-op.
+  # A directory destination raises the native logging error.
   let blocked = fp"${root}/a-directory"
   fs.mkdir(blocked)?
-  env XSH_LINUX_DRY_RUN=1 XSH_LINUX_DRY_RUN_LOG=$blocked {
-    test.error_kind(linux.meminfo(), "linux-dry-run-log")?
-  } ?
+  let failed = test.run_script(
+    ctx,
+    "linux.meminfo()?",
+    args: [],
+    env: {
+      XSH_LINUX_DRY_RUN: "1",
+      XSH_LINUX_DRY_RUN_LOG: blocked.display(),
+    },
+  )?
+  test.ok(!failed.success)?
+  test.contains(failed.stderr, "linux-dry-run-log")?
   test.eq(blocked.metadata()?.kind, "dir")?
 }
 
 proc test_linux_text_log_failure_kind(ctx: TestContext) [fs, process, env, error] {
   if system.uname()?.sysname != "Linux" {
-    # The script-backed meminfo entry reports the log failure as a value on
-    # Linux, while the native dry-run arm raises it on other platforms.
-    test.skip("a log failure is the call's Err on Linux only")
+    test.skip("Linux dry-run logging is tested on Linux only")
     return
   }
 
@@ -208,9 +212,17 @@ proc test_linux_text_log_failure_kind(ctx: TestContext) [fs, process, env, error
   let blocked = fp"${root}/file"
   fs.write(blocked, "not a directory")?
   let blocked_log = fp"${blocked}/linux.jsonl"
-  env XSH_LINUX_DRY_RUN=1 XSH_LINUX_DRY_RUN_LOG=$blocked_log {
-    test.error_kind(linux.meminfo(), "linux-dry-run-log")?
-  } ?
+  let meminfo_failed = test.run_script(
+    ctx,
+    "linux.meminfo()?",
+    args: [],
+    env: {
+      XSH_LINUX_DRY_RUN: "1",
+      XSH_LINUX_DRY_RUN_LOG: blocked_log.display(),
+    },
+  )?
+  test.ok(!meminfo_failed.success)?
+  test.contains(meminfo_failed.stderr, "linux-dry-run-log")?
 
   # The retained native modules arm raises a dry-run log failure. A nested
   # script observes that process boundary without losing the failure kind.
