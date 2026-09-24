@@ -54,6 +54,20 @@ so the first sample can be colder than later samples. Treat small single-run
 latency changes as inconclusive and repeat timing measurements with identical
 settings before acting on them.
 
+## Call tracing probe
+
+`bench/trace-call-overhead.xsh` is a fixed 10,000-call script for separating
+plain-runner latency from `xsht trace` summary and raw-output costs. The 12
+rotating-order macOS ARM64 release rounds in
+`bench/trace-call-overhead-c09-2026-09-24.json` measured median wall times of
+30.3 ms plain, 38.1 ms summary, and 42.8 ms raw. Median process peak RSS was
+12.9, 23.2, and 25.9 MB respectively. Sending raw trace output to `/dev/null`
+left a similar 41.9 ms median, since `xsht` still builds and renders the events.
+These are end-to-end CLI comparisons across two binaries, not an isolated cost
+for trace collection. The failure fixture retained its `result.propagate` call
+path, and raw mode emitted `proc.enter`, `proc.exit`, and `script.exit` events.
+No runtime change follows from this probe alone.
+
 ## Syscall diagnostics
 
 Run:

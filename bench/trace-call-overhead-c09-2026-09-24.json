@@ -1,0 +1,300 @@
+{
+  "date": "2026-09-24",
+  "host": "macOS-26.5.2-arm64-arm-64bit-Mach-O",
+  "source_commit": "3af09a4",
+  "workload": "10,000 calls to a user-defined increment proc; all modes emit value=10000",
+  "script_sha256": "e60f40d7c6f639bc9fb33f57bd90a409cb3708d9c112459270bfe040ea52d396",
+  "release_xsh_sha256": "c7e21d53203404a5cd04b38b2079cef97aaa151071c887c5e36f52ea35d39b12",
+  "release_xsht_sha256": "a2429ec8df7e9acf7504a05f1eedc3c3d274f7a61aaa848d8e0cedbdb06c34b2",
+  "method": "12 rotating-order rounds, one process per mode, /usr/bin/time -l RSS and Python perf_counter_ns wall time including CLI startup; exact stdout/status parity. Plain xsh and xsht trace use different CLI entrypoints, so deltas are end-to-end CLI cost, not isolated tracing-core cost. raw_devnull still renders events before discarding output.",
+  "raw_rounds": {
+    "plain": [
+      {
+        "wall_ms": 31.857,
+        "peak_rss_bytes": 12926976,
+        "trace_file_bytes": 0
+      },
+      {
+        "wall_ms": 34.449,
+        "peak_rss_bytes": 12910592,
+        "trace_file_bytes": 0
+      },
+      {
+        "wall_ms": 35.353,
+        "peak_rss_bytes": 12976128,
+        "trace_file_bytes": 0
+      },
+      {
+        "wall_ms": 30.519,
+        "peak_rss_bytes": 12926976,
+        "trace_file_bytes": 0
+      },
+      {
+        "wall_ms": 34.53,
+        "peak_rss_bytes": 12828672,
+        "trace_file_bytes": 0
+      },
+      {
+        "wall_ms": 30.131,
+        "peak_rss_bytes": 12877824,
+        "trace_file_bytes": 0
+      },
+      {
+        "wall_ms": 30.052,
+        "peak_rss_bytes": 12959744,
+        "trace_file_bytes": 0
+      },
+      {
+        "wall_ms": 29.809,
+        "peak_rss_bytes": 12861440,
+        "trace_file_bytes": 0
+      },
+      {
+        "wall_ms": 31.952,
+        "peak_rss_bytes": 12943360,
+        "trace_file_bytes": 0
+      },
+      {
+        "wall_ms": 28.845,
+        "peak_rss_bytes": 12746752,
+        "trace_file_bytes": 0
+      },
+      {
+        "wall_ms": 29.332,
+        "peak_rss_bytes": 12828672,
+        "trace_file_bytes": 0
+      },
+      {
+        "wall_ms": 29.601,
+        "peak_rss_bytes": 12746752,
+        "trace_file_bytes": 0
+      }
+    ],
+    "summary_file": [
+      {
+        "wall_ms": 41.656,
+        "peak_rss_bytes": 23412736,
+        "trace_file_bytes": 5312
+      },
+      {
+        "wall_ms": 38.379,
+        "peak_rss_bytes": 23101440,
+        "trace_file_bytes": 5312
+      },
+      {
+        "wall_ms": 43.685,
+        "peak_rss_bytes": 24444928,
+        "trace_file_bytes": 5312
+      },
+      {
+        "wall_ms": 39.456,
+        "peak_rss_bytes": 24494080,
+        "trace_file_bytes": 5312
+      },
+      {
+        "wall_ms": 38.46,
+        "peak_rss_bytes": 23150592,
+        "trace_file_bytes": 5312
+      },
+      {
+        "wall_ms": 37.749,
+        "peak_rss_bytes": 23085056,
+        "trace_file_bytes": 5312
+      },
+      {
+        "wall_ms": 36.545,
+        "peak_rss_bytes": 23166976,
+        "trace_file_bytes": 5312
+      },
+      {
+        "wall_ms": 36.343,
+        "peak_rss_bytes": 24526848,
+        "trace_file_bytes": 5312
+      },
+      {
+        "wall_ms": 36.336,
+        "peak_rss_bytes": 23134208,
+        "trace_file_bytes": 5312
+      },
+      {
+        "wall_ms": 36.372,
+        "peak_rss_bytes": 24625152,
+        "trace_file_bytes": 5312
+      },
+      {
+        "wall_ms": 37.518,
+        "peak_rss_bytes": 23134208,
+        "trace_file_bytes": 5312
+      },
+      {
+        "wall_ms": 39.685,
+        "peak_rss_bytes": 23298048,
+        "trace_file_bytes": 5312
+      }
+    ],
+    "raw_file": [
+      {
+        "wall_ms": 42.676,
+        "peak_rss_bytes": 25919488,
+        "trace_file_bytes": 3454830
+      },
+      {
+        "wall_ms": 42.83,
+        "peak_rss_bytes": 25870336,
+        "trace_file_bytes": 3454829
+      },
+      {
+        "wall_ms": 46.617,
+        "peak_rss_bytes": 26050560,
+        "trace_file_bytes": 3454837
+      },
+      {
+        "wall_ms": 43.283,
+        "peak_rss_bytes": 27344896,
+        "trace_file_bytes": 3454829
+      },
+      {
+        "wall_ms": 42.554,
+        "peak_rss_bytes": 26001408,
+        "trace_file_bytes": 3454827
+      },
+      {
+        "wall_ms": 43.448,
+        "peak_rss_bytes": 25919488,
+        "trace_file_bytes": 3454832
+      },
+      {
+        "wall_ms": 42.861,
+        "peak_rss_bytes": 25837568,
+        "trace_file_bytes": 3454831
+      },
+      {
+        "wall_ms": 42.77,
+        "peak_rss_bytes": 25870336,
+        "trace_file_bytes": 3454831
+      },
+      {
+        "wall_ms": 41.729,
+        "peak_rss_bytes": 26066944,
+        "trace_file_bytes": 3454829
+      },
+      {
+        "wall_ms": 43.282,
+        "peak_rss_bytes": 25837568,
+        "trace_file_bytes": 3454831
+      },
+      {
+        "wall_ms": 41.321,
+        "peak_rss_bytes": 25853952,
+        "trace_file_bytes": 3454827
+      },
+      {
+        "wall_ms": 42.692,
+        "peak_rss_bytes": 25870336,
+        "trace_file_bytes": 3454827
+      }
+    ],
+    "raw_devnull": [
+      {
+        "wall_ms": 42.343,
+        "peak_rss_bytes": 25903104,
+        "trace_file_bytes": 0
+      },
+      {
+        "wall_ms": 41.345,
+        "peak_rss_bytes": 27295744,
+        "trace_file_bytes": 0
+      },
+      {
+        "wall_ms": 43.734,
+        "peak_rss_bytes": 27295744,
+        "trace_file_bytes": 0
+      },
+      {
+        "wall_ms": 47.027,
+        "peak_rss_bytes": 27262976,
+        "trace_file_bytes": 0
+      },
+      {
+        "wall_ms": 48.638,
+        "peak_rss_bytes": 25968640,
+        "trace_file_bytes": 0
+      },
+      {
+        "wall_ms": 41.549,
+        "peak_rss_bytes": 27312128,
+        "trace_file_bytes": 0
+      },
+      {
+        "wall_ms": 40.555,
+        "peak_rss_bytes": 27410432,
+        "trace_file_bytes": 0
+      },
+      {
+        "wall_ms": 43.281,
+        "peak_rss_bytes": 25886720,
+        "trace_file_bytes": 0
+      },
+      {
+        "wall_ms": 41.372,
+        "peak_rss_bytes": 27295744,
+        "trace_file_bytes": 0
+      },
+      {
+        "wall_ms": 40.592,
+        "peak_rss_bytes": 25821184,
+        "trace_file_bytes": 0
+      },
+      {
+        "wall_ms": 40.732,
+        "peak_rss_bytes": 25935872,
+        "trace_file_bytes": 0
+      },
+      {
+        "wall_ms": 47.053,
+        "peak_rss_bytes": 25919488,
+        "trace_file_bytes": 0
+      }
+    ]
+  },
+  "medians": {
+    "plain": {
+      "wall_ms": 30.325,
+      "peak_rss_bytes": 12894208.0,
+      "trace_file_bytes": 0.0
+    },
+    "summary_file": {
+      "wall_ms": 38.064,
+      "peak_rss_bytes": 23232512.0,
+      "trace_file_bytes": 5312.0
+    },
+    "raw_file": {
+      "wall_ms": 42.8,
+      "peak_rss_bytes": 25894912.0,
+      "trace_file_bytes": 3454829.5
+    },
+    "raw_devnull": {
+      "wall_ms": 41.946,
+      "peak_rss_bytes": 26615808.0,
+      "trace_file_bytes": 0.0
+    }
+  },
+  "failure_boundary": {
+    "plain": {
+      "status": 3,
+      "operation_result_propagate": true,
+      "call_path_fail": true,
+      "trace_proc_enter": false,
+      "trace_proc_exit": false,
+      "trace_script_exit": false
+    },
+    "raw_trace": {
+      "status": 3,
+      "operation_result_propagate": true,
+      "call_path_fail": true,
+      "trace_proc_enter": true,
+      "trace_proc_exit": true,
+      "trace_script_exit": true
+    }
+  }
+}
