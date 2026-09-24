@@ -2229,11 +2229,16 @@ mod tests {
     #[test]
     fn repeated_shell_runs_accept_dynamic_environment_names() {
         let mut session = Session::new();
+        let true_path = if cfg!(target_os = "macos") {
+            "/usr/bin/true"
+        } else {
+            "/bin/true"
+        };
 
         for index in 0..8 {
             let output = execute_line(
                 &mut session,
-                &format!("DYNAMIC_SESSION_{index}=ok /usr/bin/true"),
+                &format!("DYNAMIC_SESSION_{index}=ok {true_path}"),
             );
             assert_eq!(output.status, 0);
         }

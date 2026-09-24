@@ -112,8 +112,13 @@ fn xshi_cd_list_complete_1000_entries(bencher: Bencher) {
 #[rustybench::bench]
 fn xshi_dynamic_name_session(bencher: Bencher) {
     let mut session = BenchSession::with_history(Vec::new());
+    let true_path = if cfg!(target_os = "macos") {
+        "/usr/bin/true"
+    } else {
+        "/bin/true"
+    };
     let commands = (0..8)
-        .map(|index| format!("DYNAMIC_SESSION_{index}=ok /usr/bin/true"))
+        .map(|index| format!("DYNAMIC_SESSION_{index}=ok {true_path}"))
         .collect::<Vec<_>>();
     let mut index = 0;
     bench_operation(bencher, || {

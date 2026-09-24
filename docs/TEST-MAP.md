@@ -36,6 +36,7 @@ linter checks and are owner-run under the agent workflow rule.
 | Migrated API parity across `xsh` profiles | `cargo test -p xsht --test profile_parity -- --nocapture` after building the four debug/release and default/no-default products | Run the same test and builds in the pinned `Dockerfile.test` ARM64 musl image using `dev/targets.xsh::docker_test_env`; missing products print their build commands |
 | Copied product and packaged core smoke | `tools/copied-product-smoke.py` with all three debug binaries and a `dev/release.xsh::package_core` archive | Repeat with the pinned Linux ARM64 musl debug products and `--linux`; `bench/stdlib-port/README.md` gives the commands |
 | Benchmark workload | `cargo bench -p xshi --bench bench --features benchmark BENCHMARK -- --sample-count 1 --sample-size 1` | `cargo dev bench --fast` (memory/regression) or `cargo dev bench` (latency) |
+| `xshi` editor input and repaint | `cargo test -p xshi --lib interactive::edit::tests` | `cargo test -p xshi` |
 | Non-Tokio archive/network dependency update | `cargo tree -i tokio` and `cargo tree -p xsh-net -e features` | focused archive or network runtime gate |
 | Arena or indexed-IR layout | `scripts/ir-layout.py` (or `--only TYPE` for a focused report) | focused rustybench workload plus the applicable behavior tests |
 | Frontend retained/peak accounting | `cargo test -p xsh --lib frontend_stats::tests` and `cargo run --bin xsh-frontend-stats -- --json tests/fixtures/frontend-indexed` | `cargo dev bench --fast` after the applicable syntax/checker gate |

@@ -10,10 +10,32 @@ use rustix::termios::{self as rtermios, OptionalActions, OutputModes, Termios};
 use rustix::{event as revent, io as rio, stdio as rstdio};
 use std::borrow::Cow;
 use std::collections::BTreeMap;
-use std::io::{self, Read, Write};
+use std::io::{self, Write};
 
 const HISTORY_SEARCH_LIMIT: usize = 200;
 const ESCAPE_SEQUENCE_TIMEOUT_MS: i32 = 50;
+
+trait EditorInput {
+    fn read_byte(&mut self) -> io::Result<Option<u8>>;
+    fn read_byte_timeout(&mut self, timeout_ms: i32) -> Option<[u8; 1]>;
+    fn term_size(&self) -> (u16, u16);
+}
+
+struct StdinEditorInput;
+
+impl EditorInput for StdinEditorInput {
+    fn read_byte(&mut self) -> io::Result<Option<u8>> {
+        read_stdin_byte_blocking()
+    }
+
+    fn read_byte_timeout(&mut self, timeout_ms: i32) -> Option<[u8; 1]> {
+        read_stdin_byte_timeout(timeout_ms)
+    }
+
+    fn term_size(&self) -> (u16, u16) {
+        render::term_size()
+    }
+}
 
 pub(super) struct RawMode {
     original: Termios,
@@ -263,13 +285,13 @@ pub(super) fn read_interactive_command(
     stderr: &mut dyn Write,
 ) -> EditorEvent {
     let mut prompt_text = prompt(session);
-    let mut reader = io::stdin().lock();
+    let mut input = StdinEditorInput;
     let mut command = match read_editor_line(
         session,
         stdout,
         &prompt_text,
         LineBuffer::default(),
-        &mut reader,
+        &mut input,
     ) {
         EditorEvent::Submit(line) => line,
         other => return other,
@@ -285,7 +307,7 @@ pub(super) fn read_interactive_command(
             stdout,
             &prompt_text,
             LineBuffer::default(),
-            &mut reader,
+            &mut input,
         ) {
             EditorEvent::Submit(line) => {
                 command = join_continuation(command, line);
@@ -300,7 +322,7 @@ fn read_editor_line(
     stdout: &mut dyn Write,
     prompt_text: &str,
     mut buffer: LineBuffer,
-    reader: &mut dyn Read,
+    input: &mut dyn EditorInput,
 ) -> EditorEvent {
     let mut history_nav = None;
     let mut active_completion: Option<(LineBuffer, CompletionState)> = None;
@@ -308,26 +330,26 @@ fn read_editor_line(
     let mut mode = EditorMode::Normal;
     let mut completion_rows = 0_usize;
     let mut region = RenderedRegion::default();
-    let (_, mut cols) = render::term_size();
+    let (_, mut cols) = input.term_size();
     if let Ok(next) = render_editor(session, stdout, prompt_text, &buffer, region, cols) {
         region = next;
     } else {
         return EditorEvent::Error(io::Error::last_os_error());
     }
     loop {
-        let byte = match read_stdin_byte_blocking() {
+        let byte = match input.read_byte() {
             Ok(Some(byte)) => byte,
             Ok(None) => return EditorEvent::Eof,
             Err(err) => return EditorEvent::Error(err),
         };
-        let (rows, next_cols) = render::term_size();
+        let (rows, next_cols) = input.term_size();
         cols = next_cols;
         if mode == EditorMode::HistorySearch {
             let Some(search) = active_history.as_mut() else {
                 mode = EditorMode::Normal;
                 continue;
             };
-            match handle_history_search_key(session, reader, byte, search) {
+            match handle_history_search_key(session, input, byte, search) {
                 HistoryAction::Continue => {
                     match render_history_search(
                         stdout,
@@ -372,7 +394,7 @@ fn read_editor_line(
                 prompt_text,
                 cols,
                 byte,
-                reader,
+                input,
                 &mut buffer,
                 &mut active_completion,
                 &mut completion_rows,
@@ -440,8 +462,8 @@ fn read_editor_line(
                     Err(_) => return EditorEvent::Error(io::Error::last_os_error()),
                 }
             }
-            0x1b => handle_escape(session, reader, &mut buffer, &mut history_nav),
-            byte if byte >= 0x20 => match read_utf8_text(reader, byte) {
+            0x1b => handle_escape(session, input, &mut buffer, &mut history_nav),
+            byte if byte >= 0x20 => match read_utf8_text(input, byte) {
                 Ok(text) => {
                     buffer.insert(&text);
                     if text == " " {
@@ -492,7 +514,7 @@ fn handle_active_completion_key(
     prompt_text: &str,
     cols: u16,
     byte: u8,
-    reader: &mut dyn Read,
+    input: &mut dyn EditorInput,
     buffer: &mut LineBuffer,
     active_completion: &mut Option<(LineBuffer, CompletionState)>,
     completion_rows: &mut usize,
@@ -524,7 +546,7 @@ fn handle_active_completion_key(
                 .map_err(|_| EditorEvent::Error(io::Error::last_os_error()))?;
         }
         0x1b => {
-            if handle_completion_escape(reader, &mut state) {
+            if handle_completion_escape(input, &mut state) {
                 render_completion_preview(
                     stdout,
                     prompt_text,
@@ -590,7 +612,7 @@ fn handle_active_completion_key(
             }
         }
         byte if byte >= 0x20 => {
-            let text = read_utf8_text(reader, byte)?;
+            let text = read_utf8_text(input, byte)?;
             base.insert(&text);
             refilter_completion(
                 session,
@@ -707,11 +729,10 @@ fn refilter_completion(
     Ok(())
 }
 
-fn read_utf8_text(reader: &mut dyn Read, byte: u8) -> Result<String, EditorEvent> {
-    let _ = reader;
+fn read_utf8_text(input: &mut dyn EditorInput, byte: u8) -> Result<String, EditorEvent> {
     let mut bytes = vec![byte];
     while std::str::from_utf8(&bytes).is_err() {
-        let next = match read_stdin_byte_blocking() {
+        let next = match input.read_byte() {
             Ok(Some(next)) => next,
             Ok(None) => {
                 return Err(EditorEvent::Error(io::Error::new(
@@ -856,7 +877,7 @@ fn render_history_search(
 
 fn handle_history_search_key(
     session: &Session,
-    reader: &mut dyn Read,
+    input: &mut dyn EditorInput,
     byte: u8,
     search: &mut HistorySearch,
 ) -> HistoryAction {
@@ -901,13 +922,13 @@ fn handle_history_search_key(
             search.query.backspace();
             re_search = true;
         }
-        0x1b => match handle_history_escape(reader, search) {
+        0x1b => match handle_history_escape(input, search) {
             Some(true) => re_search = true,
             Some(false) => {}
             None => return HistoryAction::Cancel,
         },
         byte if byte >= 0x20 => {
-            if let Ok(text) = read_utf8_text(reader, byte) {
+            if let Ok(text) = read_utf8_text(input, byte) {
                 search.query.insert(&text);
                 re_search = true;
             }
@@ -921,9 +942,8 @@ fn handle_history_search_key(
     HistoryAction::Continue
 }
 
-fn handle_history_escape(reader: &mut dyn Read, search: &mut HistorySearch) -> Option<bool> {
-    let _ = reader;
-    let seq = read_stdin_byte_timeout(ESCAPE_SEQUENCE_TIMEOUT_MS)?;
+fn handle_history_escape(input: &mut dyn EditorInput, search: &mut HistorySearch) -> Option<bool> {
+    let seq = input.read_byte_timeout(ESCAPE_SEQUENCE_TIMEOUT_MS)?;
     match seq[0] {
         b'b' => {
             search.query.move_word_left();
@@ -933,14 +953,13 @@ fn handle_history_escape(reader: &mut dyn Read, search: &mut HistorySearch) -> O
             search.query.move_word_right();
             Some(false)
         }
-        b'[' => handle_history_csi(reader, search),
+        b'[' => handle_history_csi(input, search),
         _ => None,
     }
 }
 
-fn handle_history_csi(reader: &mut dyn Read, search: &mut HistorySearch) -> Option<bool> {
-    let _ = reader;
-    let code = read_stdin_byte_timeout(ESCAPE_SEQUENCE_TIMEOUT_MS)?;
+fn handle_history_csi(input: &mut dyn EditorInput, search: &mut HistorySearch) -> Option<bool> {
+    let code = input.read_byte_timeout(ESCAPE_SEQUENCE_TIMEOUT_MS)?;
     match code[0] {
         b'A' => {
             if search.selected > 0 {
@@ -971,7 +990,7 @@ fn handle_history_csi(reader: &mut dyn Read, search: &mut HistorySearch) -> Opti
             Some(false)
         }
         b'3' => {
-            if read_stdin_byte_timeout(ESCAPE_SEQUENCE_TIMEOUT_MS).is_some_and(|b| b[0] == b'~') {
+            if input.read_byte_timeout(ESCAPE_SEQUENCE_TIMEOUT_MS).is_some_and(|b| b[0] == b'~') {
                 search.query.delete_forward();
                 Some(true)
             } else {
@@ -980,12 +999,12 @@ fn handle_history_csi(reader: &mut dyn Read, search: &mut HistorySearch) -> Opti
         }
         b'1' => {
             let mut rest = [0_u8; 3];
-            if read_stdin_byte_timeout(ESCAPE_SEQUENCE_TIMEOUT_MS).is_some_and(|b| b[0] == b';')
-                && read_stdin_byte_timeout(ESCAPE_SEQUENCE_TIMEOUT_MS).is_some_and(|b| {
+            if input.read_byte_timeout(ESCAPE_SEQUENCE_TIMEOUT_MS).is_some_and(|b| b[0] == b';')
+                && input.read_byte_timeout(ESCAPE_SEQUENCE_TIMEOUT_MS).is_some_and(|b| {
                     rest[1] = b[0];
                     true
                 })
-                && read_stdin_byte_timeout(ESCAPE_SEQUENCE_TIMEOUT_MS).is_some_and(|b| {
+                && input.read_byte_timeout(ESCAPE_SEQUENCE_TIMEOUT_MS).is_some_and(|b| {
                     rest[2] = b[0];
                     true
                 })
@@ -1085,12 +1104,11 @@ fn render_editor_without_suggestion(
 
 fn handle_escape(
     session: &Session,
-    reader: &mut dyn Read,
+    input: &mut dyn EditorInput,
     buffer: &mut LineBuffer,
     history_nav: &mut Option<HistoryNavigation>,
 ) {
-    let _ = reader;
-    let Some(seq) = read_stdin_byte_timeout(ESCAPE_SEQUENCE_TIMEOUT_MS) else {
+    let Some(seq) = input.read_byte_timeout(ESCAPE_SEQUENCE_TIMEOUT_MS) else {
         return;
     };
     if seq[0] == b'b' {
@@ -1104,7 +1122,7 @@ fn handle_escape(
     if seq[0] != b'[' {
         return;
     }
-    let Some(code) = read_stdin_byte_timeout(ESCAPE_SEQUENCE_TIMEOUT_MS) else {
+    let Some(code) = input.read_byte_timeout(ESCAPE_SEQUENCE_TIMEOUT_MS) else {
         return;
     };
     match code[0] {
@@ -1124,19 +1142,19 @@ fn handle_escape(
         b'F' => buffer.cursor = buffer.text.len(),
         b'A' => history_prev(session, buffer, history_nav),
         b'B' => history_next(session, buffer, history_nav),
-        b'3' if read_stdin_byte_timeout(ESCAPE_SEQUENCE_TIMEOUT_MS)
+        b'3' if input.read_byte_timeout(ESCAPE_SEQUENCE_TIMEOUT_MS)
             .is_some_and(|b| b[0] == b'~') =>
         {
             buffer.delete_forward();
         }
         b'1' => {
             let mut rest = [0_u8; 3];
-            if read_stdin_byte_timeout(ESCAPE_SEQUENCE_TIMEOUT_MS).is_some_and(|b| b[0] == b';')
-                && read_stdin_byte_timeout(ESCAPE_SEQUENCE_TIMEOUT_MS).is_some_and(|b| {
+            if input.read_byte_timeout(ESCAPE_SEQUENCE_TIMEOUT_MS).is_some_and(|b| b[0] == b';')
+                && input.read_byte_timeout(ESCAPE_SEQUENCE_TIMEOUT_MS).is_some_and(|b| {
                     rest[1] = b[0];
                     true
                 })
-                && read_stdin_byte_timeout(ESCAPE_SEQUENCE_TIMEOUT_MS).is_some_and(|b| {
+                && input.read_byte_timeout(ESCAPE_SEQUENCE_TIMEOUT_MS).is_some_and(|b| {
                     rest[2] = b[0];
                     true
                 })
@@ -1151,16 +1169,16 @@ fn handle_escape(
         }
         b'2' => {
             let mut rest = [0_u8; 3];
-            if read_stdin_byte_timeout(ESCAPE_SEQUENCE_TIMEOUT_MS).is_some_and(|b| b[0] == b'0')
-                && read_stdin_byte_timeout(ESCAPE_SEQUENCE_TIMEOUT_MS).is_some_and(|b| b[0] == b'0')
-                && read_stdin_byte_timeout(ESCAPE_SEQUENCE_TIMEOUT_MS).is_some_and(|b| b[0] == b'~')
+            if input.read_byte_timeout(ESCAPE_SEQUENCE_TIMEOUT_MS).is_some_and(|b| b[0] == b'0')
+                && input.read_byte_timeout(ESCAPE_SEQUENCE_TIMEOUT_MS).is_some_and(|b| b[0] == b'0')
+                && input.read_byte_timeout(ESCAPE_SEQUENCE_TIMEOUT_MS).is_some_and(|b| b[0] == b'~')
             {
                 rest = *b"00~";
             }
             if rest == *b"00~" {
                 let mut paste = Vec::new();
                 let mut window = Vec::new();
-                while let Ok(Some(byte)) = read_stdin_byte_blocking() {
+                while let Ok(Some(byte)) = input.read_byte() {
                     let byte = [byte];
                     window.push(byte[0]);
                     paste.push(byte[0]);
@@ -1182,15 +1200,14 @@ fn handle_escape(
     }
 }
 
-fn handle_completion_escape(reader: &mut dyn Read, state: &mut CompletionState) -> bool {
-    let _ = reader;
-    let Some(seq) = read_stdin_byte_timeout(ESCAPE_SEQUENCE_TIMEOUT_MS) else {
+fn handle_completion_escape(input: &mut dyn EditorInput, state: &mut CompletionState) -> bool {
+    let Some(seq) = input.read_byte_timeout(ESCAPE_SEQUENCE_TIMEOUT_MS) else {
         return false;
     };
     if seq[0] != b'[' {
         return false;
     }
-    let Some(code) = read_stdin_byte_timeout(ESCAPE_SEQUENCE_TIMEOUT_MS) else {
+    let Some(code) = input.read_byte_timeout(ESCAPE_SEQUENCE_TIMEOUT_MS) else {
         return false;
     };
     match code[0] {
@@ -1382,13 +1399,81 @@ pub(super) fn history_prefix_match<'a>(session: &'a Session, prefix: &str) -> Op
 #[cfg(test)]
 mod tests {
     use super::{
-        CompletionAction, LineBuffer, autosuggestion, complete_buffer, preview_completion,
-        try_alias_expand,
+        CompletionAction, EditorEvent, EditorInput, LineBuffer, autosuggestion, complete_buffer,
+        preview_completion, read_editor_line, try_alias_expand,
     };
     use crate::xshi::interactive::complete::{CompletionState, Completions};
     use crate::xshi::interactive::history::History;
     use crate::xshi::interactive::session::Session;
-    use std::collections::BTreeMap;
+    use std::collections::{BTreeMap, VecDeque};
+
+    struct ScriptedEditorInput {
+        bytes: VecDeque<u8>,
+        term_size: (u16, u16),
+    }
+
+    impl EditorInput for ScriptedEditorInput {
+        fn read_byte(&mut self) -> std::io::Result<Option<u8>> {
+            Ok(self.bytes.pop_front())
+        }
+
+        fn read_byte_timeout(&mut self, _timeout_ms: i32) -> Option<[u8; 1]> {
+            self.bytes.pop_front().map(|byte| [byte])
+        }
+
+        fn term_size(&self) -> (u16, u16) {
+            self.term_size
+        }
+    }
+
+    fn edit_with_keys(session: &mut Session, keys: &[u8], cols: u16) -> (String, String) {
+        let mut input = ScriptedEditorInput {
+            bytes: keys.iter().copied().collect(),
+            term_size: (24, cols),
+        };
+        let mut output = Vec::new();
+        let result = read_editor_line(
+            session,
+            &mut output,
+            "> ",
+            LineBuffer::default(),
+            &mut input,
+        );
+        let EditorEvent::Submit(line) = result else {
+            panic!("scripted editor did not submit")
+        };
+        (line, String::from_utf8(output).expect("terminal output is UTF-8"))
+    }
+
+    #[test]
+    fn scripted_editor_moves_cursor_and_repaints_edited_line() {
+        let mut session = Session::new();
+        session.history = History::from_entries(Vec::new());
+
+        let (line, output) = edit_with_keys(&mut session, b"abc\x1b[DX\r", 80);
+        assert_eq!(line, "abXc");
+        assert!(output.contains("abXc"));
+        assert!(output.contains("\x1b[J"));
+        assert!(output.contains("\x1b[4C"));
+    }
+
+    #[test]
+    fn scripted_editor_accepts_completion_and_clears_grid() {
+        let root = super::complete::completion_test_dir(&["alpha.txt", "alpine.log"]);
+        let mut session = Session::new();
+        session.history = History::from_entries(Vec::new());
+        session.cwd = root.path().to_path_buf();
+        session.invalidate_cwd_snapshot();
+
+        let (line, output) = edit_with_keys(&mut session, b"cat alp\t\t\r\r", 80);
+        assert_eq!(line, "cat alpha.txt");
+        assert!(output.contains("alpha.txt"));
+        assert!(output.contains("alpine.log"));
+        let grid_end = output.rfind("alpine.log").expect("completion grid was rendered");
+        assert!(output[grid_end..].contains("\r\x1b[K"));
+        assert!(output.contains("\x1b[?25l"));
+        assert!(output.contains("\x1b[?25h"));
+    }
 
     #[test]
     fn line_buffer_edits_words_and_utf8_boundaries() {

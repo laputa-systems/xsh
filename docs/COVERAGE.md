@@ -33,13 +33,14 @@ harnesses, not scattered microtests.
 
 The deterministic unit tests cover core line editing, preview, autosuggestion,
 completion replacement, grid movement, SSH host discovery, and render wrapping.
-The remaining branches are broad interactive states that are hard to exercise
-without driving the editor as a small terminal model.
+`crates/xshi/src/interactive/edit.rs::tests::ScriptedEditorInput` now feeds key
+bytes and a fixed terminal size through the real editor loop, capturing the
+rendered output without a PTY or timing sleeps. Its first cases cover cursor
+edits, completion acceptance, and grid clearing. The remaining branches are
+multi-step interactive states for that harness.
 
 Useful next work:
 
-- Add a test-only editor harness that feeds key events into `xshi` state without
-  requiring a PTY or wall-clock timing.
 - Cover multi-step completion workflows: ambiguous candidates, quoted paths,
   home expansion, command-position completion, directory-only completion, remote
   path fallbacks, and grid clearing after edits.
