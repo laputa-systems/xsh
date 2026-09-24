@@ -144,12 +144,13 @@ fn layout_single_line_prompt(
     suggestion: &str,
     cols: usize,
 ) -> PromptLayout {
-    let total_before_cursor = advance_display_cells(prompt_cells, &line.text[..line.cursor], cols);
-    let total_full = advance_display_cells(
-        advance_display_cells(prompt_cells, &line.text, cols),
-        suggestion,
-        cols,
-    );
+    let line_end = advance_display_cells(prompt_cells, &line.text, cols);
+    let total_before_cursor = if line.cursor == line.text.len() {
+        line_end
+    } else {
+        advance_display_cells(prompt_cells, &line.text[..line.cursor], cols)
+    };
+    let total_full = advance_display_cells(line_end, suggestion, cols);
     let cursor_row = total_before_cursor / cols;
     let cursor_col = total_before_cursor % cols;
     let total_rows = total_full / cols;
@@ -756,6 +757,9 @@ fn advance_display_width(mut cells: usize, width: usize, cols: usize) -> usize {
 }
 
 fn advance_display_cells(mut cells: usize, text: &str, cols: usize) -> usize {
+    if text.bytes().all(|byte| (b' '..=b'~').contains(&byte)) {
+        return cells + text.len();
+    }
     for ch in text.chars() {
         cells = advance_display_width(cells, super::complete::char_width(ch), cols);
     }
@@ -763,6 +767,9 @@ fn advance_display_cells(mut cells: usize, text: &str, cols: usize) -> usize {
 }
 
 fn display_cells_without_ansi(text: &str, cols: usize) -> usize {
+    if text.bytes().all(|byte| (b' '..=b'~').contains(&byte)) {
+        return text.len();
+    }
     let mut cells = 0;
     let mut chars = text.chars().peekable();
     while let Some(ch) = chars.next() {

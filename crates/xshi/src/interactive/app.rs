@@ -2283,6 +2283,43 @@ mod tests {
     }
 
     #[test]
+    fn submitted_xsh_sources_prepare_embedded_calls_after_failures_in_one_session() {
+        let mut session = Session::new();
+        for source in [
+            "print shlex.quote(\"a b\")",
+            "print bytes.human(4096)",
+            "print tui.left_pad(\"x\", 4)",
+            "print hash.parse_check_line(\"aa  b\")?.hex",
+        ] {
+            let output = execute_line(&mut session, source);
+            assert_eq!(output.status, 0, "{source}: {:?}", output.stderr);
+            assert!(!output.stdout.is_empty(), "{source}");
+        }
+
+        assert_eq!(execute_line(&mut session, "let submission_only = 7").status, 0);
+
+        for (source, diagnostic) in [
+            ("print (", true),
+            ("let value = submission_only", true),
+            ("abort(9)", false),
+        ] {
+            let output = execute_line(&mut session, source);
+            assert_ne!(output.status, 0, "{source}");
+            if diagnostic {
+                assert!(!output.stderr.is_empty(), "{source}");
+            }
+
+            let recovered = execute_line(&mut session, "print shlex.quote(\"after failure\")");
+            assert_eq!(recovered.status, 0, "{source}: {:?}", recovered.stderr);
+            assert_eq!(recovered.stdout, b"'after failure'\n");
+        }
+
+        assert_eq!(execute_line(&mut session, "true").status, 0);
+        let after_shell = execute_line(&mut session, "print bytes.human(4096)");
+        assert_eq!(after_shell.status, 0, "{:?}", after_shell.stderr);
+    }
+
+    #[test]
     fn parses_chains() {
         let line = ShellParser::new("false || echo ok; true")
             .parse_line()

@@ -41,7 +41,7 @@ public APIs require a separate decision backed by repeated real use.
    B0 `xsh` failures to prioritize profiling on both supported hosts.
 2. **B08, C01–C04, C06:** improve the measured hot paths and cold preparation in
    small batches, preserving the original B0 gates and native controls.
-3. **E01–E03, F01–F03:** make the interactive, tooling, and Linux test
+3. **E01–E03, F01–F03:** make the tooling and Linux test
    boundaries deterministic enough to support sustained work.
 4. **H07–H09:** refine existing `dev/`, `core/`, and `showcase/` programs; let
    repeated friction select small runtime or tooling changes.
@@ -74,14 +74,6 @@ allocation/RSS evidence; no new execution engine is implied.
 - **C03 · P2/M.** Profile scope-key allocation and hashing in repeated bindings; compare a narrow key-reuse change with the wider `Arc<str>` ownership change before choosing either.
 - **C04 · P2/M.** Measure large flat directories before revisiting intra-directory work splitting; the earlier fused parallel walk lost on that shape (`docs/STREAMS.md`).
 - **C06 · P1/M.** Identify whole-buffer scanners that can use line-state APIs; convert one real large-file workload at a time and preserve malformed-late-row behavior. The `showcase/loc.xsh` `Path.lines() |> count()` candidate lost to `read_text()?.count_lines()` on `src` (33.016 versus 22.883 ms median in 20 paired release runs), despite 1.8 MB lower median peak RSS, and changed the late invalid-UTF-8 diagnostic path, so it was rejected (`bench/stream-line-count-c06-2026-09-24.json`).
-
-## D. Interactive `xshi`
-
-The contract is `docs/SPEC-INTERACTIVE.md`; `docs/COVERAGE.md` identifies the
-stateful editor and completion harness as the central missing evidence.
-
-- **D10 · P2/M.** Re-measure the five complete `xshi` workloads in `docs/BENCHMARKING.md` after editor or completion changes; reject regressions in latency and allocation traffic.
-- **D11 · P2.** Audit `xshi` session startup and prompt submissions for embedded-stdlib preparation reuse, failed-input recovery, and program/symbol ownership (`crates/xshi/tests/stdlib_preparation.rs`).
 
 ## E. `xsht`, diagnostics, and source fidelity
 

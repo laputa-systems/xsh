@@ -61,6 +61,14 @@ so the first sample can be colder than later samples. Treat small single-run
 latency changes as inconclusive and repeat timing measurements with identical
 settings before acting on them.
 
+The editor and completion follow-up was compared with `09a9e9c` on macOS ARM64
+using the system allocator, 20 samples of 10 iterations per process, and 14
+serial process runs per revision. The initial render change raised long-prompt
+median latency from 108 to 325 ns; the printable-ASCII render path brought it
+to 66 ns. The other four final medians were flat or lower, and median allocation
+count, bytes, and peak live allocation were unchanged for all five workloads.
+Raw per-run values are in `bench/xshi-editor-d10-2026-09-24.json`.
+
 ## Call tracing probe
 
 `bench/trace-call-overhead.xsh` is a fixed 10,000-call script for separating

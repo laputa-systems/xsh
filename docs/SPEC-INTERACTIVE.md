@@ -99,6 +99,11 @@ Not persistent across prompt entries:
 - imported modules;
 - local values and checker scopes.
 
+Each XSH prompt submission starts with a fresh program and symbol owner. After
+parse and check, it prepares reachable embedded standard-library implementations
+before execution. The program and symbols are discarded afterward; a failed
+parse, check, or execution leaves no program for the next submission to reuse.
+
 The process cwd may be updated for compatibility, but runtime calls should also
 receive cwd explicitly. All successful cwd changes use one shared path so `cd`,
 `z`, and denv hooks update `PWD`, `OLDPWD`, prompt inschema checks, and denv state
