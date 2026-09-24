@@ -109,12 +109,15 @@ cargo test -p xsh --lib modules::signature
 cargo test -p xsht --test api
 target/debug/xsht api
 target/debug/xsht api summary --format jsonl
+target/debug/xsht check docs/snippets/api
 cargo dev check
 git diff --check
 ```
 
 Run the relevant language or runtime test gate when the API contract or an
-example exposes behavior that changed outside the registry and renderer.
+example exposes behavior that changed outside the registry and renderer. The
+snippet directory check scans only that explicit directory, even when the
+repository config has additional `include` roots.
 
 ## XSH Corpus Gate
 

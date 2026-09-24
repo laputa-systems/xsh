@@ -3322,8 +3322,9 @@ precedence over script-selected statuses.
 
 `xsht check` accepts files and directories. With no path, it checks all `.xsh`
 files under the current directory, plus configured `include` files or
-directories from `xsht-config.ini`. Directory traversal uses the same `exclude`
-patterns from `xsht-config.ini` as other path-oriented tooling.
+directories from `xsht-config.ini`. An explicit directory checks only files
+under that directory; configured `include` roots do not extend it. Directory
+traversal uses the nearest config's `exclude` patterns.
 
 After a program parses, resolves, and type-checks, `xsht check` also verifies
 that the entry program can be lowered for the compact runtime. This pass does

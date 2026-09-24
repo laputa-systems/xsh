@@ -81,7 +81,6 @@ allocation/RSS evidence; no new execution engine is implied.
 - **E02 · P2.** Migrate one formatter construct family to `Doc`/`DocRenderer` when its layout changes; verify the beauty fixture and syntax gate rather than rewriting the formatter wholesale.
 - **E03 · P2/M.** Measure actual source files with tabs, wide Unicode, or combining marks before changing display-column accounting; add boundary fixtures if the current character-count policy misformats them.
 - **E04 · P1.** Keep `xsht check`, `lint`, `fmt --check`, and execution in agreement on script-backed standard calls, including loaded user modules and copied binaries (`src/loader.rs`).
-- **E06 · P2.** Audit `xsht api` examples against the canonical registry and native tests after API changes; the generated surface fixture remains a gate, not a second hand-edited signature list.
 - **E07 · P2.** Improve `xsht` cold single-file check latency only after the paired tooling route attributes its preparation cost; retain checker equivalence with the runner.
 
 ## F. Linux, host operations, and network

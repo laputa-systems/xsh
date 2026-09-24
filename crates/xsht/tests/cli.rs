@@ -685,6 +685,34 @@ fn check_explicit_directory_uses_directory_config() {
     );
 }
 
+// Explicit directory selection is a CLI discovery boundary: configured extra
+// roots apply to the default scan, not to a directory the caller named.
+#[test]
+fn check_explicit_directory_does_not_expand_parent_config_includes() {
+    let root = TempDir::new().expect("create temp root");
+    fs::create_dir(root.path().join("project")).expect("create project directory");
+    fs::create_dir(root.path().join("extra")).expect("create configured include");
+    fs::write(root.path().join("xsht-config.ini"), "include = extra\n")
+        .expect("write root config");
+    fs::write(root.path().join("project/main.xsh"), "let value = 1\n")
+        .expect("write project script");
+    fs::write(root.path().join("extra/bad.xsh"), "let value =\n")
+        .expect("write excluded script");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+        .args(["check", "project"])
+        .current_dir(root.path())
+        .output()
+        .expect("run xsht check");
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
 #[test]
 fn check_summary_groups_directory_failures_by_code() {
     let root = TempDir::new().expect("create temp root");

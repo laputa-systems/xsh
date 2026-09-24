@@ -1,6 +1,6 @@
 use crate::xsht::cli::{
-    CliOutput, XshConfig, cancellation_output, collect_configured_xsh_files, load_config,
-    text_bytes,
+    CliOutput, XshConfig, cancellation_output, collect_configured_xsh_files, collect_xsh_files,
+    load_config, text_bytes,
 };
 use crate::xsht::config::{config_for_dir, config_for_file};
 use crate::xsht::format::Formatter;
@@ -195,7 +195,7 @@ pub fn check_paths_with_summary_options(
                         };
                     }
                 };
-                if let Err(message) = collect_configured_xsh_files(path, &dir_config, &mut files) {
+                if let Err(message) = collect_xsh_files(path, &dir_config.exclude, &mut files) {
                     if let Some(output) = cancellation_output() {
                         return output;
                     }
