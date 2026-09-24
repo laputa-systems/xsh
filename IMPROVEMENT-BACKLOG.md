@@ -52,7 +52,7 @@ public APIs require a separate decision backed by repeated real use.
 
 - **A01 · P1.** Continue the native/Rust ownership audit beyond the completed stream module and the `fs.walk` value checks now in `tests/xsh/stdlib/fs.xsh`; move language assertions to disk-backed native tests when the host harness adds no boundary.
 - **A02 · P1.** Use `cargo dev coverage` to select one real interactive or Linux workflow gap at a time; require an observable transition or invariant, not a branch-only test (`docs/COVERAGE.md`).
-- **A04 · P1/M.** Resolve the `reduce-by --jobs` execution mismatch and adjacent fusion policy. `FullStageTag::ReduceBy` is serial; an explicit `--jobs` runs once, validates a positive count, and prevents adjacent `par-map |> reduce-by` fusion. Fused workers now share the ordinary reducer's projected-record fast path. The paired release samples in `bench/stream-fusion-2026-09-24.json` show the 50,000-row fused case improving from about 284 to 99 ms while retaining a large memory advantage over the unfused path; it remains slower than the unfused path, as does the default `showcase/tokei.xsh` workload. Keep `--jobs` as an escape hatch while measuring a larger representative file corpus and deciding when fusion should engage. Do not add reduce workers without deterministic error and effect semantics.
+- **A04 · P1/M.** Resolve the `reduce-by --jobs` execution mismatch and adjacent fusion policy. `FullStageTag::ReduceBy` is serial; an explicit `--jobs` runs once, validates a positive count, and prevents adjacent `par-map |> reduce-by` fusion. Fused workers now share the ordinary reducer's projected-record fast path. The paired release samples in `bench/stream-fusion-2026-09-24.json` show the 50,000-row fused case improving from about 284 to 99 ms while retaining a large memory advantage over the unfused path. Fusion remains slower on the default `showcase/tokei.xsh` workload over `src` and this repository, while `../packages` is near parity. Keep `--jobs` as an escape hatch; decide when fusion should engage after measuring a file corpus large enough to expose its memory tradeoff. Do not add reduce workers without deterministic error and effect semantics.
 
 ## B. Embedded standard library and acceptance performance
 
@@ -117,6 +117,7 @@ stateful editor and completion harness as the central missing evidence.
 - **F06 · P2.** Check Linux real-mode tests against the feature/profile matrix in `dev/targets.xsh`; a skipped privileged test must say which capability or fixture is missing.
 - **F07 · P2/M.** Run syscall diagnostics for representative core commands and stream pipelines in the approved container before changing host adapters (`docs/BENCHMARKING.md`).
 - **F08 · P2.** Document isolation and cleanup guarantees beside every new test that mutates mount or kernel state, as required by `docs/COVERAGE.md`.
+- **F09 · P1/M.** Reproduce an intermittent inherited descriptor in `runtime::modules::native_xsh_net_runtime_descriptors_do_not_survive_exec` on macOS. One full filtered runtime gate reported fd 9 in the child; the exact case, a subsequent full gate, and 30 isolated reruns passed. Identify the descriptor and the creation/exec overlap with a deterministic fixture before changing socket or process-spawn policy.
 
 ## G. Build, CI, release, and repository hygiene
 

@@ -28,5 +28,23 @@
       "fused": 23740416,
       "unfused": 25149440
     }
+  },
+  "showcase_tokei_repository_corpora": {
+    "source_commit": "13a329c",
+    "method": "Seven alternating release runs with exact stdout parity; elapsed wall time includes process startup. The unfused copy adds reduce-by --jobs=8 to both reducers; only the default-table reducer runs.",
+    "repository_root_ms": {
+      "command": "target/release/xsh showcase/tokei.xsh -- .",
+      "fused": [138.443, 91.316, 92.78, 119.439, 92.53, 91.656, 93.543],
+      "unfused": [74.884, 71.976, 70.79, 73.045, 78.485, 70.391, 71.532]
+    },
+    "repository_root_peak_rss_bytes_single_run": {
+      "fused": 26951680,
+      "unfused": 27869184
+    },
+    "packages_ms": {
+      "command": "target/release/xsh showcase/tokei.xsh -- ../packages",
+      "fused": [41.642, 34.166, 35.09, 35.574, 35.453, 35.485, 33.906],
+      "unfused": [34.737, 35.334, 34.511, 34.573, 38.967, 37.707, 35.079]
+    }
   }
 }
