@@ -38,6 +38,7 @@ linter checks and are owner-run under the agent workflow rule.
 | Benchmark workload | `cargo bench -p xshi --bench bench --features benchmark BENCHMARK -- --sample-count 1 --sample-size 1` | `cargo dev bench --fast` (memory/regression) or `cargo dev bench` (latency) |
 | `xshi` editor input and repaint | `cargo test -p xshi --lib interactive::edit::tests` | `cargo test -p xshi` |
 | `xshi` completion cache invalidation | `cargo test -p xshi --lib path_completion_refreshes` and `cargo test -p xshi --lib completion_refreshes_cwd_snapshot` | `cargo test -p xshi` |
+| `xshi` remote completion | `cargo test -p xshi --lib remote_completion` | `cargo test -p xshi` |
 | `xshi` PTY terminal lifecycle | `cargo test --test integration runtime::interactive::xshi_pty_restores_terminal_mode_on_exit -- --exact --test-threads=1` | `cargo test --test integration runtime::interactive:: -- --test-threads=1` |
 | Non-Tokio archive/network dependency update | `cargo tree -i tokio` and `cargo tree -p xsh-net -e features` | focused archive or network runtime gate |
 | Arena or indexed-IR layout | `scripts/ir-layout.py` (or `--only TYPE` for a focused report) | focused rustybench workload plus the applicable behavior tests |

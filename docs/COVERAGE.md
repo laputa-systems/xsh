@@ -50,7 +50,12 @@ covers cwd snapshot refresh and mtime-based directory cache replacement.
 
 Useful next work:
 
-- Cover command-position completion and remote path fallbacks.
+- Cover command-position completion.
+
+`complete.rs::tests::remote_completion_rejects_denial_malformed_output_and_missing_executable`
+and `remote_completion_passes_host_as_one_argument_and_bounds_timeout` use
+fake `ssh` executables to cover remote results, failures, quoting, and timeouts
+without network access or process-wide environment changes.
 
 The active `tests/runtime/interactive.rs` PTY gate covers prompt startup,
 terminal-mode restoration on exit, Ctrl-C, bracketed paste, and cooked-mode

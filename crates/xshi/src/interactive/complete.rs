@@ -1,15 +1,15 @@
 #![allow(clippy::single_call_fn)]
 
 use super::session::Session;
-use rustix::{
-    event as revent, fs as rfs, io as rio, pipe as rpipe, process as rprocess, time as rtime,
-};
-use std::ffi::CString;
+use rustix::{event as revent, fs as rfs, io as rio};
 use std::fs;
-use std::os::fd::{AsRawFd, OwnedFd};
+use std::os::fd::AsFd;
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::MetadataExt;
+use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
+use std::process::{Child, Command, Stdio};
+use std::time::{Duration, Instant};
 
 #[derive(Clone, Debug)]
 pub(super) struct CompEntry {
@@ -1020,168 +1020,173 @@ fn complete_hostnames(prefix: &str, home: &Path, comp: &mut Completions) {
 }
 
 fn complete_remote_path(host: &str, path_prefix: &str, comp: &mut Completions) {
-    let cmd = format!(
-        "ssh -o BatchMode=yes -o ConnectTimeout=2 {} 'ls -dp {}* 2>/dev/null'",
+    complete_remote_path_with_executable(
+        Path::new("ssh"),
         host,
-        shell_escape(path_prefix),
+        path_prefix,
+        Duration::from_secs(3),
+        comp,
     );
-    let (pid, pipe_r) = match spawn_command_subst(&cmd) {
-        Ok(value) => value,
-        Err(_) => return,
+}
+
+fn complete_remote_path_with_executable(
+    executable: &Path,
+    host: &str,
+    path_prefix: &str,
+    timeout: Duration,
+    comp: &mut Completions,
+) {
+    if host.is_empty() || host.starts_with('-') {
+        return;
+    }
+    let remote_command = format!("ls -dp {}* 2>/dev/null", shell_quote(path_prefix));
+    let mut command = Command::new(executable);
+    command
+        .args(["-o", "BatchMode=yes", "-o", "ConnectTimeout=2", host])
+        .arg(remote_command)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null());
+    // xshi ignores these while editing; the ssh child must receive defaults.
+    unsafe {
+        command.pre_exec(|| {
+            for signal in [
+                libc::SIGHUP,
+                libc::SIGINT,
+                libc::SIGQUIT,
+                libc::SIGPIPE,
+                libc::SIGTERM,
+                libc::SIGTSTP,
+                libc::SIGTTIN,
+                libc::SIGTTOU,
+                libc::SIGUSR1,
+                libc::SIGUSR2,
+                libc::SIGALRM,
+                libc::SIGXCPU,
+                libc::SIGXFSZ,
+            ] {
+                if libc::signal(signal, libc::SIG_DFL) == libc::SIG_ERR {
+                    return Err(std::io::Error::last_os_error());
+                }
+            }
+            Ok(())
+        });
+    }
+    let Ok(mut child) = command.spawn() else {
+        return;
     };
-    let deadline_ns = monotonic_ns() + 3_000_000_000;
-    let mut output = String::new();
+    let Some(pipe_r) = child.stdout.take() else {
+        stop_remote_completion(&mut child);
+        return;
+    };
+    if set_pipe_nonblocking(&pipe_r).is_err() {
+        stop_remote_completion(&mut child);
+        return;
+    }
+    let deadline = Instant::now() + timeout;
+    let mut output = Vec::new();
     let mut buf = [0_u8; 4096];
-    let _ = set_pipe_nonblocking(&pipe_r);
     loop {
+        if Instant::now() >= deadline {
+            stop_remote_completion(&mut child);
+            return;
+        }
         match rio::read(&pipe_r, &mut buf) {
             Ok(0) => break,
             Ok(n) => {
-                if let Ok(text) = std::str::from_utf8(&buf[..n]) {
-                    output.push_str(text);
+                if output.len() + n > 64 * 1024 {
+                    stop_remote_completion(&mut child);
+                    return;
                 }
+                output.extend_from_slice(&buf[..n]);
             }
             Err(err) => {
                 let err = std::io::Error::from(err);
                 if err.raw_os_error() == Some(rio::Errno::AGAIN.raw_os_error())
                     || err.raw_os_error() == Some(rio::Errno::WOULDBLOCK.raw_os_error())
                 {
-                    if monotonic_ns() >= deadline_ns {
-                        let _ = rprocess::kill_process(pid, rprocess::Signal::KILL);
-                        break;
+                    let remaining = deadline.saturating_duration_since(Instant::now());
+                    if remaining.is_zero() {
+                        stop_remote_completion(&mut child);
+                        return;
                     }
                     let mut pfd = [revent::PollFd::new(&pipe_r, revent::PollFlags::IN)];
-                    let timeout = revent::Timespec::try_from(std::time::Duration::from_millis(100))
-                        .expect("remote completion timeout fits Timespec");
-                    let _ = revent::poll(&mut pfd, Some(&timeout));
+                    let poll_wait =
+                        revent::Timespec::try_from(remaining.min(Duration::from_millis(100)))
+                            .expect("remote completion timeout fits Timespec");
+                    let _ = revent::poll(&mut pfd, Some(&poll_wait));
                     continue;
                 }
                 if err.kind() != std::io::ErrorKind::Interrupted {
-                    break;
+                    stop_remote_completion(&mut child);
+                    return;
                 }
             }
         }
     }
-    let _ = rprocess::waitpid(Some(pid), rprocess::WaitOptions::empty());
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) if Instant::now() < deadline => {
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            _ => {
+                stop_remote_completion(&mut child);
+                return;
+            }
+        }
+    };
+    if !status.success() {
+        return;
+    }
+    let Ok(output) = std::str::from_utf8(&output) else {
+        return;
+    };
+    if !output.is_empty() && !output.ends_with('\n') {
+        return;
+    }
 
     let dir_prefix = match path_prefix.rfind('/') {
         Some(index) => &path_prefix[..=index],
         None => "",
     };
+    let mut candidates = Vec::new();
     for line in output.lines() {
         if line.is_empty() {
             continue;
         }
         let is_dir = line.ends_with('/');
         let path = line.trim_end_matches('/');
-        let name = if !dir_prefix.is_empty() {
-            path.strip_prefix(dir_prefix).unwrap_or(path)
-        } else {
-            path.rsplit('/').next().unwrap_or(path)
+        let Some(name) = path.strip_prefix(dir_prefix) else {
+            return;
         };
-        if !name.is_empty() {
-            comp.push(name, is_dir, false, false);
+        if !path.starts_with(path_prefix)
+            || name.is_empty()
+            || name.contains('/')
+            || name.chars().any(char::is_control)
+        {
+            return;
         }
+        candidates.push((name, is_dir));
+    }
+    for (name, is_dir) in candidates {
+        comp.push(name, is_dir, false, false);
     }
 }
 
-fn set_pipe_nonblocking(pipe: &OwnedFd) -> std::io::Result<()> {
+fn stop_remote_completion(child: &mut Child) {
+    let _ = child.kill();
+    let _ = child.wait();
+}
+
+fn set_pipe_nonblocking(pipe: &impl AsFd) -> std::io::Result<()> {
     let mut flags = rfs::fcntl_getfl(pipe).map_err(std::io::Error::from)?;
     flags.insert(rfs::OFlags::NONBLOCK);
     rfs::fcntl_setfl(pipe, flags).map_err(std::io::Error::from)
 }
 
-fn shell_escape(s: &str) -> String {
-    if !s.contains('\'') {
-        return s.to_string();
-    }
-    s.replace('\'', "'\\''")
-}
-
-fn spawn_command_subst(cmd: &str) -> Result<(rprocess::Pid, OwnedFd), std::io::Error> {
-    let (pipe_r, pipe_w) = pipe_cloexec()?;
-    let mut file_actions: libc::posix_spawn_file_actions_t = unsafe { std::mem::zeroed() };
-    unsafe {
-        libc::posix_spawn_file_actions_init(&mut file_actions);
-        libc::posix_spawn_file_actions_adddup2(&mut file_actions, pipe_w.as_raw_fd(), 1);
-        let dev_null = CString::new("/dev/null").unwrap();
-        libc::posix_spawn_file_actions_addopen(
-            &mut file_actions,
-            0,
-            dev_null.as_ptr(),
-            libc::O_RDONLY,
-            0,
-        );
-    }
-    let mut attrs: libc::posix_spawnattr_t = unsafe { std::mem::zeroed() };
-    unsafe {
-        libc::posix_spawnattr_init(&mut attrs);
-        libc::posix_spawnattr_setflags(&mut attrs, libc::POSIX_SPAWN_SETSIGDEF as libc::c_short);
-        let mut sigset: libc::sigset_t = std::mem::zeroed();
-        libc::sigfillset(&mut sigset);
-        libc::posix_spawnattr_setsigdefault(&mut attrs, &sigset);
-    }
-    let sh = CString::new("/bin/sh").unwrap();
-    let c_flag = CString::new("-c").unwrap();
-    let c_cmd = CString::new(cmd)
-        .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidInput, "NUL in command"))?;
-    let argv: [*mut libc::c_char; 4] = [
-        sh.as_ptr() as *mut _,
-        c_flag.as_ptr() as *mut _,
-        c_cmd.as_ptr() as *mut _,
-        std::ptr::null_mut(),
-    ];
-    let mut pid: libc::pid_t = 0;
-    let rc = unsafe {
-        libc::posix_spawnp(
-            &mut pid,
-            sh.as_ptr(),
-            &file_actions,
-            &attrs,
-            argv.as_ptr(),
-            environ(),
-        )
-    };
-    unsafe {
-        libc::posix_spawn_file_actions_destroy(&mut file_actions);
-        libc::posix_spawnattr_destroy(&mut attrs);
-    }
-    drop(pipe_w);
-    if rc != 0 {
-        return Err(std::io::Error::from_raw_os_error(rc));
-    }
-    let Some(pid) = rprocess::Pid::from_raw(pid) else {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::InvalidData,
-            "posix_spawn returned invalid pid",
-        ));
-    };
-    Ok((pid, pipe_r))
-}
-
-fn pipe_cloexec() -> Result<(OwnedFd, OwnedFd), std::io::Error> {
-    let (read, write) = rpipe::pipe().map_err(std::io::Error::from)?;
-    set_fd_cloexec(&read)?;
-    set_fd_cloexec(&write)?;
-    Ok((read, write))
-}
-
-fn set_fd_cloexec(fd: &OwnedFd) -> std::io::Result<()> {
-    let mut flags = rio::fcntl_getfd(fd).map_err(std::io::Error::from)?;
-    flags.insert(rio::FdFlags::CLOEXEC);
-    rio::fcntl_setfd(fd, flags).map_err(std::io::Error::from)
-}
-
-fn environ() -> *const *mut libc::c_char {
-    unsafe extern "C" {
-        static environ: *const *mut libc::c_char;
-    }
-    unsafe { environ }
-}
-
-fn monotonic_ns() -> u64 {
-    let ts = rtime::clock_gettime(rtime::ClockId::Monotonic);
-    ts.tv_sec as u64 * 1_000_000_000 + ts.tv_nsec as u64
+fn shell_quote(s: &str) -> String {
+    format!("'{}'", s.replace('\'', "'\\''"))
 }
 
 fn complete_commands(session: &Session, prefix: &str, comp: &mut Completions) {
@@ -1307,10 +1312,11 @@ fn is_wide(cp: u32) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        CompletionRequest, CompletionState, Completions, Session, completion_replacement,
-        compute_grid, fs, start_completion,
+        CompletionRequest, CompletionState, Completions, Session, complete_remote_path_with_executable,
+        completion_replacement, compute_grid, fs, start_completion,
     };
     use crate::xshi::interactive::session::set_env_bytes;
+    use std::os::unix::fs::PermissionsExt;
     use std::path::PathBuf;
     use std::time::Duration;
 
@@ -1396,6 +1402,107 @@ mod tests {
             .set_modified(old_modified + Duration::from_secs(2))
             .expect("advance nested mtime");
         assert_eq!(names(&session, "cat nested/cache_"), ["cache_new"]);
+    }
+
+    fn fake_ssh(path: &PathBuf, script: &str) {
+        fs::write(path, format!("#!/bin/sh\n{script}\n")).expect("fake ssh source");
+        fs::set_permissions(path, fs::Permissions::from_mode(0o755))
+            .expect("make fake ssh executable");
+    }
+
+    #[test]
+    fn remote_completion_rejects_denial_malformed_output_and_missing_executable() {
+        let root = tempfile::tempdir().expect("temporary directory");
+        let ssh = root.path().join("ssh");
+        let mut comp = Completions::new();
+
+        fake_ssh(&ssh, "printf 'dir/alpha\\n'; exit 255");
+        complete_remote_path_with_executable(&ssh, "host", "dir/al", Duration::from_millis(200), &mut comp);
+        assert!(comp.is_empty(), "denied ssh output became a candidate");
+
+        fake_ssh(&ssh, "printf 'other/path\\n'");
+        complete_remote_path_with_executable(&ssh, "host", "dir/al", Duration::from_millis(200), &mut comp);
+        assert!(comp.is_empty(), "unrelated path became a candidate");
+
+        fake_ssh(&ssh, "printf '\\377'");
+        complete_remote_path_with_executable(&ssh, "host", "dir/al", Duration::from_millis(200), &mut comp);
+        assert!(comp.is_empty(), "invalid UTF-8 became a candidate");
+
+        complete_remote_path_with_executable(
+            &root.path().join("missing-ssh"),
+            "host",
+            "dir/al",
+            Duration::from_millis(200),
+            &mut comp,
+        );
+        assert!(comp.is_empty());
+    }
+
+    #[test]
+    fn remote_completion_passes_host_as_one_argument_and_bounds_timeout() {
+        let root = tempfile::tempdir().expect("temporary directory");
+        let ssh = root.path().join("ssh");
+        let marker = root.path().join("injected");
+        let args = root.path().join("args");
+        let script = format!(
+            "printf '%s\\n' \"$5\" \"$6\" > {}; printf 'dir/alpha/\\ndir/alpine\\n'",
+            args.display()
+        );
+        fake_ssh(&ssh, &script);
+        let host = format!("host; touch {}; #", marker.display());
+        let mut comp = Completions::new();
+        complete_remote_path_with_executable(&ssh, &host, "dir/al", Duration::from_millis(200), &mut comp);
+        assert_eq!(comp.len(), 2);
+        assert_eq!(comp.name(0), "alpha");
+        assert!(comp.entries[0].is_dir());
+        assert_eq!(comp.name(1), "alpine");
+        assert!(!marker.exists(), "host text ran as a local shell command");
+        let args = fs::read_to_string(args).expect("fake ssh arguments");
+        assert!(args.starts_with(&host));
+        assert!(args.contains("'dir/al'*"));
+
+        fake_ssh(
+            &ssh,
+            &format!(
+                "printf '%s\\n' \"$6\" > {}; printf \"dir/o'kay\\n\"",
+                root.path().join("args").display()
+            ),
+        );
+        comp = Completions::new();
+        complete_remote_path_with_executable(
+            &ssh,
+            "host",
+            "dir/o'k",
+            Duration::from_millis(200),
+            &mut comp,
+        );
+        assert_eq!(comp.len(), 1);
+        assert_eq!(comp.name(0), "o'kay");
+        let quoted_args = fs::read_to_string(root.path().join("args")).expect("quoted arguments");
+        assert!(quoted_args.contains("'dir/o'\\''k'*"));
+
+        fs::remove_file(root.path().join("args")).expect("remove captured arguments");
+        complete_remote_path_with_executable(
+            &ssh,
+            "-oProxyCommand=bad",
+            "dir/al",
+            Duration::from_millis(200),
+            &mut Completions::new(),
+        );
+        assert!(!root.path().join("args").exists(), "option-like host reached ssh");
+
+        fake_ssh(&ssh, "exec sleep 5");
+        comp = Completions::new();
+        let start = std::time::Instant::now();
+        complete_remote_path_with_executable(&ssh, "host", "dir/al", Duration::from_millis(100), &mut comp);
+        assert!(comp.is_empty());
+        assert!(start.elapsed() < Duration::from_secs(2));
+
+        fake_ssh(&ssh, "exec 1>&-; exec sleep 5");
+        let start = std::time::Instant::now();
+        complete_remote_path_with_executable(&ssh, "host", "dir/al", Duration::from_millis(100), &mut comp);
+        assert!(comp.is_empty());
+        assert!(start.elapsed() < Duration::from_secs(2));
     }
 
     #[test]

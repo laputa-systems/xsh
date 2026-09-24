@@ -80,7 +80,6 @@ allocation/RSS evidence; no new execution engine is implied.
 The contract is `docs/SPEC-INTERACTIVE.md`; `docs/COVERAGE.md` identifies the
 stateful editor and completion harness as the central missing evidence.
 
-- **D07 · P2.** Test remote `ssh` completion timeout, denial, malformed output, and missing program with a fake executable boundary; prompt input must stay responsive and quiet.
 - **D08 · P2.** Add terminal-width model cases for wide characters, combining marks, pending wrap, multiline prompts, and narrow completion grids.
 - **D09 · P1.** Make single-job background/stop/foreground transitions deterministic at the session state boundary, then retain PTY tests only for terminal process-group behavior.
 - **D10 · P2/M.** Re-measure the five complete `xshi` workloads in `docs/BENCHMARKING.md` after editor or completion changes; reject regressions in latency and allocation traffic.

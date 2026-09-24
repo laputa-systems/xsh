@@ -486,6 +486,10 @@ SSH completion:
   directory prefix, and appends `/` for directories;
 - timeout, auth failure, ssh failure, malformed output, or unavailable ssh
   returns no candidates rather than blocking or printing prompt noise.
+- the typed host is one process argument, not local shell source; the remote
+  path prefix is quoted before appending the wildcard. Completion accepts only
+  successful, UTF-8, prefix-matching `ls -dp` output within 64 KiB and the
+  three-second deadline.
 
 Completion UI:
 
