@@ -68,7 +68,7 @@ WORKLOADS = [
     ("native_hash_control", "end_to_end", 30, False),
     # Gated Linux policy: none. Every gated prototype that was measured failed
     # its gate and was reverted to native, so there is nothing ported to
-    # measure here; `STDLIB-PORT.md` records the per-group numbers.
+    # measure here. `STDLIB-PORT.md` records the remaining qualifications.
 ]
 
 

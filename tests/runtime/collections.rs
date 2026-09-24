@@ -58,32 +58,26 @@ total=50\n"
     let _ = std::fs::remove_dir_all(root);
 }
 
-/// Reading a container must not copy it.
+/// Reading a map must not copy all of its entries.
 ///
-/// `tests/fixtures/runtime/record-read-scaling.xsh` builds a map of a given
-/// size and then reads every key a given number of times, so the run separates
-/// construction from traversal. The counting allocator is installed by
-/// `xsh-runtime-stats`, which is why this is a Rust-owned boundary harness
-/// rather than a native XSH test: the *claim* is about allocation traffic, and
-/// the counters live in a diagnostics binary. The fixture is disk-backed and
-/// takes only its two inputs from here.
+/// `xsh-runtime-stats` owns the counting allocator, so this Rust harness runs
+/// the disk-backed XSH fixture at two sizes and read-pass counts.
 #[test]
-fn record_reads_do_not_copy_the_container() {
+fn map_reads_do_not_copy_the_map() {
     let fixture = Path::new(cargo_env!("CARGO_MANIFEST_DIR"))
-        .join("tests/fixtures/runtime/record-read-scaling.xsh");
+        .join("tests/fixtures/runtime/map-read-scaling.xsh");
     let stats = cargo_env!("CARGO_BIN_EXE_xsh-runtime-stats");
 
-    // The execution-phase allocation count and the script's own stdout.
     let run = |fields: usize, passes: usize, tag: &str| -> (u64, String) {
-        let report = temp_path(&format!("record-read-scaling-{tag}")).with_extension("json");
+        let report = temp_path(&format!("map-read-scaling-{tag}")).with_extension("json");
         let output = std::process::Command::new(stats)
             .args([
                 "--json",
                 report.to_str().unwrap(),
                 fixture.to_str().unwrap(),
             ])
-            .env("XSH_RECORD_READ_FIELDS", fields.to_string())
-            .env("XSH_RECORD_READ_PASSES", passes.to_string())
+            .env("XSH_MAP_READ_FIELDS", fields.to_string())
+            .env("XSH_MAP_READ_PASSES", passes.to_string())
             .output()
             .expect("run xsh-runtime-stats over the record read fixture");
         assert!(
@@ -104,9 +98,7 @@ fn record_reads_do_not_copy_the_container() {
         )
     };
 
-    // The same program at two sizes, each read once and read seventeen times.
-    // The extra sixteen passes read exactly `16 * fields` values, so the
-    // difference between the two runs is what those reads cost.
+    // The extra sixteen passes isolate the cost of `16 * fields` reads.
     let small_once = run(64, 1, "64-1");
     let small_many = run(64, 17, "64-17");
     let large_once = run(1024, 1, "1024-1");
@@ -122,10 +114,7 @@ fn record_reads_do_not_copy_the_container() {
     let small_per_read = per_read(small_once.0, small_many.0, 64);
     let large_per_read = per_read(large_once.0, large_many.0, 1024);
 
-    // Each read is a bounded amount of work. A read that copied the container
-    // would cost in proportion to its size, so the 1024-key map's per-read
-    // figure would be about sixteen times the 64-key map's; the assertion is
-    // that it is not, at a wide margin.
+    // A full copy per read would grow roughly sixteenfold with the map size.
     assert!(
         small_per_read < 8.0 && large_per_read < 8.0,
         "per-read allocations: 64-key {small_per_read:.2}, 1024-key {large_per_read:.2}"
@@ -136,9 +125,7 @@ fn record_reads_do_not_copy_the_container() {
          64-key {small_per_read:.2}, 1024-key {large_per_read:.2}"
     );
 
-    // Construction itself is linear in the number of fields: a quadratic
-    // builder (each `set` copying the whole map) would show the 1024-key run
-    // costing hundreds of times the 64-key one instead of about sixteen.
+    // A full copy per `set` would make construction quadratic.
     let construction_ratio = large_once.0 as f64 / small_once.0 as f64;
     assert!(
         construction_ratio < 40.0,

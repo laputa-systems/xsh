@@ -8113,20 +8113,8 @@ pure pipeline(values: List[Int]) -> List[Int] {
             .unwrap();
         assert_eq!(piped, Value::List(vec![Value::Int(4), Value::Int(6)]));
     }
-    /// The two call routes must agree on the same public program.
-    ///
-    /// A plain shallow call takes the recursive route in a release build and the
-    /// heap-backed frame route otherwise, and `Result`-returning calls and deep
-    /// recursion always take the frames. This runs one ordinary script
-    /// (`##` program below) through both routes and compares status, stdout, and
-    /// stderr byte for byte: scalars, nested compound expressions, `Result`
-    /// success and failure, defaults and a rest parameter, self and mutual
-    /// recursion, a top-level capture read and written from a proc, a pipeline,
-    /// and a stream producer consumed by the driver.
-    ///
-    /// The route is forced through the crate-private test hook
-    /// `with_forced_recursive_fast_path`, which is absent from every product
-    /// build; nothing here is a user-facing switch or a second backend.
+    /// Compare the ordinary release call route with explicit frames on one
+    /// program covering calls, captures, Results, recursion, and streams.
     #[test]
     fn both_call_routes_agree_on_the_same_public_program() {
         crate::runtime::eval::run_eval(both_call_routes_agree_on_the_same_public_program_inner);
@@ -8198,10 +8186,10 @@ pure pipeline(values: List[Int]) -> List[Int] {
         let frames = run_program_through_route(source, false);
         let recursive = run_program_through_route(source, true);
         assert_eq!(frames, recursive, "the two call routes disagree");
-        assert!(
-            frames.contains(concat!(
-                "status 0\n",
-                "stdout:\n",
+        assert_eq!(frames.0, 0);
+        assert_eq!(
+            frames.1.as_slice(),
+            concat!(
                 "row 0\nrow 3\nrow 6\n",
                 "24 8 17\n",
                 "false true true\n",
@@ -8209,13 +8197,13 @@ pure pipeline(values: List[Int]) -> List[Int] {
                 "5 11 0\n",
                 "rejected invalid integer `nope`\n",
                 "27\n",
-            )),
-            "the driver consumed the producer: {frames:?}"
+            )
+            .as_bytes()
         );
+        assert!(frames.2.is_empty());
     }
 
-    /// One script's observable result, through one call route.
-    fn run_program_through_route(source: &str, force_recursive: bool) -> String {
+    fn run_program_through_route(source: &str, force_recursive: bool) -> (u8, Vec<u8>, Vec<u8>) {
         let mut sources = SourceMap::new();
         let source_id = sources.add_file("call-routes.xsh", source);
         let parsed = Parser::parse_source_arena_only(source_id, source);
@@ -8237,11 +8225,6 @@ pure pipeline(values: List[Int]) -> List[Int] {
             // The error arm hands the evaluator back, which has no `Debug`.
             Err(_) => panic!("the call-route program installs and runs"),
         };
-        format!(
-            "status {}\nstdout:\n{}\nstderr:\n{}",
-            output.status,
-            String::from_utf8_lossy(&output.stdout),
-            String::from_utf8_lossy(&output.stderr),
-        )
+        (output.status, output.stdout, output.stderr)
     }
 }

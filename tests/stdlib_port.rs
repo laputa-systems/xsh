@@ -892,7 +892,7 @@ fn linux_entries_answer_from_the_embedded_implementations() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// R12/§3.3 — the public `system.os_release` entry against the fixed paths
+/// The public `system.os_release` entry against the fixed paths
 /// `/etc/os-release` and `/usr/lib/os-release`.
 ///
 /// The entry is not redirected for this test: it reads the two paths it always

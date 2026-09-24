@@ -720,21 +720,9 @@ pub(in crate::runtime::eval) struct FullProgram {
     /// holds stay valid because the program owns the symbol owner that
     /// interned them.
     headers: Vec<std::sync::OnceLock<Arc<FunctionHeader>>>,
-    /// The function identities this store holds, resolved on first lookup.
-    ///
-    /// `function_view` is on the call path: every call and every block that
-    /// resolves a function asks for a key it already knows. Resolving one means
-    /// interning the function's name and owner and comparing the result against
-    /// every function in the store, so the lookup cost grew with the program
-    /// and re-interned the whole table each time. The identities are immutable
-    /// once the store is verified and are interned into the program's own
-    /// symbol owner, so the map lives beside `headers` with the same identity
-    /// and lifetime: indexed by function, dying with the program.
-    ///
-    /// The value is `None` when the store cannot resolve its identities — a
-    /// directly constructed fixture rather than a verified program — which
-    /// leaves `function_view` on its original scan so the error still reaches
-    /// the caller instead of being reported as a missing function.
+    /// Function identities are interned once into this program's symbol owner.
+    /// A malformed directly constructed fixture leaves this empty so the
+    /// fallback scan reports its original verification error.
     identities:
         std::sync::OnceLock<Option<FxHashMap<(LoweredFunctionKey, LoweredFunctionKind), usize>>>,
 }
@@ -821,7 +809,7 @@ impl FullProgram {
         let _symbols = self.symbol_owner().enter();
         let identities = self
             .identities
-            .get_or_init(|| self.resolve_identities().ok().flatten());
+            .get_or_init(|| self.resolve_identities().ok());
         if let Some(identities) = identities.as_ref() {
             return Ok(identities.get(&(key, kind)).map(|index| FullFunctionView {
                 program: self,
@@ -839,13 +827,10 @@ impl FullProgram {
         Ok(None)
     }
 
-    /// Resolves every function's identity once, for `function_view` to index.
-    ///
-    /// The first function wins a repeated identity, which is the order the
-    /// scan `function_view` falls back to visits them in.
+    /// Keep the scan's first-match behavior for repeated identities.
     fn resolve_identities(
         &self,
-    ) -> Result<Option<FxHashMap<(LoweredFunctionKey, LoweredFunctionKind), usize>>, IrVerifyError>
+    ) -> Result<FxHashMap<(LoweredFunctionKey, LoweredFunctionKind), usize>, IrVerifyError>
     {
         let mut identities = FxHashMap::default();
         identities.reserve(self.store.functions.len());
@@ -853,7 +838,7 @@ impl FullProgram {
             let identity = self.function_identity(index)?;
             identities.entry(identity).or_insert(index);
         }
-        Ok(Some(identities))
+        Ok(identities)
     }
 
     pub(in crate::runtime::eval) fn function_view_at(
@@ -7517,12 +7502,7 @@ run true
         program.symbol_owner().with_current(|| Name::intern(text))
     }
 
-    /// §5's control-state claim, proved rather than timed: a loop body's
-    /// statement list is reused, not allocated once per iteration.
-    ///
-    /// The pool's two counters are the evidence: two hundred iterations take
-    /// their list from the pool two hundred times minus the one that fills it,
-    /// and a loop's values are identical either way.
+    /// A loop reuses its statement list rather than allocating per iteration.
     #[test]
     fn loop_iterations_reuse_their_statement_list() {
         run_with_large_stack(|| {
@@ -7540,6 +7520,7 @@ run true
                     &[],
                     Span::new(program.store.source_id, 0, 0),
                 )
+                .expect("main exists")
                 .expect("main runs");
             assert_eq!(evaluator.stdout, b"index=200\n");
             let scratch = &evaluator.frame_scratch;

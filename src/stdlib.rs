@@ -318,10 +318,6 @@ pub(crate) fn required_modules(arena: &AstArena) -> Vec<&'static str> {
     needed.into_iter().collect()
 }
 
-/// Whether a program names the existing dynamic user-module loading route.
-///
-/// `module.load` is available both qualified and, after `use module`, as a bare
-/// `load`, so both spellings count.
 /// Whether the program can load user code after execution starts.
 ///
 /// Only the `module.load` entry is a loading route, and only under a spelling
@@ -557,10 +553,8 @@ mod tests {
         }
     }
 
-    /// Diagnostic probe: the cold-start preparation cost, split by phase.
-    ///
-    /// Temporary instrumentation for the follow-up's `§6` measurement; run it
-    /// with `cargo test --features native-tests --lib cold_start_phase_profile
+    /// Diagnostic probe of cold-start preparation cost by phase.
+    /// Run with `cargo test --features native-tests --lib cold_start_phase_profile
     /// -- --ignored --nocapture`.
     #[test]
     #[ignore]

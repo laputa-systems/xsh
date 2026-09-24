@@ -1,6 +1,6 @@
 # Embedded standard-library port benchmarks
 
-Paired reference/candidate measurement for the port described in
+Paired reference/candidate measurement for the remaining work in
 `STDLIB-PORT.md`. Reference and candidate runs are interleaved within one
 target so CPU frequency, cache, and scheduler drift affect both sides, and the
 reported value is the median of per-sample wall-clock durations.
@@ -30,9 +30,10 @@ Both binary paths must be absolute: each workload runs from this directory
 resolve. The runner itself is invoked from the repository root.
 
 It exits non-zero if any workload exceeds its budget and writes every raw
-sample to the output file. The ledger cites `results-final.json`, the run that
-covers the final tree; the other `results-*.json` files are earlier rounds of
-the same runner and are kept for the record, not as the current numbers. Budgets are the specification's: cold startup passes
+sample to the output file. `results-followup-b0.json` is the latest run against
+the original baseline; `results-followup-b1.json` compares the same candidate
+with the pre-follow-up port. Both contain one interleaved round;
+`results-final.json` and the other result files are historical. Cold startup passes
 when `C - B <= max(0.05 * B, 1.0 ms)` and non-hot end to end when
 `C - B <= max(0.10 * B, 2.0 ms)`, where `B` and `C` are the reference and
 candidate medians in milliseconds.
@@ -76,14 +77,13 @@ run with it executes them under `XSH_LINUX_REAL=1`.
 
 Four of them read the container's own `/proc/uptime`, `/proc/meminfo`, and
 `/etc/os-release`. The two module rows read `/proc/modules`, which the container
-stages as a 200-core fixture inside its own mount namespace: the container ships
+stages as a 200-module fixture inside its own mount namespace: the container ships
 no modules, and a fixed row set is what makes the full-consumption row compare
 equal work between the two binaries. Both revisions then read the same text.
-The four *gated prototypes* measured earlier (`linux.routes`,
-`linux.rfkill_list`, `linux.block_devices`, and the module policy) each failed
-the non-hot budget and were reverted to their native bodies; those needed staged
-`/sys` trees and are gone, and `STDLIB-PORT.md` records the measurement that
-removed each one.
+The gated `linux.routes`, `linux.block_devices`, and module-policy prototypes
+failed measured non-hot gates and were reverted. `linux.rfkill_list` was
+reverted with the block-device prototype without its own timing. Their staged
+`/sys` trees are gone; `STDLIB-PORT.md` records the remaining qualification.
 
 Only the `Dockerfile.test` container runs these rows — it owns the compiler, the
 musl CRT objects, and the symbol aliases the tree links against. The container
@@ -176,12 +176,9 @@ read's offset, which is what proves the failure is the second read's.
 
 ## Interpreting results
 
-A failing workload is a finding, not necessarily a defect. The migrated batches
-are dominated by interpreted per-call cost: a calibration in the same build
-measures roughly 0.7 µs per interpreted loop iteration and 1.4 µs per
-interpreted function call, against nanoseconds for the native helper each one
-replaces. `STDLIB-PORT.md` records which failures are of that kind and which
-have a cause that can be fixed.
+A failing workload needs a profile and a parity check before its cause is
+assigned. `STDLIB-PORT.md` lists the remaining acceptance failures; the result
+files contain the per-workload medians and samples.
 
 A budget failure says nothing about behavior, because the runner discards each
 workload's output. `parity.py` measures that separately — the same scripts, the

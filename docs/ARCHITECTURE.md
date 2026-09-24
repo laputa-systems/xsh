@@ -158,11 +158,10 @@ loading program already prepared.
 **Platform-specific bindings.** An entry whose baseline behavior differs by
 target binds per target: `linux_text_entry` in
 `crates/xsh-registry/src/signature/modules.rs` selects the script binding on
-Linux and the existing native `sig` elsewhere. macOS therefore keeps the
-behavior it had, and the Linux-only native body it replaces stays compiled but
-unreachable there. The Linux text policy (R12) is the ported group that uses
-this path; the gated Linux prototypes that were measured and reverted use it no
-longer. Both destinations are recorded in `STDLIB-PORT.md`.
+Linux and the existing native `sig` elsewhere. macOS keeps its native behavior;
+the superseded Linux-only policy bodies have been removed. The Linux text policy
+(R12) uses this binding. The gated Linux prototypes that were measured and
+reverted use it no longer; their dispositions are in `STDLIB-PORT.md`.
 
 **Namespace integrity.** `ArenaProgram::modules` entries carry an `internal`
 flag. Internal modules use the reserved namespace `<xsh-stdlib:IDENTITY>`, a
@@ -172,8 +171,8 @@ from the unqualified declaration tables, from the global top-level name set, and
 from user-module collection. `xsh::frontend::stdlib_preparation` exposes
 test-only preparation counters behind the existing `native-tests` feature.
 
-The migration ledger, per-group dispositions, and measured results live in
-`STDLIB-PORT.md`.
+The remaining port work and per-group dispositions live in `STDLIB-PORT.md`;
+raw benchmark results live under `bench/stdlib-port/`.
 
 ## Executable IR Ownership
 

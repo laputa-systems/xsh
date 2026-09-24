@@ -5288,11 +5288,7 @@ impl Evaluator {
         if self.signal_state.shutdown_force {
             return primary;
         }
-        // Every scope exit asks this question, and almost every scope owns no
-        // host resource at all: an ordinary loop body or block pays for a walk
-        // of both live-handle tables that can only find nothing. An empty table
-        // has no handle to match, so the answer is the primary flow the
-        // non-empty walk would also return.
+        // Most scopes own no host handles; avoid two table scans on every exit.
         if self.process_handles.is_empty() && self.net_jobs.is_empty() {
             return primary;
         }
