@@ -61,9 +61,9 @@ pub(super) struct SlotSnapshot {
 
 struct LoweredFsFilesArgs {
     root: ExprId,
-    gitignore: bool,
-    stat: bool,
-    hidden: bool,
+    gitignore: Option<ExprId>,
+    stat: Option<ExprId>,
+    hidden: Option<ExprId>,
     exts: Option<ExprId>,
 }
 
@@ -1251,14 +1251,13 @@ fn compact_run_command_asserts_success(
 }
 
 fn lower_fs_files_args(
-    arena: &AstArena,
     args: &[ArenaCallArg],
     has_exts: bool,
 ) -> Option<LoweredFsFilesArgs> {
     let mut root = None;
-    let mut gitignore = true;
-    let mut stat = true;
-    let mut hidden = false;
+    let mut gitignore = None;
+    let mut stat = None;
+    let mut hidden = None;
     let mut exts = None;
     let mut next_positional = 0usize;
     for arg in args {
@@ -1275,23 +1274,23 @@ fn lower_fs_files_args(
                         }
                         root = Some(value);
                     }
-                    1 => gitignore = arena_bool_literal(arena, value)?,
-                    2 => stat = arena_bool_literal(arena, value)?,
+                    1 => gitignore = Some(value),
+                    2 => stat = Some(value),
                     3 if has_exts => exts = Some(value),
-                    3 => hidden = arena_bool_literal(arena, value)?,
-                    4 => hidden = arena_bool_literal(arena, value)?,
+                    3 => hidden = Some(value),
+                    4 => hidden = Some(value),
                     _ => return None,
                 }
                 next_positional += 1;
             }
             ArenaCallArgKind::Named { name, value, .. } if name == "gitignore" => {
-                gitignore = arena_bool_literal(arena, value)?;
+                gitignore = Some(value);
             }
             ArenaCallArgKind::Named { name, value, .. } if name == "stat" => {
-                stat = arena_bool_literal(arena, value)?;
+                stat = Some(value);
             }
             ArenaCallArgKind::Named { name, value, .. } if name == "hidden" => {
-                hidden = arena_bool_literal(arena, value)?;
+                hidden = Some(value);
             }
             ArenaCallArgKind::Named { name, value, .. } if name == "exts" => {
                 exts = Some(value);
@@ -1354,15 +1353,6 @@ fn lower_fs_list_args(args: &[ArenaCallArg]) -> Option<LoweredFsListArgs> {
         stat,
         ordered,
     })
-}
-
-fn arena_bool_literal(arena: &AstArena, expr: ExprId) -> Option<bool> {
-    match arena.expr(expr).kind {
-        ArenaExprKind::Bool(value) => Some(value),
-        // Non-literal expressions (variables, calls, etc.) are treated as true
-        // — the runtime will evaluate the actual bool value.
-        _ => Some(true),
-    }
 }
 
 impl SlotScope {
@@ -7510,6 +7500,19 @@ impl CompactLowerConstructProbe<'_, '_> {
         Some(LoweredRunArg { kind, span })
     }
 
+    fn lower_optional_expr(
+        &mut self,
+        id: Option<ExprId>,
+        slots: &mut SlotScope,
+        current_function: Option<Name>,
+        item_slot: Option<usize>,
+    ) -> Option<Option<BuildExprId>> {
+        match id {
+            Some(id) => Some(Some(self.lower_expr(id, slots, current_function, item_slot)?)),
+            None => Some(None),
+        }
+    }
+
     fn lower_expr(
         &mut self,
         id: ExprId,
@@ -7961,8 +7964,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                         && let ArenaExprKind::Ident(module) = self.program.arena.expr(base).kind
                     {
                         if module == "fs" && name == "files" {
-                            let options =
-                                lower_fs_files_args(&self.program.arena, &args_vec, true)?;
+                            let options = lower_fs_files_args(&args_vec, true)?;
                             return Some(push_build_row!(
                                 self,
                                 expr,
@@ -7976,9 +7978,24 @@ impl CompactLowerConstructProbe<'_, '_> {
                                             current_function,
                                             item_slot,
                                         )?,
-                                        gitignore: options.gitignore,
-                                        stat: options.stat,
-                                        hidden: options.hidden,
+                                        gitignore: self.lower_optional_expr(
+                                            options.gitignore,
+                                            slots,
+                                            current_function,
+                                            item_slot,
+                                        )?,
+                                        stat: self.lower_optional_expr(
+                                            options.stat,
+                                            slots,
+                                            current_function,
+                                            item_slot,
+                                        )?,
+                                        hidden: self.lower_optional_expr(
+                                            options.hidden,
+                                            slots,
+                                            current_function,
+                                            item_slot,
+                                        )?,
                                         exts: match options.exts {
                                             Some(exts) => Some(self.lower_expr(
                                                 exts,
@@ -7995,8 +8012,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                             ));
                         }
                         if module == "fs" && name == "walk" {
-                            let options =
-                                lower_fs_files_args(&self.program.arena, &args_vec, false)?;
+                            let options = lower_fs_files_args(&args_vec, false)?;
                             return Some(push_build_row!(
                                 self,
                                 expr,
@@ -8010,9 +8026,24 @@ impl CompactLowerConstructProbe<'_, '_> {
                                             current_function,
                                             item_slot,
                                         )?,
-                                        gitignore: options.gitignore,
-                                        stat: options.stat,
-                                        hidden: options.hidden,
+                                        gitignore: self.lower_optional_expr(
+                                            options.gitignore,
+                                            slots,
+                                            current_function,
+                                            item_slot,
+                                        )?,
+                                        stat: self.lower_optional_expr(
+                                            options.stat,
+                                            slots,
+                                            current_function,
+                                            item_slot,
+                                        )?,
+                                        hidden: self.lower_optional_expr(
+                                            options.hidden,
+                                            slots,
+                                            current_function,
+                                            item_slot,
+                                        )?,
                                         exts: match options.exts {
                                             Some(exts) => Some(self.lower_expr(
                                                 exts,
@@ -8936,7 +8967,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                         ));
                     }
                     if module == "fs" && name == "files" {
-                        let options = lower_fs_files_args(&self.program.arena, &args_vec, true)?;
+                        let options = lower_fs_files_args(&args_vec, true)?;
                         return Some(push_build_row!(
                             self,
                             expr,
@@ -8947,9 +8978,24 @@ impl CompactLowerConstructProbe<'_, '_> {
                                     current_function,
                                     item_slot,
                                 )?,
-                                gitignore: options.gitignore,
-                                stat: options.stat,
-                                hidden: options.hidden,
+                                gitignore: self.lower_optional_expr(
+                                    options.gitignore,
+                                    slots,
+                                    current_function,
+                                    item_slot,
+                                )?,
+                                stat: self.lower_optional_expr(
+                                    options.stat,
+                                    slots,
+                                    current_function,
+                                    item_slot,
+                                )?,
+                                hidden: self.lower_optional_expr(
+                                    options.hidden,
+                                    slots,
+                                    current_function,
+                                    item_slot,
+                                )?,
                                 exts: match options.exts {
                                     Some(exts) => Some(self.lower_expr(
                                         exts,
@@ -8965,7 +9011,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                         ));
                     }
                     if module == "fs" && name == "walk" {
-                        let options = lower_fs_files_args(&self.program.arena, &args_vec, false)?;
+                        let options = lower_fs_files_args(&args_vec, false)?;
                         return Some(push_build_row!(
                             self,
                             expr,
@@ -8976,9 +9022,24 @@ impl CompactLowerConstructProbe<'_, '_> {
                                     current_function,
                                     item_slot,
                                 )?,
-                                gitignore: options.gitignore,
-                                stat: options.stat,
-                                hidden: options.hidden,
+                                gitignore: self.lower_optional_expr(
+                                    options.gitignore,
+                                    slots,
+                                    current_function,
+                                    item_slot,
+                                )?,
+                                stat: self.lower_optional_expr(
+                                    options.stat,
+                                    slots,
+                                    current_function,
+                                    item_slot,
+                                )?,
+                                hidden: self.lower_optional_expr(
+                                    options.hidden,
+                                    slots,
+                                    current_function,
+                                    item_slot,
+                                )?,
                                 exts: match options.exts {
                                     Some(exts) => Some(self.lower_expr(
                                         exts,

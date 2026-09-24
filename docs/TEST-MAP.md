@@ -130,7 +130,7 @@ cargo test --test integration runtime::coverage::runnable_xsh_corpus_is_formatte
 | collection aliasing and allocation traffic | `tests/xsh/stdlib/methods.xsh`, `tests/xsh/stdlib/map.xsh`, `tests/runtime/collections.rs` |
 | coverage, lint, grep-adjacent tooling | `tests/runtime/coverage.rs` |
 | frontend indexed fixtures | `tests/runtime/frontend_indexed.rs` |
-| `fs.walk` take/any/break/count values | `tests/xsh/stdlib/fs.xsh` |
+| `fs.walk`/`fs.files` options and walk value consumption | `tests/xsh/stdlib/fs.xsh` |
 | cataloged examples | `tests/runtime/examples.rs` |
 | `core/pstree.xsh` process-tree output | `core/tests/test-pstree.xsh`, `tests/runtime/unix.rs` |
 | interactive behavior | `tests/runtime/interactive.rs` |

@@ -1,0 +1,180 @@
+{
+  "date": "2026-09-24",
+  "host": "macOS-26.5.2-arm64-arm-64bit-Mach-O",
+  "workload": "fs.walk(src, gitignore:false) |> where .kind == \"impossible\" |> count(); all entries rejected",
+  "script_sha256": "b31ab0ff0d6058ea855676aa7b817bf3cacc6bbe1fba32db4b863f3b504e74a1",
+  "release_xsh_sha256": "89b55d75433fc50597aabe2564059db42e47ab39b5da90d223dd3906f0b37e3e",
+  "release_runtime_stats_sha256": "63f1b373172d379d6b482095bc1ef9d833c97f05b75663acfd5652a6e24a31f4",
+  "method": "15 alternating release pairs with /usr/bin/time -l and Python perf_counter_ns; 3 release xsh-runtime-stats runs per mode; exact status/stdout parity. stat:false skips metadata and is a non-equivalent upper bound for lazy record work. Dynamic flags verified by native tests.",
+  "raw_release_pairs": {
+    "stat": [
+      {
+        "wall_ms": 18.381,
+        "peak_rss_bytes": 13484032
+      },
+      {
+        "wall_ms": 17.497,
+        "peak_rss_bytes": 13516800
+      },
+      {
+        "wall_ms": 19.527,
+        "peak_rss_bytes": 13500416
+      },
+      {
+        "wall_ms": 17.019,
+        "peak_rss_bytes": 13582336
+      },
+      {
+        "wall_ms": 19.679,
+        "peak_rss_bytes": 13680640
+      },
+      {
+        "wall_ms": 17.494,
+        "peak_rss_bytes": 13664256
+      },
+      {
+        "wall_ms": 16.52,
+        "peak_rss_bytes": 13631488
+      },
+      {
+        "wall_ms": 18.536,
+        "peak_rss_bytes": 13647872
+      },
+      {
+        "wall_ms": 16.901,
+        "peak_rss_bytes": 13516800
+      },
+      {
+        "wall_ms": 16.968,
+        "peak_rss_bytes": 13549568
+      },
+      {
+        "wall_ms": 18.471,
+        "peak_rss_bytes": 13500416
+      },
+      {
+        "wall_ms": 19.045,
+        "peak_rss_bytes": 13484032
+      },
+      {
+        "wall_ms": 19.441,
+        "peak_rss_bytes": 13647872
+      },
+      {
+        "wall_ms": 20.376,
+        "peak_rss_bytes": 13729792
+      },
+      {
+        "wall_ms": 20.21,
+        "peak_rss_bytes": 13615104
+      }
+    ],
+    "no-stat": [
+      {
+        "wall_ms": 56.453,
+        "peak_rss_bytes": 13582336
+      },
+      {
+        "wall_ms": 16.732,
+        "peak_rss_bytes": 13598720
+      },
+      {
+        "wall_ms": 16.917,
+        "peak_rss_bytes": 13565952
+      },
+      {
+        "wall_ms": 16.258,
+        "peak_rss_bytes": 13533184
+      },
+      {
+        "wall_ms": 19.391,
+        "peak_rss_bytes": 13533184
+      },
+      {
+        "wall_ms": 16.457,
+        "peak_rss_bytes": 13500416
+      },
+      {
+        "wall_ms": 16.256,
+        "peak_rss_bytes": 13598720
+      },
+      {
+        "wall_ms": 17.952,
+        "peak_rss_bytes": 13549568
+      },
+      {
+        "wall_ms": 16.249,
+        "peak_rss_bytes": 13369344
+      },
+      {
+        "wall_ms": 16.044,
+        "peak_rss_bytes": 13434880
+      },
+      {
+        "wall_ms": 16.594,
+        "peak_rss_bytes": 13500416
+      },
+      {
+        "wall_ms": 17.56,
+        "peak_rss_bytes": 13402112
+      },
+      {
+        "wall_ms": 17.08,
+        "peak_rss_bytes": 13615104
+      },
+      {
+        "wall_ms": 19.222,
+        "peak_rss_bytes": 13582336
+      },
+      {
+        "wall_ms": 17.461,
+        "peak_rss_bytes": 13647872
+      }
+    ]
+  },
+  "raw_release_allocations": {
+    "stat": [
+      {
+        "execution_alloc_count": 5938,
+        "execution_alloc_bytes": 811196
+      },
+      {
+        "execution_alloc_count": 5938,
+        "execution_alloc_bytes": 811196
+      },
+      {
+        "execution_alloc_count": 5938,
+        "execution_alloc_bytes": 811196
+      }
+    ],
+    "no-stat": [
+      {
+        "execution_alloc_count": 1739,
+        "execution_alloc_bytes": 101076
+      },
+      {
+        "execution_alloc_count": 1739,
+        "execution_alloc_bytes": 101076
+      },
+      {
+        "execution_alloc_count": 1739,
+        "execution_alloc_bytes": 101076
+      }
+    ]
+  },
+  "medians": {
+    "stat": {
+      "median_wall_ms": 18.471,
+      "median_peak_rss_bytes": 13582336,
+      "median_execution_alloc_count": 5938,
+      "median_execution_alloc_bytes": 811196
+    },
+    "no-stat": {
+      "median_wall_ms": 16.917,
+      "median_peak_rss_bytes": 13549568,
+      "median_execution_alloc_count": 1739,
+      "median_execution_alloc_bytes": 101076
+    }
+  },
+  "decision": "Do not replace stat:true with stat:false or defer symlink_metadata errors. Profile shows allocation opportunity but no equivalent lazy-field candidate is validated."
+}

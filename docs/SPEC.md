@@ -1941,7 +1941,8 @@ files are written through a temporary file in the destination directory.
   no-dot, case-sensitive `ext` field is in the list are emitted; directories are
   still traversed. The filter is applied before file records are built, so it
   avoids per-file `stat` work for non-matching files when `stat: true`. Include
-  `""` to emit extensionless files.
+  `""` to emit extensionless files. Supplied `gitignore`, `stat`, and `hidden`
+  expressions on `fs.walk` and `fs.files` are evaluated once when called.
 - `fs.dirs(path: Path, gitignore: Bool = true, stat: Bool = true, hidden: Bool = false) -> Result[Stream[Record]]` —
   equivalent to `fs.walk |> where .kind == "dir"`.
 - `fs.ls(path: Path, stat: Bool = true, ordered: Bool = true) -> Result[Stream[Record]]` —

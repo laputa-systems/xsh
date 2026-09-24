@@ -22,6 +22,56 @@ proc test_fs_walk_take_any_break_and_count(ctx: TestContext) [fs, error] {
   test.eq(fs.walk(root) |> where .kind == "file" |> count(), 50)?
 }
 
+proc test_fs_walk_dynamic_stat_flag_preserves_metadata_boundary(ctx: TestContext) [fs, error] {
+  let root = test.temp_dir(ctx, name: "fs-walk-dynamic-stat")?
+  fs.write(fp"${root}/file.txt", "data")?
+  let output = test.run_script(
+    ctx,
+    f"""
+let root = p"${root.display()}"
+let use_stat = false
+let entry = (fs.walk(root, stat: use_stat) |> first())?
+print \${entry.size}
+""",
+  )?
+  test.eq(output.status, 3)?
+  test.contains(output.stderr, "metadata-unavailable")?
+}
+
+proc test_fs_files_dynamic_walk_flags_are_evaluated(ctx: TestContext) [fs, error] {
+  let root = test.temp_dir(ctx, name: "fs-files-dynamic-flags")?
+  fs.write(fp"${root}/normal.txt", "data")?
+  fs.write(fp"${root}/ignored.txt", "ignored")?
+  fs.write(fp"${root}/.hidden.txt", "hidden")?
+  fs.write(fp"${root}/.gitignore", "ignored.txt\n")?
+
+  let include_hidden = true
+  let exclude_hidden = false
+  test.ok(fs.files(root, gitignore: false, hidden: include_hidden) |> any .name == ".hidden.txt")?
+  test.ok(! (fs.files(root, gitignore: false, hidden: exclude_hidden) |> any .name == ".hidden.txt"))?
+
+  let use_gitignore = true
+  let skip_gitignore = false
+  test.ok(! (fs.files(root, gitignore: use_gitignore) |> any .name == "ignored.txt"))?
+  test.ok(fs.files(root, gitignore: skip_gitignore) |> any .name == "ignored.txt")?
+
+  let use_stat = true
+  let normal = (fs.files(root, stat: use_stat) |> where .name == "normal.txt" |> first())?
+  test.eq(normal.size, 4)?
+
+  let unstat = test.run_script(
+    ctx,
+    f"""
+let root = p"${root.display()}"
+let use_stat = false
+let entry = (fs.files(root, stat: use_stat) |> where .name == "normal.txt" |> first())?
+print \${entry.size}
+""",
+  )?
+  test.eq(unstat.status, 3)?
+  test.contains(unstat.stderr, "metadata-unavailable")?
+}
+
 proc test_fs_tree_metadata_install_and_locking(ctx: TestContext) [fs, error] {
   let root = test.temp_dir(ctx, name: "fs")?
   let src = fp"${root}/src"

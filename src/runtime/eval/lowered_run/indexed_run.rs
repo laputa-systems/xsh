@@ -4944,26 +4944,38 @@ impl Evaluator {
             }
             FullTag::ExprFsFiles | FullTag::ExprFsWalk => {
                 let root = indexed_raw(&mut payload, call_span)?;
-                let gitignore = indexed_decode::<bool>(&mut payload, execution, call_span)?;
-                let stat = indexed_decode::<bool>(&mut payload, execution, call_span)?;
-                let hidden = indexed_decode::<bool>(&mut payload, execution, call_span)?;
+                let gitignore = indexed_optional_raw(&mut payload, call_span)?;
+                let stat = indexed_optional_raw(&mut payload, call_span)?;
+                let hidden = indexed_optional_raw(&mut payload, call_span)?;
                 let exts = indexed_optional_raw(&mut payload, call_span)?;
                 let result_wrapped = indexed_decode::<bool>(&mut payload, execution, call_span)?;
                 let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
                 indexed_finish(payload, call_span)?;
+                let operation = if tag == FullTag::ExprFsFiles {
+                    "fs.files"
+                } else {
+                    "fs.walk"
+                };
                 let root = match self.eval_indexed_expr(execution, root, slots, span)? {
                     ControlFlow::Continue(LoweredValue::Path(path)) => path,
                     ControlFlow::Continue(_) => {
-                        let operation = if tag == FullTag::ExprFsFiles {
-                            "fs.files"
-                        } else {
-                            "fs.walk"
-                        };
                         return Err(RuntimeError::new(
                             "type-error",
                             format!("{operation} expected Path"),
                         )
                         .with_span(span));
+                    }
+                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+                };
+                let gitignore = match self.eval_indexed_optional_expr(execution, gitignore, slots, span)? {
+                    ControlFlow::Continue(value) => {
+                        lowered_bool_arg_or(value, true, operation, span)?
+                    }
+                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+                };
+                let stat = match self.eval_indexed_optional_expr(execution, stat, slots, span)? {
+                    ControlFlow::Continue(value) => {
+                        lowered_bool_arg_or(value, true, operation, span)?
                     }
                     ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
                 };
@@ -4978,6 +4990,12 @@ impl Evaluator {
                         span,
                     )?,
                     ControlFlow::Continue(None) => Vec::new(),
+                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+                };
+                let hidden = match self.eval_indexed_optional_expr(execution, hidden, slots, span)? {
+                    ControlFlow::Continue(value) => {
+                        lowered_bool_arg_or(value, false, operation, span)?
+                    }
                     ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
                 };
                 let emit = if tag == FullTag::ExprFsFiles {

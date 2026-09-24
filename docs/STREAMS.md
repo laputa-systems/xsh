@@ -255,7 +255,14 @@ could win on flat trees. See §7 pitfalls.
 
 - **Lazy/columnar walk records** — the walk builds a full record per entry even
   when `where` discards it; only `path` (a `Vec<u8>`) is the wasted allocation for
-  the kept-everything case. Needs a lazy-field record representation.
+  the kept-everything case. On the rejecting `src` walk in
+  `bench/fs-walk-rejection-c02-2026-09-24.json`, `stat: true` took 18.471 ms and
+  allocated 811 KB in the execution thread, versus 16.917 ms and 101 KB with
+  `stat: false` (15 paired release timings, three allocation runs). The latter
+  also skips metadata reads and changes field errors, so it is an upper bound
+  rather than an equivalent replacement. An eager metadata read followed by
+  lazy field construction would need separate evidence on a larger tree and
+  must preserve metadata-error timing.
 - **Per-bind scope key allocation + SipHash** — needs `Arc<str>` param names
   (a wider AST change) or a faster hasher.
 - **Intra-directory parallel walk splitting** — to make a parallel/fused walk win
