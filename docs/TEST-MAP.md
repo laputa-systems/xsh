@@ -87,6 +87,9 @@ The `dev/tests/test-lifecycle.xsh` fake tools use that path as a shebang;
 without this bind, the shared macOS target directory supplies a Mach-O binary
 and six test cases fail before reaching their assertions. Use the pinned
 `Dockerfile.test` image for this gate.
+The image does not install `make`; the Makefile facade test in
+`dev/tests/test-lifecycle.xsh` reports an explicit skip there and runs on hosts
+with `make` available.
 
 ## API Gate
 

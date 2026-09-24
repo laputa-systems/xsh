@@ -270,6 +270,13 @@ proc test_make_facade_only_delegates_to_the_development_entrypoint() [fs, error]
 }
 
 proc test_make_facade_bootstraps_by_default_and_honors_an_explicit_binary(ctx: TestContext) [fs, process, error] {
+  match process.which("make") {
+    Err(_) => {
+      test.skip("requires make executable")
+      return
+    }
+    Ok(_) => {}
+  }
   let root = test.temp_dir(ctx, name: "make-facade")?
   fp"${root}/Makefile".write(p"Makefile".read_text()?)?
   let stale_dir = fp"${root}/target/debug"
