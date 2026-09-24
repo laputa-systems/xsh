@@ -489,6 +489,8 @@ string-keyed entry below a mutable local map. Field and indexed assignment
 update the local value stored in the root binding; they do not introduce shared
 record or map identity. Compound assignment requires a mutable target and
 follows the corresponding binary operator type rules for the target value.
+`List.push`/`List.extend` and `Map.set`/`Map.remove`/`Map.push` return updated
+values; earlier bindings and aliases keep their previous contents.
 Record destructuring targets bind named fields from a record value; `..` marks
 ignored remaining fields. Destructured `let` and `for` bindings are immutable,
 destructured `var` bindings are mutable. `export let` accepts simple names

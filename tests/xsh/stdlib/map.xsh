@@ -9,3 +9,23 @@ proc test_map_module_and_methods() [error] {
   test.ok(! m1.remove("one").has("one"))?
   test.error_kind(m1.get("missing"), "map-missing")?
 }
+
+proc test_map_updates_preserve_older_values_and_nested_lists() [error] {
+  let base = map.empty().set("items", [1])
+  let alias = base
+  let replaced = base.set("items", [9])
+  let pushed = base.push("items", 2)
+  let removed = pushed.remove("items")
+
+  test.eq(base.get("items")?, [1])?
+  test.eq(alias.get("items")?, [1])?
+  test.eq(replaced.get("items")?, [9])?
+  test.eq(pushed.get("items")?, [1, 2])?
+  test.ok(! removed.has("items"))?
+  test.eq(pushed.get("items")?, [1, 2])?
+
+  var mutable = pushed
+  mutable["items"] = [3]
+  test.eq(mutable.get("items")?, [3])?
+  test.eq(pushed.get("items")?, [1, 2])?
+}

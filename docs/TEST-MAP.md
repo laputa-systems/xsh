@@ -127,7 +127,7 @@ cargo test --test integration runtime::coverage::runnable_xsh_corpus_is_formatte
 
 | Area | File |
 |---|---|
-| collection values and methods | `tests/runtime/collections.rs` |
+| collection aliasing and allocation traffic | `tests/xsh/stdlib/methods.xsh`, `tests/xsh/stdlib/map.xsh`, `tests/runtime/collections.rs` |
 | coverage, lint, grep-adjacent tooling | `tests/runtime/coverage.rs` |
 | frontend indexed fixtures | `tests/runtime/frontend_indexed.rs` |
 | `fs.walk` take/any/break/count values | `tests/xsh/stdlib/fs.xsh` |

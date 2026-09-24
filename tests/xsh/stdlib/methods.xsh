@@ -1,5 +1,17 @@
 error TestBaseError = Base(message: Str)
 
+proc test_list_push_and_extend_preserve_older_values() [error] {
+  let base = [1, 2]
+  let alias = base
+  let pushed = base.push(3)
+  let extended = pushed.extend([4, 5])
+
+  test.eq(base, [1, 2])?
+  test.eq(alias, [1, 2])?
+  test.eq(pushed, [1, 2, 3])?
+  test.eq(extended, [1, 2, 3, 4, 5])?
+}
+
 proc test_collection_number_text_status_and_result_methods() [process, error] {
   let base = ["alpha"]
   let pushed = base.push("beta")
