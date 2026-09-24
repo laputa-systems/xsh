@@ -1407,18 +1407,30 @@ mod tests {
     use crate::xshi::interactive::session::Session;
     use std::collections::{BTreeMap, VecDeque};
 
+    enum ScriptedInputEvent {
+        Byte(u8),
+        Timeout,
+    }
+
     struct ScriptedEditorInput {
-        bytes: VecDeque<u8>,
+        events: VecDeque<ScriptedInputEvent>,
         term_size: (u16, u16),
     }
 
     impl EditorInput for ScriptedEditorInput {
         fn read_byte(&mut self) -> std::io::Result<Option<u8>> {
-            Ok(self.bytes.pop_front())
+            match self.events.pop_front() {
+                Some(ScriptedInputEvent::Byte(byte)) => Ok(Some(byte)),
+                Some(ScriptedInputEvent::Timeout) => panic!("timeout during blocking input"),
+                None => Ok(None),
+            }
         }
 
         fn read_byte_timeout(&mut self, _timeout_ms: i32) -> Option<[u8; 1]> {
-            self.bytes.pop_front().map(|byte| [byte])
+            match self.events.pop_front() {
+                Some(ScriptedInputEvent::Byte(byte)) => Some([byte]),
+                Some(ScriptedInputEvent::Timeout) | None => None,
+            }
         }
 
         fn term_size(&self) -> (u16, u16) {
@@ -1427,8 +1439,20 @@ mod tests {
     }
 
     fn edit_with_keys(session: &mut Session, keys: &[u8], cols: u16) -> (String, String) {
+        edit_with_events(
+            session,
+            keys.iter().copied().map(ScriptedInputEvent::Byte).collect(),
+            cols,
+        )
+    }
+
+    fn edit_with_events(
+        session: &mut Session,
+        events: VecDeque<ScriptedInputEvent>,
+        cols: u16,
+    ) -> (String, String) {
         let mut input = ScriptedEditorInput {
-            bytes: keys.iter().copied().collect(),
+            events,
             term_size: (24, cols),
         };
         let mut output = Vec::new();
@@ -1473,6 +1497,67 @@ mod tests {
         assert!(output[grid_end..].contains("\r\x1b[K"));
         assert!(output.contains("\x1b[?25l"));
         assert!(output.contains("\x1b[?25h"));
+    }
+
+    #[test]
+    fn scripted_completion_opens_without_preview_and_navigates_with_arrows() {
+        let root = super::complete::completion_test_dir(&["alpha.txt", "alpine.log"]);
+        let mut session = Session::new();
+        session.history = History::from_entries(Vec::new());
+        session.cwd = root.path().to_path_buf();
+        session.invalidate_cwd_snapshot();
+
+        let (unselected, output) = edit_with_keys(&mut session, b"cat alp\t\r\r", 80);
+        assert_eq!(unselected, "cat alp");
+        assert!(output.contains("alpha.txt"));
+        assert!(output.contains("alpine.log"));
+
+        let (selected, output) = edit_with_keys(&mut session, b"cat alp\t\x1b[C\x1b[C\r\r", 80);
+        assert_eq!(selected, "cat alpine.log");
+        assert!(output.contains("cat alpine.log"));
+        let grid_end = output.find("alpine.log").expect("completion was rendered");
+        assert!(output[grid_end..].contains("\r\x1b[K"));
+    }
+
+    #[test]
+    fn scripted_completion_filters_and_clears_grid_when_matches_disappear() {
+        let root = super::complete::completion_test_dir(&["alpha.txt", "alpine.log"]);
+        let mut session = Session::new();
+        session.history = History::from_entries(Vec::new());
+        session.cwd = root.path().to_path_buf();
+        session.invalidate_cwd_snapshot();
+
+        let (filtered, _) = edit_with_keys(&mut session, b"cat alp\th\t\r\r", 80);
+        assert_eq!(filtered, "cat alpha.txt");
+
+        let (missing, output) = edit_with_keys(&mut session, b"cat alp\tq\r", 80);
+        assert_eq!(missing, "cat alpq");
+        let grid_end = output.rfind("alpine.log").expect("completion was rendered");
+        assert!(output[grid_end..].contains("\r\x1b[K"));
+    }
+
+    #[test]
+    fn scripted_completion_escape_and_ctrl_c_restore_original_line() {
+        let root = super::complete::completion_test_dir(&["alpha.txt", "alpine.log"]);
+        let mut session = Session::new();
+        session.history = History::from_entries(Vec::new());
+        session.cwd = root.path().to_path_buf();
+        session.invalidate_cwd_snapshot();
+
+        let mut events: VecDeque<_> = b"cat alp\t\t\x1b"
+            .iter()
+            .copied()
+            .map(ScriptedInputEvent::Byte)
+            .collect();
+        events.push_back(ScriptedInputEvent::Timeout);
+        events.push_back(ScriptedInputEvent::Byte(b'\r'));
+        let (escaped, output) = edit_with_events(&mut session, events, 80);
+        assert_eq!(escaped, "cat alp");
+        let grid_end = output.rfind("alpine.log").expect("completion was rendered");
+        assert!(output[grid_end..].contains("\r\x1b[K"));
+
+        let (cancelled, _) = edit_with_keys(&mut session, b"cat alp\t\t\x03\r", 80);
+        assert_eq!(cancelled, "cat alp");
     }
 
     #[test]

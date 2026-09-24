@@ -35,15 +35,15 @@ The deterministic unit tests cover core line editing, preview, autosuggestion,
 completion replacement, grid movement, SSH host discovery, and render wrapping.
 `crates/xshi/src/interactive/edit.rs::tests::ScriptedEditorInput` now feeds key
 bytes and a fixed terminal size through the real editor loop, capturing the
-rendered output without a PTY or timing sleeps. Its first cases cover cursor
-edits, completion acceptance, and grid clearing. The remaining branches are
-multi-step interactive states for that harness.
+rendered output without a PTY or timing sleeps. Its cases cover cursor edits,
+ambiguous completion opening, arrow and Tab navigation, preview, acceptance,
+Escape/Ctrl-C cancellation, filtering, and grid clearing when edits remove all
+matches. History search remains the main untested editor state.
 
 Useful next work:
 
-- Cover multi-step completion workflows: ambiguous candidates, quoted paths,
-  home expansion, command-position completion, directory-only completion, remote
-  path fallbacks, and grid clearing after edits.
+- Cover quoted paths, home expansion, command-position completion,
+  directory-only completion, and remote path fallbacks.
 - Cover history search and autosuggestion transitions as state machines:
   entering search, moving through matches, accepting, cancelling, and restoring
   the original buffer.
