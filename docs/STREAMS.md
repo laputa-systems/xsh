@@ -148,7 +148,8 @@ parallel traversal when pulled.
   output stream). This mirrors how Rust's rayon, Go, and Haskell separate
   parallelism from error handling.
 - **Aggregation fusion.** With tracing disabled, adjacent `par-map |> reduce-by`
-  fuses into worker-local partial maps. A measured attempt to carry
+  fuses into worker-local partial maps. Its simple record sums use the same
+  field projection as ordinary `reduce-by`. A measured attempt to carry
   `where`/`map`/`flat-map` suffix stages into that fusion regressed the
   `showcase/tokei.xsh` workload, so non-adjacent shapes keep the ordinary
   materialized path for now. An explicit `reduce-by --jobs` keeps the ordinary

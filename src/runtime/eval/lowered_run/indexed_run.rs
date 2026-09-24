@@ -402,6 +402,9 @@ impl Evaluator {
         Ok(chunks)
     }
 
+    // Fused workers use the same projection as the ordinary reduce-by handler:
+    // simple record sums update accumulators without rebuilding each output
+    // record.
     fn eval_indexed_reduce_rows(
         &mut self,
         execution: &FullExecution<'_>,
@@ -410,12 +413,17 @@ impl Evaluator {
         reduce_body: u32,
         reduce_value: u32,
         op: ReduceByOp,
+        projection: &mut Option<LoweredProjectedReduceState<'_>>,
         slots: &mut [LoweredValue],
         groups: &mut BTreeMap<String, LoweredValue>,
         span: Span,
     ) -> Result<(), RuntimeError> {
         let block_header = Self::indexed_block_header(slots.len());
         for row in rows {
+            if let Some(projection) = projection.as_mut() {
+                self.eval_lowered_projected_reduce_by_item(projection, row, groups, span)?;
+                continue;
+            }
             slots[reduce_item_slot] = row;
             match self.eval_indexed_statement_block(
                 execution,
@@ -538,6 +546,15 @@ impl Evaluator {
                             )
                         };
                         let result = (|| {
+                            let mut projection = Self::indexed_reduce_projection(
+                                &execution,
+                                reduce_item_slot,
+                                reduce_body,
+                                reduce_value,
+                                op,
+                                span,
+                            )?
+                            .map(LoweredProjectedReduceState::new);
                             for item in chunk {
                                 let mapped = {
                                     let _item = allocation_stage
@@ -569,6 +586,7 @@ impl Evaluator {
                                         reduce_body,
                                         reduce_value,
                                         op,
+                                        &mut projection,
                                         &mut worker_slots,
                                         &mut groups,
                                         span,
@@ -3954,6 +3972,15 @@ impl Evaluator {
                             if self.trace_enabled || jobs <= 1 || items.len() <= 1 {
                                 let map_header = Self::indexed_block_header(slots.len());
                                 let mut groups = BTreeMap::new();
+                                let mut projection = Self::indexed_reduce_projection(
+                                    execution,
+                                    reduce_item_slot,
+                                    reduce_body,
+                                    reduce_value,
+                                    op,
+                                    span,
+                                )?
+                                .map(LoweredProjectedReduceState::new);
                                 for (item_index, item) in items.into_iter().enumerate() {
                                     if self.trace_enabled {
                                         self.trace_lowered_parallel_job(
@@ -3993,6 +4020,7 @@ impl Evaluator {
                                         reduce_body,
                                         reduce_value,
                                         op,
+                                        &mut projection,
                                         slots,
                                         &mut groups,
                                         span,

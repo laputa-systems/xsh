@@ -1,0 +1,32 @@
+{
+  "host": "macOS ARM64",
+  "binary": "target/release/xsh",
+  "method": "Alternating subprocess runs with exact stdout parity; elapsed wall time includes process startup. The unfused variant adds reduce-by --jobs=8. No other source changes.",
+  "synthetic": {
+    "source": "The 50,000-row map and reducer in tests/xsh/stdlib/streams.xsh::test_par_map_reduce_by_fuses_to_worker_aggregation, run as a standalone main that prints the a bucket total.",
+    "stdout": "624950000\n",
+    "before_projection_ms": {
+      "fused": [284.417, 277.965, 283.601, 267.621, 285.803, 287.757, 295.287, 282.438, 283.13],
+      "unfused": [65.771, 64.616, 63.878, 66.617, 59.182, 62.168, 57.03, 60.282, 69.135]
+    },
+    "after_projection_ms": {
+      "fused": [138.372, 80.88, 105.629, 93.076, 96.427, 98.569, 90.641, 103.453, 108.055],
+      "unfused": [55.816, 57.756, 68.595, 61.193, 64.756, 60.804, 63.351, 60.418, 62.246]
+    },
+    "after_projection_peak_rss_bytes_single_run": {
+      "fused": 20824064,
+      "unfused": 51478528
+    }
+  },
+  "showcase_tokei_default": {
+    "command": "target/release/xsh showcase/tokei.xsh -- src",
+    "after_projection_ms": {
+      "fused": [59.699, 48.281, 56.116, 50.098, 55.328],
+      "unfused": [45.676, 44.189, 44.321, 45.561, 51.218]
+    },
+    "after_projection_peak_rss_bytes_single_run": {
+      "fused": 23740416,
+      "unfused": 25149440
+    }
+  }
+}
