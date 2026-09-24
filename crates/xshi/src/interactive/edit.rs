@@ -1470,6 +1470,25 @@ mod tests {
         (line, String::from_utf8(output).expect("terminal output is UTF-8"))
     }
 
+    fn render_until_eof(session: &mut Session, keys: &[u8]) -> String {
+        let mut input = ScriptedEditorInput {
+            events: keys.iter().copied().map(ScriptedInputEvent::Byte).collect(),
+            term_size: (24, 80),
+        };
+        let mut output = Vec::new();
+        assert!(matches!(
+            read_editor_line(
+                session,
+                &mut output,
+                "> ",
+                LineBuffer::default(),
+                &mut input,
+            ),
+            EditorEvent::Eof
+        ));
+        String::from_utf8(output).expect("terminal output is UTF-8")
+    }
+
     #[test]
     fn scripted_editor_moves_cursor_and_repaints_edited_line() {
         let mut session = Session::new();
@@ -1622,6 +1641,60 @@ mod tests {
         assert_eq!(prefix, "cat prelude.txt");
         let (fallback, _) = edit_with_keys(&mut session, b"cat xpre\t\r", 80);
         assert_eq!(fallback, "cat xxprelude.txt");
+    }
+
+    #[test]
+    fn scripted_history_search_moves_accepts_and_restores_saved_line_on_cancel() {
+        let mut session = Session::new();
+        session.history = History::from_entries(vec![
+            "deploy alpha".to_string(),
+            "deploy beta".to_string(),
+        ]);
+
+        let (accepted, output) = edit_with_keys(&mut session, b"draft\x12deploy\x0e\r\r", 80);
+        assert_eq!(accepted, "deploy alpha");
+        assert!(output.contains("search: "));
+        assert!(output.contains("deploy beta"));
+
+        let (moved_back, _) = edit_with_keys(&mut session, b"draft\x12deploy\x0e\x10\r\r", 80);
+        assert_eq!(moved_back, "deploy beta");
+
+        let (restored, _) = edit_with_keys(&mut session, b"draft\x12deploy\x03\r", 80);
+        assert_eq!(restored, "draft");
+
+        let mut events: VecDeque<_> = b"draft\x12deploy\x1b"
+            .iter()
+            .copied()
+            .map(ScriptedInputEvent::Byte)
+            .collect();
+        events.push_back(ScriptedInputEvent::Timeout);
+        events.push_back(ScriptedInputEvent::Byte(b'\r'));
+        let (restored, _) = edit_with_events(&mut session, events, 80);
+        assert_eq!(restored, "draft");
+    }
+
+    #[test]
+    fn scripted_autosuggestion_accepts_on_right_arrow_and_stays_out_of_modal_rendering() {
+        let root = super::complete::completion_test_dir(&["alpha.txt", "alpine.log"]);
+        let mut session = Session::new();
+        session.history = History::from_entries(vec![
+            "git status --short".to_string(),
+            "cat alpine.log".to_string(),
+        ]);
+        session.cwd = root.path().to_path_buf();
+        session.invalidate_cwd_snapshot();
+
+        let (accepted, output) = edit_with_keys(&mut session, b"git\x1b[C\r", 80);
+        assert_eq!(accepted, "git status --short");
+        assert!(output.contains("\x1b[38;5;8m status --short\x1b[0m"));
+
+        let search = render_until_eof(&mut session, b"git\x12status");
+        let search_start = search.find("search: ").expect("history search rendered");
+        assert!(!search[search_start..].contains("\x1b[38;5;8m"));
+
+        let completion = render_until_eof(&mut session, b"cat alp\t");
+        let grid_start = completion.find("alpha.txt").expect("completion grid rendered");
+        assert!(!completion[grid_start..].contains("\x1b[38;5;8m"));
     }
 
     #[test]

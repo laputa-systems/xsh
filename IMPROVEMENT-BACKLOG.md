@@ -41,7 +41,7 @@ public APIs require a separate decision backed by repeated real use.
    B0 `xsh` failures to prioritize profiling on both supported hosts.
 2. **B08, C01–C04, C06:** improve the measured hot paths and cold preparation in
    small batches, preserving the original B0 gates and native controls.
-3. **D04, E01–E03, F01–F03:** make the interactive, tooling, and Linux test
+3. **E01–E03, F01–F03:** make the interactive, tooling, and Linux test
    boundaries deterministic enough to support sustained work.
 4. **H07–H09:** refine existing `dev/`, `core/`, and `showcase/` programs; let
    repeated friction select small runtime or tooling changes.
@@ -80,7 +80,6 @@ allocation/RSS evidence; no new execution engine is implied.
 The contract is `docs/SPEC-INTERACTIVE.md`; `docs/COVERAGE.md` identifies the
 stateful editor and completion harness as the central missing evidence.
 
-- **D04 · P1.** Cover history search and autosuggestion as state machines: enter, move, accept, cancel, restore original input, and suppress ghost text in modal states.
 - **D05 · P1.** Keep a small PTY gate for TTY startup, raw-mode restoration, Ctrl-C, bracketed paste, and external-command handoff; make each retained ignore's environment requirement explicit.
 - **D06 · P1.** Test PATH and directory completion-cache invalidation after `set`, `unset`, denv, cwd changes, and directory mtime changes; no stale candidate may survive a documented refresh point.
 - **D07 · P2.** Test remote `ssh` completion timeout, denial, malformed output, and missing program with a fake executable boundary; prompt input must stay responsive and quiet.

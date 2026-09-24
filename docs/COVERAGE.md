@@ -40,14 +40,13 @@ ambiguous completion opening, arrow and Tab navigation, preview, acceptance,
 Escape/Ctrl-C cancellation, filtering, and grid clearing when edits remove all
 matches. Deterministic directory cases cover quoted paths, `~/` insertion,
 hidden paths, directory-only `cd`/`z`, and prefix-before-substring fallback.
-History search remains the main untested editor state.
+History search cases cover selection, acceptance, Escape/Ctrl-C cancellation,
+and restoration of the saved line. Autosuggestion cases cover Right Arrow
+acceptance and suppressing ghost text during completion and history search.
 
 Useful next work:
 
 - Cover command-position completion and remote path fallbacks.
-- Cover history search and autosuggestion transitions as state machines:
-  entering search, moving through matches, accepting, cancelling, and restoring
-  the original buffer.
 - Keep PTY tests for true terminal integration only. Unit-level editor state
   tests should own most branch coverage so the suite stays deterministic.
 
