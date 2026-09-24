@@ -4,6 +4,7 @@ type Opts = {env_var: Str, fail: Bool, show_ok: Bool, duplicates_only: Bool}
 type DirFinding = {severity: Int, kind: Str, path: Str, detail: Str}
 
 type ShadowFinding = {name: Str, path: Str, detail: Str}
+type SeenCommand = {name: Path, path: Str}
 
 pure severity_label(severity: Int) -> Str {
   if severity == 1 {
@@ -53,7 +54,7 @@ proc main(...argv: List[Str]) [fs, env, error] {
   let parts = env.path_entries(opts.env_var)?
   var dir_findings: List[DirFinding] = []
   var valid_dirs: List[Path] = []
-  var seen_dirs = set.empty()
+  var seen_dirs: Map[List[Path]] = {}
 
   for part in parts {
     let label = if part.empty { f"${opts.env_var}[${part.index}]" } else { part.raw }
@@ -89,10 +90,12 @@ proc main(...argv: List[Str]) [fs, env, error] {
 
     let resolved_text = resolved.display()
 
-    if set.has(seen_dirs, resolved_text) {
+    let same_display = seen_dirs.get(resolved_text, [])
+
+    if resolved in same_display {
       dir_findings = add_dir_finding(dir_findings, 2, "duplicate-directory", label, resolved_text)
     } else {
-      seen_dirs = set.add(seen_dirs, resolved_text)
+      seen_dirs[resolved_text] = same_display.push(resolved)
 
       if ! opts.duplicates_only and meta.executable {
         valid_dirs = valid_dirs.push(resolved)
@@ -113,19 +116,22 @@ proc main(...argv: List[Str]) [fs, env, error] {
   var shadows: List[ShadowFinding] = []
 
   if ! opts.duplicates_only {
-    var first_path: Map[Str] = {}
+    var first_path: Map[List[SeenCommand]] = {}
 
     for dir in valid_dirs {
       for child in fs.children(dir, ordered: false)? {
         continue when child.kind != "file" or ! child.executable
         let child_path = child.path.display()
+        let exact_name = child.path.strip_prefix(dir)?
+        let same_display = first_path.get(child.name, [])
+        let earlier = same_display |> where .name == exact_name
 
-        if first_path.has(child.name) {
+        if earlier.len() > 0 {
           shadows = shadows.push(
-            {name: child.name, path: child_path, detail: f"shadows ${first_path.get(child.name, "")}"},
+            {name: child.name, path: child_path, detail: f"shadows ${earlier[0].path}"},
           )
         } else {
-          first_path[child.name] = child_path
+          first_path[child.name] = same_display.push({name: exact_name, path: child_path})
         }
       }
     }

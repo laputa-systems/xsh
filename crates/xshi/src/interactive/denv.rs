@@ -434,7 +434,8 @@ fn hex(bytes: &[u8]) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::discover;
+    use super::{DenvCommand, DenvState, discover, refresh, run_command};
+    use crate::xshi::interactive::prompt::prompt;
     use crate::xshi::interactive::session::Session;
     use std::fs;
     use std::path::PathBuf;
@@ -474,7 +475,7 @@ mod tests {
     }
 
     #[test]
-    fn discover_uses_cached_git_root_snapshot_for_source_presence() {
+    fn reload_exposes_new_source_and_updates_dirty_prompt() {
         let _cwd_guard = CWD_LOCK
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -495,14 +496,32 @@ mod tests {
         fs::create_dir(repo.join(".git")).expect("create git marker");
 
         let mut session = Session::new();
+        session.denv = DenvState::load(None);
         session.set_cwd(nested).expect("set cwd");
         assert!(discover(&mut session).is_none());
+        refresh(&mut session, &mut Vec::new());
+        assert!(!session.denv.dirty);
 
         fs::write(repo.join(".env"), "XSHI_DENV_PROBE=loaded\n").expect("write dotenv");
         assert!(discover(&mut session).is_none());
+        refresh(&mut session, &mut Vec::new());
+        assert!(!session.denv.dirty);
 
-        session.invalidate_denv_git_root_snapshot();
+        let mut stdout = Vec::new();
+        let mut stderr = Vec::new();
+        assert_eq!(
+            run_command(&mut session, DenvCommand::Reload, &mut stdout, &mut stderr),
+            1
+        );
         assert!(discover(&mut session).is_some());
+        assert!(session.denv.dirty);
+        assert!(prompt(&session).contains(" * $ "));
+        assert_eq!(
+            run_command(&mut session, DenvCommand::Allow, &mut stdout, &mut stderr),
+            0
+        );
+        assert!(!session.denv.dirty);
+        assert!(!prompt(&session).contains(" * $ "));
 
         std::env::set_current_dir(old_cwd).expect("restore cwd");
         let _ = fs::remove_dir_all(base);

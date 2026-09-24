@@ -1,3 +1,27 @@
+proc test_fs_walk_take_any_break_and_count(ctx: TestContext) [fs, error] {
+  let root = test.temp_dir(ctx, name: "fs-walk-stage")?
+  var index = 0
+  while index < 50 {
+    fs.write(fp"${root}/f${index}.txt", "x")?
+    index = index + 1
+  }
+
+  let first3 = fs.walk(root)
+    |> where .kind == "file"
+    |> take(3)
+    |> map .name
+  test.eq(first3.len(), 3)?
+  test.ok(fs.walk(root) |> any .kind == "file")?
+
+  var visited = 0
+  for entry in fs.walk(root) |> where .kind == "file" {
+    visited = visited + 1
+    if visited >= 2 { break }
+  }
+  test.eq(visited, 2)?
+  test.eq(fs.walk(root) |> where .kind == "file" |> count(), 50)?
+}
+
 proc test_fs_tree_metadata_install_and_locking(ctx: TestContext) [fs, error] {
   let root = test.temp_dir(ctx, name: "fs")?
   let src = fp"${root}/src"
@@ -144,6 +168,8 @@ proc test_fs_root_operations_reject_traversal(ctx: TestContext) [fs, error] {
   fp"${outside}/secret.txt".write("secret")?
   let root = fs.open_root(root_dir)?
   fs.root_mkdir(root, p"nested")?
+  fs.root_mkdir(root, p"restricted", mode: 0o700)?
+  test.eq(fs.root_metadata(root, p"restricted")?.mode % 512, 0o700)?
   fs.root_mkdir(root, p"parents/child", parents: true)?
   test.ok(fs.root_exists(root, p"parents/child")?)
   fs.root_write(root, p"nested/data.txt", "rooted")?

@@ -1808,6 +1808,7 @@ enum LoweredPipelineStage {
         body: Vec<BuildStmtId>,
         value: BuildExprId,
         op: ReduceByOp,
+        jobs: Option<BuildExprId>,
     },
     ParMap {
         slot: usize,
@@ -1838,7 +1839,7 @@ enum LoweredPipelineStage {
     Each {
         slot: usize,
         body: Vec<BuildStmtId>,
-        parallel: bool,
+        jobs: Option<BuildExprId>,
     },
     TablePrint {
         columns: Option<Vec<String>>,
@@ -1858,10 +1859,12 @@ enum LoweredPipelineStage {
     GroupBy {
         slot: usize,
         key: BuildExprId,
+        jobs: Option<BuildExprId>,
     },
     CountBy {
         slot: usize,
         key: BuildExprId,
+        jobs: Option<BuildExprId>,
     },
     Any {
         slot: usize,
@@ -1885,7 +1888,9 @@ enum LoweredPipelineStage {
         slot: usize,
         key: BuildExprId,
     },
-    Count,
+    Count {
+        jobs: Option<BuildExprId>,
+    },
     Sum,
     Collect,
     First,
@@ -4296,6 +4301,32 @@ impl Evaluator {
                     ))),
                 ));
                 stopped = true;
+            }
+        }
+
+        // Auto-invoked `main` runs after the top-level statement loop. Check
+        // signals once more before script cleanup and status commit.
+        if plan.auto_main_required && traceback.is_none() && abort.is_none() && !stopped {
+            std::thread::yield_now();
+            if let Err(error) = self.service_pending_signal(script_span) {
+                diagnostics.push(runtime_diagnostic(
+                    error.span.unwrap_or(script_span),
+                    &error.message,
+                    "runtime.error",
+                ));
+                traceback = Some(self.pending_traceback.take().unwrap_or_else(|| {
+                    self.traceback_for_value(
+                        error.span.unwrap_or(script_span),
+                        "signal.hook",
+                        &Value::Error(Box::new(error)),
+                    )
+                }));
+            }
+            if self.signal_state.shutdown_complete
+                && traceback.is_none()
+                && let Some(shutdown_status) = self.signal_state.shutdown_status
+            {
+                status = shutdown_status;
             }
         }
 

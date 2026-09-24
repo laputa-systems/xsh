@@ -46,7 +46,7 @@ use self::args::{
     module_sig_accepts_names_arena,
 };
 use self::command::{
-    command_arg_can_be_path_like_arena, command_bool_flag_name_arena, command_is_print_arena,
+    command_arg_can_be_path_like_arena, command_bool_flag_name_arena,
     command_stmt_asserts_success_arena, command_ty_auto_propagates,
 };
 pub use self::compact::{
@@ -263,7 +263,6 @@ pub struct Checker {
     current_effects: Option<Vec<Effect>>,
     last_status_available: bool,
     stream_item_types: Vec<Type>,
-    in_pure_fold: bool,
     loop_depth: usize,
     block_depth: usize,
     retry_attempt_depth: usize,
@@ -422,7 +421,6 @@ impl Checker {
             current_effects: None,
             last_status_available: false,
             stream_item_types: Vec::new(),
-            in_pure_fold: false,
             loop_depth: 0,
             block_depth: 0,
             retry_attempt_depth: 0,

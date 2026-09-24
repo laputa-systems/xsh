@@ -13,6 +13,7 @@ use super::{
     lowered_str_parts, lowered_value_from_runtime_any, lowered_value_satisfies_require,
     push_lowered_fmt_value, StreamValue,
 };
+use super::serial_pipeline::{IndexedSerialPipeline, IndexedLiveSerialStage, indexed_for_pipeline_input};
 
 enum FrameValue {
     Value(LoweredValue),
@@ -95,6 +96,12 @@ enum FrameContinuation {
         slot: usize,
         body: u32,
         span: Span,
+    },
+    ForPipelineInput {
+        slot: usize,
+        body: u32,
+        span: Span,
+        stages: smallvec::SmallVec<[IndexedLiveSerialStage; 4]>,
     },
     ForStrLines {
         slot: usize,
@@ -244,6 +251,12 @@ enum FrameWork {
     ForStream {
         slot: usize,
         stream: StreamValue,
+        body: u32,
+        span: Span,
+    },
+    ForPipeline {
+        slot: usize,
+        pipeline: IndexedSerialPipeline,
         body: u32,
         span: Span,
     },
@@ -879,6 +892,24 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 complete_call,
                 scope_id,
             } => {
+                let signal = self
+                    .evaluator
+                    .service_pending_signal(self.calls[index].call_span);
+                if signal.is_err() || self.evaluator.shutting_down() {
+                    // Keep this block on the work stack so error unwinding
+                    // closes its owned scope before running function defers.
+                    self.calls[index].work.push(FrameWork::Statements {
+                        statements,
+                        complete_call,
+                        scope_id,
+                    });
+                    signal?;
+                    return Err(RuntimeError::abort(
+                        self.evaluator.signal_state.shutdown_status.unwrap_or(3),
+                        self.evaluator.signal_state.shutdown_force,
+                    )
+                    .with_span(self.calls[index].call_span));
+                }
                 let Some(statement) = statements.pop() else {
                     // A list that ran to its end goes back to the pool here:
                     // its entries are done with, and a loop body would
@@ -921,6 +952,12 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 body,
                 span,
             } => self.step_for_stream(index, slot, stream, body, span),
+            FrameWork::ForPipeline {
+                slot,
+                pipeline,
+                body,
+                span,
+            } => self.step_for_pipeline(index, slot, pipeline, body, span),
             FrameWork::ForStrLines {
                 slot,
                 text,
@@ -1097,6 +1134,24 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 let body = indexed_raw(&mut payload, span)?;
                 let value_span = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
                 indexed_finish(payload, span)?;
+                if let Some((input, pipeline_span, stages)) = indexed_for_pipeline_input(
+                    &self.calls[index].execution,
+                    iter,
+                    value_span,
+                )? {
+                    self.push_expr(
+                        index,
+                        input,
+                        pipeline_span,
+                        FrameContinuation::ForPipelineInput {
+                            slot,
+                            body,
+                            span: pipeline_span,
+                            stages,
+                        },
+                    );
+                    return Ok(());
+                }
                 self.push_expr(
                     index,
                     iter,
@@ -1900,6 +1955,38 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                         body,
                         span,
                     });
+                }
+                FrameValue::Break(value) => {
+                    return self.complete_call(index, StmtFlow::Return(value));
+                }
+            },
+            FrameContinuation::ForPipelineInput { slot, body, span, stages } => match value {
+                FrameValue::Value(input) => {
+                    let pipeline = {
+                        let call = &mut self.calls[index];
+                        IndexedSerialPipeline::new(
+                            self.evaluator,
+                            &call.execution,
+                            input,
+                            stages,
+                            &mut call.slots,
+                            span,
+                            call.call_span,
+                        )?
+                    };
+                    match pipeline {
+                        ControlFlow::Continue(pipeline) => {
+                            self.calls[index].work.push(FrameWork::ForPipeline {
+                                slot,
+                                pipeline,
+                                body,
+                                span,
+                            });
+                        }
+                        ControlFlow::Break(value) => {
+                            return self.complete_call(index, StmtFlow::Return(value));
+                        }
+                    }
                 }
                 FrameValue::Break(value) => {
                     return self.complete_call(index, StmtFlow::Return(value));
@@ -2942,6 +3029,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 work,
                 FrameWork::ForItems { .. }
                     | FrameWork::ForStream { .. }
+                    | FrameWork::ForPipeline { .. }
                     | FrameWork::ForStrLines { .. }
                     | FrameWork::While { .. }
             )
@@ -2986,6 +3074,48 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         });
         self.push_statement_block(index, body, span)?;
         Ok(())
+    }
+
+    fn step_for_pipeline(
+        &mut self,
+        index: usize,
+        slot: usize,
+        mut pipeline: IndexedSerialPipeline,
+        body: u32,
+        span: Span,
+    ) -> Result<(), RuntimeError> {
+        if let Err(error) = self.evaluator.service_pending_signal(span) {
+            let _ = pipeline.finish(self.evaluator, Some(&error));
+            return Err(error);
+        }
+        if self.evaluator.shutting_down() {
+            return pipeline.finish(self.evaluator, None);
+        }
+        let pulled = {
+            let call = &mut self.calls[index];
+            pipeline.next(self.evaluator, &call.execution, &mut call.slots)
+        };
+        match pulled {
+            Ok(ControlFlow::Continue(Some(item))) => {
+                self.calls[index].slots[slot] = item;
+                self.calls[index].work.push(FrameWork::ForPipeline {
+                    slot,
+                    pipeline,
+                    body,
+                    span,
+                });
+                self.push_statement_block(index, body, span)
+            }
+            Ok(ControlFlow::Continue(None)) => pipeline.finish(self.evaluator, None),
+            Ok(ControlFlow::Break(value)) => {
+                pipeline.finish(self.evaluator, None)?;
+                self.complete_call(index, StmtFlow::Return(value))
+            }
+            Err(error) => {
+                let _ = pipeline.finish(self.evaluator, Some(&error));
+                Err(error)
+            }
+        }
     }
 
     fn select_expr_match_arm(
@@ -3038,6 +3168,8 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             matches!(
                 work,
                 FrameWork::ForItems { .. }
+                    | FrameWork::ForStream { .. }
+                    | FrameWork::ForPipeline { .. }
                     | FrameWork::ForStrLines { .. }
                     | FrameWork::While { .. }
             )
@@ -3128,6 +3260,9 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 FrameWork::ForStream {
                     mut stream, span, ..
                 } => self.evaluator.stream_cancel(&mut stream, span)?,
+                FrameWork::ForPipeline { mut pipeline, .. } => {
+                    pipeline.finish(self.evaluator, self.pending_error.as_ref())?
+                }
                 _ => {}
             }
         }

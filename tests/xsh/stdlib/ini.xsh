@@ -24,6 +24,9 @@ world""",
   let read_back = ini.read(config_path)?
   test.eq(read_back.server.host, "example.test")?
   test.error_kind(ini.write(config_path, {global: "again"}, overwrite: false), "ini-write")?
+  # Encoding fails before overwrite policy examines the existing destination.
+  test.error_kind(ini.write(config_path, {global: 1}, overwrite: false), "ini-encode")?
+  test.eq(ini.read(config_path)?.global, "root")?
 }
 
 # The message of a rejected encode, or the empty string when the record encoded.

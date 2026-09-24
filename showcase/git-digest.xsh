@@ -46,7 +46,7 @@ proc main(...argv: List[Str]) [fs, process, error] {
   print ""
 
   # Per-file insertion/deletion counts from numstat
-  let numstat_out = run.text "git" "diff" "--numstat" $range ?
+  let numstat_out = run.text "git" "-c" "core.quotePath=true" "diff" "--numstat" $range ?
 
   let file_stats: List[FileStats] = numstat_out.lines()
     |> where .trim() != ""

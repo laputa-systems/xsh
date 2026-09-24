@@ -379,7 +379,8 @@ Signal servicing happens only at evaluator-owned checkpoints. The runtime must
 checkpoint at these boundaries:
 
 - before and after root top-level statements;
-- before and after block statements;
+- before and after block statements, including statements in auto-invoked
+  `main`;
 - loop iteration boundaries;
 - before and after deferred cleanup actions;
 - process wait polls for `run`, pipelines, captures, `process.run`, and

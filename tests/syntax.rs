@@ -2366,6 +2366,17 @@ pure push_row(rows: List[Record]) -> List[Record] {
 }
 
 #[test]
+fn formatter_keeps_expanded_single_record_call_stable() {
+    let source = "proc example() {\n  return RepoPlan({repo: resolve_repo_root(parsed.repo)?, all: parsed.all, roots: parsed.roots, target: parsed.target, output: parsed.output})\n}\n";
+    let first = Formatter::new().format_source(SourceId::new(0), source);
+    assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
+    assert!(first.formatted.contains("return RepoPlan({\n"));
+    let second = Formatter::new().format_source(SourceId::new(0), &first.formatted);
+    assert!(second.diagnostics.is_empty(), "{:?}", second.diagnostics);
+    assert_eq!(second.formatted, first.formatted);
+}
+
+#[test]
 fn formatter_preserves_indented_multiline_format_strings() {
     let source = "proc write_line(text: Str, name: Str) [fs, error] {
   text.write_atomic(f\"\"\"hello ${name}

@@ -33,7 +33,7 @@ ${body}
   fs.chmod(tool_path, 0o755)?
 }
 
-proc test_build_failure_stops_at_the_cargo_boundary(ctx: TestContext) [fs, error] {
+proc test_build_failure_stops_at_the_cargo_boundary(ctx: TestContext) [fs, env, error] {
   let root = test.temp_dir(ctx, name: "build-failure")?
   let tools = fp"${root}/tools"
   tools.mkdir()?
@@ -46,6 +46,7 @@ proc test_build_failure_stops_at_the_cargo_boundary(ctx: TestContext) [fs, error
     f"""p"${cargo_marker.display()}".write("cargo")?
 abort(23)""",
   )?
+  let inherited_path = env.get_or("PATH", "")?
   let result = test.run_script(
     ctx,
     f"""
@@ -60,7 +61,10 @@ match build.build(ctx) {
 }
 """,
     [],
-    {PATH: tools.display(), XSH_MODULE_PATH: fp"${repository}/dev".display()},
+    {
+      PATH: f"${tools.display()}:${inherited_path}",
+      XSH_MODULE_PATH: fp"${repository}/dev".display(),
+    },
   )?
   test.ok(result.success, result.stderr)?
   test.contains(result.stdout, "[build target=x86_64-unknown-linux-musl] cargo build", result.stdout)?
@@ -249,7 +253,6 @@ proc test_make_facade_only_delegates_to_the_development_entrypoint() [fs, error]
   let facade = p"Makefile".read_text()?
 
   for command in [
-    "XSH_DEV ?= target/debug/xsh",
     "$(XSH_DEV) dev/main.xsh --",
     "cargo dev",
     "$(DEV) lint --fix",
@@ -264,6 +267,31 @@ proc test_make_facade_only_delegates_to_the_development_entrypoint() [fs, error]
   for forbidden in ["cargo build", "cargo test", "sh -c", "bash -c", "docker run"] {
     test.ok(forbidden not in facade, facade)?
   }
+}
+
+proc test_make_facade_bootstraps_by_default_and_honors_an_explicit_binary(ctx: TestContext) [fs, process, error] {
+  let root = test.temp_dir(ctx, name: "make-facade")?
+  fp"${root}/Makefile".write(p"Makefile".read_text()?)?
+  let stale_dir = fp"${root}/target/debug"
+  stale_dir.mkdir(parents: true)?
+  fp"${stale_dir}/xsh".write("stale binary")?
+  let output = fp"${root}/make-output.txt"
+
+  let default = process.command {
+    cwd = root
+    stdout = output
+    run make -n build
+  }
+  test.ok(process.run(default)?.exited_with(0))?
+  test.eq(output.read_text()?, "cargo dev build\n")?
+
+  let override = process.command {
+    cwd = root
+    stdout = output
+    run make -n build "XSH_DEV=/missing/xsh"
+  }
+  test.ok(process.run(override)?.exited_with(0))?
+  test.eq(output.read_text()?, "/missing/xsh dev/main.xsh -- build\n")?
 }
 
 proc test_codesign_failure_stops_darwin_installation(ctx: TestContext) [fs, error] {

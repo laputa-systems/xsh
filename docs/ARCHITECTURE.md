@@ -107,7 +107,9 @@ are `NetRuntimeOwner`, `NetOperation`, `request_many_with_runtime`,
 
 There is no JIT, green-thread scheduler, or async task runtime in the execution
 path. The checked arena is lowered into a compact verified indexed store before
-execution. `src/runtime/eval.rs` and its focused runtime modules execute borrowed
+execution. `src/runner.rs` shares the owned parsed arena between the full
+checker and compact lowering, avoiding a second arena copy during startup.
+`src/runtime/eval.rs` and its focused runtime modules execute borrowed
 instruction and driver payloads while coordinating host processes, streams,
 cwd/env state, defers, signals, and trace events. Process forms and other
 OS-facing operations remain explicit indexed host-operation boundaries. The
@@ -115,6 +117,11 @@ normal script runner and native-test harness execute the same verified indexed
 representation. There is no arena execution mode or compatibility interpreter.
 Runtime changes should preserve source-visible order, explicit boundaries, and
 traceable failure paths before pursuing cleverness.
+`src/runtime/eval/lowered_run/indexed_run/serial_pipeline.rs` handles live
+serial stage prefixes, pulling one source row through all supported stages
+before the next. It stops at bounded terminals, collects at a value boundary,
+and materializes before an unsupported stage. Other indexed pipeline shapes
+remain in `src/runtime/eval/lowered_run/indexed_run.rs`.
 
 ## Embedded Standard Library
 
@@ -135,6 +142,41 @@ never scans a directory, reads the environment, or consults the filesystem when
 the executable runs, and no installed stdlib directory is required. Retained
 sources and diagnostics ship in normal binaries.
 
+`bytes.human` and `time.duration_compact` retain native operations after their
+per-call B0 regressions were measured, so they have no embedded source module.
+`tui.left_pad` and `tui.right_pad` also retain their native visible-width scan;
+the TUI escape-sequence producers remain in `stdlib/tui.xsh`. Their measured
+dispositions are in `bench/stdlib-port/README.md`.
+The `cli` argument policy is native in `src/modules/cli.rs`; the script policy's
+repeated calls and record conversions missed the B0 CLI batch budgets. The
+public signatures and argument policy remain in `crates/xsh-registry` and
+`docs/SPEC.md`.
+`shlex.quote` and `shlex.join` use `src/modules/shlex.rs` after their embedded
+implementations missed both fixed quoting batch budgets. The quoting contract
+and native XSH tests remain unchanged.
+`ini.encode` and `ini.write` use `src/modules/ini.rs` after the embedded encoder
+missed the 1,000-key B0 workload on both hosts. The decoder was already native;
+the public INI contract and native XSH tests remain unchanged.
+`mime.lookup_ext`, `mime.lookup_path`, and `mime.parse` use
+`src/modules/mime.rs` after the embedded implementation missed the 500-lookup
+B0 workload on both hosts. The host overlay is read at each lookup, including
+each candidate suffix of a path; no persistent table is introduced.
+`json.get`, `json.set`, and `json.remove` use `src/modules/json.rs` after the
+embedded path policy missed the 400-round B0 workload on both hosts.
+`json.encode_lines` remains in the small `stdlib/json.xsh` module because its
+bulk composition already passes B0 by a large margin.
+`env.get_or`, `env.bool`, and `env.int` use their native scoped-overlay path
+after the embedded conversions missed the macOS B0 batch. The environment
+module has no embedded source. `hash.parse_check_line` uses
+`src/modules/hash.rs` after its embedded parser missed the macOS B0 batch;
+`hash.verify_file` retains the separate, passing `stdlib/hash.xsh` policy.
+`Str.wrap` and `Str.fields` use `src/modules/text.rs` after the complete
+Unicode wrapping workload exceeded B0 with embedded policy. Their public
+signatures and native XSH tests are unchanged; `stdlib/text.xsh` and the
+unused script-method selection table were removed. `wrap_line` iterates word
+slices and tracks scalar columns once per piece, retaining the native greedy
+wrapping contract without per-word chunk vectors.
+
 **Preparation.** `src/loader.rs` extends ordinary preparation:
 
 1. Parse the entry and its statically loaded user-module graph.
@@ -143,6 +185,11 @@ sources and diagnostics ship in normal binaries.
    conservative: over-selection prepares an implementation the program never
    calls, while under-selection would be a preparation defect. A referenced
    user-code loading route (`module.load`) selects the complete applicable set.
+   The set comes from the registry's bindings for the current target; catalog
+   sources that have no binding on this target are not prepared. The catalog
+   still embeds those sources so builds for other targets can use them.
+   All current script bindings are module functions. Text methods are native,
+   so receiver fields do not trigger embedded preparation.
 3. Each selected module is parsed at most once into the same arena as an
    *internal* module and checked with the program.
 4. `lower_script_module_call` / `lower_script_method_call` in
@@ -160,8 +207,12 @@ target binds per target: `linux_text_entry` in
 `crates/xsh-registry/src/signature/modules.rs` selects the script binding on
 Linux and the existing native `sig` elsewhere. macOS keeps its native behavior;
 the superseded Linux-only policy bodies have been removed. The Linux text policy
-(R12) uses this binding. The gated Linux prototypes that were measured and
-reverted use it no longer; their dispositions are in `STDLIB-PORT.md`.
+(R12) uses this binding for `linux.meminfo`, `unix.uptime_seconds`,
+`system.memory`, and `system.os_release`. `linux.modules` uses its retained
+native stream on every target after its script producer failed the full-scan B0
+gate. The gated Linux prototypes that were measured and reverted use the
+binding no longer; their dispositions are in
+`bench/stdlib-port/README.md`.
 
 **Namespace integrity.** `ArenaProgram::modules` entries carry an `internal`
 flag. Internal modules use the reserved namespace `<xsh-stdlib:IDENTITY>`, a
@@ -171,8 +222,13 @@ from the unqualified declaration tables, from the global top-level name set, and
 from user-module collection. `xsh::frontend::stdlib_preparation` exposes
 test-only preparation counters behind the existing `native-tests` feature.
 
-The remaining port work and per-group dispositions live in `STDLIB-PORT.md`;
-raw benchmark results live under `bench/stdlib-port/`.
+The private bridge operations remain restricted by verifier provenance:
+`BridgeTypeName` belongs to JSON Lines; `append_bytes` belongs to Linux text
+policy. The CLI policy returned to
+`src/modules/cli.rs` after the measured script path failed the B0 batch gate.
+`IMPROVEMENT-BACKLOG.md` owns remaining work;
+`bench/stdlib-port/README.md` owns measured dispositions and points to raw
+results in that directory.
 
 ## Executable IR Ownership
 

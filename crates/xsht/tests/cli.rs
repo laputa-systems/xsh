@@ -1,11 +1,29 @@
 #![allow(clippy::single_call_fn)]
 
 use std::fs;
+use std::os::unix::ffi::OsStringExt;
 use std::process::Command;
 use std::sync::Mutex;
 use tempfile::TempDir;
 
 static SIGNAL_TEST_LOCK: Mutex<()> = Mutex::new(());
+
+#[test]
+fn xsht_reports_non_utf8_argument_without_panicking() {
+    let raw_path = std::ffi::OsString::from_vec(b"raw\xffpath.xsh".to_vec());
+    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+        .arg("check")
+        .arg(raw_path)
+        .output()
+        .expect("run xsht");
+
+    assert_eq!(output.status.code(), Some(2));
+    assert!(output.stdout.is_empty());
+    assert_eq!(
+        String::from_utf8(output.stderr).unwrap(),
+        "xsht: argument 2 is not valid UTF-8\n"
+    );
+}
 
 #[test]
 fn xsht_top_level_help_is_a_complete_hybrid_reference() {

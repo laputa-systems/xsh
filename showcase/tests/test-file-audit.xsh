@@ -26,3 +26,28 @@ proc test_file_audit_findings(ctx: TestContext) [fs, process, error] {
     test.contains(output, "setuid-setgid-file suid.sh")?
   }
 }
+
+proc test_file_audit_distinguishes_non_utf8_sibling_paths(ctx: TestContext) [fs, process, env, error] {
+  if system.uname()?.sysname != "Linux" {
+    test.skip("creating non-UTF-8 path components requires the pinned Linux filesystem")
+    return
+  }
+
+  let parent = test.temp_dir(ctx, name: "file-audit-byte-paths")?
+  let prefix = bytes.from_text(parent.display())
+  let root_bytes = bytes.concat([prefix, b"/", b"\xff"])
+  let outside_bytes = bytes.concat([prefix, b"/", b"\xfe"])
+  let root = Path.parse_bytes(root_bytes)?
+  let outside = Path.parse_bytes(outside_bytes)?
+  root.mkdir()?
+  outside.mkdir()?
+  let root_alias = fp"${parent}/root-alias"
+  fs.symlink(root, root_alias)?
+  let target = Path.parse_bytes(bytes.concat([outside_bytes, b"/target"]))?
+  let link = Path.parse_bytes(bytes.concat([root_bytes, b"/escape"]))?
+  target.write("outside")?
+  fs.symlink(target, link)?
+
+  let output = run.text "xsh" "showcase/file-audit.xsh" -- --root $root_alias ?
+  test.contains(output, "escaping-symlink escape")?
+}

@@ -52,3 +52,43 @@ fn read_line_bytes(stdin: BorrowedFd<'_>, out: &mut Vec<u8>) -> io::Result<()> {
         }
     }
 }
+
+pub(crate) fn left_pad(text: &str, width: i64) -> String {
+    pad(text, width, true)
+}
+
+pub(crate) fn right_pad(text: &str, width: i64) -> String {
+    pad(text, width, false)
+}
+
+fn pad(text: &str, width: i64, left: bool) -> String {
+    let width = width.max(0) as usize;
+    let visible = visible_width(text);
+    if visible >= width {
+        return text.to_string();
+    }
+    let spaces = " ".repeat(width - visible);
+    if left {
+        format!("{spaces}{text}")
+    } else {
+        format!("{text}{spaces}")
+    }
+}
+
+fn visible_width(text: &str) -> usize {
+    let mut width = 0usize;
+    let mut chars = text.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch == '\x1b' && chars.peek() == Some(&'[') {
+            chars.next();
+            for inner in chars.by_ref() {
+                if ('@'..='~').contains(&inner) {
+                    break;
+                }
+            }
+        } else if ch != '\r' && ch != '\n' {
+            width += 1;
+        }
+    }
+    width
+}

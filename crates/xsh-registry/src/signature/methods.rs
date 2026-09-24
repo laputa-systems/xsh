@@ -665,14 +665,12 @@ pub(in crate::signature) fn value_methods() -> Vec<MethodReceiverSig> {
                     true,
                     RuntimeOp::TextSplit,
                 ),
-                script_method(
+                method(
                     "fields",
                     vec![default_param("delimiter", Type::Str)],
-                    Type::List(Box::new(Type::Str)),
+                    MethodReturn::Type(Type::List(Box::new(Type::Str))),
                     true,
                     RuntimeOp::TextFields,
-                    "text",
-                    "fields",
                 ),
                 method(
                     "replace",
@@ -681,14 +679,12 @@ pub(in crate::signature) fn value_methods() -> Vec<MethodReceiverSig> {
                     true,
                     RuntimeOp::TextReplace,
                 ),
-                script_method(
+                method(
                     "wrap",
                     vec![param("width", Type::Int)],
-                    Type::List(Box::new(Type::Str)),
+                    MethodReturn::Type(Type::List(Box::new(Type::Str))),
                     true,
                     RuntimeOp::TextWrap,
-                    "text",
-                    "wrap",
                 ),
                 method(
                     "translate",
@@ -1163,29 +1159,6 @@ fn method_with_arg_check(
         MethodSig {
             sig: sig_with_arg_check(params, concrete_return, pure, op, arg_check),
             return_ty,
-        },
-    )
-}
-
-/// Declare a method whose implementation is an embedded XSH function.
-///
-/// The receiver is the implementation function's first parameter; the declared
-/// parameters follow it. `MethodReturn::Receiver` is not expressible here
-/// because an implementation function always states its concrete result type.
-fn script_method(
-    name: &'static str,
-    params: Vec<ParamSig>,
-    return_ty: Type,
-    pure: bool,
-    op: RuntimeOp,
-    module: &'static str,
-    function: &'static str,
-) -> (&'static str, MethodSig) {
-    (
-        name,
-        MethodSig {
-            sig: super::script_sig(params, return_ty.clone(), pure, op, module, function),
-            return_ty: MethodReturn::Type(return_ty),
         },
     )
 }

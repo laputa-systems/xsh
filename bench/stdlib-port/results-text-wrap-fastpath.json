@@ -1,0 +1,412 @@
+{
+  "purpose": "paired short-line text.wrap optimization, retaining the original acceptance workload",
+  "method": "three counterbalanced rounds; five uninstrumented samples per side per round; warmups and exact output/status parity",
+  "fixed_workload": {
+    "script": "text_wrap_unicode.xsh",
+    "script_sha256": "60874cce5367f73e5268830779b326054897aa96f362af3df277e278b9f104fa",
+    "fixture": "fixtures/unicode.txt",
+    "fixture_sha256": "e79255e2291ef2494644e29bab78a32a0605e9cdfab8576b39d9d276a3d8e8c7",
+    "input_lines": 26613,
+    "input_unique_lines": 6,
+    "input_max_scalar_columns": 61,
+    "wrap_width": 72,
+    "output": "1117776"
+  },
+  "macos_arm64": {
+    "before_binary_sha256": "6572c617af7c6e7266c94063ed6e41688b614de00fe8fe1754a94e6ccf923856",
+    "after_binary_sha256": "025f77d9aee8f99233a0f8807a4a6440d1cfe210607659c82fb16157bb8860a8",
+    "fixed_workload_rounds": [
+      {
+        "samples_ms": {
+          "before": [
+            913.514041,
+            899.24,
+            903.471833,
+            895.638875,
+            901.999417
+          ],
+          "after": [
+            461.976791,
+            468.675459,
+            465.188375,
+            465.758292,
+            465.736542
+          ]
+        },
+        "medians_ms": {
+          "before": 901.999417,
+          "after": 465.736542
+        }
+      },
+      {
+        "samples_ms": {
+          "before": [
+            892.0355,
+            901.24675,
+            903.831458,
+            895.61925,
+            898.983792
+          ],
+          "after": [
+            466.275625,
+            463.604917,
+            462.398,
+            467.880041,
+            463.104541
+          ]
+        },
+        "medians_ms": {
+          "before": 898.983792,
+          "after": 463.604917
+        }
+      },
+      {
+        "samples_ms": {
+          "before": [
+            905.213375,
+            903.457125,
+            901.407125,
+            900.456458,
+            900.38075
+          ],
+          "after": [
+            462.2635,
+            467.427625,
+            464.717708,
+            462.747708,
+            462.8705
+          ]
+        },
+        "medians_ms": {
+          "before": 901.407125,
+          "after": 462.8705
+        }
+      }
+    ],
+    "long_line_control": {
+      "fixture_generator": "line = ('alpha beta caf\\u00e9 \\u65e5\\u672c \\U0001f600 ' * 35).strip(); text = (line + '\\n') * 750",
+      "fixture_sha256": "813862f8456748fca8a337922c2ea1970e53ee72047a5f4180a5510bd07cd1b7",
+      "fixture_bytes": 761250,
+      "script": "text_wrap_unicode.xsh with the fixture path replaced by the generated file",
+      "output": "837006",
+      "rounds": [
+        {
+          "samples_ms": {
+            "before": [
+              848.951209,
+              854.423209,
+              849.636292,
+              852.716459,
+              854.286458
+            ],
+            "after": [
+              850.516334,
+              852.060708,
+              848.225833,
+              850.631541,
+              854.889625
+            ]
+          },
+          "medians_ms": {
+            "before": 852.716459,
+            "after": 850.631541
+          }
+        },
+        {
+          "samples_ms": {
+            "before": [
+              848.949209,
+              847.76175,
+              853.104208,
+              852.81775,
+              850.83025
+            ],
+            "after": [
+              848.961417,
+              853.213708,
+              849.315333,
+              847.002458,
+              847.184917
+            ]
+          },
+          "medians_ms": {
+            "before": 850.83025,
+            "after": 848.961417
+          }
+        },
+        {
+          "samples_ms": {
+            "before": [
+              854.103584,
+              851.783209,
+              849.473625,
+              848.104166,
+              845.0905
+            ],
+            "after": [
+              845.537333,
+              849.017416,
+              852.560958,
+              855.785333,
+              851.799291
+            ]
+          },
+          "medians_ms": {
+            "before": 849.473625,
+            "after": 851.799291
+          }
+        }
+      ]
+    },
+    "execution_allocations": {
+      "before": {
+        "live_bytes": 0,
+        "peak_bytes": 26317720,
+        "alloc_count": 9779003,
+        "alloc_bytes": 974627679
+      },
+      "after": {
+        "live_bytes": 0,
+        "peak_bytes": 26316024,
+        "alloc_count": 6747605,
+        "alloc_bytes": 727048351
+      },
+      "pad_batch_control": {
+        "live_bytes": 0,
+        "peak_bytes": 249580,
+        "alloc_count": 276807,
+        "alloc_bytes": 47376843
+      },
+      "fmt_batch_control": {
+        "live_bytes": 0,
+        "peak_bytes": 14960,
+        "alloc_count": 148915,
+        "alloc_bytes": 18089967
+      }
+    },
+    "b0_comparison": {
+      "before_binary_sha256": "1b2ba6c98463b5394a3d28d256c8228c65c91107869365d5661c558b0b6cc149",
+      "after_binary_sha256": "025f77d9aee8f99233a0f8807a4a6440d1cfe210607659c82fb16157bb8860a8",
+      "output_parity_checked": true,
+      "rounds": [
+        {
+          "samples_ms": {
+            "before": [
+              168.422083,
+              166.23575,
+              169.660708,
+              169.001375,
+              170.149125
+            ],
+            "after": [
+              455.678333,
+              465.157375,
+              456.888625,
+              461.972625,
+              461.232417
+            ]
+          },
+          "medians_ms": {
+            "before": 169.001375,
+            "after": 461.232417
+          }
+        },
+        {
+          "samples_ms": {
+            "before": [
+              165.542292,
+              167.364291,
+              168.167834,
+              165.540417,
+              166.962958
+            ],
+            "after": [
+              460.383917,
+              460.953625,
+              459.036791,
+              460.842542,
+              465.235417
+            ]
+          },
+          "medians_ms": {
+            "before": 166.962958,
+            "after": 460.842542
+          }
+        },
+        {
+          "samples_ms": {
+            "before": [
+              161.0495,
+              166.379291,
+              161.420584,
+              163.813792,
+              167.057791
+            ],
+            "after": [
+              463.671833,
+              457.546,
+              461.055833,
+              466.542708,
+              470.557167
+            ]
+          },
+          "medians_ms": {
+            "before": 163.813792,
+            "after": 463.671833
+          }
+        }
+      ],
+      "median_round_delta_ms": 293.879584,
+      "end_to_end_budget_formula": "max(0.10 * B0, 2 ms)"
+    }
+  },
+  "linux_arm64_musl": {
+    "image_id": "sha256:648c39bb31743a9f07a36e38f21dab5301155ec20a79e2d2a9c89cb5b2595948",
+    "before_binary_sha256": "fd73053ad4a97414eb1c098bec491d6d4514d0e05920c1df626ccf104967551e",
+    "after_binary_sha256": "8969e3f8d5279c99bea9c12806155ba0377d40d3bd93870f31e3393f6c815d71",
+    "output_parity_checked_separately": true,
+    "fixed_workload_rounds": [
+      {
+        "samples_ms": {
+          "before": [
+            1075.355402,
+            1097.971685,
+            1070.588809,
+            1071.923949,
+            1100.531254
+          ],
+          "after": [
+            527.540218,
+            535.147757,
+            540.817651,
+            531.493844,
+            525.830033
+          ]
+        },
+        "medians_ms": {
+          "before": 1075.355402,
+          "after": 531.493844
+        }
+      },
+      {
+        "samples_ms": {
+          "before": [
+            1069.275795,
+            1086.338852,
+            1091.118028,
+            1072.37212,
+            1088.848463
+          ],
+          "after": [
+            533.744492,
+            535.222716,
+            524.66902,
+            536.247143,
+            531.728346
+          ]
+        },
+        "medians_ms": {
+          "before": 1086.338852,
+          "after": 533.744492
+        }
+      },
+      {
+        "samples_ms": {
+          "before": [
+            1070.926605,
+            1069.479297,
+            1064.776289,
+            1070.145179,
+            1073.805968
+          ],
+          "after": [
+            539.861266,
+            533.799159,
+            540.033267,
+            540.332438,
+            522.033868
+          ]
+        },
+        "medians_ms": {
+          "before": 1070.145179,
+          "after": 539.861266
+        }
+      }
+    ],
+    "b0_comparison": {
+      "before_binary_sha256": "bcb5222a0d9a42b011c058dda532c67e4d475f1645f10b25c4ad1d0b910e4d5f",
+      "after_binary_sha256": "8969e3f8d5279c99bea9c12806155ba0377d40d3bd93870f31e3393f6c815d71",
+      "output_parity_checked_separately": true,
+      "rounds": [
+        {
+          "samples_ms": {
+            "before": [
+              168.413472,
+              165.454909,
+              163.477312,
+              173.252464,
+              164.264275
+            ],
+            "after": [
+              527.157484,
+              542.622884,
+              534.527787,
+              522.289825,
+              532.393271
+            ]
+          },
+          "medians_ms": {
+            "before": 165.454909,
+            "after": 532.393271
+          }
+        },
+        {
+          "samples_ms": {
+            "before": [
+              165.358783,
+              168.979017,
+              168.346055,
+              167.307214,
+              168.122886
+            ],
+            "after": [
+              533.519863,
+              541.775587,
+              544.314563,
+              523.253207,
+              535.650378
+            ]
+          },
+          "medians_ms": {
+            "before": 168.122886,
+            "after": 535.650378
+          }
+        },
+        {
+          "samples_ms": {
+            "before": [
+              167.585047,
+              172.939625,
+              159.170863,
+              161.51392,
+              172.842292
+            ],
+            "after": [
+              527.767023,
+              535.676452,
+              531.242713,
+              524.017704,
+              524.899961
+            ]
+          },
+          "medians_ms": {
+            "before": 167.585047,
+            "after": 527.767023
+          }
+        }
+      ],
+      "median_round_delta_ms": 366.93836200000004,
+      "end_to_end_budget_formula": "max(0.10 * B0, 2 ms)"
+    }
+  }
+}

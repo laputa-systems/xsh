@@ -58,6 +58,8 @@ export proc ensure_image(ctx: context.Context) [process, env, error, io] -> Resu
 }
 
 ## Constructs a direct `docker run` argv ending in a Cargo-to-XSH internal command.
+## The inner lifecycle creates a new context, so target and profile travel in
+## the container environment rather than relying on host process inheritance.
 export pure internal_argv(
   ctx: context.Context,
   image: Str,
@@ -91,6 +93,8 @@ export pure internal_argv(
       "/work",
       "-e",
       f"TARGET=${ctx.target.triple}",
+      "-e",
+      f"DIST_PROFILE=${ctx.profile}",
       "-e",
       "CARGO_TARGET_DIR=/work/target",
       "-e",

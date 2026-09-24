@@ -4,6 +4,7 @@ proc test_bytes_construction_encoding_and_copy(ctx: TestContext) [fs, error] {
   test.eq(bytes.human(-1), "-")?
   test.eq(bytes.human(0), "0")?
   test.eq(bytes.human(9), "9")?
+  test.eq(bytes.human(1023), "1023")?
   test.eq(bytes.human(1024), "1.0K")?
   test.eq(bytes.human(1536), "1.5K")?
   test.eq(bytes.human(10 * 1024), "10K")?

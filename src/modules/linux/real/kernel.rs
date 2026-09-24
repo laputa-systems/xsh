@@ -4,21 +4,22 @@ use super::{DEV_KMSG, SYSLOG_ACTION_READ_ALL};
 use crate::modules::linux::str_value;
 use crate::runtime::value::{LiveStream, RuntimeError, StreamValue, Value};
 use crate::source::Span;
-use std::fs::OpenOptions;
+use std::fs::{self, OpenOptions};
 use std::io::{self, Read};
 use std::os::unix::fs::OpenOptionsExt;
+use std::sync::Arc;
 
-// Superseded Linux bodies, deliberately not kept.
+const PROC_MODULES: &str = "/proc/modules";
+
+// Superseded Linux meminfo body, deliberately not kept.
 //
-// On Linux the registry binds `linux.meminfo` and `linux.modules` to the
-// embedded `linux_text` module, which owns both policies: the `/proc/meminfo`
-// and `/proc/modules` paths, the parsing, the dry-run gate, and the
-// `linux-meminfo` / `linux-modules` error kinds. The native bodies that used to
-// do that work were a second implementation of the same policy, so they were
-// removed once the embedded entries were verified on Linux.
+// On Linux the registry binds `linux.meminfo` to the embedded `linux_text`
+// module, which owns its `/proc/meminfo` path, parsing, dry-run gate, and
+// `linux-meminfo` error kind. Its native body was removed once the embedded
+// entry was verified on Linux.
 //
-// Nothing on Linux reaches these arms — the embedded implementation is
-// selected at lowering time — so they report the defect of being reached at
+// Nothing on Linux reaches this arm — the embedded implementation is
+// selected at lowering time — so it reports the defect of being reached at
 // all rather than answering from a retired implementation.
 fn retired_text_entry(name: &str, span: Span) -> RuntimeError {
     RuntimeError::new(
@@ -33,7 +34,34 @@ pub(crate) fn meminfo(span: Span) -> Result<Value, RuntimeError> {
 }
 
 pub(crate) fn modules(span: Span) -> Result<Value, RuntimeError> {
-    Err(retired_text_entry("linux.modules", span))
+    let text = match fs::read_to_string(PROC_MODULES) {
+        Ok(text) => text,
+        Err(error) => return Ok(io_error("linux-modules", error, span)),
+    };
+    Ok(Value::ok(Value::stream(StreamValue::from_live(
+        "linux.modules",
+        ModuleStream {
+            lines: text
+                .lines()
+                .filter(|line| !line.trim().is_empty())
+                .map(str::to_owned)
+                .collect::<Vec<_>>()
+                .into_iter(),
+        },
+    ))))
+}
+
+struct ModuleStream {
+    lines: std::vec::IntoIter<String>,
+}
+
+impl LiveStream for ModuleStream {
+    fn next(&mut self, span: Span) -> Result<Option<Value>, RuntimeError> {
+        self.lines
+            .next()
+            .map(|line| parse_module_line(&line, span))
+            .transpose()
+    }
 }
 
 pub(crate) fn dmesg(span: Span) -> Result<Value, RuntimeError> {
@@ -76,6 +104,54 @@ impl LiveStream for KernelMessageStream {
     fn next(&mut self, _span: Span) -> Result<Option<Value>, RuntimeError> {
         Ok(self.messages.next().map(str_value))
     }
+}
+
+fn parse_module_line(line: &str, span: Span) -> Result<Value, RuntimeError> {
+    let mut fields = line.split_whitespace();
+    let name = fields
+        .next()
+        .ok_or_else(|| malformed_modules_line(span))?
+        .to_string();
+    let size = parse_i64_field(fields.next(), "size", span)?;
+    let _used_by_count = parse_i64_field(fields.next(), "use count", span)?;
+    let used_by = fields.next().ok_or_else(|| malformed_modules_line(span))?;
+    if fields.next().is_none() || fields.next().is_none() {
+        return Err(malformed_modules_line(span));
+    }
+
+    Ok(Value::Record(crate::runtime::value::RecordMap::from([
+        (Arc::from("name"), str_value(name)),
+        (Arc::from("size"), Value::Int(size)),
+        (
+            Arc::from("used_by"),
+            Value::List(
+                used_by
+                    .trim_end_matches(',')
+                    .split(',')
+                    .filter(|item| !item.is_empty() && *item != "-")
+                    .map(|item| str_value(item.to_string()))
+                    .collect(),
+            ),
+        ),
+    ])))
+}
+
+fn malformed_modules_line(span: Span) -> RuntimeError {
+    RuntimeError::new("linux-modules", format!("malformed line in {PROC_MODULES}")).with_span(span)
+}
+
+fn parse_i64_field(field: Option<&str>, name: &str, span: Span) -> Result<i64, RuntimeError> {
+    let value = field.ok_or_else(|| {
+        RuntimeError::new("linux-modules", format!("missing {name} in {PROC_MODULES}"))
+            .with_span(span)
+    })?;
+    value.parse::<i64>().map_err(|_| {
+        RuntimeError::new(
+            "linux-modules",
+            format!("invalid {name} `{value}` in {PROC_MODULES}"),
+        )
+        .with_span(span)
+    })
 }
 
 fn read_kmsg() -> io::Result<Vec<String>> {

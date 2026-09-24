@@ -1,6 +1,7 @@
 #!/usr/bin/env -S xsh --
 # Backup Rotate
-# Keep the newest backup files by name and delete or preview older files.
+# Keep the newest direct backup files by name and delete or preview older files.
+# Active deletion is best effort; run it against a directory that is not changing.
 # Usage: xsh showcase/backup-rotate.xsh -- --dir DIR --keep N [--dry-run=false]
 # Example: xsh showcase/backup-rotate.xsh -- --dir backups --keep 7
 type Opts = {dir: Path, keep: Int, pattern: Str, dry_run: Bool, verbose: Bool}
@@ -38,8 +39,8 @@ proc main(...argv: List[Str]) [fs, error] {
   let name_re = if opts.pattern == "" { regex.compile(".")? } else { regex.compile(opts.pattern)? }
 
   # Sort descending by path so the lexicographically largest names (newest ISO dates) come first
-  let all_files = fs.files(dir)
-    |> where name_re.matches(.path.name())
+  let all_files = fs.ls(dir)
+    |> where .kind == "file" and name_re.matches(.path.name())
     |> sort-by --desc .path
 
   if all_files.len() == 0 {
@@ -67,11 +68,11 @@ proc main(...argv: List[Str]) [fs, error] {
       continue
     }
 
-    let action = if opts.dry_run { "would delete" } else { "delete" }
-    print f"${action}: ${name}"
-
-    if ! opts.dry_run {
-      entry.path.remove(missing_ok: true)?
+    if opts.dry_run {
+      print f"would delete: ${name}"
+    } else {
+      entry.path.remove()?
+      print f"delete: ${name}"
     }
 
     deleted += 1

@@ -6,6 +6,7 @@
 //! implementation namespace stays sealed. Algorithm parity lives in
 //! `tests/xsh/stdlib/`.
 
+use std::collections::BTreeSet;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
@@ -50,7 +51,8 @@ fn prepared_module_count(name: &str, source: &str) -> usize {
 }
 
 /// A01 — a static trivial program prepares zero embedded implementation
-/// modules; a simple script-backed call prepares exactly its module closure.
+/// modules; a script-backed call prepares exactly its module closure, while
+/// retained native text methods prepare none.
 #[test]
 fn preparation_is_proportional_to_referenced_standard_entries() {
     assert_eq!(
@@ -61,11 +63,11 @@ fn preparation_is_proportional_to_referenced_standard_entries() {
 
     assert_eq!(
         prepared_module_count(
-            "quote.xsh",
-            "proc main() [io] {\n  print shlex.quote(\"a b\")\n}\n"
+            "text-methods.xsh",
+            "proc main() [io] {\n  print \"a b\".fields().join(\"|\")\n  print \"a b\".wrap(2).join(\"|\")\n}\n"
         ),
-        1,
-        "one script-backed call prepares one embedded module"
+        0,
+        "native text methods must not prepare an embedded module"
     );
 
     assert_eq!(
@@ -73,8 +75,80 @@ fn preparation_is_proportional_to_referenced_standard_entries() {
             "unrelated.xsh",
             "proc main() [io] {\n  print bytes.human(2048)\n}\n"
         ),
+        0,
+        "native bytes.human must not prepare an embedded module"
+    );
+    assert_eq!(
+        prepared_module_count(
+            "native-cli.xsh",
+            "proc main() [io, error] {\n  print cli.parse([\"--count\", \"3\"], {count: {kind: \"Int\"}})?.count\n}\n"
+        ),
+        0,
+        "native cli.parse must not prepare an embedded module"
+    );
+    assert_eq!(
+        prepared_module_count(
+            "native-shlex.xsh",
+            "proc main() [io] {\n  print shlex.quote(\"a b\")\n  print shlex.join([\"a b\"])\n}\n"
+        ),
+        0,
+        "native shlex calls must not prepare an embedded module"
+    );
+    assert_eq!(
+        prepared_module_count(
+            "native-ini.xsh",
+            "proc main() [io, error, fs] {\n  print ini.encode({s: {k: \"v\"}})?\n  ini.write(p\"out.ini\", {s: {k: \"v\"}})?\n}\n"
+        ),
+        0,
+        "native INI calls must not prepare an embedded module"
+    );
+    assert_eq!(
+        prepared_module_count(
+            "native-mime.xsh",
+            "proc main() [io, error, fs] {\n  print mime.lookup_ext(\"gz\")\n  print mime.lookup_path(p\"a.gz\")\n  print mime.parse(\"text/plain\")?\n}\n"
+        ),
+        0,
+        "native MIME calls must not prepare an embedded module"
+    );
+    assert_eq!(
+        prepared_module_count(
+            "native-json-paths.xsh",
+            "proc main() [io, error] {\n  print json.get({a: 1}, [\"a\"])?\n  print json.set({a: 1}, [\"a\"], 2)?\n  print json.remove({a: 1}, [\"a\"])?\n}\n"
+        ),
+        0,
+        "native JSON path calls must not prepare the JSON-lines module"
+    );
+    assert_eq!(
+        prepared_module_count(
+            "script-json-lines.xsh",
+            "proc main() [io, error] {\n  print json.encode_lines([{a: 1}])?\n}\n"
+        ),
         1,
-        "unrelated modules must not be prepared"
+        "JSON Lines must still prepare its embedded implementation"
+    );
+    assert_eq!(
+        prepared_module_count(
+            "native-env-conversions.xsh",
+            "proc main() [io, env, error] {\n  print env.get_or(\"XSH_MISSING\", \"fallback\")?\n  print env.bool(\"XSH_FLAG\")?\n  print env.int(\"XSH_COUNT\")?\n}\n"
+        ),
+        0,
+        "native environment conversions must not prepare an embedded module"
+    );
+    assert_eq!(
+        prepared_module_count(
+            "native-check-line.xsh",
+            "proc main() [io, error] {\n  print hash.parse_check_line(\"ab  file\")?\n}\n"
+        ),
+        0,
+        "native checksum parsing must not prepare the verification policy"
+    );
+    assert_eq!(
+        prepared_module_count(
+            "script-verify-file.xsh",
+            "proc main() [fs, error] {\n  hash.verify_file(p\"file\", sha256: \"ab\")?\n}\n"
+        ),
+        1,
+        "file verification must still prepare its embedded implementation"
     );
 }
 
@@ -94,12 +168,12 @@ fn selection_ignores_names_that_are_not_script_backed_references() {
         "a binding named `load` must not prepare the whole catalog"
     );
 
-    // A native entry of a module that also has script-backed entries: `env.get`
-    // is native, `env.get_or` is not, so only the latter selects the module.
+    // A native entry of a module that also has script-backed entries:
+    // `hash.parse_check_line` is native, `hash.verify_file` is not.
     assert_eq!(
         prepared_module_count(
             "native-mixed.xsh",
-            "proc main() [io] {\n  print env.get(\"PATH\") ?? \"\"\n}\n"
+            "proc main() [io, error] {\n  print hash.parse_check_line(\"ab  file\")?\n}\n"
         ),
         0,
         "a native entry in a mixed module must not select its embedded module"
@@ -107,10 +181,37 @@ fn selection_ignores_names_that_are_not_script_backed_references() {
     assert_eq!(
         prepared_module_count(
             "script-mixed.xsh",
-            "proc main() [io] {\n  print env.get_or(\"XSH_UNSET_PATH\", \"\")\n}\n"
+            "proc main() [fs, error] {\n  hash.verify_file(p\"file\", sha256: \"ab\")?\n}\n"
         ),
         1,
         "the script-backed entry beside it selects its module"
+    );
+
+    // These hot-path calls use retained native operations. Referencing them
+    // alone must not prepare the time or tui embedded implementation.
+    assert_eq!(
+        prepared_module_count(
+            "native-duration.xsh",
+            "proc main() [io, time] {\n  print time.duration_compact(69)\n}\n"
+        ),
+        0,
+        "native duration formatting must not prepare the time module"
+    );
+    assert_eq!(
+        prepared_module_count(
+            "native-pad.xsh",
+            "proc main() [io] {\n  print tui.left_pad(\"x\", 3)\n  print tui.right_pad(\"x\", 3)\n}\n"
+        ),
+        0,
+        "native padding must not prepare the tui module"
+    );
+    assert_eq!(
+        prepared_module_count(
+            "script-tui.xsh",
+            "proc main() [io] {\n  print tui.red()\n}\n"
+        ),
+        1,
+        "script-backed tui sequences must still prepare their module"
     );
 
     // A module mentioned only as a `use` of that module's own name is not a
@@ -140,14 +241,14 @@ fn a_resolved_dynamic_loading_route_prepares_the_complete_set() {
     );
 }
 
-/// A03 — repeated references to one embedded module parse it once, including/// A03 — repeated references to one embedded module parse it once, including
+/// A03 — repeated references to one embedded module parse it once, including
 /// references that arrive through separately loaded user modules.
 #[test]
 fn repeated_references_parse_an_embedded_module_once() {
     assert_eq!(
         prepared_module_count(
             "both.xsh",
-            "proc main() [io] {\n  print shlex.quote(\"a\")\n  print shlex.join([\"b\"])\n}\n"
+            "proc main() [io] {\n  print tui.red()\n  print tui.bold()\n}\n"
         ),
         1,
         "two entries of one embedded module prepare it once"
@@ -157,12 +258,12 @@ fn repeated_references_parse_an_embedded_module_once() {
     write_script(
         &dir,
         "helper.xsh",
-        "export pure quoted(value: Str) -> Str {\n  return shlex.quote(value)\n}\n",
+        "export pure red_seq() -> Str {\n  return tui.red()\n}\n",
     );
     let entry = dir.join("entry.xsh");
     let count = prepared_module_count(
         entry.to_str().expect("utf-8 path"),
-        "use helper\n\nproc main() [io] {\n  print helper.quoted(\"a\")\n  print shlex.join([\"b\"])\n}\n",
+        "use helper\n\nproc main() [io] {\n  print helper.red_seq()\n  print tui.bold()\n}\n",
     );
     let _ = std::fs::remove_dir_all(&dir);
     assert_eq!(
@@ -182,7 +283,7 @@ fn execution_does_not_prepare_embedded_modules() {
     let script = write_script(
         &dir,
         "loop.xsh",
-        "proc main() [io] {\n  var i = 0\n  while i < 200 {\n    print shlex.quote(\"a b\")\n    i = i + 1\n  }\n}\n",
+        "proc main() [io] {\n  var i = 0\n  while i < 200 {\n    print tui.red()\n    i = i + 1\n  }\n}\n",
     );
 
     stdlib_preparation::reset();
@@ -206,7 +307,7 @@ fn execution_does_not_prepare_embedded_modules() {
     let failing = write_script(
         &dir,
         "failing.xsh",
-        "proc main() [io, error] {\n  print shlex.quote(\"a b\")\n  let value = \"x\".parse_int()?\n  print value\n}\n",
+        "proc main() [io, error] {\n  print tui.red()\n  let value = \"x\".parse_int()?\n  print value\n}\n",
     );
     stdlib_preparation::reset();
     let output = run_script(RunOptions {
@@ -334,10 +435,9 @@ fn a_loaded_module_calls_prepared_implementations() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// The number of embedded modules a build can prepare.
+/// The number of embedded modules public bindings can reach on this target.
 fn stdlib_catalog_size() -> usize {
-    // Counting through the loader keeps the expectation tied to the catalog
-    // rather than to a hand-maintained number.
+    // Keep a native-only control beside the target-aware registry expectation.
     let dir = temp_dir("catalog-size");
     let mut sources = String::new();
     for index in 0..64 {
@@ -356,10 +456,12 @@ fn stdlib_catalog_size() -> usize {
 }
 
 fn dynamic_catalog_size() -> usize {
-    prepared_module_count(
-        "catalog-probe.xsh",
-        "proc main() [io, error] {\n  let m = module.load(p\"missing.xsh\")?\n}\n",
-    )
+    xsh_registry::signature::api_spec()
+        .script_impls()
+        .into_iter()
+        .map(|(_, _, module)| module)
+        .collect::<BTreeSet<_>>()
+        .len()
 }
 
 /// A06 — a copied binary runs migrated APIs with no loose stdlib files, no
@@ -401,8 +503,8 @@ fn standard_implementations_cannot_be_replaced() {
     let dir = temp_dir("sealed");
     let hostile = dir.join("hostile");
     std::fs::create_dir_all(&hostile).expect("create hostile module root");
-    // A user module named `shlex` and one named after the implementation label
-    // both try to stand in for the real thing.
+    // A user module named after a native standard module and files named after
+    // internal implementation labels cannot replace standard bindings.
     for name in ["shlex", "stdlib", "target"] {
         write_script(
             &hostile,
@@ -410,6 +512,11 @@ fn standard_implementations_cannot_be_replaced() {
             "##! A hostile stand-in.\n\n## Quote a value.\nexport pure quote(value: Str) -> Str {\n  return \"COMPROMISED\"\n}\n",
         );
     }
+    write_script(
+        &hostile,
+        "tui.xsh",
+        "##! A hostile stand-in.\n\n## Return a color.\nexport pure red() -> Str {\n  return \"COMPROMISED\"\n}\n",
+    );
 
     let script = write_script(
         &dir,
@@ -418,6 +525,8 @@ fn standard_implementations_cannot_be_replaced() {
             "proc main() [io] {\n",
             "  print shlex.quote(\"a b\")\n",
             "  print shlex.join([\"a b\"])\n",
+            "  print \"a b\".fields().join(\"|\")\n",
+            "  print tui.red()\n",
             "  print bytes.human(2048)\n",
             "}\n",
         ),
@@ -437,7 +546,7 @@ fn standard_implementations_cannot_be_replaced() {
     );
     assert_eq!(
         String::from_utf8_lossy(&output.stdout),
-        "'a b'\n'a b'\n2.0K\n"
+        "'a b'\n'a b'\na|b\n\u{1b}[31m\n2.0K\n"
     );
 
     // Loading the hostile module explicitly still yields ordinary user
@@ -472,7 +581,7 @@ fn standard_implementations_cannot_be_replaced() {
 fn private_implementation_helpers_are_not_nameable() {
     let count = prepared_module_count(
         "private.xsh",
-        "proc main() [io] {\n  print safe_byte(65)\n}\n",
+        "proc main() [io] {\n  print lines_error(\"nope\")\n}\n",
     );
     assert_eq!(count, 0, "a user reference to a helper prepares nothing");
 
@@ -480,7 +589,7 @@ fn private_implementation_helpers_are_not_nameable() {
     let script = write_script(
         &dir,
         "private.xsh",
-        "proc main() [io] {\n  print safe_byte(65)\n}\n",
+        "proc main() [io] {\n  print lines_error(\"nope\")\n}\n",
     );
     let output = std::process::Command::new(env!("CARGO_BIN_EXE_xsh"))
         .arg(&script)
@@ -500,20 +609,18 @@ fn private_implementation_helpers_are_not_nameable() {
 #[test]
 fn same_spelled_user_helpers_cannot_capture_implementation_helpers() {
     let dir = temp_dir("capture");
+    std::fs::write(dir.join("data.txt"), "abc").expect("write checksum input");
     let script = write_script(
         &dir,
         "capture.xsh",
         concat!(
-            "pure safe_byte(byte: Int) -> Bool {\n",
-            "  return true\n",
+            "pure is_hex_text(value: Str) -> Bool {\n",
+            "  return false\n",
             "}\n\n",
-            "pure quote(value: Str) -> Str {\n",
-            "  return \"USER\"\n",
-            "}\n\n",
-            "proc main() [io] {\n",
-            "  print shlex.quote(\"a b\")\n",
-            "  print safe_byte(1)\n",
-            "  print quote(\"x\")\n",
+            "proc main() [io, fs, error] {\n",
+            "  let checksum = hash.sha256(p\"data.txt\")?.hex()\n",
+            "  hash.verify_file(p\"data.txt\", sha256: checksum)?\n",
+            "  print is_hex_text(\"abc\")\n",
             "}\n",
         ),
     );
@@ -530,20 +637,19 @@ fn same_spelled_user_helpers_cannot_capture_implementation_helpers() {
     );
     assert_eq!(
         String::from_utf8_lossy(&output.stdout),
-        "'a b'\ntrue\nUSER\n",
-        "user spellings stay user bindings and cannot reach the implementation"
+        "false\n",
+        "user helpers must neither capture nor be captured by the implementation"
     );
     let _ = std::fs::remove_dir_all(&dir);
 }
 
 /// A08 — a user file whose contents are a copy of an embedded implementation
-/// gains no private access: it is ordinary user source with ordinary
-/// semantics, and the standard entry is unaffected.
+/// remains ordinary user source, and the standard entry is unaffected.
 #[test]
 fn copied_embedded_source_grants_no_private_access() {
     let dir = temp_dir("copied-source");
     let embedded = std::fs::read_to_string(
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("stdlib/shlex.xsh"),
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("stdlib/tui.xsh"),
     )
     .expect("read the embedded source");
     write_script(&dir, "copy.xsh", &embedded);
@@ -553,7 +659,7 @@ fn copied_embedded_source_grants_no_private_access() {
         "copied.xsh",
         concat!(
             "proc main() [io, error] {\n",
-            "  print shlex.quote(\"a b\")\n",
+            "  print tui.red()\n",
             "  let loaded = module.load(p\"copy.xsh\")?\n",
             "  let _ = loaded\n",
             "  print \"loaded\"\n",
@@ -573,7 +679,7 @@ fn copied_embedded_source_grants_no_private_access() {
     );
     assert_eq!(
         String::from_utf8_lossy(&output.stdout),
-        "'a b'\nloaded\n",
+        "\u{1b}[31m\nloaded\n",
         "a copied implementation is ordinary user source"
     );
     let _ = std::fs::remove_dir_all(&dir);
@@ -587,7 +693,7 @@ fn implementation_namespace_is_unspellable_and_reserved_names_still_work() {
     for (name, source, expect_ok) in [
         (
             "namespace.xsh",
-            "proc main() [io] {\n  print <xsh-stdlib:shlex>.quote(\"a\")\n}\n",
+            "proc main() [io] {\n  print <xsh-stdlib:tui>.red()\n}\n",
             false,
         ),
         (
@@ -735,12 +841,12 @@ fn module_dependencies_resolve_and_cycles_are_diagnosed() {
     write_script(
         &dir,
         "right.xsh",
-        "##! Right half of a two-module dependency.\n\n## Quote a value.\nexport pure tag(value: Str) -> Str {\n  return shlex.quote(value)\n}\n",
+        "##! Right half of a two-module dependency.\n\n## Normalize a value.\nexport pure tag(value: Str) -> Str {\n  return value.fields().join(\" \")\n}\n",
     );
     let entry = write_script(
         &dir,
         "entry.xsh",
-        "use left\n\nproc main() [io] {\n  print left.from_left(\"a b\")\n}\n",
+        "use left\n\nproc main() [io] {\n  print shlex.quote(left.from_left(\"a b\"))\n}\n",
     );
     let output = std::process::Command::new(env!("CARGO_BIN_EXE_xsh"))
         .arg(&entry)
@@ -788,9 +894,8 @@ fn module_dependencies_resolve_and_cycles_are_diagnosed() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// R12 — on Linux the registry binds the ported Linux text entries to the
-/// embedded implementations, so the native operations kept for the other
-/// platforms are unreachable there.
+/// R12 — on Linux the registry binds the retained Linux text entries to the
+/// embedded implementations, while `linux.modules` uses its native stream.
 ///
 /// This is the invariant that makes the removed Linux bodies dead code rather
 /// than a second implementation: a regression in binding selection would send
@@ -798,17 +903,16 @@ fn module_dependencies_resolve_and_cycles_are_diagnosed() {
 /// answering.
 #[cfg(target_os = "linux")]
 #[test]
-fn linux_text_entries_bind_the_embedded_implementations() {
+fn linux_text_entries_select_expected_bindings() {
     // Each pair is an entry whose Linux policy lives in the embedded standard
     // library: `system.memory` and `system.os_release` in `stdlib/system.xsh`,
-    // `unix.uptime_seconds` in `stdlib/unix.xsh`, and `linux.meminfo` and
-    // `linux.modules` in `stdlib/linux_text.xsh`.
+    // `unix.uptime_seconds` in `stdlib/unix.xsh`, and `linux.meminfo` in
+    // `stdlib/linux_text.xsh`.
     for (module, name) in [
         ("system", "memory"),
         ("system", "os_release"),
         ("unix", "uptime_seconds"),
         ("linux", "meminfo"),
-        ("linux", "modules"),
     ] {
         let overloads = xsh::api::api_spec()
             .module_overloads(module, name)
@@ -818,17 +922,22 @@ fn linux_text_entries_bind_the_embedded_implementations() {
             "{module}.{name} must be implemented by the embedded standard library on Linux"
         );
     }
+    let modules = xsh::api::api_spec()
+        .module_overloads("linux", "modules")
+        .expect("linux.modules is in the standard API");
+    assert!(
+        modules.iter().all(|sig| sig.script_impl().is_none()),
+        "linux.modules must retain its native stream on Linux"
+    );
 }
 
-/// R12 — the Linux entries answer from the embedded implementations, and their
-/// host text is read at call time.
+/// R12 — Linux text entries read their host text at call time.
 ///
-/// Reaching a retired native body would fail the call with a message that names
-/// the retirement, so the calls succeeding *is* the evidence that the embedded
-/// route ran; the values themselves are checked against the host.
+/// The script-backed entries would fail if they reached a retired native body;
+/// `linux.modules` checks the retained native stream against the same host.
 #[cfg(target_os = "linux")]
 #[test]
-fn linux_entries_answer_from_the_embedded_implementations() {
+fn linux_text_entries_answer_from_the_host() {
     let dir = temp_dir("linux-embedded-entries");
     let script = write_script(
         &dir,

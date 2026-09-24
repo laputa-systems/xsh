@@ -1,0 +1,377 @@
+{
+  "schema_version": 1,
+  "snapshot_date": "2026-09-24",
+  "gates": {
+    "rust-interactive": "cargo test --test integration runtime::interactive -- --test-threads=1",
+    "native-all": "xsht test --jobs 1"
+  },
+  "runs": [
+    {
+      "platform": "macos-arm64",
+      "gate": "rust-interactive",
+      "passed": 49,
+      "failed": 0,
+      "skipped": 23,
+      "executed": 49,
+      "discovered": 72,
+      "skip_reasons": [
+        {
+          "reason": "flaky: PTY-driven, timing-sensitive; requires a controlling terminal",
+          "count": 23,
+          "tests": [
+            "runtime::interactive::xshi_pty_background_job_can_fg_and_ctrl_c",
+            "runtime::interactive::xshi_pty_background_job_reaps_before_later_prompt",
+            "runtime::interactive::xshi_pty_cd_tilde_completion_uses_home",
+            "runtime::interactive::xshi_pty_completion_clear_removes_stale_grid_rows",
+            "runtime::interactive::xshi_pty_ctrl_c_cancels_line_and_sets_exit_status",
+            "runtime::interactive::xshi_pty_ctrl_r_down_arrow_final_byte_can_arrive_split",
+            "runtime::interactive::xshi_pty_ctrl_r_down_arrow_sequence_can_arrive_split",
+            "runtime::interactive::xshi_pty_ctrl_r_escape_restores_original_buffer",
+            "runtime::interactive::xshi_pty_ctrl_r_incremental_history_search_accepts_match",
+            "runtime::interactive::xshi_pty_ctrl_r_opens_history_search_from_empty_prompt",
+            "runtime::interactive::xshi_pty_ctrl_r_up_down_navigate_without_leaking_escape_bytes",
+            "runtime::interactive::xshi_pty_ctrl_z_auto_backgrounds_foreground_job",
+            "runtime::interactive::xshi_pty_enter_accepts_completion_without_submitting",
+            "runtime::interactive::xshi_pty_external_command_reads_terminal_in_cooked_mode",
+            "runtime::interactive::xshi_pty_line_editing_handles_backspace",
+            "runtime::interactive::xshi_pty_prompt_cursor_column_ignores_ansi_color",
+            "runtime::interactive::xshi_pty_rejects_second_background_job_until_first_reaps",
+            "runtime::interactive::xshi_pty_rejects_unsupported_background_shapes",
+            "runtime::interactive::xshi_pty_right_arrow_accepts_history_autosuggestion",
+            "runtime::interactive::xshi_pty_space_expands_alias_in_editor",
+            "runtime::interactive::xshi_pty_tab_completion_lists_path_candidates",
+            "runtime::interactive::xshi_pty_up_arrow_cycles_through_history_entries",
+            "runtime::interactive::xshi_runs_prompt_loop_on_pty"
+          ]
+        }
+      ]
+    },
+    {
+      "platform": "linux-arm64-musl",
+      "gate": "rust-interactive",
+      "passed": 49,
+      "failed": 0,
+      "skipped": 23,
+      "executed": 49,
+      "discovered": 72,
+      "skip_reasons": [
+        {
+          "reason": "flaky: PTY-driven, timing-sensitive; requires a controlling terminal",
+          "count": 23,
+          "tests": [
+            "runtime::interactive::xshi_pty_background_job_can_fg_and_ctrl_c",
+            "runtime::interactive::xshi_pty_background_job_reaps_before_later_prompt",
+            "runtime::interactive::xshi_pty_cd_tilde_completion_uses_home",
+            "runtime::interactive::xshi_pty_completion_clear_removes_stale_grid_rows",
+            "runtime::interactive::xshi_pty_ctrl_c_cancels_line_and_sets_exit_status",
+            "runtime::interactive::xshi_pty_ctrl_r_down_arrow_final_byte_can_arrive_split",
+            "runtime::interactive::xshi_pty_ctrl_r_down_arrow_sequence_can_arrive_split",
+            "runtime::interactive::xshi_pty_ctrl_r_escape_restores_original_buffer",
+            "runtime::interactive::xshi_pty_ctrl_r_incremental_history_search_accepts_match",
+            "runtime::interactive::xshi_pty_ctrl_r_opens_history_search_from_empty_prompt",
+            "runtime::interactive::xshi_pty_ctrl_r_up_down_navigate_without_leaking_escape_bytes",
+            "runtime::interactive::xshi_pty_ctrl_z_auto_backgrounds_foreground_job",
+            "runtime::interactive::xshi_pty_enter_accepts_completion_without_submitting",
+            "runtime::interactive::xshi_pty_external_command_reads_terminal_in_cooked_mode",
+            "runtime::interactive::xshi_pty_line_editing_handles_backspace",
+            "runtime::interactive::xshi_pty_prompt_cursor_column_ignores_ansi_color",
+            "runtime::interactive::xshi_pty_rejects_second_background_job_until_first_reaps",
+            "runtime::interactive::xshi_pty_rejects_unsupported_background_shapes",
+            "runtime::interactive::xshi_pty_right_arrow_accepts_history_autosuggestion",
+            "runtime::interactive::xshi_pty_space_expands_alias_in_editor",
+            "runtime::interactive::xshi_pty_tab_completion_lists_path_candidates",
+            "runtime::interactive::xshi_pty_up_arrow_cycles_through_history_entries",
+            "runtime::interactive::xshi_runs_prompt_loop_on_pty"
+          ]
+        }
+      ]
+    },
+    {
+      "platform": "macos-arm64",
+      "gate": "native-all",
+      "passed": 454,
+      "failed": 0,
+      "skipped": 30,
+      "executed": 454,
+      "discovered": 484,
+      "skip_reasons": [
+        {
+          "reason": "/bin/xsh is not installed",
+          "count": 1,
+          "tests": [
+            "core/tests/test-basename.xsh::test_basename_runs_as_executable_shebang_script"
+          ]
+        },
+        {
+          "reason": "Alpine-only df comparison",
+          "count": 1,
+          "tests": [
+            "core/tests/test-df.xsh::test_df_matches_alpine_kp"
+          ]
+        },
+        {
+          "reason": "a log failure is the call's Err on Linux only",
+          "count": 2,
+          "tests": [
+            "tests/xsh/stdlib/linux.xsh::test_linux_text_log_failure_kind",
+            "tests/xsh/stdlib/unix.xsh::test_unix_uptime_seconds_log_failure_kind"
+          ]
+        },
+        {
+          "reason": "covered skip",
+          "count": 1,
+          "tests": [
+            "tests/xsh/stdlib/test.xsh::test_skip_function_is_covered"
+          ]
+        },
+        {
+          "reason": "later",
+          "count": 1,
+          "tests": [
+            "tests/xsh/basic.xsh::test_skip"
+          ]
+        },
+        {
+          "reason": "linux.meminfo reads /proc/meminfo on Linux only",
+          "count": 1,
+          "tests": [
+            "tests/xsh/stdlib/linux.xsh::test_linux_meminfo_reads_the_host_text"
+          ]
+        },
+        {
+          "reason": "linux.modinfo reads a module tree on Linux only",
+          "count": 1,
+          "tests": [
+            "tests/xsh/stdlib/linux.xsh::test_linux_module_policy_uses_the_configured_tree"
+          ]
+        },
+        {
+          "reason": "linux.modules reads /proc/modules on Linux only",
+          "count": 1,
+          "tests": [
+            "tests/xsh/stdlib/linux.xsh::test_linux_modules_streams_the_host_text"
+          ]
+        },
+        {
+          "reason": "macOS pstree is unavailable",
+          "count": 1,
+          "tests": [
+            "core/tests/test-pstree.xsh::test_pstree_default_prints_visible_root"
+          ]
+        },
+        {
+          "reason": "mdev is Linux-only",
+          "count": 1,
+          "tests": [
+            "tests/xsh/stdlib/auth.xsh::test_applet_mdev_scans_empty_roots"
+          ]
+        },
+        {
+          "reason": "requires HTTPS H1 fixture",
+          "count": 1,
+          "tests": [
+            "tests/xsh/stdlib/net.xsh::test_net_transport_https_http1_contract"
+          ]
+        },
+        {
+          "reason": "requires HTTPS H2 cancellation fixture",
+          "count": 1,
+          "tests": [
+            "tests/xsh/stdlib/net.xsh::test_net_job_cancel_keeps_h2_siblings_and_pool_healthy"
+          ]
+        },
+        {
+          "reason": "requires HTTPS H2 fixture",
+          "count": 2,
+          "tests": [
+            "tests/xsh/stdlib/net.xsh::test_net_transport_download_many_https_h2_contract",
+            "tests/xsh/stdlib/net.xsh::test_net_transport_request_many_https_h2_contract"
+          ]
+        },
+        {
+          "reason": "requires Linux TLS fixture",
+          "count": 1,
+          "tests": [
+            "tests/xsh/stdlib/net.xsh::test_net_transport_linux_system_ca_dir"
+          ]
+        },
+        {
+          "reason": "requires TLS fixture",
+          "count": 1,
+          "tests": [
+            "tests/xsh/stdlib/net.xsh::test_net_transport_tls_contracts"
+          ]
+        },
+        {
+          "reason": "requires XSH_DNS_TEST_SERVER fixture",
+          "count": 1,
+          "tests": [
+            "tests/xsh/stdlib/dns.xsh::test_dns_explicit_server_transport"
+          ]
+        },
+        {
+          "reason": "requires XSH_NET_TEST_URL fixture",
+          "count": 6,
+          "tests": [
+            "tests/xsh/stdlib/net.xsh::test_net_job_trace_is_correlated_and_redacts_request_secrets",
+            "tests/xsh/stdlib/net.xsh::test_net_transport_batch_contracts",
+            "tests/xsh/stdlib/net.xsh::test_net_transport_batch_download_error_contract",
+            "tests/xsh/stdlib/net.xsh::test_net_transport_error_contracts",
+            "tests/xsh/stdlib/net.xsh::test_net_transport_http_contracts",
+            "tests/xsh/stdlib/net.xsh::test_net_transport_timeout_contracts"
+          ]
+        },
+        {
+          "reason": "requires concurrent NetJob transport fixture",
+          "count": 1,
+          "tests": [
+            "tests/xsh/stdlib/net.xsh::test_net_job_progresses_while_synchronous_request_waits"
+          ]
+        },
+        {
+          "reason": "requires local network and descriptor fixtures",
+          "count": 1,
+          "tests": [
+            "tests/xsh/stdlib/net.xsh::test_net_runtime_descriptors_do_not_survive_exec"
+          ]
+        },
+        {
+          "reason": "system.memory reads /proc/meminfo on Linux only",
+          "count": 1,
+          "tests": [
+            "tests/xsh/stdlib/system.xsh::test_system_memory_reads_the_host_text"
+          ]
+        },
+        {
+          "reason": "system.os_release reads /etc/os-release on Linux only",
+          "count": 1,
+          "tests": [
+            "tests/xsh/stdlib/system.xsh::test_system_os_release_reads_the_host_text"
+          ]
+        },
+        {
+          "reason": "the dry-run log is appended on Linux only",
+          "count": 1,
+          "tests": [
+            "tests/xsh/stdlib/linux.xsh::test_linux_dry_run_log_appends_in_place"
+          ]
+        },
+        {
+          "reason": "unix.uptime_seconds reads /proc/uptime on Linux only",
+          "count": 1,
+          "tests": [
+            "tests/xsh/stdlib/unix.xsh::test_unix_uptime_seconds_reads_the_host_text"
+          ]
+        }
+      ]
+    },
+    {
+      "platform": "linux-arm64-musl",
+      "gate": "native-all",
+      "passed": 465,
+      "failed": 0,
+      "skipped": 19,
+      "executed": 465,
+      "discovered": 484,
+      "skip_reasons": [
+        {
+          "reason": "/bin/xsh is not installed",
+          "count": 1,
+          "tests": [
+            "core/tests/test-basename.xsh::test_basename_runs_as_executable_shebang_script"
+          ]
+        },
+        {
+          "reason": "covered skip",
+          "count": 1,
+          "tests": [
+            "tests/xsh/stdlib/test.xsh::test_skip_function_is_covered"
+          ]
+        },
+        {
+          "reason": "later",
+          "count": 1,
+          "tests": [
+            "tests/xsh/basic.xsh::test_skip"
+          ]
+        },
+        {
+          "reason": "mdev scan behavior is covered by tests/xsh/stdlib/auth.xsh",
+          "count": 1,
+          "tests": [
+            "core/tests/test-mdev.xsh::test_mdev_wrapper_preserves_platform_boundary"
+          ]
+        },
+        {
+          "reason": "requires HTTPS H1 fixture",
+          "count": 1,
+          "tests": [
+            "tests/xsh/stdlib/net.xsh::test_net_transport_https_http1_contract"
+          ]
+        },
+        {
+          "reason": "requires HTTPS H2 cancellation fixture",
+          "count": 1,
+          "tests": [
+            "tests/xsh/stdlib/net.xsh::test_net_job_cancel_keeps_h2_siblings_and_pool_healthy"
+          ]
+        },
+        {
+          "reason": "requires HTTPS H2 fixture",
+          "count": 2,
+          "tests": [
+            "tests/xsh/stdlib/net.xsh::test_net_transport_download_many_https_h2_contract",
+            "tests/xsh/stdlib/net.xsh::test_net_transport_request_many_https_h2_contract"
+          ]
+        },
+        {
+          "reason": "requires Linux TLS fixture",
+          "count": 1,
+          "tests": [
+            "tests/xsh/stdlib/net.xsh::test_net_transport_linux_system_ca_dir"
+          ]
+        },
+        {
+          "reason": "requires TLS fixture",
+          "count": 1,
+          "tests": [
+            "tests/xsh/stdlib/net.xsh::test_net_transport_tls_contracts"
+          ]
+        },
+        {
+          "reason": "requires XSH_DNS_TEST_SERVER fixture",
+          "count": 1,
+          "tests": [
+            "tests/xsh/stdlib/dns.xsh::test_dns_explicit_server_transport"
+          ]
+        },
+        {
+          "reason": "requires XSH_NET_TEST_URL fixture",
+          "count": 6,
+          "tests": [
+            "tests/xsh/stdlib/net.xsh::test_net_job_trace_is_correlated_and_redacts_request_secrets",
+            "tests/xsh/stdlib/net.xsh::test_net_transport_batch_contracts",
+            "tests/xsh/stdlib/net.xsh::test_net_transport_batch_download_error_contract",
+            "tests/xsh/stdlib/net.xsh::test_net_transport_error_contracts",
+            "tests/xsh/stdlib/net.xsh::test_net_transport_http_contracts",
+            "tests/xsh/stdlib/net.xsh::test_net_transport_timeout_contracts"
+          ]
+        },
+        {
+          "reason": "requires concurrent NetJob transport fixture",
+          "count": 1,
+          "tests": [
+            "tests/xsh/stdlib/net.xsh::test_net_job_progresses_while_synchronous_request_waits"
+          ]
+        },
+        {
+          "reason": "requires local network and descriptor fixtures",
+          "count": 1,
+          "tests": [
+            "tests/xsh/stdlib/net.xsh::test_net_runtime_descriptors_do_not_survive_exec"
+          ]
+        }
+      ]
+    }
+  ]
+}

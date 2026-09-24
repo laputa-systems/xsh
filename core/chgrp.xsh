@@ -52,12 +52,11 @@ proc main(...argv: List[Str]) [fs, error] {
     let target = fp"${item}"
 
     if recursive and target.metadata()?.kind == "dir" {
-      # chgrp doesn't restrict traversal and prints nothing per entry, so the
-      # visit order is unobservable — let the walk stream unordered/parallel.
-      let jobs = cpu.count()
+      # The walk chooses its traversal workers; group changes run in the
+      # order entries arrive from that walk.
 
       fs.walk(target)
-        |> each --jobs=jobs { |entry|
+        |> each { |entry|
           fs.chgrp(entry.path, group_rec, follow_symlinks: follow_symlinks)?
         }
     } else {

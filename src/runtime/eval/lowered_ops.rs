@@ -1255,6 +1255,16 @@ pub(super) fn lowered_str_method_value(
                 .map(|word| LoweredValue::Str(word.into()))
                 .collect(),
         )),
+        "fields" if args.len() <= 1 => {
+            let delimiter = match args.first() {
+                Some(value) => lowered_str_arg(value, "fields", span)?,
+                None => "",
+            };
+            lowered_runtime_list(
+                crate::modules::text::fields_text(text_value, delimiter),
+                span,
+            )
+        }
         "split" if args.len() == 1 || args.len() == 2 => {
             let separator = lowered_str_arg(&args[0], "split", span)?;
             let maxsplit = match args.get(1) {
@@ -1269,6 +1279,15 @@ pub(super) fn lowered_str_method_value(
             };
             lowered_runtime_list(
                 crate::modules::text::split_text(text_value, separator, maxsplit),
+                span,
+            )
+        }
+        "wrap" if args.len() == 1 => {
+            let LoweredValue::Int(width) = args[0] else {
+                return Err(RuntimeError::new("type-error", "wrap expected Int").with_span(span));
+            };
+            lowered_runtime_list(
+                crate::modules::text::wrap_text(text_value, width, span)?,
                 span,
             )
         }

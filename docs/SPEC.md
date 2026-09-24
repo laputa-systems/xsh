@@ -396,6 +396,10 @@ parameter remain valid.
 Script arguments after `--` are available through the predeclared immutable
 binding `args: List[Str]`. The current interpreter also accepts `ARGV` as a
 compatibility alias; new examples and docs should use `args`.
+The `xsh`, `xshi`, and `xsht` command-line parsers reject an argument that is
+not valid UTF-8 with exit status 2 and an argument-index diagnostic, before
+loading a script or command. XSH process calls can still pass native `Path`
+bytes to external programs.
 
 ```xsh
 for arg in args {
@@ -2058,6 +2062,9 @@ on symlink target text without traversing it. This makes the rooted APIs the
 preferred surface when a trusted root directory is combined with untrusted
 relative names. `FsRoot` confines pathname resolution; it is not a process
 sandbox and does not restrict mounts or device nodes below the root.
+`fs.root_mkdir` applies the requested mode to the created directory through a
+handle resolved below the root, so the caller's umask does not change the final
+mode.
 
 `path`:
 
@@ -2843,9 +2850,10 @@ is needed outside pipeline syntax.
 **Terminal stages** produce a scalar value instead of passing items forward.
 They end the stream and cannot be followed by further stages.
 
-**For loops.** `for x in PIPELINE { }` iterates the pipeline directly without
-materializing a `List`. This is the preferred form when items are consumed
-once and the list is not needed.
+**For loops.** `for x in PIPELINE { }` passes rows from serial stream stages
+directly to the loop body without materializing a `List`. Stages whose contract
+requires ordering, grouping, or parallel work may buffer their input. This is
+the preferred form when items are consumed once and the list is not needed.
 
 **Lazy sources.** `fs.walk`/`fs.files`/`fs.dirs`, `Path.lines()`,
 `Path.bytes_lines()`, `Str.lines()`, `Bytes.lines()`, `run.stream`, and
@@ -2915,9 +2923,10 @@ accept a two-parameter block `{ |acc, item| ... }` whose first parameter is the
 accumulated value (typed by the initial value) and whose second is the stream
 item. These blocks may contain ordinary statements and nested conditionals;
 their tail must produce the accumulator's type, and the stage returns that
-accumulated value. Fold and reduce blocks are pure reductions and
-must not print; use a following `each { |item| print $item }` stage for output.
-`xsht check` reports this constraint as `check.fold-effect`.
+accumulated value. Fold and reduce blocks run serially, including their effects:
+the block for one item finishes before the next live item is pulled. A block
+may print or run a process directly; its defers run at that item's block exit.
+Use `each` when no accumulated value is needed.
 
 A tail proc call with `?` unwraps the `Ok` value and propagates errors: if
 any item fails, the entire stage short-circuits with that error. Without
@@ -2931,6 +2940,9 @@ expression, for example `map { |s| (s.split(".") |> last())?.lower() }`.
 
 `where`, `any`, and `all` require `Bool` or `Result[Bool]`. `min()` and
 `max()` return `Result[T]`. `first()` and `last()` return `Result[T]`.
+Direct `any` and `all` stages over a live source stop after the first decisive
+item, including block forms, and close a stopped script producer so its defers
+run before the stage returns.
 `count()` returns `Int`. `table.print(...)` is a structured stream sink for
 record streams. It renders terminal-width UTF-8 tables by default and wraps
 long cell contents vertically instead of truncating with ellipses.
@@ -2941,10 +2953,12 @@ continues.
 
 `fs.ls(...) |> table.print(...)` is the accepted standard listing interface.
 
-`par-map` defaults to one worker per CPU. Use `--jobs=N` to override the worker
-count. `each` remains serial unless `--jobs=N` is supplied, because parallel
-side effects should be visible in source. Explicit bounded parallel stage
-limits must be positive.
+`par-map` defaults to a bounded worker count based on available CPUs. Use
+`--jobs=N` to override the worker count. `each` currently runs serially even
+when `--jobs=N` is supplied; it does not emit parallel-job trace events.
+Every accepted `--jobs` expression runs once before its stage consumes input,
+and its result must be positive. Explicit bounded parallel stage limits must be
+positive.
 
 When a block uses `?` and an item fails, parallel stages stop scheduling
 new work (short-circuit). When a block returns `Result` values without `?`,
@@ -2959,7 +2973,27 @@ explicit `.collect()` materialize. `par-map` is a parallel materialization
 boundary, but the runtime may fuse adjacent `par-map |> reduce-by` so
 worker-local aggregation avoids building one intermediate list. Suffixes such as
 `par-map |> where |> flat-map |> reduce-by` currently materialize between
-stages.
+stages. `reduce-by` folds a live source one item at a time before pulling the
+next item and closes that source if reduction fails. Its `--jobs` option is
+currently accepted but does not start reduce workers; the indexed fold is serial.
+An explicit `reduce-by --jobs` prevents adjacent `par-map` fusion so its option
+expression runs at the reduction stage.
+`fold` also combines each live item before pulling the next and closes the
+source if the combine fails. `each` runs its body before pulling the next live
+item and closes the source when the body fails. `group-by` and keyed
+`count { block }` evaluate each item's key before pulling the next live item;
+a key error closes the source without evaluating later items. `unique-by` has
+the same live key timing and keeps the first item for each distinct key.
+`group-by` retains the items in encounter order within each group, while keyed
+`count` retains one count per distinct key.
+`zip(other)` evaluates and collects its right list or stream before pulling the
+left source, then pairs one left item with each right item until either side
+ends. When the right side ends first, it closes a live left producer without
+pulling later items.
+`batch --max-bytes=N` checks each live item as it arrives. An item larger than
+the byte budget fails the stage, closes the producer, and leaves later items
+unpulled.
+`repeat(0)` produces an empty list without pulling a live source.
 
 `sort` and `sort-by` order by a defined key ordering. Supported items and
 projected keys are `Int`, `Str`, `Bool`, `Path`, and `Record`s whose fields are
@@ -2972,7 +3006,9 @@ field-name order, so `sort-by { |r| {c: r.count, n: r.name} }` sorts by `count`
 then `name`. A `group-by` result exposes its projected key as the concrete type
 of the grouping block, so `group-by { |x| x.id } |> sort-by { |g| g.key }` is
 valid when that key is sortable. The default order is ascending and `--desc`
-reverses it. Both stages are stable: items with equal keys keep their source
+reverses it. `sort-by --desc=expr` evaluates the option before pulling its
+source or projecting keys, so an option error stops before those effects.
+Both stages are stable: items with equal keys keep their source
 order, so sorting by
 a secondary key first and the primary key second is a reliable two-pass idiom
 for compound ordering. Any other item or key type is rejected at check time and
@@ -3077,7 +3113,9 @@ replacement)` replaces the root. `json.remove(value, [])` returns `Null`.
 
 Path lookup failures return structured `json-path` errors for the `Result`
 forms. The fallback overload of `json.get` returns the fallback for a path
-lookup failure. `json.set` updates existing list indexes and updates or inserts
+lookup failure. A dynamic non-list path fails the `List[Any]` argument boundary
+with `type-error` before traversal and does not select the fallback.
+`json.set` updates existing list indexes and updates or inserts
 object fields at the target; all intermediate containers must already exist.
 List indexes must already exist. `json.remove` errors when the target is
 absent.

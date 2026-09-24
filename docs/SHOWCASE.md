@@ -146,232 +146,44 @@ The success path alone is insufficient. The program should remain intelligible
 when a download is truncated, a child hangs, a file is replaced concurrently, a
 permission check fails, a disk fills, or cleanup itself encounters an error.
 
-## Priority 1: Operationally Self-Host XSH Development
+## Current Development Corpus
 
-This program belongs under `dev/`, not `showcase/`, because it is live repository
-infrastructure. It is nevertheless the first flagship member of the canonical
-corpus.
+The repository's live development program is `dev/main.xsh`, with target,
+build, test, Docker, coverage, release, and benchmark policy in neighboring
+`dev/*.xsh` modules. Cargo, Docker, compilers, signers, and inspection tools
+remain explicit process boundaries. The `Makefile` is a compatibility facade:
+its 22 targets delegate to this program, through `cargo dev` by default.
+`XSH_DEV` selects a specific prebuilt binary for a caller that needs one.
 
-Replace Make and shell orchestration with one typed XSH entry point that owns:
+`.github/workflows/verify.yml` uses the same XSH test routes on macOS and
+the pinned Linux image. `docs/TEST-MAP.md` owns the actual verification matrix.
+The remaining behavior and evidence work belongs in
+`IMPROVEMENT-BACKLOG.md`, especially the focused `dev/`, `core/`, and
+`showcase/` items. Larger new corpus programs need a concrete consumer before
+they are added to this document.
 
-* development builds;
-* checking, linting, and formatting workflows;
-* native and Rust tests;
-* Linux container tests;
-* coverage;
-* benchmarks and syscall diagnostics;
-* target-specific distribution builds;
-* binary verification;
-* installation;
-* release artifact preparation;
-* core-script packaging.
+The byte-path review of `showcase/file-audit.xsh`, `showcase/path-audit.xsh`,
+and `showcase/git-digest.xsh` found three concrete boundaries. `file-audit`
+checks containment with native `Path.strip_prefix`, `path-audit` compares
+native paths before reporting duplicate directories or shadowed commands,
+and `git-digest` asks Git to quote filenames before consuming its text output.
+Their paired `showcase/tests/test-*.xsh` modules cover non-UTF-8 names in the
+pinned Linux filesystem; macOS skips only those filesystem cases. The
+`file-audit` test also checks a symlink whose target is a distinct native path
+with the same lossy display text.
 
-Cargo, Docker, rustc, LLVM, codesign, `readelf`, and GitHub remain explicit
-capability boundaries.
+`showcase/archive-unpack.xsh` stages mutations beside an absent destination,
+publishes only after successful archive work, and cleans staging on ordinary
+failure or SIGINT/SIGTERM after a blocking archive call returns.
+`showcase/backup-rotate.xsh` is a best-effort deletion tool with dry run as its
+default. It handles direct files only and reports a deletion after it succeeds;
+run active rotation against a directory that is not changing, because the
+script cannot guarantee file identity across a concurrent replacement.
 
-The implementation must exercise:
-
-* typed target and host descriptions;
-* environment composition;
-* exact argv construction;
-* scoped working directories;
-* nested container execution without `sh -c`;
-* temporary-resource ownership;
-* cleanup on every exit path;
-* target matrices;
-* binary and archive proofs;
-* failure propagation across long process chains.
-
-Completion means that the repository has one coherent XSH development command,
-the Makefile contains no behavior, CI invokes the same XSH modules used locally,
-and no second orchestration implementation remains.
-
-## Priority 2: Root Filesystem Composer and Auditor
-
-Build a root filesystem from package trees and typed manifests, then prove that
-the resulting filesystem satisfies its contract.
-
-The program should:
-
-1. create a staged root;
-2. merge package manifests and payloads;
-3. detect path and ownership collisions;
-4. preserve modes, symlinks, and directory metadata;
-5. reject unsafe or escaping links;
-6. inspect executable formats, interpreters, architectures, and shared-library
-   dependencies;
-7. identify missing or unexpected runtime dependencies;
-8. enforce forbidden-file and forbidden-path rules;
-9. produce a deterministic manifest and proof report;
-10. emit an archive or image only after validation succeeds.
-
-Use `readelf`, `otool`, or other native inspection tools where appropriate.
-Do not implement a general ELF or Mach-O parser merely to avoid a subprocess.
-
-Required failure cases include:
-
-* two packages claiming the same path incompatibly;
-* a symlink escaping the staged root;
-* a binary for the wrong architecture;
-* a missing interpreter or library;
-* malformed package metadata;
-* interruption during staging;
-* archive creation failure after successful composition;
-* cleanup failure after an earlier error.
-
-The former `ldd-tree.xsh` idea is absorbed into this program as one subsystem,
-where dependency inspection contributes to a larger system proof.
-
-## Priority 3: Package Update and Verification Orchestrator
-
-Automate the complete path from discovering an upstream release to producing a
-reviewable, verified package update.
-
-The program should:
-
-1. discover candidate upstream versions;
-2. fetch and classify release metadata;
-3. select the correct source artifact;
-4. download into a temporary or content-addressed staging area;
-5. verify checksums, signatures, and expected archive structure;
-6. update package metadata through a structured edit;
-7. refresh checksums;
-8. apply or rebase package patches;
-9. build the affected package and dependency closure;
-10. run package proofs;
-11. produce a concise report and reviewable patch.
-
-The implementation may live in the Laputa package repository, with deterministic
-fixtures retained here where useful. It must use package definitions as ordinary
-XSH values rather than inventing another package-description DSL.
-
-Required failure cases include:
-
-* ambiguous upstream versions;
-* missing or renamed release assets;
-* checksum mismatch;
-* truncated download;
-* patch rejection;
-* unexpected archive root;
-* failed build after metadata has been staged;
-* one failed update in a bounded parallel batch;
-* cancellation while downloads or builds are active.
-
-## Priority 4: Service Activation Planner
-
-Implement the finite, host-facing portion of service management without turning
-XSH into a long-lived application runtime.
-
-The program should:
-
-1. load typed service definitions;
-2. validate names and dependencies;
-3. reject dependency cycles;
-4. calculate start, stop, restart, and rollback plans;
-5. execute one-shot setup and teardown actions;
-6. launch or signal external service processes through explicit boundaries;
-7. run bounded health checks;
-8. record activation results and failure chains;
-9. roll back successfully activated dependencies when policy requires it;
-10. emit a structured trace of the activation transaction.
-
-This is not a mandate to add a hidden scheduler, green threads, callbacks,
-futures, or a process-wide event loop. A dedicated supervisor may remain the
-long-lived runtime. XSH owns service policy, activation, host preparation, and
-observable process control around it.
-
-Required failure cases include:
-
-* dependency cycles;
-* setup failure before process launch;
-* child process exiting during activation;
-* health-check timeout;
-* cancellation during a dependency fan-out;
-* rollback where one teardown action also fails;
-* stale PID or process identity;
-* conflicting concurrent activation requests.
-
-## Priority 5: Incident Evidence Bundle
-
-Collect a useful diagnostic bundle from a live system while tolerating missing
-tools, permissions, timeouts, and individual probe failures.
-
-The program should collect a bounded set of evidence such as:
-
-* process and thread state;
-* listeners and network interfaces;
-* mounts and filesystem capacity;
-* service status;
-* selected logs;
-* kernel and platform metadata;
-* package or build metadata;
-* outputs from explicitly configured diagnostic commands.
-
-Every probe should have:
-
-* a typed identity;
-* an explicit timeout;
-* bounded output;
-* a success, skipped, unavailable, denied, timed-out, or failed result;
-* a recorded command and environment boundary;
-* deterministic archive placement.
-
-The final bundle should contain a manifest describing what was attempted and
-what failed. One unavailable probe must not destroy the useful evidence produced
-by the others.
-
-Required failure cases include:
-
-* missing diagnostic tools;
-* permission denial;
-* a hanging child;
-* output exceeding its limit;
-* cancellation during parallel collection;
-* archive failure;
-* redaction failure;
-* temporary-directory cleanup after partial success.
-
-This is a strong test of XSH's ability to make partial failure explicit without
-collapsing into exception-driven or stringly orchestration.
-
-## Priority 6: Host State Reconciler
-
-Reconcile a deliberately narrow host policy through explicit
-`inspect -> plan -> apply -> verify` phases.
-
-Begin with a bounded policy surface such as:
-
-* directories, files, symlinks, ownership, and modes;
-* selected environment or configuration files;
-* enabled service links or activation state;
-* mounted or prepared filesystem resources.
-
-Represent policy as ordinary typed XSH records and procedures. Do not introduce
-YAML, TOML, a templating language, or a second declarative DSL.
-
-The program must:
-
-1. inspect current state;
-2. produce a deterministic plan;
-3. distinguish no-op, create, update, remove, conflict, and unsupported actions;
-4. require an explicit transition into mutation;
-5. stage replacements safely;
-6. verify the resulting state;
-7. report drift that appeared during application;
-8. preserve enough information for rollback where the operation permits it.
-
-Required failure cases include:
-
-* host state changing between inspection and application;
-* permission loss after part of the plan succeeds;
-* a path changing type;
-* a symlink substitution attack;
-* verification failure after mutation;
-* rollback failure;
-* cancellation during application.
-
-This should remain a focused systems program, not grow into a general remote
-configuration-management platform.
+`showcase/watch-run.xsh` and `showcase/run-retry.xsh` impose no default
+deadline on arbitrary commands. SIGINT/SIGTERM stop the wrapper with status 3;
+`process.run` cancels its owned child group, including descendants. Native
+tests use a delayed marker to check that canceled descendants do not continue.
 
 ## Secondary Corpus, Not Language Drivers
 
@@ -401,7 +213,20 @@ compiler or runtime defects, but jq-shaped pressure alone does not justify
 changing XSH's domain.
 
 Small existing standalone tools may remain in `showcase/`. Their presence does
-not make them roadmap priorities.
+not make them roadmap priorities. When a tool exhausts retries, times out, or
+runs a failing child in one-shot mode, its process status must report that
+failure to the caller. `showcase/wait-for.xsh::main` applies `--timeout` to
+both HTTP requests and polling sleeps.
+
+`showcase/release-pack.xsh::main` builds beside an absent output directory and
+publishes it by rename only after the archive is complete; the output parent
+must already exist and the output cannot be inside the input tree.
+`showcase/bump-version.xsh::main` edits only `[package].version`, writes through
+`Path.write_atomic`, and leaves invalid manifests unchanged.
+`showcase/archive-unpack.xsh::staged_output` publishes mutating results only to
+an absent path after successful extraction or compression; failed work removes
+its staging directory. `showcase/backup-rotate.xsh::main` considers only direct
+files in its requested directory.
 
 ## Explicit Non-Goals
 
@@ -420,29 +245,3 @@ Do not prioritize:
 * ports chosen mainly by recognizability or line count.
 
 The corpus should sharpen XSH's identity, not expand its territorial claims.
-
-## Corpus R1 Milestone
-
-Corpus R1 is complete when:
-
-1. XSH's own development lifecycle is operationally self-hosted.
-2. At least two additional canonical multi-module systems programs are complete.
-3. Each program has deterministic fixtures, fault injection, cleanup checks, and
-   trace assertions.
-4. Repeated helpers have been cataloged without premature promotion.
-5. A corpus pressure report distinguishes:
-
-   * program-design problems;
-   * missing reusable XSH modules;
-   * tooling or diagnostic shortcomings;
-   * narrow missing host capabilities;
-   * genuine repeated language pressure.
-6. No new semantic category has been added without satisfying the three-strike
-   rule.
-7. At least one existing abstraction has been simplified, demoted, or removed
-   based on corpus evidence.
-
-The preferred outcome is not a larger language.
-
-The preferred outcome is stronger evidence that XSH can remain small while
-owning an unusually large portion of the systems layer.

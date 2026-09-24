@@ -77,6 +77,46 @@ pub(crate) fn crc32c(bytes: &[u8]) -> i64 {
     crc32_with_polynomial(bytes, 0x82f6_3b78) as i64
 }
 
+// GNU checksum lines prefer a double-space separator anywhere in the line to
+// a space-star pair. The separator's second byte sets `binary`; a leading
+// star in the path is stripped independently, and every trailing CR is ignored.
+pub(crate) fn parse_check_line(line: &str, span: Span) -> Result<CheckLine, RuntimeError> {
+    let line = line.trim_end_matches('\r');
+    let separator = line.find("  ").or_else(|| line.find(" *")).ok_or_else(|| {
+        RuntimeError::new(
+            "checksum-line",
+            "expected `<hex>  <path>` or `<hex> *<path>`",
+        )
+        .with_span(span)
+    })?;
+    let hex = &line[..separator];
+    let marker = line.as_bytes().get(separator + 1).copied().unwrap_or(b' ');
+    let path = &line[separator + 2..];
+    let path = path.strip_prefix('*').unwrap_or(path);
+    if hex.is_empty() || path.is_empty() {
+        return Err(
+            RuntimeError::new("checksum-line", "checksum line is incomplete").with_span(span),
+        );
+    }
+    if !hex.chars().all(|ch| ch.is_ascii_hexdigit()) {
+        return Err(
+            RuntimeError::new("checksum-line", "checksum is not hexadecimal").with_span(span),
+        );
+    }
+    Ok(CheckLine {
+        hex: hex.to_ascii_lowercase(),
+        path: path.to_string(),
+        binary: marker == b'*',
+    })
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct CheckLine {
+    pub(crate) hex: String,
+    pub(crate) path: String,
+    pub(crate) binary: bool,
+}
+
 fn digest_reader(
     algorithm: HashAlgorithm,
     reader: &mut dyn Read,

@@ -39,6 +39,7 @@ pub(super) struct ScriptProducer {
     /// A body that ends by returning another stream hands its remaining items
     /// over to that stream; the producer is finished and drains it instead.
     delegated: Option<Box<StreamValue>>,
+    delegated_prefix: std::collections::VecDeque<super::Value>,
 }
 
 /// The stream value's view of a producer: it can resume it and stop it, and the
@@ -112,6 +113,7 @@ impl Evaluator {
             started: false,
             finished: false,
             delegated: None,
+            delegated_prefix: std::collections::VecDeque::new(),
         });
         // The evaluator keeps a handle so a producer the program can no longer
         // reach can still be stopped, which is what runs its defers.
@@ -255,7 +257,11 @@ impl Evaluator {
                 match result {
                     // A body that returns a stream hands the rest of its output
                     // to that stream.
-                    Ok(LoweredValue::Stream(stream)) => {
+                    Ok(LoweredValue::Stream(mut stream)) => {
+                        producer.delegated_prefix = std::mem::take(&mut stream.items)
+                            .into_iter()
+                            .map(|item| item.value)
+                            .collect();
                         producer.delegated = Some(stream);
                         self.pull_delegated(producer, span)
                     }
@@ -274,6 +280,10 @@ impl Evaluator {
         span: Span,
     ) -> Result<(), RuntimeError> {
         if producer.finished {
+            producer.delegated_prefix.clear();
+            if let Some(mut stream) = producer.delegated.take() {
+                self.stream_cancel(&mut stream, span)?;
+            }
             return Ok(());
         }
         producer.finished = true;
@@ -319,14 +329,24 @@ impl Evaluator {
         producer: &mut ScriptProducer,
         span: Span,
     ) -> Result<Option<LoweredValue>, RuntimeError> {
+        if let Some(value) = producer.delegated_prefix.pop_front() {
+            return super::lowered_value_from_runtime_any(&value)
+                .map(Some)
+                .ok_or_else(|| RuntimeError::new(
+                    "type-error",
+                    format!("stream produced unsupported {}", value.type_name()),
+                ).with_span(span));
+        }
         let Some(stream) = producer.delegated.as_mut() else {
             return Ok(None);
         };
-        if let Some(item) = stream.items.pop() {
-            return Ok(super::lowered_value_from_runtime_any(&item.value));
-        }
-        match stream.next_live(span)? {
-            Some(value) => Ok(super::lowered_value_from_runtime_any(&value)),
+        match self.stream_next(stream, span)? {
+            Some(value) => super::lowered_value_from_runtime_any(&value)
+                .map(Some)
+                .ok_or_else(|| RuntimeError::new(
+                    "type-error",
+                    format!("stream produced unsupported {}", value.type_name()),
+                ).with_span(span)),
             None => {
                 producer.delegated = None;
                 Ok(None)

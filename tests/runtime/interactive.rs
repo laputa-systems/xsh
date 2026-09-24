@@ -1753,7 +1753,6 @@ fn interactive_denv_allow_reports_missing_sources() {
 }
 
 #[test]
-#[ignore = "flaky: depends on filesystem source-appearance timing"]
 fn interactive_denv_refreshes_dirty_marker_when_sources_appear() {
     let home = temp_path("interactive-denv-refresh");
     let repo = home.join("project");
@@ -1762,27 +1761,15 @@ fn interactive_denv_refreshes_dirty_marker_when_sources_appear() {
     std::fs::create_dir_all(&work).expect("create workdir");
     std::fs::create_dir(repo.join(".git")).expect("create git marker");
 
-    let mut pty = spawn_xshi_pty_with(Some(&work), &[("HOME", home.as_path())]);
-    let mut transcript = pty.read_until("$ ", PTY_TIMEOUT);
-    pty.write(b"touch ../.env; echo denv-source-ready\r");
-    let sentinel = "denv-source-ready\r\n";
-    transcript.push_str(&pty.read_until(sentinel, PTY_TIMEOUT));
-    let prompt_after_sentinel = transcript
-        .rsplit_once(sentinel)
-        .is_some_and(|(_, tail)| tail.contains("$ "));
-    if !prompt_after_sentinel {
-        transcript.push_str(&pty.read_until("$ ", PTY_TIMEOUT));
-    }
-    pty.write(b"exit\r");
-    let output = pty.wait(PTY_TIMEOUT, &transcript);
-
-    assert!(output.status.success(), "{transcript}");
+    let input = format!("cd {}\ntouch ../.env\ndenv allow\nexit\n", work.display());
+    let output = run_xshi_input(&["--no-config"], &input, Some(home.as_path()));
+    assert!(output.status.success());
     assert_eq!(String::from_utf8(output.stderr).unwrap(), "");
-    let screen = terminal_screen(&transcript);
-    assert!(
-        screen.iter().any(|line| line.contains(" * $ ")),
-        "{screen:?}\ntranscript={transcript:?}"
-    );
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert_eq!(stdout.matches("work * $ ").count(), 1, "{stdout}");
+    assert!(stdout.contains("denv: allowed"), "{stdout}");
+    let after_allow = stdout.rsplit_once("denv: allowed").unwrap().1;
+    assert!(after_allow.contains("work $ "), "{stdout}");
 
     let _ = std::fs::remove_dir_all(home);
 }

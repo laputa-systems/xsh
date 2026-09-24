@@ -16,8 +16,7 @@ use crate::modules::api_spec;
 use crate::modules::signature::RuntimeOp;
 use crate::symbol::Name;
 use crate::syntax::arena::{ArenaCommand, ArenaExprKind, AstArena, CommandStmtId, ExprId};
-use std::collections::{BTreeMap, BTreeSet};
-use std::sync::OnceLock;
+use std::collections::BTreeSet;
 
 /// A function whose body the runtime provides as a private representation
 /// operation.
@@ -53,37 +52,6 @@ pub(crate) struct StdlibModule {
 
 pub(crate) const CATALOG: &[StdlibModule] = &[
     StdlibModule {
-        identity: "bytes",
-        label: "<xsh-stdlib:bytes>",
-        bridges: &[],
-        source: include_str!("../stdlib/bytes.xsh"),
-    },
-    StdlibModule {
-        identity: "cli",
-        label: "<xsh-stdlib:cli>",
-        source: include_str!("../stdlib/cli.xsh"),
-        bridges: &[
-            StdlibBridge {
-                function: "record_with_field",
-                op: RuntimeOp::RecordWithField,
-            },
-            StdlibBridge {
-                function: "type_name",
-                op: RuntimeOp::BridgeTypeName,
-            },
-            StdlibBridge {
-                function: "command_name",
-                op: RuntimeOp::BridgeCommandName,
-            },
-        ],
-    },
-    StdlibModule {
-        identity: "env",
-        label: "<xsh-stdlib:env>",
-        bridges: &[],
-        source: include_str!("../stdlib/env.xsh"),
-    },
-    StdlibModule {
         identity: "hash",
         label: "<xsh-stdlib:hash>",
         bridges: &[],
@@ -99,35 +67,13 @@ pub(crate) const CATALOG: &[StdlibModule] = &[
         source: include_str!("../stdlib/linux_text.xsh"),
     },
     StdlibModule {
-        identity: "ini",
-        label: "<xsh-stdlib:ini>",
-        bridges: &[],
-        source: include_str!("../stdlib/ini.xsh"),
-    },
-    StdlibModule {
         identity: "json",
         label: "<xsh-stdlib:json>",
         source: include_str!("../stdlib/json.xsh"),
-        bridges: &[
-            StdlibBridge {
-                function: "record_with_field",
-                op: RuntimeOp::RecordWithField,
-            },
-            StdlibBridge {
-                function: "record_remove_field",
-                op: RuntimeOp::RecordRemoveField,
-            },
-            StdlibBridge {
-                function: "type_name",
-                op: RuntimeOp::BridgeTypeName,
-            },
-        ],
-    },
-    StdlibModule {
-        identity: "mime",
-        label: "<xsh-stdlib:mime>",
-        bridges: &[],
-        source: include_str!("../stdlib/mime.xsh"),
+        bridges: &[StdlibBridge {
+            function: "type_name",
+            op: RuntimeOp::BridgeTypeName,
+        }],
     },
     StdlibModule {
         identity: "process",
@@ -136,28 +82,10 @@ pub(crate) const CATALOG: &[StdlibModule] = &[
         source: include_str!("../stdlib/process.xsh"),
     },
     StdlibModule {
-        identity: "shlex",
-        label: "<xsh-stdlib:shlex>",
-        bridges: &[],
-        source: include_str!("../stdlib/shlex.xsh"),
-    },
-    StdlibModule {
         identity: "system",
         label: "<xsh-stdlib:system>",
         bridges: &[],
         source: include_str!("../stdlib/system.xsh"),
-    },
-    StdlibModule {
-        identity: "text",
-        label: "<xsh-stdlib:text>",
-        bridges: &[],
-        source: include_str!("../stdlib/text.xsh"),
-    },
-    StdlibModule {
-        identity: "time",
-        label: "<xsh-stdlib:time>",
-        bridges: &[],
-        source: include_str!("../stdlib/time.xsh"),
     },
     StdlibModule {
         identity: "tui",
@@ -192,17 +120,14 @@ pub(crate) fn find_by_namespace(namespace: &str) -> Option<&'static StdlibModule
     find(identity)
 }
 
-/// Whether an operation is a private representation bridge.
+/// Whether an operation is a private embedded-module bridge.
 ///
 /// These operations are not bound to any public entry; a program reaches one
 /// only through the lowering rewrite inside the module that declares it.
 pub(crate) fn is_private_bridge_op(op: RuntimeOp) -> bool {
     matches!(
         op,
-        RuntimeOp::RecordWithField
-            | RuntimeOp::RecordRemoveField
-            | RuntimeOp::BridgeTypeName
-            | RuntimeOp::BridgeCommandName
+        RuntimeOp::BridgeTypeName
             | RuntimeOp::BridgeAppendBytes
     )
 }
@@ -265,7 +190,7 @@ pub mod counters {
 ///
 /// Selection is conservative and syntactic: any mention of a public spelling
 /// that a script-backed entry owns counts, including dead code, callable
-/// references, command forms, and method calls. Over-selection only prepares an
+/// references, and command forms. Over-selection only prepares an
 /// implementation that the program never calls; under-selection would be a
 /// preparation defect.
 ///
@@ -274,7 +199,16 @@ pub mod counters {
 pub(crate) fn required_modules(arena: &AstArena) -> Vec<&'static str> {
     let mut needed: BTreeSet<&'static str> = BTreeSet::new();
     if arena_uses_dynamic_module_load(arena) {
-        return CATALOG.iter().map(|module| module.identity).collect();
+        // The catalog includes sources for other targets. A module loaded at
+        // runtime can reach every binding on this target, but it cannot reach
+        // an embedded source with no target-bound public entry.
+        return api_spec()
+            .script_impls()
+            .into_iter()
+            .map(|(_, _, script)| script.module)
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect();
     }
     // An identifier that qualifies a field is resolved through that field, so
     // it is not also a bare mention of the module: `env.get` is the native
@@ -299,7 +233,6 @@ pub(crate) fn required_modules(arena: &AstArena) -> Vec<&'static str> {
                 if let ArenaExprKind::Ident(module) = arena.expr(base).kind {
                     collect_qualified_mention(&mut needed, &module.as_str(), &name.as_str());
                 }
-                collect_method_mention(&mut needed, &name.as_str());
             }
             _ => {}
         }
@@ -382,43 +315,6 @@ fn collect_qualified_mention(needed: &mut BTreeSet<&'static str>, module: &str, 
             needed.insert(script.module);
         }
     }
-}
-
-fn collect_method_mention(needed: &mut BTreeSet<&'static str>, method: &str) {
-    for module in script_method_modules(method) {
-        needed.insert(module);
-    }
-}
-
-/// Implementation modules that own a script-backed method with this spelling.
-///
-/// The receiver type is unknown before checking, so the map is keyed by the
-/// method spelling alone and every owner is included. A spelling owned by two
-/// receivers therefore prepares both modules, which is the safe direction.
-fn script_method_modules(method: &str) -> impl Iterator<Item = &'static str> {
-    static BY_METHOD: OnceLock<BTreeMap<&'static str, BTreeSet<&'static str>>> = OnceLock::new();
-    BY_METHOD
-        .get_or_init(|| {
-            let mut by_method: BTreeMap<&'static str, BTreeSet<&'static str>> = BTreeMap::new();
-            for (receiver, methods) in api_spec().method_entries() {
-                let _ = receiver;
-                for named in methods {
-                    for overload in &named.overloads {
-                        if let Some(script) = overload.sig.script_impl() {
-                            by_method
-                                .entry(named.name)
-                                .or_default()
-                                .insert(script.module);
-                        }
-                    }
-                }
-            }
-            by_method
-        })
-        .get(method)
-        .into_iter()
-        .flatten()
-        .copied()
 }
 
 #[cfg(test)]
@@ -563,7 +459,7 @@ mod tests {
 
         let reps: usize = 20;
         let mut phases = [("parse", Duration::ZERO), ("declarations", Duration::ZERO), ("bodies", Duration::ZERO), ("lower+verify", Duration::ZERO)];
-        for identity in ["cli", "text", "json"] {
+        for identity in ["hash", "tui", "json"] {
             for entry in &mut phases {
                 entry.1 = Duration::ZERO;
             }

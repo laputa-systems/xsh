@@ -1,5 +1,6 @@
 #![allow(clippy::single_call_fn)]
 
+use std::os::unix::ffi::OsStringExt;
 use std::process::Command;
 use std::{env, fs};
 
@@ -31,6 +32,24 @@ fn xsh_keeps_separator_compatibility_for_script_args() {
 
     assert!(output.status.success());
     assert_eq!(String::from_utf8(output.stdout).unwrap(), "-f\nneedle\n");
+}
+
+#[test]
+fn xsh_reports_non_utf8_script_argument_without_panicking() {
+    let path = temp_script("xsh-non-utf8-argv", "print \"ready\"\n");
+    let raw_arg = std::ffi::OsString::from_vec(b"raw\xffarg".to_vec());
+    let output = Command::new(env!("CARGO_BIN_EXE_xsh"))
+        .arg(path)
+        .arg(raw_arg)
+        .output()
+        .expect("run xsh script");
+
+    assert_eq!(output.status.code(), Some(2));
+    assert!(output.stdout.is_empty());
+    assert_eq!(
+        String::from_utf8(output.stderr).unwrap(),
+        "xsh: argument 2 is not valid UTF-8\n"
+    );
 }
 
 #[test]

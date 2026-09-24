@@ -1,9 +1,8 @@
-//! A17 — one set of migrated-API cases behaves identically across the builds
-//! this tree supports.
+//! The migrated-API cases behave identically across the supported build profiles.
 //!
 //! The same script is run through each available `xsh` binary and the bytes of
-//! stdout, stderr, and the exit status are compared: the debug build, the
-//! release build, and a build without the default features. The script is
+//! stdout, stderr, and the exit status are compared across debug/release and
+//! default/no-default-feature builds. The script is
 //! built from the cases this port is most likely to break by re-encoding
 //! something: newlines inside values, non-ASCII text and escapes, path bytes,
 //! and the exact kind and message of a rejected call.
@@ -13,11 +12,14 @@
 //! ```sh
 //! cargo build --release -p xsh --bin xsh
 //! CARGO_TARGET_DIR=target/no-default cargo build -p xsh --bin xsh --no-default-features
+//! CARGO_TARGET_DIR=target/no-default cargo build --release -p xsh --bin xsh --no-default-features
 //! ```
 //!
-//! A binary that is not there is reported as a skip rather than passing
-//! quietly; the debug binary is built for this test's own package, so it is
-//! always compared.
+//! On Linux, use `CARGO_TARGET_DIR=target/no-default-linux` for the two
+//! no-default-feature builds. Build and run all products in Dockerfile.test with
+//! `--target aarch64-unknown-linux-musl` and the flags from
+//! `dev/targets.xsh::docker_test_env`. A missing alternative is reported as a
+//! skip with its exact build command; a missing debug baseline is an error.
 
 use std::io::Write;
 use std::process::Command;
@@ -27,6 +29,24 @@ fn workspace_root() -> std::path::PathBuf {
         .join("../..")
         .canonicalize()
         .expect("workspace root")
+}
+
+fn target_paths(
+    root: &std::path::Path,
+) -> Option<(std::path::PathBuf, std::path::PathBuf, &'static str)> {
+    match (std::env::consts::OS, std::env::consts::ARCH) {
+        ("macos", "aarch64") => Some((
+            root.join("target"),
+            root.join("target/no-default"),
+            "",
+        )),
+        ("linux", "aarch64") => Some((
+            root.join("target/aarch64-unknown-linux-musl"),
+            root.join("target/no-default-linux/aarch64-unknown-linux-musl"),
+            " --target aarch64-unknown-linux-musl",
+        )),
+        _ => None,
+    }
 }
 
 /// The cases, as one script. Every line prints something whose bytes depend on
@@ -102,22 +122,56 @@ fn run(binary: &std::path::Path, script: &std::path::Path) -> (i32, Vec<u8>, Vec
 #[test]
 fn one_case_set_behaves_identically_across_supported_builds() {
     let root = workspace_root();
-    let debug = root.join("target/debug/xsh");
-    assert!(debug.is_file(), "the debug binary must exist: {debug:?}");
+    let Some((default_dir, no_default_dir, target_arg)) = target_paths(&root) else {
+        eprintln!(
+            "skipped profile parity: unsupported host {} / {}",
+            std::env::consts::OS,
+            std::env::consts::ARCH
+        );
+        return;
+    };
+    let (no_default_target_dir, build_context) = if target_arg.is_empty() {
+        ("target/no-default", "")
+    } else {
+        (
+            "target/no-default-linux",
+            "inside Dockerfile.test with dev/targets.xsh::docker_test_env flags: ",
+        )
+    };
+    let debug = default_dir.join("debug/xsh");
+    assert!(
+        debug.is_file(),
+        "missing debug baseline: {}. Build {build_context}cargo build -p xsh --bin xsh{target_arg}",
+        debug.display()
+    );
     let alternatives = [
-        ("release", root.join("target/release/xsh")),
+        (
+            "release",
+            default_dir.join("release/xsh"),
+            format!("cargo build --release -p xsh --bin xsh{target_arg}"),
+        ),
         (
             "no-default-features",
-            root.join("target/no-default/debug/xsh"),
+            no_default_dir.join("debug/xsh"),
+            format!(
+                "CARGO_TARGET_DIR={no_default_target_dir} cargo build -p xsh --bin xsh --no-default-features{target_arg}"
+            ),
+        ),
+        (
+            "release-no-default-features",
+            no_default_dir.join("release/xsh"),
+            format!(
+                "CARGO_TARGET_DIR={no_default_target_dir} cargo build --release -p xsh --bin xsh --no-default-features{target_arg}"
+            ),
         ),
     ];
     let mut compared = vec![("debug", debug.clone())];
-    for (name, binary) in alternatives {
+    for (name, binary, command) in alternatives {
         if binary.is_file() {
             compared.push((name, binary));
         } else {
             eprintln!(
-                "skipped {name}: {} is not built; see this file's header for the command",
+                "skipped {name}: {} is not built; build {build_context}{command}",
                 binary.display()
             );
         }
@@ -149,6 +203,8 @@ fn one_case_set_behaves_identically_across_supported_builds() {
         "the script must have produced its first line: {}",
         String::from_utf8_lossy(&baseline.1)
     );
+    assert_eq!(baseline.0, 0, "debug baseline exited with an error");
+    assert!(baseline.2.is_empty(), "debug baseline wrote to stderr");
 
     for (name, candidate) in &runs[1..] {
         let context = |field: &str| {

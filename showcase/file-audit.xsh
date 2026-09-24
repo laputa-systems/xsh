@@ -3,10 +3,6 @@ type Opts = {root: Path, fail: Bool, show_ok: Bool}
 
 type Finding = {severity: Int, kind: Str, path: Str, detail: Str}
 
-pure inside_root(path_text: Str, root_text: Str) -> Bool {
-  return path_text == root_text or path_text.starts_with(f"${root_text}/")
-}
-
 pure severity_label(severity: Int) -> Str {
   if severity == 1 {
     return "error"
@@ -43,7 +39,6 @@ proc main(...argv: List[Str]) [fs, error] {
   )?
 
   let root = opts.root.resolve()?
-  let root_text = root.display()
   let current = user.current()?
   var findings: List[Finding] = []
 
@@ -60,8 +55,9 @@ proc main(...argv: List[Str]) [fs, error] {
 
       match entry.path.resolve() {
         Ok(resolved) => {
-          if ! inside_root(resolved.display(), root_text) {
-            findings = add_finding(findings, 1, "escaping-symlink", shown, resolved.display())
+          match resolved.strip_prefix(root) {
+            Ok(_) => {}
+            Err(_) => findings = add_finding(findings, 1, "escaping-symlink", shown, resolved.display())
           }
         }
         Err(_) => findings = add_finding(findings, 1, "broken-symlink", shown, target.display())

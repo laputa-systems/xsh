@@ -1,8 +1,11 @@
-let helper = fp"${ARGV[0]}"
+let ready = fp"${ARGV[0]}"
+let hook_entered = fp"${ARGV[1]}"
 
-on USR1 [time, error] {
-  time.sleep(1s)?
-  abort(0)
+on USR1 [fs, time, error] {
+  hook_entered.write("entered")?
+  while true {
+    time.sleep(10ms)?
+  }
 }
 
 on USR2 [] {
@@ -10,9 +13,7 @@ on USR2 [] {
   abort(2)
 }
 
-let _sender = process.spawn(
-  process.command_argv(helper, ["os-probe", "signal-parent-sequence", "USR1", "50", "USR2", "50"]),
-)?
-
-time.sleep(5s)?
-print "after"
+ready.write("ready")?
+while true {
+  time.sleep(10ms)?
+}

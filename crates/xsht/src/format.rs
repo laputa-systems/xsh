@@ -2374,7 +2374,8 @@ impl<'a> Writer<'a> {
         }
         if args.len() == 1 {
             let arg_kind = self.arena.call_args(args)[0].kind.clone();
-            if self.call_arg_is_multiline_literal(&arg_kind)
+            if (self.call_arg_is_multiline_literal(&arg_kind)
+                || (self.call_arg_is_multiline_record(&arg_kind) && inline.contains('\n')))
                 && self.fits_multiline_inline(output, &inline)
             {
                 if self.call_arg_is_multiline_record(&arg_kind) {

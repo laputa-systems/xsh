@@ -120,6 +120,9 @@ not split merely to satisfy the width target.
 An authored multiline argument list remains multiline when its breaks occur
 between arguments. Broken argument lists use one argument per line and a
 trailing comma. Nested calls make their own decisions.
+When a call has one record argument, a record expanded for width can stay
+inside the call's parentheses if the resulting lines fit. The first and second
+formatting passes must choose the same shape (`Writer::write_call_args`).
 
 Long method chains keep the first call attached to its receiver and put later
 calls on indented leading-dot lines. The emitted continuation must parse as one

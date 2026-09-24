@@ -27,11 +27,27 @@ pub fn main() -> ExitCode {
     };
     clear_cancellation_request();
 
-    if std::env::args().nth(1).as_deref() == Some("--startup") {
+    let args: Vec<String> = match std::env::args_os()
+        .skip(1)
+        .enumerate()
+        .map(|(index, arg)| {
+            arg.into_string()
+                .map_err(|_| format!("argument {} is not valid UTF-8", index + 1))
+        })
+        .collect()
+    {
+        Ok(args) => args,
+        Err(message) => {
+            eprintln!("xsh: {message}");
+            return ExitCode::from(2);
+        }
+    };
+
+    if args.first().map(String::as_str) == Some("--startup") {
         return finish(run_startup());
     }
 
-    match parse_run(std::env::args().skip(1).collect()) {
+    match parse_run(args) {
         Ok(None) => {
             print!("{HELP}");
             ExitCode::SUCCESS

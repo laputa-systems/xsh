@@ -70,6 +70,20 @@ proc test_tui_pad_zero_and_negative_width() [error] {
   test.eq(tui.right_pad("", -5), "")?
 }
 
+proc test_tui_pad_large_width_keeps_space_filler() [error] {
+  # The seed and each doubling boundary must keep exact output widths.
+  for width in [31, 32, 33, 64, 65, 100] {
+    let left = tui.left_pad("x", width)
+    let right = tui.right_pad("x", width)
+    test.eq(left.byte_len(), width)?
+    test.eq(right.byte_len(), width)?
+    test.ok(left.ends_with("x"))?
+    test.ok(right.starts_with("x"))?
+    test.eq(left.replace(" ", ""), "x")?
+    test.eq(right.replace(" ", ""), "x")?
+  }
+}
+
 # Escape sequences occupy no columns, so styled text pads to its displayed
 # width and the sequences stay intact around the inserted spaces.
 proc test_tui_pad_ignores_escape_sequences() [error] {

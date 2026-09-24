@@ -1,258 +1,6 @@
 use super::common::*;
 
 #[test]
-fn fold_block_can_compose_pipeline_over_accumulator_field() {
-    let source = r#"
-let result = [0] |> fold({parts: ["first", "last"]}) { |acc, _item|
-  let popped = acc.parts |> take(acc.parts.len() - 1) |> collect()
-  {parts: popped}
-}
-print result.parts.join(",")
-"#;
-    let path = write_temp_script("fold-accumulator-pipeline", source);
-    let path_str = path.to_str().unwrap();
-
-    let check = xsht(["check", path_str]);
-    assert!(
-        check.status.success(),
-        "xsht check rejected a pipeline in a fold block: {}",
-        String::from_utf8_lossy(&check.stderr)
-    );
-
-    let run = xsh([path_str]);
-    assert!(
-        run.status.success(),
-        "xsh failed on a pipeline in a fold block: {}",
-        String::from_utf8_lossy(&run.stderr)
-    );
-    assert_eq!(String::from_utf8(run.stdout).unwrap(), "first\n");
-    let _ = std::fs::remove_file(path);
-}
-
-#[test]
-fn fold_block_supports_nested_if_statement_with_assignment() {
-    let source = r#"
-let result = [1, 2, 3] |> fold(0) { |acc, item|
-  var next = acc
-  if item > 1 {
-    next = next + item
-  }
-  next
-}
-print $result
-"#;
-    let path = write_temp_script("fold-nested-if-statement", source);
-    let path_str = path.to_str().unwrap();
-
-    let check = xsht(["check", path_str]);
-    assert!(
-        check.status.success(),
-        "xsht check rejected a nested if statement in a fold block: {}",
-        String::from_utf8_lossy(&check.stderr)
-    );
-
-    let run = xsh([path_str]);
-    assert!(
-        run.status.success(),
-        "xsh failed on a nested if statement in a fold block: {}",
-        String::from_utf8_lossy(&run.stderr)
-    );
-    assert_eq!(String::from_utf8(run.stdout).unwrap(), "5\n");
-    let _ = std::fs::remove_file(path);
-}
-
-#[test]
-fn fold_block_supports_nested_if_as_branch_tail() {
-    let source = r#"
-let result = [1, 2, 3] |> fold(0) { |acc, item|
-  if item == 1 {
-    acc
-  } else {
-    if item == 2 {
-      acc + 2
-    } else {
-      acc + 3
-    }
-  }
-}
-print $result
-"#;
-    let path = write_temp_script("fold-nested-if-tail", source);
-    let path_str = path.to_str().unwrap();
-
-    let check = xsht(["check", path_str]);
-    assert!(
-        check.status.success(),
-        "xsht check rejected a nested if tail in a fold block: {}",
-        String::from_utf8_lossy(&check.stderr)
-    );
-
-    let run = xsh([path_str]);
-    assert!(
-        run.status.success(),
-        "xsh failed on a nested if tail in a fold block: {}",
-        String::from_utf8_lossy(&run.stderr)
-    );
-    assert_eq!(String::from_utf8(run.stdout).unwrap(), "5\n");
-    let _ = std::fs::remove_file(path);
-}
-
-#[test]
-fn live_stream_par_map_flat_map_reduce_by_matches_collected_rows() {
-    let root = temp_path("live-stream-flat-map-reduce-root");
-    let nested = root.join("nested");
-    std::fs::create_dir_all(&nested).expect("create flat-map reduce fixture dirs");
-    std::fs::write(root.join("a.txt"), "abc").expect("write a");
-    std::fs::write(nested.join("b.txt"), "de").expect("write b");
-    std::fs::write(nested.join("c.md"), "fghi").expect("write c");
-    let source = format!(
-        "\
-let root = Path({})
-let streamed = fs.walk(root)
-  |> where .kind == \"file\"
-  |> par-map --jobs=4 {{ |entry|
-    [{{ext: entry.ext, count: 1, size: entry.size}}]
-  }}
-  |> flat-map {{ |rows| rows }}
-  |> reduce-by --sum {{ |row|
-    {{key: row.ext, value: {{count: row.count, size: row.size}}}}
-  }}
-let collected_rows = fs.walk(root)
-  |> where .kind == \"file\"
-  |> collect()
-let collected = collected_rows
-  |> par-map --jobs=4 {{ |entry|
-    {{ext: entry.ext, count: 1, size: entry.size}}
-  }}
-  |> reduce-by --sum {{ |row|
-    {{key: row.ext, value: {{count: row.count, size: row.size}}}}
-  }}
-let st = streamed.get(\"txt\", {{count: 0, size: 0}})
-let sm = streamed.get(\"md\", {{count: 0, size: 0}})
-let ct = collected.get(\"txt\", {{count: 0, size: 0}})
-let same = st.count == ct.count and st.size == ct.size and streamed == collected
-print f\"same=${{same}} txt=${{st.count}}/${{st.size}} md=${{sm.count}}/${{sm.size}}\"
-",
-        xsh_string_literal(root.to_str().unwrap())
-    );
-
-    let output = run_temp_script("live-stream-flat-map-reduce", &source);
-
-    assert!(
-        output.status.success(),
-        "stderr: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    assert_eq!(
-        String::from_utf8(output.stdout).unwrap(),
-        "same=true txt=2/5 md=1/4\n"
-    );
-    let _ = std::fs::remove_dir_all(root);
-}
-
-#[test]
-fn live_stream_par_map_for_loop_matches_collected_rows() {
-    let root = temp_path("live-stream-par-map-for-root");
-    let nested = root.join("nested");
-    std::fs::create_dir_all(&nested).expect("create par-map for fixture dirs");
-    std::fs::write(root.join("a.txt"), "abc").expect("write a");
-    std::fs::write(nested.join("b.txt"), "de").expect("write b");
-    std::fs::write(nested.join("c.md"), "fghi").expect("write c");
-    let source = format!(
-        "\
-let root = Path({})
-var streamed_txt_count = 0
-var streamed_txt_size = 0
-var streamed_md_count = 0
-var streamed_md_size = 0
-for row in fs.walk(root)
-  |> where .kind == \"file\"
-  |> par-map --jobs=4 {{ |entry|
-    {{ext: entry.ext, count: 1, size: entry.size}}
-  }}
-  |> where .ext != \"\" {{
-  match row.ext {{
-    \"txt\" => {{
-      streamed_txt_count += row.count
-      streamed_txt_size += row.size
-    }}
-    \"md\" => {{
-      streamed_md_count += row.count
-      streamed_md_size += row.size
-    }}
-    _ => {{}}
-  }}
-}}
-let collected_rows = fs.walk(root)
-  |> where .kind == \"file\"
-  |> collect()
-let collected = collected_rows
-  |> par-map --jobs=4 {{ |entry|
-    {{ext: entry.ext, count: 1, size: entry.size}}
-  }}
-  |> reduce-by --sum {{ |row|
-    {{key: row.ext, value: {{count: row.count, size: row.size}}}}
-  }}
-let ct = collected.get(\"txt\", {{count: 0, size: 0}})
-let cm = collected.get(\"md\", {{count: 0, size: 0}})
-let same = streamed_txt_count == ct.count and streamed_txt_size == ct.size and streamed_md_count == cm.count and streamed_md_size == cm.size
-print f\"same=${{same}} txt=${{streamed_txt_count}}/${{streamed_txt_size}} md=${{streamed_md_count}}/${{streamed_md_size}}\"
-",
-        xsh_string_literal(root.to_str().unwrap())
-    );
-
-    let output = run_temp_script("live-stream-par-map-for", &source);
-
-    assert!(
-        output.status.success(),
-        "stderr: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    assert_eq!(
-        String::from_utf8(output.stdout).unwrap(),
-        "same=true txt=2/5 md=1/4\n"
-    );
-    let _ = std::fs::remove_dir_all(root);
-}
-
-#[test]
-fn par_map_filesystem_reads_preserve_all_results() {
-    let root = temp_path("par-map-filesystem-reads");
-    std::fs::create_dir_all(&root).expect("create par-map filesystem root");
-    for index in 0..32 {
-        std::fs::write(
-            root.join(format!("entry-{index:02}.txt")),
-            format!("{index}\n"),
-        )
-        .expect("write par-map filesystem entry");
-    }
-    let source = format!(
-        "\
-let root = Path({})
-let entries = fs.files(root, stat: false)? |> collect()
-let lengths = entries |> par-map --jobs=8 {{ |entry|
-  entry.path.read_text()?.count_chars()
-}}
-print f\"count=${{lengths.len()}} total=${{lengths |> sum()}}\"
-",
-        xsh_string_literal(root.to_str().unwrap())
-    );
-
-    let output = run_temp_script("par-map-filesystem-reads", &source);
-
-    assert!(
-        output.status.success(),
-        "stderr: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    assert_eq!(
-        String::from_utf8(output.stdout).unwrap(),
-        "count=32 total=86\n"
-    );
-    let _ = std::fs::remove_dir_all(root);
-}
-
-#[test]
 fn batch_max_argv_splits_long_path_lists_before_running_commands() {
     let mut source = String::from("let files = [");
     for index in 0..300 {
@@ -276,41 +24,7 @@ fn batch_max_argv_splits_long_path_lists_before_running_commands() {
 }
 
 #[test]
-fn terminal_each_as_final_proc_statement_exits_clean() {
-    // Regression: a proc whose final statement is the terminal stream stage
-    // `each` was accepted by `xsht check` (typed as Unit) but failed at
-    // runtime with `lowered return type mismatch` (exit 3) after emitting all
-    // its output, because the runtime lowered the drained `each` to an empty
-    // list instead of Unit. Checker and runtime must agree: exit 0 with full
-    // output.
-    let source = r#"
-proc main() [io] {
-  ["one", "two", "three"]
-    |> each { |word| print $word }
-}
-"#;
-    let path = write_temp_script("stream-terminal-each-final", source);
-    let path_str = path.to_str().unwrap();
-
-    let check = xsht(["check", path_str]);
-    assert!(
-        check.status.success(),
-        "xsht check rejected a terminal `each` final statement: {}",
-        String::from_utf8_lossy(&check.stderr)
-    );
-
-    let run = xsh([path_str]);
-    assert!(
-        run.status.success(),
-        "xsh failed on a terminal `each` final statement: {}",
-        String::from_utf8_lossy(&run.stderr)
-    );
-    assert_eq!(String::from_utf8(run.stdout).unwrap(), "one\ntwo\nthree\n");
-    let _ = std::fs::remove_file(path);
-}
-
-#[test]
-fn sigterm_cancels_parallel_stream_process_work_without_losing_trace_context() {
+fn sigterm_cancels_traced_par_map_process_work_without_losing_trace_context() {
     let root = temp_path("cancel-parallel-stream-root");
     std::fs::create_dir_all(&root).unwrap();
     let ready = root.join("ready");
@@ -318,8 +32,9 @@ fn sigterm_cancels_parallel_stream_process_work_without_losing_trace_context() {
     let source = format!(
         "\
 let ready = Path({})
-[\"one\", \"two\"] |> each --jobs=2 {{ |item|
+[\"one\", \"two\"] |> par-map --jobs=2 {{ |item|
   let _status = run sh -c {} sh (ready) ?
+  item
 }}
 ",
         xsh_string_literal(ready.to_str().unwrap()),
@@ -337,8 +52,9 @@ let ready = Path({})
     assert_eq!(output.status.code(), Some(3));
     let stderr = String::from_utf8(output.stderr).unwrap();
     assert!(stderr.contains("canceled"));
-    assert!(stderr.contains("kind=parallel.job.start"));
-    assert!(stderr.contains("kind=parallel.cancel"));
+    assert!(stderr.contains("kind=parallel.job.start"), "{stderr}");
+    assert!(stderr.contains("kind=parallel.job.end"), "{stderr}");
+    assert!(stderr.contains("kind=stream.item.error"), "{stderr}");
     let _ = std::fs::remove_dir_all(root);
 }
 

@@ -3,11 +3,11 @@
 //! (`refresh_lowered_pures`, `call_lowered_pure`) stay in the parent.
 
 use crate::modules::{
-    RuntimeOp, api_spec, archive as archive_module, bytes as bytes_module, diff as diff_module,
+    RuntimeOp, api_spec, archive as archive_module, bytes as bytes_module, cli as cli_module, diff as diff_module,
     dns as dns_module, elf as elf_module, fs as fs_module, group as group_module,
     hash as hash_module, ini as ini_module, json as json_module, linux as linux_module,
-    net as net_module, patch as patch_module, process as process_module, regex as regex_module,
-    system, tui, unix as unix_module, user as user_module,
+    mime as mime_module, net as net_module, patch as patch_module, process as process_module, regex as regex_module,
+    shlex, system, tui, unix as unix_module, user as user_module,
 };
 use crate::runtime::process::{
     CancellationPolicy, ChildWaitOutcome, FileRedirectionMode, ManagedStdio, ProcessEnd,
@@ -1635,6 +1635,22 @@ fn lowered_duration_arg(
     }
 }
 
+fn lowered_json_path_arg(
+    value: &LoweredValue,
+    operation: &str,
+    span: Span,
+) -> Result<Value, RuntimeError> {
+    let path = value.clone().into_value();
+    match path {
+        Value::List(_) => Ok(path),
+        other => Err(RuntimeError::new(
+            "type-error",
+            format!("{operation} path expected List[Any], found {}", other.type_name()),
+        )
+        .with_span(span)),
+    }
+}
+
 fn lowered_str_list_arg(
     value: Option<LoweredValue>,
     operation: &str,
@@ -1859,78 +1875,6 @@ fn lowered_bool_map_arg(
         }
     }
     Ok(items)
-}
-
-/// A record-family value a representation bridge can update.
-///
-/// Records reach the runtime in more than one shape: a statically shaped
-/// literal is a `RecordVec`, a dynamic one is a `Record`, and an imported
-/// module is a `Module`. The bridge updates whichever shape it was given and
-/// returns that same shape, so it never silently converts a caller's
-/// container.
-enum LoweredRecordContainer {
-    Fields(Arc<BTreeMap<Arc<str>, LoweredValue>>),
-    Named(Arc<Vec<(Name, LoweredValue)>>),
-}
-
-impl LoweredRecordContainer {
-    fn with_field(self, field: &str, value: LoweredValue) -> LoweredValue {
-        match self {
-            Self::Fields(fields) => {
-                let mut fields = take_shared(fields);
-                fields.insert(Arc::from(field), value);
-                LoweredValue::Record(Arc::new(fields))
-            }
-            Self::Named(fields) => {
-                let mut fields = take_shared(fields);
-                let name = Name::intern(field);
-                match fields.iter_mut().find(|(key, _)| *key == name) {
-                    Some(slot) => slot.1 = value,
-                    None => fields.push((name, value)),
-                }
-                LoweredValue::RecordVec(Arc::new(fields))
-            }
-        }
-    }
-
-    fn without_field(self, field: &str) -> LoweredValue {
-        match self {
-            Self::Fields(fields) => {
-                let mut fields = take_shared(fields);
-                fields.remove(field);
-                LoweredValue::Record(Arc::new(fields))
-            }
-            Self::Named(fields) => {
-                let mut fields = take_shared(fields);
-                let name = Name::intern(field);
-                fields.retain(|(key, _)| *key != name);
-                LoweredValue::RecordVec(Arc::new(fields))
-            }
-        }
-    }
-}
-
-fn lowered_record_container(
-    value: Option<LoweredValue>,
-    operation: &str,
-    span: Span,
-) -> Result<LoweredRecordContainer, RuntimeError> {
-    match value {
-        Some(LoweredValue::Record(fields) | LoweredValue::Module(fields)) => {
-            Ok(LoweredRecordContainer::Fields(fields))
-        }
-        Some(LoweredValue::RecordVec(fields)) => Ok(LoweredRecordContainer::Named(fields)),
-        Some(LoweredValue::FsEntry(entry)) => {
-            let fields = entry
-                .to_record_map()
-                .map_err(|error| error.with_span(span))?;
-            let lowered = lowered_runtime_value(Value::Record(fields), span)?;
-            lowered_record_container(Some(lowered), operation, span)
-        }
-        _ => Err(
-            RuntimeError::new("type-error", format!("{operation} expected Record")).with_span(span),
-        ),
-    }
 }
 
 fn lowered_record_arg(
@@ -2688,6 +2632,52 @@ fn lowered_timeout_elapsed(deadline: Option<Instant>) -> bool {
     deadline.is_some_and(|deadline| Instant::now() >= deadline)
 }
 
+fn lowered_str_list_runtime_arg(
+    value: LoweredValue,
+    operation: &str,
+    span: Span,
+) -> Result<Vec<String>, RuntimeError> {
+    let Value::List(items) = value.into_value() else {
+        return Err(
+            RuntimeError::new("type-error", format!("{operation} expected List[Str]"))
+                .with_span(span),
+        );
+    };
+    let mut strings = Vec::with_capacity(items.len());
+    for item in items {
+        match item {
+            Value::Str(value) => strings.push(value.to_string()),
+            other => {
+                return Err(RuntimeError::new(
+                    "type-error",
+                    format!(
+                        "{operation} expected List[Str], found {}",
+                        other.type_name()
+                    ),
+                )
+                .with_span(span));
+            }
+        }
+    }
+    Ok(strings)
+}
+
+fn lowered_record_runtime_arg(
+    value: LoweredValue,
+    operation: &str,
+    span: Span,
+) -> Result<RecordMap, RuntimeError> {
+    match value.into_value() {
+        Value::Record(record) => Ok(record),
+        Value::FsEntry(entry) => entry.to_record_map().map_err(|error| error.with_span(span)),
+        other => Err(RuntimeError::new(
+            "type-error",
+            format!("{operation} expected Record, found {}", other.type_name()),
+        )
+        .with_span(span)),
+    }
+}
+
 fn lowered_pipeline_input(value: LoweredValue, span: Span) -> Result<LoweredValue, RuntimeError> {
     match value {
         LoweredValue::ResultOk(value) => Ok(*value),
@@ -3249,13 +3239,6 @@ impl Evaluator {
         self.lowered_list_items(value, span, "pipeline input expected List")
     }
 
-    /// Process stream-compatible pipeline stages lazily from a Stream input.
-    /// Map, Where, and FlatMap stages are applied per-item as they arrive from
-    /// the stream, avoiding intermediate Vecs. ParMapBlock feeds directly from
-    /// the stream into parallel workers. When a stage that can't stream is
-    /// reached, remaining items are collected into a Vec.
-    ///
-    /// Returns (new_current, stage_count_consumed).
     fn push_lowered_fs_root(&mut self, root: FsRootHandle) -> LoweredValue {
         let id = self.fs_roots.len() as i64 + 1;
         self.fs_roots.push(Some(root));
@@ -3654,6 +3637,103 @@ impl Evaluator {
                     archive_module::zip_list(self.host_path(&path), span),
                     span,
                 )?
+            }
+            RuntimeOp::CliParse if values.len() == 2 || values.len() == 3 => {
+                let command = lowered_str_arg_owned(
+                    values.get(2).cloned(),
+                    &self.command_name,
+                    "cli.parse",
+                    span,
+                )?;
+                let schema = lowered_record_runtime_arg(values.remove(1), "cli.parse", span)?;
+                let argv = lowered_str_list_runtime_arg(values.remove(0), "cli.parse", span)?;
+                lowered_module_result_value(
+                    cli_module::parse_cli(argv, schema, &command, span),
+                    span,
+                )?
+            }
+            RuntimeOp::CliApplet if values.len() == 2 || values.len() == 3 => {
+                let command = lowered_str_arg_owned(
+                    values.get(2).cloned(),
+                    &self.command_name,
+                    "cli.applet",
+                    span,
+                )?;
+                let schema = lowered_record_runtime_arg(values.remove(1), "cli.applet", span)?;
+                let argv = lowered_str_list_runtime_arg(values.remove(0), "cli.applet", span)?;
+                lowered_module_result_value(
+                    cli_module::parse_cli_applet(argv, schema, &command, span),
+                    span,
+                )?
+            }
+            RuntimeOp::CliParseFull if (2..=4).contains(&values.len()) => {
+                let command = lowered_str_arg_owned(
+                    values.get(3).cloned(),
+                    &self.command_name,
+                    "cli.parse_full",
+                    span,
+                )?;
+                let env = match values.get(2).cloned() {
+                    Some(value) => lowered_record_runtime_arg(value, "cli.parse_full", span)?,
+                    None => RecordMap::new(),
+                };
+                let schema = lowered_record_runtime_arg(values.remove(1), "cli.parse_full", span)?;
+                let argv = lowered_str_list_runtime_arg(values.remove(0), "cli.parse_full", span)?;
+                lowered_module_result_value(
+                    cli_module::parse_cli_full(argv, schema, env, &command, span),
+                    span,
+                )?
+            }
+            RuntimeOp::CliCommands
+                if values.len() == 2 || values.len() == 3 || values.len() == 4 =>
+            {
+                let argv = lowered_str_list_runtime_arg(values.remove(0), "cli.commands", span)?;
+                let (rootless_default, commands, fallback_command) = if values.len() == 1 {
+                    (
+                        String::new(),
+                        lowered_record_runtime_arg(values.remove(0), "cli.commands", span)?,
+                        None,
+                    )
+                } else {
+                    let rootless_default =
+                        lowered_str_arg_owned(Some(values.remove(0)), "", "cli.commands", span)?;
+                    let commands =
+                        lowered_record_runtime_arg(values.remove(0), "cli.commands", span)?;
+                    let fallback_command = match values.pop() {
+                        Some(value) => {
+                            Some(lowered_record_runtime_arg(value, "cli.commands", span)?)
+                        }
+                        None => None,
+                    };
+                    (rootless_default, commands, fallback_command)
+                };
+                lowered_module_result_value(
+                    cli_module::parse_commands(
+                        argv,
+                        rootless_default,
+                        commands,
+                        fallback_command,
+                        span,
+                    ),
+                    span,
+                )?
+            }
+            RuntimeOp::CliTokens if values.len() == 1 || values.len() == 2 => {
+                let value_flags = match values.get(1).cloned() {
+                    Some(value) => lowered_str_list_runtime_arg(value, "cli.tokens", span)?,
+                    None => Vec::new(),
+                };
+                let argv = lowered_str_list_runtime_arg(values.remove(0), "cli.tokens", span)?;
+                lowered_module_result_value(
+                    cli_module::tokenize_flags(argv, value_flags, span),
+                    span,
+                )?
+            }
+            RuntimeOp::CliUsage if values.len() == 1 || values.len() == 2 => {
+                let command =
+                    lowered_str_arg_owned(values.get(1).cloned(), "command", "cli.usage", span)?;
+                let schema = lowered_record_runtime_arg(values.remove(0), "cli.usage", span)?;
+                lowered_runtime_value(cli_module::render_usage(schema, command, span)?, span)?
             }
             RuntimeOp::DiffUnified if values.len() == 2 || values.len() == 3 => {
                 let context = match values.get(2).cloned() {
@@ -4718,18 +4798,7 @@ impl Evaluator {
                 let bytes = lowered_bytes_arg(&value, "hash.crc32c", span)?;
                 LoweredValue::Int(hash_module::crc32c(bytes))
             }
-            // Private representation bridges. A call reaches these only from
-            // the embedded module that declares the bridge, and the lowering
-            // rewrites the call before it can name a function identity.
-            RuntimeOp::RecordWithField if values.len() == 3 => {
-                let value = values.pop().expect("checked value length");
-                let field = lowered_str_arg_owned(values.pop(), "", "record.with_field", span)?;
-                let record = lowered_record_container(values.pop(), "record.with_field", span)?;
-                record.with_field(&field, value)
-            }
-            RuntimeOp::BridgeCommandName if values.is_empty() => {
-                LoweredValue::Str(self.command_name.clone().into())
-            }
+            // Private bridges are reachable only from their declaring module.
             RuntimeOp::BridgeTypeName if values.len() == 1 => {
                 let name = values[0].type_name().to_string();
                 LoweredValue::Str(name.into())
@@ -4743,10 +4812,16 @@ impl Evaluator {
                 )?;
                 lowered_unit_result(fs_module::append_bytes(self.host_path(&path), &bytes, span))
             }
-            RuntimeOp::RecordRemoveField if values.len() == 2 => {
-                let field = lowered_str_arg_owned(values.pop(), "", "record.remove_field", span)?;
-                let record = lowered_record_container(values.pop(), "record.remove_field", span)?;
-                record.without_field(&field)
+            RuntimeOp::HashParseCheckLine if values.len() == 1 => {
+                let line = lowered_str_arg_owned(values.pop(), "", "hash.parse_check_line", span)?;
+                match hash_module::parse_check_line(&line, span) {
+                    Ok(line) => lowered_result_ok(LoweredValue::Record(Arc::new(BTreeMap::from([
+                        (Arc::from("hex"), LoweredValue::Str(line.hex.into())),
+                        (Arc::from("path"), LoweredValue::Str(line.path.into())),
+                        (Arc::from("binary"), LoweredValue::Bool(line.binary)),
+                    ])))),
+                    Err(error) => lowered_result_err_value(error),
+                }
             }
             RuntimeOp::IniDecode if values.len() == 1 => {
                 let text = lowered_str_arg_owned(values.pop(), "", "ini.decode", span)?;
@@ -4763,16 +4838,50 @@ impl Evaluator {
                     Err(error) => lowered_result_err_value(error),
                 }
             }
-            RuntimeOp::IniRead if values.len() == 1 => {
-                let path = lowered_path_arg(
-                    values.pop().expect("checked value length"),
-                    "ini.read",
+            RuntimeOp::IniEncode if values.len() == 1 => {
+                let value = values.pop().expect("checked value length").into_value();
+                let Value::Record(record) = value else {
+                    return Err(
+                        RuntimeError::new("type-error", "ini.encode expected Record")
+                            .with_span(span),
+                    );
+                };
+                lowered_runtime_result(
+                    ini_module::encode(&record, span).map(|text| Value::Str(text.into())),
                     span,
-                )?;
-                match read_host_path_string(&self.host_path(&path), "ini-read", span) {
-                    Ok(text) => lowered_runtime_result(ini_module::decode(&text, span), span)?,
-                    Err(error) => lowered_result_err_value(error),
+                )?
+            }
+            RuntimeOp::IniWrite if values.len() == 2 || values.len() == 3 => {
+                let overwrite =
+                    lowered_bool_arg_or(values.get(2).cloned(), true, "ini.write", span)?;
+                let value = values.remove(1).into_value();
+                let Value::Record(record) = value else {
+                    return Err(RuntimeError::new("type-error", "ini.write expected Record")
+                        .with_span(span));
+                };
+                let path = lowered_path_arg(values.remove(0), "ini.write", span)?;
+                let text = match ini_module::encode(&record, span) {
+                    Ok(text) => text,
+                    Err(error) => {
+                        return Ok(ControlFlow::Continue(lowered_result_err_value(error)));
+                    }
+                };
+                let host_path = self.host_path(&path);
+                if !overwrite {
+                    match fs_module::exists(host_path.clone(), span) {
+                        Ok(true) => {
+                            return Ok(ControlFlow::Continue(lowered_result_err_value(
+                                RuntimeError::new("ini-write", "destination exists")
+                                    .with_span(span),
+                            )));
+                        }
+                        Ok(false) => {}
+                        Err(error) => {
+                            return Ok(ControlFlow::Continue(lowered_result_err_value(error)));
+                        }
+                    }
                 }
+                lowered_unit_result(fs_module::write_path(host_path, text.as_bytes(), span))
             }
             RuntimeOp::IoStdinBytes if values.is_empty() => {
                 let mut data = Vec::new();
@@ -4894,6 +5003,14 @@ impl Evaluator {
                         }
                     }
                 }
+            }
+            RuntimeOp::TimeDurationCompact if values.len() == 1 => {
+                let seconds = lowered_int_arg(values.pop(), "time.duration_compact", span)?;
+                LoweredValue::Str(crate::modules::time::duration_compact(seconds).into())
+            }
+            RuntimeOp::BytesHuman if values.len() == 1 => {
+                let size = lowered_int_arg(values.pop(), "bytes.human", span)?;
+                LoweredValue::Str(bytes_module::human(size).into())
             }
             RuntimeOp::BytesCopy if (2..=7).contains(&values.len()) => {
                 let overwrite =
@@ -5081,6 +5198,58 @@ impl Evaluator {
                     ),
                 }
             }
+            // Read the scoped environment overlay at invocation time. Only an
+            // unset name selects a fallback; invalid names and bytes keep
+            // their original error kinds.
+            RuntimeOp::EnvGetOr if values.len() == 1 || values.len() == 2 => {
+                let fallback =
+                    lowered_str_arg_owned(values.get(1).cloned(), "", "env.get_or", span)?;
+                let key = match lowered_env_key_arg(values.first().cloned(), span)? {
+                    Ok(key) => key,
+                    Err(error) => return Ok(ControlFlow::Continue(error)),
+                };
+                let Some(value) = self.env.get_owned(key.as_bytes()) else {
+                    return Ok(ControlFlow::Continue(lowered_result_ok(LoweredValue::Str(
+                        fallback.into(),
+                    ))));
+                };
+                match String::from_utf8(value) {
+                    Ok(text) => lowered_result_ok(LoweredValue::Str(text.into())),
+                    Err(_) => lowered_result_err_value(
+                        RuntimeError::new("invalid-utf8", "environment value is not valid UTF-8")
+                            .with_span(span),
+                    ),
+                }
+            }
+            RuntimeOp::EnvBool if values.len() == 1 || values.len() == 2 => {
+                let fallback =
+                    lowered_bool_arg_or(values.get(1).cloned(), false, "env.bool", span)?;
+                let key = match lowered_env_key_arg(values.first().cloned(), span)? {
+                    Ok(key) => key,
+                    Err(error) => return Ok(ControlFlow::Continue(error)),
+                };
+                let Some(value) = self.env.get_owned(key.as_bytes()) else {
+                    return Ok(ControlFlow::Continue(lowered_result_ok(
+                        LoweredValue::Bool(fallback),
+                    )));
+                };
+                let text = match String::from_utf8(value) {
+                    Ok(text) => text.trim().to_ascii_lowercase(),
+                    Err(_) => {
+                        return Ok(ControlFlow::Continue(lowered_result_err_value(
+                            RuntimeError::new(
+                                "invalid-utf8",
+                                "environment value is not valid UTF-8",
+                            )
+                            .with_span(span),
+                        )));
+                    }
+                };
+                lowered_result_ok(LoweredValue::Bool(matches!(
+                    text.as_str(),
+                    "1" | "true" | "yes" | "on"
+                )))
+            }
             RuntimeOp::EnvPath if values.len() == 1 || values.len() == 2 => {
                 let fallback = match values.get(1).cloned() {
                     Some(LoweredValue::Path(path)) => path,
@@ -5108,6 +5277,40 @@ impl Evaluator {
                 match PathValue::new(value).map_err(|error| error.with_span(span)) {
                     Ok(path) => lowered_result_ok(LoweredValue::Path(path)),
                     Err(error) => lowered_result_err_value(error),
+                }
+            }
+            RuntimeOp::EnvInt if values.len() == 1 || values.len() == 2 => {
+                let fallback = match values.get(1).cloned() {
+                    Some(value) => lowered_int_arg(Some(value), "env.int", span)?,
+                    None => 0,
+                };
+                let key = match lowered_env_key_arg(values.first().cloned(), span)? {
+                    Ok(key) => key,
+                    Err(error) => return Ok(ControlFlow::Continue(error)),
+                };
+                let Some(value) = self.env.get_owned(key.as_bytes()) else {
+                    return Ok(ControlFlow::Continue(lowered_result_ok(LoweredValue::Int(
+                        fallback,
+                    ))));
+                };
+                let text = match String::from_utf8(value) {
+                    Ok(text) => text,
+                    Err(_) => {
+                        return Ok(ControlFlow::Continue(lowered_result_err_value(
+                            RuntimeError::new(
+                                "invalid-utf8",
+                                "environment value is not valid UTF-8",
+                            )
+                            .with_span(span),
+                        )));
+                    }
+                };
+                match text.trim().parse::<i64>() {
+                    Ok(value) => lowered_result_ok(LoweredValue::Int(value)),
+                    Err(_) => lowered_result_err_value(
+                        RuntimeError::new("env-int", "environment value is not an integer")
+                            .with_span(span),
+                    ),
                 }
             }
             RuntimeOp::EnvList if values.is_empty() => {
@@ -5281,6 +5484,21 @@ impl Evaluator {
                     Err(error) => lowered_result_err_value(error),
                 }
             }
+            RuntimeOp::JsonGet if values.len() == 2 || values.len() == 3 => {
+                let value = values[0].clone().into_value();
+                let path = lowered_json_path_arg(&values[1], "json.get", span)?;
+                match values.get(2) {
+                    Some(fallback) => match json_module::json_path_get(&value, &path, span) {
+                        Ok(found) => lowered_runtime_value(found, span)?,
+                        Err(error) if error.kind == "json-path" => fallback.clone(),
+                        Err(error) => return Err(error),
+                    },
+                    None => match json_module::json_path_get(&value, &path, span) {
+                        Ok(found) => lowered_runtime_value(Value::ok(found), span)?,
+                        Err(error) => lowered_result_err_value(error),
+                    },
+                }
+            }
             RuntimeOp::JsonRead if values.len() == 1 => {
                 let LoweredValue::Path(path) = &values[0] else {
                     return Err(
@@ -5293,6 +5511,26 @@ impl Evaluator {
                         Err(error) => lowered_result_err_value(error),
                     },
                     Err(error) => lowered_result_err_value(error),
+                }
+            }
+            RuntimeOp::JsonRemove if values.len() == 2 => {
+                let value = values[0].clone().into_value();
+                let path = lowered_json_path_arg(&values[1], "json.remove", span)?;
+                lowered_runtime_result(json_module::json_path_remove(&value, &path, span), span)?
+            }
+            RuntimeOp::JsonSet if values.len() == 3 => {
+                let value = values[0].clone().into_value();
+                let path = lowered_json_path_arg(&values[1], "json.set", span)?;
+                let replacement = values[2].clone().into_value();
+                if let Err(error) = json_module::encode_json(&value, false, span) {
+                    lowered_result_err_value(error)
+                } else if let Err(error) = json_module::encode_json(&replacement, false, span) {
+                    lowered_result_err_value(error)
+                } else {
+                    lowered_runtime_result(
+                        json_module::json_path_set(&value, &path, replacement, span),
+                        span,
+                    )?
                 }
             }
             RuntimeOp::LinuxInterfaces if values.is_empty() => {
@@ -5620,6 +5858,30 @@ impl Evaluator {
                         span,
                     )?;
                     lowered_result_ok(LoweredValue::Unit)
+                }
+            }
+            RuntimeOp::MimeParse if values.len() == 1 => {
+                let value = lowered_str_arg_owned(values.pop(), "", "mime.parse", span)?;
+                match mime_module::parse(&value, span) {
+                    Ok(value) => lowered_runtime_value(Value::ok(value), span)?,
+                    Err(error) => lowered_result_err_value(error),
+                }
+            }
+            RuntimeOp::MimeLookupExt if values.len() == 1 => {
+                let ext = lowered_str_arg_owned(values.pop(), "", "mime.lookup_ext", span)?;
+                lowered_runtime_value(mime_module::lookup_ext(&ext).unwrap_or(Value::Null), span)?
+            }
+            RuntimeOp::MimeLookupPath if values.len() == 1 => {
+                let path = lowered_path_arg(
+                    values.pop().expect("checked value length"),
+                    "mime.lookup_path",
+                    span,
+                )?;
+                match mime_module::lookup_path(&path.display()) {
+                    Some(value) => lowered_runtime_value(Value::ok(value), span)?,
+                    None => lowered_result_err_value(
+                        RuntimeError::new("mime-lookup", "no MIME entry for path").with_span(span),
+                    ),
                 }
             }
             RuntimeOp::ModuleLoad if values.len() == 1 => {
@@ -6483,6 +6745,14 @@ impl Evaluator {
                 set.remove(&item);
                 LoweredValue::Map(Arc::new(set))
             }
+            RuntimeOp::ShlexQuote if values.len() == 1 => {
+                let text = lowered_str_arg_owned(values.pop(), "", "shlex.quote", span)?;
+                LoweredValue::Str(shlex::quote(&text).into())
+            }
+            RuntimeOp::ShlexJoin if values.len() == 1 => {
+                let argv = lowered_str_list_arg(values.pop(), "shlex.join", span)?;
+                LoweredValue::Str(shlex::join(&argv).into())
+            }
             RuntimeOp::SystemHostname if values.is_empty() => lowered_runtime_result(
                 system::hostname(span).map(|hostname| Value::Str(hostname.into())),
                 span,
@@ -6815,6 +7085,16 @@ impl Evaluator {
                     Ok(record) => lowered_result_ok(LoweredValue::Record(Arc::new(record))),
                     Err(error) => lowered_result_err_value(error),
                 }
+            }
+            RuntimeOp::TuiLeftPad if values.len() == 2 => {
+                let width = lowered_int_arg(values.pop(), "tui.left_pad", span)?;
+                let text = lowered_str_arg_owned(values.pop(), "", "tui.left_pad", span)?;
+                LoweredValue::Str(tui::left_pad(&text, width).into())
+            }
+            RuntimeOp::TuiRightPad if values.len() == 2 => {
+                let width = lowered_int_arg(values.pop(), "tui.right_pad", span)?;
+                let text = lowered_str_arg_owned(values.pop(), "", "tui.right_pad", span)?;
+                LoweredValue::Str(tui::right_pad(&text, width).into())
             }
             RuntimeOp::TuiReadSecret if values.len() == 1 => {
                 let prompt = lowered_str_arg_owned(values.pop(), "", "tui.read_secret", span)?;

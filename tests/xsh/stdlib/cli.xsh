@@ -1,9 +1,9 @@
-# Coverage for the ported `cli` argument policy.
+# Coverage for the `cli` argument policy.
 #
 # Every public entry is exercised here: `cli.parse`, `cli.parse_full`,
 # `cli.applet`, `cli.usage`, `cli.commands`, `cli.commands_rootless` (the
 # four-argument spelling is the only one that takes a rootless default), and
-# `cli.tokens`. Their script bodies in `stdlib/cli.xsh` are authoritative.
+# `cli.tokens`. Their native implementation in `src/modules/cli.rs` is authoritative.
 #
 # The value machinery — types, defaults, repeated values, choices, numeric
 # bounds, conflicts, requires, required groups, path checks — is shared by every
@@ -15,7 +15,7 @@
 # strict spelling that differs from it.
 #
 # The usage text is labeled with the command name, which `parse`, `parse_full`,
-# and `applet` default from the `command_name` bridge read at call time. The
+# and `applet` default from the evaluator's command name at call time. The
 # cases that assert a label either pass the label explicitly or run a nested
 # script whose name is known.
 #

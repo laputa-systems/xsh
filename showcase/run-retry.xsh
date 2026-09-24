@@ -1,9 +1,19 @@
 #!/usr/bin/env -S xsh --
 # Run Retry
 # Run a command with retries and short backoff for transient failures.
+# Exhausted attempts report an error to the caller.
+# Attempts have no implicit deadline; SIGINT/SIGTERM stop retries and cancel the child group.
 # Usage: xsh showcase/run-retry.xsh -- COMMAND [ARGS...]
 # Example: xsh showcase/run-retry.xsh -- curl -fsS https://example.com
 error RetryRunError = CommandFailed(message: Str)
+
+on SIGINT [error] {
+  abort(3)
+}
+
+on SIGTERM [error] {
+  abort(3)
+}
 
 proc run_attempt(argv: List[Str], try_num: Int, max_tries: Int) [process, error] {
   let command = process.command_argv(argv[0], argv)
@@ -51,6 +61,9 @@ proc main(...cmd: List[Str]) [process, time, error] {
     run_attempt(argv, try_num, max_tries)?
   } {
     Ok(_) => {}
-    Err(_) => print f"command failed after ${max_tries} tries"
+    Err(_) => {
+      print f"command failed after ${max_tries} tries"
+      abort(1)
+    }
   }
 }

@@ -4,10 +4,11 @@ This is the cross-project queue for improving XSH. It is intentionally broad,
 but every entry points to an existing contract, code owner, test gap, measured
 failure, or documented design pressure. It is a work queue, not a second
 specification. `docs/SPEC.md`, the focused `docs/` contracts, `xsht api`, and
-`docs/TEST-MAP.md` remain authoritative. The detailed acceptance work for the
-standard-library port remains in `STDLIB-PORT.md`. The default outcome is a
-smaller, clearer implementation of the existing language: fix defects, remove
-duplication, narrow contracts, and improve measured behavior. New syntax or
+`docs/TEST-MAP.md` remain authoritative. Benchmark methods and acceptance
+evidence live in `bench/stdlib-port/README.md` and its result files. The
+default outcome is a smaller, clearer implementation of the existing language:
+fix defects, remove duplication, narrow contracts, and improve measured
+behavior. New syntax or
 public APIs require a separate decision backed by repeated real use.
 
 ## How to work this queue
@@ -36,52 +37,33 @@ public APIs require a separate decision backed by repeated real use.
 
 ## First execution sequence
 
-1. **E01, A01–A02:** isolate the observed formatter failure, then make the
-   main flaky or Linux-only failures reproducible with focused harnesses.
-2. **B01–B05:** make the standard-library performance evidence reproducible on
-   both supported hosts before optimizing against it.
-3. **B06–B12, C01–C05:** improve the measured hot paths and cold preparation in
+1. **B01:** complete the paired `xsht` tooling evidence, then use the recorded
+   B0 `xsh` failures to prioritize profiling on both supported hosts.
+2. **B08, C01–C05:** improve the measured hot paths and cold preparation in
    small batches, preserving the original B0 gates and native controls.
-4. **D01–D04, E01–E03, F01–F03:** make the interactive, tooling, and Linux test
+3. **D01–D04, E01–E03, F01–F03:** make the interactive, tooling, and Linux test
    boundaries deterministic enough to support sustained work.
-5. **H01–H10:** refine existing `dev/`, `core/`, and `showcase/` programs; let
+4. **H07–H09:** refine existing `dev/`, `core/`, and `showcase/` programs; let
    repeated friction select small runtime or tooling changes.
-6. **J01–J14, last:** reintegrate the stable XSH build with `../packages` and
+5. **J01–J14, last:** reintegrate the stable XSH build with `../packages` and
    `../laputa`, progressing from static checks to isolated Linux tests and QEMU.
 
 ## A. Correctness and test evidence
 
-- **A01 · P0.** Give the ignored timing cases in `tests/runtime/os.rs` and `tests/runtime/modules.rs` deterministic barriers or controlled clocks where possible; preserve true PTY/OS tests for behavior that needs them, then remove justified ignores.
-- **A02 · P0.** Reproduce the Linux corpus failures noted in `STDLIB-PORT.md` against current B0 and HEAD inside `Dockerfile.test`; record exact fixture, host state, and failure identity before changing production code.
-- **A03 · P1.** Add a `Record` read-allocation scaling case beside `tests/runtime/collections.rs::map_reads_do_not_copy_the_map`; prove reads do not copy the whole record and keep construction separate from traversal.
-- **A04 · P1.** Run `crates/xsht/tests/profile_parity.rs` across each supported feature/profile/platform combination available in CI; make missing binaries explicit skips with a reproducible reason.
-- **A05 · P1.** Audit `#[ignore]` and `test.skip` uses by reason and platform; keep a machine-readable count of contract coverage that actually executed, with no blanket unignore of PTY or privileged tests.
-- **A06 · P1.** Compare the native XSH and Rust integration suites against the ownership rule in `docs/TEST-MAP.md`; move language assertions to disk-backed native tests when the host harness adds no boundary.
-- **A07 · P1.** Use `cargo dev coverage` to select one real interactive or Linux workflow gap at a time; require an observable transition or invariant, not a branch-only test (`docs/COVERAGE.md`).
-- **A08 · P1.** Make flaky `xshi` denv source-appearance coverage deterministic (`tests/runtime/interactive.rs`); verify dirty-state and refresh transitions without wall-clock timing.
+- **A01 · P1.** Continue the native/Rust ownership audit beyond the completed stream module and the `fs.walk` value checks now in `tests/xsh/stdlib/fs.xsh`; move language assertions to disk-backed native tests when the host harness adds no boundary.
+- **A02 · P1.** Use `cargo dev coverage` to select one real interactive or Linux workflow gap at a time; require an observable transition or invariant, not a branch-only test (`docs/COVERAGE.md`).
+- **A04 · P1/M.** Resolve the `reduce-by --jobs` execution mismatch. `FullStageTag::ReduceBy` is serial despite the earlier default and explicit parallel claims. The option expression now runs once and validates a positive worker count; an explicit option prevents adjacent `par-map |> reduce-by` fusion, preserving its stage boundary. Native tests cover both effects and result parity. Measure a real grouped workload, then either implement bounded parallel reduction with deterministic error/effect semantics or deprecate the ineffective option through an explicit language-contract decision.
+- **A05 · P1/M.** Resolve the other stage `--jobs` execution mismatches. `GroupBy`, `CountBy`, and `Each` run serially. All accepted option expressions run once and validate a positive result, including plain `count`, with native coverage for effects and invalid dynamic counts before source pulls. `each --jobs` no longer emits false parallel-job traces. Recursive `core/chown.xsh` and `core/chgrp.xsh` now rely on `fs.walk`'s own traversal workers without an ineffective CPU-count lookup or `each --jobs`. Measure the remaining real workflows and decide whether to implement worker execution or narrow/deprecate the accepted options without adding language surface.
 
 ## B. Embedded standard library and acceptance performance
 
-`STDLIB-PORT.md` names the original B0 baseline, the 18/24 macOS failures, all
-five measured Linux R12 failures, and the fixed gate formulas. These items
-break that remaining work into reviewable units; the detailed contract stays
-there.
+`bench/stdlib-port/README.md` names the B0 baseline, the 18/24 macOS and
+18/30 Linux failures, the fixed gate formulas, and the raw result files. This
+section is the only remaining port task list.
 
-- **B01 · P1.** Make `bench/stdlib-port/run.py` preserve independent rounds, raw samples, order, dispersion, skips, and hashes; prove the budget arithmetic with its self-test.
-- **B02 · P1.** Add an executable, pinned-container R12 benchmark route with the fixed 200-module input; a `--linux` result must represent real execution and report fixture identity.
-- **B03 · P1.** Attach status, stdout/stderr, and side-effect parity evidence to each timed workload (`bench/stdlib-port/parity.py`), including expected nonzero results.
-- **B04 · P1.** Put `xsht api summary`, `xsht check core/ls.xsh`, and `xsht lint core/ls.xsh` in a repeatable matched-binary route; preserve their old standalone numbers only as history.
-- **B05 · P1.** Measure B0, B1, and candidate in repeated uninstrumented rounds on one host per platform; report each failing row's delta and original budget, with native controls in the same round.
-- **B06 · P1/M.** Profile the three CLI batch workloads through `stdlib/cli.xsh` and `src/runtime/eval/lowered_run/indexed_run.rs`; choose a change only after attributing complete-workload cost.
-- **B07 · P1/M.** Profile `text_wrap_unicode`, `text_pad_batch`, and `fmt_batch` separately; retain Unicode and ANSI behavior while measuring allocation, per-step dispatch, and scalar-operation costs.
-- **B08 · P1/M.** Profile MIME, INI, JSON paths, environment, quoting, checksum, and `core_command` as separate cost shapes; avoid a single fix inferred from their shared gate failure.
-- **B09 · P1/M.** Split cold CLI and dynamic-load startup into parse, declaration/body check, dependency discovery, lowering, verification, and execution; optimize the largest measured phase.
-- **B10 · P1.** Tighten `src/stdlib.rs::required_modules` only with registry-resolved identity and conservative uncertainty; prove native-only zero-preparation and genuine `module.load` closure semantics.
-- **B11 · P1.** Measure R12 acquisition, stream creation, first item, partial consumption, and full parsed rows on Linux; late malformed rows must still error when consumed.
-- **B12 · P1/M.** Investigate bounded call, stage, argument, block, and frame overhead in the existing indexed runtime; keep the explicit-frame small-stack route, Result propagation, traces, and private bridge authority intact.
-- **B13 · P1.** Qualify `hash.verify_file` over tiny, large, many-small, and error workloads; apply the G02 gate to its workload class, not only the existing large-file example.
-- **B14 · P2/M.** Time `linux.rfkill_list` only with its own correct fixture before reconsidering its retained native disposition; the block-device result is not its measurement.
-- **B15 · P1.** After each runtime optimization, run the exact stdlib architecture, copied-product, native corpus, API, feature, and Linux gates in `docs/TEST-MAP.md`; close the migration only when cumulative B0 gates pass.
+- **B01 · P1.** Complete the owner-run `xsht lint` row in `bench/stdlib-port/tooling.py` on macOS and pinned Linux. `results-b01-tooling.json` records matched B0/B1/candidate release measurements, exact parity, and raw samples for `xsht api` and `xsht check` on both hosts. The candidate passes both rows; B1's macOS `xsht check` regression is visible. `AGENTS.md` forbids agents from running linters.
+- **B08 · P1/M.** Investigate bounded call, stage, argument, block, and frame overhead in the existing indexed runtime; keep the explicit-frame small-stack route, Result propagation, traces, and private bridge authority intact.
+- **B11 · P1.** Finish the cumulative B0 and feature/profile gates after each runtime change, then close the migration only when the full matched macOS and pinned Linux reports pass. The full macOS run exposed `text_wrap_unicode`; its `Str.wrap` and `Str.fields` bindings returned to native, unused embedded-method code was removed, and `bench/stdlib-port/results-b11-text-wrap.json` records exact parity and passing three-round fixed workloads on both hosts. Focused architecture, native corpus, API, and copied-product gates have passed; repeat them after the final source change.
 
 ## C. Runtime, streams, and memory
 
@@ -119,14 +101,13 @@ stateful editor and completion harness as the central missing evidence.
 
 ## E. `xsht`, diagnostics, and source fidelity
 
-- **E01 · P0.** Fix the observed formatter idempotence failure in `../packages/pm/cli.xsh`: `return RepoPlan({ ... })` changes layout on the second pass. First isolate the construct in a local fixture, then make the first and second pass identical without changing its parse. `cargo test --test integration syntax::formatter_is_idempotent_on_package_corpus -- --exact` currently fails at `tests/syntax.rs:2927`.
-- **E02 · P1.** Finish the named/splice argument, stage-block, multiline-`?`, nested-control, and comment cases in `tests/fixtures/fmt/beauty.xsh` and its golden (`docs/XSHT-FMT.md`); include CST-backed cases for comments beside delimiters, authored blank lines, and `fmt: skip` with trailing comments. Output must reparse and remain idempotent.
-- **E03 · P2.** Migrate one formatter construct family to `Doc`/`DocRenderer` when its layout changes; verify the beauty fixture and syntax gate rather than rewriting the formatter wholesale.
-- **E04 · P2/M.** Measure actual source files with tabs, wide Unicode, or combining marks before changing display-column accounting; add boundary fixtures if the current character-count policy misformats them.
-- **E05 · P1.** Keep `xsht check`, `lint`, `fmt --check`, and execution in agreement on script-backed standard calls, including loaded user modules and copied binaries (`src/loader.rs`).
-- **E06 · P1.** Test diagnostic span/source attribution across embedded and user modules on both parse and lowering failures; internal namespace labels must not leak as user-callable names.
-- **E07 · P2.** Audit `xsht api` examples against the canonical registry and native tests after API changes; the generated surface fixture remains a gate, not a second hand-edited signature list.
-- **E08 · P2.** Improve `xsht` cold single-file check latency only after B04 attributes its preparation cost; retain checker equivalence with the runner.
+- **E01 · P1.** Finish the named/splice argument, stage-block, multiline-`?`, nested-control, and comment cases in `tests/fixtures/fmt/beauty.xsh` and its golden (`docs/XSHT-FMT.md`); include CST-backed cases for comments beside delimiters, authored blank lines, and `fmt: skip` with trailing comments. Output must reparse and remain idempotent.
+- **E02 · P2.** Migrate one formatter construct family to `Doc`/`DocRenderer` when its layout changes; verify the beauty fixture and syntax gate rather than rewriting the formatter wholesale.
+- **E03 · P2/M.** Measure actual source files with tabs, wide Unicode, or combining marks before changing display-column accounting; add boundary fixtures if the current character-count policy misformats them.
+- **E04 · P1.** Keep `xsht check`, `lint`, `fmt --check`, and execution in agreement on script-backed standard calls, including loaded user modules and copied binaries (`src/loader.rs`).
+- **E05 · P1.** Test diagnostic span/source attribution across embedded and user modules on both parse and lowering failures; internal namespace labels must not leak as user-callable names.
+- **E06 · P2.** Audit `xsht api` examples against the canonical registry and native tests after API changes; the generated surface fixture remains a gate, not a second hand-edited signature list.
+- **E07 · P2.** Improve `xsht` cold single-file check latency only after the paired tooling route attributes its preparation cost; retain checker equivalence with the runner.
 
 ## F. Linux, host operations, and network
 
@@ -134,22 +115,20 @@ stateful editor and completion harness as the central missing evidence.
 - **F02 · P1.** Add safe mount and switch-root failure-path coverage through that harness; keep real host boot transitions behind dry-run or harness-specific boundaries.
 - **F03 · P2.** Extend loop-device and parity tests only on runners that can allocate and release devices reliably; otherwise retain explicit dry-run fixture coverage.
 - **F04 · P1.** Prove cancellation and cleanup when process work, a network job, and a stream worker coexist; assert trace parentage and no surviving owned handles.
-- **F05 · P1.** Make the local network refill/transfer flakes in `tests/runtime/modules.rs` reproducible with controlled listeners and barriers; distinguish product errors from host overload.
-- **F06 · P2.** Audit host error kind and byte preservation at file, path, environment, and process boundaries using native XSH tests for semantics and Rust tests for exact OS bytes.
-- **F07 · P2.** Check Linux real-mode tests against the feature/profile matrix in `dev/targets.xsh`; a skipped privileged test must say which capability or fixture is missing.
-- **F08 · P2/M.** Run syscall diagnostics for representative core commands and stream pipelines in the approved container before changing host adapters (`docs/BENCHMARKING.md`).
-- **F09 · P2.** Document isolation and cleanup guarantees beside every new test that mutates mount or kernel state, as required by `docs/COVERAGE.md`.
+- **F05 · P2.** Audit host error kind and byte preservation at file, path, environment, and process boundaries using native XSH tests for semantics and Rust tests for exact OS bytes. The three product CLIs now reject non-UTF-8 argv with status 2 instead of panicking; other host boundaries remain to review.
+- **F06 · P2.** Check Linux real-mode tests against the feature/profile matrix in `dev/targets.xsh`; a skipped privileged test must say which capability or fixture is missing.
+- **F07 · P2/M.** Run syscall diagnostics for representative core commands and stream pipelines in the approved container before changing host adapters (`docs/BENCHMARKING.md`).
+- **F08 · P2.** Document isolation and cleanup guarantees beside every new test that mutates mount or kernel state, as required by `docs/COVERAGE.md`.
 
 ## G. Build, CI, release, and repository hygiene
 
-- **G01 · P1.** Add a non-release CI verification path for ordinary changes if the repository's hosting policy permits it; `.github/workflows/release.yml` is currently manual release-only.
-- **G02 · P1.** Keep local and CI gates on the same `dev/main.xsh` operations, with explicit target/profile/feature identity and no second shell implementation.
-- **G03 · P1.** Verify copied `xsh`, `xshi`, and `xsht` binaries and packaged core scripts from an unrelated directory with no source checkout; retain artifact hashes and surface checks.
-- **G04 · P2.** Audit `Makefile` compatibility targets against `dev/main.xsh` callers; remove a duplicate only when the migration path and external consumers are known.
-- **G05 · P1.** Keep deterministic fixture identity and regeneration in every benchmark or container test that relies on generated `/proc`, `/sys`, or text inputs.
-- **G06 · P2.** Add a documentation-link check limited to repository-owned Markdown targets; the repaired `docs/FRONTEND.md` reference to a removed follow-up file shows the regression this should catch.
-- **G07 · P2.** Track the reason, owner, and last attempted gate for ignored tests, so a growing ignore count cannot masquerade as improving coverage.
-- **G08 · P2.** Compare distribution packaging on the declared target matrix through `dev/targets.xsh` and the release workflow; keep `dist` for CI packaging, not routine agent verification.
+The proposed Markdown-link checker was pruned after an inventory found only
+two repository-local links across 27 Markdown files, both in
+`docs/FRONTEND.md` and both valid. A new checker and check-stage dependency
+would cost more than the current link surface warrants; revisit if local links
+become a regular documentation convention.
+
+- **G07 · P2.** Compare distribution packaging on the declared target matrix through `dev/targets.xsh` and the release workflow; keep `dist` for CI packaging, not routine agent verification.
 
 ## H. Refine the existing systems corpus
 
@@ -157,17 +136,13 @@ stateful editor and completion harness as the central missing evidence.
 Improve those programs before proposing more. `docs/SHOWCASE.md` supplies the
 selection and completion standards; the sibling package manager already owns
 root composition, so a second composer here would be duplication.
+The existing `showcase/*.xsh` programs are single-file tools, so none passes
+the canonical corpus selection test's multi-module requirement. Review their
+real failure boundaries without inflating them to satisfy that milestone.
 
-- **H01 · P1.** Check the existing `dev/main.xsh` lifecycle against its tests and `Makefile` facade; remove duplicate orchestration only where the command contract remains clear.
-- **H02 · P1.** Select two existing host-heavy `showcase/` programs for fault-injection review, using the `docs/SHOWCASE.md` selection test rather than size or recognizability.
-- **H03 · P1.** Exercise partial-write, cancellation, and cleanup behavior in `showcase/backup-rotate.xsh` and `showcase/archive-unpack.xsh`; fix observed failures in their paired native tests.
-- **H04 · P2.** Check `showcase/release-pack.xsh` and `showcase/bump-version.xsh` for atomic output and rollback behavior; require deterministic fixture results before editing their policy.
-- **H05 · P2.** Check bounded timeouts, child cleanup, and output limits in `showcase/watch-run.xsh`, `run-retry.xsh`, and `wait-for.xsh` under controlled failure fixtures.
-- **H06 · P2.** Check byte/path handling in `showcase/file-audit.xsh`, `path-audit.xsh`, and `git-digest.xsh`; preserve non-UTF-8 and symlink boundaries with exact tests where relevant.
 - **H07 · P2.** Review `core/` applets as a set for duplicated argument parsing, error presentation, and host-boundary helpers; consolidate only repeated, stable XSH code.
 - **H08 · P2.** Keep `showcase/jq.xsh` as the documented negative control; use any measured defect it reveals to improve the existing runtime without turning XSH into a general data language.
-- **H09 · P2.** Record friction found across H01–H08 as program design, reusable XSH helper, diagnostic/tooling issue, or narrow host capability; add no new semantic category from one script.
-- **H10 · P2.** Reconcile `docs/SHOWCASE.md` with the actual `dev/` and corpus state, marking completed infrastructure and deferring speculative new programs until there is a concrete consumer.
+- **H09 · P2.** Record friction found across H03–H08 as program design, reusable XSH helper, diagnostic/tooling issue, or narrow host capability; add no new semantic category from one script.
 
 ## I. Documentation and contract upkeep
 

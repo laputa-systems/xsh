@@ -1,0 +1,339 @@
+{
+  "schema_version": 1,
+  "snapshot_date": "2026-09-24",
+  "image": "xsh-test",
+  "image_id": "sha256:648c39bb31743a9f07a36e38f21dab5301155ec20a79e2d2a9c89cb5b2595948",
+  "target": "aarch64-unknown-linux-musl",
+  "fixture_sha256": "7e31c6370eb0d066ae73a2545091d82b5782a2fb68de26cd232afd6dd54352b5",
+  "script_sha256": "674dd04bc65b36b570c3513267cc96a304f43acb5751120e2b29a4a3f744c099",
+  "binary_sha256": {
+    "b0": "bcb5222a0d9a42b011c058dda532c67e4d475f1645f10b25c4ad1d0b910e4d5f",
+    "b1": "f4c1fd62046c708d729729778a6576df8204e42d56076572d3b945f7508d2c67",
+    "candidate": "87f9cb40ff94139181937747d2726ca20c8752349e75bc8802968735bd5b98b1"
+  },
+  "order_by_round": [
+    [
+      "b0",
+      "b1",
+      "candidate"
+    ],
+    [
+      "b0",
+      "candidate",
+      "b1"
+    ],
+    [
+      "candidate",
+      "b0",
+      "b1"
+    ],
+    [
+      "candidate",
+      "b1",
+      "b0"
+    ],
+    [
+      "b1",
+      "candidate",
+      "b0"
+    ]
+  ],
+  "samples_ms": {
+    "b0": [
+      {
+        "read_text": {
+          "ms": 11,
+          "sink": 1880000
+        },
+        "modules_call": {
+          "ms": 12,
+          "sink": 1880200
+        },
+        "first_record": {
+          "ms": 36,
+          "sink": 2699400
+        },
+        "full_records": {
+          "ms": 34,
+          "sink": 3558600
+        }
+      },
+      {
+        "read_text": {
+          "ms": 10,
+          "sink": 1880000
+        },
+        "modules_call": {
+          "ms": 14,
+          "sink": 1880200
+        },
+        "first_record": {
+          "ms": 36,
+          "sink": 2699400
+        },
+        "full_records": {
+          "ms": 35,
+          "sink": 3558600
+        }
+      },
+      {
+        "read_text": {
+          "ms": 12,
+          "sink": 1880000
+        },
+        "modules_call": {
+          "ms": 15,
+          "sink": 1880200
+        },
+        "first_record": {
+          "ms": 35,
+          "sink": 2699400
+        },
+        "full_records": {
+          "ms": 34,
+          "sink": 3558600
+        }
+      },
+      {
+        "read_text": {
+          "ms": 11,
+          "sink": 1880000
+        },
+        "modules_call": {
+          "ms": 13,
+          "sink": 1880200
+        },
+        "first_record": {
+          "ms": 34,
+          "sink": 2699400
+        },
+        "full_records": {
+          "ms": 34,
+          "sink": 3558600
+        }
+      },
+      {
+        "read_text": {
+          "ms": 14,
+          "sink": 1880000
+        },
+        "modules_call": {
+          "ms": 12,
+          "sink": 1880200
+        },
+        "first_record": {
+          "ms": 35,
+          "sink": 2699400
+        },
+        "full_records": {
+          "ms": 34,
+          "sink": 3558600
+        }
+      }
+    ],
+    "b1": [
+      {
+        "read_text": {
+          "ms": 15,
+          "sink": 1880000
+        },
+        "modules_call": {
+          "ms": 1797,
+          "sink": 1880200
+        },
+        "first_record": {
+          "ms": 1779,
+          "sink": 2699400
+        },
+        "full_records": {
+          "ms": 1671,
+          "sink": 3558600
+        }
+      },
+      {
+        "read_text": {
+          "ms": 12,
+          "sink": 1880000
+        },
+        "modules_call": {
+          "ms": 1798,
+          "sink": 1880200
+        },
+        "first_record": {
+          "ms": 1758,
+          "sink": 2699400
+        },
+        "full_records": {
+          "ms": 1669,
+          "sink": 3558600
+        }
+      },
+      {
+        "read_text": {
+          "ms": 13,
+          "sink": 1880000
+        },
+        "modules_call": {
+          "ms": 1801,
+          "sink": 1880200
+        },
+        "first_record": {
+          "ms": 1760,
+          "sink": 2699400
+        },
+        "full_records": {
+          "ms": 1691,
+          "sink": 3558600
+        }
+      },
+      {
+        "read_text": {
+          "ms": 10,
+          "sink": 1880000
+        },
+        "modules_call": {
+          "ms": 1800,
+          "sink": 1880200
+        },
+        "first_record": {
+          "ms": 1760,
+          "sink": 2699400
+        },
+        "full_records": {
+          "ms": 1667,
+          "sink": 3558600
+        }
+      },
+      {
+        "read_text": {
+          "ms": 10,
+          "sink": 1880000
+        },
+        "modules_call": {
+          "ms": 1801,
+          "sink": 1880200
+        },
+        "first_record": {
+          "ms": 1755,
+          "sink": 2699400
+        },
+        "full_records": {
+          "ms": 1671,
+          "sink": 3558600
+        }
+      }
+    ],
+    "candidate": [
+      {
+        "read_text": {
+          "ms": 12,
+          "sink": 1880000
+        },
+        "modules_call": {
+          "ms": 41,
+          "sink": 1880200
+        },
+        "first_record": {
+          "ms": 44,
+          "sink": 2699400
+        },
+        "full_records": {
+          "ms": 988,
+          "sink": 3558600
+        }
+      },
+      {
+        "read_text": {
+          "ms": 10,
+          "sink": 1880000
+        },
+        "modules_call": {
+          "ms": 40,
+          "sink": 1880200
+        },
+        "first_record": {
+          "ms": 43,
+          "sink": 2699400
+        },
+        "full_records": {
+          "ms": 999,
+          "sink": 3558600
+        }
+      },
+      {
+        "read_text": {
+          "ms": 12,
+          "sink": 1880000
+        },
+        "modules_call": {
+          "ms": 41,
+          "sink": 1880200
+        },
+        "first_record": {
+          "ms": 44,
+          "sink": 2699400
+        },
+        "full_records": {
+          "ms": 982,
+          "sink": 3558600
+        }
+      },
+      {
+        "read_text": {
+          "ms": 12,
+          "sink": 1880000
+        },
+        "modules_call": {
+          "ms": 40,
+          "sink": 1880200
+        },
+        "first_record": {
+          "ms": 44,
+          "sink": 2699400
+        },
+        "full_records": {
+          "ms": 984,
+          "sink": 3558600
+        }
+      },
+      {
+        "read_text": {
+          "ms": 12,
+          "sink": 1880000
+        },
+        "modules_call": {
+          "ms": 41,
+          "sink": 1880200
+        },
+        "first_record": {
+          "ms": 44,
+          "sink": 2699400
+        },
+        "full_records": {
+          "ms": 983,
+          "sink": 3558600
+        }
+      }
+    ]
+  },
+  "median_ms": {
+    "b0": {
+      "read_text": 11,
+      "modules_call": 13,
+      "first_record": 35,
+      "full_records": 34
+    },
+    "b1": {
+      "read_text": 12,
+      "modules_call": 1800,
+      "first_record": 1760,
+      "full_records": 1671
+    },
+    "candidate": {
+      "read_text": 12,
+      "modules_call": 41,
+      "first_record": 44,
+      "full_records": 984
+    }
+  }
+}

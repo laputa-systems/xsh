@@ -80,7 +80,7 @@ proc test_target_flags_native_selection_and_coverage_backend_policy() [error] {
 }
 
 proc test_docker_argv_is_direct_and_carries_mount_environment_policy() [error] {
-  let ctx = fixtures.linux_aarch64_context(/repo)?
+  let ctx = fixtures.linux_aarch64_context(/repo, "dev")?
   let argv = docker_workflows.internal_argv(
     ctx,
     "xsh-test",
@@ -97,6 +97,7 @@ proc test_docker_argv_is_direct_and_carries_mount_environment_policy() [error] {
   test.ok("/repo:/work" in argv)?
   test.ok("/repo/target:/work/target" in argv)?
   test.ok("TARGET=aarch64-unknown-linux-musl" in argv)?
+  test.ok("DIST_PROFILE=dev" in argv)?
   test.ok("XSH_OS_STRESS_REPEAT=25" in argv)?
   test.ok("dev/main.xsh" in argv)?
   test.ok("sh" not in argv)?
@@ -109,6 +110,7 @@ proc test_release_names_and_core_paths_are_deterministic() [error] {
   test.eq(target_policy.release_suffix("aarch64-apple-darwin")?, "aarch64-apple-darwin")?
   test.eq(releases.core_install_path(p"bin/hello.xsh").display(), "core/bin/hello")?
   test.eq(releases.core_install_path(p"top.xsh").display(), "core/top")?
+  test.eq(releases.core_install_path(p"lib/auth.xsh").display(), "core/lib/auth.xsh")?
 }
 
 proc test_release_checksum_sidecars_keep_a_relative_artifact_name(ctx: TestContext) [fs, error] {

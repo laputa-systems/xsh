@@ -198,9 +198,8 @@ proc test_linux_dry_run_log_appends_in_place(ctx: TestContext) [fs, process, env
 
 proc test_linux_text_log_failure_kind(ctx: TestContext) [fs, process, env, error] {
   if system.uname()?.sysname != "Linux" {
-    # The script-backed entry reports a log failure as the call's `Err`, while
-    # the native dry-run arm raises it, so the failure is only a value on the
-    # platform that uses this implementation.
+    # The script-backed meminfo entry reports the log failure as a value on
+    # Linux, while the native dry-run arm raises it on other platforms.
     test.skip("a log failure is the call's Err on Linux only")
     return
   }
@@ -211,8 +210,21 @@ proc test_linux_text_log_failure_kind(ctx: TestContext) [fs, process, env, error
   let blocked_log = fp"${blocked}/linux.jsonl"
   env XSH_LINUX_DRY_RUN=1 XSH_LINUX_DRY_RUN_LOG=$blocked_log {
     test.error_kind(linux.meminfo(), "linux-dry-run-log")?
-    test.error_kind(linux.modules(), "linux-dry-run-log")?
   } ?
+
+  # The retained native modules arm raises a dry-run log failure. A nested
+  # script observes that process boundary without losing the failure kind.
+  let failed = test.run_script(
+    ctx,
+    "linux.modules()?",
+    args: [],
+    env: {
+      XSH_LINUX_DRY_RUN: "1",
+      XSH_LINUX_DRY_RUN_LOG: blocked_log.display(),
+    },
+  )?
+  test.ok(!failed.success)?
+  test.contains(failed.stderr, "linux-dry-run-log")?
 }
 
 proc test_linux_meminfo_reads_the_host_text() [process, env, error] {

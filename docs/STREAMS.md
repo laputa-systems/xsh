@@ -17,78 +17,61 @@ Three result shapes:
 - ends in another **terminal** stage → a **scalar** (`count`/`sum`/`min`/`max`/
   `first`/`last`/`any`/`all`/`fold`/`reduce`, and `reduce-by` → a `Map`,
   `table.print` → `Unit`);
-- consumed by **`for x in pipeline { … }`** → iterated, never materialized.
+- consumed by **`for x in pipeline { … }`** → supported serial stages hand each
+  output row to the loop body before pulling the next source row. Stages that
+  require materialization keep their ordinary expression boundary. A raw
+  script producer is also pulled by the loop one item at a time.
 
-The driver is `eval_structured_pipeline` → `build_pipeline` → `eval_stream_stage`
-per stage (`src/runtime/eval/stream.rs`).
+The verified indexed pipeline is executed by `FullTag::ExprPipeline` in
+`src/runtime/eval/lowered_run/indexed_run.rs`. Live serial prefixes are driven
+by `src/runtime/eval/lowered_run/indexed_run/serial_pipeline.rs`.
+`src/runtime/eval/stream.rs` owns source pulls and script-producer cancellation.
 
-## 2. Two execution paths: eager vs lazy
+## 2. Live execution in the indexed runtime
 
-`StreamPipelineValue` has three states: `Stream(StreamValue)` (materialized),
-`Lazy(LazyPipeline)` (a live source + fused per-item ops, not yet run), and
-`Value` (a terminal scalar / adapter input).
+A `StreamValue` carries any already materialized prefix plus an optional live
+source or suspended script producer. `stream_next` pulls one value; a script
+producer resumes in the current evaluator. `stream_cancel` closes a script
+producer that a consumer stops early and runs its defers once.
 
-- **Eager.** A materialized source (a `List`, or an already-collected stream)
-  flows through each stage's vec handler, producing a new `Vec<StreamItem>`.
-- **Lazy.** A *live* source (`is_live()`: `fs.walk`/`files`/`dirs`, `fs.mounts`,
-  file/text/byte line streams, `run.stream`, archive listings, process and
-  Linux snapshot streams, user `stream` producers, and device/uevent streams)
-  is wrapped in `LazyPipeline { source, ops }`. Lazy-class stages **fuse** onto
-  `ops` doing no work; the first materializing/terminal stage drains the pipeline
-  once.
+For a live source, `serial_pipeline.rs` runs supported serial stages on each
+source item before pulling the next. `flat-map` sends each expanded value through
+the remaining stages in order, so `take` can stop within an expansion. The
+serial path covers `tee`, `where`, `map`, `flat-map`, `drop`, and `enumerate`; it
+stops at `take`, `first`, `any`, or `all`, and collects at an explicit `collect()`
+or expression boundary. An unsupported stage receives the materialized serial
+prefix, then follows its indexed handler. This preserves effects and late-error
+timing for the supported prefix, including producer cleanup and trace exits on
+failure.
+The ordinary indexed handlers also close their `stream.stage` trace when a
+stage errors or propagates a value early.
 
-`value_to_pipeline` decides which: a live `Stream` → `Lazy`, else → `Stream`.
-
-### Lazy machinery
-
-- `LazyOp` — the fused per-item forwarding ops, with per-pipeline state:
-  `Where`/`Map`/`FlatMap`/`Tee` (own a cloned `StreamStage`), `Enumerate{count}`,
-  `Take{remaining}`, `Drop{remaining}`.
-- `drive_lazy(ops, item, sink)` — **push-based**: recursively pushes one source
-  item through `ops`, invoking `LazySink::accept` per survivor. Returns
-  `PullControl::Stop` to halt the source pull (how `take`/`first` short-circuit).
-- `drain_lazy(pipe, sink, span)` — pulls the source (materialized prefix, then the
-  live tail via `next_live`) through `drive_lazy` into a sink, stopping on `Stop`.
-- Sinks (`LazySink`): `MaterializeSink` (→ `Vec`), `ForLoopSink` (runs the loop
-  body; `break` → `Stop`), and the terminal sinks below.
-
-This is **consumer-driven**: every block runs inside `&mut Evaluator`, so there is
-no second copy of stage logic — the per-item helpers (`where_keep`, `stage_block_
-value`, `flat_map_values`, `reduce_by_step`, `fold_step`, …) are shared by the
-eager vec handlers and the lazy sinks.
-
-### Terminals on a lazy pipeline
-
-- **Short-circuit** (`take`/`first`/`any`/`all`): drive the source and stop early
-  (`FirstSink`, `AnyAllSink`). For an infinite live source this is the only
-  correct path — never materialize.
-- **Folding** (`count`/`sum`/`min`/`max`/`last`/`fold`/`reduce`): fold one item at
-  a time into O(1) state (`CountSink`, `SumSink`, …) — no materialization. So
-  `fs.walk |> where … |> count()` is O(1) live memory.
-  `fold(init)`/`reduce(init)` use an explicit accumulator block that binds the
-  accumulator (typed by the initial value) first and the stream item second:
-  `|> fold(0) { |acc, item| acc + item }`. The block may use ordinary
-  statements and nested conditionals before producing the next accumulator. It
-  is a sequential user combine with no merge function and returns that
-  accumulator. Fold/reduce blocks are pure
-  reductions: output belongs in a following `each { |item| print $item }`
-  stage. `xsht check` reports this constraint directly when a block contains
-  `print` or `eprint`.
-- **Explicit materialization** (`collect()`): drain to a `List[T]`, equivalent
-  to the automatic collection that happens when a non-terminal pipeline reaches
-  an expression boundary.
-- **Materializing** (`group-by`/`sort-by`/`unique-by`/`shuffle`, and `batch`/`zip`
-  semi-lazy, and `par-map`): drain to a `Vec` first, then run the eager handler.
-  `flat-map` can consume a live stream returned by its block, but that nested
-  stream is drained for the current input item before the outer stream advances.
-
-### Materialize-on-bind invariant
-
-A `LazyPipeline` **never escapes as a value**. `pipeline_into_value` materializes
-any still-lazy pipeline to a `List` at the expression boundary, and the for-loop
-consumer (`eval_pipeline_for`) drives it in place. So `let x = <pipeline>` is a
-plain reusable value; laziness only applies to consume-in-place. Live *sources*
-(walk, uevent) are single-use, like every live stream.
+`fold`, `reduce-by`, `each`, keyed `count`, `group-by`, `unique-by`, `sum`,
+`last`, `min`, and `max` also consume live input one row at a time and cancel
+their producers on errors. A non-`Int` item in `sum` or a key error in keyed
+`count`/`group-by`/`unique-by` fails before the next source pull. `last`, `min`,
+and `max` retain one candidate value while they drain the input. `zip(other)`
+collects its right list or stream first, then pulls only paired left items and
+cancels the left producer if the right side ends first. Its result is still a list.
+Stages that need a complete result (`sort`, `sort-by`, `shuffle`, `collect`,
+`table.print`, positive `repeat`, and `batch`) retain their materialization
+boundary. `par-map` retains its worker boundary.
+`sort-by --desc=expr` evaluates that option before draining a live source and
+before running key projections.
+The size-limited `batch` handlers consume live input one item at a time;
+`batch --max-bytes` closes the producer on an oversized item without pulling
+the following item.
+`repeat(0)` cancels a live source without pulling an item.
+`FullTag::StmtFor` in `indexed_run/explicit_run.rs` keeps a supported serial
+pipeline in `FrameWork::ForPipeline`, with its input evaluated once and its
+stage counters and flat-map expansion retained across loop-body executions.
+`break`, `continue`, errors, and bounded `take` use that cursor's cleanup path.
+An unsupported stage follows the ordinary expression path; a raw script
+producer uses `FrameWork::ForStream`. A script producer that returns another
+stream delegates later pulls and cancellation to that returned stream in
+`indexed_run/producer.rs`. An unsupported loop stage follows its ordinary
+expression boundary. Parallel stages keep their separate materialization and
+worker boundaries described below.
 
 ## 3. The filesystem walk
 
@@ -123,49 +106,43 @@ aggregate is one pass:
 |> reduce-by --sum { |e| {key: e.ext.lower(), value: {count: 1, size: e.size}} }
 ```
 
-The fold partitions the materialized items into chunks, folds each on a worker fork
-into a private map, and merges with the same (associative) reducer. It is
-**parallel by default** (one worker per CPU, like the walk); `--jobs=N` overrides
-the worker count and `--jobs=1` forces the serial fold. The merge is
-order-independent (exact for `Int`; `Float` sum reorders, a known caveat). Below
-`PARALLEL_FOLD_MIN_ITEMS` it stays serial regardless.
+The indexed `reduce-by` handler folds serially. For a live source, it reduces
+each row before pulling the next one, uses O(distinct) group storage, and closes
+the producer when reduction fails. The accepted `--jobs=N` option is currently
+evaluated once and validated before the fold, but it does not start reduce
+workers. Adjacent `par-map |> reduce-by` may fuse into worker-local aggregation
+when the `par-map` stage supplies the workers; an explicit `reduce-by --jobs`
+keeps the ordinary reduction stage.
 
-Caveat for the parallel default: over a *live* source (the walk) the fold first
-materializes the post-`where` items into a vec, so memory is O(N) there rather than
-the serial fold's O(distinct) streaming — `--jobs=1` restores O(distinct).
+### Parallelism boundaries
 
-### What parallelizes by default — and what can't
-
-Default-parallel is reserved for **associative folds** (partition → private
-accumulator → merge), where it neither changes results nor ordering: `reduce-by`,
-`group-by`, and keyed `count { block }`. Each partitions into contiguous chunks and
-merges in chunk order, so the result — including `group-by`'s first-seen key order
-and the encounter order of items within each group — is identical to serial.
-Deliberately *not* parallel by default:
+The indexed `group-by` and keyed `count { block }` handlers also run serially.
+Their accepted `--jobs` expressions run once and are validated, but do not start
+workers. On live input they evaluate each key before the next pull; `group-by`
+retains its grouped items, while keyed `count` retains one count per key. The
+stages below are serial as well:
 
 - **Order-sensitive** (`take`/`drop`/`first`/`last`/`enumerate`/`unique-by`/`zip`/
   `batch`) — splitting changes the result.
 - **`fold`/`reduce`** — a sequential user combine with no merge function.
-- **Side-effecting** (`each`/`tee`) — parallel runs interleave output.
+- **Side-effecting** (`each`/`tee`) — their effects follow input order.
 - **`map`/`where`/`flat-map`** — per-item independent, but mid-pipeline they'd have
   to materialize (can't partition a live stream) and the per-item work is usually
   too cheap to beat coordination overhead. Use `par-map` for the heavy-item case.
 - **`sum`/`count`/`min`/`max` with no block** — per-item work is nil; the cost is
   an upstream `map`, not the terminal.
 
-Threads are cheap to spawn, but coordination/merge, determinism, and
-streaming-memory are not — so parallelism is a default only where it's a clean win.
+`par-map` is the explicit worker stage. The filesystem walk starts its own
+parallel traversal when pulled.
 
 ## 5. `par-map` and adapters
 
-- **`par-map`** (`--jobs=N` optional) and **`each --jobs=N`**: a materializing boundary that drains
-  the lazy source to a vec, then runs the block on a **fixed pool of N long-lived
-  workers** pulling work by atomic ordinal, results collected by index for
-  deterministic ordering. Bare `par-map` uses one worker per CPU; `--jobs=N`
-  overrides that. Bare `each` remains serial, so side-effect parallelism stays
-  explicit. These stages are for *heavy* per-item work (e.g. spawning subprocesses)
-  — not cheap functions over a large stream. (The original per-item thread-spawn
-  was ~9× slower; the worker pool fixed that.)
+- **`par-map`** (`--jobs=N` optional) materializes the lazy source, then maps
+  items on bounded workers. It defaults to the available CPU count capped at
+  `DEFAULT_PAR_MAP_WORKERS`; `--jobs=N` overrides that limit. Output retains
+  input order. `each` runs serially, including with its accepted `--jobs`
+  option; the option is evaluated and validated but starts no workers. Use
+  `par-map` for heavy independent per-item work.
 - **Result handling.** `par-map` does not unwrap `Result` return values — the
   block's return type flows through unchanged. Use `?` inside the block for
   short-circuit-on-first-error semantics (errors propagate out-of-band). Omit `?`
@@ -176,8 +153,8 @@ streaming-memory are not — so parallelism is a default only where it's a clean
   fuses into worker-local partial maps. A measured attempt to carry
   `where`/`map`/`flat-map` suffix stages into that fusion regressed the
   `showcase/tokei.xsh` workload, so non-adjacent shapes keep the ordinary
-  materialized path for now. Explicit `reduce-by --jobs` also keeps the ordinary
-  path.
+  materialized path for now. An explicit `reduce-by --jobs` keeps the ordinary
+  reduction stage, so its option expression runs once at that boundary.
 - **Adapters** (`text.lines`/`bytes.chunks`/`json.lines`/`json.stream`) are valid
   only as the first stage; they convert a value into the stream the rest consumes.
 
@@ -206,13 +183,25 @@ there is no contiguous columnar buffer to vectorize. Levers applied (all landed)
   `sort_by_key` re-running an allocating key fn); `translate`/`Str.lower` ASCII
   byte scan with no per-call `Vec<char>`.
 
+The live terminal memory probe is `bench/stream-terminal-memory.xsh`. On macOS
+ARM64 with the debug `xsh`, one million `Int` values from a script producer gave
+these single-run `/usr/bin/time -l` peak RSS samples (bytes). `count` is the
+unchanged streaming control; all four runs returned the expected value.
+
+| Terminal | Before bounded fold | After bounded fold |
+|---|---:|---:|
+| `count` | 54,050,816 | 54,444,032 |
+| `last` | 88,260,608 | 54,493,184 |
+| `min` | 88,195,072 | 54,509,568 |
+| `max` | 88,145,920 | 54,525,952 |
+
 ### Choosing a parallel strategy
 
-`reduce-by --jobs` partitions **records** evenly, so it parallelizes regardless of
-tree shape. A *fused* parallel walk (walk workers run the pipeline + fold inline)
+An adjacent `par-map |> reduce-by` folds mapped records on worker threads.
+A *fused* parallel walk (walk workers run the pipeline + fold inline)
 was built and **measured slower on flat trees** — one huge directory is processed
-by a single worker while the rest idle — so it was removed. Record-partitioning is
-the robust default; intra-directory work-splitting (batching a large directory's
+by a single worker while the rest idle — so it was removed. Record-partitioning
+avoids that tree-shape problem; intra-directory work-splitting (batching a large directory's
 entries onto the work-stack) would be required before per-directory parallelism
 could win on flat trees. See §7 pitfalls.
 
@@ -228,8 +217,8 @@ could win on flat trees. See §7 pitfalls.
 - **Don't wrap trivial work in a `pure`.** A per-item user-function call pays
   scope + dispatch overhead; prefer a builtin (`.lower()` over a `translate`
   helper) or an inline block.
-- **`par-map` is for heavy items only.** For cheap aggregation use `reduce-by
-  --jobs`; for cheap mapping, plain `map` (the parallel coordination would lose).
+- **`par-map` is for heavy items only.** For cheap aggregation use `reduce-by`;
+  for cheap mapping, plain `map` (the parallel coordination would lose).
 - **`let`-binding a pipeline materializes it.** Laziness/short-circuit only apply
   to consume-in-place (`for`, or a terminal in the same expression). Use
   `collect()` when that materialization should be explicit in the pipeline.

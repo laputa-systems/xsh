@@ -1,6 +1,7 @@
 #!/usr/bin/env -S xsh --
 # Bump Version
 # Bump a Cargo package version by major, minor, or patch component.
+# Edit only the version field in [package] and publish the file atomically.
 # Usage: xsh showcase/bump-version.xsh -- COMPONENT [--manifest PATH] [--dry-run=false]
 # Example: xsh showcase/bump-version.xsh -- patch --manifest Cargo.toml
 type Opts = {component: Str, manifest: Path, dry_run: Bool}
@@ -29,33 +30,28 @@ proc main(...argv: List[Str]) [fs, error] {
     },
   )?
 
-  if opts.component != "major" and opts.component != "minor" and opts.component != "patch" {
-    print f"error: component must be major, minor, or patch (got: ${opts.component})"
-    return
+  if ! opts.manifest.exists()? {
+    print f"error: ${opts.manifest.display()} not found"
+    abort(1)
   }
 
   let manifest = opts.manifest.resolve()?
-
-  if ! manifest.exists()? {
-    print f"error: ${manifest.display()} not found"
-    return
-  }
-
   let content = manifest.read_text()?
 
-  # Match `version = "X.Y.Z"` only in the [package] section (before [dependencies])
-  let version_re = regex.compile("^version = \"(\\d+)\\.(\\d+)\\.(\\d+)\"")?
-  let dep_section_re = regex.compile("^\\[dependencies")?
+  let version_re = regex.compile("^[ \\t]*version[ \\t]*=[ \\t]*\"(\\d+)\\.(\\d+)\\.(\\d+)\"")?
+  let section_re = regex.compile("^[ \\t]*\\[([^\\]]+)\\]")?
   var old_line = ""
+  var version_line_index = -1
   var major = 0
   var minor = 0
   var patch_component = 0
-  var found = false
-  var in_package = true
+  var in_package = false
 
-  for line in content.lines() {
-    if dep_section_re.matches(line) {
-      in_package = false
+  for item in content.split("\n") |> enumerate() {
+    let line = item.value
+    let section = section_re.captures(line)
+    if section.len() >= 2 {
+      in_package = section[1] == "package"
     }
 
     if in_package {
@@ -63,18 +59,18 @@ proc main(...argv: List[Str]) [fs, error] {
 
       if caps.len() >= 4 {
         old_line = line
+        version_line_index = item.index
         major = json.decode(caps[1])?
         minor = json.decode(caps[2])?
         patch_component = json.decode(caps[3])?
-        found = true
         break
       }
     }
   }
 
-  if ! found {
+  if version_line_index < 0 {
     print "error: no version field found in [package] section"
-    return
+    abort(1)
   }
 
   let old_version = f"${major}.${minor}.${patch_component}"
@@ -82,7 +78,9 @@ proc main(...argv: List[Str]) [fs, error] {
   let new_minor = if opts.component == "major" { 0 } else { if opts.component == "minor" { minor + 1 } else { minor } }
   let new_patch = if opts.component == "patch" { patch_component + 1 } else { 0 }
   let new_version = f"${new_major}.${new_minor}.${new_patch}"
-  let new_line = f"version = \"${new_version}\""
+  let old_version_field = f"\"${old_version}\""
+  let parts = old_line.split(old_version_field, maxsplit: 1)
+  let new_line = f"${parts[0]}\"${new_version}\"${parts[1]}"
   print $manifest
   print f"  ${old_version} → ${new_version}  (${opts.component} bump)"
 
@@ -91,7 +89,11 @@ proc main(...argv: List[Str]) [fs, error] {
     return
   }
 
-  let new_content = content.replace(old_line, new_line)
+  var updated: List[Str] = []
+  for item in content.split("\n") |> enumerate() {
+    updated = updated.push(if item.index == version_line_index { new_line } else { item.value })
+  }
+  let new_content = updated.join("\n")
   manifest.write_atomic(new_content)?
   print "updated"
 }

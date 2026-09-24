@@ -13,7 +13,21 @@ use xsh::process::{
 };
 
 pub fn main() -> ExitCode {
-    let args: Vec<String> = std::env::args().skip(1).collect();
+    let args: Vec<String> = match std::env::args_os()
+        .skip(1)
+        .enumerate()
+        .map(|(index, arg)| {
+            arg.into_string()
+                .map_err(|_| format!("argument {} is not valid UTF-8", index + 1))
+        })
+        .collect()
+    {
+        Ok(args) => args,
+        Err(message) => {
+            eprintln!("xsht: {message}");
+            return ExitCode::from(2);
+        }
+    };
     let immediate_cancellation = args.first().is_some_and(|arg| arg == "test");
     let _signal_guard = match if immediate_cancellation {
         install_immediate_cancellation_signal_handlers()

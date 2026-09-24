@@ -656,6 +656,8 @@ Required unit coverage:
   parsing, and `compute_grid`;
 - rendering geometry for ANSI prompt width, wrapped lines, multiline input,
   pending-wrap boundaries, completion grids, and autosuggestion ghost text;
+- denv source appearance after snapshot invalidation, dirty prompt state, and
+  clearing that state after `denv allow`;
 - history prefix/fuzzy lookup and duplicate suppression.
 
 Required PTY coverage:

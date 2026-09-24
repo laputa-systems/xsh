@@ -6,6 +6,11 @@ inspect. Shared libraries under `core/lib/` are reserved for audited command
 families whose behavior must stay consistent across multiple applets, such as
 auth account parsing and shadow-file updates.
 
+`dev/release.xsh::package_core` installs applets without the `.xsh` suffix as
+executable commands. It keeps that suffix for `core/lib/` modules so adjacent
+`use lib.auth` imports resolve after extraction; modules install with mode
+`0644`.
+
 Prefer typed standard-module APIs over shelling out or parsing command text.
 Use `cli.parse` for ordinary option records, including short aliases and
 clusters, and reserve `cli.tokens` for applets whose option grammar is itself

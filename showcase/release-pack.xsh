@@ -1,6 +1,7 @@
 #!/usr/bin/env -S xsh --
 # Release Pack
 # Stage files, write a manifest with hashes, and create a release tarball.
+# Publish only to an absent output directory with an existing parent, after the archive is complete.
 # Usage: xsh showcase/release-pack.xsh -- INPUT OUTPUT [--dry-run=false]
 # Example: xsh showcase/release-pack.xsh -- dist target/release-pack --dry-run=false
 type ManifestEntry = {path: Str, size: Int, sha256: Str}
@@ -35,13 +36,29 @@ proc main(...argv: List[Str]) [fs, error] {
     return
   }
 
-  opts.output.remove(missing_ok: true)?
-  opts.output.mkdir()?
-  let stage = fp"${opts.output}/stage"
+  let output_parent = opts.output.parent
+  let parent = if output_parent.display() == "" { fs.cwd()? } else { output_parent.resolve()? }
+  let output = fp"${parent}/${opts.output.name()}"
+  if output.exists()? {
+    print f"output already exists: ${output.display()}"
+    abort(1)
+  }
+
+  match output.strip_prefix(absolute_source) {
+    Ok(_) => {
+      print "output must be outside the input tree"
+      abort(1)
+    }
+    Err(_) => {}
+  }
+
+  let pending = fp"${parent}/.${opts.output.name()}.xsh-stage"
+  pending.mkdir(parents: false)?
+  defer pending.remove(missing_ok: true)?
+  let stage = fp"${pending}/stage"
   let payload = fp"${stage}/payload"
-  payload.mkdir()?
+  let copied = fs.copy_tree(absolute_source, payload, parents: true)?
   let payload_root = payload.resolve()?
-  let copied = fs.copy_tree(absolute_source, payload_root, parents: true, overwrite: true)?
 
   let entries: List[ManifestEntry] = fs.files(payload_root)
     |> sort-by .path
@@ -52,10 +69,12 @@ proc main(...argv: List[Str]) [fs, error] {
 
   let manifest = fp"${stage}/MANIFEST.json"
   json.write(manifest, {source: absolute_source.display(), files: entries})?
-  let tarball = fp"${opts.output}/release.tar"
-  archive.tar_create(tarball, stage, [p"."], "auto", true)?
-  let listed = archive.tar_list(tarball)?.collect()
-  let digest = tarball.read_bytes()?.sha256().hex()
+  let staged_tarball = fp"${pending}/release.tar"
+  archive.tar_create(staged_tarball, stage, [p"."], "auto")?
+  let listed = archive.tar_list(staged_tarball)?.collect()
+  let digest = staged_tarball.read_bytes()?.sha256().hex()
+  pending.rename(output)?
+  let tarball = fp"${output}/release.tar"
   print f"staged ${copied.files} files ${copied.dirs} dirs"
   print f"archive ${tarball} entries ${listed.len()} sha256 ${digest}"
 }

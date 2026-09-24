@@ -25,7 +25,23 @@ Options:
 
 pub fn main() -> ExitCode {
     let login_shell = login_shell_argv0();
-    match parse_interactive(std::env::args().skip(1).collect()) {
+    let args: Vec<String> = match std::env::args_os()
+        .skip(1)
+        .enumerate()
+        .map(|(index, arg)| {
+            arg.into_string()
+                .map_err(|_| format!("argument {} is not valid UTF-8", index + 1))
+        })
+        .collect()
+    {
+        Ok(args) => args,
+        Err(message) => {
+            eprintln!("xshi: {message}");
+            return ExitCode::from(2);
+        }
+    };
+
+    match parse_interactive(args) {
         Ok(Command::Help) => {
             print!("{HELP}");
             ExitCode::SUCCESS

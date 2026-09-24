@@ -521,7 +521,10 @@ fn rooted_symlink_at(parent: &Root, target: &Path, leaf: &std::ffi::OsStr) -> st
 }
 
 fn rooted_set_mode(root: &Root, mode: u32) -> std::io::Result<()> {
-    rfs::fchmod(root, rfs::Mode::from_raw_mode(mode as rfs::RawMode)).map_err(std::io::Error::from)
+    // Linux roots are O_PATH handles. Reopen the already confined directory
+    // through its own handle so fchmod gets a readable fd without a name race.
+    let directory = root.open_file(Path::new("."))?;
+    rooted_set_mode_file(&directory, mode)
 }
 
 fn rooted_set_mode_file(file: &std::fs::File, mode: u32) -> std::io::Result<()> {

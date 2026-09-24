@@ -2869,12 +2869,14 @@ pub(in crate::runtime::eval) trait FullCodec: Sized {
     }
 }
 
+#[derive(Clone, Copy)]
 pub(in crate::runtime::eval) struct FullCursor<'a> {
     words: &'a [u32],
     index: usize,
     verified: bool,
 }
 
+#[derive(Clone, Copy)]
 pub(in crate::runtime::eval) struct FullPayload<'a> {
     cursor: FullCursor<'a>,
 }
@@ -6270,16 +6272,19 @@ impl_stage_codec! {
         body,
         value,
         op,
+        jobs,
     } => ReduceBy {
         item_slot: usize,
         body: Vec<BuildStmtId>,
         value: BuildExprId,
         op: ReduceByOp,
+        jobs: Option<BuildExprId>,
     } => LoweredPipelineStage::ReduceBy {
         item_slot,
         body,
         value,
         op,
+        jobs,
     },
     LoweredPipelineStage::ParMap { slot, jobs, value } => ParMap {
         slot: usize,
@@ -6340,15 +6345,15 @@ impl_stage_codec! {
     LoweredPipelineStage::Each {
         slot,
         body,
-        parallel,
+        jobs,
     } => Each {
         slot: usize,
         body: Vec<BuildStmtId>,
-        parallel: bool,
+        jobs: Option<BuildExprId>,
     } => LoweredPipelineStage::Each {
         slot,
         body,
-        parallel,
+        jobs,
     },
     LoweredPipelineStage::TablePrint { columns } => TablePrint {
         columns: Option<Vec<String>>,
@@ -6373,14 +6378,16 @@ impl_stage_codec! {
         key,
         descending,
     },
-    LoweredPipelineStage::GroupBy { slot, key } => GroupBy {
+    LoweredPipelineStage::GroupBy { slot, key, jobs } => GroupBy {
         slot: usize,
         key: BuildExprId,
-    } => LoweredPipelineStage::GroupBy { slot, key },
-    LoweredPipelineStage::CountBy { slot, key } => CountBy {
+        jobs: Option<BuildExprId>,
+    } => LoweredPipelineStage::GroupBy { slot, key, jobs },
+    LoweredPipelineStage::CountBy { slot, key, jobs } => CountBy {
         slot: usize,
         key: BuildExprId,
-    } => LoweredPipelineStage::CountBy { slot, key },
+        jobs: Option<BuildExprId>,
+    } => LoweredPipelineStage::CountBy { slot, key, jobs },
     LoweredPipelineStage::Any { slot, predicate } => Any {
         slot: usize,
         predicate: BuildExprId,
@@ -6403,7 +6410,9 @@ impl_stage_codec! {
         slot: usize,
         key: BuildExprId,
     } => LoweredPipelineStage::UniqueBy { slot, key },
-    LoweredPipelineStage::Count => Count {} => LoweredPipelineStage::Count,
+    LoweredPipelineStage::Count { jobs } => Count {
+        jobs: Option<BuildExprId>,
+    } => LoweredPipelineStage::Count { jobs },
     LoweredPipelineStage::Sum => Sum {} => LoweredPipelineStage::Sum,
     LoweredPipelineStage::Collect => Collect {} => LoweredPipelineStage::Collect,
     LoweredPipelineStage::First => First {} => LoweredPipelineStage::First,

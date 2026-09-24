@@ -332,12 +332,24 @@ fn lowered_module_call_args(
             });
         }
     }
-    // `mime.lookup_ext` and `mime.lookup_path` used to be recognized here and
-    // lowered to `RuntimeOp::MimeLookupExt` / `MimeLookupPath`. Both entries
-    // are now implemented by the embedded `mime` module on every platform, and
-    // neither operation has a runtime arm or a lowering entry left, so the
-    // spelling is recognized above, by the script route, like every other
-    // embedded entry.
+    if module == "mime" && name == "lookup_ext" {
+        let positional = positional_call_args(args)?;
+        if positional.len() == 1 {
+            return Some(LoweredModuleCallArgs {
+                op: RuntimeOp::MimeLookupExt,
+                args: positional,
+            });
+        }
+    }
+    if module == "mime" && name == "lookup_path" {
+        let positional = positional_call_args(args)?;
+        if positional.len() == 1 {
+            return Some(LoweredModuleCallArgs {
+                op: RuntimeOp::MimeLookupPath,
+                args: positional,
+            });
+        }
+    }
     let overloads = api_spec().module_overloads(&module.as_str(), &name.as_str())?;
     let mut matched = None;
     for sig in overloads {
@@ -555,6 +567,7 @@ fn lowered_module_op_supported(op: RuntimeOp) -> bool {
             | RuntimeOp::ArchiveZipList
             | RuntimeOp::ElfInspect
             | RuntimeOp::BytesFromText
+            | RuntimeOp::BytesHuman
             | RuntimeOp::BytesCopy
             | RuntimeOp::BytesCopyFile
             | RuntimeOp::BytesFromInts
@@ -573,10 +586,17 @@ fn lowered_module_op_supported(op: RuntimeOp) -> bool {
             | RuntimeOp::DnsReverse
             | RuntimeOp::DnsNameservers
             | RuntimeOp::EnvGet
+            | RuntimeOp::EnvGetOr
+            | RuntimeOp::EnvBool
+            | RuntimeOp::EnvInt
             | RuntimeOp::EnvPath
             | RuntimeOp::EnvList
             | RuntimeOp::EnvPathList
             | RuntimeOp::EnvPathEntries
+            | RuntimeOp::HashParseCheckLine
+            | RuntimeOp::MimeLookupExt
+            | RuntimeOp::MimeLookupPath
+            | RuntimeOp::MimeParse
             | RuntimeOp::FsCwd
             | RuntimeOp::FsDirs
             | RuntimeOp::FsLs
@@ -654,6 +674,8 @@ fn lowered_module_op_supported(op: RuntimeOp) -> bool {
             | RuntimeOp::IoWriteStdoutBytes
             | RuntimeOp::IniDecode
             | RuntimeOp::IniRead
+            | RuntimeOp::IniEncode
+            | RuntimeOp::IniWrite
             | RuntimeOp::JsonDecode
             | RuntimeOp::JsonEncode
             | RuntimeOp::JsonEncodeLines
@@ -711,6 +733,8 @@ fn lowered_module_op_supported(op: RuntimeOp) -> bool {
             | RuntimeOp::SetHas
             | RuntimeOp::SetAdd
             | RuntimeOp::SetRemove
+            | RuntimeOp::ShlexQuote
+            | RuntimeOp::ShlexJoin
             | RuntimeOp::SystemHostname
             | RuntimeOp::SystemUname
             | RuntimeOp::SystemMemory
@@ -720,6 +744,9 @@ fn lowered_module_op_supported(op: RuntimeOp) -> bool {
             | RuntimeOp::TimeMillis
             | RuntimeOp::TimeSeconds
             | RuntimeOp::TimeMeasure
+            | RuntimeOp::TimeDurationCompact
+            | RuntimeOp::TuiLeftPad
+            | RuntimeOp::TuiRightPad
             | RuntimeOp::TuiReadSecret
             | RuntimeOp::LinuxWriteDevice
             | RuntimeOp::LinuxReadDevice
@@ -4803,6 +4830,7 @@ impl CompactLowerConstructProbe<'_, '_> {
             | StreamStageKind::UniqueBy
             | StreamStageKind::Take
             | StreamStageKind::Drop
+            | StreamStageKind::Repeat
             | StreamStageKind::Shuffle => match input {
                 Type::List(item) | Type::Stream(item) => Some(Type::List(item.clone())),
                 _ => None,
@@ -4821,6 +4849,30 @@ impl CompactLowerConstructProbe<'_, '_> {
                 let mut fields = BTreeMap::new();
                 fields.insert(Name::intern("index"), Type::Int);
                 fields.insert(Name::intern("value"), value);
+                Some(Type::List(Box::new(Type::Record(fields))))
+            }
+            StreamStageKind::Zip => {
+                let left = match input {
+                    Type::List(item) | Type::Stream(item) => item.as_ref().clone(),
+                    _ => return None,
+                };
+                let [arg] = self.program.arena.call_args(stage.args) else {
+                    return None;
+                };
+                let ArenaCallArgKind::Positional(other) = arg.kind else {
+                    return None;
+                };
+                let right = self
+                    .infer_checked_expr_type_with_slots(other, slots)
+                    .or_else(|| self.infer_checked_expr_type(other, &self.top_level_known))?;
+                let right = right.result_ok().cloned().unwrap_or(right);
+                let right = match right {
+                    Type::List(item) | Type::Stream(item) => *item,
+                    _ => return None,
+                };
+                let mut fields = BTreeMap::new();
+                fields.insert(Name::intern("left"), left);
+                fields.insert(Name::intern("right"), right);
                 Some(Type::List(Box::new(Type::Record(fields))))
             }
             StreamStageKind::First
@@ -10663,6 +10715,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                 body,
                 value,
                 op,
+                jobs: None,
             } => Some((*item_slot, body.clone(), *value, *op)),
             _ => None,
         }
@@ -10823,30 +10876,20 @@ impl CompactLowerConstructProbe<'_, '_> {
                 Some(LoweredPipelineStage::UniqueBy { slot, key })
             }
             StreamStageKind::GroupBy => {
-                // `--jobs=N` is a parallelism hint; serial execution produces
-                // identical (encounter-ordered) results, so accept and ignore it.
-                for option in self.program.arena.stream_options(stage.options) {
-                    if option.name.as_str() != "jobs" {
-                        return None;
-                    }
-                }
+                let jobs =
+                    self.lower_pipeline_stage_jobs_option(stage, slots, current_function)?;
                 if let Some((slot, key)) =
                     self.try_lower_pipeline_stage_shorthand(stage, slots, current_function, item_ty)
                 {
-                    return Some(LoweredPipelineStage::GroupBy { slot, key });
+                    return Some(LoweredPipelineStage::GroupBy { slot, key, jobs });
                 }
                 let (slot, key) =
                     self.lower_pipeline_stage_expr(stage, slots, current_function, item_ty)?;
-                Some(LoweredPipelineStage::GroupBy { slot, key })
+                Some(LoweredPipelineStage::GroupBy { slot, key, jobs })
             }
             StreamStageKind::Count => {
-                // `--jobs=N` is a parallelism hint; serial execution produces
-                // identical results, so accept and ignore it.
-                for option in self.program.arena.stream_options(stage.options) {
-                    if option.name.as_str() != "jobs" {
-                        return None;
-                    }
-                }
+                let jobs =
+                    self.lower_pipeline_stage_jobs_option(stage, slots, current_function)?;
                 if !stage.args.is_empty() {
                     if stage.block.is_some() {
                         return None;
@@ -10857,16 +10900,16 @@ impl CompactLowerConstructProbe<'_, '_> {
                         current_function,
                         item_ty,
                     ) {
-                        return Some(LoweredPipelineStage::CountBy { slot, key });
+                        return Some(LoweredPipelineStage::CountBy { slot, key, jobs });
                     }
                     return None;
                 }
                 if stage.block.is_none() {
-                    return Some(LoweredPipelineStage::Count);
+                    return Some(LoweredPipelineStage::Count { jobs });
                 }
                 let (slot, key) =
                     self.lower_pipeline_stage_expr(stage, slots, current_function, item_ty)?;
-                Some(LoweredPipelineStage::CountBy { slot, key })
+                Some(LoweredPipelineStage::CountBy { slot, key, jobs })
             }
             StreamStageKind::Where => {
                 if !stage.options.is_empty() {
@@ -11096,13 +11139,8 @@ impl CompactLowerConstructProbe<'_, '_> {
                 })
             }
             StreamStageKind::Each => {
-                let mut parallel = false;
-                for option in self.program.arena.stream_options(stage.options) {
-                    if option.name.as_str() != "jobs" {
-                        return None;
-                    }
-                    parallel = true;
-                }
+                let jobs =
+                    self.lower_pipeline_stage_jobs_option(stage, slots, current_function)?;
                 let block = stage.block?;
                 let (slot, cleanup) = self.lower_pipeline_stage_item_slot(stage, slots, item_ty)?;
                 let saved = slots.enter();
@@ -11113,7 +11151,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                 Some(LoweredPipelineStage::Each {
                     slot,
                     body,
-                    parallel,
+                    jobs,
                 })
             }
             StreamStageKind::Tee => {
@@ -11143,14 +11181,22 @@ impl CompactLowerConstructProbe<'_, '_> {
             }
             StreamStageKind::ReduceBy => {
                 let mut op = None;
+                let mut jobs = None;
                 for option in self.program.arena.stream_options(stage.options) {
                     let selected = match option.name.as_str().as_str() {
                         "sum" => ReduceByOp::Sum,
                         "min" => ReduceByOp::Min,
                         "max" => ReduceByOp::Max,
-                        // `--jobs=N` is a parallelism hint; serial execution
-                        // produces identical results, so accept and ignore it.
-                        "jobs" => continue,
+                        "jobs" => {
+                            let value = option.value?;
+                            if jobs
+                                .replace(self.lower_expr(value, slots, current_function, None)?)
+                                .is_some()
+                            {
+                                return None;
+                            }
+                            continue;
+                        }
                         _ => return None,
                     };
                     // exactly one of --sum/--min/--max
@@ -11158,7 +11204,9 @@ impl CompactLowerConstructProbe<'_, '_> {
                         return None;
                     }
                 }
-                self.lower_pipeline_stage_reduce_by(stage, slots, current_function, op?, item_ty)
+                self.lower_pipeline_stage_reduce_by(
+                    stage, slots, current_function, op?, jobs, item_ty,
+                )
             }
             StreamStageKind::Shuffle => {
                 if !stage.options.is_empty() || stage.block.is_some() {
@@ -11201,6 +11249,24 @@ impl CompactLowerConstructProbe<'_, '_> {
                 )?)),
                 None => Some(Some(push_build_row!(self, expr, BuildExprRow::Bool(true)))),
             },
+            _ => None,
+        }
+    }
+
+    fn lower_pipeline_stage_jobs_option(
+        &mut self,
+        stage: &ArenaStreamStage,
+        slots: &mut SlotScope,
+        current_function: Option<Name>,
+    ) -> Option<Option<BuildExprId>> {
+        match self.program.arena.stream_options(stage.options) {
+            [] => Some(None),
+            [option] if option.name == "jobs" => Some(Some(self.lower_expr(
+                option.value?,
+                slots,
+                current_function,
+                None,
+            )?)),
             _ => None,
         }
     }
@@ -11316,28 +11382,15 @@ impl CompactLowerConstructProbe<'_, '_> {
         };
         let mut body = Vec::with_capacity(prefix.len() + 1);
         for stmt in prefix {
-            let Some(lowered) =
-                self.lower_stmt_with_blocker_guard(*stmt, slots, current_function, Some(item_slot))
-            else {
+            let Some(lowered) = self.lower_stmt_with_blocker_guard(
+                *stmt,
+                slots,
+                current_function,
+                Some(item_slot),
+            ) else {
                 slots.exit(saved);
                 return None;
             };
-            let lowered_row = self.scratch.borrow().statements[lowered.index()].clone();
-            if !matches!(
-                lowered_row,
-                BuildStmtRow::Let { .. }
-                    | BuildStmtRow::LetInt { .. }
-                    | BuildStmtRow::LetBool { .. }
-                    | BuildStmtRow::Assign { .. }
-                    | BuildStmtRow::AssignInt { .. }
-                    | BuildStmtRow::AssignIndex { .. }
-                    | BuildStmtRow::AssignBool { .. }
-                    | BuildStmtRow::If { .. }
-                    | BuildStmtRow::IfBool { .. }
-            ) {
-                slots.exit(saved);
-                return None;
-            }
             body.push(lowered);
         }
         let result_slot = slots.reserve("pipeline.fold.result");
@@ -11517,6 +11570,7 @@ impl CompactLowerConstructProbe<'_, '_> {
         slots: &mut SlotScope,
         current_function: Option<Name>,
         op: ReduceByOp,
+        jobs: Option<BuildExprId>,
         item_ty: Option<&Type>,
     ) -> Option<LoweredPipelineStage> {
         // `reduce-by` takes no positional args; the block maps each item to a
@@ -11588,6 +11642,7 @@ impl CompactLowerConstructProbe<'_, '_> {
             body,
             value,
             op,
+            jobs,
         })
     }
 

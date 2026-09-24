@@ -14,6 +14,7 @@ use crate::syntax::parser::Parser;
 use crate::trace::{TraceEvent, TracebackRenderer};
 use std::fs;
 use std::path::PathBuf;
+use std::sync::Arc;
 #[cfg(test)]
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -291,12 +292,18 @@ fn prepare_entry_source(
         diagnostics: _,
     } = parsed;
     drop(cst);
+    let arena = Arc::new(arena);
 
     let entry_text = sources
         .get(source_id)
         .map(|source| source.text())
         .unwrap_or("");
-    let check = Checker::check_arena_with_options(&arena, entry_text, CheckOptions::default());
+    let check = Checker::check_arena_with_options_and_type_program(
+        &arena,
+        entry_text,
+        CheckOptions::default(),
+        Arc::clone(&arena),
+    );
     if check
         .diagnostics
         .iter()

@@ -57,8 +57,12 @@ export proc smoke(ctx: context.Context) [fs, process, error, io] -> Result[Unit]
   )?
 }
 
-## Computes one installed core command path from a source path below `core/`.
+## Commands install without `.xsh`; library modules keep it so `use lib.auth`
+## resolves beside packaged commands through the normal module loader.
 export pure core_install_path(relative_source: Path) -> Path {
+  if relative_source.display().starts_with("lib/") {
+    return fp"core/${relative_source.display()}"
+  }
   return fp"core/${relative_source.display().replace(".xsh", "")}"
 }
 
@@ -98,10 +102,11 @@ export proc package_core(ctx: context.Context, tag: Str) [fs, error] -> Result[U
 
   for relative in sources {
     let installed = core_install_path(relative)
+    let mode = if relative.display().starts_with("lib/") { 0o644 } else { 0o755 }
     fs.install(
       fp"${core}/${relative.display()}",
       fp"${stage}/${installed.display()}",
-      0o755,
+      mode,
       parents: true,
       overwrite: true,
     )?

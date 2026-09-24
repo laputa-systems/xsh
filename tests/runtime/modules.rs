@@ -1,6 +1,8 @@
 #![allow(clippy::single_call_fn)]
 
 use super::common::*;
+#[cfg(feature = "net")]
+use std::sync::atomic::AtomicBool;
 
 #[test]
 fn minimal_modules_execute_success_paths() {
@@ -248,7 +250,6 @@ print ${{aaaa[0].name}} ${{aaaa[0].record}} ${{aaaa[0].value}} ${{aaaa[0].ttl}}
 
 #[cfg(feature = "net")]
 #[test]
-#[ignore = "flaky on macOS: local net transfer can fail with SendRequest"]
 fn net_module_transfers_files_and_uses_named_pool() {
     let server = LocalHttpServer::spawn(10);
     let dest = temp_path("net-download.txt");
@@ -422,6 +423,9 @@ match responses[1] {{
 #[test]
 fn net_module_request_many_refills_the_window_on_first_completion() {
     let server = BatchBarrierServer::spawn();
+    // An accepted idle socket must not consume one of the three request slots.
+    let _idle = std::net::TcpStream::connect(server.url.strip_prefix("http://").unwrap())
+        .expect("open idle batch-barrier connection");
     let source = format!(
         r#"
 let responses = net.request_many({{
@@ -520,7 +524,6 @@ print ${{responses[0]?.bytes}} ${{responses[1]?.bytes}}
 
 #[cfg(feature = "net")]
 #[test]
-#[ignore = "quality-only network download flake; retain test body pending harness repair"]
 fn net_module_download_many_follows_redirects_and_keeps_atomic_destination_on_limit() {
     let server = LocalHttpServer::spawn(3);
     let redirected = temp_path("net-download-many-redirected.txt");
@@ -634,6 +637,9 @@ fn native_xsh_net_http_contracts() {
 #[test]
 fn native_xsh_net_job_progresses_while_synchronous_request_waits() {
     let server = ConcurrentProgressServer::spawn();
+    // The fixture waits for two parsed requests, even if another socket is idle.
+    let _idle = std::net::TcpStream::connect(server.url.strip_prefix("http://").unwrap())
+        .expect("open idle concurrent-progress connection");
     let output = run_native_xsh_test(
         "tests/xsh/stdlib/net.xsh::test_net_job_progresses_while_synchronous_request_waits",
         &[("XSH_NET_TEST_CONCURRENT_URL", &server.url)],
@@ -2682,11 +2688,15 @@ impl ConcurrentProgressServer {
         let (sync_started_tx, sync_started_rx) = crossbeam_channel::bounded(1);
         let (job_response_sent_tx, job_response_sent_rx) = crossbeam_channel::bounded(1);
         let handle = std::thread::spawn(move || {
-            let deadline = Instant::now() + Duration::from_secs(10);
+            let completed = Arc::new(AtomicUsize::new(0));
+            let done = Arc::new(AtomicBool::new(false));
+            let deadline = Instant::now() + Duration::from_secs(30);
             let mut workers = Vec::new();
-            while workers.len() < 2 && Instant::now() < deadline {
+            while completed.load(Ordering::SeqCst) < 2 && Instant::now() < deadline {
                 match listener.accept() {
                     Ok((stream, _)) => {
+                        let completed = Arc::clone(&completed);
+                        let done = Arc::clone(&done);
                         let job_started_tx = job_started_tx.clone();
                         let job_started_rx = job_started_rx.clone();
                         let sync_started_tx = sync_started_tx.clone();
@@ -2702,6 +2712,8 @@ impl ConcurrentProgressServer {
                                 sync_started_rx,
                                 job_response_sent_tx,
                                 job_response_sent_rx,
+                                completed,
+                                done,
                             );
                         }));
                     }
@@ -2711,14 +2723,15 @@ impl ConcurrentProgressServer {
                     Err(error) => panic!("accept concurrent-progress connection: {error}"),
                 }
             }
-            assert_eq!(
-                workers.len(),
-                2,
-                "concurrent-progress fixture did not receive both requests"
-            );
+            done.store(true, Ordering::SeqCst);
             for worker in workers {
                 worker.join().expect("concurrent-progress worker");
             }
+            assert_eq!(
+                completed.load(Ordering::SeqCst),
+                2,
+                "concurrent-progress fixture did not complete both requests"
+            );
         });
         Self {
             url: format!("http://{addr}"),
@@ -2740,18 +2753,19 @@ fn handle_concurrent_progress_connection(
     sync_started_rx: crossbeam_channel::Receiver<()>,
     job_response_sent_tx: crossbeam_channel::Sender<()>,
     job_response_sent_rx: crossbeam_channel::Receiver<()>,
+    completed: Arc<AtomicUsize>,
+    done: Arc<AtomicBool>,
 ) {
     stream
-        .set_read_timeout(Some(Duration::from_secs(10)))
+        .set_read_timeout(Some(Duration::from_secs(1)))
         .expect("set concurrent-progress read timeout");
     let reader_stream = stream
         .try_clone()
         .expect("clone concurrent-progress stream");
     let mut reader = BufReader::new(reader_stream);
-    let mut request_line = String::new();
-    reader
-        .read_line(&mut request_line)
-        .expect("read concurrent-progress request line");
+    let Some(request_line) = read_fixture_request_line(&mut reader, &done) else {
+        return;
+    };
     let path = request_line
         .split_whitespace()
         .nth(1)
@@ -2793,6 +2807,7 @@ fn handle_concurrent_progress_connection(
         }
         path => panic!("unexpected concurrent-progress path {path}"),
     }
+    completed.fetch_add(1, Ordering::SeqCst);
 }
 
 #[cfg(feature = "net")]
@@ -2826,15 +2841,25 @@ impl BatchBarrierServer {
         let (event_tx, events) = crossbeam_channel::unbounded();
         let (release_a_tx, release_a_rx) = crossbeam_channel::bounded(1);
         let handle = std::thread::spawn(move || {
-            let deadline = Instant::now() + Duration::from_secs(10);
+            let completed = Arc::new(AtomicUsize::new(0));
+            let done = Arc::new(AtomicBool::new(false));
+            let deadline = Instant::now() + Duration::from_secs(30);
             let mut workers = Vec::new();
-            while workers.len() < 3 && Instant::now() < deadline {
+            while completed.load(Ordering::SeqCst) < 3 && Instant::now() < deadline {
                 match listener.accept() {
                     Ok((stream, _)) => {
                         let event_tx = event_tx.clone();
                         let release_a_rx = release_a_rx.clone();
+                        let completed = Arc::clone(&completed);
+                        let done = Arc::clone(&done);
                         workers.push(std::thread::spawn(move || {
-                            handle_batch_barrier_connection(stream, event_tx, release_a_rx);
+                            handle_batch_barrier_connection(
+                                stream,
+                                event_tx,
+                                release_a_rx,
+                                completed,
+                                done,
+                            );
                         }));
                     }
                     Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
@@ -2843,14 +2868,15 @@ impl BatchBarrierServer {
                     Err(error) => panic!("accept batch barrier connection: {error}"),
                 }
             }
-            assert_eq!(
-                workers.len(),
-                3,
-                "batch barrier did not receive all connections"
-            );
+            done.store(true, Ordering::SeqCst);
             for worker in workers {
                 worker.join().expect("batch barrier worker");
             }
+            assert_eq!(
+                completed.load(Ordering::SeqCst),
+                3,
+                "batch barrier did not complete all requests"
+            );
         });
         Self {
             url: format!("http://{addr}"),
@@ -2874,16 +2900,17 @@ fn handle_batch_barrier_connection(
     mut stream: std::net::TcpStream,
     event_tx: crossbeam_channel::Sender<String>,
     release_a_rx: crossbeam_channel::Receiver<()>,
+    completed: Arc<AtomicUsize>,
+    done: Arc<AtomicBool>,
 ) {
     stream
-        .set_read_timeout(Some(Duration::from_secs(10)))
+        .set_read_timeout(Some(Duration::from_secs(1)))
         .expect("set batch barrier read timeout");
     let reader_stream = stream.try_clone().expect("clone batch barrier stream");
     let mut reader = BufReader::new(reader_stream);
-    let mut request_line = String::new();
-    reader
-        .read_line(&mut request_line)
-        .expect("read batch barrier request line");
+    let Some(request_line) = read_fixture_request_line(&mut reader, &done) else {
+        return;
+    };
     let path = request_line
         .split_whitespace()
         .nth(1)
@@ -2916,6 +2943,33 @@ fn handle_batch_barrier_connection(
         .write_all(response.as_bytes())
         .expect("write batch barrier response");
     stream.flush().expect("flush batch barrier response");
+    completed.fetch_add(1, Ordering::SeqCst);
+}
+
+/// An accepted idle socket is not an HTTP request or one of the fixture's slots.
+#[cfg(feature = "net")]
+fn read_fixture_request_line(
+    reader: &mut BufReader<std::net::TcpStream>,
+    done: &AtomicBool,
+) -> Option<String> {
+    let mut request_line = String::new();
+    loop {
+        match reader.read_line(&mut request_line) {
+            Ok(0) => return None,
+            Ok(_) => return Some(request_line),
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                ) =>
+            {
+                if done.load(Ordering::SeqCst) {
+                    return None;
+                }
+            }
+            Err(error) => panic!("read fixture HTTP request line: {error}"),
+        }
+    }
 }
 
 #[cfg(feature = "net")]

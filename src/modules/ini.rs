@@ -7,6 +7,66 @@ pub fn decode(text: &str, span: Span) -> Result<Value, RuntimeError> {
     parse_ini(text, span).map(|fields| Value::Record(record_from_ini(fields)))
 }
 
+// Collect before rendering to preserve the encoder's error order: section values,
+// global keys, then section names. Fold only section keys to ASCII lowercase;
+// the last key with a folded spelling wins.
+pub(crate) fn encode(value: &RecordMap, span: Span) -> Result<String, RuntimeError> {
+    let mut globals = BTreeMap::new();
+    let mut sections = BTreeMap::new();
+    for (name, value) in value {
+        match value {
+            Value::Str(text) => {
+                globals.insert(name.to_string(), text.to_string());
+            }
+            Value::Record(fields) => {
+                let mut section = BTreeMap::new();
+                for (key, value) in fields {
+                    let Value::Str(text) = value else {
+                        return Err(RuntimeError::new(
+                            "ini-encode",
+                            "INI section values must be strings",
+                        )
+                        .with_span(span));
+                    };
+                    let key = normalize_key(key);
+                    validate_key(&key, span)?;
+                    section.insert(key, text.to_string());
+                }
+                sections.insert(name.to_string(), section);
+            }
+            _ => {
+                return Err(RuntimeError::new(
+                    "ini-encode",
+                    "INI records may contain only global string keys or section records",
+                )
+                .with_span(span));
+            }
+        }
+    }
+
+    let mut output = String::new();
+    for (key, value) in globals {
+        validate_key(&key, span)?;
+        write_key_value(&mut output, &key, &value);
+    }
+    if !output.is_empty() && !sections.is_empty() {
+        output.push('\n');
+    }
+    for (section_index, (section, values)) in sections.into_iter().enumerate() {
+        if section_index > 0 {
+            output.push('\n');
+        }
+        validate_section(&section, span)?;
+        output.push('[');
+        output.push_str(&section);
+        output.push_str("]\n");
+        for (key, value) in values {
+            write_key_value(&mut output, &key, &value);
+        }
+    }
+    Ok(output)
+}
+
 type IniData = BTreeMap<String, IniValue>;
 
 #[derive(Debug, Eq, PartialEq)]
@@ -162,9 +222,8 @@ fn normalize_key(key: &str) -> String {
 
 /// Validate an INI key.
 ///
-/// Shared with the retained decoder, which rejects the same shapes while
-/// parsing; the encoder applies it through the embedded `ini` implementation,
-/// so this copy serves the decoder alone.
+/// The decoder and encoder reject the same spelling, including empty names and
+/// the four delimiter bytes.
 fn validate_key(key: &str, span: Span) -> Result<(), RuntimeError> {
     if key.is_empty()
         || key.contains('\0')
@@ -189,6 +248,19 @@ fn validate_section(section: &str, span: Span) -> Result<(), RuntimeError> {
         Err(RuntimeError::new("ini-section", "invalid INI section").with_span(span))
     } else {
         Ok(())
+    }
+}
+
+fn write_key_value(output: &mut String, key: &str, value: &str) {
+    let mut lines = value.split('\n');
+    output.push_str(key);
+    output.push_str(" = ");
+    output.push_str(lines.next().unwrap_or(""));
+    output.push('\n');
+    for line in lines {
+        output.push_str("  ");
+        output.push_str(line);
+        output.push('\n');
     }
 }
 

@@ -1,0 +1,893 @@
+{
+  "budget_formula": "cold: C - B <= max(0.05 * B, 1.0 ms); end_to_end: C - B <= max(0.10 * B, 2.0 ms)",
+  "candidate": "/Users/josh/d/laputa-systems/xsh/target/aarch64-unknown-linux-musl/release/xsh",
+  "candidate_sha256": "87f9cb40ff94139181937747d2726ca20c8752349e75bc8802968735bd5b98b1",
+  "failed": [
+    "linux_modules_partial"
+  ],
+  "fixtures": {
+    "fixtures/meminfo.txt": "795b8d6aca70fbac6abbed66c1b190224e32515d881eb739c6440c8b11bfed88",
+    "fixtures/modules-200.txt": "7e31c6370eb0d066ae73a2545091d82b5782a2fb68de26cd232afd6dd54352b5",
+    "fixtures/unicode.txt": "e79255e2291ef2494644e29bab78a32a0605e9cdfab8576b39d9d276a3d8e8c7",
+    "fixtures/uptime.txt": "d5cfd3950a2284e4fef929f228a9d83dec1c0a582803227f1fce3b8cfa77ade7"
+  },
+  "linux_container": {
+    "dockerfile_sha256": "a23747a6edbcd9fc717b1b50fd3ab8d877419719c57a8c2efda5003735d53d53",
+    "image": "xsh-test",
+    "image_id": "sha256:648c39bb31743a9f07a36e38f21dab5301155ec20a79e2d2a9c89cb5b2595948",
+    "platform": "linux/arm64",
+    "proc_meminfo_sha256": "795b8d6aca70fbac6abbed66c1b190224e32515d881eb739c6440c8b11bfed88",
+    "proc_modules_rows": 200,
+    "proc_modules_sha256": "7e31c6370eb0d066ae73a2545091d82b5782a2fb68de26cd232afd6dd54352b5",
+    "proc_uptime_sha256": "d5cfd3950a2284e4fef929f228a9d83dec1c0a582803227f1fce3b8cfa77ade7",
+    "target": "aarch64-unknown-linux-musl",
+    "target_policy_sha256": "ea57f687683902311fb2404a910db7eb401897ad86c865127e2261bcd010eb87"
+  },
+  "parity_failed": [],
+  "reference": "/tmp/xsh-b0/target/aarch64-unknown-linux-musl/release/xsh",
+  "reference_sha256": "bcb5222a0d9a42b011c058dda532c67e4d475f1645f10b25c4ad1d0b910e4d5f",
+  "rounds": 3,
+  "skip_reasons": {},
+  "skipped": [],
+  "units": "milliseconds, median of independent round medians of wall-clock samples",
+  "workload_order_by_round": [
+    [
+      "linux_modules_partial"
+    ],
+    [
+      "linux_modules_partial"
+    ],
+    [
+      "linux_modules_partial"
+    ]
+  ],
+  "workload_scripts": {
+    "linux_modules_partial": "c34aefc83b5772d2f079c62fec979b8a409912ac87135f0f4592bc27246a77fe"
+  },
+  "workloads": {
+    "linux_modules_partial": {
+      "budget_ms": 4.1259352,
+      "candidate_median_ms": 54.847117,
+      "candidate_round_mad_ms": 0.288809999999998,
+      "candidate_rounds": [
+        54.847117,
+        52.5113155,
+        55.135926999999995
+      ],
+      "candidate_samples": [
+        51.871111,
+        53.424228,
+        49.444707,
+        57.736414,
+        59.029741,
+        55.371885,
+        57.71004,
+        49.72983,
+        46.946761,
+        58.982158,
+        50.731283,
+        55.909465,
+        54.070474,
+        50.129119,
+        52.11236,
+        50.616909,
+        55.655717,
+        55.498592,
+        50.851157,
+        58.697409,
+        53.220437,
+        53.054438,
+        54.322349,
+        57.762997,
+        57.204792,
+        54.04585,
+        57.853039,
+        57.575082,
+        58.639493,
+        57.3175,
+        50.763991,
+        61.532437,
+        47.087885,
+        47.669507,
+        57.084751,
+        51.74382,
+        50.651909,
+        51.578779,
+        60.839106,
+        51.095448,
+        51.371988,
+        52.422232,
+        52.600399,
+        57.311875,
+        53.623018,
+        54.712221,
+        52.739189,
+        52.769939,
+        53.743309,
+        48.490919,
+        54.306724,
+        47.877381,
+        48.941875,
+        54.266598,
+        50.492201,
+        53.573352,
+        58.521744,
+        46.276056,
+        49.684372,
+        54.61593,
+        51.288905,
+        49.422123,
+        52.377358,
+        51.847152,
+        59.936236,
+        55.022053,
+        58.985075,
+        57.352083,
+        54.432389,
+        54.241724,
+        59.78807,
+        53.527519,
+        49.212416,
+        58.799534,
+        57.243583,
+        58.287911,
+        51.728028,
+        54.136641,
+        59.063657,
+        50.794908,
+        55.249801,
+        52.878355,
+        58.134078,
+        55.671675,
+        53.466103,
+        60.250234,
+        59.960444,
+        55.779674,
+        58.681534,
+        53.966766
+      ],
+      "delta_ms": 13.587764999999997,
+      "kind": "end_to_end",
+      "parity": {
+        "candidate": {
+          "normalized_stdout_base64": "bW9kdWxlc19wYXJ0aWFsIDxtcz4gYnl0ZXM9ODE5MjAwCg==",
+          "side_effects": {
+            "/etc/ssl/certs/ca-certificates.crt": {
+              "action": "C",
+              "fingerprint": "3684b62f8d882bebf6a45326b4aab95a052998d253c7e5fb636534d8c37fe75e"
+            },
+            "/etc/ssl/certs/orbstack-root.crt": {
+              "action": "A",
+              "fingerprint": "cad8f05151a0fe8e9f4506b6424e020d79b0e3d91900e05071a6fa47def68888"
+            },
+            "/usr/local/share/ca-certificates/orbstack-root.crt": {
+              "action": "A",
+              "fingerprint": "cad8f05151a0fe8e9f4506b6424e020d79b0e3d91900e05071a6fa47def68888"
+            }
+          },
+          "status": 0,
+          "stderr_base64": "",
+          "stdout_base64": "bW9kdWxlc19wYXJ0aWFsIDQ4IG1zIGJ5dGVzPTgxOTIwMAo="
+        },
+        "effect_scope": "container writable layer outside read-only worktree and executable mounts",
+        "expected_status": 0,
+        "matches": {
+          "side_effects": true,
+          "status": true,
+          "stderr": true,
+          "stdout": true
+        },
+        "passed": true,
+        "reference": {
+          "normalized_stdout_base64": "bW9kdWxlc19wYXJ0aWFsIDxtcz4gYnl0ZXM9ODE5MjAwCg==",
+          "side_effects": {
+            "/etc/ssl/certs/ca-certificates.crt": {
+              "action": "C",
+              "fingerprint": "3684b62f8d882bebf6a45326b4aab95a052998d253c7e5fb636534d8c37fe75e"
+            },
+            "/etc/ssl/certs/orbstack-root.crt": {
+              "action": "A",
+              "fingerprint": "cad8f05151a0fe8e9f4506b6424e020d79b0e3d91900e05071a6fa47def68888"
+            },
+            "/usr/local/share/ca-certificates/orbstack-root.crt": {
+              "action": "A",
+              "fingerprint": "cad8f05151a0fe8e9f4506b6424e020d79b0e3d91900e05071a6fa47def68888"
+            }
+          },
+          "status": 0,
+          "stderr_base64": "",
+          "stdout_base64": "bW9kdWxlc19wYXJ0aWFsIDQxIG1zIGJ5dGVzPTgxOTIwMAo="
+        }
+      },
+      "passed": false,
+      "performance_passed": false,
+      "reference_median_ms": 41.259352,
+      "reference_round_mad_ms": 0.18233200000000238,
+      "reference_rounds": [
+        42.5526585,
+        41.07702,
+        41.259352
+      ],
+      "reference_samples": [
+        39.299633,
+        44.758522,
+        37.37406,
+        44.861272,
+        36.101233,
+        43.017447,
+        43.004698,
+        40.787542,
+        41.808745,
+        36.833062,
+        34.49195,
+        44.923022,
+        42.453492,
+        42.651825,
+        42.431534,
+        41.728704,
+        44.691898,
+        36.408564,
+        45.220853,
+        46.974885,
+        41.432372,
+        41.878786,
+        44.884896,
+        36.462606,
+        38.791928,
+        68.893024,
+        43.032947,
+        45.534434,
+        44.775647,
+        43.850235,
+        36.850479,
+        48.53192,
+        40.622543,
+        41.880287,
+        43.006031,
+        35.66461,
+        49.67283,
+        40.244754,
+        43.213738,
+        37.721058,
+        51.184364,
+        36.846854,
+        49.642539,
+        40.250253,
+        40.927792,
+        41.226248,
+        37.96464,
+        37.570642,
+        35.718318,
+        43.430696,
+        36.142316,
+        41.315039,
+        37.160394,
+        40.361003,
+        42.141035,
+        49.453915,
+        42.466242,
+        40.287253,
+        43.532737,
+        44.248149,
+        44.151358,
+        40.895917,
+        39.277217,
+        36.856187,
+        40.868042,
+        40.681001,
+        45.15327,
+        41.309248,
+        41.933203,
+        37.036436,
+        44.39969,
+        44.219691,
+        39.717964,
+        44.158692,
+        41.615372,
+        35.913608,
+        42.098077,
+        40.886333,
+        42.333785,
+        38.90451,
+        35.680027,
+        40.695167,
+        47.578591,
+        44.387732,
+        41.209456,
+        36.648646,
+        45.479976,
+        44.121234,
+        40.651043,
+        43.536153
+      ],
+      "round_data": [
+        {
+          "candidate_median_ms": 54.847117,
+          "candidate_samples_ms": [
+            51.871111,
+            53.424228,
+            49.444707,
+            57.736414,
+            59.029741,
+            55.371885,
+            57.71004,
+            49.72983,
+            46.946761,
+            58.982158,
+            50.731283,
+            55.909465,
+            54.070474,
+            50.129119,
+            52.11236,
+            50.616909,
+            55.655717,
+            55.498592,
+            50.851157,
+            58.697409,
+            53.220437,
+            53.054438,
+            54.322349,
+            57.762997,
+            57.204792,
+            54.04585,
+            57.853039,
+            57.575082,
+            58.639493,
+            57.3175
+          ],
+          "index": 0,
+          "reference_median_ms": 42.5526585,
+          "reference_samples_ms": [
+            39.299633,
+            44.758522,
+            37.37406,
+            44.861272,
+            36.101233,
+            43.017447,
+            43.004698,
+            40.787542,
+            41.808745,
+            36.833062,
+            34.49195,
+            44.923022,
+            42.453492,
+            42.651825,
+            42.431534,
+            41.728704,
+            44.691898,
+            36.408564,
+            45.220853,
+            46.974885,
+            41.432372,
+            41.878786,
+            44.884896,
+            36.462606,
+            38.791928,
+            68.893024,
+            43.032947,
+            45.534434,
+            44.775647,
+            43.850235
+          ],
+          "sample_order": [
+            [
+              "reference",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "reference"
+            ],
+            [
+              "reference",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "reference"
+            ],
+            [
+              "reference",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "reference"
+            ],
+            [
+              "reference",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "reference"
+            ],
+            [
+              "reference",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "reference"
+            ],
+            [
+              "reference",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "reference"
+            ],
+            [
+              "reference",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "reference"
+            ],
+            [
+              "reference",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "reference"
+            ],
+            [
+              "reference",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "reference"
+            ],
+            [
+              "reference",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "reference"
+            ],
+            [
+              "reference",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "reference"
+            ],
+            [
+              "reference",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "reference"
+            ],
+            [
+              "reference",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "reference"
+            ],
+            [
+              "reference",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "reference"
+            ],
+            [
+              "reference",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "reference"
+            ]
+          ],
+          "warmup_order": [
+            "reference",
+            "candidate"
+          ]
+        },
+        {
+          "candidate_median_ms": 52.5113155,
+          "candidate_samples_ms": [
+            50.763991,
+            61.532437,
+            47.087885,
+            47.669507,
+            57.084751,
+            51.74382,
+            50.651909,
+            51.578779,
+            60.839106,
+            51.095448,
+            51.371988,
+            52.422232,
+            52.600399,
+            57.311875,
+            53.623018,
+            54.712221,
+            52.739189,
+            52.769939,
+            53.743309,
+            48.490919,
+            54.306724,
+            47.877381,
+            48.941875,
+            54.266598,
+            50.492201,
+            53.573352,
+            58.521744,
+            46.276056,
+            49.684372,
+            54.61593
+          ],
+          "index": 1,
+          "reference_median_ms": 41.07702,
+          "reference_samples_ms": [
+            36.850479,
+            48.53192,
+            40.622543,
+            41.880287,
+            43.006031,
+            35.66461,
+            49.67283,
+            40.244754,
+            43.213738,
+            37.721058,
+            51.184364,
+            36.846854,
+            49.642539,
+            40.250253,
+            40.927792,
+            41.226248,
+            37.96464,
+            37.570642,
+            35.718318,
+            43.430696,
+            36.142316,
+            41.315039,
+            37.160394,
+            40.361003,
+            42.141035,
+            49.453915,
+            42.466242,
+            40.287253,
+            43.532737,
+            44.248149
+          ],
+          "sample_order": [
+            [
+              "candidate",
+              "reference"
+            ],
+            [
+              "reference",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "reference"
+            ],
+            [
+              "reference",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "reference"
+            ],
+            [
+              "reference",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "reference"
+            ],
+            [
+              "reference",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "reference"
+            ],
+            [
+              "reference",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "reference"
+            ],
+            [
+              "reference",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "reference"
+            ],
+            [
+              "reference",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "reference"
+            ],
+            [
+              "reference",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "reference"
+            ],
+            [
+              "reference",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "reference"
+            ],
+            [
+              "reference",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "reference"
+            ],
+            [
+              "reference",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "reference"
+            ],
+            [
+              "reference",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "reference"
+            ],
+            [
+              "reference",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "reference"
+            ],
+            [
+              "reference",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "reference"
+            ],
+            [
+              "reference",
+              "candidate"
+            ]
+          ],
+          "warmup_order": [
+            "candidate",
+            "reference"
+          ]
+        },
+        {
+          "candidate_median_ms": 55.135926999999995,
+          "candidate_samples_ms": [
+            51.288905,
+            49.422123,
+            52.377358,
+            51.847152,
+            59.936236,
+            55.022053,
+            58.985075,
+            57.352083,
+            54.432389,
+            54.241724,
+            59.78807,
+            53.527519,
+            49.212416,
+            58.799534,
+            57.243583,
+            58.287911,
+            51.728028,
+            54.136641,
+            59.063657,
+            50.794908,
+            55.249801,
+            52.878355,
+            58.134078,
+            55.671675,
+            53.466103,
+            60.250234,
+            59.960444,
+            55.779674,
+            58.681534,
+            53.966766
+          ],
+          "index": 2,
+          "reference_median_ms": 41.259352,
+          "reference_samples_ms": [
+            44.151358,
+            40.895917,
+            39.277217,
+            36.856187,
+            40.868042,
+            40.681001,
+            45.15327,
+            41.309248,
+            41.933203,
+            37.036436,
+            44.39969,
+            44.219691,
+            39.717964,
+            44.158692,
+            41.615372,
+            35.913608,
+            42.098077,
+            40.886333,
+            42.333785,
+            38.90451,
+            35.680027,
+            40.695167,
+            47.578591,
+            44.387732,
+            41.209456,
+            36.648646,
+            45.479976,
+            44.121234,
+            40.651043,
+            43.536153
+          ],
+          "sample_order": [
+            [
+              "reference",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "reference"
+            ],
+            [
+              "reference",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "reference"
+            ],
+            [
+              "reference",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "reference"
+            ],
+            [
+              "reference",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "reference"
+            ],
+            [
+              "reference",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "reference"
+            ],
+            [
+              "reference",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "reference"
+            ],
+            [
+              "reference",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "reference"
+            ],
+            [
+              "reference",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "reference"
+            ],
+            [
+              "reference",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "reference"
+            ],
+            [
+              "reference",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "reference"
+            ],
+            [
+              "reference",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "reference"
+            ],
+            [
+              "reference",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "reference"
+            ],
+            [
+              "reference",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "reference"
+            ],
+            [
+              "reference",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "reference"
+            ],
+            [
+              "reference",
+              "candidate"
+            ],
+            [
+              "candidate",
+              "reference"
+            ]
+          ],
+          "warmup_order": [
+            "reference",
+            "candidate"
+          ]
+        }
+      ],
+      "samples_per_round": 30
+    }
+  }
+}

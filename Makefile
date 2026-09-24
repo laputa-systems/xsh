@@ -1,9 +1,10 @@
 # Compatibility facade for established local habits. Development policy lives in
 # `dev/main.xsh`; use `cargo dev help` for the complete interface and options.
-# A local development binary avoids Cargo startup after the first bootstrap.
+# Cargo rebuilds the launcher when sources change. Set XSH_DEV explicitly to
+# run a chosen prebuilt binary; an invalid override then fails visibly.
 
-XSH_DEV ?= target/debug/xsh
-DEV = $(if $(wildcard $(XSH_DEV)),$(XSH_DEV) dev/main.xsh --,cargo dev)
+XSH_DEV ?=
+DEV = $(if $(strip $(XSH_DEV)),$(XSH_DEV) dev/main.xsh --,cargo dev)
 
 export TARGET
 export DIST_PROFILE

@@ -7,7 +7,7 @@ proc main() [io, env, error, time] {
   var round = 0
   let start = time.now()
   while round < 200 {
-    let first = linux.modules()?.collect()[0]
+    let first = linux.modules()? |> first()?
     sink = sink + first.size
     round = round + 1
   }

@@ -41,6 +41,89 @@ pub(crate) fn split_text(text: &str, separator: &str, maxsplit: Option<i64>) -> 
         .collect()
 }
 
+pub(crate) fn fields_text(text: &str, delimiter: &str) -> Vec<Value> {
+    if delimiter.is_empty() {
+        text.split_whitespace()
+            .map(|field| Value::Str(field.into()))
+            .collect()
+    } else {
+        text.split(delimiter)
+            .filter(|field| !field.is_empty())
+            .map(|field| Value::Str(field.into()))
+            .collect()
+    }
+}
+
+pub(crate) fn wrap_text(text: &str, width: i64, span: Span) -> Result<Vec<Value>, RuntimeError> {
+    if width <= 0 {
+        return Err(RuntimeError::new("text-wrap", "width must be positive").with_span(span));
+    }
+    let width = width as usize;
+    let mut output = Vec::new();
+    for line in text.lines() {
+        wrap_line(line, width, &mut output);
+    }
+    if text.ends_with('\n') {
+        output.push(Value::Str("".into()));
+    }
+    Ok(output)
+}
+
+fn wrap_line(line: &str, width: usize, output: &mut Vec<Value>) {
+    let mut current = String::new();
+    let mut current_width = 0;
+    for word in line.split_whitespace() {
+        let mut start = 0;
+        let mut chunk_width = 0;
+        for (index, _) in word.char_indices() {
+            if chunk_width == width {
+                append_wrap_chunk(
+                    &word[start..index],
+                    chunk_width,
+                    width,
+                    &mut current,
+                    &mut current_width,
+                    output,
+                );
+                start = index;
+                chunk_width = 0;
+            }
+            chunk_width += 1;
+        }
+        append_wrap_chunk(
+            &word[start..],
+            chunk_width,
+            width,
+            &mut current,
+            &mut current_width,
+            output,
+        );
+    }
+    output.push(Value::Str(current.into()));
+}
+
+fn append_wrap_chunk(
+    chunk: &str,
+    chunk_width: usize,
+    width: usize,
+    current: &mut String,
+    current_width: &mut usize,
+    output: &mut Vec<Value>,
+) {
+    if current.is_empty() {
+        current.push_str(chunk);
+        *current_width = chunk_width;
+    } else if *current_width + 1 + chunk_width <= width {
+        current.push(' ');
+        current.push_str(chunk);
+        *current_width += 1 + chunk_width;
+    } else {
+        output.push(Value::Str(std::mem::take(current).into()));
+        current.push_str(chunk);
+        *current_width = chunk_width;
+    }
+}
+
 pub(crate) fn translate_text(text: &str, from: &str, to: &str) -> String {
     // ASCII fast path (e.g. case folding): scan the byte slices directly. Same
     // O(text * from) shape as the char fallback below, but with none of its two
@@ -224,7 +307,7 @@ mod tests {
     }
 
     #[test]
-    fn text_helpers_cover_script_methods() {
+    fn text_helpers_cover_native_methods() {
         crate::symbol::SymbolOwner::new().with_current(|| {
             assert_eq!(strings(split_text("ab", "", None)), ["a", "b"]);
             assert_eq!(strings(split_text("a,b", ",", None)), ["a", "b"]);

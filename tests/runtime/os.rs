@@ -30,6 +30,18 @@ fn trace_os_fixture(name: &str, args: &[&str]) -> std::process::Output {
     command.output().expect("trace OS fixture")
 }
 
+fn spawn_trace_os_fixture(name: &str, args: &[&str]) -> Child {
+    let mut command = Command::new(cargo_env!("CARGO_BIN_EXE_xsht"));
+    command
+        .args(["trace", "--raw", "--trace-format", "jsonl"])
+        .arg(os_fixture(name))
+        .arg("--")
+        .args(args)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    command.spawn().expect("spawn traced OS fixture")
+}
+
 fn spawn_os_fixture(name: &str, args: &[&str]) -> Child {
     let mut command = Command::new(cargo_env!("CARGO_BIN_EXE_xsh"));
     command
@@ -171,12 +183,22 @@ fn os_signal_hooks_run_from_loop_sleep_defer_and_wait_checkpoints() {
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 #[test]
-#[cfg_attr(
-    target_os = "macos",
-    ignore = "flaky on macOS: signal escalation timing is nondeterministic"
-)]
 fn os_first_signal_wins_and_different_signal_escalates_without_reentry() {
-    let output = trace_os_fixture("signal-first-wins-escalation.xsh", &[os_probe()]);
+    let ready = temp_path("os-first-signal-ready");
+    let hook_entered = temp_path("os-first-signal-hook-entered");
+    let _ = std::fs::remove_file(&ready);
+    let _ = std::fs::remove_file(&hook_entered);
+    let mut child = spawn_trace_os_fixture(
+        "signal-first-wins-escalation.xsh",
+        &[ready.to_str().unwrap(), hook_entered.to_str().unwrap()],
+    );
+    wait_for_path(&ready, Duration::from_secs(5), &mut child);
+    terminate_process(child.id(), libc::SIGUSR1);
+    wait_for_path(&hook_entered, Duration::from_secs(5), &mut child);
+    terminate_process(child.id(), libc::SIGUSR2);
+    let output = read_child_output(child, Duration::from_secs(5));
+    let _ = std::fs::remove_file(ready);
+    let _ = std::fs::remove_file(hook_entered);
 
     assert_eq!(
         output.status.code(),

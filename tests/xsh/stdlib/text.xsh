@@ -97,6 +97,14 @@ b""".wrap(5),
     ["\u{65e5}\u{672c}", "\u{8a9e}", "te", "st"],
   )?
   test.eq("\u{1f600}\u{1f600}\u{1f600}".wrap(2), ["\u{1f600}\u{1f600}", "\u{1f600}"])?
+  test.eq("\u{1f600}\u{1f600}".wrap(2), ["\u{1f600}\u{1f600}"])?
+}
+
+proc test_text_wrap_short_unicode_lines_keep_normalization_and_trailing_line() [error] {
+  test.eq(
+    "  caf\u{e9}  \u{65e5}\u{672c} \u{1f600}  \nshort\n".wrap(72),
+    ["caf\u{e9} \u{65e5}\u{672c} \u{1f600}", "short", ""],
+  )?
 }
 
 # Field selection is either the whitespace policy or one literal delimiter.
