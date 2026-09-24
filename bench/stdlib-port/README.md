@@ -10,7 +10,7 @@ medians of wall-clock samples.
 
 The original baseline is `37e1502ec928fb0bd1194f056e4f21c8e621d80b`
 (B0); the pre-follow-up port is `d0bbc6e74fa2d48e90e174bb6a5f0f4281c0bea2`
-(B1). The latest **complete** matched release runs are
+(B1). The original **complete** matched B0/B1 release runs are
 `results-paired-{b0,b1}.json` on macOS ARM64 and
 `results-paired-linux-{b0,b1}.json` in the pinned ARM64 musl image. They each
 contain three counterbalanced rounds, raw samples, binary and fixture hashes,
@@ -39,8 +39,8 @@ that stage. The later B03 native dispositions for padding and formatting are
 recorded below.
 `results-text-wrap-fastpath.json`, `results-text-pad-seed.json`, and
 `results-fmt-small-bytes.json` retain the raw samples, parity, hashes, and
-controls. This snapshot does not include a complete B0/B1/candidate rerun
-after these changes; B01 and B11 in the backlog own that gate.
+controls. The later B11 cumulative reports below are the complete candidate
+runs after the measured dispositions; B01 still owns the owner-run lint row.
 
 B03 isolated 2,000 calls of `time.duration_compact`, plain `tui.left_pad`, and
 ANSI `tui.left_pad` on macOS. Before the native disposition, their candidate
@@ -415,11 +415,18 @@ versus 25.11 ms, and 12.38 versus 12.39 ms respectively. An isolated repeat
 of `linux_modules_full` passed all three rounds after a six-row control run
 missed its median budget; the full cumulative Linux gate remains the judge.
 
-`results-b11-cumulative-macos.json` is the complete final macOS B0 run:
+`results-b11-cumulative-macos.json` is the complete macOS B0 run before the
+Linux reader cleanup:
 three paired rounds, all 24 applicable workloads within budget, exact status,
 output, and scoped-effect parity, and six declared Linux-only skips. The
 Unicode wrap row is 116.63 versus 166.48 ms; dynamic cold preparation is
-11.77 versus 11.17 ms. The matching Linux cumulative run remains open.
+11.77 versus 11.17 ms. `results-b11-cumulative-linux.json` is the matching
+three-round pinned Linux run after that cleanup: all 30 workloads pass their
+fixed B0 budgets with exact status, output, and scoped-effect parity. The
+restored `linux_meminfo`, `linux_memory`, and `linux_os_release` rows are 24.53
+versus 24.49 ms, 24.54 versus 23.97 ms, and 12.31 versus 12.25 ms. Full
+module consumption is 138.37 versus 127.99 ms, within its 12.80 ms allowance.
+The macOS gate is being repeated against the final binary.
 `results-text-pad-seed.json` does the same for `text_pad_batch`, with 30 samples
 per side per round and separate filler and ANSI allocation controls.
 `results-fmt-small-bytes.json` measures the under-1024 `bytes.human` path
