@@ -80,7 +80,6 @@ allocation/RSS evidence; no new execution engine is implied.
 The contract is `docs/SPEC-INTERACTIVE.md`; `docs/COVERAGE.md` identifies the
 stateful editor and completion harness as the central missing evidence.
 
-- **D09 · P1.** Make single-job background/stop/foreground transitions deterministic at the session state boundary, then retain PTY tests only for terminal process-group behavior.
 - **D10 · P2/M.** Re-measure the five complete `xshi` workloads in `docs/BENCHMARKING.md` after editor or completion changes; reject regressions in latency and allocation traffic.
 - **D11 · P2.** Audit `xshi` session startup and prompt submissions for embedded-stdlib preparation reuse, failed-input recovery, and program/symbol ownership (`crates/xshi/tests/stdlib_preparation.rs`).
 

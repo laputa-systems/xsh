@@ -593,64 +593,6 @@ fn xshi_pty_bracketed_paste_waits_for_enter_before_running_command() {
 }
 
 #[test]
-#[ignore = "requires a controlling PTY and predictable host scheduling for background reaping"]
-fn xshi_pty_background_job_reaps_before_later_prompt() {
-    let mut pty = spawn_xshi_pty();
-
-    let mut transcript = pty.read_until("$ ", PTY_TIMEOUT);
-    pty.write(b"/bin/sh -c \"sleep 0.1\" &\r");
-    let started = pty.read_until("[1] ", PTY_TIMEOUT);
-    let has_prompt = started.contains("$ ");
-    transcript.push_str(&started);
-    if !has_prompt {
-        transcript.push_str(&pty.read_until("$ ", PTY_TIMEOUT));
-    }
-    std::thread::sleep(Duration::from_millis(800));
-    pty.write(b"\r");
-    let completed = pty.read_until("xshi: completed:", PTY_TIMEOUT);
-    let has_prompt = completed.contains("$ ");
-    transcript.push_str(&completed);
-    if !has_prompt {
-        transcript.push_str(&pty.read_until("$ ", PTY_TIMEOUT));
-    }
-    pty.write(b"exit\r");
-    let output = pty.wait(PTY_TIMEOUT, &transcript);
-
-    assert!(output.status.success(), "{transcript}");
-    assert_eq!(String::from_utf8(output.stderr).unwrap(), "");
-}
-
-#[test]
-#[ignore = "requires a controlling PTY and predictable host scheduling for background reaping"]
-fn xshi_pty_rejects_second_background_job_until_first_reaps() {
-    let mut pty = spawn_xshi_pty();
-
-    let mut transcript = pty.read_until("$ ", Duration::from_secs(5));
-    pty.write(b"/bin/sh -c \"sleep 0.2\" &\r");
-    let started = pty.read_until("[1] ", Duration::from_secs(5));
-    let has_prompt = started.contains("$ ");
-    transcript.push_str(&started);
-    if !has_prompt {
-        transcript.push_str(&pty.read_until("$ ", Duration::from_secs(5)));
-    }
-    pty.write(b"/bin/sh -c \"sleep 5\" &\r");
-    let rejected = pty.read_until("background job already exists", Duration::from_secs(5));
-    let has_prompt = rejected.contains("! ");
-    transcript.push_str(&rejected);
-    if !has_prompt {
-        transcript.push_str(&pty.read_until("! ", Duration::from_secs(5)));
-    }
-    std::thread::sleep(Duration::from_millis(300));
-    pty.write(b"\r");
-    transcript.push_str(&pty.read_until("xshi: completed:", Duration::from_secs(5)));
-    pty.write(b"exit 0\r");
-    let output = pty.wait(Duration::from_secs(5), &transcript);
-
-    assert!(output.status.success(), "{transcript}");
-    assert_eq!(String::from_utf8(output.stderr).unwrap(), "");
-}
-
-#[test]
 #[ignore = "requires a controlling PTY with foreground process-group and signal support"]
 fn xshi_pty_background_job_can_fg_and_ctrl_c() {
     let mut pty = spawn_xshi_pty();
@@ -681,43 +623,6 @@ fn xshi_pty_background_job_can_fg_and_ctrl_c() {
     }
     pty.write(b"exit 0\r");
     let output = pty.wait(PTY_TIMEOUT, &transcript);
-
-    assert!(output.status.success(), "{transcript}");
-    assert_eq!(String::from_utf8(output.stderr).unwrap(), "");
-}
-
-#[test]
-#[ignore = "requires a controlling PTY with foreground process-group and signal support"]
-fn xshi_pty_rejects_unsupported_background_shapes() {
-    let mut pty = spawn_xshi_pty();
-
-    let mut transcript = pty.read_until("$ ", Duration::from_secs(5));
-    let cases = [
-        (
-            b"/bin/echo ok | /usr/bin/wc -c &\r".as_slice(),
-            "background pipelines are not supported",
-        ),
-        (
-            b"/bin/true && /bin/echo ok &\r".as_slice(),
-            "background jobs require one simple external command",
-        ),
-        (
-            b"cd /tmp &\r".as_slice(),
-            "session builtins cannot run in the background",
-        ),
-    ];
-
-    for (input, expected) in cases {
-        pty.write(input);
-        let rejected = pty.read_until(expected, Duration::from_secs(5));
-        let has_prompt = rejected.contains("! ");
-        transcript.push_str(&rejected);
-        if !has_prompt {
-            transcript.push_str(&pty.read_until("! ", Duration::from_secs(5)));
-        }
-    }
-    pty.write(b"exit 0\r");
-    let output = pty.wait(Duration::from_secs(5), &transcript);
 
     assert!(output.status.success(), "{transcript}");
     assert_eq!(String::from_utf8(output.stderr).unwrap(), "");

@@ -2150,10 +2150,11 @@ fn session_builtin_name(name: &str) -> Option<SessionBuiltin> {
 #[cfg(test)]
 mod tests {
     use super::{
-        ChainOp, CompletionAction, LineBuffer, ProcessStatus, Session, ShellParser,
+        ChainOp, CompletionAction, InteractiveJobState, LineBuffer, ProcessGroup, ProcessStatus,
+        Session, ShellParser,
         ShellRedirectionKind, ShellToken, ShellWord, ShellWordPart, complete_buffer, execute_line,
-        is_xsh_source, lex_shell, set_env_bytes, shell_status, validate_alias_source,
-        validate_assignment_prefix,
+        is_xsh_source, lex_shell, reap_interactive_job, set_env_bytes, shell_status,
+        validate_alias_source, validate_assignment_prefix,
     };
     use crate::xshi::interactive::denv::DenvState;
     use crate::xshi::interactive::history::History;
@@ -2161,6 +2162,40 @@ mod tests {
     use crate::xshi::interactive::shell::SimpleCommand;
     use std::fs;
     use std::os::unix::fs::PermissionsExt;
+    use std::time::{Duration, Instant};
+
+    struct JobCleanup(libc::pid_t);
+
+    impl Drop for JobCleanup {
+        fn drop(&mut self) {
+            if self.0 > 0 {
+                ProcessGroup::from_pgid(self.0).signal(libc::SIGKILL);
+            }
+        }
+    }
+
+    fn wait_for_job_state(session: &mut Session, expected: InteractiveJobState) -> Vec<u8> {
+        let deadline = Instant::now() + Duration::from_secs(3);
+        let mut stderr = Vec::new();
+        while session.job.as_ref().is_some_and(|job| job.state != expected) {
+            reap_interactive_job(session, &mut stderr);
+            assert!(Instant::now() < deadline, "job did not reach {expected:?}");
+            std::thread::yield_now();
+        }
+        assert!(session.job.is_some(), "job completed before {expected:?}");
+        stderr
+    }
+
+    fn wait_for_job_completion(session: &mut Session) -> Vec<u8> {
+        let deadline = Instant::now() + Duration::from_secs(3);
+        let mut stderr = Vec::new();
+        while session.job.is_some() {
+            reap_interactive_job(session, &mut stderr);
+            assert!(Instant::now() < deadline, "job did not complete");
+            std::thread::yield_now();
+        }
+        stderr
+    }
 
     fn shell_word(text: &str) -> ShellWord {
         ShellWord {
@@ -2542,6 +2577,72 @@ mod tests {
         assert_eq!(completion(&session), first_command);
         assert_eq!(execute_line(&mut session, "denv deny").status, 0);
         assert_eq!(completion(&session), second_command);
+    }
+
+    #[test]
+    fn single_background_job_rejects_second_slot_and_reaps_without_changing_prompt_status() {
+        let mut session = Session::new();
+        let started = execute_line(&mut session, "/bin/sleep 30 &");
+        assert_eq!(started.status, 0);
+        let pgid = session.job.as_ref().expect("background job slot").pgid;
+        let mut cleanup = JobCleanup(pgid);
+        assert_eq!(
+            session.job.as_ref().unwrap().state,
+            InteractiveJobState::RunningBackground
+        );
+
+        let second = execute_line(&mut session, "/bin/sleep 30 &");
+        assert_eq!(second.status, 1);
+        assert!(
+            String::from_utf8_lossy(&second.stderr).contains("background job already exists")
+        );
+        assert_eq!(session.job.as_ref().unwrap().pgid, pgid);
+
+        let already_running = execute_line(&mut session, "bg");
+        assert_eq!(already_running.status, 1);
+        assert!(String::from_utf8_lossy(&already_running.stderr).contains("job already running"));
+
+        session.last_status = 42;
+        ProcessGroup::from_pgid(pgid).signal(libc::SIGTERM);
+        let notice = wait_for_job_completion(&mut session);
+        cleanup.0 = 0;
+        assert!(String::from_utf8_lossy(&notice).contains("xshi: completed:"));
+        assert_eq!(session.last_status, 42);
+        assert_eq!(execute_line(&mut session, "bg").status, 1);
+        assert_eq!(execute_line(&mut session, "fg").status, 1);
+    }
+
+    #[test]
+    fn stopped_background_job_resumes_then_foregrounds_to_its_exit_status() {
+        let root = tempfile::tempdir().expect("temporary directory");
+        let command = root.path().join("stop-then-exit");
+        fs::write(&command, b"#!/bin/sh\nkill -STOP $$\nexit 7\n").expect("stopping command");
+        fs::set_permissions(&command, fs::Permissions::from_mode(0o755))
+            .expect("make stopping command executable");
+        let source = format!("{} &", command.display());
+        let mut session = Session::new();
+
+        assert_eq!(execute_line(&mut session, &source).status, 0);
+        let mut cleanup = JobCleanup(session.job.as_ref().unwrap().pgid);
+        let stopped = wait_for_job_state(&mut session, InteractiveJobState::Stopped);
+        assert!(String::from_utf8_lossy(&stopped).contains("xshi: stopped:"));
+        let resumed = execute_line(&mut session, "bg");
+        assert_eq!(resumed.status, 0);
+        assert_eq!(
+            session.job.as_ref().unwrap().state,
+            InteractiveJobState::RunningBackground
+        );
+        assert!(String::from_utf8_lossy(&resumed.stderr).contains("xshi: resumed:"));
+        wait_for_job_completion(&mut session);
+        cleanup.0 = 0;
+
+        assert_eq!(execute_line(&mut session, &source).status, 0);
+        let mut cleanup = JobCleanup(session.job.as_ref().unwrap().pgid);
+        wait_for_job_state(&mut session, InteractiveJobState::Stopped);
+        let foreground = execute_line(&mut session, "fg");
+        cleanup.0 = 0;
+        assert_eq!(foreground.status, 7);
+        assert!(session.job.is_none());
     }
 
     #[test]

@@ -63,9 +63,14 @@ narrow completion grids.
 The active `tests/runtime/interactive.rs` PTY gate covers prompt startup,
 terminal-mode restoration on exit, Ctrl-C, bracketed paste, and cooked-mode
 external-command handoff. The PTY helper forces `NO_COLOR` for stable prompt
-matching; the opt-in ANSI-color case removes it. The 20 retained opt-in cases
+matching; the opt-in ANSI-color case removes it. The 17 retained opt-in cases
 name their controlling-terminal, scheduling, color, or signal requirement at
 each `#[ignore]`.
+
+`app.rs::tests::single_background_job_rejects_second_slot_and_reaps_without_changing_prompt_status`
+and `stopped_background_job_resumes_then_foregrounds_to_its_exit_status`
+exercise the one-job state transitions without a PTY. The retained PTY job
+cases cover foreground process-group signals and Ctrl-Z handoff.
 
 ## Linux Boot, Mount, And Parity Surfaces
 
