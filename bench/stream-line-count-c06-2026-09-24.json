@@ -1,0 +1,100 @@
+{
+  "date": "2026-09-24",
+  "host": "macOS-26.5.2-arm64-arm-64bit-Mach-O",
+  "release_xsh_sha256": "08dd8f332db9b6c1126cb63157e0a234953677d8685cb5755dcd624ec02a00bc",
+  "workload": "showcase/loc.xsh -- src rs; 128 Rust files, 123720 lines",
+  "method": "20 alternating pairs using Python perf_counter_ns, separate processes, exact stdout/status parity; source and edge fixture checks; five alternating /usr/bin/time -l process RSS pairs",
+  "candidate_substitution": {
+    "from": "entry.path.read_text()?.count_lines()",
+    "to": "(entry.path.lines()? |> count())"
+  },
+  "wall_ms_raw": {
+    "whole_file": [
+      26.835,
+      23.592,
+      22.963,
+      23.931,
+      22.187,
+      23.517,
+      22.415,
+      30.068,
+      23.048,
+      21.861,
+      25.804,
+      25.194,
+      21.821,
+      21.857,
+      21.746,
+      21.843,
+      24.762,
+      22.803,
+      21.179,
+      22.21
+    ],
+    "stream_lines": [
+      71.787,
+      36.5,
+      35.759,
+      33.484,
+      33.307,
+      34.014,
+      32.77,
+      41.613,
+      36.514,
+      33.004,
+      35.532,
+      32.254,
+      33.028,
+      31.643,
+      32.448,
+      31.805,
+      32.95,
+      32.427,
+      31.295,
+      32.575
+    ]
+  },
+  "wall_ms_median": {
+    "whole_file": 22.883,
+    "stream_lines": 33.016
+  },
+  "source_stdout_sha256": "87b69774b775feae43cd4f488ffe1f24d4f4c04eef2e9deb1161ae88e7e1e783",
+  "edge_fixtures": "empty, CRLF, missing final newline, Unicode; exact status/stdout parity",
+  "late_invalid_utf8": {
+    "whole_file": {
+      "exit_status": 3,
+      "stdout_empty": true,
+      "error_kind_invalid_utf8": true,
+      "operation": "result.propagate",
+      "diagnostic_prefix": "runtime traceback"
+    },
+    "stream_lines": {
+      "exit_status": 3,
+      "stdout_empty": true,
+      "error_kind_invalid_utf8": true,
+      "operation": "runtime.error",
+      "diagnostic_prefix": "err[runtime.error]: stream did not contain valid UTF-8"
+    }
+  },
+  "decision": "reject: slower and diagnostic operation changes; no source edit",
+  "peak_rss_bytes_raw_5_paired": {
+    "whole_file": [
+      17432576,
+      17842176,
+      17661952,
+      18104320,
+      17465344
+    ],
+    "stream_lines": [
+      15859712,
+      15826944,
+      15876096,
+      15794176,
+      15843328
+    ]
+  },
+  "peak_rss_bytes_median": {
+    "whole_file": 17661952,
+    "stream_lines": 15843328
+  }
+}

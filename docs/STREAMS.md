@@ -204,6 +204,19 @@ still stages all input rows but avoids the mapped output list. Put `take` before
 `par-map` when the producer must stop early. The producer cleanup and pull
 counts are asserted by `tests/fixtures/runtime/worker-stage-producers.xsh`.
 
+`showcase/loc.xsh` is a whole-file scanner, but replacing
+`Path.read_text()?.count_lines()` with `Path.lines()? |> count()` did not help
+on `src` (128 Rust files, 123,720 lines). Twenty alternating macOS ARM64
+release pairs had 22.883 ms versus 33.016 ms median wall time. Empty, CRLF,
+unterminated, and Unicode files kept the same counts. A late invalid UTF-8 byte
+still failed with status 3 and no output, but changed the diagnostic operation
+from `result.propagate` to `runtime.error`. Keep the whole-file count for this
+workload; `bench/stream-line-count-c06-2026-09-24.json` holds raw samples and
+the exact candidate expression. The candidate did lower median peak RSS from
+17.7 MB to 15.8 MB in five paired runs. Revisit line-state scanning only for a
+measured large-file workload where bounded memory offsets per-line stream
+overhead and the error path can be preserved.
+
 ### Choosing a parallel strategy
 
 An adjacent `par-map |> reduce-by` folds mapped records on worker threads.

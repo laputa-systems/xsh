@@ -39,7 +39,7 @@ public APIs require a separate decision backed by repeated real use.
 
 1. **B01:** complete the paired `xsht` tooling evidence, then use the recorded
    B0 `xsh` failures to prioritize profiling on both supported hosts.
-2. **B08, C01–C04, C06–C09:** improve the measured hot paths and cold preparation in
+2. **B08, C01–C04, C06–C07, C09:** improve the measured hot paths and cold preparation in
    small batches, preserving the original B0 gates and native controls.
 3. **D01–D04, E01–E03, F01–F03:** make the interactive, tooling, and Linux test
    boundaries deterministic enough to support sustained work.
@@ -73,9 +73,8 @@ allocation/RSS evidence; no new execution engine is implied.
 - **C02 · P1/M.** Profile `fs.walk` record construction when `where` rejects most entries; test whether lazy fields save measurable work without changing metadata-error timing.
 - **C03 · P2/M.** Profile scope-key allocation and hashing in repeated bindings; compare a narrow key-reuse change with the wider `Arc<str>` ownership change before choosing either.
 - **C04 · P2/M.** Measure large flat directories before revisiting intra-directory work splitting; the earlier fused parallel walk lost on that shape (`docs/STREAMS.md`).
-- **C06 · P1/M.** Identify whole-buffer scanners that can use line-state APIs; convert one real large-file workload at a time and preserve malformed-late-row behavior.
+- **C06 · P1/M.** Identify whole-buffer scanners that can use line-state APIs; convert one real large-file workload at a time and preserve malformed-late-row behavior. The `showcase/loc.xsh` `Path.lines() |> count()` candidate lost to `read_text()?.count_lines()` on `src` (33.016 versus 22.883 ms median in 20 paired release runs), despite 1.8 MB lower median peak RSS, and changed the late invalid-UTF-8 diagnostic path, so it was rejected (`bench/stream-line-count-c06-2026-09-24.json`).
 - **C07 · P1.** Keep structural allocation tests for list/map accumulation and add alias-preservation cases when storage reuse changes; no mutation may leak to an older value.
-- **C08 · P1/M.** Pair `xsh-runtime-stats` worker traffic with host RSS on the same workload; thread-local allocation peaks alone cannot establish process memory improvement (`docs/FRONTEND.md`).
 - **C09 · P1/M.** Measure trace-disabled work separately from trace-enabled output on call-heavy scripts; an optimization must preserve error-stack reconstruction and visible trace events.
 - **C10 · P2/M.** Add a user-facing `xsh`/`xsht` frontend latency corpus only for workflows with repeated measured cost; `docs/BENCHMARKING.md` currently covers interactive `xshi` workloads.
 

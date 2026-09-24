@@ -245,6 +245,16 @@ bytes because values can cross worker boundaries. Worker peak totals are thread-
 allocation-pressure evidence, not process RSS or an exact concurrent-live total;
 pair them with a host RSS check before making a memory claim.
 
+The paired check in `bench/stream-worker-rss-c08-2026-09-24.json` runs the same
+50,000-row `bench/stream-producer-memory.xsh` reduction in fused and unfused
+modes. Seven alternating macOS ARM64 release pairs gave median product peak RSS
+of 18.1 MB fused versus 39.1 MB unfused. The corresponding instrumented worker
+allocation totals were 9.21 MB versus 11.20 MB; summed thread-local worker
+peaks were 11.7 KB versus 11.20 MB. The instrumented process itself peaked at
+19.0 MB versus 40.0 MB RSS. Output and status matched exactly. This supports a
+process-memory claim for that workload, while the worker counters alone do not
+measure concurrent live memory or predict RSS on another workload.
+
 The July 28, 2026 closeout corpus contained 287 files and 545,254 source bytes.
 Its retained/peak comparison against the pre-redesign baseline was:
 
