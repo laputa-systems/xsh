@@ -10872,20 +10872,16 @@ impl CompactLowerConstructProbe<'_, '_> {
                 Some(LoweredPipelineStage::UniqueBy { slot, key })
             }
             StreamStageKind::GroupBy => {
-                let jobs =
-                    self.lower_pipeline_stage_jobs_option(stage, slots, current_function)?;
                 if let Some((slot, key)) =
                     self.try_lower_pipeline_stage_shorthand(stage, slots, current_function, item_ty)
                 {
-                    return Some(LoweredPipelineStage::GroupBy { slot, key, jobs });
+                    return Some(LoweredPipelineStage::GroupBy { slot, key });
                 }
                 let (slot, key) =
                     self.lower_pipeline_stage_expr(stage, slots, current_function, item_ty)?;
-                Some(LoweredPipelineStage::GroupBy { slot, key, jobs })
+                Some(LoweredPipelineStage::GroupBy { slot, key })
             }
             StreamStageKind::Count => {
-                let jobs =
-                    self.lower_pipeline_stage_jobs_option(stage, slots, current_function)?;
                 if !stage.args.is_empty() {
                     if stage.block.is_some() {
                         return None;
@@ -10896,16 +10892,16 @@ impl CompactLowerConstructProbe<'_, '_> {
                         current_function,
                         item_ty,
                     ) {
-                        return Some(LoweredPipelineStage::CountBy { slot, key, jobs });
+                        return Some(LoweredPipelineStage::CountBy { slot, key });
                     }
                     return None;
                 }
                 if stage.block.is_none() {
-                    return Some(LoweredPipelineStage::Count { jobs });
+                    return Some(LoweredPipelineStage::Count);
                 }
                 let (slot, key) =
                     self.lower_pipeline_stage_expr(stage, slots, current_function, item_ty)?;
-                Some(LoweredPipelineStage::CountBy { slot, key, jobs })
+                Some(LoweredPipelineStage::CountBy { slot, key })
             }
             StreamStageKind::Where => {
                 if !stage.options.is_empty() {
@@ -11135,8 +11131,6 @@ impl CompactLowerConstructProbe<'_, '_> {
                 })
             }
             StreamStageKind::Each => {
-                let jobs =
-                    self.lower_pipeline_stage_jobs_option(stage, slots, current_function)?;
                 let block = stage.block?;
                 let (slot, cleanup) = self.lower_pipeline_stage_item_slot(stage, slots, item_ty)?;
                 let saved = slots.enter();
@@ -11147,7 +11141,6 @@ impl CompactLowerConstructProbe<'_, '_> {
                 Some(LoweredPipelineStage::Each {
                     slot,
                     body,
-                    jobs,
                 })
             }
             StreamStageKind::Tee => {
@@ -11245,24 +11238,6 @@ impl CompactLowerConstructProbe<'_, '_> {
                 )?)),
                 None => Some(Some(push_build_row!(self, expr, BuildExprRow::Bool(true)))),
             },
-            _ => None,
-        }
-    }
-
-    fn lower_pipeline_stage_jobs_option(
-        &mut self,
-        stage: &ArenaStreamStage,
-        slots: &mut SlotScope,
-        current_function: Option<Name>,
-    ) -> Option<Option<BuildExprId>> {
-        match self.program.arena.stream_options(stage.options) {
-            [] => Some(None),
-            [option] if option.name == "jobs" => Some(Some(self.lower_expr(
-                option.value?,
-                slots,
-                current_function,
-                None,
-            )?)),
             _ => None,
         }
     }

@@ -106,7 +106,7 @@ impl Checker {
             }
             StreamStageKind::Each => {
                 self.check_stage_no_args_arena(arena, stage);
-                self.check_stage_options_arena(arena, source, stage, &["jobs"]);
+                self.check_stage_options_arena(arena, source, stage, &[]);
                 let actual = self.check_required_stream_block_arena(arena, source, stage, &item_ty);
                 match actual {
                     Type::Unit => {}
@@ -299,7 +299,7 @@ impl Checker {
             }
             StreamStageKind::GroupBy => {
                 self.check_stage_no_args_arena(arena, stage);
-                self.check_stage_options_arena(arena, source, stage, &["jobs"]);
+                self.check_stage_options_arena(arena, source, stage, &[]);
                 let key_ty = result_ok_or_self(
                     &self.check_required_stream_block_arena(arena, source, stage, &item_ty),
                 );
@@ -393,7 +393,7 @@ impl Checker {
                 Type::Unknown
             }
             StreamStageKind::Count => {
-                self.check_stage_options_arena(arena, source, stage, &["jobs"]);
+                self.check_stage_options_arena(arena, source, stage, &[]);
                 if !stage.args.is_empty() {
                     self.error(stage_span, "count does not accept arguments", "check.arity");
                 }

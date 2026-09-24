@@ -116,11 +116,10 @@ keeps the ordinary reduction stage.
 
 ### Parallelism boundaries
 
-The indexed `group-by` and keyed `count { block }` handlers also run serially.
-Their accepted `--jobs` expressions run once and are validated, but do not start
-workers. On live input they evaluate each key before the next pull; `group-by`
-retains its grouped items, while keyed `count` retains one count per key. The
-stages below are serial as well:
+The indexed `group-by` and keyed `count { block }` handlers also run serially;
+they and plain `count` reject `--jobs`. On live input they evaluate each key
+before the next pull; `group-by` retains its grouped items, while keyed `count`
+retains one count per key. The stages below are serial as well:
 
 - **Order-sensitive** (`take`/`drop`/`first`/`last`/`enumerate`/`unique-by`/`zip`/
   `batch`) — splitting changes the result.
@@ -140,8 +139,7 @@ parallel traversal when pulled.
 - **`par-map`** (`--jobs=N` optional) materializes the lazy source, then maps
   items on bounded workers. It defaults to the available CPU count capped at
   `DEFAULT_PAR_MAP_WORKERS`; `--jobs=N` overrides that limit. Output retains
-  input order. `each` runs serially, including with its accepted `--jobs`
-  option; the option is evaluated and validated but starts no workers. Use
+  input order. `each` runs serially and rejects `--jobs`. Use
   `par-map` for heavy independent per-item work.
 - **Result handling.** `par-map` does not unwrap `Result` return values — the
   block's return type flows through unchanged. Use `?` inside the block for

@@ -1839,7 +1839,6 @@ enum LoweredPipelineStage {
     Each {
         slot: usize,
         body: Vec<BuildStmtId>,
-        jobs: Option<BuildExprId>,
     },
     TablePrint {
         columns: Option<Vec<String>>,
@@ -1859,12 +1858,10 @@ enum LoweredPipelineStage {
     GroupBy {
         slot: usize,
         key: BuildExprId,
-        jobs: Option<BuildExprId>,
     },
     CountBy {
         slot: usize,
         key: BuildExprId,
-        jobs: Option<BuildExprId>,
     },
     Any {
         slot: usize,
@@ -1888,9 +1885,7 @@ enum LoweredPipelineStage {
         slot: usize,
         key: BuildExprId,
     },
-    Count {
-        jobs: Option<BuildExprId>,
-    },
+    Count,
     Sum,
     Collect,
     First,

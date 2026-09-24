@@ -3115,13 +3115,7 @@ impl Evaluator {
                             let slot =
                                 indexed_decode::<usize>(&mut stage_payload, execution, span)?;
                             let key = indexed_raw(&mut stage_payload, span)?;
-                            let jobs = indexed_optional_raw(&mut stage_payload, span)?;
                             indexed_finish(stage_payload, span)?;
-                            if let ControlFlow::Break(value) =
-                                self.eval_indexed_jobs_option(execution, jobs, slots, span)?
-                            {
-                                return Ok(ControlFlow::Break(value));
-                            }
                             let projection =
                                 Self::indexed_field_projection(execution, key, slot, span)?;
                             let mut items = IndexedPipelineItems::new(self, current, span)?;
@@ -3193,13 +3187,7 @@ impl Evaluator {
                             let slot =
                                 indexed_decode::<usize>(&mut stage_payload, execution, span)?;
                             let key = indexed_raw(&mut stage_payload, span)?;
-                            let jobs = indexed_optional_raw(&mut stage_payload, span)?;
                             indexed_finish(stage_payload, span)?;
-                            if let ControlFlow::Break(value) =
-                                self.eval_indexed_jobs_option(execution, jobs, slots, span)?
-                            {
-                                return Ok(ControlFlow::Break(value));
-                            }
                             let mut items = IndexedPipelineItems::new(self, current, span)?;
                             let driven: Result<
                                 ControlFlow<LoweredValue, BTreeMap<String, LoweredValue>>,
@@ -4122,17 +4110,7 @@ impl Evaluator {
                             let slot =
                                 indexed_decode::<usize>(&mut stage_payload, execution, span)?;
                             let body = indexed_raw(&mut stage_payload, span)?;
-                            let jobs = if tag == FullStageTag::Each {
-                                indexed_optional_raw(&mut stage_payload, span)?
-                            } else {
-                                None
-                            };
                             indexed_finish(stage_payload, span)?;
-                            if let ControlFlow::Break(value) =
-                                self.eval_indexed_jobs_option(execution, jobs, slots, span)?
-                            {
-                                return Ok(ControlFlow::Break(value));
-                            }
                             let mut items = IndexedPipelineItems::new(self, current, span)?;
                             let tee = tag == FullStageTag::Tee;
                             let block_header = Self::indexed_block_header(slots.len());
@@ -4265,13 +4243,7 @@ impl Evaluator {
                             LoweredValue::Unit
                         }
                         FullStageTag::Count => {
-                            let jobs = indexed_optional_raw(&mut stage_payload, span)?;
                             indexed_finish(stage_payload, span)?;
-                            if let ControlFlow::Break(value) =
-                                self.eval_indexed_jobs_option(execution, jobs, slots, span)?
-                            {
-                                return Ok(ControlFlow::Break(value));
-                            }
                             if let LoweredValue::Stream(mut stream) = current {
                                 let mut count = stream.items.len() as i64;
                                 while self.stream_next(&mut stream, span)?.is_some() {

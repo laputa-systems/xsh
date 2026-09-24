@@ -430,7 +430,7 @@ fn stream_doc(stage: &str) -> ReferenceDoc {
             "Runs a side-effecting block for each stream item.",
             "The stage consumes the stream and yields Unit; bind its result when it ends a procedure. Block failures stop the stream explicitly.",
             &["stream", "effect", "terminal"],
-            "each(block, --jobs: Int = default) -> Unit",
+            "each(block) -> Unit",
         ),
         "batch" => (
             "Groups stream items into bounded lists.",
@@ -532,7 +532,7 @@ fn stream_doc(stage: &str) -> ReferenceDoc {
             "Groups stream items by a projected key.",
             "The terminal materializes groups and preserves each group's source order. Each emitted record has a `key` field holding the projected key and an `items` field holding the list of source items in that group; it is a record, not a Map.",
             &["stream", "terminal", "grouping"],
-            "group-by(block, --jobs: Int = default) -> Stream[{key, items: List[T]}]",
+            "group-by(block) -> Stream[{key, items: List[T]}]",
         ),
         "fold" => (
             "Reduces stream items with an explicit accumulator block.",

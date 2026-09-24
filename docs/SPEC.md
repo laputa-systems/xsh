@@ -2954,11 +2954,12 @@ continues.
 `fs.ls(...) |> table.print(...)` is the accepted standard listing interface.
 
 `par-map` defaults to a bounded worker count based on available CPUs. Use
-`--jobs=N` to override the worker count. `each` currently runs serially even
-when `--jobs=N` is supplied; it does not emit parallel-job trace events.
+`--jobs=N` to override the worker count. `each` runs serially and does not
+accept `--jobs`; it does not emit parallel-job trace events.
 Every accepted `--jobs` expression runs once before its stage consumes input,
 and its result must be positive. Explicit bounded parallel stage limits must be
-positive.
+positive. `group-by` and both forms of `count` also reject `--jobs` because
+their indexed handlers run serially.
 
 When a block uses `?` and an item fails, parallel stages stop scheduling
 new work (short-circuit). When a block returns `Result` values without `?`,

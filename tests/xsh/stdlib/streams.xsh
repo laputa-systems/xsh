@@ -809,14 +809,6 @@ proc jobs(label: Str) [io] -> Int {
 }
 
 proc main() [io, error] {
-  let grouped = [1, 2]
-    |> group-by --jobs=jobs("group") { |n| n % 2 }
-  print f"groups=${grouped.len()}"
-  let counted = [1, 2]
-    |> count --jobs=jobs("count") { |n| n % 2 }
-  print f"counts=${counted.keys().len()}"
-  let total_count = [1, 2] |> count --jobs=jobs("total-count")
-  print f"count=${total_count}"
   let reduced = [1, 2]
     |> reduce-by --sum --jobs=jobs("reduce") { |n| {key: "all", value: n} }
   print f"total=${reduced.get("all", 0)}"
@@ -824,16 +816,28 @@ proc main() [io, error] {
     |> par-map --jobs=2 { |n| n }
     |> reduce-by --sum --jobs=jobs("after-map") { |n| {key: "all", value: n} }
   print f"worker-total=${from_workers.get("all", 0)}"
-  [1, 2] |> each --jobs=jobs("each") { |n| let _ = n }
   print "done"
 }
 """,
   )?
   test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "group\ngroups=2\ncount\ncounts=2\ntotal-count\ncount=2\nreduce\ntotal=3\nafter-map\nworker-total=3\neach\ndone\n")?
+  test.eq(output.stdout, "reduce\ntotal=3\nafter-map\nworker-total=3\ndone\n")?
 }
 
-proc test_jobs_option_rejects_dynamic_zero_before_pulling_source(ctx: TestContext) [fs, error] {
+proc test_serial_stages_reject_jobs_option(ctx: TestContext) [error] {
+  for script in [
+    "proc main() [io] { [1] |> each --jobs=2 { |n| print $n } }",
+    "proc main() [] { let _ = [1] |> group-by --jobs=2 { |n| n } }",
+    "proc main() [] { let _ = [1] |> count --jobs=2 { |n| n } }",
+    "proc main() [] { let _ = [1] |> count --jobs=2 }",
+  ] {
+    let output = test.run_script(ctx, script)?
+    test.ok(!output.success, script)?
+    test.contains(output.stderr, "check.stream-stage-option", output.stderr)?
+  }
+}
+
+proc test_reduce_by_jobs_rejects_dynamic_zero_before_pulling_source(ctx: TestContext) [fs, error] {
   let evaluated = test.temp_path(ctx, name: "jobs-evaluated")
   let pulled = test.temp_path(ctx, name: "jobs-source-pulled")
   let output = test.run_script(
@@ -850,9 +854,9 @@ stream numbers(pulled: Path) [fs, error] -> Stream[Int] {
 }
 
 proc main() [fs, error] {
-  let count = numbers(Path("${pulled.display()}"))
-    |> count --jobs=zero_jobs(Path("${evaluated.display()}"))
-  print \${count}
+  let totals = numbers(Path("${pulled.display()}"))
+    |> reduce-by --sum --jobs=zero_jobs(Path("${evaluated.display()}")) { |n| {key: "all", value: n} }
+  print \${totals.get("all", 0)}
 }
 """,
   )?
@@ -1613,11 +1617,11 @@ first=1
   )?
 }
 
-proc test_count_and_group_by_jobs_hint_preserves_results() [error] {
+proc test_count_and_group_by_preserve_large_group_counts_and_order() [error] {
   # group-by must preserve encounter order within each group.
   let nums = [0] |> range(0, 20000)
 
-  let cpar = nums
+  let counts = nums
     |> count {
       if . % 2 == 0 {
         "even"
@@ -1626,16 +1630,7 @@ proc test_count_and_group_by_jobs_hint_preserves_results() [error] {
       }
     }
 
-  let cser = nums
-    |> count --jobs=1 {
-      if . % 2 == 0 {
-        "even"
-      } else {
-        "odd"
-      }
-    }
-
-  let gpar = nums
+  let groups = nums
     |> group-by { |n|
       n % 3
     }
@@ -1646,22 +1641,17 @@ proc test_count_and_group_by_jobs_hint_preserves_results() [error] {
       g.items
     }
 
-  let gser = nums
-    |> group-by --jobs=1 { |n|
-      n % 3
-    }
-    |> sort-by { |g|
-      g.key
-    }
-    |> map { |g|
-      g.items
-    }
-
-  test.eq(cpar.get("even", 0), cser.get("even", 0))?
-  test.eq(cpar.get("odd", 0), cser.get("odd", 0))?
-  test.eq(cpar.get("even", 0), 10000)?
-  test.eq(gpar, gser)?
-  test.eq(gpar.len(), 3)?
+  test.eq(counts.get("even", 0), 10000)?
+  test.eq(counts.get("odd", 0), 10000)?
+  test.eq(groups.len(), 3)?
+  test.eq(groups[0].len(), 6667)?
+  test.eq(groups[0][0], 0)?
+  test.eq(groups[0][1], 3)?
+  test.eq(groups[0][6666], 19998)?
+  test.eq(groups[1].len(), 6667)?
+  test.eq(groups[1][6666], 19999)?
+  test.eq(groups[2].len(), 6666)?
+  test.eq(groups[2][6665], 19997)?
 }
 
 proc test_stream_adapters_bridge_text_bytes_and_json_lines() [process, error] {
@@ -2105,19 +2095,19 @@ proc test_parallel_stream_stages_are_bounded_and_deterministic() [error] {
   var seen: List[Str] = []
 
   ["a", "b"]
-    |> each --jobs=2 { |x|
+    |> each { |x|
       seen = seen.push(x)
     }
 
   test.eq(seen, ["a", "b"])?
 }
 
-proc test_each_jobs_trace_reports_serial_execution(ctx: TestContext) [error] {
+proc test_each_trace_reports_serial_execution(ctx: TestContext) [error] {
   let trace = test.run_xsht_trace(
     ctx,
     r"""
 proc main() [io] {
-  [1, 2] |> each --jobs=2 { |n| print f"item=${n}" }
+  [1, 2] |> each { |n| print f"item=${n}" }
 }
 """,
     ["--trace", "--raw"],

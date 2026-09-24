@@ -8,7 +8,7 @@ proc main(root: Path = p".", ...exts: List[Str]) [fs, error] {
 
   # Stream into a per-extension {files, lines} accumulator instead of buffering
   # every file with `group-by`: O(distinct extensions) live, and the per-file
-  # read+count fans out across cores (associative fold, parallel by default).
+  # read+count runs in source order; reduce-by folds one item at a time.
   let totals = fs.files(root)
     |> where { |entry|
       exts.len() == 0 or set.has(ext_set, entry.path.ext())

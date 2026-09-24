@@ -6345,15 +6345,12 @@ impl_stage_codec! {
     LoweredPipelineStage::Each {
         slot,
         body,
-        jobs,
     } => Each {
         slot: usize,
         body: Vec<BuildStmtId>,
-        jobs: Option<BuildExprId>,
     } => LoweredPipelineStage::Each {
         slot,
         body,
-        jobs,
     },
     LoweredPipelineStage::TablePrint { columns } => TablePrint {
         columns: Option<Vec<String>>,
@@ -6378,16 +6375,14 @@ impl_stage_codec! {
         key,
         descending,
     },
-    LoweredPipelineStage::GroupBy { slot, key, jobs } => GroupBy {
+    LoweredPipelineStage::GroupBy { slot, key } => GroupBy {
         slot: usize,
         key: BuildExprId,
-        jobs: Option<BuildExprId>,
-    } => LoweredPipelineStage::GroupBy { slot, key, jobs },
-    LoweredPipelineStage::CountBy { slot, key, jobs } => CountBy {
+    } => LoweredPipelineStage::GroupBy { slot, key },
+    LoweredPipelineStage::CountBy { slot, key } => CountBy {
         slot: usize,
         key: BuildExprId,
-        jobs: Option<BuildExprId>,
-    } => LoweredPipelineStage::CountBy { slot, key, jobs },
+    } => LoweredPipelineStage::CountBy { slot, key },
     LoweredPipelineStage::Any { slot, predicate } => Any {
         slot: usize,
         predicate: BuildExprId,
@@ -6410,9 +6405,7 @@ impl_stage_codec! {
         slot: usize,
         key: BuildExprId,
     } => LoweredPipelineStage::UniqueBy { slot, key },
-    LoweredPipelineStage::Count { jobs } => Count {
-        jobs: Option<BuildExprId>,
-    } => LoweredPipelineStage::Count { jobs },
+    LoweredPipelineStage::Count => Count {} => LoweredPipelineStage::Count,
     LoweredPipelineStage::Sum => Sum {} => LoweredPipelineStage::Sum,
     LoweredPipelineStage::Collect => Collect {} => LoweredPipelineStage::Collect,
     LoweredPipelineStage::First => First {} => LoweredPipelineStage::First,
