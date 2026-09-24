@@ -1406,6 +1406,7 @@ mod tests {
     use crate::xshi::interactive::history::History;
     use crate::xshi::interactive::session::Session;
     use std::collections::{BTreeMap, VecDeque};
+    use std::fs;
 
     enum ScriptedInputEvent {
         Byte(u8),
@@ -1558,6 +1559,69 @@ mod tests {
 
         let (cancelled, _) = edit_with_keys(&mut session, b"cat alp\t\t\x03\r", 80);
         assert_eq!(cancelled, "cat alp");
+    }
+
+    #[test]
+    fn scripted_path_completion_preserves_quotes_and_home_prefix() {
+        let root = tempfile::tempdir().expect("temporary directory");
+        fs::write(root.path().join("my file.txt"), b"").expect("file fixture");
+        let home = root.path().join("home");
+        fs::create_dir(&home).expect("home fixture");
+        fs::create_dir(home.join("space dir")).expect("home directory fixture");
+        fs::create_dir(home.join("projects")).expect("home directory fixture");
+        let mut session = Session::new();
+        session.history = History::from_entries(Vec::new());
+        session.cwd = root.path().to_path_buf();
+        session.home = Some(home);
+        session.invalidate_cwd_snapshot();
+
+        let (quoted, _) = edit_with_keys(&mut session, b"cat 'my f\t\r", 80);
+        assert_eq!(quoted, "cat 'my file.txt'");
+
+        let (home_path, _) = edit_with_keys(&mut session, b"cd ~/'space d\t\r", 80);
+        assert_eq!(home_path, "cd ~/'space dir/'");
+
+        let (plain_home_path, _) = edit_with_keys(&mut session, b"cd ~/pro\t\r", 80);
+        assert_eq!(plain_home_path, "cd ~/projects/");
+    }
+
+    #[test]
+    fn scripted_path_completion_hides_dotfiles_and_limits_cd_and_z_to_directories() {
+        let root = tempfile::tempdir().expect("temporary directory");
+        fs::write(root.path().join(".secret"), b"").expect("hidden fixture");
+        fs::write(root.path().join("secret.txt"), b"").expect("visible fixture");
+        fs::write(root.path().join("docs.txt"), b"").expect("file fixture");
+        fs::create_dir(root.path().join("docs")).expect("directory fixture");
+        let mut session = Session::new();
+        session.history = History::from_entries(Vec::new());
+        session.cwd = root.path().to_path_buf();
+        session.invalidate_cwd_snapshot();
+
+        let (visible, _) = edit_with_keys(&mut session, b"cat sec\t\r", 80);
+        assert_eq!(visible, "cat secret.txt");
+        let (hidden, _) = edit_with_keys(&mut session, b"cat .sec\t\r", 80);
+        assert_eq!(hidden, "cat .secret");
+
+        for command in ["cd do\t\r", "z do\t\r"] {
+            let (line, _) = edit_with_keys(&mut session, command.as_bytes(), 80);
+            assert_eq!(line, format!("{} docs/", command.split_whitespace().next().unwrap()));
+        }
+    }
+
+    #[test]
+    fn scripted_path_completion_uses_substrings_only_without_prefix_matches() {
+        let root = tempfile::tempdir().expect("temporary directory");
+        fs::write(root.path().join("prelude.txt"), b"").expect("prefix fixture");
+        fs::write(root.path().join("xxprelude.txt"), b"").expect("substring fixture");
+        let mut session = Session::new();
+        session.history = History::from_entries(Vec::new());
+        session.cwd = root.path().to_path_buf();
+        session.invalidate_cwd_snapshot();
+
+        let (prefix, _) = edit_with_keys(&mut session, b"cat pre\t\r", 80);
+        assert_eq!(prefix, "cat prelude.txt");
+        let (fallback, _) = edit_with_keys(&mut session, b"cat xpre\t\r", 80);
+        assert_eq!(fallback, "cat xxprelude.txt");
     }
 
     #[test]

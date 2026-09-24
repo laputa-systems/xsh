@@ -298,11 +298,11 @@ pub(super) fn start_completion(
     let (word_start, in_single) = find_comp_word_start(before_cursor);
     let existing = existing_cmd_args(before_cursor, word_start);
     let raw_word = &before_cursor[word_start..];
-    let (partial, in_quote): (String, bool) = if in_single {
-        (raw_word.strip_prefix('\'').unwrap_or(raw_word).into(), true)
-    } else if let Some(rest) = raw_word.strip_prefix("~/'") {
+    let (partial, in_quote): (String, bool) = if let Some(rest) = raw_word.strip_prefix("~/'") {
         let unquoted = rest.strip_suffix('\'').unwrap_or(rest);
         (format!("~/{unquoted}"), true)
+    } else if in_single {
+        (raw_word.strip_prefix('\'').unwrap_or(raw_word).into(), true)
     } else if let Some(inner) = raw_word.strip_prefix('\'') {
         (inner.strip_suffix('\'').unwrap_or(inner).into(), true)
     } else {

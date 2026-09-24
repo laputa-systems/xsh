@@ -38,12 +38,13 @@ bytes and a fixed terminal size through the real editor loop, capturing the
 rendered output without a PTY or timing sleeps. Its cases cover cursor edits,
 ambiguous completion opening, arrow and Tab navigation, preview, acceptance,
 Escape/Ctrl-C cancellation, filtering, and grid clearing when edits remove all
-matches. History search remains the main untested editor state.
+matches. Deterministic directory cases cover quoted paths, `~/` insertion,
+hidden paths, directory-only `cd`/`z`, and prefix-before-substring fallback.
+History search remains the main untested editor state.
 
 Useful next work:
 
-- Cover quoted paths, home expansion, command-position completion,
-  directory-only completion, and remote path fallbacks.
+- Cover command-position completion and remote path fallbacks.
 - Cover history search and autosuggestion transitions as state machines:
   entering search, moving through matches, accepting, cancelling, and restoring
   the original buffer.
