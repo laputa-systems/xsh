@@ -220,6 +220,11 @@ search roots, and dynamic modules cannot name them. Their helpers are excluded
 from the unqualified declaration tables, from the global top-level name set, and
 from user-module collection. `xsh::frontend::stdlib_preparation` exposes
 test-only preparation counters behind the existing `native-tests` feature.
+`src/stdlib.rs::every_catalog_module_parses_checks_and_lowers` validates every
+bundled implementation, including modules unused on the current target. The
+`xsht check` CLI tests assert that user-module parse and call-lowering failures
+retain user source locations and do not present internal namespaces as callable
+names.
 
 The private `BridgeTypeName` operation remains restricted by verifier
 provenance and belongs to JSON Lines. The CLI policy returned to
@@ -246,6 +251,11 @@ The executable frontend has stable owners rather than a migration path:
 - `src/runtime/eval.rs` owns installation, dynamic-function registration, slot
   pooling, and evaluator/session lifetime. It never owns a second executable
   representation.
+
+`IrBuildError::span` retains the source ID with its byte range. Imported user
+modules and embedded modules share one arena, so `Evaluator` must render a build
+failure against the span's source rather than reconstructing it in the entry
+file.
 
 `FunctionHeader`, `StmtFlow`, `BuildScratch`, and the other final runtime types
 describe their role without migration-version names. A clean construction gap

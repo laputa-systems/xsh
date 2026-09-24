@@ -117,7 +117,8 @@ impl IrLocation {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct IrBuildError {
     pub construct: &'static str,
-    pub location: Option<IrLocation>,
+    /// Keep the source ID: modules in one build have independent byte offsets.
+    pub span: Option<Span>,
     pub attempted_instructions: usize,
     pub committed_instructions: usize,
 }
@@ -131,7 +132,7 @@ impl IrBuildError {
     ) -> Self {
         Self {
             construct,
-            location: span.and_then(|span| IrLocation::from_span(span).ok()),
+            span,
             attempted_instructions,
             committed_instructions,
         }

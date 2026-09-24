@@ -3582,12 +3582,12 @@ impl Evaluator {
             crate::runtime::eval::lower::StdlibLowerLinkage::Local,
         )
         .map(|_| ())
-        .map_err(|error| match error.location {
-            Some(location) => format!(
+        .map_err(|error| match error.span {
+            Some(span) => format!(
                 "{} at bytes {}..{}",
                 error.construct,
-                location.start,
-                location.start.saturating_add(location.len)
+                span.start(),
+                span.end()
             ),
             None => error.construct.to_string(),
         })
@@ -3764,16 +3764,7 @@ impl Evaluator {
             crate::runtime::eval::lower::StdlibLowerLinkage::Local,
         )
         .map_err(|error| {
-            let span = error
-                .location
-                .map(|location| {
-                    Span::new(
-                        source_id,
-                        location.start as usize,
-                        location.start.saturating_add(location.len) as usize,
-                    )
-                })
-                .unwrap_or_else(zero_span);
+            let span = error.span.unwrap_or_else(zero_span);
             compact_lowerability_diagnostic(
                 span,
                 &format!("indexed IR could not encode `{}`", error.construct),

@@ -576,6 +576,83 @@ proc main(...argv: List[Str]) [error] -> Result[Unit] {
     );
 }
 
+// These CLI tests assert rendered source locations across files; a native XSH
+// test cannot inspect a failing `xsht check` process's diagnostics.
+#[test]
+fn check_attributes_imported_parse_error_to_its_source() {
+    let root = TempDir::new().expect("create temp root");
+    fs::write(
+        root.path().join("main.xsh"),
+        "use helper as h\nprint tui.red()\n",
+    )
+    .expect("write main script");
+    fs::write(
+        root.path().join("helper.xsh"),
+        "##! Helper.\nexport let value =\n",
+    )
+    .expect("write imported module");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+        .args(["check", "main.xsh"])
+        .current_dir(root.path())
+        .output()
+        .expect("run xsht check");
+
+    assert_eq!(output.status.code(), Some(2));
+    let stderr = String::from_utf8(output.stderr).expect("UTF-8 diagnostic");
+    assert!(stderr.contains("main.xsh:1:1"), "{stderr}");
+    assert!(stderr.contains("helper.xsh:2:19"), "{stderr}");
+    assert!(stderr.contains("parse.expected-expression"), "{stderr}");
+    assert!(!stderr.contains("<xsh-stdlib:"), "{stderr}");
+}
+
+#[test]
+fn check_attributes_lowering_blocker_to_imported_source_with_embedded_module_loaded() {
+    let root = TempDir::new().expect("create temp root");
+    fs::write(
+        root.path().join("main.xsh"),
+        "use helper as h\nprint tui.red()\nlet value = h.scan()\n",
+    )
+    .expect("write main script");
+    fs::write(
+        root.path().join("helper.xsh"),
+        "##! Helper.\n## Returns a value.\nexport pure scan(x: Int = 1 + 1) -> Int {\n  return x\n}\n",
+    )
+    .expect("write imported module");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+        .args(["check", "main.xsh"])
+        .current_dir(root.path())
+        .output()
+        .expect("run xsht check");
+
+    assert_eq!(output.status.code(), Some(2));
+    let stderr = String::from_utf8(output.stderr).expect("UTF-8 diagnostic");
+    assert!(stderr.contains("compact.indexed-build"), "{stderr}");
+    assert!(stderr.contains("helper.xsh:3:27"), "{stderr}");
+    assert!(!stderr.contains("<xsh-stdlib:"), "{stderr}");
+}
+
+#[test]
+fn check_reports_public_standard_call_name_at_user_source() {
+    let root = TempDir::new().expect("create temp root");
+    fs::write(root.path().join("main.xsh"), "print tui.red(1)\n")
+        .expect("write main script");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+        .args(["check", "main.xsh"])
+        .current_dir(root.path())
+        .output()
+        .expect("run xsht check");
+
+    assert_eq!(output.status.code(), Some(2));
+    let stderr = String::from_utf8(output.stderr).expect("UTF-8 diagnostic");
+    assert!(stderr.contains("check.arity"), "{stderr}");
+    assert!(stderr.contains("main.xsh:1:7"), "{stderr}");
+    assert!(stderr.contains("tui.red(1)"), "{stderr}");
+    assert!(!stderr.contains("<xsh-stdlib:"), "{stderr}");
+}
+
 #[test]
 fn check_explicit_directory_uses_directory_config() {
     let root = TempDir::new().expect("create temp root");
