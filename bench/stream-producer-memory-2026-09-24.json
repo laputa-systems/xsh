@@ -1,0 +1,49 @@
+{
+  "script": "bench/stream-producer-memory.xsh",
+  "binary_profile": "debug",
+  "method": "One mode per process. Each result is one maximum resident set size sample from /usr/bin/time, with the expected stdout checked. The producer increments an Int in a while loop, so it does not allocate an input range list.",
+  "modes": {
+    "first": "first() directly consumes one producer row",
+    "take-first": "take(1) bounds the producer before par-map",
+    "par-first": "first() follows par-map and cannot stop its source staging",
+    "count": "count() streams all producer rows without retaining them",
+    "fused": "par-map followed by worker-local reduce-by",
+    "unfused": "explicit reduce-by --jobs=8 keeps the intermediate par-map result"
+  },
+  "macos_arm64_peak_rss_bytes": {
+    "100000": {
+      "first": 22069248,
+      "take-first": 22183936,
+      "par-first": 75284480,
+      "count": 22052864,
+      "fused": 39550976,
+      "unfused": 73613312
+    },
+    "300000": {
+      "first": 22036480,
+      "take-first": 22151168,
+      "par-first": 182386688,
+      "count": 22265856,
+      "fused": 54640640,
+      "unfused": 182763520
+    }
+  },
+  "pinned_linux_arm64_musl_peak_rss_kb": {
+    "100000": {
+      "first": 25216,
+      "take-first": 25388,
+      "par-first": 86752,
+      "count": 25380,
+      "fused": 38708,
+      "unfused": 86500
+    },
+    "300000": {
+      "first": 25124,
+      "take-first": 25384,
+      "par-first": 197292,
+      "count": 25244,
+      "fused": 61212,
+      "unfused": 197044
+    }
+  }
+}

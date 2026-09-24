@@ -39,7 +39,7 @@ public APIs require a separate decision backed by repeated real use.
 
 1. **B01:** complete the paired `xsht` tooling evidence, then use the recorded
    B0 `xsh` failures to prioritize profiling on both supported hosts.
-2. **B08, C01–C05:** improve the measured hot paths and cold preparation in
+2. **B08, C01–C04, C06–C09:** improve the measured hot paths and cold preparation in
    small batches, preserving the original B0 gates and native controls.
 3. **D01–D04, E01–E03, F01–F03:** make the interactive, tooling, and Linux test
    boundaries deterministic enough to support sustained work.
@@ -73,7 +73,6 @@ allocation/RSS evidence; no new execution engine is implied.
 - **C02 · P1/M.** Profile `fs.walk` record construction when `where` rejects most entries; test whether lazy fields save measurable work without changing metadata-error timing.
 - **C03 · P2/M.** Profile scope-key allocation and hashing in repeated bindings; compare a narrow key-reuse change with the wider `Arc<str>` ownership change before choosing either.
 - **C04 · P2/M.** Measure large flat directories before revisiting intra-directory work splitting; the earlier fused parallel walk lost on that shape (`docs/STREAMS.md`).
-- **C05 · P1.** Add a bounded-memory and early-stop measurement for script producers feeding `par-map` and fused stages; distinguish the one-vector staging cost from observable semantics.
 - **C06 · P1/M.** Identify whole-buffer scanners that can use line-state APIs; convert one real large-file workload at a time and preserve malformed-late-row behavior.
 - **C07 · P1.** Keep structural allocation tests for list/map accumulation and add alias-preservation cases when storage reuse changes; no mutation may leak to an older value.
 - **C08 · P1/M.** Pair `xsh-runtime-stats` worker traffic with host RSS on the same workload; thread-local allocation peaks alone cannot establish process memory improvement (`docs/FRONTEND.md`).

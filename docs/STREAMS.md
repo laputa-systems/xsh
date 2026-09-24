@@ -194,6 +194,16 @@ unchanged streaming control; all four runs returned the expected value.
 | `min` | 88,195,072 | 54,509,568 |
 | `max` | 88,145,920 | 54,525,952 |
 
+`bench/stream-producer-memory.xsh` isolates a script producer whose loop
+allocates no input list. The raw macOS and pinned Linux debug RSS samples at
+100,000 and 300,000 rows are in `bench/stream-producer-memory-2026-09-24.json`.
+Direct `first`, `take(1) |> par-map |> first`, and `count` stay near their
+per-process baseline as the row count grows. `par-map |> first` and unfused
+`par-map |> reduce-by` retain a row-count-sized intermediate; fused reduction
+still stages all input rows but avoids the mapped output list. Put `take` before
+`par-map` when the producer must stop early. The producer cleanup and pull
+counts are asserted by `tests/fixtures/runtime/worker-stage-producers.xsh`.
+
 ### Choosing a parallel strategy
 
 An adjacent `par-map |> reduce-by` folds mapped records on worker threads.
