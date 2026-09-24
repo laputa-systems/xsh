@@ -56,6 +56,9 @@ Useful next work:
 and `remote_completion_passes_host_as_one_argument_and_bounds_timeout` use
 fake `ssh` executables to cover remote results, failures, quoting, and timeouts
 without network access or process-wide environment changes.
+`render.rs::tests` covers wide-character pre-wrap in prompts, editor lines,
+multiline input, and history search, plus combining marks, pending wrap, and
+narrow completion grids.
 
 The active `tests/runtime/interactive.rs` PTY gate covers prompt startup,
 terminal-mode restoration on exit, Ctrl-C, bracketed paste, and cooked-mode

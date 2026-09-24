@@ -369,7 +369,8 @@ rendering model directly:
   region and clearing the larger of previous/new row counts;
 - single-line layout accounts for prompt display width, line display width,
   cursor display column, autosuggestion width, terminal width, and exact
-  terminal-edge pending wrap;
+  terminal-edge pending wrap; a wide character with one column left wraps
+  before drawing, while combining marks consume no column;
 - multiline layout gives subsequent lines a continuation prompt and computes
   cursor row/column by segment;
 - cursor restoration moves from the rendered region end back to the logical

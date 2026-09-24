@@ -1,6 +1,6 @@
 #![allow(clippy::single_call_fn)]
 
-use super::complete::{CompletionState, str_width};
+use super::complete::CompletionState;
 use super::edit::LineBuffer;
 use super::history::{FuzzyMatch, History};
 use rustix::{stdio as rstdio, termios};
@@ -41,9 +41,8 @@ struct PagerLayout {
 }
 
 struct PagerInput {
-    prefix_width: usize,
-    query_width: usize,
-    query_cursor: usize,
+    header_cursor_cells: usize,
+    header_full_cells: usize,
     total_entries: usize,
     selected: usize,
     term_rows: u16,
@@ -140,13 +139,17 @@ pub(super) fn term_size() -> (u16, u16) {
 }
 
 fn layout_single_line_prompt(
-    prompt_display_len: usize,
+    prompt_cells: usize,
     line: &LineBuffer,
-    suggestion_display_len: usize,
+    suggestion: &str,
     cols: usize,
 ) -> PromptLayout {
-    let total_before_cursor = prompt_display_len + line.display_cursor_pos();
-    let total_full = prompt_display_len + line.display_len() + suggestion_display_len;
+    let total_before_cursor = advance_display_cells(prompt_cells, &line.text[..line.cursor], cols);
+    let total_full = advance_display_cells(
+        advance_display_cells(prompt_cells, &line.text, cols),
+        suggestion,
+        cols,
+    );
     let cursor_row = total_before_cursor / cols;
     let cursor_col = total_before_cursor % cols;
     let total_rows = total_full / cols;
@@ -164,7 +167,7 @@ fn layout_single_line_prompt(
 }
 
 fn layout_multiline_prompt(
-    prompt_display_len: usize,
+    prompt_cells: usize,
     line: &LineBuffer,
     cols: usize,
 ) -> PromptLayout {
@@ -182,23 +185,14 @@ fn layout_multiline_prompt(
         let seg_start = line_idx;
         let seg_end = seg_start + segment.len();
         if cursor_byte >= seg_start && cursor_byte <= seg_end {
-            let prefix = if i == 0 {
-                prompt_display_len
-            } else {
-                cont_prompt_len
-            };
+            let prefix = if i == 0 { prompt_cells } else { cont_prompt_len };
             let cursor_in_seg = cursor_byte - seg_start;
-            let display_before = str_width(&segment[..cursor_in_seg]);
-            let total = prefix + display_before;
+            let total = advance_display_cells(prefix, &segment[..cursor_in_seg], cols);
             cursor_row = row + total / cols;
             cursor_col = total % cols;
         }
-        let prefix = if i == 0 {
-            prompt_display_len
-        } else {
-            cont_prompt_len
-        };
-        let seg_width = prefix + str_width(segment);
+        let prefix = if i == 0 { prompt_cells } else { cont_prompt_len };
+        let seg_width = advance_display_cells(prefix, segment, cols);
         if seg_width > 0 {
             row += (seg_width - 1) / cols;
         }
@@ -228,8 +222,8 @@ fn layout_multiline_prompt(
 
 fn layout_pager(input: PagerInput) -> PagerLayout {
     let cols = input.term_cols.max(1) as usize;
-    let header_before_cursor = input.prefix_width + input.query_cursor;
-    let header_full = input.prefix_width + input.query_width;
+    let header_before_cursor = input.header_cursor_cells;
+    let header_full = input.header_full_cells;
     let header_rows = header_full.saturating_sub(1) / cols + 1;
     let cursor_row = header_before_cursor / cols;
     let cursor_col = header_before_cursor % cols;
@@ -319,23 +313,24 @@ pub(super) fn render_line(
     opts: &RenderOpts<'_>,
 ) -> io::Result<RenderedRegion> {
     let mut tw = TermWriter::new();
-    let prompt_display_len = str_width_without_ansi(prompt);
+    let cols = term_cols.max(1) as usize;
+    let prompt_cells = display_cells_without_ansi(prompt, cols);
     let region = if line.text.contains('\n') {
         render_line_multiline(
             &mut tw,
             prompt,
-            prompt_display_len,
+            prompt_cells,
             line,
-            term_cols as usize,
+            cols,
             prev,
         )
     } else {
         render_line_single(
             &mut tw,
             prompt,
-            prompt_display_len,
+            prompt_cells,
             line,
-            term_cols as usize,
+            cols,
             prev,
             opts,
         )
@@ -347,14 +342,13 @@ pub(super) fn render_line(
 fn render_line_single(
     tw: &mut TermWriter,
     prompt: &str,
-    prompt_display_len: usize,
+    prompt_cells: usize,
     line: &LineBuffer,
     cols: usize,
     prev: RenderedRegion,
     opts: &RenderOpts<'_>,
 ) -> RenderedRegion {
-    let layout =
-        layout_single_line_prompt(prompt_display_len, line, str_width(opts.suggestion), cols);
+    let layout = layout_single_line_prompt(prompt_cells, line, opts.suggestion, cols);
     begin_region_render(tw, prev, layout.region);
     tw.write_str(prompt);
     tw.write_str(&line.text);
@@ -377,12 +371,12 @@ fn render_line_single(
 fn render_line_multiline(
     tw: &mut TermWriter,
     prompt: &str,
-    prompt_display_len: usize,
+    prompt_cells: usize,
     line: &LineBuffer,
     cols: usize,
     prev: RenderedRegion,
 ) -> RenderedRegion {
-    let layout = layout_multiline_prompt(prompt_display_len, line, cols);
+    let layout = layout_multiline_prompt(prompt_cells, line, cols);
     begin_region_render(tw, prev, layout.region);
     for (index, segment) in line.text.split('\n').enumerate() {
         if index == 0 {
@@ -428,10 +422,15 @@ pub(super) fn render_history_search(
     let mut tw = TermWriter::new();
     let prefix = "search: ";
     let (term_rows, term_cols) = term_size;
+    let cols = term_cols.max(1) as usize;
+    let prefix_cells = advance_display_cells(0, prefix, cols);
     let layout = layout_pager(PagerInput {
-        prefix_width: str_width(prefix),
-        query_width: query.display_len(),
-        query_cursor: query.display_cursor_pos(),
+        header_cursor_cells: advance_display_cells(
+            prefix_cells,
+            &query.text[..query.cursor],
+            cols,
+        ),
+        header_full_cells: advance_display_cells(prefix_cells, &query.text, cols),
         total_entries: matches.len(),
         selected,
         term_rows,
@@ -744,8 +743,27 @@ fn write_completion_name(
     written
 }
 
-pub(super) fn str_width_without_ansi(text: &str) -> usize {
-    let mut width = 0;
+fn advance_display_width(mut cells: usize, width: usize, cols: usize) -> usize {
+    let width = width.min(cols);
+    if width > 0 {
+        let col = cells % cols;
+        if col + width > cols {
+            cells += cols - col;
+        }
+        cells += width;
+    }
+    cells
+}
+
+fn advance_display_cells(mut cells: usize, text: &str, cols: usize) -> usize {
+    for ch in text.chars() {
+        cells = advance_display_width(cells, super::complete::char_width(ch), cols);
+    }
+    cells
+}
+
+fn display_cells_without_ansi(text: &str, cols: usize) -> usize {
+    let mut cells = 0;
     let mut chars = text.chars().peekable();
     while let Some(ch) = chars.next() {
         if ch == '\x1b' && chars.peek() == Some(&'[') {
@@ -756,10 +774,10 @@ pub(super) fn str_width_without_ansi(text: &str) -> usize {
                 }
             }
         } else {
-            width += super::complete::char_width(ch);
+            cells = advance_display_width(cells, super::complete::char_width(ch), cols);
         }
     }
-    width
+    cells
 }
 
 #[cfg(test)]
@@ -768,7 +786,7 @@ mod tests {
         History, LineBuffer, RenderOpts, RenderedRegion, clear_completions, render_completions,
         render_history_search, render_line,
     };
-    use crate::xshi::interactive::complete::{CompletionState, Completions};
+    use crate::xshi::interactive::complete::{CompletionState, Completions, compute_grid};
 
     #[test]
     fn render_line_single_forced_wrap_keeps_cursor_before_suggestion() {
@@ -791,6 +809,80 @@ mod tests {
         assert_eq!(region.cursor_col, 8);
         assert!(rendered.contains("\x1b[38;5;8mgh\x1b[0m"), "{rendered:?}");
         assert!(rendered.contains(" \r"), "{rendered:?}");
+    }
+
+    #[test]
+    fn render_line_wide_character_wraps_before_last_column() {
+        let line = LineBuffer::from_text("ab界");
+        let mut out = Vec::new();
+
+        let region = render_line(
+            &mut out,
+            "$ ",
+            &line,
+            5,
+            RenderedRegion::default(),
+            &RenderOpts::default(),
+        )
+        .expect("render wide line");
+
+        assert_eq!(region.painted_rows, 2);
+        assert_eq!(region.cursor_row, 1);
+        assert_eq!(region.cursor_col, 2);
+    }
+
+    #[test]
+    fn render_line_combining_mark_and_colored_prompt_preserve_pending_wrap() {
+        let line = LineBuffer::from_text("e\u{301}界");
+        let mut out = Vec::new();
+
+        let region = render_line(
+            &mut out,
+            "$ ",
+            &line,
+            6,
+            RenderedRegion::default(),
+            &RenderOpts { suggestion: "x" },
+        )
+        .expect("render combining line");
+        let rendered = String::from_utf8(out).expect("UTF-8 terminal output");
+        assert_eq!(region.painted_rows, 2);
+        assert_eq!((region.cursor_row, region.cursor_col), (0, 5));
+        assert!(rendered.contains(" \r"), "{rendered:?}");
+
+        let mut colored = Vec::new();
+        let region = render_line(
+            &mut colored,
+            "\x1b[32m界\x1b[0m ",
+            &LineBuffer::from_text("a"),
+            4,
+            RenderedRegion::default(),
+            &RenderOpts::default(),
+        )
+        .expect("render colored prompt");
+        assert_eq!((region.cursor_row, region.cursor_col), (1, 0));
+        assert_eq!(region.painted_rows, 2);
+    }
+
+    #[test]
+    fn render_line_multiline_places_cursor_after_wide_character_wrap() {
+        let mut line = LineBuffer::from_text("ab界\nx\u{301}");
+        line.cursor = "ab界".len();
+        let mut out = Vec::new();
+
+        let region = render_line(
+            &mut out,
+            "$ ",
+            &line,
+            5,
+            RenderedRegion::default(),
+            &RenderOpts::default(),
+        )
+        .expect("render multiline wide line");
+        let rendered = String::from_utf8(out).expect("UTF-8 terminal output");
+        assert_eq!(region.painted_rows, 3);
+        assert_eq!((region.cursor_row, region.cursor_col), (1, 2));
+        assert!(rendered.contains("\r\n  x\u{301}"), "{rendered:?}");
     }
 
     #[test]
@@ -862,6 +954,43 @@ mod tests {
     }
 
     #[test]
+    fn narrow_completion_grid_clips_by_display_width() {
+        let mut comp = Completions::new();
+        for name in ["界a", "e\u{301}b", "long"] {
+            comp.push(name, false, false, false);
+        }
+        let (cols, rows) = compute_grid(&comp.entries, 4);
+        assert_eq!((cols, rows), (1, 3));
+        let state = CompletionState {
+            comp,
+            selected: 2,
+            cols,
+            rows,
+            term_cols: 4,
+            ..CompletionState::default()
+        };
+        let info = RenderedRegion {
+            anchored: true,
+            painted_rows: 1,
+            cursor_row: 0,
+            cursor_col: 2,
+        };
+        let mut out = Vec::new();
+        let visible = render_completions(&mut out, &state, info, true, 0)
+            .expect("render narrow completions");
+        assert_eq!(visible, 3);
+        let rendered = String::from_utf8(out).expect("UTF-8 terminal output");
+        assert!(rendered.contains("界a"), "{rendered:?}");
+        assert!(rendered.contains("e\u{301}b"), "{rendered:?}");
+        assert!(rendered.contains("\x1b[7mlon\x1b[0m"), "{rendered:?}");
+        assert!(!rendered.contains("long"), "{rendered:?}");
+
+        let mut cleared = Vec::new();
+        clear_completions(&mut cleared, info, visible).expect("clear narrow grid");
+        assert!(cleared.ends_with(b"\x1b[?25h"));
+    }
+
+    #[test]
     fn history_search_wrapped_query_places_cursor_in_header() {
         let history = History::from_entries(Vec::new());
         let query = LineBuffer::from_text("abcd");
@@ -880,6 +1009,26 @@ mod tests {
 
         assert_eq!(region.cursor_row, 1);
         assert_eq!(region.cursor_col, 2);
+        assert_eq!(region.painted_rows, 2);
+    }
+
+    #[test]
+    fn history_search_wide_query_wraps_before_last_column() {
+        let history = History::from_entries(Vec::new());
+        let query = LineBuffer::from_text("界");
+        let mut out = Vec::new();
+
+        let region = render_history_search(
+            &mut out,
+            &query,
+            &[],
+            &history,
+            0,
+            (24, 9),
+            RenderedRegion::default(),
+        )
+        .expect("render wide search query");
+        assert_eq!((region.cursor_row, region.cursor_col), (1, 2));
         assert_eq!(region.painted_rows, 2);
     }
 

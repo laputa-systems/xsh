@@ -37,6 +37,7 @@ linter checks and are owner-run under the agent workflow rule.
 | Copied product and packaged core smoke | `tools/copied-product-smoke.py` with all three debug binaries and a `dev/release.xsh::package_core` archive | Repeat with the pinned Linux ARM64 musl debug products and `--linux`; `bench/stdlib-port/README.md` gives the commands |
 | Benchmark workload | `cargo bench -p xshi --bench bench --features benchmark BENCHMARK -- --sample-count 1 --sample-size 1` | `cargo dev bench --fast` (memory/regression) or `cargo dev bench` (latency) |
 | `xshi` editor input and repaint | `cargo test -p xshi --lib interactive::edit::tests` | `cargo test -p xshi` |
+| `xshi` terminal geometry | `cargo test -p xshi --lib interactive::render::tests` | `cargo test -p xshi` and `cargo test --test integration runtime::interactive:: -- --test-threads=1` |
 | `xshi` completion cache invalidation | `cargo test -p xshi --lib path_completion_refreshes` and `cargo test -p xshi --lib completion_refreshes_cwd_snapshot` | `cargo test -p xshi` |
 | `xshi` remote completion | `cargo test -p xshi --lib remote_completion` | `cargo test -p xshi` |
 | `xshi` PTY terminal lifecycle | `cargo test --test integration runtime::interactive::xshi_pty_restores_terminal_mode_on_exit -- --exact --test-threads=1` | `cargo test --test integration runtime::interactive:: -- --test-threads=1` |
