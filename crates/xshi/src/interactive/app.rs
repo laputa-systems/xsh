@@ -2155,9 +2155,12 @@ mod tests {
         is_xsh_source, lex_shell, set_env_bytes, shell_status, validate_alias_source,
         validate_assignment_prefix,
     };
+    use crate::xshi::interactive::denv::DenvState;
     use crate::xshi::interactive::history::History;
     use crate::xshi::interactive::session::PathCommand;
     use crate::xshi::interactive::shell::SimpleCommand;
+    use std::fs;
+    use std::os::unix::fs::PermissionsExt;
 
     fn shell_word(text: &str) -> ShellWord {
         ShellWord {
@@ -2482,6 +2485,63 @@ mod tests {
 
             assert_eq!(buffer.text, source.replace("ech", "echo"));
         }
+    }
+
+    #[test]
+    fn path_completion_refreshes_after_set_unset_assignment_and_denv() {
+        let root = tempfile::tempdir().expect("temporary directory");
+        let first_bin = root.path().join("first-bin");
+        let second_bin = root.path().join("second-bin");
+        fs::create_dir(&first_bin).expect("first command directory");
+        fs::create_dir(&second_bin).expect("second command directory");
+        let first_command = "xshi_cache_probe_first";
+        let second_command = "xshi_cache_probe_second";
+        for (directory, name) in [(&first_bin, first_command), (&second_bin, second_command)] {
+            let path = directory.join(name);
+            fs::write(&path, b"#!/bin/sh\nexit 0\n").expect("command fixture");
+            fs::set_permissions(&path, fs::Permissions::from_mode(0o755))
+                .expect("make command executable");
+        }
+        let project = root.path().join("project");
+        fs::create_dir(&project).expect("project fixture");
+        fs::create_dir(project.join(".git")).expect("git marker");
+        fs::write(project.join(".env"), format!("PATH={}\n", first_bin.display()))
+            .expect("dotenv fixture");
+
+        let mut session = Session::new();
+        session.history = History::from_entries(Vec::new());
+        session.cwd = project;
+        session.denv = DenvState::load(None);
+        session.env.clear();
+        session.refresh_cwd_snapshot();
+
+        let completion = |session: &Session| {
+            let mut buffer = LineBuffer::from_text("xshi_cache_probe_");
+            complete_buffer(session, &mut buffer, 80);
+            buffer.text
+        };
+        assert_eq!(
+            execute_line(&mut session, &format!("set PATH {}", first_bin.display())).status,
+            0
+        );
+        assert_eq!(completion(&session), first_command);
+        assert_eq!(
+            execute_line(&mut session, &format!("set PATH {}", second_bin.display())).status,
+            0
+        );
+        assert_eq!(completion(&session), second_command);
+        assert_eq!(execute_line(&mut session, "unset PATH").status, 0);
+        assert_eq!(completion(&session), "xshi_cache_probe_");
+        assert_eq!(
+            execute_line(&mut session, &format!("PATH={}", second_bin.display())).status,
+            0
+        );
+        assert_eq!(completion(&session), second_command);
+
+        assert_eq!(execute_line(&mut session, "denv allow").status, 0);
+        assert_eq!(completion(&session), first_command);
+        assert_eq!(execute_line(&mut session, "denv deny").status, 0);
+        assert_eq!(completion(&session), second_command);
     }
 
     #[test]

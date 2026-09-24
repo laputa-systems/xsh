@@ -43,6 +43,10 @@ hidden paths, directory-only `cd`/`z`, and prefix-before-substring fallback.
 History search cases cover selection, acceptance, Escape/Ctrl-C cancellation,
 and restoration of the saved line. Autosuggestion cases cover Right Arrow
 acceptance and suppressing ghost text during completion and history search.
+`app.rs::tests::path_completion_refreshes_after_set_unset_assignment_and_denv`
+covers command candidates across session environment changes;
+`complete.rs::tests::completion_refreshes_cwd_snapshot_and_non_cwd_directory_mtime`
+covers cwd snapshot refresh and mtime-based directory cache replacement.
 
 Useful next work:
 

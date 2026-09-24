@@ -1312,6 +1312,7 @@ mod tests {
     };
     use crate::xshi::interactive::session::set_env_bytes;
     use std::path::PathBuf;
+    use std::time::Duration;
 
     #[test]
     fn grid_computation_uses_column_major_layout() {
@@ -1346,6 +1347,55 @@ mod tests {
         assert_eq!(state.dir_prefix, "~/");
         assert_eq!(state.comp.name(0), "dev");
         let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn completion_refreshes_cwd_snapshot_and_non_cwd_directory_mtime() {
+        let root = tempfile::tempdir().expect("temporary directory");
+        let first = root.path().join("first");
+        let second = root.path().join("second");
+        let nested = second.join("nested");
+        fs::create_dir(&first).expect("first cwd fixture");
+        fs::create_dir(&second).expect("second cwd fixture");
+        fs::create_dir(&nested).expect("nested fixture");
+        fs::write(first.join("cache_first"), b"").expect("first cwd entry");
+        fs::write(second.join("cache_second"), b"").expect("second cwd entry");
+        fs::write(nested.join("cache_old"), b"").expect("first nested entry");
+
+        let mut session = Session::new();
+        let names = |session: &Session, text: &str| {
+            let state = start_completion(
+                session,
+                CompletionRequest {
+                    text,
+                    cursor: text.len(),
+                    term_cols: 80,
+                },
+            );
+            (0..state.comp.len())
+                .map(|index| state.comp.name(index).to_string())
+                .collect::<Vec<_>>()
+        };
+        session.cwd = first;
+        session.refresh_cwd_snapshot();
+        assert_eq!(names(&session, "cat cache_"), ["cache_first"]);
+        session.cwd = second;
+        session.refresh_cwd_snapshot();
+        assert_eq!(names(&session, "cat cache_"), ["cache_second"]);
+
+        assert_eq!(names(&session, "cat nested/cache_"), ["cache_old"]);
+        assert_eq!(session.completion_dir_cache.borrow().len(), 1);
+        let old_modified = fs::metadata(&nested)
+            .expect("nested metadata")
+            .modified()
+            .expect("nested mtime");
+        fs::remove_file(nested.join("cache_old")).expect("remove old entry");
+        fs::write(nested.join("cache_new"), b"").expect("new nested entry");
+        fs::File::open(&nested)
+            .expect("open nested directory")
+            .set_modified(old_modified + Duration::from_secs(2))
+            .expect("advance nested mtime");
+        assert_eq!(names(&session, "cat nested/cache_"), ["cache_new"]);
     }
 
     #[test]
