@@ -2,6 +2,33 @@ proc test_pass() [error] {
   test.eq(1, 1)?
 }
 
+pure sibling_branch_value(choice: Str) -> Int {
+  if choice == "first" {
+    let value = 0
+    return value
+  } else if choice == "second" {
+    let value = 10
+    return value
+  } else {
+    let value = 20
+    return value
+  }
+}
+
+proc test_sibling_if_branches_keep_their_own_local_bindings() [error] {
+  test.eq(sibling_branch_value("first"), 0)?
+  test.eq(sibling_branch_value("second"), 10)?
+  test.eq(sibling_branch_value("other"), 20)?
+  let choice = "second"
+  if choice == "first" {
+    let value = 0
+    test.eq(value, 0)?
+  } else if choice == "second" {
+    let value = 10
+    test.eq(value, 10)?
+  }
+}
+
 proc test_skip() {
   test.skip("later")
 }

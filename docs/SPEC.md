@@ -1106,6 +1106,10 @@ match_stmt   = "match" expr "{" match_arm* "}" ;
 
 Conditions evaluate to `Bool` or `Status`. A `Status` condition is true when
 `status.ok` is true. `while` repeats until its condition is false.
+Each `if`, `else if`, and `else` block has its own lexical scope. A local
+declared in one branch is unavailable in sibling branches; the same spelling
+in two branches denotes separate bindings, including when the `if` is the
+last statement of a proc or pure function.
 
 Type patterns test a dynamic matched value and narrow the binding inside the
 arm:

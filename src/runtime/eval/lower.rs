@@ -11724,14 +11724,20 @@ impl CompactLowerConstructProbe<'_, '_> {
         let branches = self.program.arena.if_branches(branches).to_vec();
         let mut lowered = Vec::with_capacity(branches.len());
         for branch in branches {
-            lowered.push((
-                self.lower_expr(branch.condition, slots, current_function, item_slot)?,
-                self.lower_tail_block(branch.block, slots, current_function, item_slot)?,
-            ));
+            let condition = self.lower_expr(branch.condition, slots, current_function, item_slot)?;
+            // Tail blocks do not open a scope themselves. Sibling branches
+            // must not resolve a local name through an earlier branch's slot.
+            let saved = slots.enter();
+            let body = self.lower_tail_block(branch.block, slots, current_function, item_slot);
+            slots.exit(saved);
+            lowered.push((condition, body?));
         }
         let else_body = match else_block {
             Some(block) => {
-                Some(self.lower_tail_block(block, slots, current_function, item_slot)?)
+                let saved = slots.enter();
+                let body = self.lower_tail_block(block, slots, current_function, item_slot);
+                slots.exit(saved);
+                Some(body?)
             }
             None => None,
         };
