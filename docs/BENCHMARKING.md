@@ -4,6 +4,13 @@ The curated rustybench suite measures user-facing latency and allocation
 workflows in the interactive `xshi` crate. It does not benchmark the `xsh` or
 `xsht` frontends.
 
+The paired end-to-end `xsh` and `xsht` CLI latency corpus already lives in
+`bench/stdlib-port/run.py` and `bench/stdlib-port/tooling.py`. Its cold script,
+`xsht check`, and `xsht api` rows have fixed B0 comparisons, raw samples,
+output parity, and macOS/Linux results documented in
+`bench/stdlib-port/README.md`. Use those rows when frontend preparation or
+tooling latency changes.
+
 The suite lives in `crates/xshi/benches/bench.rs`. The benchmark-only
 `xshi::interactive::bench` helpers are enabled through the `benchmark` feature;
 release application builds do not compile them. rustybench's allocation

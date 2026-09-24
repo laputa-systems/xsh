@@ -74,7 +74,6 @@ allocation/RSS evidence; no new execution engine is implied.
 - **C03 · P2/M.** Profile scope-key allocation and hashing in repeated bindings; compare a narrow key-reuse change with the wider `Arc<str>` ownership change before choosing either.
 - **C04 · P2/M.** Measure large flat directories before revisiting intra-directory work splitting; the earlier fused parallel walk lost on that shape (`docs/STREAMS.md`).
 - **C06 · P1/M.** Identify whole-buffer scanners that can use line-state APIs; convert one real large-file workload at a time and preserve malformed-late-row behavior. The `showcase/loc.xsh` `Path.lines() |> count()` candidate lost to `read_text()?.count_lines()` on `src` (33.016 versus 22.883 ms median in 20 paired release runs), despite 1.8 MB lower median peak RSS, and changed the late invalid-UTF-8 diagnostic path, so it was rejected (`bench/stream-line-count-c06-2026-09-24.json`).
-- **C10 · P2/M.** Add a user-facing `xsh`/`xsht` frontend latency corpus only for workflows with repeated measured cost; `docs/BENCHMARKING.md` currently covers interactive `xshi` workloads.
 
 ## D. Interactive `xshi`
 
