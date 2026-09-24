@@ -402,6 +402,12 @@ wrapper processes word slices without per-word chunk vectors or repeated
 character recounts. It passes with exact output parity at 118.13 versus
 168.06 ms on macOS and 160.08 versus 172.57 ms on pinned Linux. The full
 cumulative gate remains the B11 closeout.
+
+`results-b11-cumulative-macos.json` is the complete final macOS B0 run:
+three paired rounds, all 24 applicable workloads within budget, exact status,
+output, and scoped-effect parity, and six declared Linux-only skips. The
+Unicode wrap row is 116.63 versus 166.48 ms; dynamic cold preparation is
+11.77 versus 11.17 ms. The matching Linux cumulative run remains open.
 `results-text-pad-seed.json` does the same for `text_pad_batch`, with 30 samples
 per side per round and separate filler and ANSI allocation controls.
 `results-fmt-small-bytes.json` measures the under-1024 `bytes.human` path
