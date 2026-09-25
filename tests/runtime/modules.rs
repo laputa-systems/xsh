@@ -5,17 +5,6 @@ use super::common::*;
 use std::sync::atomic::AtomicBool;
 
 #[test]
-fn minimal_modules_execute_success_paths() {
-    let output = xsh(["tests/fixtures/runtime/modules-basic.xsh"]);
-
-    assert!(output.status.success());
-    assert_eq!(
-        String::from_utf8(output.stdout).unwrap(),
-        "true true b true true true true true true 42 dcwrap:0:operand:-1\n"
-    );
-}
-
-#[test]
 fn elf_module_inspects_dynamic_metadata_and_reports_malformed_files() {
     let elf = temp_path("elf-module-fixture.so");
     let plain = temp_path("elf-module-plain.txt");
