@@ -77,14 +77,16 @@ fn with_loop_image<F: FnOnce(&Path, &Path)>(size_mb: u64, f: F) {
 }
 
 fn run_script(source: &str) -> std::process::Output {
-    let path = temp_xsh_path("linux-priv");
+    let root = tempfile::Builder::new()
+        .prefix("xsh-linux-priv-script-")
+        .tempdir()
+        .expect("create linux priv script root");
+    let path = root.path().join("script.xsh");
     std::fs::write(&path, source).expect("write linux priv script");
-    let output = Command::new(env!("CARGO_BIN_EXE_xsh"))
+    Command::new(env!("CARGO_BIN_EXE_xsh"))
         .arg(&path)
         .output()
-        .expect("run xsh");
-    let _ = std::fs::remove_file(path);
-    output
+        .expect("run xsh")
 }
 
 fn run_script_in_private_mount_namespace(
@@ -131,22 +133,6 @@ fn run_script_in_private_mount_namespace(
         });
     }
     command.output()
-}
-
-fn temp_path(name: &str) -> PathBuf {
-    std::env::temp_dir().join(format!("xsh-{name}-{}", unique_suffix()))
-}
-
-fn temp_xsh_path(name: &str) -> PathBuf {
-    std::env::temp_dir().join(format!("xsh-{name}-{}.xsh", unique_suffix()))
-}
-
-fn unique_suffix() -> String {
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .expect("system time after epoch")
-        .as_nanos();
-    format!("{}-{nanos}", std::process::id())
 }
 
 fn xsh_string_literal(text: &str) -> String {
@@ -210,6 +196,8 @@ fn mount_visible_in_parent(path: &Path) -> bool {
         .any(|line| line.split_whitespace().nth(4) == path.to_str())
 }
 
+// The mount and its optional bind-mounted fstab exist only in a child mount
+// namespace. TempDir removes the fixture after the child exits or on panic.
 #[test]
 fn linux_priv_tmpfs_mount_is_mountpoint_disk_usage_and_cleanup() {
     if !is_root() {
@@ -263,6 +251,8 @@ env XSH_LINUX_REAL=1 XSH_LINUX_DRY_RUN=0 {{
     assert!(!target.exists(), "mount test root was not removed");
 }
 
+// The failing calls run after private mount propagation is established in the
+// child. TempDir removes the fixture even if an assertion fails.
 #[test]
 fn linux_priv_mount_and_switch_root_fail_within_private_namespace() {
     if !is_root() {
@@ -338,16 +328,19 @@ env XSH_LINUX_REAL=1 XSH_LINUX_DRY_RUN=0 {{
     assert!(!target.exists(), "failure test root was not removed");
 }
 
+// Character-device creation is limited to a private temporary directory in
+// the pinned container; TempDir removes the node on success and on panic.
 #[test]
 fn linux_priv_mknod_creates_character_device_when_permitted() {
     if !is_root() {
         eprintln!("skipped: character-device creation requires root and CAP_MKNOD");
         return;
     }
-    let root = temp_path("linux-priv-mknod");
-    let node = root.join("xsh-null");
-    let _ = std::fs::remove_dir_all(&root);
-    std::fs::create_dir_all(&root).expect("create mknod root");
+    let root = tempfile::Builder::new()
+        .prefix("xsh-linux-priv-mknod-")
+        .tempdir()
+        .expect("create mknod root");
+    let node = root.path().join("xsh-null");
     let source = format!(
         "\
 let node = Path({})
@@ -360,8 +353,6 @@ env XSH_LINUX_REAL=1 XSH_LINUX_DRY_RUN=0 {{
     );
 
     let output = run_script(&source);
-    let _ = std::fs::remove_file(&node);
-    let _ = std::fs::remove_dir_all(&root);
     if !output.status.success() && lacks_capability(&output) {
         eprintln!("skipped: CAP_MKNOD is required to create a character device");
         return;
@@ -375,6 +366,8 @@ env XSH_LINUX_REAL=1 XSH_LINUX_DRY_RUN=0 {{
     assert_eq!(String::from_utf8(output.stdout).unwrap(), "true\n");
 }
 
+// LoopGuard detaches a loop device still backed by the temporary image on
+// success or panic; its TempDir then removes that image.
 #[test]
 fn linux_priv_loop_attach_list_and_detach_release_device() {
     if !is_root() {
@@ -424,14 +417,20 @@ env XSH_LINUX_REAL=1 XSH_LINUX_DRY_RUN=0 {{
     });
 }
 
+// Docker's PID namespace contains the process-wide signal. The helper is in
+// its own session; ChildCleanup reaps it and TempDir removes the marker even
+// when a later assertion panics.
 #[test]
 fn linux_priv_kill_all_signals_contained_new_session_process() {
     if !is_root() {
         eprintln!("skipped: kill_all fixture requires root in an isolated PID namespace");
         return;
     }
-    let marker = temp_path("linux-priv-kill-all-ready");
-    let _ = std::fs::remove_file(&marker);
+    let root = tempfile::Builder::new()
+        .prefix("xsh-linux-priv-kill-all-")
+        .tempdir()
+        .expect("create kill_all fixture root");
+    let marker = root.path().join("ready");
     let mut child = unsafe {
         let mut command = Command::new(env!("CARGO_BIN_EXE_xsh-test-os-probe"));
         command
@@ -445,9 +444,9 @@ fn linux_priv_kill_all_signals_contained_new_session_process() {
                 }
                 Ok(())
             });
-        command.spawn().expect("spawn new-session helper")
+        ChildCleanup(command.spawn().expect("spawn new-session helper"))
     };
-    wait_for_path(&marker, Duration::from_secs(3), &mut child);
+    wait_for_path(&marker, Duration::from_secs(3), &mut child.0);
 
     let output = run_script(
         "\
@@ -458,9 +457,6 @@ env XSH_LINUX_REAL=1 XSH_LINUX_DRY_RUN=0 {
 ",
     );
     if !output.status.success() && lacks_capability(&output) {
-        let _ = child.kill();
-        let _ = child.wait();
-        let _ = std::fs::remove_file(marker);
         eprintln!("skipped: permission to signal the isolated child session is unavailable");
         return;
     }
@@ -471,18 +467,26 @@ env XSH_LINUX_REAL=1 XSH_LINUX_DRY_RUN=0 {
         String::from_utf8_lossy(&output.stderr)
     );
     assert_eq!(String::from_utf8(output.stdout).unwrap(), "done\n");
-    let status = wait_child_status(&mut child, Duration::from_secs(3));
+    let status = wait_child_status(&mut child.0, Duration::from_secs(3));
     assert!(!status.success(), "{status}");
 
     let mut stderr = Vec::new();
-    child
+    child.0
         .stderr
         .take()
         .expect("child stderr")
         .read_to_end(&mut stderr)
         .expect("read child stderr");
     assert!(stderr.is_empty(), "{}", String::from_utf8_lossy(&stderr));
-    let _ = std::fs::remove_file(marker);
+}
+
+struct ChildCleanup(Child);
+
+impl Drop for ChildCleanup {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
 }
 
 struct LoopGuard {

@@ -96,14 +96,21 @@ checks XSH's list, detach, attach, and eventual release operations. The host
 guard detaches any loop still backed by the temporary image if the test fails.
 The focused lifecycle passed 20 consecutive runs in the privileged image;
 `tests/xsh/stdlib/linux.xsh` retains the dry-run parity case.
+`tests/linux_priv.rs::linux_priv_mknod_creates_character_device_when_permitted`
+creates its character device only inside a temporary directory in the pinned
+container. The directory guard removes the node even if the assertion fails.
+`tests/linux_priv.rs::linux_priv_kill_all_signals_contained_new_session_process`
+relies on the pinned container's PID namespace to contain the process-wide
+signal. Its helper runs in a new session, is killed and reaped by a drop guard,
+and writes its readiness marker in a temporary directory. The harness also
+keeps generated XSH scripts in temporary directories, so panic paths remove
+them.
 
 Useful next work:
 
 - Add fake-root or namespace-backed coverage for boot helpers where possible,
   while keeping real `halt`, `poweroff`, `reboot`, and `switch_root` behavior
   guarded behind dry-run or harness-specific entry points.
-- Document every test that mutates kernel or mount state with its isolation
-  boundary and cleanup guarantee.
 
 ## Lower-Value Remainders
 
