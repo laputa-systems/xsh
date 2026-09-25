@@ -68,7 +68,7 @@ section is the only remaining port task list.
 
 ## F. Linux, host operations, and network
 
-- **F09 · P1/M.** Reproduce an intermittent inherited descriptor in `runtime::modules::native_xsh_net_runtime_descriptors_do_not_survive_exec` on macOS. One full filtered runtime gate reported fd 9 in the child; the exact case, a subsequent full gate, and 30 isolated reruns passed. Identify the descriptor and the creation/exec overlap with a deterministic fixture before changing socket or process-spawn policy.
+- **F09 · P1/M.** Reproduce an intermittent inherited descriptor in `runtime::modules::native_xsh_net_runtime_descriptors_do_not_survive_exec` on macOS. One full filtered runtime gate reported fd 9 in the child; the exact case, a subsequent full gate, and 30 isolated reruns passed. `xsh-test-show-fds` now reports the inherited fd kind and socket ports, so a future failure can distinguish the Rust server fixture from XSH's transport and wake sockets; its focused integration case passes. Identify the descriptor and the creation/exec overlap with a deterministic fixture before changing socket or process-spawn policy.
 
 ## G. Build, CI, release, and repository hygiene
 
