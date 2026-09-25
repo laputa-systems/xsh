@@ -783,7 +783,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             .map_err(|error| indexed_error(error, call_span))?;
         let slots = self
             .evaluator
-            .bind_lowered_values(&header, &values, call_span)?;
+            .bind_lowered_values_owned(&header, values, call_span)?;
         self.push_call_with_header(function, kind, view, header, slots, call_span, return_to)
     }
 

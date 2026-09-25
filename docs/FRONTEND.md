@@ -46,6 +46,15 @@ or `Checker::probe_compact_bodies` is the relevant path.
 | executable commit | `FullBuilder`, `FullProgram`, `FullVerifier` | `src/runtime/eval/lower.rs`, `src/runtime/eval/indexed/full.rs` | A complete indexed program is encoded, finalized, and verified before installation. |
 | execution | `Evaluator`, `FunctionHeader`, `indexed_run`, `CallFrame` | `src/runtime/eval.rs`, `src/runtime/eval/lowered_run/indexed_run.rs`, `src/runtime/eval/lowered_run/indexed_run/explicit_run.rs` | The evaluator reads verified payloads through borrowed indexed views and keeps call/control state in explicit frames. |
 
+`ExplicitFrames::push_call` binds evaluated arguments through
+`Evaluator::bind_lowered_values_owned`. A fully supplied non-rest call moves
+its argument vector into frame slots when the vector already has enough
+capacity; defaults, rest arguments, arity errors, and type errors use the
+ordinary binder. This preserves the frame and cleanup path while avoiding a
+copy and one allocation in the common bounded call shape. The paired macOS
+and pinned Linux samples are in
+`bench/call-slot-ownership-b08-2026-09-25.json`.
+
 `ArenaParseOutput` is the parser result. `CompactFileUnit` makes one parsed
 file and its source-facing metadata available without constructing runtime
 state. `CompactModuleGraph` supplies resolved imports, declarations, exports,

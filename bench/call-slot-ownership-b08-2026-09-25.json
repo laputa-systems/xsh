@@ -1,0 +1,305 @@
+{
+  "date": "2026-09-25",
+  "purpose": "Measure and reduce fully supplied user-call binding allocations in the explicit indexed frame executor",
+  "workload": "Each script increments an Int to 100,000 and prints value=100000; inline is the control, proc and pure each make 100,000 one-argument calls.",
+  "scripts": {
+    "inline": {
+      "source": "proc main(...argv: List[Str]) [io, error] {\n  let count = argv[0].parse_int()?\n  var value = 0\n  while value < count {\n    value = value + 1\n  }\n  print f\"value=${value}\"\n}\n",
+      "sha256": "62709fe6066b4dc1323b474d138dd5ea6460a950d5fb9d391587990cf8b8f37f"
+    },
+    "proc": {
+      "source": "proc increment(value: Int) [] -> Int { return value + 1 }\nproc main(...argv: List[Str]) [io, error] {\n  let count = argv[0].parse_int()?\n  var value = 0\n  while value < count {\n    value = increment(value)\n  }\n  print f\"value=${value}\"\n}\n",
+      "sha256": "f5997d11745301bc032a05e0836087be5f40fbaee3c549ebbe64ccc4e01d1f0c"
+    },
+    "pure": {
+      "source": "pure increment(value: Int) -> Int { return value + 1 }\nproc main(...argv: List[Str]) [io, error] {\n  let count = argv[0].parse_int()?\n  var value = 0\n  while value < count {\n    value = increment(value)\n  }\n  print f\"value=${value}\"\n}\n",
+      "sha256": "9d4b887ad53734bca60d9bcae157b7a5f57ba4986fd8bd1f34e14c00fad577cc"
+    }
+  },
+  "candidate_change": "For a non-rest call with all arguments supplied and enough vector capacity for its frame slots, consume the evaluated argument vector as the slots; otherwise use the existing binder.",
+  "method": {
+    "macos": "16 rotating-order before/candidate timing pairs per shape using Python perf_counter_ns, five alternating /usr/bin/time -l peak-RSS pairs, three alternating xsh-runtime-stats execution-allocation pairs; separate release processes; exact stdout/status parity",
+    "linux": "20 rotating-order before/candidate release-process pairs per shape in pinned xsh-test linux/arm64 image; CLOCK_MONOTONIC elapsed time and wait4 ru_maxrss from a small disposable C harness; all statuses 0 and six direct outputs checked",
+    "linux_image": "xsh-test sha256:d0f68ca08b586dc3b2de8c34bbd1317186ee20c4df6d48ba396c517d620f4b53; aarch64-unknown-linux-musl and flags from dev/targets.xsh::docker_test_env"
+  },
+  "binaries_sha256": {
+    "macos_xsh": {
+      "before": "91956f26784d9432cf9b966bd21124d17963f6ecaa9abdf6451bdd97c5a2d194",
+      "candidate": "a1fdeefab17c777f246511db8136fdef8fb997de5a420e82cb33ebc6505dde20"
+    },
+    "macos_stats": {
+      "before": "b4e8d45e0d23e822a3dc2e0400e037e4318a80edf828e611d09553435c6fa3c4",
+      "candidate": "fa591016a2c22decca4add092577dc944384a7e7562551d879440fb3706a48d0"
+    },
+    "linux_xsh": {
+      "before": "50fd33e91eca2d294bafab14adb000b98d8abbb7d3518cc21322c98db20e67c6",
+      "candidate": "7146511525adfef5d63507f0c9f74bf4166a3c322889b2a5676bb5a3a4e149b1"
+    }
+  },
+  "macos": {
+    "host": "macOS-26.5.2-arm64-arm-64bit-Mach-O",
+    "wall_ms_raw": {
+      "inline": {
+        "before": [92.29, 80.518, 76.61, 79.445, 104.426, 77.453, 77.965, 76.094, 78.034, 75.279, 76.838, 76.101, 76.982, 77.607, 76.099, 115.131],
+        "candidate": [112.117, 76.672, 74.915, 104.543, 78.385, 113.559, 91.482, 76.711, 76.307, 76.325, 76.152, 78.825, 98.207, 76.771, 78.089, 76.87]
+      },
+      "proc": {
+        "before": [156.414, 157.973, 154.098, 158.856, 152.277, 157.013, 155.956, 184.044, 154.451, 153.291, 156.162, 156.34, 165.229, 158.845, 154.49, 157.727],
+        "candidate": [162.996, 155.961, 154.123, 167.816, 147.488, 149.235, 149.35, 173.717, 147.521, 148.552, 147.231, 147.776, 149.96, 150.479, 152.192, 150.821]
+      },
+      "pure": {
+        "before": [157.788, 151.596, 154.161, 156.459, 158.085, 174.088, 157.363, 156.696, 156.407, 160.218, 154.141, 153.068, 181.193, 156.117, 160.972, 157.534],
+        "candidate": [153.869, 148.709, 147.998, 148.058, 164.67, 147.288, 154.738, 174.038, 146.637, 145.183, 150.048, 145.99, 145.702, 171.798, 151.229, 151.634]
+      }
+    },
+    "wall_ms_median": {
+      "inline": {
+        "before": 77.53,
+        "candidate": 77.4795
+      },
+      "proc": {
+        "before": 156.377,
+        "candidate": 150.2195
+      },
+      "pure": {
+        "before": 157.02949999999998,
+        "candidate": 149.3785
+      }
+    },
+    "peak_rss_bytes_raw": {
+      "inline": {
+        "before": [12910592, 12992512, 13041664, 12746752, 12877824],
+        "candidate": [12861440, 12861440, 12894208, 12943360, 12812288]
+      },
+      "proc": {
+        "before": [12943360, 13008896, 12976128, 12910592, 13008896],
+        "candidate": [13025280, 12894208, 12926976, 12959744, 13090816]
+      },
+      "pure": {
+        "before": [13107200, 12894208, 12877824, 12976128, 12845056],
+        "candidate": [12910592, 13008896, 12992512, 13008896, 13041664]
+      }
+    },
+    "peak_rss_bytes_median": {
+      "inline": {
+        "before": 12910592,
+        "candidate": 12861440
+      },
+      "proc": {
+        "before": 12976128,
+        "candidate": 12959744
+      },
+      "pure": {
+        "before": 12894208,
+        "candidate": 13008896
+      }
+    },
+    "execution_allocations_raw": {
+      "inline": {
+        "before": [
+          {
+            "status": 0,
+            "stdout_sha256": "1a8110c8c72eb4f9ba2a710a10376c37ad0ec2168c6ccfb4ce481ee1458f30da",
+            "alloc_count": 200280,
+            "alloc_bytes": 28819303,
+            "peak_bytes": 13479
+          },
+          {
+            "status": 0,
+            "stdout_sha256": "1a8110c8c72eb4f9ba2a710a10376c37ad0ec2168c6ccfb4ce481ee1458f30da",
+            "alloc_count": 200280,
+            "alloc_bytes": 28819303,
+            "peak_bytes": 13479
+          },
+          {
+            "status": 0,
+            "stdout_sha256": "1a8110c8c72eb4f9ba2a710a10376c37ad0ec2168c6ccfb4ce481ee1458f30da",
+            "alloc_count": 200280,
+            "alloc_bytes": 28819303,
+            "peak_bytes": 13479
+          }
+        ],
+        "candidate": [
+          {
+            "status": 0,
+            "stdout_sha256": "1a8110c8c72eb4f9ba2a710a10376c37ad0ec2168c6ccfb4ce481ee1458f30da",
+            "alloc_count": 200280,
+            "alloc_bytes": 28819303,
+            "peak_bytes": 13479
+          },
+          {
+            "status": 0,
+            "stdout_sha256": "1a8110c8c72eb4f9ba2a710a10376c37ad0ec2168c6ccfb4ce481ee1458f30da",
+            "alloc_count": 200280,
+            "alloc_bytes": 28819303,
+            "peak_bytes": 13479
+          },
+          {
+            "status": 0,
+            "stdout_sha256": "1a8110c8c72eb4f9ba2a710a10376c37ad0ec2168c6ccfb4ce481ee1458f30da",
+            "alloc_count": 200280,
+            "alloc_bytes": 28819303,
+            "peak_bytes": 13479
+          }
+        ]
+      },
+      "proc": {
+        "before": [
+          {
+            "status": 0,
+            "stdout_sha256": "1a8110c8c72eb4f9ba2a710a10376c37ad0ec2168c6ccfb4ce481ee1458f30da",
+            "alloc_count": 1000286,
+            "alloc_bytes": 112021831,
+            "peak_bytes": 15943
+          },
+          {
+            "status": 0,
+            "stdout_sha256": "1a8110c8c72eb4f9ba2a710a10376c37ad0ec2168c6ccfb4ce481ee1458f30da",
+            "alloc_count": 1000286,
+            "alloc_bytes": 112021831,
+            "peak_bytes": 15943
+          },
+          {
+            "status": 0,
+            "stdout_sha256": "1a8110c8c72eb4f9ba2a710a10376c37ad0ec2168c6ccfb4ce481ee1458f30da",
+            "alloc_count": 1000286,
+            "alloc_bytes": 112021831,
+            "peak_bytes": 15943
+          }
+        ],
+        "candidate": [
+          {
+            "status": 0,
+            "stdout_sha256": "1a8110c8c72eb4f9ba2a710a10376c37ad0ec2168c6ccfb4ce481ee1458f30da",
+            "alloc_count": 900289,
+            "alloc_bytes": 108823143,
+            "peak_bytes": 25287
+          },
+          {
+            "status": 0,
+            "stdout_sha256": "1a8110c8c72eb4f9ba2a710a10376c37ad0ec2168c6ccfb4ce481ee1458f30da",
+            "alloc_count": 900289,
+            "alloc_bytes": 108823143,
+            "peak_bytes": 25287
+          },
+          {
+            "status": 0,
+            "stdout_sha256": "1a8110c8c72eb4f9ba2a710a10376c37ad0ec2168c6ccfb4ce481ee1458f30da",
+            "alloc_count": 900289,
+            "alloc_bytes": 108823143,
+            "peak_bytes": 25287
+          }
+        ]
+      },
+      "pure": {
+        "before": [
+          {
+            "status": 0,
+            "stdout_sha256": "1a8110c8c72eb4f9ba2a710a10376c37ad0ec2168c6ccfb4ce481ee1458f30da",
+            "alloc_count": 1000286,
+            "alloc_bytes": 112021831,
+            "peak_bytes": 15943
+          },
+          {
+            "status": 0,
+            "stdout_sha256": "1a8110c8c72eb4f9ba2a710a10376c37ad0ec2168c6ccfb4ce481ee1458f30da",
+            "alloc_count": 1000286,
+            "alloc_bytes": 112021831,
+            "peak_bytes": 15943
+          },
+          {
+            "status": 0,
+            "stdout_sha256": "1a8110c8c72eb4f9ba2a710a10376c37ad0ec2168c6ccfb4ce481ee1458f30da",
+            "alloc_count": 1000286,
+            "alloc_bytes": 112021831,
+            "peak_bytes": 15943
+          }
+        ],
+        "candidate": [
+          {
+            "status": 0,
+            "stdout_sha256": "1a8110c8c72eb4f9ba2a710a10376c37ad0ec2168c6ccfb4ce481ee1458f30da",
+            "alloc_count": 900289,
+            "alloc_bytes": 108823143,
+            "peak_bytes": 25287
+          },
+          {
+            "status": 0,
+            "stdout_sha256": "1a8110c8c72eb4f9ba2a710a10376c37ad0ec2168c6ccfb4ce481ee1458f30da",
+            "alloc_count": 900289,
+            "alloc_bytes": 108823143,
+            "peak_bytes": 25287
+          },
+          {
+            "status": 0,
+            "stdout_sha256": "1a8110c8c72eb4f9ba2a710a10376c37ad0ec2168c6ccfb4ce481ee1458f30da",
+            "alloc_count": 900289,
+            "alloc_bytes": 108823143,
+            "peak_bytes": 25287
+          }
+        ]
+      }
+    }
+  },
+  "linux": {
+    "wall_ms_raw": {
+      "inline": {
+        "before": [90.717, 66.056, 66.412, 66.266, 66.472, 66.376, 65.976, 65.932, 66.634, 66.632, 65.649, 66.204, 67.225, 68.498, 67.534, 68.588, 67.815, 67.595, 67.926, 67.834],
+        "candidate": [73.104, 66.136, 65.596, 66.235, 66.618, 65.88, 65.872, 65.917, 67.193, 66.309, 65.477, 66.755, 67.101, 67.516, 67.557, 66.91, 66.79, 67.132, 67.545, 67.012]
+      },
+      "proc": {
+        "before": [141.425, 140.511, 139.389, 141.674, 141.581, 137.741, 139.745, 139.637, 141.23, 142.446, 139.991, 143.746, 145.242, 143.115, 143.004, 142.518, 142.548, 145.679, 144.366, 143.292],
+        "candidate": [136.654, 137.57, 135.825, 136.844, 139.887, 136.143, 136.233, 137.581, 139.328, 137.136, 136.091, 142.016, 139.446, 140.38, 150.716, 139.489, 139.375, 141.758, 141.223, 139.255]
+      },
+      "pure": {
+        "before": [139.645, 139.098, 138.536, 139.444, 139.264, 139.238, 139.73, 140.117, 139.818, 138.194, 139.831, 138.774, 143.183, 140.861, 141.468, 141.673, 142.56, 141.565, 142.174, 140.471],
+        "candidate": [136.885, 135.006, 134.914, 136.448, 137.795, 136.012, 134.827, 136.21, 135.56, 138.099, 135.005, 134.742, 139.347, 138.523, 138.07, 138.442, 139.998, 138.91, 139.319, 138.719]
+      }
+    },
+    "wall_ms_median": {
+      "inline": {
+        "before": 66.63300000000001,
+        "candidate": 66.77250000000001
+      },
+      "proc": {
+        "before": 142.06,
+        "candidate": 139.29149999999998
+      },
+      "pure": {
+        "before": 139.8245,
+        "candidate": 137.33999999999997
+      }
+    },
+    "peak_rss_kb_raw": {
+      "inline": {
+        "before": [14848, 14884, 14880, 14872, 14904, 14904, 14892, 14892, 14892, 14896, 14876, 14908, 14892, 14904, 14880, 14892, 14888, 14892, 14904, 14892],
+        "candidate": [14924, 14900, 14904, 14904, 14916, 14916, 14900, 14888, 14900, 14900, 14900, 14896, 14916, 14896, 14892, 14904, 14892, 14904, 14892, 14912]
+      },
+      "proc": {
+        "before": [14888, 14888, 14892, 14884, 14880, 14884, 14888, 14888, 14892, 14884, 14888, 14888, 14888, 14884, 14896, 14888, 14888, 14896, 14880, 14892],
+        "candidate": [14832, 14836, 14824, 14836, 14844, 14840, 14836, 14836, 14836, 14836, 14836, 14824, 14840, 14832, 14852, 14848, 14832, 14824, 14832, 14832]
+      },
+      "pure": {
+        "before": [14892, 14876, 14884, 14892, 14880, 14896, 14876, 14884, 14884, 14904, 14884, 14888, 14888, 14888, 14876, 14888, 14884, 14884, 14900, 14892],
+        "candidate": [14820, 14836, 14836, 14832, 14836, 14840, 14840, 14824, 14844, 14824, 14828, 14840, 14844, 14832, 14844, 14832, 14848, 14828, 14832, 14832]
+      }
+    },
+    "peak_rss_kb_median": {
+      "inline": {
+        "before": 14892.0,
+        "candidate": 14900.0
+      },
+      "proc": {
+        "before": 14888.0,
+        "candidate": 14836.0
+      },
+      "pure": {
+        "before": 14886.0,
+        "candidate": 14834.0
+      }
+    },
+    "all_120_statuses_zero": true
+  },
+  "stdout_sha256": "1a8110c8c72eb4f9ba2a710a10376c37ad0ec2168c6ccfb4ce481ee1458f30da",
+  "decision": "Keep: one fewer execution allocation per call in this shape (99,997 fewer across 100,000 calls), 3,198,688 fewer allocated bytes, lower paired medians on both hosts, exact output parity, and no meaningful process-RSS change. This measures one bounded call shape and does not close the broader runtime-cost investigation."
+}

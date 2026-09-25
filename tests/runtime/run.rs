@@ -1,5 +1,7 @@
 use super::common::*;
 
+// Copying both executables into an isolated directory exercises their embedded
+// linkage and process output; a native script cannot relocate either product.
 #[test]
 fn copied_products_check_and_run_script_backed_calls_in_static_and_loaded_modules() {
     let root = temp_path("copied-products-stdlib-linkage");

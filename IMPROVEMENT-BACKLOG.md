@@ -57,7 +57,7 @@ public APIs require a separate decision backed by repeated real use.
 section is the only remaining port task list.
 
 - **B01 · P1.** Complete the owner-run `xsht lint` row in `bench/stdlib-port/tooling.py` on macOS and pinned Linux. `results-b01-tooling.json` records matched B0/B1/candidate release measurements, exact parity, and raw samples for `xsht api` and `xsht check` on both hosts. The candidate passes both rows; B1's macOS `xsht check` regression is visible. `AGENTS.md` forbids agents from running linters.
-- **B08 · P1/M.** Investigate bounded call, stage, argument, block, and frame overhead in the existing indexed runtime; keep the explicit-frame small-stack route, Result propagation, traces, and private bridge authority intact.
+- **B08 · P1/M.** Investigate bounded stage, argument, block, and remaining frame overhead in the existing indexed runtime; keep the explicit-frame small-stack route, Result propagation, traces, and private bridge authority intact. For fully supplied non-rest user calls, moving the evaluated argument vector into frame slots removed 99,997 allocations and 3.20 MB of allocation traffic across 100,000 calls, with lower paired release medians on macOS and pinned Linux (`bench/call-slot-ownership-b08-2026-09-25.json`). This one call shape does not establish a general runtime speedup.
 
 ## C. Runtime, streams, and memory
 

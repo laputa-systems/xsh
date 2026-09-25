@@ -9445,6 +9445,30 @@ impl Evaluator {
         Ok(self.lowered_call_slots(lowered, values))
     }
 
+    fn bind_lowered_values_owned(
+        &mut self,
+        lowered: &FunctionHeader,
+        mut args: Vec<LoweredValue>,
+        span: Span,
+    ) -> Result<Vec<LoweredValue>, RuntimeError> {
+        if lowered_rest_index(lowered).is_none()
+            && args.len() == lowered.params.len()
+            && lowered.slot_count <= args.capacity()
+            && lowered
+                .param_kinds
+                .iter()
+                .copied()
+                .enumerate()
+                .all(|(index, kind)| lowered_value_matches_param(lowered, index, kind, &args[index]))
+        {
+            // A fully bound call owns its evaluated arguments. Use that vector
+            // as the frame slots so the binding step need not copy the values.
+            args.resize(lowered.slot_count, LoweredValue::Int(0));
+            return Ok(args);
+        }
+        self.bind_lowered_values(lowered, &args, span)
+    }
+
     fn lowered_call_slots(
         &mut self,
         lowered: &FunctionHeader,

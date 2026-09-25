@@ -64,6 +64,13 @@ early-return cases as passed, so record whether a privileged case actually ran.
 | Broad cross-cutting work | closest targeted tests | relevant filtered package tests; unfiltered `cargo test` is owner-run |
 | Ambient filesystem authority policy | `cargo test --test ambient_fs_policy` | relevant filtered tests; unfiltered `cargo test --tests` is owner-run |
 
+As of 2026-09-25, `cargo dev bench --fast` stops while compiling the sibling
+`../../rustybench` crate: its `allocator_api` use lacks the feature gate on the
+pinned nightly toolchain. The command does not reach XSH's benchmark cases.
+Until that sibling build is repaired, record paired workload samples and the
+applicable behavior gates directly; a failed benchmark invocation is not a
+performance pass.
+
 ## Native XSH Test Rule
 
 Language behavior **must** be specified in the native XSH corpus, normally in
