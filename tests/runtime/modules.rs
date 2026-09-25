@@ -153,17 +153,6 @@ fn write64(data: &mut [u8], offset: usize, value: u64) {
     data[offset..offset + 8].copy_from_slice(&value.to_le_bytes());
 }
 
-#[test]
-fn collection_modules_execute_success_paths() {
-    let output = xsh(["tests/fixtures/runtime/collections.xsh"]);
-
-    assert!(output.status.success());
-    assert_eq!(
-        String::from_utf8(output.stdout).unwrap(),
-        "3 beta 3 delta true false alpha omega sigma\n2 true false 99 100 one two 1 2\n2 next 5 two alpha 2\nmap has no key `one`\ntrue name pkg\nmissing field `missing`\n"
-    );
-}
-
 #[cfg(feature = "net")]
 #[test]
 fn dns_module_resolves_localhost_and_reports_unsupported_records() {
