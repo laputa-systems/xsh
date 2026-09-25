@@ -432,6 +432,71 @@ print ${configure.label("pkgconf")}
   test.eq(output.stderr, "")?
 }
 
+proc test_module_import_alias_trace_and_cycle(ctx: TestContext) [fs, error] {
+  let root = test.temp_dir(ctx, name: "module-imports")?
+  fp"${root}/helper.xsh".write(r"""
+##! Helper fixture module.
+use package as p
+
+let greeting = "hi"
+
+pure line(name: Str) -> Str {
+  return f"${greeting} ${name}"
+}
+
+## Greets by name.
+export proc greet(name: Str) -> Result[Unit] {
+  print ${line(name)}
+  return Ok()
+}
+
+## Shows a package name.
+export proc show(pkg: p.Package) -> Result[Unit] {
+  print ${line(pkg.name)}
+  return Ok()
+}
+""")?
+  fp"${root}/package.xsh".write(r"""
+##! Package fixture module.
+let secret = "hidden"
+## Public package type.
+export type Package = {name: Str, root: Path}
+## Public package value.
+export let pkg: Package = {name: "demo", root: Path("src")}
+""")?
+
+  let source = r"""
+use helper
+use package as p
+helper.greet("world")?
+helper.greet("namespace")?
+helper.show(p.pkg)?
+print ${p.pkg.name}
+match p.get("Package") {
+  Err(error) => {
+    test.error_kind(error, "missing-field")?
+    print "missing-field"
+  }
+}
+"""
+  let module_env = {XSH_MODULE_PATH: root.display()}
+  let output = test.run_script(ctx, source, [], module_env)?
+  test.ok(output.success, output.stderr)?
+  test.eq(output.stdout, "hi world\nhi namespace\nhi demo\ndemo\nmissing-field\n")?
+  test.eq(output.stderr, "")?
+
+  let traced = test.run_xsht_trace(ctx, source, ["--raw"], [], module_env)?
+  test.ok(traced.success, traced.stderr)?
+  test.contains(traced.stderr, "kind=pure.enter")?
+  test.contains(traced.stderr, "greet")?
+
+  fp"${root}/a.xsh".write("##! Cycle fixture A.\n## Public cycle value.\nuse b\nexport let value = 1\n")?
+  fp"${root}/b.xsh".write("##! Cycle fixture B.\n## Public cycle value.\nuse a\nexport let value = 2\n")?
+  let cycle = test.run_script(ctx, "use a\n", [], module_env)?
+  test.eq(cycle.status, 2)?
+  test.contains(cycle.stderr, "parse.module-cycle")?
+}
+
 proc test_stream_exports_are_namespace_members_not_module_contract_members(ctx: TestContext) [fs, error] {
   let root = test.temp_dir(ctx, name: "module-stream-contract")?
   fp"${root}/stream_only.xsh".write("""
