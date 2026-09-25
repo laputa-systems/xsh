@@ -183,7 +183,9 @@ there is no contiguous columnar buffer to vectorize. Levers applied (all landed)
 - **String literals are `Arc<str>` in the AST** — evaluating a literal is a bump,
   not a fresh allocation (a `where` predicate's `"file"`/`""` no longer allocate
   per item).
-- **Scope maps are pooled** — `push_scope` recycles a cleared `HashMap`.
+- **Indexed lexical bindings use slots** — the remaining evaluator scope map
+  stores `Name` symbol IDs in `FxHashMap<Name, Binding>`, avoiding a string-key
+  allocation and SipHash on each bind.
 - **Cheaper hot helpers**: zero-alloc directory sort (compare borrowed bytes, not
   `sort_by_key` re-running an allocating key fn); `translate`/`Str.lower` ASCII
   byte scan with no per-call `Vec<char>`.
@@ -269,8 +271,6 @@ could win on flat trees. See §7 pitfalls.
   rather than an equivalent replacement. An eager metadata read followed by
   lazy field construction would need separate evidence on a larger tree and
   must preserve metadata-error timing.
-- **Per-bind scope key allocation + SipHash** — needs `Arc<str>` param names
-  (a wider AST change) or a faster hasher.
 - **Intra-directory parallel walk splitting** — to make a parallel/fused walk win
   on flat trees (see §6).
 - **Bytecode/compiled stage blocks** — cut per-item dispatch; helps the serial
