@@ -495,6 +495,20 @@ proc main(...argv: List[Str]) [error] {
   test.contains(auto_main.stderr, "bad args")?
 }
 
+proc test_explicit_zero_arg_main_runs_once(ctx: TestContext) [error] {
+  let output = test.run_script(
+    ctx,
+    """
+proc main() [error] -> Result[Unit] { print 5 }
+main()?
+""",
+  )?
+
+  test.ok(output.success, output.stderr)?
+  test.eq(output.stdout, "5\n")?
+  test.eq(output.stderr, "")?
+}
+
 proc test_whole_script_run_error_diagnostics(ctx: TestContext) [error] {
   let details = test.run_script(
     ctx,
