@@ -166,8 +166,8 @@ traversal when pulled.
 ## 6. Performance model
 
 The pipeline is a **single-threaded tree-walking interpreter over boxed heap
-`Value`s** unless an explicit `--jobs`/parallel-walk path engages. The cost is
-interpreter dispatch + heap traffic, **not** memory bandwidth or cache layout —
+`Value`s** unless an explicit `par-map` or `reduce-by --jobs` stage engages. The
+cost is interpreter dispatch + heap traffic, **not** memory bandwidth or cache layout —
 there is no contiguous columnar buffer to vectorize. Levers applied (all landed):
 
 - **`Value` is 48 bytes** on the supported 64-bit targets (was 216).
@@ -229,11 +229,15 @@ overhead and the error path can be preserved.
 
 An adjacent `par-map |> reduce-by` folds mapped records on worker threads.
 A *fused* parallel walk (walk workers run the pipeline + fold inline)
-was built and **measured slower on flat trees** — one huge directory is processed
-by a single worker while the rest idle — so it was removed. Record-partitioning
-avoids that tree-shape problem; intra-directory work-splitting (batching a large directory's
-entries onto the work-stack) would be required before per-directory parallelism
-could win on flat trees. See §7 pitfalls.
+was built and measured slower on flat trees, where one large directory kept
+only one worker busy, so it was removed. The current serial `fs.walk` traversed
+20,000 empty files with `stat: true` faster in one flat directory than in 100
+directories on both hosts: 124 versus 131 ms median on macOS, and 100 versus
+120 ms on pinned Linux (10 paired release runs per host). Peak RSS was about
+83 MB for both shapes on macOS and 83 versus 85 MB on Linux. Exact counts and
+raw samples are in `bench/fs-walk-shape-c04-2026-09-24.json`. Keep the serial
+walker until a real workload demonstrates a traversal bottleneck; this shape
+comparison does not justify intra-directory work splitting.
 
 ## 7. Pitfalls (and the user-facing guidance)
 
@@ -271,7 +275,5 @@ could win on flat trees. See §7 pitfalls.
   rather than an equivalent replacement. An eager metadata read followed by
   lazy field construction would need separate evidence on a larger tree and
   must preserve metadata-error timing.
-- **Intra-directory parallel walk splitting** — to make a parallel/fused walk win
-  on flat trees (see §6).
 - **Bytecode/compiled stage blocks** — cut per-item dispatch; helps the serial
   path and every parallel worker, with no determinism cost.

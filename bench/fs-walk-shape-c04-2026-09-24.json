@@ -1,0 +1,222 @@
+{
+  "date": "2026-09-24",
+  "source_commit": "b01a8e7b2a9c3e1c346c42ba22fefab02da2649b",
+  "purpose": "C04 current serial fs.walk shape baseline before considering intra-directory parallel splitting",
+  "corpus": {
+    "flat_files": 20000,
+    "sharded_files": 20000,
+    "sharded_directories": 100,
+    "files_per_shard": 200,
+    "file_contents": "empty",
+    "root": "target/c04-walk-shapes"
+  },
+  "generation": "For each index in range(20000), touch flat/file-{index:05d}.xsh and sharded/dir-{index//200:03d}/file-{index:05d}.xsh.",
+  "workload": "fs.walk(root, gitignore: false, stat: true) |> where .kind == \"file\" |> count(); both layouts must print exactly 20000",
+  "script": "bench/fs-walk-shape.xsh",
+  "script_sha256": "36b2116cb35543f2abbeff9c7d000b8abbdfa3e8c501a9f91f382204a0cc3c20",
+  "macos": {
+    "host": "macOS-26.5.2-arm64-arm-64bit-Mach-O",
+    "binary": "target/release/xsh",
+    "binary_sha256": "f8b57f29cf38a81ccbefa5ebce66d8c05ff5c38cecfc386debeab08b8026780c",
+    "method": "10 alternating-order pairs; subprocess wall time includes startup; /usr/bin/time -l peak RSS; exact stdout 20000 and zero status required",
+    "raw_pairs": {
+      "flat": [
+        {
+          "wall_ms": 119.023,
+          "peak_rss_bytes": 83034112
+        },
+        {
+          "wall_ms": 119.474,
+          "peak_rss_bytes": 82968576
+        },
+        {
+          "wall_ms": 121.412,
+          "peak_rss_bytes": 83017728
+        },
+        {
+          "wall_ms": 123.574,
+          "peak_rss_bytes": 83034112
+        },
+        {
+          "wall_ms": 128.2,
+          "peak_rss_bytes": 83001344
+        },
+        {
+          "wall_ms": 126.623,
+          "peak_rss_bytes": 83050496
+        },
+        {
+          "wall_ms": 127.649,
+          "peak_rss_bytes": 83034112
+        },
+        {
+          "wall_ms": 123.386,
+          "peak_rss_bytes": 82984960
+        },
+        {
+          "wall_ms": 124.462,
+          "peak_rss_bytes": 82903040
+        },
+        {
+          "wall_ms": 125.949,
+          "peak_rss_bytes": 82968576
+        }
+      ],
+      "sharded": [
+        {
+          "wall_ms": 125.086,
+          "peak_rss_bytes": 83509248
+        },
+        {
+          "wall_ms": 129.792,
+          "peak_rss_bytes": 83525632
+        },
+        {
+          "wall_ms": 134.939,
+          "peak_rss_bytes": 83361792
+        },
+        {
+          "wall_ms": 140.89,
+          "peak_rss_bytes": 83460096
+        },
+        {
+          "wall_ms": 136.73,
+          "peak_rss_bytes": 83345408
+        },
+        {
+          "wall_ms": 136.133,
+          "peak_rss_bytes": 83574784
+        },
+        {
+          "wall_ms": 128.839,
+          "peak_rss_bytes": 83492864
+        },
+        {
+          "wall_ms": 131.063,
+          "peak_rss_bytes": 83410944
+        },
+        {
+          "wall_ms": 130.818,
+          "peak_rss_bytes": 83427328
+        },
+        {
+          "wall_ms": 131.115,
+          "peak_rss_bytes": 83345408
+        }
+      ]
+    },
+    "medians": {
+      "flat": {
+        "wall_ms": 124.018,
+        "peak_rss_bytes": 83009536.0
+      },
+      "sharded": {
+        "wall_ms": 131.089,
+        "peak_rss_bytes": 83443712.0
+      }
+    }
+  },
+  "linux": {
+    "host": "pinned Dockerfile.test xsh-test aarch64-unknown-linux-musl",
+    "binary": "target/aarch64-unknown-linux-musl/release/xsh",
+    "binary_sha256": "01acf5869df7515fe5319705718e7616331e8e402416e3004ff1209d06e2c14c",
+    "method": "10 alternating-order pairs in one pinned container; GNU /usr/bin/time -f %e %M; wall timer has 10 ms resolution; exact stdout 20000 and zero status required",
+    "raw_pairs": {
+      "flat": [
+        {
+          "wall_ms": 100.0,
+          "peak_rss_bytes": 83001344
+        },
+        {
+          "wall_ms": 110.0,
+          "peak_rss_bytes": 82968576
+        },
+        {
+          "wall_ms": 110.0,
+          "peak_rss_bytes": 83001344
+        },
+        {
+          "wall_ms": 100.0,
+          "peak_rss_bytes": 82980864
+        },
+        {
+          "wall_ms": 110.0,
+          "peak_rss_bytes": 83001344
+        },
+        {
+          "wall_ms": 100.0,
+          "peak_rss_bytes": 82980864
+        },
+        {
+          "wall_ms": 100.0,
+          "peak_rss_bytes": 82980864
+        },
+        {
+          "wall_ms": 100.0,
+          "peak_rss_bytes": 82980864
+        },
+        {
+          "wall_ms": 100.0,
+          "peak_rss_bytes": 82993152
+        },
+        {
+          "wall_ms": 100.0,
+          "peak_rss_bytes": 82976768
+        }
+      ],
+      "sharded": [
+        {
+          "wall_ms": 120.0,
+          "peak_rss_bytes": 85090304
+        },
+        {
+          "wall_ms": 120.0,
+          "peak_rss_bytes": 85082112
+        },
+        {
+          "wall_ms": 130.0,
+          "peak_rss_bytes": 85106688
+        },
+        {
+          "wall_ms": 130.0,
+          "peak_rss_bytes": 85098496
+        },
+        {
+          "wall_ms": 120.0,
+          "peak_rss_bytes": 85090304
+        },
+        {
+          "wall_ms": 120.0,
+          "peak_rss_bytes": 85086208
+        },
+        {
+          "wall_ms": 130.0,
+          "peak_rss_bytes": 85094400
+        },
+        {
+          "wall_ms": 120.0,
+          "peak_rss_bytes": 85102592
+        },
+        {
+          "wall_ms": 120.0,
+          "peak_rss_bytes": 85082112
+        },
+        {
+          "wall_ms": 120.0,
+          "peak_rss_bytes": 85073920
+        }
+      ]
+    },
+    "medians": {
+      "flat": {
+        "wall_ms": 100.0,
+        "peak_rss_bytes": 82980864.0
+      },
+      "sharded": {
+        "wall_ms": 120.0,
+        "peak_rss_bytes": 85090304.0
+      }
+    }
+  },
+  "decision": "Keep serial lazy fs.walk. The current flat traversal is faster than the sharded layout on both hosts, and the previously tried fused per-directory parallel walk lost on flat trees. This measurement supplies no reason to add intra-directory parallel splitting or another walker; reconsider only with a real workload that shows a serial traversal bottleneck."
+}
