@@ -237,6 +237,20 @@ the exact candidate expression. The candidate did lower median peak RSS from
 measured large-file workload where bounded memory offsets per-line stream
 overhead and the error path can be preserved.
 
+`showcase/perf-collapse.xsh` was tested separately on a 10.79 MB perf-script
+input with 30,000 samples. Passing `Path.lines()` to the fold produced identical
+valid output, but raised median wall time from 1587.886 to 1599.695 ms and
+median peak RSS from 36.29 to 36.93 MB. A late invalid UTF-8 byte still
+produced no output and status 3, but changed the error from a propagated
+file-read result to a stream runtime error. The candidate was rejected;
+`bench/perf-collapse-lines-c06-2026-09-24.json` has the raw samples. Other
+whole-file readers retain useful boundaries: `core/rg.xsh` emits matches as it
+goes, so a live read could print partial results before a late decode failure;
+the per-file scanner tasks in `showcase/secret-scan.xsh` and
+`showcase/todo-scan.xsh` discard a file's hits when its read fails; and
+`showcase/csv-query.xsh` materializes rows for sorting and grouping. These
+two measured rejections close the current scanner-conversion experiment.
+
 ### Choosing a parallel strategy
 
 An adjacent `par-map |> reduce-by` folds mapped records on worker threads.

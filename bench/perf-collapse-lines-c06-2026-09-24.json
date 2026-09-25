@@ -1,0 +1,30 @@
+{
+  "date": "2026-09-24",
+  "host": "macOS-arm64",
+  "release_xsh_sha256": "91956f26784d9432cf9b966bd21124d17963f6ecaa9abdf6451bdd97c5a2d194",
+  "workload": "showcase/perf-collapse.xsh -- PERF_SCRIPT; 10,000 repetitions of the built-in three-sample perf script, 10,790,000 bytes and 30,000 samples",
+  "input_sha256": "fb971ae90d948aa216589815b35844767bec62c30e562a567540bb7ea87e368f",
+  "candidate": "In a disposable copy, replace collapse_text(source: Str) and source.lines() with collapse_lines(lines: Stream[Str]) and opts.input.lines()?; wrap the built-in sample's lines in a stream producer for the no-argument route. No product source edit.",
+  "method": "Five alternating release-process timing pairs using Python perf_counter_ns; three alternating /usr/bin/time -l peak-RSS pairs; exact status/stdout parity on valid input; late-invalid-UTF-8 status, stdout, and diagnostic inspection",
+  "wall_ms_raw": {
+    "whole_file": [1592.145, 1587.886, 1589.554, 1583.6, 1569.705],
+    "stream_lines": [1595.481, 1602.87, 1602.262, 1599.695, 1598.495]
+  },
+  "wall_ms_median": {"whole_file": 1587.886, "stream_lines": 1599.695},
+  "peak_rss_bytes_raw": {
+    "whole_file": [36323328, 36290560, 36257792],
+    "stream_lines": [36929536, 36782080, 36929536]
+  },
+  "peak_rss_bytes_median": {"whole_file": 36290560, "stream_lines": 36929536},
+  "valid_input": {
+    "status": 0,
+    "stdout_sha256": "a156729d4bcd95bed302889d3c24fc6477fd598901abe3201481c45edf8b2037",
+    "exact_stdout_parity": true
+  },
+  "late_invalid_utf8": {
+    "input": "two built-in samples followed by byte ff and newline",
+    "whole_file": {"status": 3, "stdout_empty": true, "operation": "result.propagate", "error": "invalid-utf8: file is not valid UTF-8 at byte 2158"},
+    "stream_lines": {"status": 3, "stdout_empty": true, "operation": "runtime.error", "error": "invalid-utf8: stream did not contain valid UTF-8"}
+  },
+  "decision": "reject: line streaming raised median wall time and peak RSS on the measured large-file workload and changed the late-invalid-UTF-8 diagnostic; keep the whole-file implementation"
+}
