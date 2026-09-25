@@ -35,6 +35,98 @@ export proc execute(root: Path) [fs, error] -> Result[Unit] {
   test.eq(fp"${root}/out.txt".read_text()?, "demo")?
 }
 
+proc test_module_load_exports_private_fields_and_contract_errors(ctx: TestContext) [fs, error] {
+  let root = test.temp_dir(ctx, name: "dynamic-module-contract")?
+  fp"${root}/helper.xsh".write(r"""
+##! Dynamic helper module.
+## Exposes the helper name.
+export let helper_name = "demo"
+
+## Renders a helper label.
+export pure helper_label(value: Str) -> Str {
+  return f"helper:${value}"
+}
+""")?
+  let package = fp"${root}/package.xsh"
+  package.write(r"""
+##! Dynamic package module.
+use helper
+
+let prefix = helper_name
+
+pure label_private(value: Str) -> Str {
+  return f"${prefix}-${value}"
+}
+
+proc emit_private(value: Str) -> Result[Unit] {
+  print ${label_private(value)}
+}
+
+## Exposes the package name.
+export let name = prefix
+
+## Renders a package label.
+export pure label(value: Str) -> Str {
+  return label_private(value)
+}
+
+## Emits the package build value.
+export proc build(value: Str) -> Result[Unit] {
+  emit_private(value)?
+}
+""")?
+
+  let module_env = {XSH_MODULE_PATH: root.display()}
+  let success = test.run_script(
+    ctx,
+    f"""
+type DynamicPackage = module {
+  export let name: Str
+  export pure label(value: Str) -> Str
+  export proc build(value: Str) -> Result[Unit]
+}
+let checked = module.load(p"${package.display()}")?.require(DynamicPackage)?
+let name: Str = checked.name
+let rendered: Str = checked.label(name)
+print \${rendered}
+checked.build("built")?
+""",
+    [],
+    module_env,
+  )?
+  test.ok(success.success, success.stderr)?
+  test.eq(success.stdout, "demo-demo\ndemo-built\n")?
+
+  let private = test.run_script(
+    ctx,
+    f"""let loaded = module.load(p"${package.display()}")?
+let value = loaded.prefix
+""",
+    [],
+    module_env,
+  )?
+  test.eq(private.status, 3)?
+  test.contains(private.stderr, "missing-field")?
+  test.contains(private.stderr, "prefix")?
+
+  let mismatch = test.run_script(
+    ctx,
+    f"""
+type BadPackage = module {
+  export proc build(path: Path) -> Result[Unit]
+}
+let loaded = module.load(p"${package.display()}")?
+match loaded.require(BadPackage) {
+  Err(error) => test.error_kind(error, "schema")?
+  Ok(_) => test.fail("incompatible contract succeeded")?
+}
+""",
+    [],
+    module_env,
+  )?
+  test.ok(mismatch.success, mismatch.stderr)?
+}
+
 proc test_module_load_rejects_undocumented_export(ctx: TestContext) [fs, error] {
   let root = test.temp_dir(ctx, name: "undocumented-module")?
   let plugin_path = fp"${root}/undocumented.xsh"
