@@ -135,6 +135,11 @@ by that same post-hook cleanup path. Cleanup drains runtime completion so
 scheduler permits and temporary download files cannot outlive the evaluator. A job is single-consumption:
 `NetJob.wait` and `NetJob.cancel` both consume it, including aliases of the
 same value.
+`tests/runtime/process.rs::sigterm_drains_process_net_job_and_parallel_workers_with_trace_parentage`
+holds a spawned child, a stalled `NetJob`, and `par-map` workers live at one
+SIGTERM checkpoint. It verifies that the connection closes, delayed child and
+worker effects do not occur, and each resource's trace events retain ancestry
+to the script.
 
 Tracing is the evidence layer for the whole design. Runtime traces are not just
 logs; they preserve the dynamic graph that source syntax alone cannot show:

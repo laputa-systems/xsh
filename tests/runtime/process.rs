@@ -350,9 +350,105 @@ while true {{
 }
 
 #[cfg(all(feature = "net", any(target_os = "linux", target_os = "macos")))]
+#[test]
+fn sigterm_drains_process_net_job_and_parallel_workers_with_trace_parentage() {
+    let root = tempfile::TempDir::new().expect("create mixed work root");
+    let request_started = root.path().join("request-started");
+    let process_ready = root.path().join("process-ready");
+    let stream_ready = root.path().join("stream-ready");
+    let process_leaked = root.path().join("process-leaked");
+    let worker_leaked = root.path().join("worker-leaked");
+    let server = SignalNetServer::spawn(request_started.clone(), None);
+    let shell = "trap '' TERM; (sleep 2; printf leaked > \"$2\") & printf ready > \"$1\"; wait";
+    // The HTTP server and signal injection are host boundaries; the script
+    // asserts the resource lifecycle through XSH's public operations.
+    let source = format!(
+        "\
+let request_started = Path({})
+let process_ready = Path({})
+let stream_ready = Path({})
+let process_leaked = Path({})
+let worker_leaked = Path({})
+let child = spawn process.command_argv(\"sh\", [\"sh\", \"-c\", {}, \"sh\", process_ready.display(), process_leaked.display()]) ?
+let job = net.start({{method: \"GET\", url: {}}})?
+while ! request_started.exists()? or ! process_ready.exists()? {{
+  time.sleep(1ms)?
+}}
+let values = [1, 2] |> par-map --jobs=2 {{ |value|
+  fs.write(stream_ready, \"ready\")?
+  time.sleep(2s)?
+  fs.write(worker_leaked, \"leaked\")?
+  value
+}} |> collect()
+print ${{values.len()}}
+",
+        xsh_string_literal(request_started.to_str().expect("UTF-8 request marker")),
+        xsh_string_literal(process_ready.to_str().expect("UTF-8 process marker")),
+        xsh_string_literal(stream_ready.to_str().expect("UTF-8 stream marker")),
+        xsh_string_literal(process_leaked.to_str().expect("UTF-8 process leak marker")),
+        xsh_string_literal(worker_leaked.to_str().expect("UTF-8 worker leak marker")),
+        xsh_string_literal(shell),
+        xsh_string_literal(&server.url),
+    );
+
+    let output = run_cancelable_temp_script(
+        "cancel-mixed-owned-work",
+        &source,
+        ["--trace", "--raw"],
+        &stream_ready,
+        libc::SIGTERM,
+    );
+
+    assert_eq!(output.status.code(), Some(3));
+    let stderr = String::from_utf8(output.stderr).expect("UTF-8 trace");
+    assert!(stderr.contains("canceled"), "{stderr}");
+    let mut trace = std::collections::HashMap::new();
+    for line in stderr.lines().filter(|line| line.starts_with("id=")) {
+        let fields = line.split_whitespace().take(4).collect::<Vec<_>>();
+        let id = fields[0]
+            .strip_prefix("id=")
+            .expect("trace event id")
+            .parse::<u64>()
+            .expect("numeric trace event id");
+        let parent = fields[1].strip_prefix("parent=").expect("trace parent");
+        let parent = (parent != "-").then(|| parent.parse::<u64>().expect("numeric trace parent"));
+        let kind = fields[3].strip_prefix("kind=").expect("trace kind");
+        trace.insert(id, (parent, kind.to_string()));
+    }
+    let root_id = trace
+        .iter()
+        .find_map(|(id, (parent, kind))| (parent.is_none() && kind == "script.enter").then_some(*id))
+        .expect("script trace root");
+    for kind in [
+        "spawn.start",
+        "net.job.accepted",
+        "net.job.shutdown_cancel",
+        "parallel.job.start",
+        "parallel.job.end",
+    ] {
+        let id = trace
+            .iter()
+            .find_map(|(id, (_, event_kind))| (event_kind == kind).then_some(*id))
+            .unwrap_or_else(|| panic!("missing {kind}:\n{stderr}"));
+        let mut cursor = Some(id);
+        for _ in 0..trace.len() {
+            if cursor == Some(root_id) {
+                break;
+            }
+            cursor = cursor.and_then(|event_id| trace.get(&event_id).and_then(|event| event.0));
+        }
+        assert_eq!(cursor, Some(root_id), "orphaned {kind}:\n{stderr}");
+    }
+    assert!(server.join(), "network connection survived cancellation");
+    std::thread::sleep(Duration::from_millis(2300));
+    assert!(!process_leaked.exists(), "spawned process survived cancellation");
+    assert!(!worker_leaked.exists(), "parallel worker survived cancellation");
+}
+
+#[cfg(all(feature = "net", any(target_os = "linux", target_os = "macos")))]
 struct SignalNetServer {
     url: String,
-    handle: std::thread::JoinHandle<()>,
+    handle: std::thread::JoinHandle<bool>,
 }
 
 #[cfg(all(feature = "net", any(target_os = "linux", target_os = "macos")))]
@@ -402,7 +498,11 @@ impl SignalNetServer {
             }
 
             let mut byte = [0_u8; 1];
-            let _ = stream.read(&mut byte);
+            match stream.read(&mut byte) {
+                Ok(0) => true,
+                Err(error) if error.kind() == std::io::ErrorKind::ConnectionReset => true,
+                _ => false,
+            }
         });
         Self {
             url: format!("http://{addr}"),
@@ -410,8 +510,8 @@ impl SignalNetServer {
         }
     }
 
-    fn join(self) {
-        self.handle.join().expect("join signal HTTP server");
+    fn join(self) -> bool {
+        self.handle.join().expect("join signal HTTP server")
     }
 }
 

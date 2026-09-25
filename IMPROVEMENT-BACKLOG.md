@@ -85,7 +85,6 @@ allocation/RSS evidence; no new execution engine is implied.
 
 ## F. Linux, host operations, and network
 
-- **F04 · P1.** Prove cancellation and cleanup when process work, a network job, and a stream worker coexist; assert trace parentage and no surviving owned handles.
 - **F05 · P2.** Audit host error kind and byte preservation at file, path, environment, and process boundaries using native XSH tests for semantics and Rust tests for exact OS bytes. The three product CLIs now reject non-UTF-8 argv with status 2 instead of panicking; other host boundaries remain to review.
 - **F06 · P2.** Check Linux real-mode tests against the feature/profile matrix in `dev/targets.xsh`; a skipped privileged test must say which capability or fixture is missing.
 - **F07 · P2/M.** Run syscall diagnostics for representative core commands and stream pipelines in the approved container before changing host adapters (`docs/BENCHMARKING.md`).
