@@ -23,3 +23,7 @@ Use `cli.parse` for ordinary option records, including short aliases and
 clusters, and reserve `cli.tokens` for applets whose option grammar is itself
 the feature. Keep usage errors local and explicit, preserve Unix-compatible
 stdout shapes, and cover behavior through `core/tests/*.xsh`.
+
+`core/wc.xsh` reads raw bytes for line and byte counts, so `-l` and `-c`
+accept non-UTF-8 input. Word counts still use `Str.count_words()` and require
+valid UTF-8.

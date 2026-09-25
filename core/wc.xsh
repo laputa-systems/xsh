@@ -1,8 +1,9 @@
 #!/bin/xsh
 type Counts = {lines: Int, words: Int, bytes: Int}
 
-pure count_text(text_data: Str) -> Counts {
-  return {lines: text_data.count_lines(), words: text_data.count_words(), bytes: text_data.count_bytes()}
+pure count_data(data: Bytes, show_words: Bool) -> Result[Counts] {
+  let words = if show_words { data.utf8()?.count_words() } else { 0 }
+  return {lines: data.count_lines(), words, bytes: data.len()}
 }
 
 pure add_counts(left: Counts, right: Counts) -> Counts {
@@ -94,7 +95,7 @@ proc main(...argv: List[Str]) [fs, error, io] {
   }
 
   if parsed.paths.len() == 0 {
-    let counts = count_text(io.stdin_text()?)
+    let counts = count_data(io.stdin_bytes()?, show_words)?
     let width = max_digits([counts], show_lines, show_words, show_bytes)
     let empty = ""
     print_line(counts, empty, show_lines, show_words, show_bytes, width)
@@ -110,10 +111,10 @@ proc main(...argv: List[Str]) [fs, error, io] {
     var label = item
 
     if item == "-" {
-      counts = count_text(io.stdin_text()?)
+      counts = count_data(io.stdin_bytes()?, show_words)?
     } else {
       let target = fp"${item}"
-      counts = count_text(target.read_text()?)
+      counts = count_data(target.read_bytes()?, show_words)?
     }
 
     if parsed.paths.len() == 1 and item == "-" {
