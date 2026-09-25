@@ -43,7 +43,7 @@ public APIs require a separate decision backed by repeated real use.
    when their policy changes.
 3. **F09:** identify the intermittent inherited descriptor from the expanded
    helper report before changing socket or spawn behavior.
-4. **J01–J14, last:** reintegrate the stable XSH build with `../packages` and
+4. **J07, J09–J14, last:** reintegrate the stable XSH build with `../packages` and
    `../laputa`, progressing from static checks to isolated Linux tests and QEMU.
 
 ## A. Correctness and test evidence
@@ -72,19 +72,27 @@ section is the only remaining port task list.
 ## J. Reintegration with `../packages` and `../laputa` — final phase
 
 These are downstream consumers of XSH and have their own `AGENTS.md` contracts.
-Begin only after the XSH correctness and performance work above is stable.
 Use read-only and static checks first; package builds, named Docker volumes,
 QEMU, installer images, release artifacts, and publication are later gates.
 Keep PM policy in `../packages` and image/QEMU policy in `../laputa`.
 
-- **J01 · P1.** Inventory which checked-out or published `xsh`/`xshi`/`xsht` binaries each downstream route uses (`../packages/Makefile`, `../laputa/Makefile`, and `../laputa/update-xsh.xsh`); record exact versions and feature sets before comparing results.
-- **J02 · P1.** Run `xsht check` on `../packages/pm.xsh` and `pm/*.xsh` with a matching local debug product; separate checker errors from the Linux runtime and fixture work in J06.
-- **J03 · P1.** Check `../laputa/laputa.xsh`, `laputa/*.xsh`, and its native tests with `xsht check --strict`; keep installer modules in their separate route.
-- **J04 · P1.** Test global exported-name and module-path collisions across both consumers; `../laputa/AGENTS.md` calls out the shared runtime symbol table explicitly.
-- **J05 · P1.** Verify the `../packages/Makefile` local-binary build targets against current workspace package ownership; `xsh`, `xshi`, and `xsht` are owned by distinct packages in this tree.
-- **J06 · P1.** Run the PM suite against local XSH in the approved Linux container, preserving `../packages/AGENTS.md` source mounts and scratch isolation; compare with its pinned published-release baseline.
-- **J07 · P1.** Compare PM plan JSON, canonical fingerprints, store receipt validation, and root-generation outputs across the two binaries on deterministic fixtures; a compiler/runtime change must not silently change package identity.
-- **J08 · P1.** Run Laputa's typed `qemu-dwl-foot` plan and focused native module tests before invoking its Docker build; compare profile and artifact paths with the existing baseline.
+The checked-out macOS route uses `target/debug/{xsh,xshi,xsht}` with default
+`native-tests net tools` features; the local Linux debug route uses the pinned
+`xsh-test` ARM64 musl image with explicit `xsh/native-tests xsh/net xsh/tools
+xsht/native-tests`. The package scratch image and Laputa package-tools image
+still pin published `release-d09c6c3305ab8c650043bd8d32e03f2db6509e97`,
+built with `net tools`; Laputa's host Makefile uses checked-out debug `xsh`.
+The PM static check, Laputa strict check and native modules, and combined PM/
+Laputa import test pass with the local build. Separate file identities and
+captured `args` shadowing are covered in XSH native tests. Package local-binary
+targets now select the owning Cargo packages and matching Linux flags. The local
+Linux route passes 110 PM tests plus the filesystem test. The published pin's
+first PM suite runs 20/23 tests and fails three tagged-constructor cases; it is
+not a passing comparison baseline for today's PM source. Laputa's local ARM64
+plan writes byte-identical BuildPlan and generation-plan JSON across two runs;
+the pinned runtime cannot load the new typed generation boundary.
+
+- **J07 · P1.** After J12 supplies a published binary compatible with the current PM source, compare PM plan JSON, canonical fingerprints, store receipt validation, and root-generation outputs across the two binaries on deterministic fixtures. Executor binary identity is part of a BuildPlan, so classify expected key changes separately from semantic drift.
 - **J09 · P1.** Run the Laputa native `linux/arm64` Docker build using the checked-out packages graph and named volumes; preserve the container-local staging and atomic final-copy boundary in `../laputa/AGENTS.md`.
 - **J10 · P1.** After J09 passes, run QEMU/QMP proof and inspect its recorded markers; distinguish guest boot, package, image, and XSH runtime failures.
 - **J11 · P2.** Verify installer image and installer QEMU tests as an independent product route after the core profile passes; do not route installer work through `qemu-dwl-foot` policy.
