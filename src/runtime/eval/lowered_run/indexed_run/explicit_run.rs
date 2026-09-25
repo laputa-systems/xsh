@@ -399,15 +399,15 @@ pub(super) enum ProducerStep {
 
 /// Pools of the vectors a frame allocates on every call.
 ///
-/// Every call allocates its work stack, its slot-scope list, and the statement
-/// list of the body it runs; every return frees them. A bounded pool turns
-/// those allocations into reuse, the same way `lowered_slot_pool` does for
-/// slots.
+/// Every call uses a work stack, slot-scope list, statement list, and decoded
+/// argument list. Bounded pools reuse their storage across completed calls,
+/// the same way `lowered_slot_pool` does for slots.
 #[derive(Default)]
 pub(in crate::runtime::eval) struct FrameScratch {
     work: Vec<Vec<FrameWork>>,
     slot_scopes: Vec<Vec<u64>>,
     statements: Vec<Vec<u32>>,
+    call_args: Vec<Vec<(u32, u32)>>,
     /// How many statement lists were handed out fresh, and how many came back
     /// from the pool. A loop that reuses its body's list moves only the second:
     /// that is the claim `loop_iterations_reuse_their_statement_list` reads, and
@@ -441,6 +441,18 @@ impl FrameScratch {
                 Vec::new()
             }
         }
+    }
+
+    fn take_call_args(&mut self) -> Vec<(u32, u32)> {
+        self.call_args.pop().unwrap_or_default()
+    }
+
+    fn recycle_call_args(&mut self, mut args: Vec<(u32, u32)>) {
+        if args.capacity() > 32 || self.call_args.len() >= Self::POOL_CAP {
+            return;
+        }
+        args.clear();
+        self.call_args.push(args);
     }
 
     /// Returns a statement list whose entries have all run.
@@ -1702,7 +1714,13 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                         .0
                 };
                 let kind = self.function_kind(function, span)?;
-                let args = decode_call_args(&self.calls[index].execution, &mut payload, span)?;
+                let mut args = self.evaluator.frame_scratch.take_call_args();
+                decode_call_args_into(
+                    &self.calls[index].execution,
+                    &mut payload,
+                    span,
+                    &mut args,
+                )?;
                 let value_span = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
                 indexed_finish(payload, span)?;
                 if let Some((_, value)) = args.first().copied() {
@@ -1725,6 +1743,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     // reaches the call decision here instead of through
                     // `FrameContinuation::CallArguments`. Both paths resolve
                     // the callee the same way.
+                    self.evaluator.frame_scratch.recycle_call_args(args);
                     self.push_resolved_call(index, function, kind, Vec::new(), value_span, next)?;
                 }
             }
@@ -2150,6 +2169,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                             },
                         );
                     } else {
+                        self.evaluator.frame_scratch.recycle_call_args(args);
                         self.push_resolved_call(index, function, kind, values, span, *next)?;
                     }
                 }
@@ -3380,19 +3400,21 @@ fn decode_statement_block_into(
     decode_statements_into(payload, span, statements)
 }
 
-fn decode_call_args<'a>(
+fn decode_call_args_into<'a>(
     execution: &FullExecution<'a>,
     payload: &mut FullPayload<'a>,
     span: Span,
-) -> Result<Vec<(u32, u32)>, RuntimeError> {
+    values: &mut Vec<(u32, u32)>,
+) -> Result<(), RuntimeError> {
     let (_, mut args) = execution
         .block(payload, BLOCK_LIST)
         .map_err(|error| indexed_error(error, span))?;
     let len = indexed_raw(&mut args, span)? as usize;
-    let mut values = Vec::with_capacity(len);
+    values.clear();
+    values.reserve(len);
     for _ in 0..len {
         values.push((indexed_raw(&mut args, span)?, indexed_raw(&mut args, span)?));
     }
     indexed_finish(args, span)?;
-    Ok(values)
+    Ok(())
 }
