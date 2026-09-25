@@ -41,9 +41,7 @@ public APIs require a separate decision backed by repeated real use.
 1. **B01:** complete the owner-run `xsht lint` tooling row on both hosts.
 2. **E01–E02:** finish the formatter fixture and migrate layout families only
    when their policy changes.
-3. **F09:** identify the intermittent inherited descriptor from the expanded
-   helper report before changing socket or spawn behavior.
-4. **J07 and J11, last:** finish release compatibility and the x86_64 installer
+3. **J07 and J11, last:** finish release compatibility and the x86_64 installer
    route after the checked-out ARM64 profile and installer QEMU proofs.
 
 ## A. Correctness and test evidence
@@ -64,10 +62,6 @@ section is the only remaining port task list.
 - **E02 · P2.** Migrate one formatter construct family to `Doc`/`DocRenderer` when its layout changes; verify the beauty fixture and syntax gate rather than rewriting the formatter wholesale.
 - **E04 · P1.** Complete owner-run `xsht lint` and `xsht fmt --check` parity on script-backed standard calls in static and dynamically loaded user modules. `tests/runtime/run.rs::copied_products_check_and_run_script_backed_calls_in_static_and_loaded_modules` now verifies copied `xsht check` and `xsh` execution without repository files on macOS and pinned Linux. Agents cannot invoke linters or formatters under `AGENTS.md`.
 - **E07 · P2.** Improve `xsht` cold single-file check latency only after the paired tooling route attributes its preparation cost; retain checker equivalence with the runner.
-
-## F. Linux, host operations, and network
-
-- **F09 · P1/M.** Reproduce an intermittent inherited descriptor in `runtime::modules::native_xsh_net_runtime_descriptors_do_not_survive_exec` on macOS. One full filtered runtime gate reported fd 9 in the child; the exact case, later full gates, 30 isolated reruns, and 100 further focused repetitions passed. `xsh-test-show-fds` now reports the inherited fd kind and socket ports. On Apple targets, `crates/xsh-net/src/lib.rs::async_connect_resolved_tcp` sets close-on-exec after socket creation, and `crates/xsh-net/src/runtime.rs::FileLane::submit` sets it after `UnixStream::pair`; either interval could overlap a spawn, but neither is yet identified as fd 9. Use the helper's next failure to identify the descriptor and make a deterministic fixture before changing socket or process-spawn policy.
 
 ## J. Reintegration with `../packages` and `../laputa` — final phase
 

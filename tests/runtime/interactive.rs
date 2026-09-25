@@ -143,6 +143,17 @@ fn xshi_requires_tty_for_normal_startup() {
 }
 
 #[test]
+fn xshi_pty_master_does_not_survive_exec() {
+    let _pty = spawn_xshi_pty();
+    let output = Command::new(cargo_env!("CARGO_BIN_EXE_xsh-test-show-fds"))
+        .output()
+        .expect("inspect descriptors in child process");
+
+    assert!(output.status.success());
+    assert_eq!(String::from_utf8(output.stdout).unwrap(), "");
+}
+
+#[test]
 fn xshi_runs_prompt_loop_on_pty() {
     let mut pty = spawn_xshi_pty();
 
@@ -779,44 +790,37 @@ fn spawn_xshi_pty_with_binary_and_temp_home(
     colored: bool,
 ) -> PtyXshi {
     let guard = pty_test_guard();
-    let mut master = 0;
-    let mut slave = 0;
-    let opened = unsafe {
-        libc::openpty(
-            &mut master,
-            &mut slave,
-            std::ptr::null_mut(),
-            std::ptr::null_mut(),
-            std::ptr::null_mut(),
+    let master_fd = unsafe { libc::posix_openpt(libc::O_RDWR | libc::O_NOCTTY | libc::O_CLOEXEC) };
+    assert!(master_fd >= 0, "posix_openpt: {}", std::io::Error::last_os_error());
+    let master = unsafe { std::fs::File::from_raw_fd(master_fd) };
+    assert_eq!(unsafe { libc::grantpt(master.as_raw_fd()) }, 0, "grantpt failed");
+    assert_eq!(unsafe { libc::unlockpt(master.as_raw_fd()) }, 0, "unlockpt failed");
+    let slave_name = unsafe { libc::ptsname(master.as_raw_fd()) };
+    assert!(!slave_name.is_null(), "ptsname failed");
+    let slave_fd = unsafe {
+        libc::open(
+            slave_name,
+            libc::O_RDWR | libc::O_NOCTTY | libc::O_CLOEXEC,
         )
     };
-    assert_eq!(opened, 0);
+    assert!(slave_fd >= 0, "open pty slave: {}", std::io::Error::last_os_error());
+    let slave = unsafe { std::fs::File::from_raw_fd(slave_fd) };
     let mut attrs = unsafe { std::mem::zeroed::<libc::termios>() };
-    let got_attrs = unsafe { libc::tcgetattr(slave, &mut attrs) };
+    let got_attrs = unsafe { libc::tcgetattr(slave.as_raw_fd(), &mut attrs) };
     assert_eq!(got_attrs, 0);
     attrs.c_lflag |= libc::ICANON | libc::ECHO | libc::ISIG;
     attrs.c_iflag |= libc::ICRNL;
     attrs.c_oflag |= libc::OPOST | libc::ONLCR;
     attrs.c_cc[libc::VINTR] = 0x03;
     attrs.c_cc[libc::VSUSP] = 0x1a;
-    let set_attrs = unsafe { libc::tcsetattr(slave, libc::TCSANOW, &attrs) };
+    let set_attrs = unsafe { libc::tcsetattr(slave.as_raw_fd(), libc::TCSANOW, &attrs) };
     assert_eq!(set_attrs, 0);
 
-    set_fd_nonblocking(master);
-    let stdin_fd = unsafe { libc::dup(slave) };
-    let stdout_fd = unsafe { libc::dup(slave) };
-    let stderr_fd = unsafe { libc::dup(slave) };
-    assert!(stdin_fd >= 0);
-    assert!(stdout_fd >= 0);
-    assert!(stderr_fd >= 0);
-
-    let master = unsafe { std::fs::File::from_raw_fd(master) };
-    let stdin = unsafe { std::fs::File::from_raw_fd(stdin_fd) };
-    let stdout = unsafe { std::fs::File::from_raw_fd(stdout_fd) };
-    let stderr = unsafe { std::fs::File::from_raw_fd(stderr_fd) };
-    unsafe {
-        libc::close(slave);
-    }
+    set_fd_nonblocking(master.as_raw_fd());
+    let stdin = duplicate_pty_slave(&slave);
+    let stdout = duplicate_pty_slave(&slave);
+    let stderr = duplicate_pty_slave(&slave);
+    drop(slave);
 
     let mut command = Command::new(binary);
     command.arg0("xshi");
@@ -856,6 +860,12 @@ fn spawn_xshi_pty_with_binary_and_temp_home(
         temp_home,
         _guard: guard,
     }
+}
+
+fn duplicate_pty_slave(slave: &std::fs::File) -> std::fs::File {
+    let fd = unsafe { libc::fcntl(slave.as_raw_fd(), libc::F_DUPFD_CLOEXEC, 0) };
+    assert!(fd >= 0, "duplicate pty slave: {}", std::io::Error::last_os_error());
+    unsafe { std::fs::File::from_raw_fd(fd) }
 }
 
 fn terminal_screen(transcript: &str) -> Vec<String> {

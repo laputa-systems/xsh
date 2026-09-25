@@ -73,6 +73,12 @@ early-return cases as passed, so record whether a privileged case actually ran.
 | Broad cross-cutting work | closest targeted tests | relevant filtered package tests; unfiltered `cargo test` is owner-run |
 | Ambient filesystem authority policy | `cargo test --test ambient_fs_policy` | relevant filtered tests; unfiltered `cargo test --tests` is owner-run |
 
+The PTY fixture keeps a master descriptor open while it spawns `xshi` and
+other runtime tests may spawn children in parallel. Its master and duplicated
+slave descriptors must have close-on-exec set at creation;
+`runtime::interactive::xshi_pty_master_does_not_survive_exec` checks the
+inherited-descriptor boundary in a child process.
+
 As of 2026-09-25, `cargo dev bench --fast` stops while compiling the sibling
 `../../rustybench` crate: its `allocator_api` use lacks the feature gate on the
 pinned nightly toolchain. The command does not reach XSH's benchmark cases.

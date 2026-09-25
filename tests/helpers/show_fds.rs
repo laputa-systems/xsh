@@ -1,10 +1,10 @@
 //! Describes non-standard descriptors inherited across `exec`.
 //!
-//! The integration test uses this after XSH has initialized its network
-//! runtime. It intentionally scans with `F_GETFD` instead of opening
+//! Integration tests use this in a child process while other descriptors are
+//! live. It intentionally scans with `F_GETFD` instead of opening
 //! `/proc/self/fd` or `/dev/fd`, which would create an observation descriptor
-//! of its own. Socket ports distinguish a fixture server connection from a
-//! runtime transport when a descriptor does leak.
+//! of its own. Socket ports identify live connections; on Apple systems,
+//! character-device paths identify PTY masters.
 
 use std::mem::{MaybeUninit, size_of};
 
@@ -32,12 +32,25 @@ fn describe_fd(fd: i32) -> String {
         _ => "other",
     };
     if kind != "socket" {
-        return kind.to_string();
+        #[cfg(target_vendor = "apple")]
+        return format!("{kind} rdev={} path={}", stat.st_rdev, descriptor_path(fd));
+        #[cfg(not(target_vendor = "apple"))]
+        return format!("{kind} rdev={}", stat.st_rdev);
     }
 
     let local = socket_address(fd, false);
     let peer = socket_address(fd, true);
     format!("socket local={local} peer={peer}")
+}
+
+#[cfg(target_vendor = "apple")]
+fn descriptor_path(fd: i32) -> String {
+    let mut path = [0_u8; 1024];
+    if unsafe { libc::fcntl(fd, libc::F_GETPATH, path.as_mut_ptr()) } == -1 {
+        return format!("error={}", std::io::Error::last_os_error());
+    }
+    let length = path.iter().position(|byte| *byte == 0).unwrap_or(path.len());
+    String::from_utf8_lossy(&path[..length]).into_owned()
 }
 
 fn socket_address(fd: i32, peer: bool) -> String {
