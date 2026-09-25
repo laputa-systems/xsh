@@ -252,6 +252,76 @@ main()?
   test.eq(fp"${root}/out.txt".read_text()?, "static")?
 }
 
+proc test_same_basename_modules_keep_separate_top_level_bindings(ctx: TestContext) [fs, error] {
+  let root = test.temp_dir(ctx, name: "same-basename-modules")?
+  fp"${root}/alpha".mkdir()?
+  fp"${root}/beta".mkdir()?
+  fp"${root}/alpha/proof.xsh".write("""
+##! First proof module.
+let numbers = [2, 3]
+
+## Sums the first module's numbers.
+export pure sum_numbers() -> Int {
+  var total = 0
+  for number in numbers {
+    total += number
+  }
+  return total
+}
+""")?
+  fp"${root}/beta/proof.xsh".write("""
+##! Second proof module.
+let words = ["one", "two", "three"]
+
+## Counts the second module's words.
+export pure count_words() -> Int {
+  var total = 0
+  for word in words {
+    total += 1
+  }
+  return total
+}
+""")?
+
+  let result = test.run_script(
+    ctx,
+    r"""
+use alpha.proof as alpha
+use beta.proof as beta
+print ${alpha.sum_numbers()}
+print ${beta.count_words()}
+""",
+    [],
+    {XSH_MODULE_PATH: root.display()},
+  )?
+  test.ok(result.success, result.stderr)?
+  test.eq(result.stdout, "5\n3\n")?
+}
+
+proc test_imported_local_args_shadows_predeclared_script_arguments(ctx: TestContext) [fs, error] {
+  let root = test.temp_dir(ctx, name: "imported-if-list")?
+  fp"${root}/selector.xsh".write("""
+##! Selects a list in an imported function.
+## Returns the unchanged argument list when no separator is present.
+export pure select(argv: List[Str]) -> List[Str] {
+  let args = if argv.len() > 0 and argv[0] == "--" { [] } else { argv }
+  return args
+}
+""")?
+
+  let result = test.run_script(
+    ctx,
+    r"""
+use selector
+print ${selector.select(["unknown"]).len()}
+""",
+    [],
+    {XSH_MODULE_PATH: root.display()},
+  )?
+  test.ok(result.success, result.stderr)?
+  test.eq(result.stdout, "1\n")?
+}
+
 proc test_static_module_exports_bind_one_namespace(ctx: TestContext) [fs, error] {
   let root = test.temp_dir(ctx, name: "module-namespace")?
   fp"${root}/helper.xsh".write("""

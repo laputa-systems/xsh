@@ -293,7 +293,8 @@ fields with those names because standard record schemas commonly contain fields
 such as `path`.
 `args` is a special case: it is also the predeclared script argument value, so
 ordinary bindings named `args` are allowed in nested scopes; the root binding
-remains the script argument value. Qualified `cli.parse(...)` still resolves to
+remains the script argument value. This also applies inside imported functions.
+Qualified `cli.parse(...)` still resolves to
 the standard module.
 `error` is another compatibility exception: `error` is the conventional payload
 name in `Err(error)` bindings, and the `error.fail(...)` validation operation is
@@ -540,6 +541,7 @@ compile-time names and are not fields in the runtime module record. Imported
 modules may contain
 top-level `use`, `let`, `proc`, `pure`, `stream`, `type`, and `error`
 declarations, but not top-level mutation, commands, or control flow.
+Different resolved module files remain separate even when they share a basename.
 
 An exported named type is resolved in its declaring module before import. Its
 record fields may therefore refer to other types local to that module, and an

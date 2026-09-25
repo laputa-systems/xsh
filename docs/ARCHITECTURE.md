@@ -218,7 +218,9 @@ flag. Internal modules use the reserved namespace `<xsh-stdlib:IDENTITY>`, a
 spelling no XSH identifier can produce, so user source, `use` paths, module
 search roots, and dynamic modules cannot name them. Their helpers are excluded
 from the unqualified declaration tables, from the global top-level name set, and
-from user-module collection. `xsh::frontend::stdlib_preparation` exposes
+from user-module collection. User modules use their resolved file key as the
+internal function namespace, so equal basenames in different directories do not
+share captured bindings. `xsh::frontend::stdlib_preparation` exposes
 test-only preparation counters behind the existing `native-tests` feature.
 `src/stdlib.rs::every_catalog_module_parses_checks_and_lowers` validates every
 bundled implementation, including modules unused on the current target. The

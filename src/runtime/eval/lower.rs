@@ -1422,7 +1422,11 @@ impl SlotScope {
     }
 
     fn declare_capture(&mut self, name: Name) -> usize {
-        let slot = self.declare(name);
+        // A captured top-level binding is visible to the function but was not
+        // declared in its body, so a local declaration may shadow it.
+        let slot = self.high_water;
+        self.high_water += 1;
+        self.indices.insert(name, slot);
         self.captures.insert(name);
         slot
     }

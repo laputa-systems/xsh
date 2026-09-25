@@ -828,18 +828,13 @@ impl<'a, 'b> ArenaModuleLoader<'a, 'b> {
                     return None;
                 }
             };
-        let name = path
-            .last()
-            .copied()
-            .unwrap_or_else(|| crate::symbol::Name::intern("module"));
-        self.load_file_bytes(&module_path, bytes, name, span)
+        self.load_file_bytes(&module_path, bytes, span)
     }
 
     fn load_file_bytes(
         &mut self,
         module_path: &Path,
         bytes: Vec<u8>,
-        name: Name,
         span: Span,
     ) -> Option<String> {
         let key = module_key(module_path);
@@ -901,6 +896,7 @@ impl<'a, 'b> ArenaModuleLoader<'a, 'b> {
         self.load_uses(module_path, parsed.statements);
         self.stack.pop();
         self.loaded.insert(key.clone());
+        let name = self.arena.name(&key);
         self.arena
             .push_arena_module(key.clone(), name, parsed.statements);
         Some(key)

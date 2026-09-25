@@ -63,6 +63,19 @@ proc test_repeated_if_branches_select_statement_and_expression_arms() [error] {
   test.eq(total, 222)?
 }
 
+pure locally_selected_arguments(argv: List[Str]) -> List[Str] {
+  let args = if argv.len() > 0 and argv[0] == "--" { [] } else { argv }
+  return args
+}
+
+proc test_local_args_shadows_predeclared_script_arguments() [error] {
+  test.eq(locally_selected_arguments(["unknown"]), ["unknown"])?
+  test.eq(locally_selected_arguments([]), [])?
+  let argv = ["unknown"]
+  let selected = if argv.len() > 0 and argv[0] == "--" { [] } else { argv }
+  test.eq(selected, ["unknown"])?
+}
+
 proc test_skip() {
   test.skip("later")
 }
