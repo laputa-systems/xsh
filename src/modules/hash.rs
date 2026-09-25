@@ -122,11 +122,30 @@ fn digest_reader(
     reader: &mut dyn Read,
     span: Span,
 ) -> Result<DigestValue, RuntimeError> {
-    let mut bytes = Vec::new();
-    reader
-        .read_to_end(&mut bytes)
-        .map_err(|error| RuntimeError::new("hash-read", error.to_string()).with_span(span))?;
-    Ok(digest_bytes(algorithm, &bytes))
+    let bytes = match algorithm {
+        HashAlgorithm::Md5 => digest_stream::<md5::Md5>(reader, span)?,
+        HashAlgorithm::Sha1 => digest_stream::<sha1::Sha1>(reader, span)?,
+        HashAlgorithm::Sha256 => digest_stream::<sha2::Sha256>(reader, span)?,
+        HashAlgorithm::Sha512 => digest_stream::<sha2::Sha512>(reader, span)?,
+    };
+    Ok(digest_value(algorithm, &bytes))
+}
+
+fn digest_stream<D: md5::Digest + Default>(
+    reader: &mut dyn Read,
+    span: Span,
+) -> Result<Vec<u8>, RuntimeError> {
+    let mut digest = D::default();
+    let mut buffer = [0; 64 * 1024];
+    loop {
+        let count = reader
+            .read(&mut buffer)
+            .map_err(|error| RuntimeError::new("hash-read", error.to_string()).with_span(span))?;
+        if count == 0 {
+            return Ok(digest.finalize().to_vec());
+        }
+        digest.update(&buffer[..count]);
+    }
 }
 
 fn digest_value(algorithm: HashAlgorithm, bytes: &[u8]) -> DigestValue {
@@ -156,4 +175,38 @@ fn hex(bytes: &[u8]) -> String {
         output.push(TABLE[(byte & 0x0f) as usize] as char);
     }
     output
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{digest_bytes, digest_reader, HashAlgorithm};
+    use crate::source::{SourceId, Span};
+    use std::io::{self, Cursor, Read};
+
+    struct BoundedReader(Cursor<Vec<u8>>);
+
+    impl Read for BoundedReader {
+        fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+            if buffer.len() > 64 * 1024 {
+                return Err(io::Error::other("digest requested an unbounded read"));
+            }
+            self.0.read(buffer)
+        }
+    }
+
+    #[test]
+    fn file_digests_read_in_bounded_chunks_with_byte_parity() {
+        let data = (0..(256 * 1024 + 17)).map(|index| index as u8).collect::<Vec<_>>();
+        let span = Span::new(SourceId::new(0), 0, 0);
+        for algorithm in [
+            HashAlgorithm::Md5,
+            HashAlgorithm::Sha1,
+            HashAlgorithm::Sha256,
+            HashAlgorithm::Sha512,
+        ] {
+            let mut reader = BoundedReader(Cursor::new(data.clone()));
+            let file = digest_reader(algorithm, &mut reader, span).expect("bounded file read");
+            assert_eq!(file, digest_bytes(algorithm, &data));
+        }
+    }
 }

@@ -2514,6 +2514,8 @@ extension.
 - `hash.sha256(path: Path) -> Result[Digest]`.
 - `hash.sha512(data: Bytes) -> Digest`.
 - `hash.sha512(path: Path) -> Result[Digest]`.
+- Path overloads read files incrementally, so hashing a file does not retain
+  its full contents in memory. Bytes overloads hash the supplied value.
 - `hash.verify_file(path: Path, sha256: Str) -> Result[Unit]`; the named
   checksum may also be `md5`, `sha1`, or `sha512`.
 - `hash.parse_check_line(line: Str) -> Result[Record]`, accepting GNU-style

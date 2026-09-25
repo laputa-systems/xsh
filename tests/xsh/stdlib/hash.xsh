@@ -118,7 +118,14 @@ proc test_hash_verify_file_policy(ctx: TestContext) [fs, error] {
     round = round + 1
   }
 
+  filler = filler + filler + filler + filler + "end"
+
   fs.write(large, filler)?
+  let large_bytes = bytes.from_text(filler)
+  test.eq(hash.md5(large)?.hex(), hash.md5(large_bytes).hex())?
+  test.eq(hash.sha1(large)?.hex(), hash.sha1(large_bytes).hex())?
+  test.eq(hash.sha256(large)?.hex(), hash.sha256(large_bytes).hex())?
+  test.eq(hash.sha512(large)?.hex(), hash.sha512(large_bytes).hex())?
   let large_digest = hash.sha256(large)?.hex()
   test.eq(verify_message(hash.verify_file(large, sha256: large_digest)), "")?
   test.eq(
