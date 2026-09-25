@@ -367,6 +367,44 @@ l.normalize(context)?
   test.eq(output.stdout, "workspace x86_64-unknown-linux-musl crt-static\n")?
 }
 
+proc test_module_proc_call_preserves_runtime_cwd(ctx: TestContext) [fs, error] {
+  let root = test.temp_dir(ctx, name: "module-proc-cwd")?
+  let src = fp"${root}/src"
+  let out = fp"${root}/cwd.txt"
+  let callee = fp"${root}/callee.xsh"
+  src.mkdir()?
+  callee.write(r"""
+##! CWD writer module.
+## Writes the active runtime working directory.
+export proc write_cwd(out: Path) [fs, error] {
+  fs.write(out, fs.cwd()?.display())?
+}
+""")?
+  fp"${root}/caller.xsh".write(f"""
+##! CWD caller module.
+## Loads the writer and invokes it within the requested directory.
+export proc invoke(src: Path, out: Path) [fs, error] {
+  let module_exports = module.load(p"${callee.display()}")?
+  cd src {
+    let write_cwd: Proc = module_exports.get("write_cwd")?
+    write_cwd.call(out)?
+  } ?
+}
+""")?
+
+  let output = test.run_script(
+    ctx,
+    f"""
+use caller as c
+c.invoke(p"${src.display()}", p"${out.display()}")?
+""",
+    [],
+    {XSH_MODULE_PATH: root.display()},
+  )?
+  test.ok(output.success, output.stderr)?
+  test.eq(out.read_text()?, src.display())?
+}
+
 proc test_stream_exports_are_namespace_members_not_module_contract_members(ctx: TestContext) [fs, error] {
   let root = test.temp_dir(ctx, name: "module-stream-contract")?
   fp"${root}/stream_only.xsh".write("""
