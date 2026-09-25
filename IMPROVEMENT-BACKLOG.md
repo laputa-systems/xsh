@@ -49,7 +49,6 @@ public APIs require a separate decision backed by repeated real use.
 ## A. Correctness and test evidence
 
 - **A02 · P1.** Use an owner-run `cargo dev coverage` report to select one real interactive or Linux workflow gap at a time; require an observable transition or invariant, not a branch-only test (`docs/COVERAGE.md`). The command-position editor gap now has a real-loop test. The coverage workflow runs unfiltered `cargo test`, including formatter and linter tests that agents cannot invoke.
-- **A04 · P1/M.** Resolve the `reduce-by --jobs` execution mismatch and adjacent fusion policy. `FullStageTag::ReduceBy` is serial; an explicit `--jobs` runs once, validates a positive count, and prevents adjacent `par-map |> reduce-by` fusion. Fused workers now share the ordinary reducer's projected-record fast path. The paired release samples in `bench/stream-fusion-2026-09-24.json` show the 50,000-row fused case improving from about 284 to 99 ms while retaining a large memory advantage over the unfused path. Fusion remains slower on the default `showcase/tokei.xsh` workload over `src` and this repository, while `../packages` is near parity. Keep `--jobs` as an escape hatch; decide when fusion should engage after measuring a file corpus large enough to expose its memory tradeoff. Do not add reduce workers without deterministic error and effect semantics.
 
 ## B. Embedded standard library and acceptance performance
 

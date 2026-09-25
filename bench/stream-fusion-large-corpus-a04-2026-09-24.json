@@ -1,0 +1,306 @@
+{
+  "source_commit": "c0e2390aa3dfa157835734716d33c170f3270dfb",
+  "purpose": "A04 eligible par-map to reduce-by fusion policy on a file corpus larger than the 18k-file Sentry-scale reference; the default tokei path uses an identity flat-map between the stages.",
+  "corpus": {
+    "files": 20000,
+    "layout": "single flat directory",
+    "name": "file_{index:05}.rs",
+    "body": "pub fn classify(input: &[u8]) -> usize {\n    input.iter().filter(|byte| **byte != 0).count()\n}\n\n// retained comment\n"
+  },
+  "corpus_bytes": 2320000,
+  "corpus_root": "target/a04-flat-corpus",
+  "generation": "For index in range(20000), write the corpus body to file_{index:05}.rs in one directory.",
+  "variants": {
+    "fused": "showcase/tokei.xsh",
+    "unfused": "source-identical copy with both |> reduce-by --sum forms changed to |> reduce-by --sum --jobs=8"
+  },
+  "build": {
+    "macos": "cargo build -p xsh --bin xsh --release",
+    "linux": "cargo build -p xsh --target aarch64-unknown-linux-musl --bin xsh --release in the pinned Dockerfile.test xsh-test image with dev/targets.xsh musl flags"
+  },
+  "macos": {
+    "host": "macOS ARM64",
+    "binary": "target/release/xsh",
+    "method": "10 alternating-order pairs; subprocess wall time includes startup; /usr/bin/time -l maximum resident set size; exact stdout parity and zero status required",
+    "source_sha256": {
+      "fused": "e5b0c1f1a571dcde888df4d424bb18d5dd9deab4110fdc6510558c0e13cd9167",
+      "unfused": "f46b02879d6d732b77ac09da90d33748859b951ea2f92c533b741c10853f2bb7"
+    },
+    "stdout_sha256": "6e475781be0ea69c294d9e6f4a468ebfc0fa2a5219fbbf523868a5de98356743",
+    "summary": {
+      "fused": {
+        "median_elapsed_ms": 964.86,
+        "median_peak_rss_bytes": 32440320
+      },
+      "unfused": {
+        "median_elapsed_ms": 941.413,
+        "median_peak_rss_bytes": 43696128
+      }
+    },
+    "samples": [
+      {
+        "pair": 1,
+        "variant": "fused",
+        "elapsed_ms": 952.353,
+        "peak_rss_bytes": 32423936
+      },
+      {
+        "pair": 1,
+        "variant": "unfused",
+        "elapsed_ms": 946.107,
+        "peak_rss_bytes": 43696128
+      },
+      {
+        "pair": 2,
+        "variant": "unfused",
+        "elapsed_ms": 940.531,
+        "peak_rss_bytes": 43188224
+      },
+      {
+        "pair": 2,
+        "variant": "fused",
+        "elapsed_ms": 937.874,
+        "peak_rss_bytes": 32489472
+      },
+      {
+        "pair": 3,
+        "variant": "fused",
+        "elapsed_ms": 968.304,
+        "peak_rss_bytes": 32260096
+      },
+      {
+        "pair": 3,
+        "variant": "unfused",
+        "elapsed_ms": 938.209,
+        "peak_rss_bytes": 43810816
+      },
+      {
+        "pair": 4,
+        "variant": "unfused",
+        "elapsed_ms": 949.779,
+        "peak_rss_bytes": 43991040
+      },
+      {
+        "pair": 4,
+        "variant": "fused",
+        "elapsed_ms": 953.591,
+        "peak_rss_bytes": 32178176
+      },
+      {
+        "pair": 5,
+        "variant": "fused",
+        "elapsed_ms": 965.037,
+        "peak_rss_bytes": 32751616
+      },
+      {
+        "pair": 5,
+        "variant": "unfused",
+        "elapsed_ms": 943.597,
+        "peak_rss_bytes": 43679744
+      },
+      {
+        "pair": 6,
+        "variant": "unfused",
+        "elapsed_ms": 926.905,
+        "peak_rss_bytes": 43679744
+      },
+      {
+        "pair": 6,
+        "variant": "fused",
+        "elapsed_ms": 964.683,
+        "peak_rss_bytes": 32456704
+      },
+      {
+        "pair": 7,
+        "variant": "fused",
+        "elapsed_ms": 983.375,
+        "peak_rss_bytes": 32473088
+      },
+      {
+        "pair": 7,
+        "variant": "unfused",
+        "elapsed_ms": 942.295,
+        "peak_rss_bytes": 43581440
+      },
+      {
+        "pair": 8,
+        "variant": "unfused",
+        "elapsed_ms": 921.323,
+        "peak_rss_bytes": 43941888
+      },
+      {
+        "pair": 8,
+        "variant": "fused",
+        "elapsed_ms": 978.679,
+        "peak_rss_bytes": 32423936
+      },
+      {
+        "pair": 9,
+        "variant": "fused",
+        "elapsed_ms": 961.597,
+        "peak_rss_bytes": 32423936
+      },
+      {
+        "pair": 9,
+        "variant": "unfused",
+        "elapsed_ms": 947.189,
+        "peak_rss_bytes": 43696128
+      },
+      {
+        "pair": 10,
+        "variant": "unfused",
+        "elapsed_ms": 926.51,
+        "peak_rss_bytes": 43794432
+      },
+      {
+        "pair": 10,
+        "variant": "fused",
+        "elapsed_ms": 968.601,
+        "peak_rss_bytes": 32800768
+      }
+    ]
+  },
+  "linux": {
+    "host": "pinned Dockerfile.test aarch64-unknown-linux-musl",
+    "binary": "target/aarch64-unknown-linux-musl/release/xsh",
+    "method": "10 alternating-order pairs in one pinned container; GNU /usr/bin/time -f %e %M; exact stdout parity and zero status required; wall time has 10 ms resolution",
+    "source_sha256": {
+      "fused": "e5b0c1f1a571dcde888df4d424bb18d5dd9deab4110fdc6510558c0e13cd9167",
+      "unfused": "f46b02879d6d732b77ac09da90d33748859b951ea2f92c533b741c10853f2bb7"
+    },
+    "stdout_sha256": "6e475781be0ea69c294d9e6f4a468ebfc0fa2a5219fbbf523868a5de98356743",
+    "summary": {
+      "fused": {
+        "median_elapsed_ms": 995.0,
+        "median_peak_rss_bytes": 45598720
+      },
+      "unfused": {
+        "median_elapsed_ms": 1000.0,
+        "median_peak_rss_bytes": 67633152
+      }
+    },
+    "samples": [
+      {
+        "pair": 1,
+        "variant": "fused",
+        "elapsed_ms": 1100.0,
+        "peak_rss_bytes": 47755264
+      },
+      {
+        "pair": 1,
+        "variant": "unfused",
+        "elapsed_ms": 1000.0,
+        "peak_rss_bytes": 67645440
+      },
+      {
+        "pair": 2,
+        "variant": "unfused",
+        "elapsed_ms": 1020.0,
+        "peak_rss_bytes": 62824448
+      },
+      {
+        "pair": 2,
+        "variant": "fused",
+        "elapsed_ms": 1000.0,
+        "peak_rss_bytes": 45592576
+      },
+      {
+        "pair": 3,
+        "variant": "fused",
+        "elapsed_ms": 1010.0,
+        "peak_rss_bytes": 47710208
+      },
+      {
+        "pair": 3,
+        "variant": "unfused",
+        "elapsed_ms": 1030.0,
+        "peak_rss_bytes": 61779968
+      },
+      {
+        "pair": 4,
+        "variant": "unfused",
+        "elapsed_ms": 1000.0,
+        "peak_rss_bytes": 67735552
+      },
+      {
+        "pair": 4,
+        "variant": "fused",
+        "elapsed_ms": 950.0,
+        "peak_rss_bytes": 45576192
+      },
+      {
+        "pair": 5,
+        "variant": "fused",
+        "elapsed_ms": 1030.0,
+        "peak_rss_bytes": 45563904
+      },
+      {
+        "pair": 5,
+        "variant": "unfused",
+        "elapsed_ms": 1000.0,
+        "peak_rss_bytes": 67682304
+      },
+      {
+        "pair": 6,
+        "variant": "unfused",
+        "elapsed_ms": 960.0,
+        "peak_rss_bytes": 67620864
+      },
+      {
+        "pair": 6,
+        "variant": "fused",
+        "elapsed_ms": 1020.0,
+        "peak_rss_bytes": 45580288
+      },
+      {
+        "pair": 7,
+        "variant": "fused",
+        "elapsed_ms": 990.0,
+        "peak_rss_bytes": 45572096
+      },
+      {
+        "pair": 7,
+        "variant": "unfused",
+        "elapsed_ms": 960.0,
+        "peak_rss_bytes": 69844992
+      },
+      {
+        "pair": 8,
+        "variant": "unfused",
+        "elapsed_ms": 1020.0,
+        "peak_rss_bytes": 63860736
+      },
+      {
+        "pair": 8,
+        "variant": "fused",
+        "elapsed_ms": 980.0,
+        "peak_rss_bytes": 45629440
+      },
+      {
+        "pair": 9,
+        "variant": "fused",
+        "elapsed_ms": 980.0,
+        "peak_rss_bytes": 47702016
+      },
+      {
+        "pair": 9,
+        "variant": "unfused",
+        "elapsed_ms": 1030.0,
+        "peak_rss_bytes": 63877120
+      },
+      {
+        "pair": 10,
+        "variant": "unfused",
+        "elapsed_ms": 990.0,
+        "peak_rss_bytes": 67702784
+      },
+      {
+        "pair": 10,
+        "variant": "fused",
+        "elapsed_ms": 960.0,
+        "peak_rss_bytes": 45604864
+      }
+    ]
+  },
+  "decision": "Keep eligible fusion enabled when tracing is off. On this 20k-file corpus it saves about 26% peak RSS on macOS and 33% on Linux; median wall time is about 2.5% slower on macOS and tied within 10 ms Linux timer resolution. Explicit reduce-by --jobs remains the opt-out. No threshold is justified by this and the smaller-corpus results."
+}

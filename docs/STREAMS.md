@@ -109,9 +109,9 @@ The indexed `reduce-by` handler folds serially. For a live source, it reduces
 each row before pulling the next one, uses O(distinct) group storage, and closes
 the producer when reduction fails. The accepted `--jobs=N` option is currently
 evaluated once and validated before the fold, but it does not start reduce
-workers. Adjacent `par-map |> reduce-by` may fuse into worker-local aggregation
-when the `par-map` stage supplies the workers; an explicit `reduce-by --jobs`
-keeps the ordinary reduction stage.
+workers. `par-map |> reduce-by` and `par-map |> flat-map |> reduce-by` with an
+identity flattening block may fuse into worker-local aggregation when `par-map`
+supplies the workers; an explicit `reduce-by --jobs` keeps the ordinary stage.
 
 ### Parallelism boundaries
 
@@ -146,13 +146,20 @@ traversal when pulled.
   for collect-all semantics (`Result` values, including `Err`, stay in-band in the
   output stream). This mirrors how Rust's rayon, Go, and Haskell separate
   parallelism from error handling.
-- **Aggregation fusion.** With tracing disabled, adjacent `par-map |> reduce-by`
-  fuses into worker-local partial maps. Its simple record sums use the same
-  field projection as ordinary `reduce-by`. A measured attempt to carry
+- **Aggregation fusion.** With tracing disabled, direct `par-map |> reduce-by`
+  and `par-map |> flat-map |> reduce-by` with an identity flattening block
+  fuse into worker-local partial maps. Simple record sums use the same field
+  projection as ordinary `reduce-by`. A measured attempt to carry other
   `where`/`map`/`flat-map` suffix stages into that fusion regressed the
-  `showcase/tokei.xsh` workload, so non-adjacent shapes keep the ordinary
-  materialized path for now. An explicit `reduce-by --jobs` keeps the ordinary
-  reduction stage, so its option expression runs once at that boundary.
+  `showcase/tokei.xsh` workload, so those shapes keep the ordinary materialized
+  path. An explicit `reduce-by --jobs` keeps the ordinary reduction stage, so
+  its option expression runs once at that boundary.
+  Keep eligible fusion as the default: on a 20,000-file flat corpus it used
+  about 26% less peak RSS on macOS and 33% less on pinned Linux. Ten paired
+  release runs showed about 2.5% slower median wall time on macOS and a tie
+  within Linux's 10 ms timer resolution. `--jobs` remains the opt-out when
+  throughput matters more than peak memory. Raw samples and exact output
+  parity are in `bench/stream-fusion-large-corpus-a04-2026-09-24.json`.
 - **Adapters** (`text.lines`/`bytes.chunks`/`json.lines`/`json.stream`) are valid
   only as the first stage; they convert a value into the stream the rest consumes.
 
