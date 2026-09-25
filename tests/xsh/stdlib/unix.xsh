@@ -1,3 +1,5 @@
+type DryRunChildEvent = {pid: Int, status: Status}
+
 proc test_unix_dry_run_covers_module_surface(ctx: TestContext) [fs, process, env, error] {
   let root = test.temp_dir(ctx, name: "unix")?
   let log = fp"${root}/unix.jsonl"
@@ -26,9 +28,12 @@ proc test_unix_dry_run_covers_module_surface(ctx: TestContext) [fs, process, env
     let logged = unix.spawn_process_group_log(command, fp"${root}/child.log")?
     let logged_pair = unix.spawn_logged_process_group(command, command)?
     let tty_child = unix.spawn_with_tty(command, tty: "tty1")?
-    test.ok(child.pid > 0)?
-    test.ok(logged.pid > 0)?
-    test.ok(logged_pair.log_pid > 0)?
+    test.eq(child.pid, 1000)?
+    test.ok(! child.new_session)?
+    test.eq(logged.pid, 1002)?
+    test.eq(logged_pair.pid, 1003)?
+    test.eq(logged_pair.log_pid, 1004)?
+    test.eq(tty_child.pid, 1005)?
     test.ok(tty_child.new_session)?
     unix.kill_process_group(child.pid, "TERM")?
     test.error_kind(unix.kill_all("definitely-missing-process", signal: "TERM"), "process-missing")?
@@ -36,11 +41,31 @@ proc test_unix_dry_run_covers_module_surface(ctx: TestContext) [fs, process, env
   } ?
 
   let log_text = log.read_text()?
+  test.contains(log_text, "\"op\":\"reap_child_events\"")?
   test.contains(log_text, "\"op\":\"pid1_setup\"")?
   test.contains(log_text, "\"op\":\"spawn_process_group\"")?
+  test.contains(log_text, "\"op\":\"kill_process_group\"")?
+  test.contains(log_text, "\"op\":\"tty\"")?
+  test.contains(log_text, "\"op\":\"set_tty_attrs\"")?
+  test.contains(log_text, "\"op\":\"set_hostname\"")?
   test.contains(log_text, "\"log_path\"")?
   test.contains(log_text, "\"op\":\"spawn_logged_process_group\"")?
   test.contains(log_text, "\"op\":\"exec\"")?
+}
+
+proc test_unix_dry_run_child_events_are_typed() [process, env, error] {
+  env XSH_UNIX_DRY_RUN=1 XSH_UNIX_DRY_RUN_EVENT_KIND=child XSH_UNIX_DRY_RUN_PID=42 XSH_UNIX_DRY_RUN_CHILD_PID=43 XSH_UNIX_DRY_RUN_STATUS_KIND=signal XSH_UNIX_DRY_RUN_STATUS_CODE=15 {
+    let events: List[DryRunChildEvent] = unix.reap_child_events()?.collect()
+    test.eq(events[0].pid, 43)?
+    test.ok(events[0].status.signaled())?
+    test.eq(events[0].status.signal_number()?, 15)?
+  } ?
+}
+
+proc test_unix_set_hostname_requires_explicit_mode() [process, env, error] {
+  env XSH_UNIX_DRY_RUN="" XSH_UNIX_REAL="" {
+    test.error_kind(unix.set_hostname("xsh"), "unix-real-required")?
+  } ?
 }
 
 proc test_unix_uptime_seconds_dry_run_log(ctx: TestContext) [fs, process, env, error] {

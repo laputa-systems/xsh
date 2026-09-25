@@ -155,7 +155,7 @@ cargo test --test integration runtime::coverage::runnable_xsh_corpus_is_formatte
 | interactive behavior | `tests/runtime/interactive.rs` |
 | Linux-specific behavior | `tests/runtime/linux.rs` |
 | standard modules | `tests/runtime/modules.rs` |
-| OS-facing runtime behavior | `tests/runtime/os.rs`, `tests/runtime/unix.rs` |
+| OS-facing runtime behavior | `tests/xsh/stdlib/unix.xsh`, `tests/runtime/os.rs`, `tests/runtime/unix.rs`, `tests/runtime/linux.rs` |
 | `run_capture`, `spawn_managed`, and process execution | `tests/runtime/process.rs`, `tests/runtime/run.rs` |
 | retry blocks | `tests/runtime/retry.rs` |
 | stack depth and explicit lowered frames | `tests/runtime/stack_depth.rs` |

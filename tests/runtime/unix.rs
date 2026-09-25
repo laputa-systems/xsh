@@ -1,77 +1,6 @@
 use super::common::*;
 
 #[test]
-fn unix_module_dry_run_primitives_are_observable() {
-    let root = temp_path("unix-dry-run");
-    let log = root.join("unix.jsonl");
-    let source = format!(
-        "\
-let root = Path({})
-let log = fp\"${{root}}/unix.jsonl\"
-fs.mkdir(root, parents: true)?
-let command = process.command_argv(\"demo\", [\"demo\", \"arg\"])
-env XSH_UNIX_DRY_RUN=1 XSH_UNIX_DRY_RUN_SIGNAL=USR1 XSH_UNIX_DRY_RUN_PID=42 XSH_UNIX_UPTIME_SECONDS=17 XSH_UNIX_DRY_RUN_LOG=(log) {{
-  let reaped = unix.reap_child_events()?.collect()
-  let uptime = unix.uptime_seconds()?
-  let tty = unix.tty()?
-  let identity = unix.id()?
-  let attrs = unix.tty_attrs()?
-  unix.set_tty_attrs(attrs)?
-  unix.set_hostname(\"xsh\")?
-  let child = unix.spawn_process_group(command)?
-  let logged_child = unix.spawn_logged_process_group(command, command)?
-  let tty_child = unix.spawn_with_tty(command, tty: \"tty1\")?
-  unix.kill_process_group(child.pid, \"TERM\")?
-  unix.exec(command)?
-  print ${{reaped.len()}} ${{uptime}} ${{tty}} ${{identity.groups[0].name}} ${{attrs.raw}} ${{child.pid}} ${{child.new_session}} ${{logged_child.pid}} ${{logged_child.log_pid}} ${{tty_child.pid}} ${{tty_child.new_session}}
-}} ?
-let log_text = fs.read_text(log)?
-print ${{\"set_hostname\" in log_text}} ${{\"spawn_process_group\" in log_text}} ${{\"spawn_logged_process_group\" in log_text}} ${{\"exec\" in log_text}}
-",
-        xsh_string_literal(root.to_str().unwrap())
-    );
-
-    let output = run_temp_script("unix-dry-run", &source);
-
-    assert!(output.status.success(), "{:?}", output);
-    assert_eq!(
-        String::from_utf8(output.stdout).unwrap(),
-        "0 17 /dev/tty root true 1000 false 1001 1002 1003 true\ntrue true true true\n"
-    );
-    let log_text = std::fs::read_to_string(log).expect("read unix dry-run log");
-    assert!(
-        log_text.contains("\"op\":\"reap_child_events\""),
-        "{log_text}"
-    );
-    assert!(
-        log_text.contains("\"op\":\"kill_process_group\""),
-        "{log_text}"
-    );
-    assert!(log_text.contains("\"op\":\"tty\""), "{log_text}");
-    assert!(log_text.contains("\"op\":\"set_tty_attrs\""), "{log_text}");
-    assert!(log_text.contains("\"new_session\":\"false\""), "{log_text}");
-    assert!(log_text.contains("\"new_session\":\"true\""), "{log_text}");
-    let _ = std::fs::remove_dir_all(root);
-}
-
-#[test]
-fn unix_module_dry_run_child_events_are_typed() {
-    let output = run_temp_script(
-        "unix-dry-run-child-events",
-        "\
-type ChildEvent = {pid: Int, status: Status}
-env XSH_UNIX_DRY_RUN=1 XSH_UNIX_DRY_RUN_EVENT_KIND=child XSH_UNIX_DRY_RUN_PID=42 XSH_UNIX_DRY_RUN_CHILD_PID=43 XSH_UNIX_DRY_RUN_STATUS_KIND=signal XSH_UNIX_DRY_RUN_STATUS_CODE=15 {
-  let child_events: List[ChildEvent] = unix.reap_child_events()?.collect()
-  print ${child_events[0].pid} ${child_events[0].status.signaled()} ${child_events[0].status.signal_number()?}
-} ?
-",
-    );
-
-    assert!(output.status.success(), "{:?}", output);
-    assert_eq!(String::from_utf8(output.stdout).unwrap(), "43 true 15\n");
-}
-
-#[test]
 fn unix_uptime_seconds_is_real_by_default() {
     let output = run_temp_script(
         "unix-real-uptime",
@@ -89,27 +18,6 @@ print ${uptime >= 0}
         let stderr = String::from_utf8(output.stderr).unwrap();
         assert!(stderr.contains("unix-unsupported"), "{stderr}");
     }
-}
-
-#[test]
-fn unix_set_hostname_requires_dry_run_or_real_mode() {
-    let output = run_temp_script(
-        "unix-set-hostname-gated",
-        "\
-match unix.set_hostname(\"xsh\") {
-  Err(e) => {
-    test.error_kind(e, \"unix-real-required\")?
-    print \"unix-real-required\"
-  }
-}
-",
-    );
-
-    assert!(output.status.success(), "{:?}", output);
-    assert_eq!(
-        String::from_utf8(output.stdout).unwrap(),
-        "unix-real-required\n"
-    );
 }
 
 #[test]
