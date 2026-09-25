@@ -1,4 +1,6 @@
 #!/bin/xsh
+use lib.text_input as text_input
+
 type SortOptions = {
   reverse: Bool,
   unique: Bool,
@@ -27,24 +29,6 @@ pure field_key(line: Str, delimiter: Str, field: Int, fold_case: Bool) -> Str {
 
 pure numeric_field_key(line: Str, delimiter: Str, field: Int) -> Int {
   return field_key(line, delimiter, field, false).parse_int() ?? 0
-}
-
-proc read_text_inputs(paths: List[Str]) [fs, error, io] -> Result[Str] {
-  var out = ""
-
-  if paths.len() == 0 {
-    return io.stdin_text()?
-  }
-
-  for item in paths {
-    if item == "-" {
-      out = f"${out}${io.stdin_text()?}"
-    } else {
-      out = f"${out}${fp"${item}".read_text()?}"
-    }
-  }
-
-  return out
 }
 
 proc main(...argv: List[Str]) [fs, error, io] {
@@ -95,7 +79,7 @@ proc main(...argv: List[Str]) [fs, error, io] {
   let delimiter = opts.delimiter
   let paths = opts.paths
 
-  let input = read_text_inputs(paths)?
+  let input = text_input.read_text(paths)?
 
   let sorted = if opts.numeric and has_key {
     if opts.reverse {

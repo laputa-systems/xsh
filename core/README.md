@@ -4,7 +4,8 @@ Each `core/*.xsh` applet is a standalone command script by default. Duplicate
 small helpers locally when that keeps an applet self-contained and easy to
 inspect. Shared libraries under `core/lib/` are reserved for audited command
 families whose behavior must stay consistent across multiple applets, such as
-auth account parsing and shadow-file updates.
+auth account parsing and shadow-file updates. `lib/text_input.xsh` preserves
+the file and stdin operand order shared by the line-oriented applets.
 
 `dev/release.xsh::package_core` installs applets without the `.xsh` suffix as
 executable commands. It keeps that suffix for `core/lib/` modules so adjacent

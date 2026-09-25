@@ -1,21 +1,5 @@
 #!/bin/xsh
-proc read_text_inputs(paths: List[Str]) [fs, error, io] -> Result[Str] {
-  var out = ""
-
-  if paths.len() == 0 {
-    return io.stdin_text()?
-  }
-
-  for item in paths {
-    if item == "-" {
-      out = f"${out}${io.stdin_text()?}"
-    } else {
-      out = f"${out}${fp"${item}".read_text()?}"
-    }
-  }
-
-  return out
-}
+use lib.text_input as text_input
 
 type UniqOptions = {show_counts: Bool, only_duplicates: Bool, paths: List[Str]}
 
@@ -43,7 +27,7 @@ proc main(...argv: List[Str]) [fs, error, io] {
   var previous = ""
   var count = 0
 
-  for line in read_text_inputs(paths)?.lines() {
+  for line in text_input.read_text(paths)?.lines() {
     if count == 0 {
       previous = line
       count = 1

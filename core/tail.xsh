@@ -1,25 +1,9 @@
 #!/bin/xsh
+use lib.text_input as text_input
+
 error AppletError = Usage(message: Str) : Usage
 
 type TailOptions = {count: Str, quiet: Bool, verbose: Bool, paths: List[Str]}
-
-proc read_text_inputs(paths: List[Str]) [fs, error, io] -> Result[Str] {
-  var out = ""
-
-  if paths.len() == 0 {
-    return io.stdin_text()?
-  }
-
-  for item in paths {
-    if item == "-" {
-      out = f"${out}${io.stdin_text()?}"
-    } else {
-      out = f"${out}${fp"${item}".read_text()?}"
-    }
-  }
-
-  return out
-}
 
 pure common_int(raw: Str, label: Str) -> Result[Int] {
   match raw {
@@ -76,7 +60,7 @@ proc main(...argv: List[Str]) [fs, error, io] {
       print f"==> ${label} <=="
     }
 
-    let lines = read_text_inputs([item])?.lines().collect()
+    let lines = text_input.read_text([item])?.lines().collect()
     let start = if lines.len() > count { lines.len() - count } else { 0 }
 
     for line in lines |> drop(start) {

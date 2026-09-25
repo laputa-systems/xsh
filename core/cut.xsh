@@ -1,21 +1,5 @@
 #!/bin/xsh
-proc read_text_inputs(paths: List[Str]) [fs, error, io] -> Result[Str] {
-  var out = ""
-
-  if paths.len() == 0 {
-    return io.stdin_text()?
-  }
-
-  for item in paths {
-    if item == "-" {
-      out = f"${out}${io.stdin_text()?}"
-    } else {
-      out = f"${out}${fp"${item}".read_text()?}"
-    }
-  }
-
-  return out
-}
+use lib.text_input as text_input
 
 pure selected_index(index: Int, spec: Str) -> Bool {
   let position = index + 1
@@ -100,7 +84,7 @@ proc main(...argv: List[Str]) [fs, error, io] {
     field_spec = "1"
   }
 
-  for line in read_text_inputs(paths)?.lines() {
+  for line in text_input.read_text(paths)?.lines() {
     if char_spec != "" {
       print cut_chars(line, char_spec)
     } else {

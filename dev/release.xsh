@@ -57,7 +57,7 @@ export proc smoke(ctx: context.Context) [fs, process, error, io] -> Result[Unit]
   )?
 }
 
-## Commands install without `.xsh`; library modules keep it so `use lib.auth`
+## Commands install without `.xsh`; library modules keep it so `use lib.*`
 ## resolves beside packaged commands through the normal module loader.
 export pure core_install_path(relative_source: Path) -> Path {
   if relative_source.display().starts_with("lib/") {
