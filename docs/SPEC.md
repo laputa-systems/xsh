@@ -2610,6 +2610,10 @@ hosts reject real mode with a structured unsupported error.
 Dry-run `linux.file_attrs` defaults to the immutable and append-only flags,
 and `linux.file_version` defaults to `0`. They accept
 `XSH_LINUX_FILE_ATTRS_FLAGS` and `XSH_LINUX_FILE_VERSION` decimal overrides.
+In real mode, mount syscall failures from `linux.mount` or `linux.mount_all`
+return `Err` with kind `linux-mount`, so scripts can inspect or recover from
+them. A failure reading `/etc/fstab` in `linux.mount_all` has kind
+`linux-mount-all`.
 
 - `linux.mount(source: Str, target: Path, fstype: Str = "",
   options: List[Str] = []) -> Result[Unit]`.

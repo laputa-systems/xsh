@@ -85,6 +85,11 @@ runs the real mount in a child mount namespace with private propagation and a
 temporary root. It checks the mounted filesystem inside that child, verifies
 no mount remains visible in the parent after the child exits, and checks root
 removal. The overlapping inherited-namespace runtime test was removed.
+`tests/linux_priv.rs::linux_priv_mount_and_switch_root_fail_within_private_namespace`
+binds a test `/etc/fstab` only inside the child namespace. It checks that
+rejected `mount` and `mount_all` calls leave the target unmounted, that a
+missing root produces an inspectable `linux-switch-root` error, and that the
+parent's `/etc/fstab` is unchanged.
 
 Useful next work:
 

@@ -5,6 +5,7 @@
 // missing capability when invoked without it.
 
 use std::io::Read;
+use std::os::unix::ffi::OsStrExt;
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -71,15 +72,19 @@ fn run_script(source: &str) -> std::process::Output {
 fn run_script_in_private_mount_namespace(
     source: &str,
     root: &Path,
+    fstab: Option<&Path>,
 ) -> std::io::Result<std::process::Output> {
     let script = root.join("mount.xsh");
     std::fs::write(&script, source)?;
     let mut command = Command::new(env!("CARGO_BIN_EXE_xsh"));
     command.arg(script);
+    let fstab_source = fstab.map(|path| {
+        std::ffi::CString::new(path.as_os_str().as_bytes()).expect("fstab fixture path is cstr")
+    });
     // This Rust harness owns the privilege boundary. The script asserts the
     // XSH result while the child namespace prevents mount propagation.
     unsafe {
-        command.pre_exec(|| {
+        command.pre_exec(move || {
             if libc::unshare(libc::CLONE_NEWNS) != 0 {
                 return Err(std::io::Error::last_os_error());
             }
@@ -90,6 +95,17 @@ fn run_script_in_private_mount_namespace(
                 (libc::MS_REC | libc::MS_PRIVATE) as libc::c_ulong,
                 std::ptr::null(),
             ) != 0
+            {
+                return Err(std::io::Error::last_os_error());
+            }
+            if let Some(source) = &fstab_source
+                && libc::mount(
+                    source.as_ptr(),
+                    b"/etc/fstab\0".as_ptr().cast(),
+                    std::ptr::null(),
+                    libc::MS_BIND as libc::c_ulong,
+                    std::ptr::null(),
+                ) != 0
             {
                 return Err(std::io::Error::last_os_error());
             }
@@ -202,7 +218,7 @@ env XSH_LINUX_REAL=1 XSH_LINUX_DRY_RUN=0 {{
         xsh_string_literal(target.to_str().unwrap())
     );
 
-    let output = match run_script_in_private_mount_namespace(&source, root.path()) {
+    let output = match run_script_in_private_mount_namespace(&source, root.path(), None) {
         Ok(output) => output,
         Err(error) if error.raw_os_error() == Some(libc::EPERM) => {
             eprintln!("skipped: CAP_SYS_ADMIN is required to create a private mount namespace");
@@ -227,6 +243,81 @@ env XSH_LINUX_REAL=1 XSH_LINUX_DRY_RUN=0 {{
     );
     root.close().expect("remove mount test root");
     assert!(!target.exists(), "mount test root was not removed");
+}
+
+#[test]
+fn linux_priv_mount_and_switch_root_fail_within_private_namespace() {
+    if !is_root() {
+        eprintln!("skipped: private mount namespace requires root and CAP_SYS_ADMIN");
+        return;
+    }
+    let root = tempfile::Builder::new()
+        .prefix("xsh-linux-priv-failure-")
+        .tempdir()
+        .expect("create failure test root");
+    let target = root.path().join("target");
+    let missing_root = root.path().join("missing-root");
+    let fstab = root.path().join("fstab");
+    std::fs::create_dir_all(&target).expect("create mount target");
+    std::fs::write(
+        &fstab,
+        format!("none {} xsh_missing_fs defaults 0 0\n", target.display()),
+    )
+    .expect("write fstab fixture");
+    let parent_fstab = std::fs::read_to_string("/etc/fstab").expect("read parent fstab");
+    // This host test creates the mount namespace before XSH starts. A native
+    // test cannot safely establish that privilege boundary by itself.
+    let source = format!(
+        "\
+let target = Path({})
+let missing_root = Path({})
+env XSH_LINUX_REAL=1 XSH_LINUX_DRY_RUN=0 {{
+  match linux.mount(\"none\", target, fstype: \"xsh_missing_fs\") {{
+    Err(error) => test.error_kind(error, \"linux-mount\")?
+    Ok(_) => test.fail(\"mount with unknown filesystem succeeded\")?
+  }}
+  test.ok(! linux.is_mountpoint(target)?)?
+  match linux.mount_all() {{
+    Err(error) => test.error_kind(error, \"linux-mount\")?
+    Ok(_) => test.fail(\"mount_all with unknown filesystem succeeded\")?
+  }}
+  test.ok(! linux.is_mountpoint(target)?)?
+  match linux.switch_root(missing_root, /sbin/init) {{
+    Err(error) => test.error_kind(error, \"linux-switch-root\")?
+    Ok(_) => test.fail(\"switch_root with missing root succeeded\")?
+  }}
+  print \"failure paths checked\"
+}} ?
+",
+        xsh_string_literal(target.to_str().unwrap()),
+        xsh_string_literal(missing_root.to_str().unwrap()),
+    );
+
+    let output = match run_script_in_private_mount_namespace(&source, root.path(), Some(&fstab)) {
+        Ok(output) => output,
+        Err(error) if error.raw_os_error() == Some(libc::EPERM) => {
+            eprintln!("skipped: CAP_SYS_ADMIN is required to create a private mount namespace");
+            return;
+        }
+        Err(error) => panic!("start private mount failure test: {error}"),
+    };
+    assert!(!mount_visible_in_parent(&target), "mount escaped its namespace");
+    assert_eq!(
+        std::fs::read_to_string("/etc/fstab").expect("read parent fstab after child"),
+        parent_fstab,
+        "fstab fixture escaped its namespace"
+    );
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        String::from_utf8(output.stdout).unwrap(),
+        "failure paths checked\n"
+    );
+    root.close().expect("remove failure test root");
+    assert!(!target.exists(), "failure test root was not removed");
 }
 
 #[test]

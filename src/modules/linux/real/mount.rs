@@ -21,7 +21,10 @@ pub(crate) fn mount(
     options: &[String],
     span: Span,
 ) -> Result<Value, RuntimeError> {
-    mount_one(source, target, fstype, options, span).map(|()| ok_unit())
+    Ok(match mount_one(source, target, fstype, options, span) {
+        Ok(()) => ok_unit(),
+        Err(error) => Value::err(Value::Error(Box::new(error))),
+    })
 }
 
 pub(crate) fn mount_all(span: Span) -> Result<Value, RuntimeError> {
@@ -33,13 +36,15 @@ pub(crate) fn mount_all(span: Span) -> Result<Value, RuntimeError> {
         if entry.vfstype == "swap" || option_present(&entry.mntops, "noauto") {
             continue;
         }
-        mount_one(
+        if let Err(error) = mount_one(
             &entry.spec,
             Path::new(&entry.file),
             &entry.vfstype,
             &entry.mntops,
             span,
-        )?;
+        ) {
+            return Ok(Value::err(Value::Error(Box::new(error))));
+        }
     }
     Ok(ok_unit())
 }
