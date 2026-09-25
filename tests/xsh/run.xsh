@@ -38,6 +38,50 @@ proc test_command_proc_args_resolve_bare_value_references() [error] {
   test.eq(show_run_row(rows[0], "prefix"), "prefix alpha")?
 }
 
+proc test_mutable_string_accumulator_uses_string_addition_in_loop(ctx: TestContext) [error] {
+  let output = test.run_script(
+    ctx,
+    """proc main() {
+  var stack = ""
+  for segment in ["a", "b", "c"] {
+    stack = stack + segment
+  }
+  print $stack
+}
+""",
+  )?
+  test.ok(output.success, output.stderr)?
+  test.eq(output.stdout, "abc\n")?
+  test.eq(output.stderr, "")?
+}
+
+proc test_reassigning_let_names_mutable_binding(ctx: TestContext) [error] {
+  let output = test.run_script(ctx, "let x = 1\nx = 2\n")?
+  test.eq(output.status, 2)?
+  test.contains(output.stderr, "check.assign-let")?
+  test.contains(output.stderr, "declare with `var`")?
+}
+
+proc test_checker_errors_prevent_execution(ctx: TestContext) [error] {
+  let output = test.run_script(
+    ctx,
+    """print "before"
+let value = "abc"
+print $value.length()
+""",
+  )?
+  test.eq(output.status, 2)?
+  test.eq(output.stdout, "")?
+  test.contains(output.stderr, "check.unknown-method")?
+}
+
+proc test_runtime_unknown_method_names_receiver_and_candidate(ctx: TestContext) [error] {
+  let output = test.run_script(ctx, "let value: Any = \"abc\"\nprint $value.length()\n")?
+  test.eq(output.status, 3)?
+  test.contains(output.stderr, "unknown method `length` on Str")?
+  test.contains(output.stderr, "count_chars")?
+}
+
 proc test_grouped_multiline_run_invocation_executes() [process, error] {
   test.eq(
     run.text (
