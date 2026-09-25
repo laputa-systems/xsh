@@ -41,8 +41,8 @@ public APIs require a separate decision backed by repeated real use.
    B0 `xsh` failures to prioritize profiling on both supported hosts.
 2. **B08, C01–C04, C06:** improve the measured hot paths and cold preparation in
    small batches, preserving the original B0 gates and native controls.
-3. **E01–E03:** make the tooling and Linux test
-   boundaries deterministic enough to support sustained work.
+3. **E01–E02:** finish the formatter fixture and migrate layout families only
+   when their policy changes.
 4. **J01–J14, last:** reintegrate the stable XSH build with `../packages` and
    `../laputa`, progressing from static checks to isolated Linux tests and QEMU.
 
@@ -76,7 +76,6 @@ allocation/RSS evidence; no new execution engine is implied.
 
 - **E01 · P1.** Finish the named/splice argument, stage-block, multiline-`?`, nested-control, and comment cases in `tests/fixtures/fmt/beauty.xsh` and its golden (`docs/XSHT-FMT.md`); include CST-backed cases for comments beside delimiters, authored blank lines, and `fmt: skip` with trailing comments. Output must reparse and remain idempotent.
 - **E02 · P2.** Migrate one formatter construct family to `Doc`/`DocRenderer` when its layout changes; verify the beauty fixture and syntax gate rather than rewriting the formatter wholesale.
-- **E03 · P2/M.** Measure actual source files with tabs, wide Unicode, or combining marks before changing display-column accounting; add boundary fixtures if the current character-count policy misformats them.
 - **E04 · P1.** Keep `xsht check`, `lint`, `fmt --check`, and execution in agreement on script-backed standard calls, including loaded user modules and copied binaries (`src/loader.rs`).
 - **E07 · P2.** Improve `xsht` cold single-file check latency only after the paired tooling route attributes its preparation cost; retain checker equivalence with the runner.
 

@@ -251,7 +251,10 @@ worth doing, in priority order, when formatter work resumes:
 4. **Make width measurement display-aware.** The current width accounting uses
    character counts. If XSH source begins depending on tabs, wide Unicode, or
    combining characters in layout-sensitive code, switch the renderer to an
-   explicit display-column policy and add boundary fixtures.
+   explicit display-column policy and add boundary fixtures. The current XSH
+   source inventory has tabs only inside multiline string contents, wide
+   characters only in three short benchmark literals, and no combining marks;
+   those cases do not motivate a renderer change.
 
 Do not add a large configuration surface, byte-preserving mode, or speculative
 line-breaking rules yet. Those would make formatter behavior harder to reason
