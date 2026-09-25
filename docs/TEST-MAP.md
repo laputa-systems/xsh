@@ -53,6 +53,7 @@ early-return cases as passed, so record whether a privileged case actually ran.
 | Non-Tokio archive/network dependency update | `cargo tree -i tokio` and `cargo tree -p xsh-net -e features` | focused archive or network runtime gate |
 | Arena or indexed-IR layout | `scripts/ir-layout.py` (or `--only TYPE` for a focused report) | focused rustybench workload plus the applicable behavior tests |
 | Frontend retained/peak accounting | `cargo test -p xsh --lib frontend_stats::tests` and `cargo run --bin xsh-frontend-stats -- --json tests/fixtures/frontend-indexed` | `cargo dev bench --fast` after the applicable syntax/checker gate |
+| Frozen indexed fixtures and lexical shadowing | `target/debug/xsht test --jobs 1 tests/xsh/frontend-indexed.xsh` | The same native module plus `cargo test --test integration runtime::frontend_indexed:: -- --test-threads=1` for producer lifecycle fixtures |
 | Runtime controller/worker allocation accounting | `cargo test -p xsh --lib runtime_stats::tests` and `cargo build -p xsh --bin xsh-runtime-stats` | `xsh-runtime-stats --json REPORT SCRIPT [-- ARGS...]` with matching output fingerprint, scoped worker attribution, and paired release host RSS |
 | `FullBuilder::build_compact`, `FullVerifier::verify`, or executable IR | targeted `cargo test -p xsh --lib runtime::eval::indexed::full::tests::` | `cargo test -p xsh runtime::eval::indexed::full::tests --lib --features native-tests` |
 | Explicit execution frames | targeted `cargo test --test integration runtime::stack_depth -- --test-threads=1` | `cargo test -p xsh runner::tests --lib --features native-tests` plus the runtime gate |
@@ -147,7 +148,7 @@ cargo test --test integration runtime::coverage::runnable_xsh_corpus_is_formatte
 |---|---|
 | collection aliasing and allocation traffic | `tests/xsh/stdlib/methods.xsh`, `tests/xsh/stdlib/map.xsh`, `tests/runtime/collections.rs` |
 | coverage, lint, grep-adjacent tooling | `tests/runtime/coverage.rs` |
-| frontend indexed fixtures | `tests/runtime/frontend_indexed.rs` |
+| frontend indexed fixtures | `tests/xsh/frontend-indexed.xsh`, `tests/runtime/frontend_indexed.rs` |
 | `fs.walk`/`fs.files` options and walk value consumption | `tests/xsh/stdlib/fs.xsh` |
 | cataloged examples | `tests/runtime/examples.rs` |
 | `core/pstree.xsh` process-tree output | `core/tests/test-pstree.xsh`, `tests/runtime/unix.rs` |
