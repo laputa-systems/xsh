@@ -1594,12 +1594,15 @@ fn helper_binaries_cover_raw_argv_env_path_and_glob_boundaries() {
             let raw_path_expr = xsh_bytes_literal(raw_path.as_os_str().as_bytes());
             (raw_path, raw_path_expr)
         }
-        Err(_) => {
+        Err(error) if cfg!(target_os = "macos") && error.raw_os_error() == Some(libc::EILSEQ) => {
+            // macOS rejects this filename before XSH can observe it; the raw
+            // argv and environment checks still run on that host.
             let fallback = root.join("raw-file");
             std::fs::write(&fallback, b"ok").unwrap();
             let fallback_expr = xsh_bytes_literal(fallback.as_os_str().as_bytes());
             (fallback, fallback_expr)
         }
+        Err(error) => panic!("create raw filename fixture: {error}"),
     };
     let raw_arg_hex = "726177ff617267";
     let raw_path_hex = hex(raw_path.as_os_str().as_bytes());

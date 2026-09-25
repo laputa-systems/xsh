@@ -1953,6 +1953,9 @@ files are written through a temporary file in the destination directory.
   unavailable and reading them returns a `metadata-unavailable` runtime error.
 - `fs.children(path: Path, stat: Bool = true, ordered: Bool = true) -> Result[Stream[Record]]` —
   an alias of `fs.ls` for scripts that want to emphasize direct children.
+  Each entry's `path` retains native bytes. Its `name` and `ext` fields are
+  `Str` display text and may replace invalid UTF-8; use `path` for filesystem
+  operations.
 - `fs.metadata(path: Path) -> Result[Record]`.
 - `fs.filesystem_stats(path: Path) -> Result[Record]`.
 - `fs.mounts() -> Result[Stream[Record]]`; call `.collect()` when a reusable list is needed.

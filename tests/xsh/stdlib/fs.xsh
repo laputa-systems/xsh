@@ -265,6 +265,25 @@ proc test_fs_root_operations_reject_traversal(ctx: TestContext) [fs, error] {
   fs.close_root(root)?
 }
 
+proc test_fs_root_and_children_preserve_non_utf8_name(ctx: TestContext) [fs, env, error] {
+  if system.uname()?.sysname == "Darwin" {
+    test.skip("macOS filesystems reject non-UTF-8 filenames")
+    return
+  }
+
+  let dir = test.temp_dir(ctx, name: "fs-raw-name")?
+  let root = fs.open_root(dir)?
+  let raw_name = Path.parse_bytes(b"raw\xfffile")?
+  fs.root_write(root, raw_name, b"ok")?
+  test.eq(fs.root_read(root, raw_name)?, b"ok")?
+
+  let entries = fs.children(dir)?.collect()
+  test.eq(entries.len(), 1)?
+  test.eq(entries[0].path.relative_to(dir), raw_name)?
+  test.eq(entries[0].path.read_bytes()?, b"ok")?
+  fs.close_root(root)?
+}
+
 proc test_fs_root_symlink_preserves_default_parents_with_named_overwrite(ctx: TestContext) [fs, error] {
   let root_dir = test.temp_dir(ctx, name: "root-symlink-overwrite-defaults")?
   let root = fs.open_root(root_dir)?
