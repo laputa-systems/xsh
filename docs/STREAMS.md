@@ -265,6 +265,29 @@ raw samples are in `bench/fs-walk-shape-c04-2026-09-24.json`. Keep the serial
 walker until a real workload demonstrates a traversal bottleneck; this shape
 comparison does not justify intra-directory work splitting.
 
+### Walk record materialization
+
+`raw_walk_entry` moves the owned `ignore::DirEntry` path into the walk item.
+That removed 20,001 execution-thread allocations and about 1.36 MB on a
+20,000-file flat walk, but neither throughput nor peak RSS improved reliably
+(`bench/fs-walk-path-ownership-c02-2026-09-24.json`). A `stat: false` walk is
+only an upper bound for field construction: it also skips metadata reads and
+changes errors (`bench/fs-walk-rejection-c02-2026-09-24.json`).
+
+An equivalent prototype read metadata when emitting each `stat: true` entry,
+retained it in a lazy record, and served `.kind` before building the other
+fields. On 20,000 rejected entries, it raised the paired macOS median from
+466.8 to 473.5 ms and added 20,001 execution-thread allocations and 5.44 MB
+of allocation traffic, with no useful peak-RSS reduction. The indexed
+evaluator's `lowered_record_from_runtime` converts each emitted record to a
+`BTreeMap` before `where` evaluates `.kind`, so it forces the lazy record to
+materialize. The prototype was reverted. Record equality with
+`fs.children` and the snapshot of stat-derived fields are guarded by
+`test_fs_walk_stat_true_matches_direct_record_and_snapshots_metadata`.
+Raw paired timings, allocation counts, and RSS samples are in
+`bench/fs-walk-lazy-record-c02-2026-09-25.json`. Revisit the representation
+only if a workload warrants changing the indexed record boundary itself.
+
 ## 7. Pitfalls (and the user-facing guidance)
 
 - **`group-by` then aggregate buffers everything (O(N)).** For a per-key
@@ -288,21 +311,3 @@ comparison does not justify intra-directory work splitting.
   a byte-safe file line source, but existing scanners written around `Bytes`
   prechecks such as `.contains()` and `.count_lines()` still read the whole file
   until they are refactored to line-state APIs.
-
-## 8. Remaining levers (not done)
-
-- **Lazy/columnar walk records** — the walk builds a full record per entry even
-  when `where` discards it. `raw_walk_entry` now moves the owned
-  `ignore::DirEntry` path into the walk item instead of cloning it. This removed
-  20,001 execution-thread allocations and about 1.36 MB of allocation traffic
-  on a 20,000-file flat walk. Peak RSS did not move; paired latency was mixed
-  on both hosts, so this is an allocation result, not a throughput claim. Raw
-  samples are in `bench/fs-walk-path-ownership-c02-2026-09-24.json`. On the
-  rejecting `src` walk in
-  `bench/fs-walk-rejection-c02-2026-09-24.json`, `stat: true` took 18.471 ms and
-  allocated 811 KB in the execution thread, versus 16.917 ms and 101 KB with
-  `stat: false` (15 paired release timings, three allocation runs). The latter
-  also skips metadata reads and changes field errors, so it is an upper bound
-  rather than an equivalent replacement. An eager metadata read followed by
-  lazy field construction would need separate evidence on a larger tree and
-  must preserve metadata-error timing.

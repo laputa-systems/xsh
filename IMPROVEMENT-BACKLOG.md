@@ -39,7 +39,7 @@ public APIs require a separate decision backed by repeated real use.
 
 1. **B01:** complete the paired `xsht` tooling evidence, then use the recorded
    B0 `xsh` failures to prioritize profiling on both supported hosts.
-2. **B08, C02:** improve the measured hot paths and cold preparation in
+2. **B08:** improve the measured hot paths and cold preparation in
    small batches, preserving the original B0 gates and native controls.
 3. **E01–E02:** finish the formatter fixture and migrate layout families only
    when their policy changes.
@@ -58,14 +58,6 @@ section is the only remaining port task list.
 
 - **B01 · P1.** Complete the owner-run `xsht lint` row in `bench/stdlib-port/tooling.py` on macOS and pinned Linux. `results-b01-tooling.json` records matched B0/B1/candidate release measurements, exact parity, and raw samples for `xsht api` and `xsht check` on both hosts. The candidate passes both rows; B1's macOS `xsht check` regression is visible. `AGENTS.md` forbids agents from running linters.
 - **B08 · P1/M.** Investigate bounded stage, argument, block, and remaining frame overhead in the existing indexed runtime; keep the explicit-frame small-stack route, Result propagation, traces, and private bridge authority intact. For fully supplied non-rest user calls, moving the evaluated argument vector into frame slots removed 99,997 allocations and 3.20 MB of allocation traffic across 100,000 calls, with lower paired release medians on macOS and pinned Linux (`bench/call-slot-ownership-b08-2026-09-25.json`). A follow-up inline argument-descriptor buffer removed another allocation but slowed paired macOS calls and was reverted; the same artifact holds its raw samples. This one call shape does not establish a general runtime speedup.
-
-## C. Runtime, streams, and memory
-
-`docs/STREAMS.md` lists the remaining levers and records which earlier
-experiments lost. Every item here starts with a complete workload and
-allocation/RSS evidence; no new execution engine is implied.
-
-- **C02 · P1/M.** Test whether lazy `fs.walk` fields help a real rejection-heavy workload without changing record equality or metadata-error timing. Moving the emitted `ignore::DirEntry` path removed one allocation per entry on a 20,000-file flat walk, but did not establish a throughput or peak-RSS gain (`bench/fs-walk-path-ownership-c02-2026-09-24.json`). `stat: false` skips metadata and remains a non-equivalent upper bound (`bench/fs-walk-rejection-c02-2026-09-24.json`).
 
 ## E. `xsht`, diagnostics, and source fidelity
 

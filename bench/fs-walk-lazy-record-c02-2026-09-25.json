@@ -1,0 +1,101 @@
+{
+  "date": "2026-09-25",
+  "workload": "20,000 empty files in one flat directory; fs.walk(stat:true, gitignore:false) |> where .kind == \"impossible\" |> count(); one iteration per process; all outputs 0",
+  "script": "bench/fs-walk-rejection-loop.xsh",
+  "builds": {
+    "baseline": "a1fdeefab17c777f246511db8136fdef8fb997de5a420e82cb33ebc6505dde20",
+    "lazy_record": "211da5872abb1d416bd7b6be75496f777358ab8fb920ac4b3716f1a17c91d608",
+    "baseline_runtime_stats": "fa591016a2c22decca4add092577dc944384a7e7562551d879440fb3706a48d0",
+    "lazy_record_runtime_stats": "142ae487cca96652b8e48f78f5cb7888f4bfb981c5bd0f6309709ee745704704"
+  },
+  "method": "10 alternating paired release runs on macOS with Python perf_counter_ns and exact status/stdout parity; 3 alternating release xsh-runtime-stats runs per build with /usr/bin/time -l peak RSS",
+  "raw_wall_ms": {
+    "baseline": [
+      470.063,
+      469.802,
+      466.868,
+      469.773,
+      461.647,
+      466.686,
+      464.762,
+      467.462,
+      460.59,
+      464.158
+    ],
+    "lazy_record": [
+      518.472,
+      481.53,
+      479.054,
+      473.187,
+      473.801,
+      470.966,
+      476.087,
+      470.596,
+      471.009,
+      471.943
+    ]
+  },
+  "median_wall_ms": {
+    "baseline": 466.777,
+    "lazy_record": 473.494
+  },
+  "candidate_note": "Lazy RecordMap retains metadata and serves kind without materializing, but the indexed evaluator converts stream records into lowered BTreeMap records before evaluating where predicates.",
+  "raw_runtime_stats": {
+    "baseline": [
+      {
+        "execution_alloc_count": 720379,
+        "execution_alloc_bytes": 100750906,
+        "execution_peak_bytes": 14987,
+        "peak_rss_bytes": 14499840
+      },
+      {
+        "execution_alloc_count": 720379,
+        "execution_alloc_bytes": 100750906,
+        "execution_peak_bytes": 14987,
+        "peak_rss_bytes": 14499840
+      },
+      {
+        "execution_alloc_count": 720379,
+        "execution_alloc_bytes": 100750906,
+        "execution_peak_bytes": 14987,
+        "peak_rss_bytes": 14581760
+      }
+    ],
+    "lazy_record": [
+      {
+        "execution_alloc_count": 740380,
+        "execution_alloc_bytes": 106191178,
+        "execution_peak_bytes": 14987,
+        "peak_rss_bytes": 14483456
+      },
+      {
+        "execution_alloc_count": 740380,
+        "execution_alloc_bytes": 106191178,
+        "execution_peak_bytes": 14987,
+        "peak_rss_bytes": 14532608
+      },
+      {
+        "execution_alloc_count": 740380,
+        "execution_alloc_bytes": 106191178,
+        "execution_peak_bytes": 14987,
+        "peak_rss_bytes": 14712832
+      }
+    ]
+  },
+  "median_runtime_stats": {
+    "baseline": {
+      "execution_alloc_count": 720379,
+      "execution_alloc_bytes": 100750906,
+      "execution_peak_bytes": 14987,
+      "peak_rss_bytes": 14499840
+    },
+    "lazy_record": {
+      "execution_alloc_count": 740380,
+      "execution_alloc_bytes": 106191178,
+      "execution_peak_bytes": 14987,
+      "peak_rss_bytes": 14532608
+    }
+  },
+  "decision": "Reject and revert. The indexed evaluator lowers each emitted RecordMap to a BTreeMap before the where predicate, forcing full materialization; the candidate is slower on paired release timing and adds allocation traffic. Preserve eager stat:true record and metadata-error timing.",
+  "fixture": "Created /tmp/xsh-c02-flat with 20,000 empty entry-NNNNN.txt files before measurements."
+}

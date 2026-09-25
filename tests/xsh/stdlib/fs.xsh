@@ -50,6 +50,22 @@ print \${entry.size}
   test.contains(output.stderr, "metadata-unavailable")?
 }
 
+proc test_fs_walk_stat_true_matches_direct_record_and_snapshots_metadata(ctx: TestContext) [fs, error] {
+  let root = test.temp_dir(ctx, name: "fs-walk-stat-record")?
+  let file = fp"${root}/entry.txt"
+  file.write("old")?
+
+  let walked = (fs.files(root, gitignore: false) |> first())?
+  let direct = (fs.children(root)? |> first())?
+  test.eq(walked, direct)?
+  test.eq(walked.keys(), direct.keys())?
+  test.eq(walked.size, 3)?
+
+  file.write("new longer content")?
+  test.eq(walked.size, 3)?
+  test.eq(walked.get("size")?, 3)?
+}
+
 proc test_fs_files_dynamic_walk_flags_are_evaluated(ctx: TestContext) [fs, error] {
   let root = test.temp_dir(ctx, name: "fs-files-dynamic-flags")?
   fs.write(fp"${root}/normal.txt", "data")?
