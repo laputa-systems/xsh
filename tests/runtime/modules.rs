@@ -1475,15 +1475,6 @@ fn dynamic_module_load_rejects_undocumented_exports() {
 }
 
 #[test]
-fn module_errors_are_structured_results() {
-    let output = xsh(["tests/fixtures/runtime/module-error.xsh"]);
-
-    assert_eq!(output.status.code(), Some(3));
-    let stderr = String::from_utf8(output.stderr).unwrap();
-    assert!(stderr.contains("fs-read"));
-}
-
-#[test]
 fn env_get_rejects_invalid_utf8_values() {
     let output = Command::new(cargo_env!("CARGO_BIN_EXE_xsh"))
         .arg("tests/fixtures/runtime/env-invalid-utf8.xsh")

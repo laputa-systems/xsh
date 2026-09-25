@@ -1,3 +1,15 @@
+proc test_missing_file_read_propagates_structured_error(ctx: TestContext) [fs, error] {
+  let missing = test.temp_path(ctx, name: "missing-read")
+  let output = test.run_script(
+    ctx,
+    f"""let _ = p"${missing.display()}".read_bytes()?
+""",
+  )?
+
+  test.eq(output.status, 3)?
+  test.contains(output.stderr, "fs-read")?
+}
+
 proc test_fs_walk_take_any_break_and_count(ctx: TestContext) [fs, error] {
   let root = test.temp_dir(ctx, name: "fs-walk-stage")?
   var index = 0
