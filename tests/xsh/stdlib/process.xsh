@@ -52,6 +52,12 @@ proc test_process_module() [fs, process, error] {
   handle.cancel(signal: "TERM", kill_after: 10ms)?
 }
 
+proc test_process_command_argv_requires_argv0(ctx: TestContext) [error] {
+  let output = test.run_script(ctx, "let command = process.command_argv(\"echo\", [])\n")?
+  test.eq(output.status, 2)?
+  test.contains(output.stderr, "check.process-argv-empty")?
+}
+
 # The message of a rejected argument string, or the empty string when the
 # string parsed. `test.error_kind` compares kinds only, so message parity is
 # asserted through this.
