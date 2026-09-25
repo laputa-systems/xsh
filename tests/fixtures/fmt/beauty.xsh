@@ -6,6 +6,16 @@ let fmt_encoded = bytes.from_text(
   "generated source metadata that should remain grouped as one call argument",
 )
 
+# Named and spliced arguments: preserve authored breaks and positional expansion.
+pure fmt_pair(first: Str, second: Str) -> Str { f"${first}/${second}" }
+let fmt_named = process.command_argv(
+  "echo",
+  ["echo", "ready"],
+  timeout: 1s,
+)
+let fmt_parts = ["left", "right"]
+let fmt_spliced = fmt_pair(@fmt_parts)
+
 # Collections and comprehensions: expand related siblings and nested records consistently.
 let fmt_items = [{name: "one", value: "1", enabled: true}, {name: "two", value: "2", enabled: false}]
 let fmt_source_shaped = [
@@ -31,6 +41,25 @@ let fmt_authored = if true {
 } else {
   "drop this authored branch shape"
 }
+let fmt_nested_control = fmt_pair(
+  first: if true { "yes" } else { "no" },
+  second: match Ok("ready") {
+    Ok(value) => value
+    _ => "fallback"
+  },
+)
+
+# Pipeline blocks and result propagation: keep stage bodies and ? attached.
+let fmt_doubled = [1, 2, 3]
+|> map { |value|
+value * 2
+}
+proc fmt_get() [error] -> Result[Str] { Ok("ready") }
+proc fmt_use() [error] -> Result[Str] {
+  let value = fmt_get(
+  )?
+  return Ok(value)
+}
 
 # Comments: keep leading, trailing, nested, and fmt: skip comments attached.
 # leading comment stays with the binding
@@ -43,6 +72,21 @@ proc fmt_main() {
   let fmt_skipped=1+2
   let fmt_after=3
 }
+let fmt_delimited_list = [
+  "first",
+  "second",
+] # keep with the completed collection
+let fmt_delimited_call = fmt_pair(
+  "left",
+  "right",
+) # keep with the completed call
+
+
+
+let fmt_authored_gap = "one section after multiple blank lines"
+
+# fmt: skip
+let fmt_skipped_with_comment=1+2 # keep this complete statement
 
 print "done"
 

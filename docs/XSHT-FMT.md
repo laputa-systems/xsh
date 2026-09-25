@@ -166,7 +166,11 @@ statement, and nested comments prevent AST-only regeneration unless the
 formatter can deliberately reattach them.
 
 `# fmt: skip` applies to the next statement and preserves that statement's raw
-source. The directive itself remains in the formatted output.
+source, including a same-line trailing comment. The directive itself remains
+in the formatted output. Authored blank lines after a trailing comment are
+kept as one blank line. Comments between call arguments or collection items
+are outside the language grammar; `docs/SPEC.md` defines comments at statement
+boundaries.
 
 ## Configuration
 
@@ -185,12 +189,14 @@ The curated disk-backed corpus is one annotated source file at
 `tests/fixtures/fmt/beauty.xsh` with one checked-in golden at
 `tests/fixtures/fmt/beauty.expected.xsh`. Its annotated sections cover:
 
-- positional and nested call arguments, including a multiline call;
+- positional, named, and spliced call arguments, including multiline calls;
 - method chains;
 - source-shaped lists and comprehensions;
 - sibling and nested collection expansion;
-- `if` and `match` expressions;
-- leading, trailing, nested, and `fmt: skip` comments;
+- `if` and `match` expressions, including nested call arguments;
+- pipeline stage blocks and multiline source with result propagation;
+- leading, trailing, nested, delimiter-adjacent, and `fmt: skip` comments;
+- multiple authored blank lines normalized to one;
 - formatted strings, long URLs, paths, and generated-code-like literals.
 
 `tests/xsh/formatter.xsh::test_fmt_fixture` copies the source to a temporary
@@ -228,34 +234,16 @@ gate is
 `target/debug/xsht test --exact tests/xsh/formatter.xsh::test_fmt_fixture`
 after `cargo build -p xsht --bin xsht`; the broader native-test command is `xsht test`.
 
-## Deferred Work
+## Current Limits
 
-The current formatter is complete for the design above. These are the follow-ups
-worth doing, in priority order, when formatter work resumes:
+`Doc` and `DocRenderer` cover call-argument layout, including named and spliced
+arguments. The new corpus cases and comment repair do not change another
+construct family's layout policy, so a further document-model migration would
+only add machinery. Keep direct emission for those families until an observed
+layout failure calls for a different policy.
 
-1. **Finish the fmt fixture.** Add annotated sections for named and splice
-   arguments, pipeline stage blocks, multiline `?` expressions, `if` and `match`
-   nested in calls or records, and comments inside multiline collections and
-   calls. Keep the single source/golden pair routed through
-   `tests/xsh/formatter.xsh::test_fmt_fixture`.
-2. **Complete the document-model migration.** `Doc`, `DocRenderer`, and group
-   selection now cover the most sensitive call-argument layout, but much of
-   `crates/xsht/src/format.rs` still emits strings directly. Migrate one
-   construct family at a time when changing its layout policy; do not rewrite
-   the formatter solely for architectural purity.
-3. **Strengthen comment and trivia fidelity.** Add CST-backed regression cases
-   for comments between arguments or collection items, comments adjacent to
-   delimiters, multiple authored blank lines, and `fmt: skip` next to trailing
-   comments. Preserve the conservative fallback when a construct cannot be
-   regenerated without risking comment movement.
-4. **Make width measurement display-aware.** The current width accounting uses
-   character counts. If XSH source begins depending on tabs, wide Unicode, or
-   combining characters in layout-sensitive code, switch the renderer to an
-   explicit display-column policy and add boundary fixtures. The current XSH
-   source inventory has tabs only inside multiline string contents, wide
-   characters only in three short benchmark literals, and no combining marks;
-   those cases do not motivate a renderer change.
-
-Do not add a large configuration surface, byte-preserving mode, or speculative
-line-breaking rules yet. Those would make formatter behavior harder to reason
-about without solving a demonstrated layout problem.
+Width accounting uses character counts. The current source inventory has tabs
+only inside multiline strings, wide characters only in short benchmark
+literals, and no combining marks. A display-column policy needs a real source
+case before changing the renderer. The formatter does not expose a second
+layout-preference configuration surface or a byte-preserving mode.

@@ -237,6 +237,51 @@ fn fmt_checks_imported_modules() {
 }
 
 #[test]
+fn copied_xsht_formats_and_lints_script_backed_calls_in_static_and_loaded_modules() {
+    let root = TempDir::new().expect("create isolated source root");
+    let xsht = root.path().join("xsht");
+    fs::copy(env!("CARGO_BIN_EXE_xsht"), &xsht).expect("copy xsht");
+    fs::write(
+        root.path().join("helper.xsh"),
+        "##! Static helper.\n## Return a terminal sequence.\nexport pure color() -> Str { tui.red() }\n",
+    )
+    .expect("write static module");
+    fs::write(
+        root.path().join("dynamic.xsh"),
+        "##! Dynamic helper.\n## Return a terminal sequence.\nexport pure color() -> Str { tui.bold() }\n",
+    )
+    .expect("write loaded module");
+    fs::write(
+        root.path().join("main.xsh"),
+        "use helper\ntype Loaded = module { export pure color() -> Str }\nproc main() [fs, io, error] {\n  let loaded = module.load(p\"dynamic.xsh\")?.require(Loaded)?\n  let both = helper.color() + loaded.color()\n  print $both\n}\n",
+    )
+    .expect("write entry script");
+
+    for args in [
+        vec!["check", "."],
+        vec!["fmt", "."],
+        vec!["fmt", "--check", "."],
+        vec!["lint", "."],
+    ] {
+        let output = Command::new(&xsht)
+            .args(&args)
+            .current_dir(root.path())
+            .env_remove("XSH_MODULE_PATH")
+            .output()
+            .expect("run copied xsht");
+        assert_eq!(
+            output.status.code(),
+            Some(0),
+            "{}: {}",
+            args.join(" "),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(output.stdout.is_empty(), "{}", args.join(" "));
+        assert!(output.stderr.is_empty(), "{}", args.join(" "));
+    }
+}
+
+#[test]
 fn fmt_deduplicates_diagnostics_from_imported_modules() {
     let root = TempDir::new().expect("create temp root");
     fs::write(

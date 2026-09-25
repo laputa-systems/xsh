@@ -2457,6 +2457,28 @@ let after = 3
 }
 
 #[test]
+fn formatter_keeps_trailing_comment_on_skipped_statement() {
+    let source = "# fmt: skip\nlet value=1+2 # keep with the skipped statement\n\nlet after=3\n";
+    let expected = "# fmt: skip\nlet value=1+2 # keep with the skipped statement\n\nlet after = 3\n";
+    let first = Formatter::new().format_source(SourceId::new(0), source);
+    assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
+    assert_eq!(first.formatted, expected);
+    let second = Formatter::new().format_source(SourceId::new(0), &first.formatted);
+    assert_eq!(second.formatted, first.formatted);
+}
+
+#[test]
+fn formatter_keeps_authored_block_gap_after_skipped_trailing_comment() {
+    let source = "proc main() {\n  # fmt: skip\n  let value=1+2 # keep with the skipped statement\n\n  let after=3\n}\n";
+    let expected = "proc main() {\n  # fmt: skip\n  let value=1+2 # keep with the skipped statement\n\n  let after = 3\n}\n";
+    let first = Formatter::new().format_source(SourceId::new(0), source);
+    assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
+    assert_eq!(first.formatted, expected);
+    let second = Formatter::new().format_source(SourceId::new(0), &first.formatted);
+    assert_eq!(second.formatted, first.formatted);
+}
+
+#[test]
 fn formatter_wraps_long_if_and_match_expressions_in_safe_contexts() {
     let source = "\
 let choice = if user_name == \"administrator\" and mode == \"production\" { \"allow\" } else { \"deny\" }
@@ -2904,6 +2926,19 @@ let skipped=1+2
         .with_line_width(60)
         .format_source(SourceId::new(0), &formatted.formatted);
     assert_eq!(second.formatted, formatted.formatted);
+}
+
+#[test]
+fn formatter_beauty_corpus_matches_golden_and_remains_idempotent() {
+    let source = include_str!("fixtures/fmt/beauty.xsh");
+    let expected = include_str!("fixtures/fmt/beauty.expected.xsh");
+    let source_id = SourceId::new(0);
+    let first = Formatter::new().format_source(source_id, source);
+    assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
+    assert_eq!(first.formatted, expected);
+    assert_parse_and_check(source_id, &first.formatted);
+    let second = Formatter::new().format_source(source_id, &first.formatted);
+    assert_eq!(second.formatted, first.formatted);
 }
 
 #[test]

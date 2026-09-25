@@ -367,9 +367,12 @@ impl<'a> Writer<'a> {
     }
 
     fn gap_has_blank_line(&self, start: usize, end: usize) -> bool {
-        self.source
-            .get(start..end)
-            .is_some_and(|gap| !gap.contains('#') && gap.contains('\n'))
+        self.source.get(start..end).is_some_and(|gap| {
+            if let Some(comment_start) = gap.rfind('#') {
+                return gap[comment_start..].matches('\n').count() >= 2;
+            }
+            gap.contains('\n')
+        })
     }
 
     fn gap_has_blank_line_in_block(&self, previous: Span, current_start: usize) -> bool {
@@ -380,8 +383,10 @@ impl<'a> Writer<'a> {
             .source
             .get(previous.range())
             .is_some_and(|source| source.contains('\n'));
-        !gap.contains('#')
-            && (gap.matches('\n').count() >= 2 || (previous_is_multiline && gap.contains('\n')))
+        if let Some(comment_start) = gap.rfind('#') {
+            return gap[comment_start..].matches('\n').count() >= 2;
+        }
+        gap.matches('\n').count() >= 2 || (previous_is_multiline && gap.contains('\n'))
     }
 
     fn write_stmt(&mut self, stmt_id: StmtId, indent: usize, output: &mut String) {
@@ -390,6 +395,7 @@ impl<'a> Writer<'a> {
         if skip_formatting {
             self.write_indent(indent, output);
             self.write_raw_stmt(stmt.span, output);
+            self.write_raw_trailing_comment(stmt.span.end(), output);
             return;
         }
         self.write_indent(indent, output);
@@ -2806,6 +2812,29 @@ impl<'a> Writer<'a> {
             .unwrap_or("")
             .trim_matches(|ch| ch == '\n' || ch == '\r');
         output.push_str(raw);
+    }
+
+    fn write_raw_trailing_comment(&mut self, offset: usize, output: &mut String) {
+        let Some(comment) = self.comments.get(self.next_comment) else {
+            return;
+        };
+        if matches!(
+            self.source.as_bytes().get(offset.saturating_sub(1)),
+            Some(b'\n' | b'\r')
+        ) {
+            return;
+        }
+        if comment.span.start() < offset {
+            return;
+        }
+        let Some(raw) = self.source.get(offset..comment.span.end()) else {
+            return;
+        };
+        if raw.contains('\n') || raw.contains('\r') {
+            return;
+        }
+        output.push_str(raw);
+        self.next_comment += 1;
     }
 
     fn write_indent(&self, indent: usize, output: &mut String) {
