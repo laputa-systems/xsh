@@ -589,6 +589,61 @@ match p.get("Package") {
   test.contains(cycle.stderr, "parse.module-cycle")?
 }
 
+proc test_package_hook_module_calls_keep_dynamic_and_static_cwd(ctx: TestContext) [fs, error] {
+  let root = test.temp_dir(ctx, name: "package-hook-modules")?
+  let dynamic_out = fp"${root}/dynamic-out"
+  let static_src = fp"${root}/static-src"
+  let static_out = fp"${root}/static-out"
+  static_src.mkdir()?
+  let package = fp"${root}/PKGBUILD.xsh"
+  package.write(r"""
+##! Package hook module.
+## Exposes the package name.
+export let name = "demo"
+
+## Writes the package marker into the destination.
+export proc build(dest: Path) [fs, error] -> Result[Unit] {
+  fs.mkdir(dest)?
+  fs.write(fp"${dest}/ok", f"${name}:${fs.cwd()?.name()}\n")?
+}
+""")?
+
+  let dynamic = test.run_script(
+    ctx,
+    f"""
+type Pkg = module {
+  export let name: Str
+  export proc build(dest: Path) [fs, error] -> Result[Unit]
+}
+let pkg = module.load(p"${package.display()}")?.require(Pkg)?
+pkg.build(p"${dynamic_out.display()}")?
+""",
+    [],
+    {XSH_MODULE_PATH: root.display()},
+  )?
+  test.ok(dynamic.success, dynamic.stderr)?
+  test.eq(fp"${dynamic_out}/ok".read_text()?, f"demo:${fs.cwd()?.name()}\n")?
+
+  let static_output = test.run_script(
+    ctx,
+    r"""
+use PKGBUILD
+proc main(src: Path, dest: Path) [fs, process, env, error] -> Result[Unit] {
+  fs.remove(dest, missing_ok: true)?
+  fs.mkdir(dest)?
+  cd src {
+    PKGBUILD.build(dest)?
+  } ?
+}
+main(@args)?
+""",
+    [static_src.display(), static_out.display()],
+    {XSH_MODULE_PATH: root.display()},
+  )?
+  test.ok(static_output.success, static_output.stderr)?
+  test.eq(fp"${static_out}/ok".read_text()?, "demo:static-src\n")?
+}
+
 proc test_stream_exports_are_namespace_members_not_module_contract_members(ctx: TestContext) [fs, error] {
   let root = test.temp_dir(ctx, name: "module-stream-contract")?
   fp"${root}/stream_only.xsh".write("""
