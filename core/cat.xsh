@@ -8,15 +8,15 @@ proc main(...argv: List[Str]) [fs, error, io] {
   let paths = opts.paths
 
   if paths.len() == 0 {
-    io.write_stdout(io.stdin_text()?)?
+    io.write_stdout_bytes(io.stdin_bytes()?)?
     return
   }
 
   for arg in paths {
     if arg == "-" {
-      io.write_stdout(io.stdin_text()?)?
+      io.write_stdout_bytes(io.stdin_bytes()?)?
     } else {
-      io.write_stdout(fp"${arg}".read_text()?)?
+      io.write_stdout_bytes(fp"${arg}".read_bytes()?)?
     }
   }
 }

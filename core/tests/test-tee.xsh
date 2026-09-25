@@ -38,3 +38,12 @@ second
 """,
   )?
 }
+
+proc test_tee_preserves_non_utf8_bytes_and_appends(ctx: TestContext) [fs, process, env, error] {
+  let input = test.temp_file(ctx, name: "binary.dat", contents: b"\0\xff\n")?
+  let out = test.temp_path(ctx, name: "binary-out.dat")
+  test.eq(run.bytes ${ctx.xsh_bin} fp"${ctx.core_dir}/tee.xsh" -- --input $input $out ?, b"\0\xff\n")?
+  test.eq(out.read_bytes()?, b"\0\xff\n")?
+  test.eq(run.bytes ${ctx.xsh_bin} fp"${ctx.core_dir}/tee.xsh" -- -a $out < ${input} ?, b"\0\xff\n")?
+  test.eq(out.read_bytes()?, b"\0\xff\n\0\xff\n")?
+}

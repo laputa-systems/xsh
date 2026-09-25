@@ -27,3 +27,5 @@ stdout shapes, and cover behavior through `core/tests/*.xsh`.
 `core/wc.xsh` reads raw bytes for line and byte counts, so `-l` and `-c`
 accept non-UTF-8 input. Word counts still use `Str.count_words()` and require
 valid UTF-8.
+`core/cat.xsh` and `core/tee.xsh` preserve file and stdin bytes through stdout.
+`tee` append reads the existing destination and writes the concatenated bytes.
