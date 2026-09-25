@@ -165,6 +165,10 @@ candidate passes at 10.98 versus 11.62 ms on macOS and 14.41 versus 14.33 ms
 on Linux. Both current API rows pass. Linux `tooling-runner.xsh` accepts the
 selected command names so the two permitted rows can be measured without
 running `xsht lint`. The lint row remains owner-run under `AGENTS.md`.
+The candidate's cold single-file check is within the original allowance and
+faster than B0 on macOS, so the proposed latency investigation has no observed
+regression to pursue. Reopen it only with a reproducible workload and an
+attributed preparation cost.
 
 B08 measured narrow costs in the indexed runtime after the port passed its
 complete B0 performance gate. Moving fully supplied call arguments into frame

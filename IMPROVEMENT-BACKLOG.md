@@ -61,7 +61,6 @@ section is the only remaining port task list.
 - **E01 · P1.** Finish the named/splice argument, stage-block, multiline-`?`, nested-control, and comment cases in `tests/fixtures/fmt/beauty.xsh` and its golden (`docs/XSHT-FMT.md`); include CST-backed cases for comments beside delimiters, authored blank lines, and `fmt: skip` with trailing comments. Output must reparse and remain idempotent.
 - **E02 · P2.** Migrate one formatter construct family to `Doc`/`DocRenderer` when its layout changes; verify the beauty fixture and syntax gate rather than rewriting the formatter wholesale.
 - **E04 · P1.** Complete owner-run `xsht lint` and `xsht fmt --check` parity on script-backed standard calls in static and dynamically loaded user modules. `tests/runtime/run.rs::copied_products_check_and_run_script_backed_calls_in_static_and_loaded_modules` now verifies copied `xsht check` and `xsh` execution without repository files on macOS and pinned Linux. Agents cannot invoke linters or formatters under `AGENTS.md`.
-- **E07 · P2.** Improve `xsht` cold single-file check latency only after the paired tooling route attributes its preparation cost; retain checker equivalence with the runner.
 
 ## J. Reintegration with `../packages` and `../laputa` — final phase
 
@@ -133,7 +132,7 @@ the x86_64 installer still uses removed `pm install` and its published kernel
 stops before userspace.
 
 - **J07 · P1.** When a published binary compatible with the current PM source is available, compare PM plan JSON, canonical fingerprints, store receipt validation, and root-generation outputs across the two binaries on deterministic fixtures. Executor binary identity is part of a BuildPlan, so classify expected key changes separately from semantic drift.
-- **J11 · P2.** Migrate the x86_64 installer image builder from removed `pm install` after the PM graph and native package runner support that target. Preserve its installer and target roots, then run its image and QEMU tests; the published x86_64 kernel currently stops before userspace.
+- **J11 · P2.** Migrate the x86_64 installer image builder from removed `pm install` after the PM graph and native package runner support that target. `../packages/pm/types.xsh::Target` currently has only AArch64, and the plan, receipt, root, and generation validators enforce it; a read-only `pm repo plan --target x86_64-linux-musl --root baselayout` fails before graph resolution. Extend the target contract and prove x86_64 planning, build, and root composition before changing the installer. Preserve its installer and target roots, then run its image and QEMU tests; the published x86_64 kernel currently stops before userspace.
 
 ## Deliberately outside this queue
 
