@@ -322,6 +322,51 @@ shower.call(pkg)?
   test.eq(output.stdout, "pkg:demo\npkg:demo\n")?
 }
 
+proc test_qualified_record_fields_pass_to_effectful_module_proc(ctx: TestContext) [fs, error] {
+  let root = test.temp_dir(ctx, name: "qualified-module-record")?
+  fp"${root}/target.xsh".write(r"""
+##! Target fixture module.
+## Defines the target policy record used by lifecycle contexts.
+## CPU feature policy nested in a target.
+export type Cpu = {feature: Str}
+
+## Public target policy.
+export type Target = {triple: Str, cpu: Cpu}
+
+## Selects the fixture target policy.
+export pure select() -> Target {
+  return {triple: "x86_64-unknown-linux-musl", cpu: {feature: "crt-static"}}
+}
+""")?
+  fp"${root}/lifecycle.xsh".write(r"""
+##! Lifecycle fixture module consuming contexts composed from the target policy record.
+use target as targets
+
+## Public lifecycle context.
+export type Context = {root: Path, target: targets.Target}
+
+## Normalizes the selected target policy.
+export proc normalize(context: Context) [io] -> Result[Unit] {
+  print ${context.root} ${context.target.triple} ${context.target.cpu.feature}
+}
+""")?
+
+  let output = test.run_script(
+    ctx,
+    r"""
+use lifecycle as l
+use target as targets
+let selected: targets.Target = targets.select()
+let context: l.Context = {root: Path("workspace"), target: selected}
+l.normalize(context)?
+""",
+    [],
+    {XSH_MODULE_PATH: root.display()},
+  )?
+  test.ok(output.success, output.stderr)?
+  test.eq(output.stdout, "workspace x86_64-unknown-linux-musl crt-static\n")?
+}
+
 proc test_stream_exports_are_namespace_members_not_module_contract_members(ctx: TestContext) [fs, error] {
   let root = test.temp_dir(ctx, name: "module-stream-contract")?
   fp"${root}/stream_only.xsh".write("""
