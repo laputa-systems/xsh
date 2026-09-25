@@ -50,6 +50,32 @@ proc test_module_load_rejects_undocumented_export(ctx: TestContext) [fs, error] 
   test.contains(output.stderr, "undocumented exports")?
 }
 
+proc test_module_load_rejects_forbidden_top_level_forms(ctx: TestContext) [fs, error] {
+  let root = test.temp_dir(ctx, name: "module-top-level")?
+  for fixture in [
+    {name: "bad-var", source: "##! Invalid dynamic module fixture.\nvar count = 1\nexport let name = \"bad\"\n"},
+    {name: "bad-command", source: "##! Invalid dynamic module fixture.\nprint bad\nexport let name = \"bad\"\n"},
+  ] {
+    let module_path = fp"${root}/${fixture.name}.xsh"
+    fs.write(module_path, fixture.source)?
+    let output = test.run_script(ctx, f"""let _ = module.load(p"${module_path.display()}")?
+""")?
+    test.eq(output.status, 3)?
+    test.contains(output.stderr, "module-check")?
+    test.contains(output.stderr, "check.module-top-level")?
+    test.contains(output.stderr, module_path.name())?
+  }
+
+  let hook = fp"${root}/signal-hook.xsh"
+  fs.write(hook, "on SIGINT [] {\n}\n")?
+  let output = test.run_script(ctx, f"""let _ = module.load(p"${hook.display()}")?
+""")?
+  test.eq(output.status, 3)?
+  test.contains(output.stderr, "module-check")?
+  test.contains(output.stderr, "check.signal-hook-module")?
+  test.contains(output.stderr, hook.name())?
+}
+
 proc test_static_and_loaded_modules_reject_the_same_contract_mismatches(ctx: TestContext) [fs, error] {
   let root = test.temp_dir(ctx, name: "module-contract-mismatches")?
   let optional_path = fp"${root}/bad_optional.xsh"
