@@ -21,8 +21,12 @@ proc test_linux_dry_run_covers_module_surface(ctx: TestContext) [fs, process, en
     linux.add_default_ipv4_route("192.0.2.1", interface: "eth0")?
     linux.del_default_ipv4_route("192.0.2.1", interface: "eth0")?
     linux.dhcp_send_release("eth0", "192.0.2.10", "192.0.2.1")?
-    test.eq(linux.interfaces()?.collect()[0].name, "eth0")?
-    test.eq(linux.routes()?.collect()[0].gateway, "192.0.2.1")?
+    let interfaces = linux.interfaces()?.collect()
+    test.eq(interfaces[0].name, "eth0")?
+    test.eq(interfaces[0].addresses[0].family, "inet")?
+    let routes = linux.routes()?.collect()
+    test.eq(routes[0].dst, "default")?
+    test.eq(routes[0].gateway, "192.0.2.1")?
     test.ok(linux.meminfo()?.total > 0)?
     test.eq(linux.modules()?.collect()[0].name, "xsh_demo")?
     test.contains(linux.dmesg()?.collect()[0], "xsh")?
@@ -30,8 +34,10 @@ proc test_linux_dry_run_covers_module_surface(ctx: TestContext) [fs, process, en
     test.eq(linux.disk_usage(/)?.collect()[0].device, "rootfs")?
     test.eq(linux.block_devices()?.collect()[0].name, "vda")?
     let sysctl_value = linux.sysctl_get("kernel.pid_max")?
+    test.eq(sysctl_value, "1")?
     linux.sysctl_set("kernel.pid_max", sysctl_value)?
     let attrs = linux.file_attrs(seed)?
+    test.ok(attrs.immutable and attrs.append_only)?
     linux.set_file_attrs(seed, attrs.flags)?
     let version = linux.file_version(seed)?
     linux.set_file_version(seed, version)?
@@ -45,6 +51,7 @@ proc test_linux_dry_run_covers_module_surface(ctx: TestContext) [fs, process, en
     linux.set_hwclock(epoch_ms)?
     linux.set_system_clock(epoch_ms)?
     let rfkill = linux.rfkill_list()?.collect()
+    test.eq(rfkill[0].type, "wlan")?
     linux.rfkill_block(rfkill[0].id)?
     linux.rfkill_unblock(rfkill[0].id)?
     let loop_device = linux.loop_attach(seed)?
@@ -67,6 +74,7 @@ proc test_linux_dry_run_covers_module_surface(ctx: TestContext) [fs, process, en
     for event in uevents {
       test.eq(event.action, "add")?
       test.eq(event.subsystem, "block")?
+      test.eq(event.env[0].name, "ACTION")?
       break
     }
 
@@ -79,6 +87,23 @@ proc test_linux_dry_run_covers_module_surface(ctx: TestContext) [fs, process, en
 
   test.eq(random.read_bytes()?, b"\0\0\0\0")?
   let log_text = log.read_text()?
+  test.contains(log_text, "\"op\":\"mount\"")?
+  test.contains(log_text, "\"op\":\"meminfo\"")?
+  test.contains(log_text, "\"op\":\"routes\"")?
+  test.contains(log_text, "\"op\":\"set_ipv4_address\"")?
+  test.contains(log_text, "\"op\":\"add_default_ipv4_route\"")?
+  test.contains(log_text, "\"op\":\"is_mountpoint\"")?
+  test.contains(log_text, "\"op\":\"disk_usage\"")?
+  test.contains(log_text, "\"op\":\"sysctl_set\"")?
+  test.contains(log_text, "\"op\":\"set_file_attrs\"")?
+  test.contains(log_text, "\"op\":\"mknod\"")?
+  test.contains(log_text, "\"op\":\"loop_attach\"")?
+  test.contains(log_text, "\"op\":\"swapon\"")?
+  test.contains(log_text, "\"op\":\"modprobe\"")?
+  test.contains(log_text, "\"op\":\"write_partition_table\"")?
+  test.contains(log_text, "\"op\":\"uevent_stream\"")?
+  test.contains(log_text, "\"signal\":\"TERM\"")?
+  test.contains(log_text, "\"except_pid1\":\"true\"")?
   test.contains(log_text, "\"op\":\"link_down\"")?
   test.contains(log_text, "\"op\":\"flush_ipv4_addresses\"")?
   test.contains(log_text, "\"op\":\"del_default_ipv4_route\"")?
