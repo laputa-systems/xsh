@@ -21,6 +21,15 @@ dispatch through `cargo dev test`, which calls `dev/main.xsh`:
 the pinned container. The manual release workflow retains the `dist` profile;
 ordinary CI uses debug products. These full CI tests include formatter and
 linter checks and are owner-run under the agent workflow rule.
+
+The release matrix in `.github/workflows/release.yml` matches the three
+triples in `dev/targets.xsh::resolve`: x86_64 and aarch64 Linux musl, and
+aarch64 Darwin. `dev/dist.xsh::native_dist` builds `xsh`, `xsht`, and `xshi`
+for each target; `dev/release.xsh::validate_artifacts` requires all nine
+binary artifacts and their checksum sidecars. The names and validation
+boundary are covered by `dev/tests/test-targets.xsh`. Actual `dist` builds
+and package smoke checks run in the manual release workflow.
+
 `tests/linux_priv.rs` is included only with `linux-priv-tests`. In the pinned
 privileged image it runs under the CI `dev` profile with `net tools`; use
 `--nocapture` to see capability or fixture skip reasons. Rust counts those

@@ -70,16 +70,6 @@ section is the only remaining port task list.
 
 - **F09 · P1/M.** Reproduce an intermittent inherited descriptor in `runtime::modules::native_xsh_net_runtime_descriptors_do_not_survive_exec` on macOS. One full filtered runtime gate reported fd 9 in the child; the exact case, a subsequent full gate, and 30 isolated reruns passed. `xsh-test-show-fds` now reports the inherited fd kind and socket ports, so a future failure can distinguish the Rust server fixture from XSH's transport and wake sockets; its focused integration case passes. Identify the descriptor and the creation/exec overlap with a deterministic fixture before changing socket or process-spawn policy.
 
-## G. Build, CI, release, and repository hygiene
-
-The proposed Markdown-link checker was pruned after an inventory found only
-two repository-local links across 27 Markdown files, both in
-`docs/FRONTEND.md` and both valid. A new checker and check-stage dependency
-would cost more than the current link surface warrants; revisit if local links
-become a regular documentation convention.
-
-- **G07 · P2.** Compare distribution packaging on the declared target matrix through `dev/targets.xsh` and the release workflow; keep `dist` for CI packaging, not routine agent verification.
-
 ## I. Documentation and contract upkeep
 
 - **I01 · P1.** For every behavior change, update the canonical owner (`docs/SPEC.md`, `SPEC-OS.md`, `STREAMS.md`, `JSON.md`, or `xsht api`) in the same change; keep this queue at task level.
