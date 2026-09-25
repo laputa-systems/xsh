@@ -43,8 +43,8 @@ public APIs require a separate decision backed by repeated real use.
    when their policy changes.
 3. **F09:** identify the intermittent inherited descriptor from the expanded
    helper report before changing socket or spawn behavior.
-4. **J07, J11, J14, last:** finish compatibility and installer reintegration
-   after the checked-out ARM64 profile build and QEMU proof.
+4. **J07 and J11, last:** finish release compatibility and the x86_64 installer
+   route after the checked-out ARM64 profile and installer QEMU proofs.
 
 ## A. Correctness and test evidence
 
@@ -86,7 +86,7 @@ The PM static check, Laputa strict check and native modules, and combined PM/
 Laputa import test pass with the local build. Separate file identities and
 captured `args` shadowing are covered in XSH native tests. Package local-binary
 targets now select the owning Cargo packages and matching Linux flags. The local
-Linux route passes 114 PM tests including the filesystem test. The published pin's
+Linux route passes 117 PM tests including the filesystem test. The published pin's
 first PM suite runs 20/23 tests and fails three tagged-constructor cases; it is
 not a passing comparison baseline for today's PM source. Laputa's local ARM64
 plan writes byte-identical BuildPlan and generation-plan JSON across two runs;
@@ -105,18 +105,41 @@ input, and screenshot checks; `console.log` contains
 `LAPUTA_DWL_FOOT_PROOF_OK`, with no panic or failure marker, and the screenshot
 is nonempty. The tested BuildPlan SHA-256 is
 `01e778e8bfa12b08acc7b89b9bd14190e707324ec8a4876e62cb0891eef696ff`.
-The independent `make installer-image-aarch64` route currently fails at its
-first package installation: `build-installer-image.xsh::install_remote_packages`
-calls `pm install`, which was removed from the final typed CLI. Its sequential
-mutable root installation and local overlay need migration to saved plans,
-verified artifacts, and immutable composition before installer QEMU can run.
-A read-only PM plan for the eight installer package roots succeeds, but all 24
-nodes select local builds because the checked-out releases exceed the mirror;
-the old remote-only install sequence cannot be replaced by a download loop.
+The independent ARM64 installer route now saves one 24-node PM BuildPlan,
+builds verified artifacts in the native Docker Store, composes three distinct
+roots, and atomically publishes their archives. `make installer-image-aarch64`
+produced a 102 MB ISO and 11 MB kernel. `make installer-qemu-test-aarch64`
+built the 24-node smoke plan, reached `LAPUTA_INSTALLER_CI_OK`, booted the
+installed disk to `LAPUTA_TARGET_CI_OK`, and completed the Dropbear/`xshi` SSH
+check. The tested smoke BuildPlan SHA-256 is
+`cfca3b0d653c2f98e60a71bdbb8829f58106b49446bfacebf66de074c946c19d`.
+The plan selects local builds for every node because checked-out releases
+exceed the published mirror. `installer/package_roots_container.xsh` owns the
+package roots; `build-installer-image.xsh` owns image overlays and ISO assembly.
+
+Cross-repository compatibility evidence on the checked-out debug runner:
+`make test-native XSH_ROOT=../xsh` in `../packages` passed 115 PM tests with two
+Linux skips; the same PM modules in XSH's pinned `xsh-test` image passed 117
+with no skips. `tests/xsh/linux_recipe.xsh` passed 15 tests on macOS and pinned
+Linux, including the empty network-hook payload regression. The Laputa native
+modules and `tests/integration/cross_consumer.xsh` passed 35 tests in total.
+The profile proof used `../xsh/target/debug/xsh laputa.xsh -- build qemu-dwl-foot --jobs 4` and
+`../xsh/target/debug/xsh laputa.xsh -- test qemu-dwl-foot`; the independent
+installer proof used `XSH_HOST=/Users/josh/d/laputa-systems/xsh/target/debug/xsh make installer-image-aarch64`
+and `XSH_HOST=/Users/josh/d/laputa-systems/xsh/target/debug/xsh QEMU_SYSTEM_AARCH64=/opt/homebrew/bin/qemu-system-aarch64 make installer-qemu-test-aarch64`
+in `../laputa`. Fixtures are the `qemu-dwl-foot` profile, installer plan and
+root archives under `../laputa/target/laputa/installer-aarch64-packages/current`,
+and installer/target serial logs under
+`../laputa/target/laputa-installer-aarch64-qemu`. Reviewable owner changes
+include XSH `86becf2`/`722cc9b` (bounded file hashes), `../packages`
+`b6c3299`/`25f3576`/`6471c48` (verified Store extraction, generation plans,
+network hooks), and `../laputa` `7158c1b`/`f3f7aff` (typed generation and
+installer routes). The published XSH pin still fails three tagged-constructor PM cases;
+the x86_64 installer still uses removed `pm install` and its published kernel
+stops before userspace.
 
 - **J07 · P1.** When a published binary compatible with the current PM source is available, compare PM plan JSON, canonical fingerprints, store receipt validation, and root-generation outputs across the two binaries on deterministic fixtures. Executor binary identity is part of a BuildPlan, so classify expected key changes separately from semantic drift.
-- **J11 · P2.** Migrate the independent installer image builder from `pm install` to saved BuildPlans, verified artifacts, and immutable root composition; preserve its distinct installer and target overlays. Then run installer image and QEMU tests without routing them through `qemu-dwl-foot` policy.
-- **J14 · P2.** Finish with a cross-repository compatibility report: exact commands, profiles, fixtures, observed differences, remaining failures, and reviewable changes in each owner's repository.
+- **J11 · P2.** Migrate the x86_64 installer image builder from removed `pm install` after the PM graph and native package runner support that target. Preserve its installer and target roots, then run its image and QEMU tests; the published x86_64 kernel currently stops before userspace.
 
 ## Deliberately outside this queue
 
