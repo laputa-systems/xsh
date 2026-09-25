@@ -1,6 +1,6 @@
 ##! Embedded JSON Lines implementation.
 # The codec and path operations live in `src/modules/json.rs`. This module
-# keeps the bulk JSON Lines encoder; the 30-sample B0 workload measures it far
+# keeps the bulk JSON Lines encoder; the 30-sample benchmark measures it far
 # below the older per-item native boundary.
 
 # Runtime bridge used only to report a dynamic argument's original type.

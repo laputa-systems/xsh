@@ -3,21 +3,21 @@
 # Usage: xsh showcase/tokei.xsh -- [ROOT]
 # Example: xsh showcase/tokei.xsh -- /Users/josh/d/tokei
 #
-# The tokei journey (why this file looks the way it does)
+# Implementation notes
 # -------------------------------------------------------
 # This started as a benchmark to prove XSH could do real text-scanning work at a
-# serious scale (counting all of Sentry, ~18k files / ~5M lines) and became the
-# forcing function for most of the lowered-IR work. Milestones:
+# serious scale (counting all of Sentry, ~18k files / ~5M lines) and became a
+# forcing function for most of the lowered-IR work.
 #
-# 1. Scanner throughput. The per-file `count_*` scanners drove the lowered IR from
+# Scanner throughput. The per-file `count_*` scanners drove the lowered IR from
 #    "never fires on the hot path" to fully active: lowering `map.empty()`/`bytes.concat`,
 #    block-scoped re-bindings, borrowed `for line in text.lines()`, byte predicates,
 #    and finally strongly-connected-component co-lowering so the mutually-recursive
 #    cluster (count_markdown <-> count_slash_language -> count_html, dispatched by
 #    count_language) could lower atomically. Net: the default table path went from
-#    ~2.3x slower than native release tokei to ~1.3x FASTER. See docs/FRONTEND.md.
+#    ~2.3x slower than native release tokei to ~1.3x FASTER.
 #
-# 2. Output format: stable, tokei-like, and tested byte-for-byte against this
+# Output format: stable, tokei-like, and tested byte-for-byte against this
 #    script's own saved output for the same corpus/options. Native tokei is not
 #    the byte oracle. The default table keeps the embedded "|- Child" breakdown,
 #    per-language "(Total)" rows, heavy/light rules (tui glyphs), fixed column
@@ -25,7 +25,7 @@
 #    LanguageType name, child-bearing languages last). The per-(parent,child)
 #    breakdown is aggregated in-stream via `par-map |> flat-map |> reduce-by`.
 #
-# 3. Counts: file selection is exact, line classification is a deliberate
+# Counts: file selection is exact, line classification is a deliberate
 #    approximation. We closed file selection to Δfiles=0 vs tokei cheaply (`.pyi`/
 #    `.pot` extensions + `#!`-shebang detection). Getting line-level code/comment/
 #    blank counts byte-for-byte, though, needs each language's own string/comment

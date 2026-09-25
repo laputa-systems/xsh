@@ -18,10 +18,9 @@ import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
-# The specification fixes these workload classes; each entry here is one
-# frozen script. `linux_only` workloads run inside the Dockerfile.test
-# container, because the entries they measure read `/proc` and `/sys` on Linux
-# only; the runner reports them as skipped when it is not given a Linux binary.
+# Each workload class uses one frozen script. Linux-only workloads run in the
+# pinned test container because their entries read `/proc` and `/sys`; the
+# runner reports them as skipped when it is not given a Linux binary.
 WORKLOADS = [
     # Cold startup: a fresh process through a fixed tiny script.
     ("cold_trivial", "cold", 60, False),
@@ -47,8 +46,8 @@ WORKLOADS = [
     ("ini_large_record", "end_to_end", 30, False),
     # JSON.
     ("json_path_ops", "end_to_end", 30, False),
-    # B0 takes many seconds per process here. Ten samples in each of three
-    # independent rounds retain 30 observations without a single long round.
+    # This workload takes many seconds per process. Ten samples in each of
+    # three independent rounds retain 30 observations without a single long round.
     ("json_lines_batch", "end_to_end", 10, False),
     # Environment.
     ("env_typed_lookups", "end_to_end", 30, False),
@@ -56,10 +55,10 @@ WORKLOADS = [
     ("checksum_batch", "end_to_end", 30, False),
     # Real commands and tooling (project-wide check/lint run outside the runner).
     ("core_command", "end_to_end", 30, False),
-    # R12's required Linux entries: eager acquisition plus row interpretation,
+    # Linux entries under test: eager acquisition plus row interpretation,
     # measured separately from stream creation and from how much of the stream
     # a consumer takes. They read fixed host paths, so they run in the
-    # Dockerfile.test container against the fixtures the README stages there.
+    # Dockerfile.test container against fixtures staged at those fixed paths.
     ("linux_uptime", "end_to_end", 30, True),
     ("linux_meminfo", "end_to_end", 30, True),
     ("linux_memory", "end_to_end", 30, True),
@@ -69,9 +68,8 @@ WORKLOADS = [
     # Native controls: paths the port must not slow down.
     ("native_control", "end_to_end", 30, False),
     ("native_hash_control", "end_to_end", 30, False),
-    # Gated Linux policy: none. Every gated prototype that was measured failed
-    # its gate and was reverted to native, so there is nothing ported to
-    # measure here. The benchmark README records the remaining qualifications.
+    # No gated Linux prototypes remain enabled: every measured prototype failed
+    # its gate and returned to native code, so there is nothing ported to measure.
 ]
 
 # Every frozen workload currently exits zero, including the handled CLI error.

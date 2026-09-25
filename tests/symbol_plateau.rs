@@ -1,4 +1,4 @@
-//! A19 — repeated program preparation and teardown leave no stale symbol
+//! Repeated program preparation and teardown leave no stale symbol
 //! ownership or caller state.
 //!
 //! This lives in its own test binary because it samples a process-global

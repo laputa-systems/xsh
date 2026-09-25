@@ -50,7 +50,7 @@ fn prepared_module_count(name: &str, source: &str) -> usize {
     stdlib_preparation::parsed_modules()
 }
 
-/// A01 — a static trivial program prepares zero embedded implementation
+/// A static trivial program prepares zero embedded implementation
 /// modules; a script-backed call prepares exactly its module closure, while
 /// retained native text methods prepare none.
 #[test]
@@ -152,7 +152,7 @@ fn preparation_is_proportional_to_referenced_standard_entries() {
     );
 }
 
-/// A01 — selection follows resolved spellings, not names that merely look like
+/// Selection follows resolved spellings, not names that merely look like
 /// one: a local binding called `load`, a record field called `load`, and a
 /// native call in a mixed standard module are not references to an embedded
 /// implementation, while the script-backed entry beside them is.
@@ -226,7 +226,7 @@ fn selection_ignores_names_that_are_not_script_backed_references() {
     );
 }
 
-/// A05 — the complete set is prepared for a resolved `module.load`, including
+/// The complete set is prepared for a resolved `module.load`, including
 /// one reached through a `use` alias.
 #[test]
 fn a_resolved_dynamic_loading_route_prepares_the_complete_set() {
@@ -241,7 +241,7 @@ fn a_resolved_dynamic_loading_route_prepares_the_complete_set() {
     );
 }
 
-/// A03 — repeated references to one embedded module parse it once, including
+/// Repeated references to one embedded module parse it once, including
 /// references that arrive through separately loaded user modules.
 #[test]
 fn repeated_references_parse_an_embedded_module_once() {
@@ -272,7 +272,7 @@ fn repeated_references_parse_an_embedded_module_once() {
     );
 }
 
-/// A02 — embedded preparation does not grow once execution starts.
+/// Embedded preparation does not grow once execution starts.
 ///
 /// A loop that calls a script-backed entry many times, and a run that fails
 /// after calling one, must both leave the count at the single preparation-time
@@ -325,7 +325,7 @@ fn execution_does_not_prepare_embedded_modules() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// A05 — a program that can load user code dynamically prepares the complete
+/// A program that can load user code dynamically prepares the complete
 /// applicable implementation set before execution.
 #[test]
 fn dynamic_loading_prepares_the_complete_set_before_execution() {
@@ -362,7 +362,7 @@ fn dynamic_loading_prepares_the_complete_set_before_execution() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// A05 — a dynamically loaded module calls a prepared implementation.
+/// A dynamically loaded module calls a prepared implementation.
 ///
 /// The loaded module is its own program, so its standard call is a link into
 /// the loading program's prepared functions rather than a second copy of them.
@@ -464,7 +464,7 @@ fn dynamic_catalog_size() -> usize {
         .len()
 }
 
-/// A06 — a copied binary runs migrated APIs with no loose stdlib files, no
+/// A copied binary runs migrated APIs with no loose stdlib files, no
 /// repository cwd, and no project configuration.
 #[test]
 fn copied_binary_runs_migrated_apis_without_repository_files() {
@@ -496,7 +496,7 @@ fn copied_binary_runs_migrated_apis_without_repository_files() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// A07 — user source, module search roots, and a hostile module named after a
+/// User source, module search roots, and a hostile module named after a
 /// standard module cannot replace a standard implementation.
 #[test]
 fn standard_implementations_cannot_be_replaced() {
@@ -576,7 +576,7 @@ fn standard_implementations_cannot_be_replaced() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// A09 — a private implementation helper cannot be named from user source.
+/// A private implementation helper cannot be named from user source.
 #[test]
 fn private_implementation_helpers_are_not_nameable() {
     let count = prepared_module_count(
@@ -604,7 +604,7 @@ fn private_implementation_helpers_are_not_nameable() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// A10 — a user declaration with the same spelling as an embedded helper
+/// A user declaration with the same spelling as an embedded helper
 /// cannot capture, or be captured by, the implementation module.
 #[test]
 fn same_spelled_user_helpers_cannot_capture_implementation_helpers() {
@@ -643,7 +643,7 @@ fn same_spelled_user_helpers_cannot_capture_implementation_helpers() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// A08 — a user file whose contents are a copy of an embedded implementation
+/// A user file whose contents are a copy of an embedded implementation
 /// remains ordinary user source, and the standard entry is unaffected.
 #[test]
 fn copied_embedded_source_grants_no_private_access() {
@@ -685,7 +685,7 @@ fn copied_embedded_source_grants_no_private_access() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// A11, A12 — the implementation namespace is not spellable, and the existing
+/// The implementation namespace is not spellable, and the existing
 /// reserved-name rules keep working.
 #[test]
 fn implementation_namespace_is_unspellable_and_reserved_names_still_work() {
@@ -724,7 +724,7 @@ fn implementation_namespace_is_unspellable_and_reserved_names_still_work() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// A13 — preparation executes no library initialization: context-sensitive
+/// Preparation executes no library initialization: context-sensitive
 /// values are read at each invocation, not when the module is prepared.
 #[test]
 fn prepared_implementations_read_context_at_invocation_time() {
@@ -762,7 +762,7 @@ fn prepared_implementations_read_context_at_invocation_time() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// A09 — a user function spelled like a private representation bridge stays an
+/// A user function spelled like a private representation bridge stays an
 /// ordinary user function; the bridge rewrite is confined to its own module.
 #[test]
 fn user_functions_cannot_impersonate_a_representation_bridge() {
@@ -803,7 +803,7 @@ fn user_functions_cannot_impersonate_a_representation_bridge() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// A14 — pure/effect checking still applies to user source.
+/// Pure/effect checking still applies to user source.
 ///
 /// Embedded bodies are held to the same rule through the catalog gate, which
 /// runs each of them through the production checker.
@@ -828,7 +828,7 @@ fn pure_user_functions_still_cannot_perform_io() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// A15 — module-level dependencies work across script and native modules, and
+/// Module-level dependencies work across script and native modules, and
 /// an import cycle is diagnosed rather than looping.
 #[test]
 fn module_dependencies_resolve_and_cycles_are_diagnosed() {
@@ -895,7 +895,7 @@ fn module_dependencies_resolve_and_cycles_are_diagnosed() {
 }
 
 /// The three Linux text readers retain native bindings after their embedded
-/// implementations exceeded the cumulative B0 budget. The measured uptime
+/// implementations exceeded the cumulative performance budget. The measured uptime
 /// entry remains embedded, and `linux.modules` keeps its native stream.
 #[cfg(target_os = "linux")]
 #[test]
@@ -923,7 +923,7 @@ fn linux_text_entries_select_expected_bindings() {
     );
 }
 
-/// R12 — Linux text entries read their host text at call time.
+/// Linux text entries read their host text at call time.
 ///
 /// This checks each selected binding against the same host.
 #[cfg(target_os = "linux")]
@@ -996,11 +996,10 @@ fn linux_text_entries_answer_from_the_host() {
 /// `/etc/os-release` and `/usr/lib/os-release`.
 ///
 /// The entry is not redirected for this test: it reads the two paths it always
-/// reads. The Linux verification route in `bench/stdlib-port/README.md` stages
-/// container-owned fixtures there — inside the container's own writable layer,
-/// over no shared mount and over no `/proc` or `/sys` path — and names the
-/// scenario in `XSH_OS_RELEASE_SCENARIO`. The fixture contents are committed
-/// under `tests/fixtures/stdlib/os_release/fixed-path/`:
+/// reads. The Linux test container stages fixtures at those paths in its own
+/// writable layer, outside shared mounts and without covering `/proc` or
+/// `/sys`, and selects the scenario with `XSH_OS_RELEASE_SCENARIO`. The fixture
+/// contents are committed under `tests/fixtures/stdlib/os_release/fixed-path/`:
 ///
 /// - `etc` — the file is at both paths, so the first read answers;
 /// - `fallback` — `/etc/os-release` points at a missing file, so the second
@@ -1011,10 +1010,9 @@ fn linux_text_entries_answer_from_the_host() {
 ///   second read's message is what proves the first read failed and the second
 ///   was attempted, rather than the first failure being reported.
 ///
-/// Without the variable the test reports a skip rather than passing quietly,
-/// which is how A17 treats an unavailable binary. That is also why the default
-/// container run is unaffected: an ordinary run does not set it, and the
-/// fixtures are never mounted over the container's real files.
+/// Without the variable, the test emits a skip so an unavailable fixture cannot
+/// look like a pass. Ordinary runs leave it unset, and the fixtures are never
+/// mounted over the container's real files.
 #[cfg(target_os = "linux")]
 #[test]
 fn os_release_entry_reads_the_fixed_paths() {

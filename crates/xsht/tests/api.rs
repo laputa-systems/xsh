@@ -663,14 +663,13 @@ fn api_core_bindings_names_var_and_let_immutability() {
     assert_eq!(String::from_utf8(output.stderr).unwrap(), "");
 }
 
-/// A16 — the public API surface matches the revision the port started from.
+/// The public API surface remains unchanged when implementations move into
+/// embedded scripts.
 ///
-/// The fixture is the reference build's `api summary --format jsonl` output,
-/// recorded once from the starting revision. It carries every standard
-/// module, function, overload count, method receiver, method, and record, so
-/// a port that added, removed, renamed, or re-shaped a public entry — or
-/// changed how many overloads a name has — fails here. `stdlib_port.rs` covers
-/// the behavior behind those entries; this covers the surface itself.
+/// The recorded API summary covers every standard module, function, overload
+/// count, method receiver, method, and record. Additions, removals, renames,
+/// shape changes, and overload-count changes all fail this check. The behavior
+/// of those entries is covered separately; this test guards the public surface.
 #[test]
 fn api_surface_matches_the_recorded_reference() {
     let expected = std::fs::read_to_string(

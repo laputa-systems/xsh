@@ -610,10 +610,10 @@ impl WalkExtFilter {
 }
 
 /// Walk `root` as a lazy [`LiveStream`]: one record is produced per `next()` so
-/// a downstream `where`/`take` only pays for the entries it actually pulls
-/// (docs/STREAMS.md §3). Only the root `symlink_metadata` is eager — it is the
-/// one error that must surface before any items are seen, matching the old
-/// behavior of failing fast on a missing root.
+/// a downstream `where`/`take` only pays for the entries it actually pulls.
+/// Only the root `symlink_metadata` is eager — it is the one error that must
+/// surface before any items are seen, matching the old behavior of failing fast
+/// on a missing root.
 pub(crate) fn walk_filesystem(
     root: PathBuf,
     gitignore: bool,

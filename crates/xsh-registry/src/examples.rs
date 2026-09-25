@@ -1,8 +1,8 @@
 //! On-disk XSH snippets attached to the public API reference.
 //!
 //! The registry owns which API item receives an example; the example source
-//! itself lives in docs/snippets/api/ so it can be read, edited, and reused
-//! as XSH rather than being hidden in Rust string literals.
+//! remains ordinary XSH text so it can be read, edited, and reused rather than
+//! being hidden in Rust string literals.
 
 pub(crate) fn source(id: &str) -> Option<String> {
     let source = match id {

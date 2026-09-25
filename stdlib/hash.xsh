@@ -1,7 +1,7 @@
 ##! Embedded file verification policy for the public `hash` module.
 # Digest creation, file hashing, and checksum-line parsing live in
 # `src/modules/hash.rs`. The named-algorithm file verifier stays here after
-# its separate B0 workloads passed on both hosts.
+# its separate benchmark workloads passed on both hosts.
 
 # Whether every byte of a digest field is a hexadecimal digit.
 #

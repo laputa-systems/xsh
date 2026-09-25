@@ -1,4 +1,4 @@
-# Diagnostic for B07, outside the fixed acceptance workload set. Each phase
+# Supplemental diagnostic outside the fixed benchmark workload set. Each phase
 # repeats the operation 200 times against the same pinned /proc/modules text.
 proc main() [fs, io, env, error, time] {
   var sink = 0

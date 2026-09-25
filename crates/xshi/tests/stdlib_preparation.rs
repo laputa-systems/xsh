@@ -1,4 +1,4 @@
-//! A04 — `xshi` prepares each submitted input through the embedded
+//! `xshi` prepares each submitted input through the embedded
 //! standard-library preparation boundary.
 //!
 //! Every submitted input crosses its own preparation boundary: the input is
