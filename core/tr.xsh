@@ -1,4 +1,5 @@
 #!/bin/xsh
+use lib.text_input as text_input
 error AppletError = Usage(message: Str) : Usage
 
 pure usage(applet_name: Str, summary: Str) -> Str {
@@ -7,24 +8,6 @@ pure usage(applet_name: Str, summary: Str) -> Str {
 
 pure usage_error(applet_name: Str, summary: Str) -> Error {
   return AppletError.Usage(usage(applet_name, summary))
-}
-
-proc read_text_inputs(paths: List[Str]) [fs, error, io] -> Result[Str] {
-  var out = ""
-
-  if paths.len() == 0 {
-    return io.stdin_text()?
-  }
-
-  for item in paths {
-    if item == "-" {
-      out = f"${out}${io.stdin_text()?}"
-    } else {
-      out = f"${out}${fp"${item}".read_text()?}"
-    }
-  }
-
-  return out
 }
 
 pure ascii_chars() -> Str {
@@ -115,7 +98,7 @@ proc main(...argv: List[Str]) [fs, error, io] {
     if values.len() == 3 { [values[2]] } else { [] }
   }
 
-  let input = read_text_inputs(input_paths)?
+  let input = text_input.read_text(input_paths)?
   let set1 = if complement_set { complement(values[0]) } else { expand_ranges(values[0]) }
 
   if delete {

@@ -12,6 +12,12 @@ executable commands. It keeps that suffix for `core/lib/` modules so adjacent
 `use lib.auth` imports resolve after extraction; modules install with mode
 `0644`.
 
+The `core/` audit found one stable repeated host boundary: reading text files
+and `-` stdin operands in order. `fold`, `rev`, `shuf`, and `tr` now share
+`lib/text_input.xsh` with `cut`, `head`, `tail`, `uniq`, and `sort`. Applet usage
+errors remain local because their messages and accepted operand shapes differ;
+`cli.applet` and `cli.parse` already own their option parsing.
+
 Prefer typed standard-module APIs over shelling out or parsing command text.
 Use `cli.parse` for ordinary option records, including short aliases and
 clusters, and reserve `cli.tokens` for applets whose option grammar is itself

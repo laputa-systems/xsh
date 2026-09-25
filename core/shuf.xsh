@@ -1,21 +1,5 @@
 #!/bin/xsh
-proc read_text_inputs(paths: List[Str]) [fs, error, io] -> Result[Str] {
-  var out = ""
-
-  if paths.len() == 0 {
-    return io.stdin_text()?
-  }
-
-  for item in paths {
-    if item == "-" {
-      out = f"${out}${io.stdin_text()?}"
-    } else {
-      out = f"${out}${fp"${item}".read_text()?}"
-    }
-  }
-
-  return out
-}
+use lib.text_input as text_input
 
 pure common_int(raw: Str, label: Str) -> Result[Int] {
   match raw {
@@ -31,7 +15,7 @@ proc main(...argv: List[Str]) [fs, error, io] {
   )?
 
   let limit = common_int(parsed.head_count, "count")?
-  let shuffled = read_text_inputs(parsed.paths)?.lines() |> shuffle
+  let shuffled = text_input.read_text(parsed.paths)?.lines() |> shuffle
   let lines = if limit > 0 { shuffled |> take(limit) } else { shuffled }
 
   for line in lines {

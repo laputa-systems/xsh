@@ -107,7 +107,6 @@ The existing `showcase/*.xsh` programs are single-file tools, so none passes
 the canonical corpus selection test's multi-module requirement. Review their
 real failure boundaries without inflating them to satisfy that milestone.
 
-- **H07 · P2.** Review `core/` applets as a set for duplicated argument parsing, error presentation, and host-boundary helpers; consolidate only repeated, stable XSH code.
 - **H08 · P2.** Keep `showcase/jq.xsh` as the documented negative control; use any measured defect it reveals to improve the existing runtime without turning XSH into a general data language.
 - **H09 · P2.** Record friction found across H03–H08 as program design, reusable XSH helper, diagnostic/tooling issue, or narrow host capability; add no new semantic category from one script.
 
