@@ -405,6 +405,33 @@ c.invoke(p"${src.display()}", p"${out.display()}")?
   test.eq(out.read_text()?, src.display())?
 }
 
+proc test_module_path_resolves_nested_module_with_default_alias(ctx: TestContext) [fs, error] {
+  let root = test.temp_dir(ctx, name: "nested-module-path")?
+  let lib = fp"${root}/lib"
+  fp"${lib}/pm".mkdir(parents: true)?
+  fp"${lib}/pm/configure.xsh".write(r"""
+##! Configure fixture module.
+## Provides a package label.
+## Labels a package.
+export pure label(name: Str) -> Str {
+  return f"configured ${name}"
+}
+""")?
+
+  let output = test.run_script(
+    ctx,
+    r"""
+use pm.configure
+print ${configure.label("pkgconf")}
+""",
+    [],
+    {XSH_MODULE_PATH: lib.display()},
+  )?
+  test.ok(output.success, output.stderr)?
+  test.eq(output.stdout, "configured pkgconf\n")?
+  test.eq(output.stderr, "")?
+}
+
 proc test_stream_exports_are_namespace_members_not_module_contract_members(ctx: TestContext) [fs, error] {
   let root = test.temp_dir(ctx, name: "module-stream-contract")?
   fp"${root}/stream_only.xsh".write("""

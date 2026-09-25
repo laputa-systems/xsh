@@ -1640,55 +1640,6 @@ match p.get(\"Package\") {
 }
 
 #[test]
-fn user_modules_can_resolve_from_module_path_and_default_alias() {
-    let root = temp_path("module-path-root");
-    let lib = root.join("lib");
-    let pkg = root.join("repo/pkg");
-    let module_dir = lib.join("pm");
-    std::fs::create_dir_all(&module_dir).expect("create module dir");
-    std::fs::create_dir_all(&pkg).expect("create pkg dir");
-    std::fs::write(
-        module_dir.join("configure.xsh"),
-        "\
-##! Configure fixture module.
-## Provides a package label.
-## Labels a package.
-export pure label(name: Str) -> Str {
-  return f\"configured ${name}\"
-}
-",
-    )
-    .expect("write configure module");
-    let main = pkg.join("PKGBUILD.xsh");
-    std::fs::write(
-        &main,
-        "\
-use pm.configure
-print ${configure.label(\"pkgconf\")}
-",
-    )
-    .expect("write package script");
-
-    let output = Command::new(cargo_env!("CARGO_BIN_EXE_xsh"))
-        .env("XSH_MODULE_PATH", &lib)
-        .arg(&main)
-        .output()
-        .expect("run xsh");
-
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    assert_eq!(
-        String::from_utf8(output.stdout).unwrap(),
-        "configured pkgconf\n"
-    );
-    assert_eq!(String::from_utf8(output.stderr).unwrap(), "");
-    let _ = std::fs::remove_dir_all(root);
-}
-
-#[test]
 fn archive_module_roundtrips_compression_and_rejects_escape_paths() {
     let root = temp_path("archive-module");
     let _ = std::fs::remove_dir_all(&root);
