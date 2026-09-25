@@ -204,14 +204,23 @@ pure parse_value_b(s: Str, pos: Int) -> Result[Parsed] {
   }
 
   if b == 110 {
+    if s.byte_slice(p, 4) != "null" {
+      return Err(jq_err("Invalid JSON value"))
+    }
     return Ok({val: JNull, pos: p + 4})
   }
 
   if b == 116 {
+    if s.byte_slice(p, 4) != "true" {
+      return Err(jq_err("Invalid JSON value"))
+    }
     return Ok({val: JBool(true), pos: p + 4})
   }
 
   if b == 102 {
+    if s.byte_slice(p, 5) != "false" {
+      return Err(jq_err("Invalid JSON value"))
+    }
     return Ok({val: JBool(false), pos: p + 5})
   }
 

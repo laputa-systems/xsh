@@ -36,6 +36,16 @@ true""",
   )?
 }
 
+proc test_jq_rejects_misspelled_json_literals(ctx: TestContext) [fs, process, error] {
+  for invalid in ["noll", "trux", "falsx"] {
+    let input = test.temp_file(ctx, name: f"${invalid}.json", contents: bytes.from_text(invalid))?
+    let diagnostic = test.temp_path(ctx, name: f"${invalid}.err")
+    let status = run.status xsh showcase/jq.xsh -- -c . < $input 2> $diagnostic
+    test.ok(! status.exited_with(0))?
+    test.contains(diagnostic.read_text()?, "Invalid JSON value")?
+  }
+}
+
 proc test_jq_pipe_index(ctx: TestContext) [fs, process, error] {
   let out = run_jq(ctx, ".a | .[1]", "{\"a\":[10,20,30]}")?
   test.eq(out.trim(), "20")?

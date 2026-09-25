@@ -211,6 +211,11 @@ deliberately demonstrates a workload that wants closures, lazy generators,
 interpreter machinery, and persistent collections. Findings from it may reveal
 compiler or runtime defects, but jq-shaped pressure alone does not justify
 changing XSH's domain.
+The byte-indexed parser once accepted misspelled `null`, `true`, and `false`
+tokens because it advanced by their lengths without checking their bytes.
+`showcase/tests/test-jq.xsh::test_jq_rejects_misspelled_json_literals` keeps
+that program-local error covered; the 15-case native suite passes on macOS and
+the pinned Linux image. No language or runtime change followed from it.
 
 Small existing standalone tools may remain in `showcase/`. Their presence does
 not make them roadmap priorities. When a tool exhausts retries, times out, or
