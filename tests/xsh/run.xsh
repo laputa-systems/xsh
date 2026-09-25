@@ -136,6 +136,36 @@ proc test_run_builtin_forms_execute_like_plain_run_forms() [process, error] {
   test.eq(capture.stdout, "out")?
 }
 
+proc test_dynamic_module_proc_preserves_bareword_run_arguments(ctx: TestContext) [fs, error] {
+  let root = test.temp_dir(ctx, name: "module-run-arguments")?
+  let module_path = fp"${root}/package.xsh"
+  module_path.write(r"""
+##! Bareword run argument fixture.
+## Runs representative bareword forms from a loaded module.
+export proc build() [process, error] {
+  run echo -a json ?
+  run echo -ab json ?
+  run echo -- json ?
+  run echo --f json ?
+  run echo "-C" "build" samu ?
+  run echo --- json ?
+  run echo --format json ?
+  run echo apples ?
+}
+""")?
+
+  let output = test.run_script(
+    ctx,
+    f"""let build_fn: Proc = module.load(p"${module_path.display()}")?.get("build")?
+build_fn.call()?
+""",
+  )?
+  test.ok(output.success, output.stderr)?
+  for expected in ["-a json", "-ab json", "-- json", "--f json", "-C build samu", "--- json", "--format json", "apples"] {
+    test.contains(output.stdout, expected)?
+  }
+}
+
 proc test_run_builtin_unknown_name_returns_process_error() [process, env, error] {
   env PATH="/bin:/usr/bin" {
     let missing = run.builtin.text command-not-builtin
