@@ -119,6 +119,7 @@ fn xsht_syscall_trace_includes_summary_when_ptrace_available() {
 
     let stderr = String::from_utf8(output.stderr).unwrap();
     if !output.status.success() && stderr.contains("syscall tracing setup failed") {
+        eprintln!("skipped: ptrace syscall tracing unavailable: {}", stderr.trim());
         return;
     }
 
@@ -168,6 +169,7 @@ print ${out.trim()}
 
     let stderr = String::from_utf8(stderr).unwrap();
     if !status.success() && stderr.contains("syscall tracing setup failed") {
+        eprintln!("skipped: ptrace syscall tracing unavailable: {}", stderr.trim());
         return;
     }
 
@@ -189,6 +191,7 @@ fn linux_module_primitives_are_declared_but_runtime_gated() {
 #[test]
 fn run_cpumax_uses_real_cgroup_v2_when_available() {
     let Some(root) = writable_real_cgroup_root() else {
+        eprintln!("skipped: no writable cgroups v2 root for the cpumax fixture");
         return;
     };
     let script = write_temp_script(

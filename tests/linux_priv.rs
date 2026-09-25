@@ -16,7 +16,10 @@ use std::time::{Duration, Instant};
 ///
 ///   #[test]
 ///   fn example() {
-///       if !is_root() { return; }
+///       if !is_root() {
+///           eprintln!("skipped: example requires root and CAP_SYS_ADMIN");
+///           return;
+///       }
 ///       // ...
 ///   }
 pub fn is_root() -> bool {
@@ -338,6 +341,7 @@ env XSH_LINUX_REAL=1 XSH_LINUX_DRY_RUN=0 {{
 #[test]
 fn linux_priv_mknod_creates_character_device_when_permitted() {
     if !is_root() {
+        eprintln!("skipped: character-device creation requires root and CAP_MKNOD");
         return;
     }
     let root = temp_path("linux-priv-mknod");
@@ -359,6 +363,7 @@ env XSH_LINUX_REAL=1 XSH_LINUX_DRY_RUN=0 {{
     let _ = std::fs::remove_file(&node);
     let _ = std::fs::remove_dir_all(&root);
     if !output.status.success() && lacks_capability(&output) {
+        eprintln!("skipped: CAP_MKNOD is required to create a character device");
         return;
     }
 
@@ -422,6 +427,7 @@ env XSH_LINUX_REAL=1 XSH_LINUX_DRY_RUN=0 {{
 #[test]
 fn linux_priv_kill_all_signals_contained_new_session_process() {
     if !is_root() {
+        eprintln!("skipped: kill_all fixture requires root in an isolated PID namespace");
         return;
     }
     let marker = temp_path("linux-priv-kill-all-ready");
@@ -455,6 +461,7 @@ env XSH_LINUX_REAL=1 XSH_LINUX_DRY_RUN=0 {
         let _ = child.kill();
         let _ = child.wait();
         let _ = std::fs::remove_file(marker);
+        eprintln!("skipped: permission to signal the isolated child session is unavailable");
         return;
     }
 

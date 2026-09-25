@@ -21,6 +21,10 @@ dispatch through `cargo dev test`, which calls `dev/main.xsh`:
 the pinned container. The manual release workflow retains the `dist` profile;
 ordinary CI uses debug products. These full CI tests include formatter and
 linter checks and are owner-run under the agent workflow rule.
+`tests/linux_priv.rs` is included only with `linux-priv-tests`. In the pinned
+privileged image it runs under the CI `dev` profile with `net tools`; use
+`--nocapture` to see capability or fixture skip reasons. Rust counts those
+early-return cases as passed, so record whether a privileged case actually ran.
 
 ## Common Gates
 
