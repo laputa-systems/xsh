@@ -35,6 +35,21 @@ export proc execute(root: Path) [fs, error] -> Result[Unit] {
   test.eq(fp"${root}/out.txt".read_text()?, "demo")?
 }
 
+proc test_module_load_rejects_undocumented_export(ctx: TestContext) [fs, error] {
+  let root = test.temp_dir(ctx, name: "undocumented-module")?
+  let plugin_path = fp"${root}/undocumented.xsh"
+  fs.write(plugin_path, "export let name = \"undocumented\"\n")?
+
+  let output = test.run_script(
+    ctx,
+    f"""let _ = module.load(p"${plugin_path.display()}")?
+""",
+  )?
+
+  test.ok(! output.success)?
+  test.contains(output.stderr, "undocumented exports")?
+}
+
 proc test_static_and_loaded_modules_reject_the_same_contract_mismatches(ctx: TestContext) [fs, error] {
   let root = test.temp_dir(ctx, name: "module-contract-mismatches")?
   let optional_path = fp"${root}/bad_optional.xsh"

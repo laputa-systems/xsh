@@ -1446,35 +1446,6 @@ export let name = "bad"
 }
 
 #[test]
-fn dynamic_module_load_rejects_undocumented_exports() {
-    let root = temp_path("dynamic-module-doc-contract");
-    std::fs::create_dir_all(&root).expect("create dynamic module root");
-    let package = root.join("undocumented.xsh");
-    let main = root.join("main.xsh");
-    std::fs::write(&package, "export let name = \"undocumented\"\n")
-        .expect("write undocumented module");
-    std::fs::write(
-        &main,
-        format!(
-            "let _ = module.load(Path({}))?\n",
-            xsh_string_literal(package.to_str().unwrap())
-        ),
-    )
-    .expect("write dynamic module main");
-
-    let output = xsh([main.to_str().unwrap()]);
-
-    assert!(!output.status.success());
-    assert!(
-        String::from_utf8_lossy(&output.stderr).contains("undocumented exports"),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-
-    let _ = std::fs::remove_dir_all(root);
-}
-
-#[test]
 fn env_get_rejects_invalid_utf8_values() {
     let output = Command::new(cargo_env!("CARGO_BIN_EXE_xsh"))
         .arg("tests/fixtures/runtime/env-invalid-utf8.xsh")
