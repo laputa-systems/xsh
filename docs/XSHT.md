@@ -163,6 +163,9 @@ Tooling configuration is read from `xsht-config.ini`. The current working
 directory config controls no-argument discovery. File-oriented commands that
 operate on explicit or discovered files use the nearest `xsht-config.ini` in
 each file's ancestor directories when command behavior is file-specific.
+For `check`, `fmt`, and `lint`, an explicit directory scans only that directory
+with its nearest config's `exclude` patterns; `include` extends only the
+no-argument scan.
 
 Relative paths from a config file are resolved from that config file's
 directory. Invalid config is a command error, not a silent fallback, except that

@@ -1,6 +1,6 @@
 use crate::xsht::cli::{
-    CliOutput, XshConfig, cancellation_output, collect_configured_xsh_files, load_config,
-    text_bytes,
+    CliOutput, XshConfig, cancellation_output, collect_configured_xsh_files, collect_xsh_files,
+    load_config, text_bytes,
 };
 use crate::xsht::config::{config_for_dir, config_for_file};
 use crate::xsht::format::Formatter;
@@ -114,7 +114,7 @@ fn discover_format_files(files: &[String], config: &XshConfig) -> Result<Vec<Str
             let path = Path::new(file);
             if path.is_dir() {
                 let dir_config = config_for_dir(path, config)?.config;
-                collect_configured_xsh_files(path, &dir_config, &mut discovered)?;
+                collect_xsh_files(path, &dir_config.exclude, &mut discovered)?;
             } else {
                 discovered.push(PathBuf::from(path));
             }
@@ -312,4 +312,30 @@ fn worker_count(file_count: usize) -> usize {
         .map(|count| count.get())
         .unwrap_or(1)
         .clamp(1, file_count)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::discover_format_files;
+    use crate::xsht::cli::XshConfig;
+    use std::fs;
+    use tempfile::TempDir;
+
+    #[test]
+    fn explicit_directory_discovery_does_not_expand_parent_includes() {
+        let root = TempDir::new().expect("create temp root");
+        let project = root.path().join("project");
+        fs::create_dir(&project).expect("create project directory");
+        fs::write(root.path().join("xsht-config.ini"), "include = extra\n")
+            .expect("write parent config");
+        let script = project.join("main.xsh");
+        fs::write(&script, "let value = 1\n").expect("write script");
+
+        let files = discover_format_files(
+            &[project.to_string_lossy().into_owned()],
+            &XshConfig::default(),
+        )
+        .expect("discover explicit directory");
+        assert_eq!(files, vec![script.to_string_lossy()]);
+    }
 }

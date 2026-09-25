@@ -1,6 +1,6 @@
 use crate::xsht::cli::{
-    CliOutput, XshConfig, cancellation_output, collect_configured_xsh_files, is_path_excluded,
-    load_config, nearest_config_for_file, text_bytes,
+    CliOutput, XshConfig, cancellation_output, collect_configured_xsh_files, collect_xsh_files,
+    is_path_excluded, load_config, nearest_config_for_file, text_bytes,
 };
 use crate::xsht::config::{FileToolConfig, config_for_dir};
 use crate::xsht::edit::{SourceEdit, apply_cst_guarded_edits};
@@ -167,7 +167,7 @@ fn discover_lint_files(files: &[String], config: &XshConfig) -> Result<LintDisco
             let path = Path::new(file);
             if path.is_dir() {
                 let dir_config = config_for_dir(path, config)?.config;
-                collect_configured_xsh_files(path, &dir_config, &mut paths)?;
+                collect_xsh_files(path, &dir_config.exclude, &mut paths)?;
             } else {
                 paths.push(path.to_path_buf());
                 explicit_roots.insert(module_key(path));
@@ -1439,7 +1439,7 @@ fn diagnostic_key(diagnostic: &Diagnostic, sources: &SourceMap) -> String {
 mod tests {
     use crate::xsht::cli::lint::{
         ConfigCache, LintResultKind, ResolvedLintConfig, apply_cst_fixes, collect_fix_spans,
-        lint_config_for_file, lint_one_file_with_fixes,
+        discover_lint_files, lint_config_for_file, lint_one_file_with_fixes,
     };
     use crate::xsht::format::DEFAULT_LINE_WIDTH;
     use crate::xsht::lint::LintOptions;
@@ -1456,6 +1456,24 @@ mod tests {
             line_width: DEFAULT_LINE_WIDTH,
             module_roots: Vec::<PathBuf>::new(),
         }
+    }
+
+    #[test]
+    fn explicit_directory_discovery_does_not_expand_parent_includes() {
+        let root = TempDir::new().expect("create temp root");
+        let project = root.path().join("project");
+        fs::create_dir(&project).expect("create project directory");
+        fs::write(root.path().join("xsht-config.ini"), "include = extra\n")
+            .expect("write parent config");
+        let script = project.join("main.xsh");
+        fs::write(&script, "let value = 1\n").expect("write script");
+
+        let discovered = discover_lint_files(
+            &[project.to_string_lossy().into_owned()],
+            &crate::xsht::cli::XshConfig::default(),
+        )
+        .expect("discover explicit directory");
+        assert_eq!(discovered.files, vec![script.to_string_lossy()]);
     }
 
     #[test]
