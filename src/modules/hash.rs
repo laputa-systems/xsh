@@ -138,9 +138,13 @@ fn digest_stream<D: md5::Digest + Default>(
     let mut digest = D::default();
     let mut buffer = [0; 64 * 1024];
     loop {
-        let count = reader
-            .read(&mut buffer)
-            .map_err(|error| RuntimeError::new("hash-read", error.to_string()).with_span(span))?;
+        let count = match reader.read(&mut buffer) {
+            Ok(count) => count,
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(error) => {
+                return Err(RuntimeError::new("hash-read", error.to_string()).with_span(span));
+            }
+        };
         if count == 0 {
             return Ok(digest.finalize().to_vec());
         }
@@ -185,10 +189,22 @@ mod tests {
 
     struct BoundedReader(Cursor<Vec<u8>>);
 
+    struct InterruptOnce(Cursor<Vec<u8>>, bool);
+
     impl Read for BoundedReader {
         fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
             if buffer.len() > 64 * 1024 {
                 return Err(io::Error::other("digest requested an unbounded read"));
+            }
+            self.0.read(buffer)
+        }
+    }
+
+    impl Read for InterruptOnce {
+        fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+            if !self.1 {
+                self.1 = true;
+                return Err(io::Error::new(io::ErrorKind::Interrupted, "retry this read"));
             }
             self.0.read(buffer)
         }
@@ -208,5 +224,14 @@ mod tests {
             let file = digest_reader(algorithm, &mut reader, span).expect("bounded file read");
             assert_eq!(file, digest_bytes(algorithm, &data));
         }
+    }
+
+    #[test]
+    fn file_digest_retries_interrupted_reads() {
+        let data = b"digest after retry".to_vec();
+        let span = Span::new(SourceId::new(0), 0, 0);
+        let mut reader = InterruptOnce(Cursor::new(data.clone()), false);
+        let digest = digest_reader(HashAlgorithm::Sha256, &mut reader, span).expect("interrupted read retries");
+        assert_eq!(digest, digest_bytes(HashAlgorithm::Sha256, &data));
     }
 }
