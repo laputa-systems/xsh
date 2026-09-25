@@ -85,12 +85,11 @@ a `metadata-unavailable` runtime error. `fs.files(..., exts: [...])` filters
 child files by raw extension before `stat` and record construction, while still
 traversing directories so matching files deeper in the tree can be reached.
 
-- **Parallel, unordered.** Recursive walks use `ignore::WalkBuilder` /
-  `WalkParallel`, including its per-thread depth-first deques and cross-thread
-  stealing. `gitignore: true` enables `.gitignore`, `.ignore`, `.fdignore`,
-  global gitignore, and git exclude files without requiring the root to be inside
-  a git worktree. **Lazy-start:** the worker pool starts on first `next()`.
-  Records arrive in **completion order, not sorted**.
+- **Serial, lazy.** Recursive walks use `ignore::WalkBuilder` and a single
+  `ignore::Walk` iterator. `gitignore: true` enables `.gitignore`, `.ignore`,
+  `.fdignore`, global gitignore, and git exclude files without requiring the
+  root to be inside a git worktree. Traversal starts on first `next()`.
+  Records follow filesystem traversal order, which is not sorted.
 
 Consumers needing deterministic order use `|> sort-by .path`.
 
@@ -131,8 +130,8 @@ retains one count per key. The stages below are serial as well:
 - **`sum`/`count`/`min`/`max` with no block** — per-item work is nil; the cost is
   an upstream `map`, not the terminal.
 
-`par-map` is the explicit worker stage. The filesystem walk starts its own
-parallel traversal when pulled.
+`par-map` is the explicit worker stage. The filesystem walk starts serial
+traversal when pulled.
 
 ## 5. `par-map` and adapters
 
@@ -231,7 +230,7 @@ could win on flat trees. See §7 pitfalls.
 
 - **`group-by` then aggregate buffers everything (O(N)).** For a per-key
   count/sum, use `reduce-by` (O(distinct)) or `count { key }`.
-- **Order isn't free.** Recursive walks are unordered/parallel; `take`/`first`/
+- **Order isn't free.** Recursive walks follow unsorted traversal order; `take`/`first`/
   `last` over them are nondeterministic. Add `|> sort-by` when order matters.
   `sort-by`/`sort` are stable and order `Int`/`Str`/`Bool`/`Path` keys and
   records (field by field in sorted field-name order); unsupported key types

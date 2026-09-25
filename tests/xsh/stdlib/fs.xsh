@@ -305,8 +305,8 @@ proc test_fs_root_symlink_preserves_default_parents_with_named_overwrite(ctx: Te
   fs.close_root(root)?
 }
 
-proc test_fs_walk_is_parallel_unordered_and_honors_gitignore(ctx: TestContext) [fs, error] {
-  let root = test.temp_dir(ctx, name: "fs-walk-parallel")?
+proc test_fs_walk_filters_large_flat_directory(ctx: TestContext) [fs, error] {
+  let root = test.temp_dir(ctx, name: "fs-walk-flat")?
   let sub = fp"${root}/sub"
   let ignored = fp"${root}/ignored"
   sub.mkdir()?
@@ -323,16 +323,16 @@ proc test_fs_walk_is_parallel_unordered_and_honors_gitignore(ctx: TestContext) [
 
   fp"${ignored}/hidden.txt".write("x")?
 
-  let par = fs.walk(root)
+  let paths = fs.walk(root)
     |> map .path.display()
     |> sort-by .
 
-  let par_files = fs.files(root) |> count()
-  let has_hidden = par |> any "hidden" in .
+  let file_count = fs.files(root) |> count()
+  let has_hidden = paths |> any "hidden" in .
 
   # 200 .txt files survive; plus root and sub directories.
-  test.eq(par.len(), 202)?
-  test.eq(par_files, 200)?
+  test.eq(paths.len(), 202)?
+  test.eq(file_count, 200)?
   test.eq(has_hidden, false)?
 }
 

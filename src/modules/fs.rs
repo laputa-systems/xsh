@@ -1842,7 +1842,7 @@ pub(crate) enum IgnoreWalkStream {
 impl LiveStream for IgnoreWalkStream {
     fn next(&mut self, _span: Span) -> Result<Option<Value>, RuntimeError> {
         if let Self::Pending(spec) = self {
-            let builder = ignore_walk_builder(spec, 1);
+            let builder = ignore_walk_builder(spec);
             *self = Self::Running {
                 iter: Box::new(builder.build()),
                 spec: spec.clone(),
@@ -1872,7 +1872,7 @@ impl LiveStream for IgnoreWalkStream {
     }
 }
 
-fn ignore_walk_builder(spec: &WalkSpec, jobs: usize) -> ignore::WalkBuilder {
+fn ignore_walk_builder(spec: &WalkSpec) -> ignore::WalkBuilder {
     let mut builder = ignore::WalkBuilder::new(&spec.root);
     builder
         .hidden(!spec.hidden)
@@ -1881,8 +1881,7 @@ fn ignore_walk_builder(spec: &WalkSpec, jobs: usize) -> ignore::WalkBuilder {
         .git_ignore(spec.gitignore)
         .git_global(spec.gitignore)
         .git_exclude(spec.gitignore)
-        .require_git(false)
-        .threads(jobs);
+        .require_git(false);
     if spec.gitignore {
         builder.add_custom_ignore_filename(".fdignore");
     }

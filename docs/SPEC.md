@@ -1929,8 +1929,8 @@ files are written through a temporary file in the destination directory.
 `fs`:
 
 - `fs.walk(path: Path, gitignore: Bool = true, stat: Bool = true, hidden: Bool = false) -> Result[Stream[Record]]`.
-  The walk is **parallel and unordered** (entries arrive in traversal completion
-  order, not sorted) using one worker per CPU. Use `|> sort-by .path` when a
+  The walk is lazy and serial. Entries follow filesystem traversal order,
+  which is not guaranteed to be sorted; use `|> sort-by .path` when a
   deterministic order matters. `stat: false` skips the per-entry `stat` for a
   cheaper traversal; stat-derived fields are unavailable and reading them
   returns a `metadata-unavailable` runtime error. Hidden entries are skipped
