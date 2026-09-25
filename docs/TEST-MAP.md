@@ -153,7 +153,7 @@ cargo test --test integration runtime::coverage::runnable_xsh_corpus_is_formatte
 | cataloged examples | `tests/runtime/examples.rs` |
 | `core/pstree.xsh` process-tree output | `core/tests/test-pstree.xsh`, `tests/runtime/unix.rs` |
 | interactive behavior | `tests/runtime/interactive.rs` |
-| Linux-specific behavior | `tests/runtime/linux.rs` |
+| Linux-specific behavior | `tests/xsh/stdlib/linux.xsh`, `tests/runtime/linux.rs` |
 | standard modules | `tests/runtime/modules.rs` |
 | OS-facing runtime behavior | `tests/xsh/stdlib/unix.xsh`, `tests/runtime/os.rs`, `tests/runtime/unix.rs`, `tests/runtime/linux.rs` |
 | `run_capture`, `spawn_managed`, and process execution | `tests/runtime/process.rs`, `tests/runtime/run.rs` |

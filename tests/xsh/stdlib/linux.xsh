@@ -170,6 +170,93 @@ proc test_linux_text_dry_run_values_and_log(ctx: TestContext) [fs, process, env,
   )?
 }
 
+proc test_linux_dry_run_disk_usage_and_sysctl_records() [process, env, error] {
+  env XSH_LINUX_DRY_RUN=1 XSH_LINUX_SYSCTL_VALUE=65535 {
+    let root_usage = linux.disk_usage()?.collect()
+    let tmp_usage = linux.disk_usage(/tmp)?.collect()
+    test.eq(root_usage[0].device, "rootfs")?
+    test.eq(root_usage[0].mount, "/")?
+    test.eq(root_usage[0].fstype, "tmpfs")?
+    test.eq(root_usage[0].total, 1073741824)?
+    test.eq(root_usage[0].used, 268435456)?
+    test.eq(root_usage[0].available, 805306368)?
+    test.eq(tmp_usage[0].mount, "/tmp")?
+    test.ok(linux.is_mountpoint(/proc)?)?
+    test.ok(! linux.is_mountpoint(/tmp)?)?
+    test.eq(linux.sysctl_get("kernel.pid_max")?, "65535")?
+  } ?
+}
+
+proc test_linux_dry_run_file_attrs_decode_seed_flags(ctx: TestContext) [fs, process, env, error] {
+  let root = test.temp_dir(ctx, name: "linux-file-attrs")?
+  let seed = fp"${root}/seed"
+  fs.write(seed, "seed")?
+  env XSH_LINUX_DRY_RUN=1 XSH_LINUX_FILE_ATTRS_FLAGS=250111 XSH_LINUX_FILE_VERSION=7 {
+    let attrs = linux.file_attrs(seed)?
+    let version = linux.file_version(seed)?
+    linux.set_file_attrs(seed, attrs.flags)?
+    linux.set_file_version(seed, version)?
+    test.eq(attrs.flags, 250111)?
+    test.eq(version, 7)?
+    test.ok(attrs.indexed_directory)?
+    test.ok(attrs.secure_deletion)?
+    test.ok(attrs.undelete)?
+    test.ok(attrs.sync)?
+    test.ok(attrs.dirsync)?
+    test.ok(attrs.immutable)?
+    test.ok(attrs.append_only)?
+    test.ok(attrs.no_dump)?
+    test.ok(attrs.no_atime)?
+    test.ok(attrs.compression_requested)?
+    test.ok(attrs.journaled_data)?
+    test.ok(attrs.no_tailmerging)?
+    test.ok(attrs.top_of_directory_hierarchies)?
+  } ?
+}
+
+proc test_linux_dry_run_rejects_invalid_seed_inputs() [process, env, error] {
+  env XSH_LINUX_DRY_RUN=1 {
+    match linux.sysctl_get("kernel..pid_max") {
+      Ok(_) => { test.ok(false, "invalid sysctl name was accepted")? }
+      Err(failure) => {
+        test.error_kind(failure, "linux-sysctl")?
+        test.contains(failure.message, "invalid")?
+      }
+    }
+    match linux.sysctl_set("../kernel.pid_max", "1") {
+      Ok(_) => { test.ok(false, "invalid sysctl path was accepted")? }
+      Err(failure) => {
+        test.error_kind(failure, "linux-sysctl")?
+        test.contains(failure.message, "invalid")?
+      }
+    }
+    for flags in [-1, 4294967296] {
+      match linux.set_file_attrs(/tmp/file, flags) {
+        Ok(_) => { test.ok(false, "invalid file attribute flags were accepted")? }
+        Err(failure) => {
+          test.error_kind(failure, "linux-file-attrs")?
+          test.contains(failure.message, "between 0 and 4294967295")?
+        }
+      }
+    }
+    match linux.set_file_version(/tmp/file, -1) {
+      Ok(_) => { test.ok(false, "invalid file version was accepted")? }
+      Err(failure) => {
+        test.error_kind(failure, "linux-file-version")?
+        test.contains(failure.message, "between 0 and 4294967295")?
+      }
+    }
+    test.error_kind(linux.kill_all(signal: "BOGUS"), "invalid-signal")?
+    match linux.mknod(/tmp/file, "socket", 0, 0) {
+      Ok(_) => { test.ok(false, "invalid node kind was accepted")? }
+      Err(failure) => {
+        test.error_kind(failure, "linux-mknod")?
+        test.contains(failure.message, "block")?
+      }
+    }
+  } ?
+}
+
 proc test_linux_dry_run_log_appends_in_place(ctx: TestContext) [fs, process, env, error] {
   if system.uname()?.sysname != "Linux" {
     # This checks Linux's in-place append behavior.
