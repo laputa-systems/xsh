@@ -160,6 +160,7 @@ stack boundaries.
 | interactive behavior | `tests/runtime/interactive.rs` |
 | Linux-specific behavior | `tests/xsh/stdlib/linux.xsh`, `tests/runtime/linux.rs` |
 | standard modules | `tests/xsh/stdlib/module.xsh`, `tests/runtime/modules.rs` |
+| embedded standard-module linkage and copied checker/runner binaries | `tests/stdlib_port.rs`, `tests/runtime/run.rs::copied_products_check_and_run_script_backed_calls_in_static_and_loaded_modules` |
 | OS-facing runtime behavior | `tests/xsh/stdlib/unix.xsh`, `tests/runtime/os.rs`, `tests/runtime/unix.rs`, `tests/runtime/linux.rs` |
 | `run_capture`, `spawn_managed`, and process execution | `tests/xsh/run.xsh`, `tests/xsh/stdlib/process.xsh`, `tests/runtime/process.rs`, `tests/runtime/run.rs` |
 | retry blocks | `tests/xsh/retry.xsh` |

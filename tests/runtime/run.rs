@@ -1,6 +1,60 @@
 use super::common::*;
 
 #[test]
+fn copied_products_check_and_run_script_backed_calls_in_static_and_loaded_modules() {
+    let root = temp_path("copied-products-stdlib-linkage");
+    std::fs::create_dir_all(&root).expect("create isolated script root");
+    let xsh = root.join("xsh");
+    let xsht = root.join("xsht");
+    std::fs::copy(cargo_env!("CARGO_BIN_EXE_xsh"), &xsh).expect("copy xsh");
+    std::fs::copy(cargo_env!("CARGO_BIN_EXE_xsht"), &xsht).expect("copy xsht");
+    std::fs::write(
+        root.join("helper.xsh"),
+        "##! Static helper.\n## Return a terminal sequence.\nexport pure color() -> Str { return tui.red() }\n",
+    )
+    .expect("write static module");
+    std::fs::write(
+        root.join("dynamic.xsh"),
+        "##! Dynamic helper.\n## Return a terminal sequence.\nexport pure color() -> Str { return tui.bold() }\n",
+    )
+    .expect("write loaded module");
+    std::fs::write(
+        root.join("main.xsh"),
+        "use helper\ntype Loaded = module { export pure color() -> Str }\nproc main() [fs, io, error] {\n  let loaded = module.load(p\"dynamic.xsh\")?.require(Loaded)?\n  let both = helper.color() + loaded.color()\n  print $both\n}\n",
+    )
+    .expect("write entry script");
+
+    let checked = Command::new(&xsht)
+        .args(["check", "main.xsh"])
+        .current_dir(&root)
+        .env_remove("XSH_MODULE_PATH")
+        .output()
+        .expect("check with copied xsht");
+    assert_eq!(
+        checked.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&checked.stderr)
+    );
+    assert!(checked.stdout.is_empty());
+
+    let executed = Command::new(&xsh)
+        .arg("main.xsh")
+        .current_dir(&root)
+        .env_remove("XSH_MODULE_PATH")
+        .output()
+        .expect("run with copied xsh");
+    assert_eq!(
+        executed.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&executed.stderr)
+    );
+    assert_eq!(executed.stdout, b"\x1b[31m\x1b[1m\n");
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
 fn integer_division_by_zero_is_a_structured_runtime_failure() {
     let mut child = Command::new(cargo_env!("CARGO_BIN_EXE_xsh"))
         .arg("/dev/stdin")

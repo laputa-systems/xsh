@@ -71,7 +71,7 @@ allocation/RSS evidence; no new execution engine is implied.
 
 - **E01 · P1.** Finish the named/splice argument, stage-block, multiline-`?`, nested-control, and comment cases in `tests/fixtures/fmt/beauty.xsh` and its golden (`docs/XSHT-FMT.md`); include CST-backed cases for comments beside delimiters, authored blank lines, and `fmt: skip` with trailing comments. Output must reparse and remain idempotent.
 - **E02 · P2.** Migrate one formatter construct family to `Doc`/`DocRenderer` when its layout changes; verify the beauty fixture and syntax gate rather than rewriting the formatter wholesale.
-- **E04 · P1.** Keep `xsht check`, `lint`, `fmt --check`, and execution in agreement on script-backed standard calls, including loaded user modules and copied binaries (`src/loader.rs`).
+- **E04 · P1.** Complete owner-run `xsht lint` and `xsht fmt --check` parity on script-backed standard calls in static and dynamically loaded user modules. `tests/runtime/run.rs::copied_products_check_and_run_script_backed_calls_in_static_and_loaded_modules` now verifies copied `xsht check` and `xsh` execution without repository files on macOS and pinned Linux. Agents cannot invoke linters or formatters under `AGENTS.md`.
 - **E07 · P2.** Improve `xsht` cold single-file check latency only after the paired tooling route attributes its preparation cost; retain checker equivalence with the runner.
 
 ## F. Linux, host operations, and network
