@@ -80,11 +80,14 @@ that can alter global host state or require kernel capabilities that vary by
 runner: boot transitions, destructive mount paths, loop/parity edge cases, and
 kernel configuration writes.
 
+`tests/linux_priv.rs::linux_priv_tmpfs_mount_is_mountpoint_disk_usage_and_cleanup`
+runs the real mount in a child mount namespace with private propagation and a
+temporary root. It checks the mounted filesystem inside that child, verifies
+no mount remains visible in the parent after the child exits, and checks root
+removal. The overlapping inherited-namespace runtime test was removed.
+
 Useful next work:
 
-- Build a privileged Linux harness with isolated mount namespaces, temp roots,
-  and explicit cleanup checks before enabling broader mount and switch-root
-  tests.
 - Add fake-root or namespace-backed coverage for boot helpers where possible,
   while keeping real `halt`, `poweroff`, `reboot`, and `switch_root` behavior
   guarded behind dry-run or harness-specific entry points.

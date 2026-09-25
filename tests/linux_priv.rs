@@ -1,13 +1,10 @@
 #![cfg(target_os = "linux")]
 
 // Tests for Linux-specific XSH module functions that require elevated capabilities.
-// Run with: cargo dev test linux
-//
-// Tests call is_root() at the top and return early when not root, so the suite
-// still passes under the unprivileged test-linux target.
+// Run in the pinned Dockerfile.test image with --privileged. Cases report the
+// missing capability when invoked without it.
 
 use std::io::Read;
-use std::os::unix::ffi::OsStrExt;
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -69,6 +66,37 @@ fn run_script(source: &str) -> std::process::Output {
         .expect("run xsh");
     let _ = std::fs::remove_file(path);
     output
+}
+
+fn run_script_in_private_mount_namespace(
+    source: &str,
+    root: &Path,
+) -> std::io::Result<std::process::Output> {
+    let script = root.join("mount.xsh");
+    std::fs::write(&script, source)?;
+    let mut command = Command::new(env!("CARGO_BIN_EXE_xsh"));
+    command.arg(script);
+    // This Rust harness owns the privilege boundary. The script asserts the
+    // XSH result while the child namespace prevents mount propagation.
+    unsafe {
+        command.pre_exec(|| {
+            if libc::unshare(libc::CLONE_NEWNS) != 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            if libc::mount(
+                std::ptr::null(),
+                b"/\0".as_ptr().cast(),
+                std::ptr::null(),
+                (libc::MS_REC | libc::MS_PRIVATE) as libc::c_ulong,
+                std::ptr::null(),
+            ) != 0
+            {
+                return Err(std::io::Error::last_os_error());
+            }
+            Ok(())
+        });
+    }
+    command.output()
 }
 
 fn temp_path(name: &str) -> PathBuf {
@@ -141,21 +169,26 @@ fn wait_child_status(child: &mut Child, timeout: Duration) -> std::process::Exit
     panic!("timed out waiting for child: {status}");
 }
 
-fn unmount_if_mounted(path: &Path) {
-    let c_path = std::ffi::CString::new(path.as_os_str().as_bytes()).expect("mount path is cstr");
-    unsafe {
-        libc::umount(c_path.as_ptr());
-    }
+fn mount_visible_in_parent(path: &Path) -> bool {
+    let mountinfo = std::fs::read_to_string("/proc/self/mountinfo").expect("read mountinfo");
+    mountinfo
+        .lines()
+        .any(|line| line.split_whitespace().nth(4) == path.to_str())
 }
 
 #[test]
 fn linux_priv_tmpfs_mount_is_mountpoint_disk_usage_and_cleanup() {
     if !is_root() {
+        eprintln!("skipped: private mount namespace requires root and CAP_SYS_ADMIN");
         return;
     }
-    let target = temp_path("linux-priv-tmpfs");
-    let _ = std::fs::remove_dir_all(&target);
+    let root = tempfile::Builder::new()
+        .prefix("xsh-linux-priv-mount-")
+        .tempdir()
+        .expect("create mount test root");
+    let target = root.path().join("target");
     std::fs::create_dir_all(&target).expect("create tmpfs target");
+    assert!(!mount_visible_in_parent(&target));
     let source = format!(
         "\
 let target = Path({})
@@ -169,13 +202,19 @@ env XSH_LINUX_REAL=1 XSH_LINUX_DRY_RUN=0 {{
         xsh_string_literal(target.to_str().unwrap())
     );
 
-    let output = run_script(&source);
+    let output = match run_script_in_private_mount_namespace(&source, root.path()) {
+        Ok(output) => output,
+        Err(error) if error.raw_os_error() == Some(libc::EPERM) => {
+            eprintln!("skipped: CAP_SYS_ADMIN is required to create a private mount namespace");
+            return;
+        }
+        Err(error) => panic!("start private mount test: {error}"),
+    };
+    assert!(!mount_visible_in_parent(&target), "mount escaped its namespace");
     if !output.status.success() && lacks_capability(&output) {
-        let _ = std::fs::remove_dir_all(target);
+        eprintln!("skipped: CAP_SYS_ADMIN is required for the tmpfs mount");
         return;
     }
-    unmount_if_mounted(&target);
-    let _ = std::fs::remove_dir_all(&target);
 
     assert!(
         output.status.success(),
@@ -186,6 +225,8 @@ env XSH_LINUX_REAL=1 XSH_LINUX_DRY_RUN=0 {{
         String::from_utf8(output.stdout).unwrap(),
         "true true true true\n"
     );
+    root.close().expect("remove mount test root");
+    assert!(!target.exists(), "mount test root was not removed");
 }
 
 #[test]

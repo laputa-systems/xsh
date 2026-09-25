@@ -41,7 +41,7 @@ public APIs require a separate decision backed by repeated real use.
    B0 `xsh` failures to prioritize profiling on both supported hosts.
 2. **B08, C01–C04, C06:** improve the measured hot paths and cold preparation in
    small batches, preserving the original B0 gates and native controls.
-3. **E01–E03, F01–F03:** make the tooling and Linux test
+3. **E01–E03, F02–F03:** make the tooling and Linux test
    boundaries deterministic enough to support sustained work.
 4. **H07–H09:** refine existing `dev/`, `core/`, and `showcase/` programs; let
    repeated friction select small runtime or tooling changes.
@@ -85,7 +85,6 @@ allocation/RSS evidence; no new execution engine is implied.
 
 ## F. Linux, host operations, and network
 
-- **F01 · P1.** Build the isolated privileged mount harness described in `docs/COVERAGE.md`, using the pinned `Dockerfile.test` image, private namespaces, temporary roots, and cleanup assertions.
 - **F02 · P1.** Add safe mount and switch-root failure-path coverage through that harness; keep real host boot transitions behind dry-run or harness-specific boundaries.
 - **F03 · P2.** Extend loop-device and parity tests only on runners that can allocate and release devices reliably; otherwise retain explicit dry-run fixture coverage.
 - **F04 · P1.** Prove cancellation and cleanup when process work, a network job, and a stream worker coexist; assert trace parentage and no surviving owned handles.

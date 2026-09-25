@@ -464,16 +464,6 @@ pub(crate) fn xsh_bytes_literal(bytes: &[u8]) -> String {
     quoted
 }
 
-#[cfg(target_os = "linux")]
-pub(crate) fn unmount_linux(path: &std::path::Path) {
-    match rustix::mount::unmount(path, rustix::mount::UnmountFlags::empty()) {
-        Ok(()) => {}
-        Err(error) => {
-            eprintln!("unmount linux real mount ({}): {error}", path.display(),);
-        }
-    }
-}
-
 pub(crate) fn write_test_tar_file(path: &std::path::Path, name: &str, data: &[u8]) {
     let mut file = std::fs::File::create(path).expect("create test tar");
     write_raw_tar_entry(&mut file, name, b'0', "", data);

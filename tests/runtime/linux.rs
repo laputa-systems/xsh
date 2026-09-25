@@ -921,39 +921,3 @@ env XSH_UNIX_TTY_DIR=(tty_dir) {{
     assert_eq!(fields[0], fields[1], "{session_text:?}");
     let _ = std::fs::remove_dir_all(root);
 }
-
-#[test]
-fn linux_module_real_syscalls_are_gated_by_platform_and_privilege() {
-    #[cfg(target_os = "linux")]
-    {
-        let target = temp_path("linux-real-mount");
-        let _ = std::fs::remove_dir_all(&target);
-        std::fs::create_dir_all(&target).expect("create linux real mount target");
-        let source = format!(
-            "\
-let target = Path({})
-env XSH_LINUX_REAL=1 XSH_LINUX_DRY_RUN=0 {{
-  linux.mount(\"none\", target, fstype: \"tmpfs\", options: [\"nosuid\", \"nodev\"])?
-  print mounted
-}} ?
-",
-            xsh_string_literal(target.to_str().unwrap())
-        );
-
-        let output = run_temp_script("linux-real-mount", &source);
-        if output.status.success() {
-            assert_eq!(String::from_utf8(output.stdout).unwrap(), "mounted\n");
-            unmount_linux(&target);
-        } else {
-            let stderr = String::from_utf8(output.stderr).unwrap();
-            assert!(stderr.contains("linux-mount"), "{stderr}");
-            assert!(
-                stderr.contains("Operation not permitted")
-                    || stderr.contains("permission denied")
-                    || stderr.contains("Permission denied"),
-                "{stderr}"
-            );
-        }
-        let _ = std::fs::remove_dir_all(target);
-    }
-}
