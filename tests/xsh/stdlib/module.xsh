@@ -283,6 +283,45 @@ HelperError.Failed(detail: "failed")
   }
 }
 
+proc test_qualified_module_functions_remain_callable_as_values(ctx: TestContext) [fs, error] {
+  let root = test.temp_dir(ctx, name: "qualified-module-functions")?
+  fp"${root}/package.xsh".write(r"""
+##! Qualified values fixture module.
+## Exposes a typed package value and operations.
+## Public package type.
+export type Package = {name: Str}
+
+## Labels a package.
+export pure label(pkg: Package) -> Str {
+  return f"pkg:${pkg.name}"
+}
+
+## Shows a package label.
+export proc show(pkg: Package) -> Result[Unit] {
+  print ${label(pkg)}
+}
+
+## Public package value.
+export let pkg: Package = {name: "demo"}
+""")?
+
+  let output = test.run_script(
+    ctx,
+    r"""
+use package as p
+let labeler = p.label
+let shower = p.show
+let pkg: p.Package = p.pkg
+print ${labeler.call(pkg)}
+shower.call(pkg)?
+""",
+    [],
+    {XSH_MODULE_PATH: root.display()},
+  )?
+  test.ok(output.success, output.stderr)?
+  test.eq(output.stdout, "pkg:demo\npkg:demo\n")?
+}
+
 proc test_stream_exports_are_namespace_members_not_module_contract_members(ctx: TestContext) [fs, error] {
   let root = test.temp_dir(ctx, name: "module-stream-contract")?
   fp"${root}/stream_only.xsh".write("""

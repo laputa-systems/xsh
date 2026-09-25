@@ -1640,66 +1640,6 @@ match p.get(\"Package\") {
 }
 
 #[test]
-fn user_module_qualified_types_and_first_class_functions_stay_callable() {
-    let root = temp_path("module-qualified-values-root");
-    std::fs::create_dir_all(&root).expect("create module root");
-    let package = root.join("package.xsh");
-    let main = root.join("main.xsh");
-
-    std::fs::write(
-        &package,
-        "\
-##! Qualified values fixture module.
-## Exposes a typed package value and operations.
-## Public package type.
-export type Package = {name: Str}
-
-## Labels a package.
-export pure label(pkg: Package) -> Str {
-  return f\"pkg:${pkg.name}\"
-}
-
-## Shows a package label.
-export proc show(pkg: Package) -> Result[Unit] {
-  print ${label(pkg)}
-}
-
-## Public package value.
-export let pkg: Package = {name: \"demo\"}
-",
-    )
-    .expect("write package");
-    std::fs::write(
-        &main,
-        "\
-use package as p
-
-let labeler = p.label
-let shower = p.show
-let pkg: p.Package = p.pkg
-
-print ${labeler.call(pkg)}
-shower.call(pkg)?
-",
-    )
-    .expect("write main");
-
-    let output = xsh([main.to_str().unwrap()]);
-
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    assert_eq!(
-        String::from_utf8(output.stdout).unwrap(),
-        "pkg:demo\npkg:demo\n"
-    );
-
-    let _ = std::fs::remove_dir_all(root);
-}
-
-#[test]
 fn effectful_user_module_calls_accept_records_with_qualified_record_fields() {
     let root = temp_path("module-qualified-record-fields-root");
     std::fs::create_dir_all(&root).expect("create module root");
