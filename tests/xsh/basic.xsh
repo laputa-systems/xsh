@@ -2,6 +2,24 @@ proc test_pass() [error] {
   test.eq(1, 1)?
 }
 
+proc test_typed_integer_augmented_assignment_keeps_results_and_errors(ctx: TestContext) [error] {
+  var value: Int = 13
+  value += 5
+  value -= 2
+  value *= 3
+  value /= 6
+  value %= 3
+  test.eq(value, 2)?
+
+  let overflow = test.run_script(ctx, "var value: Int = 9223372036854775807\nvalue += 1\n")?
+  test.ok(! overflow.success, overflow.stderr)?
+  test.contains(overflow.stderr, "integer-overflow")?
+
+  let division = test.run_script(ctx, "var value: Int = 8\nvalue /= 0\n")?
+  test.ok(! division.success, division.stderr)?
+  test.contains(division.stderr, "division-by-zero")?
+}
+
 pure sibling_branch_value(choice: Str) -> Int {
   if choice == "first" {
     let value = 0
