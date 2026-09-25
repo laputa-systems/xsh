@@ -1183,7 +1183,12 @@ proc main() [io] {
         );
         let graph = CompactModuleGraph::from_file_unit(&unit, &declarations);
         unit.program().symbol_owner().with_current(|| {
-            let helper = Name::intern("helper");
+            let resolved_helper = Name::intern(
+                graph.import_edges()[0]
+                    .resolved
+                    .as_deref()
+                    .expect("resolved helper import"),
+            );
             let value = Name::intern("value");
             let helper_error = Name::intern("HelperError");
             let answer = Name::intern("answer");
@@ -1196,12 +1201,12 @@ proc main() [io] {
             assert!(
                 graph
                     .qualified_pures()
-                    .contains_key(&QualifiedName::new(helper, value))
+                    .contains_key(&QualifiedName::new(resolved_helper, value))
             );
             assert!(
                 graph
                     .qualified_error_families()
-                    .contains_key(&QualifiedName::new(helper, helper_error))
+                    .contains_key(&QualifiedName::new(resolved_helper, helper_error))
             );
             assert!(graph.exported_top_level_bindings().contains(&answer));
             assert_eq!(graph.qualified_declaration_count(), 2);
