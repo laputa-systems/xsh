@@ -144,6 +144,11 @@ cargo test --test integration runtime::coverage::runnable_xsh_corpus_is_formatte
 
 ## Runtime Test Modules
 
+Language assertions and dry-run module contracts live in the nearest
+`tests/xsh/` module. Rust runtime tests retain CLI, PTY, host fixtures,
+process and signal lifecycles, raw bytes, allocation accounting, and small
+stack boundaries.
+
 | Area | File |
 |---|---|
 | collection aliasing and allocation traffic | `tests/xsh/stdlib/methods.xsh`, `tests/xsh/stdlib/map.xsh`, `tests/runtime/collections.rs` |

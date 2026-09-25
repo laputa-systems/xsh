@@ -178,15 +178,6 @@ print ${out.trim()}
     assert!(stderr.contains("top_syscalls_by_count:"), "{stderr}");
 }
 
-#[test]
-fn linux_module_primitives_are_declared_but_runtime_gated() {
-    let output = run_temp_script("linux-gated", "let _ = linux.halt()?\n");
-
-    assert_eq!(output.status.code(), Some(3));
-    let stderr = String::from_utf8(output.stderr).unwrap();
-    assert!(stderr.contains("linux-unimplemented"), "{stderr}");
-}
-
 #[cfg(target_os = "linux")]
 #[test]
 fn run_cpumax_uses_real_cgroup_v2_when_available() {

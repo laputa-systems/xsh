@@ -138,6 +138,17 @@ proc test_linux_text_entries_require_a_gate() [process, env, error] {
   } ?
 }
 
+proc test_linux_halt_requires_an_explicit_mode(ctx: TestContext) [error] {
+  let output = test.run_script(
+    ctx,
+    "let _ = linux.halt()?\n",
+    [],
+    {XSH_LINUX_DRY_RUN: "", XSH_LINUX_REAL: ""},
+  )?
+  test.eq(output.status, 3)?
+  test.contains(output.stderr, "linux-unimplemented")?
+}
+
 proc test_linux_text_dry_run_values_and_log(ctx: TestContext) [fs, process, env, error] {
   let root = test.temp_dir(ctx, name: "linux-text-dry-run")?
   let log = fp"${root}/linux.jsonl"
