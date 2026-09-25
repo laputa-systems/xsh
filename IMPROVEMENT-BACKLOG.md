@@ -43,7 +43,7 @@ public APIs require a separate decision backed by repeated real use.
    when their policy changes.
 3. **F09:** identify the intermittent inherited descriptor from the expanded
    helper report before changing socket or spawn behavior.
-4. **J07, J09–J14, last:** reintegrate the stable XSH build with `../packages` and
+4. **J07, J09–J11, J14, last:** reintegrate the stable XSH build with `../packages` and
    `../laputa`, progressing from static checks to isolated Linux tests and QEMU.
 
 ## A. Correctness and test evidence
@@ -91,13 +91,17 @@ first PM suite runs 20/23 tests and fails three tagged-constructor cases; it is
 not a passing comparison baseline for today's PM source. Laputa's local ARM64
 plan writes byte-identical BuildPlan and generation-plan JSON across two runs;
 the pinned runtime cannot load the new typed generation boundary.
+The release workflow emits `xsh`, `xshi`, and `xsht` for both Linux musl
+architectures with matching SHA-256 sidecars, plus a shared `core` archive.
+The PM recipe and Laputa updater use those exact names; PM strips the archive's
+single `core/` directory before installing scripts. Pins remain unchanged until
+a compatible release is published. The installer QEMU harness now uses the
+existing typed `stderr` command field.
 
-- **J07 · P1.** After J12 supplies a published binary compatible with the current PM source, compare PM plan JSON, canonical fingerprints, store receipt validation, and root-generation outputs across the two binaries on deterministic fixtures. Executor binary identity is part of a BuildPlan, so classify expected key changes separately from semantic drift.
+- **J07 · P1.** When a published binary compatible with the current PM source is available, compare PM plan JSON, canonical fingerprints, store receipt validation, and root-generation outputs across the two binaries on deterministic fixtures. Executor binary identity is part of a BuildPlan, so classify expected key changes separately from semantic drift.
 - **J09 · P1.** Run the Laputa native `linux/arm64` Docker build using the checked-out packages graph and named volumes; preserve the container-local staging and atomic final-copy boundary in `../laputa/AGENTS.md`.
 - **J10 · P1.** After J09 passes, run QEMU/QMP proof and inspect its recorded markers; distinguish guest boot, package, image, and XSH runtime failures.
 - **J11 · P2.** Verify installer image and installer QEMU tests as an independent product route after the core profile passes; do not route installer work through `qemu-dwl-foot` policy.
-- **J12 · P1.** Reconcile XSH release artifact names, checksums, and core-script packaging among this repo's release workflow, `../packages/repo/xsh/PKGBUILD.xsh`, and `../laputa/update-xsh.xsh` before changing published pins.
-- **J13 · P2/M.** Investigate the two `stderr: /dev/null` TODOs in `../laputa/installer-qemu-test.xsh` against current process APIs; prefer an existing structured redirection before proposing a public API addition.
 - **J14 · P2.** Finish with a cross-repository compatibility report: exact commands, profiles, fixtures, observed differences, remaining failures, and reviewable changes in each owner's repository.
 
 ## Deliberately outside this queue
