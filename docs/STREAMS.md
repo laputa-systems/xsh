@@ -278,8 +278,13 @@ comparison does not justify intra-directory work splitting.
 ## 8. Remaining levers (not done)
 
 - **Lazy/columnar walk records** — the walk builds a full record per entry even
-  when `where` discards it; only `path` (a `Vec<u8>`) is the wasted allocation for
-  the kept-everything case. On the rejecting `src` walk in
+  when `where` discards it. `raw_walk_entry` now moves the owned
+  `ignore::DirEntry` path into the walk item instead of cloning it. This removed
+  20,001 execution-thread allocations and about 1.36 MB of allocation traffic
+  on a 20,000-file flat walk. Peak RSS did not move; paired latency was mixed
+  on both hosts, so this is an allocation result, not a throughput claim. Raw
+  samples are in `bench/fs-walk-path-ownership-c02-2026-09-24.json`. On the
+  rejecting `src` walk in
   `bench/fs-walk-rejection-c02-2026-09-24.json`, `stat: true` took 18.471 ms and
   allocated 811 KB in the execution thread, versus 16.917 ms and 101 KB with
   `stat: false` (15 paired release timings, three allocation runs). The latter

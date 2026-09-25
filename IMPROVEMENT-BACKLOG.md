@@ -65,7 +65,7 @@ section is the only remaining port task list.
 experiments lost. Every item here starts with a complete workload and
 allocation/RSS evidence; no new execution engine is implied.
 
-- **C02 · P1/M.** Profile `fs.walk` record construction when `where` rejects most entries; test whether lazy fields save measurable work without changing metadata-error timing. The `src` all-rejected walk allocated 811 KB with `stat: true` versus 101 KB with `stat: false`, but the latter skips metadata and cannot preserve the contract (`bench/fs-walk-rejection-c02-2026-09-24.json`). The probe also exposed a dynamic-boolean lowering bug, now covered in `tests/xsh/stdlib/fs.xsh`.
+- **C02 · P1/M.** Test whether lazy `fs.walk` fields help a real rejection-heavy workload without changing record equality or metadata-error timing. Moving the emitted `ignore::DirEntry` path removed one allocation per entry on a 20,000-file flat walk, but did not establish a throughput or peak-RSS gain (`bench/fs-walk-path-ownership-c02-2026-09-24.json`). `stat: false` skips metadata and remains a non-equivalent upper bound (`bench/fs-walk-rejection-c02-2026-09-24.json`).
 - **C06 · P1/M.** Identify whole-buffer scanners that can use line-state APIs; convert one real large-file workload at a time and preserve malformed-late-row behavior. The `showcase/loc.xsh` `Path.lines() |> count()` candidate lost to `read_text()?.count_lines()` on `src` (33.016 versus 22.883 ms median in 20 paired release runs), despite 1.8 MB lower median peak RSS, and changed the late invalid-UTF-8 diagnostic path, so it was rejected (`bench/stream-line-count-c06-2026-09-24.json`).
 
 ## E. `xsht`, diagnostics, and source fidelity

@@ -1856,7 +1856,7 @@ impl LiveStream for IgnoreWalkStream {
                 return Ok(None);
             };
             let item = match result {
-                Ok(entry) => match raw_walk_entry(spec, &entry) {
+                Ok(entry) => match raw_walk_entry(spec, entry) {
                     Ok(Some(entry)) => entry,
                     Ok(None) => continue,
                     Err(error) => return Err(error),
@@ -1907,7 +1907,7 @@ impl RawWalkEntry {
 
 fn raw_walk_entry(
     spec: &WalkSpec,
-    entry: &ignore::DirEntry,
+    entry: ignore::DirEntry,
 ) -> Result<Option<RawWalkEntry>, RuntimeError> {
     let Some(file_type) = entry.file_type() else {
         return Ok(None);
@@ -1917,7 +1917,7 @@ fn raw_walk_entry(
         return Ok(None);
     }
     Ok(Some(RawWalkEntry {
-        path: path.to_path_buf(),
+        path: entry.into_path(),
         file_type,
     }))
 }
