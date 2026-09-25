@@ -217,6 +217,12 @@ tokens because it advanced by their lengths without checking their bytes.
 that program-local error covered; the 15-case native suite passes on macOS and
 the pinned Linux image. No language or runtime change followed from it.
 
+The corpus review classified native path comparisons, staged archive and
+backup output, process deadlines, and the jq parser fix as program design.
+Repeated core text operand reading became the reusable XSH helper
+`core/lib/text_input.xsh`. These findings required no new host capability,
+diagnostic facility, or language feature.
+
 Small existing standalone tools may remain in `showcase/`. Their presence does
 not make them roadmap priorities. When a tool exhausts retries, times out, or
 runs a failing child in one-shot mode, its process status must report that

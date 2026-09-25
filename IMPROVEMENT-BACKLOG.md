@@ -43,9 +43,7 @@ public APIs require a separate decision backed by repeated real use.
    small batches, preserving the original B0 gates and native controls.
 3. **E01–E03:** make the tooling and Linux test
    boundaries deterministic enough to support sustained work.
-4. **H07–H09:** refine existing `dev/`, `core/`, and `showcase/` programs; let
-   repeated friction select small runtime or tooling changes.
-5. **J01–J14, last:** reintegrate the stable XSH build with `../packages` and
+4. **J01–J14, last:** reintegrate the stable XSH build with `../packages` and
    `../laputa`, progressing from static checks to isolated Linux tests and QEMU.
 
 ## A. Correctness and test evidence
@@ -96,18 +94,6 @@ would cost more than the current link surface warrants; revisit if local links
 become a regular documentation convention.
 
 - **G07 · P2.** Compare distribution packaging on the declared target matrix through `dev/targets.xsh` and the release workflow; keep `dist` for CI packaging, not routine agent verification.
-
-## H. Refine the existing systems corpus
-
-`dev/`, `core/`, and `showcase/` already provide substantial XSH programs.
-Improve those programs before proposing more. `docs/SHOWCASE.md` supplies the
-selection and completion standards; the sibling package manager already owns
-root composition, so a second composer here would be duplication.
-The existing `showcase/*.xsh` programs are single-file tools, so none passes
-the canonical corpus selection test's multi-module requirement. Review their
-real failure boundaries without inflating them to satisfy that milestone.
-
-- **H09 · P2.** Record friction found across H03–H08 as program design, reusable XSH helper, diagnostic/tooling issue, or narrow host capability; add no new semantic category from one script.
 
 ## I. Documentation and contract upkeep
 
