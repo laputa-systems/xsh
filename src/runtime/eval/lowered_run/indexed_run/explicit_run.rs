@@ -397,17 +397,19 @@ pub(super) enum ProducerStep {
     Finished(Result<LoweredValue, RuntimeError>),
 }
 
-/// Pools of the vectors a frame allocates on every call.
+/// Reusable vectors for frame work and decoded operands.
 ///
-/// Every call uses a work stack, slot-scope list, statement list, and decoded
-/// argument list. Bounded pools reuse their storage across completed calls,
-/// the same way `lowered_slot_pool` does for slots.
+/// Calls and conditional branches repeatedly decode short lists into vectors.
+/// Bounded pools reuse their storage after evaluation, along with work stacks,
+/// slot scopes, and statement lists, the same way `lowered_slot_pool` does for
+/// slots.
 #[derive(Default)]
 pub(in crate::runtime::eval) struct FrameScratch {
     work: Vec<Vec<FrameWork>>,
     slot_scopes: Vec<Vec<u64>>,
     statements: Vec<Vec<u32>>,
     call_args: Vec<Vec<(u32, u32)>>,
+    if_branches: Vec<Vec<(u32, u32)>>,
     /// How many statement lists were handed out fresh, and how many came back
     /// from the pool. A loop that reuses its body's list moves only the second:
     /// that is the claim `loop_iterations_reuse_their_statement_list` reads, and
@@ -453,6 +455,18 @@ impl FrameScratch {
         }
         args.clear();
         self.call_args.push(args);
+    }
+
+    fn take_if_branches(&mut self) -> Vec<(u32, u32)> {
+        self.if_branches.pop().unwrap_or_default()
+    }
+
+    fn recycle_if_branches(&mut self, mut branches: Vec<(u32, u32)>) {
+        if branches.capacity() > 32 || self.if_branches.len() >= Self::POOL_CAP {
+            return;
+        }
+        branches.clear();
+        self.if_branches.push(branches);
     }
 
     /// Returns a statement list whose entries have all run.
@@ -1085,7 +1099,8 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     .block(&mut payload, BLOCK_LIST)
                     .map_err(|error| indexed_error(error, span))?;
                 let len = indexed_raw(&mut branches, span)? as usize;
-                let mut values = Vec::with_capacity(len);
+                let mut values = self.evaluator.frame_scratch.take_if_branches();
+                values.reserve(len);
                 for _ in 0..len {
                     values.push((
                         indexed_raw(&mut branches, span)?,
@@ -1108,13 +1123,16 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                                 span,
                             },
                         );
-                    } else if let Some(body) = else_body {
-                        self.push_statement_block(index, body, span)?;
+                    } else {
+                        self.evaluator.frame_scratch.recycle_if_branches(values);
+                        if let Some(body) = else_body {
+                            self.push_statement_block(index, body, span)?;
+                        }
                     }
                     return Ok(());
                 }
                 let mut selected = None;
-                for (condition, body) in values {
+                for (condition, body) in values.iter().copied() {
                     let flow = {
                         let call = &mut self.calls[index];
                         self.evaluator.eval_indexed_typed_bool(
@@ -1135,6 +1153,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                         }
                     }
                 }
+                self.evaluator.frame_scratch.recycle_if_branches(values);
                 if let Some(body) = selected.or(else_body) {
                     self.push_statement_block(index, body, span)?;
                 }
@@ -1372,7 +1391,8 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     .block(&mut payload, BLOCK_LIST)
                     .map_err(|error| indexed_error(error, span))?;
                 let len = indexed_raw(&mut branches, span)? as usize;
-                let mut values = Vec::with_capacity(len);
+                let mut values = self.evaluator.frame_scratch.take_if_branches();
+                values.reserve(len);
                 for _ in 0..len {
                     values.push((
                         indexed_raw(&mut branches, span)?,
@@ -1397,6 +1417,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                         },
                     );
                 } else {
+                    self.evaluator.frame_scratch.recycle_if_branches(values);
                     self.push_expr(index, else_value, value_span, next);
                 }
             }
@@ -1887,7 +1908,9 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             } => match value {
                 FrameValue::Value(value) => {
                     if frame_condition_bool(value, span)? {
-                        self.push_expr(index, branches[branch].1, span, *next);
+                        let value = branches[branch].1;
+                        self.evaluator.frame_scratch.recycle_if_branches(branches);
+                        self.push_expr(index, value, span, *next);
                     } else {
                         let next_index = branch + 1;
                         if let Some((condition, _)) = branches.get(next_index).copied() {
@@ -1904,6 +1927,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                                 },
                             );
                         } else {
+                            self.evaluator.frame_scratch.recycle_if_branches(branches);
                             self.push_expr(index, else_value, span, *next);
                         }
                     }
@@ -1920,7 +1944,9 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             } => match value {
                 FrameValue::Value(value) => {
                     if frame_condition_bool(value, span)? {
-                        self.push_statement_block(index, branches[branch].1, span)?;
+                        let body = branches[branch].1;
+                        self.evaluator.frame_scratch.recycle_if_branches(branches);
+                        self.push_statement_block(index, body, span)?;
                     } else {
                         let next_index = branch + 1;
                         if let Some((condition, _)) = branches.get(next_index).copied() {
@@ -1936,7 +1962,10 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                                 },
                             );
                         } else if let Some(body) = else_body {
+                            self.evaluator.frame_scratch.recycle_if_branches(branches);
                             self.push_statement_block(index, body, span)?;
+                        } else {
+                            self.evaluator.frame_scratch.recycle_if_branches(branches);
                         }
                     }
                 }

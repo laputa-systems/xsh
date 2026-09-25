@@ -1,0 +1,722 @@
+{
+  "date": "2026-09-25",
+  "purpose": "Measure bounded reuse of decoded if-branch vectors in the explicit indexed frame executor",
+  "workloads": "100,000-iteration loop control, statement if, and expression if on macOS and pinned Linux; 500,000-iteration confirmation on Linux; all runs require exact value output, status 0, and empty stderr",
+  "scripts": {
+    "control": {
+      "source": "proc main(...argv: List[Str]) [io, error] {\n  let count = argv[0].parse_int()?\n  var value = 0\n  while value < count {\n    value = value + 1\n  }\n  print f\"value=${value}\"\n}\n",
+      "sha256": "62709fe6066b4dc1323b474d138dd5ea6460a950d5fb9d391587990cf8b8f37f"
+    },
+    "stmt_if": {
+      "source": "proc main(...argv: List[Str]) [io, error] {\n  let count = argv[0].parse_int()?\n  var value = 0\n  while value < count {\n    if value % 2 == 0 { value = value + 1 } else { value = value + 1 }\n  }\n  print f\"value=${value}\"\n}\n",
+      "sha256": "95289059fdd6f1becb1634bafaa7cfb63b2b72c45ff01721cb9cd9426d9641ae"
+    },
+    "expr_if": {
+      "source": "proc main(...argv: List[Str]) [io, error] {\n  let count = argv[0].parse_int()?\n  var value = 0\n  while value < count {\n    value = if value % 2 == 0 { value + 1 } else { value + 1 }\n  }\n  print f\"value=${value}\"\n}\n",
+      "sha256": "c46720e9c5f573dbede87cda96fe678ba756dd9973f2a4fd74479e15163ace5f"
+    }
+  },
+  "binary_sha256": {
+    "macos_before": "8812f7dc29c759c76e44d0d7883e81be704a348a115deed4d0fcc2b2856eb97e",
+    "macos_candidate": "19762775c56eb1fe747e16d2340966cdde0e0295d3e64df97f9c769ceb7a9b0c",
+    "macos_before_stats": "a7e97d150aff3c990d64c0410473d8cc3393cc49cba94f76091c090b0c96e04e",
+    "macos_candidate_stats": "770cff74ce7dc52c556cd1f706b3a5bc0b58ca9d86194ba92df82beacc670c10",
+    "linux_before": "43db7ce068ea2a6984ab8dcbb3112d1589e4ac98955b19dd9ccef201e08233fa",
+    "linux_candidate": "c0b79cd66ba50a8bbcfb355e21987e23fca5b4400c9a38ec4a63cb97f8dc8cc2"
+  },
+  "macos": {
+    "method": "16 alternating timing pairs at 100,000 iterations with Python perf_counter_ns; three execution-allocation samples with xsh-runtime-stats; five alternating /usr/bin/time -l peak-RSS pairs at 500,000 iterations",
+    "wall_ms_100k": {
+      "control": {
+        "before": [
+          113.745,
+          80.034,
+          76.412,
+          80.24,
+          76.962,
+          81.275,
+          77.493,
+          79.749,
+          79.522,
+          76.901,
+          78.804,
+          77.157,
+          77.706,
+          77.596,
+          77.659,
+          77.631
+        ],
+        "candidate": [
+          113.427,
+          77.299,
+          77.392,
+          79.421,
+          81.566,
+          78.223,
+          77.417,
+          79.044,
+          78.098,
+          76.529,
+          76.816,
+          76.17,
+          76.034,
+          81.162,
+          77.868,
+          78.36
+        ]
+      },
+      "stmt_if": {
+        "before": [
+          94.144,
+          92.316,
+          93.266,
+          98.04,
+          92.546,
+          97.299,
+          97.696,
+          98.533,
+          91.943,
+          91.538,
+          96.455,
+          94.673,
+          98.017,
+          96.726,
+          94.151,
+          92.226
+        ],
+        "candidate": [
+          92.232,
+          90.577,
+          90.131,
+          89.794,
+          89.887,
+          90.387,
+          90.446,
+          95.313,
+          94.085,
+          94.805,
+          92.929,
+          91.481,
+          95.073,
+          94.199,
+          99.781,
+          94.488
+        ]
+      },
+      "expr_if": {
+        "before": [
+          127.281,
+          130.943,
+          131.326,
+          129.38,
+          131.85,
+          126.245,
+          127.903,
+          129.919,
+          128.036,
+          133.947,
+          130.863,
+          131.298,
+          130.864,
+          125.782,
+          131.278,
+          125.47
+        ],
+        "candidate": [
+          128.344,
+          121.788,
+          122.406,
+          124.637,
+          127.162,
+          126.348,
+          122.545,
+          122.427,
+          122.193,
+          140.967,
+          125.864,
+          125.417,
+          125.775,
+          135.675,
+          138.195,
+          122.676
+        ]
+      }
+    },
+    "wall_summary_100k": {
+      "control": {
+        "before_median": 77.6825,
+        "candidate_median": 77.983,
+        "candidate_wins": 11,
+        "pairs": 16
+      },
+      "stmt_if": {
+        "before_median": 94.412,
+        "candidate_median": 92.5805,
+        "candidate_wins": 12,
+        "pairs": 16
+      },
+      "expr_if": {
+        "before_median": 130.39100000000002,
+        "candidate_median": 125.596,
+        "candidate_wins": 11,
+        "pairs": 16
+      }
+    },
+    "execution_allocations_100k": {
+      "control": {
+        "before": [
+          {
+            "count": 200280,
+            "bytes": 28819303
+          },
+          {
+            "count": 200280,
+            "bytes": 28819303
+          },
+          {
+            "count": 200280,
+            "bytes": 28819303
+          }
+        ],
+        "candidate": [
+          {
+            "count": 200280,
+            "bytes": 28819303
+          },
+          {
+            "count": 200280,
+            "bytes": 28819303
+          },
+          {
+            "count": 200280,
+            "bytes": 28819303
+          }
+        ]
+      },
+      "stmt_if": {
+        "before": [
+          {
+            "count": 300282,
+            "bytes": 29621079
+          },
+          {
+            "count": 300282,
+            "bytes": 29621079
+          },
+          {
+            "count": 300282,
+            "bytes": 29621079
+          }
+        ],
+        "candidate": [
+          {
+            "count": 200284,
+            "bytes": 28821207
+          },
+          {
+            "count": 200284,
+            "bytes": 28821207
+          },
+          {
+            "count": 200284,
+            "bytes": 28821207
+          }
+        ]
+      },
+      "expr_if": {
+        "before": [
+          {
+            "count": 600280,
+            "bytes": 72819303
+          },
+          {
+            "count": 600280,
+            "bytes": 72819303
+          },
+          {
+            "count": 600280,
+            "bytes": 72819303
+          }
+        ],
+        "candidate": [
+          {
+            "count": 500282,
+            "bytes": 72019431
+          },
+          {
+            "count": 500282,
+            "bytes": 72019431
+          },
+          {
+            "count": 500282,
+            "bytes": 72019431
+          }
+        ]
+      }
+    },
+    "peak_rss_bytes_500k": {
+      "control": {
+        "before": [
+          12812288,
+          12730368,
+          12713984,
+          12713984,
+          12795904
+        ],
+        "candidate": [
+          12795904,
+          12779520,
+          12894208,
+          12828672,
+          12845056
+        ]
+      },
+      "stmt_if": {
+        "before": [
+          12845056,
+          12730368,
+          12894208,
+          12763136,
+          12812288
+        ],
+        "candidate": [
+          12861440,
+          12959744,
+          12976128,
+          12943360,
+          12943360
+        ]
+      },
+      "expr_if": {
+        "before": [
+          12779520,
+          12845056,
+          12845056,
+          12828672,
+          12795904
+        ],
+        "candidate": [
+          12861440,
+          12779520,
+          12959744,
+          12845056,
+          12959744
+        ]
+      }
+    },
+    "peak_rss_summary_500k": {
+      "control": {
+        "before_median": 12730368,
+        "candidate_median": 12828672,
+        "candidate_wins": 1,
+        "pairs": 5
+      },
+      "stmt_if": {
+        "before_median": 12812288,
+        "candidate_median": 12943360,
+        "candidate_wins": 0,
+        "pairs": 5
+      },
+      "expr_if": {
+        "before_median": 12828672,
+        "candidate_median": 12861440,
+        "candidate_wins": 1,
+        "pairs": 5
+      }
+    }
+  },
+  "linux": {
+    "method": "Pinned Dockerfile.test image and aarch64-unknown-linux-musl target with dev/targets.xsh flags; 20 alternating pairs measured with Rust Instant at each iteration count; five alternating /usr/bin/time peak-RSS pairs at 500,000 iterations",
+    "wall_ms_100k": {
+      "control": {
+        "before": [
+          67.351,
+          66.296,
+          65.928,
+          65.735,
+          65.646,
+          66.771,
+          65.557,
+          67.038,
+          66.282,
+          66.107,
+          65.432,
+          66.204,
+          65.262,
+          66.424,
+          65.64,
+          66.114,
+          65.696,
+          65.592,
+          65.605,
+          66.285
+        ],
+        "candidate": [
+          66.995,
+          68.041,
+          66.164,
+          65.622,
+          66.699,
+          66.35,
+          66.911,
+          66.33,
+          66.249,
+          65.946,
+          65.889,
+          66.804,
+          67.34,
+          66.577,
+          65.868,
+          66.057,
+          66.222,
+          67.048,
+          66.032,
+          66.499
+        ]
+      },
+      "stmt_if": {
+        "before": [
+          82.48,
+          82.674,
+          83.574,
+          83.99,
+          83.355,
+          83.349,
+          82.122,
+          83.27,
+          82.802,
+          82.748,
+          82.811,
+          83.203,
+          83.156,
+          83.425,
+          83.479,
+          83.813,
+          83.377,
+          83.074,
+          82.836,
+          82.94
+        ],
+        "candidate": [
+          83.083,
+          83.618,
+          83.65,
+          83.071,
+          82.788,
+          83.065,
+          84.544,
+          91.496,
+          83.059,
+          82.823,
+          82.851,
+          83.251,
+          83.783,
+          83.297,
+          83.372,
+          83.382,
+          83.799,
+          83.429,
+          83.03,
+          83.23
+        ]
+      },
+      "expr_if": {
+        "before": [
+          114.284,
+          113.484,
+          113.275,
+          113.729,
+          113.245,
+          113.611,
+          113.136,
+          112.981,
+          112.823,
+          113.442,
+          113.767,
+          113.765,
+          113.587,
+          113.973,
+          114.259,
+          114.043,
+          113.397,
+          114.073,
+          113.065,
+          114.362
+        ],
+        "candidate": [
+          113.684,
+          114.664,
+          113.231,
+          113.974,
+          113.748,
+          113.812,
+          113.757,
+          112.971,
+          113.871,
+          112.968,
+          113.432,
+          114.145,
+          112.875,
+          114.197,
+          114.215,
+          113.03,
+          114.496,
+          113.159,
+          113.8,
+          113.631
+        ]
+      }
+    },
+    "wall_summary_100k": {
+      "control": {
+        "before_median": 66.0175,
+        "candidate_median": 66.34,
+        "candidate_wins": 7,
+        "pairs": 20
+      },
+      "stmt_if": {
+        "before_median": 83.1795,
+        "candidate_median": 83.274,
+        "candidate_wins": 6,
+        "pairs": 20
+      },
+      "expr_if": {
+        "before_median": 113.599,
+        "candidate_median": 113.7525,
+        "candidate_wins": 10,
+        "pairs": 20
+      }
+    },
+    "wall_ms_500k": {
+      "control": {
+        "before": [
+          319.042,
+          321.364,
+          319.877,
+          318.724,
+          317.701,
+          322.699,
+          318.916,
+          318.315,
+          320.28,
+          320.281,
+          319.276,
+          320.697,
+          319.625,
+          318.779,
+          318.764,
+          320.942,
+          322.343,
+          321.631,
+          318.894,
+          321.883
+        ],
+        "candidate": [
+          321.739,
+          321.293,
+          319.878,
+          319.579,
+          320.747,
+          318.943,
+          321.386,
+          336.821,
+          321.115,
+          319.337,
+          320.042,
+          319.996,
+          321.026,
+          320.36,
+          319.905,
+          320.311,
+          320.305,
+          320.225,
+          321.435,
+          321.129
+        ]
+      },
+      "stmt_if": {
+        "before": [
+          404.88,
+          412.906,
+          408.442,
+          405.366,
+          405.089,
+          405.732,
+          405.795,
+          405.042,
+          405.442,
+          407.515,
+          408.735,
+          404.657,
+          405.332,
+          405.259,
+          405.868,
+          404.033,
+          405.218,
+          403.596,
+          408.001,
+          404.122
+        ],
+        "candidate": [
+          404.613,
+          407.627,
+          408.938,
+          405.914,
+          405.665,
+          407.403,
+          407.343,
+          405.477,
+          407.171,
+          409.188,
+          405.299,
+          405.25,
+          406.612,
+          407.836,
+          413.667,
+          404.913,
+          404.661,
+          404.527,
+          404.405,
+          405.314
+        ]
+      },
+      "expr_if": {
+        "before": [
+          556.166,
+          558.09,
+          557.424,
+          557.301,
+          557.872,
+          558.275,
+          563.607,
+          561.304,
+          643.14,
+          557.137,
+          560.673,
+          560.222,
+          557.912,
+          558.602,
+          557.445,
+          560.499,
+          558.818,
+          557.756,
+          558.437,
+          562.854
+        ],
+        "candidate": [
+          560.15,
+          565.152,
+          557.333,
+          570.456,
+          561.75,
+          560.348,
+          558.773,
+          557.426,
+          558.94,
+          558.412,
+          560.113,
+          558.618,
+          566.411,
+          559.93,
+          558.8,
+          559.932,
+          565.697,
+          562.213,
+          557.815,
+          557.718
+        ]
+      }
+    },
+    "wall_summary_500k": {
+      "control": {
+        "before_median": 319.751,
+        "candidate_median": 320.3355,
+        "candidate_wins": 8,
+        "pairs": 20
+      },
+      "stmt_if": {
+        "before_median": 405.349,
+        "candidate_median": 405.7895,
+        "candidate_wins": 5,
+        "pairs": 20
+      },
+      "expr_if": {
+        "before_median": 558.356,
+        "candidate_median": 559.931,
+        "candidate_wins": 9,
+        "pairs": 20
+      }
+    },
+    "peak_rss_kb_500k": {
+      "control": {
+        "before": [
+          14748,
+          14732,
+          14744,
+          14740,
+          14732
+        ],
+        "candidate": [
+          14860,
+          14876,
+          14852,
+          14848,
+          14844
+        ]
+      },
+      "stmt_if": {
+        "before": [
+          14732,
+          14732,
+          14736,
+          14728,
+          14744
+        ],
+        "candidate": [
+          14864,
+          14868,
+          14884,
+          14856,
+          14840
+        ]
+      },
+      "expr_if": {
+        "before": [
+          14664,
+          14672,
+          14668,
+          14672,
+          14684
+        ],
+        "candidate": [
+          14800,
+          14796,
+          14792,
+          14788,
+          14784
+        ]
+      }
+    },
+    "peak_rss_summary_500k": {
+      "control": {
+        "before_median": 14740,
+        "candidate_median": 14852,
+        "candidate_wins": 0,
+        "pairs": 5
+      },
+      "stmt_if": {
+        "before_median": 14732,
+        "candidate_median": 14864,
+        "candidate_wins": 0,
+        "pairs": 5
+      },
+      "expr_if": {
+        "before_median": 14672,
+        "candidate_median": 14792,
+        "candidate_wins": 0,
+        "pairs": 5
+      }
+    }
+  },
+  "decision": "Keep: reusing decoded branch vectors saves 99,998 execution allocations and 799,872 allocated bytes per 100,000 statement or expression if iterations on macOS. Mac timing improves by 1.8 ms for statement if and 4.8 ms for expression if; the inline loop control is flat. Pinned Linux timing is near flat at 100,000 and 500,000 iterations, with control drift of similar size. RSS on both hosts is slightly higher, including the control, and does not establish a pool memory benefit. macOS filtered runtime passed 199 tests with 17 ignored, runner lib passed 20, native basic passed 9 with one skipped, and native frontend-indexed passed 3; pinned Linux passed 205 with 17 ignored, 20 runner tests, 9 basic with one skipped, and 3 frontend-indexed."
+}

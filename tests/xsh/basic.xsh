@@ -47,6 +47,22 @@ proc test_sibling_if_branches_keep_their_own_local_bindings() [error] {
   }
 }
 
+proc test_repeated_if_branches_select_statement_and_expression_arms() [error] {
+  var total = 0
+  for value in [0, 1, 2, 3, 4, 5] {
+    if value % 3 == 0 {
+      total += 1
+    } else if value % 3 == 1 {
+      total += 10
+    } else {
+      total += 100
+    }
+    let label = if value % 3 == 0 { "first" } else if value % 3 == 1 { "second" } else { "third" }
+    test.eq(label, ["first", "second", "third"][value % 3])?
+  }
+  test.eq(total, 222)?
+}
+
 proc test_skip() {
   test.skip("later")
 }
