@@ -20,8 +20,9 @@ public APIs require a separate decision backed by repeated real use.
 - Take one contract-sized item at a time. Record the baseline, the smallest
   regression test or measurement, the implementation, the focused check, and
   the full relevant gate from `docs/TEST-MAP.md`. Update the exact owner doc.
-  Keep raw samples for performance claims and distinguish macOS from the pinned
-  `Dockerfile.test` Linux route.
+  Close performance experiments with workload, baseline, parity, raw samples,
+  memory evidence, and a keep/revert decision. Distinguish macOS from the
+  pinned `Dockerfile.test` Linux route.
 - Close an item with evidence, a measured rejection, or a precise reason it is
   blocked. Do not mark it done because code exists or a test was skipped.
   Re-rank after each batch; a newly found correctness defect outranks this list.
@@ -69,13 +70,6 @@ section is the only remaining port task list.
 ## F. Linux, host operations, and network
 
 - **F09 · P1/M.** Reproduce an intermittent inherited descriptor in `runtime::modules::native_xsh_net_runtime_descriptors_do_not_survive_exec` on macOS. One full filtered runtime gate reported fd 9 in the child; the exact case, a subsequent full gate, and 30 isolated reruns passed. `xsh-test-show-fds` now reports the inherited fd kind and socket ports, so a future failure can distinguish the Rust server fixture from XSH's transport and wake sockets; its focused integration case passes. Identify the descriptor and the creation/exec overlap with a deterministic fixture before changing socket or process-spawn policy.
-
-## I. Documentation and contract upkeep
-
-- **I01 · P1.** For every behavior change, update the canonical owner (`docs/SPEC.md`, `SPEC-OS.md`, `STREAMS.md`, `JSON.md`, or `xsht api`) in the same change; keep this queue at task level.
-- **I02 · P2.** Keep architecture and roadmap descriptions consistent when implemented work closes an item; prefer removing stale future-tense prose to adding another guide.
-- **I03 · P2.** Keep `docs/TEST-MAP.md` aligned with the commands that actually execute product binaries and platform fixtures; remove stale or ambiguous gates when found.
-- **I04 · P2.** Close each performance experiment with workload, baseline, parity, raw samples, memory evidence, and a keep/revert decision in its benchmark owner rather than accumulating another narrative ledger.
 
 ## J. Reintegration with `../packages` and `../laputa` — final phase
 
