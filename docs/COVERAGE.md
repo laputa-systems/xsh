@@ -90,14 +90,18 @@ binds a test `/etc/fstab` only inside the child namespace. It checks that
 rejected `mount` and `mount_all` calls leave the target unmounted, that a
 missing root produces an inspectable `linux-switch-root` error, and that the
 parent's `/etc/fstab` is unchanged.
+`tests/linux_priv.rs::linux_priv_loop_attach_list_and_detach_release_device`
+uses the pinned image's BusyBox `losetup` to supply a real loop device, then
+checks XSH's list, detach, attach, and eventual release operations. The host
+guard detaches any loop still backed by the temporary image if the test fails.
+The focused lifecycle passed 20 consecutive runs in the privileged image;
+`tests/xsh/stdlib/linux.xsh` retains the dry-run parity case.
 
 Useful next work:
 
 - Add fake-root or namespace-backed coverage for boot helpers where possible,
   while keeping real `halt`, `poweroff`, `reboot`, and `switch_root` behavior
   guarded behind dry-run or harness-specific entry points.
-- Extend loop-device and parity tests only when the runner can allocate and
-  clean up devices reliably; otherwise keep these as dry-run parity fixtures.
 - Document every test that mutates kernel or mount state with its isolation
   boundary and cleanup guarantee.
 

@@ -23,39 +23,54 @@ pub fn is_root() -> bool {
     unsafe { libc::getuid() == 0 }
 }
 
-/// Create a sparse image file of `size_mb` MiB, attach it as a loop device via the system
-/// `losetup`, call `f` with the device path, then detach. Cleanup runs even on panic.
+/// Create a sparse image, attach it with the pinned image's BusyBox `losetup`,
+/// call `f` with the device path, then detach. Cleanup runs even on panic.
 /// Requires CAP_SYS_ADMIN — call is_root() first to skip gracefully.
-pub fn with_loop_image<F: FnOnce(&std::path::Path)>(size_mb: u64, f: F) {
-    let image = std::env::temp_dir().join(format!("xsh-loop-{}.img", std::process::id()));
+fn with_loop_image<F: FnOnce(&Path, &Path)>(size_mb: u64, f: F) {
+    let root = tempfile::Builder::new()
+        .prefix("xsh-linux-loop-")
+        .tempdir()
+        .expect("create loop image root");
+    let image = root.path().join("image");
     {
         let file = std::fs::File::create(&image).expect("create loop image");
         file.set_len(size_mb * 1024 * 1024)
             .expect("set loop image size");
     }
+    let _guard = LoopGuard {
+        image: image.clone(),
+        _root: root,
+    };
 
-    let out = std::process::Command::new("losetup")
-        .args(["--find", "--show"])
+    let free = Command::new("losetup")
+        .arg("-f")
+        .output()
+        .expect("losetup -f");
+    if !free.status.success() {
+        eprintln!("skipped: no free loop device in the pinned Linux runner");
+        return;
+    }
+    let device = PathBuf::from(
+        String::from_utf8(free.stdout)
+            .expect("loop device path is utf8")
+            .trim(),
+    );
+    let out = Command::new("losetup")
+        .arg(&device)
         .arg(&image)
         .output()
-        .expect("losetup --find --show");
+        .expect("losetup attach");
+    if !out.status.success() && lacks_capability(&out) {
+        eprintln!("skipped: CAP_SYS_ADMIN is required to attach a loop device");
+        return;
+    }
     assert!(
         out.status.success(),
         "losetup attach failed: {}",
         String::from_utf8_lossy(&out.stderr),
     );
-    let device = std::path::PathBuf::from(
-        String::from_utf8(out.stdout)
-            .expect("utf8")
-            .trim()
-            .to_string(),
-    );
 
-    let _guard = LoopGuard {
-        device: device.clone(),
-        image,
-    };
-    f(&device);
+    f(&device, &image);
 }
 
 fn run_script(source: &str) -> std::process::Output {
@@ -356,6 +371,55 @@ env XSH_LINUX_REAL=1 XSH_LINUX_DRY_RUN=0 {{
 }
 
 #[test]
+fn linux_priv_loop_attach_list_and_detach_release_device() {
+    if !is_root() {
+        eprintln!("skipped: loop device access requires root and CAP_SYS_ADMIN");
+        return;
+    }
+    with_loop_image(1, |device, image| {
+        // The host harness owns the real loop device and its panic-safe cleanup;
+        // XSH observes and releases it through its public Linux API.
+        let source = format!(
+            "\
+let device = Path({})
+let image = Path({})
+env XSH_LINUX_REAL=1 XSH_LINUX_DRY_RUN=0 {{
+  test.ok(linux.loop_list()?.collect() |> any .device == device)?
+  linux.loop_detach(device)?
+  test.ok(! (linux.loop_list()?.collect() |> any .device == device))?
+  let attached = linux.loop_attach(image, device)?
+  test.ok(attached == device)?
+  test.ok(linux.loop_list()?.collect() |> any .device == attached)?
+  linux.loop_detach(attached)?
+  var gone = false
+  var tries = 0
+  while tries < 100 {{
+    if ! (linux.loop_list()?.collect() |> any .device == attached) {{
+      gone = true
+      break
+    }}
+    time.sleep(10ms)?
+    tries += 1
+  }}
+  test.ok(gone)?
+  print \"detached\"
+}} ?
+",
+            xsh_string_literal(device.to_str().unwrap()),
+            xsh_string_literal(image.to_str().unwrap()),
+        );
+        let output = run_script(&source);
+        assert!(
+            output.status.success(),
+            "stdout: {}\nstderr: {}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(String::from_utf8(output.stdout).unwrap(), "detached\n");
+    });
+}
+
+#[test]
 fn linux_priv_kill_all_signals_contained_new_session_process() {
     if !is_root() {
         return;
@@ -415,16 +479,22 @@ env XSH_LINUX_REAL=1 XSH_LINUX_DRY_RUN=0 {
 }
 
 struct LoopGuard {
-    device: std::path::PathBuf,
-    image: std::path::PathBuf,
+    image: PathBuf,
+    _root: tempfile::TempDir,
 }
 
 impl Drop for LoopGuard {
     fn drop(&mut self) {
-        let _ = std::process::Command::new("losetup")
-            .arg("-d")
-            .arg(&self.device)
-            .status();
-        let _ = std::fs::remove_file(&self.image);
+        if let Ok(output) = Command::new("losetup").arg("-a").output() {
+            let backing = self.image.to_string_lossy();
+            for line in String::from_utf8_lossy(&output.stdout).lines() {
+                let Some((device, status)) = line.split_once(':') else {
+                    continue;
+                };
+                if status.split_whitespace().last() == Some(backing.as_ref()) {
+                    let _ = Command::new("losetup").arg("-d").arg(device).output();
+                }
+            }
+        }
     }
 }
