@@ -190,6 +190,9 @@ exclude = docs/snippets/**/*.xsh
 Native tests capture `process.run` stdout and stderr per test by default. `xsht
 test` shows that output for failed tests; `xsht test --nocapture` shows it while
 tests run. Normal XSH execution continues to inherit child process streams.
+`crates/xsht/src/xsht/test.rs` reports indexed-lowering failures as failed
+test files or selected test procedures, using the same source diagnostic as
+`xsht check`; preparing a native test must not panic on unsupported source.
 
 The default `module_path` is `.` (the current working directory). A config file
 may set `module_path` explicitly to replace that default for projects whose

@@ -576,6 +576,39 @@ proc main(...argv: List[Str]) [error] -> Result[Unit] {
     );
 }
 
+#[test]
+fn test_reports_compact_lowerability_without_panicking() {
+    let root = TempDir::new().expect("create temp root");
+    let tests = root.path().join("tests");
+    fs::create_dir(&tests).expect("create tests directory");
+    fs::write(
+        tests.join("lowering.xsh"),
+        "pure helper(x: Int = 1 + 1) -> Int {\n  return x\n}\n\nproc test_lowering() {\n  let _ = helper()\n}\n",
+    )
+    .expect("write test script");
+
+    for filter in ["tests/lowering.xsh", "test_lowering"] {
+        let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+            .args(["test", filter])
+            .current_dir(root.path())
+            .output()
+            .expect("run xsht test");
+
+        assert_eq!(
+            output.status.code(),
+            Some(1),
+            "stderr: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(stdout.contains("compact.indexed-build"), "stdout: {stdout}");
+        assert!(
+            stdout.contains("indexed IR could not encode `full_ir_function_blocker`"),
+            "stdout: {stdout}"
+        );
+    }
+}
+
 // These CLI tests assert rendered source locations across files; a native XSH
 // test cannot inspect a failing `xsht check` process's diagnostics.
 #[test]

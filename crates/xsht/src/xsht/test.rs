@@ -537,11 +537,7 @@ fn discover_native_tests(
 
         let arena = Arc::new(parsed.arena);
         let sources = Arc::new(sources);
-        let prepared = Arc::new(
-            Evaluator::new_with_shared_sources(Vec::new(), Arc::clone(&sources))
-                .with_native_test_host(Arc::new(native_test_host))
-                .prepare_test_program(Arc::clone(&arena), source_id),
-        );
+        let mut matching_tests = Vec::new();
         for stmt_id in arena.statement_ids() {
             let Some(def_id) = exported_test_proc(&arena, stmt_id) else {
                 continue;
@@ -551,14 +547,43 @@ fn discover_native_tests(
                 continue;
             }
             let id = format!("{file_name}::{name}");
-            if !test_id_matches(&id, options) {
+            if test_id_matches(&id, options) {
+                matching_tests.push((id, name.to_string(), def_id));
+            }
+        }
+        if matching_tests.is_empty() {
+            continue;
+        }
+
+        let prepared = match Evaluator::new_with_shared_sources(Vec::new(), Arc::clone(&sources))
+            .with_native_test_host(Arc::new(native_test_host))
+            .prepare_test_program(Arc::clone(&arena), source_id)
+        {
+            Ok(prepared) => Arc::new(prepared),
+            Err(diagnostic) => {
+                let message = DiagnosticRenderer::new().render(&[diagnostic], &sources);
+                if test_id_matches(&file_name, options) {
+                    cases.push(TestCase::Invalid {
+                        id: file_name,
+                        message,
+                    });
+                } else {
+                    for (id, _, _) in matching_tests {
+                        cases.push(TestCase::Invalid {
+                            id,
+                            message: message.clone(),
+                        });
+                    }
+                }
                 continue;
             }
+        };
+        for (id, name, def_id) in matching_tests {
             match native_test_signature_uses_ctx(&arena, def_id) {
                 Ok(has_ctx) => cases.push(TestCase::Native(NativeTestCase {
                     id,
                     file: file_name.clone(),
-                    name: name.to_string(),
+                    name,
                     prepared: Arc::clone(&prepared),
                     has_ctx,
                 })),

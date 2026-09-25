@@ -4477,11 +4477,11 @@ impl Evaluator {
         mut self,
         program: Arc<ArenaProgram>,
         source_id: SourceId,
-    ) -> PreparedTestProgram {
+    ) -> Result<PreparedTestProgram, Diagnostic> {
         self.capture_process_output = true;
-        let plan = self
-            .prepare_compact_indexed_only(&program, source_id)
-            .expect("checked native-test programs must encode as indexed IR");
+        let plan = program.symbol_owner().with_current(|| {
+            self.prepare_compact_indexed_only_or_diagnostic(&program, source_id, false)
+        })?;
         let script_span = plan.script_span;
         let shared = self.lowered_shared_state();
         let (diagnostics, traceback) = self.eval_installed_indexed_test_setup(&plan);
@@ -4493,14 +4493,14 @@ impl Evaluator {
         } else {
             (self.lowered_shared_state(), None)
         };
-        PreparedTestProgram {
+        Ok(PreparedTestProgram {
             plan,
             script_span,
             symbols: program.symbol_owner().clone(),
             shared,
             setup_shared,
             setup_failure,
-        }
+        })
     }
 
     #[cfg(feature = "native-tests")]
