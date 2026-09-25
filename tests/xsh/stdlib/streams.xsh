@@ -2083,6 +2083,43 @@ proc main() [io, error] {
   test.contains(output.stderr, "kind=stream.stage.exit name=\"count\"")?
 }
 
+proc test_mapped_live_count_enters_terminal_before_source_error(ctx: TestContext) [error] {
+  let output = test.run_xsht_trace(
+    ctx,
+    r"""
+proc close() [io] { print "closed" }
+
+stream numbers() [io, error] -> Stream[Int] {
+  defer close()
+  yield 1
+  yield "bad".parse_int()?
+}
+
+proc main() [io, error] {
+  let counted = numbers() |> map { |n| n + 1 } |> where . > 0 |> count()
+  print f"counted=${counted}"
+}
+""",
+    ["--raw"],
+  )?
+  test.ok(! output.success)?
+  test.eq(output.stdout, "closed\n")?
+  test.contains(output.stderr, "invalid integer `bad`")?
+  for name in ["map", "where", "count"] {
+    test.contains(output.stderr, f"kind=stream.stage.enter name=\"${name}\"")?
+    test.contains(output.stderr, f"kind=stream.stage.exit name=\"${name}\"")?
+  }
+}
+
+proc test_live_serial_count_after_map_where_and_flat_map() [error] {
+  let count = range(4)
+    |> map { |n| n + 1 }
+    |> where . > 2
+    |> flat-map { |n| [n, n] }
+    |> count()
+  test.eq(count, 4)?
+}
+
 proc test_parallel_stream_stages_are_bounded_and_deterministic() [error] {
   test.eq(
     [1, 2, 3, 4]

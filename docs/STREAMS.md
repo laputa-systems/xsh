@@ -38,11 +38,12 @@ For a live source, `serial_pipeline.rs` runs supported serial stages on each
 source item before pulling the next. `flat-map` sends each expanded value through
 the remaining stages in order, so `take` can stop within an expansion. The
 serial path covers `tee`, `where`, `map`, `flat-map`, `drop`, and `enumerate`; it
-stops at `take`, `first`, `any`, or `all`, and collects at an explicit `collect()`
-or expression boundary. An unsupported stage receives the materialized serial
-prefix, then follows its indexed handler. This preserves effects and late-error
-timing for the supported prefix, including producer cleanup and trace exits on
-failure.
+stops at `take`, `first`, `any`, `all`, or `count`, and collects at an explicit
+`collect()` or expression boundary. `count` keeps only its running total and
+enters its trace before pulling the source. An unsupported stage receives the
+materialized serial prefix, then follows its indexed handler. This preserves
+effects and late-error timing for the supported prefix, including producer
+cleanup and trace exits on failure.
 The ordinary indexed handlers also close their `stream.stage` trace when a
 stage errors or propagates a value early.
 
@@ -212,6 +213,17 @@ still stages all input rows but avoids the mapped output list. Put `take` before
 `par-map` when the producer must stop early. The producer cleanup and pull
 counts are asserted by `tests/fixtures/runtime/worker-stage-producers.xsh`.
 
+`bench/stream-stage-cost.xsh` compares direct live `count` with identity `map`,
+a cheap `where`, their combination, and a `par-map` control. On one million
+items, moving `count` into the live serial cursor reduced median `map` peak
+RSS from 47.3 to 13.2 MB on macOS and 80.3 to 15.2 MB on pinned Linux. Median
+wall time was 862 to 862 ms on macOS and 895 to 880 ms on Linux.
+`where` and `map |> where` saw similar memory reductions; the worker control
+was unchanged. Eight alternating release pairs per mode and host, exact output
+parity, and raw samples are in `bench/stream-stage-cost-c01-2026-09-24.json`.
+These small expressions bound total per-item cost but do not isolate dispatch
+from expression evaluation, so they do not justify a compiled stage path.
+
 `showcase/loc.xsh` is a whole-file scanner, but replacing
 `Path.read_text()?.count_lines()` with `Path.lines()? |> count()` did not help
 on `src` (128 Rust files, 123,720 lines). Twenty alternating macOS ARM64
@@ -275,5 +287,3 @@ comparison does not justify intra-directory work splitting.
   rather than an equivalent replacement. An eager metadata read followed by
   lazy field construction would need separate evidence on a larger tree and
   must preserve metadata-error timing.
-- **Bytecode/compiled stage blocks** — cut per-item dispatch; helps the serial
-  path and every parallel worker, with no determinism cost.

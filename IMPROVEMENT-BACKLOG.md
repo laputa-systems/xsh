@@ -39,7 +39,7 @@ public APIs require a separate decision backed by repeated real use.
 
 1. **B01:** complete the paired `xsht` tooling evidence, then use the recorded
    B0 `xsh` failures to prioritize profiling on both supported hosts.
-2. **B08, C01–C02, C06:** improve the measured hot paths and cold preparation in
+2. **B08, C02, C06:** improve the measured hot paths and cold preparation in
    small batches, preserving the original B0 gates and native controls.
 3. **E01–E02:** finish the formatter fixture and migrate layout families only
    when their policy changes.
@@ -65,7 +65,6 @@ section is the only remaining port task list.
 experiments lost. Every item here starts with a complete workload and
 allocation/RSS evidence; no new execution engine is implied.
 
-- **C01 · P1/M.** Measure per-item stage dispatch on serial and worker paths; preserve lazy short-circuit, effects, and tracing before considering a verified block specialization.
 - **C02 · P1/M.** Profile `fs.walk` record construction when `where` rejects most entries; test whether lazy fields save measurable work without changing metadata-error timing. The `src` all-rejected walk allocated 811 KB with `stat: true` versus 101 KB with `stat: false`, but the latter skips metadata and cannot preserve the contract (`bench/fs-walk-rejection-c02-2026-09-24.json`). The probe also exposed a dynamic-boolean lowering bug, now covered in `tests/xsh/stdlib/fs.xsh`.
 - **C06 · P1/M.** Identify whole-buffer scanners that can use line-state APIs; convert one real large-file workload at a time and preserve malformed-late-row behavior. The `showcase/loc.xsh` `Path.lines() |> count()` candidate lost to `read_text()?.count_lines()` on `src` (33.016 versus 22.883 ms median in 20 paired release runs), despite 1.8 MB lower median peak RSS, and changed the late invalid-UTF-8 diagnostic path, so it was rejected (`bench/stream-line-count-c06-2026-09-24.json`).
 

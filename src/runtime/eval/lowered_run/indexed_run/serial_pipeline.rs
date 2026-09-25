@@ -77,6 +77,7 @@ pub(super) enum IndexedLiveSerialStage {
     Any { slot: usize, predicate: u32, all: bool },
     AnyBlock { slot: usize, body: u32, value: u32, all: bool },
     First,
+    Count,
     Collect,
 }
 
@@ -98,6 +99,7 @@ impl IndexedLiveSerialStage {
             Self::AnyBlock { all: false, .. } => FullStageTag::AnyBlock,
             Self::AnyBlock { all: true, .. } => FullStageTag::AllBlock,
             Self::First => FullStageTag::First,
+            Self::Count => FullStageTag::Count,
             Self::Collect => FullStageTag::Collect,
         }
     }
@@ -130,6 +132,7 @@ pub(super) fn indexed_for_pipeline_input(
                 IndexedLiveSerialStage::Any { .. }
                     | IndexedLiveSerialStage::AnyBlock { .. }
                     | IndexedLiveSerialStage::First
+                    | IndexedLiveSerialStage::Count
                     | IndexedLiveSerialStage::Collect
             )
         )
@@ -420,6 +423,11 @@ impl IndexedSerialPipeline {
                         self.stopped = true;
                     }
                 }
+                IndexedLiveSerialStage::Count => {
+                    if item.take().is_some() {
+                        self.emitted += 1;
+                    }
+                }
                 IndexedLiveSerialStage::Collect => {
                     if let Some(value) = item.take() {
                         self.emitted += 1;
@@ -476,6 +484,7 @@ impl IndexedSerialPipeline {
                     RuntimeError::new("empty-stream", "stream was empty").with_span(self.span),
                 )
             }),
+            Some(IndexedLiveSerialStage::Count) => LoweredValue::Int(self.emitted as i64),
             _ => LoweredValue::List(output),
         }
     }
@@ -561,6 +570,10 @@ pub(super) fn decode_serial_prefix(
                 indexed_finish(payload, span)?;
                 IndexedLiveSerialStage::First
             }
+            FullStageTag::Count => {
+                indexed_finish(payload, span)?;
+                IndexedLiveSerialStage::Count
+            }
             FullStageTag::Collect => {
                 indexed_finish(payload, span)?;
                 IndexedLiveSerialStage::Collect
@@ -568,7 +581,7 @@ pub(super) fn decode_serial_prefix(
             _ => break,
         };
         prefix.push(decoded);
-        if matches!(tag, FullStageTag::Take | FullStageTag::Any | FullStageTag::All | FullStageTag::AnyBlock | FullStageTag::AllBlock | FullStageTag::First | FullStageTag::Collect) {
+        if matches!(tag, FullStageTag::Take | FullStageTag::Any | FullStageTag::All | FullStageTag::AnyBlock | FullStageTag::AllBlock | FullStageTag::First | FullStageTag::Count | FullStageTag::Collect) {
             break;
         }
     }

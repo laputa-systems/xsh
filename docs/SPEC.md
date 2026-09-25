@@ -2863,6 +2863,8 @@ is needed outside pipeline syntax.
 
 **Terminal stages** produce a scalar value instead of passing items forward.
 They end the stream and cannot be followed by further stages.
+For a live source, `count()` drains a contiguous prefix of `tee`, `where`,
+`map`, `flat-map`, `drop`, and `enumerate` stages without retaining their rows.
 
 **For loops.** `for x in PIPELINE { }` passes rows from serial stream stages
 directly to the loop body without materializing a `List`. Stages whose contract
