@@ -1520,6 +1520,39 @@ mod tests {
     }
 
     #[test]
+    fn scripted_editor_completes_commands_after_shell_operators() {
+        let root = super::complete::completion_test_dir(&[]);
+        let mut session = Session::new();
+        session.history = History::from_entries(Vec::new());
+        session.cwd = root.path().to_path_buf();
+        session.invalidate_cwd_snapshot();
+        session.aliases.insert(
+            "xshi_completion_probe".to_string(),
+            "echo ready".to_string(),
+        );
+
+        for prefix in [
+            "",
+            "printf ready |",
+            "printf ready &&",
+            "printf ready ||",
+            "printf ready ;",
+        ] {
+            let source = if prefix.is_empty() {
+                "xshi_completion_pr".to_string()
+            } else {
+                format!("{prefix} xshi_completion_pr")
+            };
+            let keys = format!("{source}\t\r");
+            let (line, _) = edit_with_keys(&mut session, keys.as_bytes(), 80);
+            assert_eq!(line, source.replace("xshi_completion_pr", "xshi_completion_probe"));
+        }
+
+        let (argument, _) = edit_with_keys(&mut session, b"printf xshi_completion_pr\t\r", 80);
+        assert_eq!(argument, "printf xshi_completion_pr");
+    }
+
+    #[test]
     fn scripted_completion_opens_without_preview_and_navigates_with_arrows() {
         let root = super::complete::completion_test_dir(&["alpha.txt", "alpine.log"]);
         let mut session = Session::new();

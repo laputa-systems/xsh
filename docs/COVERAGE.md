@@ -48,9 +48,9 @@ covers command candidates across session environment changes;
 `complete.rs::tests::completion_refreshes_cwd_snapshot_and_non_cwd_directory_mtime`
 covers cwd snapshot refresh and mtime-based directory cache replacement.
 
-Useful next work:
-
-- Cover command-position completion.
+`edit.rs::tests::scripted_editor_completes_commands_after_shell_operators`
+checks command candidates through the editor loop after pipes, `&&`, `||`,
+and semicolons, with an argument-position control.
 
 `complete.rs::tests::remote_completion_rejects_denial_malformed_output_and_missing_executable`
 and `remote_completion_passes_host_as_one_argument_and_bounds_timeout` use
