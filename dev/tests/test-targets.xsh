@@ -77,6 +77,12 @@ proc test_target_flags_native_selection_and_coverage_backend_policy() [error] {
     coverage_workflow.backend_name(coverage_workflow.automatic_backend_for(alpine_x86, true, true, false)),
     "docker",
   )?
+  test.eq(coverage_workflow.docker_target_triple(target_policy.Aarch64, ""), "aarch64-unknown-linux-musl")?
+  test.eq(coverage_workflow.docker_target_triple(target_policy.X86_64, ""), "x86_64-unknown-linux-musl")?
+  test.eq(
+    coverage_workflow.docker_target_triple(target_policy.Aarch64, "x86_64-unknown-linux-musl"),
+    "x86_64-unknown-linux-musl",
+  )?
 }
 
 proc test_docker_argv_is_direct_and_carries_mount_environment_policy() [error] {

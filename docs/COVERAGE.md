@@ -5,6 +5,10 @@ coverage. Coverage work should stay behavior-oriented: prefer tests that prove
 real workflows, host contracts, and safety boundaries over tests that exist only
 to execute a branch.
 
+On ARM hosts, the automatic Docker backend uses the pinned `linux/arm64` image
+and `aarch64-unknown-linux-musl` target. An explicit `TARGET` or `--target`
+selection is honored.
+
 For a focused XSH source-coverage report, run `xsht test --cov`. The report
 registers source files discovered by the active `xsht-config.ini`, including
 files that no test loads, and derives its source-line denominator from parsed
@@ -20,7 +24,7 @@ The procedure metric is reported as `proc entries`: it answers whether a proc
 or pure function was entered at least once. It does not prove that every
 statement or branch in the procedure ran. Add `--api` when API-surface coverage
 is the question; `--cov-json` remains the machine-readable source-coverage
-output used by the combined coverage tool. Use `--api --cov-json` when the JSON
+output used by the combined coverage tool. Use `--cov --api --cov-json` when the JSON
 report should also include standard API hit data. JSON reports also include
 `source_scope.files` and `source_scope.observed_files` so a result cannot
 silently be mistaken for whole-repository coverage.

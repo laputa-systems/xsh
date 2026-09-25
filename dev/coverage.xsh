@@ -54,6 +54,19 @@ export pure backend_name(backend: CoverageBackend) -> Str {
   }
 }
 
+## Chooses a native-architecture Linux container unless the caller selected a target.
+export pure docker_target_triple(host_arch: targets.HostArch, selected: Str) -> Str {
+  if selected != "" {
+    return selected
+  }
+
+  if host_arch == targets.Aarch64 {
+    return "aarch64-unknown-linux-musl"
+  }
+
+  return "x86_64-unknown-linux-musl"
+}
+
 ## Selects the automatic coverage backend from the preserved Alpine Linux contract.
 export proc automatic_backend(ctx: context.Context) [fs, process, error] -> Result[CoverageBackend] {
   let alpine_linux = p"/etc/alpine-release".exists()?
@@ -191,6 +204,18 @@ export proc coverage(ctx: context.Context, request: CoverageRequest) [fs, proces
   }
   match backend {
     NativeBackend => return native_coverage(ctx)
-    DockerBackend => return docker_backend(ctx)
+    DockerBackend => {
+      let selected = env.get_or("TARGET", "")?.trim()
+      let triple = docker_target_triple(ctx.host_arch, selected)
+
+      if triple == ctx.target.triple {
+        return docker_backend(ctx)
+      }
+
+      env TARGET=$triple {
+        docker_backend(context.create()?)?
+      } ?
+      return
+    }
   }
 }

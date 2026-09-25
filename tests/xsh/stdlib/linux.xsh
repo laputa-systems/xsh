@@ -500,3 +500,58 @@ dep.ko:
 """,
   )?
 }
+
+proc test_linux_open_files_tracks_a_live_child_descriptor(ctx: TestContext) [fs, process, env, time, error] {
+  if system.uname()?.sysname != "Linux" {
+    test.skip("linux.open_files reads live Linux process descriptors")
+    return
+  }
+
+  let root = test.temp_dir(ctx, name: "linux-open-files")?
+  let source = fp"${root}/source.txt"
+  let ready = fp"${root}/ready"
+  let release = fp"${root}/release"
+  let closed = fp"${root}/closed"
+  let stop = fp"${root}/stop"
+  source.write("payload")?
+  let child = spawn process.command_argv(
+    "sh",
+    [
+      "sh",
+      "-c",
+      "exec 3<\"$1\"; touch \"$2\"; while [ ! -e \"$3\" ]; do sleep 0.02; done; exec 3<&-; touch \"$4\"; while [ ! -e \"$5\" ]; do sleep 0.02; done",
+      "sh",
+      source,
+      ready,
+      release,
+      closed,
+      stop,
+    ],
+  )?
+
+  for _ in range(0, 500) {
+    break when ready.exists()?
+    time.sleep(10ms)?
+  }
+
+  test.ok(ready.exists()?, "child did not open its descriptor")?
+
+  env XSH_LINUX_REAL=1 XSH_LINUX_DRY_RUN=0 {
+    let before = linux.open_files(child.pid)?.collect()
+    test.ok(before |> any .path == source, "open descriptor must be visible")?
+
+    release.write("")?
+    for _ in range(0, 500) {
+      break when closed.exists()?
+      time.sleep(10ms)?
+    }
+
+    test.ok(closed.exists()?, "child did not close its descriptor")?
+    let after = linux.open_files(child.pid)?.collect()
+    test.ok(after.len() > 0, "child must still be visible")?
+    test.ok(! (after |> any .path == source), "closed descriptor must disappear")?
+  } ?
+
+  stop.write("")?
+  test.ok(wait child?.exited_with(0))?
+}

@@ -50,10 +50,10 @@ pure suite_json_name(name: Str) -> Str {
 
 pure suite_test_args(name: Str, suite_json: Path) -> List[Str] {
   if name == "." {
-    return ["test", "--cov-json", suite_json.display(), "tests/xsh"]
+    return ["test", "--cov", "--api", "--cov-json", suite_json.display(), "tests/xsh"]
   }
 
-  return ["test", "--cov-json", suite_json.display()]
+  return ["test", "--cov", "--api", "--cov-json", suite_json.display()]
 }
 
 proc discover_suites(root: Path) [fs, error] -> Result[List[Suite]] {
@@ -139,8 +139,8 @@ proc merge_reports(root: Path, inputs: List[SuiteInput]) [fs, error] -> Result[R
 
     for api_id in raw_hits.keys() {
       let raw: Record = raw_hits.get(api_id)?
-      let tests: Int = raw.get("tests")?
-      let examples: Int = raw.get("examples")?
+      let tests: Int = raw.get("tests") ?? 0
+      let examples: Int = raw.get("examples") ?? 0
       let current = api_hits.get(api_id, {tests: 0, examples: 0})
       api_hits[api_id] = {tests: current.tests + tests, examples: current.examples + examples}
     }
