@@ -16,21 +16,6 @@ fn minimal_modules_execute_success_paths() {
 }
 
 #[test]
-fn loaded_modules_refine_to_typed_module_contracts() {
-    let output = xsh(["tests/fixtures/runtime/module-contract.xsh"]);
-
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    assert_eq!(
-        String::from_utf8(output.stdout).unwrap(),
-        "demo true false 3\ndemo\n"
-    );
-}
-
-#[test]
 fn elf_module_inspects_dynamic_metadata_and_reports_malformed_files() {
     let elf = temp_path("elf-module-fixture.so");
     let plain = temp_path("elf-module-plain.txt");

@@ -28,7 +28,9 @@ export proc execute(root: Path) [fs, error] -> Result[Unit] {
   let plugin = module.load(plugin_path)?.require(Plugin)?
   test.eq(plugin.name, "demo")?
   test.ok(plugin.has("description"))?
+  test.ok(! plugin.has("missing"))?
   test.ok(plugin.keys().contains("name"))?
+  test.eq(plugin.keys().len(), 3)?
   plugin.execute(root)?
   test.eq(fp"${root}/out.txt".read_text()?, "demo")?
 }
