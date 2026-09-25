@@ -128,33 +128,6 @@ fn xsh_rejects_tool_subcommands() {
 }
 
 #[test]
-fn xsh_evaluates_float_literals_methods_and_json() {
-    let path = temp_xsh_path("float-values");
-    std::fs::write(
-        &path,
-        r#"
-type Metric = {ratio: Float, samples: List[Float]}
-
-let ratio = 5.float() / 2.0
-var adjusted: Float = ratio
-adjusted += 0.25
-let metric = json.decode("{\"ratio\":1.5,\"samples\":[0.25,1.25]}")?.require(Metric)?
-let encoded = json.encode({ratio: metric.ratio, value: adjusted})?
-print ${ratio.format(precision: 2)} ${adjusted.floor()?} ${encoded}
-"#,
-    )
-    .expect("write float script");
-
-    let output = xsh([path.to_str().unwrap()]);
-
-    assert!(output.status.success());
-    assert_eq!(
-        String::from_utf8(output.stdout).unwrap(),
-        "2.50 2 {\"ratio\":1.5,\"value\":2.75}\n"
-    );
-}
-
-#[test]
 fn runtime_stats_preserves_parallel_script_output_and_reports_worker_traffic() {
     let script = write_temp_script(
         "runtime-stats-par-map",

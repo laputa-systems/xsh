@@ -1,3 +1,16 @@
+type JsonFloatMetric = {ratio: Float, samples: List[Float]}
+
+proc test_float_arithmetic_and_json_record_boundary() [error] {
+  let ratio = 5.float() / 2.0
+  var adjusted: Float = ratio
+  adjusted += 0.25
+  let metric = json.decode("{\"ratio\":1.5,\"samples\":[0.25,1.25]}")?.require(JsonFloatMetric)?
+  let encoded = json.encode({ratio: metric.ratio, value: adjusted})?
+  test.eq(ratio.format(precision: 2), "2.50")?
+  test.eq(adjusted.floor()?, 2)?
+  test.eq(encoded, "{\"ratio\":1.5,\"value\":2.75}")?
+}
+
 proc test_json_read_write_lines_and_paths(ctx: TestContext) [fs, error] {
   let root = test.temp_dir(ctx, name: "json")?
   let value = json.decode("{\"name\":\"pkg\",\"items\":[1,2],\"meta\":{\"ok\":true}}")?
