@@ -166,6 +166,20 @@ on Linux. Both current API rows pass. Linux `tooling-runner.xsh` accepts the
 selected command names so the two permitted rows can be measured without
 running `xsht lint`. The lint row remains owner-run under `AGENTS.md`.
 
+B08 measured narrow costs in the indexed runtime after the port passed its
+complete B0 performance gate. Moving fully supplied call arguments into frame
+slots, recycling decoded call argument vectors, and recycling decoded `if`
+branches each removed about one allocation per affected call or branch. Paired
+timings improved or stayed flat on macOS; pinned Linux improved for calls and
+stayed near its control for branches. An inline call argument buffer slowed
+macOS, and a typed integer `+=` specialization slowed pinned Linux, so both
+were reverted. These results do not support a broader runtime rewrite. Raw
+samples, output parity, allocation counts, RSS, and decisions are in
+`bench/call-slot-ownership-b08-2026-09-25.json`,
+`bench/call-argument-pool-b08-2026-09-25.json`,
+`bench/if-branch-pool-b08-2026-09-25.json`, and
+`bench/augmented-int-assignment-b08-2026-09-25.json`.
+
 The B05 seven-shape cold remeasurement is in `results-b05-cold.json`, with
 three paired rounds and exact parity on both hosts. The prechange macOS
 `cold_dynamic_ref` failed B0 at 13.35 versus 11.23 ms (1.00 ms allowed).

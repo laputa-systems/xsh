@@ -38,12 +38,11 @@ public APIs require a separate decision backed by repeated real use.
 
 ## First execution sequence
 
-1. **B01:** complete the paired `xsht` tooling evidence, then use the recorded
-   B0 `xsh` failures to prioritize profiling on both supported hosts.
-2. **B08:** improve the measured hot paths and cold preparation in
-   small batches, preserving the original B0 gates and native controls.
-3. **E01–E02:** finish the formatter fixture and migrate layout families only
+1. **B01:** complete the owner-run `xsht lint` tooling row on both hosts.
+2. **E01–E02:** finish the formatter fixture and migrate layout families only
    when their policy changes.
+3. **F09:** identify the intermittent inherited descriptor from the expanded
+   helper report before changing socket or spawn behavior.
 4. **J01–J14, last:** reintegrate the stable XSH build with `../packages` and
    `../laputa`, progressing from static checks to isolated Linux tests and QEMU.
 
@@ -58,7 +57,6 @@ public APIs require a separate decision backed by repeated real use.
 section is the only remaining port task list.
 
 - **B01 · P1.** Complete the owner-run `xsht lint` row in `bench/stdlib-port/tooling.py` on macOS and pinned Linux. `results-b01-tooling.json` records matched B0/B1/candidate release measurements, exact parity, and raw samples for `xsht api` and `xsht check` on both hosts. The candidate passes both rows; B1's macOS `xsht check` regression is visible. `AGENTS.md` forbids agents from running linters.
-- **B08 · P1/M.** Investigate bounded stage, block, and remaining frame overhead in the existing indexed runtime; keep the explicit-frame small-stack route, Result propagation, traces, and private bridge authority intact. For fully supplied non-rest user calls, moving the evaluated argument vector into frame slots removed 99,997 allocations and 3.20 MB of allocation traffic across 100,000 calls, with lower paired release medians on macOS and pinned Linux (`bench/call-slot-ownership-b08-2026-09-25.json`). Reusing decoded argument-descriptor vectors removed another 99,998 allocations and 0.80 MB across 100,000 one-argument calls; paired macOS call medians were flat or lower, and pinned Linux medians fell about 1.7 ms with 19/20 wins for both proc and pure calls (`bench/call-argument-pool-b08-2026-09-25.json`). Reusing decoded `if` branches removes 99,998 allocations per 100,000 iterations; macOS timing improves, while pinned Linux timing and both hosts' RSS are near-flat against their controls (`bench/if-branch-pool-b08-2026-09-25.json`). An inline argument-descriptor buffer slowed paired macOS calls and was reverted; its raw samples are in the first artifact. Specializing statically typed integer `+=` sped up all 16 paired macOS runs but slowed all 20 pinned Linux pairs, with unchanged allocation counts; it was reverted (`bench/augmented-int-assignment-b08-2026-09-25.json`). These shape-specific changes do not establish a general runtime speedup.
 
 ## E. `xsht`, diagnostics, and source fidelity
 
@@ -69,7 +67,7 @@ section is the only remaining port task list.
 
 ## F. Linux, host operations, and network
 
-- **F09 · P1/M.** Reproduce an intermittent inherited descriptor in `runtime::modules::native_xsh_net_runtime_descriptors_do_not_survive_exec` on macOS. One full filtered runtime gate reported fd 9 in the child; the exact case, a subsequent full gate, and 30 isolated reruns passed. `xsh-test-show-fds` now reports the inherited fd kind and socket ports, so a future failure can distinguish the Rust server fixture from XSH's transport and wake sockets; its focused integration case passes. Identify the descriptor and the creation/exec overlap with a deterministic fixture before changing socket or process-spawn policy.
+- **F09 · P1/M.** Reproduce an intermittent inherited descriptor in `runtime::modules::native_xsh_net_runtime_descriptors_do_not_survive_exec` on macOS. One full filtered runtime gate reported fd 9 in the child; the exact case, later full gates, and 30 isolated reruns passed. `xsh-test-show-fds` now reports the inherited fd kind and socket ports. On Apple targets, `crates/xsh-net/src/lib.rs::async_connect_resolved_tcp` sets close-on-exec after socket creation, and `crates/xsh-net/src/runtime.rs::FileLane::submit` sets it after `UnixStream::pair`; either interval could overlap a spawn, but neither is yet identified as fd 9. Use the helper's next failure to identify the descriptor and make a deterministic fixture before changing socket or process-spawn policy.
 
 ## J. Reintegration with `../packages` and `../laputa` — final phase
 
