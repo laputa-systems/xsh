@@ -231,7 +231,6 @@ names.
 The private `BridgeTypeName` operation remains restricted by verifier
 provenance and belongs to JSON Lines. The CLI policy returned to
 `src/modules/cli.rs` after the measured script path failed the B0 batch gate.
-`IMPROVEMENT-BACKLOG.md` owns remaining work;
 `bench/stdlib-port/README.md` owns measured dispositions and points to raw
 results in that directory.
 
@@ -270,10 +269,8 @@ signals, cancellation, and signal hooks. The `AGENTS.md` routing policy chooses
 the smallest useful reading set for a change. `docs/FRONTEND.md` is the
 implementation guide for the compact frontend,
 indexed runtime plumbing, symbol identity, registry invariants, and benchmark
-verification. `../IMPROVEMENT-BACKLOG.md` tracks evidence-based performance and
-memory work after the architecture closeout. `docs/COVERAGE.md`
-tracks the practical coverage plan for areas that need larger harnesses rather
-than branch-only tests.
+verification. `docs/COVERAGE.md` tracks the practical coverage limits for areas
+that need larger harnesses rather than branch-only tests.
 
 structure for tooling. Arena nodes carry `Span` values from `src/source.rs`, and
 `ArenaParseOutput` carries both the arena program and CST. The active formatter

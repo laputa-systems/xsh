@@ -1,9 +1,9 @@
-# Coverage Plan
+# Coverage
 
-`cargo dev coverage` is the source of truth for combined Rust LLVM coverage and XSH API
-coverage. Coverage work should stay behavior-oriented: prefer tests that prove
-real workflows, host contracts, and safety boundaries over tests that exist only
-to execute a branch.
+`cargo dev coverage` is the source of truth for combined Rust LLVM coverage
+and XSH API coverage. Coverage work should stay behavior-oriented: prefer
+tests that prove real workflows, host contracts, and safety boundaries over
+tests that exist only to execute a branch.
 
 On ARM hosts, the automatic Docker backend uses the pinned `linux/arm64` image
 and `aarch64-unknown-linux-musl` target. An explicit `TARGET` or `--target`
@@ -24,14 +24,19 @@ The procedure metric is reported as `proc entries`: it answers whether a proc
 or pure function was entered at least once. It does not prove that every
 statement or branch in the procedure ran. Add `--api` when API-surface coverage
 is the question; `--cov-json` remains the machine-readable source-coverage
-output used by the combined coverage tool. Use `--cov --api --cov-json` when the JSON
-report should also include standard API hit data. JSON reports also include
-`source_scope.files` and `source_scope.observed_files` so a result cannot
+output used by the combined coverage tool. Use `--cov --api --cov-json` when
+the JSON report should also include standard API hit data. JSON reports also
+include `source_scope.files` and `source_scope.observed_files` so a result cannot
 silently be mistaken for whole-repository coverage.
+`tests/xsh/coverage-tool.xsh::test_combined_coverage_report_includes_standard_api_hits`
+checks the combined report's API fields with a small executable suite.
 
-The standard XSH API surface is currently covered by the native suites. The
-remaining meaningful LLVM gap is concentrated in two areas that need larger
-harnesses, not scattered microtests.
+The 2026-09-25 pinned ARM64 run completed with 63.60% LLVM line coverage
+overall. Its XSH API report records 3/4 core, 115/140 method, 290/322 module,
+2/2 run, and 31/33 stream IDs hit. The LLVM route runs the root Rust test
+package and privileged Linux tests; it builds `xshi` but does not run its
+package tests, so the `xshi` rows in this report are zero. Use its focused
+package gate for editor coverage decisions.
 
 ## Interactive Editor And Completion
 
@@ -84,6 +89,13 @@ that can alter global host state or require kernel capabilities that vary by
 runner: boot transitions, destructive mount paths, loop/parity edge cases, and
 kernel configuration writes.
 
+`tests/xsh/stdlib/linux.xsh::test_linux_open_files_tracks_a_live_child_descriptor`
+holds a child process and its source file descriptor open, observes the
+descriptor through `linux.open_files`, closes it while the child remains alive,
+then verifies it disappears. The pinned ARM64 run raised
+`src/modules/linux/process.rs` line coverage from 0% to 84.00%; the test needs
+no host privilege.
+
 `tests/linux_priv.rs::linux_priv_tmpfs_mount_is_mountpoint_disk_usage_and_cleanup`
 runs the real mount in a child mount namespace with private propagation and a
 temporary root. It checks the mounted filesystem inside that child, verifies
@@ -110,13 +122,7 @@ and writes its readiness marker in a temporary directory. The harness also
 keeps generated XSH scripts in temporary directories, so panic paths remove
 them.
 
-Useful next work:
-
-- Add fake-root or namespace-backed coverage for boot helpers where possible,
-  while keeping real `halt`, `poweroff`, `reboot`, and `switch_root` behavior
-  guarded behind dry-run or harness-specific entry points.
-
-## Lower-Value Remainders
+## Coverage Limits
 
 Some low LLVM files are acceptable to leave low unless their behavior changes:
 benchmark-only entry points, generated/reference documentation paths, and

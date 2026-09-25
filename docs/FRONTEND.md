@@ -8,9 +8,8 @@ path never reconstructs a recursive syntax tree or installs a second executable
 program as a fallback.
 
 This document is the durable architecture and change contract for that path.
-[`IMPROVEMENT-BACKLOG.md`](../IMPROVEMENT-BACKLOG.md) tracks candidate
-performance and memory work. `docs/SPEC.md`, `docs/SPEC-TYPING.md`, and
-`docs/SPEC-OS.md` remain the source-visible behavior contracts.
+`docs/SPEC.md`, `docs/SPEC-TYPING.md`, and `docs/SPEC-OS.md` remain the
+source-visible behavior contracts.
 
 ## Greppable Frontend Vocabulary
 
@@ -333,5 +332,4 @@ autofixers as part of this workflow.
 
 The frontend redesign is complete. Further work begins with a measurable
 user-visible cost, not an attempt to recreate a previous representation.
-[`IMPROVEMENT-BACKLOG.md`](../IMPROVEMENT-BACKLOG.md) tracks candidates;
-this document and `docs/TEST-MAP.md` own measurement and verification rules.
+This document and `docs/TEST-MAP.md` own measurement and verification rules.

@@ -157,10 +157,8 @@ its 22 targets delegate to this program, through `cargo dev` by default.
 
 `.github/workflows/verify.yml` uses the same XSH test routes on macOS and
 the pinned Linux image. `docs/TEST-MAP.md` owns the actual verification matrix.
-The remaining behavior and evidence work belongs in
-`IMPROVEMENT-BACKLOG.md`, especially the focused `dev/`, `core/`, and
-`showcase/` items. Larger new corpus programs need a concrete consumer before
-they are added to this document.
+Larger new corpus programs need a concrete consumer before they are added to
+this document.
 
 The byte-path review of `showcase/file-audit.xsh`, `showcase/path-audit.xsh`,
 and `showcase/git-digest.xsh` found three concrete boundaries. `file-audit`

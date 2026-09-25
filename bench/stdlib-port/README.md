@@ -1,10 +1,9 @@
 # Embedded standard-library port benchmarks
 
-Paired reference/candidate measurement for the standard-library port. The
-remaining tasks live only in `IMPROVEMENT-BACKLOG.md`. Reference and candidate
-runs are interleaved within one target so CPU frequency, cache, and scheduler
-drift affect both sides. The reported value is the median of independent round
-medians of wall-clock samples.
+Paired reference/candidate measurement for the standard-library port.
+Reference and candidate runs are interleaved within one target so CPU
+frequency, cache, and scheduler drift affect both sides. The reported value is
+the median of independent round medians of wall-clock samples.
 
 ## Acceptance snapshot
 
@@ -40,7 +39,8 @@ recorded below.
 `results-text-wrap-fastpath.json`, `results-text-pad-seed.json`, and
 `results-fmt-small-bytes.json` retain the raw samples, parity, hashes, and
 controls. The later B11 cumulative reports below are the complete candidate
-runs after the measured dispositions; B01 still owns the owner-run lint row.
+runs after the measured dispositions; the accepted B01 tooling report below
+includes the lint row.
 
 B03 isolated 2,000 calls of `time.duration_compact`, plain `tui.left_pad`, and
 ANSI `tui.left_pad` on macOS. Before the native disposition, their candidate
@@ -593,9 +593,8 @@ second read was attempted and its failure was reported.
 ## Interpreting results
 
 A failing workload needs a profile before its cause is assigned.
-The acceptance snapshot above and B items in `IMPROVEMENT-BACKLOG.md` name
-the remaining failures; the result files
-contain per-workload medians, samples, and parity evidence. On macOS, side
+The acceptance snapshot above records the historical failures; the result
+files contain per-workload medians, samples, and parity evidence. On macOS, side
 effects cover the benchmark directory and `core/` tree before and after each
 run. On Linux, each side runs in a fresh container and side effects cover its
 writable layer outside the read-only repository and executable mounts. The
