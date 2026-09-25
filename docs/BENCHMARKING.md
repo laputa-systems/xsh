@@ -93,3 +93,15 @@ cargo dev bench --syscalls
 
 This is a separate diagnostic path for detecting unexpected subprocesses,
 filesystem churn, or kernel work. It does not add another benchmark corpus.
+
+For a focused XSH script probe in the pinned `Dockerfile.test` image, use
+`xsht trace --syscalls --trace-top-syscalls 10 SCRIPT [ARGS...]`. The
+2026-09-24 ARM64 musl debug probes ran `core/ls.xsh -- src`,
+`core/cat.xsh -- docs/CHAPTER-01-why-xsh.md`, and `examples/streams.xsh`,
+discarding script stdout. They recorded 118, 89, and 204 syscalls respectively.
+The trace includes the `xsht` launcher and script process. No external program
+appeared. The stream example's 21 failed `fstatat` calls were expected probes
+for absent ignore files while `fs.files` walked its three-directory temporary
+tree; its `openat` and `getdents64` calls also reflected fixture creation,
+walking, and cleanup. These are single diagnostic runs, not latency baselines;
+they do not justify changing host adapters.
