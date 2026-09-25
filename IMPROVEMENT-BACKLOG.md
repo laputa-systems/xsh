@@ -110,6 +110,9 @@ first package installation: `build-installer-image.xsh::install_remote_packages`
 calls `pm install`, which was removed from the final typed CLI. Its sequential
 mutable root installation and local overlay need migration to saved plans,
 verified artifacts, and immutable composition before installer QEMU can run.
+A read-only PM plan for the eight installer package roots succeeds, but all 24
+nodes select local builds because the checked-out releases exceed the mirror;
+the old remote-only install sequence cannot be replaced by a download loop.
 
 - **J07 · P1.** When a published binary compatible with the current PM source is available, compare PM plan JSON, canonical fingerprints, store receipt validation, and root-generation outputs across the two binaries on deterministic fixtures. Executor binary identity is part of a BuildPlan, so classify expected key changes separately from semantic drift.
 - **J11 · P2.** Migrate the independent installer image builder from `pm install` to saved BuildPlans, verified artifacts, and immutable root composition; preserve its distinct installer and target overlays. Then run installer image and QEMU tests without routing them through `qemu-dwl-foot` policy.
