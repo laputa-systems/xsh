@@ -67,7 +67,7 @@ section is the only remaining port task list.
 
 ## F. Linux, host operations, and network
 
-- **F09 · P1/M.** Reproduce an intermittent inherited descriptor in `runtime::modules::native_xsh_net_runtime_descriptors_do_not_survive_exec` on macOS. One full filtered runtime gate reported fd 9 in the child; the exact case, later full gates, and 30 isolated reruns passed. `xsh-test-show-fds` now reports the inherited fd kind and socket ports. On Apple targets, `crates/xsh-net/src/lib.rs::async_connect_resolved_tcp` sets close-on-exec after socket creation, and `crates/xsh-net/src/runtime.rs::FileLane::submit` sets it after `UnixStream::pair`; either interval could overlap a spawn, but neither is yet identified as fd 9. Use the helper's next failure to identify the descriptor and make a deterministic fixture before changing socket or process-spawn policy.
+- **F09 · P1/M.** Reproduce an intermittent inherited descriptor in `runtime::modules::native_xsh_net_runtime_descriptors_do_not_survive_exec` on macOS. One full filtered runtime gate reported fd 9 in the child; the exact case, later full gates, 30 isolated reruns, and 100 further focused repetitions passed. `xsh-test-show-fds` now reports the inherited fd kind and socket ports. On Apple targets, `crates/xsh-net/src/lib.rs::async_connect_resolved_tcp` sets close-on-exec after socket creation, and `crates/xsh-net/src/runtime.rs::FileLane::submit` sets it after `UnixStream::pair`; either interval could overlap a spawn, but neither is yet identified as fd 9. Use the helper's next failure to identify the descriptor and make a deterministic fixture before changing socket or process-spawn policy.
 
 ## J. Reintegration with `../packages` and `../laputa` — final phase
 
