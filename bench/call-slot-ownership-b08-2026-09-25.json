@@ -301,5 +301,194 @@
     "all_120_statuses_zero": true
   },
   "stdout_sha256": "1a8110c8c72eb4f9ba2a710a10376c37ad0ec2168c6ccfb4ce481ee1458f30da",
-  "decision": "Keep: one fewer execution allocation per call in this shape (99,997 fewer across 100,000 calls), 3,198,688 fewer allocated bytes, lower paired medians on both hosts, exact output parity, and no meaningful process-RSS change. This measures one bounded call shape and does not close the broader runtime-cost investigation."
+  "decision": "Keep: one fewer execution allocation per call in this shape (99,997 fewer across 100,000 calls), 3,198,688 fewer allocated bytes, lower paired medians on both hosts, exact output parity, and no meaningful process-RSS change. This measures one bounded call shape and does not close the broader runtime-cost investigation.",
+  "rejected_arg_descriptor_inline_trial": {
+    "candidate": "Replace the decoded call-argument pair Vec in FrameContinuation::CallArguments with SmallVec<[(u32,u32);1]>; keep the same encoded argument order and fallback heap storage for longer lists.",
+    "host": "macOS-arm64",
+    "baseline_xsh_sha256": "a1fdeefab17c777f246511db8136fdef8fb997de5a420e82cb33ebc6505dde20",
+    "candidate_xsh_sha256": "a9cfd738daf7d638ce783f9d4426f39d3eae164fc86ffdae1c3e49b7a4b21609",
+    "baseline_runtime_stats_sha256": "fa591016a2c22decca4add092577dc944384a7e7562551d879440fb3706a48d0",
+    "candidate_runtime_stats_sha256": "f280a0cc5074914d7dd6593c728977c90a8321800a83d326e8dfeafb9a0d8321",
+    "method": "24 rotating-order before/candidate release-process pairs per shape using Python perf_counter_ns, three alternating xsh-runtime-stats runs per shape, exact stdout/status parity",
+    "wall_ms_raw": {
+      "inline": {
+        "before": [76.209, 75.722, 75.57, 79.145, 79.971, 75.462, 76.881, 80.748, 75.271, 75.09, 77.579, 75.391, 79.675, 75.249, 77.342, 80.824, 76.683, 77.663, 79.218, 74.607, 75.105, 80.318, 78.604, 78.95],
+        "candidate": [113.866, 75.964, 79.053, 78.81, 74.98, 74.993, 75.172, 79.524, 78.689, 75.664, 76.419, 81.024, 76.339, 75.774, 80.773, 81.058, 75.912, 75.161, 80.305, 82.505, 78.673, 81.624, 74.988, 78.967]
+      },
+      "proc": {
+        "before": [146.544, 147.235, 148.63, 148.28, 145.199, 149.248, 144.745, 146.555, 152.521, 147.713, 148.946, 149.81, 149.29, 151.314, 145.482, 146.311, 146.854, 148.645, 150.788, 153.506, 144.236, 146.026, 147.362, 145.416],
+        "candidate": [148.814, 148.023, 147.337, 146.862, 151.477, 151.81, 146.928, 150.162, 152.167, 153.45, 153.681, 150.467, 152.721, 154.792, 151.96, 151.065, 151.921, 151.308, 147.614, 146.907, 167.049, 149.911, 147.582, 153.056]
+      },
+      "pure": {
+        "before": [148.127, 148.838, 149.38, 148.21, 150.364, 143.38, 152.618, 145.144, 149.753, 146.256, 143.587, 146.175, 147.509, 143.844, 144.23, 151.271, 147.252, 145.259, 146.177, 150.835, 150.581, 145.494, 145.898, 150.202],
+        "candidate": [147.24, 151.386, 148.078, 149.676, 148.074, 148.968, 147.512, 152.542, 147.577, 149.619, 146.051, 149.142, 149.407, 149.837, 146.317, 151.308, 144.298, 146.005, 147.465, 152.054, 152.992, 145.839, 145.435, 152.288]
+      }
+    },
+    "wall_ms_median": {
+      "inline": {
+        "before": 77.1115,
+        "candidate": 78.681
+      },
+      "proc": {
+        "before": 147.5375,
+        "candidate": 151.1865
+      },
+      "pure": {
+        "before": 147.38049999999998,
+        "candidate": 148.523
+      }
+    },
+    "paired_delta_ms_median": {
+      "inline": 0.23800000000000665,
+      "proc": 3.046999999999997,
+      "pure": 1.3769999999999953
+    },
+    "execution_allocations_raw": {
+      "inline": {
+        "before": [
+          {
+            "status": 0,
+            "stdout_sha256": "1a8110c8c72eb4f9ba2a710a10376c37ad0ec2168c6ccfb4ce481ee1458f30da",
+            "alloc_count": 200280,
+            "alloc_bytes": 28819303,
+            "peak_bytes": 13479
+          },
+          {
+            "status": 0,
+            "stdout_sha256": "1a8110c8c72eb4f9ba2a710a10376c37ad0ec2168c6ccfb4ce481ee1458f30da",
+            "alloc_count": 200280,
+            "alloc_bytes": 28819303,
+            "peak_bytes": 13479
+          },
+          {
+            "status": 0,
+            "stdout_sha256": "1a8110c8c72eb4f9ba2a710a10376c37ad0ec2168c6ccfb4ce481ee1458f30da",
+            "alloc_count": 200280,
+            "alloc_bytes": 28819303,
+            "peak_bytes": 13479
+          }
+        ],
+        "candidate": [
+          {
+            "status": 0,
+            "stdout_sha256": "1a8110c8c72eb4f9ba2a710a10376c37ad0ec2168c6ccfb4ce481ee1458f30da",
+            "alloc_count": 200280,
+            "alloc_bytes": 28819303,
+            "peak_bytes": 13479
+          },
+          {
+            "status": 0,
+            "stdout_sha256": "1a8110c8c72eb4f9ba2a710a10376c37ad0ec2168c6ccfb4ce481ee1458f30da",
+            "alloc_count": 200280,
+            "alloc_bytes": 28819303,
+            "peak_bytes": 13479
+          },
+          {
+            "status": 0,
+            "stdout_sha256": "1a8110c8c72eb4f9ba2a710a10376c37ad0ec2168c6ccfb4ce481ee1458f30da",
+            "alloc_count": 200280,
+            "alloc_bytes": 28819303,
+            "peak_bytes": 13479
+          }
+        ]
+      },
+      "proc": {
+        "before": [
+          {
+            "status": 0,
+            "stdout_sha256": "1a8110c8c72eb4f9ba2a710a10376c37ad0ec2168c6ccfb4ce481ee1458f30da",
+            "alloc_count": 900289,
+            "alloc_bytes": 108823143,
+            "peak_bytes": 25287
+          },
+          {
+            "status": 0,
+            "stdout_sha256": "1a8110c8c72eb4f9ba2a710a10376c37ad0ec2168c6ccfb4ce481ee1458f30da",
+            "alloc_count": 900289,
+            "alloc_bytes": 108823143,
+            "peak_bytes": 25287
+          },
+          {
+            "status": 0,
+            "stdout_sha256": "1a8110c8c72eb4f9ba2a710a10376c37ad0ec2168c6ccfb4ce481ee1458f30da",
+            "alloc_count": 900289,
+            "alloc_bytes": 108823143,
+            "peak_bytes": 25287
+          }
+        ],
+        "candidate": [
+          {
+            "status": 0,
+            "stdout_sha256": "1a8110c8c72eb4f9ba2a710a10376c37ad0ec2168c6ccfb4ce481ee1458f30da",
+            "alloc_count": 800289,
+            "alloc_bytes": 108023143,
+            "peak_bytes": 25287
+          },
+          {
+            "status": 0,
+            "stdout_sha256": "1a8110c8c72eb4f9ba2a710a10376c37ad0ec2168c6ccfb4ce481ee1458f30da",
+            "alloc_count": 800289,
+            "alloc_bytes": 108023143,
+            "peak_bytes": 25287
+          },
+          {
+            "status": 0,
+            "stdout_sha256": "1a8110c8c72eb4f9ba2a710a10376c37ad0ec2168c6ccfb4ce481ee1458f30da",
+            "alloc_count": 800289,
+            "alloc_bytes": 108023143,
+            "peak_bytes": 25287
+          }
+        ]
+      },
+      "pure": {
+        "before": [
+          {
+            "status": 0,
+            "stdout_sha256": "1a8110c8c72eb4f9ba2a710a10376c37ad0ec2168c6ccfb4ce481ee1458f30da",
+            "alloc_count": 900289,
+            "alloc_bytes": 108823143,
+            "peak_bytes": 25287
+          },
+          {
+            "status": 0,
+            "stdout_sha256": "1a8110c8c72eb4f9ba2a710a10376c37ad0ec2168c6ccfb4ce481ee1458f30da",
+            "alloc_count": 900289,
+            "alloc_bytes": 108823143,
+            "peak_bytes": 25287
+          },
+          {
+            "status": 0,
+            "stdout_sha256": "1a8110c8c72eb4f9ba2a710a10376c37ad0ec2168c6ccfb4ce481ee1458f30da",
+            "alloc_count": 900289,
+            "alloc_bytes": 108823143,
+            "peak_bytes": 25287
+          }
+        ],
+        "candidate": [
+          {
+            "status": 0,
+            "stdout_sha256": "1a8110c8c72eb4f9ba2a710a10376c37ad0ec2168c6ccfb4ce481ee1458f30da",
+            "alloc_count": 800289,
+            "alloc_bytes": 108023143,
+            "peak_bytes": 25287
+          },
+          {
+            "status": 0,
+            "stdout_sha256": "1a8110c8c72eb4f9ba2a710a10376c37ad0ec2168c6ccfb4ce481ee1458f30da",
+            "alloc_count": 800289,
+            "alloc_bytes": 108023143,
+            "peak_bytes": 25287
+          },
+          {
+            "status": 0,
+            "stdout_sha256": "1a8110c8c72eb4f9ba2a710a10376c37ad0ec2168c6ccfb4ce481ee1458f30da",
+            "alloc_count": 800289,
+            "alloc_bytes": 108023143,
+            "peak_bytes": 25287
+          }
+        ]
+      }
+    },
+    "decision": "Reject and revert: one fewer allocation per call and 0.8 MB less allocation traffic across 100,000 calls, but paired proc and pure median times rose 3.047 and 1.377 ms; the inline control rose 0.238 ms. No Linux build was needed after the measured macOS loss."
+  }
 }
