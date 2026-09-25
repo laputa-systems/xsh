@@ -159,10 +159,10 @@ stack boundaries.
 | `core/pstree.xsh` process-tree output | `core/tests/test-pstree.xsh`, `tests/runtime/unix.rs` |
 | interactive behavior | `tests/runtime/interactive.rs` |
 | Linux-specific behavior | `tests/xsh/stdlib/linux.xsh`, `tests/runtime/linux.rs` |
-| standard modules | `tests/runtime/modules.rs` |
+| standard modules | `tests/xsh/stdlib/module.xsh`, `tests/runtime/modules.rs` |
 | OS-facing runtime behavior | `tests/xsh/stdlib/unix.xsh`, `tests/runtime/os.rs`, `tests/runtime/unix.rs`, `tests/runtime/linux.rs` |
-| `run_capture`, `spawn_managed`, and process execution | `tests/runtime/process.rs`, `tests/runtime/run.rs` |
-| retry blocks | `tests/runtime/retry.rs` |
+| `run_capture`, `spawn_managed`, and process execution | `tests/xsh/run.xsh`, `tests/xsh/stdlib/process.xsh`, `tests/runtime/process.rs`, `tests/runtime/run.rs` |
+| retry blocks | `tests/xsh/retry.xsh` |
 | stack depth and explicit lowered frames | `tests/runtime/stack_depth.rs` |
 | structured stream behavior | `tests/xsh/stdlib/streams.xsh` |
 | stream argv and signal process boundaries | `tests/runtime/streams.rs` |
