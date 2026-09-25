@@ -3,7 +3,9 @@ proc test_git_digest_usage() [process, error] {
   test.contains(output, "usage:")?
 }
 
-proc test_git_digest_quotes_non_utf8_paths_even_when_git_config_disables_quoting(ctx: TestContext) [fs, process, env, error] {
+proc test_git_digest_quotes_non_utf8_paths_even_when_git_config_disables_quoting(
+  ctx: TestContext,
+) [fs, process, env, error] {
   if system.uname()?.sysname != "Linux" {
     test.skip("creating non-UTF-8 path components requires the pinned Linux filesystem")
     return
@@ -14,13 +16,15 @@ proc test_git_digest_quotes_non_utf8_paths_even_when_git_config_disables_quoting
   run git -C $repo config user.name Tester ?
   run git -C $repo config user.email "tester@example.invalid" ?
   run git -C $repo config core.quotePath false ?
-  fp"${repo}/base.txt".write("base\n")?
+  fp"${repo}/base.txt".write("""base
+""")?
   run git -C $repo add -A ?
   run git -C $repo commit --quiet -m base ?
   run git -C $repo branch base ?
 
   let raw_file = Path.parse_bytes(bytes.concat([bytes.from_text(repo.display()), b"/raw-\xff.txt"]))?
-  raw_file.write("new\n")?
+  raw_file.write("""new
+""")?
   run git -C $repo add -A ?
   run git -C $repo commit --quiet -m add ?
 

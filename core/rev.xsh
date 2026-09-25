@@ -1,5 +1,6 @@
 #!/bin/xsh
 use lib.text_input as text_input
+
 error AppletError = Usage(message: Str) : Usage
 
 pure reject_unsupported(applet_name: Str, flag: Str) -> Error {

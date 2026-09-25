@@ -32,7 +32,7 @@ proc test_archive_unpack_failure_leaves_existing_destination_untouched(ctx: Test
 proc test_archive_unpack_cleans_partial_staging_after_unsafe_member(ctx: TestContext) [fs, process, error] {
   let src = test.temp_dir(ctx, name: "unsafe-src")?
   fp"${src}/a.txt".write("first")?
-  fs.symlink(p"../outside", fp"${src}/bad")?
+  fs.symlink(../outside, fp"${src}/bad")?
   let tarball = test.temp_path(ctx, name: "unsafe.tar")
   archive.tar_create(tarball, src, [p"a.txt", p"bad"])?
 
@@ -72,9 +72,7 @@ proc test_archive_unpack_cancellation_during_compression_cleans_staging(ctx: Tes
   )?
 
   for _ in range(0, 500) {
-    if writer_ready.exists()? {
-      break
-    }
+    break when writer_ready.exists()?
 
     time.sleep(10ms)?
   }

@@ -54,14 +54,16 @@ proc test_path_audit_distinguishes_non_utf8_command_names(ctx: TestContext) [fs,
   bin2.mkdir()?
   let first = Path.parse_bytes(bytes.concat([bytes.from_text(bin1.display()), b"/tool-\xff"]))?
   let second = Path.parse_bytes(bytes.concat([bytes.from_text(bin2.display()), b"/tool-\xfe"]))?
-  first.write("#!/bin/sh\n")?
-  second.write("#!/bin/sh\n")?
+  first.write("""#!/bin/sh
+""")?
+  second.write("""#!/bin/sh
+""")?
   first.chmod(0o755)?
   second.chmod(0o755)?
 
   let raw = f"${bin1.display()}:${bin2.display()}"
   env XSH_SHOWCASE_PATH=$raw {
     let output = run.text "xsh" "showcase/path-audit.xsh" -- --var XSH_SHOWCASE_PATH ?
-    test.ok(! output.contains("shadowed-command"), output)?
+    test.ok("shadowed-command" not in output, output)?
   } ?
 }

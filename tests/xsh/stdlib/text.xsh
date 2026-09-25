@@ -102,7 +102,9 @@ b""".wrap(5),
 
 proc test_text_wrap_short_unicode_lines_keep_normalization_and_trailing_line() [error] {
   test.eq(
-    "  caf\u{e9}  \u{65e5}\u{672c} \u{1f600}  \nshort\n".wrap(72),
+    ("  caf\u{e9}  \u{65e5}\u{672c} \u{1f600}  " + """
+short
+""").wrap(72),
     ["caf\u{e9} \u{65e5}\u{672c} \u{1f600}", "short", ""],
   )?
 }

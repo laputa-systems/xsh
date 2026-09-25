@@ -199,36 +199,42 @@ beta
 }
 
 proc test_fold_block_composes_pipeline_over_accumulator_field() [error] {
-  let result = [0] |> fold({parts: ["first", "last"]}) { |acc, _item|
-    let popped = acc.parts |> take(acc.parts.len() - 1) |> collect()
-    {parts: popped}
-  }
+  let result = [0]
+    |> fold({parts: ["first", "last"]}) { |acc, _|
+      let popped = acc.parts
+        |> take(acc.parts.len() - 1)
+        |> collect()
+      {parts: popped}
+    }
   test.eq(result.parts, ["first"])?
 }
 
 proc test_fold_block_supports_nested_if_statement_with_assignment() [error] {
-  let result = [1, 2, 3] |> fold(0) { |acc, item|
-    var next = acc
-    if item > 1 {
-      next = next + item
+  let result = [1, 2, 3]
+    |> fold(0) { |acc, item|
+      var next = acc
+      if item > 1 {
+        next = next + item
+      }
+
+      next
     }
-    next
-  }
   test.eq(result, 5)?
 }
 
 proc test_fold_block_supports_nested_if_as_branch_tail() [error] {
-  let result = [1, 2, 3] |> fold(0) { |acc, item|
-    if item == 1 {
-      acc
-    } else {
-      if item == 2 {
-        acc + 2
+  let result = [1, 2, 3]
+    |> fold(0) { |acc, item|
+      if item == 1 {
+        acc
       } else {
-        acc + 3
+        if item == 2 {
+          acc + 2
+        } else {
+          acc + 3
+        }
       }
     }
-  }
   test.eq(result, 5)?
 }
 
@@ -264,7 +270,23 @@ proc main() [io, process, error] {
 """,
   )?
   test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "pull 0\nfold 0\ndefer 0\npull 1\nfold 1\ndefer 1\npull 2\nfold 2\ndefer 2\ntotal=3\nreduce 1\nreduce 2\nreduced=3\n")?
+  test.eq(
+    output.stdout,
+    """pull 0
+fold 0
+defer 0
+pull 1
+fold 1
+defer 1
+pull 2
+fold 2
+defer 2
+total=3
+reduce 1
+reduce 2
+reduced=3
+""",
+  )?
 }
 
 proc test_fold_error_stops_and_closes_live_source(ctx: TestContext) [fs, error] {
@@ -317,7 +339,13 @@ proc main() [io] {
   )?
   test.ok(! output.success, output.stdout)?
   test.contains(output.stderr, "sum expected Int stream")?
-  test.eq(output.stdout, "pull 1\npull bad\nclosed\n")?
+  test.eq(
+    output.stdout,
+    """pull 1
+pull bad
+closed
+""",
+  )?
 }
 
 proc test_keyed_stages_errors_stop_live_source(ctx: TestContext) [error] {
@@ -339,7 +367,13 @@ proc main() [io, error] {
 """
     let output = test.run_script(ctx, source)?
     test.ok(! output.success, output.stdout)?
-    test.eq(output.stdout, "pull 0\npull 1\nclosed\n")?
+    test.eq(
+      output.stdout,
+      """pull 0
+pull 1
+closed
+""",
+    )?
   }
 }
 
@@ -370,7 +404,31 @@ proc main() [io, error] {
 """,
   )?
   test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "group pull 2\nkey 2\ngroup pull 1\nkey 1\ngroup pull 2\nkey 2\ngroups=2:2,1:1\ncount pull 2\nkey 2\ncount pull 1\nkey 1\ncount pull 2\nkey 2\ncounts=1,2\nunique pull 2\nkey 2\nunique pull 1\nkey 1\nunique pull 2\nkey 2\nunique=2,1\n")?
+  test.eq(
+    output.stdout,
+    """group pull 2
+key 2
+group pull 1
+key 1
+group pull 2
+key 2
+groups=2:2,1:1
+count pull 2
+key 2
+count pull 1
+key 1
+count pull 2
+key 2
+counts=1,2
+unique pull 2
+key 2
+unique pull 1
+key 1
+unique pull 2
+key 2
+unique=2,1
+""",
+  )?
 }
 
 proc test_zip_evaluates_right_before_pulling_and_stops_at_shorter_side(ctx: TestContext) [error] {
@@ -399,7 +457,15 @@ proc main() [io, error] {
 """,
   )?
   test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "right\npull 0\npull 1\nclosed\npairs=0:10,1:20\n")?
+  test.eq(
+    output.stdout,
+    """right
+pull 0
+pull 1
+closed
+pairs=0:10,1:20
+""",
+  )?
 }
 
 proc test_zip_right_error_does_not_pull_left(ctx: TestContext) [error] {
@@ -424,7 +490,11 @@ proc main() [io, error] {
     ["--raw"],
   )?
   test.ok(! output.success)?
-  test.eq(output.stdout, "right\n")?
+  test.eq(
+    output.stdout,
+    """right
+""",
+  )?
   test.contains(output.stderr, "invalid")?
   test.contains(output.stderr, "kind=stream.stage.exit name=\"zip\"")?
 }
@@ -454,7 +524,15 @@ proc main() [io, error] {
 """,
   )?
   test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "right 10\nright 20\nleft 1\nleft 2\npairs=1:10,2:20\n")?
+  test.eq(
+    output.stdout,
+    """right 10
+right 20
+left 1
+left 2
+pairs=1:10,2:20
+""",
+  )?
 }
 
 proc test_zip_result_length_is_available_to_format_interpolation(ctx: TestContext) [error] {
@@ -470,7 +548,11 @@ proc main() [io, error] {
 """,
   )?
   test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "pairs=1\n")?
+  test.eq(
+    output.stdout,
+    """pairs=1
+""",
+  )?
 }
 
 proc test_last_min_max_live_terminals_finish_and_close_producers(ctx: TestContext) [error] {
@@ -498,7 +580,25 @@ proc main() [io, error] {
 """,
   )?
   test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "last 3\nlast 1\nlast 2\nclosed last\nlast=2\nmin 3\nmin 1\nmin 2\nclosed min\nmin=1\nmax 3\nmax 1\nmax 2\nclosed max\nmax=3\n")?
+  test.eq(
+    output.stdout,
+    """last 3
+last 1
+last 2
+closed last
+last=2
+min 3
+min 1
+min 2
+closed min
+min=1
+max 3
+max 1
+max 2
+closed max
+max=3
+""",
+  )?
 }
 
 proc test_terminal_each_as_final_proc_statement_returns_unit(ctx: TestContext) [error] {
@@ -514,10 +614,13 @@ proc main() [io] {
 """,
   )?
   test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, """one
+  test.eq(
+    output.stdout,
+    """one
 two
 three
-""")?
+""",
+  )?
   test.eq(output.stderr, "")?
 }
 
@@ -538,7 +641,16 @@ proc main() [io] {
 """,
   )?
   test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "pull 0\neach 0\npull 1\neach 1\npull 2\neach 2\n")?
+  test.eq(
+    output.stdout,
+    """pull 0
+each 0
+pull 1
+each 1
+pull 2
+each 2
+""",
+  )?
 }
 
 proc test_each_error_stops_and_closes_live_source(ctx: TestContext) [fs, error] {
@@ -731,7 +843,17 @@ proc main() [io, error] {
 """,
   )?
   test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "pull 0\nreduce 0\npull 1\nreduce 1\npull 2\nreduce 2\ntotal=3\n")?
+  test.eq(
+    output.stdout,
+    """pull 0
+reduce 0
+pull 1
+reduce 1
+pull 2
+reduce 2
+total=3
+""",
+  )?
 }
 
 proc test_reduce_by_error_stops_and_closes_live_source(ctx: TestContext) [fs, error] {
@@ -821,7 +943,15 @@ proc main() [io, error] {
 """,
   )?
   test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "reduce\ntotal=3\nafter-map\nworker-total=3\ndone\n")?
+  test.eq(
+    output.stdout,
+    """reduce
+total=3
+after-map
+worker-total=3
+done
+""",
+  )?
 }
 
 proc test_serial_stages_reject_jobs_option(ctx: TestContext) [error] {
@@ -832,7 +962,7 @@ proc test_serial_stages_reject_jobs_option(ctx: TestContext) [error] {
     "proc main() [] { let _ = [1] |> count --jobs=2 }",
   ] {
     let output = test.run_script(ctx, script)?
-    test.ok(!output.success, script)?
+    test.ok(! output.success, script)?
     test.contains(output.stderr, "check.stream-stage-option", output.stderr)?
   }
 }
@@ -957,25 +1087,24 @@ proc test_flat_map_identity_reduce_by_matches_direct_rows() [error] {
   test.eq(nested.get("odd", {count: 0, total: 0}), {count: 500, total: 250000})?
 }
 
-proc test_live_walk_flat_map_reduce_by_matches_collected_rows(ctx: TestContext) [fs, error] {
+proc test_live_files_flat_map_reduce_by_matches_collected_rows(ctx: TestContext) [fs, error] {
   let root = test.temp_dir(ctx, name: "live-stream-flat-map-reduce")?
   fp"${root}/nested".mkdir()?
   fp"${root}/a.txt".write("abc")?
   fp"${root}/nested/b.txt".write("de")?
   fp"${root}/nested/c.md".write("fghi")?
 
-  let streamed = fs.walk(root)
-    |> where .kind == "file"
+  let streamed = fs.files(root)
     |> par-map --jobs=4 { |entry|
       [{ext: entry.ext, count: 1, size: entry.size}]
     }
-    |> flat-map { |rows| rows }
+    |> flat-map { |rows|
+      rows
+    }
     |> reduce-by --sum { |row|
       {key: row.ext, value: {count: row.count, size: row.size}}
     }
-  let collected_rows = fs.walk(root)
-    |> where .kind == "file"
-    |> collect()
+  let collected_rows = fs.files(root) |> collect()
   let collected = collected_rows
     |> par-map --jobs=4 { |entry|
       {ext: entry.ext, count: 1, size: entry.size}
@@ -988,7 +1117,7 @@ proc test_live_walk_flat_map_reduce_by_matches_collected_rows(ctx: TestContext) 
   test.eq(streamed.get("md", {count: 0, size: 0}), {count: 1, size: 4})?
 }
 
-proc test_live_walk_par_map_for_matches_collected_rows(ctx: TestContext) [fs, error] {
+proc test_live_files_par_map_for_matches_collected_rows(ctx: TestContext) [fs, error] {
   let root = test.temp_dir(ctx, name: "live-stream-par-map-for")?
   fp"${root}/nested".mkdir()?
   fp"${root}/a.txt".write("abc")?
@@ -999,8 +1128,7 @@ proc test_live_walk_par_map_for_matches_collected_rows(ctx: TestContext) [fs, er
   var streamed_txt_size = 0
   var streamed_md_count = 0
   var streamed_md_size = 0
-  for row in fs.walk(root)
-    |> where .kind == "file"
+  for row in fs.files(root)
     |> par-map --jobs=4 { |entry|
       {ext: entry.ext, count: 1, size: entry.size}
     }
@@ -1017,9 +1145,8 @@ proc test_live_walk_par_map_for_matches_collected_rows(ctx: TestContext) [fs, er
       _ => {}
     }
   }
-  let collected_rows = fs.walk(root)
-    |> where .kind == "file"
-    |> collect()
+
+  let collected_rows = fs.files(root) |> collect()
   let collected = collected_rows
     |> par-map --jobs=4 { |entry|
       {ext: entry.ext, count: 1, size: entry.size}
@@ -1036,14 +1163,17 @@ proc test_live_walk_par_map_for_matches_collected_rows(ctx: TestContext) [fs, er
 proc test_par_map_filesystem_reads_preserve_all_results(ctx: TestContext) [fs, error] {
   let root = test.temp_dir(ctx, name: "par-map-filesystem-reads")?
   for index in range(32) {
-    fp"${root}/entry-${index}.txt".write(f"${index}\n")?
+    fp"${root}/entry-${index}.txt".write(f"""${index}
+""")?
   }
+
   let entries = fs.files(root, stat: false)? |> collect()
-  let lengths = entries |> par-map --jobs=8 { |entry|
-    entry.path.read_text()?.count_chars()
-  }
+  let lengths = entries
+    |> par-map --jobs=8 { |entry|
+      entry.path.read_text()?.count_chars()
+    }
   test.eq(lengths.len(), 32)?
-  test.eq(lengths |> sum(), 86)?
+  test.eq(lengths |> sum, 86)?
 }
 
 proc test_projected_reduce_by_sums_output_fields(ctx: TestContext) [error] {
@@ -1144,7 +1274,31 @@ proc main() [fs, io, error] {
   test.ok(output.success, output.stderr)?
   test.eq(
     output.stdout,
-    "pull 0\nany=true\nclosed\npull 0\nall=false\nclosed\npull 0\nany_block=true\nclosed\npull 0\nall_block=false\nclosed\npull 0\npull 1\npull 2\npull 3\npull 4\nnone=false\npull 0\npull 1\npull 2\npull 3\npull 4\nall_true=true\n",
+    """pull 0
+any=true
+closed
+pull 0
+all=false
+closed
+pull 0
+any_block=true
+closed
+pull 0
+all_block=false
+closed
+pull 0
+pull 1
+pull 2
+pull 3
+pull 4
+none=false
+pull 0
+pull 1
+pull 2
+pull 3
+pull 4
+all_true=true
+""",
   )?
 }
 
@@ -1180,7 +1334,16 @@ proc main() [fs, io, error] {
   test.ok(output.success, output.stderr)?
   test.eq(
     output.stdout,
-    "count\npull 0\ntee 0\npull 1\ntee 1\npull 2\ntee 2\nrows=2 0 2\nclosed\n",
+    """count
+pull 0
+tee 0
+pull 1
+tee 1
+pull 2
+tee 2
+rows=2 0 2
+closed
+""",
   )?
 }
 
@@ -1207,7 +1370,17 @@ proc main() [io] {
   test.ok(output.success, output.stderr)?
   test.eq(
     output.stdout,
-    "pull 0\nfirst 0\nsecond 0\npull 1\nfirst 1\nsecond 1\npull 2\nfirst 2\nsecond 2\nrows=3\n",
+    """pull 0
+first 0
+second 0
+pull 1
+first 1
+second 1
+pull 2
+first 2
+second 2
+rows=3
+""",
   )?
 }
 
@@ -1231,7 +1404,18 @@ proc main() [io] {
 """,
   )?
   test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "pull 0\nfirst 0\nsecond 0\npull 1\nfirst 1\nsecond 1\nrow 0\nrow 1\n")?
+  test.eq(
+    output.stdout,
+    """pull 0
+first 0
+second 0
+pull 1
+first 1
+second 1
+row 0
+row 1
+""",
+  )?
 }
 
 proc test_live_serial_for_interleaves_body_and_stops_producer(ctx: TestContext) [fs, error] {
@@ -1259,7 +1443,19 @@ proc main() [fs, io, error] {
 """,
   )?
   test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "pull 0\ntee 0\nrow 0\npull 1\ntee 1\npull 2\ntee 2\nrow 2\nclosed\n")?
+  test.eq(
+    output.stdout,
+    """pull 0
+tee 0
+row 0
+pull 1
+tee 1
+pull 2
+tee 2
+row 2
+closed
+""",
+  )?
 }
 
 proc test_live_serial_for_keeps_source_and_stage_state(ctx: TestContext) [error] {
@@ -1286,7 +1482,13 @@ proc main() [io] {
   )?
   test.eq(
     output.stdout,
-    "source\nrow 0:1\nkept 1\nrow 1:11\nrow 2:2\nkept 2\n",
+    """source
+row 0:1
+kept 1
+row 1:11
+row 2:2
+kept 2
+""",
   )?
   test.ok(output.success, output.stderr)?
 }
@@ -1313,7 +1515,15 @@ proc main() [fs, io, error] {
 """,
   )?
   test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "pull 0\nrow 0\npull 1\nrow 1\nclosed\n")?
+  test.eq(
+    output.stdout,
+    """pull 0
+row 0
+pull 1
+row 1
+closed
+""",
+  )?
 }
 
 proc test_raw_stream_for_continue_reaches_next_item(ctx: TestContext) [error] {
@@ -1336,7 +1546,15 @@ proc main() [io] {
 """,
   )?
   test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "pull 0\nrow 0\npull 1\npull 2\nrow 2\n")?
+  test.eq(
+    output.stdout,
+    """pull 0
+row 0
+pull 1
+pull 2
+row 2
+""",
+  )?
 }
 
 proc test_returned_stream_delegates_rows_and_cleanup(ctx: TestContext) [fs, error] {
@@ -1367,7 +1585,16 @@ proc main() [fs, io, error] {
 """,
   )?
   test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "source\npull 0\nrow 0\npull 1\nrow 1\nclosed\n")?
+  test.eq(
+    output.stdout,
+    """source
+pull 0
+row 0
+pull 1
+row 1
+closed
+""",
+  )?
 }
 
 proc test_live_serial_for_error_closes_trace_and_producer(ctx: TestContext) [fs, error] {
@@ -1424,7 +1651,19 @@ proc main() [fs, io, error] {
 """,
   )?
   test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "pull 0\nexpand 0\nexpanded 0\nexpanded 10\npull 1\nexpand 1\nexpanded 1\nrows=0 10 1\nclosed\n")?
+  test.eq(
+    output.stdout,
+    """pull 0
+expand 0
+expanded 0
+expanded 10
+pull 1
+expand 1
+expanded 1
+rows=0 10 1
+closed
+""",
+  )?
 }
 
 proc test_live_map_drop_and_where_block_keep_take_bounded(ctx: TestContext) [fs, error] {
@@ -1471,7 +1710,19 @@ proc main() [fs, io, error] {
   test.ok(output.success, output.stderr)?
   test.eq(
     output.stdout,
-    "pull 0\npull 1\npull 2\nmapped=2 3\npull 0\npull 1\npull 2\nfiltered=0 2\npull 0\npull 1\nenumerated=0:1 1:2\nclosed\n",
+    """pull 0
+pull 1
+pull 2
+mapped=2 3
+pull 0
+pull 1
+pull 2
+filtered=0 2
+pull 0
+pull 1
+enumerated=0:1 1:2
+closed
+""",
   )?
 }
 
@@ -1536,7 +1787,22 @@ proc main() [io, fs, error] {
 """,
   )?
   test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "pull 0\ntee 0\nfound=true\nclosed\npull 0\ntee 0\nblock_found=true\nclosed\npull 0\npull 1\nfirst=1\nclosed\n")?
+  test.eq(
+    output.stdout,
+    """pull 0
+tee 0
+found=true
+closed
+pull 0
+tee 0
+block_found=true
+closed
+pull 0
+pull 1
+first=1
+closed
+""",
+  )?
 }
 
 proc test_live_where_first_empty_preserves_error_and_cleanup(ctx: TestContext) [fs, error] {
@@ -1788,7 +2054,15 @@ proc main() [io, error] {
 """,
   )?
   test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "outer 0\ninner 0:0\ninner 0:1\ninner 0:2\nfirst=0\n")?
+  test.eq(
+    output.stdout,
+    """outer 0
+inner 0:0
+inner 0:1
+inner 0:2
+first=0
+""",
+  )?
 }
 
 proc test_sort_boundary_materializes_serial_prefix_before_key_projection(ctx: TestContext) [error] {
@@ -1818,7 +2092,20 @@ proc main() [io, error] {
 """,
   )?
   test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "pull 2\ntee 2\npull 1\ntee 1\npull 3\ntee 3\nkey 2\nkey 1\nkey 3\nrow=1\n")?
+  test.eq(
+    output.stdout,
+    """pull 2
+tee 2
+pull 1
+tee 1
+pull 3
+tee 3
+key 2
+key 1
+key 3
+row=1
+""",
+  )?
 }
 
 proc test_sort_by_desc_option_error_precedes_live_source_pull(ctx: TestContext) [error] {
@@ -1844,7 +2131,11 @@ proc main() [io, error] {
     ["--raw"],
   )?
   test.ok(! output.success)?
-  test.eq(output.stdout, "desc\n")?
+  test.eq(
+    output.stdout,
+    """desc
+""",
+  )?
   test.contains(output.stderr, "invalid")?
   test.contains(output.stderr, "kind=stream.stage.exit name=\"sort-by\"")?
 }
@@ -2032,7 +2323,13 @@ proc main() [io, error] {
     ["--raw"],
   )?
   test.ok(! output.success)?
-  test.eq(output.stdout, "pull ok\npull oversized\nclosed\n")?
+  test.eq(
+    output.stdout,
+    """pull ok
+pull oversized
+closed
+""",
+  )?
   test.contains(output.stderr, "batch item exceeds byte budget")?
   test.contains(output.stderr, "kind=stream.stage.exit name=\"batch\"")?
 }
@@ -2055,7 +2352,11 @@ proc main() [io, error] {
 """,
   )?
   test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "rows=0\n")?
+  test.eq(
+    output.stdout,
+    """rows=0
+""",
+  )?
 }
 
 proc test_count_producer_error_runs_defer_and_closes_trace(ctx: TestContext) [error] {
@@ -2078,7 +2379,11 @@ proc main() [io, error] {
     ["--raw"],
   )?
   test.ok(! output.success)?
-  test.eq(output.stdout, "closed\n")?
+  test.eq(
+    output.stdout,
+    """closed
+""",
+  )?
   test.contains(output.stderr, "invalid integer `bad`")?
   test.contains(output.stderr, "kind=stream.stage.exit name=\"count\"")?
 }
@@ -2103,7 +2408,11 @@ proc main() [io, error] {
     ["--raw"],
   )?
   test.ok(! output.success)?
-  test.eq(output.stdout, "closed\n")?
+  test.eq(
+    output.stdout,
+    """closed
+""",
+  )?
   test.contains(output.stderr, "invalid integer `bad`")?
   for name in ["map", "where", "count"] {
     test.contains(output.stderr, f"kind=stream.stage.enter name=\"${name}\"")?
@@ -2113,9 +2422,13 @@ proc main() [io, error] {
 
 proc test_live_serial_count_after_map_where_and_flat_map() [error] {
   let count = range(4)
-    |> map { |n| n + 1 }
+    |> map { |n|
+      n + 1
+    }
     |> where . > 2
-    |> flat-map { |n| [n, n] }
+    |> flat-map { |n|
+      [n, n]
+    }
     |> count()
   test.eq(count, 4)?
 }
@@ -2150,7 +2463,12 @@ proc main() [io] {
     ["--trace", "--raw"],
   )?
   test.ok(trace.success, trace.stderr)?
-  test.eq(trace.stdout, "item=1\nitem=2\n")?
+  test.eq(
+    trace.stdout,
+    """item=1
+item=2
+""",
+  )?
   test.contains(trace.stderr, "kind=stream.stage.enter name=\"each\"")?
   test.contains(trace.stderr, "kind=stream.stage.exit name=\"each\"")?
   test.not_contains(trace.stderr, "kind=parallel.job.")?
@@ -2256,7 +2574,12 @@ proc main() [io, error] {
     ["--trace", "--raw"],
   )?
   test.ok(bounded_trace.success, bounded_trace.stderr)?
-  test.eq(bounded_trace.stdout, "seen=1\ncount=1\n")?
+  test.eq(
+    bounded_trace.stdout,
+    """seen=1
+count=1
+""",
+  )?
   for name in ["tee", "where", "take"] {
     test.contains(bounded_trace.stderr, f"name=\"${name}\"")?
     test.contains(bounded_trace.stderr, f"stage=b\"${name}\"")?

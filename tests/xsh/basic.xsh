@@ -11,11 +11,21 @@ proc test_typed_integer_augmented_assignment_keeps_results_and_errors(ctx: TestC
   value %= 3
   test.eq(value, 2)?
 
-  let overflow = test.run_script(ctx, "var value: Int = 9223372036854775807\nvalue += 1\n")?
+  let overflow = test.run_script(
+    ctx,
+    """var value: Int = 9223372036854775807
+value += 1
+""",
+  )?
   test.ok(! overflow.success, overflow.stderr)?
   test.contains(overflow.stderr, "integer-overflow")?
 
-  let division = test.run_script(ctx, "var value: Int = 8\nvalue /= 0\n")?
+  let division = test.run_script(
+    ctx,
+    """var value: Int = 8
+value /= 0
+""",
+  )?
   test.ok(! division.success, division.stderr)?
   test.contains(division.stderr, "division-by-zero")?
 }
@@ -57,15 +67,16 @@ proc test_repeated_if_branches_select_statement_and_expression_arms() [error] {
     } else {
       total += 100
     }
+
     let label = if value % 3 == 0 { "first" } else if value % 3 == 1 { "second" } else { "third" }
     test.eq(label, ["first", "second", "third"][value % 3])?
   }
+
   test.eq(total, 222)?
 }
 
 pure locally_selected_arguments(argv: List[Str]) -> List[Str] {
-  let args = if argv.len() > 0 and argv[0] == "--" { [] } else { argv }
-  return args
+  return if argv.len() > 0 and argv[0] == "--" { [] } else { argv }
 }
 
 proc test_local_args_shadows_predeclared_script_arguments() [error] {

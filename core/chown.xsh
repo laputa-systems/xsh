@@ -68,7 +68,6 @@ proc main(...argv: List[Str]) [fs, error] {
     if recursive and target.metadata()?.kind == "dir" {
       # The walk chooses its traversal workers; ownership changes run in the
       # order entries arrive from that walk.
-
       fs.walk(target)
         |> each { |entry|
           if owner_name != "" {

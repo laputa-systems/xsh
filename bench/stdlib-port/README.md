@@ -155,20 +155,18 @@ three counterbalanced rounds, with 30 raw samples per side per round, exact
 status, output, and scoped-effect parity, and binary, script, and fixture
 hashes. `core_command` passes without a separate implementation change. This
 closes B04's measured cost shapes. The B11 cumulative reports below pass the
-complete frozen performance gate; B01 retains the owner-run lint row.
+complete frozen performance gate. B01's accepted tooling rows also pass.
 
-B01's `results-b01-tooling.json` holds three paired rounds of `xsht api` and
-`xsht check core/ls.xsh` for B1 and the current candidate against B0 on macOS
-and pinned Linux. Status, stdout, and stderr match exactly. B1's macOS check
-is 18.09 versus 11.81 ms and fails the 2 ms end-to-end allowance. The current
-candidate passes at 10.98 versus 11.62 ms on macOS and 14.41 versus 14.33 ms
-on Linux. Both current API rows pass. Linux `tooling-runner.xsh` accepts the
-selected command names so the two permitted rows can be measured without
-running `xsht lint`. The lint row remains owner-run under `AGENTS.md`.
-The candidate's cold single-file check is within the original allowance and
-faster than B0 on macOS, so the proposed latency investigation has no observed
-regression to pursue. Reopen it only with a reproducible workload and an
-attributed preparation cost.
+B01's `results-b01-tooling.json` holds three paired rounds with 30 samples per
+side per round for `xsht api`, `xsht check core/ls.xsh`, and `xsht lint
+core/ls.xsh` against B0 on macOS and in the pinned Linux image. The accepted
+candidate matches status, stdout, and stderr for every command. Its median
+macOS times are 13.21 versus 13.32 ms for API, 12.92 versus 13.49 ms for check,
+and 13.58 versus 15.20 ms for lint (candidate versus B0). The Linux medians
+are 12.79 versus 12.77 ms, 12.58 versus 12.58 ms, and 12.66 versus 12.62 ms.
+All six rows pass the original 2 ms end-to-end allowance. Earlier B1's macOS
+check was 18.09 versus 11.81 ms and failed; the accepted candidate removes
+that regression.
 
 B08 measured narrow costs in the indexed runtime after the port passed its
 complete B0 performance gate. Moving fully supplied call arguments into frame

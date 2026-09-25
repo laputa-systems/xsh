@@ -54,7 +54,6 @@ proc main(...argv: List[Str]) [fs, error] {
     if recursive and target.metadata()?.kind == "dir" {
       # The walk chooses its traversal workers; group changes run in the
       # order entries arrive from that walk.
-
       fs.walk(target)
         |> each { |entry|
           fs.chgrp(entry.path, group_rec, follow_symlinks: follow_symlinks)?

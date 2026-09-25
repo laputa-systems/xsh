@@ -4,6 +4,7 @@ type Opts = {env_var: Str, fail: Bool, show_ok: Bool, duplicates_only: Bool}
 type DirFinding = {severity: Int, kind: Str, path: Str, detail: Str}
 
 type ShadowFinding = {name: Str, path: Str, detail: Str}
+
 type SeenCommand = {name: Path, path: Str}
 
 pure severity_label(severity: Int) -> Str {

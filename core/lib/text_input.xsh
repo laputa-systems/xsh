@@ -1,5 +1,4 @@
 ##! Shared text input for the core line-oriented applets.
-
 ## Read operands in order, treating an empty list or `-` as stdin.
 export proc read_text(paths: List[Str]) [fs, error, io] -> Result[Str] {
   var out = ""

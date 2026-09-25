@@ -41,9 +41,7 @@ proc main(...argv: List[Str]) [net, time, error] {
 
   while true {
     let remaining = deadline - time.now()
-    if remaining <= 0 {
-      break
-    }
+    break when remaining <= 0
 
     let request_timeout = if remaining < 2000 { time.millis(remaining) } else { 2s }
     match net.request({
@@ -73,9 +71,7 @@ proc main(...argv: List[Str]) [net, time, error] {
     }
 
     let after_request = deadline - time.now()
-    if after_request <= 0 {
-      break
-    }
+    break when after_request <= 0
 
     let sleep_ms = if opts.interval > after_request / 1000 {
       after_request

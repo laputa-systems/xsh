@@ -10,7 +10,7 @@ proc test_missing_file_read_propagates_structured_error(ctx: TestContext) [fs, e
   test.contains(output.stderr, "fs-read")?
 }
 
-proc test_fs_walk_take_any_break_and_count(ctx: TestContext) [fs, error] {
+proc test_fs_walk_and_files_take_any_break_and_count(ctx: TestContext) [fs, error] {
   let root = test.temp_dir(ctx, name: "fs-walk-stage")?
   var index = 0
   while index < 50 {
@@ -18,20 +18,23 @@ proc test_fs_walk_take_any_break_and_count(ctx: TestContext) [fs, error] {
     index = index + 1
   }
 
-  let first3 = fs.walk(root)
-    |> where .kind == "file"
+  let first3 = fs.files(root)
     |> take(3)
     |> map .name
   test.eq(first3.len(), 3)?
   test.ok(fs.walk(root) |> any .kind == "file")?
 
-  var visited = 0
-  for entry in fs.walk(root) |> where .kind == "file" {
-    visited = visited + 1
-    if visited >= 2 { break }
+  var visited: List[Str] = []
+  for entry in fs.files(root) {
+    visited = visited.push(entry.name)
+    break when visited.len() >= 2
   }
-  test.eq(visited, 2)?
-  test.eq(fs.walk(root) |> where .kind == "file" |> count(), 50)?
+
+  test.eq(visited.len(), 2)?
+  test.eq(
+    fs.files(root) |> count(),
+    50,
+  )?
 }
 
 proc test_fs_walk_dynamic_stat_flag_preserves_metadata_boundary(ctx: TestContext) [fs, error] {
@@ -71,7 +74,11 @@ proc test_fs_files_dynamic_walk_flags_are_evaluated(ctx: TestContext) [fs, error
   fs.write(fp"${root}/normal.txt", "data")?
   fs.write(fp"${root}/ignored.txt", "ignored")?
   fs.write(fp"${root}/.hidden.txt", "hidden")?
-  fs.write(fp"${root}/.gitignore", "ignored.txt\n")?
+  fs.write(
+    fp"${root}/.gitignore",
+    """ignored.txt
+""",
+  )?
 
   let include_hidden = true
   let exclude_hidden = false
@@ -84,7 +91,9 @@ proc test_fs_files_dynamic_walk_flags_are_evaluated(ctx: TestContext) [fs, error
   test.ok(fs.files(root, gitignore: skip_gitignore) |> any .name == "ignored.txt")?
 
   let use_stat = true
-  let normal = (fs.files(root, stat: use_stat) |> where .name == "normal.txt" |> first())?
+  let normal = (fs.files(root, stat: use_stat)
+    |> where .name == "normal.txt"
+    |> first())?
   test.eq(normal.size, 4)?
 
   let unstat = test.run_script(

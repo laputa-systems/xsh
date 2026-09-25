@@ -95,7 +95,12 @@ checked.build("built")?
     module_env,
   )?
   test.ok(success.success, success.stderr)?
-  test.eq(success.stdout, "demo-demo\ndemo-built\n")?
+  test.eq(
+    success.stdout,
+    """demo-demo
+demo-built
+""",
+  )?
 
   let private = test.run_script(
     ctx,
@@ -130,7 +135,11 @@ match loaded.require(BadPackage) {
 proc test_module_load_rejects_undocumented_export(ctx: TestContext) [fs, error] {
   let root = test.temp_dir(ctx, name: "undocumented-module")?
   let plugin_path = fp"${root}/undocumented.xsh"
-  fs.write(plugin_path, "export let name = \"undocumented\"\n")?
+  fs.write(
+    plugin_path,
+    """export let name = "undocumented"
+""",
+  )?
 
   let output = test.run_script(
     ctx,
@@ -145,13 +154,28 @@ proc test_module_load_rejects_undocumented_export(ctx: TestContext) [fs, error] 
 proc test_module_load_rejects_forbidden_top_level_forms(ctx: TestContext) [fs, error] {
   let root = test.temp_dir(ctx, name: "module-top-level")?
   for fixture in [
-    {name: "bad-var", source: "##! Invalid dynamic module fixture.\nvar count = 1\nexport let name = \"bad\"\n"},
-    {name: "bad-command", source: "##! Invalid dynamic module fixture.\nprint bad\nexport let name = \"bad\"\n"},
+    {
+      name: "bad-var",
+      source: """##! Invalid dynamic module fixture.
+var count = 1
+export let name = "bad"
+""",
+    },
+    {
+      name: "bad-command",
+      source: """##! Invalid dynamic module fixture.
+print bad
+export let name = "bad"
+""",
+    },
   ] {
     let module_path = fp"${root}/${fixture.name}.xsh"
     fs.write(module_path, fixture.source)?
-    let output = test.run_script(ctx, f"""let _ = module.load(p"${module_path.display()}")?
-""")?
+    let output = test.run_script(
+      ctx,
+      f"""let _ = module.load(p"${module_path.display()}")?
+""",
+    )?
     test.eq(output.status, 3)?
     test.contains(output.stderr, "module-check")?
     test.contains(output.stderr, "check.module-top-level")?
@@ -159,9 +183,17 @@ proc test_module_load_rejects_forbidden_top_level_forms(ctx: TestContext) [fs, e
   }
 
   let hook = fp"${root}/signal-hook.xsh"
-  fs.write(hook, "on SIGINT [] {\n}\n")?
-  let output = test.run_script(ctx, f"""let _ = module.load(p"${hook.display()}")?
-""")?
+  fs.write(
+    hook,
+    """on SIGINT [] {
+}
+""",
+  )?
+  let output = test.run_script(
+    ctx,
+    f"""let _ = module.load(p"${hook.display()}")?
+""",
+  )?
   test.eq(output.status, 3)?
   test.contains(output.stderr, "module-check")?
   test.contains(output.stderr, "check.signal-hook-module")?
@@ -295,7 +327,12 @@ print ${beta.count_words()}
     {XSH_MODULE_PATH: root.display()},
   )?
   test.ok(result.success, result.stderr)?
-  test.eq(result.stdout, "5\n3\n")?
+  test.eq(
+    result.stdout,
+    """5
+3
+""",
+  )?
 }
 
 proc test_imported_local_args_shadows_predeclared_script_arguments(ctx: TestContext) [fs, error] {
@@ -319,7 +356,11 @@ print ${selector.select(["unknown"]).len()}
     {XSH_MODULE_PATH: root.display()},
   )?
   test.ok(result.success, result.stderr)?
-  test.eq(result.stdout, "1\n")?
+  test.eq(
+    result.stdout,
+    """1
+""",
+  )?
 }
 
 proc test_static_module_exports_bind_one_namespace(ctx: TestContext) [fs, error] {
@@ -481,7 +522,12 @@ shower.call(pkg)?
     {XSH_MODULE_PATH: root.display()},
   )?
   test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "pkg:demo\npkg:demo\n")?
+  test.eq(
+    output.stdout,
+    """pkg:demo
+pkg:demo
+""",
+  )?
 }
 
 proc test_qualified_record_fields_pass_to_effectful_module_proc(ctx: TestContext) [fs, error] {
@@ -526,7 +572,11 @@ l.normalize(context)?
     {XSH_MODULE_PATH: root.display()},
   )?
   test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "workspace x86_64-unknown-linux-musl crt-static\n")?
+  test.eq(
+    output.stdout,
+    """workspace x86_64-unknown-linux-musl crt-static
+""",
+  )?
 }
 
 proc test_module_proc_call_preserves_runtime_cwd(ctx: TestContext) [fs, error] {
@@ -570,7 +620,7 @@ c.invoke(p"${src.display()}", p"${out.display()}")?
 proc test_module_path_resolves_nested_module_with_default_alias(ctx: TestContext) [fs, error] {
   let root = test.temp_dir(ctx, name: "nested-module-path")?
   let lib = fp"${root}/lib"
-  fp"${lib}/pm".mkdir(parents: true)?
+  fp"${lib}/pm".mkdir()?
   fp"${lib}/pm/configure.xsh".write(r"""
 ##! Configure fixture module.
 ## Provides a package label.
@@ -590,7 +640,11 @@ print ${configure.label("pkgconf")}
     {XSH_MODULE_PATH: lib.display()},
   )?
   test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "configured pkgconf\n")?
+  test.eq(
+    output.stdout,
+    """configured pkgconf
+""",
+  )?
   test.eq(output.stderr, "")?
 }
 
@@ -644,7 +698,15 @@ match p.get("Package") {
   let module_env = {XSH_MODULE_PATH: root.display()}
   let output = test.run_script(ctx, source, [], module_env)?
   test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "hi world\nhi namespace\nhi demo\ndemo\nmissing-field\n")?
+  test.eq(
+    output.stdout,
+    """hi world
+hi namespace
+hi demo
+demo
+missing-field
+""",
+  )?
   test.eq(output.stderr, "")?
 
   let traced = test.run_xsht_trace(ctx, source, ["--raw"], [], module_env)?
@@ -652,9 +714,23 @@ match p.get("Package") {
   test.contains(traced.stderr, "kind=pure.enter")?
   test.contains(traced.stderr, "greet")?
 
-  fp"${root}/a.xsh".write("##! Cycle fixture A.\n## Public cycle value.\nuse b\nexport let value = 1\n")?
-  fp"${root}/b.xsh".write("##! Cycle fixture B.\n## Public cycle value.\nuse a\nexport let value = 2\n")?
-  let cycle = test.run_script(ctx, "use a\n", [], module_env)?
+  fp"${root}/a.xsh".write("""##! Cycle fixture A.
+## Public cycle value.
+use b
+export let value = 1
+""")?
+  fp"${root}/b.xsh".write("""##! Cycle fixture B.
+## Public cycle value.
+use a
+export let value = 2
+""")?
+  let cycle = test.run_script(
+    ctx,
+    """use a
+""",
+    [],
+    module_env,
+  )?
   test.eq(cycle.status, 2)?
   test.contains(cycle.stderr, "parse.module-cycle")?
 }
@@ -692,7 +768,11 @@ pkg.build(p"${dynamic_out.display()}")?
     {XSH_MODULE_PATH: root.display()},
   )?
   test.ok(dynamic.success, dynamic.stderr)?
-  test.eq(fp"${dynamic_out}/ok".read_text()?, f"demo:${fs.cwd()?.name()}\n")?
+  test.eq(
+    fp"${dynamic_out}/ok".read_text()?,
+    f"""demo:${fs.cwd()?.name()}
+""",
+  )?
 
   let static_output = test.run_script(
     ctx,
@@ -711,7 +791,11 @@ main(@args)?
     {XSH_MODULE_PATH: root.display()},
   )?
   test.ok(static_output.success, static_output.stderr)?
-  test.eq(fp"${static_out}/ok".read_text()?, "demo:static-src\n")?
+  test.eq(
+    fp"${static_out}/ok".read_text()?,
+    """demo:static-src
+""",
+  )?
 }
 
 proc test_stream_exports_are_namespace_members_not_module_contract_members(ctx: TestContext) [fs, error] {

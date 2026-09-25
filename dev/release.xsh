@@ -63,6 +63,7 @@ export pure core_install_path(relative_source: Path) -> Path {
   if relative_source.display().starts_with("lib/") {
     return fp"core/${relative_source.display()}"
   }
+
   return fp"core/${relative_source.display().replace(".xsh", "")}"
 }
 

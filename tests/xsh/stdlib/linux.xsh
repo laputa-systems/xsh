@@ -141,7 +141,8 @@ proc test_linux_text_entries_require_a_gate() [process, env, error] {
 proc test_linux_halt_requires_an_explicit_mode(ctx: TestContext) [error] {
   let output = test.run_script(
     ctx,
-    "let _ = linux.halt()?\n",
+    """let _ = linux.halt()?
+""",
     [],
     {XSH_LINUX_DRY_RUN: "", XSH_LINUX_REAL: ""},
   )?
@@ -228,38 +229,42 @@ proc test_linux_dry_run_file_attrs_decode_seed_flags(ctx: TestContext) [fs, proc
 proc test_linux_dry_run_rejects_invalid_seed_inputs() [process, env, error] {
   env XSH_LINUX_DRY_RUN=1 {
     match linux.sysctl_get("kernel..pid_max") {
-      Ok(_) => { test.ok(false, "invalid sysctl name was accepted")? }
+      Ok(_) => test.ok(false, "invalid sysctl name was accepted")?
       Err(failure) => {
         test.error_kind(failure, "linux-sysctl")?
         test.contains(failure.message, "invalid")?
       }
     }
+
     match linux.sysctl_set("../kernel.pid_max", "1") {
-      Ok(_) => { test.ok(false, "invalid sysctl path was accepted")? }
+      Ok(_) => test.ok(false, "invalid sysctl path was accepted")?
       Err(failure) => {
         test.error_kind(failure, "linux-sysctl")?
         test.contains(failure.message, "invalid")?
       }
     }
+
     for flags in [-1, 4294967296] {
       match linux.set_file_attrs(/tmp/file, flags) {
-        Ok(_) => { test.ok(false, "invalid file attribute flags were accepted")? }
+        Ok(_) => test.ok(false, "invalid file attribute flags were accepted")?
         Err(failure) => {
           test.error_kind(failure, "linux-file-attrs")?
           test.contains(failure.message, "between 0 and 4294967295")?
         }
       }
     }
+
     match linux.set_file_version(/tmp/file, -1) {
-      Ok(_) => { test.ok(false, "invalid file version was accepted")? }
+      Ok(_) => test.ok(false, "invalid file version was accepted")?
       Err(failure) => {
         test.error_kind(failure, "linux-file-version")?
         test.contains(failure.message, "between 0 and 4294967295")?
       }
     }
+
     test.error_kind(linux.kill_all(signal: "BOGUS"), "invalid-signal")?
     match linux.mknod(/tmp/file, "socket", 0, 0) {
-      Ok(_) => { test.ok(false, "invalid node kind was accepted")? }
+      Ok(_) => test.ok(false, "invalid node kind was accepted")?
       Err(failure) => {
         test.error_kind(failure, "linux-mknod")?
         test.contains(failure.message, "block")?
@@ -320,7 +325,7 @@ proc test_linux_dry_run_log_appends_in_place(ctx: TestContext) [fs, process, env
       XSH_LINUX_DRY_RUN_LOG: blocked.display(),
     },
   )?
-  test.ok(!failed.success)?
+  test.ok(! failed.success)?
   test.contains(failed.stderr, "linux-dry-run-log")?
   test.eq(blocked.metadata()?.kind, "dir")?
 }
@@ -344,7 +349,7 @@ proc test_linux_text_log_failure_kind(ctx: TestContext) [fs, process, env, error
       XSH_LINUX_DRY_RUN_LOG: blocked_log.display(),
     },
   )?
-  test.ok(!meminfo_failed.success)?
+  test.ok(! meminfo_failed.success)?
   test.contains(meminfo_failed.stderr, "linux-dry-run-log")?
 
   # The retained native modules arm raises a dry-run log failure. A nested
@@ -358,7 +363,7 @@ proc test_linux_text_log_failure_kind(ctx: TestContext) [fs, process, env, error
       XSH_LINUX_DRY_RUN_LOG: blocked_log.display(),
     },
   )?
-  test.ok(!failed.success)?
+  test.ok(! failed.success)?
   test.contains(failed.stderr, "linux-dry-run-log")?
 }
 

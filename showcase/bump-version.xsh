@@ -89,10 +89,11 @@ proc main(...argv: List[Str]) [fs, error] {
     return
   }
 
-  var updated: List[Str] = []
-  for item in content.split("\n") |> enumerate() {
-    updated = updated.push(if item.index == version_line_index { new_line } else { item.value })
-  }
+  let updated = [
+    if item.index == version_line_index { new_line } else { item.value }
+    for item in content.split("\n") |> enumerate()
+  ]
+
   let new_content = updated.join("\n")
   manifest.write_atomic(new_content)?
   print "updated"

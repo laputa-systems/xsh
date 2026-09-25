@@ -51,12 +51,21 @@ proc test_mutable_string_accumulator_uses_string_addition_in_loop(ctx: TestConte
 """,
   )?
   test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "abc\n")?
+  test.eq(
+    output.stdout,
+    """abc
+""",
+  )?
   test.eq(output.stderr, "")?
 }
 
 proc test_reassigning_let_names_mutable_binding(ctx: TestContext) [error] {
-  let output = test.run_script(ctx, "let x = 1\nx = 2\n")?
+  let output = test.run_script(
+    ctx,
+    """let x = 1
+x = 2
+""",
+  )?
   test.eq(output.status, 2)?
   test.contains(output.stderr, "check.assign-let")?
   test.contains(output.stderr, "declare with `var`")?
@@ -76,7 +85,12 @@ print $value.length()
 }
 
 proc test_runtime_unknown_method_names_receiver_and_candidate(ctx: TestContext) [error] {
-  let output = test.run_script(ctx, "let value: Any = \"abc\"\nprint $value.length()\n")?
+  let output = test.run_script(
+    ctx,
+    """let value: Any = "abc"
+print $value.length()
+""",
+  )?
   test.eq(output.status, 3)?
   test.contains(output.stderr, "unknown method `length` on Str")?
   test.contains(output.stderr, "count_chars")?
@@ -205,7 +219,16 @@ build_fn.call()?
 """,
   )?
   test.ok(output.success, output.stderr)?
-  for expected in ["-a json", "-ab json", "-- json", "--f json", "-C build samu", "--- json", "--format json", "apples"] {
+  for expected in [
+    "-a json",
+    "-ab json",
+    "-- json",
+    "--f json",
+    "-C build samu",
+    "--- json",
+    "--format json",
+    "apples",
+  ] {
     test.contains(output.stdout, expected)?
   }
 }
@@ -579,7 +602,11 @@ main()?
   )?
 
   test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "5\n")?
+  test.eq(
+    output.stdout,
+    """5
+""",
+  )?
   test.eq(output.stderr, "")?
 }
 

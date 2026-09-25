@@ -57,7 +57,7 @@ proc main(...argv: List[Str]) [fs, error] {
   defer pending.remove(missing_ok: true)?
   let stage = fp"${pending}/stage"
   let payload = fp"${stage}/payload"
-  let copied = fs.copy_tree(absolute_source, payload, parents: true)?
+  let copied = fs.copy_tree(absolute_source, payload)?
   let payload_root = payload.resolve()?
 
   let entries: List[ManifestEntry] = fs.files(payload_root)

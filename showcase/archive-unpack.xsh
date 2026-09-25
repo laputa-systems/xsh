@@ -6,6 +6,7 @@
 # Usage: xsh showcase/archive-unpack.xsh -- ARCHIVE [--out DIR] [--dry-run=false]
 # Example: xsh showcase/archive-unpack.xsh -- backup.tar.gz --out /tmp/out --dry-run=false
 type Opts = {archive: List[Str], out: Path, list: Bool, compress: Str, decompress: Str, dry_run: Bool}
+
 type StagedOutput = {published: Path, pending: Path}
 
 on SIGINT [error] {

@@ -277,10 +277,11 @@ proc test_make_facade_bootstraps_by_default_and_honors_an_explicit_binary(ctx: T
     }
     Ok(_) => {}
   }
+
   let root = test.temp_dir(ctx, name: "make-facade")?
   fp"${root}/Makefile".write(p"Makefile".read_text()?)?
   let stale_dir = fp"${root}/target/debug"
-  stale_dir.mkdir(parents: true)?
+  stale_dir.mkdir()?
   fp"${stale_dir}/xsh".write("stale binary")?
   let output = fp"${root}/make-output.txt"
 
@@ -290,7 +291,11 @@ proc test_make_facade_bootstraps_by_default_and_honors_an_explicit_binary(ctx: T
     run make -n build
   }
   test.ok(process.run(default)?.exited_with(0))?
-  test.eq(output.read_text()?, "cargo dev build\n")?
+  test.eq(
+    output.read_text()?,
+    """cargo dev build
+""",
+  )?
 
   let override = process.command {
     cwd = root
@@ -298,7 +303,11 @@ proc test_make_facade_bootstraps_by_default_and_honors_an_explicit_binary(ctx: T
     run make -n build "XSH_DEV=/missing/xsh"
   }
   test.ok(process.run(override)?.exited_with(0))?
-  test.eq(output.read_text()?, "/missing/xsh dev/main.xsh -- build\n")?
+  test.eq(
+    output.read_text()?,
+    """/missing/xsh dev/main.xsh -- build
+""",
+  )?
 }
 
 proc test_codesign_failure_stops_darwin_installation(ctx: TestContext) [fs, error] {

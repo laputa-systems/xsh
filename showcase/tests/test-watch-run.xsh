@@ -39,9 +39,7 @@ proc test_watch_run_cancellation_reaps_child_descendants(ctx: TestContext) [fs, 
   )?
 
   for _ in range(0, 500) {
-    if ready.exists()? {
-      break
-    }
+    break when ready.exists()?
 
     time.sleep(10ms)?
   }
