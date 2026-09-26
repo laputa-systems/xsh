@@ -10,6 +10,9 @@ proc test_system_module() [env, error] {
   test.ok(release.name != "")?
   test.ok(release.pretty_name != "")?
   test.ok(release.id != "")?
+  let units = system.execution_units()?
+  test.ok(units.page_size_bytes > 0)?
+  test.ok(units.clock_ticks_per_second > 0)?
 }
 
 proc test_system_memory_reads_the_host_text() [env, error] {

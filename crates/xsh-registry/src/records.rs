@@ -28,10 +28,13 @@ pub fn record_schemas() -> BTreeMap<&'static str, Type> {
         ("FsCopyTreeResult", fs_copy_tree_result_type()),
         ("FsEntry", fs_entry_type()),
         ("FsFilesystemStats", fs_filesystem_stats_type()),
+        ("FsRootFilesystemStats", fs_root_filesystem_stats_type()),
         ("FsLock", fs_lock_type()),
         ("FsMount", fs_mount_type()),
         ("FsRemoveManifestResult", fs_remove_manifest_result_type()),
         ("FsRoot", fs_root_type()),
+        ("FsRootChildrenResult", fs_root_children_result_type()),
+        ("FsRootReadResult", fs_root_read_result_type()),
         ("Group", group_record_type()),
         ("LinuxBlockDevice", linux_block_device_type()),
         ("LinuxDiskUsage", linux_disk_usage_type()),
@@ -39,6 +42,14 @@ pub fn record_schemas() -> BTreeMap<&'static str, Type> {
         ("LinuxInterface", linux_interface_type()),
         ("LinuxInterfaceAddress", linux_interface_address_type()),
         ("LinuxRoute", linux_route_type()),
+        ("LinuxNetlinkAttribute", linux_netlink_attribute_type()),
+        ("LinuxNetworkAddress", linux_network_address_type()),
+        ("LinuxNetworkIssue", linux_network_issue_type()),
+        ("LinuxNetworkLink", linux_network_link_type()),
+        ("LinuxNetworkNexthop", linux_network_nexthop_type()),
+        ("LinuxNetworkRoute", linux_network_route_type()),
+        ("LinuxNetworkRule", linux_network_rule_type()),
+        ("LinuxNetworkDump", linux_network_dump_type()),
         ("LinuxLoopDevice", linux_loop_device_type()),
         ("LinuxMemInfo", linux_meminfo_type()),
         ("LinuxBlkid", linux_blkid_type()),
@@ -64,6 +75,7 @@ pub fn record_schemas() -> BTreeMap<&'static str, Type> {
         ("Signal", signal_record_type()),
         ("Spawn", spawn_record_type()),
         ("SystemMemory", system_memory_type()),
+        ("SystemExecutionUnits", system_execution_units_type()),
         ("SystemOsRelease", system_os_release_type()),
         #[cfg(feature = "native-tests")]
         ("TestCall", test_call_type()),
@@ -127,6 +139,27 @@ pub fn fs_filesystem_stats_type() -> Type {
         ("used_1k".to_string(), Type::Int),
         ("available_1k".to_string(), Type::Int),
         ("capacity_percent".to_string(), Type::Int),
+    ]))
+}
+
+pub fn fs_root_filesystem_stats_type() -> Type {
+    Type::Record(name_type_map(vec![
+        ("state".to_string(), Type::Str),
+        ("total_bytes".to_string(), Type::Optional(Box::new(Type::Int))),
+        ("used_bytes".to_string(), Type::Optional(Box::new(Type::Int))),
+        (
+            "available_bytes".to_string(),
+            Type::Optional(Box::new(Type::Int)),
+        ),
+        (
+            "block_size_bytes".to_string(),
+            Type::Optional(Box::new(Type::Int)),
+        ),
+        ("errno".to_string(), Type::Optional(Box::new(Type::Int))),
+        (
+            "error_kind".to_string(),
+            Type::Optional(Box::new(Type::Str)),
+        ),
     ]))
 }
 
@@ -293,6 +326,26 @@ pub fn fs_root_type() -> Type {
     Type::Record(name_type_map(vec![("id".to_string(), Type::Int)]))
 }
 
+pub fn fs_root_children_result_type() -> Type {
+    Type::Record(name_type_map(vec![
+        ("state", Type::Str),
+        ("enumeration_succeeded", Type::Bool),
+        ("children", Type::List(Box::new(Type::Path))),
+        ("errno", Type::Optional(Box::new(Type::Int))),
+        ("error_kind", Type::Optional(Box::new(Type::Str))),
+    ]))
+}
+
+pub fn fs_root_read_result_type() -> Type {
+    Type::Record(name_type_map(vec![
+        ("state".to_string(), Type::Str),
+        ("data".to_string(), Type::Optional(Box::new(Type::Bytes))),
+        ("errno".to_string(), Type::Optional(Box::new(Type::Int))),
+        ("error_kind".to_string(), Type::Optional(Box::new(Type::Str))),
+        ("truncated".to_string(), Type::Bool),
+    ]))
+}
+
 pub fn fs_remove_manifest_result_type() -> Type {
     Type::Record(name_type_map(vec![
         ("removed".to_string(), Type::Int),
@@ -401,6 +454,13 @@ pub fn system_memory_type() -> Type {
     ]))
 }
 
+pub fn system_execution_units_type() -> Type {
+    Type::Record(name_type_map(vec![
+        ("page_size_bytes".to_string(), Type::Int),
+        ("clock_ticks_per_second".to_string(), Type::Int),
+    ]))
+}
+
 pub fn system_os_release_type() -> Type {
     Type::Record(name_type_map(vec![
         ("name".to_string(), Type::Str),
@@ -466,6 +526,121 @@ pub fn linux_route_type() -> Type {
         ("dev".to_string(), Type::Str),
         ("metric".to_string(), Type::Int),
         ("flags".to_string(), Type::List(Box::new(Type::Str))),
+    ]))
+}
+
+pub fn linux_netlink_attribute_type() -> Type {
+    Type::Record(name_type_map(vec![
+        ("kind", Type::Int),
+        ("data", Type::Bytes),
+    ]))
+}
+
+pub fn linux_network_link_type() -> Type {
+    Type::Record(name_type_map(vec![
+        ("ifindex", Type::Int),
+        ("name", Type::Optional(Box::new(Type::Str))),
+        ("name_bytes", Type::Optional(Box::new(Type::Bytes))),
+        ("hardware_type", Type::Int),
+        ("flags", Type::Int),
+        ("mtu", Type::Optional(Box::new(Type::Int))),
+        ("address", Type::Optional(Box::new(Type::Bytes))),
+        ("broadcast", Type::Optional(Box::new(Type::Bytes))),
+        ("master_ifindex", Type::Optional(Box::new(Type::Int))),
+        ("lower_ifindex", Type::Optional(Box::new(Type::Int))),
+        ("operstate", Type::Optional(Box::new(Type::Int))),
+        ("kind", Type::Optional(Box::new(Type::Str))),
+        ("rx_bytes", Type::Optional(Box::new(Type::Int))),
+        ("tx_bytes", Type::Optional(Box::new(Type::Int))),
+        ("attributes", Type::List(Box::new(linux_netlink_attribute_type()))),
+    ]))
+}
+
+pub fn linux_network_address_type() -> Type {
+    Type::Record(name_type_map(vec![
+        ("ifindex", Type::Int),
+        ("family", Type::Str),
+        ("prefix_length", Type::Int),
+        ("scope", Type::Int),
+        ("flags", Type::Int),
+        ("address", Type::Optional(Box::new(Type::Str))),
+        ("local", Type::Optional(Box::new(Type::Str))),
+        ("broadcast", Type::Optional(Box::new(Type::Str))),
+        ("label", Type::Optional(Box::new(Type::Str))),
+        ("preferred_lifetime_seconds", Type::Optional(Box::new(Type::Int))),
+        ("valid_lifetime_seconds", Type::Optional(Box::new(Type::Int))),
+        ("attributes", Type::List(Box::new(linux_netlink_attribute_type()))),
+    ]))
+}
+
+pub fn linux_network_nexthop_type() -> Type {
+    Type::Record(name_type_map(vec![
+        ("ifindex", Type::Int),
+        ("flags", Type::Int),
+        ("hops", Type::Int),
+        ("gateway", Type::Optional(Box::new(Type::Str))),
+    ]))
+}
+
+pub fn linux_network_route_type() -> Type {
+    Type::Record(name_type_map(vec![
+        ("family", Type::Str),
+        ("destination_prefix_length", Type::Int),
+        ("source_prefix_length", Type::Int),
+        ("destination", Type::Optional(Box::new(Type::Str))),
+        ("source", Type::Optional(Box::new(Type::Str))),
+        ("gateway", Type::Optional(Box::new(Type::Str))),
+        ("preferred_source", Type::Optional(Box::new(Type::Str))),
+        ("output_ifindex", Type::Optional(Box::new(Type::Int))),
+        ("input_ifindex", Type::Optional(Box::new(Type::Int))),
+        ("table", Type::Int),
+        ("priority", Type::Optional(Box::new(Type::Int))),
+        ("route_type", Type::Int),
+        ("protocol", Type::Int),
+        ("scope", Type::Int),
+        ("flags", Type::Int),
+        ("nexthops", Type::List(Box::new(linux_network_nexthop_type()))),
+        ("attributes", Type::List(Box::new(linux_netlink_attribute_type()))),
+    ]))
+}
+
+pub fn linux_network_rule_type() -> Type {
+    Type::Record(name_type_map(vec![
+        ("family", Type::Str),
+        ("destination_prefix_length", Type::Int),
+        ("source_prefix_length", Type::Int),
+        ("destination", Type::Optional(Box::new(Type::Str))),
+        ("source", Type::Optional(Box::new(Type::Str))),
+        ("input_name", Type::Optional(Box::new(Type::Str))),
+        ("output_name", Type::Optional(Box::new(Type::Str))),
+        ("priority", Type::Optional(Box::new(Type::Int))),
+        ("table", Type::Int),
+        ("fwmark", Type::Optional(Box::new(Type::Int))),
+        ("fwmask", Type::Optional(Box::new(Type::Int))),
+        ("action", Type::Int),
+        ("flags", Type::Int),
+        ("attributes", Type::List(Box::new(linux_netlink_attribute_type()))),
+    ]))
+}
+
+pub fn linux_network_issue_type() -> Type {
+    Type::Record(name_type_map(vec![
+        ("object", Type::Str),
+        ("message", Type::Str),
+        ("state", Type::Str),
+        ("errno", Type::Optional(Box::new(Type::Int))),
+        ("error_kind", Type::Str),
+    ]))
+}
+
+pub fn linux_network_dump_type() -> Type {
+    Type::Record(name_type_map(vec![
+        ("state", Type::Str),
+        ("links", Type::List(Box::new(linux_network_link_type()))),
+        ("addresses", Type::List(Box::new(linux_network_address_type()))),
+        ("routes", Type::List(Box::new(linux_network_route_type()))),
+        ("rules", Type::List(Box::new(linux_network_rule_type()))),
+        ("issues", Type::List(Box::new(linux_network_issue_type()))),
     ]))
 }
 

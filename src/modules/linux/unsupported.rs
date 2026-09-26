@@ -126,6 +126,10 @@ pub(crate) fn routes(span: Span) -> Result<Value, RuntimeError> {
     Ok(unsupported(span))
 }
 
+pub(crate) fn network_dump(span: Span) -> Result<Value, RuntimeError> {
+    Ok(unsupported(span))
+}
+
 pub(crate) fn meminfo(span: Span) -> Result<Value, RuntimeError> {
     Ok(unsupported(span))
 }

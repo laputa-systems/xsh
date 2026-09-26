@@ -27,6 +27,12 @@ proc test_linux_dry_run_covers_module_surface(ctx: TestContext) [fs, process, en
     let routes = linux.routes()?.collect()
     test.eq(routes[0].dst, "default")?
     test.eq(routes[0].gateway, "192.0.2.1")?
+    let network = linux.network_dump()?
+    test.eq(network.state, "complete")?
+    test.eq(network.links[0].name, "eth0")?
+    test.eq(network.addresses[0].address, "192.0.2.10")?
+    test.eq(network.routes[0].table, 254)?
+    test.eq(network.rules[0].priority, 32766)?
     test.ok(linux.meminfo()?.total > 0)?
     test.eq(linux.modules()?.collect()[0].name, "xsh_demo")?
     test.contains(linux.dmesg()?.collect()[0], "xsh")?

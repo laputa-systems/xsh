@@ -104,3 +104,75 @@ Use `.require(Type)?` when the program knows the shape it needs. Use dynamic
 matching only when the program is intentionally operating on unknown JSON
 shapes. Treat `Any` as a short-lived boundary value, not as the normal way to
 model application data.
+
+## System Report Snapshots
+
+`core/lib/system_report.xsh::SystemReport` keeps observation, section, and
+source states as closed tag unions. JSON v1 uses the `SystemReportJson` wire
+schema and stable lower snake case strings for those union values. Use
+`encode_report_json` and `decode_report_json` at this boundary; the decoder
+rejects unknown state spellings and schema versions. The encoder applies the
+same default redaction to JSON that the report renderer uses unless the caller
+explicitly selects sensitive output.
+
+Live collection currently reports `live_linux` and describes the
+process-visible source view and namespaces in `ObservationScope`; it does not
+claim that the process sees a physical host or the host's outer namespaces.
+`container_live` and `physical_live` remain distinct source modes for captures
+whose provenance establishes those boundaries.
+
+`render_text` applies that redaction by default and escapes terminal controls,
+bidi controls, and line separators in untrusted text. The default redaction
+also removes source-root paths and sensitive observation payloads while
+preserving numeric relationship indexes. It removes PCI bus addresses, USB
+port and device addresses, block-device names and numbers, and their copied
+model or firmware labels. Numeric PCI/USB vendor, product, and class IDs and
+indexed parent, holder, slave, and mount relationships remain available.
+Issue details and dynamic device identifiers in field paths receive the same
+redaction. Redaction reduces exposure but does not guarantee anonymity.
+`ObservationScope.page_size_bytes` and
+`clock_ticks_per_second` record the runtime units used when interpreting
+process page and clock-tick counters. Cgroup resource values carry a unit and
+keep maximum, current, quota, and period observations separate; an unlimited
+maximum is represented explicitly. Mount inventory is independent of usage:
+`usage_state` is `not_requested` when filesystem capacity was skipped by the
+fixture policy or local-filesystem eligibility policy, and exact byte counters
+are present only when a rooted `statvfs` query succeeded. `parse_cpu_list`
+expands sparse Linux ranges, sorts the identifiers, rejects duplicates and
+malformed ranges, and limits the expanded list to 65,536 identifiers.
+`ProcessRecord.cgroup` contains the parsed unified cgroup path rather than the
+raw `/proc` row; `cgroup_resource_index` resolves an exact path match in the
+collected cgroup resource list and remains null when no match was collected or
+when section projection removes the memory section.
+`BlockDevice.parent_device_index` describes block stacking, while
+`parent_pci_function_index` points to an enumerated PCI controller when the
+sysfs device path resolves to one. Default redaction preserves both indexed
+relationships.
+`select_report_section` retains identity,
+the selected section, and PCI/USB sections required to preserve the selected
+USB, network, or device-class relationships. It clears other sections and
+their issues and marks them `not_requested` with unsuccessful enumeration
+states.
+`core/lib/system_report_collect.xsh::parse_pci_address` preserves the PCI
+domain, bus, device, and function components during collection. Default
+redaction clears the address and components; sensitive output retains them.
+The route-netlink report keeps unknown numeric enum values in explicit
+`*_N` strings and stores each attribute payload as base64 in
+`NetworkAttribute.data`. Routes preserve multipath entries as typed
+`NetworkNexthop` records with interface index, kernel flags, raw hop weight, and
+an optional gateway observation; a single output interface stays in
+`output_ifindex` and does not create a synthetic nexthop. Default redaction preserves attribute kinds and
+relationship indices while marking payload observations `redacted`; sensitive
+JSON retains their base64 bytes. Network section states distinguish denied,
+unsupported, malformed, raced, and truncated dumps from empty successful
+enumerations.
+Its USB descriptor parser bounds input to 1 MiB, validates every descriptor
+length, and preserves unknown descriptor bytes for later typed interpretation.
+
+`system-report --from FILE` uses the same decoder and renderer for saved
+snapshots. It reads at most 16 MiB. Replay does not query the current host;
+`--section` projects the decoded report before rendering, and `--json` emits
+one v1 JSON document. Default text includes source scope and section status,
+groups CPUFreq policies only when their observed settings match, and reports
+how many mount capacity queries ran or were skipped. `--full` adds per-item
+detail without changing which observations were collected.

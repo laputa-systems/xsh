@@ -619,7 +619,10 @@ fn lowered_module_op_supported(op: RuntimeOp) -> bool {
             | RuntimeOp::FsCloseRoot
             | RuntimeOp::FsRootPath
             | RuntimeOp::FsRootOpenRoot
+            | RuntimeOp::FsRootChildren
             | RuntimeOp::FsRootRead
+            | RuntimeOp::FsRootReadResult
+            | RuntimeOp::FsRootFilesystemStats
             | RuntimeOp::FsRootReadText
             | RuntimeOp::FsRootWrite
             | RuntimeOp::FsRootWriteAtomic
@@ -683,6 +686,7 @@ fn lowered_module_op_supported(op: RuntimeOp) -> bool {
             | RuntimeOp::JsonWriteLines
             | RuntimeOp::LinuxInterfaces
             | RuntimeOp::LinuxRoutes
+            | RuntimeOp::LinuxNetworkDump
             | RuntimeOp::LinuxLinkUp
             | RuntimeOp::LinuxLinkDown
             | RuntimeOp::LinuxSetIpv4Address
@@ -734,6 +738,7 @@ fn lowered_module_op_supported(op: RuntimeOp) -> bool {
             | RuntimeOp::SystemHostname
             | RuntimeOp::SystemUname
             | RuntimeOp::SystemMemory
+            | RuntimeOp::SystemExecutionUnits
             | RuntimeOp::SystemOsRelease
             | RuntimeOp::TimeNow
             | RuntimeOp::TimeSleep

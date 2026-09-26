@@ -7,15 +7,18 @@ use super::{
     archive_entry_type, btree_map, default_param, diff_result_type, dns_host_type, dns_lookup_type,
     elf_info_type, env_entry_type, env_path_entry_type, fs_copy_tree_result_type, fs_entry_type,
     fs_filesystem_stats_type, fs_lock_type, fs_mount_type, fs_remove_manifest_result_type,
-    fs_root_type, group_record_type, linux_blkid_type, linux_block_device_type,
+    fs_root_children_result_type, fs_root_filesystem_stats_type, fs_root_read_result_type,
+    fs_root_type, group_record_type,
+    linux_blkid_type,
+    linux_block_device_type,
     linux_disk_usage_type, linux_file_attrs_type, linux_fsck_type, linux_interface_type,
     linux_loop_device_type, linux_meminfo_type, linux_modinfo_type, linux_module_type,
-    linux_open_file_type, linux_partition_table_type, linux_rfkill_type, linux_route_type,
+    linux_network_dump_type, linux_open_file_type, linux_partition_table_type, linux_rfkill_type, linux_route_type,
     linux_uevent_type, measured_command_type, mime_info_type, mime_parse_type, module_sig,
     net_pool_type, net_response_type, param, patch_result_type, process_entry_type,
     process_port_type, process_stats_type, process_thread_type, process_wait_any_type, result,
     script_sig, script_sig_with_arg_check, sig, sig_with_arg_check, signal_record_type,
-    spawn_record_type, system_memory_type, system_os_release_type, uname_record_type,
+    spawn_record_type, system_execution_units_type, system_memory_type, system_os_release_type, uname_record_type,
     unix_child_event_type, unix_id_type, unix_kill_all_result_type, unix_logged_process_group_type,
     unix_pid1_event_type, unix_pid1_shutdown_type, unix_spawned_child_type, unix_tty_attrs_type,
     user_record_type, value_methods,
@@ -1504,6 +1507,41 @@ fn fs_module() -> ModuleSig {
             ),
         ),
         (
+            "root_read_result",
+            sig(
+                vec![
+                    param("root", fs_root_type()),
+                    param("path", Type::Path),
+                    default_param("max_bytes", Type::Int),
+                ],
+                result(fs_root_read_result_type()),
+                false,
+                RuntimeOp::FsRootReadResult,
+            ),
+        ),
+        (
+            "root_filesystem_stats",
+            sig(
+                vec![param("root", fs_root_type()), param("path", Type::Path)],
+                result(fs_root_filesystem_stats_type()),
+                false,
+                RuntimeOp::FsRootFilesystemStats,
+            ),
+        ),
+        (
+            "root_children",
+            sig(
+                vec![
+                    param("root", fs_root_type()),
+                    param("path", Type::Path),
+                    default_param("max_entries", Type::Int),
+                ],
+                result(fs_root_children_result_type()),
+                false,
+                RuntimeOp::FsRootChildren,
+            ),
+        ),
+        (
             "root_read_text",
             sig(
                 vec![param("root", fs_root_type()), param("path", Type::Path)],
@@ -2435,6 +2473,15 @@ fn linux_module() -> ModuleSig {
             ),
         ),
         (
+            "network_dump",
+            sig(
+                Vec::new(),
+                result(linux_network_dump_type()),
+                false,
+                RuntimeOp::LinuxNetworkDump,
+            ),
+        ),
+        (
             "meminfo",
             sig(
                 Vec::new(),
@@ -3342,6 +3389,15 @@ fn system_module() -> ModuleSig {
             ),
         ),
         (
+            "execution_units",
+            sig(
+                Vec::new(),
+                result(system_execution_units_type()),
+                false,
+                RuntimeOp::SystemExecutionUnits,
+            ),
+        ),
+        (
             "os_release",
             sig(
                 Vec::new(),
@@ -3865,6 +3921,21 @@ fn record_doc(name: &str) -> Option<RecordDoc> {
             "Operations using the root stay below its destination boundary; close the capability when its ownership ends.",
             &["filesystem", "rooted", "capability"],
         ),
+        "FsRootChildrenResult" => (
+            "Describes one bounded directory enumeration beneath a rooted filesystem capability.",
+            "The result separates empty success from absent, denied, failed, and truncated listings while retaining any observed child paths.",
+            &["filesystem", "rooted", "enumeration", "observation"],
+        ),
+        "FsRootReadResult" => (
+            "Describes a bounded read beneath a rooted filesystem capability.",
+            "State, errno, and error kind preserve missing, denied, truncated, and failed reads without parsing diagnostic text.",
+            &["filesystem", "rooted", "read", "observation"],
+        ),
+        "FsRootFilesystemStats" => (
+            "Describes filesystem capacity observed through a rooted directory capability.",
+            "Byte totals are exact when state is observed; range failures remain explicit when the kernel counters do not fit the signed integer model.",
+            &["filesystem", "rooted", "capacity", "observation"],
+        ),
         "Group" => (
             "Describes a Unix group account.",
             "The record is a host identity snapshot and does not itself confer group membership or privilege.",
@@ -3899,6 +3970,46 @@ fn record_doc(name: &str) -> Option<RecordDoc> {
             "Describes one Linux routing-table entry.",
             "Routes are host-global snapshot data and are not changed by constructing this record.",
             &["linux", "network", "record"],
+        ),
+        "LinuxNetlinkAttribute" => (
+            "Preserves one raw route-netlink attribute, including its type flags and payload bytes.",
+            "Unknown attributes remain available as bytes so newer kernel fields do not invalidate the surrounding snapshot.",
+            &["linux", "network", "netlink", "record"],
+        ),
+        "LinuxNetworkAddress" => (
+            "Describes one interface address reported by route netlink.",
+            "Interface indices are scoped to the current network namespace and may change after link recreation.",
+            &["linux", "network", "netlink", "record"],
+        ),
+        "LinuxNetworkIssue" => (
+            "Describes one route-netlink object that could not be decoded while sibling objects remained available.",
+            "The issue identifies the object family and bounded parser reason without copying untrusted kernel payloads into the message.",
+            &["linux", "network", "issue", "record"],
+        ),
+        "LinuxNetworkLink" => (
+            "Describes one link reported by route netlink, including raw attributes and counters when available.",
+            "The record is scoped to the current network namespace; interface indices are not stable across recreation.",
+            &["linux", "network", "netlink", "record"],
+        ),
+        "LinuxNetworkNexthop" => (
+            "Describes one nexthop in a multipath route.",
+            "The nexthop is a route snapshot and its interface index is scoped to the current network namespace.",
+            &["linux", "network", "netlink", "record"],
+        ),
+        "LinuxNetworkRoute" => (
+            "Describes one route-netlink route with table, protocol, scope, and multipath data.",
+            "The record preserves raw attributes and does not imply that a route remains installed after collection.",
+            &["linux", "network", "netlink", "record"],
+        ),
+        "LinuxNetworkRule" => (
+            "Describes one policy-routing rule reported by route netlink.",
+            "Rule actions remain numeric so kernel additions are not mistaken for invalid data.",
+            &["linux", "network", "netlink", "record"],
+        ),
+        "LinuxNetworkDump" => (
+            "Groups one bounded route-netlink snapshot of links, addresses, routes, and policy rules.",
+            "The lists are point-in-time host state and individual malformed objects are recorded in the issues list.",
+            &["linux", "network", "netlink", "snapshot"],
         ),
         "LinuxLoopDevice" => (
             "Describes one Linux loop device.",
@@ -4024,6 +4135,11 @@ fn record_doc(name: &str) -> Option<RecordDoc> {
             "Reports host memory totals and availability.",
             "The values are a point-in-time observation and are not a reservation or allocation guarantee.",
             &["system", "memory", "host-state"],
+        ),
+        "SystemExecutionUnits" => (
+            "Reports host page size and process clock-tick rate.",
+            "Use these values for exact conversions of procfs page and tick counters instead of assuming common defaults.",
+            &["system", "process", "units", "record"],
         ),
         "SystemOsRelease" => (
             "Describes host operating-system release metadata.",

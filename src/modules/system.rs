@@ -39,6 +39,30 @@ pub(crate) fn uname(_span: Span) -> Result<Value, RuntimeError> {
     ])))
 }
 
+pub(crate) fn execution_units(span: Span) -> Result<Value, RuntimeError> {
+    let page_size = rustix::param::page_size();
+    let clock_ticks_per_second = rustix::param::clock_ticks_per_second();
+    let page_size_bytes = i64::try_from(page_size).map_err(|_| {
+        RuntimeError::new("system-execution-units", "page size exceeds the supported integer range")
+            .with_span(span)
+    })?;
+    let clock_ticks_per_second = clock_ticks_per_second as i64;
+    if page_size_bytes <= 0 || clock_ticks_per_second <= 0 {
+        return Err(RuntimeError::new(
+            "system-execution-units",
+            "host returned invalid page-size or clock-tick metadata",
+        )
+        .with_span(span));
+    }
+    Ok(Value::Record(crate::runtime::value::RecordMap::from([
+        (Arc::from("page_size_bytes"), Value::Int(page_size_bytes)),
+        (
+            Arc::from("clock_ticks_per_second"),
+            Value::Int(clock_ticks_per_second),
+        ),
+    ])))
+}
+
 pub(crate) fn memory(span: Span) -> Result<Value, RuntimeError> {
     memory_impl(span).map(|memory| {
         Value::Record(crate::runtime::value::RecordMap::from([

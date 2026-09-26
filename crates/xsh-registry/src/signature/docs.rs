@@ -632,6 +632,26 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
             "The relative path is checked against the root and traversal or absolute escapes are rejected.",
             &["filesystem", "rooted", "read"],
         )),
+        ("fs", "root_read_result") => Some((
+            "Reads a bounded byte snapshot below a rooted filesystem capability.",
+            "The typed result preserves state, errno, stable error kind, partial bytes, and truncation without converting failure text into state.",
+            &["filesystem", "rooted", "read", "observation", "bounded"],
+        )),
+        ("fs", "root_filesystem_stats") => Some((
+            "Reads exact filesystem capacity counters below a rooted directory capability.",
+            "The query uses a directory opened within the root; oversized kernel counters are reported as a range failure instead of being truncated.",
+            &["filesystem", "rooted", "capacity", "observation"],
+        )),
+        ("system", "execution_units") => Some((
+            "Returns the host page size and process clock-tick rate.",
+            "Both values come from the platform parameter interface and are needed to convert procfs page and tick counters without assuming common defaults.",
+            &["system", "process", "units", "metadata"],
+        )),
+        ("fs", "root_children") => Some((
+            "Enumerates child paths below a rooted filesystem capability.",
+            "Names stay lossless as Path values and are sorted by raw bytes; the result carries partial entries, stable error state, errno, and truncation status.",
+            &["filesystem", "rooted", "enumeration", "bounded", "observation"],
+        )),
         ("fs", "root_write" | "root_write_atomic") => Some((
             "Writes bytes or text below a rooted filesystem capability.",
             "The relative path cannot escape the root; the atomic variant protects readers from partial replacement.",
@@ -804,6 +824,11 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
             "Reads Linux network interface or route records.",
             "The result is a host-global snapshot and is only available on Linux.",
             &["linux", "network", "host-state"],
+        )),
+        ("linux", "network_dump") => Some((
+            "Reads links, assigned addresses, routes, policy rules, and their raw route-netlink attributes.",
+            "Each dump is bounded and validated for framing, sender, sequence, kernel errors, and interruption; malformed individual objects are reported while valid siblings remain available.",
+            &["linux", "network", "netlink", "host-state"],
         )),
         (
             "linux",

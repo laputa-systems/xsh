@@ -9,6 +9,7 @@ use dist as distributions
 use install as installations
 use internal as container_internal
 use release as releases
+use system_report_check as system_reports
 use test_workflows as tests
 
 error DevUsage = Invalid(message: Str)
@@ -88,6 +89,7 @@ commands:
   dist [--target TRIPLE] [--docker auto|always|never] [--ci]
   install
   release smoke|package|core|validate [--tag RELEASE-TAG]
+  system-report-check [--manifest FILE] [--no-subprocess --xsh-bin FILE --script FILE]
 
 internal container commands are intentionally omitted from public help.
 """
@@ -239,6 +241,7 @@ proc dispatch(command: Str, args: List[Str]) [fs, process, env, error, io] {
 
       return installations.install(ctx)
     }
+    "system-report-check" => return system_reports.validate_and_run(ctx, args)
     "release" => {
       let default_tag = env.get_or("RELEASE_TAG", "")?
       let parsed = cli.parse(

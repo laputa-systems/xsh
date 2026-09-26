@@ -2856,6 +2856,114 @@ fn fs_root_record(id: i64) -> LoweredValue {
     LoweredValue::Record(Arc::new(BTreeMap::from([(Arc::from("id"), LoweredValue::Int(id))])))
 }
 
+fn lowered_fs_root_children_result(
+    result: fs_module::RootChildrenResult,
+    span: Span,
+) -> Result<LoweredValue, RuntimeError> {
+    let children = result
+        .children
+        .into_iter()
+        .map(|path| {
+            path_value_from_pathbuf(path)
+                .map(LoweredValue::Path)
+                .map_err(|error| error.with_span(span))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(LoweredValue::Record(Arc::new(BTreeMap::from([
+        (
+            Arc::from("state"),
+            LoweredValue::Str(result.state.into()),
+        ),
+        (
+            Arc::from("enumeration_succeeded"),
+            LoweredValue::Bool(result.enumeration_succeeded),
+        ),
+        (Arc::from("children"), LoweredValue::List(children)),
+        (
+            Arc::from("errno"),
+            result
+                .errno
+                .map_or(LoweredValue::Null, LoweredValue::Int),
+        ),
+        (
+            Arc::from("error_kind"),
+            result
+                .error_kind
+                .map_or(LoweredValue::Null, |kind| LoweredValue::Str(kind.into())),
+        ),
+    ]))))
+}
+
+fn lowered_fs_root_read_result(result: fs_module::RootReadResult) -> LoweredValue {
+    LoweredValue::Record(Arc::new(BTreeMap::from([
+        (
+            Arc::from("state"),
+            LoweredValue::Str(result.state.into()),
+        ),
+        (
+            Arc::from("data"),
+            result
+                .data
+                .map_or(LoweredValue::Null, |data| LoweredValue::Bytes(data.into())),
+        ),
+        (
+            Arc::from("errno"),
+            result
+                .errno
+                .map_or(LoweredValue::Null, LoweredValue::Int),
+        ),
+        (
+            Arc::from("error_kind"),
+            result
+                .error_kind
+                .map_or(LoweredValue::Null, |kind| LoweredValue::Str(kind.into())),
+        ),
+        (
+            Arc::from("truncated"),
+            LoweredValue::Bool(result.truncated),
+        ),
+    ])))
+}
+
+fn lowered_fs_root_filesystem_stats(result: fs_module::RootFilesystemStats) -> LoweredValue {
+    LoweredValue::Record(Arc::new(BTreeMap::from([
+        (
+            Arc::from("state"),
+            LoweredValue::Str(result.state.into()),
+        ),
+        (
+            Arc::from("total_bytes"),
+            result.total_bytes.map_or(LoweredValue::Null, LoweredValue::Int),
+        ),
+        (
+            Arc::from("used_bytes"),
+            result.used_bytes.map_or(LoweredValue::Null, LoweredValue::Int),
+        ),
+        (
+            Arc::from("available_bytes"),
+            result
+                .available_bytes
+                .map_or(LoweredValue::Null, LoweredValue::Int),
+        ),
+        (
+            Arc::from("block_size_bytes"),
+            result
+                .block_size_bytes
+                .map_or(LoweredValue::Null, LoweredValue::Int),
+        ),
+        (
+            Arc::from("errno"),
+            result.errno.map_or(LoweredValue::Null, LoweredValue::Int),
+        ),
+        (
+            Arc::from("error_kind"),
+            result
+                .error_kind
+                .map_or(LoweredValue::Null, |kind| LoweredValue::Str(kind.into())),
+        ),
+    ])))
+}
+
 fn lowered_filesystem_stats_record(stats: fs_module::FilesystemStats) -> LoweredValue {
     LoweredValue::Record(Arc::new(BTreeMap::from([
         (
@@ -4114,6 +4222,29 @@ impl Evaluator {
                     Err(error) => lowered_result_err_value(error),
                 }
             }
+            RuntimeOp::FsRootChildren if values.len() == 2 || values.len() == 3 => {
+                let max_entries = lowered_int_arg_or(
+                    values.get(2).cloned(),
+                    65_536,
+                    "fs.root_children",
+                    span,
+                )?;
+                let path = lowered_path_arg(
+                    values.get(1).cloned().expect("checked value length"),
+                    "fs.root_children",
+                    span,
+                )?;
+                let root = values.first().cloned().expect("checked value length");
+                let rel = pathbuf_from_path_value(&path);
+                match lowered_fs_root_dir(&self.fs_roots, &root, span)
+                    .and_then(|dir| fs_module::rooted_children(dir, &rel, max_entries, span))
+                {
+                    Ok(result) => {
+                        lowered_result_ok(lowered_fs_root_children_result(result, span)?)
+                    }
+                    Err(error) => lowered_result_err_value(error),
+                }
+            }
             RuntimeOp::FsRootRead if values.len() == 2 => {
                 let path = lowered_path_arg(
                     values.pop().expect("checked value length"),
@@ -4126,6 +4257,42 @@ impl Evaluator {
                     .and_then(|dir| fs_module::rooted_read(dir, &rel, span))
                 {
                     Ok(bytes) => lowered_result_ok(LoweredValue::Bytes(bytes.into())),
+                    Err(error) => lowered_result_err_value(error),
+                }
+            }
+            RuntimeOp::FsRootReadResult if values.len() == 2 || values.len() == 3 => {
+                let max_bytes = lowered_int_arg_or(
+                    values.get(2).cloned(),
+                    1_048_576,
+                    "fs.root_read_result",
+                    span,
+                )?;
+                let path = lowered_path_arg(
+                    values.get(1).cloned().expect("checked value length"),
+                    "fs.root_read_result",
+                    span,
+                )?;
+                let root = values.first().cloned().expect("checked value length");
+                let rel = pathbuf_from_path_value(&path);
+                match lowered_fs_root_dir(&self.fs_roots, &root, span).and_then(|dir| {
+                    fs_module::rooted_read_result(dir, &rel, max_bytes, span)
+                }) {
+                    Ok(result) => lowered_result_ok(lowered_fs_root_read_result(result)),
+                    Err(error) => lowered_result_err_value(error),
+                }
+            }
+            RuntimeOp::FsRootFilesystemStats if values.len() == 2 => {
+                let path = lowered_path_arg(
+                    values.get(1).cloned().expect("checked value length"),
+                    "fs.root_filesystem_stats",
+                    span,
+                )?;
+                let root = values.first().cloned().expect("checked value length");
+                let rel = pathbuf_from_path_value(&path);
+                match lowered_fs_root_dir(&self.fs_roots, &root, span).and_then(|dir| {
+                    fs_module::rooted_filesystem_stats(dir, &rel, span)
+                }) {
+                    Ok(result) => lowered_result_ok(lowered_fs_root_filesystem_stats(result)),
                     Err(error) => lowered_result_err_value(error),
                 }
             }
@@ -5592,6 +5759,110 @@ impl Evaluator {
                     ))]))
                 }
             }
+            RuntimeOp::LinuxNetworkDump if values.is_empty() => {
+                if !self.linux_dry_run() && !self.linux_real() {
+                    lowered_result_err_value(RuntimeError::new(
+                        "linux-unimplemented",
+                        "linux.* boot primitives require XSH_LINUX_DRY_RUN=1 or XSH_LINUX_REAL=1",
+                    ).with_span(span))
+                } else if self.linux_real() && !self.linux_dry_run() {
+                    lowered_runtime_result(linux_module::network_dump(span), span)?
+                } else {
+                    self.linux_dry_run_log("network_dump", &[], span)?;
+                    let link = LoweredValue::Record(Arc::new(BTreeMap::from([
+                        (Arc::from("ifindex"), LoweredValue::Int(2)),
+                        (Arc::from("name"), LoweredValue::Str("eth0".into())),
+                        (
+                            Arc::from("name_bytes"),
+                            LoweredValue::Bytes(b"eth0\0".to_vec().into()),
+                        ),
+                        (Arc::from("hardware_type"), LoweredValue::Int(1)),
+                        (Arc::from("flags"), LoweredValue::Int(1)),
+                        (Arc::from("mtu"), LoweredValue::Int(1500)),
+                        (
+                            Arc::from("address"),
+                            LoweredValue::Bytes(vec![2, 0, 0, 0, 0, 1].into()),
+                        ),
+                        (Arc::from("broadcast"), LoweredValue::Null),
+                        (Arc::from("master_ifindex"), LoweredValue::Null),
+                        (Arc::from("lower_ifindex"), LoweredValue::Null),
+                        (Arc::from("operstate"), LoweredValue::Int(6)),
+                        (Arc::from("kind"), LoweredValue::Null),
+                        (Arc::from("rx_bytes"), LoweredValue::Int(4096)),
+                        (Arc::from("tx_bytes"), LoweredValue::Int(2048)),
+                        (Arc::from("attributes"), LoweredValue::List(Vec::new())),
+                    ])));
+                    let address = LoweredValue::Record(Arc::new(BTreeMap::from([
+                        (Arc::from("ifindex"), LoweredValue::Int(2)),
+                        (Arc::from("family"), LoweredValue::Str("inet".into())),
+                        (Arc::from("prefix_length"), LoweredValue::Int(24)),
+                        (Arc::from("scope"), LoweredValue::Int(0)),
+                        (Arc::from("flags"), LoweredValue::Int(0)),
+                        (
+                            Arc::from("address"),
+                            LoweredValue::Str("192.0.2.10".into()),
+                        ),
+                        (Arc::from("local"), LoweredValue::Str("192.0.2.10".into())),
+                        (
+                            Arc::from("broadcast"),
+                            LoweredValue::Str("192.0.2.255".into()),
+                        ),
+                        (Arc::from("label"), LoweredValue::Str("eth0".into())),
+                        (
+                            Arc::from("preferred_lifetime_seconds"),
+                            LoweredValue::Int(4_294_967_295),
+                        ),
+                        (
+                            Arc::from("valid_lifetime_seconds"),
+                            LoweredValue::Int(4_294_967_295),
+                        ),
+                        (Arc::from("attributes"), LoweredValue::List(Vec::new())),
+                    ])));
+                    let route = LoweredValue::Record(Arc::new(BTreeMap::from([
+                        (Arc::from("family"), LoweredValue::Str("inet".into())),
+                        (Arc::from("destination_prefix_length"), LoweredValue::Int(0)),
+                        (Arc::from("source_prefix_length"), LoweredValue::Int(0)),
+                        (Arc::from("destination"), LoweredValue::Str("0.0.0.0".into())),
+                        (Arc::from("source"), LoweredValue::Null),
+                        (Arc::from("gateway"), LoweredValue::Str("192.0.2.1".into())),
+                        (Arc::from("preferred_source"), LoweredValue::Null),
+                        (Arc::from("output_ifindex"), LoweredValue::Int(2)),
+                        (Arc::from("input_ifindex"), LoweredValue::Null),
+                        (Arc::from("table"), LoweredValue::Int(254)),
+                        (Arc::from("priority"), LoweredValue::Int(100)),
+                        (Arc::from("route_type"), LoweredValue::Int(1)),
+                        (Arc::from("protocol"), LoweredValue::Int(3)),
+                        (Arc::from("scope"), LoweredValue::Int(0)),
+                        (Arc::from("flags"), LoweredValue::Int(0)),
+                        (Arc::from("nexthops"), LoweredValue::List(Vec::new())),
+                        (Arc::from("attributes"), LoweredValue::List(Vec::new())),
+                    ])));
+                    let rule = LoweredValue::Record(Arc::new(BTreeMap::from([
+                        (Arc::from("family"), LoweredValue::Str("inet".into())),
+                        (Arc::from("destination_prefix_length"), LoweredValue::Int(0)),
+                        (Arc::from("source_prefix_length"), LoweredValue::Int(0)),
+                        (Arc::from("destination"), LoweredValue::Null),
+                        (Arc::from("source"), LoweredValue::Null),
+                        (Arc::from("input_name"), LoweredValue::Null),
+                        (Arc::from("output_name"), LoweredValue::Null),
+                        (Arc::from("priority"), LoweredValue::Int(32766)),
+                        (Arc::from("table"), LoweredValue::Int(254)),
+                        (Arc::from("fwmark"), LoweredValue::Null),
+                        (Arc::from("fwmask"), LoweredValue::Null),
+                        (Arc::from("action"), LoweredValue::Int(1)),
+                        (Arc::from("flags"), LoweredValue::Int(0)),
+                        (Arc::from("attributes"), LoweredValue::List(Vec::new())),
+                    ])));
+                    lowered_result_ok(LoweredValue::Record(Arc::new(BTreeMap::from([
+                        (Arc::from("state"), LoweredValue::Str("complete".into())),
+                        (Arc::from("links"), LoweredValue::List(vec![link])),
+                        (Arc::from("addresses"), LoweredValue::List(vec![address])),
+                        (Arc::from("routes"), LoweredValue::List(vec![route])),
+                        (Arc::from("rules"), LoweredValue::List(vec![rule])),
+                        (Arc::from("issues"), LoweredValue::List(Vec::new())),
+                    ]))))
+                }
+            }
             RuntimeOp::LinuxLinkUp if values.len() == 1 => {
                 let interface = lowered_str_arg_owned(values.pop(), "", "linux.link_up", span)?;
                 if !self.linux_dry_run() && !self.linux_real() {
@@ -6754,6 +7025,9 @@ impl Evaluator {
             }
             RuntimeOp::SystemMemory if values.is_empty() => {
                 lowered_runtime_result(system::memory(span), span)?
+            }
+            RuntimeOp::SystemExecutionUnits if values.is_empty() => {
+                lowered_runtime_result(system::execution_units(span), span)?
             }
             RuntimeOp::SystemOsRelease if values.is_empty() => {
                 lowered_runtime_result(system::os_release(span), span)?

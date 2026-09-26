@@ -330,3 +330,7 @@ Oracle implementations and useful prior art:
 - https://github.com/lemonrock/linux-support — aggregate typed diagnostics, scoped identities and unavailable observations; old code, not a dependency recommendation.
 
 The intended result is one ordinary XSH command demonstrating that the language can compose a rich typed model of Linux directly, with reusable stdlib capabilities and independently measured coverage—not that XSH can launch all the old utilities and package their text as JSON.
+
+## Handoff (2026-09-26)
+
+`master` was already aligned with `origin/master` at `c038f4d`, so there were no upstream commits to reconcile. The current implementation is unfinished. The Rust library cross-check for `aarch64-unknown-linux-musl` passed inside the amd64 build of `Dockerfile.test` with the target Rust flags, but the required ARM64 `xsh-test` driver could not build or run: Docker BuildKit exposes only amd64 and the ARM64 image fails with `exec format error`. The focused `xsht test system-report` run failed on XSH parse/type diagnostics; the affected model, collector, live collector, CLI, and tests remain unverified after the partial fixes. Resume by clearing those diagnostics and rerunning the focused XSH tests, then the pinned ARM64 Linux driver when an ARM64-capable Docker worker is available. The coverage command still validates its manifest and process traces only; reference adapters, paired raw capture/replay, scoring, mutation/network audits, and measured performance evidence remain incomplete.

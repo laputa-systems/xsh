@@ -1983,7 +1983,12 @@ files are written through a temporary file in the destination directory.
 - `fs.root_path(root: FsRoot) -> Result[Path]`.
 - `fs.root(root: FsRoot, path: Path) -> Result[FsRoot]`.
 - `fs.root_read(root: FsRoot, path: Path) -> Result[Bytes]`.
+- `fs.root_read_result(root: FsRoot, path: Path,
+  max_bytes: Int = 1048576) -> Result[FsRootReadResult]`.
+- `fs.root_filesystem_stats(root: FsRoot, path: Path) -> Result[FsRootFilesystemStats]`.
 - `fs.root_read_text(root: FsRoot, path: Path) -> Result[Str]`.
+- `fs.root_children(root: FsRoot, path: Path,
+  max_entries: Int = 65536) -> Result[FsRootChildrenResult]`.
 - `fs.root_write(root: FsRoot, path: Path, data: Bytes) -> Result[Unit]`.
 - `fs.root_write(root: FsRoot, path: Path, data: Str) -> Result[Unit]`.
 - `fs.root_write_atomic(root: FsRoot, path: Path, data: Bytes) -> Result[Unit]`.
@@ -2074,6 +2079,30 @@ on symlink target text without traversing it. This makes the rooted APIs the
 preferred surface when a trusted root directory is combined with untrusted
 relative names. `FsRoot` confines pathname resolution; it is not a process
 sandbox and does not restrict mounts or device nodes below the root.
+`fs.root_children` returns child paths relative to the root, ordered by their
+raw filename bytes so non-UTF-8 names remain lossless. `max_entries` may be
+between zero and 65,536. `FsRootChildrenResult` carries `state`,
+`enumeration_succeeded`, `children`, `errno`, and `error_kind`; state is one of
+`complete`, `absent`, `permission_denied`, `read_failure`, or `truncated`.
+Children are sorted by raw filename bytes before applying `max_entries`.
+Enumeration reads at most 65,537 directory entries to detect a larger
+directory. Partial paths remain available when a directory read fails or
+reaches either bound, and an empty `complete` result means the directory was
+successfully enumerated and contained no entries.
+`fs.root_read_result` reads at most `max_bytes` and permits values from zero
+through 16,777,216. Its result records `state`, optional `data`, optional
+`errno`, optional stable `error_kind`, and `truncated`; expected missing and
+permission-denied paths are observations, while an invalid bound is an error.
+`FsRootReadResult` uses `state` values `observed`, `absent`,
+`permission_denied`, or `read_failure`. `error_kind` uses stable I/O classes
+such as `not_found`, `permission_denied`, `interrupted`, and `other`.
+`fs.root_filesystem_stats` queries capacity through a directory opened below
+the root, without converting the path back to an ambient host path. Its path
+must be relative to the root. `FsRootFilesystemStats.state` is `observed`,
+`absent`, `permission_denied`, `malformed`, `read_failure`, or `range_failure`; byte fields
+are exact signed integers when observed, and remain null when the platform
+counters cannot fit that representation. The record preserves `errno` and a
+stable `error_kind` for filesystem-query failures.
 `fs.root_mkdir` applies the requested mode to the created directory through a
 handle resolved below the root, so the caller's umask does not change the final
 mode.
@@ -2638,6 +2667,22 @@ them. A failure reading `/etc/fstab` in `linux.mount_all` has kind
 - `linux.routes() -> Result[Stream[Record]]`, returning
   `{family, dst, prefix_len, gateway, dev, metric, flags}` records from
   `/proc/net/route` and `/proc/net/ipv6_route`.
+- `linux.network_dump() -> Result[LinuxNetworkDump]`, collecting links,
+  addresses, routes, and policy rules through read-only `NETLINK_ROUTE` dumps.
+  Its typed records preserve each raw attribute as `LinuxNetlinkAttribute`
+  bytes, including attributes unknown to this version. Link names also retain
+  their original bytes when they cannot be represented as UTF-8. A malformed
+  object is skipped with a `LinuxNetworkIssue`; dump-level framing, kernel,
+  sender, sequence, port, interruption, truncation, and limit failures are
+  represented in the result state and issue list while other dump groups are
+  still attempted. Interrupted dumps are retried once. Each request has a
+  three-second deadline and limits of 8 MiB, 65,536 messages, and 4,096
+  datagrams. Interface indices are scoped to the current network namespace and
+  can change when a link is recreated. This API is the complete routing view;
+  `linux.routes()` remains a compatibility projection over the procfs route
+  files. Multipath route attributes retain per-nexthop interface, flags, raw
+  hop weight, and gateway data. A route's single output interface remains a
+  separate field and does not become a fabricated multipath entry.
 - `linux.meminfo() -> Result[Record]`, returning
   `{total, free, available, buffers, cached, swap_total, swap_free}` byte
   counts from `/proc/meminfo`.
@@ -2828,6 +2873,10 @@ are omitted rather than reported with partial process data.
   `release`, `version`, and `machine`.
 - `system.memory() -> Result[Record]`, returning `total`, `available`, `free`,
   `swap_total`, and `swap_free` byte counts.
+- `system.execution_units() -> Result[SystemExecutionUnits]`, returning the
+  actual `page_size_bytes` and `clock_ticks_per_second` values for the current
+  process environment. Use these values when converting procfs page and tick
+  counters.
 - `system.os_release() -> Result[Record]`, returning `name`, `pretty_name`,
   `version`, `version_id`, and `id`.
 

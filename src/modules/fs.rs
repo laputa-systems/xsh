@@ -102,6 +102,32 @@ pub(crate) struct FsMount {
     pub(crate) readonly: bool,
 }
 
+pub(crate) struct RootChildrenResult {
+    pub(crate) state: &'static str,
+    pub(crate) enumeration_succeeded: bool,
+    pub(crate) children: Vec<PathBuf>,
+    pub(crate) errno: Option<i64>,
+    pub(crate) error_kind: Option<&'static str>,
+}
+
+pub(crate) struct RootReadResult {
+    pub(crate) state: &'static str,
+    pub(crate) data: Option<Vec<u8>>,
+    pub(crate) errno: Option<i64>,
+    pub(crate) error_kind: Option<&'static str>,
+    pub(crate) truncated: bool,
+}
+
+pub(crate) struct RootFilesystemStats {
+    pub(crate) state: &'static str,
+    pub(crate) total_bytes: Option<i64>,
+    pub(crate) used_bytes: Option<i64>,
+    pub(crate) available_bytes: Option<i64>,
+    pub(crate) block_size_bytes: Option<i64>,
+    pub(crate) errno: Option<i64>,
+    pub(crate) error_kind: Option<&'static str>,
+}
+
 pub(crate) struct RootedInstallOptions {
     pub(crate) mode: i64,
     pub(crate) parents: bool,
@@ -149,6 +175,297 @@ pub(crate) fn open_root(path: PathBuf, span: Span) -> Result<Root, RuntimeError>
 pub(crate) fn rooted_open_root(root: &Root, path: &Path, span: Span) -> Result<Root, RuntimeError> {
     root.open_dir(path)
         .map_err(|error| RuntimeError::new("fs-root", error.to_string()).with_span(span))
+}
+
+pub(crate) fn rooted_children(
+    root: &Root,
+    path: &Path,
+    max_entries: i64,
+    span: Span,
+) -> Result<RootChildrenResult, RuntimeError> {
+    const MAX_ROOT_CHILDREN: usize = 65_536;
+
+    if !(0..=MAX_ROOT_CHILDREN as i64).contains(&max_entries) {
+        return Err(RuntimeError::new(
+            "fs-root-children",
+            format!("max_entries must be between 0 and {MAX_ROOT_CHILDREN}"),
+        )
+        .with_span(span));
+    }
+    let max_entries = usize::try_from(max_entries).map_err(|_| {
+        RuntimeError::new(
+            "fs-root-children",
+            "max_entries is outside the supported integer range",
+        )
+        .with_span(span)
+    })?;
+
+    let directory = match root.open_dir(path) {
+        Ok(directory) => directory,
+        Err(error) => return Ok(root_children_failure(error, Vec::new())),
+    };
+    let mut entries = match rfs::Dir::read_from(&directory) {
+        Ok(entries) => entries,
+        Err(error) => return Ok(root_children_failure(error.into(), Vec::new())),
+    };
+    let mut children = Vec::new();
+    let mut hard_limit_reached = false;
+
+    while let Some(entry) = entries.read() {
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(error) => return Ok(root_children_failure(error.into(), children)),
+        };
+        let name = entry.file_name().to_bytes();
+        if name == b"." || name == b".." {
+            continue;
+        }
+        if children.len() == MAX_ROOT_CHILDREN {
+            hard_limit_reached = true;
+            break;
+        }
+
+        let mut child = if path == Path::new(".") {
+            PathBuf::new()
+        } else {
+            path.to_path_buf()
+        };
+        child.push(OsString::from_vec(name.to_vec()));
+        children.push(child);
+    }
+
+    sort_root_children(&mut children);
+    let truncated = hard_limit_reached || children.len() > max_entries;
+    if children.len() > max_entries {
+        children.truncate(max_entries);
+    }
+    if truncated {
+        return Ok(RootChildrenResult {
+            state: "truncated",
+            enumeration_succeeded: false,
+            children,
+            errno: None,
+            error_kind: None,
+        });
+    }
+
+    Ok(RootChildrenResult {
+        state: "complete",
+        enumeration_succeeded: true,
+        children,
+        errno: None,
+        error_kind: None,
+    })
+}
+
+fn root_children_failure(error: std::io::Error, children: Vec<PathBuf>) -> RootChildrenResult {
+    let (state, error_kind) = match error.kind() {
+        ErrorKind::NotFound => ("absent", "not_found"),
+        ErrorKind::PermissionDenied => ("permission_denied", "permission_denied"),
+        ErrorKind::Interrupted => ("read_failure", "interrupted"),
+        ErrorKind::WouldBlock => ("read_failure", "would_block"),
+        ErrorKind::TimedOut => ("read_failure", "timed_out"),
+        ErrorKind::InvalidInput => ("read_failure", "invalid_input"),
+        ErrorKind::InvalidData => ("read_failure", "invalid_data"),
+        ErrorKind::UnexpectedEof => ("read_failure", "unexpected_eof"),
+        ErrorKind::OutOfMemory => ("read_failure", "out_of_memory"),
+        _ => ("read_failure", "other"),
+    };
+    let mut children = children;
+    sort_root_children(&mut children);
+    RootChildrenResult {
+        state,
+        enumeration_succeeded: false,
+        children,
+        errno: error.raw_os_error().map(i64::from),
+        error_kind: Some(error_kind),
+    }
+}
+
+fn sort_root_children(children: &mut [PathBuf]) {
+    children.sort_by(|left, right| {
+        left.as_os_str()
+            .as_bytes()
+            .cmp(right.as_os_str().as_bytes())
+    });
+}
+
+pub(crate) fn rooted_read_result(
+    root: &Root,
+    path: &Path,
+    max_bytes: i64,
+    span: Span,
+) -> Result<RootReadResult, RuntimeError> {
+    const HARD_MAX_BYTES: i64 = 16_777_216;
+
+    if !(0..=HARD_MAX_BYTES).contains(&max_bytes) {
+        return Err(RuntimeError::new(
+            "fs-root-read-result",
+            format!("max_bytes must be between 0 and {HARD_MAX_BYTES}"),
+        )
+        .with_span(span));
+    }
+    let max_bytes = usize::try_from(max_bytes).map_err(|_| {
+        RuntimeError::new(
+            "fs-root-read-result",
+            "max_bytes is outside the supported integer range",
+        )
+        .with_span(span)
+    })?;
+
+    let file = match root.open_file(path) {
+        Ok(file) => file,
+        Err(error) => return Ok(root_read_failure(error, None)),
+    };
+    let read_limit = u64::try_from(max_bytes)
+        .ok()
+        .and_then(|limit| limit.checked_add(1))
+        .ok_or_else(|| {
+            RuntimeError::new("fs-root-read-result", "max_bytes cannot be incremented")
+                .with_span(span)
+        })?;
+    let mut data = Vec::with_capacity(max_bytes.saturating_add(1));
+    let read_result = file.take(read_limit).read_to_end(&mut data);
+    if let Err(error) = read_result {
+        return Ok(root_read_failure(error, (!data.is_empty()).then_some(data)));
+    }
+
+    let truncated = data.len() > max_bytes;
+    if truncated {
+        data.truncate(max_bytes);
+    }
+    Ok(RootReadResult {
+        state: "observed",
+        data: Some(data),
+        errno: None,
+        error_kind: None,
+        truncated,
+    })
+}
+
+pub(crate) fn rooted_filesystem_stats(
+    root: &Root,
+    path: &Path,
+    span: Span,
+) -> Result<RootFilesystemStats, RuntimeError> {
+    rooted_check_path(path, "fs-root-filesystem-stats", span)?;
+    let directory = match root.open_dir(path) {
+        Ok(directory) => directory,
+        Err(error) => return Ok(root_filesystem_stats_failure(error)),
+    };
+    let stats = match rfs::fstatvfs(&directory) {
+        Ok(stats) => stats,
+        Err(error) => return Ok(root_filesystem_stats_failure(error.into())),
+    };
+    let block_size = if stats.f_frsize == 0 {
+        stats.f_bsize
+    } else {
+        stats.f_frsize
+    };
+    if block_size == 0 {
+        return Ok(root_filesystem_stats_malformed("invalid_block_size"));
+    }
+    let Some(total_bytes) = stats.f_blocks.checked_mul(block_size) else {
+        return Ok(root_filesystem_stats_range_failure());
+    };
+    let Some(free_bytes) = stats.f_bfree.checked_mul(block_size) else {
+        return Ok(root_filesystem_stats_range_failure());
+    };
+    let Some(available_bytes) = stats.f_bavail.checked_mul(block_size) else {
+        return Ok(root_filesystem_stats_range_failure());
+    };
+    let Some(used_bytes) = total_bytes.checked_sub(free_bytes) else {
+        return Ok(root_filesystem_stats_malformed(
+            "free_blocks_exceed_total_blocks",
+        ));
+    };
+    let (Ok(total_bytes), Ok(used_bytes), Ok(available_bytes), Ok(block_size_bytes)) = (
+        i64::try_from(total_bytes),
+        i64::try_from(used_bytes),
+        i64::try_from(available_bytes),
+        i64::try_from(block_size),
+    ) else {
+        return Ok(root_filesystem_stats_range_failure());
+    };
+    Ok(RootFilesystemStats {
+        state: "observed",
+        total_bytes: Some(total_bytes),
+        used_bytes: Some(used_bytes),
+        available_bytes: Some(available_bytes),
+        block_size_bytes: Some(block_size_bytes),
+        errno: None,
+        error_kind: None,
+    })
+}
+
+fn root_filesystem_stats_failure(error: std::io::Error) -> RootFilesystemStats {
+    let (state, error_kind) = match error.kind() {
+        ErrorKind::NotFound => ("absent", "not_found"),
+        ErrorKind::PermissionDenied => ("permission_denied", "permission_denied"),
+        ErrorKind::Interrupted => ("read_failure", "interrupted"),
+        ErrorKind::WouldBlock => ("read_failure", "would_block"),
+        ErrorKind::TimedOut => ("read_failure", "timed_out"),
+        ErrorKind::InvalidInput => ("read_failure", "invalid_input"),
+        ErrorKind::InvalidData => ("read_failure", "invalid_data"),
+        ErrorKind::UnexpectedEof => ("read_failure", "unexpected_eof"),
+        ErrorKind::OutOfMemory => ("read_failure", "out_of_memory"),
+        _ => ("read_failure", "other"),
+    };
+    RootFilesystemStats {
+        state,
+        total_bytes: None,
+        used_bytes: None,
+        available_bytes: None,
+        block_size_bytes: None,
+        errno: error.raw_os_error().map(i64::from),
+        error_kind: Some(error_kind),
+    }
+}
+
+fn root_filesystem_stats_range_failure() -> RootFilesystemStats {
+    RootFilesystemStats {
+        state: "range_failure",
+        total_bytes: None,
+        used_bytes: None,
+        available_bytes: None,
+        block_size_bytes: None,
+        errno: None,
+        error_kind: Some("counter_out_of_range"),
+    }
+}
+
+fn root_filesystem_stats_malformed(error_kind: &'static str) -> RootFilesystemStats {
+    RootFilesystemStats {
+        state: "malformed",
+        total_bytes: None,
+        used_bytes: None,
+        available_bytes: None,
+        block_size_bytes: None,
+        errno: None,
+        error_kind: Some(error_kind),
+    }
+}
+
+fn root_read_failure(error: std::io::Error, data: Option<Vec<u8>>) -> RootReadResult {
+    let (state, error_kind) = match error.kind() {
+        ErrorKind::NotFound => ("absent", "not_found"),
+        ErrorKind::PermissionDenied => ("permission_denied", "permission_denied"),
+        ErrorKind::Interrupted => ("read_failure", "interrupted"),
+        ErrorKind::WouldBlock => ("read_failure", "would_block"),
+        ErrorKind::TimedOut => ("read_failure", "timed_out"),
+        ErrorKind::InvalidInput => ("read_failure", "invalid_input"),
+        ErrorKind::InvalidData => ("read_failure", "invalid_data"),
+        ErrorKind::UnexpectedEof => ("read_failure", "unexpected_eof"),
+        ErrorKind::OutOfMemory => ("read_failure", "out_of_memory"),
+        _ => ("read_failure", "other"),
+    };
+    RootReadResult {
+        state,
+        data,
+        errno: error.raw_os_error().map(i64::from),
+        error_kind: Some(error_kind),
+        truncated: false,
+    }
 }
 
 pub(crate) fn rooted_read(root: &Root, path: &Path, span: Span) -> Result<Vec<u8>, RuntimeError> {

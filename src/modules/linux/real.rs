@@ -1,7 +1,7 @@
 use crate::runtime::value::{LiveStream, RuntimeError, Value};
 use crate::source::Span;
 use common::parse_uevent_message;
-use rustix::net::netlink::{self, SocketAddrNetlink};
+use rustix::net::netlink::{KOBJECT_UEVENT, SocketAddrNetlink};
 use rustix::net::{AddressFamily, RecvFlags, SocketFlags, SocketType, bind, recv, socket_with};
 use std::io;
 use std::os::fd::OwnedFd;
@@ -119,7 +119,7 @@ impl UeventStream {
             AddressFamily::NETLINK,
             SocketType::DGRAM,
             SocketFlags::CLOEXEC,
-            Some(netlink::KOBJECT_UEVENT),
+            Some(KOBJECT_UEVENT),
         )
         .map_err(|error| {
             RuntimeError::new("linux-uevent", io::Error::from(error).to_string()).with_span(span)
@@ -167,6 +167,7 @@ mod fs;
 mod kernel;
 mod mount;
 mod net;
+mod netlink;
 mod parity;
 
 pub(crate) use boot::{
@@ -188,6 +189,7 @@ pub(crate) use net::{
     dhcp_send_release, dhcp_socket, flush_ipv4_addresses, interfaces, link_down, link_up, routes,
     set_ipv4_address,
 };
+pub(crate) use netlink::network_dump;
 pub(crate) use parity::{
     blkid, block_devices, depmod, fsck, modinfo, modprobe, open_files, partition_table,
     write_partition_table,
