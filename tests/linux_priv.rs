@@ -6,6 +6,7 @@
 
 use std::io::Read;
 use std::os::unix::ffi::OsStrExt;
+use std::os::unix::fs::PermissionsExt;
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -150,6 +151,30 @@ fn xsh_string_literal(text: &str) -> String {
     }
     quoted.push('"');
     quoted
+}
+
+fn assert_no_child_process_trace(trace: &str) {
+    let mut initial_execs = 0;
+    for line in trace.lines() {
+        let Some((call_prefix, _)) = line.split_once('(') else {
+            continue;
+        };
+        let syscall = call_prefix.split_whitespace().last().unwrap_or("");
+        if syscall == "execve" || syscall == "execveat" {
+            initial_execs += 1;
+        }
+        assert!(
+            syscall != "fork" && syscall != "vfork",
+            "collector created a child: {line}"
+        );
+        if syscall == "clone" || syscall == "clone3" {
+            assert!(
+                line.contains("CLONE_THREAD"),
+                "collector attempted a process clone: {line}"
+            );
+        }
+    }
+    assert_eq!(initial_execs, 1, "collector performed a secondary exec");
 }
 
 fn lacks_capability(output: &std::process::Output) -> bool {
@@ -478,6 +503,164 @@ env XSH_LINUX_REAL=1 XSH_LINUX_DRY_RUN=0 {
         .read_to_end(&mut stderr)
         .expect("read child stderr");
     assert!(stderr.is_empty(), "{}", String::from_utf8_lossy(&stderr));
+}
+
+#[test]
+fn system_report_sysctl_denial_as_unprivileged_reader_creates_no_child() {
+    assert_eq!(unsafe { libc::geteuid() }, 0, "the denied-source fixture requires root to drop privileges");
+    let fixture = tempfile::Builder::new()
+        .prefix("xsh-system-report-denied-")
+        .tempdir_in("/tmp")
+        .expect("create denied-source fixture");
+    let root = fixture.path();
+    for directory in [
+        root.to_path_buf(),
+        root.join("proc"),
+        root.join("proc/sys"),
+        root.join("proc/sys/kernel"),
+        root.join("proc/sys/vm"),
+    ] {
+        std::fs::create_dir_all(&directory).expect("create fixture directory");
+        std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o755))
+            .expect("make fixture directory traversable by the unprivileged reader");
+    }
+    std::fs::write(root.join("proc/cmdline"), "quiet\n").expect("write fixture command line");
+    std::fs::write(root.join("proc/modules"), "").expect("write fixture module list");
+    let denied = root.join("proc/sys/kernel/pid_max");
+    std::fs::write(&denied, "4194304\n").expect("write denied sysctl");
+    std::fs::set_permissions(&denied, std::fs::Permissions::from_mode(0o000))
+        .expect("deny sysctl read to the unprivileged reader");
+    std::fs::write(root.join("proc/sys/vm/swappiness"), "60\n")
+        .expect("write readable neighboring sysctl");
+    for readable in [
+        root.join("proc/cmdline"),
+        root.join("proc/modules"),
+        root.join("proc/sys/vm/swappiness"),
+    ] {
+        std::fs::set_permissions(&readable, std::fs::Permissions::from_mode(0o644))
+            .expect("make valid source readable by the unprivileged reader");
+    }
+    let script = root.join("collect.xsh");
+    let source = format!(
+        "use core.lib.system_report_live as collector\nlet root = fs.open_root(fp{})?\nlet report = collector.collect_from_root(root, \"fixture-arch\", 4096, 100, \"kernel\", true)?\nlet encoded = json.encode(report)?\nprint $encoded\n",
+        xsh_string_literal(root.to_str().expect("fixture path is UTF-8")),
+    );
+    std::fs::write(&script, source).expect("write collector fixture script");
+    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o644))
+        .expect("make collector fixture script readable");
+    let trace = root.join("process.trace");
+    std::fs::write(&trace, "").expect("create process trace");
+    std::fs::set_permissions(&trace, std::fs::Permissions::from_mode(0o666))
+        .expect("make process trace writable by the unprivileged tracer");
+
+    let output = Command::new("/usr/bin/strace")
+        .args(["-f", "-qq", "-s", "4096", "-e", "trace=process", "-o"])
+        .arg(&trace)
+        .arg("--")
+        .arg(env!("CARGO_BIN_EXE_xsh"))
+        .arg(&script)
+        .current_dir(env!("CARGO_MANIFEST_DIR"))
+        .uid(65534)
+        .gid(65534)
+        .env_clear()
+        .env("PATH", "/nonexistent")
+        .env("HOME", "/nonexistent")
+        .env("LANG", "C")
+        .output()
+        .expect("run collector as an unprivileged reader");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let process_trace = std::fs::read_to_string(&trace).expect("read process trace");
+    assert_no_child_process_trace(&process_trace);
+    let report: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("collector emits one JSON report");
+    let sysctls = report["kernel"]["sysctls"]
+        .as_array()
+        .expect("kernel sysctls are an array");
+    let pid_max = sysctls
+        .iter()
+        .find(|item| item["name"] == "kernel.pid_max")
+        .expect("pid_max observation is retained");
+    assert_eq!(pid_max["value"]["state"], "permission_denied");
+    assert!(pid_max["value"]["value"].is_null());
+    let swappiness = sysctls
+        .iter()
+        .find(|item| item["name"] == "vm.swappiness")
+        .expect("neighboring sysctl is retained");
+    assert_eq!(swappiness["value"]["state"], "observed");
+    assert_eq!(swappiness["value"]["value"], "60");
+    assert!(report["issues"].as_array().is_some_and(|issues| issues.iter().any(|issue| {
+        issue["section"] == "kernel"
+            && issue["field"] == "sysctl.kernel.pid_max"
+            && issue["state"] == "permission_denied"
+            && issue["errno"].as_i64() == Some(i64::from(libc::EACCES))
+    })));
+}
+
+#[test]
+fn system_report_pci_keeps_numeric_ids_without_a_label_database_or_helper() {
+    let fixture = tempfile::Builder::new()
+        .prefix("xsh-system-report-no-ids-")
+        .tempdir_in("/tmp")
+        .expect("create database-free source root");
+    let root = fixture.path();
+    let device = root.join("sys/bus/pci/devices/0000:00:01.0");
+    std::fs::create_dir_all(&device).expect("create PCI source directory");
+    for (name, value) in [
+        ("vendor", "0x1234\n"),
+        ("device", "0xabcd\n"),
+        ("subsystem_vendor", "0x1234\n"),
+        ("subsystem_device", "0x0001\n"),
+        ("class", "0x020000\n"),
+        ("revision", "0x01\n"),
+    ] {
+        std::fs::write(device.join(name), value).expect("write numeric PCI source");
+    }
+    let script = root.join("collect.xsh");
+    let source = format!(
+        "use core.lib.system_report_live as collector\nlet root = fs.open_root(fp{})?\nlet report = collector.collect_from_root(root, \"fixture-arch\", 4096, 100, \"pci\", true)?\nlet encoded = json.encode(report)?\nprint $encoded\n",
+        xsh_string_literal(root.to_str().expect("fixture path is UTF-8")),
+    );
+    std::fs::write(&script, source).expect("write database-free collector script");
+    let trace = root.join("process-and-files.trace");
+    let output = Command::new("/usr/bin/strace")
+        .args(["-f", "-qq", "-s", "4096", "-e", "trace=process,file", "-o"])
+        .arg(&trace)
+        .arg("--")
+        .arg(env!("CARGO_BIN_EXE_xsh"))
+        .arg(&script)
+        .current_dir(env!("CARGO_MANIFEST_DIR"))
+        .env_clear()
+        .env("PATH", "/nonexistent")
+        .env("HOME", "/nonexistent")
+        .env("LANG", "C")
+        .output()
+        .expect("run PCI collector without command search or label database");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let syscall_trace = std::fs::read_to_string(&trace).expect("read collector trace");
+    assert_no_child_process_trace(&syscall_trace);
+    for database in ["pci.ids", "usb.ids", "hwdb.bin", "/usr/share/hwdata"] {
+        assert!(
+            !syscall_trace.contains(database),
+            "collector accessed a label database: {database}"
+        );
+    }
+    let report: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("collector emits one JSON report");
+    let functions = report["pci"]["functions"]
+        .as_array()
+        .expect("PCI functions are an array");
+    assert_eq!(functions.len(), 1);
+    assert_eq!(functions[0]["address"], "0000:00:01.0");
+    assert_eq!(functions[0]["vendor_id"].as_i64(), Some(0x1234));
+    assert_eq!(functions[0]["device_id"].as_i64(), Some(0xabcd));
 }
 
 struct ChildCleanup(Child);

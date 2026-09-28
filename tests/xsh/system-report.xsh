@@ -1,6 +1,6 @@
 use core.lib.system_report as report_model
 
-type CpuFreqPolicy = {
+type FixtureCpuFreqPolicy = {
   name: Str,
   related_cpus: List[Int],
   affected_cpus: List[Int],
@@ -26,7 +26,7 @@ type CpuFreqPolicy = {
   boost_scope: Str?,
 }
 
-type PciFunction = {
+type FixturePciFunction = {
   address: Str?,
   domain: Int?,
   bus: Int?,
@@ -49,8 +49,8 @@ type PciFunction = {
 }
 
 type SystemReportModel = module {
-  export pure frequency_policies_for_cpu(policies: List[CpuFreqPolicy], cpu_id: Int) -> List[CpuFreqPolicy]
-  export pure pci_parent_function(functions: List[PciFunction], child: PciFunction) -> PciFunction?
+  export pure frequency_policies_for_cpu(policies: List[FixtureCpuFreqPolicy], cpu_id: Int) -> List[FixtureCpuFreqPolicy]
+  export pure pci_parent_function(functions: List[FixturePciFunction], child: FixturePciFunction) -> FixturePciFunction?
   export pure parse_cpu_list(text: Str) -> Result[List[Int]]
   export pure select_report_section(report: Record, selected: Str) -> Result[Record]
   export pure encode_report_json(report: Record, sensitive: Bool, pretty: Bool) -> Result[Str]
@@ -61,26 +61,549 @@ type SystemReportModel = module {
 type PciAddress = {domain: Int, bus: Int, device: Int, function: Int}
 type UsbDescriptorRecord = {offset: Int, length: Int, descriptor_type: Int, raw: Bytes}
 type SourceRead = {observation: report_model.TextObservation, errno: Int?, error_kind: Str?}
+type BoundedNumericObservation = {value: Int?, state: report_model.ObservationState?, error_kind: Str?, errno: Int?}
+type TransparentHugePagePolicy = {selected: Str, available: List[Str]}
 type PciCollection = {status: report_model.SectionStatus, functions: List[report_model.PciFunction], issues: List[report_model.CollectionIssue]}
 type NetworkCollection = {status: report_model.SectionStatus, links: List[report_model.NetworkLink], routes: List[report_model.NetworkRoute], rules: List[report_model.NetworkRule], issues: List[report_model.CollectionIssue]}
+type UsbControllerObservation = {address: Str?, state: report_model.ObservationState, errno: Int?, error_kind: Str?}
+type ClassParentObservation = {target: Path?, state: report_model.ObservationState, errno: Int?, error_kind: Str?}
 type SmbiosParseResult = {records: List[report_model.FirmwareRecord], issues: List[Str], truncated: Bool}
+type ProcStatFieldIssue = {field: Str, state: report_model.ObservationState}
+type ProcStat = {pid: Int, parent_pid: Int, command: Str, state: Str, thread_count: Int?, start_ticks: Int, virtual_bytes: Int?, resident_pages: Int?, field_issues: List[ProcStatFieldIssue]}
+type UsbDescriptorAlternateFixture = {
+  configuration_value: Int?,
+  interface_number: Int,
+  setting_number: Int,
+  class_code: Int,
+  subclass: Int,
+  protocol: Int,
+  endpoints: List[report_model.UsbEndpoint],
+}
 
 type SystemReportCollectors = module {
   export pure parse_pci_address(value: Str) -> Result[PciAddress]
   export pure parse_pci_hex_value(value: Str) -> Result[Int]
+  export pure pci_parent_address(target: Path, child_address: Str) -> Str?
   export pure parse_usb_descriptor_stream(data: Bytes) -> Result[List[UsbDescriptorRecord]]
-  export proc read_source_text(root: FsRoot, path: Path, max_bytes: Int = 65536) [fs, error] -> SourceRead
+  export proc read_source_text(root: FsRoot, path: Path, max_bytes: Int = 65536, preserve_whitespace: Bool = false) [fs, error] -> SourceRead
+  export pure bounded_number(source: SourceRead, nonnegative: Bool) -> BoundedNumericObservation
+  export pure parse_uptime_seconds(source: SourceRead) -> BoundedNumericObservation
+  export pure bounded_size_bytes(source: SourceRead) -> BoundedNumericObservation
+  export pure valid_psi_average(value: Str) -> Bool
+  export pure parse_thp_policy(value: Str) -> Result[TransparentHugePagePolicy]
+  export pure decode_os_release_value(raw: Str) -> Str?
+  export pure valid_os_release_key(key: Str) -> Bool
+  export pure valid_os_release_id(value: Str) -> Bool
+  export pure parse_block_scheduler(value: Str) -> BlockScheduler?
+  export pure decode_device_tree_strings(raw: Str) -> List[Str]?
   export proc collect_pci(root: FsRoot) [fs, error] -> PciCollection
 }
 
+type BlockScheduler = {active: Str, available: List[Str]}
+
 type SystemReportLiveCollector = module {
-  export proc collect_from_root(root: FsRoot, architecture: Str, page_size_bytes: Int, clock_ticks_per_second: Int, selected: Str = "", sensitive: Bool = false, include_local_mount_usage: Bool = false) [fs, time, error] -> report_model.SystemReport
-  export proc collect_live(selected: Str = "", sensitive: Bool = false) [env, fs, time, error] -> report_model.SystemReport
+  export proc parse_usb_alternates(data: Bytes) [error] -> Result[List[UsbDescriptorAlternateFixture]]
+  export proc collect_from_root(root: FsRoot, architecture: Str, page_size_bytes: Int, clock_ticks_per_second: Int, selected: Str = "", sensitive: Bool = false, include_local_mount_usage: Bool = false) [fs, time, error] -> Result[report_model.SystemReport]
+  export proc collect_live(selected: Str = "", sensitive: Bool = false) [env, fs, time, process, error] -> Result[report_model.SystemReport]
   export pure assemble_network_dump(value: LinuxNetworkDump) -> NetworkCollection
+  export proc link_network_device_sources(root: FsRoot, assembled: NetworkCollection, pci_functions: List[report_model.PciFunction], usb_devices: List[report_model.UsbDevice]) [fs, error] -> NetworkCollection
+  export proc optional_driver_name(root: FsRoot, source_path: Path) [fs, error] -> SourceRead
+  export proc usb_controller_address(root: FsRoot, device_path: Path) [fs, error] -> UsbControllerObservation
+  export proc class_parent_target(root: FsRoot, entry: Path) [fs, error] -> ClassParentObservation
   export pure parse_smbios_table(data: Bytes) -> Result[SmbiosParseResult]
+  export pure parse_proc_stat(text: Str) -> Result[ProcStat]
+  export pure usb_parent_address(target: Path) -> Str?
+  export pure pci_address_in_target(target: Path) -> Str?
+  export pure link_usb_parents(devices: List[report_model.UsbDevice]) -> List[report_model.UsbDevice]
 }
 
-pure cpu_policy(name: Str, related_cpus: List[Int], affected_cpus: List[Int]) -> CpuFreqPolicy {
+proc test_system_report_class_parent_retains_independent_fallback_and_link_failure() [fs, error] {
+  let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
+  let root = fs.tempdir()?
+  defer fs.close_root(root)?
+  fs.root_mkdir(root, p"sys/class/drm/card0", parents: true)?
+
+  let directory = collector.class_parent_target(root, p"sys/class/drm/card0")
+  test.ok(directory.state == report_model.Observed)?
+  test.eq(directory.target, null)?
+
+  fs.root_symlink(root, p"../../devices/pci0000:00/0000:03:00.0/drm/card1", p"sys/class/drm/card1")?
+  let fallback = collector.class_parent_target(root, p"sys/class/drm/card1")
+  test.ok(fallback.state == report_model.Observed)?
+  test.eq(collector.usb_parent_address(fallback.target.require(Path)?), "0000:03:00.0")?
+
+  fs.root_write(root, p"sys/class/drm/card0/device", "not a symlink")?
+  let failed = collector.class_parent_target(root, p"sys/class/drm/card0")
+  test.ok(failed.state == report_model.ReadFailure)?
+  test.ok(failed.errno != null)?
+
+  let disappeared = collector.class_parent_target(root, p"sys/class/drm/card2")
+  test.ok(disappeared.state == report_model.Disappeared)?
+}
+
+proc test_system_report_device_classes_reject_truncated_names_and_attributes() [fs, time, error] {
+  let root = fs.tempdir()?
+  defer fs.close_root(root)?
+  fs.root_mkdir(root, p"sys/class/input/input0", parents: true)?
+  fs.root_mkdir(root, p"sys/class/sound/card0", parents: true)?
+  fs.root_mkdir(root, p"sys/class/drm/card0", parents: true)?
+  var padding = " "
+  while padding.count_chars() < 16384 {
+    padding = f"${padding}${padding}"
+  }
+  fs.root_write(root, p"sys/class/input/input0/name", f"private keyboard\n${padding}")?
+  fs.root_write(root, p"sys/class/sound/card0/id", f"private card\n${padding}")?
+  fs.root_write(root, p"sys/class/drm/card0/status", f"connected\n${padding}")?
+  fs.root_write(root, p"sys/class/drm/card0/enabled", "enabled\n")?
+
+  let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
+  let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "devices", true)?
+  test.eq(value.devices.devices.len(), 3)?
+  let input = (value.devices.devices |> where .class == "input" |> first())?
+  let sound = (value.devices.devices |> where .class == "sound" |> first())?
+  let drm = (value.devices.devices |> where .class == "drm" |> first())?
+  test.eq(input.name.value, "input0")?
+  test.eq(sound.name.value, "card0")?
+  test.eq(drm.name.value, "card0")?
+  test.ok(drm.attributes |> any .name == "enabled" and .value.value == "enabled")?
+  test.ok(!(drm.attributes |> any .name == "status"))?
+  for field in ["input.input0.name", "sound.card0.id", "drm.card0.status"] {
+    test.ok(value.issues |> any .section == "devices" and .field == field and .state == report_model.Truncated)?
+  }
+  test.eq(value.devices.status.state, report_model.Partial)?
+}
+
+proc test_system_report_device_classes_keep_sound_and_input_without_drm() [fs, time, error] {
+  let root = fs.tempdir()?
+  defer fs.close_root(root)?
+  fs.root_mkdir(root, p"sys/class/sound/card0", parents: true)?
+  fs.root_mkdir(root, p"sys/class/input/input0", parents: true)?
+  fs.root_write(root, p"sys/class/sound/card0/id", "fixture sound\n")?
+  fs.root_write(root, p"sys/class/sound/card0/number", "0\n")?
+  fs.root_write(root, p"sys/class/input/input0/name", "fixture keyboard\n")?
+  fs.root_symlink(root, p"../../../devices/virtual/sound/card0", p"sys/class/sound/card0/device")?
+  fs.root_symlink(root, p"../../../devices/virtual/input/input0", p"sys/class/input/input0/device")?
+
+  let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
+  let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "devices", true)?
+  test.eq(value.devices.status.state, report_model.Complete)?
+  test.ok(value.devices.status.enumeration_succeeded)?
+  test.eq(value.devices.devices.len(), 2)?
+  let sound = (value.devices.devices |> where .class == "sound" |> first())?
+  let input = (value.devices.devices |> where .class == "input" |> first())?
+  test.eq(sound.name.value, "fixture sound")?
+  test.eq(input.name.value, "fixture keyboard")?
+  test.ok(sound.parent_pci_function_index == null)?
+  test.ok(input.parent_usb_device_index == null)?
+  test.ok(!(value.devices.devices |> any .class == "drm"))?
+}
+
+proc test_system_report_usb_controller_link_distinguishes_directories_disappearance_and_failures() [fs, error] {
+  let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
+  let root = fs.tempdir()?
+  defer fs.close_root(root)?
+  fs.root_mkdir(root, p"sys/bus/usb/devices/1-2", parents: true)?
+
+  let directory = collector.usb_controller_address(root, p"sys/bus/usb/devices/1-2")
+  test.ok(directory.state == report_model.Observed)?
+  test.eq(directory.address, null)?
+
+  fs.root_symlink(root, p"../../../devices/pci0000:00/0000:04:00.4/usb4/4-2", p"sys/bus/usb/devices/4-2")?
+  let linked = collector.usb_controller_address(root, p"sys/bus/usb/devices/4-2")
+  test.ok(linked.state == report_model.Observed)?
+  test.eq(linked.address, "0000:04:00.4")?
+
+  let disappeared = collector.usb_controller_address(root, p"sys/bus/usb/devices/4-3")
+  test.ok(disappeared.state == report_model.Disappeared)?
+
+  fs.root_write(root, p"sys/bus/usb/devices/4-4", "not a directory")?
+  let failed = collector.usb_controller_address(root, p"sys/bus/usb/devices/4-4")
+  test.ok(failed.state == report_model.ReadFailure)?
+  test.ok(failed.errno != null)?
+}
+
+proc test_system_report_driver_link_distinguishes_unbound_and_unreadable_devices() [fs, error] {
+  let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
+  let root = fs.tempdir()?
+  defer fs.close_root(root)?
+  fs.root_mkdir(root, p"sys/devices/example", parents: true)?
+
+  let unbound = collector.optional_driver_name(root, p"sys/devices/example/driver")
+  test.ok(unbound.observation.state == report_model.Absent)?
+  test.eq(unbound.observation.value, null)?
+
+  fs.root_symlink(root, p"example-driver", p"sys/devices/example/driver")?
+  let bound = collector.optional_driver_name(root, p"sys/devices/example/driver")
+  test.ok(bound.observation.state == report_model.Observed)?
+  test.eq(bound.observation.value, "example-driver")?
+  fs.root_remove(root, p"sys/devices/example/driver")?
+
+  fs.root_write(root, p"sys/devices/example/driver", "not a symlink")?
+  let failed = collector.optional_driver_name(root, p"sys/devices/example/driver")
+  test.ok(failed.observation.state == report_model.ReadFailure)?
+  test.eq(failed.observation.value, null)?
+  test.ok(failed.errno != null)?
+}
+
+proc test_system_report_network_device_links_keep_absence_separate_from_failures() [fs, error] {
+  let model = module.load(p"core/lib/system_report.xsh")?.require(SystemReportModel)?
+  let snapshot = model.decode_report_json(json.encode(json_report_fixture())?)?.require(report_model.SystemReport)?
+  let source: NetworkCollection = {
+    status: {state: report_model.Complete, enumeration_succeeded: true},
+    links: [{...snapshot.network.links[0], driver: null}],
+    routes: [],
+    rules: [],
+    issues: [],
+  }
+  let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
+  let root = fs.tempdir()?
+  defer fs.close_root(root)?
+  fs.root_mkdir(root, p"sys/class/net/eth0", parents: true)?
+
+  let absent = collector.link_network_device_sources(root, source, [], [])
+  test.ok(absent.status.state == report_model.Complete)?
+  test.eq(absent.issues, [])?
+  test.eq(absent.links[0].parent_pci_function_index, null)?
+
+  fs.root_symlink(root, p"../../../devices/pci0000:00/0001:02:03.0", p"sys/class/net/eth0/device")?
+  let linked = collector.link_network_device_sources(root, source, snapshot.pci.functions, [])
+  test.ok(linked.status.state == report_model.Complete)?
+  test.eq(linked.links[0].parent_pci_function_index, 1)?
+  fs.root_remove(root, p"sys/class/net/eth0/device")?
+  fs.root_write(root, p"sys/class/net/eth0/device", "not a symlink")?
+  let failed = collector.link_network_device_sources(root, source, [], [])
+  test.ok(failed.status.state == report_model.Partial)?
+  let parent_issues = failed.issues |> where .field == "links.2.parent"
+  test.eq(parent_issues.len(), 1)?
+  test.ok(parent_issues[0].state == report_model.ReadFailure)?
+  test.ok(parent_issues[0].errno != null)?
+}
+
+proc test_system_report_usb_descriptors_keep_configuration_and_endpoint_ownership() [fs, error] {
+  let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
+  let descriptors = b"\x09\x02\x19\x00\x01\x01\x00\x80\x32\x09\x04\x00\x00\x01\xff\x00\x00\x00\x07\x05\x81\x02\x40\x00\x00\x09\x02\x19\x00\x01\x02\x00\x80\x32\x09\x04\x00\x00\x01\x08\x06\x50\x00\x07\x05\x82\x02\x00\x02\x00"
+  let alternates = collector.parse_usb_alternates(descriptors)?
+  test.eq(alternates.len(), 2)?
+  test.eq(alternates[0].configuration_value, 1)?
+  test.eq(alternates[1].configuration_value, 2)?
+  test.eq(alternates[0].endpoints.len(), 1)?
+  test.eq(alternates[1].endpoints.len(), 1)?
+  test.eq(alternates[0].endpoints[0].address, 129)?
+  test.eq(alternates[1].endpoints[0].address, 130)?
+}
+
+proc test_system_report_usb_descriptor_parser_rejects_truncated_and_orphan_records() [fs, error] {
+  let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
+  test.error_kind(collector.parse_usb_alternates(b"\x02\x01"), "SystemReportUsbDescriptorError.Invalid")?
+  test.error_kind(collector.parse_usb_alternates(b"\x09\x02\x08\x00\x01\x01\x00\x80\x32"), "SystemReportUsbDescriptorError.Invalid")?
+  test.error_kind(collector.parse_usb_alternates(b"\x09\x02\xff\xff\x01\x01\x00\x80\x32"), "SystemReportUsbDescriptorError.Invalid")?
+  test.error_kind(collector.parse_usb_alternates(b"\x04\x04\x00\x00"), "SystemReportUsbDescriptorError.Invalid")?
+  test.error_kind(collector.parse_usb_alternates(b"\x07\x05\x81\x02\x40\x00\x00"), "SystemReportUsbDescriptorError.Invalid")?
+}
+
+proc test_system_report_usb_descriptor_parser_enforces_configuration_total_length() [fs, error] {
+  let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
+  test.error_kind(collector.parse_usb_alternates(b"\x09\x02\x09\x00\x01\x01\x00\x80\x32\x09\x04\x00\x00\x00\xff\x00\x00\x00"), "SystemReportUsbDescriptorError.Invalid")?
+  test.error_kind(collector.parse_usb_alternates(b"\x09\x02\x12\x00\x01\x01\x00\x80\x32\x09\x04\x00\x00\x01\xff\x00\x00\x00\x07\x05\x81\x02\x40\x00\x00"), "SystemReportUsbDescriptorError.Invalid")?
+}
+
+proc test_system_report_identity_uses_vendor_os_release_only_when_local_file_is_absent() [fs, time, error] {
+  let root = fs.tempdir()?
+  defer fs.close_root(root)?
+  fs.root_mkdir(root, p"usr/lib", parents: true)?
+  fs.root_mkdir(root, p"proc/self/ns", parents: true)?
+  fs.root_symlink(root, p"uts:[1001]", p"proc/self/ns/uts")?
+  fs.root_symlink(root, p"ipc:[1002]", p"proc/self/ns/ipc")?
+  fs.root_symlink(root, p"user:[1003]", p"proc/self/ns/user")?
+  fs.root_symlink(root, p"time:[1004]", p"proc/self/ns/time")?
+  fs.root_write(root, p"usr/lib/os-release", "ID=vendor\nPRETTY_NAME=\"Vendor \\\"Linux\\\"\"\nVERSION=\"v\\$token\"\n")?
+  let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
+  let fallback = collector.collect_from_root(root, "fixture-arch", 4096, 100, "identity", true)?
+  let fallback_os = fallback.identity.os_release.require(report_model.OsRelease)?
+  test.eq(fallback_os.id, "vendor")?
+  test.eq(fallback_os.pretty_name, "Vendor \"Linux\"")?
+  test.eq(fallback_os.version, "v$token")?
+  test.eq(fallback.scope.uts_namespace.value, "uts:[1001]")?
+  test.eq(fallback.scope.ipc_namespace.value, "ipc:[1002]")?
+  test.eq(fallback.scope.user_namespace.value, "user:[1003]")?
+  test.eq(fallback.scope.time_namespace.value, "time:[1004]")?
+  fs.root_mkdir(root, p"etc", parents: true)?
+  fs.root_write(root, p"etc/os-release", "ID=local\n")?
+  let local = collector.collect_from_root(root, "fixture-arch", 4096, 100, "identity", true)?
+  let local_os = local.identity.os_release.require(report_model.OsRelease)?
+  test.eq(local_os.id, "local")?
+  test.eq(local_os.pretty_name, null)?
+}
+
+proc test_system_report_identity_withholds_malformed_os_release_values_without_vendor_fallback() [fs, time, error] {
+  let root = fs.tempdir()?
+  defer fs.close_root(root)?
+  fs.root_mkdir(root, p"etc", parents: true)?
+  fs.root_mkdir(root, p"usr/lib", parents: true)?
+  fs.root_write(root, p"usr/lib/os-release", "ID=vendor\nVERSION_ID=99\n")?
+  fs.root_write(root, p"etc/os-release", "# local source\nID=local\nVERSION_ID=\"unterminated\nPRETTY_NAME=\"Local System\"\nNAME=Unquoted Name\nnot-an-assignment\n")?
+  let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
+  let report = collector.collect_from_root(root, "fixture-arch", 4096, 100, "identity", true)?
+  let os = report.identity.os_release.require(report_model.OsRelease)?
+  test.eq(os.id, "local")?
+  test.eq(os.version_id, null)?
+  test.eq(os.pretty_name, "Local System")?
+  test.eq(os.name, null)?
+  test.ok(report.issues |> any .field == "os_release.VERSION_ID" and .state == report_model.Malformed)?
+  test.ok(report.issues |> any .field == "os_release.NAME" and .state == report_model.Malformed)?
+  test.ok(report.issues |> any .field == "os_release.line.5" and .state == report_model.Malformed)?
+
+  fs.root_write(root, p"etc/os-release", "ID=first\nID=second\nVERSION_ID=2\n")?
+  let repeated = collector.collect_from_root(root, "fixture-arch", 4096, 100, "identity", true)?
+  let repeated_os = repeated.identity.os_release.require(report_model.OsRelease)?
+  test.eq(repeated_os.id, "second")?
+  test.eq(repeated_os.version_id, "2")?
+  test.ok(!(repeated.issues |> any .field.starts_with("os_release.")))?
+
+  fs.root_write(root, p"etc/os-release", "ID=first\nID=bad value\nVERSION_ID=2\n")?
+  let malformed_duplicate = collector.collect_from_root(root, "fixture-arch", 4096, 100, "identity", true)?
+  let retained_os = malformed_duplicate.identity.os_release.require(report_model.OsRelease)?
+  test.eq(retained_os.id, "first")?
+  test.eq(retained_os.version_id, "2")?
+  test.ok(malformed_duplicate.issues |> any .field == "os_release.ID" and .state == report_model.Malformed)?
+}
+
+proc test_system_report_identity_marks_os_release_without_id_partial() [fs, time, error] {
+  let root = fs.tempdir()?
+  defer fs.close_root(root)?
+  fs.root_mkdir(root, p"proc/sys/kernel/random", parents: true)?
+  fs.root_mkdir(root, p"etc", parents: true)?
+  fs.root_mkdir(root, p"usr/lib", parents: true)?
+  fs.root_write(root, p"proc/sys/kernel/osrelease", "fixture-release\n")?
+  fs.root_write(root, p"proc/version", "Linux fixture build\n")?
+  fs.root_write(root, p"proc/sys/kernel/hostname", "fixture-host\n")?
+  fs.root_write(root, p"proc/sys/kernel/random/boot_id", "fixture-boot-id\n")?
+  fs.root_write(root, p"proc/uptime", "73.5 12.0\n")?
+  fs.root_write(root, p"etc/os-release", "NAME=\"Local System\"\nPRETTY_NAME=\"Local Test System\"\n")?
+  fs.root_write(root, p"usr/lib/os-release", "ID=vendor\n")?
+
+  let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
+  let collected = collector.collect_from_root(root, "fixture-arch", 4096, 100, "identity", true)?
+  let os = collected.identity.os_release.require(report_model.OsRelease)?
+  test.eq(os.id, null)?
+  test.eq(os.name, "Local System")?
+  test.eq(os.pretty_name, "Local Test System")?
+  test.eq(collected.identity.status.state, report_model.Partial)?
+  test.ok(collected.issues |> any .section == "identity" and .field == "os_release.ID" and .state == report_model.Malformed)?
+
+  fs.root_write(root, p"etc/os-release", "ID=first\nID=\nNAME=\"Local System\"\n")?
+  let malformed_duplicate = collector.collect_from_root(root, "fixture-arch", 4096, 100, "identity", true)?
+  let retained = malformed_duplicate.identity.os_release.require(report_model.OsRelease)?
+  test.eq(retained.id, "first")?
+  test.ok(malformed_duplicate.issues |> any .section == "identity" and .field == "os_release.ID" and .state == report_model.Malformed)?
+
+  fs.root_write(root, p"etc/os-release", "ID=first\nID=\"Not A Distro\"\n")?
+  let invalid_spelling = collector.collect_from_root(root, "fixture-arch", 4096, 100, "identity", true)?
+  test.eq(invalid_spelling.identity.os_release.require(report_model.OsRelease)?.id, "first")?
+  test.ok(invalid_spelling.issues |> any .section == "identity" and .field == "os_release.ID" and .state == report_model.Malformed)?
+}
+
+proc test_system_report_os_release_value_parser_rejects_malformed_assignments() [fs, error] {
+  let collectors = module.load(p"core/lib/system_report_collect.xsh")?.require(SystemReportCollectors)?
+  test.eq(collectors.decode_os_release_value("\"Local \\\"System\\\"\""), "Local \"System\"")?
+  test.eq(collectors.decode_os_release_value("\"v\\$token\""), "v$token")?
+  test.eq(collectors.decode_os_release_value("'literal $value'"), "literal $value")?
+  test.eq(collectors.decode_os_release_value("plain"), "plain")?
+  test.eq(collectors.decode_os_release_value("v1.2-release_3"), "v1.2-release_3")?
+  test.eq(collectors.decode_os_release_value("\"https://example.test/path?query=yes\""), "https://example.test/path?query=yes")?
+  for malformed in ["\"unterminated", "Unquoted Name", "\"unescaped $value\"", "plain\\", "semi;colon", "path/segment", "pipe|value", "hash#value", "escaped\\ space", " leading", "trailing ", "\"quoted\" "] {
+    test.ok(collectors.decode_os_release_value(malformed) == null)?
+  }
+  test.ok(collectors.valid_os_release_key("VERSION_ID"))?
+  test.ok(collectors.valid_os_release_key("VENDOR_FIELD2"))?
+  for valid_id in ["linux", "my_os-2.3", "0"] {
+    test.ok(collectors.valid_os_release_id(valid_id))?
+  }
+  for invalid_id in ["", "Ubuntu", "with space", "has/slash", "with:colon", "é"] {
+    test.ok(!collectors.valid_os_release_id(invalid_id))?
+  }
+  for malformed_key in ["", "1ID", "ID-NAME", "ID "] {
+    test.ok(!collectors.valid_os_release_key(malformed_key))?
+  }
+}
+
+proc test_system_report_device_tree_strings_require_complete_terminated_values() [fs, error] {
+  let collectors = module.load(p"core/lib/system_report_collect.xsh")?.require(SystemReportCollectors)?
+  test.eq(collectors.decode_device_tree_strings("ARM Test Board\0"), ["ARM Test Board"])?
+  test.eq(collectors.decode_device_tree_strings("vendor,board\0vendor,soc\0"), ["vendor,board", "vendor,soc"])?
+  for malformed in ["", "ARM Test Board", "vendor,board\0vendor,soc", "vendor,board\0\0", "\0"] {
+    test.ok(collectors.decode_device_tree_strings(malformed) == null)?
+  }
+}
+
+proc test_system_report_arm_identity_preserves_heterogeneous_cpus_without_dmi() [fs, time, error] {
+  let root = fs.tempdir()?
+  defer fs.close_root(root)?
+  fs.root_mkdir(root, p"proc", parents: true)?
+  fs.root_mkdir(root, p"sys/firmware/devicetree/base", parents: true)?
+  fs.root_mkdir(root, p"sys/devices/system/cpu/cpu0", parents: true)?
+  fs.root_mkdir(root, p"sys/devices/system/cpu/cpu1", parents: true)?
+  fs.root_write(root, p"sys/firmware/devicetree/base/model", "ARM Example Board\0")?
+  fs.root_write(root, p"sys/firmware/devicetree/base/compatible", "vendor,example\0arm,v8\0")?
+  fs.root_write(root, p"sys/devices/system/cpu/possible", "0-1\n")?
+  fs.root_write(root, p"sys/devices/system/cpu/present", "0-1\n")?
+  fs.root_write(root, p"sys/devices/system/cpu/online", "0-1\n")?
+  fs.root_write(root, p"sys/devices/system/cpu/offline", "\n")?
+  fs.root_write(root, p"proc/cpuinfo", "processor: 0\nCPU implementer: 0x41\nCPU part: 0xd05\nProcessor: Cortex-A55\nFeatures: fp asimd\n\nprocessor: 1\nCPU implementer: 0x41\nCPU part: 0xd0b\nProcessor: Cortex-A76\nFeatures: fp asimd crc32\n")?
+  let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
+  let identity = collector.collect_from_root(root, "aarch64", 65536, 100, "identity", true)?
+  let platform = identity.identity.firmware.require(report_model.FirmwareIdentity)?
+  test.eq(identity.identity.architecture, "aarch64")?
+  test.eq(platform.source, "device-tree")?
+  test.eq(platform.device_tree_model.value, "ARM Example Board")?
+  test.eq(platform.device_tree_compatible.len(), 2)?
+  test.eq(platform.device_tree_compatible[0].value, "vendor,example")?
+  test.eq(platform.device_tree_compatible[1].value, "arm,v8")?
+  test.eq(platform.vendor, null)?
+  let cpus = collector.collect_from_root(root, "aarch64", 65536, 100, "cpu", true)?
+  test.eq(cpus.cpu.cpus.len(), 2)?
+  test.eq(cpus.cpu.cpus[0].model_id, "0xd05")?
+  test.eq(cpus.cpu.cpus[0].model, "Cortex-A55")?
+  test.eq(cpus.cpu.cpus[1].model_id, "0xd0b")?
+  test.eq(cpus.cpu.cpus[1].model, "Cortex-A76")?
+  let firmware = collector.collect_from_root(root, "aarch64", 65536, 100, "firmware", true)?
+  test.eq(firmware.firmware.source, "device-tree")?
+  test.eq(firmware.firmware.records.len(), 0)?
+
+  fs.root_remove(root, p"sys/firmware/devicetree/base/model")?
+  let compatible_only = collector.collect_from_root(root, "aarch64", 65536, 100, "firmware", true)?
+  test.eq(compatible_only.firmware.source, "device-tree")?
+  test.eq(compatible_only.firmware.records.len(), 0)?
+
+  fs.root_write(root, p"sys/firmware/devicetree/base/model", "ARM Example Board")?
+  fs.root_write(root, p"sys/firmware/devicetree/base/compatible", "vendor,example\0arm,v8")?
+  let invalid = collector.collect_from_root(root, "aarch64", 65536, 100, "identity", true)?
+  let invalid_platform = invalid.identity.firmware.require(report_model.FirmwareIdentity)?
+  test.eq(invalid_platform.source, "unavailable")?
+  test.eq(invalid_platform.device_tree_model.state, report_model.Malformed)?
+  test.eq(invalid_platform.device_tree_compatible.len(), 0)?
+  test.ok(invalid.issues |> any .field == "firmware.device_tree_model" and .state == report_model.Malformed)?
+  test.ok(invalid.issues |> any .field == "firmware.device_tree_compatible" and .state == report_model.Malformed)?
+  let invalid_firmware = collector.collect_from_root(root, "aarch64", 65536, 100, "firmware", true)?
+  test.eq(invalid_firmware.firmware.source, "unavailable")?
+  test.ok(invalid_firmware.issues |> any .field == "device_tree_model" and .state == report_model.Malformed)?
+  test.ok(invalid_firmware.issues |> any .field == "device_tree_compatible" and .state == report_model.Malformed)?
+}
+
+proc test_system_report_identity_rejects_truncated_source_prefixes() [fs, time, error] {
+  let root = fs.tempdir()?
+  defer fs.close_root(root)?
+  fs.root_mkdir(root, p"proc/sys/kernel", parents: true)?
+  fs.root_mkdir(root, p"etc", parents: true)?
+  fs.root_mkdir(root, p"usr/lib", parents: true)?
+  fs.root_mkdir(root, p"sys/class/dmi/id", parents: true)?
+  fs.root_mkdir(root, p"sys/firmware/devicetree/base", parents: true)?
+  fs.root_write(root, p"proc/sys/kernel/osrelease", "fixture-release\n")?
+  fs.root_write(root, p"proc/version", "Linux fixture build\n")?
+  fs.root_write(root, p"usr/lib/os-release", "ID=vendor\n")?
+  var padding = " "
+  while padding.count_chars() < 65536 {
+    padding = f"${padding}${padding}"
+  }
+  fs.root_write(root, p"etc/os-release", f"ID=partial\n${padding}")?
+  fs.root_write(root, p"proc/uptime", f"73.5 12.0\n${padding}")?
+  fs.root_write(root, p"sys/class/dmi/id/sys_vendor", f"Acme\n${padding}")?
+  fs.root_write(root, p"sys/firmware/devicetree/base/compatible", f"acme,board\0${padding}")?
+
+  let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
+  let partial = collector.collect_from_root(root, "fixture-arch", 4096, 100, "identity", true)?
+  test.eq(partial.identity.os_release, null)?
+  test.eq(partial.identity.uptime_seconds, null)?
+  let firmware = partial.identity.firmware.require(report_model.FirmwareIdentity)?
+  test.eq(firmware.vendor, null)?
+  test.eq(firmware.device_tree_compatible, [])?
+  test.eq(firmware.source, "unavailable")?
+  for field in ["os_release", "uptime", "firmware.vendor", "firmware.device_tree_compatible"] {
+    test.ok(partial.issues |> any .section == "identity" and .field == field and .state == report_model.Truncated)?
+  }
+  test.eq(partial.identity.status.state, report_model.Partial)?
+
+  fs.root_write(root, p"sys/firmware/devicetree/base/compatible", "acme,board\0acme,soc\0")?
+  let complete_dt = collector.collect_from_root(root, "fixture-arch", 4096, 100, "identity", true)?
+  let observed = complete_dt.identity.firmware.require(report_model.FirmwareIdentity)?
+  test.eq(observed.source, "device-tree")?
+  test.eq(observed.device_tree_compatible.len(), 2)?
+  test.eq(observed.device_tree_compatible[0].value, "acme,board")?
+}
+
+proc test_system_report_identity_retains_dmi_placeholder_text_as_raw_values() [fs, time, error] {
+  let root = fs.tempdir()?
+  defer fs.close_root(root)?
+  fs.root_mkdir(root, p"sys/class/dmi/id", parents: true)?
+  fs.root_write(root, p"sys/class/dmi/id/sys_vendor", "To Be Filled By O.E.M.\n")?
+  fs.root_write(root, p"sys/class/dmi/id/product_name", "Default string\n")?
+  fs.root_write(root, p"sys/class/dmi/id/board_name", "Not Specified\n")?
+  fs.root_write(root, p"sys/class/dmi/id/product_serial", "System Serial Number\n")?
+
+  let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
+  let collected = collector.collect_from_root(root, "fixture-arch", 4096, 100, "identity", true)?
+  let firmware = collected.identity.firmware.require(report_model.FirmwareIdentity)?
+  test.eq(firmware.source, "dmi")?
+  test.eq(firmware.vendor, "To Be Filled By O.E.M.")?
+  test.eq(firmware.product, "Default string")?
+  test.eq(firmware.board_product, "Not Specified")?
+  test.eq(firmware.serial.state, report_model.Observed)?
+  test.eq(firmware.serial.value, "System Serial Number")?
+  test.ok(!(collected.issues |> any .field.starts_with("firmware.")))?
+}
+
+proc test_system_report_scope_keeps_all_process_visible_namespace_identities() [fs, time, error] {
+  let root = fs.tempdir()?
+  defer fs.close_root(root)?
+  fs.root_mkdir(root, p"proc/self/ns", parents: true)?
+  for namespace in [
+    {name: "mnt", target: "mnt:[101]"},
+    {name: "net", target: "net:[102]"},
+    {name: "pid", target: "pid:[103]"},
+    {name: "cgroup", target: "cgroup:[104]"},
+    {name: "uts", target: "uts:[105]"},
+    {name: "ipc", target: "ipc:[106]"},
+    {name: "user", target: "user:[107]"},
+    {name: "time", target: "time:[108]"},
+  ] {
+    fs.root_symlink(root, fp"${namespace.target}", fp"proc/self/ns/${namespace.name}")?
+  }
+  fs.root_write(root, p"proc/self/cgroup", "0::/container.slice/workload\n")?
+
+  let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
+  let collected = collector.collect_from_root(root, "fixture-arch", 4096, 100, "identity", true)?
+  test.contains(collected.scope.host_claim, "process-visible")?
+  test.eq(collected.scope.mount_namespace.value, "mnt:[101]")?
+  test.eq(collected.scope.network_namespace.value, "net:[102]")?
+  test.eq(collected.scope.pid_namespace.value, "pid:[103]")?
+  test.eq(collected.scope.cgroup_namespace.value, "cgroup:[104]")?
+  test.eq(collected.scope.uts_namespace.value, "uts:[105]")?
+  test.eq(collected.scope.ipc_namespace.value, "ipc:[106]")?
+  test.eq(collected.scope.user_namespace.value, "user:[107]")?
+  test.eq(collected.scope.time_namespace.value, "time:[108]")?
+  test.eq(collected.scope.visible_cgroup.value, "0::/container.slice/workload")?
+  test.ok(!(collected.issues |> any .section == "scope"))?
+}
+
+proc test_system_report_identity_preserves_namespace_link_failures() [fs, time, error] {
+  let root = fs.tempdir()?
+  defer fs.close_root(root)?
+  fs.root_mkdir(root, p"proc/self/ns", parents: true)?
+  fs.root_write(root, p"proc/self/ns/mnt", "not a symlink")?
+  let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
+  let snapshot = collector.collect_from_root(root, "fixture-arch", 4096, 100, "identity", true)?
+  test.ok(snapshot.scope.mount_namespace.state == report_model.ReadFailure)?
+  test.eq(snapshot.scope.mount_namespace.value, null)?
+  let failures = snapshot.issues |> where .section == "scope" and .field == "mount_namespace"
+  test.eq(failures.len(), 1)?
+  test.ok(failures[0].state == report_model.ReadFailure)?
+  test.ok(failures[0].errno != null)?
+  test.ok(snapshot.scope.network_namespace.state == report_model.Absent)?
+  let selected = report_model.select_report_section(snapshot, "identity")?.require(report_model.SystemReport)?
+  test.eq((selected.issues |> where .section == "scope" and .field == "mount_namespace").len(), 1)?
+}
+
+pure cpu_policy(name: Str, related_cpus: List[Int], affected_cpus: List[Int]) -> FixtureCpuFreqPolicy {
   return {
     name: name,
     related_cpus: related_cpus,
@@ -108,7 +631,7 @@ pure cpu_policy(name: Str, related_cpus: List[Int], affected_cpus: List[Int]) ->
   }
 }
 
-pure pci_function(address: Str, parent_function_index: Int?) -> PciFunction {
+pure pci_function(address: Str, parent_function_index: Int?) -> FixturePciFunction {
   return {
     address: address,
     domain: 0,
@@ -156,6 +679,10 @@ pure json_report_fixture() -> Record {
       network_namespace: json_observation("observed", "net:[4026531840]"),
       pid_namespace: json_observation("observed", "pid:[4026531836]"),
       cgroup_namespace: json_observation("observed", "cgroup:[4026531835]"),
+      uts_namespace: json_observation("observed", "uts:[4026531838]"),
+      ipc_namespace: json_observation("observed", "ipc:[4026531839]"),
+      user_namespace: json_observation("observed", "user:[4026531841]"),
+      time_namespace: json_observation("observed", "time:[4026531842]"),
       visible_cgroup: json_observation("observed", "/user.slice/user-1000.slice"),
       page_size_bytes: 4096,
       clock_ticks_per_second: 100,
@@ -165,7 +692,7 @@ pure json_report_fixture() -> Record {
     identity: {
       status: json_section("complete"),
       kernel_release: "6.12-test",
-      kernel_build: null,
+      kernel_build: "Linux version 6.12-test (builder@private-build-host)",
       architecture: "x86_64",
       os_release: {id: "linux", name: "Linux", pretty_name: "Test Linux", version: null, version_id: null},
       hostname: json_observation("observed", "workstation-name"),
@@ -266,7 +793,7 @@ pure json_report_fixture() -> Record {
         product: json_observation("observed", "Composite Device"),
         serial: json_observation("observed", "usb-serial-private"),
         speed_mbps: "480",
-        configuration_count: 1,
+        configuration_count: 2,
         active_configuration: 1,
         power_control: "on",
         autosuspend_delay_ms: 2000,
@@ -276,7 +803,24 @@ pure json_report_fixture() -> Record {
           name: "1-2.3:1.0",
           driver: "usbhid",
           active_alternate: 0,
-          alternate_settings: [],
+          alternate_settings: [
+            {
+              configuration_value: 1,
+              number: 0,
+              class_code: 3,
+              subclass: 1,
+              protocol: 1,
+              endpoints: [{address: 129, direction: "in", transfer_type: "interrupt", max_packet_size: 64, interval: 10}],
+            },
+            {
+              configuration_value: 2,
+              number: 0,
+              class_code: 8,
+              subclass: 6,
+              protocol: 80,
+              endpoints: [{address: 130, direction: "in", transfer_type: "bulk", max_packet_size: 512, interval: 0}],
+            },
+          ],
         }],
       }],
     },
@@ -313,11 +857,11 @@ pure json_report_fixture() -> Record {
         minor: 1,
         root: json_observation("observed", "/"),
         target: json_observation("observed", "/home/private"),
-        mount_options: ["rw", "relatime"],
-        optional_fields: [],
+        mount_options: ["rw", "relatime", "context=private-mount-label"],
+        optional_fields: ["shared:42", "unknown=private-mount-field"],
         filesystem: "ext4",
         source: json_observation("observed", "/dev/nvme0n1p1"),
-        super_options: ["rw"],
+        super_options: ["rw", "lowerdir=/private/host/snapshot", "password=mount-secret", "uid=mount-secret"],
         block_device_index: 0,
         usage_state: "observed",
         usage_total_bytes: 8192,
@@ -387,7 +931,7 @@ pure json_report_fixture() -> Record {
       channels: [{
         chip: "example_hwmon",
         channel: "temp1_input",
-        label: json_observation("observed", "Package temperature"),
+        label: json_observation("observed", "private-sensor-label"),
         kind: "temperature",
         value: 42000,
         unit: "millidegrees_celsius",
@@ -475,11 +1019,7 @@ proc test_system_report_model_relationships() [fs, error] {
   let offline_member_policy = model.frequency_policies_for_cpu(policies, 2)
   test.eq(offline_member_policy.len(), 1)?
   let selected_policy = offline_member_policy[0]
-  if selected_policy != null {
-    test.eq(selected_policy.name, "policy0")?
-  } else {
-    test.fail("related CPU did not resolve to its policy")?
-  }
+  test.eq(selected_policy.name, "policy0")?
   test.eq(model.frequency_policies_for_cpu(policies, 4).len(), 0)?
 
   let functions = [
@@ -488,30 +1028,18 @@ proc test_system_report_model_relationships() [fs, error] {
     pci_function("0002:04:05.0", 9),
   ]
   let child = functions[1]
-  if child != null {
-    let parent = model.pci_parent_function(functions, child)
-    if parent != null {
-      test.eq(parent.address, "0000:00:01.0")?
-    } else {
-      test.fail("indexed PCI parent did not resolve")?
-    }
+  let parent = model.pci_parent_function(functions, child)
+  if parent != null {
+    test.eq(parent.address, "0000:00:01.0")?
   } else {
-    test.fail("PCI child fixture is missing")?
+    test.fail("indexed PCI parent did not resolve")?
   }
 
   let root_function = functions[0]
-  if root_function != null {
-    test.eq(model.pci_parent_function(functions, root_function), null)?
-  } else {
-    test.fail("PCI root fixture is missing")?
-  }
+  test.eq(model.pci_parent_function(functions, root_function), null)?
 
   let unresolved_child = functions[2]
-  if unresolved_child != null {
-    test.eq(model.pci_parent_function(functions, unresolved_child), null)?
-  } else {
-    test.fail("unresolved PCI fixture is missing")?
-  }
+  test.eq(model.pci_parent_function(functions, unresolved_child), null)?
 
 }
 
@@ -525,11 +1053,164 @@ proc test_system_report_cpu_list_parser_handles_sparse_and_large_ids() [fs, erro
   test.ok(65 in many)?
   test.ok(127 in many)?
 
-  test.error_kind(model.parse_cpu_list(""), "system-report-cpu-list")?
-  test.error_kind(model.parse_cpu_list("4,,8"), "system-report-cpu-list")?
-  test.error_kind(model.parse_cpu_list("5-2"), "system-report-cpu-list")?
-  test.error_kind(model.parse_cpu_list("1,1"), "system-report-cpu-list")?
-  test.error_kind(model.parse_cpu_list("0-65536"), "system-report-cpu-list")?
+  test.error_kind(model.parse_cpu_list(""), "SystemReportError.InvalidCpuList")?
+  test.error_kind(model.parse_cpu_list("4,,8"), "SystemReportError.InvalidCpuList")?
+  test.error_kind(model.parse_cpu_list("5-2"), "SystemReportError.InvalidCpuList")?
+  test.error_kind(model.parse_cpu_list("1,1"), "SystemReportError.InvalidCpuList")?
+  test.error_kind(model.parse_cpu_list("0-65536"), "SystemReportError.InvalidCpuList")?
+}
+
+proc test_system_report_cpu_collection_preserves_128_present_ids() [fs, time, error] {
+  let root = fs.tempdir()?
+  defer fs.close_root(root)?
+  fs.root_mkdir(root, p"sys/devices/system/cpu", parents: true)?
+  for cpu_id in range(128) {
+    fs.root_mkdir(root, fp"sys/devices/system/cpu/cpu${cpu_id}")?
+  }
+  fs.root_write(root, p"sys/devices/system/cpu/possible", "0-127\n")?
+  fs.root_write(root, p"sys/devices/system/cpu/present", "0-127\n")?
+  fs.root_write(root, p"sys/devices/system/cpu/online", "0-127\n")?
+  fs.root_write(root, p"sys/devices/system/cpu/offline", "\n")?
+  let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
+  let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "cpu", true)?
+  test.ok(value.cpu.status.enumeration_succeeded)?
+  test.eq(value.cpu.present.len(), 128)?
+  test.eq(value.cpu.cpus.len(), 128)?
+  test.eq(value.cpu.cpus[0].id, 0)?
+  test.eq(value.cpu.cpus[127].id, 127)?
+  test.eq(value.cpu.online.len(), 128)?
+}
+
+proc test_system_report_cpu_collection_keeps_absent_cpufreq_unavailable() [fs, time, error] {
+  let root = fs.tempdir()?
+  defer fs.close_root(root)?
+  fs.root_mkdir(root, p"sys/devices/system/cpu/cpu0", parents: true)?
+  fs.root_mkdir(root, p"proc/sys/kernel", parents: true)?
+  fs.root_write(root, p"proc/sys/kernel/osrelease", "fixture-vm-release\n")?
+  fs.root_write(root, p"sys/devices/system/cpu/possible", "0\n")?
+  fs.root_write(root, p"sys/devices/system/cpu/present", "0\n")?
+  fs.root_write(root, p"sys/devices/system/cpu/online", "0\n")?
+  fs.root_write(root, p"sys/devices/system/cpu/offline", "\n")?
+  let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
+  let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "cpu", true)?
+  test.ok(value.cpu.status.enumeration_succeeded)?
+  test.eq(value.cpu.cpus.len(), 1)?
+  test.eq(value.cpu.frequency_policies.len(), 0)?
+  test.eq(value.cpu.cpus[0].policy, null)?
+  test.eq(value.cpu.idle_states.len(), 0)?
+  test.eq(value.cpu.global_idle_driver, null)?
+  test.eq(value.identity.kernel_release, "fixture-vm-release")?
+}
+
+proc test_system_report_uptime_parser_requires_complete_two_column_decimal() [fs, error] {
+  let collectors = module.load(p"core/lib/system_report_collect.xsh")?.require(SystemReportCollectors)?
+  let observed: SourceRead = {
+    observation: {state: report_model.Observed, value: "73.50 12.34", raw_bytes_base64: null},
+    errno: null,
+    error_kind: null,
+  }
+  test.eq(collectors.parse_uptime_seconds(observed).value, 73)?
+  test.eq(collectors.parse_uptime_seconds({...observed, observation: {...observed.observation, value: "9007199254740991.99 0.00"}}).value, 9007199254740991)?
+  let unsafe = collectors.parse_uptime_seconds({...observed, observation: {...observed.observation, value: "9007199254740992.00 0.00"}})
+  test.eq(unsafe.value, null)?
+  test.ok(unsafe.state == report_model.RangeFailure)?
+  for malformed in ["73", "73 0.00", "73.50", "-1.00 0.00", "73. 0.00", "73.50 0.x", "73.50 0.00 extra"] {
+    let parsed = collectors.parse_uptime_seconds({...observed, observation: {...observed.observation, value: malformed}})
+    test.eq(parsed.value, null)?
+    test.ok(parsed.state == report_model.Malformed)?
+  }
+  let truncated = collectors.parse_uptime_seconds({...observed, observation: {...observed.observation, state: report_model.Truncated}})
+  test.eq(truncated.value, null)?
+  test.ok(truncated.state == report_model.Truncated)?
+  let absent = collectors.parse_uptime_seconds({...observed, observation: {...observed.observation, state: report_model.Absent, value: null}})
+  test.eq(absent.value, null)?
+  test.ok(absent.state == report_model.Absent)?
+}
+
+proc test_system_report_bounded_number_respects_source_state_and_json_range() [fs, error] {
+  let collectors = module.load(p"core/lib/system_report_collect.xsh")?.require(SystemReportCollectors)?
+  let observed: SourceRead = {
+    observation: {state: report_model.Observed, value: "-5000", raw_bytes_base64: null},
+    errno: null,
+    error_kind: null,
+  }
+  let signed = collectors.bounded_number(observed, false)
+  test.eq(signed.value, -5000)?
+  test.ok(signed.state == null)?
+  let unsigned = collectors.bounded_number(observed, true)
+  test.ok(unsigned.value == null)?
+  test.ok(unsigned.state == report_model.Malformed)?
+  test.eq(unsigned.error_kind, "negative_integer")?
+  test.ok(collectors.bounded_number({...observed, observation: {...observed.observation, value: "-0"}}, true).state == report_model.Malformed)?
+  let maximum = collectors.bounded_number({...observed, observation: {...observed.observation, value: "9007199254740991"}}, true)
+  test.eq(maximum.value, 9007199254740991)?
+  let unsafe_json = collectors.bounded_number({...observed, observation: {...observed.observation, value: "9007199254740992"}}, true)
+  test.ok(unsafe_json.value == null)?
+  test.ok(unsafe_json.state == report_model.RangeFailure)?
+  let overflow = collectors.bounded_number({...observed, observation: {...observed.observation, value: "999999999999999999999999"}}, true)
+  test.ok(overflow.state == report_model.RangeFailure)?
+  let invalid = collectors.bounded_number({...observed, observation: {...observed.observation, value: "42 C"}}, false)
+  test.ok(invalid.state == report_model.Malformed)?
+  for text_value in ["0x2a", "1_000", "+42"] {
+    let nondecimal = collectors.bounded_number({...observed, observation: {...observed.observation, value: text_value}}, false)
+    test.ok(nondecimal.value == null)?
+    test.ok(nondecimal.state == report_model.Malformed)?
+  }
+  test.eq(collectors.bounded_number({...observed, observation: {...observed.observation, value: "007"}}, true).value, 7)?
+  let truncated = collectors.bounded_number({...observed, observation: {...observed.observation, state: report_model.Truncated, value: "68"}}, true)
+  test.ok(truncated.value == null)?
+  test.ok(truncated.state == report_model.Truncated)?
+  let absent = collectors.bounded_number({...observed, observation: {...observed.observation, state: report_model.Absent, value: null}}, true)
+  test.ok(absent.value == null)?
+  test.ok(absent.state == null)?
+  let denied = collectors.bounded_number({...observed, observation: {...observed.observation, state: report_model.PermissionDenied, value: null}, errno: 13, error_kind: "permission_denied"}, true)
+  test.ok(denied.state == report_model.PermissionDenied)?
+  test.eq(denied.errno, 13)?
+}
+
+proc test_system_report_bounded_size_bytes_checks_scaled_json_range() [fs, error] {
+  let collectors = module.load(p"core/lib/system_report_collect.xsh")?.require(SystemReportCollectors)?
+  let observed: SourceRead = {
+    observation: {state: report_model.Observed, value: "8796093022207K", raw_bytes_base64: null},
+    errno: null,
+    error_kind: null,
+  }
+  test.eq(collectors.bounded_size_bytes(observed).value, 9007199254739968)?
+  let kilobyte_overflow = collectors.bounded_size_bytes({...observed, observation: {...observed.observation, value: "8796093022208K"}})
+  test.ok(kilobyte_overflow.value == null)?
+  test.ok(kilobyte_overflow.state == report_model.RangeFailure)?
+  test.eq(collectors.bounded_size_bytes({...observed, observation: {...observed.observation, value: "8589934591M"}}).value, 9007199253692416)?
+  test.ok(collectors.bounded_size_bytes({...observed, observation: {...observed.observation, value: "8589934592M"}}).state == report_model.RangeFailure)?
+  test.eq(collectors.bounded_size_bytes({...observed, observation: {...observed.observation, value: "8388607G"}}).value, 9007198180999168)?
+  test.ok(collectors.bounded_size_bytes({...observed, observation: {...observed.observation, value: "8388608G"}}).state == report_model.RangeFailure)?
+  test.eq(collectors.bounded_size_bytes({...observed, observation: {...observed.observation, value: "9007199254740991"}}).value, 9007199254740991)?
+  test.ok(collectors.bounded_size_bytes({...observed, observation: {...observed.observation, value: "9007199254740992"}}).state == report_model.RangeFailure)?
+  test.ok(collectors.bounded_size_bytes({...observed, observation: {...observed.observation, value: "1T"}}).state == report_model.Malformed)?
+  test.ok(collectors.bounded_size_bytes({...observed, observation: {...observed.observation, value: "0x10K"}}).state == report_model.Malformed)?
+  test.ok(collectors.bounded_size_bytes({...observed, observation: {...observed.observation, value: "-1K"}}).state == report_model.Malformed)?
+  let truncated = collectors.bounded_size_bytes({...observed, observation: {...observed.observation, state: report_model.Truncated, value: "512K"}})
+  test.ok(truncated.value == null)?
+  test.ok(truncated.state == report_model.Truncated)?
+}
+
+proc test_system_report_psi_average_parser_rejects_invalid_percentages() [fs, error] {
+  let collectors = module.load(p"core/lib/system_report_collect.xsh")?.require(SystemReportCollectors)?
+  for value in ["0.00", "1.50", "99.99", "100.00"] {
+    test.ok(collectors.valid_psi_average(value))?
+  }
+  for value in ["nan", "inf", "-1.00", "0.0", "0.000", "100.01", "101.00", "0x1.00", "1_0.00"] {
+    test.ok(!collectors.valid_psi_average(value))?
+  }
+}
+
+proc test_system_report_thp_policy_parser_keeps_unknown_selected_value() [fs, error] {
+  let collectors = module.load(p"core/lib/system_report_collect.xsh")?.require(SystemReportCollectors)?
+  let policy = collectors.parse_thp_policy("always [future_policy] never")?
+  test.eq(policy.selected, "future_policy")?
+  test.eq(policy.available, ["always", "future_policy", "never"])?
+  for value in ["always future_policy never", "[always] [never]", "[always] always", "[[]", "always [future_policy] never\nextra"] {
+    test.error_kind(collectors.parse_thp_policy(value), "SystemReportSourceError.InvalidThpPolicy")?
+  }
 }
 
 proc test_system_report_pci_and_usb_source_parsers() [fs, error] {
@@ -539,10 +1220,13 @@ proc test_system_report_pci_and_usb_source_parsers() [fs, error] {
   test.eq(address, {domain: 1, bus: 175, device: 31, function: 7})?
   test.eq(collectors.parse_pci_hex_value("0x10DE")?, 4318)?
   test.eq(collectors.parse_pci_hex_value("10de")?, 4318)?
-  test.error_kind(collectors.parse_pci_address("0000:00:20.0"), "system-report-pci-address")?
-  test.error_kind(collectors.parse_pci_address("0000:00:01.8"), "system-report-pci-address")?
-  test.error_kind(collectors.parse_pci_address("00:00:01.0"), "system-report-pci-address")?
-  test.error_kind(collectors.parse_pci_hex_value("0x10xz"), "system-report-pci-id")?
+  test.error_kind(collectors.parse_pci_address("0000:00:20.0"), "SystemReportSourceError.InvalidPciAddress")?
+  test.error_kind(collectors.parse_pci_address("0000:00:01.8"), "SystemReportSourceError.InvalidPciAddress")?
+  test.error_kind(collectors.parse_pci_address("00:00:01.0"), "SystemReportSourceError.InvalidPciAddress")?
+  test.error_kind(collectors.parse_pci_hex_value("0x10xz"), "SystemReportSourceError.InvalidPciId")?
+  test.eq(collectors.pci_parent_address(p"../../../devices/pci0001:02/0001:02:01.0/0001:02:03.0", "0001:02:03.0"), "0001:02:01.0")?
+  test.ok(collectors.pci_parent_address(p"../../../devices/pci0001:02/0001:02:03.0", "0001:02:03.0") == null)?
+  test.ok(collectors.pci_parent_address(p"../../../devices/pci0001:02/0001:02:01.0", "0001:02:03.0") == null)?
 
   let descriptors = collectors.parse_usb_descriptor_stream(b"\x03\x99\x42\x02\xfe")?
   test.eq(descriptors.len(), 2)?
@@ -551,15 +1235,197 @@ proc test_system_report_pci_and_usb_source_parsers() [fs, error] {
   test.eq(descriptors[0].raw, b"\x03\x99\x42")?
   test.eq(descriptors[1].offset, 3)?
   test.eq(descriptors[1].descriptor_type, 254)?
-  test.error_kind(collectors.parse_usb_descriptor_stream(b"\x01\x02"), "system-report-usb-descriptor")?
-  test.error_kind(collectors.parse_usb_descriptor_stream(b"\x04\x01x"), "system-report-usb-descriptor")?
-  test.error_kind(collectors.parse_usb_descriptor_stream(b"\x09"), "system-report-usb-descriptor")?
+  test.error_kind(collectors.parse_usb_descriptor_stream(b"\x01\x02"), "SystemReportSourceError.InvalidUsbDescriptor")?
+  test.error_kind(collectors.parse_usb_descriptor_stream(b"\x04\x01x"), "SystemReportSourceError.InvalidUsbDescriptor")?
+  test.error_kind(collectors.parse_usb_descriptor_stream(b"\x09"), "SystemReportSourceError.InvalidUsbDescriptor")?
 }
 
-proc test_system_report_assembles_route_netlink_snapshot_with_unknown_values() [fs, error] {
+proc test_system_report_pci_collection_links_a_child_to_its_bridge() [fs, error] {
+  let root = fs.tempdir()?
+  defer fs.close_root(root)?
+  let parent_path = p"sys/devices/pci0001:02/0001:02:01.0"
+  let child_path = p"sys/devices/pci0001:02/0001:02:01.0/0001:02:03.0"
+  fs.root_mkdir(root, child_path, parents: true)?
+  fs.root_mkdir(root, p"sys/bus/pci/devices", parents: true)?
+  fs.root_symlink(root, p"../../../devices/pci0001:02/0001:02:01.0", p"sys/bus/pci/devices/0001:02:01.0")?
+  fs.root_symlink(root, p"../../../devices/pci0001:02/0001:02:01.0/0001:02:03.0", p"sys/bus/pci/devices/0001:02:03.0")?
+  for device_path in [parent_path, child_path] {
+    fs.root_write(root, fp"${device_path}/vendor", "0x1234\n")?
+    fs.root_write(root, fp"${device_path}/device", "0xabcd\n")?
+    fs.root_write(root, fp"${device_path}/subsystem_vendor", "0x1234\n")?
+    fs.root_write(root, fp"${device_path}/subsystem_device", "0x0001\n")?
+    fs.root_write(root, fp"${device_path}/class", "0x060400\n")?
+    fs.root_write(root, fp"${device_path}/revision", "0x01\n")?
+  }
+  let collectors = module.load(p"core/lib/system_report_collect.xsh")?.require(SystemReportCollectors)?
+  let collection = collectors.collect_pci(root)
+  test.ok(collection.status.enumeration_succeeded)?
+  test.eq(collection.functions.len(), 2)?
+  test.eq(collection.functions[0].vendor_id, collection.functions[1].vendor_id)?
+  test.eq(collection.functions[0].device_id, collection.functions[1].device_id)?
+  test.ok(collection.functions[0].address != collection.functions[1].address)?
+  test.eq(collection.functions[0].driver, null)?
+  test.eq(collection.functions[1].driver, null)?
+  test.ok(collection.functions[0].parent_function_index == null)?
+  test.eq(collection.functions[1].parent_function_index, 0)?
+}
+
+proc test_system_report_pci_collection_reports_non_utf8_names_without_losing_valid_functions() [fs, env, error] {
+  if system.uname()?.sysname == "Darwin" {
+    test.skip("macOS filesystems reject non-UTF-8 filenames")
+    return
+  }
+
+  let root = fs.tempdir()?
+  defer fs.close_root(root)?
+  let valid = p"sys/bus/pci/devices/0000:00:01.0"
+  let invalid = Path.parse_bytes(b"sys/bus/pci/devices/raw\xffname")?
+  fs.root_mkdir(root, valid, parents: true)?
+  fs.root_mkdir(root, invalid, parents: true)?
+  for source in ["vendor", "device", "subsystem_vendor", "subsystem_device", "class", "revision"] {
+    fs.root_write(root, fp"${valid}/${source}", "0x0001\n")?
+  }
+  test.eq(fs.root_children(root, p"sys/bus/pci/devices")?.children.len(), 2)?
+
+  let collectors = module.load(p"core/lib/system_report_collect.xsh")?.require(SystemReportCollectors)?
+  let collected = collectors.collect_pci(root)
+  test.eq(collected.functions.len(), 1)?
+  test.eq(collected.functions[0].address, "0000:00:01.0")?
+  let invalid_issues = collected.issues |> where .error_kind == "invalid_pci_address"
+  test.eq(invalid_issues.len(), 1)?
+  test.ok(collected.status.state == report_model.Partial)?
+}
+
+proc test_system_report_pci_multifunction_keeps_optional_link_sources_distinct() [fs, error] {
+  let root = fs.tempdir()?
+  defer fs.close_root(root)?
+  fs.root_mkdir(root, p"sys/bus/pci/devices", parents: true)?
+  let first_path = p"sys/devices/pci0000:01/0000:01:02.0"
+  let second_path = p"sys/devices/pci0000:01/0000:01:02.1"
+  for source_path in [first_path, second_path] {
+    fs.root_mkdir(root, source_path, parents: true)?
+    fs.root_write(root, fp"${source_path}/vendor", "0x1234\n")?
+    fs.root_write(root, fp"${source_path}/device", "0xabcd\n")?
+    fs.root_write(root, fp"${source_path}/subsystem_vendor", "0x1234\n")?
+    fs.root_write(root, fp"${source_path}/subsystem_device", "0x0001\n")?
+    fs.root_write(root, fp"${source_path}/class", "0x020000\n")?
+    fs.root_write(root, fp"${source_path}/revision", "0x01\n")?
+  }
+  fs.root_symlink(root, p"../../../devices/pci0000:01/0000:01:02.0", p"sys/bus/pci/devices/0000:01:02.0")?
+  fs.root_symlink(root, p"../../../devices/pci0000:01/0000:01:02.1", p"sys/bus/pci/devices/0000:01:02.1")?
+  fs.root_write(root, fp"${first_path}/current_link_speed", "8.0 GT/s PCIe\n")?
+  fs.root_write(root, fp"${first_path}/current_link_width", "8\n")?
+  fs.root_write(root, fp"${first_path}/max_link_speed", "16.0 GT/s PCIe\n")?
+  fs.root_write(root, fp"${first_path}/max_link_width", "16\n")?
+
+  let collectors = module.load(p"core/lib/system_report_collect.xsh")?.require(SystemReportCollectors)?
+  let collection = collectors.collect_pci(root)
+  test.eq(collection.functions.len(), 2)?
+  test.eq(collection.functions[0].address, "0000:01:02.0")?
+  test.eq(collection.functions[0].function, 0)?
+  test.eq(collection.functions[1].address, "0000:01:02.1")?
+  test.eq(collection.functions[1].function, 1)?
+  test.eq(collection.functions[0].current_link_speed, "8.0 GT/s PCIe")?
+  test.eq(collection.functions[0].current_link_width, 8)?
+  test.eq(collection.functions[0].maximum_link_speed, "16.0 GT/s PCIe")?
+  test.eq(collection.functions[0].maximum_link_width, 16)?
+  test.eq(collection.functions[1].current_link_speed, null)?
+  test.eq(collection.functions[1].current_link_width, null)?
+  test.eq(collection.functions[1].maximum_link_speed, null)?
+  test.eq(collection.functions[1].maximum_link_width, null)?
+  test.ok(!(collection.issues |> any .field.starts_with("functions.0000:01:02.1.current_link")))?
+  test.ok(!(collection.issues |> any .field.starts_with("functions.0000:01:02.1.maximum_link")))?
+
+  fs.root_write(root, fp"${second_path}/current_link_width", "invalid\n")?
+  let malformed = collectors.collect_pci(root)
+  test.ok(malformed.status.state == report_model.Partial)?
+  test.ok(malformed.issues |> any .field == "functions.0000:01:02.1.current_link_width" and .state == report_model.Malformed)?
+  test.eq(malformed.functions[1].current_link_width, null)?
+}
+
+proc test_system_report_usb_controller_path_handles_pci_and_platform_roots() [fs, error] {
+  let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
+  test.eq(collector.usb_parent_address(p"../../../devices/pci0000:00/0000:00:08.1/0000:04:00.4/usb4/4-2"), "0000:04:00.4")?
+  test.ok(collector.usb_parent_address(p"../../../devices/platform/soc/usb1/1-2") == null)?
+}
+
+proc test_system_report_usb_parent_join_handles_root_hubs_sorted_last() [fs, error] {
+  let model = module.load(p"core/lib/system_report.xsh")?.require(SystemReportModel)?
+  let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
+  let decoded = model.decode_report_json(json.encode(json_report_fixture())?)?
+  let source = decoded.usb.devices[0].require(report_model.UsbDevice)?
+  let child = {...source, sysfs_name: "4-2", bus_number: 4, parent_device_index: null, is_root_hub: false}
+  let grandchild = {...source, sysfs_name: "4-2.3", bus_number: 4, parent_device_index: null, is_root_hub: false}
+  let root_hub = {...source, sysfs_name: "usb4", bus_number: 4, parent_device_index: null, is_root_hub: true}
+  let linked = collector.link_usb_parents([child, grandchild, root_hub])
+  test.eq(linked[0].vendor_id, linked[1].vendor_id)?
+  test.eq(linked[0].product_id, linked[1].product_id)?
+  test.ok(linked[0].sysfs_name != linked[1].sysfs_name)?
+  test.eq(linked[0].parent_device_index, 2)?
+  test.eq(linked[1].parent_device_index, 0)?
+  test.ok(linked[2].parent_device_index == null)?
+}
+
+proc test_system_report_usb_keeps_a_device_with_missing_numeric_identity() [fs, time, error] {
+  let root = fs.tempdir()?
+  defer fs.close_root(root)?
+  fs.root_mkdir(root, p"sys/bus/usb/devices/1-2", parents: true)?
+  fs.root_mkdir(root, p"sys/bus/usb/devices/1-3", parents: true)?
+  fs.root_mkdir(root, p"sys/bus/usb/devices/1-4", parents: true)?
+  fs.root_write(root, p"sys/bus/usb/devices/1-2/idVendor", "1234\n")?
+  fs.root_write(root, p"sys/bus/usb/devices/1-2/idProduct", "5678\n")?
+  fs.root_write(root, p"sys/bus/usb/devices/1-2/busnum", "1\n")?
+  fs.root_write(root, p"sys/bus/usb/devices/1-3/idProduct", "5678\n")?
+  fs.root_write(root, p"sys/bus/usb/devices/1-3/busnum", "1\n")?
+  fs.root_write(root, p"sys/bus/usb/devices/1-4/idVendor", "zzzz\n")?
+  fs.root_write(root, p"sys/bus/usb/devices/1-4/idProduct", "5678\n")?
+  fs.root_write(root, p"sys/bus/usb/devices/1-4/busnum", "1\n")?
+
+  let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
+  let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "usb", true)?
+  test.eq(value.usb.devices.len(), 3)?
+  test.eq(value.usb.devices[0].vendor_id, 4660)?
+  test.ok(value.usb.devices[1].vendor_id == null)?
+  let missing_vendor = value.issues |> where .field == "devices.1-3.vendor_id"
+  test.eq(missing_vendor.len(), 1)?
+  test.eq(missing_vendor[0].state, report_model.Absent)?
+  test.ok(value.usb.devices[2].vendor_id == null)?
+  let malformed_vendor = value.issues |> where .field == "devices.1-4.vendor_id"
+  test.eq(malformed_vendor.len(), 1)?
+  test.eq(malformed_vendor[0].state, report_model.Malformed)?
+}
+
+proc test_system_report_usb_power_read_failures_make_section_partial() [fs, time, error] {
+  let root = fs.tempdir()?
+  defer fs.close_root(root)?
+  fs.root_mkdir(root, p"sys/bus/usb/devices/1-2/power/control", parents: true)?
+  fs.root_mkdir(root, p"sys/bus/usb/devices/1-2/power/autosuspend_delay_ms", parents: true)?
+  fs.root_write(root, p"sys/bus/usb/devices/1-2/idVendor", "1234\n")?
+  fs.root_write(root, p"sys/bus/usb/devices/1-2/idProduct", "5678\n")?
+  let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
+  let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "usb", true)?
+  test.eq(value.usb.devices.len(), 1)?
+  test.eq(value.usb.devices[0].power_control, null)?
+  test.eq(value.usb.devices[0].autosuspend_delay_ms, null)?
+  test.eq(value.usb.status.state, report_model.Partial)?
+  for field in ["devices.1-2.power_control", "devices.1-2.autosuspend_delay_ms"] {
+    let matches = value.issues |> where .section == "usb" and .field == field
+    test.eq(matches.len(), 1)?
+    test.eq(matches[0].state, report_model.ReadFailure)?
+  }
+}
+
+proc test_system_report_block_class_path_identifies_its_pci_controller() [fs, error] {
+  let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
+  test.eq(collector.pci_address_in_target(p"../../devices/pci0000:00/0000:00:01.2/0000:01:00.0/nvme/nvme0/nvme0n1"), "0000:01:00.0")?
+  test.ok(collector.pci_address_in_target(p"../../devices/virtual/block/loop0") == null)?
+}
+
+proc test_system_report_assembles_network_links_addresses_routes_and_rules() [fs, error] {
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let dump: LinuxNetworkDump = {
     state: "partial",
+    enumeration_succeeded: true,
     links: [{
       ifindex: 2,
       name: "eth0",
@@ -576,6 +1442,22 @@ proc test_system_report_assembles_route_netlink_snapshot_with_unknown_values() [
       rx_bytes: 4096,
       tx_bytes: 2048,
       attributes: [{kind: 32769, data: b"\x02\x00"}],
+    }, {
+      ifindex: 3,
+      name: "eth0.42",
+      name_bytes: b"eth0.42\0",
+      hardware_type: 1,
+      flags: 69635,
+      mtu: 1500,
+      address: b"\x02\x00\x00\x00\x00\x02",
+      broadcast: null,
+      master_ifindex: null,
+      lower_ifindex: 2,
+      operstate: 6,
+      kind: "vlan",
+      rx_bytes: null,
+      tx_bytes: null,
+      attributes: [],
     }],
     addresses: [{
       ifindex: 2,
@@ -589,6 +1471,32 @@ proc test_system_report_assembles_route_netlink_snapshot_with_unknown_values() [
       label: "eth0",
       preferred_lifetime_seconds: 300,
       valid_lifetime_seconds: 600,
+      attributes: [],
+    }, {
+      ifindex: 2,
+      family: "inet6",
+      prefix_length: 64,
+      scope: 0,
+      flags: 1,
+      address: "2001:db8::10",
+      local: null,
+      broadcast: null,
+      label: null,
+      preferred_lifetime_seconds: 120,
+      valid_lifetime_seconds: 240,
+      attributes: [],
+    }, {
+      ifindex: 3,
+      family: "inet6",
+      prefix_length: 64,
+      scope: 0,
+      flags: 0,
+      address: "2001:db8:42::5",
+      local: null,
+      broadcast: null,
+      label: null,
+      preferred_lifetime_seconds: null,
+      valid_lifetime_seconds: null,
       attributes: [],
     }],
     routes: [{
@@ -643,6 +1551,21 @@ proc test_system_report_assembles_route_netlink_snapshot_with_unknown_values() [
       action: 50,
       flags: 0,
       attributes: [],
+    }, {
+      family: "inet6",
+      destination_prefix_length: 0,
+      source_prefix_length: 64,
+      destination: null,
+      source: "2001:db8::",
+      input_name: "eth0.42",
+      output_name: "eth0",
+      priority: 124,
+      table: 1000,
+      fwmark: 7,
+      fwmask: 255,
+      action: 1,
+      flags: 4,
+      attributes: [],
     }],
     issues: [{
       object: "address",
@@ -650,18 +1573,35 @@ proc test_system_report_assembles_route_netlink_snapshot_with_unknown_values() [
       state: "malformed",
       errno: null,
       error_kind: "malformed",
+    }, {
+      object: "links.2.rx_bytes",
+      message: "network counter exceeds the exact JSON integer range",
+      state: "range_failure",
+      errno: null,
+      error_kind: "integer_out_of_range",
     }],
   }
 
   let result = collector.assemble_network_dump(dump)
   test.eq(result.status.state, report_model.Partial)?
-  test.eq(result.status.enumeration_succeeded, false)?
+  test.eq(result.status.enumeration_succeeded, true)?
   test.eq(result.links[0].name.value, "eth0")?
   test.eq(result.links[0].mac.value, "02:00:00:00:00:01")?
   test.ok("lower_up" in result.links[0].flags)?
   test.eq(result.links[0].counters[0].value, 4096)?
   test.eq(result.links[0].addresses[0].address.value, "192.0.2.10")?
   test.eq(result.links[0].addresses[0].family, "ipv4")?
+  test.eq(result.links[0].addresses[1].family, "ipv6")?
+  test.eq(result.links[0].addresses[1].address.value, "2001:db8::10")?
+  test.eq(result.links[0].addresses[1].prefix_length, 64)?
+  test.eq(result.links[0].addresses[1].preferred_lifetime_seconds, 120)?
+  test.eq(result.links[0].addresses[1].valid_lifetime_seconds, 240)?
+  test.eq(result.links[0].addresses.len(), 2)?
+  test.eq(result.links[1].name.value, "eth0.42")?
+  test.eq(result.links[1].kind, "vlan")?
+  test.eq(result.links[1].lower_ifindex, 2)?
+  test.eq(result.links[1].addresses.len(), 1)?
+  test.eq(result.links[1].addresses[0].address.value, "2001:db8:42::5")?
   test.eq(result.links[0].attributes[0].data.value, "AgA=")?
   test.eq(result.routes[0].destination.value, "0.0.0.0")?
   test.eq(result.routes[0].route_type, "route_type_222")?
@@ -674,11 +1614,23 @@ proc test_system_report_assembles_route_netlink_snapshot_with_unknown_values() [
   test.eq(result.routes[1].nexthops[0].gateway.value, "2001:db8::1")?
   test.eq(result.rules[0].input_ifindex, 2)?
   test.eq(result.rules[0].action, "action_50")?
+  test.eq(result.rules[1].family, "ipv6")?
+  test.eq(result.rules[1].source.value, "2001:db8::")?
+  test.eq(result.rules[1].source_prefix_length, 64)?
+  test.eq(result.rules[1].input_ifindex, 3)?
+  test.eq(result.rules[1].output_ifindex, 2)?
+  test.eq(result.rules[1].table, 1000)?
+  test.eq(result.rules[1].fwmark, 7)?
+  test.eq(result.rules[1].fwmask, 255)?
+  test.eq(result.rules[1].action, "to_table")?
   test.eq(result.issues[0].state, report_model.Malformed)?
+  test.eq(result.issues[1].field, "netlink.links.2.rx_bytes")?
+  test.eq(result.issues[1].state, report_model.RangeFailure)?
 
   let denied = collector.assemble_network_dump({
     ...dump,
     state: "permission_denied",
+    enumeration_succeeded: false,
     links: [],
     addresses: [],
     routes: [],
@@ -691,7 +1643,7 @@ proc test_system_report_assembles_route_netlink_snapshot_with_unknown_values() [
       error_kind: "io",
     }],
   })
-  test.eq(denied.status.state, report_model.PermissionDenied)?
+  test.eq(denied.status.state, report_model.SectionPermissionDenied)?
   test.eq(denied.status.enumeration_succeeded, false)?
   test.eq(denied.issues[0].errno, 13)?
 }
@@ -719,22 +1671,22 @@ proc test_system_report_section_selection_marks_excluded_domains() [fs, error] {
   let usb_only = model.select_report_section(report, "usb")?
   test.eq(usb_only.pci.status.state, report_model.Complete)?
   test.eq(usb_only.usb.status.state, report_model.Complete)?
-  test.eq(usb_only.storage.status.state, report_model.NotRequested)?
-  test.eq(usb_only.network.status.state, report_model.NotRequested)?
+  test.eq(usb_only.storage.status.state, report_model.SectionNotRequested)?
+  test.eq(usb_only.network.status.state, report_model.SectionNotRequested)?
 
   let network_only = model.select_report_section(report, "network")?
   test.eq(network_only.pci.status.state, report_model.Complete)?
   test.eq(network_only.usb.status.state, report_model.Complete)?
   test.eq(network_only.network.status.state, report_model.Complete)?
-  test.eq(network_only.storage.status.state, report_model.NotRequested)?
+  test.eq(network_only.storage.status.state, report_model.SectionNotRequested)?
 
   let processes_only = model.select_report_section(report, "processes")?
   test.eq(processes_only.processes.status.state, report_model.Complete)?
   test.eq(processes_only.processes.processes[0].cgroup.value, "/user.slice/private")?
   test.eq(processes_only.processes.processes[0].cgroup_resource_index, null)?
-  test.eq(processes_only.memory.status.state, report_model.NotRequested)?
+  test.eq(processes_only.memory.status.state, report_model.SectionNotRequested)?
 
-  test.error_kind(model.select_report_section(report, "hardware"), "system-report-section")?
+  test.error_kind(model.select_report_section(report, "hardware"), "SystemReportError.InvalidSection")?
 }
 
 proc test_system_report_json_round_trip_and_redaction() [fs, error] {
@@ -747,6 +1699,7 @@ proc test_system_report_json_round_trip_and_redaction() [fs, error] {
   test.eq(decoded.schema_version, 1)?
   test.eq(decoded_wire.source_mode, "synthetic_fixture")?
   test.eq(decoded.identity.hostname.value, "workstation-name")?
+  test.eq(decoded_wire.identity.kernel_build, "Linux version 6.12-test (builder@private-build-host)")?
   test.ok(decoded.pci.status.enumeration_succeeded)?
   test.eq(decoded.pci.functions.len(), 2)?
 
@@ -757,10 +1710,19 @@ proc test_system_report_json_round_trip_and_redaction() [fs, error] {
   test.ok(safe.redacted)?
   test.eq(safe_wire.identity.status.state, "complete")?
   test.eq(safe_wire.identity.hostname.state, "redacted")?
+  test.ok(safe_wire.identity.kernel_build == null)?
+  test.ok(!safe_json.contains("private-build-host"))?
+  test.ok(!safe_text.contains("private-build-host"))?
+  test.ok(safe.issues |> any .section == "identity" and .field == "kernel_build" and .state == report_model.Redacted)?
+  test.eq(model.encode_report_json(safe, false, false)?, safe_json)?
   test.eq(safe.identity.hostname.value, null)?
   test.eq(safe_wire.scope.network_namespace.state, "redacted")?
+  test.eq(safe_wire.scope.uts_namespace.state, "redacted")?
+  test.eq(safe_wire.scope.ipc_namespace.state, "redacted")?
+  test.eq(safe_wire.scope.user_namespace.state, "redacted")?
+  test.eq(safe_wire.scope.time_namespace.state, "redacted")?
   test.eq(safe_wire.scope.source_roots, ["redacted", "redacted"])?
-  test.eq(safe.cpu.online, [0, 1])?
+  test.eq(safe.cpu.online, [0, 1, 2])?
   test.eq(safe_wire.pci.functions[0].address, null)?
   test.eq(safe_wire.pci.functions[0].domain, null)?
   test.eq(safe_wire.pci.functions[0].vendor_id, 32902)?
@@ -789,6 +1751,8 @@ proc test_system_report_json_round_trip_and_redaction() [fs, error] {
     test.eq(safe_wire.usb.devices[0].controller_pci_index, 1)?
     test.eq(safe_wire.usb.devices[0].vendor_id, 4660)?
     test.eq(safe_wire.usb.devices[0].interfaces[0].name, null)?
+    test.eq(safe_wire.usb.devices[0].interfaces[0].alternate_settings[0].configuration_value, 1)?
+    test.eq(safe_wire.usb.devices[0].interfaces[0].alternate_settings[1].configuration_value, 2)?
     test.eq(safe_wire.usb.devices[0].serial.state, "redacted")?
     test.ok(!safe_json.contains("1-2.3"))?
     test.ok(!safe_text.contains("1-2.3"))?
@@ -813,6 +1777,13 @@ proc test_system_report_json_round_trip_and_redaction() [fs, error] {
     test.eq(safe_wire.storage.mounts[0].minor, null)?
     test.eq(safe_wire.storage.mounts[0].block_device_index, 0)?
     test.eq(safe_wire.storage.mounts[0].target.state, "redacted")?
+    test.eq(safe_wire.storage.mounts[0].mount_options, ["rw", "relatime", "redacted"])?
+    test.eq(safe_wire.storage.mounts[0].optional_fields, ["shared:42", "redacted"])?
+    test.eq(safe_wire.storage.mounts[0].super_options, ["rw", "redacted", "redacted", "redacted"])?
+    test.ok(!safe_json.contains("private-mount-label"))?
+    test.ok(!safe_json.contains("private-mount-field"))?
+    test.ok(!safe_json.contains("/private/host/snapshot"))?
+    test.ok(!safe_json.contains("mount-secret"))?
   } else {
     test.fail("mount fixture did not round-trip")?
   }
@@ -839,6 +1810,8 @@ proc test_system_report_json_round_trip_and_redaction() [fs, error] {
   } else {
     test.fail("network route fixture did not round-trip")?
   }
+  test.eq(safe_wire.sensors.channels[0].label.state, "redacted")?
+  test.ok(!safe_json.contains("private-sensor-label"))?
   let firmware_record = safe.firmware.records[0]
   if firmware_record != null {
     let firmware_string = firmware_record.strings[0]
@@ -856,9 +1829,9 @@ proc test_system_report_json_round_trip_and_redaction() [fs, error] {
   } else {
     test.fail("kernel parameter fixture did not round-trip")?
   }
-  let process = safe.processes.processes[0]
-  if process != null {
-    test.eq(process.command.value, "worker")?
+  let process_item = safe.processes.processes[0]
+  if process_item != null {
+    test.eq(process_item.command.value, "worker")?
     test.eq(safe_wire.processes.processes[0].cgroup.state, "redacted")?
   } else {
     test.fail("process fixture did not round-trip")?
@@ -882,6 +1855,13 @@ proc test_system_report_json_round_trip_and_redaction() [fs, error] {
   }
 
   let sensitive_json = model.encode_report_json(decoded, true, false)?
+  test.ok(sensitive_json.contains("/private/host/snapshot"))?
+  test.ok(!sensitive_json.contains("mount-secret"))?
+  test.ok(!sensitive_json.contains("private-mount-field"))?
+  test.eq(json.decode(sensitive_json)?.storage.mounts[0].super_options[2], "redacted")?
+  test.eq(json.decode(sensitive_json)?.storage.mounts[0].super_options[3], "redacted")?
+  test.eq(json.decode(sensitive_json)?.storage.mounts[0].optional_fields, ["shared:42", "redacted"])?
+  test.ok(sensitive_json.contains("private-sensor-label"))?
   let sensitive = model.decode_report_json(sensitive_json)?
   test.ok(!sensitive.redacted)?
   test.eq(sensitive.identity.hostname.value, "workstation-name")?
@@ -892,18 +1872,101 @@ proc test_system_report_json_round_trip_and_redaction() [fs, error] {
   test.eq(sensitive.network.routes[0].nexthops[0].gateway.value, "192.0.2.1")?
 
   let route_text = model.render_text(sensitive, true, true)?
-  test.contains(route_text, "nexthop ifindex=2 flags=1 hops=0 gateway=192.0.2.1")?
+  test.contains(route_text, "nexthop ifindex=2 flags=1 hops=0 gateway=\"192.0.2.1\"")?
 
   let unsupported_version = json.encode({...source, schema_version: 2})?
-  test.error_kind(model.decode_report_json(unsupported_version), "system-report-json")?
+  test.error_kind(model.decode_report_json(unsupported_version), "SystemReportError.UnsupportedSchema")?
 
   let unknown_state = json.encode({...source, source_mode: "unknown-mode"})?
-  test.error_kind(model.decode_report_json(unknown_state), "system-report-json")?
+  test.error_kind(model.decode_report_json(unknown_state), "SystemReportError.InvalidJson")?
 
   let invalid_cpu_status = {...source.cpu.status, enumeration_succeeded: false}
   let invalid_cpu = {...source.cpu, status: invalid_cpu_status}
   let invalid_section = {...source, cpu: invalid_cpu}
-  test.error_kind(model.decode_report_json(json.encode(invalid_section)?), "system-report-json")?
+  test.error_kind(model.decode_report_json(json.encode(invalid_section)?), "SystemReportError.InvalidJson")?
+}
+
+proc test_system_report_v1_replay_marks_unrecorded_namespaces_unsupported() [fs, error] {
+  let model = module.load(p"core/lib/system_report.xsh")?.require(SystemReportModel)?
+  var old = json.decode(json.encode(json_report_fixture())?)?
+  for field in ["uts_namespace", "ipc_namespace", "user_namespace", "time_namespace"] {
+    old = json.remove(old, ["scope", field])?
+  }
+  let restored = model.decode_report_json(json.encode(old)?)?
+  test.eq(restored.scope.uts_namespace.state, report_model.Unsupported)?
+  test.eq(restored.scope.ipc_namespace.state, report_model.Unsupported)?
+  test.eq(restored.scope.user_namespace.state, report_model.Unsupported)?
+  test.eq(restored.scope.time_namespace.state, report_model.Unsupported)?
+
+  let malformed = json.set(old, ["scope", "uts_namespace"], null)?
+  test.error_kind(model.decode_report_json(json.encode(malformed)?), "SystemReportError.InvalidJson")?
+}
+
+proc test_system_report_v1_replay_restores_legacy_powercap_constraint() [fs, error] {
+  let model = module.load(p"core/lib/system_report.xsh")?.require(SystemReportModel)?
+  let legacy_zone = {
+    name: "package-0",
+    parent: null,
+    energy_uj: 123456,
+    maximum_energy_range_uj: 999999,
+    constraint_name: "long_term",
+    power_limit_uw: 45000000,
+    time_window_us: 1000000,
+  }
+  let old = json.set(json.decode(json.encode(json_report_fixture())?)?, ["power", "cap_zones"], [legacy_zone])?
+  let restored = model.decode_report_json(json.encode(old)?)?
+  test.eq(restored.power.cap_zones.len(), 1)?
+  test.eq(restored.power.cap_zones[0].entry_name, "package-0")?
+  test.eq(restored.power.cap_zones[0].constraints.len(), 1)?
+  test.eq(restored.power.cap_zones[0].constraints[0].index, 0)?
+  test.eq(restored.power.cap_zones[0].constraints[0].power_limit_uw, 45000000)?
+  let wire = json.decode(model.encode_report_json(restored, true, false)?)?
+  test.eq(json.get(wire, ["power", "cap_zones", 0, "constraints", 0, "power_limit_uw"])?, 45000000)?
+  test.error_kind(json.get(wire, ["power", "cap_zones", 0, "power_limit_uw"]), "json-path")?
+
+  let invalid = json.set(old, ["power", "cap_zones", 0, "power_limit_uw"], "invalid")?
+  test.error_kind(model.decode_report_json(json.encode(invalid)?), "SystemReportError.InvalidJson")?
+}
+
+proc test_system_report_powercap_constraints_round_trip_and_render() [fs, error] {
+  let model = module.load(p"core/lib/system_report.xsh")?.require(SystemReportModel)?
+  let zone = {
+    entry_name: "intel-rapl:0",
+    name: "package-0",
+    parent: null,
+    energy_uj: 123456,
+    maximum_energy_range_uj: 999999,
+    constraints: [
+      {index: 0, name: "long_term", power_limit_uw: 45000000, time_window_us: 1000000},
+      {index: 1, name: "short_term", power_limit_uw: 65000000, time_window_us: 250000},
+    ],
+  }
+  let source = json.set(json.decode(json.encode(json_report_fixture())?)?, ["power", "cap_zones"], [zone])?
+  let decoded = model.decode_report_json(json.encode(source)?)?
+  test.eq(decoded.power.cap_zones[0].entry_name, "intel-rapl:0")?
+  test.eq(decoded.power.cap_zones[0].constraints.len(), 2)?
+  let text = model.render_text(decoded, true, true)?
+  test.contains(text, "constraint 0 \"long_term\" limit=45000000 uW window=1000000 us")?
+  test.contains(text, "constraint 1 \"short_term\" limit=65000000 uW window=250000 us")?
+  let encoded = model.encode_report_json(decoded, true, false)?
+  let restored = model.decode_report_json(encoded)?
+  test.eq(restored.power.cap_zones[0].constraints, decoded.power.cap_zones[0].constraints)?
+  let duplicate = json.set(source, ["power", "cap_zones", 0, "constraints", 1, "index"], 0)?
+  test.error_kind(model.decode_report_json(json.encode(duplicate)?), "SystemReportError.InvalidJson")?
+}
+
+proc test_system_report_replay_withholds_mount_credentials_in_sensitive_json() [fs, error] {
+  let model = module.load(p"core/lib/system_report.xsh")?.require(SystemReportModel)?
+  let raw = json.set(
+    json_report_fixture(),
+    ["storage", "mounts", 0, "source"],
+    json_observation("observed", "smb://user:private-secret@host/share"),
+  )?
+  let decoded = model.decode_report_json(json.encode(raw)?)?
+  test.eq(decoded.storage.mounts[0].source.state, report_model.Redacted)?
+  let sensitive_json = model.encode_report_json(decoded, true, false)?
+  test.ok(!sensitive_json.contains("private-secret"))?
+  test.eq(json.decode(sensitive_json)?.storage.mounts[0].source.state, "redacted")?
 }
 
 proc test_system_report_text_output_escapes_untrusted_controls() [fs, error] {
@@ -932,58 +1995,62 @@ proc test_system_report_text_output_escapes_untrusted_controls() [fs, error] {
 }
 
 proc test_system_report_command_replays_saved_json_offline(ctx: TestContext) [fs, process, error] {
-  let path = test.temp_path(ctx, name: "system-report-v1.json")
-  path.write(json.encode(json_report_fixture())?)?
+  let report_path = test.temp_path(ctx, name: "system-report-v1.json")
+  report_path.write(json.encode(json_report_fixture())?)?
 
-  let projected = run.text ${ctx.xsh_bin} fp"${ctx.core_dir}/system-report.xsh" -- --from $path --section cpu --json ?
+  let projected = run.text ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/core/system-report.xsh" -- --from $report_path --section cpu --json ?
   let decoded = json.decode(projected)?
   test.eq(decoded.schema_version, 1)?
   test.eq(decoded.identity.hostname.state, "redacted")?
   test.eq(decoded.cpu.status.state, "complete")?
   test.eq(decoded.memory.status.state, "not_requested")?
   test.ok(!projected.contains("workstation-name"))?
-  let json_full = run.text ${ctx.xsh_bin} fp"${ctx.core_dir}/system-report.xsh" -- --from $path --section cpu --json --full ?
+  let json_full = run.text ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/core/system-report.xsh" -- --from $report_path --section cpu --json --full ?
   test.eq(json_full, projected)?
 
-  let sensitive = run.text ${ctx.xsh_bin} fp"${ctx.core_dir}/system-report.xsh" -- --from $path --sensitive --json ?
+  let sensitive = run.text ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/core/system-report.xsh" -- --from $report_path --sensitive --json ?
   test.ok(sensitive.contains("workstation-name"))?
+  let default_json = run.text ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/core/system-report.xsh" -- --from $report_path --json ?
+  test.ok(!default_json.contains("/private/host/snapshot"))?
+  test.ok(!default_json.contains("mount-secret"))?
+  test.ok(!default_json.contains("private-sensor-label"))?
 
-  let overview = run.text ${ctx.xsh_bin} fp"${ctx.core_dir}/system-report.xsh" -- --from $path ?
+  let overview = run.text ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/core/system-report.xsh" -- --from $report_path ?
   test.contains(overview, "XSH system report v1")?
   test.contains(overview, "2 identical policy group on CPUs 0,1")?
   test.contains(overview, "1 identical policy group on CPUs 2")?
   test.ok(!overview.contains("3 identical policy group"))?
 
-  let version = run.text ${ctx.xsh_bin} fp"${ctx.core_dir}/system-report.xsh" -- --version ?
+  let version = run.text ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/core/system-report.xsh" -- --version ?
   test.eq(version, "system-report schema v1\n")?
 
-  let help = run.text ${ctx.xsh_bin} fp"${ctx.core_dir}/system-report.xsh" -- --help ?
+  let help = run.text ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/core/system-report.xsh" -- --help ?
   test.contains(help, "--from FILE")?
   test.contains(help, "--section NAME")?
 }
 
 proc test_system_report_command_rejects_malformed_replay(ctx: TestContext) [fs, process, error] {
-  let path = test.temp_file(ctx, name: "system-report-invalid.json", contents: b"{invalid")?
+  let report_path = test.temp_file(ctx, name: "system-report-invalid.json", contents: b"{invalid")?
   let stderr = test.temp_path(ctx, name: "system-report-invalid.stderr")
-  let status = run.status ${ctx.xsh_bin} fp"${ctx.core_dir}/system-report.xsh" -- --from $path 2> $stderr
+  let status = run.status ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/core/system-report.xsh" -- --from $report_path 2> $stderr
   test.ok(!status.exited_with(0))?
   test.contains(stderr.read_text()?, "invalid replay report")?
 
   let invalid_utf8 = test.temp_file(ctx, name: "system-report-invalid-utf8.json", contents: b"\xff")?
   let utf8_stderr = test.temp_path(ctx, name: "system-report-invalid-utf8.stderr")
-  let utf8_status = run.status ${ctx.xsh_bin} fp"${ctx.core_dir}/system-report.xsh" -- --from $invalid_utf8 2> $utf8_stderr
+  let utf8_status = run.status ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/core/system-report.xsh" -- --from $invalid_utf8 2> $utf8_stderr
   test.ok(!utf8_status.exited_with(0))?
   test.contains(utf8_stderr.read_text()?, "not valid UTF-8")?
 
   let unsupported_path = test.temp_path(ctx, name: "system-report-unsupported-schema.json")
-  path.write(json.encode({...json_report_fixture(), schema_version: 99})?)?
+  unsupported_path.write(json.encode({...json_report_fixture(), schema_version: 99})?)?
   let unsupported_stderr = test.temp_path(ctx, name: "system-report-unsupported-schema.stderr")
-  let unsupported_status = run.status ${ctx.xsh_bin} fp"${ctx.core_dir}/system-report.xsh" -- --from $path 2> $unsupported_stderr
+  let unsupported_status = run.status ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/core/system-report.xsh" -- --from $unsupported_path 2> $unsupported_stderr
   test.ok(!unsupported_status.exited_with(0))?
   test.contains(unsupported_stderr.read_text()?, "unsupported schema version")?
 
   let section_stderr = test.temp_path(ctx, name: "system-report-invalid-section.stderr")
-  let section_status = run.status ${ctx.xsh_bin} fp"${ctx.core_dir}/system-report.xsh" -- --section hardware 2> $section_stderr
+  let section_status = run.status ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/core/system-report.xsh" -- --section hardware 2> $section_stderr
   test.ok(!section_status.exited_with(0))?
   test.ok(section_stderr.read_text()?.trim() != "")?
 }
@@ -1009,12 +2076,190 @@ proc test_system_report_live_collection_uses_explicit_root_and_redacts_by_defaul
   test.eq(share_safe.identity.uptime_seconds, 73)?
   test.eq(share_safe.identity.hostname.state, report_model.Redacted)?
   test.eq(share_safe.identity.hostname.value, null)?
-  test.eq(share_safe.cpu.status.state, report_model.NotRequested)?
+  test.eq(share_safe.cpu.status.state, report_model.SectionNotRequested)?
   test.eq(share_safe.redacted, true)?
 
   let sensitive = collector.collect_from_root(root, "fixture-arch", 65536, 250, "identity", true)?
   test.eq(sensitive.identity.hostname.value, "private-fixture-host")?
   test.eq(sensitive.identity.hostname.state, report_model.Observed)?
+}
+
+proc test_system_report_cpu_collection_does_not_invent_absent_cpu_zero() [fs, time, error] {
+  let root = fs.tempdir()?
+  defer fs.close_root(root)?
+  fs.root_mkdir(root, p"sys/devices/system/cpu/cpu2", parents: true)?
+  fs.root_mkdir(root, p"sys/devices/system/cpu/cpu4", parents: true)?
+  fs.root_write(root, p"sys/devices/system/cpu/possible", "0-4")?
+  fs.root_write(root, p"sys/devices/system/cpu/present", "2,4")?
+  fs.root_write(root, p"sys/devices/system/cpu/online", "2")?
+  fs.root_write(root, p"sys/devices/system/cpu/offline", "4")?
+  let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
+  let snapshot = collector.collect_from_root(root, "fixture-arch", 4096, 100, "cpu", true)?
+  test.ok(snapshot.cpu.status.enumeration_succeeded)?
+  test.eq(snapshot.cpu.possible, [0, 1, 2, 3, 4])?
+  test.eq(snapshot.cpu.present, [2, 4])?
+  test.eq(snapshot.cpu.cpus.len(), 2)?
+  test.eq(snapshot.cpu.cpus[0].id, 2)?
+  test.ok(snapshot.cpu.cpus[0].online == true)?
+  test.eq(snapshot.cpu.cpus[1].id, 4)?
+  test.ok(snapshot.cpu.cpus[1].online == false)?
+}
+
+proc test_system_report_cpu_enumeration_requires_a_valid_present_list() [fs, time, error] {
+  let root = fs.tempdir()?
+  defer fs.close_root(root)?
+  fs.root_mkdir(root, p"sys/devices/system/cpu", parents: true)?
+  fs.root_write(root, p"sys/devices/system/cpu/possible", "0")?
+  fs.root_write(root, p"sys/devices/system/cpu/present", "0-x")?
+  fs.root_write(root, p"sys/devices/system/cpu/online", "0")?
+  fs.root_write(root, p"sys/devices/system/cpu/offline", "")?
+  let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
+
+  let malformed = collector.collect_from_root(root, "fixture-arch", 4096, 100, "cpu", true)?
+  test.eq(malformed.cpu.possible, [0])?
+  test.eq(malformed.cpu.present, [])?
+  test.ok(!malformed.cpu.status.enumeration_succeeded)?
+  test.eq((malformed.issues |> where .section == "cpu" and .field == "present").len(), 1)?
+
+  fs.root_write(root, p"sys/devices/system/cpu/present", "0")?
+  fs.root_remove(root, p"sys/devices/system/cpu/possible")?
+  let present = collector.collect_from_root(root, "fixture-arch", 4096, 100, "cpu", true)?
+  test.eq(present.cpu.possible, [])?
+  test.eq(present.cpu.present, [0])?
+  test.ok(present.cpu.status.enumeration_succeeded)?
+  test.eq(present.cpu.status.state, report_model.Partial)?
+
+  var padding = " "
+  while padding.count_chars() < 65536 {
+    padding = f"${padding}${padding}"
+  }
+  fs.root_write(root, p"sys/devices/system/cpu/present", f"0${padding}")?
+  let truncated = collector.collect_from_root(root, "fixture-arch", 4096, 100, "cpu", true)?
+  test.eq(truncated.cpu.present, [])?
+  test.ok(!truncated.cpu.status.enumeration_succeeded)?
+  let present_issues = truncated.issues |> where .section == "cpu" and .field == "present"
+  test.eq(present_issues.len(), 1)?
+  test.ok(present_issues[0].state == report_model.Truncated)?
+}
+
+proc test_system_report_cpu_present_symlinks_cannot_cycle_or_escape_the_source_root() [fs, time, error] {
+  let root = fs.tempdir()?
+  defer fs.close_root(root)?
+  let outside = fs.tempdir()?
+  defer fs.close_root(outside)?
+  fs.root_mkdir(root, p"sys/devices/system/cpu", parents: true)?
+  fs.root_write(root, p"sys/devices/system/cpu/possible", "0")?
+  fs.root_write(outside, p"present", "0")?
+  let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
+
+  fs.root_symlink(root, p"present", p"sys/devices/system/cpu/present")?
+  let cycled = collector.collect_from_root(root, "fixture-arch", 4096, 100, "cpu", true)?
+  test.eq(cycled.cpu.present, [])?
+  test.ok(!cycled.cpu.status.enumeration_succeeded)?
+  test.eq((cycled.issues |> where .section == "cpu" and .field == "present").len(), 1)?
+
+  fs.root_remove(root, p"sys/devices/system/cpu/present")?
+  let outside_path = fs.root_path(outside)?
+  fs.root_symlink(root, fp"${outside_path}/present", p"sys/devices/system/cpu/present")?
+  let escaped = collector.collect_from_root(root, "fixture-arch", 4096, 100, "cpu", true)?
+  test.eq(escaped.cpu.present, [])?
+  test.ok(!escaped.cpu.status.enumeration_succeeded)?
+  test.eq((escaped.issues |> where .section == "cpu" and .field == "present").len(), 1)?
+}
+
+proc test_system_report_cpu_directory_failures_keep_source_issues() [fs, time, error] {
+  let root = fs.tempdir()?
+  defer fs.close_root(root)?
+  fs.root_mkdir(root, p"sys/devices/system/cpu/cpu0", parents: true)?
+  fs.root_write(root, p"sys/devices/system/cpu/possible", "0\n")?
+  fs.root_write(root, p"sys/devices/system/cpu/present", "0\n")?
+  fs.root_write(root, p"sys/devices/system/cpu/online", "0\n")?
+  fs.root_write(root, p"sys/devices/system/cpu/offline", "")?
+  fs.root_write(root, p"sys/devices/system/cpu/cpu0/cache", "not a directory")?
+  fs.root_write(root, p"sys/devices/system/cpu/cpu0/cpuidle", "not a directory")?
+  fs.root_write(root, p"sys/devices/system/cpu/vulnerabilities", "not a directory")?
+  let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
+  let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "cpu", true)?
+  for field in ["cpu0.cache", "cpu0.cpuidle", "vulnerabilities"] {
+    let matches = value.issues |> where .section == "cpu" and .field == field
+    test.eq(matches.len(), 1)?
+    test.ok(matches[0].state == report_model.ReadFailure)?
+  }
+  test.eq(value.cpu.status.state, report_model.Partial)?
+
+  fs.root_remove(root, p"sys/devices/system/cpu/cpu0/cache")?
+  fs.root_remove(root, p"sys/devices/system/cpu/cpu0/cpuidle")?
+  fs.root_remove(root, p"sys/devices/system/cpu/cpu0", dir: true)?
+  let disappeared = collector.collect_from_root(root, "fixture-arch", 4096, 100, "cpu", true)?
+  let enumeration_issues = disappeared.issues |> where .section == "cpu" and .field == "cpu0.enumeration"
+  test.eq(enumeration_issues.len(), 1)?
+  test.ok(enumeration_issues[0].state == report_model.Absent)?
+}
+
+proc test_system_report_cpu_vulnerability_read_failures_keep_named_issues() [fs, time, error] {
+  let root = fs.tempdir()?
+  defer fs.close_root(root)?
+  fs.root_mkdir(root, p"sys/devices/system/cpu/cpu0", parents: true)?
+  fs.root_mkdir(root, p"sys/devices/system/cpu/vulnerabilities", parents: true)?
+  fs.root_write(root, p"sys/devices/system/cpu/possible", "0\n")?
+  fs.root_write(root, p"sys/devices/system/cpu/present", "0\n")?
+  fs.root_write(root, p"sys/devices/system/cpu/online", "0\n")?
+  fs.root_write(root, p"sys/devices/system/cpu/offline", "\n")?
+  fs.root_write(root, p"sys/devices/system/cpu/vulnerabilities/spectre_v2", "Mitigation: fixture policy\n")?
+  fs.root_symlink(root, p"missing", p"sys/devices/system/cpu/vulnerabilities/spectre_v1")?
+  var oversized = "x"
+  while oversized.count_chars() <= 16384 {
+    oversized = f"${oversized}${oversized}"
+  }
+  fs.root_write(root, p"sys/devices/system/cpu/vulnerabilities/mmio_stale_data", oversized)?
+
+  let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
+  let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "cpu", true)?
+  let valid = value.cpu.vulnerabilities |> where .name == "spectre_v2"
+  test.eq(valid.len(), 1)?
+  test.eq(valid[0].description.value, "Mitigation: fixture policy")?
+  let vanished = value.cpu.vulnerabilities |> where .name == "spectre_v1"
+  test.eq(vanished.len(), 1)?
+  test.ok(vanished[0].description.state == report_model.Absent)?
+  let truncated = value.cpu.vulnerabilities |> where .name == "mmio_stale_data"
+  test.eq(truncated.len(), 1)?
+  test.ok(truncated[0].description.state == report_model.Truncated)?
+  test.ok(value.issues |> any .section == "cpu" and .field == "vulnerabilities.spectre_v1" and .state == report_model.Absent)?
+  test.ok(value.issues |> any .section == "cpu" and .field == "vulnerabilities.mmio_stale_data" and .state == report_model.Truncated)?
+}
+
+proc test_system_report_effective_cpuset_rejects_a_truncated_source() [fs, time, error] {
+  let root = fs.tempdir()?
+  defer fs.close_root(root)?
+  fs.root_mkdir(root, p"proc/self", parents: true)?
+  fs.root_mkdir(root, p"sys/fs/cgroup", parents: true)?
+  fs.root_mkdir(root, p"sys/devices/system/cpu", parents: true)?
+  fs.root_write(root, p"proc/self/cgroup", "0::/\n")?
+  fs.root_write(root, p"proc/self/mountinfo", "31 20 0:25 / /sys/fs/cgroup rw - cgroup2 cgroup rw\n")?
+  fs.root_write(root, p"sys/devices/system/cpu/possible", "0")?
+  fs.root_write(root, p"sys/devices/system/cpu/present", "0")?
+  fs.root_write(root, p"sys/devices/system/cpu/online", "0")?
+  fs.root_write(root, p"sys/devices/system/cpu/offline", "")?
+  var padding = " "
+  while padding.count_chars() < 65536 {
+    padding = f"${padding}${padding}"
+  }
+  fs.root_write(root, p"sys/fs/cgroup/cpuset.cpus.effective", f"0${padding}")?
+
+  let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
+  let snapshot = collector.collect_from_root(root, "fixture-arch", 4096, 100, "cpu", true)?
+  test.eq(snapshot.cpu.effective_cpuset, [])?
+  let cpuset_issues = snapshot.issues |> where .section == "cpu" and .field == "cgroup.effective_cpuset"
+  test.eq(cpuset_issues.len(), 1)?
+  test.ok(cpuset_issues[0].state == report_model.Truncated)?
+
+  fs.root_write(root, p"sys/fs/cgroup/cpuset.cpus.effective", "0")?
+  fs.root_write(root, p"proc/self/cgroup", f"0::/${padding}")?
+  let truncated_membership = collector.collect_from_root(root, "fixture-arch", 4096, 100, "cpu", true)?
+  test.eq(truncated_membership.cpu.effective_cpuset, [])?
+  let membership_issues = truncated_membership.issues |> where .section == "cpu" and .field == "cgroup.effective_cpuset"
+  test.eq(membership_issues.len(), 1)?
+  test.ok(membership_issues[0].state == report_model.Truncated)?
 }
 
 proc test_system_report_cpu_collection_keeps_sparse_models_policies_and_cpuset() [fs, time, error] {
@@ -1025,8 +2270,10 @@ proc test_system_report_cpu_collection_keeps_sparse_models_policies_and_cpuset()
   fs.root_mkdir(root, p"etc", parents: true)?
   fs.root_mkdir(root, p"sys/devices/system/cpu/cpu0/topology", parents: true)?
   fs.root_mkdir(root, p"sys/devices/system/cpu/cpu0/cache/index7", parents: true)?
+  fs.root_mkdir(root, p"sys/devices/system/cpu/cpu0/node0", parents: true)?
   fs.root_mkdir(root, p"sys/devices/system/cpu/cpu2/topology", parents: true)?
   fs.root_mkdir(root, p"sys/devices/system/cpu/cpu2/cache/index7", parents: true)?
+  fs.root_mkdir(root, p"sys/devices/system/cpu/cpu2/node1", parents: true)?
   fs.root_mkdir(root, p"sys/devices/system/cpu/cpufreq/policy3", parents: true)?
   fs.root_mkdir(root, p"sys/devices/system/cpu/cpufreq/policy9", parents: true)?
   fs.root_mkdir(root, p"sys/devices/system/cpu/vulnerabilities", parents: true)?
@@ -1071,8 +2318,17 @@ proc test_system_report_cpu_collection_keeps_sparse_models_policies_and_cpuset()
     fs.root_write(root, fp"${policy.path}/scaling_driver", f"${policy.driver}\n")?
     fs.root_write(root, fp"${policy.path}/scaling_governor", f"${policy.governor}\n")?
     fs.root_write(root, fp"${policy.path}/scaling_available_governors", "powersave performance\n")?
+    fs.root_write(root, fp"${policy.path}/cpuinfo_min_freq", "800000\n")?
+    fs.root_write(root, fp"${policy.path}/cpuinfo_max_freq", "4000000\n")?
+    fs.root_write(root, fp"${policy.path}/scaling_min_freq", "1000000\n")?
+    fs.root_write(root, fp"${policy.path}/scaling_max_freq", "3000000\n")?
+    fs.root_write(root, fp"${policy.path}/energy_performance_preference", "balance_performance\n")?
+    fs.root_write(root, fp"${policy.path}/energy_performance_available_preferences", "performance balance_performance power\n")?
   }
   fs.root_write(root, p"sys/devices/system/cpu/vulnerabilities/spectre_v2", "Mitigation: fixture policy\n")?
+  fs.root_write(root, p"sys/devices/system/cpu/cpufreq/boost", "1\n")?
+  test.eq(fs.root_children(root, p"sys/devices/system/cpu/cpufreq")?.state, "complete")?
+  test.eq(fs.root_children(root, p"sys/devices/system/cpu/cpufreq")?.children.len(), 2)?
 
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "cpu", true)?
@@ -1083,21 +2339,232 @@ proc test_system_report_cpu_collection_keeps_sparse_models_policies_and_cpuset()
   test.eq(value.cpu.effective_cpuset, [0, 2])?
   test.eq(value.cpu.cpus[0].model, "Intel fixture")?
   test.eq(value.cpu.cpus[1].model, "AMD fixture")?
+  test.eq(value.cpu.frequency_policies.len(), 2)?
   test.eq(value.cpu.cpus[0].policy, "policy3")?
   test.eq(value.cpu.cpus[1].policy, "policy9")?
   test.eq(value.cpu.frequency_policies.len(), 2)?
   test.eq(value.cpu.frequency_policies[1].governor, "unlisted-governor")?
+  test.eq(value.cpu.frequency_policies[0].hardware_min_khz, 800000)?
+  test.eq(value.cpu.frequency_policies[1].hardware_max_khz, 4000000)?
+  test.eq(value.cpu.frequency_policies[0].scaling_min_khz, 1000000)?
+  test.eq(value.cpu.frequency_policies[1].scaling_max_khz, 3000000)?
+  test.eq(value.cpu.frequency_policies[0].energy_performance_preference, "balance_performance")?
+  test.eq(value.cpu.frequency_policies[1].available_energy_performance_preferences, ["performance", "balance_performance", "power"])?
+  test.eq(value.cpu.frequency_policies[0].boost_allowed, true)?
+  test.eq(value.cpu.frequency_policies[0].boost_supported, true)?
+  test.eq(value.cpu.frequency_policies[0].boost_active, null)?
+  test.eq(value.cpu.frequency_policies[1].boost_scope, "system")?
+  test.eq(value.identity.kernel_release, "fixture-release")?
   test.eq(value.cpu.caches.len(), 1)?
   test.eq(value.cpu.caches[0].sysfs_index, 7)?
   test.eq(value.cpu.caches[0].level, 2)?
   test.eq(value.cpu.caches[0].shared_cpus, [0, 2])?
+  test.eq(value.cpu.cpus[0].numa_node, 0)?
+  test.eq(value.cpu.cpus[1].numa_node, 1)?
+  test.eq(value.cpu.cpus[0].cache_ids, [0])?
+  test.eq(value.cpu.cpus[1].cache_ids, [0])?
   test.eq(value.cpu.vulnerabilities[0].description.value, "Mitigation: fixture policy")?
 }
 
-proc test_system_report_live_collection_rejects_linux_dry_run() [env, fs, time, error] {
+proc test_system_report_cpufreq_policy_rejects_truncated_field_prefixes() [fs, time, error] {
+  let root = fs.tempdir()?
+  defer fs.close_root(root)?
+  let policy_path = p"sys/devices/system/cpu/cpufreq/policy0"
+  fs.root_mkdir(root, policy_path, parents: true)?
+  fs.root_mkdir(root, p"sys/devices/system/cpu/cpu0", parents: true)?
+  fs.root_write(root, p"sys/devices/system/cpu/possible", "0\n")?
+  fs.root_write(root, p"sys/devices/system/cpu/present", "0\n")?
+  fs.root_write(root, p"sys/devices/system/cpu/online", "0\n")?
+  fs.root_write(root, p"sys/devices/system/cpu/offline", "\n")?
+  var padding = " "
+  while padding.count_chars() < 4096 {
+    padding = f"${padding}${padding}"
+  }
+  var long_padding = padding
+  while long_padding.count_chars() < 65536 {
+    long_padding = f"${long_padding}${long_padding}"
+  }
+  for field in [
+    {name: "related_cpus", prefix: "0"},
+    {name: "affected_cpus", prefix: "0"},
+    {name: "scaling_driver", prefix: "fixture_driver"},
+    {name: "scaling_governor", prefix: "performance"},
+    {name: "scaling_min_freq", prefix: "1000"},
+    {name: "scaling_available_frequencies", prefix: "1000 2000"},
+    {name: "energy_performance_preference", prefix: "performance"},
+  ] {
+    let suffix = if field.name == "scaling_available_frequencies" {long_padding} else {padding}
+    fs.root_write(root, fp"${policy_path}/${field.name}", f"${field.prefix}\n${suffix}")?
+  }
+  fs.root_write(root, p"sys/devices/system/cpu/cpufreq/boost", f"1\n${padding}")?
+
+  let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
+  let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "cpu", true)?
+  test.eq(value.cpu.frequency_policies.len(), 1)?
+  let policy = value.cpu.frequency_policies[0]
+  test.eq(policy.related_cpus, [])?
+  test.eq(policy.affected_cpus, [])?
+  test.eq(policy.driver, null)?
+  test.eq(policy.governor, null)?
+  test.eq(policy.scaling_min_khz, null)?
+  test.eq(policy.available_frequencies_khz, [])?
+  test.eq(policy.energy_performance_preference, null)?
+  test.eq(policy.boost_supported, null)?
+  test.eq(policy.boost_allowed, null)?
+  test.eq(policy.boost_scope, null)?
+  let truncated_fields = value.issues |> where .section == "cpu" and .state == report_model.Truncated
+  for field in [
+    "policy0.related_cpus", "policy0.affected_cpus", "policy0.driver",
+    "policy0.governor", "policy0.scaling_min_freq", "policy0.scaling_available_frequencies",
+    "policy0.energy_performance_preference", "boost",
+  ] {
+    test.ok(truncated_fields |> any .field == field)?
+  }
+
+  fs.root_remove(root, fp"${policy_path}/scaling_min_freq")?
+  fs.root_mkdir(root, fp"${policy_path}/scaling_min_freq")?
+  let unreadable = collector.collect_from_root(root, "fixture-arch", 4096, 100, "cpu", true)?
+  test.eq(unreadable.cpu.frequency_policies[0].scaling_min_khz, null)?
+  let failed_minimum = unreadable.issues |> where .section == "cpu" and .field == "policy0.scaling_min_freq"
+  test.eq(failed_minimum.len(), 1)?
+  test.eq(failed_minimum[0].state, report_model.ReadFailure)?
+}
+
+proc test_system_report_idle_and_affinity_reject_truncated_prefixes() [fs, time, error] {
+  let root = fs.tempdir()?
+  defer fs.close_root(root)?
+  fs.root_mkdir(root, p"proc/self", parents: true)?
+  fs.root_mkdir(root, p"sys/devices/system/cpu/cpu0/cpuidle/state0", parents: true)?
+  fs.root_mkdir(root, p"sys/devices/system/cpu/cpu0/cpuidle/state1", parents: true)?
+  fs.root_mkdir(root, p"sys/devices/system/cpu/cpuidle", parents: true)?
+  fs.root_write(root, p"sys/devices/system/cpu/possible", "0\n")?
+  fs.root_write(root, p"sys/devices/system/cpu/present", "0\n")?
+  fs.root_write(root, p"sys/devices/system/cpu/online", "0\n")?
+  fs.root_write(root, p"sys/devices/system/cpu/offline", "\n")?
+  var padding = " "
+  while padding.count_chars() < 65536 {
+    padding = f"${padding}${padding}"
+  }
+  fs.root_write(root, p"proc/self/status", f"Cpus_allowed_list:\t0\n${padding}")?
+  for source_path in [
+    p"sys/devices/system/cpu/cpuidle/current_driver",
+    p"sys/devices/system/cpu/cpuidle/current_governor",
+    p"sys/devices/system/cpu/cpuidle/available_governors",
+    p"sys/devices/system/cpu/cpu0/cpuidle/state0/name",
+    p"sys/devices/system/cpu/cpu0/cpuidle/state0/desc",
+  ] {
+    fs.root_write(root, source_path, f"complete-looking prefix\n${padding}")?
+  }
+  fs.root_write(root, p"sys/devices/system/cpu/cpu0/cpuidle/state0/disable", "2\n")?
+  fs.root_write(root, p"sys/devices/system/cpu/cpu0/cpuidle/state0/latency", f"12\n${padding}")?
+  fs.root_write(root, p"sys/devices/system/cpu/cpu0/cpuidle/state0/residency", "123\n")?
+  fs.root_write(root, p"sys/devices/system/cpu/cpu0/cpuidle/state0/usage", "9007199254740992\n")?
+  fs.root_write(root, p"sys/devices/system/cpu/cpu0/cpuidle/state0/time", f"8\n${padding}")?
+  fs.root_write(root, p"sys/devices/system/cpu/cpu0/cpuidle/state1/name", "C1\n")?
+  fs.root_write(root, p"sys/devices/system/cpu/cpu0/cpuidle/state1/disable", "0\n")?
+  fs.root_write(root, p"sys/devices/system/cpu/cpu0/cpuidle/state1/latency", "9\n")?
+
+  let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
+  let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "cpu", true)?
+  test.eq(value.cpu.affinity, [])?
+  test.eq(value.cpu.global_idle_driver, null)?
+  test.eq(value.cpu.global_idle_governor, null)?
+  test.eq(value.cpu.available_idle_governors, [])?
+  let malformed = (value.cpu.idle_states |> where .name == "state0" |> first())?
+  test.eq(malformed.description, null)?
+  test.eq(malformed.disable_setting, null)?
+  test.eq(malformed.latency_us, null)?
+  test.eq(malformed.residency_us, 123)?
+  test.eq(malformed.usage_count, null)?
+  test.eq(malformed.time_us, null)?
+  let valid = (value.cpu.idle_states |> where .name == "C1" |> first())?
+  test.eq(valid.disable_setting, 0)?
+  test.eq(valid.latency_us, 9)?
+  let truncated_fields = value.issues |> where .section == "cpu" and .state == report_model.Truncated
+  for field in [
+    "affinity", "cpuidle.current_driver", "cpuidle.current_governor",
+    "cpuidle.available_governors", "cpu0.state0.name", "cpu0.state0.desc",
+    "cpu0.state0.latency", "cpu0.state0.time",
+  ] {
+    test.ok(truncated_fields |> any .field == field)?
+  }
+  test.ok(value.issues |> any .field == "cpu0.state0.disable" and .state == report_model.Malformed)?
+  test.ok(value.issues |> any .field == "cpu0.state0.usage" and .state == report_model.RangeFailure)?
+
+  fs.root_remove(root, p"sys/devices/system/cpu/cpu0/cpuidle/state1/latency")?
+  fs.root_mkdir(root, p"sys/devices/system/cpu/cpu0/cpuidle/state1/latency")?
+  let unreadable = collector.collect_from_root(root, "fixture-arch", 4096, 100, "cpu", true)?
+  let idle_state = (unreadable.cpu.idle_states |> where .name == "C1" |> first())?
+  test.eq(idle_state.disable_setting, 0)?
+  test.eq(idle_state.latency_us, null)?
+  let failed_latency = unreadable.issues |> where .section == "cpu" and .field == "cpu0.state1.latency"
+  test.eq(failed_latency.len(), 1)?
+  test.eq(failed_latency[0].state, report_model.ReadFailure)?
+}
+
+proc test_system_report_cpuinfo_rejects_a_truncated_complete_looking_prefix() [fs, time, error] {
+  let root = fs.tempdir()?
+  defer fs.close_root(root)?
+  fs.root_mkdir(root, p"proc", parents: true)?
+  fs.root_mkdir(root, p"sys/devices/system/cpu/cpu0", parents: true)?
+  fs.root_write(root, p"sys/devices/system/cpu/possible", "0\n")?
+  fs.root_write(root, p"sys/devices/system/cpu/present", "0\n")?
+  fs.root_write(root, p"sys/devices/system/cpu/online", "0\n")?
+  fs.root_write(root, p"sys/devices/system/cpu/offline", "\n")?
+  var padding = " "
+  while padding.count_chars() < 8388608 {
+    padding = f"${padding}${padding}"
+  }
+  fs.root_write(root, p"proc/cpuinfo", f"processor: 0\nmodel name: complete-looking prefix\n${padding}")?
+  let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
+  let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "cpu", true)?
+  test.eq(value.cpu.cpus.len(), 1)?
+  test.eq(value.cpu.cpus[0].model, null)?
+  let matches = value.issues |> where .section == "cpu" and .field == "cpuinfo"
+  test.eq(matches.len(), 1)?
+  test.ok(matches[0].state == report_model.Truncated)?
+}
+
+proc test_system_report_cpu_cache_sizes_reject_scaled_overflow_and_truncation() [fs, time, error] {
+  let root = fs.tempdir()?
+  defer fs.close_root(root)?
+  fs.root_mkdir(root, p"sys/devices/system/cpu/cpu0/cache/index7", parents: true)?
+  fs.root_mkdir(root, p"sys/devices/system/cpu/cpu0/cache/index8", parents: true)?
+  fs.root_write(root, p"sys/devices/system/cpu/possible", "0\n")?
+  fs.root_write(root, p"sys/devices/system/cpu/present", "0\n")?
+  fs.root_write(root, p"sys/devices/system/cpu/online", "0\n")?
+  fs.root_write(root, p"sys/devices/system/cpu/offline", "")?
+  fs.root_write(root, p"sys/devices/system/cpu/cpu0/cache/index7/level", "2\n")?
+  fs.root_write(root, p"sys/devices/system/cpu/cpu0/cache/index7/type", "Unified\n")?
+  fs.root_write(root, p"sys/devices/system/cpu/cpu0/cache/index7/size", "8796093022208K\n")?
+  fs.root_write(root, p"sys/devices/system/cpu/cpu0/cache/index8/level", "3\n")?
+  fs.root_write(root, p"sys/devices/system/cpu/cpu0/cache/index8/type", "Unified\n")?
+  var padding = " "
+  while padding.count_chars() < 4096 {
+    padding = f"${padding}${padding}"
+  }
+  fs.root_write(root, p"sys/devices/system/cpu/cpu0/cache/index8/size", f"512K${padding}")?
+  let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
+  let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "cpu", true)?
+  test.eq(value.cpu.caches.len(), 2)?
+  for cache in value.cpu.caches {
+    test.ok(cache.size_bytes == null)?
+  }
+  let overflow = value.issues |> where .section == "cpu" and .field == "cpu0.cache.index7.size"
+  test.eq(overflow.len(), 1)?
+  test.ok(overflow[0].state == report_model.RangeFailure)?
+  let truncated = value.issues |> where .section == "cpu" and .field == "cpu0.cache.index8.size"
+  test.eq(truncated.len(), 1)?
+  test.ok(truncated[0].state == report_model.Truncated)?
+}
+
+proc test_system_report_live_collection_rejects_linux_dry_run() [env, fs, time, process, error] {
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   env XSH_LINUX_DRY_RUN=1 {
-    test.error_kind(collector.collect_live(), "system-report-dry-run")?
+    match collector.collect_live() {
+      Err(error) => test.contains(error.message, "dry-run mode")?
+      Ok(_) => test.fail("live collection accepted dry-run mode")?
+    }
   }
 }
 
@@ -1108,26 +2575,72 @@ proc test_system_report_storage_parses_mountinfo_escapes_and_stacked_mounts() [f
   fs.root_write(
     root,
     p"proc/self/mountinfo",
-    "12 1 8:1 / /mnt/a\\040b rw,relatime - ext4 /dev/sda1 rw,errors=remount-ro\n13 1 8:1 / /mnt/alias rw - ext4 /dev/sda1 rw\n14 1 0:2 / /mnt/remote rw - nfs server:/data rw\n",
+    "12 1 8:1 / /mnt/a\\040b rw,relatime - ext4 /dev/sda1 rw,errors=remount-ro,password=private-secret\n13 1 8:1 / /mnt/alias rw - ext4 /dev/sda1 rw\n14 1 0:2 / /mnt/remote rw - cifs //user:private-secret@server/share rw\n",
   )?
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let value = collector.collect_from_root(root, "fixture-arch", 65536, 250, "storage", true, true)?
   test.eq(value.storage.mounts.len(), 3)?
   let first = value.storage.mounts[0]
-  if first == null {
-    test.fail("first mountinfo record was dropped")?
-  }
   test.eq(first.mount_id, 12)?
   test.eq(first.target.value, "/mnt/a b")?
   test.eq(first.filesystem, "ext4")?
   test.eq(first.source.value, "/dev/sda1")?
+  test.eq(first.super_options, ["rw", "errors=remount-ro", "redacted"])?
   test.eq(first.usage_state, report_model.Disappeared)?
   test.eq(value.storage.mounts[1].mount_id, 13)?
   test.eq(value.storage.mounts[1].usage_state, report_model.Disappeared)?
   test.eq(value.storage.mounts[2].mount_id, 14)?
   test.eq(value.storage.mounts[2].usage_state, report_model.NotRequested)?
+  test.eq(value.storage.mounts[2].source.state, report_model.Redacted)?
+  test.eq(value.storage.mounts[2].source.value, null)?
   let fixture_only = collector.collect_from_root(root, "fixture-arch", 65536, 250, "storage", true)?
   test.eq(fixture_only.storage.mounts[0].usage_state, report_model.NotRequested)?
+}
+
+proc test_system_report_storage_mounts_reject_truncated_complete_looking_prefix() [fs, time, error] {
+  let root = fs.tempdir()?
+  defer fs.close_root(root)?
+  fs.root_mkdir(root, p"proc/self", parents: true)?
+  let valid = "12 1 8:1 / /mnt/data rw - ext4 /dev/sda1 rw\n"
+  var padding = "#"
+  while padding.count_chars() < 4194304 {
+    padding = padding + padding
+  }
+  fs.root_write(root, p"proc/self/mountinfo", valid + padding)?
+  let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
+  let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "storage", true)?
+  test.eq(value.storage.mounts.len(), 0)?
+  test.ok(value.issues |> any .section == "storage" and .field == "mounts" and .state == report_model.Truncated)?
+}
+
+proc test_system_report_storage_usage_skips_shadowed_and_automount_descendants() [fs, time, error] {
+  let root = fs.tempdir()?
+  defer fs.close_root(root)?
+  fs.root_mkdir(root, p"proc/self", parents: true)?
+  fs.root_write(root, p"proc/self/mountinfo", "1 0 0:1 / / rw - tmpfs tmpfs rw\n2 1 8:1 / /mnt/shared rw - ext4 /dev/sda1 rw\n3 1 0:3 / /mnt/shared rw - tmpfs tmpfs rw\n4 1 0:4 / /mnt/auto rw - autofs autofs rw\n5 4 8:2 / /mnt/auto/local rw - ext4 /dev/sdb1 rw\n6 1 0:6 / /mnt/safe rw - tmpfs tmpfs rw\n")?
+  let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
+  let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "storage", true, true)?
+  test.eq(value.storage.mounts.len(), 6)?
+  test.ok(value.storage.mounts[0].usage_state == report_model.Observed)?
+  for index in [1, 2, 3, 4] {
+    test.ok(value.storage.mounts[index].usage_state == report_model.NotRequested)?
+    test.eq(value.storage.mounts[index].usage_total_bytes, null)?
+  }
+  test.ok(value.storage.mounts[5].usage_state == report_model.Disappeared)?
+}
+
+proc test_system_report_storage_mount_rejects_json_unsafe_identity() [fs, time, error] {
+  let root = fs.tempdir()?
+  defer fs.close_root(root)?
+  fs.root_mkdir(root, p"proc/self", parents: true)?
+  fs.root_write(root, p"proc/self/mountinfo", "9007199254740992 0 0:1 / /oversized-id rw - tmpfs tmpfs rw\n2 0 9007199254740992:1 / /oversized-device rw - tmpfs tmpfs rw\n3 0 0:1 / /valid rw - tmpfs tmpfs rw\n")?
+  let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
+  let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "storage", true, true)?
+  test.eq(value.storage.mounts.len(), 1)?
+  test.eq(value.storage.mounts[0].mount_id, 3)?
+  test.eq(value.storage.mounts[0].usage_state, report_model.NotRequested)?
+  test.ok(value.issues |> any .field == "mounts.line.0" and .state == report_model.RangeFailure)?
+  test.ok(value.issues |> any .field == "mounts.line.1" and .state == report_model.RangeFailure)?
 }
 
 proc test_system_report_storage_links_block_devices_to_pci_controllers() [fs, time, error] {
@@ -1139,6 +2652,7 @@ proc test_system_report_storage_links_block_devices_to_pci_controllers() [fs, ti
   fs.root_mkdir(root, p"sys/bus/pci/devices/0001:02:03.0", parents: true)?
   fs.root_mkdir(root, p"sys/class/block", parents: true)?
   fs.root_mkdir(root, p"sys/devices/pci0001:02/0001:02:03.0/block/nvme0n1/queue", parents: true)?
+  fs.root_mkdir(root, p"sys/devices/pci0001:02/0001:02:03.0/nvme0", parents: true)?
   fs.root_mkdir(root, p"sys/devices/pci0001:02/0001:02:03.0/block/nvme0n1/holders", parents: true)?
   fs.root_mkdir(root, p"sys/devices/pci0001:02/0001:02:03.0/block/nvme0n1/slaves", parents: true)?
   fs.root_mkdir(root, p"sys/bus/pci/devices/0001:02:03.0/iommu_group", parents: true)?
@@ -1155,8 +2669,9 @@ proc test_system_report_storage_links_block_devices_to_pci_controllers() [fs, ti
   fs.root_write(root, p"sys/bus/pci/devices/0001:02:03.0/subsystem_device", "0x0001\n")?
   fs.root_write(root, p"sys/bus/pci/devices/0001:02:03.0/class", "0x010802\n")?
   fs.root_write(root, p"sys/bus/pci/devices/0001:02:03.0/revision", "0x01\n")?
+  test.eq(fs.root_children(root, p"sys/bus/pci/devices")?.children.len(), 1)?
   fs.root_symlink(root, p"../../devices/pci0001:02/0001:02:03.0/block/nvme0n1", p"sys/class/block/nvme0n1")?
-  fs.root_symlink(root, p"../../../0001:02:03.0", p"sys/devices/pci0001:02/0001:02:03.0/block/nvme0n1/device")?
+  fs.root_symlink(root, p"../../nvme0", p"sys/devices/pci0001:02/0001:02:03.0/block/nvme0n1/device")?
   fs.root_write(root, p"sys/devices/pci0001:02/0001:02:03.0/block/nvme0n1/dev", "259:0\n")?
   fs.root_write(root, p"sys/devices/pci0001:02/0001:02:03.0/block/nvme0n1/size", "16\n")?
   fs.root_write(root, p"sys/devices/pci0001:02/0001:02:03.0/block/nvme0n1/queue/logical_block_size", "512\n")?
@@ -1175,6 +2690,9 @@ proc test_system_report_storage_links_block_devices_to_pci_controllers() [fs, ti
   let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "storage", true)?
   test.eq(value.pci.functions.len(), 1)?
   test.eq(value.pci.functions[0].domain, 1)?
+  if value.storage.devices.len() == 0 {
+    test.fail((value.issues |> where .section == "storage" |> first())?.error_kind ?? "no storage issue")?
+  }
   test.eq(value.storage.devices.len(), 1)?
   test.eq(value.storage.devices[0].kind, "disk")?
   test.eq(value.storage.devices[0].size_bytes, 8192)?
@@ -1182,7 +2700,407 @@ proc test_system_report_storage_links_block_devices_to_pci_controllers() [fs, ti
   test.eq(value.storage.mounts[0].block_device_index, 0)?
 }
 
-proc test_system_report_process_collection_uses_reported_page_size_and_raw_start_ticks() [fs, time, error] {
+proc test_system_report_block_scheduler_requires_one_selected_choice() [fs, error] {
+  let collectors = module.load(p"core/lib/system_report_collect.xsh")?.require(SystemReportCollectors)?
+  let selected = collectors.parse_block_scheduler("none [mq-deadline] kyber").require(BlockScheduler)?
+  test.eq(selected.active, "mq-deadline")?
+  test.eq(selected.available, ["none", "mq-deadline", "kyber"])?
+  let tabbed = collectors.parse_block_scheduler("[none]\tfixture-scheduler").require(BlockScheduler)?
+  test.eq(tabbed.active, "none")?
+  test.eq(tabbed.available, ["none", "fixture-scheduler"])?
+  for invalid in ["", "none mq-deadline", "[none] [mq-deadline]", "[] none", "[none] none", "[none]\nkyber"] {
+    test.ok(collectors.parse_block_scheduler(invalid) == null)?
+  }
+}
+
+proc test_system_report_storage_rejects_invalid_block_source_fields() [fs, time, error] {
+  let root = fs.tempdir()?
+  defer fs.close_root(root)?
+  fs.root_mkdir(root, p"sys/class/block/loop0/queue", parents: true)?
+  fs.root_mkdir(root, p"sys/class/block/loop0/holders", parents: true)?
+  fs.root_mkdir(root, p"sys/class/block/loop0/slaves", parents: true)?
+  fs.root_mkdir(root, p"sys/class/block/loop0/device", parents: true)?
+  var padding = " "
+  while padding.count_chars() < 4096 {
+    padding = f"${padding}${padding}"
+  }
+  fs.root_write(root, p"sys/class/block/loop0/dev", f"7:0\n${padding}")?
+  fs.root_write(root, p"sys/class/block/loop0/size", f"16\n${padding}")?
+  fs.root_write(root, p"sys/class/block/loop0/queue/logical_block_size", f"512\n${padding}")?
+  fs.root_write(root, p"sys/class/block/loop0/removable", f"1\n${padding}")?
+  fs.root_write(root, p"sys/class/block/loop0/queue/scheduler", f"[none] mq-deadline\n${padding}")?
+  fs.root_write(root, p"sys/class/block/loop0/device/model", f"fixture-model\n${padding}")?
+  fs.root_write(root, p"sys/class/block/loop0/device/firmware_rev", f"fixture-revision\n${padding}")?
+  fs.root_write(root, p"sys/class/block/loop0/device/rev", "fallback-revision\n")?
+  fs.root_write(root, p"sys/class/block/loop0/stat", f"1 0 8 1 2 0 16 2 0 3 4\n${padding}")?
+  let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
+  let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "storage", true)?
+  test.eq(value.storage.devices.len(), 1)?
+  let device = value.storage.devices[0]
+  test.eq(device.major, null)?
+  test.eq(device.minor, null)?
+  test.eq(device.size_bytes, null)?
+  test.eq(device.logical_sector_bytes, null)?
+  test.eq(device.removable, null)?
+  test.eq(device.active_scheduler, null)?
+  test.eq(device.available_schedulers, [])?
+  test.eq(device.io_counters, [])?
+  test.eq(device.model.value, null)?
+  test.eq(device.firmware.value, null)?
+  test.ok(device.model.state == report_model.Truncated)?
+  test.ok(device.firmware.state == report_model.Truncated)?
+  for field in ["major_minor", "size", "logical_sector_bytes", "removable", "scheduler", "stat", "model", "firmware"] {
+    let matches = value.issues |> where .section == "storage" and .field == f"devices.loop0.${field}"
+    test.eq(matches.len(), 1)?
+    test.ok(matches[0].state == report_model.Truncated)?
+  }
+
+  fs.root_write(root, p"sys/class/block/loop0/queue/scheduler", "none mq-deadline\n")?
+  let malformed_scheduler = collector.collect_from_root(root, "fixture-arch", 4096, 100, "storage", true)?
+  test.eq(malformed_scheduler.storage.devices[0].active_scheduler, null)?
+  test.eq(malformed_scheduler.storage.devices[0].available_schedulers, [])?
+  let scheduler_issues = malformed_scheduler.issues |> where .section == "storage" and .field == "devices.loop0.scheduler"
+  test.eq(scheduler_issues.len(), 1)?
+  test.eq(scheduler_issues[0].state, report_model.Malformed)?
+
+  fs.root_write(root, p"sys/class/block/loop0/queue/logical_block_size", "invalid\n")?
+  fs.root_write(root, p"sys/class/block/loop0/queue/physical_block_size", "9007199254740992\n")?
+  fs.root_write(root, p"sys/class/block/loop0/removable", "2\n")?
+  fs.root_write(root, p"sys/class/block/loop0/queue/rotational", "-1\n")?
+  fs.root_write(root, p"sys/class/block/loop0/ro", "invalid\n")?
+  fs.root_write(root, p"sys/class/block/loop0/queue/read_ahead_kb", "-2\n")?
+  fs.root_write(root, p"sys/class/block/loop0/queue/discard_granularity", "0x10\n")?
+  fs.root_write(root, p"sys/class/block/loop0/queue/discard_max_bytes", "9007199254740992\n")?
+  let invalid_queue = collector.collect_from_root(root, "fixture-arch", 4096, 100, "storage", true)?
+  let queue_device = invalid_queue.storage.devices[0]
+  test.eq(queue_device.logical_sector_bytes, null)?
+  test.eq(queue_device.physical_sector_bytes, null)?
+  test.eq(queue_device.removable, null)?
+  test.eq(queue_device.rotational, null)?
+  test.eq(queue_device.read_only, null)?
+  test.eq(queue_device.read_ahead_kb, null)?
+  test.eq(queue_device.discard_granularity_bytes, null)?
+  test.eq(queue_device.discard_max_bytes, null)?
+  for expected in [
+    {field: "logical_sector_bytes", state: report_model.Malformed},
+    {field: "physical_sector_bytes", state: report_model.RangeFailure},
+    {field: "removable", state: report_model.Malformed},
+    {field: "rotational", state: report_model.Malformed},
+    {field: "read_only", state: report_model.Malformed},
+    {field: "read_ahead_kb", state: report_model.Malformed},
+    {field: "discard_granularity_bytes", state: report_model.Malformed},
+    {field: "discard_max_bytes", state: report_model.RangeFailure},
+  ] {
+    let matches = invalid_queue.issues |> where .section == "storage" and .field == f"devices.loop0.${expected.field}"
+    test.eq(matches.len(), 1)?
+    test.eq(matches[0].state, expected.state)?
+  }
+
+  fs.root_write(root, p"sys/class/block/loop0/dev", "9007199254740992:0\n")?
+  let unsafe_identity = collector.collect_from_root(root, "fixture-arch", 4096, 100, "storage", true)?
+  test.eq(unsafe_identity.storage.devices[0].major, null)?
+  let invalid = unsafe_identity.issues |> where .section == "storage" and .field == "devices.loop0.major_minor"
+  test.eq(invalid.len(), 1)?
+  test.ok(invalid[0].state == report_model.RangeFailure)?
+
+  fs.root_write(root, p"sys/class/block/loop0/dev", "7:0\n")?
+  fs.root_write(root, p"sys/class/block/loop0/size", "17592186044415\n")?
+  let maximum = collector.collect_from_root(root, "fixture-arch", 4096, 100, "storage", true)?
+  test.eq(maximum.storage.devices[0].size_bytes, 9007199254740480)?
+  fs.root_write(root, p"sys/class/block/loop0/size", "17592186044416\n")?
+  let oversized = collector.collect_from_root(root, "fixture-arch", 4096, 100, "storage", true)?
+  test.eq(oversized.storage.devices[0].size_bytes, null)?
+  let size_issues = oversized.issues |> where .section == "storage" and .field == "devices.loop0.size"
+  test.eq(size_issues.len(), 1)?
+  test.ok(size_issues[0].state == report_model.RangeFailure)?
+
+  fs.root_write(root, p"sys/class/block/loop0/size", "-0\n")?
+  let negative_zero = collector.collect_from_root(root, "fixture-arch", 4096, 100, "storage", true)?
+  test.eq(negative_zero.storage.devices[0].size_bytes, null)?
+  let negative_size = negative_zero.issues |> where .section == "storage" and .field == "devices.loop0.size"
+  test.eq(negative_size.len(), 1)?
+  test.eq(negative_size[0].state, report_model.Malformed)?
+
+  fs.root_write(root, p"sys/class/block/loop0/size", "16\n")?
+  fs.root_write(root, p"sys/class/block/loop0/stat", "9007199254740992 0 8 1 2 0 16 2 0 3 4\n")?
+  let counters = collector.collect_from_root(root, "fixture-arch", 4096, 100, "storage", true)?
+  test.ok(!(counters.storage.devices[0].io_counters |> any .name == "read_ios"))?
+  test.ok(counters.storage.devices[0].io_counters |> any .name == "read_sectors" and .value == 8)?
+  let counter_issues = counters.issues |> where .section == "storage" and .field == "devices.loop0.stat.read_ios"
+  test.eq(counter_issues.len(), 1)?
+  test.ok(counter_issues[0].state == report_model.RangeFailure)?
+
+  fs.root_write(root, p"sys/class/block/loop0/stat", "1 0 8 1 2 0 16 2 0 3 4 5 6 7 8 9 10\n")?
+  let full_stats = collector.collect_from_root(root, "fixture-arch", 4096, 100, "storage", true)?
+  let values = full_stats.storage.devices[0].io_counters
+  test.eq(values.len(), 17)?
+  test.ok(values |> any .name == "discard_ios" and .value == 5)?
+  test.ok(values |> any .name == "discard_sectors" and .value == 7)?
+  test.ok(values |> any .name == "flush_ios" and .value == 9)?
+  test.ok(values |> any .name == "flush_ms" and .value == 10)?
+  test.ok(!(full_stats.issues |> any .field == "devices.loop0.stat"))?
+
+  fs.root_write(root, p"sys/class/block/loop0/stat", "1 0 8 1 2 0 16 2 0 3 4 5 6\n")?
+  let incomplete_stats = collector.collect_from_root(root, "fixture-arch", 4096, 100, "storage", true)?
+  test.eq(incomplete_stats.storage.devices[0].io_counters, [])?
+  let incomplete_issue = incomplete_stats.issues |> where .section == "storage" and .field == "devices.loop0.stat"
+  test.eq(incomplete_issue.len(), 1)?
+  test.ok(incomplete_issue[0].state == report_model.Malformed)?
+
+  fs.root_write(root, p"sys/class/block/loop0/stat", "1 0 8 1 2 0 16 2 0 3 4 5 6 7 8 9 10 11\n")?
+  let future_stats = collector.collect_from_root(root, "fixture-arch", 4096, 100, "storage", true)?
+  test.eq(future_stats.storage.devices[0].io_counters.len(), 17)?
+  let unknown = future_stats.issues |> where .section == "storage" and .field == "devices.loop0.stat"
+  test.eq(unknown.len(), 1)?
+  test.ok(unknown[0].state == report_model.Unsupported)?
+
+  fs.root_remove(root, p"sys/class/block/loop0/queue/read_ahead_kb")?
+  fs.root_mkdir(root, p"sys/class/block/loop0/queue/read_ahead_kb")?
+  let unreadable = collector.collect_from_root(root, "fixture-arch", 4096, 100, "storage", true)?
+  test.eq(unreadable.storage.devices[0].read_ahead_kb, null)?
+  let failed_read_ahead = unreadable.issues |> where .section == "storage" and .field == "devices.loop0.read_ahead_kb"
+  test.eq(failed_read_ahead.len(), 1)?
+  test.eq(failed_read_ahead[0].state, report_model.ReadFailure)?
+}
+
+proc test_system_report_storage_keeps_a_device_with_missing_numbers() [fs, time, error] {
+  let root = fs.tempdir()?
+  defer fs.close_root(root)?
+  fs.root_mkdir(root, p"sys/class/block/mystery0", parents: true)?
+  fs.root_write(root, p"sys/class/block/mystery0/size", "16\n")?
+  let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
+  let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "storage", true)?
+  test.eq(value.storage.devices.len(), 1)?
+  test.eq(value.storage.devices[0].name, "mystery0")?
+  test.ok(value.storage.devices[0].major == null)?
+  test.ok(value.storage.devices[0].minor == null)?
+  let missing_numbers = value.issues |> where .field == "devices.mystery0.major_minor"
+  test.eq(missing_numbers.len(), 1)?
+  test.eq(missing_numbers[0].state, report_model.Absent)?
+}
+
+proc test_system_report_storage_links_layered_block_devices_by_identity() [fs, time, error] {
+  let root = fs.tempdir()?
+  defer fs.close_root(root)?
+  for name in ["sda", "dm-0"] {
+    fs.root_mkdir(root, fp"sys/class/block/${name}/holders", parents: true)?
+    fs.root_mkdir(root, fp"sys/class/block/${name}/slaves", parents: true)?
+    fs.root_write(root, fp"sys/class/block/${name}/size", "16\n")?
+  }
+  fs.root_write(root, p"sys/class/block/sda/dev", "8:0\n")?
+  fs.root_write(root, p"sys/class/block/dm-0/dev", "253:0\n")?
+  fs.root_symlink(root, p"../../dm-0", p"sys/class/block/sda/holders/dm-0")?
+  fs.root_symlink(root, p"../../sda", p"sys/class/block/dm-0/slaves/sda")?
+  fs.root_mkdir(root, p"proc/self", parents: true)?
+  fs.root_write(root, p"proc/self/mountinfo", "")?
+
+  let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
+  let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "storage", true)?
+  test.eq(value.storage.status.state, report_model.Complete)?
+  test.eq(value.storage.devices.len(), 2)?
+  let base = (value.storage.devices |> where .name == "sda")[0]
+  let stacked = (value.storage.devices |> where .name == "dm-0")[0]
+  test.eq(base.major, 8)?
+  test.eq(stacked.major, 253)?
+  test.eq(base.holder_indices.len(), 1)?
+  test.eq(stacked.slave_indices.len(), 1)?
+  test.eq(value.storage.devices[base.holder_indices[0]].name, "dm-0")?
+  test.eq(value.storage.devices[stacked.slave_indices[0]].name, "sda")?
+  test.eq(base.slave_indices, [])?
+  test.eq(stacked.holder_indices, [])?
+}
+
+proc test_system_report_storage_keeps_sparse_partition_numbers_and_parent_links() [fs, time, error] {
+  let root = fs.tempdir()?
+  defer fs.close_root(root)?
+  fs.root_mkdir(root, p"sys/class/block", parents: true)?
+  let disk_path = p"sys/devices/pci0000:00/0000:00:01.0/block/sda"
+  fs.root_mkdir(root, fp"${disk_path}/holders", parents: true)?
+  fs.root_mkdir(root, fp"${disk_path}/slaves", parents: true)?
+  fs.root_write(root, fp"${disk_path}/dev", "8:0\n")?
+  fs.root_write(root, fp"${disk_path}/size", "1024\n")?
+  fs.root_symlink(root, p"../../devices/pci0000:00/0000:00:01.0/block/sda", p"sys/class/block/sda")?
+  for number in [1, 3] {
+    let name = f"sda${number}"
+    let partition_path = fp"${disk_path}/${name}"
+    fs.root_mkdir(root, fp"${partition_path}/holders", parents: true)?
+    fs.root_mkdir(root, fp"${partition_path}/slaves", parents: true)?
+    fs.root_write(root, fp"${partition_path}/partition", f"${number}\n")?
+    fs.root_write(root, fp"${partition_path}/dev", f"8:${number}\n")?
+    fs.root_write(root, fp"${partition_path}/size", "128\n")?
+    fs.root_symlink(root, fp"../../devices/pci0000:00/0000:00:01.0/block/sda/${name}", fp"sys/class/block/${name}")?
+  }
+  fs.root_mkdir(root, p"proc/self", parents: true)?
+  fs.root_write(root, p"proc/self/mountinfo", "")?
+
+  let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
+  let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "storage", true)?
+  test.eq(value.storage.status.state, report_model.Complete)?
+  test.eq(value.storage.devices.len(), 3)?
+  test.eq((value.storage.devices |> where .name == "sda2").len(), 0)?
+  let disk = (value.storage.devices |> where .name == "sda")[0]
+  test.eq(disk.kind, "disk")?
+  test.eq(disk.size_bytes, 524288)?
+  for name in ["sda1", "sda3"] {
+    let partition = (value.storage.devices |> where .name == name)[0]
+    test.eq(partition.kind, "partition")?
+    test.eq(value.storage.devices[partition.parent_device_index ?? -1].name, "sda")?
+    test.eq(partition.size_bytes, 65536)?
+  }
+}
+
+proc test_system_report_storage_keeps_holder_and_slave_enumeration_failures() [fs, time, error] {
+  let root = fs.tempdir()?
+  defer fs.close_root(root)?
+  fs.root_mkdir(root, p"sys/class/block/fixture", parents: true)?
+  fs.root_write(root, p"sys/class/block/fixture/dev", "8:0\n")?
+  fs.root_write(root, p"sys/class/block/fixture/holders", "not a directory")?
+  fs.root_write(root, p"sys/class/block/fixture/slaves", "not a directory")?
+  let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
+  let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "storage", true)?
+  test.eq(value.storage.devices.len(), 1)?
+  for field in ["devices.fixture.holders", "devices.fixture.slaves"] {
+    let matches = value.issues |> where .section == "storage" and .field == field
+    test.eq(matches.len(), 1)?
+    test.ok(matches[0].state == report_model.ReadFailure)?
+  }
+  test.eq((value.issues |> where .section == "storage" and .field == "devices.fixture.sysfs_target").len(), 0)?
+
+  fs.root_write(root, p"sys/class/block/not-a-directory", "not a block device")?
+  let failed_link = collector.collect_from_root(root, "fixture-arch", 4096, 100, "storage", true)?
+  let link_issues = failed_link.issues |> where .section == "storage" and .field == "devices.not-a-directory.sysfs_target"
+  test.eq(link_issues.len(), 1)?
+  test.ok(link_issues[0].state == report_model.ReadFailure)?
+  test.ok(link_issues[0].errno != null)?
+}
+
+proc test_system_report_process_stat_parser_preserves_start_identity() [fs, error] {
+  let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
+  let stat = collector.parse_proc_stat("123 (worker (pool)) S 1 1 1 0 -1 4194304 0 0 0 0 10 20 0 0 20 0 2 0 100 8192 2")?
+  test.eq(stat.pid, 123)?
+  test.eq(stat.parent_pid, 1)?
+  test.eq(stat.command, "worker (pool)")?
+  test.eq(stat.thread_count, 2)?
+  test.eq(stat.start_ticks, 100)?
+  test.eq(stat.virtual_bytes, 8192)?
+  test.eq(stat.resident_pages, 2)?
+  test.error_kind(collector.parse_proc_stat("0x7b (worker) S 1 1 1 0 -1 4194304 0 0 0 0 10 20 0 0 20 0 2 0 100 8192 2"), "SystemReportError.InvalidProcStat")?
+  test.error_kind(collector.parse_proc_stat("1_23 (worker) S 1 1 1 0 -1 4194304 0 0 0 0 10 20 0 0 20 0 2 0 100 8192 2"), "SystemReportError.InvalidProcStat")?
+  test.error_kind(collector.parse_proc_stat("9007199254740992 (worker) S 1 1 1 0 -1 4194304 0 0 0 0 10 20 0 0 20 0 2 0 100 8192 2"), "SystemReportError.InvalidProcStat")?
+  test.error_kind(collector.parse_proc_stat("123 (worker) S 9007199254740992 1 1 0 -1 4194304 0 0 0 0 10 20 0 0 20 0 2 0 100 8192 2"), "SystemReportError.InvalidProcStat")?
+  test.error_kind(collector.parse_proc_stat("123 (worker) S 1 1 1 0 -1 4194304 0 0 0 0 10 20 0 0 20 0 2 0 9007199254740992 8192 2"), "SystemReportError.InvalidProcStat")?
+  let oversized_optional = collector.parse_proc_stat("123 (worker) S 1 1 1 0 -1 4194304 0 0 0 0 10 20 0 0 20 0 9007199254740992 0 100 9007199254740992 9007199254740992")?
+  test.eq(oversized_optional.thread_count, null)?
+  test.eq(oversized_optional.virtual_bytes, null)?
+  test.eq(oversized_optional.resident_pages, null)?
+  test.ok(oversized_optional.field_issues |> any .field == "thread_count" and .state == report_model.RangeFailure)?
+  test.ok(oversized_optional.field_issues |> any .field == "virtual_bytes" and .state == report_model.RangeFailure)?
+  test.ok(oversized_optional.field_issues |> any .field == "resident_pages" and .state == report_model.RangeFailure)?
+}
+
+proc test_system_report_process_statm_overflow_does_not_publish_stat_fallback() [fs, time, error] {
+  let root = fs.tempdir()?
+  defer fs.close_root(root)?
+  fs.root_mkdir(root, p"proc/123", parents: true)?
+  fs.root_mkdir(root, p"proc/9007199254740992", parents: true)?
+  fs.root_write(root, p"proc/123/stat", "123 (worker) S 1 1 1 0 -1 4194304 0 0 0 0 10 20 0 0 20 0 2 0 100 8192 2\n")?
+  fs.root_write(root, p"proc/123/statm", "137438953472 137438953472 0 0 0 0 0\n")?
+  fs.root_write(root, p"proc/123/status", "Uid:\t1234\t1234\t1234\t1234\n")?
+  fs.root_write(root, p"proc/123/cgroup", "0::/fixture\n")?
+  let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
+  let value = collector.collect_from_root(root, "fixture-arch", 65536, 250, "processes", true)?
+  test.eq(value.processes.processes.len(), 1)?
+  test.eq(value.processes.processes[0].virtual_bytes, null)?
+  test.eq(value.processes.processes[0].resident_bytes, null)?
+  test.ok(value.issues |> any .field == "123.statm.virtual_bytes" and .state == report_model.RangeFailure)?
+  test.ok(value.issues |> any .field == "123.statm.resident_bytes" and .state == report_model.RangeFailure)?
+  test.ok(value.issues |> any .field == "9007199254740992.pid" and .state == report_model.RangeFailure)?
+}
+
+proc test_system_report_process_statm_requires_all_kernel_fields() [fs, time, error] {
+  let root = fs.tempdir()?
+  defer fs.close_root(root)?
+  fs.root_mkdir(root, p"proc/123", parents: true)?
+  fs.root_write(root, p"proc/123/stat", "123 (worker) S 1 1 1 0 -1 4194304 0 0 0 0 10 20 0 0 20 0 2 0 100 8192 2\n")?
+  fs.root_write(root, p"proc/123/statm", "2 1\n")?
+  fs.root_write(root, p"proc/123/status", "Uid:\t1234\t1234\t1234\t1234\n")?
+  fs.root_write(root, p"proc/123/cgroup", "0::/fixture\n")?
+  let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
+  let value = collector.collect_from_root(root, "fixture-arch", 65536, 250, "processes", true)?
+  test.eq(value.processes.processes.len(), 1)?
+  test.eq(value.processes.processes[0].virtual_bytes, null)?
+  test.eq(value.processes.processes[0].resident_bytes, null)?
+  test.ok(value.issues |> any .field == "123.statm" and .state == report_model.Malformed)?
+
+  fs.root_write(root, p"proc/123/statm", "2 1 malformed 0 0 0 0\n")?
+  let malformed = collector.collect_from_root(root, "fixture-arch", 65536, 250, "processes", true)?
+  test.eq(malformed.processes.processes[0].virtual_bytes, null)?
+  test.eq(malformed.processes.processes[0].resident_bytes, null)?
+  test.ok(malformed.issues |> any .field == "123.statm" and .state == report_model.Malformed)?
+
+  fs.root_write(root, p"proc/123/statm", "2 1 9007199254740992 0 0 0 0\n")?
+  let unused_large = collector.collect_from_root(root, "fixture-arch", 65536, 250, "processes", true)?
+  test.eq(unused_large.processes.processes[0].virtual_bytes, 131072)?
+  test.eq(unused_large.processes.processes[0].resident_bytes, 65536)?
+}
+
+proc test_system_report_process_cgroup_requires_one_absolute_v2_path() [fs, time, error] {
+  let root = fs.tempdir()?
+  defer fs.close_root(root)?
+  fs.root_mkdir(root, p"proc/123", parents: true)?
+  fs.root_write(root, p"proc/123/stat", "123 (worker) S 1 1 1 0 -1 4194304 0 0 0 0 10 20 0 0 20 0 2 0 100 8192 2\n")?
+  fs.root_write(root, p"proc/123/statm", "2 1 0 0 0 0 0\n")?
+  fs.root_write(root, p"proc/123/status", "Uid:\t1234\t1234\t1234\t1234\n")?
+  let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
+
+  fs.root_write(root, p"proc/123/cgroup", "0::relative\n")?
+  let relative = collector.collect_from_root(root, "fixture-arch", 4096, 100, "processes", true)?
+  test.eq(relative.processes.processes[0].cgroup.value, null)?
+  test.eq(relative.processes.processes[0].cgroup.state, report_model.Malformed)?
+  test.ok(relative.issues |> any .field == "123.cgroup" and .state == report_model.Malformed)?
+
+  fs.root_write(root, p"proc/123/cgroup", "0::/first\n0::/second\n")?
+  let duplicate = collector.collect_from_root(root, "fixture-arch", 4096, 100, "processes", true)?
+  test.eq(duplicate.processes.processes[0].cgroup.value, null)?
+  test.eq(duplicate.processes.processes[0].cgroup.state, report_model.Malformed)?
+
+  fs.root_write(root, p"proc/123/cgroup", "2:cpu:/legacy\n")?
+  let legacy = collector.collect_from_root(root, "fixture-arch", 4096, 100, "processes", true)?
+  test.eq(legacy.processes.processes[0].cgroup.value, null)?
+  test.eq(legacy.processes.processes[0].cgroup.state, report_model.Unsupported)?
+
+  fs.root_write(root, p"proc/123/cgroup", "0::/tenant/worker\n2:cpu:/legacy\n")?
+  let valid = collector.collect_from_root(root, "fixture-arch", 4096, 100, "processes", true)?
+  test.eq(valid.processes.processes[0].cgroup.value, "/tenant/worker")?
+  test.eq(valid.processes.processes[0].cgroup.state, report_model.Observed)?
+}
+
+proc test_system_report_process_uid_requires_one_complete_numeric_status_row() [fs, time, error] {
+  let root = fs.tempdir()?
+  defer fs.close_root(root)?
+  fs.root_mkdir(root, p"proc/123", parents: true)?
+  fs.root_write(root, p"proc/123/stat", "123 (worker) S 1 1 1 0 -1 4194304 0 0 0 0 10 20 0 0 20 0 2 0 100 8192 2\n")?
+  fs.root_write(root, p"proc/123/statm", "2 1 0 0 0 0 0\n")?
+  fs.root_write(root, p"proc/123/cgroup", "0::/tenant\n")?
+  let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
+
+  fs.root_write(root, p"proc/123/status", "Name:\tworker\nUid:\t1234\t1235\t1235\t1235\n")?
+  let valid = collector.collect_from_root(root, "fixture-arch", 4096, 100, "processes", true)?
+  test.eq(valid.processes.processes[0].uid, 1234)?
+  test.eq((valid.issues |> where .field == "123.uid").len(), 0)?
+
+  fs.root_write(root, p"proc/123/status", "Uid:\t1234\t1235\t1235\t1235\nUid:\t2000\t2000\t2000\t2000\n")?
+  let duplicate = collector.collect_from_root(root, "fixture-arch", 4096, 100, "processes", true)?
+  test.eq(duplicate.processes.processes[0].uid, null)?
+  test.ok(duplicate.issues |> any .field == "123.uid" and .state == report_model.Malformed)?
+
+  fs.root_write(root, p"proc/123/status", "Uid:\t1234\n")?
+  let short = collector.collect_from_root(root, "fixture-arch", 4096, 100, "processes", true)?
+  test.eq(short.processes.processes[0].uid, null)?
+  test.ok(short.issues |> any .field == "123.uid" and .state == report_model.Malformed)?
+}
+
+proc test_system_report_process_collection_scales_pages_and_omits_private_sources() [fs, time, error] {
   let root = fs.tempdir()?
   defer fs.close_root(root)?
   fs.root_mkdir(root, p"proc/123", parents: true)?
@@ -1190,24 +3108,67 @@ proc test_system_report_process_collection_uses_reported_page_size_and_raw_start
   fs.root_write(root, p"proc/123/statm", "2 1 0 0 0 0 0\n")?
   fs.root_write(root, p"proc/123/status", "Name:\tworker\nUid:\t1234\t1234\t1234\t1234\n")?
   fs.root_write(root, p"proc/123/cgroup", "0::/fixture/group\n")?
+  fs.root_write(root, p"proc/123/environ", "PRIVATE_ENVIRONMENT_TOKEN=secret\0")?
+  fs.root_write(root, p"proc/123/cmdline", "private-command-argument\0")?
+  test.eq(fs.root_children(root, p"proc")?.children.len(), 1)?
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let value = collector.collect_from_root(root, "fixture-arch", 65536, 250, "processes", true)?
   test.eq(value.scope.page_size_bytes, 65536)?
   test.eq(value.scope.clock_ticks_per_second, 250)?
-  test.eq(value.processes.processes.len(), 1)?
-  let process = value.processes.processes[0]
-  if process == null {
-    test.fail("fixture process was not collected")?
+  if value.processes.processes.len() == 0 {
+    test.fail((value.issues |> where .section == "processes" |> first())?.error_kind ?? "no process issue")?
   }
-  test.eq(process.pid, 123)?
-  test.eq(process.parent_pid, 1)?
-  test.eq(process.uid, 1234)?
-  test.eq(process.command.value, "worker")?
-  test.eq(process.start_ticks, 100)?
-  test.eq(process.resident_bytes, 65536)?
-  test.eq(process.virtual_bytes, 131072)?
-  test.eq(process.cgroup.value, "/fixture/group")?
-  test.eq(process.cgroup_resource_index, null)?
+  test.eq(value.processes.processes.len(), 1)?
+  let process_item = value.processes.processes[0]
+  test.eq(process_item.pid, 123)?
+  test.eq(process_item.parent_pid, 1)?
+  test.eq(process_item.uid, 1234)?
+  test.eq(process_item.command.value, "worker")?
+  test.eq(process_item.start_ticks, 100)?
+  test.eq(process_item.resident_bytes, 65536)?
+  test.eq(process_item.virtual_bytes, 131072)?
+  test.eq(process_item.cgroup.value, "/fixture/group")?
+  test.eq(process_item.cgroup_resource_index, null)?
+  let model = module.load(p"core/lib/system_report.xsh")?.require(SystemReportModel)?
+  let sensitive_json = model.encode_report_json(value, true, false)?
+  test.ok(!sensitive_json.contains("PRIVATE_ENVIRONMENT_TOKEN"))?
+  test.ok(!sensitive_json.contains("private-command-argument"))?
+  test.ok(!sensitive_json.contains("\"environment\""))?
+  test.ok(!sensitive_json.contains("\"cmdline\""))?
+}
+
+proc test_system_report_process_collection_rejects_truncated_stat_and_field_prefixes() [fs, time, error] {
+  let root = fs.tempdir()?
+  defer fs.close_root(root)?
+  fs.root_mkdir(root, p"proc/123", parents: true)?
+  let stat = "123 (worker) S 1 1 1 0 -1 4194304 0 0 0 0 10 20 0 0 20 0 2 0 100 8192 2\n"
+  var padding = " "
+  while padding.count_chars() < 16384 {
+    padding = f"${padding}${padding}"
+  }
+  fs.root_write(root, p"proc/123/stat", f"${stat}${padding}")?
+  let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
+  let truncated_stat = collector.collect_from_root(root, "fixture-arch", 4096, 100, "processes", true)?
+  test.eq(truncated_stat.processes.processes, [])?
+  let stat_issues = truncated_stat.issues |> where .section == "processes" and .field == "123.stat"
+  test.eq(stat_issues.len(), 1)?
+  test.ok(stat_issues[0].state == report_model.Truncated)?
+
+  fs.root_write(root, p"proc/123/stat", stat)?
+  fs.root_write(root, p"proc/123/statm", f"9 8 0 0 0 0 0\n${padding}")?
+  fs.root_write(root, p"proc/123/status", f"Uid:\t1234\t1234\t1234\t1234\n${padding}")?
+  fs.root_write(root, p"proc/123/cgroup", f"0::/partial\n${padding}")?
+  let truncated_fields = collector.collect_from_root(root, "fixture-arch", 4096, 100, "processes", true)?
+  test.eq(truncated_fields.processes.processes.len(), 1)?
+  let item = truncated_fields.processes.processes[0]
+  test.eq(item.virtual_bytes, 8192)?
+  test.eq(item.resident_bytes, 8192)?
+  test.eq(item.uid, null)?
+  test.ok(item.cgroup.state == report_model.Truncated)?
+  test.eq(item.cgroup.value, null)?
+  test.ok(truncated_fields.issues |> any .field == "123.statm" and .state == report_model.Truncated)?
+  test.ok(truncated_fields.issues |> any .field == "123.status" and .state == report_model.Truncated)?
+  test.ok(truncated_fields.issues |> any .field == "123.cgroup" and .state == report_model.Truncated)?
 }
 
 proc test_system_report_joins_visible_process_cgroups_to_resource_records() [fs, time, error] {
@@ -1228,20 +3189,19 @@ proc test_system_report_joins_visible_process_cgroups_to_resource_records() [fs,
   fs.root_write(root, p"sys/fs/cgroup/fixture/group/memory.current", "524288\n")?
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "", true)?
-  let process = (value.processes.processes |> where .pid == 123 |> first())?
-  test.eq(process.cgroup.value, "/fixture/group")?
-  if process.cgroup_resource_index == null {
+  let process_item = (value.processes.processes |> where .pid == 123 |> first())?
+  test.eq(process_item.cgroup.value, "/fixture/group")?
+  if process_item.cgroup_resource_index == null {
     test.fail("process cgroup relationship was not resolved")?
   }
-  let resource = value.memory.cgroup[process.cgroup_resource_index]
-  test.eq(resource.path.value, process.cgroup.value)?
+  let resource = value.memory.cgroup[process_item.cgroup_resource_index ?? -1]
+  test.eq(resource.path.value, process_item.cgroup.value)?
 }
 
 proc test_system_report_memory_collects_cgroup_v2_limits_and_visible_ancestors() [fs, time, error] {
   let root = fs.tempdir()?
   defer fs.close_root(root)?
   fs.root_mkdir(root, p"proc/self", parents: true)?
-  fs.root_mkdir(root, p"proc", parents: true)?
   fs.root_mkdir(root, p"sys/fs/cgroup/a/b", parents: true)?
   fs.root_write(root, p"proc/meminfo", "MemTotal: 16 kB\nMemFree: 4 kB\nMemAvailable: 8 kB\nVendorCounter: 12 widgets\n")?
   fs.root_write(root, p"proc/swaps", "Filename Type Size Used Priority\n")?
@@ -1267,9 +3227,6 @@ proc test_system_report_memory_collects_cgroup_v2_limits_and_visible_ancestors()
   let memory_limits = value.memory.cgroup |> where .controller == "memory" and .resource == "memory.max"
   test.eq(memory_limits.len(), 2)?
   let current_limit = memory_limits[0]
-  if current_limit == null {
-    test.fail("current cgroup memory limit was not collected")?
-  }
   test.eq(current_limit.hierarchy_level, 0)?
   test.eq(current_limit.maximum_unlimited, true)?
   test.eq(current_limit.current_value, 1024)?
@@ -1300,6 +3257,802 @@ proc test_system_report_memory_collects_cgroup_v2_limits_and_visible_ancestors()
   test.ok(invalid.issues |> any .field == "meminfo.MemTotal" and .state == report_model.Malformed)?
 }
 
+proc test_system_report_memory_directory_failures_keep_source_issues() [fs, time, error] {
+  let root = fs.tempdir()?
+  defer fs.close_root(root)?
+  fs.root_mkdir(root, p"proc", parents: true)?
+  fs.root_mkdir(root, p"sys/kernel/mm", parents: true)?
+  fs.root_mkdir(root, p"sys/devices/system", parents: true)?
+  fs.root_write(root, p"proc/meminfo", "MemTotal: 16 kB\nMemFree: 8 kB\n")?
+  fs.root_write(root, p"sys/kernel/mm/hugepages", "not a directory")?
+  fs.root_write(root, p"sys/devices/system/node", "not a directory")?
+  let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
+  let top = collector.collect_from_root(root, "fixture-arch", 4096, 100, "memory", true)?
+  test.eq(top.memory.host.total_bytes, 16384)?
+  for field in ["huge_pages.enumeration", "numa.enumeration"] {
+    let matches = top.issues |> where .section == "memory" and .field == field
+    test.eq(matches.len(), 1)?
+    test.ok(matches[0].state == report_model.ReadFailure)?
+  }
+  test.eq(top.memory.status.state, report_model.Partial)?
+
+  fs.root_remove(root, p"sys/devices/system/node")?
+  fs.root_mkdir(root, p"sys/devices/system/node/node0", parents: true)?
+  fs.root_mkdir(root, p"sys/devices/system/node/nodebad", parents: true)?
+  fs.root_write(root, p"sys/devices/system/node/node0/hugepages", "not a directory")?
+  let nested = collector.collect_from_root(root, "fixture-arch", 4096, 100, "memory", true)?
+  let nested_issues = nested.issues |> where .section == "memory" and .field == "numa.node0.huge_pages"
+  test.eq(nested_issues.len(), 1)?
+  test.ok(nested_issues[0].state == report_model.ReadFailure)?
+  let meminfo_issues = nested.issues |> where .section == "memory" and .field == "numa.node0.meminfo"
+  test.eq(meminfo_issues.len(), 1)?
+  test.ok(meminfo_issues[0].state == report_model.Absent)?
+  let invalid_node = nested.issues |> where .section == "memory" and .field == "numa.nodebad"
+  test.eq(invalid_node.len(), 1)?
+  test.ok(invalid_node[0].state == report_model.Malformed)?
+}
+
+proc test_system_report_huge_page_pools_reject_unsafe_sizes_and_partial_counts() [fs, time, error] {
+  let root = fs.tempdir()?
+  defer fs.close_root(root)?
+  fs.root_mkdir(root, p"proc", parents: true)?
+  fs.root_write(root, p"proc/meminfo", "MemTotal: 16 kB\n")?
+  fs.root_mkdir(root, p"sys/kernel/mm/hugepages/hugepages-2048kB", parents: true)?
+  fs.root_mkdir(root, p"sys/kernel/mm/hugepages/hugepages-8796093022207kB", parents: true)?
+  fs.root_mkdir(root, p"sys/kernel/mm/hugepages/hugepages-8796093022208kB", parents: true)?
+  fs.root_mkdir(root, p"sys/kernel/mm/hugepages/hugepages-1024kB", parents: true)?
+  fs.root_write(root, p"sys/kernel/mm/hugepages/hugepages-2048kB/nr_hugepages", "2\n")?
+  fs.root_write(root, p"sys/kernel/mm/hugepages/hugepages-2048kB/free_hugepages", "0x1\n")?
+  fs.root_write(root, p"sys/kernel/mm/hugepages/hugepages-8796093022207kB/nr_hugepages", "1\n")?
+  fs.root_write(root, p"sys/kernel/mm/hugepages/hugepages-8796093022208kB/nr_hugepages", "1\n")?
+  var padding = " "
+  while padding.count_chars() < 4096 {
+    padding = f"${padding}${padding}"
+  }
+  fs.root_write(root, p"sys/kernel/mm/hugepages/hugepages-1024kB/nr_hugepages", f"1\n${padding}")?
+  fs.root_mkdir(root, p"sys/devices/system/node/node0/hugepages/hugepages-2048kB", parents: true)?
+  fs.root_write(root, p"sys/devices/system/node/node0/hugepages/hugepages-2048kB/nr_hugepages", "3\n")?
+  let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
+  let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "memory", true)?
+  test.eq(value.memory.huge_pages.len(), 3)?
+  let global = (value.memory.huge_pages |> where .node_id == null and .page_size_bytes == 2097152 |> first())?
+  test.eq(global.page_size_bytes, 2097152)?
+  test.eq(global.total, 2)?
+  test.eq(global.free, null)?
+  let safe_edge = (value.memory.huge_pages |> where .page_size_bytes == 9007199254739968 |> first())?
+  test.eq(safe_edge.total, 1)?
+  let node = (value.memory.huge_pages |> where .node_id == 0 |> first())?
+  test.eq(node.page_size_bytes, 2097152)?
+  test.eq(node.total, 3)?
+  test.ok(value.issues |> any .field == "huge_pages.hugepages-8796093022208kB.page_size" and .state == report_model.RangeFailure)?
+  test.ok(value.issues |> any .field == "huge_pages.hugepages-1024kB.total" and .state == report_model.Truncated)?
+  test.ok(value.issues |> any .field == "huge_pages.hugepages-2048kB.free" and .state == report_model.Malformed)?
+
+  let empty_root = fs.tempdir()?
+  defer fs.close_root(empty_root)?
+  fs.root_mkdir(empty_root, p"proc", parents: true)?
+  fs.root_mkdir(empty_root, p"sys/kernel/mm/hugepages", parents: true)?
+  fs.root_write(empty_root, p"proc/meminfo", "MemTotal: 16 kB\n")?
+  let empty = collector.collect_from_root(empty_root, "fixture-arch", 4096, 100, "memory", true)?
+  test.eq(empty.memory.huge_pages.len(), 0)?
+  test.ok(!(empty.issues |> any .field == "huge_pages.enumeration"))?
+}
+
+proc test_system_report_numa_meminfo_requires_complete_rows_and_exact_bytes() [fs, time, error] {
+  let root = fs.tempdir()?
+  defer fs.close_root(root)?
+  fs.root_mkdir(root, p"proc", parents: true)?
+  fs.root_mkdir(root, p"sys/devices/system/node/node0", parents: true)?
+  fs.root_mkdir(root, p"sys/devices/system/node/node1", parents: true)?
+  fs.root_write(root, p"proc/meminfo", "MemTotal: 16 kB\n")?
+  fs.root_write(root, p"sys/devices/system/node/node0/meminfo", "Node 0 MemTotal: 8796093022207 kB\nNode 0 MemFree: 8796093022208 kB\nNode 0 Vendor: 9007199254740992 widgets\nNode 1 Active: 4 kB\nNode 0 Broken: 0x10 kB\n")?
+  var padding = " "
+  while padding.count_chars() < 65536 {
+    padding = f"${padding}${padding}"
+  }
+  fs.root_write(root, p"sys/devices/system/node/node1/meminfo", f"Node 1 MemTotal: 4 kB\n${padding}")?
+  let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
+  let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "memory", true)?
+  test.eq(value.memory.numa.len(), 1)?
+  test.eq(value.memory.numa[0].name, "node0.MemTotal")?
+  test.eq(value.memory.numa[0].value, 9007199254739968)?
+  test.eq(value.memory.numa[0].unit, "bytes")?
+  test.ok(value.issues |> any .field == "numa.node0.MemFree" and .state == report_model.RangeFailure)?
+  test.ok(value.issues |> any .field == "numa.node0.Vendor" and .state == report_model.RangeFailure)?
+  test.ok(value.issues |> any .field == "numa.node0.Active" and .state == report_model.Malformed)?
+  test.ok(value.issues |> any .field == "numa.node0.Broken" and .state == report_model.Malformed)?
+  test.ok(value.issues |> any .field == "numa.node1.meminfo" and .state == report_model.Truncated)?
+}
+
+proc test_system_report_pressure_keeps_complete_rows_and_unavailable_sources_distinct() [fs, time, error] {
+  let root = fs.tempdir()?
+  defer fs.close_root(root)?
+  fs.root_mkdir(root, p"proc/pressure", parents: true)?
+  fs.root_write(root, p"proc/meminfo", "MemTotal: 16 kB\n")?
+  fs.root_write(root, p"proc/pressure/cpu", "some avg10=0.00 avg60=1.50 avg300=2.25 total=9007199254740991\nfull avg10=nan avg60=0.00 avg300=0.00 total=0\n")?
+  fs.root_write(root, p"proc/pressure/memory", "some avg10=0.00 avg60=0.00 avg300=0.00 total=9007199254740992\nfull avg10=0.10 avg60=0.20 avg300=0.30 total=4\nfull avg10=0.10 avg60=0.20 avg300=0.30 total=5\n")?
+  var padding = " "
+  while padding.count_chars() < 16384 {
+    padding = f"${padding}${padding}"
+  }
+  fs.root_write(root, p"proc/pressure/io", f"some avg10=0.00 avg60=0.00 avg300=0.00 total=1\n${padding}")?
+  let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
+  let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "memory", true)?
+  test.eq(value.memory.pressure.len(), 2)?
+  let cpu_pressure = (value.memory.pressure |> where .resource == "cpu" |> first())?
+  test.eq(cpu_pressure.kind, "some")?
+  test.eq(cpu_pressure.avg60, "1.50")?
+  test.eq(cpu_pressure.total_us, 9007199254740991)?
+  test.ok(value.issues |> any .field == "pressure.cpu.full" and .state == report_model.Malformed)?
+  let memory = (value.memory.pressure |> where .resource == "memory" |> first())?
+  test.eq(memory.kind, "full")?
+  test.eq(memory.total_us, 4)?
+  test.ok(value.issues |> any .field == "pressure.memory.some" and .state == report_model.RangeFailure)?
+  test.ok(value.issues |> any .field == "pressure.memory.full" and .error_kind == "duplicate_psi_kind")?
+  test.ok(value.issues |> any .field == "pressure.io" and .state == report_model.Truncated)?
+
+  let unavailable_root = fs.tempdir()?
+  defer fs.close_root(unavailable_root)?
+  fs.root_mkdir(unavailable_root, p"proc", parents: true)?
+  fs.root_write(unavailable_root, p"proc/meminfo", "MemTotal: 16 kB\n")?
+  let unavailable = collector.collect_from_root(unavailable_root, "fixture-arch", 4096, 100, "memory", true)?
+  test.eq(unavailable.memory.pressure.len(), 0)?
+  for resource in ["cpu", "memory", "io"] {
+    test.ok(unavailable.issues |> any .field == f"pressure.${resource}" and .state == report_model.Absent)?
+  }
+}
+
+proc test_system_report_transparent_huge_page_policy_preserves_unknown_selection() [fs, time, error] {
+  let root = fs.tempdir()?
+  defer fs.close_root(root)?
+  fs.root_mkdir(root, p"proc", parents: true)?
+  fs.root_mkdir(root, p"sys/kernel/mm/transparent_hugepage", parents: true)?
+  fs.root_write(root, p"proc/meminfo", "MemTotal: 16 kB\n")?
+  fs.root_write(root, p"sys/kernel/mm/transparent_hugepage/enabled", "always [future_policy] never\n")?
+  fs.root_write(root, p"sys/kernel/mm/transparent_hugepage/defrag", "always defer [madvise] never\n")?
+  let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
+  let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "memory", true)?
+  test.eq(value.memory.transparent_huge_pages, ["enabled=always [future_policy] never", "defrag=always defer [madvise] never"])?
+
+  var padding = " "
+  while padding.count_chars() < 4096 {
+    padding = f"${padding}${padding}"
+  }
+  fs.root_write(root, p"sys/kernel/mm/transparent_hugepage/enabled", f"always [future_policy] never\n${padding}")?
+  fs.root_write(root, p"sys/kernel/mm/transparent_hugepage/defrag", "always defer never\n")?
+  let incomplete = collector.collect_from_root(root, "fixture-arch", 4096, 100, "memory", true)?
+  test.eq(incomplete.memory.transparent_huge_pages.len(), 0)?
+  test.ok(incomplete.issues |> any .field == "transparent_huge_pages.enabled" and .state == report_model.Truncated)?
+  test.ok(incomplete.issues |> any .field == "transparent_huge_pages.defrag" and .state == report_model.Malformed)?
+}
+
+proc test_system_report_sensor_and_power_sources_keep_raw_units_and_partial_attributes() [fs, time, error] {
+  let root = fs.tempdir()?
+  defer fs.close_root(root)?
+  fs.root_mkdir(root, p"sys/class/hwmon/hwmon0", parents: true)?
+  fs.root_mkdir(root, p"sys/class/power_supply/BAT0", parents: true)?
+  fs.root_mkdir(root, p"sys/class/powercap/intel-rapl:0", parents: true)?
+  fs.root_mkdir(root, p"sys/class/powercap/intel-rapl", parents: true)?
+  fs.root_write(root, p"sys/class/hwmon/hwmon0/name", "fixture_hwmon\n")?
+  fs.root_write(root, p"sys/class/hwmon/hwmon0/temp1_input", "42000\n")?
+  fs.root_write(root, p"sys/class/hwmon/hwmon0/temp1_label", "CPU Package\n")?
+  fs.root_write(root, p"sys/class/hwmon/hwmon0/temp1_max", "100000\n")?
+  fs.root_write(root, p"sys/class/hwmon/hwmon0/temp1_alarm", "0\n")?
+  fs.root_write(root, p"sys/class/hwmon/hwmon0/mystery0_input", "17\n")?
+  fs.root_write(root, p"sys/class/power_supply/BAT0/type", "Battery\n")?
+  fs.root_write(root, p"sys/class/power_supply/BAT0/status", "Charging\n")?
+  fs.root_write(root, p"sys/class/power_supply/BAT0/capacity", "68\n")?
+  fs.root_write(root, p"sys/class/power_supply/BAT0/charge_now", "2000000\n")?
+  fs.root_write(root, p"sys/class/power_supply/BAT0/charge_full", "3000000\n")?
+  fs.root_write(root, p"sys/class/power_supply/BAT0/voltage_now", "12000000\n")?
+  fs.root_write(root, p"sys/class/power_supply/BAT0/current_now", "-250000\n")?
+  fs.root_write(root, p"sys/class/powercap/intel-rapl:0/name", "package-0\n")?
+  fs.root_write(root, p"sys/class/powercap/intel-rapl:0/energy_uj", "123456\n")?
+  fs.root_write(root, p"sys/class/powercap/intel-rapl:0/max_energy_range_uj", "999999\n")?
+  fs.root_write(root, p"sys/class/powercap/intel-rapl:0/constraint_0_power_limit_uw", "45000000\n")?
+  fs.root_write(root, p"sys/class/powercap/intel-rapl:0/constraint_0_name", "long_term\n")?
+  fs.root_write(root, p"sys/class/powercap/intel-rapl:0/constraint_0_time_window_us", "1000000\n")?
+  fs.root_write(root, p"sys/class/powercap/intel-rapl:0/constraint_1_power_limit_uw", "65000000\n")?
+  fs.root_write(root, p"sys/class/powercap/intel-rapl:0/constraint_1_name", "short_term\n")?
+  fs.root_write(root, p"sys/class/powercap/intel-rapl:0/constraint_1_time_window_us", "250000\n")?
+  fs.root_write(root, p"sys/class/powercap/intel-rapl:0/constraint_2_power_limit_uw", "70000000\n")?
+  fs.root_write(root, p"sys/class/powercap/intel-rapl:0/constraint_10_power_limit_uw", "80000000\n")?
+  fs.root_mkdir(root, p"sys/class/powercap/intel-rapl:0/intel-rapl:0:0", parents: true)?
+  fs.root_write(root, p"sys/class/powercap/intel-rapl:0/intel-rapl:0:0/name", "core-0\n")?
+  fs.root_symlink(root, p"intel-rapl:0/intel-rapl:0:0", p"sys/class/powercap/intel-rapl:0:0")?
+
+  let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
+  let no_thermal = collector.collect_from_root(root, "fixture-arch", 4096, 100, "sensors", true)?
+  test.eq(no_thermal.sensors.thermal_zones, [])?
+  test.eq(no_thermal.sensors.status.state, report_model.Complete)?
+  test.eq(no_thermal.sensors.channels.len(), 2)?
+  let temperature = (no_thermal.sensors.channels |> where .channel == "temp1" |> first())?
+  test.eq(temperature.value, 42000)?
+  test.eq(temperature.unit, "millidegrees_celsius")?
+  test.eq(temperature.label.value, "CPU Package")?
+  test.eq(temperature.maximum, 100000)?
+  test.eq(temperature.alarm, false)?
+  let unknown = (no_thermal.sensors.channels |> where .channel == "mystery0" |> first())?
+  test.eq(unknown.kind, "unknown")?
+  test.eq(unknown.value, 17)?
+  test.eq(unknown.unit, "raw")?
+
+  fs.root_mkdir(root, p"sys/class/thermal/thermal_zone3", parents: true)?
+  fs.root_write(root, p"sys/class/thermal/thermal_zone3/type", "fixture_thermal\n")?
+  fs.root_write(root, p"sys/class/thermal/thermal_zone3/temp", "41000\n")?
+  fs.root_write(root, p"sys/class/thermal/thermal_zone3/trip_point_0_temp", "95000\n")?
+  fs.root_write(root, p"sys/class/thermal/thermal_zone3/trip_point_0_type", "critical\n")?
+  fs.root_write(root, p"sys/class/thermal/thermal_zone3/trip_point_0_hyst", "2000\n")?
+  let thermal = collector.collect_from_root(root, "fixture-arch", 4096, 100, "sensors", true)?
+  test.eq(thermal.sensors.status.state, report_model.Complete)?
+  test.eq(thermal.sensors.thermal_zones.len(), 1)?
+  test.eq(thermal.sensors.thermal_zones[0].id, 3)?
+  test.eq(thermal.sensors.thermal_zones[0].temperature_millidegrees, 41000)?
+  test.eq(thermal.sensors.thermal_zones[0].trips[0].temperature_millidegrees, 95000)?
+  test.eq(thermal.sensors.thermal_zones[0].trips[0].hysteresis_millidegrees, 2000)?
+
+  let power = collector.collect_from_root(root, "fixture-arch", 4096, 100, "power", true)?
+  test.eq(power.power.status.state, report_model.Complete)?
+  test.eq(power.power.supplies.len(), 1)?
+  test.eq(power.power.supplies[0].capacity_percent, 68)?
+  test.eq(power.power.supplies[0].charge_now_uah, 2000000)?
+  test.eq(power.power.supplies[0].current_now_ua, -250000)?
+  test.ok(power.power.supplies[0].energy_now_uwh == null)?
+  test.eq(power.power.cap_zones.len(), 2)?
+  let package_zone = (power.power.cap_zones |> where .name == "package-0" |> first())?
+  test.eq(package_zone.entry_name, "intel-rapl:0")?
+  test.ok(package_zone.parent == null)?
+  test.eq(package_zone.energy_uj, 123456)?
+  test.eq(package_zone.constraints.len(), 4)?
+  test.eq(package_zone.constraints |> map .index, [0, 1, 2, 10])?
+  let long_term = (package_zone.constraints |> where .index == 0 |> first())?
+  test.eq(long_term.name, "long_term")?
+  test.eq(long_term.power_limit_uw, 45000000)?
+  test.eq(long_term.time_window_us, 1000000)?
+  let short_term = (package_zone.constraints |> where .index == 1 |> first())?
+  test.eq(short_term.name, "short_term")?
+  test.eq(short_term.power_limit_uw, 65000000)?
+  test.eq(short_term.time_window_us, 250000)?
+  let core_zone = (power.power.cap_zones |> where .name == "core-0" |> first())?
+  test.eq(core_zone.entry_name, "intel-rapl:0:0")?
+  test.eq(core_zone.parent, "intel-rapl:0")?
+}
+
+proc test_system_report_sensor_units_and_powercap_ranges_are_bounded() [fs, time, error] {
+  let root = fs.tempdir()?
+  defer fs.close_root(root)?
+  fs.root_mkdir(root, p"sys/class/hwmon/hwmon0", parents: true)?
+  fs.root_mkdir(root, p"sys/class/power_supply/BAT0", parents: true)?
+  fs.root_mkdir(root, p"sys/class/powercap/intel-rapl:0", parents: true)?
+  fs.root_write(root, p"sys/class/hwmon/hwmon0/name", "fixture_hwmon\n")?
+  fs.root_write(root, p"sys/class/hwmon/hwmon0/temp1_input", "42 C\n")?
+  fs.root_write(root, p"sys/class/power_supply/BAT0/capacity", "101\n")?
+  fs.root_write(root, p"sys/class/powercap/intel-rapl:0/name", "package-0\n")?
+  fs.root_write(root, p"sys/class/powercap/intel-rapl:0/energy_uj", "9007199254740992\n")?
+  fs.root_write(root, p"sys/class/powercap/intel-rapl:0/max_energy_range_uj", "999999999999999999999999\n")?
+  fs.root_write(root, p"sys/class/powercap/intel-rapl:0/constraint_0_power_limit_uw", "-1\n")?
+  fs.root_write(root, p"sys/class/powercap/intel-rapl:0/constraint_0_time_window_us", "1000000\n")?
+  fs.root_write(root, p"sys/class/powercap/intel-rapl:0/constraint_bad_power_limit_uw", "1000000\n")?
+  let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
+  let sensors = collector.collect_from_root(root, "fixture-arch", 4096, 100, "sensors", true)?
+  test.eq(sensors.sensors.channels.len(), 1)?
+  test.ok(sensors.sensors.channels[0].value == null)?
+  let sensor_issues = sensors.issues |> where .section == "sensors" and .field == "fixture_hwmon.temp1_input"
+  test.eq(sensor_issues.len(), 1)?
+  test.ok(sensor_issues[0].state == report_model.Malformed)?
+
+  let power = collector.collect_from_root(root, "fixture-arch", 4096, 100, "power", true)?
+  test.ok(power.power.supplies[0].capacity_percent == null)?
+  let capacity_issues = power.issues |> where .section == "power" and .field == "supplies.BAT0.capacity"
+  test.eq(capacity_issues.len(), 1)?
+  test.ok(capacity_issues[0].state == report_model.Malformed)?
+  test.eq(power.power.cap_zones.len(), 1)?
+  test.ok(power.power.cap_zones[0].energy_uj == null)?
+  test.ok(power.power.cap_zones[0].maximum_energy_range_uj == null)?
+  test.eq(power.power.cap_zones[0].constraints.len(), 1)?
+  test.ok(power.power.cap_zones[0].constraints[0].power_limit_uw == null)?
+  test.eq(power.power.cap_zones[0].constraints[0].time_window_us, 1000000)?
+  for field in ["cap_zones.intel-rapl:0.energy_uj", "cap_zones.intel-rapl:0.max_energy_range_uj"] {
+    let matches = power.issues |> where .section == "power" and .field == field
+    test.eq(matches.len(), 1)?
+    test.ok(matches[0].state == report_model.RangeFailure)?
+  }
+  let negative_limit = power.issues |> where .section == "power" and .field == "cap_zones.intel-rapl:0.constraint_0_power_limit_uw"
+  test.eq(negative_limit.len(), 1)?
+  test.ok(negative_limit[0].state == report_model.Malformed)?
+  let invalid_index = power.issues |> where .section == "power" and .field == "cap_zones.intel-rapl:0.constraint_bad_power_limit_uw"
+  test.eq(invalid_index.len(), 1)?
+  test.eq(invalid_index[0].error_kind, "invalid_constraint_index")?
+}
+
+proc test_system_report_thermal_and_battery_reads_reject_truncated_prefixes() [fs, time, error] {
+  let root = fs.tempdir()?
+  defer fs.close_root(root)?
+  fs.root_mkdir(root, p"sys/class/hwmon/hwmon0", parents: true)?
+  fs.root_mkdir(root, p"sys/class/thermal/thermal_zone0", parents: true)?
+  fs.root_mkdir(root, p"sys/class/power_supply/BAT0", parents: true)?
+  fs.root_write(root, p"sys/class/hwmon/hwmon0/temp1_input", "-5000\n")?
+  var padding = " "
+  while padding.count_chars() < 4096 {
+    padding = f"${padding}${padding}"
+  }
+  fs.root_write(root, p"sys/class/hwmon/hwmon0/name", f"chip-prefix${padding}")?
+  fs.root_write(root, p"sys/class/thermal/thermal_zone0/temp", f"41000${padding}")?
+  fs.root_write(root, p"sys/class/thermal/thermal_zone0/type", f"zone-prefix${padding}")?
+  fs.root_write(root, p"sys/class/thermal/thermal_zone0/trip_point_0_temp", "95000\n")?
+  fs.root_write(root, p"sys/class/thermal/thermal_zone0/trip_point_0_type", f"critical${padding}")?
+  fs.root_write(root, p"sys/class/power_supply/BAT0/capacity", f"68${padding}")?
+  let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
+  let sensors = collector.collect_from_root(root, "fixture-arch", 4096, 100, "sensors", true)?
+  test.eq(sensors.sensors.channels[0].value, -5000)?
+  test.eq(sensors.sensors.channels[0].chip, "hwmon0")?
+  test.ok(sensors.sensors.thermal_zones[0].temperature_millidegrees == null)?
+  test.ok(sensors.sensors.thermal_zones[0].kind == null)?
+  test.eq(sensors.sensors.thermal_zones[0].trips[0].kind, "unknown")?
+  for field in ["hwmon.hwmon0.name", "thermal_zones.thermal_zone0.type", "thermal_zones.thermal_zone0.trip_point_0_type"] {
+    let matches = sensors.issues |> where .section == "sensors" and .field == field
+    test.eq(matches.len(), 1)?
+    test.ok(matches[0].state == report_model.Truncated)?
+  }
+  let thermal_issues = sensors.issues |> where .section == "sensors" and .field == "thermal_zones.thermal_zone0.temp"
+  test.eq(thermal_issues.len(), 1)?
+  test.ok(thermal_issues[0].state == report_model.Truncated)?
+
+  let power = collector.collect_from_root(root, "fixture-arch", 4096, 100, "power", true)?
+  test.ok(power.power.supplies[0].capacity_percent == null)?
+  let battery_issues = power.issues |> where .section == "power" and .field == "supplies.BAT0.capacity"
+  test.eq(battery_issues.len(), 1)?
+  test.ok(battery_issues[0].state == report_model.Truncated)?
+}
+
+proc test_system_report_nested_sensor_and_power_directories_keep_issues() [fs, time, error] {
+  let root = fs.tempdir()?
+  defer fs.close_root(root)?
+  fs.root_mkdir(root, p"sys/class/hwmon", parents: true)?
+  fs.root_mkdir(root, p"sys/class/thermal", parents: true)?
+  fs.root_mkdir(root, p"sys/class/powercap", parents: true)?
+  fs.root_write(root, p"sys/class/hwmon/hwmon0", "not a directory")?
+  fs.root_write(root, p"sys/class/thermal/thermal_zone0", "not a directory")?
+  fs.root_write(root, p"sys/class/powercap/intel-rapl:0", "not a directory")?
+  let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
+  let sensors = collector.collect_from_root(root, "fixture-arch", 4096, 100, "sensors", true)?
+  for field in ["hwmon.hwmon0.attributes", "thermal_zones.thermal_zone0.attributes"] {
+    let matches = sensors.issues |> where .section == "sensors" and .field == field
+    test.eq(matches.len(), 1)?
+    test.ok(matches[0].state == report_model.ReadFailure)?
+  }
+  test.eq(sensors.sensors.status.state, report_model.Partial)?
+
+  let power = collector.collect_from_root(root, "fixture-arch", 4096, 100, "power", true)?
+  for field in ["cap_zones.intel-rapl:0.name", "cap_zones.intel-rapl:0.attributes"] {
+    let matches = power.issues |> where .section == "power" and .field == field
+    test.eq(matches.len(), 1)?
+    test.ok(matches[0].state == report_model.ReadFailure)?
+  }
+  test.eq(power.power.status.state, report_model.Partial)?
+}
+
+proc test_system_report_powercap_enumeration_failure_is_partial() [fs, time, error] {
+  let root = fs.tempdir()?
+  defer fs.close_root(root)?
+  fs.root_mkdir(root, p"sys/class", parents: true)?
+  fs.root_write(root, p"sys/class/powercap", "not a directory")?
+  let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
+  let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "power", true)?
+  let matches = value.issues |> where .section == "power" and .field == "cap_zones"
+  test.eq(matches.len(), 1)?
+  test.ok(matches[0].state == report_model.ReadFailure)?
+  test.eq(value.power.status.state, report_model.Partial)?
+  test.eq(value.power.status.enumeration_succeeded, false)?
+}
+
+proc test_system_report_powercap_rejects_truncated_names() [fs, time, error] {
+  let root = fs.tempdir()?
+  defer fs.close_root(root)?
+  fs.root_mkdir(root, p"sys/class/powercap/intel-rapl:0", parents: true)?
+  var padding = " "
+  while padding.count_chars() < 4096 {
+    padding = f"${padding}${padding}"
+  }
+  fs.root_write(root, p"sys/class/powercap/intel-rapl:0/name", f"package-prefix${padding}")?
+  fs.root_write(root, p"sys/class/powercap/intel-rapl:0/constraint_0_power_limit_uw", "45000000\n")?
+  fs.root_write(root, p"sys/class/powercap/intel-rapl:0/constraint_0_name", f"limit-prefix${padding}")?
+  let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
+  let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "power", true)?
+  test.eq(value.power.cap_zones.len(), 1)?
+  test.eq(value.power.cap_zones[0].name, "intel-rapl:0")?
+  test.ok(value.power.cap_zones[0].constraints[0].name == null)?
+  for field in ["cap_zones.intel-rapl:0.name", "cap_zones.intel-rapl:0.constraint_0_name"] {
+    let matches = value.issues |> where .section == "power" and .field == field
+    test.eq(matches.len(), 1)?
+    test.ok(matches[0].state == report_model.Truncated)?
+  }
+  test.eq(value.power.status.state, report_model.Partial)?
+}
+
+proc test_system_report_power_supply_rejects_truncated_text_attributes() [fs, time, error] {
+  let root = fs.tempdir()?
+  defer fs.close_root(root)?
+  fs.root_mkdir(root, p"sys/class/power_supply/BAT0", parents: true)?
+  var padding = " "
+  while padding.count_chars() < 4096 {
+    padding = f"${padding}${padding}"
+  }
+  fs.root_write(root, p"sys/class/power_supply/BAT0/type", f"Battery${padding}")?
+  fs.root_write(root, p"sys/class/power_supply/BAT0/status", f"Charging${padding}")?
+  fs.root_write(root, p"sys/class/power_supply/BAT0/health", f"Good${padding}")?
+  let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
+  let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "power", true)?
+  test.eq(value.power.supplies.len(), 1)?
+  test.ok(value.power.supplies[0].kind == null)?
+  test.ok(value.power.supplies[0].status == null)?
+  test.ok(value.power.supplies[0].health == null)?
+  for field in ["supplies.BAT0.type", "supplies.BAT0.status", "supplies.BAT0.health"] {
+    let matches = value.issues |> where .section == "power" and .field == field
+    test.eq(matches.len(), 1)?
+    test.ok(matches[0].state == report_model.Truncated)?
+  }
+  test.eq(value.power.status.state, report_model.Partial)?
+}
+
+proc test_system_report_memory_reports_malformed_and_oversized_meminfo_fields() [fs, time, error] {
+  let root = fs.tempdir()?
+  defer fs.close_root(root)?
+  fs.root_mkdir(root, p"proc", parents: true)?
+  fs.root_write(root, p"proc/meminfo", "UnframedField\nMemTotal: 16 widgets\nMemFree:\nMemAvailable: 8 kB\nActive: 8796093022207 kB\nCached: 8796093022208 kB\nVendorCounter: 12 widgets\nVendorHuge: 9007199254740992 widgets\n")?
+
+  let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
+  let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "memory", true)?
+  test.ok(value.memory.host.total_bytes == null)?
+  test.ok(value.memory.host.free_bytes == null)?
+  test.ok(value.memory.host.cached_bytes == null)?
+  test.eq(value.memory.host.available_bytes, 8192)?
+  test.eq(value.memory.host.active_bytes, 9007199254739968)?
+  let invalid_row = value.issues |> where .field == "meminfo.line.0"
+  test.eq(invalid_row.len(), 1)?
+  test.eq(invalid_row[0].state, report_model.Malformed)?
+  let invalid_unit = value.issues |> where .field == "meminfo.MemTotal"
+  test.eq(invalid_unit[0].error_kind, "invalid_byte_counter_unit")?
+  let empty_value = value.issues |> where .field == "meminfo.MemFree"
+  test.eq(empty_value[0].error_kind, "missing_integer")?
+  let overflow = value.issues |> where .field == "meminfo.Cached"
+  test.eq(overflow[0].state, report_model.RangeFailure)?
+  let vendor_overflow = value.issues |> where .field == "meminfo.VendorHuge"
+  test.eq(vendor_overflow.len(), 1)?
+  test.eq(vendor_overflow[0].state, report_model.RangeFailure)?
+  test.eq(vendor_overflow[0].error_kind, "json_integer_out_of_range")?
+  test.ok(!(value.memory.host.counters |> any .name == "VendorHuge"))?
+  let vendor = value.memory.host.counters |> where .name == "VendorCounter"
+  test.eq(vendor.len(), 1)?
+  test.eq(vendor[0].value, 12)?
+  test.eq(vendor[0].unit, "widgets")?
+}
+
+proc test_system_report_memory_accepts_tabbed_values_and_withholds_duplicate_fields() [fs, time, error] {
+  let root = fs.tempdir()?
+  defer fs.close_root(root)?
+  fs.root_mkdir(root, p"proc", parents: true)?
+  fs.root_write(root, p"proc/meminfo", "MemTotal:\t16\tkB\nMemTotal: 32 kB\nMemFree:\t4\tkB\nVendorCounter:\t12\twidgets\n")?
+
+  let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
+  let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "memory", true)?
+  test.eq(value.memory.host.total_bytes, null)?
+  test.eq(value.memory.host.free_bytes, 4096)?
+  test.ok(!(value.memory.host.counters |> any .name == "MemTotal"))?
+  let free = value.memory.host.counters |> where .name == "MemFree"
+  test.eq(free.len(), 1)?
+  test.eq(free[0].value, 4096)?
+  test.eq(free[0].unit, "bytes")?
+  let vendor = value.memory.host.counters |> where .name == "VendorCounter"
+  test.eq(vendor.len(), 1)?
+  test.eq(vendor[0].value, 12)?
+  test.eq(vendor[0].unit, "widgets")?
+  let duplicates = value.issues |> where .field == "meminfo.MemTotal" and .error_kind == "duplicate_field"
+  test.eq(duplicates.len(), 1)?
+}
+
+proc test_system_report_cgroup_inventory_rejects_partial_membership_and_mounts() [fs, time, error] {
+  let root = fs.tempdir()?
+  defer fs.close_root(root)?
+  fs.root_mkdir(root, p"proc/self", parents: true)?
+  fs.root_mkdir(root, p"sys/fs/cgroup/group", parents: true)?
+  fs.root_write(root, p"proc/meminfo", "MemTotal: 16 kB\n")?
+  fs.root_write(root, p"proc/self/mountinfo", "31 20 0:25 / /sys/fs/cgroup rw - cgroup2 cgroup rw\n")?
+  fs.root_write(root, p"sys/fs/cgroup/group/memory.max", "1048576\n")?
+  fs.root_write(root, p"sys/fs/cgroup/group/memory.current", "512\n")?
+  var membership_padding = " "
+  while membership_padding.count_chars() < 65536 {
+    membership_padding = f"${membership_padding}${membership_padding}"
+  }
+  fs.root_write(root, p"proc/self/cgroup", f"0::/group\n${membership_padding}")?
+  let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
+  let membership = collector.collect_from_root(root, "fixture-arch", 4096, 100, "memory", true)?
+  test.eq(membership.memory.cgroup.len(), 0)?
+  test.ok(membership.issues |> any .section == "memory" and .field == "cgroup.membership" and .state == report_model.Truncated)?
+
+  fs.root_write(root, p"proc/self/cgroup", "0::/group\n")?
+  var mount_padding = " "
+  while mount_padding.count_chars() < 4194304 {
+    mount_padding = f"${mount_padding}${mount_padding}"
+  }
+  fs.root_write(root, p"proc/self/mountinfo", f"31 20 0:25 / /sys/fs/cgroup rw - cgroup2 cgroup rw\n${mount_padding}")?
+  let mount = collector.collect_from_root(root, "fixture-arch", 4096, 100, "memory", true)?
+  test.eq(mount.memory.cgroup.len(), 0)?
+  test.ok(mount.issues |> any .section == "memory" and .field == "cgroup.mountinfo" and .state == report_model.Truncated)?
+}
+
+proc test_system_report_cgroup_limits_keep_source_and_numeric_failures() [fs, time, error] {
+  let root = fs.tempdir()?
+  defer fs.close_root(root)?
+  fs.root_mkdir(root, p"proc/self", parents: true)?
+  fs.root_mkdir(root, p"sys/fs/cgroup/group", parents: true)?
+  fs.root_write(root, p"proc/meminfo", "MemTotal: 16 kB\n")?
+  fs.root_write(root, p"proc/self/cgroup", "0::/group\n")?
+  fs.root_write(root, p"proc/self/mountinfo", "31 20 0:25 / /sys/fs/cgroup rw - cgroup2 cgroup rw\n")?
+  fs.root_write(root, p"sys/fs/cgroup/group/memory.max", "1048576\n")?
+  var padding = " "
+  while padding.count_chars() < 4096 {
+    padding = f"${padding}${padding}"
+  }
+  fs.root_write(root, p"sys/fs/cgroup/group/memory.current", f"512\n${padding}")?
+  fs.root_write(root, p"sys/fs/cgroup/group/memory.swap.max", "0x10\n")?
+  fs.root_write(root, p"sys/fs/cgroup/group/memory.swap.current", "65536\n")?
+  fs.root_write(root, p"sys/fs/cgroup/group/pids.max", "9007199254740992\n")?
+  fs.root_write(root, p"sys/fs/cgroup/group/pids.current", "8\n")?
+  let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
+  let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "memory", true)?
+  let memory_limit = (value.memory.cgroup |> where .resource == "memory.max" |> first())?
+  test.eq(memory_limit.maximum_value, 1048576)?
+  test.eq(memory_limit.current_value, null)?
+  test.eq(memory_limit.state, report_model.Truncated)?
+  let swap_limit = (value.memory.cgroup |> where .resource == "memory.swap.max" |> first())?
+  test.eq(swap_limit.maximum_value, null)?
+  test.eq(swap_limit.current_value, 65536)?
+  test.eq(swap_limit.state, report_model.Malformed)?
+  let pids_limit = (value.memory.cgroup |> where .resource == "pids.max" |> first())?
+  test.eq(pids_limit.maximum_value, null)?
+  test.eq(pids_limit.current_value, 8)?
+  test.eq(pids_limit.state, report_model.RangeFailure)?
+  test.ok(value.issues |> any .field == "cgroup.0.memory.current" and .state == report_model.Truncated)?
+  test.ok(value.issues |> any .field == "cgroup.0.memory.swap.max" and .state == report_model.Malformed)?
+  test.ok(value.issues |> any .field == "cgroup.0.pids.max" and .state == report_model.RangeFailure)?
+}
+
+proc test_system_report_cgroup_cpu_and_io_counters_reject_partial_and_unsafe_values() [fs, time, error] {
+  let root = fs.tempdir()?
+  defer fs.close_root(root)?
+  fs.root_mkdir(root, p"proc/self", parents: true)?
+  fs.root_mkdir(root, p"sys/fs/cgroup/group", parents: true)?
+  fs.root_write(root, p"proc/meminfo", "MemTotal: 16 kB\n")?
+  fs.root_write(root, p"proc/self/cgroup", "0::/group\n")?
+  fs.root_write(root, p"proc/self/mountinfo", "31 20 0:25 / /sys/fs/cgroup rw - cgroup2 cgroup rw\n")?
+  fs.root_write(root, p"sys/fs/cgroup/group/cpu.max", "50000 100000\n")?
+  fs.root_write(root, p"sys/fs/cgroup/group/cpu.stat", "usage_usec 9007199254740992\nuser_usec 3\n")?
+  fs.root_write(root, p"sys/fs/cgroup/group/io.stat", "8:0 rbytes=9007199254740992 wbytes=1024\n")?
+  var cpuset_padding = " "
+  while cpuset_padding.count_chars() < 65536 {
+    cpuset_padding = f"${cpuset_padding}${cpuset_padding}"
+  }
+  fs.root_write(root, p"sys/fs/cgroup/group/cpuset.cpus.effective", f"0-1\n${cpuset_padding}")?
+  let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
+  let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "memory", true)?
+  let cpu_limit = (value.memory.cgroup |> where .resource == "cpu.max" |> first())?
+  test.eq(cpu_limit.quota, 50000)?
+  test.eq(cpu_limit.period, 100000)?
+  test.ok(value.memory.cgroup |> any .resource == "cpu.stat.user_usec" and .current_value == 3)?
+  test.ok(!(value.memory.cgroup |> any .resource == "cpu.stat.usage_usec"))?
+  test.ok(value.memory.cgroup |> any .resource == "io.stat.8:0.wbytes" and .current_value == 1024)?
+  test.ok(!(value.memory.cgroup |> any .resource == "io.stat.8:0.rbytes"))?
+  test.ok(!(value.memory.cgroup |> any .resource == "cpuset.cpus.effective"))?
+  test.ok(value.issues |> any .field == "cgroup.0.cpu.stat.usage_usec" and .state == report_model.RangeFailure)?
+  test.ok(value.issues |> any .field == "cgroup.0.io.stat.8:0.rbytes" and .state == report_model.RangeFailure)?
+  test.ok(value.issues |> any .field == "cgroup.0.cpuset.cpus.effective" and .state == report_model.Truncated)?
+
+  var cpu_padding = " "
+  while cpu_padding.count_chars() < 4096 {
+    cpu_padding = f"${cpu_padding}${cpu_padding}"
+  }
+  fs.root_write(root, p"sys/fs/cgroup/group/cpu.max", f"50000 100000\n${cpu_padding}")?
+  let truncated = collector.collect_from_root(root, "fixture-arch", 4096, 100, "memory", true)?
+  test.ok(!(truncated.memory.cgroup |> any .resource == "cpu.max"))?
+  test.ok(truncated.issues |> any .field == "cgroup.0.cpu.max" and .state == report_model.Truncated)?
+
+  var cpu_stat_padding = " "
+  while cpu_stat_padding.count_chars() < 16384 {
+    cpu_stat_padding = f"${cpu_stat_padding}${cpu_stat_padding}"
+  }
+  var io_padding = " "
+  while io_padding.count_chars() < 262144 {
+    io_padding = f"${io_padding}${io_padding}"
+  }
+  fs.root_write(root, p"sys/fs/cgroup/group/cpu.stat", f"user_usec 3\n${cpu_stat_padding}")?
+  fs.root_write(root, p"sys/fs/cgroup/group/io.stat", f"8:0 wbytes=1024\n${io_padding}")?
+  let incomplete_counters = collector.collect_from_root(root, "fixture-arch", 4096, 100, "memory", true)?
+  test.ok(!(incomplete_counters.memory.cgroup |> any .resource == "cpu.stat.user_usec"))?
+  test.ok(!(incomplete_counters.memory.cgroup |> any .resource == "io.stat.8:0.wbytes"))?
+  test.ok(incomplete_counters.issues |> any .field == "cgroup.0.cpu.stat" and .state == report_model.Truncated)?
+  test.ok(incomplete_counters.issues |> any .field == "cgroup.0.io.stat" and .state == report_model.Truncated)?
+}
+
+proc test_system_report_cgroup_hybrid_keeps_v2_values_and_v1_limitation() [fs, time, error] {
+  let root = fs.tempdir()?
+  defer fs.close_root(root)?
+  fs.root_mkdir(root, p"proc/self", parents: true)?
+  fs.root_mkdir(root, p"sys/fs/cgroup/group", parents: true)?
+  fs.root_write(root, p"proc/meminfo", "MemTotal: 16 kB\n")?
+  fs.root_write(root, p"proc/self/cgroup", "0::/group\n2:cpu:/legacy\n")?
+  fs.root_write(root, p"proc/self/mountinfo", "31 20 0:25 / /sys/fs/cgroup rw - cgroup2 cgroup rw\n32 20 0:26 / /sys/fs/cgroup/cpu rw - cgroup cgroup rw,cpu\n")?
+  fs.root_write(root, p"sys/fs/cgroup/group/memory.max", "1048576\n")?
+  fs.root_write(root, p"sys/fs/cgroup/group/memory.current", "512\n")?
+  let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
+  let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "memory", true)?
+  let memory_limit = (value.memory.cgroup |> where .resource == "memory.max" |> first())?
+  test.eq(memory_limit.maximum_value, 1048576)?
+  test.eq(memory_limit.current_value, 512)?
+  test.ok(value.issues |> any .field == "cgroup.v1" and .state == report_model.Unsupported)?
+}
+
+proc test_system_report_memory_marks_an_empty_meminfo_file_malformed() [fs, time, error] {
+  let root = fs.tempdir()?
+  defer fs.close_root(root)?
+  fs.root_mkdir(root, p"proc", parents: true)?
+  fs.root_write(root, p"proc/meminfo", "")?
+  let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
+  let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "memory", true)?
+  test.ok(value.memory.host.total_bytes == null)?
+  let empty_file = value.issues |> where .field == "meminfo"
+  test.eq(empty_file.len(), 1)?
+  test.eq(empty_file[0].state, report_model.Malformed)?
+}
+
+proc test_system_report_memory_does_not_parse_truncated_meminfo_prefix() [fs, time, error] {
+  let root = fs.tempdir()?
+  defer fs.close_root(root)?
+  fs.root_mkdir(root, p"proc", parents: true)?
+  var padding = " "
+  while padding.count_chars() < 1048576 {
+    padding = f"${padding}${padding}"
+  }
+  fs.root_write(root, p"proc/meminfo", f"MemTotal: 16 kB\n${padding}")?
+  let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
+  let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "memory", true)?
+  test.ok(value.memory.host.total_bytes == null)?
+  let matches = value.issues |> where .section == "memory" and .field == "meminfo"
+  test.eq(matches.len(), 1)?
+  test.ok(matches[0].state == report_model.Truncated)?
+}
+
+proc test_system_report_swap_devices_keep_exact_bytes_and_reject_partial_sources() [fs, time, error] {
+  let root = fs.tempdir()?
+  defer fs.close_root(root)?
+  fs.root_mkdir(root, p"proc", parents: true)?
+  fs.root_write(root, p"proc/meminfo", "MemTotal: 16 kB\n")?
+  fs.root_write(root, p"proc/swaps", "Filename\tType\tSize\tUsed\tPriority\n/dev/zram0\tpartition\t8796093022207\t1\t42\n/swap\\040file\tfile\t4\t0\t-1\n/dev/zram1\tpartition\t8796093022208\t0\t10\n/dev/broken partition 4\n/dev/badprio\tpartition\t4\t0\tinvalid\n")?
+  let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
+  let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "memory", true)?
+  test.eq(value.memory.swaps.len(), 2)?
+  test.eq(value.memory.swaps[0].name.value, "/dev/zram0")?
+  test.eq(value.memory.swaps[0].size_bytes, 9007199254739968)?
+  test.eq(value.memory.swaps[0].used_bytes, 1024)?
+  test.eq(value.memory.swaps[0].priority, 42)?
+  test.eq(value.memory.swaps[1].name.value, "/swap file")?
+  test.eq(value.memory.swaps[1].kind, "file")?
+  test.eq(value.memory.swaps[1].priority, -1)?
+  let overflow = value.issues |> where .section == "memory" and .field == "swaps" and .state == report_model.RangeFailure
+  test.eq(overflow.len(), 1)?
+  test.ok(overflow[0].state == report_model.RangeFailure)?
+  let malformed = value.issues |> where .section == "memory" and .field == "swaps" and .error_kind == "invalid_swap_row"
+  test.eq(malformed.len(), 1)?
+  let invalid_priority = value.issues |> where .section == "memory" and .field == "swaps" and .error_kind == "invalid_swap_priority"
+  test.eq(invalid_priority.len(), 1)?
+
+  var padding = " "
+  while padding.count_chars() < 262144 {
+    padding = f"${padding}${padding}"
+  }
+  fs.root_write(root, p"proc/swaps", f"Filename Type Size Used Priority\n/dev/zram0 partition 4 1 42\n${padding}")?
+  let truncated = collector.collect_from_root(root, "fixture-arch", 4096, 100, "memory", true)?
+  test.eq(truncated.memory.swaps.len(), 0)?
+  let incomplete = truncated.issues |> where .section == "memory" and .field == "swaps"
+  test.eq(incomplete.len(), 1)?
+  test.ok(incomplete[0].state == report_model.Truncated)?
+
+  fs.root_write(root, p"proc/swaps", "/dev/zram0 partition 4 1 42\n")?
+  let headerless = collector.collect_from_root(root, "fixture-arch", 4096, 100, "memory", true)?
+  test.eq(headerless.memory.swaps.len(), 0)?
+  test.ok(headerless.issues |> any .field == "swaps" and .error_kind == "invalid_swap_header")?
+}
+
+proc test_system_report_kernel_modules_reject_truncated_source_prefix() [fs, time, error] {
+  let root = fs.tempdir()?
+  defer fs.close_root(root)?
+  fs.root_mkdir(root, p"proc", parents: true)?
+  fs.root_write(root, p"proc/cmdline", "quiet\n")?
+  var padding = " "
+  while padding.count_chars() < 1048576 {
+    padding = f"${padding}${padding}"
+  }
+  fs.root_write(root, p"proc/modules", f"example 4096 0 - Live 0x0\n${padding}")?
+  let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
+  let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "kernel", true)?
+  test.eq(value.kernel.modules, [])?
+  test.ok(!value.kernel.status.enumeration_succeeded)?
+  let matches = value.issues |> where .section == "kernel" and .field == "modules"
+  test.eq(matches.len(), 1)?
+  test.ok(matches[0].state == report_model.Truncated)?
+}
+
+proc test_system_report_kernel_modules_keep_valid_rows_with_malformed_neighbor() [fs, time, error] {
+  let root = fs.tempdir()?
+  defer fs.close_root(root)?
+  fs.root_mkdir(root, p"proc", parents: true)?
+  fs.root_write(root, p"proc/cmdline", "quiet\n")?
+  fs.root_write(root, p"proc/modules", "example 4096 1 - Live 0x0\nbroken row\nlarge 9007199254740992 0 - Live 0x0\nbusy 4096 9007199254740992 - Live 0x0\n")?
+  let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
+  let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "kernel", true)?
+  test.ok(value.kernel.status.enumeration_succeeded)?
+  test.ok(value.kernel.status.state == report_model.Partial)?
+  test.eq(value.kernel.modules.len(), 1)?
+  test.eq(value.kernel.modules[0].name, "example")?
+  test.eq(value.kernel.modules[0].size_bytes, 4096)?
+  let malformed = value.issues |> where .section == "kernel" and .field == "modules.line.1"
+  test.eq(malformed.len(), 1)?
+  test.ok(malformed[0].state == report_model.Malformed)?
+  let oversized = value.issues |> where .section == "kernel" and .state == report_model.RangeFailure
+  test.eq(oversized.len(), 2)?
+  test.ok(oversized |> any .field == "modules.line.2")?
+  test.ok(oversized |> any .field == "modules.line.3")?
+}
+
+proc test_system_report_kernel_command_line_preserves_source_whitespace() [fs, time, error] {
+  let root = fs.tempdir()?
+  defer fs.close_root(root)?
+  fs.root_mkdir(root, p"proc", parents: true)?
+  let source = "  root=UUID=private  quiet  \n"
+  fs.root_write(root, p"proc/cmdline", source)?
+  fs.root_write(root, p"proc/modules", "")?
+  let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
+  let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "kernel", true)?
+  test.eq(value.kernel.command_line.state, report_model.Observed)?
+  test.eq(value.kernel.command_line.value, source)?
+  let redacted = report_model.redact_report(value)
+  test.eq(redacted.kernel.command_line.state, report_model.Redacted)?
+  test.eq(redacted.kernel.command_line.value, null)?
+  test.eq(redacted.kernel.command_line.raw_bytes_base64, null)?
+}
+
+proc test_system_report_source_text_preserves_exact_whitespace_when_requested() [fs, error] {
+  let root = fs.tempdir()?
+  defer fs.close_root(root)?
+  fs.root_write(root, p"cmdline", "  root=private  quiet  \n")?
+  let collectors = module.load(p"core/lib/system_report_collect.xsh")?.require(SystemReportCollectors)?
+  let normalized = collectors.read_source_text(root, p"cmdline")
+  let exact = collectors.read_source_text(root, p"cmdline", 65536, true)
+  test.eq(normalized.observation.value, "root=private  quiet")?
+  test.eq(exact.observation.value, "  root=private  quiet  \n")?
+}
+
+proc test_system_report_kernel_parameter_allowlist_keeps_values_and_absence() [fs, time, error] {
+  let root = fs.tempdir()?
+  defer fs.close_root(root)?
+  fs.root_mkdir(root, p"proc/sys/kernel", parents: true)?
+  fs.root_mkdir(root, p"sys/module/usbcore/parameters", parents: true)?
+  fs.root_write(root, p"proc/cmdline", "quiet\n")?
+  fs.root_write(root, p"proc/modules", "")?
+  fs.root_write(root, p"proc/sys/kernel/pid_max", "4194304\n")?
+  fs.root_write(root, p"sys/module/usbcore/parameters/autosuspend", "2\n")?
+  let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
+  let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "kernel", true)?
+  test.eq(value.kernel.sysctls.len(), 6)?
+  test.eq(value.kernel.parameters.len(), 3)?
+  test.eq(value.kernel.sysctls[0].name, "kernel.pid_max")?
+  test.eq(value.kernel.sysctls[0].value.value, "4194304")?
+  test.eq(value.kernel.sysctls[1].value.state, report_model.Absent)?
+  test.eq(value.kernel.parameters[0].name, "usbcore.autosuspend")?
+  test.eq(value.kernel.parameters[0].value.value, "2")?
+  test.eq(value.kernel.parameters[1].value.state, report_model.Absent)?
+}
+
 proc test_system_report_collects_swap_limit_without_memory_limit_files() [fs, time, error] {
   let root = fs.tempdir()?
   defer fs.close_root(root)?
@@ -1313,15 +4066,12 @@ proc test_system_report_collects_swap_limit_without_memory_limit_files() [fs, ti
   fs.root_write(root, p"sys/fs/cgroup/group/memory.swap.current", "65536\n")?
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "memory", true)?
-  let swap_limit = value.memory.cgroup |> where .resource == "memory.swap.max" |> first()
-  if swap_limit == null {
-    test.fail("cgroup swap accounting disappeared when memory limits were absent")?
-  }
+  let swap_limit = (value.memory.cgroup |> where .resource == "memory.swap.max" |> first())?
   test.eq(swap_limit.maximum_value, 262144)?
   test.eq(swap_limit.current_value, 65536)?
 }
 
-proc test_system_report_smbios_parser_preserves_records_and_reports_bad_string_indexes() [fs, error] {
+proc test_system_report_smbios_parser_preserves_records_and_reports_bad_string_indexes() [fs, time, error] {
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let table = b"\x01\x08\x34\x12\x01\x02\x03\x00Vendor\x00Model\x00Version\x00\x00\x7f\x04\x00\x00\x00\x00"
   let parsed = collector.parse_smbios_table(table)?
@@ -1350,9 +4100,39 @@ proc test_system_report_smbios_parser_preserves_records_and_reports_bad_string_i
   fs.root_write(root, p"sys/firmware/dmi/tables/DMI", bad_index)?
   let collected = collector.collect_from_root(root, "fixture-arch", 4096, 100, "firmware", true)?
   test.eq(collected.firmware.status.state, report_model.Partial)?
-  let parser_issue = collected.issues |> where .field == "smbios.issue.0" |> first()
-  if parser_issue == null {
-    test.fail("SMBIOS parse issue was not retained")?
-  }
+  let parser_issue = (collected.issues |> where .field == "smbios.issue.0" |> first())?
   test.ok(parser_issue.detail.value != null)?
+}
+
+proc test_system_report_smbios_unknown_type_keeps_record_identity() [fs, error] {
+  let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
+  let table = b"\x90\x06\x45\x23\xaa\xbb\x00\x00\x7f\x04\x00\x00\x00\x00"
+  let parsed = collector.parse_smbios_table(table)?
+  test.eq(parsed.issues, [])?
+  test.eq(parsed.records.len(), 2)?
+  test.eq(parsed.records[0].record_type, 144)?
+  test.eq(parsed.records[0].handle, 9029)?
+  test.eq(parsed.records[0].formatted_length, 6)?
+  test.eq(parsed.records[0].fields.len(), 0)?
+}
+
+proc test_system_report_smbios_sentinel_size_requires_complete_formatted_field() [fs, error] {
+  let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
+  let short_table = bytes.concat([
+    bytes.from_ints([17, 30, 1, 0])?, bytes.zero(8)?, bytes.from_ints([255, 127])?,
+    bytes.zero(14)?, bytes.from_ints([9, 8, 0, 0, 127, 4, 0, 0, 0, 0])?,
+  ])
+  let short_record = collector.parse_smbios_table(short_table)?
+  test.eq(short_record.issues, [])?
+  test.eq(short_record.records.len(), 2)?
+  test.eq((short_record.records[0].fields |> where .name == "size_raw" |> first())?.value, 32767)?
+  test.eq((short_record.records[0].fields |> where .name == "extended_size_raw").len(), 0)?
+
+  let complete_table = bytes.concat([
+    bytes.from_ints([17, 32, 2, 0])?, bytes.zero(8)?, bytes.from_ints([255, 127])?,
+    bytes.zero(14)?, bytes.from_ints([0, 0, 1, 0, 0, 0, 127, 4, 0, 0, 0, 0])?,
+  ])
+  let complete_record = collector.parse_smbios_table(complete_table)?
+  test.eq(complete_record.issues, [])?
+  test.eq((complete_record.records[0].fields |> where .name == "extended_size_raw" |> first())?.value, 65536)?
 }

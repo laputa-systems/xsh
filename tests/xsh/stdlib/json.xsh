@@ -1,4 +1,15 @@
 type JsonFloatMetric = {ratio: Float, samples: List[Float]}
+type JsonNestedRow = {cpu: Int, online: Bool}
+type JsonNestedRows = {cpus: List[JsonNestedRow]}
+
+proc test_json_require_checks_nested_named_record_fields() [error] {
+  let valid = json.decode("{\"cpus\":[{\"cpu\":0,\"online\":true}]}")?
+  test.eq(valid.require(JsonNestedRows)?.cpus[0].online, true)?
+  let wrong_type = json.decode("{\"cpus\":[{\"cpu\":0,\"online\":\"yes\"}]}")?
+  test.error_kind(wrong_type.require(JsonNestedRows), "schema")?
+  let missing_field = json.decode("{\"cpus\":[{\"cpu\":0}]}")?
+  test.error_kind(missing_field.require(JsonNestedRows), "schema")?
+}
 
 proc test_float_arithmetic_and_json_record_boundary() [error] {
   let ratio = 5.float() / 2.0

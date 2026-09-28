@@ -192,6 +192,16 @@ fn measure_compact_declarations(declarations: &CompactDeclOutput) -> (usize, usi
         }
     }
 
+    bytes += declarations.record_schema_fields.capacity()
+        * size_of::<(
+            crate::symbol::Name,
+            BTreeMap<crate::symbol::Name, crate::syntax::arena::TypeExprId>,
+        )>();
+    for fields in declarations.record_schema_fields.values() {
+        bytes += fields.len()
+            * size_of::<(crate::symbol::Name, crate::syntax::arena::TypeExprId)>();
+    }
+
     bytes += declarations.tag_variants_by_name.capacity()
         * size_of::<(crate::symbol::Name, crate::sema::check::TagVariantInfo)>();
     for variant in declarations.tag_variants_by_name.values() {

@@ -177,6 +177,7 @@ pub enum RuntimeOp {
     FsRootMkdir,
     FsRootRemove,
     FsRootReadlink,
+    FsRootReadlinkResult,
     FsRootSymlink,
     FsRootChmod,
     FsRootInstallFile,

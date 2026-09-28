@@ -89,7 +89,15 @@ commands:
   dist [--target TRIPLE] [--docker auto|always|never] [--ci]
   install
   release smoke|package|core|validate [--tag RELEASE-TAG]
-  system-report-check [--manifest FILE] [--no-subprocess --xsh-bin FILE --script FILE]
+  system-report-check [--manifest FILE] [--run-fixtures --xsh-bin FILE --xsht-bin FILE --cargo-bin FILE]
+                      [--run-macos-fixtures --xsh-bin FILE --xsht-bin FILE]
+                      [--capture-cpu-bundle NEW_DIRECTORY | --replay-cpu-bundle DIRECTORY]
+                      [--compare-cpu] [--compare-swaps] [--compare-storage] [--compare-queue]
+                      [--compare-mounts] [--compare-mount-usage] [--compare-modules]
+                      [--compare-command-line] [--compare-parameters]
+                      [--compare-identity] [--compare-namespaces]
+                      [--compare-pci]
+                      [--no-subprocess --xsh-bin FILE --script FILE]
 
 internal container commands are intentionally omitted from public help.
 """
@@ -132,7 +140,7 @@ pure parse_global(args: List[Str]) -> Result[GlobalOptions] {
   return {target: target, rest: rest}
 }
 
-proc dispatch(command: Str, args: List[Str]) [fs, process, env, error, io] {
+proc dispatch(command: Str, args: List[Str]) [fs, process, env, time, error, io] {
   let ctx = lifecycle.create()?
 
   match command {
@@ -280,7 +288,7 @@ proc dispatch(command: Str, args: List[Str]) [fs, process, env, error, io] {
   }
 }
 
-proc main(...raw: List[Str]) [fs, process, env, error, io] {
+proc main(...raw: List[Str]) [fs, process, env, time, error, io] {
   if raw.len() == 0 or raw[0] == "help" or raw[0] == "--help" or raw[0] == "-h" {
     print help_text()
     return

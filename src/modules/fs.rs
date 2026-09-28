@@ -118,6 +118,13 @@ pub(crate) struct RootReadResult {
     pub(crate) truncated: bool,
 }
 
+pub(crate) struct RootReadlinkResult {
+    pub(crate) state: &'static str,
+    pub(crate) target: Option<PathBuf>,
+    pub(crate) errno: Option<i64>,
+    pub(crate) error_kind: Option<&'static str>,
+}
+
 pub(crate) struct RootFilesystemStats {
     pub(crate) state: &'static str,
     pub(crate) total_bytes: Option<i64>,
@@ -200,7 +207,8 @@ pub(crate) fn rooted_children(
         .with_span(span)
     })?;
 
-    let directory = match root.open_dir(path) {
+    // Directory iteration needs a readable descriptor; Linux roots use O_PATH.
+    let directory = match root.open_readable_dir(path) {
         Ok(directory) => directory,
         Err(error) => return Ok(root_children_failure(error, Vec::new())),
     };
@@ -589,6 +597,55 @@ pub(crate) fn rooted_readlink(
     let (parent, leaf) = rooted_parent_root_and_leaf(root, path, "fs-root-readlink", span)?;
     rooted_readlink_at(&parent, &leaf)
         .map_err(|error| RuntimeError::new("fs-root-readlink", error.to_string()).with_span(span))
+}
+
+pub(crate) fn rooted_readlink_result(
+    root: &Root,
+    path: &Path,
+    span: Span,
+) -> Result<RootReadlinkResult, RuntimeError> {
+    rooted_check_path(path, "fs-root-readlink-result", span)?;
+    let Some(leaf) = path.file_name() else {
+        return Err(RuntimeError::new(
+            "fs-root-readlink-result",
+            "path must name an entry below the root",
+        )
+        .with_span(span));
+    };
+    let parent = match root.open_dir(rooted_parent_path(path)) {
+        Ok(parent) => parent,
+        Err(error) => return Ok(root_readlink_failure(error)),
+    };
+    match rooted_readlink_at(&parent, leaf) {
+        Ok(target) => Ok(RootReadlinkResult {
+            state: "observed",
+            target: Some(target),
+            errno: None,
+            error_kind: None,
+        }),
+        Err(error) => Ok(root_readlink_failure(error)),
+    }
+}
+
+fn root_readlink_failure(error: std::io::Error) -> RootReadlinkResult {
+    let (state, error_kind) = match error.kind() {
+        ErrorKind::NotFound => ("absent", "not_found"),
+        ErrorKind::PermissionDenied => ("permission_denied", "permission_denied"),
+        ErrorKind::Interrupted => ("read_failure", "interrupted"),
+        ErrorKind::WouldBlock => ("read_failure", "would_block"),
+        ErrorKind::TimedOut => ("read_failure", "timed_out"),
+        ErrorKind::InvalidInput => ("read_failure", "invalid_input"),
+        ErrorKind::InvalidData => ("read_failure", "invalid_data"),
+        ErrorKind::UnexpectedEof => ("read_failure", "unexpected_eof"),
+        ErrorKind::OutOfMemory => ("read_failure", "out_of_memory"),
+        _ => ("read_failure", "other"),
+    };
+    RootReadlinkResult {
+        state,
+        target: None,
+        errno: error.raw_os_error().map(i64::from),
+        error_kind: Some(error_kind),
+    }
 }
 
 pub(crate) fn rooted_symlink(

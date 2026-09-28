@@ -43,6 +43,15 @@ impl Root {
         self.open_with(path, &OpenOptions::new().read(true))
     }
 
+    /// Opens an existing directory beneath this root for reading its entries.
+    ///
+    /// Unlike [`Root::open_dir`], this returns a readable descriptor. Requiring
+    /// a directory during the confined open also prevents blocking on a FIFO.
+    pub fn open_readable_dir(&self, path: impl AsRef<Path>) -> io::Result<File> {
+        let path = relative_path_to_cstring(path.as_ref())?;
+        platform::open_file(self.fd.as_fd(), &path, libc::O_RDONLY | libc::O_DIRECTORY, 0)
+    }
+
     /// Opens a file beneath this root using the supplied limited options.
     pub fn open_with(&self, path: impl AsRef<Path>, options: &OpenOptions) -> io::Result<File> {
         let path = relative_path_to_cstring(path.as_ref())?;
@@ -60,9 +69,8 @@ impl Root {
 
     /// Opens a directory beneath this root as a new confined root.
     ///
-    /// This is intentionally the only directory operation: it composes the
-    /// same kernel-enforced opening boundary for callers that need a narrower
-    /// anchor.
+    /// The new root composes the same kernel-enforced opening boundary for
+    /// callers that need a narrower anchor.
     pub fn open_dir(&self, path: impl AsRef<Path>) -> io::Result<Self> {
         let path = relative_path_to_cstring(path.as_ref())?;
         platform::open_dir(self.fd.as_fd(), &path).map(|fd| Self { fd })

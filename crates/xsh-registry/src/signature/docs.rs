@@ -662,9 +662,19 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
             "The root boundary is enforced before the host lookup, including for symlink-sensitive paths.",
             &["filesystem", "rooted", "metadata"],
         )),
+        ("fs", "root_readlink") => Some((
+            "Reads a symlink target below a rooted filesystem capability.",
+            "The target is returned as a lossless Path value without following it; callers must treat it as untrusted path data.",
+            &["filesystem", "rooted", "symlink", "observation"],
+        )),
+        ("fs", "root_readlink_result") => Some((
+            "Observes a symlink target below a rooted filesystem capability.",
+            "The target remains a lossless Path and is null on failure; state, errno, and error kind distinguish absence from denied or failed reads.",
+            &["filesystem", "rooted", "symlink", "observation"],
+        )),
         (
             "fs",
-            "root_mkdir" | "root_remove" | "root_readlink" | "root_chmod" | "root_symlink"
+            "root_mkdir" | "root_remove" | "root_chmod" | "root_symlink"
             | "root_install_file",
         ) => Some((
             "Mutates a path below a rooted filesystem capability.",
@@ -827,7 +837,7 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
         )),
         ("linux", "network_dump") => Some((
             "Reads links, assigned addresses, routes, policy rules, and their raw route-netlink attributes.",
-            "Each dump is bounded and validated for framing, sender, sequence, kernel errors, and interruption; malformed individual objects are reported while valid siblings remain available.",
+            "Each dump is bounded and validated for framing, sender, sequence, kernel errors, and interruption; enumeration_succeeded requires all four dumps and every entity decode to finish, while field issues may remain.",
             &["linux", "network", "netlink", "host-state"],
         )),
         (

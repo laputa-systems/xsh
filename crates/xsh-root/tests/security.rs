@@ -1,7 +1,7 @@
-use std::ffi::OsString;
+use std::ffi::{CString, OsString};
 use std::fs;
 use std::io::{self, Read, Write};
-use std::os::unix::ffi::OsStringExt;
+use std::os::unix::ffi::{OsStrExt, OsStringExt};
 use std::os::unix::fs::symlink;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -89,6 +89,32 @@ fn opens_in_root_paths_and_relative_symlinks() -> io::Result<()> {
     assert_eq!(read(&tree.root, "inside-link")?, "nested");
     tree.root.create("created.txt")?.write_all(b"created")?;
     assert_eq!(read(&tree.root, "created.txt")?, "created");
+    Ok(())
+}
+
+#[test]
+fn readable_directory_open_rejects_files_fifos_and_escapes() -> io::Result<()> {
+    let tree = Tree::new()?;
+    assert!(tree.root.open_readable_dir("dir")?.metadata()?.is_dir());
+    symlink("dir", tree.root_path.join("directory-link"))?;
+    assert!(
+        tree.root
+            .open_readable_dir("directory-link")?
+            .metadata()?
+            .is_dir()
+    );
+    assert!(tree.root.open_readable_dir("inside.txt").is_err());
+    assert!(tree.root.open_readable_dir("escape-dir").is_err());
+
+    let fifo_path = tree.root_path.join("fifo");
+    let fifo_path = CString::new(fifo_path.as_os_str().as_bytes())
+        .expect("temporary path cannot contain a NUL byte");
+    // SAFETY: the path is a valid NUL-terminated string and mode is a valid FIFO mode.
+    let result = unsafe { libc::mkfifo(fifo_path.as_ptr(), 0o600) };
+    if result != 0 {
+        return Err(io::Error::last_os_error());
+    }
+    assert!(tree.root.open_readable_dir("fifo").is_err());
     Ok(())
 }
 

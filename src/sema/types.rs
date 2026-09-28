@@ -453,7 +453,9 @@ impl Type {
             | Self::Int
             | Self::Float
             | Self::Str => true,
-            Self::List(item) | Self::Map(item) | Self::Stream(item) => item.is_json_compatible(),
+            Self::List(item) | Self::Map(item) | Self::Stream(item) | Self::Optional(item) => {
+                item.is_json_compatible()
+            }
             Self::Record(fields) => fields.values().all(Self::is_json_compatible),
             _ => false,
         }

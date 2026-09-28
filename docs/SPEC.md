@@ -834,7 +834,10 @@ Operators:
 - A newline immediately before a `.` postfix operator continues the same
   expression, so long method chains may use one method per line.
 - `.require(Type)` validates the receiver against a type expression and returns
-  `Result[Type]`. The type argument is syntax, not a runtime identifier.
+  `Result[Type]`. The type argument is syntax, not a runtime identifier. Named
+  record fields are validated recursively inside lists, maps, and optional
+  values; a nested missing or mistyped field rejects the entire value before
+  typed field access.
 - `?.` is a null-safe field access: if the base is `null`, the expression
   evaluates to `null` without accessing the field; otherwise it accesses the
   field normally. The result type is `Optional[FieldType]`.
@@ -1998,6 +2001,7 @@ files are written through a temporary file in the destination directory.
 - `fs.root_mkdir(root: FsRoot, path: Path, mode: Int = 0o777, parents: Bool = false) -> Result[Unit]`.
 - `fs.root_remove(root: FsRoot, path: Path, dir: Bool = false) -> Result[Unit]`.
 - `fs.root_readlink(root: FsRoot, path: Path) -> Result[Path]`.
+- `fs.root_readlink_result(root: FsRoot, path: Path) -> Result[FsRootReadlinkResult]`.
 - `fs.root_symlink(root: FsRoot, target: Path, path: Path, parents: Bool = true,
   overwrite: Bool = false) -> Result[Unit]`.
 - `fs.root_chmod(root: FsRoot, path: Path, mode: Int) -> Result[Unit]`.
@@ -2089,6 +2093,8 @@ Enumeration reads at most 65,537 directory entries to detect a larger
 directory. Partial paths remain available when a directory read fails or
 reaches either bound, and an empty `complete` result means the directory was
 successfully enumerated and contained no entries.
+The confined open requires a readable directory, so a file or FIFO at the
+requested path is a `read_failure` observation rather than an iterable source.
 `fs.root_read_result` reads at most `max_bytes` and permits values from zero
 through 16,777,216. Its result records `state`, optional `data`, optional
 `errno`, optional stable `error_kind`, and `truncated`; expected missing and
@@ -2096,6 +2102,10 @@ permission-denied paths are observations, while an invalid bound is an error.
 `FsRootReadResult` uses `state` values `observed`, `absent`,
 `permission_denied`, or `read_failure`. `error_kind` uses stable I/O classes
 such as `not_found`, `permission_denied`, `interrupted`, and `other`.
+`FsRootReadlinkResult` observes the symlink target without following it. Its
+optional `target`, `errno`, and `error_kind` distinguish an existing non-link
+or failed read from an absent entry; state uses the same four values as
+`FsRootReadResult`. Invalid or escaping rooted paths remain errors.
 `fs.root_filesystem_stats` queries capacity through a directory opened below
 the root, without converting the path back to an ambient host path. Its path
 must be relative to the root. `FsRootFilesystemStats.state` is `observed`,
@@ -2675,7 +2685,12 @@ them. A failure reading `/etc/fstab` in `linux.mount_all` has kind
   object is skipped with a `LinuxNetworkIssue`; dump-level framing, kernel,
   sender, sequence, port, interruption, truncation, and limit failures are
   represented in the result state and issue list while other dump groups are
-  still attempted. Interrupted dumps are retried once. Each request has a
+  still attempted. A nonempty dump status shorter than four bytes or a positive
+  netlink error code is malformed. `enumeration_succeeded` requires all four
+  dump groups to finish and every returned entity to decode. Individual field
+  issues can still make `state` partial without losing enumeration success.
+  Interrupted dumps are
+  retried once. Each request has a
   three-second deadline and limits of 8 MiB, 65,536 messages, and 4,096
   datagrams. Interface indices are scoped to the current network namespace and
   can change when a link is recreated. This API is the complete routing view;
@@ -3146,6 +3161,7 @@ and `json.encode_lines` operate on JSON-compatible values:
 - finite `Float`
 - `Str`
 - `List`
+- `Optional[T]` when `T` is JSON-compatible; a missing value encodes as `null`
 - string-keyed maps and records whose values are JSON-compatible
 
 Values that JSON cannot represent faithfully require explicit conversion or a

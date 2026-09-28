@@ -2113,6 +2113,24 @@ fn checker_reports_opaque_status_record_literals() {
 
 #[test]
 fn checker_rejects_non_json_compatible_public_json_apis() {
+    let optional_value = check(
+        r#"
+type Metadata = {name: Str?, count: Int?}
+let metadata: Metadata = {name: null, count: 0}
+let encoded = json.encode(metadata) ?
+"#,
+    );
+    assert_no_codes(&optional_value, &["check.json-compatible", "check.type-mismatch"]);
+
+    let optional_path = check(
+        r#"
+type Metadata = {root: Path?}
+let metadata: Metadata = {root: null}
+let encoded = json.encode(metadata) ?
+"#,
+    );
+    assert!(has_code(&optional_path, "check.json-compatible"));
+
     let ok = check(
         r#"
 let status = run false

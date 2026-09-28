@@ -21,6 +21,7 @@ use crate::syntax::node::{Effect, EnvGetKind};
 pub struct CompactDeclOutput {
     pub diagnostics: Vec<Diagnostic>,
     pub types: FxHashMap<Name, CompactTypeDefInfo>,
+    pub record_schema_fields: FxHashMap<Name, BTreeMap<Name, TypeExprId>>,
     pub tag_variants_by_name: FxHashMap<Name, TagVariantInfo>,
     pub qualified_tag_variants: FxHashMap<QualifiedName, TagVariantInfo>,
     pub error_families_by_name: FxHashMap<Name, ErrorFamilyInfo>,
@@ -213,6 +214,7 @@ impl CompactDeclCollector {
                 let fields = program.arena.schema_fields(fields);
                 self.output.schema_fields += fields.len();
                 let mut record = BTreeMap::new();
+                let mut schema_fields = BTreeMap::new();
                 for field in fields {
                     if !names.insert(field.name) {
                         self.error(
@@ -222,6 +224,10 @@ impl CompactDeclCollector {
                         );
                     }
                     record.insert(field.name, Type::from_arena(&program.arena, field.ty));
+                    schema_fields.insert(field.name, field.ty);
+                }
+                if !namespace.is_some_and(|name| program.is_internal_namespace(name)) {
+                    self.output.record_schema_fields.insert(def.name, schema_fields);
                 }
                 CompactTypeDefInfo::Record(record)
             }
@@ -1480,7 +1486,9 @@ fn compact_probe_type_from_arena(
                     Some(CompactTypeDefInfo::Alias(alias)) => {
                         compact_probe_type_from_arena(arena, *alias, declarations, depth + 1)
                     }
-                    Some(CompactTypeDefInfo::Record(fields)) => Type::Record(fields.clone()),
+                    Some(CompactTypeDefInfo::Record(_)) => {
+                        compact_probe_record_type(arena, name, declarations, depth + 1)
+                    }
                     Some(CompactTypeDefInfo::Module(exports)) => Type::Module(exports.clone()),
                     Some(CompactTypeDefInfo::TagUnion) => Type::Tag(name),
                     None => Type::Unknown,
@@ -1494,7 +1502,9 @@ fn compact_probe_type_from_arena(
                 Some(CompactTypeDefInfo::Alias(alias)) => {
                     compact_probe_type_from_arena(arena, *alias, declarations, depth + 1)
                 }
-                Some(CompactTypeDefInfo::Record(fields)) => Type::Record(fields.clone()),
+                Some(CompactTypeDefInfo::Record(_)) => {
+                    compact_probe_record_type(arena, name, declarations, depth + 1)
+                }
                 Some(CompactTypeDefInfo::Module(exports)) => Type::Module(exports.clone()),
                 Some(CompactTypeDefInfo::TagUnion) => Type::Tag(name),
                 None => Type::Unknown,
@@ -1552,6 +1562,31 @@ fn compact_probe_type_from_arena(
             declarations,
             depth,
         ))),
+    }
+}
+
+fn compact_probe_record_type(
+    arena: &AstArena,
+    name: Name,
+    declarations: &CompactDeclOutput,
+    depth: usize,
+) -> Type {
+    if let Some(fields) = declarations.record_schema_fields.get(&name) {
+        return Type::Record(
+            fields
+                .iter()
+                .map(|(field, ty)| {
+                    (
+                        *field,
+                        compact_probe_type_from_arena(arena, *ty, declarations, depth),
+                    )
+                })
+                .collect(),
+        );
+    }
+    match declarations.types.get(&name) {
+        Some(CompactTypeDefInfo::Record(fields)) => Type::Record(fields.clone()),
+        _ => Type::Unknown,
     }
 }
 

@@ -15,6 +15,12 @@ let file = root.open_file("users/alice/avatar.png")?;
 `../etc/passwd` and `escape-symlink/etc/passwd` cannot escape `root`. Relative
 symlinks that resolve inside the root work normally.
 
+`Root::open_readable_dir` opens a directory for entry iteration under the same
+confined resolution rules. It requires a directory during the open, so an
+unexpected regular file or FIFO cannot be mistaken for an iterable directory.
+`Root::open_dir` instead creates another confined root descriptor; on Linux
+that descriptor is `O_PATH` and cannot be used to read entries.
+
 Linux calls `openat2` directly with `RESOLVE_BENEATH | RESOLVE_NO_MAGICLINKS`.
 macOS calls `openat` with `O_RESOLVE_BENEATH`. An existing file needs exactly
 one pathname-opening syscall after `Root::open`; there is no component walker

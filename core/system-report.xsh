@@ -2,7 +2,7 @@
 use lib.system_report as system_report
 use lib.system_report_live as live_collector
 
-error SystemReportError = Usage(message: Str) : Usage | InvalidInput(message: Str) : InvalidInput | Unsupported(message: Str) : Unsupported
+error SystemReportCliError = Usage(message: Str) : Usage | InvalidInput(message: Str) : InvalidInput | Unsupported(message: Str) : Unsupported
 
 type SystemReportOptions = {
   from_report: Str,
@@ -13,7 +13,7 @@ type SystemReportOptions = {
   version: Bool,
 }
 
-proc main(...argv: List[Str]) [env, fs, time, system, io, error] {
+proc main(...argv: List[Str]) [env, fs, time, process, io, error] {
   let options: SystemReportOptions = cli.applet(
     argv,
     {
@@ -32,16 +32,15 @@ proc main(...argv: List[Str]) [env, fs, time, system, io, error] {
   }
 
   if options.section != "" {
-    let _validated_section = match system_report.parse_report_section(options.section) {
-      Ok(value) => value
-      Err(error) => return Err(SystemReportError.Usage(error.message))
+    guard let _validated_section = system_report.parse_report_section(options.section) else |error| {
+      return Err(SystemReportCliError.Usage(error.message))
     }
   }
 
   if options.from_report == "" {
     let host = system.uname()?
     if host.sysname != "Linux" {
-      return Err(SystemReportError.Unsupported(
+      return Err(SystemReportCliError.Unsupported(
         "system-report: live collection is supported on Linux only",
       ))
     }
@@ -56,59 +55,46 @@ proc main(...argv: List[Str]) [env, fs, time, system, io, error] {
   }
 
   let input_path = fp"${options.from_report}"
-  let input_root = match fs.open_root(input_path.parent()) {
-    Ok(value) => value
-    Err(error) => return Err(SystemReportError.InvalidInput(
-      f"system-report: cannot open replay file parent: ${error.message}",
-    ))
+  guard let input_root = fs.open_root(input_path.parent()) else |error| {
+    return Err(SystemReportCliError.InvalidInput(f"system-report: cannot open replay file parent: ${error.message}"))
   }
   defer fs.close_root(input_root)?
-  let input = match fs.root_read_result(
+  guard let input = fs.root_read_result(
     input_root,
     fp"${input_path.name()}",
     max_bytes: 16777216,
-  ) {
-    Ok(value) => value
-    Err(error) => return Err(SystemReportError.InvalidInput(
-      f"system-report: cannot read replay file: ${error.message}",
-    ))
+  ) else |error| {
+    return Err(SystemReportCliError.InvalidInput(f"system-report: cannot read replay file: ${error.message}"))
   }
 
   if input.state != "observed" {
-    let errno = if input.errno == null { "unknown" } else { f"${input.errno}" }
-    return Err(SystemReportError.InvalidInput(
+    let errno = if input.errno == null { "unknown" } else { f"${input.errno ?? -1}" }
+    return Err(SystemReportCliError.InvalidInput(
       f"system-report: cannot read replay file (${input.state}, errno=${errno})",
     ))
   }
   if input.truncated {
-    return Err(SystemReportError.InvalidInput(
+    return Err(SystemReportCliError.InvalidInput(
       "system-report: replay file exceeds the 16 MiB input limit",
     ))
   }
 
   if input.data == null {
-    return Err(SystemReportError.InvalidInput("system-report: replay read produced no bytes"))
+    return Err(SystemReportCliError.InvalidInput("system-report: replay read produced no bytes"))
   }
 
-  let source = match input.data.utf8() {
-    Ok(value) => value
-    Err(error) => return Err(SystemReportError.InvalidInput(
-      f"system-report: replay file is not valid UTF-8: ${error.message}",
-    ))
+  guard let source = input.data.utf8() else |error| {
+    return Err(SystemReportCliError.InvalidInput(f"system-report: replay file is not valid UTF-8: ${error.message}"))
   }
-  let report = match system_report.decode_report_json(source) {
-    Ok(value) => value
-    Err(error) => return Err(SystemReportError.InvalidInput(
-      f"system-report: invalid replay report: ${error.message}",
-    ))
+  guard let report = system_report.decode_report_json(source) else |error| {
+    return Err(SystemReportCliError.InvalidInput(f"system-report: invalid replay report: ${error.message}"))
   }
-  let selected: Record = if options.section == "" {
-    report
-  } else {
-    match system_report.select_report_section(report, options.section) {
-      Ok(value) => value
-      Err(error) => return Err(SystemReportError.Usage(error.message))
+  var selected: Record = report
+  if options.section != "" {
+    guard let projected = system_report.select_report_section(report, options.section) else |error| {
+      return Err(SystemReportCliError.Usage(error.message))
     }
+    selected = projected
   }
 
   if options.json {

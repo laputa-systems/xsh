@@ -631,6 +631,7 @@ fn lowered_module_op_supported(op: RuntimeOp) -> bool {
             | RuntimeOp::FsRootMkdir
             | RuntimeOp::FsRootRemove
             | RuntimeOp::FsRootReadlink
+            | RuntimeOp::FsRootReadlinkResult
             | RuntimeOp::FsRootSymlink
             | RuntimeOp::FsRootChmod
             | RuntimeOp::FsRootInstallFile
@@ -12892,7 +12893,9 @@ fn compact_runtime_type_inner(
                 Some(CompactTypeDefInfo::Alias(alias)) => {
                     compact_runtime_type_inner(arena, *alias, declarations, depth + 1)
                 }
-                Some(CompactTypeDefInfo::Record(_)) => compact_record_type(name, declarations),
+                Some(CompactTypeDefInfo::Record(_)) => {
+                    compact_record_type(arena, name, declarations, depth + 1)
+                }
                 Some(CompactTypeDefInfo::Module(exports)) => Type::Module(exports.clone()),
                 Some(CompactTypeDefInfo::TagUnion) => Type::Tag(name),
                 None => Type::Record(Default::default()),
@@ -12904,7 +12907,9 @@ fn compact_runtime_type_inner(
                 Some(CompactTypeDefInfo::Alias(alias)) => {
                     compact_runtime_type_inner(arena, *alias, declarations, depth + 1)
                 }
-                Some(CompactTypeDefInfo::Record(_)) => compact_record_type(name, declarations),
+                Some(CompactTypeDefInfo::Record(_)) => {
+                    compact_record_type(arena, name, declarations, depth + 1)
+                }
                 Some(CompactTypeDefInfo::Module(exports)) => Type::Module(exports.clone()),
                 Some(CompactTypeDefInfo::TagUnion) => Type::Tag(name),
                 None => Type::Record(Default::default()),
@@ -12951,11 +12956,29 @@ fn compact_runtime_type_inner(
     }
 }
 
-fn compact_record_type(name: Name, declarations: &CompactDeclOutput) -> Type {
-    let Some(CompactTypeDefInfo::Record(fields)) = declarations.types.get(&name) else {
-        return Type::Unknown;
-    };
-    Type::Record(fields.clone())
+fn compact_record_type(
+    arena: &AstArena,
+    name: Name,
+    declarations: &CompactDeclOutput,
+    depth: usize,
+) -> Type {
+    if let Some(fields) = declarations.record_schema_fields.get(&name) {
+        return Type::Record(
+            fields
+                .iter()
+                .map(|(field, ty)| {
+                    (
+                        *field,
+                        compact_runtime_type_inner(arena, *ty, declarations, depth),
+                    )
+                })
+                .collect(),
+        );
+    }
+    match declarations.types.get(&name) {
+        Some(CompactTypeDefInfo::Record(fields)) => Type::Record(fields.clone()),
+        _ => Type::Unknown,
+    }
 }
 
 fn compact_type_check(

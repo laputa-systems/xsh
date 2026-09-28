@@ -4,6 +4,7 @@ use crate::records::{
     env_entry_type, env_path_entry_type, fs_copy_tree_result_type, fs_entry_type,
     fs_filesystem_stats_type, fs_lock_type, fs_mount_type, fs_remove_manifest_result_type,
     fs_root_children_result_type, fs_root_filesystem_stats_type, fs_root_read_result_type,
+    fs_root_readlink_result_type,
     fs_root_type, group_record_type,
     linux_blkid_type,
     linux_block_device_type,

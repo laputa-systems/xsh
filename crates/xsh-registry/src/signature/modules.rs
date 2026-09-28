@@ -8,6 +8,7 @@ use super::{
     elf_info_type, env_entry_type, env_path_entry_type, fs_copy_tree_result_type, fs_entry_type,
     fs_filesystem_stats_type, fs_lock_type, fs_mount_type, fs_remove_manifest_result_type,
     fs_root_children_result_type, fs_root_filesystem_stats_type, fs_root_read_result_type,
+    fs_root_readlink_result_type,
     fs_root_type, group_record_type,
     linux_blkid_type,
     linux_block_device_type,
@@ -1654,6 +1655,15 @@ fn fs_module() -> ModuleSig {
                 result(Type::Path),
                 false,
                 RuntimeOp::FsRootReadlink,
+            ),
+        ),
+        (
+            "root_readlink_result",
+            sig(
+                vec![param("root", fs_root_type()), param("path", Type::Path)],
+                result(fs_root_readlink_result_type()),
+                false,
+                RuntimeOp::FsRootReadlinkResult,
             ),
         ),
         (
@@ -3930,6 +3940,11 @@ fn record_doc(name: &str) -> Option<RecordDoc> {
             "Describes a bounded read beneath a rooted filesystem capability.",
             "State, errno, and error kind preserve missing, denied, truncated, and failed reads without parsing diagnostic text.",
             &["filesystem", "rooted", "read", "observation"],
+        ),
+        "FsRootReadlinkResult" => (
+            "Describes a symlink target observation beneath a rooted filesystem capability.",
+            "The target remains a lossless Path; state, errno, and error kind distinguish missing, denied, and failed link reads.",
+            &["filesystem", "rooted", "symlink", "observation"],
         ),
         "FsRootFilesystemStats" => (
             "Describes filesystem capacity observed through a rooted directory capability.",

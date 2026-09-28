@@ -30,15 +30,7 @@ export type SectionState =
   | SectionTruncated
 
 ## Failures returned by report parsing, selection, and schema validation.
-export error SystemReportError =
-    InvalidCpuList(message: Str)
-  | InvalidSection(message: Str)
-  | InvalidJson(message: Str)
-  | UnsupportedSchema(version: Int)
-  | InvalidProcStat(message: Str)
-  | InvalidExecutionUnits(message: Str)
-  | DryRun(message: Str)
-  | UnsupportedPlatform(message: Str)
+export error SystemReportError = InvalidCpuList(message: Str) | InvalidSection(message: Str) | InvalidJson(message: Str) | UnsupportedSchema(version: Int, message: Str) | InvalidProcStat(message: Str) | InvalidExecutionUnits(message: Str) | DryRun(message: Str) | UnsupportedPlatform(message: Str)
 
 ## Identifies whether observations came from a live host or a replay source.
 export type SourceMode = LiveLinux | Replay | SyntheticFixture | CapturedReplay | ContainerLive | PhysicalLive
@@ -80,6 +72,10 @@ export type ObservationScope = {
   network_namespace: TextObservation,
   pid_namespace: TextObservation,
   cgroup_namespace: TextObservation,
+  uts_namespace: TextObservation,
+  ipc_namespace: TextObservation,
+  user_namespace: TextObservation,
+  time_namespace: TextObservation,
   visible_cgroup: TextObservation,
   page_size_bytes: Int?,
   clock_ticks_per_second: Int?,
@@ -424,10 +420,7 @@ export pure pci_parent_function(
   functions: List[PciFunction],
   child: PciFunction,
 ) -> PciFunction? {
-  let parent_index = match child.parent_function_index {
-    Some(index) => index
-    None => return null
-  }
+  let parent_index = child.parent_function_index ?? -1
 
   if parent_index < 0 or parent_index >= functions.len() {
     return null
@@ -447,6 +440,7 @@ export type UsbEndpoint = {
 
 ## Describes one alternate setting and its endpoints.
 export type UsbAlternateSetting = {
+  configuration_value: Int?,
   number: Int,
   class_code: Int,
   subclass: Int,
@@ -690,15 +684,23 @@ export type PowerSupply = {
   parent_device_class_index: Int?,
 }
 
-## Describes one kernel-exported powercap zone and constraint.
+## Describes one indexed power limit exported by a powercap zone.
+export type PowerCapConstraint = {
+  index: Int,
+  name: Str?,
+  power_limit_uw: Int?,
+  time_window_us: Int?,
+}
+
+## Describes one kernel-exported powercap zone; parent matches another zone's
+## entry_name and is absent for zones directly beneath the powercap class.
 export type PowerCapZone = {
+  entry_name: Str,
   name: Str,
   parent: Str?,
   energy_uj: Int?,
   maximum_energy_range_uj: Int?,
-  constraint_name: Str?,
-  power_limit_uw: Int?,
-  time_window_us: Int?,
+  constraints: List[PowerCapConstraint],
 }
 
 ## Groups power supplies and powercap observations.
@@ -738,7 +740,7 @@ export type KernelSection = {
   sysctls: List[KernelParameter],
 }
 
-## Describes one visible process without command-line or environment contents; cgroup indexes resolve into MemorySection.cgroup.
+## Describes one visible process without command-line or environment contents; uid is the real UID from status, and cgroup indexes resolve into MemorySection.cgroup.
 export type ProcessRecord = {
   pid: Int,
   parent_pid: Int,
@@ -958,8 +960,8 @@ pure not_requested_processes(section: ProcessSection) -> ProcessSection {
 
 pure clear_process_cgroup_resource_links(section: ProcessSection) -> ProcessSection {
   var processes: List[ProcessRecord] = []
-  for process in section.processes {
-    processes = processes.push({...process, cgroup_resource_index: null})
+  for process_item in section.processes {
+    processes = processes.push({...process_item, cgroup_resource_index: null})
   }
   return {...section, processes: processes}
 }
@@ -985,7 +987,7 @@ pure select_report_domain(
   let keep_pci = selection_needs_pci(selected)
   let keep_usb = selection_needs_usb(selected)
   for issue in report.issues {
-    if issue.section == "identity" or issue.section == selected_name or (keep_pci and issue.section == "pci") or (keep_usb and issue.section == "usb") {
+    if issue.section == "identity" or issue.section == "scope" or issue.section == selected_name or (keep_pci and issue.section == "pci") or (keep_usb and issue.section == "usb") {
       issues = issues.push(issue)
     }
   }
@@ -1045,6 +1047,10 @@ type JsonObservationScope = {
   network_namespace: JsonTextObservation,
   pid_namespace: JsonTextObservation,
   cgroup_namespace: JsonTextObservation,
+  uts_namespace: JsonTextObservation,
+  ipc_namespace: JsonTextObservation,
+  user_namespace: JsonTextObservation,
+  time_namespace: JsonTextObservation,
   visible_cgroup: JsonTextObservation,
   page_size_bytes: Int?,
   clock_ticks_per_second: Int?,
@@ -1325,6 +1331,18 @@ type JsonPowerSection = {
   cap_zones: List[PowerCapZone],
 }
 
+# Saved reports with one limit lacked the kernel entry name, so replay cannot
+# reconstruct a missing parent link from their display names.
+type LegacyPowerCapZone = {
+  name: Str,
+  parent: Str?,
+  energy_uj: Int?,
+  maximum_energy_range_uj: Int?,
+  constraint_name: Str?,
+  power_limit_uw: Int?,
+  time_window_us: Int?,
+}
+
 type JsonFirmwareRecord = {
   record_type: Int,
   handle: Int,
@@ -1459,15 +1477,15 @@ pure section_state_xsh(value: Str) -> Result[SectionState] {
   match value {
     "complete" => return Ok(Complete)
     "partial" => return Ok(Partial)
-    "absent" => return Ok(Absent)
-    "unsupported" => return Ok(Unsupported)
-    "permission_denied" => return Ok(PermissionDenied)
-    "not_requested" => return Ok(NotRequested)
-    "redacted" => return Ok(Redacted)
-    "malformed" => return Ok(Malformed)
-    "disappeared" => return Ok(Disappeared)
-    "raced" => return Ok(Raced)
-    "truncated" => return Ok(Truncated)
+    "absent" => return Ok(SectionAbsent)
+    "unsupported" => return Ok(SectionUnsupported)
+    "permission_denied" => return Ok(SectionPermissionDenied)
+    "not_requested" => return Ok(SectionNotRequested)
+    "redacted" => return Ok(SectionRedacted)
+    "malformed" => return Ok(SectionMalformed)
+    "disappeared" => return Ok(SectionDisappeared)
+    "raced" => return Ok(SectionRaced)
+    "truncated" => return Ok(SectionTruncated)
     _ => return Err(SystemReportError.InvalidJson(message: f"unknown section state '${value}'"))
   }
 }
@@ -1514,10 +1532,10 @@ pure section_status_json(value: SectionStatus) -> JsonSectionStatus {
 pure section_status_xsh(value: JsonSectionStatus) -> Result[SectionStatus] {
   let state = section_state_xsh(value.state)?
   if state == Complete and ! value.enumeration_succeeded {
-    return Err(Error(kind: "system-report-json", message: "complete section has no successful enumeration"))
+    return Err(SystemReportError.InvalidJson(message: "complete section has no successful enumeration"))
   }
-  if (state == NotRequested or state == Unsupported) and value.enumeration_succeeded {
-    return Err(Error(kind: "system-report-json", message: "unavailable section claims a successful enumeration"))
+  if (state == SectionNotRequested or state == SectionUnsupported) and value.enumeration_succeeded {
+    return Err(SystemReportError.InvalidJson(message: "unavailable section claims a successful enumeration"))
   }
 
   return {
@@ -1552,6 +1570,10 @@ pure observation_scope_json(value: ObservationScope) -> JsonObservationScope {
     network_namespace: text_observation_json(value.network_namespace),
     pid_namespace: text_observation_json(value.pid_namespace),
     cgroup_namespace: text_observation_json(value.cgroup_namespace),
+    uts_namespace: text_observation_json(value.uts_namespace),
+    ipc_namespace: text_observation_json(value.ipc_namespace),
+    user_namespace: text_observation_json(value.user_namespace),
+    time_namespace: text_observation_json(value.time_namespace),
     visible_cgroup: text_observation_json(value.visible_cgroup),
   }
 }
@@ -1563,6 +1585,10 @@ pure observation_scope_xsh(value: JsonObservationScope) -> Result[ObservationSco
     network_namespace: text_observation_xsh(value.network_namespace)?,
     pid_namespace: text_observation_xsh(value.pid_namespace)?,
     cgroup_namespace: text_observation_xsh(value.cgroup_namespace)?,
+    uts_namespace: text_observation_xsh(value.uts_namespace)?,
+    ipc_namespace: text_observation_xsh(value.ipc_namespace)?,
+    user_namespace: text_observation_xsh(value.user_namespace)?,
+    time_namespace: text_observation_xsh(value.time_namespace)?,
     visible_cgroup: text_observation_xsh(value.visible_cgroup)?,
   }
 }
@@ -1597,33 +1623,37 @@ pure firmware_identity_xsh(value: JsonFirmwareIdentity) -> Result[FirmwareIdenti
   }
 }
 
-pure identity_section_json(value: IdentitySection) -> JsonIdentitySection {
-  var firmware: JsonFirmwareIdentity? = null
-  if value.firmware != null {
-    firmware = firmware_identity_json(value.firmware)
+pure optional_firmware_identity_json(value: FirmwareIdentity?) -> JsonFirmwareIdentity? {
+  if value != null {
+    return firmware_identity_json(value)
   }
+  return null
+}
 
+pure optional_firmware_identity_xsh(value: JsonFirmwareIdentity?) -> Result[FirmwareIdentity?] {
+  if value != null {
+    return firmware_identity_xsh(value)
+  }
+  return Ok(null)
+}
+
+pure identity_section_json(value: IdentitySection) -> JsonIdentitySection {
   return {
     ...value,
     status: section_status_json(value.status),
     hostname: text_observation_json(value.hostname),
     boot_id: text_observation_json(value.boot_id),
-    firmware: firmware,
+    firmware: optional_firmware_identity_json(value.firmware),
   }
 }
 
 pure identity_section_xsh(value: JsonIdentitySection) -> Result[IdentitySection] {
-  var firmware: FirmwareIdentity? = null
-  if value.firmware != null {
-    firmware = firmware_identity_xsh(value.firmware)?
-  }
-
   return {
     ...value,
     status: section_status_xsh(value.status)?,
     hostname: text_observation_xsh(value.hostname)?,
     boot_id: text_observation_xsh(value.boot_id)?,
-    firmware: firmware,
+    firmware: optional_firmware_identity_xsh(value.firmware)?,
   }
 }
 
@@ -2095,8 +2125,8 @@ pure firmware_record_xsh(value: JsonFirmwareRecord) -> Result[FirmwareRecord] {
 
 pure firmware_section_json(value: FirmwareSection) -> JsonFirmwareSection {
   var records: List[JsonFirmwareRecord] = []
-  for record in value.records {
-    records = records.push(firmware_record_json(record))
+  for firmware_item in value.records {
+    records = records.push(firmware_record_json(firmware_item))
   }
 
   return {
@@ -2109,8 +2139,8 @@ pure firmware_section_json(value: FirmwareSection) -> JsonFirmwareSection {
 
 pure firmware_section_xsh(value: JsonFirmwareSection) -> Result[FirmwareSection] {
   var records: List[FirmwareRecord] = []
-  for record in value.records {
-    records = records.push(firmware_record_xsh(record)?)
+  for firmware_item in value.records {
+    records = records.push(firmware_record_xsh(firmware_item)?)
   }
 
   return {
@@ -2187,8 +2217,8 @@ pure process_record_xsh(value: JsonProcessRecord) -> Result[ProcessRecord] {
 
 pure process_section_json(value: ProcessSection) -> JsonProcessSection {
   var processes: List[JsonProcessRecord] = []
-  for process in value.processes {
-    processes = processes.push(process_record_json(process))
+  for process_item in value.processes {
+    processes = processes.push(process_record_json(process_item))
   }
 
   return {
@@ -2199,8 +2229,8 @@ pure process_section_json(value: ProcessSection) -> JsonProcessSection {
 
 pure process_section_xsh(value: JsonProcessSection) -> Result[ProcessSection] {
   var processes: List[ProcessRecord] = []
-  for process in value.processes {
-    processes = processes.push(process_record_xsh(process)?)
+  for process_item in value.processes {
+    processes = processes.push(process_record_xsh(process_item)?)
   }
 
   return {
@@ -2315,7 +2345,16 @@ pure report_xsh(value: SystemReportJson) -> Result[SystemReport] {
 
 pure require_report_v1(report: SystemReport) -> Result[Unit] {
   if report.schema_version != 1 {
-    return Err(Error(kind: "system-report-json", message: f"unsupported schema version '${report.schema_version}'"))
+    return Err(SystemReportError.UnsupportedSchema(version: report.schema_version, message: f"unsupported schema version ${report.schema_version}"))
+  }
+  for zone in report.power.cap_zones {
+    var previous_index = -1
+    for constraint in zone.constraints {
+      if constraint.index <= previous_index or constraint.index > 9007199254740991 {
+        return Err(SystemReportError.InvalidJson(message: "powercap constraint indexes must be unique, ascending, and JSON-safe"))
+      }
+      previous_index = constraint.index
+    }
   }
   return Ok()
 }
@@ -2326,8 +2365,10 @@ pure encode_typed_report_json(
   pretty: Bool,
 ) -> Result[Str] {
   require_report_v1(report)?
-  let output_report = if sensitive { report } else { redact_report(report) }
-  return json.encode(report_json(output_report), pretty: pretty)
+  let clean = sanitize_report_mount_options(report)
+  let output_report = if sensitive { clean } else { redact_report(clean) }
+  let wire: Any = report_json(output_report)
+  return json.encode(wire, pretty: pretty)
 }
 
 ## Validates a dynamic report at the JSON boundary and emits one document.
@@ -2341,14 +2382,82 @@ export pure encode_report_json(
 
 ## Validates the JSON v1 wire schema and restores its typed tag unions.
 export pure decode_report_json(text: Str) -> Result[SystemReport] {
-  let raw = json.decode(text)?
-  let wire = raw.require(SystemReportJson)?
-
-  if wire.schema_version != 1 {
-    return Err(Error(kind: "system-report-json", message: f"unsupported schema version '${wire.schema_version}'"))
+  guard let raw = json.decode(text) else |error| {
+    return Err(SystemReportError.InvalidJson(message: error.message))
+  }
+  var normalized = raw
+  for field in ["uts_namespace", "ipc_namespace", "user_namespace", "time_namespace"] {
+    match json.get(normalized, ["scope", field]) {
+      Ok(value) => {
+        if value == null {
+          return Err(SystemReportError.InvalidJson(message: f"scope.${field} cannot be null"))
+        }
+        guard let _ = value.require(JsonTextObservation) else |error| {
+          return Err(SystemReportError.InvalidJson(message: error.message))
+        }
+      }
+      Err(_) => {
+        guard let updated = json.set(normalized, ["scope", field], {
+          state: "unsupported",
+          value: null,
+          raw_bytes_base64: null,
+        }) else |error| {
+          return Err(SystemReportError.InvalidJson(message: error.message))
+        }
+        normalized = updated
+      }
+    }
+  }
+  match json.get(normalized, ["power", "cap_zones"]) {
+    Ok(raw_zones) => {
+      guard let zones = raw_zones.require(List[Any]) else |error| {
+        return Err(SystemReportError.InvalidJson(message: error.message))
+      }
+      var zone_index = 0
+      for raw_zone in zones {
+        if json.get(raw_zone, ["entry_name"], null) == null {
+          guard let legacy = raw_zone.require(LegacyPowerCapZone) else |error| {
+            return Err(SystemReportError.InvalidJson(message: error.message))
+          }
+          var constraints: List[PowerCapConstraint] = []
+          if legacy.constraint_name != null or legacy.power_limit_uw != null or legacy.time_window_us != null {
+            constraints = [{
+              index: 0,
+              name: legacy.constraint_name,
+              power_limit_uw: legacy.power_limit_uw,
+              time_window_us: legacy.time_window_us,
+            }]
+          }
+          let zone: PowerCapZone = {
+            entry_name: legacy.name,
+            name: legacy.name,
+            parent: legacy.parent,
+            energy_uj: legacy.energy_uj,
+            maximum_energy_range_uj: legacy.maximum_energy_range_uj,
+            constraints: constraints,
+          }
+          let wire_zone: Any = zone
+          guard let updated = json.set(normalized, ["power", "cap_zones", zone_index], wire_zone) else |error| {
+            return Err(SystemReportError.InvalidJson(message: error.message))
+          }
+          normalized = updated
+        }
+        zone_index += 1
+      }
+    }
+    Err(_) => {}
+  }
+  guard let wire = normalized.require(SystemReportJson) else |error| {
+    return Err(SystemReportError.InvalidJson(message: error.message))
   }
 
-  return report_xsh(wire)
+  if wire.schema_version != 1 {
+    return Err(SystemReportError.UnsupportedSchema(version: wire.schema_version, message: f"unsupported schema version ${wire.schema_version}"))
+  }
+
+  let parsed = sanitize_report_mount_options(report_xsh(wire)?)
+  require_report_v1(parsed)?
+  return Ok(parsed)
 }
 
 pure terminal_quote(value: Str) -> Result[Str] {
@@ -2422,7 +2531,7 @@ pure terminal_quote(value: Str) -> Result[Str] {
 
 pure observation_display(value: TextObservation) -> Result[Str] {
   if value.value != null {
-    let quoted = terminal_quote(value.value)?
+    let quoted = terminal_quote(value.value ?? "")?
     if value.state == Observed {
       return quoted
     }
@@ -2430,7 +2539,7 @@ pure observation_display(value: TextObservation) -> Result[Str] {
   }
 
   if value.raw_bytes_base64 != null {
-    return terminal_quote(f"base64:${value.raw_bytes_base64}")
+    return terminal_quote(f"base64:${value.raw_bytes_base64 ?? ""}")
   }
 
   return f"[${observation_state_json(value.state)}]"
@@ -2441,35 +2550,36 @@ pure optional_text_display(value: Str?) -> Result[Str] {
     return "unknown"
   }
 
-  return terminal_quote(value)
+  return terminal_quote(value ?? "")
 }
 
 pure byte_quantity(value: Int?) -> Str {
   if value == null {
     return "unknown"
   }
-  if value < 0 {
+  let amount = value ?? 0
+  if amount < 0 {
     return "out of range"
   }
 
   let divisor = 1073741824
-  let whole = value / divisor
-  let fraction = (value % divisor) * 10 / divisor
-  return f"${whole}.${fraction} GiB (${value} bytes)"
+  let whole = amount / divisor
+  let fraction = (amount % divisor) * 10 / divisor
+  return f"${whole}.${fraction} GiB (${amount} bytes)"
 }
 
 pure optional_frequency(value: Int?) -> Str {
   if value == null {
     return "unknown"
   }
-  return f"${value} kHz"
+  return f"${value ?? 0} kHz"
 }
 
 pure optional_int_display(value: Int?) -> Str {
   if value == null {
     return "unknown"
   }
-  return f"${value}"
+  return f"${value ?? 0}"
 }
 
 pure key_part(prefix: Str, value: Str) -> Str {
@@ -2480,21 +2590,21 @@ pure optional_int_key(value: Int?) -> Str {
   if value == null {
     return "none;"
   }
-  return f"int:${value};"
+  return f"int:${value ?? 0};"
 }
 
 pure optional_str_key(value: Str?) -> Str {
   if value == null {
     return "none;"
   }
-  return key_part("str:", value)
+  return key_part("str:", value ?? "")
 }
 
 pure optional_bool_key(value: Bool?) -> Str {
   if value == null {
     return "none;"
   }
-  return if value { "bool:true;" } else { "bool:false;" }
+  return if value ?? false { "bool:true;" } else { "bool:false;" }
 }
 
 pure cpu_policy_key(policy: CpuFreqPolicy) -> Str {
@@ -2534,9 +2644,9 @@ pure grouped_policy_lines(policies: List[CpuFreqPolicy]) -> Result[List[Str]] {
   let groups = policies |> group-by cpu_policy_key(.) |> sort-by .key
   var lines: List[Str] = []
 
-  for group in groups {
+  for policy_group in groups {
     var cpu_ids: List[Int] = []
-    for policy in group.items {
+    for policy in policy_group.items {
       for cpu_id in policy.related_cpus {
         if cpu_id not in cpu_ids {
           cpu_ids = cpu_ids.push(cpu_id)
@@ -2545,30 +2655,32 @@ pure grouped_policy_lines(policies: List[CpuFreqPolicy]) -> Result[List[Str]] {
     }
 
     cpu_ids = cpu_ids |> sort-by .
-    let first = group.items[0]
-    if first != null {
-      let driver = optional_text_display(first.driver)?
-      let governor = optional_text_display(first.governor)?
-      lines = lines.push(
-        f"  ${group.items.len()} identical policy group on CPUs ${cpu_ids.join(",")}: ${driver}, ${governor}, ${optional_frequency(first.scaling_min_khz)}..${optional_frequency(first.scaling_max_khz)}",
-      )
+    var cpu_id_texts: List[Str] = []
+    for cpu_id in cpu_ids {
+      cpu_id_texts = cpu_id_texts.push(f"${cpu_id}")
     }
+    let first = policy_group.items[0]
+    let driver = optional_text_display(first.driver)?
+    let governor = optional_text_display(first.governor)?
+    lines = lines.push(
+      f"  ${policy_group.items.len()} identical policy group on CPUs ${cpu_id_texts.join(",")}: ${driver}, ${governor}, ${optional_frequency(first.scaling_min_khz)}..${optional_frequency(first.scaling_max_khz)}",
+    )
   }
 
   return lines
 }
 
 pure section_entity_summary(status: SectionStatus, count: Int, label: Str) -> Str {
-  if status.state == NotRequested {
+  if status.state == SectionNotRequested {
     return "not requested"
   }
-  if status.state == Unsupported {
+  if status.state == SectionUnsupported {
     return "unsupported"
   }
-  if status.state == Absent {
+  if status.state == SectionAbsent {
     return "absent"
   }
-  if status.state == Truncated {
+  if status.state == SectionTruncated {
     return f"at least ${count} ${label}"
   }
   if status.state == Partial or ! status.enumeration_succeeded {
@@ -2600,9 +2712,11 @@ pure render_typed_text(
 ) -> Result[Str] {
   require_report_v1(report)?
   let output_report = if sensitive { report } else { redact_report(report) }
-  let os_name = output_report.identity.os_release?.pretty_name
-    ?? output_report.identity.os_release?.name
-    ?? "unknown"
+  var os_name = "unknown"
+  if output_report.identity.os_release != null {
+    let release = output_report.identity.os_release ?? {id: "", name: null, pretty_name: null, version: null, version_id: null}
+    os_name = release.pretty_name ?? release.name ?? "unknown"
+  }
   let kernel = terminal_quote(output_report.identity.kernel_release ?? "unknown")?
   let architecture = terminal_quote(output_report.identity.architecture ?? "unknown")?
   let host_claim = terminal_quote(output_report.scope.host_claim)?
@@ -2613,12 +2727,12 @@ pure render_typed_text(
   } else {
     "Sensitive identifiers are included."
   }
-  let memory_summary = if output_report.memory.status.state == NotRequested {
+  let memory_summary = if output_report.memory.status.state == SectionNotRequested {
     "not requested"
   } else {
     f"${byte_quantity(output_report.memory.host.total_bytes)} total; ${byte_quantity(output_report.memory.host.available_bytes)} available; swap ${byte_quantity(output_report.memory.host.swap_total_bytes)} total/${byte_quantity(output_report.memory.host.swap_free_bytes)} free"
   }
-  let storage_usage = if output_report.storage.status.state == NotRequested {
+  let storage_usage = if output_report.storage.status.state == SectionNotRequested {
     "not requested"
   } else {
     mount_usage_summary(output_report.storage)
@@ -2646,7 +2760,7 @@ pure render_typed_text(
     f"  firmware=${section_state_json(output_report.firmware.status.state)} kernel=${section_state_json(output_report.kernel.status.state)} processes=${section_state_json(output_report.processes.status.state)} devices=${section_state_json(output_report.devices.status.state)}",
   ]
 
-  if output_report.cpu.status.state != NotRequested {
+  if output_report.cpu.status.state != SectionNotRequested {
     let policies = grouped_policy_lines(output_report.cpu.frequency_policies)?
     if policies.len() > 0 {
       lines = lines.push("CPU frequency policy groups:")
@@ -2655,7 +2769,7 @@ pure render_typed_text(
   }
 
   if full {
-    if output_report.cpu.status.state != NotRequested {
+    if output_report.cpu.status.state != SectionNotRequested {
       lines = lines.push("CPU caches:")
       for cache in output_report.cpu.caches {
         lines = lines.push(f"  L${cache.level} ${terminal_quote(cache.kind)?} cache on CPU ${cache.owner_cpu_id} (sysfs index ${cache.sysfs_index}): ${byte_quantity(cache.size_bytes)}; shared CPUs ${cache.shared_cpus.join(",")}")
@@ -2672,7 +2786,7 @@ pure render_typed_text(
       }
     }
 
-    if output_report.pci.status.state != NotRequested {
+    if output_report.pci.status.state != SectionNotRequested {
       lines = lines.push("PCI functions:")
       for function in output_report.pci.functions {
         let address = optional_text_display(function.address)?
@@ -2681,7 +2795,7 @@ pure render_typed_text(
       }
     }
 
-    if output_report.usb.status.state != NotRequested {
+    if output_report.usb.status.state != SectionNotRequested {
       lines = lines.push("USB devices:")
       for device in output_report.usb.devices {
         let name = optional_text_display(device.sysfs_name)?
@@ -2694,7 +2808,7 @@ pure render_typed_text(
       }
     }
 
-    if output_report.storage.status.state != NotRequested {
+    if output_report.storage.status.state != SectionNotRequested {
       lines = lines.push("Block devices:")
       for device in output_report.storage.devices {
         let name = optional_text_display(device.name)?
@@ -2710,7 +2824,7 @@ pure render_typed_text(
       }
     }
 
-    if output_report.network.status.state != NotRequested {
+    if output_report.network.status.state != SectionNotRequested {
       lines = lines.push("Network links:")
       for link in output_report.network.links {
         let name = observation_display(link.name)?
@@ -2735,7 +2849,7 @@ pure render_typed_text(
       }
     }
 
-    if output_report.sensors.status.state != NotRequested {
+    if output_report.sensors.status.state != SectionNotRequested {
       lines = lines.push("Sensors:")
       for channel in output_report.sensors.channels {
         lines = lines.push(f"  ${terminal_quote(channel.chip)?}/${terminal_quote(channel.channel)?} ${observation_display(channel.label)?}=${optional_int_display(channel.value)} ${terminal_quote(channel.unit)?}")
@@ -2746,21 +2860,24 @@ pure render_typed_text(
       }
     }
 
-    if output_report.power.status.state != NotRequested {
+    if output_report.power.status.state != SectionNotRequested {
       lines = lines.push("Power supplies:")
       for supply in output_report.power.supplies {
         lines = lines.push(f"  ${terminal_quote(supply.name)?} kind=${optional_text_display(supply.kind)?} status=${optional_text_display(supply.status)?} capacity=${optional_int_display(supply.capacity_percent)}%")
       }
       lines = lines.push("Power limits:")
       for zone in output_report.power.cap_zones {
-        lines = lines.push(f"  ${terminal_quote(zone.name)?} energy=${optional_int_display(zone.energy_uj)} uJ limit=${optional_int_display(zone.power_limit_uw)} uW window=${optional_int_display(zone.time_window_us)} us")
+        lines = lines.push(f"  ${terminal_quote(zone.name)?} energy=${optional_int_display(zone.energy_uj)} uJ")
+        for constraint in zone.constraints {
+          lines = lines.push(f"    constraint ${constraint.index} ${optional_text_display(constraint.name)?} limit=${optional_int_display(constraint.power_limit_uw)} uW window=${optional_int_display(constraint.time_window_us)} us")
+        }
       }
     }
 
-    if output_report.kernel.status.state != NotRequested {
+    if output_report.kernel.status.state != SectionNotRequested {
       lines = lines.push("Kernel modules:")
-      for module in output_report.kernel.modules {
-        lines = lines.push(f"  ${terminal_quote(module.name)?} size=${module.size_bytes} bytes users=${module.users} state=${terminal_quote(module.state)?}")
+      for kernel_module in output_report.kernel.modules {
+        lines = lines.push(f"  ${terminal_quote(kernel_module.name)?} size=${kernel_module.size_bytes} bytes users=${kernel_module.users} state=${terminal_quote(kernel_module.state)?}")
       }
       lines = lines.push(f"Kernel command line: ${observation_display(output_report.kernel.command_line)?}")
       lines = lines.push("Kernel parameters:")
@@ -2773,21 +2890,21 @@ pure render_typed_text(
       }
     }
 
-    if output_report.processes.status.state != NotRequested {
+    if output_report.processes.status.state != SectionNotRequested {
       lines = lines.push("Visible processes:")
-      for process in output_report.processes.processes {
-        lines = lines.push(f"  pid=${process.pid} ppid=${process.parent_pid} state=${terminal_quote(process.state)?} threads=${optional_int_display(process.thread_count)} rss=${byte_quantity(process.resident_bytes)} virtual=${byte_quantity(process.virtual_bytes)} command=${observation_display(process.command)?}")
+      for process_item in output_report.processes.processes {
+        lines = lines.push(f"  pid=${process_item.pid} ppid=${process_item.parent_pid} state=${terminal_quote(process_item.state)?} threads=${optional_int_display(process_item.thread_count)} rss=${byte_quantity(process_item.resident_bytes)} virtual=${byte_quantity(process_item.virtual_bytes)} command=${observation_display(process_item.command)?}")
       }
     }
 
-    if output_report.firmware.status.state != NotRequested {
+    if output_report.firmware.status.state != SectionNotRequested {
       lines = lines.push("Firmware records:")
-      for record in output_report.firmware.records {
-        lines = lines.push(f"  type=${record.record_type} handle=${record.handle} formatted-length=${record.formatted_length} string-count=${record.strings.len()}")
+      for firmware_item in output_report.firmware.records {
+        lines = lines.push(f"  type=${firmware_item.record_type} handle=${firmware_item.handle} formatted-length=${firmware_item.formatted_length} string-count=${firmware_item.strings.len()}")
       }
     }
 
-    if output_report.devices.status.state != NotRequested {
+    if output_report.devices.status.state != SectionNotRequested {
       lines = lines.push("Device classes:")
       for device in output_report.devices.devices {
         lines = lines.push(f"  ${terminal_quote(device.class)?} name=${observation_display(device.name)?} driver=${optional_text_display(device.driver)?} pci-parent=${optional_int_display(device.parent_pci_function_index)} usb-parent=${optional_int_display(device.parent_usb_device_index)}")
@@ -2842,6 +2959,7 @@ pure redact_identity_section(section: IdentitySection) -> IdentitySection {
 
   return {
     ...section,
+    kernel_build: null,
     hostname: redact_text_observation(section.hostname),
     boot_id: redact_text_observation(section.boot_id),
     firmware: firmware,
@@ -2906,6 +3024,113 @@ pure redact_usb_section(section: UsbSection) -> UsbSection {
   return {...section, devices: devices}
 }
 
+pure allowed_mount_flag(option: Str) -> Bool {
+  return option in [
+    "ro", "rw", "nosuid", "suid", "nodev", "dev", "noexec", "exec",
+    "sync", "async", "dirsync", "relatime", "norelatime", "strictatime",
+    "noatime", "nodiratime", "lazytime", "nolazytime", "mand", "nomand",
+  ]
+}
+
+pure mount_decimal_text(value: Str, octal: Bool = false) -> Bool {
+  if value == "" {
+    return false
+  }
+  let digits = if octal {"01234567"} else {"0123456789"}
+  for character in value.split("") {
+    if !digits.contains(character) {
+      return false
+    }
+  }
+  return true
+}
+
+pure allowed_mount_value(key: Str, value: Str) -> Bool {
+  match key {
+    "errors" => return value in ["continue", "remount-ro", "panic"]
+    "lowerdir" | "upperdir" | "workdir" => return value.starts_with("/")
+    "uid" | "gid" | "rsize" | "wsize" | "size" => return mount_decimal_text(value)
+    "mode" => return mount_decimal_text(value, true)
+    "vers" => {
+      let components = value.split(".")
+      if components.len() == 0 or components.len() > 3 {
+        return false
+      }
+      for component in components {
+        if !mount_decimal_text(component) {
+          return false
+        }
+      }
+      return true
+    }
+    _ => return false
+  }
+}
+
+## Keeps only known configuration options; unknown values can carry credentials.
+export pure sanitize_mount_options(options: List[Str]) -> List[Str] {
+  var sanitized: List[Str] = []
+  for option in options {
+    let parts = option.split("=")
+    if allowed_mount_flag(option) or (parts.len() == 2 and allowed_mount_value(parts[0], parts[1])) {
+      sanitized = sanitized.push(option)
+    } else {
+      sanitized = sanitized.push("redacted")
+    }
+  }
+  return sanitized
+}
+
+## Retains only numeric propagation identities from the kernel's optional mount fields.
+export pure sanitize_mount_optional_fields(fields: List[Str]) -> List[Str] {
+  var sanitized: List[Str] = []
+  for field in fields {
+    let parts = field.split(":")
+    if field == "unbindable" or (parts.len() == 2 and parts[0] in ["shared", "master", "propagate_from"] and mount_decimal_text(parts[1])) {
+      sanitized = sanitized.push(field)
+    } else {
+      sanitized = sanitized.push("redacted")
+    }
+  }
+  return sanitized
+}
+
+## Removes mount sources whose userinfo or option text may embed credentials.
+export pure sanitize_mount_source(source: TextObservation) -> TextObservation {
+  let value = source.value ?? ""
+  let lower = value.lower()
+  if value.contains("@") or lower.contains("password=") or lower.contains("token=") or lower.contains("secret=") {
+    return redact_text_observation(source)
+  }
+  return source
+}
+
+pure sanitize_report_mount_options(report: SystemReport) -> SystemReport {
+  var mounts: List[Mount] = []
+  for mount in report.storage.mounts {
+    mounts = mounts.push({
+      ...mount,
+      source: sanitize_mount_source(mount.source),
+      mount_options: sanitize_mount_options(mount.mount_options),
+      optional_fields: sanitize_mount_optional_fields(mount.optional_fields),
+      super_options: sanitize_mount_options(mount.super_options),
+    })
+  }
+  return {...report, storage: {...report.storage, mounts: mounts}}
+}
+
+pure redact_mount_options(options: List[Str]) -> List[Str] {
+  var redacted: List[Str] = []
+  for option in options {
+    if allowed_mount_flag(option) {
+      redacted = redacted.push(option)
+    } else {
+      redacted = redacted.push("redacted")
+    }
+  }
+  return redacted
+}
+
 pure redact_storage_section(section: StorageSection) -> StorageSection {
   var devices: List[BlockDevice] = []
   for device in section.devices {
@@ -2928,6 +3153,9 @@ pure redact_storage_section(section: StorageSection) -> StorageSection {
       root: redact_text_observation(mount.root),
       target: redact_text_observation(mount.target),
       source: redact_text_observation(mount.source),
+      mount_options: redact_mount_options(mount.mount_options),
+      optional_fields: sanitize_mount_optional_fields(mount.optional_fields),
+      super_options: redact_mount_options(mount.super_options),
     })
   }
 
@@ -3002,14 +3230,22 @@ pure redact_network_attributes(values: List[NetworkAttribute]) -> List[NetworkAt
   return output
 }
 
+pure redact_sensor_section(section: SensorSection) -> SensorSection {
+  var channels: List[SensorChannel] = []
+  for channel in section.channels {
+    channels = channels.push({...channel, label: redact_text_observation(channel.label)})
+  }
+  return {...section, channels: channels}
+}
+
 pure redact_firmware_section(section: FirmwareSection) -> FirmwareSection {
   var records: List[FirmwareRecord] = []
-  for record in section.records {
+  for firmware_item in section.records {
     var strings: List[TextObservation] = []
-    for value in record.strings {
+    for value in firmware_item.strings {
       strings = strings.push(redact_text_observation(value))
     }
-    records = records.push({...record, strings: strings})
+    records = records.push({...firmware_item, strings: strings})
   }
 
   return {
@@ -3046,10 +3282,10 @@ pure redact_kernel_section(section: KernelSection) -> KernelSection {
 
 pure redact_process_section(section: ProcessSection) -> ProcessSection {
   var processes: List[ProcessRecord] = []
-  for process in section.processes {
+  for process_item in section.processes {
     processes = processes.push({
-      ...process,
-      cgroup: redact_text_observation(process.cgroup),
+      ...process_item,
+      cgroup: redact_text_observation(process_item.cgroup),
     })
   }
 
@@ -3084,17 +3320,14 @@ pure redact_issue_field(section: Str, field: Str) -> Str {
   }
 
   let root = parts[0]
-  if root == null {
-    return field
-  }
   if section == "pci" and root == "functions" {
-    let leaf = parts[parts.len() - 1] ?? ""
+    let leaf = parts[parts.len() - 1]
     return f"functions.redacted.${leaf}"
   }
   if section == "usb" and root == "devices" {
     return "devices.redacted"
   }
-  let leaf = parts[parts.len() - 1] ?? ""
+  let leaf = parts[parts.len() - 1]
   if section == "storage" and root == "devices" {
     return f"devices.redacted.${leaf}"
   }
@@ -3119,6 +3352,10 @@ export pure redact_report(report: SystemReport) -> SystemReport {
     network_namespace: redact_text_observation(scope.network_namespace),
     pid_namespace: redact_text_observation(scope.pid_namespace),
     cgroup_namespace: redact_text_observation(scope.cgroup_namespace),
+    uts_namespace: redact_text_observation(scope.uts_namespace),
+    ipc_namespace: redact_text_observation(scope.ipc_namespace),
+    user_namespace: redact_text_observation(scope.user_namespace),
+    time_namespace: redact_text_observation(scope.time_namespace),
     visible_cgroup: redact_text_observation(scope.visible_cgroup),
   }
 
@@ -3128,6 +3365,16 @@ export pure redact_report(report: SystemReport) -> SystemReport {
       ...issue,
       field: redact_issue_field(issue.section, issue.field),
       detail: redact_text_observation(issue.detail),
+    })
+  }
+  if report.identity.kernel_build != null {
+    issues = issues.push({
+      section: "identity",
+      field: "kernel_build",
+      state: Redacted,
+      error_kind: null,
+      errno: null,
+      detail: {state: Redacted, value: null, raw_bytes_base64: null},
     })
   }
 
@@ -3141,6 +3388,7 @@ export pure redact_report(report: SystemReport) -> SystemReport {
       usb: redact_usb_section(report.usb),
     storage: redact_storage_section(report.storage),
     network: redact_network_section(report.network),
+    sensors: redact_sensor_section(report.sensors),
     firmware: redact_firmware_section(report.firmware),
     kernel: redact_kernel_section(report.kernel),
     processes: redact_process_section(report.processes),

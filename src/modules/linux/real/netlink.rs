@@ -36,6 +36,7 @@ const MAX_DUMP_MESSAGES: usize = 65_536;
 const MAX_DUMP_DATAGRAMS: usize = 4096;
 const DUMP_DEADLINE: Duration = Duration::from_secs(3);
 const DUMP_ATTEMPTS: usize = 2;
+const MAX_JSON_SAFE_INT: u64 = 9_007_199_254_740_991;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum DumpKind {
@@ -190,6 +191,9 @@ impl DumpAccumulator {
                             "netlink acknowledgment does not match its request",
                         ));
                     }
+                    if error > 0 {
+                        return Err(DumpError::Malformed("netlink error code is positive"));
+                    }
                     if error != 0 {
                         let errno = error.checked_neg().ok_or(DumpError::Malformed(
                             "netlink error code is outside the supported range",
@@ -198,9 +202,15 @@ impl DumpAccumulator {
                     }
                 }
                 NLMSG_DONE => {
-                    if payload.len() >= 4 {
+                    if !payload.is_empty() {
+                        if payload.len() < 4 {
+                            return Err(DumpError::Malformed("netlink dump status is truncated"));
+                        }
                         let error = read_i32(payload, 0)
                             .ok_or(DumpError::Malformed("netlink dump status is truncated"))?;
+                        if error > 0 {
+                            return Err(DumpError::Malformed("netlink dump status is positive"));
+                        }
                         if error != 0 {
                             let errno = error.checked_neg().ok_or(DumpError::Malformed(
                                 "netlink dump status is outside the supported range",
@@ -336,6 +346,7 @@ struct Snapshot {
     rules: Vec<Rule>,
     issues: Vec<NetworkIssue>,
     successful_dumps: usize,
+    entity_decode_failed: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -455,7 +466,22 @@ impl Snapshot {
     fn add_messages(&mut self, kind: DumpKind, messages: &[NetlinkMessage]) {
         for message in messages {
             let parsed = match kind {
-                DumpKind::Links => parse_link(&message.payload).map(|value| self.links.push(value)),
+                DumpKind::Links => parse_link(&message.payload).map(|value| {
+                    for (field, counter) in
+                        [("rx_bytes", value.rx_bytes), ("tx_bytes", value.tx_bytes)]
+                    {
+                        if counter.is_some_and(|counter| counter > MAX_JSON_SAFE_INT) {
+                            self.issues.push(NetworkIssue {
+                                object: format!("links.{}.{}", value.ifindex, field),
+                                message: "network counter exceeds the exact JSON integer range".to_owned(),
+                                state: "range_failure".to_owned(),
+                                errno: None,
+                                error_kind: "integer_out_of_range".to_owned(),
+                            });
+                        }
+                    }
+                    self.links.push(value);
+                }),
                 DumpKind::Addresses => {
                     parse_address(&message.payload).map(|value| self.addresses.push(value))
                 }
@@ -465,6 +491,7 @@ impl Snapshot {
                 DumpKind::Rules => parse_rule(&message.payload).map(|value| self.rules.push(value)),
             };
             if let Err(message) = parsed {
+                self.entity_decode_failed = true;
                 self.issues.push(NetworkIssue {
                     object: kind.name().to_owned(),
                     message: message.to_owned(),
@@ -874,6 +901,7 @@ fn parse_attributes(payload: &[u8], start: usize) -> Result<Vec<Attribute>, &'st
 
 fn snapshot_value(snapshot: Snapshot) -> Value {
     let state = snapshot.state();
+    let enumeration_succeeded = snapshot.successful_dumps == 4 && !snapshot.entity_decode_failed;
     let links = snapshot.links.into_iter().map(link_value).collect();
     let addresses = snapshot.addresses.into_iter().map(address_value).collect();
     let routes = snapshot.routes.into_iter().map(route_value).collect();
@@ -893,6 +921,7 @@ fn snapshot_value(snapshot: Snapshot) -> Value {
         .collect();
     record([
         ("state", str_value(state)),
+        ("enumeration_succeeded", Value::Bool(enumeration_succeeded)),
         ("links", Value::List(links)),
         ("addresses", Value::List(addresses)),
         ("routes", Value::List(routes)),
@@ -915,8 +944,22 @@ fn link_value(link: Link) -> Value {
         ("lower_ifindex", optional_int(link.lower_ifindex.map(i64::from))),
         ("operstate", optional_int(link.operstate.map(i64::from))),
         ("kind", optional_text(link.kind.as_deref())),
-        ("rx_bytes", optional_int(link.rx_bytes.and_then(|n| i64::try_from(n).ok()))),
-        ("tx_bytes", optional_int(link.tx_bytes.and_then(|n| i64::try_from(n).ok()))),
+        (
+            "rx_bytes",
+            optional_int(
+                link.rx_bytes
+                    .filter(|n| *n <= MAX_JSON_SAFE_INT)
+                    .and_then(|n| i64::try_from(n).ok()),
+            ),
+        ),
+        (
+            "tx_bytes",
+            optional_int(
+                link.tx_bytes
+                    .filter(|n| *n <= MAX_JSON_SAFE_INT)
+                    .and_then(|n| i64::try_from(n).ok()),
+            ),
+        ),
         ("attributes", attributes_value(link.attributes)),
     ])
 }
@@ -1229,6 +1272,40 @@ mod tests {
     }
 
     #[test]
+    fn dump_accumulator_rejects_truncated_status_and_positive_error_codes() {
+        let mut state = accumulator();
+        let mut partial_done = Vec::new();
+        append_message(&mut partial_done, NLMSG_DONE, 0, 7, 91, &[0; 3]);
+        assert!(matches!(
+            state.push_datagram(&partial_done),
+            Err(DumpError::Malformed(_))
+        ));
+
+        let mut state = accumulator();
+        let mut positive_error = Vec::new();
+        append_message(
+            &mut positive_error,
+            NLMSG_ERROR,
+            0,
+            7,
+            91,
+            &error_payload(1, RTM_GETLINK, 7, 91),
+        );
+        assert!(matches!(
+            state.push_datagram(&positive_error),
+            Err(DumpError::Malformed(_))
+        ));
+
+        let mut state = accumulator();
+        let mut positive_done = Vec::new();
+        append_message(&mut positive_done, NLMSG_DONE, 0, 7, 91, &1_i32.to_ne_bytes());
+        assert!(matches!(
+            state.push_datagram(&positive_done),
+            Err(DumpError::Malformed(_))
+        ));
+    }
+
+    #[test]
     fn attributes_reject_malformed_lengths_and_retain_unknown_kinds() {
         let attributes = [7_u8, 0, 0x34, 0x80, b'x', b'y', b'z', 0];
         let parsed = parse_attributes(&attributes, 0).expect("attribute");
@@ -1257,5 +1334,122 @@ mod tests {
         assert_eq!(dump.links.len(), 1);
         assert_eq!(dump.issues.len(), 1);
         assert_eq!(dump.links[0].ifindex, 4);
+    }
+
+    #[test]
+    fn truncated_address_attribute_does_not_discard_a_valid_neighbor() {
+        let mut invalid = vec![libc::AF_INET as u8, 24, 0, 0];
+        invalid.extend_from_slice(&2_u32.to_ne_bytes());
+        invalid.extend_from_slice(&12_u16.to_ne_bytes());
+        invalid.extend_from_slice(&1_u16.to_ne_bytes());
+        invalid.extend_from_slice(&[192, 0, 2, 1]);
+
+        let mut valid = vec![libc::AF_INET as u8, 24, 0, 0];
+        valid.extend_from_slice(&3_u32.to_ne_bytes());
+        valid.extend_from_slice(&8_u16.to_ne_bytes());
+        valid.extend_from_slice(&1_u16.to_ne_bytes());
+        valid.extend_from_slice(&[192, 0, 2, 2]);
+
+        let mut snapshot = Snapshot::default();
+        snapshot.add_messages(
+            DumpKind::Addresses,
+            &[
+                NetlinkMessage { payload: invalid },
+                NetlinkMessage { payload: valid },
+            ],
+        );
+        assert_eq!(snapshot.addresses.len(), 1);
+        assert_eq!(snapshot.addresses[0].ifindex, 3);
+        assert_eq!(snapshot.addresses[0].address.as_deref(), Some(&[192, 0, 2, 2][..]));
+        assert_eq!(snapshot.issues.len(), 1);
+        assert_eq!(snapshot.issues[0].object, "addresses");
+        assert_eq!(snapshot.issues[0].state, "malformed");
+    }
+
+    #[test]
+    fn oversized_link_counters_keep_the_link_and_report_field_failures() {
+        let link_message = |ifindex: i32, rx_bytes: u64, tx_bytes: u64| {
+            let mut payload = vec![0_u8; 16];
+            payload[4..8].copy_from_slice(&ifindex.to_ne_bytes());
+            let mut stats = vec![0_u8; 32];
+            stats[16..24].copy_from_slice(&rx_bytes.to_ne_bytes());
+            stats[24..32].copy_from_slice(&tx_bytes.to_ne_bytes());
+            payload.extend_from_slice(&36_u16.to_ne_bytes());
+            payload.extend_from_slice(&23_u16.to_ne_bytes());
+            payload.extend_from_slice(&stats);
+            NetlinkMessage { payload }
+        };
+
+        let mut snapshot = Snapshot::default();
+        snapshot.add_messages(
+            DumpKind::Links,
+            &[
+                link_message(4, MAX_JSON_SAFE_INT + 1, 4096),
+                link_message(5, 0, u64::MAX),
+            ],
+        );
+        assert_eq!(snapshot.links.len(), 2);
+        assert_eq!(snapshot.issues.len(), 2);
+        assert_eq!(snapshot.issues[0].object, "links.4.rx_bytes");
+        assert_eq!(snapshot.issues[0].state, "range_failure");
+        assert_eq!(snapshot.issues[1].object, "links.5.tx_bytes");
+        let Value::Record(link) = link_value(snapshot.links.remove(0)) else {
+            panic!("link output must be a record");
+        };
+        assert!(matches!(link.get("rx_bytes"), Some(Value::Null)));
+        assert!(matches!(link.get("tx_bytes"), Some(Value::Int(4096))));
+        let Value::Record(link) = link_value(snapshot.links.remove(0)) else {
+            panic!("link output must be a record");
+        };
+        assert!(matches!(link.get("rx_bytes"), Some(Value::Int(0))));
+        assert!(matches!(link.get("tx_bytes"), Some(Value::Null)));
+    }
+
+    #[test]
+    fn network_dump_keeps_enumeration_success_separate_from_field_issues() {
+        let mut snapshot = Snapshot {
+            successful_dumps: 4,
+            ..Snapshot::default()
+        };
+        snapshot.issues.push(NetworkIssue {
+            object: "links.4.rx_bytes".to_owned(),
+            message: "counter out of range".to_owned(),
+            state: "range_failure".to_owned(),
+            errno: None,
+            error_kind: "integer_out_of_range".to_owned(),
+        });
+        let Value::Record(value) = snapshot_value(snapshot) else {
+            panic!("network dump must be a record");
+        };
+        assert!(matches!(
+            value.get("state"),
+            Some(Value::Str(state)) if state.as_ref() == "partial"
+        ));
+        assert!(matches!(value.get("enumeration_succeeded"), Some(Value::Bool(true))));
+
+        let Value::Record(value) = snapshot_value(Snapshot {
+            successful_dumps: 3,
+            ..Snapshot::default()
+        }) else {
+            panic!("network dump must be a record");
+        };
+        assert!(matches!(value.get("enumeration_succeeded"), Some(Value::Bool(false))));
+    }
+
+    #[test]
+    fn malformed_entity_prevents_successful_enumeration_after_all_dumps_finish() {
+        let mut snapshot = Snapshot {
+            successful_dumps: 4,
+            ..Snapshot::default()
+        };
+        snapshot.add_messages(
+            DumpKind::Addresses,
+            &[NetlinkMessage { payload: vec![0_u8; 3] }],
+        );
+        let Value::Record(value) = snapshot_value(snapshot) else {
+            panic!("network dump must be a record");
+        };
+        assert!(matches!(value.get("state"), Some(Value::Str(state)) if state.as_ref() == "partial"));
+        assert!(matches!(value.get("enumeration_succeeded"), Some(Value::Bool(false))));
     }
 }

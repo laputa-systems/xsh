@@ -35,6 +35,7 @@ pub fn record_schemas() -> BTreeMap<&'static str, Type> {
         ("FsRoot", fs_root_type()),
         ("FsRootChildrenResult", fs_root_children_result_type()),
         ("FsRootReadResult", fs_root_read_result_type()),
+        ("FsRootReadlinkResult", fs_root_readlink_result_type()),
         ("Group", group_record_type()),
         ("LinuxBlockDevice", linux_block_device_type()),
         ("LinuxDiskUsage", linux_disk_usage_type()),
@@ -346,6 +347,15 @@ pub fn fs_root_read_result_type() -> Type {
     ]))
 }
 
+pub fn fs_root_readlink_result_type() -> Type {
+    Type::Record(name_type_map(vec![
+        ("state", Type::Str),
+        ("target", Type::Optional(Box::new(Type::Path))),
+        ("errno", Type::Optional(Box::new(Type::Int))),
+        ("error_kind", Type::Optional(Box::new(Type::Str))),
+    ]))
+}
+
 pub fn fs_remove_manifest_result_type() -> Type {
     Type::Record(name_type_map(vec![
         ("removed".to_string(), Type::Int),
@@ -636,6 +646,7 @@ pub fn linux_network_issue_type() -> Type {
 pub fn linux_network_dump_type() -> Type {
     Type::Record(name_type_map(vec![
         ("state", Type::Str),
+        ("enumeration_succeeded", Type::Bool),
         ("links", Type::List(Box::new(linux_network_link_type()))),
         ("addresses", Type::List(Box::new(linux_network_address_type()))),
         ("routes", Type::List(Box::new(linux_network_route_type()))),

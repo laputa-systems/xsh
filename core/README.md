@@ -36,11 +36,14 @@ capacity queries, and reads the current process-visible Linux view.
 without collecting host data. Scripts can import the model and collector
 modules to make typed policy and device-relationship decisions.
 Valid partial reports exit successfully and carry missing or limited source
-coverage as section states and collection issues. Invalid options or section
-names produce usage diagnostics (`cli.applet` parser errors or
-`SystemReportError.Usage`), unreadable or malformed replay input uses
-`SystemReportError.InvalidInput`, and live collection on a non-Linux host uses
-`SystemReportError.Unsupported`. Unexpected collection failures keep their
+coverage as section states and collection issues.
+CPU frequency and idle metadata publish values only from complete source reads;
+missing or truncated controls remain unavailable with field issues where
+applicable.
+Invalid options or section names produce usage diagnostics (`cli.applet` parser errors or
+`SystemReportCliError.Usage`), unreadable or malformed replay input uses
+`SystemReportCliError.InvalidInput`, and live collection on a non-Linux host uses
+`SystemReportCliError.Unsupported`. Unexpected collection failures keep their
 source error. Unhandled command errors use XSH's runtime-failure exit status
 `3`; successful help, version, and report output use status zero.
 

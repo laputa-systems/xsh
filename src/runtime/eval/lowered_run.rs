@@ -2925,6 +2925,32 @@ fn lowered_fs_root_read_result(result: fs_module::RootReadResult) -> LoweredValu
     ])))
 }
 
+fn lowered_fs_root_readlink_result(
+    result: fs_module::RootReadlinkResult,
+    span: Span,
+) -> Result<LoweredValue, RuntimeError> {
+    let target = match result.target {
+        Some(path) => LoweredValue::Path(
+            path_value_from_pathbuf(path).map_err(|error| error.with_span(span))?,
+        ),
+        None => LoweredValue::Null,
+    };
+    Ok(LoweredValue::Record(Arc::new(BTreeMap::from([
+        (Arc::from("state"), LoweredValue::Str(result.state.into())),
+        (Arc::from("target"), target),
+        (
+            Arc::from("errno"),
+            result.errno.map_or(LoweredValue::Null, LoweredValue::Int),
+        ),
+        (
+            Arc::from("error_kind"),
+            result
+                .error_kind
+                .map_or(LoweredValue::Null, |kind| LoweredValue::Str(kind.into())),
+        ),
+    ]))))
+}
+
 fn lowered_fs_root_filesystem_stats(result: fs_module::RootFilesystemStats) -> LoweredValue {
     LoweredValue::Record(Arc::new(BTreeMap::from([
         (
@@ -4441,6 +4467,23 @@ impl Evaluator {
                         path_value_from_pathbuf(path).map_err(|error| error.with_span(span))
                     }) {
                     Ok(path) => lowered_result_ok(LoweredValue::Path(path)),
+                    Err(error) => lowered_result_err_value(error),
+                }
+            }
+            RuntimeOp::FsRootReadlinkResult if values.len() == 2 => {
+                let path = lowered_path_arg(
+                    values.pop().expect("checked value length"),
+                    "fs.root_readlink_result",
+                    span,
+                )?;
+                let root = values.pop().expect("checked value length");
+                let rel = pathbuf_from_path_value(&path);
+                match lowered_fs_root_dir(&self.fs_roots, &root, span)
+                    .and_then(|dir| fs_module::rooted_readlink_result(dir, &rel, span))
+                {
+                    Ok(result) => {
+                        lowered_result_ok(lowered_fs_root_readlink_result(result, span)?)
+                    }
                     Err(error) => lowered_result_err_value(error),
                 }
             }
