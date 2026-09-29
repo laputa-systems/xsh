@@ -1,4 +1,10 @@
-use super::{LoweredValue, StreamValue, Evaluator, Span, RuntimeError, lowered_value_from_runtime_any, FullStageTag, FullExecution, SmallVec, indexed_value, FullTag, indexed_raw, BLOCK_LIST, indexed_error, indexed_decode, indexed_finish, ControlFlow, lowered_pipeline_input, lowered_nonnegative_count, TraceKind, TracePayload, StmtFlow, Arc, btree_map, lowered_result_ok, TraceError, lowered_result_err_value, FullPayload};
+use super::{
+    Arc, BLOCK_LIST, ControlFlow, Evaluator, FullExecution, FullPayload, FullStageTag, FullTag,
+    LoweredValue, RuntimeError, SmallVec, Span, StmtFlow, StreamValue, TraceError, TraceKind,
+    TracePayload, btree_map, indexed_decode, indexed_error, indexed_finish, indexed_raw,
+    indexed_value, lowered_nonnegative_count, lowered_pipeline_input, lowered_result_err_value,
+    lowered_result_ok, lowered_value_from_runtime_any,
+};
 
 // Serial stages run on each live source item before the next pull. Bounded
 // terminals close a producer when they have enough input.

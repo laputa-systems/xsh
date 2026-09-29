@@ -61,6 +61,7 @@ export proc read_smbios_reference(root: FsRoot) [fs, error] -> Result[SmbiosSour
   if source.state == "absent" {
     return Ok({data: null, complete: true, absent: true})
   }
+
   if source.state != "observed" or source.truncated or source.data == null {
     return Ok({data: null, complete: false, absent: false})
   }
@@ -306,6 +307,7 @@ export pure parse_smbios_reference(data: Bytes) -> Result[SmbiosReference] {
   if data.len() > 1048576 {
     return Ok({records: records, complete: false, invalid_indices: invalid_indices})
   }
+
   var cursor = 0
   var saw_end = false
   while cursor < data.len() {
@@ -338,6 +340,7 @@ export pure parse_smbios_reference(data: Bytes) -> Result[SmbiosReference] {
       while string_end < terminator and data.byte_at(string_end) != 0 {
         string_end += 1
       }
+
       if string_end > string_start {
         let raw = data.slice(string_start, string_end - string_start)
         match raw.utf8() {
@@ -388,12 +391,15 @@ export pure compare_smbios(candidate_json: Str, before: Bytes, after: Bytes) -> 
   if before != after {
     unstable_fields = unstable_fields.push("table.changed")
   }
+
   if ! reference.complete {
     unstable_fields = unstable_fields.push("table.incomplete")
   }
+
   for invalid in reference.invalid_indices {
     unstable_fields = unstable_fields.push(f"${invalid}.string_index")
   }
+
   var reference_by_key: Map[Int] = {}
   var candidate_by_key: Map[Int] = {}
   for index in range(reference.records.len()) {
@@ -402,6 +408,7 @@ export pure compare_smbios(candidate_json: Str, before: Bytes, after: Bytes) -> 
     if reference_by_key.has(key) {
       return Err(smbios_check_failure("SMBIOS reference repeats a type and handle"))
     }
+
     reference_by_key = reference_by_key.set(key, index)
   }
 
@@ -411,6 +418,7 @@ export pure compare_smbios(candidate_json: Str, before: Bytes, after: Bytes) -> 
     if candidate_by_key.has(key) {
       return Err(smbios_check_failure("candidate SMBIOS report repeats a type and handle"))
     }
+
     candidate_by_key = candidate_by_key.set(key, index)
   }
 
@@ -422,6 +430,7 @@ export pure compare_smbios(candidate_json: Str, before: Bytes, after: Bytes) -> 
         missing_names = missing_names.push(key)
         continue
       }
+
       matched_count += 1
       let actual = section.records[candidate_by_key.get(key)?]
       if actual.formatted_length != item.formatted_length {
@@ -434,6 +443,7 @@ export pure compare_smbios(candidate_json: Str, before: Bytes, after: Bytes) -> 
         if actual_fields.has(field.name) {
           return Err(smbios_check_failure("candidate SMBIOS record repeats a field"))
         }
+
         actual_fields = actual_fields.set(field.name, field_index)
       }
 
@@ -668,10 +678,12 @@ pure smbios_checksum_is_zero(data: Bytes, offset: Int, length: Int) -> Bool {
   if offset < 0 or length < 0 or offset + length > data.len() {
     return false
   }
+
   var sum = 0
   for index in range(offset, offset + length) {
     sum += data.byte_at(index)
   }
+
   return sum % 256 == 0
 }
 
@@ -748,6 +760,7 @@ pure dmidecode_hex_row(line: Str) -> Result[List[Int]] {
   if tokens.len() == 0 {
     return Err(smbios_check_failure("dmidecode hex row is empty"))
   }
+
   var octets: List[Int] = []
   for token in tokens {
     if token.count_chars() != 2 {
@@ -759,6 +772,7 @@ pure dmidecode_hex_row(line: Str) -> Result[List[Int]] {
         if value < 0 or value > 255 {
           return Err(smbios_check_failure("dmidecode hex byte is out of range"))
         }
+
         octets = octets.push(value)
       }
       Err(_) => return Err(smbios_check_failure("dmidecode hex row contains a nonhexadecimal byte"))
@@ -797,6 +811,7 @@ export pure parse_dmidecode_hex_output(output: Str) -> Result[List[DmidecodeHexR
   if output.count_chars() > 8388608 {
     return Err(smbios_check_failure("dmidecode output exceeds the 8 MiB bound"))
   }
+
   var records: List[DmidecodeHexRecord] = []
   var record_type = -1
   var handle = -1
@@ -819,6 +834,7 @@ export pure parse_dmidecode_hex_output(output: Str) -> Result[List[DmidecodeHexR
       if pending_string.len() > 0 {
         return Err(smbios_check_failure("dmidecode string has no terminator"))
       }
+
       if record_type >= 0 {
         records = records.push(
           dmidecode_record_from_output(record_type, handle, length, formatted_octets, strings, saw_header)?,
@@ -828,6 +844,7 @@ export pure parse_dmidecode_hex_output(output: Str) -> Result[List[DmidecodeHexR
       if records.len() >= 4096 {
         return Err(smbios_check_failure("dmidecode output exceeds the record bound"))
       }
+
       let parts = trimmed.split(", ")
       if parts.len() != 3 or ! parts[1].starts_with("DMI type ") or ! parts[2].ends_with(" bytes") {
         return Err(smbios_check_failure("dmidecode record header is malformed"))
@@ -864,6 +881,7 @@ export pure parse_dmidecode_hex_output(output: Str) -> Result[List[DmidecodeHexR
       if record_type < 0 or saw_header {
         return Err(smbios_check_failure("dmidecode formatted section is misplaced"))
       }
+
       saw_header = true
       in_formatted = true
       in_strings = false
@@ -885,10 +903,12 @@ export pure parse_dmidecode_hex_output(output: Str) -> Result[List[DmidecodeHexR
         in_formatted = false
         continue
       }
+
       formatted_octets = formatted_octets.extend(dmidecode_hex_row(trimmed)?)
       if formatted_octets.len() > length {
         return Err(smbios_check_failure("dmidecode formatted data exceeds its declared length"))
       }
+
       continue
     }
 
@@ -897,10 +917,12 @@ export pure parse_dmidecode_hex_output(output: Str) -> Result[List[DmidecodeHexR
         in_strings = false
         continue
       }
+
       pending_string = pending_string.extend(dmidecode_hex_row(trimmed)?)
       if pending_string.len() > 1048576 {
         return Err(smbios_check_failure("dmidecode string exceeds its bound"))
       }
+
       if pending_string[pending_string.len() - 1] == 0 {
         strings = strings.push(bytes.from_ints(pending_string |> take(pending_string.len() - 1))?)
         pending_string = []
@@ -912,6 +934,7 @@ export pure parse_dmidecode_hex_output(output: Str) -> Result[List[DmidecodeHexR
   if pending_string.len() > 0 or expect_display {
     return Err(smbios_check_failure("dmidecode output ends inside a string"))
   }
+
   if record_type >= 0 {
     records = records.push(
       dmidecode_record_from_output(record_type, handle, length, formatted_octets, strings, saw_header)?,
@@ -921,6 +944,7 @@ export pure parse_dmidecode_hex_output(output: Str) -> Result[List[DmidecodeHexR
   if records.len() == 0 {
     return Err(smbios_check_failure("dmidecode output contains no records"))
   }
+
   return records
 }
 
@@ -939,6 +963,7 @@ export pure compare_dmidecode_hex_output(reference: SmbiosReference, output: Str
     if reference_by_key.has(key) {
       return Err(smbios_check_failure("raw SMBIOS table repeats a record identity"))
     }
+
     reference_by_key = reference_by_key.set(key, index)
   }
 
@@ -948,6 +973,7 @@ export pure compare_dmidecode_hex_output(reference: SmbiosReference, output: Str
     if decoded_by_key.has(key) {
       return Err(smbios_check_failure("dmidecode output repeats a record identity"))
     }
+
     decoded_by_key = decoded_by_key.set(key, index)
   }
 
@@ -961,6 +987,7 @@ export pure compare_dmidecode_hex_output(reference: SmbiosReference, output: Str
       missing_names = missing_names.push(key)
       continue
     }
+
     matched_count += 1
     let actual = decoded[decoded_by_key.get(key)?]
     if actual.formatted.len() != item.formatted_length {
@@ -1162,6 +1189,7 @@ export proc corroborate_smbios_bundle(
   if version == "" {
     return Err(smbios_check_failure("dmidecode version probe returned no version"))
   }
+
   let dump_path = fp"${scratch_path}/dump.bin"
   let argv = [executable, "--no-quirks", "--dump", "--from-dump", dump_path.display()]
   let started = time.now()
@@ -1255,7 +1283,6 @@ pure smbios_require_live_report(candidate_json: Str) -> Result[Unit] {
   if source_mode != "live_linux" {
     return Err(smbios_check_failure("candidate is not a live Linux report"))
   }
-  return
 }
 
 ## Brackets the kernel-exported DMI table around a sensitive firmware report.
@@ -1287,6 +1314,7 @@ export proc compare_live_smbios(xsh_bin: Str, script: Str) [fs, process, time, e
   if ! status.exited_with(0) {
     return Err(smbios_check_failure("candidate SMBIOS collection failed"))
   }
+
   let after_started = time.now()
   let after = read_smbios_reference(source)?
   let after_ended = time.now()

@@ -222,8 +222,7 @@ export type CpuSection = {
 
 ## Selects every CPUFreq policy whose related CPU set includes the requested CPU.
 export pure frequency_policies_for_cpu(policies: List[CpuFreqPolicy], cpu_id: Int) -> List[CpuFreqPolicy] {
-  var selected = [policy for policy in policies if policy.related_cpus.contains(cpu_id)]
-  return selected
+  [policy for policy in policies if policy.related_cpus.contains(cpu_id)]
 }
 
 pure cpu_list_error(message: Str) -> SystemReportError {
@@ -1833,14 +1832,10 @@ pure storage_section_xsh(value: JsonStorageSection) -> Result[StorageSection] {
 }
 
 pure network_attributes_json(values: List[NetworkAttribute]) -> List[JsonNetworkAttribute] {
-  var output = [
-    {
-      kind: attribute.kind,
-      data: text_observation_json(attribute.data),
-    }
-    for attribute in values
-  ]
-  return output
+  [{
+    kind: attribute.kind,
+    data: text_observation_json(attribute.data),
+  } for attribute in values]
 }
 
 pure network_attributes_xsh(values: List[JsonNetworkAttribute]) -> Result[List[NetworkAttribute]] {
@@ -1895,14 +1890,10 @@ pure network_link_xsh(value: JsonNetworkLink) -> Result[NetworkLink] {
 }
 
 pure network_nexthops_json(values: List[NetworkNexthop]) -> List[JsonNetworkNexthop] {
-  var output = [
-    {
-      ...nexthop,
-      gateway: text_observation_json(nexthop.gateway),
-    }
-    for nexthop in values
-  ]
-  return output
+  [{
+    ...nexthop,
+    gateway: text_observation_json(nexthop.gateway),
+  } for nexthop in values]
 }
 
 pure network_nexthops_xsh(values: List[JsonNetworkNexthop]) -> Result[List[NetworkNexthop]] {
@@ -2326,8 +2317,6 @@ pure require_report_v1(report: SystemReport) -> Result[Unit] {
       }
     }
   }
-
-  return
 }
 
 pure encode_typed_report_json(report: SystemReport, sensitive: Bool, pretty: Bool) -> Result[Str] {
@@ -3765,8 +3754,7 @@ pure redact_network_section(section: NetworkSection) -> NetworkSection {
 }
 
 pure redact_network_attributes(values: List[NetworkAttribute]) -> List[NetworkAttribute] {
-  var output = [{...attribute, data: redact_text_observation(attribute.data)} for attribute in values]
-  return output
+  [{...attribute, data: redact_text_observation(attribute.data)} for attribute in values]
 }
 
 pure redact_sensor_section(section: SensorSection) -> SensorSection {
