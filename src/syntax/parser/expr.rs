@@ -583,6 +583,13 @@ impl<'a> Parser<'a> {
                         pattern = arena.push_pattern_test_name(crate::symbol::Name::intern(format!("{family}.{variant}")), pattern_span);
                     }
                     let span = self.span(left.span.start(), pattern_span.end());
+                    let inner_span = arena.expr_span(left.id);
+                    let grouped = left.span.start() < inner_span.start() && left.span.end() > inner_span.end();
+                    if !grouped && matches!(arena.expr_kind(left.id), ArenaExprKind::ComparisonChain(_) | ArenaExprKind::Binary { op: BinaryOp::Lt | BinaryOp::Le | BinaryOp::Gt | BinaryOp::Ge, .. }) {
+                        self.diagnostics.push(Diagnostic::error("group ordering comparisons explicitly when mixing pattern tests")
+                            .with_code("parse.mixed-comparison")
+                            .with_label(Label::primary(span, "add parentheses around the intended comparison")));
+                    }
                     left = ArenaOnlyExpr {
                         id: arena.push_pattern_test_expr(left.id, pattern, span),
                         span,
@@ -616,6 +623,7 @@ impl<'a> Parser<'a> {
                 let ordering = |op| matches!(op, BinaryOp::Lt | BinaryOp::Le | BinaryOp::Gt | BinaryOp::Ge);
                 let comparison_kind = |kind| match kind {
                     ArenaExprKind::ComparisonChain(_) => Some(true),
+                    ArenaExprKind::PatternTest { .. } => Some(false),
                     ArenaExprKind::Binary { op, .. } if ordering(op) => Some(true),
                     ArenaExprKind::Binary { op: BinaryOp::Eq | BinaryOp::Ne | BinaryOp::In | BinaryOp::NotIn, .. } => Some(false),
                     _ => None,
@@ -625,7 +633,7 @@ impl<'a> Parser<'a> {
                         let inner_span = arena.expr_span(operand.id);
                         let grouped = operand.span.start() < inner_span.start() && operand.span.end() > inner_span.end();
                         if !grouped && comparison_kind(arena.expr_kind(operand.id)).is_some_and(|inner_ordering| inner_ordering != ordering(op)) {
-                            self.diagnostics.push(Diagnostic::error("group ordering comparisons explicitly when mixing equality or membership tests")
+                            self.diagnostics.push(Diagnostic::error("group ordering comparisons explicitly when mixing equality, membership, or pattern tests")
                                 .with_code("parse.mixed-comparison")
                                 .with_label(Label::primary(span, "add parentheses around the intended comparison")));
                         }

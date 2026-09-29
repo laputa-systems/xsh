@@ -2688,7 +2688,7 @@ fn linter_guarded_return_keeps_following_statements_reachable() {
 
 #[test]
 fn linter_multi_clause_accumulators_have_safe_idempotent_fixes() {
-    let source = "let groups = [[1, 2], [3]]\nvar values: List[Int] = []\nfor batch in groups {\n  if batch.len() > 0 {\n    for value in batch {\n      if value > 1 {\n        values = values.push(value)\n      }\n    }\n  }\n}\n";
+    let source = "let groups = [[1, 2], [3]]\nvar values: List[Int] = []\n\nfor batch in groups {\n  if batch.len() > 0 {\n    for value in batch {\n      if value > 1 {\n        values = values.push(value)\n      }\n    }\n  }\n}\n";
     let parsed = parse_lint_source(source);
     assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
     let checked = Checker::check_arena(&parsed.arena, source);

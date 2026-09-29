@@ -3480,3 +3480,15 @@ fn guarded_postfix_records_index_and_slice_flags_and_byte_spans() {
         }
     }
 }
+
+#[test]
+fn parser_requires_grouping_between_ordering_and_pattern_tests() {
+    for source in ["let result = 0 < 1 < 2 is Bool\n", "let result = value is Str < true\n"] {
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("parse.mixed-comparison")), "{source}: {:?}", parsed.diagnostics);
+    }
+    for source in ["let result = (0 < 1 < 2) is Bool\n", "let result = (value is Str) < true\n"] {
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{source}: {:?}", parsed.diagnostics);
+    }
+}

@@ -52,6 +52,8 @@ proc test_comparison_chain_requires_grouping_for_mixed_tests(ctx: TestContext) [
     "let value = (0 + 0) < 1 < 2 == true\n",
     "let value = 0 < 1 in [1, 2]\n",
     "let value = 1 in [1, 2] < 3\n",
+    "let value = 0 < 1 < 2 is Bool\n",
+    "let value: Any = 1\nlet result = value is Int < true\n",
   ] {
     let invalid = test.run_script(ctx, source)?
     test.ok(! invalid.success, invalid.stderr)?

@@ -2897,6 +2897,19 @@ impl<'a> Linter<'a> {
         if self.assigned_names.contains(&name)
             || !matches!(self.expr_types.get(&self.arena.expr(receiver).span), Some(Type::Optional(_))) { return; }
         let (present, absent) = if op == BinaryOp::Eq { (else_value, branch.value) } else { (branch.value, else_value) };
+        let single_value = |value| {
+            if let ArenaExprKind::ValueBlock(block) = self.arena.expr(value).kind {
+                let mut statements = self.arena.stmt_ids(self.arena.block(block).statements);
+                let statement = statements.next()?;
+                if statements.next().is_some() { return None; }
+                match self.arena.stmt(statement).kind {
+                    ArenaStmtKind::Expr(value) => Some(value),
+                    _ => None,
+                }
+            } else { Some(value) }
+        };
+        let Some(present) = single_value(present) else { return; };
+        let Some(absent) = single_value(absent) else { return; };
         let present_expr = self.arena.expr(present);
         let Some(present_ty) = self.expr_types.get(&present_expr.span) else { return; };
         let absent_is_null = matches!(self.arena.expr(absent).kind, ArenaExprKind::Null);
