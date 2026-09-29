@@ -1045,7 +1045,24 @@ linter infers from direct module calls, typed standard methods, restricted proc
 calls, `run` forms, `spawn`, `wait`, delayed `retry`, and `?` outside retry
 attempt blocks.
 
-Function bodies use a narrow tail-value rule. If the final statement in a
+Statement and value positions are checked language contexts. Initializers,
+arguments, explicit return payloads, and tails whose enclosing function, task,
+callback, or retry attempt consumes a value use value position. Lowering and
+tooling preserve this distinction independently of whether an optimizer uses
+the result. Non-tail bare boolean statements assert; boolean value tails
+preserve false as a value. Unit and Result[Unit] bodies retain boolean
+assertions, including inside their statement-position branches. Top-level
+control flow retains statement and integer-exit behavior.
+
+Value-position `if` requires an `else`; value-position `match` requires
+exhaustiveness. Their branches may contain ordinary statements followed by a
+compatible tail value. Diverging branches retain their lexical return, loop,
+and error targets and do not contribute a fabricated Unit to unification.
+Incompatible reachable branch values are errors rather than implicit Any
+widening. Selected values are evaluated before scope cleanup; implicit Ok
+wrapping occurs only at the established Result boundary.
+
+Function bodies use a contextual tail-value rule. If the final statement in a
 `proc` or `pure` body is an expression statement, that expression produces the
 function result. If the final statement is a command statement, the command's
 statement result produces the function result. A final expression-style proc
@@ -1070,9 +1087,8 @@ show the value already has type `T`.
 Non-tail expression statements inside value-producing function bodies must have
 type `Unit` or `Result[Unit]`; `Result[Unit]` statements propagate failure by
 default. Otherwise bind the value, return it explicitly, or make it the final
-statement. `if`, `match`, `while`, and `for` statements do not produce function
-tail values in v1. Use explicit `return` in branches where branch control flow
-determines the result.
+statement. A final exhaustive `if` or `match` produces the enclosing value
+when that context consumes one. `while` and `for` retain statement semantics.
 
 `return` without a value returns `Unit`. `Result[Unit]` procs, pure functions,
 builder tasks, and effect blocks may fall off the end or tail-produce `Unit`;
