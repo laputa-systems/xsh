@@ -1727,6 +1727,8 @@ print ${value}
                 "let value = 2\nprint ${value}\n".to_string(),
             )],
             &config,
+            &[],
+            false,
         )
         .expect("apply fixes");
 
