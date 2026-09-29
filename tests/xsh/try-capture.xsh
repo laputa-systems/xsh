@@ -291,3 +291,17 @@ match escape() {
   test.ok(output.success, output.stderr)?
   test.eq(output.stdout, "4096\nouter\n")?
 }
+
+proc test_try_explicit_return_uses_result_annotation(ctx: TestContext) [error] {
+  let output = test.run_script(ctx, """
+error LocalError = Failed(message: Str)
+proc assertion() [] -> Result[Unit] { return try { false } }
+proc failure() [] -> Result[Int, LocalError] {
+  return try { Err(LocalError.Failed(message: "captured"))? }
+}
+print (assertion() is Err(_))
+print (failure() is Err(LocalError.Failed))
+""")?
+  test.ok(output.success, output.stderr)?
+  test.eq(output.stdout, "true\ntrue\n")?
+}

@@ -759,8 +759,11 @@ impl CompactBodyProbe<'_> {
             ArenaStmtKind::Return(value) => {
                 self.output.supported_statements += 1;
                 if let Some(value) = value {
-                    self.check_compact_expr_or_run(value);
-                    if let (Some(expected), ArenaExprOrRun::Expr(expr)) = (self.return_types.last().cloned(), value) { self.apply_compact_expected(expr, &expected); }
+                    let expected = self.return_types.last().cloned();
+                    match value {
+                        ArenaExprOrRun::Expr(expr) => { self.check_compact_expr_expected(expr, expected.as_ref()); }
+                        ArenaExprOrRun::Run(run) => { self.check_compact_expr_or_run(ArenaExprOrRun::Run(run)); }
+                    }
                 }
             }
             ArenaStmtKind::Defer(ArenaExprOrRun::Expr(expr))
@@ -923,16 +926,13 @@ impl CompactBodyProbe<'_> {
             }
         }
         let body_span = self.program.arena.span(self.program.arena.block(def.body).span);
-        let return_type = self.declarations.function_return_types.get(&body_span).cloned()
-            .unwrap_or_else(|| self.type_from_arena(def.return_ty));
-        self.return_types.push(return_type.clone());
-        self.check_compact_block_in_current_scope(def.body);
-        if !matches!(return_type, Type::Stream(_)) { self.apply_compact_block_expected(def.body, &return_type); }
-        self.return_types.pop();
-        let body_span = self.program.arena.span(self.program.arena.block(def.body).span);
         let expected = self.declarations.function_return_types.get(&body_span).cloned()
             .unwrap_or_else(|| self.type_from_arena(def.return_ty));
+        self.return_types.push(expected.clone());
+        self.check_compact_block_in_current_scope(def.body);
+        self.return_types.pop();
         self.apply_compact_capture_block_expected(def.body, &expected);
+        if !matches!(expected, Type::Stream(_)) { self.apply_compact_block_expected(def.body, &expected); }
         self.mark_tail_position(def.body, expected != Type::Unit && !expected.is_result_unit() && !matches!(expected, Type::Stream(_)));
         self.pop_scope();
     }

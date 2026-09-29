@@ -1650,7 +1650,10 @@ impl Checker {
         if value.is_none() && expected.is_result_unit() {
             return;
         }
-        let context = match value { Some(ArenaExprOrRun::Expr(expr)) => tail_expr_context_arena(arena, expr, Some(&expected)), _ => None };
+        let context = match value {
+            Some(ArenaExprOrRun::Expr(expr)) => tail_expr_context_arena(arena, expr, Some(&expected)),
+            _ => None,
+        };
         let actual = value
             .map(|value| self.check_expr_or_run_arena(arena, source, value, context.as_ref()))
             .unwrap_or(Type::Unit);
@@ -2238,6 +2241,9 @@ fn tail_expr_context_arena(
     expr_id: ExprId,
     expected: Option<&Type>,
 ) -> Option<Type> {
+    if matches!(arena.arena.expr(expr_id).kind, ArenaExprKind::Capture(_)) {
+        return expected.cloned();
+    }
     fn contains_map(ty: &Type) -> bool {
         match ty {
             Type::Map(_) => true,
