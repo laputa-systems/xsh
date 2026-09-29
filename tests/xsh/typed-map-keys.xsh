@@ -139,3 +139,32 @@ test test_typed_map_erased_updates_reject_mixed_domains [error] { |ctx|
     test.ok(output.stderr.contains("type-error"), output.stderr)?
   }
 }
+
+const prepared_numeric_keys: Map[Int, Str] = {[20]: "twenty", [3]: "three"}
+const prepared_flag_keys = {[true]: 1, [false]: 0}
+const prepared_byte_keys = {[b"\xff"]: 1, [b"\xfe"]: 2}
+const prepared_path_keys: Map[Path, Int] = {[p"z"]: 2, [p"a"]: 1}
+const prepared_duration_keys = {[20ms]: 2, [3ms]: 1}
+const prepared_unsigned_keys: Map[UInt, Str] = {[3]: "three"}
+
+test test_typed_map_prepared_constants_keep_scalar_keys [error] {
+  test.eq(prepared_numeric_keys.keys(), [3, 20])?
+  test.eq(prepared_numeric_keys.get(3)?, "three")?
+  test.eq(prepared_flag_keys.keys(), [false, true])?
+  test.eq(prepared_byte_keys.keys(), [b"\xfe", b"\xff"])?
+  test.eq(prepared_path_keys.keys(), [p"a", p"z"])?
+  test.eq(prepared_duration_keys.keys(), [3ms, 20ms])?
+  test.eq(prepared_unsigned_keys.get(3)?, "three")?
+}
+
+test test_typed_map_prepared_constants_reject_mixed_and_unsigned_negative_keys [error] { |ctx|
+  for source in [
+    "const values = {[1]: 1, [\"one\"]: 2}\n",
+    "const values: Map[UInt, Str] = {[-1]: \"bad\"}\n",
+    "type Key = UInt\nconst values: Map[Key, Str] = {[-1]: \"bad\"}\n",
+  ] {
+    let result = test.run_script(ctx, source)?
+    test.ok(!result.success, source)?
+    test.ok(result.stderr.contains("check."), result.stderr)?
+  }
+}
