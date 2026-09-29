@@ -173,6 +173,7 @@ impl Checker {
         }
         let ty = self.check_command_arena(arena, source, &stmt.command, span);
         if command_stmt_asserts_success_arena(arena, &stmt.command) {
+            self.record_statement_error(&Type::Result(Box::new(Type::Unit), Box::new(Type::ProcessError)), span);
             return;
         }
         if stmt.propagate || command_ty_auto_propagates(&ty) {

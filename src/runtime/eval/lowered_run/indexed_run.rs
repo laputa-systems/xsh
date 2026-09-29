@@ -7556,7 +7556,11 @@ impl Evaluator {
         match self.eval_indexed_statement_block(execution, block, header, slots, span) {
             Err(mut error) if error.abort.is_none() && (error.propagated || error.kind == "assertion-failed") => {
                 error.propagated = false;
-                Ok(StmtFlow::Propagate(LoweredValue::ResultErr(Box::new(Value::Error(Box::new(error))))))
+                let value = if let Some(mut original) = error.propagated_run_error.take() {
+                    original.contexts = error.contexts;
+                    Value::RunError(original)
+                } else { Value::Error(Box::new(error)) };
+                Ok(StmtFlow::Propagate(LoweredValue::ResultErr(Box::new(value))))
             }
             result => result,
         }
@@ -7600,8 +7604,16 @@ impl Evaluator {
 
         let cleanup = self.exit_owned_host_scope(scope_id);
         match (result, cleanup) {
-            (Err(error), _) => Err(error),
-            (Ok(_), Err(error)) => Err(error),
+            (_, Err(error)) if error.abort.as_ref().is_some_and(|signal| signal.force) => Err(error),
+            (Err(primary), Err(secondary)) => {
+                self.report_cleanup_error(&secondary, call_span);
+                Err(primary)
+            }
+            (Ok(flow @ (StmtFlow::Propagate(_) | StmtFlow::Return(LoweredValue::ResultErr(_)))), Err(secondary)) => {
+                self.report_cleanup_error(&secondary, call_span);
+                Ok(flow)
+            }
+            (Err(error), _) | (Ok(_), Err(error)) => Err(error),
             (Ok(flow), Ok(())) => Ok(flow),
         }
     }

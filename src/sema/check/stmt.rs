@@ -2033,6 +2033,7 @@ impl Checker {
                 }
                 let ty = self.check_command_arena(arena, source, &command_stmt.command, stmt.span);
                 if command_stmt_asserts_success_arena(arena, &command_stmt.command) {
+                    self.record_statement_error(&Type::Result(Box::new(Type::Unit), Box::new(Type::ProcessError)), stmt.span);
                     return Type::Unit;
                 }
                 if command_stmt.propagate || command_ty_auto_propagates(&ty) {

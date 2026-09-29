@@ -5821,6 +5821,7 @@ fn runtime_error_from_value(value: Value, span: Span) -> RuntimeError {
             *error
         }
         Value::RunError(error) => {
+            let original = error.clone();
             let variant = error.variant_name().to_string();
             let symbols = crate::symbol::SymbolOwner::current().unwrap_or_default();
             let variant_name = symbols.intern(&variant);
@@ -5836,6 +5837,7 @@ fn runtime_error_from_value(value: Value, span: Span) -> RuntimeError {
                 contexts: error.contexts,
                 abort: None,
                 propagated: false,
+                propagated_run_error: Some(original),
                 family_name: Name::PROCESS_ERROR,
                 variant_name,
                 _symbols: symbols,
@@ -6512,7 +6514,7 @@ pub(super) fn value_matches_static_type(value: &Value, ty: &Type) -> bool {
         },
         Type::Status => matches!(value, Value::Status(_)),
         Type::EnvPathList => matches!(value, Value::EnvPathList),
-        Type::Error => matches!(value, Value::Error(_)),
+        Type::Error => matches!(value, Value::Error(_) | Value::RunError(_)),
         Type::ErrorFamily(family) => {
             matches!(value, Value::Error(error) if error.family_name() == *family)
         }

@@ -201,3 +201,35 @@ print (capture() is Err(_))
   test.ok(output.success, output.stderr)?
   test.eq(output.stdout, "true\n")?
 }
+
+proc test_try_plain_run_failure_captures_and_abort_escapes(ctx: TestContext) [error] {
+  let failed = test.run_script(ctx, """
+let value: Result[Unit] = try { run false }
+print (value is Err(_))
+""")?
+  test.ok(failed.success, failed.stderr)?
+  test.eq(failed.stdout, "true\n")?
+  let aborted = test.run_script(ctx, """
+let value: Result[Unit] = try { abort(9) }
+print "unexpected"
+""")?
+  test.eq(aborted.status, 9)?
+  test.eq(aborted.stdout, "")?
+}
+
+proc test_try_producer_yields_suspend_inside_capture(ctx: TestContext) [error] {
+  let output = test.run_script(ctx, """
+stream rows() -> Stream[Int] {
+  let value: Result[Unit] = try {
+    yield 1
+    yield 2
+  }
+  value?
+}
+let values = rows() |> collect()
+values == [1, 2]
+print "yielded"
+""")?
+  test.ok(output.success, output.stderr)?
+  test.eq(output.stdout, "yielded\n")?
+}

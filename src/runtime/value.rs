@@ -1390,8 +1390,10 @@ pub struct RuntimeError {
     pub span: Option<Span>,
     pub contexts: Vec<ErrorContext>,
     pub abort: Option<AbortSignal>,
-    // Checked cleanup propagation may cross runtime-error transport before capture.
+    // Checked propagation may cross runtime-error transport before local capture.
     pub(crate) propagated: bool,
+    // Retain process payloads that the diagnostic error representation cannot hold.
+    pub(crate) propagated_run_error: Option<Box<RunError>>,
     pub(crate) family_name: Name,
     pub(crate) variant_name: Name,
     pub(crate) _symbols: SymbolOwner,
@@ -1413,6 +1415,7 @@ impl RuntimeError {
             contexts: Vec::new(),
             abort: None,
             propagated: false,
+            propagated_run_error: None,
             family_name: Name::ERROR,
             variant_name,
             _symbols: symbols,
@@ -1449,6 +1452,7 @@ impl RuntimeError {
             contexts: Vec::new(),
             abort: None,
             propagated: false,
+            propagated_run_error: None,
             family_name,
             variant_name,
             _symbols: symbols,
@@ -1467,6 +1471,7 @@ impl RuntimeError {
             span: None,
             contexts: Vec::new(),
             propagated: false,
+            propagated_run_error: None,
             abort: Some(AbortSignal { status, force }),
             family_name: Name::ERROR,
             variant_name: symbols.intern("Abort"),

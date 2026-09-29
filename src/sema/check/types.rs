@@ -106,7 +106,13 @@ impl Checker {
             if let Some(current) = &inferred {
                 if error.matches_expected(current) { continue; }
                 if expected.is_none() && current.matches_expected(&error) { inferred = Some(error); continue; }
-                if expected.is_none() { inferred = Some(Type::Error); }
+                if expected.is_none() {
+                    let family = match (current, &error) {
+                        (Type::ErrorVariant { family: left, .. } | Type::ErrorFamily(left), Type::ErrorVariant { family: right, .. } | Type::ErrorFamily(right)) if left == right => Some(*left),
+                        _ => None,
+                    };
+                    inferred = Some(family.map(Type::ErrorFamily).unwrap_or(Type::Error));
+                }
                 else { self.expect_type(current, &error, span); }
             } else { inferred = Some(error); }
         }
