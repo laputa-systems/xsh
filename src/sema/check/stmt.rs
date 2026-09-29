@@ -237,13 +237,6 @@ impl Checker {
                             "check.destructure-field",
                         );
                     }
-                    if self.current_scope().contains_key(&field.name) {
-                        self.error(
-                            field_span,
-                            "duplicate name in scope",
-                            "check.duplicate-name",
-                        );
-                    }
                     let field_ty = record_fields
                         .and_then(|fields| fields.get(&field.name))
                         .cloned()
@@ -258,12 +251,7 @@ impl Checker {
                             "check.destructure-field",
                         );
                     }
-                    let binding = if self.in_pure && mutable {
-                        Binding::pure_local_var(field_ty)
-                    } else {
-                        Binding::new(field_ty, mutable)
-                    };
-                    self.current_scope_mut().insert(field.name, binding);
+                    self.define_binding_target_arena(arena, field.target, &field_ty, mutable, field_span);
                 }
             }
         }
@@ -900,6 +888,9 @@ impl Checker {
                 other
             }
         };
+        if record_target_requires_schema_check(arena, target, &ok_ty) {
+            self.error(span, "record destructuring of Any requires an explicit schema check", "check.destructure-type");
+        }
         let bind_ty = if let Some(ty_id) = ty {
             let ann = self.type_from_arena(arena, ty_id);
             self.expect_type(&ann, &ok_ty, span);
@@ -1281,6 +1272,9 @@ impl Checker {
         {
             let init_span = expr_or_run_span_arena(arena, initializer);
             self.expect_type(expected, &actual, init_span);
+        }
+        if record_target_requires_schema_check(arena, target, &actual) {
+            self.error(span, "record destructuring of Any requires an explicit schema check", "check.destructure-type");
         }
         let final_ty = expected.unwrap_or(actual);
         if ty.is_none()
@@ -1803,5 +1797,18 @@ fn tail_expr_context_arena(
         Some(Type::List(_)) => expected.cloned(),
         Some(Type::Result(ok, _)) if matches!(ok.as_ref(), Type::List(_)) => Some(*ok.clone()),
         _ => None,
+    }
+}
+
+fn record_target_requires_schema_check(arena: &ArenaProgram, target: BindingTargetId, ty: &Type) -> bool {
+    match arena.arena.binding_target(target).kind {
+        ArenaBindingTargetKind::Name(_) => false,
+        ArenaBindingTargetKind::Record { fields, .. } => match ty {
+            Type::Any => true,
+            Type::Record(schema) => arena.arena.destructure_fields(fields).iter().any(|field| {
+                schema.get(&field.name).is_some_and(|ty| record_target_requires_schema_check(arena, field.target, ty))
+            }),
+            _ => false,
+        },
     }
 }

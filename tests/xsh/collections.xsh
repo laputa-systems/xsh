@@ -102,8 +102,8 @@ proc test_ergonomic_sugar_pass_forms(ctx: TestContext) [fs, error] {
   fs.mkdir(fp"${root}/nested/dir")?
   let pkg = {name: "demo", version: "1", path: fp"${root}/nested/dir"}
   let {name, version, ..} = pkg
-  var {path, ..} = pkg
-  path = fp"${root}/changed"
+  var {path: package_path, ..} = pkg
+  package_path = fp"${root}/changed"
   var printed_path = ""
 
   for item in [pkg] {

@@ -3337,3 +3337,19 @@ fn parser_rejects_colon_inclusive_and_stride_slices() {
         assert!(!parsed.diagnostics.is_empty(), "unexpectedly accepted {source}");
     }
 }
+
+#[test]
+fn parser_retains_nested_renamed_record_binding_targets_and_spans() {
+    let source = "let {root, build: {jobs, target: target_name, ..}, ..} = config\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let arena = &parsed.arena.arena;
+    let ArenaStmtKind::Let { target, .. } = arena.stmt(parsed.arena.statement_ids().next().unwrap()).kind else { panic!("expected binding"); };
+    let ArenaBindingTargetKind::Record { fields, rest: true } = arena.binding_target(target).kind else { panic!("expected record"); };
+    let outer = arena.destructure_fields(fields);
+    assert_eq!(outer.len(), 2);
+    let ArenaBindingTargetKind::Record { fields, rest: true } = arena.binding_target(outer[1].target).kind else { panic!("expected nested record"); };
+    let renamed = &arena.destructure_fields(fields)[1];
+    assert_eq!(&source[arena.span(renamed.span).range()], "target: target_name");
+    assert!(matches!(arena.binding_target(renamed.target).kind, ArenaBindingTargetKind::Name(name) if name.as_str() == "target_name"));
+}

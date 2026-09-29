@@ -1091,6 +1091,14 @@ impl<'a> Writer<'a> {
     }
 
     fn write_binding_target(&mut self, target_id: BindingTargetId, output: &mut String) {
+        if let Some(span) = self.arena.binding_target(target_id).span {
+            let span = self.arena.span(span);
+            if self.comments[self.next_comment..].iter().any(|comment| span.range().contains(&comment.span.start())) {
+                if let Some(raw) = self.source.get(span.range()) { output.push_str(raw); }
+                while self.comments.get(self.next_comment).is_some_and(|comment| comment.span.start() < span.end()) { self.next_comment += 1; }
+                return;
+            }
+        }
         let kind = self.arena.binding_target(target_id).kind.clone();
         match &kind {
             ArenaBindingTargetKind::Name(name) => output.push_str(name.as_str().as_str()),
@@ -1103,6 +1111,10 @@ impl<'a> Writer<'a> {
                         output.push_str(", ");
                     }
                     output.push_str(field.name.as_str().as_str());
+                    if !matches!(self.arena.binding_target(field.target).kind, ArenaBindingTargetKind::Name(name) if name == field.name) {
+                        output.push_str(": ");
+                        self.write_binding_target(field.target, output);
+                    }
                 }
                 if *rest {
                     if len != 0 {

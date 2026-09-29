@@ -3236,42 +3236,33 @@ fn bind_lowered_comp_target(
     slots: &mut [LoweredValue],
     span: Span,
 ) -> Result<(), RuntimeError> {
-    match target {
-        LoweredCompTarget::Slot(slot) => {
-            slots[*slot] = value;
-            Ok(())
-        }
-        LoweredCompTarget::Record { fields } => {
-            for (name, slot, field_span) in fields {
-                let value = match &value {
-                    LoweredValue::Record(record) => {
-                        let name_text = name.as_str();
-                        record.get::<str>(name_text.as_str()).cloned()
-                    }
-                    LoweredValue::RecordVec(record) => {
-                        let name_text = name.as_str();
-                        lowered_record_vec_get(record, name_text.as_str()).cloned()
-                    }
-                    _ => {
-                        return Err(RuntimeError::new(
-                            "type-error",
-                            "record destructuring requires a record value",
-                        )
-                        .with_span(span));
-                    }
+    if let LoweredCompTarget::Slot(slot) = target {
+        slots[*slot] = value;
+        return Ok(());
+    }
+    if matches!(target, LoweredCompTarget::Discard) { return Ok(()); }
+    fn collect(target: &LoweredCompTarget, value: LoweredValue, span: Span, pending: &mut Vec<(usize, LoweredValue)>) -> Result<(), RuntimeError> {
+        match target {
+            LoweredCompTarget::Discard => Ok(()),
+            LoweredCompTarget::Slot(slot) => { pending.push((*slot, value)); Ok(()) }
+            LoweredCompTarget::Record { fields } => {
+                if !matches!(value, LoweredValue::Record(_) | LoweredValue::RecordVec(_) | LoweredValue::Stats { .. } | LoweredValue::StatsBlob(_)) {
+                    return Err(RuntimeError::new("type-error", "record destructuring requires a record value").with_span(span));
                 }
-                .ok_or_else(|| {
-                    RuntimeError::new(
-                        "missing-field",
-                        format!("missing destructured field `{name}`"),
-                    )
-                    .with_span(*field_span)
-                })?;
-                slots[*slot] = value;
+                for (name, target, field_span) in fields {
+                    let selected = lowered_record_field_value(&value, &name.as_str()).ok_or_else(|| {
+                        RuntimeError::new("missing-field", format!("missing destructured field `{name}`")).with_span(*field_span)
+                    })?;
+                    collect(target, selected, *field_span, pending)?;
+                }
+                Ok(())
             }
-            Ok(())
         }
     }
+    let mut pending = Vec::new();
+    collect(target, value, span, &mut pending)?;
+    for (slot, value) in pending { slots[slot] = value; }
+    Ok(())
 }
 
 fn lowered_param_check(lowered: &FunctionHeader, index: usize) -> Option<&super::LoweredTypeCheck> {
@@ -10986,5 +10977,31 @@ impl Evaluator {
             }
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod record_binding_tests {
+    use super::*;
+    use crate::runtime::eval::LoweredCompFields;
+
+    #[test]
+    fn record_binding_selects_all_fields_before_writing_any_slot() {
+        crate::symbol::SymbolOwner::new().with_current(|| {
+            let span = Span::new(crate::source::SourceId::new(0), 0, 1);
+            let mut nested = LoweredCompFields::new();
+            nested.push((Name::intern("missing"), Box::new(LoweredCompTarget::Slot(1)), span));
+            let mut fields = LoweredCompFields::new();
+            fields.push((Name::intern("first"), Box::new(LoweredCompTarget::Slot(0)), span));
+            fields.push((Name::intern("nested"), Box::new(LoweredCompTarget::Record { fields: nested }), span));
+            let source = LoweredValue::Record(Arc::new(std::collections::BTreeMap::from([
+                (Arc::from("first"), LoweredValue::Int(9)),
+                (Arc::from("nested"), LoweredValue::Record(Arc::new(std::collections::BTreeMap::new()))),
+            ])));
+            let mut slots = [LoweredValue::Int(1), LoweredValue::Int(2)];
+            let error = bind_lowered_comp_target(&LoweredCompTarget::Record { fields }, source, &mut slots, span).unwrap_err();
+            assert_eq!(error.kind, "missing-field");
+            assert_eq!(slots, [LoweredValue::Int(1), LoweredValue::Int(2)]);
+        });
     }
 }

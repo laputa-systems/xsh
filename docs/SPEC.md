@@ -457,7 +457,7 @@ var_stmt     = "var" binding_target type_ann? "=" expr_or_run terminator ;
 binding_target = IDENT | record_binding_target ;
 record_binding_target = "{"
                  (destructure_field ("," destructure_field)* ","?)? "}" ;
-destructure_field = IDENT | ".." ;
+destructure_field = IDENT (":" binding_target)? | ".." ;
 assign_stmt  = assign_target assign_op expr_or_run terminator ;
 assign_target = IDENT ("." IDENT | "[" expr "]")* ;
 assign_op    = "=" | "+=" | "-=" | "*=" | "/=" | "%=" ;
@@ -502,10 +502,19 @@ then reads and updates the selected target value. Earlier aliases retain their
 contents, including when a list is concatenated with itself.
 `List.push`/`List.extend` and `Map.set`/`Map.remove`/`Map.push` return updated
 values; earlier bindings and aliases keep their previous contents.
-Record destructuring targets bind named fields from a record value; `..` marks
-ignored remaining fields. Destructured `let` and `for` bindings are immutable,
-destructured `var` bindings are mutable. `export let` accepts simple names
-only.
+Record destructuring selects required fields in source order. A field may bind
+its own name, rename it (`{target: target_name}`), or select a nested record
+(`{build: {jobs, ..}, ..}`). `..` marks ignored remaining fields without capturing
+them. `_` discards a selected value; duplicate bound names and duplicate field
+selections are errors. The source is evaluated once and every required field is
+selected successfully before any binding becomes visible. Known record schemas
+check nested field names and preserve their individual types; `Any` requires an
+explicit schema check before destructuring, including annotated targets.
+
+These targets are accepted by `let`, `var`, `for`, list/map comprehensions, and
+guard-let. Destructured `let` and iteration bindings are immutable; destructured
+`var` bindings are independent mutable local values with ordinary value semantics.
+`export let` accepts simple names only. Function parameters do not destructure.
 
 Control flow:
 

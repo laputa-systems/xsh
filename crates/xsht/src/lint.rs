@@ -2167,11 +2167,7 @@ impl<'a> Linter<'a> {
             }
             ArenaBindingTargetKind::Record { fields, .. } => {
                 for field in self.arena.destructure_fields(fields).to_vec() {
-                    self.define(
-                        field.name.as_str().as_str(),
-                        self.arena.span(field.span),
-                        report_unused,
-                    );
+                    self.define_binding_target(field.target, self.arena.span(field.span), report_unused);
                 }
             }
         }
@@ -2192,7 +2188,70 @@ impl<'a> Linter<'a> {
         self.lint_statement_sequence(&stmts);
     }
 
+    fn lint_record_destructuring(&mut self, stmts: &[StmtId]) {
+        fn extraction(linter: &Linter<'_>, stmt: StmtId) -> Option<(Name, Vec<Name>, Name)> {
+            let ArenaStmtKind::Let { target, ty: None, initializer: ArenaExprOrRun::Expr(mut value) } = linter.arena.stmt(stmt).kind else { return None; };
+            let ArenaBindingTargetKind::Name(binding) = linter.arena.binding_target(target).kind else { return None; };
+            if binding.as_str() == "_" { return None; }
+            let mut path = Vec::new();
+            while let ArenaExprKind::Field { base, name } = linter.arena.expr(value).kind {
+                let Some(Type::Record(schema)) = linter.expr_types.get(&linter.arena.expr(base).span) else { return None; };
+                if !schema.contains_key(&name) { return None; }
+                path.push(name);
+                value = base;
+            }
+            let ArenaExprKind::Ident(root) = linter.arena.expr(value).kind else { return None; };
+            if path.is_empty() || root == binding { return None; }
+            path.reverse();
+            Some((root, path, binding))
+        }
+        fn target(entries: &[(Vec<Name>, Name)], depth: usize) -> Option<String> {
+            let mut fields: Vec<(Name, Vec<(Vec<Name>, Name)>)> = Vec::new();
+            for (path, binding) in entries {
+                let field = *path.get(depth)?;
+                if let Some((_, children)) = fields.iter_mut().find(|(name, _)| *name == field) {
+                    if path.len() == depth + 1 || children.iter().any(|(path, _)| path.len() == depth + 1) { return None; }
+                    children.push((path.clone(), *binding));
+                } else { fields.push((field, vec![(path.clone(), *binding)])); }
+            }
+            let mut output = Vec::new();
+            for (field, children) in fields {
+                if children[0].0.len() == depth + 1 {
+                    let binding = children[0].1;
+                    output.push(if field == binding { field.to_string() } else { format!("{field}: {binding}") });
+                } else { output.push(format!("{field}: {}", target(&children, depth + 1)?)); }
+            }
+            output.push("..".to_string());
+            Some(format!("{{{}}}", output.join(", ")))
+        }
+        let mut index = 0;
+        while index < stmts.len() {
+            let Some((root, path, binding)) = extraction(self, stmts[index]) else { index += 1; continue; };
+            let start = index;
+            let mut entries = vec![(path, binding)];
+            index += 1;
+            while index < stmts.len() {
+                let Some((next_root, path, binding)) = extraction(self, stmts[index]) else { break; };
+                if next_root != root || entries.iter().any(|(_, name)| *name == next_root || *name == binding) { break; }
+                entries.push((path, binding));
+                index += 1;
+            }
+            if entries.len() < 2 { continue; }
+            let first = self.arena.stmt(stmts[start]).span;
+            let last = self.arena.stmt(stmts[index - 1]).span;
+            let span = Span::new(first.source_id, first.start(), last.end());
+            if self.source.get(span.range()).is_none_or(|source| source.contains('#')) { continue; }
+            let Some(pattern) = target(&entries, 0) else { continue; };
+            let suffix = if self.source.get(span.range()).is_some_and(|source| source.ends_with('\n')) { "\n" } else { "" };
+            self.diagnostics.push(Diagnostic::new(Severity::Warning, "adjacent record field bindings can destructure their source")
+                .with_code("lint.prefer-record-destructuring")
+                .with_label(Label::secondary(span, "these fields come from the same checked record binding"))
+                .with_fix_hint(FixHint::replacement(span, "bind the selected record fields together", format!("let {pattern} = {root}{suffix}"))));
+        }
+    }
+
     fn lint_statement_sequence(&mut self, stmts: &[StmtId]) {
+        self.lint_record_destructuring(stmts);
         let mut flow = FlowSummary::fallthrough();
         let mut reported_dead_region = false;
         for &stmt in stmts {
@@ -6473,6 +6532,10 @@ fn format_binding_target(arena: &AstArena, target: BindingTargetId) -> String {
                     s.push_str(", ");
                 }
                 s.push_str(f.name.as_str().as_str());
+                if !matches!(arena.binding_target(f.target).kind, ArenaBindingTargetKind::Name(name) if name == f.name) {
+                    s.push_str(": ");
+                    s.push_str(&format_binding_target(arena, f.target));
+                }
             }
             if rest {
                 if !fields.is_empty() {
@@ -7242,7 +7305,7 @@ impl<'analysis, 'arena> CallableEdgeScanner<'analysis, 'arena> {
             ArenaBindingTargetKind::Name(name) => self.define(name),
             ArenaBindingTargetKind::Record { fields, .. } => {
                 for field in self.arena().destructure_fields(fields).to_vec() {
-                    self.define(field.name);
+                    self.define_binding_target(field.target);
                 }
             }
         }

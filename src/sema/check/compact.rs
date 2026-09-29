@@ -1419,8 +1419,7 @@ impl CompactBodyProbe<'_> {
                         .and_then(|fields| fields.get(&field.name))
                         .cloned()
                         .unwrap_or(Type::Unknown);
-                    self.current_scope_mut()
-                        .insert(field.name, CompactBinding::new(field_ty, mutable));
+                    self.define_binding_target(field.target, field_ty, mutable);
                 }
             }
         }

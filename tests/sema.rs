@@ -2271,8 +2271,8 @@ fn checker_handles_ergonomic_sugar_pass_forms() {
         r#"
 let pkg = {name: "demo", version: "1.0", path: Path("src")}
 let {name, version, ..} = pkg
-var {path, ..} = pkg
-path = Path("dist")
+var {path: package_path, ..} = pkg
+package_path = Path("dist")
 for {name, ..} in [pkg] {
   print $name
 }
@@ -3259,4 +3259,29 @@ fn checker_accepts_half_open_slicing_types_and_rejects_bad_bounds() {
     let bounds = output.diagnostics.iter().find(|diagnostic| diagnostic.code.as_deref() == Some("check.type-mismatch")).expect("bound must be Int");
     assert!(bounds.labels.iter().any(|label| &source[label.span.range()] == "true"));
     assert!(output.diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("check.slice-type")));
+}
+
+#[test]
+fn checker_rejects_nested_record_binding_contract_violations() {
+    let cases = [
+        ("let {outer: {missing}} = {outer: {known: 1}}\n", "check.destructure-field"),
+        ("let {outer: {value}} = {outer: 1}\n", "check.destructure-type"),
+        ("let {a: same, b: {c: same}} = {a: 1, b: {c: 2}}\n", "check.duplicate-name"),
+        ("let {a: one, a: two} = {a: 1}\n", "check.destructure-field"),
+        ("type Fields = {a: Int}\npure take(value: Any) -> Unit { let {a}: Fields = value }\n", "check.destructure-type"),
+        ("let {a: fs} = {a: 1}\n", "check.standard-module-shadow"),
+        ("type Inner = {a: Int}\ntype Outer = {inner: Inner}\npure take(value: Any) -> Unit { let {inner: {a}}: Outer = {inner: value} }\n", "check.destructure-type"),
+    ];
+    for (source, code) in cases {
+        let output = check(source);
+        assert!(has_code(&output, code), "expected {code} for {source}: {:?}", output);
+    }
+}
+
+#[test]
+fn checker_keeps_selected_nested_record_field_types() {
+    let output = check("let {outer: {value: selected}} = {outer: {value: 1}}\nlet wrong: Str = selected\n");
+    assert!(has_code(&output, "check.type-mismatch"));
+    let discards = check("let {a: _, b: {c: _, ..}, ..} = {a: 1, b: {c: 2}}\n");
+    assert!(discards.is_empty(), "{:?}", discards);
 }

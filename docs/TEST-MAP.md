@@ -544,3 +544,13 @@ stack boundaries.
 - The `dist` profile is reserved for release packaging, not local agent
   verification.
 - Benchmark commands intentionally use release code generation.
+
+Nested and renamed record binding behavior is covered by
+`tests/xsh/record_binding.xsh`. Parser spans and checker rejection cases live in
+`parser_retains_nested_renamed_record_binding_targets_and_spans`,
+`checker_rejects_nested_record_binding_contract_violations`, and
+`checker_keeps_selected_nested_record_field_types`. The
+`lint.prefer-record-destructuring` rule combines adjacent unannotated field
+bindings from one checked record identifier; annotations, comments, effectful
+receivers, dynamic schemas, and retained intermediate bindings require manual
+review. Its focused tooling tests verify formatter preservation and convergence.

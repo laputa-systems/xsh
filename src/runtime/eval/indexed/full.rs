@@ -1142,7 +1142,8 @@ impl FullProgram {
             }
             FullDriverTag::LetRecord => {
                 BuildExprRow::verify(&decoder, &mut payload)?;
-                Vec::<Name>::verify(&decoder, &mut payload)?;
+                Vec::<(Name, usize)>::verify(&decoder, &mut payload)?;
+                LoweredCompTarget::verify(&decoder, &mut payload)?;
                 bool::verify(&decoder, &mut payload)?;
                 Span::verify(&decoder, &mut payload)?;
             }
@@ -2229,11 +2230,13 @@ impl FullBuilder {
             Some(BuildTopKind::LetRecord {
                 source,
                 fields,
+                target,
                 mutable,
                 span,
             }) => {
                 source.encode(self, &mut payload)?;
                 fields.encode(self, &mut payload)?;
+                target.encode(self, &mut payload)?;
                 mutable.encode(self, &mut payload)?;
                 span.encode(self, &mut payload)?;
                 FullDriverTag::LetRecord
@@ -5469,6 +5472,7 @@ impl_fx_map_codec!(Vec<BuildStmtId>);
 impl FullCodec for LoweredCompTarget {
     fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
         match self {
+            Self::Discard => { output.push(2); Ok(()) }
             Self::Slot(slot) => {
                 output.push(0);
                 slot.encode(builder, output)
@@ -5485,6 +5489,7 @@ impl FullCodec for LoweredCompTarget {
         input: &mut FullCursor<'_>,
     ) -> Result<Self, IrVerifyError> {
         match input.raw()? {
+            2 => Ok(Self::Discard),
             0 => Ok(Self::Slot(usize::decode(decoder, input)?)),
             1 => Ok(Self::Record {
                 fields: SmallVec::decode(decoder, input)?,
@@ -7076,19 +7081,19 @@ impl_node_codec! {
             value: BuildExprId,
         } => BuildStmtRow::Let { slot, value },
         BuildStmtRow::Guard {
-            slot,
+            target,
             value,
             else_param_slot,
             else_body,
             span,
         } => StmtGuard {
-            slot: usize,
+            target: LoweredCompTarget,
             value: BuildExprId,
             else_param_slot: Option<usize>,
             else_body: Vec<BuildStmtId>,
             span: Span,
         } => BuildStmtRow::Guard {
-            slot,
+            target,
             value,
             else_param_slot,
             else_body,
@@ -7284,29 +7289,29 @@ impl_node_codec! {
         },
         BuildStmtRow::LetRecord {
             source,
-            fields,
+            target,
             span,
         } => StmtLetRecord {
             source: BuildExprId,
-            fields: Vec<(Name, usize)>,
+            target: LoweredCompTarget,
             span: Span,
         } => BuildStmtRow::LetRecord {
             source,
-            fields,
+            target,
             span,
         },
         BuildStmtRow::ForRecord {
-            fields,
+            target,
             iter,
             body,
             span,
         } => StmtForRecord {
-            fields: Vec<(Name, usize)>,
+            target: LoweredCompTarget,
             iter: BuildExprId,
             body: Vec<BuildStmtId>,
             span: Span,
         } => BuildStmtRow::ForRecord {
-            fields,
+            target,
             iter,
             body,
             span,

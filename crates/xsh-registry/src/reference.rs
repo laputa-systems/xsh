@@ -755,7 +755,7 @@ fn core_doc(item: &str) -> ReferenceDoc {
         ),
         "bindings" => (
             "Defines typed bindings and assignment scope.",
-            "Bindings are immutable with `let`; declare a reassignable binding with `var` (`var x = 0; x = x + 1`). `let mut` is not valid syntax. Reassignment cannot create an invalid inferred state.",
+            "Bindings are immutable with `let`; declare a reassignable binding with `var` (`var x = 0; x = x + 1`). Record targets support shorthand, renaming, nesting, and `_` discards: `let {root, build: {jobs, target: target_name, ..}, ..} = config`. All required fields are selected before names become visible. Selected types are retained; Any requires an explicit schema check. `let mut` is not valid syntax. Reassignment cannot create an invalid inferred state.",
         ),
         "procs" => (
             "Defines procedure declarations and calls.",

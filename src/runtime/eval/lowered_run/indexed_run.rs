@@ -1449,7 +1449,8 @@ impl Evaluator {
             }
             FullDriverTag::LetRecord => {
                 let source = indexed_raw(&mut payload, call_span)?;
-                let fields = indexed_decode::<Vec<Name>>(&mut payload, &execution, call_span)?;
+                let fields = indexed_decode::<Vec<(Name, usize)>>(&mut payload, &execution, call_span)?;
+                let target = indexed_decode::<LoweredCompTarget>(&mut payload, &execution, call_span)?;
                 let mutable = indexed_decode::<bool>(&mut payload, &execution, call_span)?;
                 let span = indexed_decode::<Span>(&mut payload, &execution, call_span)?;
                 indexed_finish(payload, call_span)?;
@@ -1460,21 +1461,9 @@ impl Evaluator {
                             return Ok(Some(self.question_flow(value.into_value(), call_span)));
                         }
                     };
-                for name in fields {
-                    let Some(value) = lowered_record_field_value(&source, &name.as_str()) else {
-                        return Err(RuntimeError::new(
-                            "field-access",
-                            format!("record has no field `{}`", name.as_str()),
-                        )
-                        .with_span(span));
-                    };
-                    self.define(
-                        name,
-                        Binding {
-                            value: value.into_value(),
-                            mutable,
-                        },
-                    );
+                bind_lowered_comp_target(&target, source, &mut slots, span)?;
+                for (name, slot) in fields {
+                    self.define(name, Binding { value: slots[slot].clone().into_value(), mutable });
                 }
                 Flow::Continue(Value::Unit)
             }
@@ -6940,7 +6929,7 @@ impl Evaluator {
                 Ok(StmtFlow::None)
             }
             FullTag::StmtGuard => {
-                let slot = indexed_decode::<usize>(&mut payload, execution, call_span)?;
+                let target = indexed_decode::<LoweredCompTarget>(&mut payload, execution, call_span)?;
                 let value = indexed_raw(&mut payload, call_span)?;
                 let else_param_slot =
                     indexed_decode::<Option<usize>>(&mut payload, execution, call_span)?;
@@ -6953,7 +6942,7 @@ impl Evaluator {
                 };
                 match value {
                     LoweredValue::ResultOk(value) => {
-                        slots[slot] = *value;
+                        bind_lowered_comp_target(&target, *value, slots, span)?;
                         Ok(StmtFlow::None)
                     }
                     LoweredValue::ResultErr(error) => {
@@ -6979,31 +6968,14 @@ impl Evaluator {
             }
             FullTag::StmtLetRecord => {
                 let source = indexed_raw(&mut payload, call_span)?;
-                let (_, mut fields) = execution
-                    .block(&mut payload, BLOCK_LIST)
-                    .map_err(|error| indexed_error(error, call_span))?;
-                let field_count = indexed_raw(&mut fields, call_span)? as usize;
+                let target = indexed_decode::<LoweredCompTarget>(&mut payload, execution, call_span)?;
                 let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
                 indexed_finish(payload, call_span)?;
                 let source = match self.eval_indexed_expr(execution, source, slots, call_span)? {
                     ControlFlow::Continue(value) => value,
-                    ControlFlow::Break(value) => {
-                        return Ok(StmtFlow::Return(value));
-                    }
+                    ControlFlow::Break(value) => return Ok(StmtFlow::Return(value)),
                 };
-                for _ in 0..field_count {
-                    let name = indexed_decode::<Name>(&mut fields, execution, span)?;
-                    let slot = indexed_decode::<usize>(&mut fields, execution, span)?;
-                    let Some(value) = lowered_record_field_value(&source, &name.as_str()) else {
-                        return Err(RuntimeError::new(
-                            "field-access",
-                            format!("record has no field `{}`", name.as_str()),
-                        )
-                        .with_span(span));
-                    };
-                    slots[slot] = value;
-                }
-                indexed_finish(fields, span)?;
+                bind_lowered_comp_target(&target, source, slots, span)?;
                 Ok(StmtFlow::None)
             }
             FullTag::StmtLetInt => {
@@ -7396,8 +7368,12 @@ impl Evaluator {
                 }
                 Err(lowered_match_no_arm(span))
             }
-            FullTag::StmtFor => {
-                let slot = indexed_decode::<usize>(&mut payload, execution, call_span)?;
+            FullTag::StmtFor | FullTag::StmtForRecord => {
+                let target = if tag == FullTag::StmtForRecord {
+                    indexed_decode::<LoweredCompTarget>(&mut payload, execution, call_span)?
+                } else {
+                    LoweredCompTarget::Slot(indexed_decode::<usize>(&mut payload, execution, call_span)?)
+                };
                 let iter = indexed_raw(&mut payload, call_span)?;
                 let body = indexed_raw(&mut payload, call_span)?;
                 let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
@@ -7431,7 +7407,10 @@ impl Evaluator {
                             )
                             .with_span(span));
                         };
-                        slots[slot] = item;
+                        if let Err(error) = bind_lowered_comp_target(&target, item, slots, span) {
+                            self.stream_cancel(&mut stream, span)?;
+                            return Err(error);
+                        }
                         match self.eval_indexed_statement_block(
                             execution, body, header, slots, call_span,
                         )? {
@@ -7452,7 +7431,7 @@ impl Evaluator {
                     if self.signal_state.shutdown_complete {
                         return Ok(StmtFlow::None);
                     }
-                    slots[slot] = item;
+                    bind_lowered_comp_target(&target, item, slots, span)?;
                     match self
                         .eval_indexed_statement_block(execution, body, header, slots, call_span)?
                     {
@@ -7464,53 +7443,6 @@ impl Evaluator {
                         StmtFlow::Propagate(value) => {
                             return Ok(StmtFlow::Propagate(value));
                         }
-                    }
-                }
-                Ok(StmtFlow::None)
-            }
-            FullTag::StmtForRecord => {
-                let (_, mut fields) = execution
-                    .block(&mut payload, BLOCK_LIST)
-                    .map_err(|error| indexed_error(error, call_span))?;
-                let field_count = indexed_raw(&mut fields, call_span)? as usize;
-                let mut bindings = Vec::with_capacity(field_count);
-                for _ in 0..field_count {
-                    bindings.push((
-                        indexed_decode::<Name>(&mut fields, execution, call_span)?,
-                        indexed_decode::<usize>(&mut fields, execution, call_span)?,
-                    ));
-                }
-                indexed_finish(fields, call_span)?;
-                let iter = indexed_raw(&mut payload, call_span)?;
-                let body = indexed_raw(&mut payload, call_span)?;
-                let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
-                indexed_finish(payload, call_span)?;
-                let iter = match self.eval_indexed_expr(execution, iter, slots, call_span)? {
-                    ControlFlow::Continue(value) => value,
-                    ControlFlow::Break(value) => return Ok(StmtFlow::Return(value)),
-                };
-                let items = self.lowered_list_items(iter, span, "lowered for expected List")?;
-                for item in items {
-                    self.service_pending_signal(span)?;
-                    if self.signal_state.shutdown_complete {
-                        return Ok(StmtFlow::None);
-                    }
-                    for (name, slot) in &bindings {
-                        let Some(value) = lowered_record_field_value(&item, &name.as_str()) else {
-                            return Err(RuntimeError::new(
-                                "field-access",
-                                format!("record has no field `{}`", name.as_str()),
-                            )
-                            .with_span(span));
-                        };
-                        slots[*slot] = value;
-                    }
-                    match self
-                        .eval_indexed_statement_block(execution, body, header, slots, call_span)?
-                    {
-                        StmtFlow::None | StmtFlow::Continue => {}
-                        StmtFlow::Break(_) => break,
-                        flow @ (StmtFlow::Value(_) | StmtFlow::Return(_) | StmtFlow::Propagate(_)) => return Ok(flow),
                     }
                 }
                 Ok(StmtFlow::None)

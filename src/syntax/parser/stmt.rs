@@ -1098,8 +1098,11 @@ impl<'a> Parser<'a> {
         &mut self,
         arena: &mut ArenaProgramBuilder<'_>,
     ) -> Option<BindingTargetId> {
+        let start = self.current_start();
         self.bump();
-        self.skip_newlines();
+        while matches!(self.current_tag(), TokenTag::Newline | TokenTag::Comment) {
+            self.bump();
+        }
         let mut rest = false;
         arena.begin_destructure_fields();
         while !self.at(TokenKindMatch::RBrace) && !self.at(TokenKindMatch::Eof) {
@@ -1113,20 +1116,36 @@ impl<'a> Parser<'a> {
                     arena.discard_destructure_fields();
                     return None;
                 };
-                arena.push_destructure_field(name, self.span(start, self.previous_end()));
+                let target = if self.consume(TokenKindMatch::Colon).is_some() {
+                    while matches!(self.current_tag(), TokenTag::Newline | TokenTag::Comment) {
+                        self.bump();
+                    }
+                    let Some(target) = self.parse_binding_target_arena_only("expected binding name or record target", arena) else {
+                        arena.discard_destructure_fields();
+                        return None;
+                    };
+                    target
+                } else {
+                    arena.push_binding_target_name(name)
+                };
+                arena.push_destructure_field(name, target, self.span(start, self.previous_end()));
             }
-            self.skip_newlines();
+            while matches!(self.current_tag(), TokenTag::Newline | TokenTag::Comment) {
+                self.bump();
+            }
             if self.consume(TokenKindMatch::Comma).is_none() {
                 break;
             }
-            self.skip_newlines();
+            while matches!(self.current_tag(), TokenTag::Newline | TokenTag::Comment) {
+                self.bump();
+            }
         }
         self.expect(
             TokenKindMatch::RBrace,
             "expected `}` after destructuring target",
         );
         let fields = arena.finish_destructure_fields();
-        Some(arena.push_binding_target_record(fields, rest))
+        Some(arena.push_binding_target_record(fields, rest, self.span(start, self.previous_end())))
     }
 
     fn parse_guarded_stmt_arena_only(

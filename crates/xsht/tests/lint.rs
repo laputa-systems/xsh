@@ -2497,3 +2497,50 @@ fn linter_prefer_slice_requires_checked_builtin_receiver() {
     let diagnostics = Linter::lint(&parsed.arena, source, LintOptions::default()).diagnostics;
     assert!(!diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-slice")));
 }
+
+#[test]
+fn linter_record_destructuring_fix_roundtrips_and_converges() {
+    let source = "# 源\nlet config = {root: \"src\", build: {jobs: 3, target: \"native\"}}\nlet root = config.root\nlet jobs = config.build.jobs\nlet target_name = config.build.target\nprint $root $jobs $target_name\n";
+    let parsed = parse_lint_source(source);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let output = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
+    let diagnostic = output.diagnostics.iter().find(|d| d.code.as_deref() == Some("lint.prefer-record-destructuring")).unwrap();
+    let hint = &diagnostic.fix_hints[0];
+    let mut fixed = source.to_string();
+    fixed.replace_range(hint.span.unwrap().range(), hint.replacement.as_ref().unwrap());
+    assert!(fixed.contains("let {root, build: {jobs, target: target_name, ..}, ..} = config"));
+    assert_parse_check_standalone("record destructuring", &fixed);
+    let formatted = Formatter::new().format_source(SourceId::new(0), &fixed);
+    assert!(formatted.diagnostics.is_empty(), "{:?}", formatted.diagnostics);
+    assert_eq!(formatted.formatted, fixed);
+    let parsed = parse_lint_source(&fixed);
+    let checked = Checker::check_arena(&parsed.arena, &fixed);
+    let output = Linter::lint(&parsed.arena, &fixed, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
+    assert!(!output.diagnostics.iter().any(|d| d.code.as_deref() == Some("lint.prefer-record-destructuring")));
+}
+
+#[test]
+fn linter_record_destructuring_retains_annotations_comments_and_effectful_roots() {
+    for source in [
+        "let config = {a: 1, b: 2}\nlet a: Int = config.a\nlet b = config.b\nprint $a $b\n",
+        "let config = {a: 1, b: 2}\nlet a = config.a # useful\nlet b = config.b\nprint $a $b\n",
+        "type Fields = {a: Int, b: Int}\npure source() -> Fields { return {a: 1, b: 2} }\nlet a = source().a\nlet b = source().b\nprint $a $b\n",
+    ] {
+        let parsed = parse_lint_source(source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena(&parsed.arena, source);
+        let output = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
+        assert!(!output.diagnostics.iter().any(|d| d.code.as_deref() == Some("lint.prefer-record-destructuring")), "{source}");
+    }
+}
+
+#[test]
+fn formatter_preserves_comments_inside_nested_record_binding_targets() {
+    let source = "let config = {root: \"src\", build: {jobs: 3, target: \"native\"}}\nlet {root, build: {\n  jobs, # worker count\n  target: target_name, ..\n}, ..} = config\nprint $root $jobs $target_name\n";
+    let formatted = Formatter::new().format_source(SourceId::new(0), source);
+    assert!(formatted.diagnostics.is_empty(), "{:?}", formatted.diagnostics);
+    assert_eq!(formatted.formatted, source);
+    let again = Formatter::new().format_source(SourceId::new(0), &formatted.formatted);
+    assert_eq!(again.formatted, source);
+}

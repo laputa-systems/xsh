@@ -821,11 +821,11 @@ enum BuildTopKind {
         value: BuildExprId,
         value_span: Span,
     },
-    // `let {a, b, ..} = source` / `var {…}` at top level: define one named
-    // binding per field (field name == binding name) from the source record.
+    // Select the entire recursive target before exposing top-level names.
     LetRecord {
         source: BuildExprId,
-        fields: Vec<Name>,
+        fields: Vec<(Name, usize)>,
+        target: LoweredCompTarget,
         mutable: bool,
         span: Span,
     },
@@ -934,11 +934,12 @@ type LoweredParamRest = SmallVec<[bool; 4]>;
 type LoweredParamDefaults = SmallVec<[Option<LoweredValue>; 4]>;
 type LoweredTopLevelSlots = SmallVec<[LoweredTopLevelSlot; 4]>;
 type BuildPatternIdSlots = SmallVec<[Option<usize>; 2]>;
-type LoweredCompFields = SmallVec<[(Name, usize, Span); 4]>;
+type LoweredCompFields = SmallVec<[(Name, Box<LoweredCompTarget>, Span); 4]>;
 type LoweredErrorPatternFields = SmallVec<[(Name, Option<usize>); 4]>;
 
 #[derive(Clone, Debug)]
 enum LoweredCompTarget {
+    Discard,
     Slot(usize),
     Record { fields: LoweredCompFields },
 }
@@ -1027,7 +1028,7 @@ enum BuildStmtRow {
     /// continue; on `Err`, bind the error to `else_param_slot` (if present) and
     /// run `else_body`, which must diverge.
     Guard {
-        slot: usize,
+        target: LoweredCompTarget,
         value: BuildExprId,
         else_param_slot: Option<usize>,
         else_body: Vec<BuildStmtId>,
@@ -1126,16 +1127,15 @@ enum BuildStmtRow {
         body: Vec<BuildStmtId>,
         span: Span,
     },
-    // `let {a, b, ..} = source` / `var {…} = source`: destructure a record into
-    // one slot per field (field name == binding name).
+    // Select a recursive record target into independent local values.
     LetRecord {
         source: BuildExprId,
-        fields: Vec<(Name, usize)>,
+        target: LoweredCompTarget,
         span: Span,
     },
-    // `for {a, b, ..} in iter { … }`: per item (a record), bind each field slot.
+    // Select the recursive record target anew for each iteration.
     ForRecord {
-        fields: Vec<(Name, usize)>,
+        target: LoweredCompTarget,
         iter: BuildExprId,
         body: Vec<BuildStmtId>,
         span: Span,
@@ -6691,7 +6691,7 @@ fn compact_binding_target_binds_name(
             .arena
             .destructure_fields(fields)
             .iter()
-            .any(|field| field.name == name),
+            .any(|field| compact_binding_target_binds_name(program, field.target, name)),
     }
 }
 

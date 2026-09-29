@@ -1447,10 +1447,10 @@ impl<'a> ArenaProgramBuilder<'a> {
             .push(self.destructure_field_inputs.len());
     }
 
-    pub fn push_destructure_field(&mut self, name: Name, span: Span) {
+    pub fn push_destructure_field(&mut self, name: Name, target: BindingTargetId, span: Span) {
         let span = self.lowerer.span(span);
         self.destructure_field_inputs
-            .push(ArenaDestructureField { name, span });
+            .push(ArenaDestructureField { name, target, span });
     }
 
     pub fn finish_destructure_fields(&mut self) -> ArenaRange {
@@ -1485,8 +1485,12 @@ impl<'a> ArenaProgramBuilder<'a> {
         &mut self,
         fields: ArenaRange,
         rest: bool,
+        span: Span,
     ) -> BindingTargetId {
-        self.push_binding_target_kind(ArenaBindingTargetKind::Record { fields, rest })
+        let target = self.push_binding_target_kind(ArenaBindingTargetKind::Record { fields, rest });
+        let span = self.lowerer.span(span);
+        self.lowerer.arena.binding_targets[target.index()].span = Some(span);
+        target
     }
 
     fn push_binding_target_kind(&mut self, kind: ArenaBindingTargetKind) -> BindingTargetId {
@@ -1494,7 +1498,7 @@ impl<'a> ArenaProgramBuilder<'a> {
         self.lowerer
             .arena
             .binding_targets
-            .push(ArenaBindingTarget { kind });
+            .push(ArenaBindingTarget { kind, span: None });
         id
     }
 
@@ -4736,6 +4740,7 @@ pub struct ArenaWithBinding {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ArenaBindingTarget {
     pub kind: ArenaBindingTargetKind,
+    pub span: Option<SpanId>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -4747,6 +4752,7 @@ pub enum ArenaBindingTargetKind {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ArenaDestructureField {
     pub name: Name,
+    pub target: BindingTargetId,
     pub span: SpanId,
 }
 

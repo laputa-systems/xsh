@@ -3833,23 +3833,22 @@ impl CompactLowerConstructProbe<'_, '_> {
                 ty,
                 initializer: initializer @ ArenaExprOrRun::Expr(value),
             } => {
-                if let ArenaBindingTargetKind::Record { fields, .. } =
+                if let ArenaBindingTargetKind::Record { .. } =
                     self.program.arena.binding_target(target).kind
                 {
                     let mut slots = top_level_slots(known);
-                    let source = self.lower_expr(value, &mut slots, None, None)?;
-                    let field_names = self
-                        .program
-                        .arena
-                        .destructure_fields(fields)
-                        .iter()
-                        .map(|field| field.name)
-                        .collect::<Vec<_>>();
+                    let checked = self.top_level_binding_checked_type(ty, value, known);
+                    let source = self.lower_binding_expr_value(ty, checked.as_ref(), value, self.program.arena.stmt(id).span, &mut slots, None, None)?;
+                    let target = self.lower_comp_target_typed(target, &mut slots, checked.as_ref())?;
+                    let field_names = slots.indices.iter().filter_map(|(name, slot)| {
+                        if known.contains_key(name) { None } else { Some((*name, *slot)) }
+                    }).collect();
                     return Some(lowered_top_level(
                         &self.scratch,
                         BuildTopKind::LetRecord {
                             source,
                             fields: field_names,
+                            target,
                             mutable: matches!(
                                 self.program.arena.stmt(id).kind,
                                 ArenaStmtKind::Var { .. }
@@ -4232,21 +4231,15 @@ impl CompactLowerConstructProbe<'_, '_> {
                 ty,
                 initializer: ArenaExprOrRun::Expr(value),
             } => {
-                if let ArenaBindingTargetKind::Record { fields, .. } =
+                if let ArenaBindingTargetKind::Record { .. } =
                     self.program.arena.binding_target(target).kind
                 {
                     let mutable = matches!(stmt.kind, ArenaStmtKind::Var { .. });
-                    for field in self.program.arena.destructure_fields(fields) {
-                        known.insert(
-                            field.name,
-                            LoweredTopLevelBinding {
-                                kind: LoweredType::Any,
-                                result_ok: None,
-                                checked: None,
-                                mutable,
-                                slot: true,
-                            },
-                        );
+                    let checked = self.top_level_binding_checked_type(ty, value, known);
+                    for (name, checked) in record_binding_types(self.program, target, checked.as_ref()) {
+                        let kind = checked.as_ref().and_then(lowered_checked_type).unwrap_or(LoweredType::Any);
+                        let result_ok = checked.as_ref().and_then(Type::result_ok).and_then(lowered_checked_type);
+                        known.insert(name, LoweredTopLevelBinding { kind, result_ok, checked, mutable, slot: true });
                     }
                     return;
                 }
@@ -5981,24 +5974,18 @@ impl CompactLowerConstructProbe<'_, '_> {
                 ty,
                 initializer: ArenaExprOrRun::Expr(value),
             } => {
-                if let ArenaBindingTargetKind::Record { fields, .. } =
+                if let ArenaBindingTargetKind::Record { .. } =
                     self.program.arena.binding_target(target).kind
                 {
-                    let source = self.lower_expr(value, slots, current_function, item_slot)?;
-                    let field_list = self.program.arena.destructure_fields(fields).to_vec();
-                    let mut lowered_fields = Vec::with_capacity(field_list.len());
-                    for field in &field_list {
-                        if slots.is_bound_non_capture(field.name) {
-                            return None;
-                        }
-                        lowered_fields.push((field.name, slots.declare(field.name)));
-                    }
+                    let checked = self.lower_binding_checked_type(ty, value, slots);
+                    let source = self.lower_binding_expr_value(ty, checked.as_ref(), value, self.program.arena.stmt(id).span, slots, current_function, item_slot)?;
+                    let target = self.lower_comp_target_typed(target, slots, checked.as_ref())?;
                     return Some(push_build_row!(
                         self,
                         stmt,
                         BuildStmtRow::LetRecord {
                             source,
-                            fields: lowered_fields,
+                            target,
                             span: self.program.arena.stmt(id).span,
                         }
                     ));
@@ -6354,7 +6341,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                 iter,
                 block,
             } => {
-                if let ArenaBindingTargetKind::Record { fields, .. } =
+                if let ArenaBindingTargetKind::Record { .. } =
                     self.program.arena.binding_target(target).kind
                 {
                     if !self.program.arena.block(block).params.is_empty() {
@@ -6362,18 +6349,8 @@ impl CompactLowerConstructProbe<'_, '_> {
                     }
                     let item_ty = self.infer_loop_item_checked_type(iter, slots);
                     let iter = self.lower_expr(iter, slots, current_function, item_slot)?;
-                    let field_list = self.program.arena.destructure_fields(fields).to_vec();
                     let saved = slots.enter();
-                    let mut lowered_fields = Vec::with_capacity(field_list.len());
-                    for field in &field_list {
-                        // Loop-scoped: may shadow an outer binding (restored on exit).
-                        let field_ty = match &item_ty {
-                            Some(Type::Record(fields)) => fields.get(&field.name).cloned(),
-                            _ => None,
-                        };
-                        lowered_fields
-                            .push((field.name, slots.declare_with_type(field.name, field_ty)));
-                    }
+                    let target = self.lower_comp_target_typed(target, slots, item_ty.as_ref())?;
                     let body =
                         self.lower_block_in_current_scope(block, slots, current_function, None)?;
                     slots.exit(saved);
@@ -6381,7 +6358,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                         self,
                         stmt,
                         BuildStmtRow::ForRecord {
-                            fields: lowered_fields,
+                            target,
                             iter,
                             body,
                             span: self.program.arena.stmt(id).span,
@@ -6571,21 +6548,11 @@ impl CompactLowerConstructProbe<'_, '_> {
                 else_block,
                 ..
             } => {
-                let name = simple_binding_target(self.program, target)?;
-                if is_discard_name(name) {
-                    {
-                        self.record_lower_stmt_blocker(id);
-                        self.output.constructed_statements += 1;
-                        return Some(push_build_row!(
-                            self,
-                            stmt,
-                            BuildStmtRow::Expr {
-                                value: push_build_row!(self, expr, BuildExprRow::Unit),
-                                span: self.program.arena.stmt(id).span,
-                            }
-                        ));
-                    }
-                }
+                let checked = match initializer {
+                    ArenaExprOrRun::Expr(expr) => self.lower_binding_checked_type(None, expr, slots),
+                    ArenaExprOrRun::Run(_) => None,
+                };
+                let success_ty = checked.as_ref().and_then(Type::result_ok);
                 let value = match initializer {
                     ArenaExprOrRun::Expr(expr) => {
                         self.lower_expr(expr, slots, current_function, item_slot)?
@@ -6606,12 +6573,12 @@ impl CompactLowerConstructProbe<'_, '_> {
                 );
                 slots.exit(saved);
                 let else_body = else_body?;
-                let slot = slots.declare(name);
+                let target = self.lower_comp_target_typed(target, slots, success_ty)?;
                 Some(push_build_row!(
                     self,
                     stmt,
                     BuildStmtRow::Guard {
-                        slot,
+                        target,
                         value,
                         else_param_slot,
                         else_body,
@@ -7630,9 +7597,10 @@ impl CompactLowerConstructProbe<'_, '_> {
                 iter,
                 condition,
             } => {
+                let item_ty = self.infer_loop_item_checked_type(iter, slots);
                 let iter = self.lower_expr(iter, slots, current_function, item_slot)?;
                 let saved = slots.enter();
-                let target = self.lower_comp_target(target, slots)?;
+                let target = self.lower_comp_target_typed(target, slots, item_ty.as_ref())?;
                 let condition = match condition {
                     Some(condition) => {
                         Some(self.lower_expr(condition, slots, current_function, item_slot)?)
@@ -7660,9 +7628,10 @@ impl CompactLowerConstructProbe<'_, '_> {
                 iter,
                 condition,
             } => {
+                let item_ty = self.infer_loop_item_checked_type(iter, slots);
                 let iter = self.lower_expr(iter, slots, current_function, item_slot)?;
                 let saved = slots.enter();
-                let target = self.lower_comp_target(target, slots)?;
+                let target = self.lower_comp_target_typed(target, slots, item_ty.as_ref())?;
                 let condition = match condition {
                     Some(condition) => {
                         Some(self.lower_expr(condition, slots, current_function, item_slot)?)
@@ -12727,26 +12696,19 @@ impl CompactLowerConstructProbe<'_, '_> {
         }
     }
 
-    fn lower_comp_target(
-        &self,
-        id: BindingTargetId,
-        slots: &mut SlotScope,
-    ) -> Option<LoweredCompTarget> {
+    fn lower_comp_target_typed(&self, id: BindingTargetId, slots: &mut SlotScope, ty: Option<&Type>) -> Option<LoweredCompTarget> {
         match self.program.arena.binding_target(id).kind {
             ArenaBindingTargetKind::Name(name) => {
-                if slots.is_bound_non_capture(name) {
-                    return None;
-                }
-                Some(LoweredCompTarget::Slot(slots.declare(name)))
+                if is_discard_name(name) { return Some(LoweredCompTarget::Discard); }
+                if slots.is_declared_here(name) { return None; }
+                Some(LoweredCompTarget::Slot(slots.declare_with_type(name, ty.cloned())))
             }
             ArenaBindingTargetKind::Record { fields, .. } => {
                 let mut lowered = LoweredCompFields::new();
                 for field in self.program.arena.destructure_fields(fields) {
-                    if slots.is_bound_non_capture(field.name) {
-                        return None;
-                    }
-                    let slot = slots.declare(field.name);
-                    lowered.push((field.name, slot, self.program.arena.span(field.span)));
+                    let field_ty = match ty { Some(Type::Record(fields)) => fields.get(&field.name), _ => None };
+                    let target = self.lower_comp_target_typed(field.target, slots, field_ty)?;
+                    lowered.push((field.name, Box::new(target), self.program.arena.span(field.span)));
                 }
                 Some(LoweredCompTarget::Record { fields: lowered })
             }
@@ -13057,6 +13019,18 @@ fn compact_type_expr_name_string(arena: &AstArena, ty: TypeExprId) -> String {
             "{}?",
             compact_type_expr_name_string(arena, TypeExprId::from_index(data.lhs as usize))
         ),
+    }
+}
+
+fn record_binding_types(program: &ArenaProgram, target: BindingTargetId, ty: Option<&Type>) -> Vec<(Name, Option<Type>)> {
+    match program.arena.binding_target(target).kind {
+        ArenaBindingTargetKind::Name(name) => {
+            if is_discard_name(name) { Vec::new() } else { vec![(name, ty.cloned())] }
+        }
+        ArenaBindingTargetKind::Record { fields, .. } => program.arena.destructure_fields(fields).iter().flat_map(|field| {
+            let field_ty = match ty { Some(Type::Record(schema)) => schema.get(&field.name), _ => None };
+            record_binding_types(program, field.target, field_ty)
+        }).collect(),
     }
 }
 

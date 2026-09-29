@@ -9,6 +9,7 @@ pub(crate) fn source(id: &str) -> Option<String> {
         "module.archive" | "module.archive.tar_list" => {
             include_str!("../../../docs/snippets/api/archive-tar-list.xsh")
         }
+        "language.core.bindings" => include_str!("../../../docs/snippets/api/record-bindings.xsh"),
         "module.bytes" => include_str!("../../../docs/snippets/api/bytes-base64.xsh"),
         "module.fs" | "module.fs.read_text" | "method.Path.read_text" => {
             include_str!("../../../docs/snippets/api/fs-read-text.xsh")

@@ -456,3 +456,11 @@ Checked statement/value positions are explicit facts shared by lowering and tool
 ordinary indexed scope, with a distinct value flow consumed by that expression.
 The selected value is held before defers and host-resource cleanup, while lexical
 return, propagation, and loop transfers pass to their established owners.
+
+Record binding targets retain field selectors separately from recursively nested
+binding targets in `ArenaDestructureField`. The checker resolves each selected
+field against its enclosing schema. Indexed execution shares
+`LoweredCompTarget` across declaration, iteration, comprehension, and guard
+bindings; it selects every required field before writing any slot or exposing
+any top-level name. Mutable selections are ordinary local values. Tooling uses
+the same recursive target to resolve bound names and preserve renamed fields.
