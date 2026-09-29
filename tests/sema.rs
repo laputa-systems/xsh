@@ -3548,3 +3548,18 @@ fn checker_preserves_nested_record_update_schema_and_context() {
     let diagnostics = check("type Inner = {values: List[Int], if: Bool}\ntype Outer = {inner: Inner}\nlet base = Outer(inner: Inner(values: [1], if: false))\nlet updated: Outer = {...base, inner.values: [], inner.if: true}\nlet selected: List[Int] = updated.inner.values\n");
     assert!(diagnostics.is_empty(), "{diagnostics:?}");
 }
+
+#[test]
+fn checker_try_capture_infers_nominal_error_and_keeps_result_tail_data() {
+    let source = "error LocalError = Failed(message: Str)\nproc fail() [] -> Result[Int, LocalError] { Err(LocalError.Failed(message: \"failure\")) }\nproc local() [] -> Result[Int, LocalError] { try { fail()? } }\nlet nested: Result[Result[Int, LocalError]] = try { fail() }\n";
+    let output = check(source);
+    assert!(output.is_empty(), "{output:?}");
+}
+
+#[test]
+fn checker_try_capture_rejects_underconstrained_success_and_outer_effects() {
+    let source = "error LocalError = Failed(message: Str)\nlet result = try { Err(LocalError.Failed(message: \"failure\"))? }\nproc outer() [] -> Int { try { 7 }? }\n";
+    let output = check(source);
+    assert!(has_code(&output, "check.try-success-type"), "{output:?}");
+    assert!(has_code(&output, "check.effect-violation"), "{output:?}");
+}

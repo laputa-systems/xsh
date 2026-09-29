@@ -45,6 +45,15 @@ fn merge_list_literal_item_ty(current: &Type, next: &Type) -> Option<Type> {
 }
 
 #[allow(dead_code)]
+fn capture_success_underconstrained(ty: &Type) -> bool {
+    match ty {
+        Type::Unknown => true,
+        Type::Result(ok, _) | Type::List(ok) | Type::Map(ok) | Type::Optional(ok) => capture_success_underconstrained(ok),
+        Type::Record(fields) => fields.values().any(capture_success_underconstrained),
+        _ => false,
+    }
+}
+
 impl Checker {
     pub(super) fn lookup_expr_ident(&mut self, name: Name, span: Span) -> Type {
         if let Some(binding) = self.lookup(name) {
@@ -736,8 +745,8 @@ impl Checker {
         let body = self.check_tail_block_arena(arena, source, block, expected_ok);
         let error = self.end_error_boundary(expected_error);
         self.pop_scope();
-        let body = if let Some(expected_ok) = expected_ok { if body == Type::Unknown { expected_ok.clone() } else { body } } else { body };
-        if matches!(body, Type::Unknown) {
+        let body = if let Some(expected_ok) = expected_ok { if capture_success_underconstrained(&body) && body.matches_expected(expected_ok) { expected_ok.clone() } else { body } } else { body };
+        if capture_success_underconstrained(&body) {
             self.error(span, "cannot infer try success type; annotate Result success type", "check.try-success-type");
         }
         Type::Result(Box::new(body), Box::new(error))

@@ -198,6 +198,13 @@ fn match_expr_structural(
                     (xsh::frontend::syntax::arena::ArenaStmtKind::Expr(pe), xsh::frontend::syntax::arena::ArenaStmtKind::Expr(te)) => {
                         if !match_expr(p, pe, t, te, source, &mut candidate) { return false; }
                     }
+                    (xsh::frontend::syntax::arena::ArenaStmtKind::TailBareIdent(name), xsh::frontend::syntax::arena::ArenaStmtKind::Expr(te)) if is_metavar(name.as_str().as_str()) => {
+                        let target = t.expr(te).span;
+                        if let Some(previous) = candidate.get(name.as_str().as_str()) {
+                            if source.get(previous.start()..previous.end()) != source.get(target.start()..target.end()) { return false; }
+                        } else { candidate.insert(name.to_string(), target); }
+                    }
+                    (xsh::frontend::syntax::arena::ArenaStmtKind::TailBareIdent(a), xsh::frontend::syntax::arena::ArenaStmtKind::TailBareIdent(b)) if a == b => {}
                     _ => return false,
                 }
             }

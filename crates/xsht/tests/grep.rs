@@ -362,3 +362,25 @@ fn grep_and_refactor_match_static_record_update_paths() {
     assert!(updated.contains("{...base, build.jobs: changed(2)}"), "{updated}");
     assert!(updated.contains("{\"build.jobs\": 2}"));
 }
+
+#[test]
+fn grep_try_capture_matches_boundary_and_nested_call() {
+    let file = temp_xsh("try_capture", "let result = try { load(\"α\")? }\n");
+    for pattern in ["try { EXPR }", "load(ARG)"] {
+        let output = grep_scripts(pattern, &paths(&file));
+        assert_eq!(output.status, 0, "{}", output_text(&output.stderr));
+        assert!(output_text(&output.stdout).contains("load(\"α\")"));
+    }
+}
+
+#[test]
+fn refactor_try_capture_preserves_boundary_and_second_pass_is_empty() {
+    let file = temp_xsh("refactor_try_capture", "let result = try { load(\"α\")? }\n");
+    let output = refactor_scripts("load(ARG)", "read(ARG)", &paths(&file), false);
+    assert_eq!(output.status, 0, "{}", output_text(&output.stderr));
+    let fixed = fs::read_to_string(&file).unwrap();
+    assert!(fixed.contains("try { read(\"α\")? }"), "{fixed}");
+    let second = refactor_scripts("load(ARG)", "read(ARG)", &paths(&file), false);
+    assert_eq!(second.status, 1, "{}", output_text(&second.stderr));
+    assert_eq!(fs::read_to_string(&file).unwrap(), fixed);
+}

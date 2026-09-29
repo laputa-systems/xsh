@@ -8633,6 +8633,33 @@ proc main() [error] {
     }
 
     #[test]
+    fn try_capture_verifies_body_ownership_and_preserves_result_data_on_both_routes() {
+        run_with_large_stack(|| {
+            let program = fixture("try-capture.xsh", "proc capture() [] -> Result[Int] {\n  let nested = try { Ok(7) }?\n  nested\n}\n");
+            let instruction = program.store.tags.iter().position(|tag| *tag == FullTag::ExprCapture).expect("capture instruction");
+            let payload = program.store.data[instruction].range().bounds(program.store.extra.len()).unwrap();
+            let mut missing_body = program.clone();
+            missing_body.store.extra[payload.start] = u32::MAX;
+            assert!(FullVerifier::verify(&missing_body).is_err());
+            let block = IrBlockId::from_raw(program.store.extra[payload.start]).unwrap();
+            let mut wrong_kind = program.clone();
+            wrong_kind.store.blocks[block.index()].flags = BLOCK_LIST;
+            assert!(FullVerifier::verify(&wrong_kind).is_err());
+            let program = Arc::new(program);
+            for recursive in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                let mut call = || evaluator.call_indexed_direct(
+                    LoweredFunctionKey::Name(program_name(&program, "capture")), LoweredFunctionKind::Proc,
+                    &[], Span::new(program.store.source_id, 0, 0),
+                ).expect("capture function exists");
+                let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() };
+                assert_eq!(result.unwrap(), Value::Result(crate::runtime::value::ResultValue::Ok(Box::new(Value::Int(7)))));
+            }
+        });
+    }
+
+    #[test]
     fn comparison_chain_verifier_rejects_short_chains_and_non_ordering_pairs() {
         let source = include_str!("../../../../tests/fixtures/frontend-indexed/comparison-chain.xsh");
         let program = fixture("comparison-chain.xsh", source);
