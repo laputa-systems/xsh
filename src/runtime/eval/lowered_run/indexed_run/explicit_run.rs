@@ -3176,27 +3176,36 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
     }
 
     fn finish_deferred_call(&mut self, index: usize, flow: StmtFlow) -> Result<(), RuntimeError> {
+        let previous_contexts = self.install_cleanup_contexts();
         let defers = std::mem::take(&mut self.calls[index].defers);
         let call = &mut self.calls[index];
         let cleanup = self.evaluator.run_indexed_defers(&call.execution, &defers, &mut call.slots, call.call_span);
-        if cleanup.as_ref().err().is_some_and(|error| error.abort.as_ref().is_some_and(|signal| signal.force)) {
-            return Err(cleanup.expect_err("forced cleanup abort"));
-        }
-        if matches!(flow, StmtFlow::Propagate(_) | StmtFlow::Return(LoweredValue::ResultErr(_))) {
+        let cleanup = if cleanup.as_ref().err().is_some_and(|error| error.abort.as_ref().is_some_and(|signal| signal.force)) {
+            cleanup
+        } else if matches!(flow, StmtFlow::Propagate(_) | StmtFlow::Return(LoweredValue::ResultErr(_))) {
             if let Err(error) = cleanup { self.evaluator.report_cleanup_error(&error, self.calls[index].call_span); }
-        } else {
-            cleanup?;
-        }
+            Ok(())
+        } else { cleanup };
+        self.evaluator.cleanup_error_contexts = previous_contexts;
+        cleanup?;
         self.finish_call(index, flow)
     }
 
     fn finish_error_deferred_call(&mut self, index: usize) -> Result<(), RuntimeError> {
+        let previous_contexts = self.install_cleanup_contexts();
         let defers = std::mem::take(&mut self.calls[index].defers);
         let call = &mut self.calls[index];
-        if let Err(error) = self.evaluator.run_indexed_defers(&call.execution, &defers, &mut call.slots, call.call_span) {
-            if error.abort.as_ref().is_some_and(|signal| signal.force) { return Err(error); }
-            self.evaluator.report_cleanup_error(&error, self.calls[index].call_span);
-        }
+        let cleanup = self.evaluator.run_indexed_defers(&call.execution, &defers, &mut call.slots, call.call_span);
+        let cleanup = match cleanup {
+            Err(error) if error.abort.as_ref().is_some_and(|signal| signal.force) => Err(error),
+            Err(error) => {
+                self.evaluator.report_cleanup_error(&error, self.calls[index].call_span);
+                Ok(())
+            }
+            Ok(()) => Ok(()),
+        };
+        self.evaluator.cleanup_error_contexts = previous_contexts;
+        cleanup?;
         self.finish_error_call(index)
     }
 
@@ -3787,15 +3796,16 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         let popped = self.calls[index].block_scopes.pop();
         debug_assert_eq!(popped, Some(scope_id));
         let host_cleanup = self.evaluator.exit_owned_host_scope(scope_id);
-        if let Some(previous) = previous_contexts { self.evaluator.cleanup_error_contexts = previous; }
-        match (cleanup, host_cleanup) {
+        let result = match (cleanup, host_cleanup) {
             (Err(error), Err(secondary)) => {
                 self.evaluator.report_cleanup_error(&secondary, self.calls[index].call_span);
                 Err(error)
             }
             (Err(error), _) | (_, Err(error)) => Err(error),
             _ => Ok(()),
-        }
+        };
+        if let Some(previous) = previous_contexts { self.evaluator.cleanup_error_contexts = previous; }
+        result
     }
 
     /// Abandoned work unwinds every lexical cleanup action from innermost to outermost.
