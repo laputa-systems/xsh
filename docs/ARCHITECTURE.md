@@ -531,3 +531,9 @@ before releasing its registering scope, preserving mutable capture reads and
 nested cleanup order. `run_indexed_defers` executes every registered action,
 retains the first failure, and reports secondary failures without replacing the
 primary traceback.
+
+Callable result slots retain complete declared schemas through
+`compact_function_return_type`. Checked or inferred signature facts take
+precedence over syntactic recovery. Resolving a named record return before
+field aliases are stored keeps Optional receivers distinguishable from Result
+receivers when guarded postfix operations are lowered.

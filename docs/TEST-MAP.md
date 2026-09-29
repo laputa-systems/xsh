@@ -586,6 +586,9 @@ are covered by `tests/xsh/optional-postfix.xsh`. Run
 syntax, semantic, tooling, and native stdlib gates. The null-branch migration
 rule is `lint.prefer-optional-postfix`; it refuses mutation, lost comments,
 and results whose null value would change fallback behavior.
+`test_optional_record_return_field_alias_preserves_receiver_type` pins named
+callable return schemas through unannotated field aliases. The rooted storage
+regression gate is `xsht test --jobs 1 test_system_report_storage`.
 
 Direct typed map iteration is covered in `tests/xsh/stdlib/map.xsh` by the
 `test_map_iteration_*` procedures. These pin entry types/order, snapshot value

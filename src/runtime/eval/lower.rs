@@ -4610,13 +4610,9 @@ impl CompactLowerConstructProbe<'_, '_> {
                     if name == "Path" && single_positional_arena_call_arg(args_vec).is_some() {
                         return Some(Type::Path);
                     }
-                    return self
-                        .declarations
-                        .pures
-                        .get(&name)
-                        .or_else(|| self.declarations.procs.get(&name))
-                        .or_else(|| self.declarations.streams.get(&name))
-                        .map(|sig| sig.return_ty.clone());
+                    return self.compact_unqualified_function_key(name)
+                        .and_then(|key| self.compact_function_return_type(key))
+                        .or_else(|| self.compact_unqualified_function_sig(name).map(|sig| sig.return_ty.clone()));
                 }
                 let (ArenaExprKind::Field { base, name }
                 | ArenaExprKind::NullSafeField { base, name }) =
@@ -4640,6 +4636,11 @@ impl CompactLowerConstructProbe<'_, '_> {
                         _ => self.infer_checked_expr_type(contract, &self.top_level_known)?,
                     };
                     return Some(Type::Result(Box::new(contract_ty), Box::new(Type::Error)));
+                }
+                if let ArenaExprKind::Ident(module) = self.program.arena.expr(base).kind
+                    && let Some(return_ty) = self.compact_function_return_type(LoweredFunctionKey::Qualified(self.compact_qualified_function_key(module, name)))
+                {
+                    return Some(return_ty);
                 }
                 let base_ty = base_ty?;
                 if name == "set" || name == "remove" || name == "push" {
@@ -5000,6 +5001,11 @@ impl CompactLowerConstructProbe<'_, '_> {
         {
             return Some(Type::Path);
         }
+        if let ArenaExprKind::Ident(name) = self.program.arena.expr(callee).kind {
+            return self.compact_unqualified_function_key(name)
+                .and_then(|key| self.compact_function_return_type(key))
+                .or_else(|| self.compact_unqualified_function_sig(name).map(|sig| sig.return_ty.clone()));
+        }
         let (ArenaExprKind::Field { base, name } | ArenaExprKind::NullSafeField { base, name }) =
             self.program.arena.expr(callee).kind
         else {
@@ -5044,6 +5050,9 @@ impl CompactLowerConstructProbe<'_, '_> {
             return Some(Type::Result(Box::new(contract_ty), Box::new(Type::Error)));
         }
         if let ArenaExprKind::Ident(module) = self.program.arena.expr(base).kind {
+            if let Some(return_ty) = self.compact_function_return_type(LoweredFunctionKey::Qualified(self.compact_qualified_function_key(module, name))) {
+                return Some(return_ty);
+            }
             if module == "archive"
                 && (name == "tar_list" || name == "cpio_list" || name == "zip_list")
                 && let Some(entry) = standard_record_type("ArchiveEntry")
@@ -10433,6 +10442,27 @@ impl CompactLowerConstructProbe<'_, '_> {
             return Some(LoweredFunctionKey::Name(name));
         }
         self.compact_imported_unqualified_function_key(name)
+    }
+
+    // Resolve declared return schemas before storing a call result in a slot.
+    // A syntactic signature alone cannot retain fields of a named record alias.
+    fn compact_function_return_type(&self, key: LoweredFunctionKey) -> Option<Type> {
+        let definitions = self.function_index();
+        let function = definitions.definition(key)?;
+        let def = self.program.arena.function_def(function.id);
+        let signature = match key {
+            LoweredFunctionKey::Name(name) => self.compact_unqualified_function_sig(name),
+            LoweredFunctionKey::Qualified(name) => self.declarations.qualified_pures.get(&name)
+                .or_else(|| self.declarations.qualified_procs.get(&name))
+                .or_else(|| self.declarations.qualified_streams.get(&name)),
+        };
+        if let Some(signature) = signature
+            && (def.return_ty_defaulted || signature.return_ty != Type::from_arena(&self.program.arena, def.return_ty))
+        {
+            return Some(signature.return_ty.clone());
+        }
+        if def.return_ty_defaulted { return None; }
+        Some(compact_runtime_type(&self.program.arena, def.return_ty, self.declarations))
     }
 
     fn compact_unqualified_function_sig(

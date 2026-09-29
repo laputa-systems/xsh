@@ -2,6 +2,24 @@ error OptionalPostfixError = Failed(message: Str) : InvalidData
 
 type OptionalPostfixServer = {host: Str?}
 type OptionalPostfixConfig = {server: OptionalPostfixServer?}
+type OptionalPostfixObservation = {target: Path?, state: Str}
+
+proc optional_postfix_observation(present: Bool) [] -> OptionalPostfixObservation {
+  if present {
+    return {target: p"/dev/example", state: "observed"}
+  }
+
+  return {target: null, state: "observed"}
+}
+
+proc test_optional_record_return_field_alias_preserves_receiver_type() [error] {
+  for present in [true, false] {
+    let source = optional_postfix_observation(present)
+    let target = source.target
+    let displayed = target?.display() ?? ""
+    test.eq(displayed, if present { "/dev/example" } else { "" })?
+  }
+}
 
 proc test_optional_method_skips_arguments_and_preserves_fallback() [error] {
   let absent: Str? = null
