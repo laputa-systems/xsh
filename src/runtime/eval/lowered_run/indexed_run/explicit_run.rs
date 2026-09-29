@@ -164,7 +164,6 @@ enum FrameContinuation {
         next: Box<FrameContinuation>,
     },
     BreakLoop,
-    Defer,
     /// A `yield` statement's value: the frame suspends here and hands the value
     /// to whoever pulled the producer.
     Yield,
@@ -323,6 +322,7 @@ pub(super) struct CallFrame<'p> {
     work: Vec<FrameWork>,
     pub(super) defers: Vec<u32>,
     pub(super) block_scopes: Vec<u64>,
+    block_defer_offsets: Vec<usize>,
     return_to: Option<FrameContinuation>,
 }
 
@@ -548,6 +548,7 @@ pub(super) struct ProducerFrameState {
     slot_scopes: Vec<u64>,
     defers: Vec<u32>,
     block_scopes: Vec<u64>,
+    block_defer_offsets: Vec<usize>,
     scope_id: u64,
 }
 
@@ -564,6 +565,7 @@ impl ProducerFrameState {
             slot_scopes: Vec::new(),
             defers: Vec::new(),
             block_scopes: Vec::new(),
+            block_defer_offsets: Vec::new(),
             scope_id: 0,
         }
     }
@@ -591,8 +593,11 @@ impl ProducerFrameState {
 impl<'p> CallFrame<'p> {
     /// Drops the body's remaining work, keeping its registered defers.
     pub(super) fn discard_body(&mut self) {
-        self.work.clear();
-        self.work.push(FrameWork::Statements {
+        self.work.retain(|work| matches!(work, FrameWork::Statements { scope_id: Some(_), .. }));
+        for work in &mut self.work {
+            if let FrameWork::Statements { statements, .. } = work { statements.clear(); }
+        }
+        self.work.insert(0, FrameWork::Statements {
             statements: Vec::new(),
             complete_call: true,
             scope_id: None,
@@ -606,6 +611,7 @@ impl<'p> CallFrame<'p> {
             slot_scopes: self.slot_scopes,
             defers: self.defers,
             block_scopes: self.block_scopes,
+            block_defer_offsets: self.block_defer_offsets,
             scope_id: self.scope_id,
         }
     }
@@ -639,6 +645,7 @@ impl<'p> CallFrame<'p> {
             work: state.work,
             defers: state.defers,
             block_scopes: state.block_scopes,
+            block_defer_offsets: state.block_defer_offsets,
             return_to: None,
         }))
     }
@@ -679,9 +686,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 .checked_sub(1)
                 .expect("active indexed frame");
             let work = self.calls[index].work.pop().expect("indexed frame work");
-            if let Err(error) = self.step(index, work)
-                && self.pending_error.is_none()
-            {
+            if let Err(error) = self.step(index, work) {
                 self.begin_error_unwind(error);
             }
         }
@@ -698,9 +703,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 .checked_sub(1)
                 .expect("active indexed frame");
             let work = self.calls[index].work.pop().expect("indexed frame work");
-            if let Err(error) = self.step(index, work)
-                && self.pending_error.is_none()
-            {
+            if let Err(error) = self.step(index, work) {
                 self.begin_error_unwind(error);
             }
         }
@@ -720,7 +723,11 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             self.result = Some(Err(error));
             return;
         }
-        self.pending_error = Some(error);
+        if self.pending_error.is_some() {
+            self.evaluator.report_cleanup_error(&error, self.calls.last().map(|call| call.call_span).unwrap_or_else(crate::runtime::eval::zero_span));
+        } else {
+            self.pending_error = Some(error);
+        }
         let Some(index) = self.calls.len().checked_sub(1) else {
             self.result = Some(Err(self
                 .pending_error
@@ -731,7 +738,13 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         // An error abandons the active lexical blocks before it enters this
         // function's defers. Their owned processes and NetJobs must observe
         // the same lexical cleanup boundary as they do on normal completion.
-        let _ = self.discard_work_from(index, 0);
+        if let Err(error) = self.discard_work_from(index, 0) {
+            if error.abort.as_ref().is_some_and(|signal| signal.force) {
+                self.begin_error_unwind(error);
+                return;
+            }
+            self.evaluator.report_cleanup_error(&error, self.calls[index].call_span);
+        }
         self.calls[index].work.push(FrameWork::FinishError);
     }
 
@@ -934,6 +947,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             },
             defers: Vec::new(),
             block_scopes: Vec::new(),
+            block_defer_offsets: Vec::new(),
             return_to,
         });
         Ok(())
@@ -2214,16 +2228,6 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     return self.complete_call(index, StmtFlow::Return(value));
                 }
             },
-            FrameContinuation::Defer => match value {
-                FrameValue::Value(_) => {}
-                FrameValue::Break(_) => {
-                    return Err(RuntimeError::new(
-                        "defer-control-flow",
-                        "deferred expression produced invalid control flow",
-                    )
-                    .with_span(self.calls[index].call_span));
-                }
-            },
             FrameContinuation::CallArguments {
                 function,
                 kind,
@@ -2609,7 +2613,15 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         // A return may leave nested statement blocks. Transfer an escaping
         // resource above, then close those blocks before running this
         // function's defers.
-        self.discard_work_from(index, 0)?;
+        let cleanup = self.discard_work_from(index, 0);
+        if cleanup.as_ref().err().is_some_and(|error| error.abort.as_ref().is_some_and(|signal| signal.force)) {
+            return Err(cleanup.expect_err("forced cleanup abort"));
+        }
+        if matches!(flow, StmtFlow::Propagate(_) | StmtFlow::Return(LoweredValue::ResultErr(_))) {
+            if let Err(error) = cleanup { self.evaluator.report_cleanup_error(&error, self.calls[index].call_span); }
+        } else {
+            cleanup?;
+        }
         if self.calls[index].defers.is_empty() {
             self.finish_call(index, flow)
         } else {
@@ -2794,23 +2806,28 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
     }
 
     fn finish_deferred_call(&mut self, index: usize, flow: StmtFlow) -> Result<(), RuntimeError> {
-        let Some(value) = self.calls[index].defers.pop() else {
-            return self.finish_call(index, flow);
-        };
-        let span = self.calls[index].call_span;
-        self.calls[index].work.push(FrameWork::Finish(flow));
-        self.push_expr(index, value, span, FrameContinuation::Defer);
-        Ok(())
+        let defers = std::mem::take(&mut self.calls[index].defers);
+        let call = &mut self.calls[index];
+        let cleanup = self.evaluator.run_indexed_defers(&call.execution, &defers, &mut call.slots, call.call_span);
+        if cleanup.as_ref().err().is_some_and(|error| error.abort.as_ref().is_some_and(|signal| signal.force)) {
+            return Err(cleanup.expect_err("forced cleanup abort"));
+        }
+        if matches!(flow, StmtFlow::Propagate(_) | StmtFlow::Return(LoweredValue::ResultErr(_))) {
+            if let Err(error) = cleanup { self.evaluator.report_cleanup_error(&error, self.calls[index].call_span); }
+        } else {
+            cleanup?;
+        }
+        self.finish_call(index, flow)
     }
 
     fn finish_error_deferred_call(&mut self, index: usize) -> Result<(), RuntimeError> {
-        let Some(value) = self.calls[index].defers.pop() else {
-            return self.finish_error_call(index);
-        };
-        let span = self.calls[index].call_span;
-        self.calls[index].work.push(FrameWork::FinishError);
-        self.push_expr(index, value, span, FrameContinuation::Defer);
-        Ok(())
+        let defers = std::mem::take(&mut self.calls[index].defers);
+        let call = &mut self.calls[index];
+        if let Err(error) = self.evaluator.run_indexed_defers(&call.execution, &defers, &mut call.slots, call.call_span) {
+            if error.abort.as_ref().is_some_and(|signal| signal.force) { return Err(error); }
+            self.evaluator.report_cleanup_error(&error, self.calls[index].call_span);
+        }
+        self.finish_error_call(index)
     }
 
     fn finish_error_call(&mut self, index: usize) -> Result<(), RuntimeError> {
@@ -3355,7 +3372,9 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         let mut statements = self.evaluator.frame_scratch.take_statements();
         decode_statement_block_into(&self.calls[index].execution, body, span, &mut statements)?;
         let scope_id = self.evaluator.enter_owned_host_scope();
+        let defer_offset = self.calls[index].defers.len();
         self.calls[index].block_scopes.push(scope_id);
+        self.calls[index].block_defer_offsets.push(defer_offset);
         self.calls[index].work.push(FrameWork::Statements {
             statements,
             complete_call: false,
@@ -3365,35 +3384,43 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
     }
 
     fn exit_block_scope(&mut self, index: usize, scope_id: u64) -> Result<(), RuntimeError> {
+        let defer_offset = self.calls[index].block_defer_offsets.pop().expect("live block owns a defer boundary");
+        let defers = self.calls[index].defers.split_off(defer_offset);
+        let call = &mut self.calls[index];
+        let cleanup = self.evaluator.run_indexed_defers(&call.execution, &defers, &mut call.slots, call.call_span);
         let popped = self.calls[index].block_scopes.pop();
         debug_assert_eq!(popped, Some(scope_id));
-        self.evaluator.exit_owned_host_scope(scope_id)
+        let host_cleanup = self.evaluator.exit_owned_host_scope(scope_id);
+        match (cleanup, host_cleanup) {
+            (Err(error), Err(secondary)) => {
+                self.evaluator.report_cleanup_error(&secondary, self.calls[index].call_span);
+                Err(error)
+            }
+            (Err(error), _) | (_, Err(error)) => Err(error),
+            _ => Ok(()),
+        }
     }
 
-    /// Drop work that cannot execute (return, error, break, or continue) and
-    /// close each lexical statement scope it carried from innermost to outer.
+    /// Abandoned work unwinds every lexical cleanup action from innermost to outermost.
     fn discard_work_from(&mut self, index: usize, keep: usize) -> Result<(), RuntimeError> {
         let discarded = self.calls[index].work.split_off(keep);
+        let mut first_error = None;
         for work in discarded.into_iter().rev() {
-            match work {
-                FrameWork::CompCleanup(streams) => self.cleanup_comp_streams(streams)?,
-                FrameWork::Statements {
-                    scope_id: Some(scope_id),
-                    ..
-                } => self.exit_block_scope(index, scope_id)?,
-                // A loop that is being discarded holds a producer nothing will
-                // pull again: stopping it runs its defers.
-                FrameWork::ForStream {
-                    mut stream, span, ..
-                } => self.evaluator.stream_cancel(&mut stream, span)?,
-                FrameWork::ForPipeline { mut pipeline, .. } => {
-                    pipeline.finish(self.evaluator, self.pending_error.as_ref())?
-                }
-                _ => {}
+            let result = match work {
+                FrameWork::Statements { scope_id: Some(scope_id), .. } => self.exit_block_scope(index, scope_id),
+                FrameWork::ForStream { mut stream, span, .. } => self.evaluator.stream_cancel(&mut stream, span),
+                FrameWork::ForPipeline { mut pipeline, .. } => pipeline.finish(self.evaluator, self.pending_error.as_ref()),
+                _ => Ok(()),
+            };
+            if let Err(error) = result {
+                if error.abort.as_ref().is_some_and(|signal| signal.force) { return Err(error); }
+                if first_error.is_none() { first_error = Some(error); }
+                else { self.evaluator.report_cleanup_error(&error, self.calls[index].call_span); }
             }
         }
-        Ok(())
+        first_error.map_or(Ok(()), Err)
     }
+
 }
 
 fn frame_condition_bool(value: LoweredValue, span: Span) -> Result<bool, RuntimeError> {

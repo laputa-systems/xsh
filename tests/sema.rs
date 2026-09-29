@@ -3381,3 +3381,11 @@ fn checker_list_splice_errors_cover_the_original_splice_span() {
     let diagnostic = checked.diagnostics.iter().find(|diagnostic| diagnostic.code.as_deref() == Some("check.list-splice-type")).expect("splice domain diagnostic");
     assert!(diagnostic.labels.iter().any(|label| &source[label.span.range()] == "@\"wrong\""));
 }
+
+#[test]
+fn checker_deferred_block_restores_mutable_capture_types() {
+    let mutable = check("proc work(input: Str?) [] { var value: Str? = input; if value != null { defer { let text: Str = value; print $text } } }\n");
+    assert!(!mutable.is_empty(), "mutable refinement cannot survive registration");
+    let immutable = check("proc work(input: Str?) [] { let value: Str? = input; if value != null { defer { let text: Str = value; print $text } } }\n");
+    assert!(immutable.is_empty(), "{:?}", immutable);
+}

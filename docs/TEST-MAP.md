@@ -593,3 +593,10 @@ break/continue, and lexical restoration. `lint.prefer-map-entry-iteration` has
 focused fix, refusal, Unicode-span, formatter, and convergence coverage in
 `crates/xsht/tests/lint.rs`; mutable sources, annotations, comments on the
 lookup, and nonstandard receivers remain manual transformations.
+
+`tests/xsh/defer-blocks.xsh` owns deferred-block registration, mutable reads and
+snapshots, LIFO order, local control, statement failures, secondary diagnostics,
+and stream cancellation. `tests/syntax.rs::deferred_block_parses_and_formats_as_statement_body`
+checks comment/span preservation and formatter convergence. The
+`linter_defer_block_helper_*` tests in `crates/xsht/tests/lint.rs` cover the narrow
+`lint.prefer-defer-block` fix and refusal boundaries.

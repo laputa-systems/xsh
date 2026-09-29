@@ -319,10 +319,8 @@ proc test_sum_type_error_stops_and_closes_live_source(ctx: TestContext) [error] 
   let output = test.run_script(
     ctx,
     r"""
-proc close() [io] { print "closed" }
-
 stream numbers() [io] -> Stream[Any] {
-  defer close()
+  defer { print "closed" }
   print "pull 1"
   yield 1
   print "pull bad"

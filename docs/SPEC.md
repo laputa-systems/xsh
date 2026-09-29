@@ -476,7 +476,7 @@ module_contract_kind = ("let")? IDENT ":" type_expr
              | "proc" IDENT param_list effect_ann? "->" type_expr
              | "pure" IDENT param_list "->" type_expr ;
 type_ann     = ":" type_expr ;
-defer_stmt   = "defer" expr_or_run terminator ;
+defer_stmt   = "defer" (block | expr_or_run) terminator ;
 yield_stmt   = "yield" expr_or_run (("when" | "unless") expr)? terminator ;
 ```
 
@@ -554,10 +554,26 @@ value matches require a catchall.
 `break` and `continue` affect the nearest `while` or `for`. They are checker
 errors inside structured stream stage blocks.
 
-`defer` registers a block-scoped cleanup expression or run command. Cleanups
-run in last-in-first-out order when control leaves the block through success,
-`Err` propagation, runtime failure, `return`, loop control, or cancellation.
-Cleanup failures are reported without hiding a primary failure.
+`defer` registers a block-scoped cleanup expression, run command, or statement
+block. Registration does not execute the action. Actions run in last-in-first-out
+order when control leaves their registering block through success, `Err`
+propagation, runtime failure, `return`, loop control, or cancellation. Forced
+abort skips cleanup.
+
+A deferred block resolves captures in its registration scope and reads their
+values at cleanup time. Use an immutable `let` snapshot to retain an earlier
+value. Its locals remain local to the cleanup action. All statements, including
+the final statement, use Unit-compatible statement position: Bool values assert
+and Result[Unit] failures propagate. A failing action stops its remaining
+statements; other registered actions still run. The original failure remains
+primary; otherwise the first cleanup failure becomes primary. Subsequent
+cleanup failures are reported with their source locations.
+
+Deferred blocks cannot return or yield from their enclosing callable, or break
+or continue an enclosing loop. Loops and nested defers declared inside the
+cleanup body retain their local targets and cleanup order. Normal effect checks
+apply even when registration is in an unselected branch. Expression-form
+`defer` keeps its existing type and registration behavior.
 
 Standard modules are built-in namespaces and cannot be aliased. User modules are
 imported from sibling `.xsh` files relative to the importing source file, then

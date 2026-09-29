@@ -651,6 +651,15 @@ impl CompactBodyProbe<'_> {
                     self.check_compact_expr_or_run(value);
                 }
             }
+            ArenaStmtKind::Defer(ArenaExprOrRun::Expr(expr))
+                if matches!(self.program.arena.expr(expr).kind, ArenaExprKind::ValueBlock(_)) =>
+            {
+                self.output.supported_statements += 1;
+                let ArenaExprKind::ValueBlock(block) = self.program.arena.expr(expr).kind else { unreachable!() };
+                self.check_compact_block(block);
+                self.mark_tail_position(block, false);
+                self.output.expr_types.insert(expr, Type::Unit);
+            }
             ArenaStmtKind::Yield(value) | ArenaStmtKind::Defer(value) => {
                 self.output.supported_statements += 1;
                 self.check_compact_expr_or_run(value);

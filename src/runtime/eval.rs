@@ -3551,6 +3551,14 @@ impl Evaluator {
         self.stdout.push(b'\n');
     }
 
+    pub(super) fn report_cleanup_error(&mut self, error: &RuntimeError, fallback: Span) {
+        let span = error.span.unwrap_or(fallback);
+        let location = self.sources.get(span.source_id).and_then(|source| {
+            source.location(span.start()).map(|location| format!("{}:{}:{}", source.name(), location.line, location.column))
+        }).unwrap_or_else(|| "deferred cleanup".to_string());
+        self.write_stderr_line(&format!("cleanup error [{}] at {location}: {}", error.kind, error.message));
+    }
+
     pub(super) fn write_stderr_line(&mut self, line: &str) {
         self.stderr.extend_from_slice(line.as_bytes());
         self.stderr.push(b'\n');
@@ -4344,10 +4352,7 @@ impl Evaluator {
                 Ok(Flow::Continue(Value::Unit)),
             );
             for index in compact_indexed_defers.into_iter().rev() {
-                if cleanup.is_err() || matches!(cleanup, Ok(Flow::Propagate(_))) {
-                    break;
-                }
-                cleanup = self
+                let action = self
                     .eval_indexed_driver_step(index, script_span)
                     .unwrap_or_else(|| {
                         Err(RuntimeError::new(
@@ -4357,9 +4362,31 @@ impl Evaluator {
                         .with_span(script_span))
                     })
                     .map(|flow| flow.unwrap_or(Flow::Continue(Value::Unit)));
+                if action.as_ref().err().is_some_and(|error| error.abort.as_ref().is_some_and(|signal| signal.force)) {
+                    cleanup = action;
+                    break;
+                }
+                if cleanup.is_err() || matches!(cleanup, Ok(Flow::Propagate(_))) {
+                    if let Err(error) = action { self.report_cleanup_error(&error, script_span); }
+                } else {
+                    cleanup = action;
+                }
+            }
+            if (traceback.is_some() || abort.is_some()) && let Err(error) = &cleanup
+                && !error.abort.as_ref().is_some_and(|signal| signal.force)
+            {
+                self.report_cleanup_error(error, script_span);
             }
             cleanup
         };
+        if let Err(error) = &cleanup_result
+            && let Some(signal) = &error.abort
+            && signal.force
+        {
+            status = signal.status;
+            abort = Some(signal.clone());
+            traceback = None;
+        }
         if traceback.is_none() && abort.is_none() {
             match cleanup_result {
                 Ok(Flow::Continue(_)) => {}

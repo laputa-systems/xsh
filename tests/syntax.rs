@@ -3517,3 +3517,17 @@ fn list_literal_splices_retain_element_and_splice_spans() {
     assert!(formatted.formatted.contains("@more"));
     assert_eq!(Formatter::new().format_source(SourceId::new(0), &formatted.formatted).formatted, formatted.formatted);
 }
+
+#[test]
+fn deferred_block_parses_and_formats_as_statement_body() {
+    let source_id = SourceId::new(0);
+    let source = "proc cleanup() [] {\n  defer {\n    # café remains inside cleanup\n    let message = \"done\"\n    print $message\n    true\n  }\n}\n\ncleanup()\n";
+    let parsed = Parser::parse_source_arena_only(source_id, source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    assert_parse_and_check(source_id, source);
+    let formatted = Formatter::new().format_source(source_id, source);
+    assert!(formatted.diagnostics.is_empty(), "{:?}", formatted.diagnostics);
+    assert_eq!(formatted.formatted, source);
+    let again = Formatter::new().format_source(source_id, &formatted.formatted);
+    assert_eq!(again.formatted, source);
+}

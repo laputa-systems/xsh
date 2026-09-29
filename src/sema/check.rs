@@ -112,6 +112,7 @@ pub(super) struct Binding {
     ty: Type,
     mutable: bool,
     pure_local_mutation: bool,
+    unrefined_ty: Option<Type>,
 }
 
 impl Binding {
@@ -120,6 +121,7 @@ impl Binding {
             ty,
             mutable,
             pure_local_mutation: false,
+            unrefined_ty: None,
         }
     }
 
@@ -128,6 +130,7 @@ impl Binding {
             ty,
             mutable: true,
             pure_local_mutation: true,
+            unrefined_ty: None,
         }
     }
 }
@@ -278,6 +281,7 @@ pub struct Checker {
     retry_attempt_depth: usize,
     module_depth: usize,
     in_signal_hook: bool,
+    in_defer_block: bool,
     root_signal_hooks: FxHashMap<Name, Span>,
     current_exported: bool,
 }
@@ -440,6 +444,7 @@ impl Checker {
             retry_attempt_depth: 0,
             module_depth: 0,
             in_signal_hook: false,
+            in_defer_block: false,
             root_signal_hooks: FxHashMap::default(),
             current_exported: false,
         };

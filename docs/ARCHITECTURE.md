@@ -502,3 +502,12 @@ the next entry. Ordinary loop frames and comprehension qualifier cursors share
 that entry representation. `Result[Map]` iterable sources lower through one
 existing propagation operation before cursor creation, preserving nominal errors
 and lexical cleanup. Pipeline map-source conversion has its own owner.
+
+Deferred blocks reuse `ArenaExprKind::ValueBlock` under `ArenaStmtKind::Defer`.
+`lower_deferred_expr` lowers every body statement in statement position. Indexed
+execution saves a defer offset for each live lexical scope; suspension carries
+those offsets alongside the slot scopes. Cleanup evaluates against live slots
+before releasing its registering scope, preserving mutable capture reads and
+nested cleanup order. `run_indexed_defers` executes every registered action,
+retains the first failure, and reports secondary failures without replacing the
+primary traceback.

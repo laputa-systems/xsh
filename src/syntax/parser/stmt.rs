@@ -1216,7 +1216,15 @@ impl<'a> Parser<'a> {
         arena: &mut ArenaProgramBuilder<'_>,
     ) -> Option<()> {
         self.bump();
-        let value = self.parse_expr_or_run_arena_only(arena)?;
+        let value = if self.at(TokenKindMatch::LBrace) {
+            let block_start = self.current_start();
+            let block = self.parse_block_arena_only(arena)?;
+            ArenaExprOrRun::Expr(arena.push_value_block_expr(
+                block, self.span(block_start, self.previous_end()),
+            ))
+        } else {
+            self.parse_expr_or_run_arena_only(arena)?
+        };
         let end = self.expect_terminator();
         arena.push_defer(value, self.span(start, end));
         Some(())

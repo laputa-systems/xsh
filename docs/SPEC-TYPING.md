@@ -258,6 +258,11 @@ requirements even when the condition is a constant that skips it at runtime.
 These guarded statements can fall through, so they do not establish an
 unconditional return for the enclosing body.
 
+Deferred cleanup blocks retain refinements of immutable captures. A mutable
+capture is checked against its original binding type, because its value is read
+when cleanup runs and can change after registration. Narrow it again inside the
+cleanup body when needed.
+
 Supported refinements:
 
 - `value.require(Schema)?`, `with name = value.require(...)`, and `guard let

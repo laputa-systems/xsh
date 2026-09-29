@@ -321,19 +321,21 @@ impl Checker {
             let Some(binding) = self.lookup(narrowing.name).cloned() else {
                 continue;
             };
-            self.current_scope_mut().insert(
-                narrowing.name,
-                if binding.pure_local_mutation {
-                    Binding::pure_local_var(narrowing.ty.clone())
-                } else {
-                    Binding::new(narrowing.ty.clone(), binding.mutable)
-                },
-            );
+            let mut narrowed = binding;
+            if narrowed.unrefined_ty.is_none() {
+                narrowed.unrefined_ty = Some(narrowed.ty.clone());
+            }
+            narrowed.ty = narrowing.ty.clone();
+            self.current_scope_mut().insert(narrowing.name, narrowed);
         }
     }
 
     pub(super) fn check_loop_control(&mut self, span: Span, is_break: bool) {
         if self.loop_depth > 0 {
+            return;
+        }
+        if self.in_defer_block {
+            self.error(span, "loop control cannot leave a deferred cleanup block", "check.defer-control-flow");
             return;
         }
         let message = if self.stream_item_types.is_empty() {
@@ -1002,6 +1004,7 @@ impl Checker {
         def: &ArenaFunctionDef,
         pure: bool,
     ) {
+        let previous_defer = std::mem::replace(&mut self.in_defer_block, false);
         let previous_return = self.current_return.clone();
         let previous_pure = self.in_pure;
         let previous_effects = self.current_effects.clone();
@@ -1087,6 +1090,7 @@ impl Checker {
         self.current_return = previous_return;
         self.in_pure = previous_pure;
         self.current_effects = previous_effects;
+        self.in_defer_block = previous_defer;
     }
 
     pub(super) fn check_stream_function_arena(
@@ -1095,6 +1099,7 @@ impl Checker {
         source: &str,
         def: &ArenaFunctionDef,
     ) {
+        let previous_defer = std::mem::replace(&mut self.in_defer_block, false);
         let previous_return = self.current_return.clone();
         let previous_yield = self.current_yield.clone();
         let previous_pure = self.in_pure;
@@ -1172,6 +1177,7 @@ impl Checker {
         self.current_yield = previous_yield;
         self.in_pure = previous_pure;
         self.current_effects = previous_effects;
+        self.in_defer_block = previous_defer;
     }
 
     pub(super) fn check_signal_hook_arena(
@@ -1428,6 +1434,9 @@ impl Checker {
         value: Option<ArenaExprOrRun>,
         span: Span,
     ) {
+        if self.in_defer_block {
+            self.error(span, "`return` cannot leave a deferred cleanup block", "check.defer-control-flow");
+        }
         if self.in_signal_hook {
             self.error(
                 span,
@@ -1463,6 +1472,9 @@ impl Checker {
         value: ArenaExprOrRun,
         span: Span,
     ) {
+        if self.in_defer_block {
+            self.error(span, "`yield` is not allowed in a deferred cleanup block", "check.defer-control-flow");
+        }
         let expected = match self.current_yield.clone() {
             Some(ty) => ty,
             None => {
@@ -1501,6 +1513,49 @@ impl Checker {
                 "`defer` is not allowed in pure functions",
                 "check.pure-defer",
             );
+        }
+        if let ArenaExprOrRun::Expr(expr) = value
+            && let ArenaExprKind::ValueBlock(block) = arena.arena.expr(expr).kind
+        {
+            let previous_defer = std::mem::replace(&mut self.in_defer_block, true);
+            let previous_loop = std::mem::replace(&mut self.loop_depth, 0);
+            let previous_retry = std::mem::replace(&mut self.retry_attempt_depth, 0);
+            self.push_scope();
+            // Cleanup reads mutable captures later, after current branch refinements may expire.
+            let mut captures = FxHashMap::default();
+            for scope in &self.scopes {
+                for (&name, binding) in scope {
+                    let mut binding = binding.clone();
+                    if binding.mutable && let Some(original) = &binding.unrefined_ty {
+                        binding.ty = original.clone();
+                    }
+                    captures.insert(name, binding);
+                }
+            }
+            self.current_scope_mut().extend(captures);
+            let body = arena.arena.block(block);
+            if let Some(param) = arena.arena.block_params(body.params).first() {
+                self.error(arena.arena.span(param.span), "deferred cleanup blocks have no parameters", "check.block-params");
+            }
+            self.push_scope();
+            self.block_depth += 1;
+            for statement in arena.arena.stmt_ids(body.statements) {
+                self.check_non_tail_stmt_arena(arena, source, statement);
+                if let ArenaStmtKind::TailBareIdent(name) = arena.arena.stmt(statement).kind {
+                    let ty = self.lookup(name).map(|binding| binding.ty.clone()).unwrap_or(Type::Unknown);
+                    if !expr_ty_auto_propagates(&ty) && !ty.matches_expected(&Type::Unit) && ty != Type::Bool {
+                        self.error(arena.arena.stmt(statement).span, "cleanup statement must produce Unit; use `let _ = ...` to discard a value", "check.defer-type");
+                    }
+                }
+            }
+            self.block_depth -= 1;
+            self.pop_scope();
+            self.pop_scope();
+            self.in_defer_block = previous_defer;
+            self.loop_depth = previous_loop;
+            self.retry_attempt_depth = previous_retry;
+            self.expr_types.insert(arena.arena.expr(expr).span, Type::Unit);
+            return;
         }
         let ty = self.check_expr_or_run_arena(arena, source, value, None);
         match ty {

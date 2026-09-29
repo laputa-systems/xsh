@@ -2942,3 +2942,43 @@ fn checker_list_pattern_reachability_uses_unguarded_coverage() {
     let checked = Checker::check_arena(&parsed.arena, source);
     assert_eq!(checked.diagnostics.iter().filter(|diagnostic| diagnostic.code.as_deref() == Some("check.unreachable-match-arm")).count(), 1);
 }
+
+#[test]
+fn linter_defer_block_helper_fix_is_checked_and_idempotent() {
+    let source = "proc cleanup() [] -> Unit {\n  print \"café\"\n}\ndefer cleanup()\nprint \"body\"\n";
+    let parsed = parse_lint_source(source);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let output = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
+    let diagnostic = output.diagnostics.iter().find(|d| d.code.as_deref() == Some("lint.prefer-defer-block")).expect("safe helper suggestion");
+    assert_eq!(diagnostic.fix_hints.len(), 2);
+    let mut edits = diagnostic.fix_hints.clone();
+    edits.sort_by_key(|hint| std::cmp::Reverse(hint.span.unwrap().start()));
+    let mut fixed = source.to_string();
+    for edit in edits { fixed.replace_range(edit.span.unwrap().range(), edit.replacement.as_deref().unwrap()); }
+    assert!(fixed.contains("defer {\n  print \"café\"\n}"));
+    assert_parse_check_standalone("defer block helper", &fixed);
+    let parsed = parse_lint_source(&fixed);
+    let checked = Checker::check_arena(&parsed.arena, &fixed);
+    let second = Linter::lint(&parsed.arena, &fixed, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
+    assert!(!second.diagnostics.iter().any(|d| d.code.as_deref() == Some("lint.prefer-defer-block")));
+}
+
+#[test]
+fn linter_defer_block_helper_refuses_captures_failures_comments_and_multiple_uses() {
+    for source in [
+        "let message = \"captured\"\nproc cleanup() [] -> Unit { print $message }\ndefer cleanup()\n",
+        "proc cleanup() [error] { let _ = \"bad\".parse_int()? }\ndefer cleanup()\n",
+        "# preserve helper docs\nproc cleanup() [] -> Unit { print \"done\" }\ndefer cleanup()\n",
+        "proc cleanup() [] -> Unit { print \"done\" }\ndefer cleanup()\ncleanup()\n",
+        "proc cleanup() [] -> Unit { print \"done\" }\nproc caller() [] { defer cleanup() }\ncaller()\n",
+    ] {
+        let parsed = parse_lint_source(source);
+        let checked = Checker::check_arena(&parsed.arena, source);
+        assert!(checked.diagnostics.is_empty(), "{source}: {:?}", checked.diagnostics);
+        for options in [LintOptions::default(), LintOptions { expr_types: checked.expr_types.clone(), ..LintOptions::default() }] {
+            let output = Linter::lint(&parsed.arena, source, options);
+            assert!(!output.diagnostics.iter().any(|d| d.code.as_deref() == Some("lint.prefer-defer-block")), "{source}");
+        }
+    }
+}

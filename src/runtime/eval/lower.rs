@@ -2267,7 +2267,7 @@ fn compact_collect_expr_call_edges(
             compact_collect_expr_call_edges(program, key, namespace, index_of, edges);
             compact_collect_expr_call_edges(program, value, namespace, index_of, edges);
         }
-        ArenaExprKind::Loop { block } | ArenaExprKind::Retry { block, .. } => {
+        ArenaExprKind::ValueBlock(block) | ArenaExprKind::Loop { block } | ArenaExprKind::Retry { block, .. } => {
             compact_collect_block_call_edges(program, block, namespace, index_of, edges);
         }
         ArenaExprKind::BuilderCall { call, .. } => {
@@ -4073,7 +4073,7 @@ impl CompactLowerConstructProbe<'_, '_> {
             }
             ArenaStmtKind::Defer(ArenaExprOrRun::Expr(value)) => {
                 let mut slots = top_level_slots(known);
-                let value = self.lower_expr(value, &mut slots, None, None)?;
+                let value = self.lower_deferred_expr(value, &mut slots, None, None)?;
                 Some(lowered_top_level(
                     &self.scratch,
                     BuildTopKind::Defer {
@@ -6725,7 +6725,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                     else { push_build_row!(self, stmt, BuildStmtRow::Expr { value, span }) })
             },
             ArenaStmtKind::Defer(ArenaExprOrRun::Expr(value)) => {
-                let value = self.lower_expr(value, slots, current_function, item_slot)?;
+                let value = self.lower_deferred_expr(value, slots, current_function, item_slot)?;
                 Some(push_build_row!(self, stmt, BuildStmtRow::Defer { value }))
             }
             ArenaStmtKind::Defer(ArenaExprOrRun::Run(run)) => {
@@ -12010,6 +12010,23 @@ impl CompactLowerConstructProbe<'_, '_> {
             ArenaStmtKind::Expr(expr) => self.lower_expr(expr, slots, current_function, item_slot),
             ArenaStmtKind::TailBareIdent(name) => self.lower_bare_ident(name, slots),
             _ => None,
+        }
+    }
+
+    /// Cleanup bodies use statement position even for their final expression.
+    fn lower_deferred_expr(
+        &mut self,
+        value: ExprId,
+        slots: &mut SlotScope,
+        current_function: Option<Name>,
+        item_slot: Option<usize>,
+    ) -> Option<BuildExprId> {
+        if let ArenaExprKind::ValueBlock(block) = self.program.arena.expr(value).kind {
+            let body = self.lower_block(block, slots, current_function, item_slot)?;
+            let span = self.program.arena.expr(value).span;
+            Some(push_build_row!(self, expr, BuildExprRow::ValueBlock { body, span }))
+        } else {
+            self.lower_expr(value, slots, current_function, item_slot)
         }
     }
 

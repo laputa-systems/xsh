@@ -207,6 +207,7 @@ pub const CORE_LANGUAGE_ITEMS: &[&str] = &[
     "comments",
     "statements",
     "guarded-control",
+    "defer",
     "bindings",
     "procs",
     "pure-functions",
@@ -761,6 +762,10 @@ fn core_doc(item: &str) -> ReferenceDoc {
         "guarded-control" => (
             "Defines condition-first guarded return, break, continue, and yield.",
             "`return value when condition`, `break value unless condition`, and `yield value when condition` evaluate the Bool/Status condition first and evaluate the payload only in the selected branch. Branch-local narrowing, existing lexical targets, effects, return wrapping, and deferred cleanup are preserved. Group command payloads, for example `return (run.status /usr/bin/true) when ready`; ungrouped run argv retain literal when/unless words. Valueless return/break/continue remain available, and guarded return can fall through.",
+        ),
+        "defer" => (
+            "Registers lexical cleanup actions without executing them.",
+            "`defer { statements }` reads captures at cleanup time; use immutable let snapshots for earlier values. Actions run LIFO at their registering scope exit, including return, failure, loop control and cancellation. Bool statements assert and Result[Unit] failures stop that action; remaining actions still run. An existing failure stays primary and secondary cleanup failures are source-attributed. Cleanup cannot return, yield, or transfer to an outer loop; local loops and nested defers are allowed. Effects are checked normally. Expression and run forms remain supported; forced abort skips cleanup.",
         ),
         "bindings" => (
             "Defines typed bindings and assignment scope.",

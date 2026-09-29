@@ -220,11 +220,63 @@ impl<'a> Linter<'a> {
         );
         let statements: Vec<StmtId> = program.statement_ids().collect();
         linter.lint_program(&statements);
+        linter.lint_defer_block_helpers(&statements);
         if include_reachability {
             linter.lint_declaration_reachability(program);
         }
         LintOutput {
             diagnostics: linter.diagnostics,
+        }
+    }
+
+    fn lint_defer_block_helpers(&mut self, statements: &[StmtId]) {
+        for &statement in statements {
+            let definition_span = self.arena.stmt(statement).span;
+            let ArenaStmtKind::ProcDef(definition) = self.arena.stmt(statement).kind else { continue };
+            let definition = self.arena.function_def(definition);
+            if !definition.params.is_empty()
+                || !definition.effects.is_some_and(|effects| effects.is_empty())
+                || !matches!(type_expr_kind(self.arena, definition.return_ty), ArenaTypeExprKind::Named(name) if name == "Unit")
+            { continue; }
+            let body = self.arena.block(definition.body);
+            if body.statements.is_empty() { continue; }
+            // Literal output has no captures, fallible operations, or control transfers to reattribute.
+            if !self.arena.stmt_ids(body.statements).all(|id| {
+                let ArenaStmtKind::Command(command) = self.arena.stmt(id).kind else { return false };
+                let ArenaCommand::Core { name, args, env, block } = self.arena.command_stmt(command).command else { return false };
+                matches!(name, CoreCommand::Print | CoreCommand::Eprint)
+                    && env.is_empty() && block.is_none()
+                    && self.arena.command_args(args).iter().all(|arg| match arg.kind {
+                        ArenaCommandArgKind::Word(parts) => self.arena.word_parts(parts).all(|part| matches!(part, ArenaWordPart::Bare(_) | ArenaWordPart::Quoted(_))),
+                        _ => false,
+                    })
+            }) { continue; }
+            let references = (0..self.arena.expr_tags.len()).filter(|&index| matches!(
+                self.arena.expr(ExprId::from_index(index)).kind,
+                ArenaExprKind::Ident(name) if name == definition.name
+            )).count();
+            if references != 1 || (0..self.arena.stmt_tags.len()).any(|index| {
+                let ArenaStmtKind::Command(command) = self.arena.stmt(StmtId::from_index(index)).kind else { return false };
+                matches!(self.arena.command_stmt(command).command, ArenaCommand::Proc { name, .. } if name == definition.name)
+            }) { continue; }
+            let deferred = statements.iter().find_map(|&id| {
+                let stmt = self.arena.stmt(id);
+                let ArenaStmtKind::Defer(ArenaExprOrRun::Expr(call)) = stmt.kind else { return None };
+                let ArenaExprKind::Call { callee, args } = self.arena.expr(call).kind else { return None };
+                (args.is_empty() && matches!(self.arena.expr(callee).kind, ArenaExprKind::Ident(name) if name == definition.name)
+                    && self.expr_types.get(&self.arena.expr(call).span) == Some(&Type::Unit)
+                    && stmt.span.source_id == definition_span.source_id).then_some(stmt.span)
+            });
+            let Some(deferred) = deferred else { continue };
+            let Some(definition_text) = self.source.get(definition_span.range()) else { continue };
+            let Some(body_text) = self.source.get(self.arena.span(body.span).range()) else { continue };
+            let preceding_comment = self.source.get(..definition_span.start()).and_then(|text| text.trim_end().lines().last()).is_some_and(|line| line.trim_start().starts_with('#'));
+            if definition_text.contains('#') || preceding_comment { continue; }
+            self.diagnostics.push(Diagnostic::new(Severity::Warning, "use a deferred block for this single-use literal cleanup helper")
+                .with_code("lint.prefer-defer-block")
+                .with_label(Label::secondary(deferred, "register the cleanup body directly"))
+                .with_fix_hint(FixHint::replacement(deferred, "register a deferred block", format!("defer {body_text}\n")))
+                .with_fix_hint(FixHint::replacement(definition_span, "remove the unused private helper", String::new())));
         }
     }
 

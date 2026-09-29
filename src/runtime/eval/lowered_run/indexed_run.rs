@@ -1683,12 +1683,13 @@ impl Evaluator {
                 let value = indexed_raw(&mut payload, call_span)?;
                 let span = indexed_decode::<Span>(&mut payload, &execution, call_span)?;
                 indexed_finish(payload, call_span)?;
-                match self.eval_indexed_expr(&execution, value, &mut slots, span)? {
-                    ControlFlow::Continue(_) => Flow::Continue(Value::Unit),
-                    ControlFlow::Break(value) => {
-                        return Ok(Some(self.question_flow(value.into_value(), span)));
+                self.eval_indexed_deferred_expr(&execution, value, &mut slots, span)?;
+                for slot in &top_level_slots {
+                    if slot.mutable {
+                        self.assign(&slot.name.as_str(), slots[slot.slot].clone().into_value(), span)?;
                     }
                 }
+                Flow::Continue(Value::Unit)
             }
             FullDriverTag::SignalHook => {
                 let signal = indexed_decode::<Name>(&mut payload, &execution, call_span)?;
@@ -6891,7 +6892,10 @@ impl Evaluator {
                 Ok(flow) => flow,
                 Err(error) => {
                     if !error.abort.as_ref().is_some_and(|signal| signal.force) {
-                        let _ = self.run_indexed_defers(execution, &defers, slots, call_span);
+                        if let Err(cleanup) = self.run_indexed_defers(execution, &defers, slots, call_span) {
+                            if cleanup.abort.as_ref().is_some_and(|signal| signal.force) { return Err(cleanup); }
+                            self.report_cleanup_error(&cleanup, call_span);
+                        }
                     }
                     return Err(error);
                 }
@@ -6902,7 +6906,13 @@ impl Evaluator {
                 | StmtFlow::Propagate(_)
                 | StmtFlow::Break(_)
                 | StmtFlow::Continue) => {
-                    self.run_indexed_defers(execution, &defers, slots, call_span)?;
+                    let cleanup = self.run_indexed_defers(execution, &defers, slots, call_span);
+                    if cleanup.as_ref().err().is_some_and(|error| error.abort.as_ref().is_some_and(|signal| signal.force)) { return Err(cleanup.expect_err("forced cleanup abort")); }
+                    if matches!(flow, StmtFlow::Propagate(_) | StmtFlow::Return(LoweredValue::ResultErr(_))) {
+                        if let Err(error) = cleanup { self.report_cleanup_error(&error, call_span); }
+                    } else {
+                        cleanup?;
+                    }
                     return Ok(flow);
                 }
             }
@@ -6958,26 +6968,54 @@ impl Evaluator {
         }
     }
 
-    fn run_indexed_defers(
+    pub(super) fn eval_indexed_deferred_expr(
+        &mut self,
+        execution: &FullExecution<'_>,
+        value: u32,
+        slots: &mut [LoweredValue],
+        span: Span,
+    ) -> Result<(), RuntimeError> {
+        let result = self.eval_indexed_expr(execution, value, slots, span);
+        let pending = self.pending_value_block_flow.take();
+        let value = match (result?, pending) {
+            (_, Some(StmtFlow::Propagate(value) | StmtFlow::Return(value))) => value,
+            (_, Some(_)) => return Err(RuntimeError::new("defer-control-flow", "deferred cleanup produced invalid control flow").with_span(span)),
+            (ControlFlow::Continue(value) | ControlFlow::Break(value), None) => value,
+        };
+        match value {
+            LoweredValue::ResultErr(error) => Err(runtime_error_from_value(*error, span)),
+            LoweredValue::ResultOk(_) | LoweredValue::Unit | LoweredValue::Status(_) => Ok(()),
+            _ => Err(RuntimeError::new("defer-type", "deferred cleanup must produce Unit").with_span(span)),
+        }
+    }
+
+    pub(super) fn run_indexed_defers(
         &mut self,
         execution: &FullExecution<'_>,
         defers: &[u32],
         slots: &mut [LoweredValue],
         call_span: Span,
     ) -> Result<(), RuntimeError> {
+        let primary_traceback = self.pending_traceback.take();
+        let mut first_error = None;
+        let mut first_traceback = None;
         for value in defers.iter().rev().copied() {
-            if matches!(
-                self.eval_indexed_expr(execution, value, slots, call_span)?,
-                ControlFlow::Break(_)
-            ) {
-                return Err(RuntimeError::new(
-                    "defer-control-flow",
-                    "deferred expression produced invalid control flow",
-                )
-                .with_span(call_span));
+            if let Err(error) = self.eval_indexed_deferred_expr(execution, value, slots, call_span) {
+                if error.abort.as_ref().is_some_and(|signal| signal.force) {
+                    self.pending_traceback = primary_traceback;
+                    return Err(error);
+                }
+                if first_error.is_none() {
+                    first_error = Some(error);
+                    first_traceback = self.pending_traceback.take();
+                } else {
+                    self.report_cleanup_error(&error, call_span);
+                    self.pending_traceback = None;
+                }
             }
         }
-        Ok(())
+        self.pending_traceback = primary_traceback.or(first_traceback);
+        first_error.map_or(Ok(()), Err)
     }
 
     fn eval_indexed_statement_block(
